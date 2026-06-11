@@ -39,6 +39,28 @@
     "genericSubTitle": "Terjadi kesalahan tak terduga saat merender halaman ini.",
     "reload": "Muat ulang"
   },
+  "home": {
+    "title": "Hello",
+    "subtitle": "What would you like to do today?",
+    "cards": {
+      "chat": {
+        "title": "Start Chatting",
+        "desc": "Talk with your AI agent in real time"
+      },
+      "skills": {
+        "title": "Skills",
+        "desc": "Add and manage agent capabilities"
+      },
+      "mcp": {
+        "title": "MCP",
+        "desc": "Connect tools via Model Context Protocol"
+      },
+      "settings": {
+        "title": "Agents",
+        "desc": "Manage agents and their configuration"
+      }
+    }
+  },
   "nav": {
     "chat": "Chat",
     "control": "Kontrol",

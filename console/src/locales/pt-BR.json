@@ -39,6 +39,28 @@
     "genericSubTitle": "An unexpected error occurred while rendering this page.",
     "reload": "Recarregar"
   },
+  "home": {
+    "title": "Ola",
+    "subtitle": "O que voce quer fazer hoje?",
+    "cards": {
+      "chat": {
+        "title": "Iniciar conversa",
+        "desc": "Converse com seu agente de IA em tempo real"
+      },
+      "skills": {
+        "title": "Habilidades",
+        "desc": "Adicione e gerencie capacidades do agente"
+      },
+      "mcp": {
+        "title": "MCP",
+        "desc": "Conecte ferramentas via Model Context Protocol"
+      },
+      "settings": {
+        "title": "Agentes",
+        "desc": "Gerencie agentes e suas configuracoes"
+      }
+    }
+  },
   "nav": {
     "chat": "Chat",
     "control": "Controle",

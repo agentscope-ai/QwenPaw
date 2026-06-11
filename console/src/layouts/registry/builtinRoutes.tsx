@@ -24,6 +24,7 @@ import type { Route } from "../../plugins/registry/types";
 // Eager pages
 import Chat from "../../pages/Chat";
 import CodingPage from "../../pages/Coding";
+import HomePage from "../../pages/Home";
 
 // Lazy pages
 const ChannelsPage = lazyImportWithRetry("../../pages/Control/Channels");
@@ -81,6 +82,7 @@ function ACPRedirect() {
 
 export const BUILTIN_ROUTES: Route[] = [
   { id: "core.root", path: "/", component: DefaultRedirect },
+  { id: "core.home", path: "/home", component: HomePage },
   { id: "core.chat", path: "/chat/*", component: Chat },
   { id: "core.coding", path: "/coding", component: CodingPage },
   { id: "core.channels", path: "/channels", component: ChannelsPage },

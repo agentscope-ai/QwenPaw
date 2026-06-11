@@ -7,6 +7,7 @@
   --bg-4:      #c9cdd4;
   --bg-hover:  #f3f4f6;
   --bg-active: #e5e6eb;
+  --bg-input:  #ffffff;
   --text-primary:   #000000;
   --text-secondary: #454d5f;
   --text-muted:     #86909c;
@@ -22,6 +23,7 @@ html.dark-mode {
   --bg-3:      #333333;
   --bg-hover:  #1f1f1f;
   --bg-active: #2d2d2d;
+  --bg-input:  #2a2a2a;
   --text-primary:   #ffffff;
   --text-secondary: #ced3da;
   --text-muted:     #929292;
@@ -112,14 +114,14 @@ html.dark-mode .ant-typography {
 /* Card components — @agentscope-ai/design uses qwenpaw prefix */
 html.dark-mode .qwenpaw-card,
 html.dark-mode .ant-card {
-  background: #1f1f1f !important;
+  background: var(--bg-hover) !important;
   border-color: var(--border-base) !important;
   color: var(--text-primary) !important;
 }
 
 html.dark-mode .qwenpaw-card-head,
 html.dark-mode .ant-card-head {
-  background: #1f1f1f !important;
+  background: var(--bg-hover) !important;
   border-bottom-color: var(--border-base) !important;
   color: var(--text-primary) !important;
 }
@@ -142,19 +144,19 @@ html.dark-mode .qwenpaw-spark-info {
 
 html.dark-mode .qwenpaw-card-body,
 html.dark-mode .ant-card-body {
-  background: #1f1f1f !important;
+  background: var(--bg-hover) !important;
 }
 
 /* Table components */
 html.dark-mode .qwenpaw-table,
 html.dark-mode .ant-table {
-  background: #1f1f1f !important;
+  background: var(--bg-hover) !important;
   color: rgba(255, 255, 255, 0.85) !important;
 }
 
 html.dark-mode .qwenpaw-table-wrapper,
 html.dark-mode .ant-table-wrapper {
-  background: #1f1f1f !important;
+  background: var(--bg-hover) !important;
 }
 
 html.dark-mode .qwenpaw-table-thead > tr > th,
@@ -185,7 +187,7 @@ html.dark-mode
   .ant-table-thead
   > tr
   > td {
-  background: #262626 !important;
+  background: var(--bg-2) !important;
   color: rgba(255, 255, 255, 0.65) !important;
   border-bottom-color: rgba(255, 255, 255, 0.08) !important;
 }
@@ -193,14 +195,14 @@ html.dark-mode
 /* Sticky thead background (scroll.y tables) */
 html.dark-mode .qwenpaw-table-sticky-holder,
 html.dark-mode .ant-table-sticky-holder {
-  background: #262626 !important;
+  background: var(--bg-2) !important;
 }
 
 html.dark-mode .qwenpaw-table-sticky-holder .qwenpaw-table-thead > tr > th,
 html.dark-mode .ant-table-sticky-holder .ant-table-thead > tr > th,
 html.dark-mode .qwenpaw-table-sticky-holder .qwenpaw-table-thead > tr > td,
 html.dark-mode .ant-table-sticky-holder .ant-table-thead > tr > td {
-  background: #262626 !important;
+  background: var(--bg-2) !important;
 }
 
 /* Fix left/right sticky columns in thead */
@@ -208,19 +210,19 @@ html.dark-mode .qwenpaw-table-thead > tr > th.qwenpaw-table-cell-fix-left,
 html.dark-mode .ant-table-thead > tr > th.ant-table-cell-fix-left,
 html.dark-mode .qwenpaw-table-thead > tr > th.qwenpaw-table-cell-fix-right,
 html.dark-mode .ant-table-thead > tr > th.ant-table-cell-fix-right {
-  background: #262626 !important;
+  background: var(--bg-2) !important;
 }
 
 html.dark-mode .qwenpaw-table-tbody > tr > td,
 html.dark-mode .ant-table-tbody > tr > td {
-  background: #1f1f1f !important;
+  background: var(--bg-hover) !important;
   color: rgba(255, 255, 255, 0.85) !important;
   border-bottom-color: rgba(255, 255, 255, 0.06) !important;
 }
 
 html.dark-mode .qwenpaw-table-tbody > tr:hover > td,
 html.dark-mode .ant-table-tbody > tr:hover > td {
-  background: #2a2a2a !important;
+  background: var(--bg-input) !important;
 }
 
 html.dark-mode .qwenpaw-table-tbody > tr.qwenpaw-table-row-selected > td,
@@ -231,7 +233,7 @@ html.dark-mode .ant-table-tbody > tr.ant-table-row-selected > td {
 /* Table fixed columns shadow in dark mode */
 html.dark-mode .qwenpaw-table-cell-fix-right,
 html.dark-mode .ant-table-cell-fix-right {
-  background: #1f1f1f !important;
+  background: var(--bg-hover) !important;
 }
 
 html.dark-mode .qwenpaw-table-cell-fix-right-first::after,
@@ -242,7 +244,7 @@ html.dark-mode .ant-table-cell-fix-right-first::after {
 /* Table pagination */
 html.dark-mode .qwenpaw-pagination .qwenpaw-pagination-item,
 html.dark-mode .ant-pagination .ant-pagination-item {
-  background: #1f1f1f !important;
+  background: var(--bg-hover) !important;
   border-color: rgba(255, 255, 255, 0.1) !important;
 }
 
@@ -266,7 +268,7 @@ html.dark-mode .qwenpaw-pagination .qwenpaw-pagination-prev button,
 html.dark-mode .qwenpaw-pagination .qwenpaw-pagination-next button,
 html.dark-mode .ant-pagination .ant-pagination-prev button,
 html.dark-mode .ant-pagination .ant-pagination-next button {
-  background: #1f1f1f !important;
+  background: var(--bg-hover) !important;
   border-color: rgba(255, 255, 255, 0.1) !important;
   color: rgba(255, 255, 255, 0.65) !important;
 }
@@ -287,7 +289,7 @@ html.dark-mode .ant-table-column-sorter-down.active {
 /* Checkbox in table */
 html.dark-mode .qwenpaw-checkbox-inner,
 html.dark-mode .ant-checkbox-inner {
-  background: #2a2a2a !important;
+  background: var(--bg-input) !important;
   border-color: rgba(255, 255, 255, 0.2) !important;
 }
 
@@ -307,7 +309,7 @@ html.dark-mode h3 {
 /* Input / Textarea */
 html.dark-mode .qwenpaw-input,
 html.dark-mode .ant-input {
-  background: #2a2a2a !important;
+  background: var(--bg-input) !important;
   border-color: rgba(255, 255, 255, 0.15) !important;
   color: rgba(255, 255, 255, 0.85) !important;
 }
@@ -340,14 +342,14 @@ html.dark-mode .ant-input::placeholder {
 
 html.dark-mode .qwenpaw-input-affix-wrapper,
 html.dark-mode .ant-input-affix-wrapper {
-  background: #2a2a2a !important;
+  background: var(--bg-input) !important;
   border-color: rgba(255, 255, 255, 0.15) !important;
 }
 
 /* Select */
 html.dark-mode .qwenpaw-select-selector,
 html.dark-mode .ant-select-selector {
-  background: #2a2a2a !important;
+  background: var(--bg-input) !important;
   border-color: rgba(255, 255, 255, 0.15) !important;
   color: rgba(255, 255, 255, 0.85) !important;
 }
@@ -365,7 +367,7 @@ html.dark-mode .ant-select-arrow {
 /* Select dropdown */
 html.dark-mode .qwenpaw-select-dropdown,
 html.dark-mode .ant-select-dropdown {
-  background: #1f1f1f !important;
+  background: var(--bg-hover) !important;
   border-color: rgba(255, 255, 255, 0.1) !important;
 }
 
@@ -404,20 +406,20 @@ html.dark-mode .ant-form-item-required::before {
 /* InputNumber */
 html.dark-mode .qwenpaw-input-number,
 html.dark-mode .ant-input-number {
-  background: #2a2a2a !important;
+  background: var(--bg-input) !important;
   border-color: rgba(255, 255, 255, 0.15) !important;
   color: rgba(255, 255, 255, 0.85) !important;
 }
 
 html.dark-mode .qwenpaw-input-number-input,
 html.dark-mode .ant-input-number-input {
-  background: #2a2a2a !important;
+  background: var(--bg-input) !important;
   color: rgba(255, 255, 255, 0.85) !important;
 }
 
 html.dark-mode .qwenpaw-input-number-handler-wrap,
 html.dark-mode .ant-input-number-handler-wrap {
-  background: #2a2a2a !important;
+  background: var(--bg-input) !important;
   border-color: rgba(255, 255, 255, 0.1) !important;
 }
 
@@ -430,7 +432,7 @@ html.dark-mode .ant-input-number-handler {
 /* TimePicker */
 html.dark-mode .qwenpaw-picker,
 html.dark-mode .ant-picker {
-  background: #2a2a2a !important;
+  background: var(--bg-input) !important;
   border-color: rgba(255, 255, 255, 0.15) !important;
   color: rgba(255, 255, 255, 0.85) !important;
 }
@@ -447,12 +449,12 @@ html.dark-mode .ant-picker-suffix {
 
 html.dark-mode .qwenpaw-picker-dropdown,
 html.dark-mode .ant-picker-dropdown {
-  background: #1f1f1f !important;
+  background: var(--bg-hover) !important;
 }
 
 html.dark-mode .qwenpaw-picker-panel,
 html.dark-mode .ant-picker-panel {
-  background: #1f1f1f !important;
+  background: var(--bg-hover) !important;
   border-color: rgba(255, 255, 255, 0.1) !important;
 }
 
@@ -479,7 +481,7 @@ html.dark-mode .ant-picker-dropdown {
 
 html.dark-mode .qwenpaw-picker-panel-container,
 html.dark-mode .ant-picker-panel-container {
-  background: #1f1f1f !important;
+  background: var(--bg-hover) !important;
   border: 1px solid rgba(255, 255, 255, 0.1) !important;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5) !important;
 }
@@ -581,7 +583,7 @@ html.dark-mode .ant-picker-cell-in-view.ant-picker-cell-range-hover-end::after {
 html.dark-mode .qwenpaw-picker-footer,
 html.dark-mode .ant-picker-footer {
   border-top-color: rgba(255, 255, 255, 0.08) !important;
-  background: #1f1f1f !important;
+  background: var(--bg-hover) !important;
 }
 
 html.dark-mode .qwenpaw-picker-today-btn,
@@ -598,7 +600,7 @@ html.dark-mode .ant-picker-panel + .ant-picker-panel {
 /* Modal */
 html.dark-mode .qwenpaw-modal-content,
 html.dark-mode .ant-modal-content {
-  background: #1f1f1f !important;
+  background: var(--bg-hover) !important;
   color: rgba(255, 255, 255, 0.85) !important;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5) !important;
   border: 1px solid rgba(255, 255, 255, 0.1) !important;
@@ -606,7 +608,7 @@ html.dark-mode .ant-modal-content {
 
 html.dark-mode .qwenpaw-modal-header,
 html.dark-mode .ant-modal-header {
-  background: #1f1f1f !important;
+  background: var(--bg-hover) !important;
   border-bottom-color: rgba(255, 255, 255, 0.08) !important;
 }
 
@@ -628,13 +630,13 @@ html.dark-mode .ant-modal-close:hover {
 
 html.dark-mode .qwenpaw-modal-body,
 html.dark-mode .ant-modal-body {
-  background: #1f1f1f !important;
+  background: var(--bg-hover) !important;
   color: rgba(255, 255, 255, 0.85) !important;
 }
 
 html.dark-mode .qwenpaw-modal-footer,
 html.dark-mode .ant-modal-footer {
-  background: #1f1f1f !important;
+  background: var(--bg-hover) !important;
   border-top-color: rgba(255, 255, 255, 0.08) !important;
 }
 
@@ -683,12 +685,12 @@ html.dark-mode .ant-modal-body .ant-form-item-extra {
 /* Drawer */
 html.dark-mode .qwenpaw-drawer-content,
 html.dark-mode .ant-drawer-content {
-  background: #1f1f1f !important;
+  background: var(--bg-hover) !important;
 }
 
 html.dark-mode .qwenpaw-drawer-header,
 html.dark-mode .ant-drawer-header {
-  background: #1f1f1f !important;
+  background: var(--bg-hover) !important;
   border-bottom-color: rgba(255, 255, 255, 0.08) !important;
 }
 
@@ -709,13 +711,13 @@ html.dark-mode .ant-drawer-close:hover {
 
 html.dark-mode .qwenpaw-drawer-body,
 html.dark-mode .ant-drawer-body {
-  background: #1f1f1f !important;
+  background: var(--bg-hover) !important;
   color: rgba(255, 255, 255, 0.85) !important;
 }
 
 html.dark-mode .qwenpaw-drawer-footer,
 html.dark-mode .ant-drawer-footer {
-  background: #1f1f1f !important;
+  background: var(--bg-hover) !important;
   border-top-color: rgba(255, 255, 255, 0.08) !important;
 }
 
@@ -760,25 +762,25 @@ html.dark-mode .ant-form-item-label > label .ant-form-item-tooltip {
 html.dark-mode .qwenpaw-slider-handle::after,
 html.dark-mode .ant-slider-handle::after {
   box-shadow: 0 0 0 2px #ff7f16 !important;
-  background-color: #1f1f1f !important;
+  background-color: var(--bg-hover) !important;
 }
 
 html.dark-mode .qwenpaw-slider-dot,
 html.dark-mode .ant-slider-dot {
   border-color: rgba(255, 255, 255, 0.15) !important;
-  background-color: #2a2a2a !important;
+  background-color: var(--bg-input) !important;
 }
 
 /* Tooltip popup (slider value) */
 html.dark-mode .qwenpaw-tooltip-inner,
 html.dark-mode .ant-tooltip-inner {
-  background-color: #2a2a2a !important;
+  background-color: var(--bg-input) !important;
   color: rgba(255, 255, 255, 0.85) !important;
 }
 
 html.dark-mode .qwenpaw-tooltip-arrow::before,
 html.dark-mode .ant-tooltip-arrow::before {
-  background: #2a2a2a !important;
+  background: var(--bg-input) !important;
 }
 
 /* Tooltip global override — force opaque background in light mode */
@@ -806,7 +808,7 @@ html.dark-mode [class*="chatDisabledOverlay"] :global(input[type="text"]) {
 /* Sender area dark mode */
 html.dark-mode [class*="qwenpaw-sender-content"],
 html.dark-mode [class*="sender-content"] {
-  background: #2a2a2a !important;
+  background: var(--bg-input) !important;
 }
 
 /* Chat page bottom input area container */
@@ -881,11 +883,11 @@ html.dark-mode [class*="chat-anywhere"] [class*="message"] a {
 /* Tool card content blocks — dark mode text and background overrides.
    These elements use div/pre which are not covered by the span/p/li rules above. */
 html.dark-mode [class*="chat-anywhere"] [class*="defaultBlock"] {
-  background: #2a2a2a !important;
+  background: var(--bg-input) !important;
   border-color: rgba(255, 255, 255, 0.1) !important;
 }
 html.dark-mode [class*="chat-anywhere"] [class*="defaultBlockHeader"] {
-  background: #333 !important;
+  background: var(--bg-3) !important;
   border-bottom-color: rgba(255, 255, 255, 0.08) !important;
 }
 html.dark-mode [class*="chat-anywhere"] [class*="defaultBlockTitle"],
@@ -896,7 +898,7 @@ html.dark-mode [class*="chat-anywhere"] [class*="toolCallDiff"] {
   color: rgba(255, 255, 255, 0.85) !important;
 }
 html.dark-mode [class*="chat-anywhere"] [class*="toolCallResultMd"] {
-  background: #2a2a2a !important;
+  background: var(--bg-input) !important;
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3) !important;
 }
 
@@ -1006,7 +1008,7 @@ html.dark-mode .qwenpaw-chat-anywhere-welcome-default {
 /* Chat input area in dark mode */
 html.dark-mode .qwenpaw-sender,
 html.dark-mode .qwenpaw-sender-content {
-  background: #2a2a2a !important;
+  background: var(--bg-input) !important;
   border-color: rgba(255, 255, 255, 0.15) !important;
 }
 

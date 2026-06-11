@@ -1,0 +1,196 @@
+@import "../../styles/aionui-tokens.less";
+
+// ─── Home / Welcome page ─────────────────────────────────────────────────────
+// AionUi spec: centered layout, avatar 64px, title @text-primary 28px weight 600,
+// subtitle @text-secondary 14px, suggestion cards border @border-base, hover @bg-hover,
+// icon @brand (periwinkle).
+
+.page {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  padding-top: 13vh;
+  overflow-y: auto;
+  background: transparent;
+}
+
+// ─── Hero section ─────────────────────────────────────────────────────────────
+.hero {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 40px;
+}
+
+.avatar {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  background: @aou-1;
+  border: 2px solid @border-base;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  flex-shrink: 0;
+
+  img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+  }
+}
+
+.avatarIcon {
+  font-size: 32px;
+  color: @brand;
+}
+
+.title {
+  font-size: 28px;
+  font-weight: 600;
+  line-height: 1.3;
+  color: @text-primary;
+  margin: 0;
+  text-align: center;
+}
+
+.subtitle {
+  font-size: 14px;
+  line-height: 1.5;
+  color: @text-secondary;
+  margin: 0;
+  text-align: center;
+  max-width: 460px;
+}
+
+// ─── Suggestion cards ─────────────────────────────────────────────────────────
+.cards {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+  width: 100%;
+  max-width: 640px;
+  padding: 0 16px 40px;
+}
+
+.card {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 14px 16px;
+  background: @bg-base;
+  border: 1px solid @border-base;
+  border-radius: @card-radius;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+  text-align: left;
+  width: 100%;
+
+  &:hover {
+    background: @bg-hover;
+    border-color: @aou-4;
+  }
+
+  &:focus-visible {
+    outline: 2px solid @brand;
+    outline-offset: 2px;
+  }
+}
+
+.cardIcon {
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  background: @aou-1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: @brand;
+  font-size: 16px;
+}
+
+.cardContent {
+  flex: 1;
+  min-width: 0;
+}
+
+.cardTitle {
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.4;
+  color: @text-primary;
+  margin: 0 0 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cardDesc {
+  font-size: 12px;
+  line-height: 1.5;
+  color: @text-muted;
+  margin: 0;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+
+// ─── Responsive ───────────────────────────────────────────────────────────────
+@media (max-width: 600px) {
+  .cards {
+    grid-template-columns: 1fr;
+  }
+
+  .page {
+    padding-top: 8vh;
+  }
+}
+
+// ─── Dark mode ────────────────────────────────────────────────────────────────
+:global(.dark-mode) {
+  .avatar {
+    background: @brand-light-dark;
+    border-color: @border-base-dark;
+  }
+
+  .avatarIcon {
+    color: @brand-dark;
+  }
+
+  .title {
+    color: @text-primary-dark;
+  }
+
+  .subtitle {
+    color: @text-secondary-dark;
+  }
+
+  .card {
+    background: @bg-2-dark;
+    border-color: @border-base-dark;
+
+    &:hover {
+      background: @bg-hover-dark;
+      border-color: @border-special-dark;
+    }
+  }
+
+  .cardIcon {
+    background: @brand-light-dark;
+    color: @brand-dark;
+  }
+
+  .cardTitle {
+    color: @text-primary-dark;
+  }
+
+  .cardDesc {
+    color: @text-muted-dark;
+  }
+}

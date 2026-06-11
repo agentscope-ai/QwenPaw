@@ -39,6 +39,28 @@
     "genericSubTitle": "渲染此页面时发生了意外错误。",
     "reload": "刷新页面"
   },
+  "home": {
+    "title": "你好",
+    "subtitle": "今天想做什么？",
+    "cards": {
+      "chat": {
+        "title": "开始聊天",
+        "desc": "与 AI 助手实时对话"
+      },
+      "skills": {
+        "title": "技能",
+        "desc": "添加和管理 Agent 能力"
+      },
+      "mcp": {
+        "title": "MCP",
+        "desc": "通过 Model Context Protocol 连接工具"
+      },
+      "settings": {
+        "title": "智能体",
+        "desc": "管理智能体及其配置"
+      }
+    }
+  },
   "nav": {
     "chat": "聊天",
     "control": "控制",
