@@ -1,23 +1,38 @@
-# Beta Release 安装验证值班名单
+# Beta Release Installation Duty Roster
 #
-# 每次 beta release 发布时，Action 根据 tag hash 从下面的列表中轮转分配值班人。
-# 如需临时换班，在对应 GitHub Issue 里手动 re-assign 即可。
+# Each platform has its own independent rotation list.
+# The GitHub Action picks the next person sequentially by counting how many
+# pre-releases have been published so far (index = pre-release count % list length).
+# No state file needed — the count is derived from the GitHub API at runtime.
 #
-# 字段说明：
-#   github  - GitHub 用户名（用于 @assign 和通知）
-#   name    - 显示名称（用于日志输出）
-#   platforms - 该成员负责验证的平台（可选，留空表示全平台）
-#               可选值：pypi / docker / macos / windows
+# Fields:
+#   github  - GitHub username (used for @assign and notifications)
+#   name    - Display name (used in issue body and logs)
 
-rotation:
-  - github: placeholder-member-1
-    name: Member 1
-    platforms: []  # 空列表 = 全平台
+pypi:
+  rotation:
+    - github: placeholder-pypi-1
+      name: Member A
+    - github: placeholder-pypi-2
+      name: Member B
 
-  - github: placeholder-member-2
-    name: Member 2
-    platforms: []
+docker:
+  rotation:
+    - github: placeholder-docker-1
+      name: Member C
+    - github: placeholder-docker-2
+      name: Member D
 
-  - github: placeholder-member-3
-    name: Member 3
-    platforms: []
+macos:
+  rotation:
+    - github: placeholder-macos-1
+      name: Member E
+    - github: placeholder-macos-2
+      name: Member F
+
+windows:
+  rotation:
+    - github: placeholder-windows-1
+      name: Member G
+    - github: placeholder-windows-2
+      name: Member H

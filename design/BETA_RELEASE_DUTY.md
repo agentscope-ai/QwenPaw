@@ -1,187 +1,246 @@
-# Beta Release 安装验证值班制度
+# Beta Release Installation Duty
 
-## 背景与目标
+## Background & Goal
 
-QwenPaw 在 GitHub 上以 Release 形式对外发布，包括正式版和 beta 版。
-Beta 版是用户最先接触到的版本，安装体验直接影响用户印象。
+QwenPaw is released on GitHub, including stable and beta versions.
+Beta releases are the first versions users encounter; a broken install
+experience immediately hurts perception.
 
-**目标：** 每次发布 beta 版本时，由值班同学覆盖所有主流安装方式，确保用户
-能完成"安装 → 启动 → 配置模型 → 基础对话"这条最短路径。
-
----
-
-## 验收标准（Pass/Fail）
-
-对于每个平台，必须同时满足以下 4 个检查点，才算通过：
-
-| 检查点 | 具体动作 |
-|--------|----------|
-| 安装   | 按文档步骤安装，无报错退出 |
-| 启动   | 服务/应用正常启动，界面可访问 |
-| 配置模型 | 在 UI 中填入 API Key 并选择模型，配置保存成功 |
-| 基础对话 | 发送一条消息，收到正常回复（非报错） |
-
-**任意一项失败 → 该平台标记为 FAIL → 立刻在 Issue 中 @maintainer 阻断。**
+**Goal:** For every beta / pre-release, one designated person per
+installation method verifies that users can complete the critical path:
+**install → launch → configure a model → basic chat.**
 
 ---
 
-## 覆盖平台
+## Pass Criteria
 
-| 平台 | 安装方式 | 验证环境要求 |
-|------|----------|-------------|
-| **PyPI** | `pip install qwenpaw==<version>` | Python 3.10+，干净 venv |
+A platform **passes** only when all four checkpoints succeed:
+
+| Checkpoint | What to verify |
+|------------|---------------|
+| Install | Follow docs, exits without error |
+| Launch | Service / app opens, UI is reachable |
+| Configure model | Enter API key, select model, save succeeds |
+| Basic chat | Send a message, receive a non-error reply |
+
+**Any checkpoint fails → comment with repro steps → label `installation-bug`
+→ ping maintainer → maintainer decides whether to block the release.**
+
+---
+
+## Platform Matrix
+
+| Platform | Install method | Environment requirement |
+|----------|---------------|------------------------|
+| **PyPI** | `pip install qwenpaw==<version>` | Python 3.10+, clean venv |
 | **Docker** | `docker run agentscope/qwenpaw:<version>` | Docker Desktop / Linux daemon |
-| **macOS Desktop** | GitHub Release 下载 `.zip`，解压运行 | macOS 13+（Apple Silicon / Intel 均可） |
-| **Windows Desktop** | GitHub Release 下载 `.exe`，安装运行 | Windows 10/11 64-bit |
+| **macOS Desktop** | Download `.zip` from GitHub Release | macOS 13+, Apple Silicon or Intel |
+| **Windows Desktop** | Download `.exe` from GitHub Release | Windows 10/11 64-bit |
 
 ---
 
-## 协作机制：GitHub Issue 值班制
+## Collaboration Mechanism: GitHub Issue Duty
 
-### 整体流程
+### Overall Flow
 
 ```
-Beta Release 发布
-       │
-       ▼
-GitHub Actions (beta-release-duty.yml)
-  自动创建 Duty Issue
-  - 标题：[Release Duty] QwenPaw <version> Beta 安装验证
-  - 内容：各平台 checklist
-  - 标签：release-duty / beta
-  - 按 roster 自动分配当日值班人
-       │
-       ▼
-值班人收到 GitHub 通知
-  逐一验证各平台，勾选 checklist
-       │
-    ┌──┴──┐
-   PASS  FAIL
-    │       │
-    ▼       ▼
-关闭 Issue  评论详情 + @maintainer
-            阻断发布公告
+Beta pre-release published on GitHub
+            │
+            ▼
+GitHub Actions  (beta-release-duty.yml)
+  Counts previous pre-releases → computes sequential rotation index
+  Picks one assignee per platform from the per-platform roster
+  Creates a Duty Issue via GitHub API:
+    - Title:   [Release Duty] QwenPaw <tag> — Installation Verification
+    - Label:   release-duty
+    - Assigns: all platform assignees
+    - Body:    per-platform checklist + install commands + deadline
+            │
+            ▼
+Each assignee receives a GitHub notification
+  Verifies their platform, ticks checklist items
+            │
+      ┌─────┴─────┐
+    PASS         FAIL
+      │             │
+      ▼             ▼
+  Close issue   Comment repro + logs
+  Label: verified   Label: installation-bug
+                    @maintainer decides
 ```
 
-### Issue 生命周期
+### Issue Lifecycle
 
-- **创建**：Release Action 触发后 5 分钟内自动创建
-- **截止时间**：Release 发布后 **4 小时** 内完成（写在 Issue 标题/body 里）
-- **关闭条件**：4 个平台全部 PASS，值班人手动关闭并打 `verified` 标签
-- **失败处理**：评论说明复现步骤，打 `installation-bug` 标签，@maintainer 决策
+- **Created:** within 5 minutes of the Release being published
+- **Deadline:** 4 hours after the release is published (shown in the issue)
+- **Close condition:** all four platforms PASS → maintainer or assignee
+  closes the issue and adds the `verified` label
+- **Failure handling:** add `installation-bug`, comment repro steps,
+  @maintainer to decide on blocking the release announcement
 
 ---
 
-## 值班名单
+## Rotation Design
 
-配置文件：`.github/beta-duty-roster.yml`
+### Roster file: `.github/beta-duty-roster.yml`
+
+Each platform has its own independent rotation list.
 
 ```yaml
-# 按顺序轮转，每次 beta release 用下一个
-rotation:
-  - github: alice
-    name: Alice
-  - github: bob
-    name: Bob
-  - github: charlie
-    name: Charlie
+pypi:
+  rotation:
+    - github: alice
+      name: Alice
+    - github: bob
+      name: Bob
+
+docker:
+  rotation:
+    - github: charlie
+      name: Charlie
+    - github: dave
+      name: Dave
+
+macos:
+  rotation:
+    - github: eve
+      name: Eve
+    - github: frank
+      name: Frank
+
+windows:
+  rotation:
+    - github: grace
+      name: Grace
+    - github: henry
+      name: Henry
 ```
 
-GitHub Actions 根据 release 编号对名单取模，自动 assign 到当前值班人。
-如需临时换班，直接在 Issue 里手动 re-assign 即可。
+### Sequential rotation (stateless)
+
+The GitHub Action computes the rotation index at runtime without storing
+any state file:
+
+```
+index = (number of pre-releases published BEFORE this one) % len(rotation)
+```
+
+This means each new pre-release automatically advances every platform's
+rotation by one slot, in the order the releases were published.
+
+**Example:** If there have been 3 previous pre-releases and Alice / Bob / Charlie
+are in the PyPI rotation, the 4th pre-release assigns Charlie (index 3 % 3 = 0 → wait, 3 pre-releases means index = 3, 3 % 3 = 0 = Alice again, then Bob for the 4th, etc.).
+
+If a temporary swap is needed, just manually re-assign in the GitHub Issue —
+the next release will still follow the roster.
 
 ---
 
-## 文件清单
+## Required GitHub Setup
+
+### Labels to create
+
+Go to **Issues → Labels** and create:
+
+| Label name | Suggested color | Purpose |
+|------------|----------------|---------|
+| `release-duty` | `#0075ca` | Marks duty tracking issues |
+| `installation-bug` | `#d93f0b` | Marks issues found during duty |
+| `verified` | `#0e8a16` | Marks issues where all platforms passed |
+
+### Actions permissions
+
+Go to **Settings → Actions → General → Workflow permissions**
+and select **"Read and write permissions"** so the Action can create issues.
+
+---
+
+## File Inventory
 
 ```
 .github/
-├── beta-duty-roster.yml              # 值班名单（轮转配置）
+├── beta-duty-roster.yml              # Per-platform rotation roster
 ├── ISSUE_TEMPLATE/
-│   └── 6-beta_release_duty.md       # 手动创建时用的模板（备用）
+│   └── 6-beta_release_duty.md       # Manual fallback template
 └── workflows/
-    └── beta-release-duty.yml        # 自动创建 Duty Issue 的 Action
+    └── beta-release-duty.yml        # Action: auto-create Duty Issue on pre-release
+design/
+└── BETA_RELEASE_DUTY.md             # This design document
 ```
 
 ---
 
-## GitHub Actions 设计
+## On-Call Handbook
 
-**触发条件：**
-- `release.published` + (`prerelease == true` 或 tag 含 `beta`/`alpha`/`rc`)
+### 1. Receive notification
 
-**权限需求：**
-- `issues: write`（创建并 assign issue）
-- `contents: read`（读 roster 文件）
+GitHub will notify you by email / notification center when you are assigned
+to a Duty Issue. Issue URL format:
+`https://github.com/agentscope-ai/CoPaw/issues/XXXX`
 
-**步骤：**
-1. 读取 `.github/beta-duty-roster.yml`，计算当前值班人
-2. 用 `actions/github-script` 调用 GitHub API 创建 Issue
-3. Issue body 包含版本号、安装命令、4 个平台 checklist、截止时间
-
----
-
-## 值班人操作手册
-
-### 1. 收到通知
-
-GitHub 会通过邮件/通知中心提醒你被 assign 了一个 Issue。
-Issue 链接格式：`https://github.com/agentscope-ai/CoPaw/issues/xxxx`
-
-### 2. 验证 PyPI
+### 2. Verify PyPI
 
 ```bash
-# 用干净的虚拟环境
-python -m venv /tmp/qwenpaw-test && source /tmp/qwenpaw-test/bin/activate
-pip install qwenpaw==<VERSION>
+python -m venv /tmp/qwenpaw-test
+source /tmp/qwenpaw-test/bin/activate   # Windows: .\Scripts\activate
+pip install qwenpaw==VERSION
 qwenpaw
-# 浏览器打开 http://localhost:xxxx，配置模型，发条消息
+# Open http://localhost:<PORT> in browser, configure model, send a message
 ```
 
-### 3. 验证 Docker
+### 3. Verify Docker
 
 ```bash
-docker run --rm -p 7860:7860 agentscope/qwenpaw:<VERSION>
-# 浏览器打开 http://localhost:7860，配置模型，发条消息
+docker run --rm -p 7860:7860 agentscope/qwenpaw:VERSION
+# Open http://localhost:7860, configure model, send a message
 ```
 
-### 4. 验证 macOS Desktop
+### 4. Verify macOS Desktop
 
-1. 前往 GitHub Release 页面，下载 `QwenPaw-<VERSION>-macOS.zip`
-2. 解压，双击 `QwenPaw.app`
-3. 配置模型，发条消息
+1. Go to the GitHub Release page, download `QwenPaw-VERSION-macOS.zip`
+2. Unzip, drag `QwenPaw.app` to Applications
+3. Open the app, configure a model, send a message
 
-### 5. 验证 Windows Desktop
+### 5. Verify Windows Desktop
 
-1. 前往 GitHub Release 页面，下载 `QwenPaw-Setup-<VERSION>.exe`
-2. 双击安装，完成后启动
-3. 配置模型，发条消息
+1. Go to the GitHub Release page, download `QwenPaw-Setup-VERSION.exe`
+2. Run the installer, follow the wizard
+3. Launch QwenPaw, configure a model, send a message
 
-### 6. 填写结果
+### 6. Record result
 
-在 Issue 的 checklist 中勾选已通过项。
-如有失败，回复评论（附截图/日志），打标签 `installation-bug`，@maintainer。
+Tick checkboxes in the Issue. If a platform fails, reply with:
+- Exact steps to reproduce
+- Relevant logs or screenshots
+- Your OS / env info
 
-### 7. 通过后关闭
+Then add label `installation-bug` and @mention the maintainer.
 
-所有平台 PASS → 在评论中填写实际环境信息 → 关闭 Issue 并打 `verified` 标签。
+### 7. Close on success
+
+All platforms PASS → leave a comment with environment details → close the
+issue → add label `verified`.
 
 ---
 
 ## FAQ
 
-**Q: 我没有 Windows 机器怎么办？**
-A: 在值班表里标注你缺少的平台，roster 配置时可以指定每个人负责的平台子集。
-当前简单实现是全平台轮转，后续可按平台分组。
+**Q: I don't have a Windows machine — what do I do?**
+A: Note it in the roster file (`platforms: [pypi, docker, macos]`).
+The current implementation assigns one person per platform independently,
+so you only need to cover your listed platforms.
 
-**Q: Docker 镜像还没推上去怎么办？**
-A: Docker Release Action 和 PyPI Action 并行，一般 30 分钟内完成。
-如果超时，在 Issue 评论说明等待状态，不要强行关闭。
+**Q: The Docker image isn't pushed yet when I check.**
+A: The Docker release Action runs in parallel with PyPI and takes up to
+~30 min. Comment in the issue that you are waiting, and check back. Do not
+close or FAIL before the image is available.
 
-**Q: 发现问题要等修复好才能关闭 Issue 吗？**
-A: 不，Issue 记录的是"验证结果"，不是修复跟踪。
-发现 FAIL → 记录详情 → 创建新 bug issue 关联 → 由 maintainer 决策是否推迟发布。
+**Q: Should I wait for a bug fix before closing the issue?**
+A: No. The Duty Issue records the verification *result*, not the fix status.
+If you find a FAIL, create a separate bug issue linked to the Duty Issue,
+and let the maintainer decide whether to block the release announcement.
 
-**Q: 正式版（non-prerelease）需要值班吗？**
-A: Action 只在 prerelease 触发，正式版通常从 beta 升级，风险较低。
-但如果团队认为有必要，可以修改 Action 的触发条件覆盖正式版。
+**Q: Do stable releases (non-pre-release) also need duty?**
+A: No. The Action only triggers on pre-releases (tags containing
+beta / alpha / rc, or GitHub's `prerelease` flag set to true). Stable
+releases are promoted from a tested beta, so the risk is lower.

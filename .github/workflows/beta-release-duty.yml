@@ -1,6 +1,7 @@
-# When a beta/pre-release is published on GitHub, automatically create a
-# Release Duty Issue and assign it to the current on-call person based on
-# the round-robin roster in .github/beta-duty-roster.yml.
+# Auto-create a Release Duty issue when a pre-release is published.
+# Each platform gets its own assignee from an independent rotation list.
+# Rotation is sequential: index = (number of previous pre-releases) % list length.
+# This is stateless — the count is derived from the GitHub Releases API at runtime.
 
 name: Beta Release Duty Issue
 
@@ -14,7 +15,7 @@ permissions:
 
 jobs:
   create-duty-issue:
-    # Only run for pre-releases or tags containing beta/alpha/rc
+    # Only run for pre-releases or tags containing beta / alpha / rc
     if: |
       github.event.release.prerelease == true ||
       contains(github.event.release.tag_name, 'beta') ||
@@ -31,39 +32,80 @@ jobs:
         with:
           python-version: "3.10"
 
-      - name: Install PyYAML
-        run: pip install pyyaml
+      - name: Install dependencies
+        run: pip install pyyaml requests
 
-      - name: Compute on-call assignee
-        id: roster
+      - name: Compute per-platform assignees
+        id: assignees
         env:
-          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          CURRENT_TAG: ${{ github.event.release.tag_name }}
         run: |
           python - << 'EOF'
           import os
+          import json
           import yaml
-          import hashlib
+          import requests
+
+          token = os.environ["GH_TOKEN"]
+          repo = os.environ["REPO"]
+          current_tag = os.environ["CURRENT_TAG"]
+
+          # Count how many pre-releases were published BEFORE this one.
+          # This gives us the sequential index for the rotation.
+          headers = {"Authorization": f"Bearer {token}"}
+          url = f"https://api.github.com/repos/{repo}/releases"
+          releases = []
+          page = 1
+          while True:
+              r = requests.get(
+                  url,
+                  headers=headers,
+                  params={"per_page": 100, "page": page},
+              )
+              r.raise_for_status()
+              batch = r.json()
+              if not batch:
+                  break
+              releases.extend(batch)
+              page += 1
+
+          pre_releases = [
+              rel for rel in releases
+              if rel["prerelease"] and rel["tag_name"] != current_tag
+          ]
+          idx = len(pre_releases)
+          print(f"Previous pre-release count: {idx}, rotation index: {idx}")
 
           roster_path = ".github/beta-duty-roster.yml"
           with open(roster_path) as f:
-              data = yaml.safe_load(f)
+              roster = yaml.safe_load(f)
 
-          rotation = data.get("rotation", [])
-          if not rotation:
-              print("No rotation entries found, skipping assignee")
-              with open(os.environ["GITHUB_OUTPUT"], "a") as out:
-                  out.write("assignee=\n")
-          else:
-              tag = os.environ.get("RELEASE_TAG", "")
-              # Use a hash of the tag to pick a consistent slot
-              idx = int(hashlib.md5(tag.encode()).hexdigest(), 16) % len(rotation)
-              assignee = rotation[idx]["github"]
-              print(f"Tag: {tag}, Slot: {idx}, Assignee: {assignee}")
-              with open(os.environ["GITHUB_OUTPUT"], "a") as out:
-                  out.write(f"assignee={assignee}\n")
+          result = {}
+          for platform in ("pypi", "docker", "macos", "windows"):
+              rotation = roster.get(platform, {}).get("rotation", [])
+              if rotation:
+                  slot = idx % len(rotation)
+                  entry = rotation[slot]
+                  result[platform] = {
+                      "github": entry["github"],
+                      "name": entry["name"],
+                  }
+                  print(
+                      f"{platform}: slot={slot}, "
+                      f"assignee={entry['github']}"
+                  )
+              else:
+                  result[platform] = {"github": "", "name": "TBD"}
+                  print(f"{platform}: no rotation configured")
+
+          out_path = os.environ["GITHUB_OUTPUT"]
+          with open(out_path, "a") as f:
+              f.write(f"assignees={json.dumps(result)}\n")
           EOF
 
-      - name: Compute due time (4h from now)
+      - name: Compute deadline (4h from now)
         id: due
         run: |
           due=$(date -u -d '+4 hours' '+%Y-%m-%d %H:%M UTC' 2>/dev/null || \
@@ -73,125 +115,139 @@ jobs:
       - name: Create Duty Issue
         uses: actions/github-script@v7
         env:
-          ASSIGNEE: ${{ steps.roster.outputs.assignee }}
+          ASSIGNEES_JSON: ${{ steps.assignees.outputs.assignees }}
           DUE_TIME: ${{ steps.due.outputs.due }}
         with:
           script: |
-            const tag     = context.payload.release.tag_name;
-            const version = tag.replace(/^v/, '');
+            const tag      = context.payload.release.tag_name;
+            const version  = tag.replace(/^v/, '');
             const releaseUrl = context.payload.release.html_url;
-            const assignee  = process.env.ASSIGNEE || '';
-            const dueTime   = process.env.DUE_TIME;
+            const dueTime  = process.env.DUE_TIME;
+            const assignees = JSON.parse(process.env.ASSIGNEES_JSON);
 
-            const body = `## 版本信息
+            const mention = (platform) => {
+              const gh = assignees[platform]?.github;
+              return gh ? `@${gh}` : '_TBD_';
+            };
 
-            - **Release 版本：** ${tag}
-            - **Release 链接：** ${releaseUrl}
-            - **值班截止时间：** ${dueTime}（Release 发布后 4 小时内完成）
+            const body = `## Release Info
 
-            ## 验收标准
+            - **Version:** ${tag}
+            - **Release page:** ${releaseUrl}
+            - **Deadline:** ${dueTime} (4 hours after publish)
 
-            每个平台需通过以下所有检查点：
-            - **安装**：按文档步骤安装，无报错退出
-            - **启动**：服务/应用正常启动，界面可访问
-            - **配置模型**：在 UI 中填入 API Key 并选择模型，配置保存成功
-            - **基础对话**：发送一条消息，收到正常回复（非报错）
+            ## Pass Criteria
+
+            A platform **passes** only when all four checkpoints are green:
+
+            | Checkpoint | What to verify |
+            |------------|---------------|
+            | Install | Follow docs, exits without error |
+            | Launch | Service / app opens, UI is reachable |
+            | Configure model | Enter API key, select model, save succeeds |
+            | Basic chat | Send a message, receive a non-error reply |
+
+            **Any checkpoint fails → comment with repro steps → label \`installation-bug\` → ping maintainer.**
 
             ---
 
-            ## PyPI
+            ## PyPI — ${mention('pypi')}
 
-            **安装命令：**
             \`\`\`bash
             python -m venv /tmp/qwenpaw-test && source /tmp/qwenpaw-test/bin/activate
             pip install qwenpaw==${version}
             qwenpaw
             \`\`\`
 
-            - [ ] 安装成功（\`pip install\` 无错误）
-            - [ ] 启动成功（\`qwenpaw\` 命令正常启动，浏览器可访问）
-            - [ ] 配置模型成功（填入 API Key，选择模型，保存无报错）
-            - [ ] 基础对话成功（发送消息，收到正常回复）
+            - [ ] Install succeeds (\`pip install\` exits cleanly)
+            - [ ] Launch succeeds (\`qwenpaw\` starts, browser UI reachable)
+            - [ ] Model configured (API key + model saved without error)
+            - [ ] Basic chat works (message sent, normal reply received)
 
-            **验证环境：** OS: &nbsp; / Python: &nbsp; / 备注:
+            **Environment:** OS: &nbsp; / Python: &nbsp; / Notes:
 
             ---
 
-            ## Docker
+            ## Docker — ${mention('docker')}
 
-            **安装命令：**
             \`\`\`bash
             docker run --rm -p 7860:7860 agentscope/qwenpaw:${tag}
             \`\`\`
 
-            - [ ] 拉取镜像成功（\`docker pull\` 无错误）
-            - [ ] 启动成功（容器正常运行，\`http://localhost:7860\` 可访问）
-            - [ ] 配置模型成功（填入 API Key，选择模型，保存无报错）
-            - [ ] 基础对话成功（发送消息，收到正常回复）
+            - [ ] Image pulled successfully
+            - [ ] Container starts, \`http://localhost:7860\` reachable
+            - [ ] Model configured (API key + model saved without error)
+            - [ ] Basic chat works (message sent, normal reply received)
 
-            **验证环境：** OS: &nbsp; / Docker: &nbsp; / 架构: &nbsp; / 备注:
-
-            ---
-
-            ## macOS Desktop
-
-            **安装步骤：**
-            1. 前往 [Release 页面](${releaseUrl})
-            2. 下载 \`QwenPaw-${version}-macOS.zip\`
-            3. 解压，将 \`QwenPaw.app\` 拖入应用程序文件夹，打开应用
-
-            - [ ] 下载并解压成功
-            - [ ] 启动成功（应用正常打开，无崩溃）
-            - [ ] 配置模型成功（填入 API Key，选择模型，保存无报错）
-            - [ ] 基础对话成功（发送消息，收到正常回复）
-
-            **验证环境：** macOS 版本: &nbsp; / 芯片: &nbsp; / 备注:
+            **Environment:** OS: &nbsp; / Docker: &nbsp; / Arch (amd64/arm64): &nbsp; / Notes:
 
             ---
 
-            ## Windows Desktop
+            ## macOS Desktop — ${mention('macos')}
 
-            **安装步骤：**
-            1. 前往 [Release 页面](${releaseUrl})
-            2. 下载 \`QwenPaw-Setup-${version}.exe\`
-            3. 双击安装，按向导完成，启动 QwenPaw
+            1. Go to the [Release page](${releaseUrl})
+            2. Download \`QwenPaw-${version}-macOS.zip\`
+            3. Unzip, drag \`QwenPaw.app\` to Applications, launch
 
-            - [ ] 下载并安装成功（安装向导无报错）
-            - [ ] 启动成功（应用正常打开，无崩溃）
-            - [ ] 配置模型成功（填入 API Key，选择模型，保存无报错）
-            - [ ] 基础对话成功（发送消息，收到正常回复）
+            - [ ] Download and unzip succeed
+            - [ ] App launches without crash
+            - [ ] Model configured (API key + model saved without error)
+            - [ ] Basic chat works (message sent, normal reply received)
 
-            **验证环境：** Windows 版本: &nbsp; / 备注:
+            **Environment:** macOS version: &nbsp; / Chip (Apple Silicon / Intel): &nbsp; / Notes:
 
             ---
 
-            ## 最终结论
+            ## Windows Desktop — ${mention('windows')}
 
-            | 平台 | 结果 | 值班人 |
-            |------|------|--------|
-            | PyPI | ⬜ PENDING | |
-            | Docker | ⬜ PENDING | |
-            | macOS Desktop | ⬜ PENDING | |
-            | Windows Desktop | ⬜ PENDING | |
+            1. Go to the [Release page](${releaseUrl})
+            2. Download \`QwenPaw-Setup-${version}.exe\`
+            3. Run the installer, follow the wizard, launch QwenPaw
 
-            **全部 PASS：** 关闭本 Issue，打 \`verified\` 标签，Release 正常推进。
+            - [ ] Installer runs without error
+            - [ ] App launches without crash
+            - [ ] Model configured (API key + model saved without error)
+            - [ ] Basic chat works (message sent, normal reply received)
 
-            **有 FAIL：** 评论附上复现步骤和日志，打 \`installation-bug\` 标签，@maintainer 决策是否阻断。
+            **Environment:** Windows version: &nbsp; / Notes:
+
+            ---
+
+            ## Summary
+
+            | Platform | Result | Assignee |
+            |----------|--------|----------|
+            | PyPI | ⬜ PENDING | ${mention('pypi')} |
+            | Docker | ⬜ PENDING | ${mention('docker')} |
+            | macOS Desktop | ⬜ PENDING | ${mention('macos')} |
+            | Windows Desktop | ⬜ PENDING | ${mention('windows')} |
+
+            **All PASS** → close this issue with label \`verified\`. Release proceeds normally.
+
+            **Any FAIL** → comment with repro steps + logs, add label \`installation-bug\`, ping maintainer to decide whether to block the release announcement.
             `;
+
+            // Collect unique assignees across platforms
+            const assigneeSet = new Set(
+              Object.values(assignees)
+                .map(a => a.github)
+                .filter(Boolean)
+            );
 
             const issueParams = {
               owner: context.repo.owner,
               repo:  context.repo.repo,
-              title: `[Release Duty] QwenPaw ${tag} Beta 安装验证`,
+              title: `[Release Duty] QwenPaw ${tag} — Installation Verification`,
               body:  body,
-              labels: ['release-duty', 'beta'],
+              labels: ['release-duty'],
+              assignees: [...assigneeSet],
             };
 
-            if (assignee) {
-              issueParams.assignees = [assignee];
-            }
-
             const { data: issue } = await github.rest.issues.create(issueParams);
-            console.log(`Created duty issue #${issue.number}: ${issue.html_url}`);
-            core.summary.addRaw(`Created [Release Duty Issue #${issue.number}](${issue.html_url})`);
+            console.log(
+              `Created duty issue #${issue.number}: ${issue.html_url}`
+            );
+            core.summary.addRaw(
+              `Created [Release Duty Issue #${issue.number}](${issue.html_url})`
+            );
             await core.summary.write();
