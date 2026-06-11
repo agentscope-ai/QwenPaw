@@ -1,38 +1,28 @@
 # Beta Release Installation Duty Roster
 #
-# Each platform has its own independent rotation list.
-# The GitHub Action picks the next person sequentially by counting how many
-# pre-releases have been published so far (index = pre-release count % list length).
-# No state file needed — the count is derived from the GitHub API at runtime.
+# Each platform has its own independent rotation list of GitHub usernames.
+# The Action picks the next person sequentially:
+#   index = (number of previous pre-releases) % len(rotation)
+# No state file needed — the count is derived from the GitHub Releases API.
 #
-# Fields:
-#   github  - GitHub username (used for @assign and notifications)
-#   name    - Display name (used in issue body and logs)
+# To temporarily swap, manually re-assign in the Duty Issue on GitHub.
 
 pypi:
   rotation:
-    - github: placeholder-pypi-1
-      name: Member A
-    - github: placeholder-pypi-2
-      name: Member B
+    - placeholder-pypi-1
+    - placeholder-pypi-2
 
 docker:
   rotation:
-    - github: placeholder-docker-1
-      name: Member C
-    - github: placeholder-docker-2
-      name: Member D
+    - placeholder-docker-1
+    - placeholder-docker-2
 
 macos:
   rotation:
-    - github: placeholder-macos-1
-      name: Member E
-    - github: placeholder-macos-2
-      name: Member F
+    - placeholder-macos-1
+    - placeholder-macos-2
 
 windows:
   rotation:
-    - github: placeholder-windows-1
-      name: Member G
-    - github: placeholder-windows-2
-      name: Member H
+    - placeholder-windows-1
+    - placeholder-windows-2

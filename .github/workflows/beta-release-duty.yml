@@ -87,17 +87,11 @@ jobs:
               rotation = roster.get(platform, {}).get("rotation", [])
               if rotation:
                   slot = idx % len(rotation)
-                  entry = rotation[slot]
-                  result[platform] = {
-                      "github": entry["github"],
-                      "name": entry["name"],
-                  }
-                  print(
-                      f"{platform}: slot={slot}, "
-                      f"assignee={entry['github']}"
-                  )
+                  github_user = rotation[slot]
+                  result[platform] = {"github": github_user}
+                  print(f"{platform}: slot={slot}, assignee={github_user}")
               else:
-                  result[platform] = {"github": "", "name": "TBD"}
+                  result[platform] = {"github": ""}
                   print(f"{platform}: no rotation configured")
 
           out_path = os.environ["GITHUB_OUTPUT"]
