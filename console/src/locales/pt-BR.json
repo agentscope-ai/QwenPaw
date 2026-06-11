@@ -44,12 +44,14 @@
     "control": "Controle",
     "channels": "Canais",
     "sessions": "Sessoes",
+    "inbox": "Caixa de Entrada",
     "cronJobs": "Tarefas Cron",
     "heartbeat": "Heartbeat",
     "agent": "Workspace",
     "workspace": "Arquivos",
     "skills": "Skills",
     "skillPool": "Pool de Skills",
+    "market": "Mercado de Skills",
     "tools": "Ferramentas",
     "mcp": "MCP",
     "acp": "ACP",
@@ -665,6 +667,28 @@
       "authEndpoint": "Authorization Endpoint (substituir)",
       "tokenEndpoint": "Token Endpoint (substituir)",
       "endpointHint": "Deixe em branco para descoberta automática do servidor MCP."
+    },
+    "tab": {
+      "json": "Importação JSON",
+      "form": "Modo Formulário"
+    },
+    "form": {
+      "key": "Chave do Cliente",
+      "keyPlaceholder": "meu-servidor-mcp",
+      "keyRequired": "A chave do cliente é obrigatória",
+      "name": "Nome de Exibição",
+      "namePlaceholder": "Meu Servidor MCP",
+      "nameRequired": "O nome de exibição é obrigatório",
+      "transport": "Transporte",
+      "url": "URL do Servidor",
+      "urlRequired": "URL é obrigatória para servidores MCP remotos",
+      "command": "Comando",
+      "commandRequired": "O comando é obrigatório para transporte stdio",
+      "args": "Argumentos (separados por espaço ou nova linha)",
+      "description": "Descrição",
+      "descriptionPlaceholder": "Descrição opcional",
+      "env": "Variáveis de Ambiente",
+      "envPlaceholder": "CHAVE=VALOR (uma por linha)"
     }
   },
   "heartbeat": {
@@ -1185,7 +1209,14 @@
     "date": "Date",
     "refresh": "Atualizar",
     "loadFailed": "Falha ao load token usage",
-    "noData": "No token usage data in the selected period"
+    "noData": "No token usage data in the selected period",
+    "modelTrend": "Tendência de Uso por Modelo",
+    "tokenTypeChart": "Tendência por Tipo de Token",
+    "selectAll": "Selecionar Todos",
+    "allSelected": "Todos",
+    "itemsSelected": "{{count}} selecionados",
+    "selectModels": "Selecionar modelos",
+    "selectTokenTypes": "Selecionar tipos de token"
   },
   "agentStats": {
     "title": "Estatisticas dos Agentes",
@@ -1752,7 +1783,30 @@
     "recursiveFileWatcherTooltip": "Watch the memory directory recursively. Enable to include files in subdirectories like memory/subdirectory/* in vector search indexing.",
     "contextManagerBackend": "Context Manager Backend",
     "contextManagerBackendTooltip": "Backend type for the context manager. Currently only Light is supported.",
-    "backendRestartWarning": "Switching backends does not support hot reload. Save and restart QwenPaw for changes to take effect."
+    "backendRestartWarning": "Switching backends does not support hot reload. Save and restart QwenPaw for changes to take effect.",
+    "adbpgConfig": {
+      "title": "Configuração de Memória ADBPG",
+      "apiMode": "Modo de API",
+      "host": "Host",
+      "port": "Porta",
+      "user": "Usuário",
+      "password": "Senha",
+      "dbname": "Banco de Dados",
+      "llmModel": "Modelo LLM",
+      "llmApiKey": "Chave de API LLM",
+      "llmBaseUrl": "URL Base LLM",
+      "embeddingModel": "Modelo de Embedding",
+      "embeddingApiKey": "Chave de API de Embedding",
+      "embeddingBaseUrl": "URL Base de Embedding",
+      "embeddingDims": "Dimensões de Embedding",
+      "restBaseUrl": "URL Base REST",
+      "restApiKey": "Chave de API REST",
+      "memoryIsolation": "Isolamento de Memória (por agente)",
+      "searchTimeout": "Timeout de Busca"
+    },
+    "autoGenerateSessionTitle": "Gerar títulos de sessão automaticamente",
+    "autoGenerateSessionTitleTooltip": "Após a primeira mensagem do usuário em um novo chat, executa uma chamada LLM rápida em segundo plano para substituir o marcador temporário por um título conciso. Gera uma chamada LLM extra por novo chat. Desative para manter o marcador e economizar tokens.",
+    "adbpgMemoryTitle": "Memória de Longo Prazo ADBPG"
   },
   "tools": {
     "title": "Integrado Ferramentas",
@@ -1770,7 +1824,12 @@
     "allDisabled": "All tools are already disabled",
     "asyncExecution": "Async Execution",
     "asyncExecutionEnabled": "Async execution Ativado",
-    "asyncExecutionDisabled": "Async execution Desativado"
+    "asyncExecutionDisabled": "Async execution Desativado",
+    "configure": "Configurar",
+    "configured": "Configurado",
+    "requiresConfig": "Requer configuração",
+    "configSaved": "Configuração salva",
+    "configSaveError": "Falha ao salvar configuração"
   },
   "modelConfig": {
     "promptTitle": "LLM Model Required — Select in Chat After Configuration",
@@ -1892,11 +1951,11 @@
   "security": {
     "parent": "Configuracoes",
     "security": "Seguranca",
-    "title": "Seguranca",
-    "description": "Manage security features for tools and skills.",
-    "toolGuardTitle": "Tool Guard",
-    "toolGuardDescription": "Configure security scanning for tool calls. Dangerous operations will require your explicit approval before execution.",
-    "enabled": "Ativar Tool Guard",
+    "title": "Segurança",
+    "description": "Gerencie recursos de segurança para ferramentas e skills.",
+    "toolGuardTitle": "Proteção de Ferramentas",
+    "toolGuardDescription": "Configure a verificação de segurança para chamadas de ferramentas. Operações perigosas exigirão sua aprovação explícita antes da execução.",
+    "enabled": "Ativar Proteção de Ferramentas",
     "enabledTooltip": "When enabled, tool calls are scanned for dangerous patterns before execution",
     "guardedTools": "Guarded Ferramentas",
     "guardedToolsTooltip": "Tools that require approval when dangerous patterns are detected. Leave empty to use the built-in default set.",
@@ -1975,7 +2034,11 @@
         "privilege_escalation": "Privilege Escalation",
         "prompt_injection": "Prompt Injection",
         "other": "Other"
-      }
+      },
+      "autoDeny": "Negar Automaticamente",
+      "autoDenyEnable": "Ativar Negação Automática",
+      "autoDenyDisable": "Desativar Negação Automática",
+      "autoDenyTooltip": "Quando habilitado, chamadas de ferramenta com padrões perigosos são negadas automaticamente"
     },
     "shellEvasion": {
       "title": "Shell Evasion Detection",
@@ -2137,24 +2200,28 @@
     "usernameEmpty": "Username cannot be blank"
   },
   "approval": {
-    "title": "Seguranca Approval Obrigatorio",
-    "tool": "Tool",
-    "severity": "Severity",
-    "findings": "Findings",
-    "parameters": "Parameters",
-    "approve": "Approve",
-    "deny": "Deny",
+    "title": "Aprovação de Segurança Necessária",
+    "tool": "Ferramenta",
+    "severity": "Severidade",
+    "findings": "Conclusões",
+    "parameters": "Parâmetros",
+    "approve": "Aprovar",
+    "deny": "Negar",
     "source": "Origem",
-    "subSession": "Sub-Agent",
-    "approved": "Tool call approved",
-    "denied": "Tool call denied",
-    "approveFailed": "Falhou to approve",
-    "cancelTask": "Cancelar Task",
-    "denyFailed": "Falhou to deny"
+    "subSession": "Sub-Agente",
+    "approved": "Chamada de ferramenta aprovada",
+    "denied": "Chamada de ferramenta negada",
+    "approveFailed": "Falha ao aprovar",
+    "cancelTask": "Cancelar Tarefa",
+    "denyFailed": "Falha ao negar",
+    "ownerAgent": "Agente Proprietário",
+    "executingAgent": "Agente Executando",
+    "timeoutAutoDenied": "Expirou, negado automaticamente",
+    "acknowledge": "Entendi"
   },
   "pluginManager": {
     "title": "Gerenciador de Plugins",
-    "description": "Instalar, gerenciar e remover plugins sem reiniciar o serviço.",
+    "description": "Instale, gerencie e remova plugins sem reiniciar o serviço.",
     "installed": "Plugins Instalados",
     "noPlugins": "Nenhum plugin instalado ainda",
     "installBtn": "Instalar Plugin",
@@ -2208,7 +2275,8 @@
     "marketSearchResult": "Found {{count}} plugins matching \"{{keyword}}\"",
     "marketDetails": "Details",
     "marketDownloads": "Downloads",
-    "marketDeveloper": "Developer"
+    "marketDeveloper": "Developer",
+    "publishBtn": "Publicar Plugin"
   },
   "plan": {
     "title": "Plan",
@@ -2285,7 +2353,8 @@
     "detailContent": "Saída",
     "detailPayload": "Dados",
     "detailExecutionTrace": "Rastro de execução",
-    "detailTraceEmpty": "Nenhum rastro de execução disponível"
+    "detailTraceEmpty": "Nenhum rastro de execução disponível",
+    "filterByAgent": "Filtrar por agente"
   },
   "codingMode": {
     "title": "Modo de Codificação",
@@ -2396,6 +2465,152 @@
       "NOT_FOUND": "Arquivo não encontrado. Pode ter sido movido ou excluído.",
       "LOAD_FAILED": "Falha ao carregar a visualização do arquivo.",
       "LOAD_FAILED_DETAIL": "Falha ao carregar a visualização do arquivo: {{detail}}"
+    }
+  },
+  "home": {
+    "greeting": "Como posso ajudá-lo hoje?",
+    "pillBar": {
+      "label": "Seletor de backend"
+    },
+    "pills": {
+      "all": "Todos",
+      "chat": "Chat",
+      "code": "Código",
+      "agent": "Agente"
+    },
+    "assistants": {
+      "chat": {
+        "name": "Chat",
+        "desc": "Inicie uma conversa com seu assistente de IA"
+      },
+      "coding": {
+        "name": "Código",
+        "desc": "Programe em par com um editor de IA"
+      },
+      "agent": {
+        "name": "Agente",
+        "desc": "Gerencie sessões de agentes autônomos"
+      },
+      "inbox": {
+        "name": "Caixa de Entrada",
+        "desc": "Revise mensagens e notificações"
+      },
+      "workspace": {
+        "name": "Área de Trabalho",
+        "desc": "Navegue em arquivos e contexto do projeto"
+      },
+      "mcp": {
+        "name": "Ferramentas MCP",
+        "desc": "Conecte e gerencie servidores de ferramentas MCP"
+      }
+    },
+    "footer": {
+      "label": "Ações rápidas",
+      "reportIssue": "Reportar Problema",
+      "star": "Favoritar no GitHub",
+      "remote": "Conexão Remota"
+    }
+  },
+  "tool": {
+    "readFile": "Read {{file}}",
+    "readFileDefault": "Read file",
+    "writeFile": "Create {{file}}",
+    "writeFileDefault": "Create file",
+    "editFile": "Edit {{file}}",
+    "editFileDefault": "Edit file",
+    "appendFile": "Append {{file}}",
+    "appendFileDefault": "Append file",
+    "grepSearch": "Grep {{pattern}}",
+    "grepSearchDefault": "Grep search",
+    "globSearch": "Glob {{pattern}}",
+    "globSearchDefault": "Glob search",
+    "viewImage": "View image {{file}}",
+    "viewImageDefault": "View image",
+    "viewVideo": "View video {{file}}",
+    "viewVideoDefault": "View video",
+    "desktopScreenshot": "Screenshot desktop",
+    "sendFile": "Send {{file}}",
+    "sendFileDefault": "Send file",
+    "browserUse": "Browse {{detail}}",
+    "browserNavigate": "Browse open {{url}}",
+    "browserNavigateDefault": "Browse open page",
+    "browserClick": "Browse click",
+    "browserType": "Browse type",
+    "browserSnapshot": "Browse snapshot",
+    "browserScroll": "Browse scroll",
+    "getCurrentTime": "Get current time",
+    "setTimezone": "Set {{timezone}}",
+    "getTokenUsage": "Query token usage",
+    "memorySearch": "Search {{query}}",
+    "memorySearchDefault": "Search memory",
+    "listAgents": "List agents",
+    "chatWithAgent": "Chat {{agent}}",
+    "chatWithAgentDefault": "Chat agent",
+    "submitToAgent": "Submit {{agent}}{{task}}",
+    "submitToAgentDefault": "Submit task",
+    "checkAgentTask": "Check {{agent}} #{{taskId}}",
+    "checkAgentTaskAgent": "Check {{agent}}",
+    "checkAgentTaskDefault": "Check task",
+    "delegateExternalAgent": "Delegate {{runner}}",
+    "delegateExternalAgentDefault": "Delegate external agent",
+    "materializeSkill": "Create {{skill}}",
+    "materializeSkillDefault": "Create skill",
+    "shell": "Run {{command}}",
+    "shellDefault": "Run command",
+    "loading": "Loading...",
+    "browserAction": {
+      "startHeaded": "Start browser (headed)",
+      "start": "Start browser",
+      "stop": "Stop browser",
+      "open": "Open {{url}}",
+      "openDefault": "Open page",
+      "navigate": "Navigate {{url}}",
+      "navigateDefault": "Navigate",
+      "navigateBack": "Go back",
+      "click": "Click {{selector}}",
+      "clickDefault": "Click element",
+      "type": "Type {{text}}",
+      "typeDefault": "Type text",
+      "snapshot": "Get snapshot",
+      "screenshot": "Screenshot {{path}}",
+      "screenshotDefault": "Screenshot",
+      "eval": "Eval {{code}}",
+      "evalDefault": "Evaluate code",
+      "runCode": "Run {{code}}",
+      "runCodeDefault": "Run code",
+      "closePage": "Close page",
+      "tabs": "Tabs {{action}}",
+      "tabsDefault": "Manage tabs",
+      "fillForm": "Fill form",
+      "fileUpload": "Upload {{filename}}",
+      "fileUploadDefault": "Upload file",
+      "fileDownload": "Download {{target}}",
+      "fileDownloadDefault": "Download file",
+      "pressKey": "Press {{key}}",
+      "pressKeyDefault": "Press key",
+      "hover": "Hover {{selector}}",
+      "hoverDefault": "Hover element",
+      "drag": "Drag",
+      "selectOption": "Select option",
+      "waitFor": "Wait for {{target}}",
+      "waitForDefault": "Wait for element",
+      "resize": "Resize {{w}}x{{h}}",
+      "resizeDefault": "Resize window",
+      "pdf": "Export PDF {{path}}",
+      "pdfDefault": "Export PDF",
+      "install": "Install",
+      "batch": "Batch"
+    },
+    "lineBadge": {
+      "lines": "{{count}} lines",
+      "addLines": "+{{count}} lines",
+      "delLines": "-{{count}} lines",
+      "matches": "{{count}} matches",
+      "files": "{{count}} files"
+    },
+    "inlineResult": {
+      "taskId": "Task #{{id}}",
+      "submitted": "Submitted"
     }
   }
 }
