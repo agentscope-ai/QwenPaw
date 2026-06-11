@@ -109,6 +109,8 @@ AGENTS.md
 .claude/settings.local.json
 .claude/.agentscope-guardian-approved
 .claude/**/__pycache__/
+# claude-flow runtime artifacts (ruflo) — never version
+.claude-flow/
 openspec
 CLAUDE.md
 *.tmp
