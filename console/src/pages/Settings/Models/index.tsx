@@ -183,8 +183,8 @@ function ModelsPage() {
                       className={styles.searchInput}
                       prefix={<SearchOutlined />}
                       allowClear
-                      autoComplete="nope"
-                      name="provider-search-nofill"
+                      autoComplete="off"
+                      data-form-type="other"
                     />
                     <Button
                       icon={<SyncOutlined />}
