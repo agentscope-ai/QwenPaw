@@ -77,7 +77,10 @@ import {
   type CopyableResponse,
   type RuntimeLoadingBridgeApi,
 } from "./utils";
-import { openExternalLink } from "../../utils/openExternalLink";
+import {
+  downloadFileFromUrl,
+  DownloadCancelledError,
+} from "../../utils/downloadFileFromUrl";
 import { getLastEditorCopy } from "../Coding/lastEditorCopy";
 import { useUploadLimitStore } from "../../stores/uploadLimitStore";
 
@@ -994,9 +997,12 @@ export default function ChatPage() {
 
   const onFileCardClick = useCallback(
     (fileInfo: { name?: string; size?: number; url?: string }) => {
-      if (fileInfo.url) {
-        openExternalLink(fileInfo.url);
-      }
+      if (!fileInfo.url) return;
+      const filename = fileInfo.name || "download";
+      downloadFileFromUrl(fileInfo.url, filename).catch((error) => {
+        if (error instanceof DownloadCancelledError) return;
+        console.error("File download failed:", error);
+      });
     },
     [],
   );

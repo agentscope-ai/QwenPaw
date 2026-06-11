@@ -8,12 +8,15 @@
 import React, { useCallback, useState } from "react";
 import { Attachments } from "@agentscope-ai/chat";
 import { Audio, Video } from "@agentscope-ai/design";
-import { Image, ConfigProvider, Alert } from "antd";
+import { Image, ConfigProvider, Alert, message } from "antd";
 import type { Locale } from "antd/es/locale";
 import { DownloadOutlined } from "@ant-design/icons";
 import { useTranslation } from "react-i18next";
 import type { MediaInfo } from "./utils";
-import { openExternalLink } from "../../../../utils/openExternalLink";
+import {
+  downloadFileFromUrl,
+  DownloadCancelledError,
+} from "../../../../utils/downloadFileFromUrl";
 import styles from "./toolCards.module.less";
 
 export interface MediaPreviewProps {
@@ -93,7 +96,6 @@ const MediaPreview: React.FC<MediaPreviewProps> = ({ media }) => {
               {
                 uid: media.name,
                 name: media.name,
-                url: media.url,
                 status: "done",
               } as any
             }
@@ -101,7 +103,14 @@ const MediaPreview: React.FC<MediaPreviewProps> = ({ media }) => {
           {media.url && (
             <div
               className={styles.bubbleFileDownload}
-              onClick={() => openExternalLink(media.url)}
+              onClick={() => {
+                downloadFileFromUrl(media.url, media.name).catch((error) => {
+                  if (error instanceof DownloadCancelledError) return;
+                  message.error(
+                    error?.message || "Download failed",
+                  );
+                });
+              }}
             >
               <DownloadOutlined />
             </div>
