@@ -1,11 +1,12 @@
 export const meta = {
   name: 'dev-team',
-  description: 'qwenpaw dev team: surface-aware (backend/frontend) plan -> code -> review -> test, with fix loops',
+  description: 'qwenpaw dev team: surface-aware (backend/frontend) plan -> code -> review -> test -> document, with fix loops',
   phases: [
     { title: 'Plan', detail: 'guardian/lead classifies surface, plans, and approves backend files' },
     { title: 'Code', detail: 'qwenpaw-coder (backend) or qwenpaw-frontend-designer (UI/UX) implements the change' },
     { title: 'Review', detail: 'qwenpaw-reviewer checks the diff (loops with Code)' },
     { title: 'Test', detail: 'qwenpaw-tester runs pytest (backend) or vitest (frontend) (loops with Code)' },
+    { title: 'Document', detail: 'qwenpaw-changelog writes project memory + gotcha notes to auto-memory' },
   ],
 }
 
@@ -18,6 +19,7 @@ export const meta = {
 //   - qwenpaw-reviewer : EXPLORE — read-only; Write/Edit withheld in its frontmatter.
 //   - qwenpaw-coder / frontend-designer : ACCEPT_EDITS-equivalent — may edit approved files.
 //   - qwenpaw-tester : may Write/run tests (records guardian approval for agentscope-importing
+//   - qwenpaw-changelog : HISTORIAN — Read/Write memory files only; no guardian gate needed.
 //                      test files first); not read-only.
 // Only the reviewer is a true read-only (EXPLORE) role; the prompt below restates that.
 
@@ -235,6 +237,50 @@ while (state !== 'DONE' && state !== 'STUCK') {
   }
 }
 
+const finalStatus = (lastReview && lastReview.verdict === 'APPROVE' && test && test.result === 'PASS') ? 'GREEN' : 'NEEDS_ATTENTION'
+
+// ---- Phase 5: Document (always runs — captures knowledge even on partial success) ----
+phase('Document')
+const MEMORY_DIR = 'C:\\Users\\ruthe\\.claude\\projects\\C--Users-ruthe-Desktop-orb-orbe\\memory'
+const changelog = await agent(
+  `You are the qwenpaw Historian. Document the completed dev-team cycle in the project auto-memory system.
+
+## Cycle summary
+
+TASK: ${TASK}
+SURFACE: ${SURFACE}
+STATUS: ${finalStatus}
+FILES CHANGED: ${plan.files.join(', ')}
+
+PLAN (from guardian):
+${plan.plan}
+
+REVIEW FINDINGS (last round):
+${lastReview ? (lastReview.findings || []).join('\n- ') || '(none)' : '(no review ran)'}
+REVIEW VERDICT: ${lastReview ? lastReview.verdict : 'N/A'}
+
+TEST RESULT: ${test ? test.result : 'N/A'}
+TEST SUMMARY: ${test ? test.summary : '(no test ran)'}
+TEST FAILURES: ${test ? (test.failures || []).join('; ') || 'none' : 'N/A'}
+
+## Memory directory
+
+Write all memory files to: ${MEMORY_DIR}\\
+MEMORY.md index is at: ${MEMORY_DIR}\\MEMORY.md
+
+## Instructions
+
+Follow the qwenpaw-changelog agent procedure:
+1. Run \`git log --oneline -1\` and \`git diff HEAD~1 --stat\` to ground your entry.
+2. Write a project-memory entry (always) about what changed.
+3. Write a feedback-memory entry ONLY if real gotchas/traps were discovered in this cycle.
+4. Update MEMORY.md index.
+5. Return the "## Changelog written" summary block.
+
+Be concise and factual — no fabrication.`,
+  { label: 'document', phase: 'Document', agentType: 'qwenpaw-changelog' }
+)
+
 return {
   task: TASK,
   surface: SURFACE,
@@ -243,5 +289,6 @@ return {
   finalReview: lastReview,
   finalTest: test,
   lastCodeReport: codeReport,
-  status: (lastReview && lastReview.verdict === 'APPROVE' && test && test.result === 'PASS') ? 'GREEN' : 'NEEDS_ATTENTION',
+  changelog,
+  status: finalStatus,
 }
