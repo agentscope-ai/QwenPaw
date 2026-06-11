@@ -86,6 +86,27 @@ html.dark-mode .qwenpaw-layout-content {
 html.dark-mode .page-content {
   background: var(--bg-1);
   border: 1px solid var(--border-base);
+  color: var(--text-primary);
+}
+
+/* Override antd's default rgba(0,0,0,0.88) text on all descendants in dark mode */
+html.dark-mode .page-content p,
+html.dark-mode .page-content span:not([class*="badge"]):not([class*="tag"]),
+html.dark-mode .page-content div:not([class*="ant-btn"]):not([class*="qwenpaw-btn"]),
+html.dark-mode .page-content h1,
+html.dark-mode .page-content h2,
+html.dark-mode .page-content h3,
+html.dark-mode .page-content h4,
+html.dark-mode .page-content h5,
+html.dark-mode .page-content h6,
+html.dark-mode .page-content li,
+html.dark-mode .page-content label {
+  color: inherit;
+}
+
+html.dark-mode .qwenpaw-typography,
+html.dark-mode .ant-typography {
+  color: var(--text-primary) !important;
 }
 
 /* Card components — @agentscope-ai/design uses qwenpaw prefix */
@@ -945,12 +966,12 @@ html.dark-mode
   min-height: 100vh;
   max-height: 100vh;
   overflow: hidden;
-  background: #f9f8f4;
+  background: var(--bg-1);
 }
 
 .ant-layout-content {
   overflow: hidden;
-  background: #f9f8f4;
+  background: var(--bg-1);
 }
 
 .qwenpaw-bubble-list-wrapper {
@@ -992,13 +1013,13 @@ html.dark-mode .qwenpaw-sender-content {
 /* Menu background in light mode */
 .qwenpaw-menu,
 .ant-menu {
-  background: #f9f8f4 !important;
+  background: var(--bg-2, #f2f3f5) !important;
 }
 
 /* Menu selected item in light mode */
 .qwenpaw-menu-item-selected,
 .ant-menu-item-selected {
-  background: rgba(43, 18, 0, 0.08) !important;
+  background: var(--bg-active, #e5e6eb) !important;
   color: inherit !important;
 }
 
