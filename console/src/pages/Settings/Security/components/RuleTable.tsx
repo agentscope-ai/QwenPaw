@@ -103,19 +103,31 @@ export function RuleTable({
               <Table className={styles.ruleTable}>
                 <TableHeader>
                   <TableRow>
-                    <TableHead style={{ width: 280 }}>{t("security.rules.id")}</TableHead>
-                    <TableHead style={{ width: 100 }}>{t("security.rules.severity")}</TableHead>
+                    <TableHead style={{ width: 280 }}>
+                      {t("security.rules.id")}
+                    </TableHead>
+                    <TableHead style={{ width: 100 }}>
+                      {t("security.rules.severity")}
+                    </TableHead>
                     <TableHead>{t("security.rules.descriptionCol")}</TableHead>
-                    <TableHead style={{ width: 100 }}>{t("security.rules.source")}</TableHead>
+                    <TableHead style={{ width: 100 }}>
+                      {t("security.rules.source")}
+                    </TableHead>
                     <TableHead style={{ width: 100 }}>
                       <Tooltip>
                         <TooltipTrigger asChild>
-                          <span className="cursor-default">{t("security.rules.autoDeny")}</span>
+                          <span className="cursor-default">
+                            {t("security.rules.autoDeny")}
+                          </span>
                         </TooltipTrigger>
-                        <TooltipContent>{t("security.rules.autoDenyTooltip")}</TooltipContent>
+                        <TooltipContent>
+                          {t("security.rules.autoDenyTooltip")}
+                        </TooltipContent>
                       </Tooltip>
                     </TableHead>
-                    <TableHead style={{ width: 120 }}>{t("security.rules.actions")}</TableHead>
+                    <TableHead style={{ width: 120 }}>
+                      {t("security.rules.actions")}
+                    </TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -134,7 +146,9 @@ export function RuleTable({
                         <TableCell>
                           <Badge
                             variant="outline"
-                            className={`text-xs ${SEVERITY_CLASS[record.severity] ?? ""}`}
+                            className={`text-xs ${
+                              SEVERITY_CLASS[record.severity] ?? ""
+                            }`}
                             style={{ opacity: record.disabled ? 0.4 : 1 }}
                           >
                             {record.severity}
@@ -233,7 +247,9 @@ export function RuleTable({
                                       <Pencil size={14} />
                                     </Button>
                                   </TooltipTrigger>
-                                  <TooltipContent>{t("security.rules.edit")}</TooltipContent>
+                                  <TooltipContent>
+                                    {t("security.rules.edit")}
+                                  </TooltipContent>
                                 </Tooltip>
                                 <Tooltip>
                                   <TooltipTrigger asChild>
@@ -247,7 +263,9 @@ export function RuleTable({
                                       <Trash2 size={14} />
                                     </Button>
                                   </TooltipTrigger>
-                                  <TooltipContent>{t("security.rules.delete")}</TooltipContent>
+                                  <TooltipContent>
+                                    {t("security.rules.delete")}
+                                  </TooltipContent>
                                 </Tooltip>
                               </>
                             )}

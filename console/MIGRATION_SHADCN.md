@@ -72,6 +72,7 @@ Tailwind v4 + Radix + motion** — the same modern stack already used in `websit
   (shadcn chart) in Phase 2. Low priority.
 
 ### New deps to add (`console/package.json`)
+
 `tailwindcss@^4`, `@tailwindcss/vite@^4`, `class-variance-authority`, `clsx`,
 `tailwind-merge`, `tw-animate-css`, `motion`, `sonner`, `react-hook-form`,
 `@hookform/resolvers`, `zod`, and the `@radix-ui/react-*` primitives pulled in by
@@ -81,45 +82,46 @@ the shadcn components you generate. Keep `lucide-react`, `react-markdown`,
 
 ## 4. antd → shadcn/Tailwind component map
 
-| Ant Design | shadcn/ui replacement | Notes |
-|---|---|---|
-| `Button` | `Button` (`ui/button`) | map `type="primary"`→default, `text`→`ghost`, `link`→`link`, `danger`→`destructive`; `loading` → spinner + `disabled` |
-| `Input`, `Input.TextArea`, `Input.Password` | `Input`, `Textarea`, password input | |
-| `Select` | `Select` (`ui/select`) | for searchable/multi use `Command`/`combobox` pattern |
-| `Form`, `Form.Item` | `Form` + `react-hook-form` + `zod` | reuse backend `agent/schema` JSON-Schema where forms are schema-driven |
-| `Modal` | `Dialog` (`ui/dialog`) | confirm modals → `AlertDialog` |
-| `Drawer` | `Sheet` (`ui/sheet`) | `side` prop = left/right/top/bottom |
-| `Table` | `Table` (`ui/table`) + `@tanstack/react-table` if sorting/paging needed | many `columns.tsx` files |
-| `Tabs` | `Tabs` (`ui/tabs`) | |
-| `Segmented` | `Tabs` or `ToggleGroup` | |
-| `Card` | `Card` (`ui/card`) | |
-| `Tag` | `Badge` (`ui/badge`) | |
-| `Tooltip` | `Tooltip` (`ui/tooltip`) | wrap app in `TooltipProvider` |
-| `Dropdown`, `Menu` | `DropdownMenu` (`ui/dropdown-menu`) | sidebar menu → custom nav + `NavLink` |
-| `Popconfirm` | `AlertDialog` | |
-| `Popover` | `Popover` (`ui/popover`) | |
-| `Switch` | `Switch` (`ui/switch`) | |
-| `Checkbox`/`Radio` | `Checkbox`/`RadioGroup` | |
-| `Slider` | `Slider` (`ui/slider`) | see `Agent/Config/SliderWithValue` |
-| `Collapse` | `Accordion` (`ui/accordion`) | |
-| `Skeleton`, `Spin` | `Skeleton` (`ui/skeleton`) + small spinner (lucide `Loader2` + `animate-spin`) | |
-| `Avatar` | `Avatar` (`ui/avatar`) | |
-| `message`, `notification` | `sonner` toasts | |
-| `App` (antd) / `ConfigProvider` | remove; replace with `TooltipProvider` + `<Toaster />` | |
-| `theme`, `bailian*Theme`, `antd-style` `createGlobalStyle`/`createStyles` | Tailwind classes + `index.css` tokens | |
-| `@ant-design/icons` | `lucide-react` | |
-| `@ant-design/plots` | `recharts` (shadcn chart) | Phase 2 |
-| `@ant-design/x-markdown`, `@agentscope-ai/chat` | `react-markdown` + custom bubble components | Chat slice |
-| `Upload` | custom dropzone (`react-dropzone` optional) or input[type=file] | Chat/Settings |
-| `DatePicker`/`TimePicker` | shadcn `Calendar` + `Popover` (`react-day-picker`) or native | CronJobs/Schedules |
-| `Pagination` | shadcn `Pagination` | |
-| `Progress` | custom Tailwind bar or `ui/progress` | |
-| `Tree` | custom (`FileTree`) — keep logic, restyle | Coding |
-| `Result`, `Empty`, `Descriptions`, `Statistic` | compose with Card/Tailwind | |
+| Ant Design                                                                | shadcn/ui replacement                                                          | Notes                                                                                                                 |
+| ------------------------------------------------------------------------- | ------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------- |
+| `Button`                                                                  | `Button` (`ui/button`)                                                         | map `type="primary"`→default, `text`→`ghost`, `link`→`link`, `danger`→`destructive`; `loading` → spinner + `disabled` |
+| `Input`, `Input.TextArea`, `Input.Password`                               | `Input`, `Textarea`, password input                                            |                                                                                                                       |
+| `Select`                                                                  | `Select` (`ui/select`)                                                         | for searchable/multi use `Command`/`combobox` pattern                                                                 |
+| `Form`, `Form.Item`                                                       | `Form` + `react-hook-form` + `zod`                                             | reuse backend `agent/schema` JSON-Schema where forms are schema-driven                                                |
+| `Modal`                                                                   | `Dialog` (`ui/dialog`)                                                         | confirm modals → `AlertDialog`                                                                                        |
+| `Drawer`                                                                  | `Sheet` (`ui/sheet`)                                                           | `side` prop = left/right/top/bottom                                                                                   |
+| `Table`                                                                   | `Table` (`ui/table`) + `@tanstack/react-table` if sorting/paging needed        | many `columns.tsx` files                                                                                              |
+| `Tabs`                                                                    | `Tabs` (`ui/tabs`)                                                             |                                                                                                                       |
+| `Segmented`                                                               | `Tabs` or `ToggleGroup`                                                        |                                                                                                                       |
+| `Card`                                                                    | `Card` (`ui/card`)                                                             |                                                                                                                       |
+| `Tag`                                                                     | `Badge` (`ui/badge`)                                                           |                                                                                                                       |
+| `Tooltip`                                                                 | `Tooltip` (`ui/tooltip`)                                                       | wrap app in `TooltipProvider`                                                                                         |
+| `Dropdown`, `Menu`                                                        | `DropdownMenu` (`ui/dropdown-menu`)                                            | sidebar menu → custom nav + `NavLink`                                                                                 |
+| `Popconfirm`                                                              | `AlertDialog`                                                                  |                                                                                                                       |
+| `Popover`                                                                 | `Popover` (`ui/popover`)                                                       |                                                                                                                       |
+| `Switch`                                                                  | `Switch` (`ui/switch`)                                                         |                                                                                                                       |
+| `Checkbox`/`Radio`                                                        | `Checkbox`/`RadioGroup`                                                        |                                                                                                                       |
+| `Slider`                                                                  | `Slider` (`ui/slider`)                                                         | see `Agent/Config/SliderWithValue`                                                                                    |
+| `Collapse`                                                                | `Accordion` (`ui/accordion`)                                                   |                                                                                                                       |
+| `Skeleton`, `Spin`                                                        | `Skeleton` (`ui/skeleton`) + small spinner (lucide `Loader2` + `animate-spin`) |                                                                                                                       |
+| `Avatar`                                                                  | `Avatar` (`ui/avatar`)                                                         |                                                                                                                       |
+| `message`, `notification`                                                 | `sonner` toasts                                                                |                                                                                                                       |
+| `App` (antd) / `ConfigProvider`                                           | remove; replace with `TooltipProvider` + `<Toaster />`                         |                                                                                                                       |
+| `theme`, `bailian*Theme`, `antd-style` `createGlobalStyle`/`createStyles` | Tailwind classes + `index.css` tokens                                          |                                                                                                                       |
+| `@ant-design/icons`                                                       | `lucide-react`                                                                 |                                                                                                                       |
+| `@ant-design/plots`                                                       | `recharts` (shadcn chart)                                                      | Phase 2                                                                                                               |
+| `@ant-design/x-markdown`, `@agentscope-ai/chat`                           | `react-markdown` + custom bubble components                                    | Chat slice                                                                                                            |
+| `Upload`                                                                  | custom dropzone (`react-dropzone` optional) or input[type=file]                | Chat/Settings                                                                                                         |
+| `DatePicker`/`TimePicker`                                                 | shadcn `Calendar` + `Popover` (`react-day-picker`) or native                   | CronJobs/Schedules                                                                                                    |
+| `Pagination`                                                              | shadcn `Pagination`                                                            |                                                                                                                       |
+| `Progress`                                                                | custom Tailwind bar or `ui/progress`                                           |                                                                                                                       |
+| `Tree`                                                                    | custom (`FileTree`) — keep logic, restyle                                      | Coding                                                                                                                |
+| `Result`, `Empty`, `Descriptions`, `Statistic`                            | compose with Card/Tailwind                                                     |                                                                                                                       |
 
 ## 5. AgentScope v2 features the new UI should expose better
 
 (See `docs/agentscope-v2/`.) The redesign should make these first-class:
+
 - **Event streaming (`reply_stream`)**: render incremental text deltas, collapsible
   **thinking** blocks, **tool_call**/**tool_result** cards (already modeled in
   `src/components/Chat/ToolCards/**` — restyle, keep behavior).
@@ -148,6 +150,7 @@ the shadcn components you generate. Keep `lucide-react`, `react-markdown`,
 ## 7. Coexistence rule (critical)
 
 During the transition antd and Tailwind run side by side. To avoid style clashes:
+
 - Tailwind preflight can conflict with antd's reset. Mitigation: keep antd's CSS;
   scope new components with Tailwind utility classes; if preflight breaks antd,
   disable preflight base layer or import order so antd wins on legacy pages. Verify
@@ -170,18 +173,21 @@ During the transition antd and Tailwind run side by side. To avoid style clashes
 - (Phase 0 done — 2026-06-11) Foundation installed and verified by CODER agent.
 
   Files CREATED:
+
   - console/components.json — shadcn config (new-york, neutral base, cssVariables, aliases)
   - console/src/index.css — Tailwind v4 entry: `@import "tailwindcss"`, `@import "tw-animate-css"`, `@custom-variant dark (&:is(.dark-mode *))`, `@theme inline` token map, `:root` light tokens (orange primary oklch ≈ #FF7F16), `.dark-mode` dark tokens
   - console/src/lib/utils.ts — `cn()` helper (clsx + tailwind-merge)
   - console/src/components/ui/ — 24 shadcn components: button, input, textarea, label, card, dialog, alert-dialog, sheet, tabs, dropdown-menu, tooltip, scroll-area, avatar, badge, separator, select, switch, checkbox, skeleton, sonner, form, popover, accordion, table, slider
 
   Files MODIFIED:
-  - console/package.json — new deps: tailwindcss@^4.1.8, @tailwindcss/vite@^4.1.8, class-variance-authority, clsx, tailwind-merge, tw-animate-css, motion, sonner, react-hook-form, @hookform/resolvers, zod, 16 @radix-ui/react-* primitives
+
+  - console/package.json — new deps: tailwindcss@^4.1.8, @tailwindcss/vite@^4.1.8, class-variance-authority, clsx, tailwind-merge, tw-animate-css, motion, sonner, react-hook-form, @hookform/resolvers, zod, 16 @radix-ui/react-\* primitives
   - console/vite.config.ts — added tailwindcss() plugin from @tailwindcss/vite
   - console/src/main.tsx — added `import "./index.css"` before App import
   - console/src/App.tsx — added TooltipProvider + Toaster; antd ConfigProvider retained for legacy pages
 
   Verification:
+
   - `npm install` — success (1176 packages)
   - `npx tsc -b` — PASS (zero errors)
   - `npm run build` — SUCCESS in 34.98s
@@ -192,7 +198,7 @@ During the transition antd and Tailwind run side by side. To avoid style clashes
 - Phase 1 — Approval/Inbox (Coder B) done: Migrated `components/ApprovalCard/ApprovalCard.tsx`, `pages/Inbox/index.tsx`, `pages/Inbox/components/{ApprovalCard,PushMessageCard,HarvestCard,CreateHarvestModal,MagazineStackViewer}.tsx`, `pages/Inbox/hooks/useTraceViewer.ts`. antd→shadcn: Card/CardContent, Button (destructive/outline/ghost), Badge (severity colors), Dialog, AlertDialog (Popconfirm→AlertDialog), Accordion (Collapse), Tabs, Select, Checkbox, Avatar, Form+react-hook-form+zod (CreateHarvestModal), sonner toasts (message.success/error/info/warning). lucide-react for all @ant-design/icons. antd Progress (circular) replaced with inline SVG. `npx tsc -b` — PASS (zero errors in slice). grep antd — ZERO in slice.
 - Phase 2 — Agent pages done — 2026-06-11: Migrated all files under `pages/Agent/**` (ACP, Config, MCP, Skills, Tools, Workspace and their components/hooks). antd→shadcn: Card/CardContent, Button, Input, Textarea, Label, Switch, Select, Dialog, AlertDialog (Modal.confirm→confirmResolverRef pattern), Sheet (Drawer), Accordion (Collapse), Tabs, Form+react-hook-form (useFormContext/useWatch/Controller/form.reset), sonner toasts via useAppMessage hook. lucide-react for all @ant-design/icons. SliderWithValue updated to shadcn Slider API (value={[n]}, onValueChange). window.confirm() for non-React .ts hook (useSkills.ts). `npx tsc -b` — PASS (zero errors in slice). grep antd/`@agentscope-ai/design`/`@ant-design` in slice = ZERO.
 - Phase 2 — Control/Coding/Login/misc done — 2026-06-11 (CODER): Migrated entire assigned slice: `pages/Control/**` (Sessions, Channels, CronJobs, Heartbeat + all components), `pages/Coding/**` (index, FileTree, TabbedEditor, GitPanel — kept @monaco-editor/react + react-resizable-panels), `pages/Login/index.tsx`, `components/PlanPanel`, `components/ProjectSelectModal`, `components/SkillVisual`, `components/MarkdownCopy`, `components/MermaidCodeBlock`, `components/ChunkErrorBoundary`, `hooks/useAppMessage`, `utils/scanError`, `utils/freeModelSwitchWarning`. antd→shadcn: Sheet (Drawer), Dialog (Modal), AlertDialog (Popconfirm/Modal.confirm), useReactTable+ColumnDef (antd Table), Button, Input, Textarea, Select, Switch, Switch, Label, Badge→Tailwind span, Tooltip (Trigger/Content pattern), DropdownMenu (Table row actions), Checkbox. Form.useForm()→useState controlled state with form-proxy ref pattern (parent calls form.current.setFieldsValue/getFieldValue/resetFields/submit, child wires its own state into those methods via useEffect). Native `<input type="time">` + `<input type="datetime-local">` replace antd TimePicker/DatePicker. Tabs→CSS button tabs with activeTab state. Tag→Tailwind colored spans. `useAppMessage()` (sonner adapter) replaces `message.useMessage()`; removed all `{contextHolder}` usages. lucide-react for all @ant-design/icons. `createRoot` portal for imperative utils (scanError, freeModelSwitchWarning). `npx tsc -b` — one pre-existing error in `pages/Agent/Workspace/components/FileEditor.tsx` (outside slice, present before changes); zero new errors from this slice. grep antd/`@agentscope-ai/design`/`@ant-design` in slice = ZERO.
-- AionUi re-theme color sweep done — 2026-06-11: Replaced all hardcoded orange/cream/dark colors (#ff7f16, #d45b0a, #f9f8f4, #f9f7f3, #1a1a1a, #1e1e1e, rgba(255,127,22,*), rgba(255,157,77,*), rgba(43,18,0,*)) across 11 files with AionUi design tokens (bg-primary/text-primary-foreground, bg-accent, bg-muted, bg-card, bg-sidebar/border-sidebar-border, bg-border, text-foreground, text-muted-foreground). Chart orange series colors replaced with `#5b4b8a` (violet brand accent). BackendLoadingPage gauge stroke updated to `var(--primary)`. PreviewModal dark/light `pre` conditional replaced with single token class; unused `isDark` usage and `useTheme` import removed. Added `src/fontsource.d.ts` to declare `@fontsource-variable/inter` (pre-existing TS2307 error). `npx tsc -b` — PASS (zero errors). `npm run build` — SUCCESS. grep forbidden colors in 11 files = ZERO.
+- AionUi re-theme color sweep done — 2026-06-11: Replaced all hardcoded orange/cream/dark colors (#ff7f16, #d45b0a, #f9f8f4, #f9f7f3, #1a1a1a, #1e1e1e, rgba(255,127,22,_), rgba(255,157,77,_), rgba(43,18,0,\*)) across 11 files with AionUi design tokens (bg-primary/text-primary-foreground, bg-accent, bg-muted, bg-card, bg-sidebar/border-sidebar-border, bg-border, text-foreground, text-muted-foreground). Chart orange series colors replaced with `#5b4b8a` (violet brand accent). BackendLoadingPage gauge stroke updated to `var(--primary)`. PreviewModal dark/light `pre` conditional replaced with single token class; unused `isDark` usage and `useTheme` import removed. Added `src/fontsource.d.ts` to declare `@fontsource-variable/inter` (pre-existing TS2307 error). `npx tsc -b` — PASS (zero errors). `npm run build` — SUCCESS. grep forbidden colors in 11 files = ZERO.
 - Pre-PR a11y/theme fixes applied — 2026-06-11: (BLOCKERS) Added `sr-only` `SheetHeader`/`SheetTitle`/`SheetDescription` to `ChatSessionDrawer` and `ChatSearchPanel` to satisfy Radix accessible-name requirement. (SHOULD-FIX A) Replaced remaining hardcoded `#FF7F16` with `text-primary`/`bg-primary`/`accent-primary`/`var(--primary)` in ACPDrawer, ChannelDrawer, BackupProgress, BackupScopeForm, RestoreBackupModal, ProviderConfigModal, ModelSelector, AudioModeCard, ProviderTypeCard, HarvestCard (provider icon avatar palette entry in `providerLetterIcon.tsx` and App.tsx antd ConfigProvider intentionally preserved). (SHOULD-FIX B) Login page card/text literals replaced with `bg-card`/`text-muted-foreground`; `isDark` retained for gradient + logo src. (SHOULD-FIX C) Added `DialogDescription`/`SheetDescription` (sr-only) to ProjectSelectModal, PlanPanel, ImportHubModal, PoolTransferModal, SkillDrawer, useConflictRenameModal, AgentModal, CreateBackupModal, SilentBackupModal, CustomProviderModal, JobDrawer, CreateHarvestModal. `npx tsc -b` — PASS (zero errors). `npm run build` — SUCCESS (43.60s).
 
 ---
@@ -203,43 +209,43 @@ During the transition antd and Tailwind run side by side. To avoid style clashes
 
 Symbols tallied from grep over `console/src/**/*.{ts,tsx}` (antd + @agentscope-ai/design as the design system wrapper for antd). These are the top ~30 prioritised by count; count = distinct import-lines referencing the symbol (a file importing two components in one line counts as one per symbol).
 
-| Symbol | Source pkg | Approx count | Representative files |
-|---|---|---|---|
-| `Button` | antd / @agentscope-ai/design | ~60 | Most pages and components |
-| `Modal` | antd / @agentscope-ai/design | ~30 | Chat/index.tsx, Inbox/index.tsx, Agent/*, Settings/*, Control/* |
-| `Form` | antd / @agentscope-ai/design | ~28 | Login/index.tsx, Agent/Config/**, Control/CronJobs/JobDrawer.tsx, Control/Channels/ChannelDrawer.tsx, Settings/Agents/AgentModal.tsx, etc. |
-| `Input` | antd / @agentscope-ai/design | ~25 | Sidebar.tsx, Chat/ChatSessionItem, Settings/Models, Control/Sessions/FilterBar.tsx, etc. |
-| `Card` | antd / @agentscope-ai/design | ~22 | Inbox/*, Agent/Config/**, Settings/Models/**, ApprovalCard.tsx |
-| `Tooltip` | antd / @agentscope-ai/design | ~20 | Sidebar.tsx, Header.tsx, Coding/*, Chat/*, Control/CronJobs/columns.tsx |
-| `Tag` | antd / @agentscope-ai/design | ~18 | Inbox/*, Settings/Backups/ScopeTags.tsx, Control/Sessions/columns.tsx |
-| `Select` | antd / @agentscope-ai/design | ~17 | AgentSelector, Settings/Models, Control/Channels, Agent/MCP/index.tsx |
-| `Spin` | antd | ~15 | Layouts, Coding/FileTree.tsx, Chat/ModelSelector, Agent/Tools, Settings/* |
-| `Drawer` | antd / @agentscope-ai/design | ~12 | Chat/ChatSessionDrawer, Chat/ChatSearchPanel, Agent/Skills/SkillDrawer.tsx, Control/Sessions/SessionDrawer.tsx, Settings/Market/DetailDrawer.tsx |
-| `Table` | antd / @agentscope-ai/design | ~10 | Settings/Agents/AgentTable.tsx, Settings/Backups/BackupTable.tsx, Settings/Backups/RestoreAgentTable.tsx, Settings/PluginManager, Control/Sessions/index.tsx |
-| `Tabs` | antd / @agentscope-ai/design | ~9 | Agent/MCP/index.tsx, Agent/Config/index.tsx, Settings/PluginManager, Settings/Security |
-| `Switch` | antd / @agentscope-ai/design | ~8 | Agent/MCP/MCPOAuthSection, Agent/Config/**, Agent/Workspace/FileItem.tsx |
-| `Dropdown` | antd / @agentscope-ai/design | ~8 | Header.tsx, ThemeToggleButton, LanguageSwitcher, Control/CronJobs/columns.tsx |
-| `Typography` / `Text` | antd | ~8 | ApprovalCard.tsx, Settings/Debug, Settings/Backups/BackupProgress.tsx |
-| `Badge` | antd | ~6 | Header.tsx, Sidebar.tsx, Coding/index.tsx, Control/Channels/index.tsx |
-| `Progress` | antd | ~5 | PlanPanel, Settings/Backups/BackupProgress.tsx, Settings/Models/LocalModelManageModal.tsx, tauri/BackendLoadingPage.tsx |
-| `Alert` | antd | ~5 | Settings/VoiceTranscription/*, Control/Channels/ChannelDrawer.tsx |
-| `Checkbox` | antd / @agentscope-ai/design | ~5 | Settings/Backups/BackupScopeForm.tsx, Settings/Environments/EnvRow.tsx, Agent/Skills/* |
-| `Radio` | antd | ~5 | Settings/VoiceTranscription/*, Settings/Backups/BackupScopeForm.tsx |
-| `Popconfirm` | antd | ~5 | Settings/Agents/AgentTable.tsx, Settings/Backups/BackupTable.tsx, Inbox/PushMessageCard.tsx |
-| `Empty` | antd / @agentscope-ai/design | ~4 | Agent/MCP, Settings/AgentStats, Settings/PluginManager |
-| `Space` | antd | ~4 | ApprovalCard.tsx, Settings/Security, Settings/Backups/CreateBackupModal.tsx |
-| `DatePicker` / `TimePicker` | antd | ~4 | Settings/AgentStats/index.tsx, Settings/TokenUsage/index.tsx, Control/CronJobs/JobDrawer.tsx, Control/Heartbeat/index.tsx |
-| `Avatar` | antd | ~1 | Inbox/PushMessageCard.tsx |
-| `Pagination` | antd | ~1 | Settings/PluginManager/MarketPluginList.tsx |
-| `AutoComplete` | antd | ~1 | Settings/Models/RemoteModelManageModal.tsx |
-| `Slider` | @agentscope-ai/design | ~1 | Agent/Config/SliderWithValue.tsx |
-| `IconButton` | @agentscope-ai/design | ~8 | Chat/*, PlanPanel, ChatSessionItem, ChatActionGroup, ChatSearchPanel, WhisperSpeechButton |
-| `@ant-design/icons` (all) | @ant-design/icons | ~70 import-lines | Most pages — lucide replacements map below |
-| `@ant-design/plots` (Line/Column/Pie) | @ant-design/plots | 4 | Settings/TokenUsage/TokenTypeChart.tsx, Settings/TokenUsage/ModelTrendChart.tsx, Settings/AgentStats/index.tsx |
-| `@ant-design/x-markdown` (XMarkdown, ComponentProps) | @ant-design/x-markdown | 2 | Agent/Workspace/FileEditor.tsx, MermaidCodeBlock/mermaidComponents.tsx |
-| `@agentscope-ai/chat` (AgentScopeRuntimeWebUI, useChatAnywhere*, Attachments, Markdown) | @agentscope-ai/chat | ~15 | Chat/index.tsx, Chat/sessionApi, Chat/HostBubbles.tsx, ToolCards/shared/DefaultBlock.tsx, ToolCards/shared/MediaPreview.tsx |
-| `createGlobalStyle` | antd-style | 1 | App.tsx:1 (single usage — trivial CSS reset `* { margin:0; box-sizing:border-box }`) |
-| `ConfigProvider` / `bailianTheme` / `bailianDarkTheme` | @agentscope-ai/design | 3 | App.tsx (main theme wiring), ToolCards/shared/MediaPreview.tsx |
+| Symbol                                                                                   | Source pkg                   | Approx count     | Representative files                                                                                                                                         |
+| ---------------------------------------------------------------------------------------- | ---------------------------- | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `Button`                                                                                 | antd / @agentscope-ai/design | ~60              | Most pages and components                                                                                                                                    |
+| `Modal`                                                                                  | antd / @agentscope-ai/design | ~30              | Chat/index.tsx, Inbox/index.tsx, Agent/_, Settings/_, Control/\*                                                                                             |
+| `Form`                                                                                   | antd / @agentscope-ai/design | ~28              | Login/index.tsx, Agent/Config/\*\*, Control/CronJobs/JobDrawer.tsx, Control/Channels/ChannelDrawer.tsx, Settings/Agents/AgentModal.tsx, etc.                 |
+| `Input`                                                                                  | antd / @agentscope-ai/design | ~25              | Sidebar.tsx, Chat/ChatSessionItem, Settings/Models, Control/Sessions/FilterBar.tsx, etc.                                                                     |
+| `Card`                                                                                   | antd / @agentscope-ai/design | ~22              | Inbox/\*, Agent/Config/**, Settings/Models/**, ApprovalCard.tsx                                                                                              |
+| `Tooltip`                                                                                | antd / @agentscope-ai/design | ~20              | Sidebar.tsx, Header.tsx, Coding/_, Chat/_, Control/CronJobs/columns.tsx                                                                                      |
+| `Tag`                                                                                    | antd / @agentscope-ai/design | ~18              | Inbox/\*, Settings/Backups/ScopeTags.tsx, Control/Sessions/columns.tsx                                                                                       |
+| `Select`                                                                                 | antd / @agentscope-ai/design | ~17              | AgentSelector, Settings/Models, Control/Channels, Agent/MCP/index.tsx                                                                                        |
+| `Spin`                                                                                   | antd                         | ~15              | Layouts, Coding/FileTree.tsx, Chat/ModelSelector, Agent/Tools, Settings/\*                                                                                   |
+| `Drawer`                                                                                 | antd / @agentscope-ai/design | ~12              | Chat/ChatSessionDrawer, Chat/ChatSearchPanel, Agent/Skills/SkillDrawer.tsx, Control/Sessions/SessionDrawer.tsx, Settings/Market/DetailDrawer.tsx             |
+| `Table`                                                                                  | antd / @agentscope-ai/design | ~10              | Settings/Agents/AgentTable.tsx, Settings/Backups/BackupTable.tsx, Settings/Backups/RestoreAgentTable.tsx, Settings/PluginManager, Control/Sessions/index.tsx |
+| `Tabs`                                                                                   | antd / @agentscope-ai/design | ~9               | Agent/MCP/index.tsx, Agent/Config/index.tsx, Settings/PluginManager, Settings/Security                                                                       |
+| `Switch`                                                                                 | antd / @agentscope-ai/design | ~8               | Agent/MCP/MCPOAuthSection, Agent/Config/\*\*, Agent/Workspace/FileItem.tsx                                                                                   |
+| `Dropdown`                                                                               | antd / @agentscope-ai/design | ~8               | Header.tsx, ThemeToggleButton, LanguageSwitcher, Control/CronJobs/columns.tsx                                                                                |
+| `Typography` / `Text`                                                                    | antd                         | ~8               | ApprovalCard.tsx, Settings/Debug, Settings/Backups/BackupProgress.tsx                                                                                        |
+| `Badge`                                                                                  | antd                         | ~6               | Header.tsx, Sidebar.tsx, Coding/index.tsx, Control/Channels/index.tsx                                                                                        |
+| `Progress`                                                                               | antd                         | ~5               | PlanPanel, Settings/Backups/BackupProgress.tsx, Settings/Models/LocalModelManageModal.tsx, tauri/BackendLoadingPage.tsx                                      |
+| `Alert`                                                                                  | antd                         | ~5               | Settings/VoiceTranscription/\*, Control/Channels/ChannelDrawer.tsx                                                                                           |
+| `Checkbox`                                                                               | antd / @agentscope-ai/design | ~5               | Settings/Backups/BackupScopeForm.tsx, Settings/Environments/EnvRow.tsx, Agent/Skills/\*                                                                      |
+| `Radio`                                                                                  | antd                         | ~5               | Settings/VoiceTranscription/\*, Settings/Backups/BackupScopeForm.tsx                                                                                         |
+| `Popconfirm`                                                                             | antd                         | ~5               | Settings/Agents/AgentTable.tsx, Settings/Backups/BackupTable.tsx, Inbox/PushMessageCard.tsx                                                                  |
+| `Empty`                                                                                  | antd / @agentscope-ai/design | ~4               | Agent/MCP, Settings/AgentStats, Settings/PluginManager                                                                                                       |
+| `Space`                                                                                  | antd                         | ~4               | ApprovalCard.tsx, Settings/Security, Settings/Backups/CreateBackupModal.tsx                                                                                  |
+| `DatePicker` / `TimePicker`                                                              | antd                         | ~4               | Settings/AgentStats/index.tsx, Settings/TokenUsage/index.tsx, Control/CronJobs/JobDrawer.tsx, Control/Heartbeat/index.tsx                                    |
+| `Avatar`                                                                                 | antd                         | ~1               | Inbox/PushMessageCard.tsx                                                                                                                                    |
+| `Pagination`                                                                             | antd                         | ~1               | Settings/PluginManager/MarketPluginList.tsx                                                                                                                  |
+| `AutoComplete`                                                                           | antd                         | ~1               | Settings/Models/RemoteModelManageModal.tsx                                                                                                                   |
+| `Slider`                                                                                 | @agentscope-ai/design        | ~1               | Agent/Config/SliderWithValue.tsx                                                                                                                             |
+| `IconButton`                                                                             | @agentscope-ai/design        | ~8               | Chat/\*, PlanPanel, ChatSessionItem, ChatActionGroup, ChatSearchPanel, WhisperSpeechButton                                                                   |
+| `@ant-design/icons` (all)                                                                | @ant-design/icons            | ~70 import-lines | Most pages — lucide replacements map below                                                                                                                   |
+| `@ant-design/plots` (Line/Column/Pie)                                                    | @ant-design/plots            | 4                | Settings/TokenUsage/TokenTypeChart.tsx, Settings/TokenUsage/ModelTrendChart.tsx, Settings/AgentStats/index.tsx                                               |
+| `@ant-design/x-markdown` (XMarkdown, ComponentProps)                                     | @ant-design/x-markdown       | 2                | Agent/Workspace/FileEditor.tsx, MermaidCodeBlock/mermaidComponents.tsx                                                                                       |
+| `@agentscope-ai/chat` (AgentScopeRuntimeWebUI, useChatAnywhere\*, Attachments, Markdown) | @agentscope-ai/chat          | ~15              | Chat/index.tsx, Chat/sessionApi, Chat/HostBubbles.tsx, ToolCards/shared/DefaultBlock.tsx, ToolCards/shared/MediaPreview.tsx                                  |
+| `createGlobalStyle`                                                                      | antd-style                   | 1                | App.tsx:1 (single usage — trivial CSS reset `* { margin:0; box-sizing:border-box }`)                                                                         |
+| `ConfigProvider` / `bailianTheme` / `bailianDarkTheme`                                   | @agentscope-ai/design        | 3                | App.tsx (main theme wiring), ToolCards/shared/MediaPreview.tsx                                                                                               |
 
 **Lucide icon replacements for `@ant-design/icons`:** The top antd icons used are: `PlusOutlined` (Add/Plus), `SearchOutlined` (Search), `EditOutlined` (Pencil), `DeleteOutlined` (Trash2), `CopyOutlined` (Copy), `MoreOutlined` (MoreHorizontal), `DownloadOutlined` (Download), `UploadOutlined` (Upload), `SaveOutlined` (Save), `CloseOutlined` (X), `CheckOutlined` (Check), `SyncOutlined` (RefreshCw), `FilterOutlined` (Filter), `EyeOutlined`/`EyeInvisibleOutlined` (Eye/EyeOff), `MenuOutlined` (Menu/GripVertical), `LinkOutlined` (Link), `ReloadOutlined` (RotateCcw), `SettingOutlined` (Settings), `LoadingOutlined` (Loader2+animate-spin). Many lucide equivalents are already used in `ApprovalCard.tsx` (Shield, Check, X, Clock, Copy).
 
@@ -248,6 +254,7 @@ Symbols tallied from grep over `console/src/**/*.{ts,tsx}` (antd + @agentscope-a
 **Transport — how the stream is opened**
 
 `console/src/pages/Chat/index.tsx` lines 1166–1238 show a `customFetch` function that POSTs to `GET_API_URL("/console/chat")` with:
+
 ```json
 {
   "input": [...],            // last user message content parts
@@ -258,6 +265,7 @@ Symbols tallied from grep over `console/src/**/*.{ts,tsx}` (antd + @agentscope-a
   ...biz_params
 }
 ```
+
 Headers include `buildAuthHeaders()` (Bearer token from `src/api/authHeaders.ts`).
 
 The raw `Response` is passed directly into `AgentScopeRuntimeWebUI` via `options.api.fetch`. The SDK library (`@agentscope-ai/chat`) owns SSE frame parsing internally; the host only provides a `responseParser` callback that receives individual parsed JSON chunks.
@@ -269,34 +277,35 @@ The raw `Response` is passed directly into `AgentScopeRuntimeWebUI` via `options
 
 All events carry `{ id, created_at }` from `EventBase` plus a `reply_id` linking to the message, and a `type` discriminator (uppercase snake-case in TS, e.g. `"REPLY_START"`).
 
-| Event type | Key fields | UI rendering note |
-|---|---|---|
-| `ReplyStartEvent` | `reply_id`, `session_id`, `name`, `role` | Create new `AssistantMsg({ name, content: [], id: reply_id })` |
-| `TextBlockStartEvent` | `reply_id`, `block_id` | Start new text bubble |
-| `TextBlockDeltaEvent` | `reply_id`, `block_id`, `delta: str` | Append `delta` to running text — primary incremental text stream |
-| `TextBlockEndEvent` | `reply_id`, `block_id` | Finalise text block |
-| `ThinkingBlockStartEvent` | `reply_id`, `block_id` | Start collapsible thinking panel |
-| `ThinkingBlockDeltaEvent` | `reply_id`, `block_id`, `delta: str` | Append to thinking text |
-| `ThinkingBlockEndEvent` | `reply_id`, `block_id` | Finalise thinking block |
-| `DataBlockStartEvent` | `reply_id`, `block_id`, `media_type` | Prepare image/audio/video receiver |
-| `DataBlockDeltaEvent` | `reply_id`, `block_id`, `data: str (base64)`, `media_type` | Accumulate base64 data |
-| `DataBlockEndEvent` | `reply_id`, `block_id` | Render media block |
-| `ToolCallStartEvent` | `reply_id`, `tool_call_id`, `tool_call_name` | Open tool_call card (ToolCardShell) |
-| `ToolCallDeltaEvent` | `reply_id`, `tool_call_id`, `delta: str (JSON fragment)` | Stream tool input |
-| `ToolCallEndEvent` | `reply_id`, `tool_call_id` | Finalise tool call input |
-| `ToolResultStartEvent` | `reply_id`, `tool_call_id`, `tool_call_name` | Open tool_result card |
-| `ToolResultTextDeltaEvent` | `reply_id`, `tool_call_id`, `delta: str` | Stream tool output text |
-| `ToolResultDataDeltaEvent` | `reply_id`, `tool_call_id`, `block_id`, `media_type`, `data\|url` | Binary tool output |
-| `ToolResultEndEvent` | `reply_id`, `tool_call_id`, `state: SUCCESS\|ERROR\|INTERRUPTED\|DENIED\|RUNNING` | Finalise tool result |
-| `RequireUserConfirmEvent` | `reply_id`, `tool_calls: ToolCallBlock[]` | Triggers `ApprovalCard` — sets tool call state to `ASKING` |
-| `ReplyEndEvent` | `reply_id`, `session_id` | Mark message `finished_at`, hide loading indicator |
-| `HintBlockEvent` | `reply_id`, `block_id`, `hint: str\|list`, `source: str\|null` | Out-of-band hint (scheduled task trigger, team message) |
-| `CustomEvent` | `reply_id`, `name`, `value: dict` | Service signals (`tasks_context`, `team_updated`, etc.) |
-| `ModelCallStartEvent` | `reply_id`, `model_name` | Optional loading indicator |
-| `ModelCallEndEvent` | `reply_id`, `input_tokens`, `output_tokens` | Token count display |
-| `ExceedMaxItersEvent` | `reply_id`, `name` | Error state in bubble |
+| Event type                 | Key fields                                                                        | UI rendering note                                                |
+| -------------------------- | --------------------------------------------------------------------------------- | ---------------------------------------------------------------- |
+| `ReplyStartEvent`          | `reply_id`, `session_id`, `name`, `role`                                          | Create new `AssistantMsg({ name, content: [], id: reply_id })`   |
+| `TextBlockStartEvent`      | `reply_id`, `block_id`                                                            | Start new text bubble                                            |
+| `TextBlockDeltaEvent`      | `reply_id`, `block_id`, `delta: str`                                              | Append `delta` to running text — primary incremental text stream |
+| `TextBlockEndEvent`        | `reply_id`, `block_id`                                                            | Finalise text block                                              |
+| `ThinkingBlockStartEvent`  | `reply_id`, `block_id`                                                            | Start collapsible thinking panel                                 |
+| `ThinkingBlockDeltaEvent`  | `reply_id`, `block_id`, `delta: str`                                              | Append to thinking text                                          |
+| `ThinkingBlockEndEvent`    | `reply_id`, `block_id`                                                            | Finalise thinking block                                          |
+| `DataBlockStartEvent`      | `reply_id`, `block_id`, `media_type`                                              | Prepare image/audio/video receiver                               |
+| `DataBlockDeltaEvent`      | `reply_id`, `block_id`, `data: str (base64)`, `media_type`                        | Accumulate base64 data                                           |
+| `DataBlockEndEvent`        | `reply_id`, `block_id`                                                            | Render media block                                               |
+| `ToolCallStartEvent`       | `reply_id`, `tool_call_id`, `tool_call_name`                                      | Open tool_call card (ToolCardShell)                              |
+| `ToolCallDeltaEvent`       | `reply_id`, `tool_call_id`, `delta: str (JSON fragment)`                          | Stream tool input                                                |
+| `ToolCallEndEvent`         | `reply_id`, `tool_call_id`                                                        | Finalise tool call input                                         |
+| `ToolResultStartEvent`     | `reply_id`, `tool_call_id`, `tool_call_name`                                      | Open tool_result card                                            |
+| `ToolResultTextDeltaEvent` | `reply_id`, `tool_call_id`, `delta: str`                                          | Stream tool output text                                          |
+| `ToolResultDataDeltaEvent` | `reply_id`, `tool_call_id`, `block_id`, `media_type`, `data\|url`                 | Binary tool output                                               |
+| `ToolResultEndEvent`       | `reply_id`, `tool_call_id`, `state: SUCCESS\|ERROR\|INTERRUPTED\|DENIED\|RUNNING` | Finalise tool result                                             |
+| `RequireUserConfirmEvent`  | `reply_id`, `tool_calls: ToolCallBlock[]`                                         | Triggers `ApprovalCard` — sets tool call state to `ASKING`       |
+| `ReplyEndEvent`            | `reply_id`, `session_id`                                                          | Mark message `finished_at`, hide loading indicator               |
+| `HintBlockEvent`           | `reply_id`, `block_id`, `hint: str\|list`, `source: str\|null`                    | Out-of-band hint (scheduled task trigger, team message)          |
+| `CustomEvent`              | `reply_id`, `name`, `value: dict`                                                 | Service signals (`tasks_context`, `team_updated`, etc.)          |
+| `ModelCallStartEvent`      | `reply_id`, `model_name`                                                          | Optional loading indicator                                       |
+| `ModelCallEndEvent`        | `reply_id`, `input_tokens`, `output_tokens`                                       | Token count display                                              |
+| `ExceedMaxItersEvent`      | `reply_id`, `name`                                                                | Error state in bubble                                            |
 
 **responseParser in Chat/index.tsx lines 1607–1625**: The host's `responseParser` receives each parsed JSON chunk. It checks:
+
 - `payload.type === "rate_limited"` — shows banner with alternative models
 - `payloadRequestsHistoryClear(payload)` (checks `metadata.clear_history === true`) — queues a message history wipe
 - `payloadCompletesResponse(payload)` (checks `object === "response" && status === "completed"`) — fires the clear
@@ -315,22 +324,23 @@ All other payloads are returned as-is for the SDK to render. The host never dire
 
 **Table usages (antd `Table` + `ColumnsType`):**
 
-| File | Table source | ColumnsType target |
-|---|---|---|
-| `console/src/pages/Settings/Agents/components/AgentTable.tsx:1` | `antd` | `ColumnsType<AgentSummary>` (line 71) |
-| `console/src/pages/Settings/Backups/list/BackupTable.tsx:11` | `antd` | `ColumnsType<BackupMeta>` (line 86) |
-| `console/src/pages/Settings/Backups/restore/RestoreAgentTable.tsx:9` | `antd` | `TableColumnsType<AgentRow>` (line 93) |
-| `console/src/pages/Settings/PluginManager/index.tsx:2` | `antd` | inline columns |
-| `console/src/pages/Control/Sessions/index.tsx:3` | `@agentscope-ai/design` | `ColumnsType<Session>` via columns.tsx |
-| `console/src/pages/Settings/TokenUsage/components/DataTables.tsx:1` | `@agentscope-ai/design` | inline columns |
-| `console/src/pages/Control/CronJobs/components/columns.tsx:2` | `ColumnsType` from `antd/es/table` | `ColumnsType<CronJob>` (line 50) |
-| `console/src/pages/Control/Sessions/components/columns.tsx:4` | `ColumnsType` from `antd/es/table` | `ColumnsType<Session>` (line 26) |
+| File                                                                 | Table source                       | ColumnsType target                     |
+| -------------------------------------------------------------------- | ---------------------------------- | -------------------------------------- |
+| `console/src/pages/Settings/Agents/components/AgentTable.tsx:1`      | `antd`                             | `ColumnsType<AgentSummary>` (line 71)  |
+| `console/src/pages/Settings/Backups/list/BackupTable.tsx:11`         | `antd`                             | `ColumnsType<BackupMeta>` (line 86)    |
+| `console/src/pages/Settings/Backups/restore/RestoreAgentTable.tsx:9` | `antd`                             | `TableColumnsType<AgentRow>` (line 93) |
+| `console/src/pages/Settings/PluginManager/index.tsx:2`               | `antd`                             | inline columns                         |
+| `console/src/pages/Control/Sessions/index.tsx:3`                     | `@agentscope-ai/design`            | `ColumnsType<Session>` via columns.tsx |
+| `console/src/pages/Settings/TokenUsage/components/DataTables.tsx:1`  | `@agentscope-ai/design`            | inline columns                         |
+| `console/src/pages/Control/CronJobs/components/columns.tsx:2`        | `ColumnsType` from `antd/es/table` | `ColumnsType<CronJob>` (line 50)       |
+| `console/src/pages/Control/Sessions/components/columns.tsx:4`        | `ColumnsType` from `antd/es/table` | `ColumnsType<Session>` (line 26)       |
 
 All `columns.tsx` files define `createColumns(handlers): ColumnsType<T>` factory functions. Migration path: replace `ColumnsType` with `@tanstack/react-table` `ColumnDef<T>` and render via shadcn `Table` + `useReactTable`.
 
 **Form usages (heavy — 37 files):**
 
 Top files with full antd Form:
+
 - `console/src/pages/Login/index.tsx` — login form (email/password, Form + Form.Item)
 - `console/src/pages/Settings/Agents/components/AgentModal.tsx` — agent create/edit Form
 - `console/src/layouts/Sidebar.tsx` — rename session Form inside Modal
@@ -349,8 +359,8 @@ Migration: all use `Form.useForm()` / `Form.Item` validation pattern. Replace wi
 
 ### 10.4 antd-style `createStyles` / `createGlobalStyle` usages
 
-| File | Pattern | Notes |
-|---|---|---|
+| File                       | Pattern                               | Notes                                                                                                                                                                    |
+| -------------------------- | ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `console/src/App.tsx:1,56` | `createGlobalStyle` from `antd-style` | Single usage: CSS reset (`* { margin:0; box-sizing:border-box }`). **Trivial** — remove `antd-style` dep, move content to `src/index.css` Tailwind layer or as bare CSS. |
 
 No `createStyles` usages found in the codebase. The only `antd-style` usage is this single `createGlobalStyle` in `App.tsx`. All component-level styles use `.module.less` files.
@@ -358,49 +368,55 @@ No `createStyles` usages found in the codebase. The only `antd-style` usage is t
 ### 10.5 ApprovalCard + ApprovalContext flow
 
 **Files involved:**
+
 - `console/src/contexts/ApprovalContext.tsx` — context provider
 - `console/src/components/ApprovalCard/ApprovalCard.tsx` — floating overlay card (used in Chat)
 - `console/src/components/ApprovalCard/ApprovalCard.module.less` — styles
 - `console/src/pages/Inbox/components/ApprovalCard.tsx` — Inbox variant (simpler)
 
 **ApprovalContext (`ApprovalContext.tsx`):**
+
 ```
 interface ApprovalContextValue {
   approvals: PendingApproval[];          // from api/modules/console
   setApprovals: Dispatch<SetStateAction<PendingApproval[]>>;
 }
 ```
+
 `useApprovalContext()` throws if called outside `ApprovalProvider`. `ApprovalProvider` wraps the whole app in `App.tsx`. Approvals are polled from the backend (via `console` module) and stored here; `Chat/index.tsx` subscribes and filters by `root_session_id`.
 
 **`ApprovalCard` props (components/ApprovalCard/ApprovalCard.tsx:11-29):**
+
 ```typescript
 interface ApprovalCardProps {
   requestId: string;
   toolName: string;
-  severity: string;                // "critical"|"high"|"medium"|"low"
+  severity: string; // "critical"|"high"|"medium"|"low"
   findingsCount: number;
   findingsSummary: string;
   toolParams: Record<string, unknown>;
-  createdAt: number;               // unix seconds
-  timeoutSeconds: number;          // countdown timer
+  createdAt: number; // unix seconds
+  timeoutSeconds: number; // countdown timer
   agentId: string;
   ownerAgentId?: string;
-  showInboxAgentContext?: boolean;  // true in Inbox, false in Chat overlay
+  showInboxAgentContext?: boolean; // true in Inbox, false in Chat overlay
   sessionId?: string;
   rootSessionId?: string;
   onApprove: (requestId: string) => Promise<void>;
   onDeny: (requestId: string) => Promise<void>;
-  onCancel?: () => void;           // only in Chat overlay — calls chatApi.stopChat
+  onCancel?: () => void; // only in Chat overlay — calls chatApi.stopChat
   onAcknowledge?: (requestId: string) => Promise<void>; // only in Inbox (timed-out)
 }
 ```
 
 **Internal states:**
+
 - `loading: "approve" | "deny" | "acknowledge" | null` — button loading state
 - `remaining: number` — countdown (seconds) from `timeoutSeconds - elapsed`; reaches 0 → `isTimedOut`
 - `copiedField: string | null` — copy-to-clipboard feedback for summary/params
 
 **Rendering logic:**
+
 - Header: Shield icon + "Security Approval Required" title + countdown timer (MM:SS)
 - Agent context row (Inbox only): Owner Agent tag + Executing Agent tag (cross-session)
 - Info rows: Tool (code), Severity (Badge/Tag with color: error/warning/default), Findings count
@@ -460,6 +476,7 @@ Scope: all files listed in the Phase 0 + Phase 1 progress log entries, plus supp
 
 **B-1 — Wrong dark variant in multiple Phase 1 files (dark mode broken for those elements)**
 Files and lines:
+
 - `src/layouts/Header.tsx:58` — `dark:hover:bg-white/10` (inside `UpdateCodeBlock`)
 - `src/components/ApprovalCard/ApprovalCard.tsx:181,193,239` — `dark:bg-green-900/30 dark:text-green-400`, `dark:bg-blue-900/30 dark:text-blue-400`
 - `src/pages/Inbox/components/ApprovalCard.tsx:29,30` — `dark:bg-blue-900/30`, `dark:bg-orange-900/30`
@@ -591,25 +608,25 @@ Fix (Phase 2 cleanup): replace `.inboxPage` and `.pageContent` with Tailwind equ
 
 **Summary table**
 
-| ID | Severity | File | One-line fix |
-|---|---|---|---|
-| B-1 | blocker | Multiple (see above) | Replace every `dark:` with `dark-mode:` in all Phase 1 migrated files |
-| B-2 | blocker | `src/layouts/Header.tsx:263` | Add `DialogTitle` + `DialogDescription` to the update modal |
-| B-3 | blocker | `src/components/CodingModeToggle/index.tsx:147` | Add `DialogDescription` to experimental confirm dialog |
-| B-4 | blocker | `src/layouts/Sidebar.tsx:511` | Add `DialogDescription` to the account update dialog |
-| S-1 | should-fix | `src/pages/Inbox/index.tsx:68` | Schedule Less module removal in Phase 2; mark antd CSS selectors as dead |
-| S-2 | should-fix | `src/pages/Inbox/components/PushMessageCard.tsx:29` | Convert last 2 Less classes to Tailwind; remove Less import |
-| S-3 | should-fix | `src/App.tsx:1` | Remove `createGlobalStyle` / `antd-style` import; styles already covered by Tailwind preflight |
-| S-4 | should-fix | `src/App.tsx:195` | Pass `theme={isDark ? "dark" : "light"}` to `<Toaster />` |
-| S-5 | should-fix | `src/components/ApprovalCard/ApprovalCard.tsx:111,115,325` | Remove debug `console.log` calls |
-| S-6 | should-fix | `src/components/ApprovalCard/ApprovalCard.tsx:123,132` | Add `catch` to `handleDeny` and `handleAcknowledge` with `toast.error` |
-| S-7 | should-fix | `src/layouts/Sidebar.tsx:166,177` | Remove unused `isDark` destructure |
-| S-8 | should-fix | `src/layouts/Header.tsx:56` | Add `aria-label` or `<span className="sr-only">Copy</span>` to copy button |
-| S-9 | should-fix | `src/layouts/Header.tsx:269` | Fix image path `/public/qwenpawBack.png` → `/qwenpawBack.png` |
-| N-1 | nice-to-have | `src/pages/Inbox/index.tsx:108,127` | Wrap "Prev"/"Next" in `t()` |
-| N-2 | nice-to-have | `console/vite.config.ts:143` | Add `shadcn-vendor` chunk for `@radix-ui/*` |
-| N-3 | nice-to-have | `src/App.tsx:50` + `src/components/LanguageSwitcher/index.tsx:30` | Add `pt-BR` to `dayjsLocaleMap` + import dayjs pt-br locale |
-| N-4 | nice-to-have | `src/pages/Inbox/index.tsx:337` | Replace `.inboxPage`/`.pageContent` Less classes with Tailwind equivalents |
+| ID  | Severity     | File                                                              | One-line fix                                                                                   |
+| --- | ------------ | ----------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| B-1 | blocker      | Multiple (see above)                                              | Replace every `dark:` with `dark-mode:` in all Phase 1 migrated files                          |
+| B-2 | blocker      | `src/layouts/Header.tsx:263`                                      | Add `DialogTitle` + `DialogDescription` to the update modal                                    |
+| B-3 | blocker      | `src/components/CodingModeToggle/index.tsx:147`                   | Add `DialogDescription` to experimental confirm dialog                                         |
+| B-4 | blocker      | `src/layouts/Sidebar.tsx:511`                                     | Add `DialogDescription` to the account update dialog                                           |
+| S-1 | should-fix   | `src/pages/Inbox/index.tsx:68`                                    | Schedule Less module removal in Phase 2; mark antd CSS selectors as dead                       |
+| S-2 | should-fix   | `src/pages/Inbox/components/PushMessageCard.tsx:29`               | Convert last 2 Less classes to Tailwind; remove Less import                                    |
+| S-3 | should-fix   | `src/App.tsx:1`                                                   | Remove `createGlobalStyle` / `antd-style` import; styles already covered by Tailwind preflight |
+| S-4 | should-fix   | `src/App.tsx:195`                                                 | Pass `theme={isDark ? "dark" : "light"}` to `<Toaster />`                                      |
+| S-5 | should-fix   | `src/components/ApprovalCard/ApprovalCard.tsx:111,115,325`        | Remove debug `console.log` calls                                                               |
+| S-6 | should-fix   | `src/components/ApprovalCard/ApprovalCard.tsx:123,132`            | Add `catch` to `handleDeny` and `handleAcknowledge` with `toast.error`                         |
+| S-7 | should-fix   | `src/layouts/Sidebar.tsx:166,177`                                 | Remove unused `isDark` destructure                                                             |
+| S-8 | should-fix   | `src/layouts/Header.tsx:56`                                       | Add `aria-label` or `<span className="sr-only">Copy</span>` to copy button                     |
+| S-9 | should-fix   | `src/layouts/Header.tsx:269`                                      | Fix image path `/public/qwenpawBack.png` → `/qwenpawBack.png`                                  |
+| N-1 | nice-to-have | `src/pages/Inbox/index.tsx:108,127`                               | Wrap "Prev"/"Next" in `t()`                                                                    |
+| N-2 | nice-to-have | `console/vite.config.ts:143`                                      | Add `shadcn-vendor` chunk for `@radix-ui/*`                                                    |
+| N-3 | nice-to-have | `src/App.tsx:50` + `src/components/LanguageSwitcher/index.tsx:30` | Add `pt-BR` to `dayjsLocaleMap` + import dayjs pt-br locale                                    |
+| N-4 | nice-to-have | `src/pages/Inbox/index.tsx:337`                                   | Replace `.inboxPage`/`.pageContent` Less classes with Tailwind equivalents                     |
 
 - Review fixes applied — 2026-06-11 (CODER, Phase 0/1 review): Applied all real findings from "Review — Phase 0/1". B-1 skipped (confirmed false positive — `@custom-variant dark (&:is(.dark-mode *))` makes `dark:` correct). Changes: B-2 `Header.tsx` update modal → added `DialogHeader`/`DialogTitle`/`DialogDescription` (sr-only); B-3 `CodingModeToggle/index.tsx` → added `DialogDescription` (sr-only); B-4 `Sidebar.tsx` account dialog → added `DialogDescription` (sr-only); S-3 `App.tsx` → removed `createGlobalStyle` import + `<GlobalStyle/>` + `antd-style` dep usage; S-4 `App.tsx` → `<Toaster theme={isDark ? "dark" : "light"} />`; S-5 `ApprovalCard.tsx` → removed 3 `console.log` calls; S-6 `ApprovalCard.tsx` → added `catch (err) { toast.error(...) }` to `handleDeny` + `handleAcknowledge`; S-7 `Sidebar.tsx` → removed unused `isDark` destructure + `void isDark` + `useTheme` import; S-8 `Header.tsx` copy button → added `aria-label="Copy"` + `<span className="sr-only">Copy</span>`; S-9 `Header.tsx` → fixed bg image path `/public/qwenpawBack.png` → `/qwenpawBack.png`; S-1/S-2/N-4 `pages/Inbox/index.tsx` + `pages/Inbox/components/PushMessageCard.tsx` → converted all `styles.*` Less module usage to Tailwind classes, removed both Less imports, deleted orphan `index.module.less` + `PushMessageCard.module.less`; N-3 `App.tsx` → added `pt: "pt-br"` + `"pt-BR": "pt-br"` to `dayjsLocaleMap` + `import "dayjs/locale/pt-br"`. Verification: zero tsc errors in touched files; `npx vite build` SUCCESS (34.24s).
 - Phase 2 — Chat core done — 2026-06-11: Migrated all files in `pages/Chat/**` and `components/Chat/**` (ToolCards). antd/`@ant-design/icons`/`antd-style`/`@agentscope-ai/design`/`@agentscope-ai/icons` = ZERO in slice. `@agentscope-ai/chat` intentionally retained (Phase 3 cleanup) in: `pages/Chat/index.tsx` (AgentScopeRuntimeWebUI, useChatAnywhereInput), `pages/Chat/HostBubbles.tsx` (VendorRequestCard/VendorResponseCard), `pages/Chat/sessionApi/index.ts` (IAgentScopeRuntimeWebUISessionAPI), `pages/Chat/components/ChatSessionDrawer/index.tsx` (useChatAnywhereSessionsState, useChatAnywhereSessions), `pages/Chat/components/ChatActionGroup/index.tsx` (useChatAnywhereSessionsState), `pages/Chat/components/ChatHeaderTitle/index.tsx` (useChatAnywhereSessionsState), `pages/Chat/components/ChatSearchPanel/index.tsx` (useChatAnywhereSessions), `pages/Chat/components/ChatSessionInitializer/index.tsx` (IAgentScopeRuntimeWebUISession), `components/Chat/ToolCards/adapters/v1Adapter.tsx`, `components/Chat/ToolCards/registerBuiltinCards.ts`. Key migrations: Modal→Dialog (Chat/index model prompt + ModelSelector nav confirm + OAuthConfirmModal), Drawer→Sheet (ChatSessionDrawer + ChatSearchPanel), antd Tooltip→shadcn Tooltip everywhere, message/notification→sonner toast, antd Input/Button→native input + shadcn Button, all 22 tool-card `@ant-design/icons` → lucide-react (FilePlus/Globe/MessageSquare/RefreshCw/Webhook/Monitor/Pencil/Clock/FolderOpen/Search/Users/Zap/Lightbulb/FileText/Send/Terminal/Rocket/BarChart2/ImageIcon/Film/FilePlus), `@agentscope-ai/chat Markdown`→ReactMarkdown+remarkGfm, `@agentscope-ai/design Audio/Video`→native html5. `npx tsc -b` — PASS (zero errors in slice). grep antd/`@ant-design`/`antd-style` in slice = ZERO.

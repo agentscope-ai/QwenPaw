@@ -53,7 +53,9 @@ export default function BackupScopeForm({ value, onChange, agents }: Props) {
               />
               <span>
                 <strong>
-                  {mode === "full" ? t("backup.fullBackup") : t("backup.partialBackup")}
+                  {mode === "full"
+                    ? t("backup.fullBackup")
+                    : t("backup.partialBackup")}
                 </strong>
                 <div className={styles.radioDesc}>
                   {mode === "full"
@@ -97,9 +99,7 @@ export default function BackupScopeForm({ value, onChange, agents }: Props) {
             <Checkbox
               id="scope-global-config"
               checked={value.globalConfig}
-              onCheckedChange={(checked) =>
-                set({ globalConfig: !!checked })
-              }
+              onCheckedChange={(checked) => set({ globalConfig: !!checked })}
             />
             <Label htmlFor="scope-global-config" className="cursor-pointer">
               {t("backup.scopeGlobalConfig")}

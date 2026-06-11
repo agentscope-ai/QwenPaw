@@ -30,7 +30,11 @@ export const ChannelCard = React.memo(function ChannelCard({
       className={`
         group border rounded-xl p-6 cursor-pointer transition-all select-none
         hover:border-primary/60 hover:shadow-md
-        ${enabled ? "border-green-500/40 bg-green-500/5" : "border-border bg-card"}
+        ${
+          enabled
+            ? "border-green-500/40 bg-green-500/5"
+            : "border-border bg-card"
+        }
       `}
     >
       {/* Top: Icon + Status */}
@@ -46,7 +50,9 @@ export const ChannelCard = React.memo(function ChannelCard({
           />
           <span
             className={`text-xs ${
-              enabled ? "text-green-600 dark-mode:text-green-400" : "text-muted-foreground"
+              enabled
+                ? "text-green-600 dark-mode:text-green-400"
+                : "text-muted-foreground"
             }`}
           >
             {enabled ? t("common.enabled") : t("common.disabled")}

@@ -10,14 +10,23 @@ import {
 import { useTranslation } from "react-i18next";
 import type { ToolGuardRule } from "../../../../api/modules/security";
 
-const SEVERITY_VARIANT: Record<
-  string,
-  { className: string }
-> = {
-  CRITICAL: { className: "border-red-400 text-red-600 bg-red-50 dark:bg-red-950 dark:text-red-400" },
-  HIGH: { className: "border-orange-400 text-orange-600 bg-orange-50 dark:bg-orange-950 dark:text-orange-400" },
-  MEDIUM: { className: "border-yellow-400 text-yellow-600 bg-yellow-50 dark:bg-yellow-950 dark:text-yellow-400" },
-  LOW: { className: "border-blue-400 text-blue-600 bg-blue-50 dark:bg-blue-950 dark:text-blue-400" },
+const SEVERITY_VARIANT: Record<string, { className: string }> = {
+  CRITICAL: {
+    className:
+      "border-red-400 text-red-600 bg-red-50 dark:bg-red-950 dark:text-red-400",
+  },
+  HIGH: {
+    className:
+      "border-orange-400 text-orange-600 bg-orange-50 dark:bg-orange-950 dark:text-orange-400",
+  },
+  MEDIUM: {
+    className:
+      "border-yellow-400 text-yellow-600 bg-yellow-50 dark:bg-yellow-950 dark:text-yellow-400",
+  },
+  LOW: {
+    className:
+      "border-blue-400 text-blue-600 bg-blue-50 dark:bg-blue-950 dark:text-blue-400",
+  },
   INFO: { className: "" },
 };
 
@@ -31,7 +40,12 @@ export function PreviewModal({ rule, onClose }: PreviewModalProps) {
   const preClass = "bg-muted text-foreground border border-border";
 
   return (
-    <Dialog open={!!rule} onOpenChange={(v) => { if (!v) onClose(); }}>
+    <Dialog
+      open={!!rule}
+      onOpenChange={(v) => {
+        if (!v) onClose();
+      }}
+    >
       <DialogContent className="max-w-[640px]">
         <DialogHeader>
           <DialogTitle>{t("security.rules.previewTitle")}</DialogTitle>
@@ -46,7 +60,9 @@ export function PreviewModal({ rule, onClose }: PreviewModalProps) {
               <strong>{t("security.rules.severityLabel")}:</strong>
               <Badge
                 variant="outline"
-                className={`text-xs ${SEVERITY_VARIANT[rule.severity]?.className ?? ""}`}
+                className={`text-xs ${
+                  SEVERITY_VARIANT[rule.severity]?.className ?? ""
+                }`}
               >
                 {rule.severity}
               </Badge>
@@ -65,7 +81,10 @@ export function PreviewModal({ rule, onClose }: PreviewModalProps) {
             </p>
             <p className="flex items-center gap-2">
               <strong>{t("security.rules.actionLabel")}:</strong>
-              <Badge variant="outline" className="text-xs border-border text-foreground">
+              <Badge
+                variant="outline"
+                className="text-xs border-border text-foreground"
+              >
                 {t("security.rules.actionApproval")}
               </Badge>
             </p>
@@ -86,7 +105,9 @@ export function PreviewModal({ rule, onClose }: PreviewModalProps) {
                 <p>
                   <strong>{t("security.rules.excludePatterns")}:</strong>
                 </p>
-                <pre className={`rounded-md p-3 text-[13px] font-mono ${preClass}`}>
+                <pre
+                  className={`rounded-md p-3 text-[13px] font-mono ${preClass}`}
+                >
                   {rule.exclude_patterns.join("\n")}
                 </pre>
               </>

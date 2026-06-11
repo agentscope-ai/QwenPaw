@@ -64,7 +64,13 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Loader2, List, Calendar, ChevronLeft, ChevronRight } from "lucide-react";
+import {
+  Loader2,
+  List,
+  Calendar,
+  ChevronLeft,
+  ChevronRight,
+} from "lucide-react";
 
 type CronJob = CronJobSpecOutput;
 type OneTimeCronJob = CronJob & {
@@ -114,12 +120,18 @@ function CronJobsPage() {
   const [scheduleTypeFilter, setScheduleTypeFilter] =
     useState<ScheduleTypeFilter>("all");
   const [calendarMonth, setCalendarMonth] = useState(dayjs());
-  const [activePopoverDate, setActivePopoverDate] = useState<string | null>(null);
+  const [activePopoverDate, setActivePopoverDate] = useState<string | null>(
+    null,
+  );
   const [historyModalOpen, setHistoryModalOpen] = useState(false);
   const [historyLoading, setHistoryLoading] = useState(false);
-  const [historyRecords, setHistoryRecords] = useState<CronJobExecutionRecord[]>([]);
+  const [historyRecords, setHistoryRecords] = useState<
+    CronJobExecutionRecord[]
+  >([]);
   const [historyJobName, setHistoryJobName] = useState("");
-  const [expandedHistoryErrors, setExpandedHistoryErrors] = useState<Set<string>>(new Set());
+  const [expandedHistoryErrors, setExpandedHistoryErrors] = useState<
+    Set<string>
+  >(new Set());
   const [userTimezone, setUserTimezone] = useState("UTC");
   const [confirmState, setConfirmState] = useState<ConfirmState>({
     open: false,
@@ -578,7 +590,9 @@ function CronJobsPage() {
             {viewMode === "list" && (
               <Select
                 value={scheduleTypeFilter}
-                onValueChange={(v) => setScheduleTypeFilter(v as ScheduleTypeFilter)}
+                onValueChange={(v) =>
+                  setScheduleTypeFilter(v as ScheduleTypeFilter)
+                }
               >
                 <SelectTrigger className="w-[200px]">
                   <SelectValue />
@@ -620,9 +634,7 @@ function CronJobsPage() {
                 <Calendar size={16} />
               </button>
             </div>
-            <Button onClick={handleCreate}>
-              + {t("cronJobs.createJob")}
-            </Button>
+            <Button onClick={handleCreate}>+ {t("cronJobs.createJob")}</Button>
             <Button variant="outline" onClick={handleOpenTemplateModal}>
               {t("cronJobs.createFromTemplate")}
             </Button>
@@ -644,8 +656,14 @@ function CronJobsPage() {
                     {table.getHeaderGroups().map((hg) => (
                       <TableRow key={hg.id}>
                         {hg.headers.map((header) => (
-                          <TableHead key={header.id} style={{ width: header.getSize() }}>
-                            {flexRender(header.column.columnDef.header, header.getContext())}
+                          <TableHead
+                            key={header.id}
+                            style={{ width: header.getSize() }}
+                          >
+                            {flexRender(
+                              header.column.columnDef.header,
+                              header.getContext(),
+                            )}
                           </TableHead>
                         ))}
                       </TableRow>
@@ -656,7 +674,10 @@ function CronJobsPage() {
                       <TableRow key={row.id}>
                         {row.getVisibleCells().map((cell) => (
                           <TableCell key={cell.id} className="text-sm">
-                            {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                            {flexRender(
+                              cell.column.columnDef.cell,
+                              cell.getContext(),
+                            )}
                           </TableCell>
                         ))}
                       </TableRow>
@@ -684,7 +705,8 @@ function CronJobsPage() {
                       <ChevronLeft size={14} />
                     </Button>
                     <span className="text-muted-foreground">
-                      {table.getState().pagination.pageIndex + 1} / {table.getPageCount()}
+                      {table.getState().pagination.pageIndex + 1} /{" "}
+                      {table.getPageCount()}
                     </span>
                     <Button
                       variant="outline"
@@ -707,7 +729,9 @@ function CronJobsPage() {
               <Button
                 variant="ghost"
                 size="sm"
-                onClick={() => setCalendarMonth((prev) => prev.subtract(1, "month"))}
+                onClick={() =>
+                  setCalendarMonth((prev) => prev.subtract(1, "month"))
+                }
               >
                 <ChevronLeft size={16} />
               </Button>
@@ -773,7 +797,9 @@ function CronJobsPage() {
                               ? "bg-primary/20 text-primary"
                               : "bg-muted text-muted-foreground"
                           }`}
-                          title={`${runAtInUserTimezone.format("HH:mm")} ${job.name}`}
+                          title={`${runAtInUserTimezone.format("HH:mm")} ${
+                            job.name
+                          }`}
                           onClick={() => handleEdit(job)}
                         >
                           {runAtInUserTimezone.format("HH:mm")} {job.name}
@@ -788,13 +814,23 @@ function CronJobsPage() {
                         >
                           <PopoverTrigger asChild>
                             <button className="text-[10px] text-primary hover:underline text-left px-1">
-                              {t("cronJobs.calendarMoreItems", { count: hiddenCount })}
+                              {t("cronJobs.calendarMoreItems", {
+                                count: hiddenCount,
+                              })}
                             </button>
                           </PopoverTrigger>
-                          <PopoverContent side="right" align="start" className="w-64 p-3">
+                          <PopoverContent
+                            side="right"
+                            align="start"
+                            className="w-64 p-3"
+                          >
                             <div className="flex items-baseline gap-2 mb-2">
-                              <span className="font-semibold">{day.format("D")}</span>
-                              <span className="text-muted-foreground text-xs">{day.format("ddd")}</span>
+                              <span className="font-semibold">
+                                {day.format("D")}
+                              </span>
+                              <span className="text-muted-foreground text-xs">
+                                {day.format("ddd")}
+                              </span>
                             </div>
                             <div className="flex flex-col gap-1">
                               {dayEvents.map(({ job, runAtInUserTimezone }) => (
@@ -847,7 +883,10 @@ function CronJobsPage() {
       />
 
       {/* History Dialog */}
-      <Dialog open={historyModalOpen} onOpenChange={(o) => !o && setHistoryModalOpen(false)}>
+      <Dialog
+        open={historyModalOpen}
+        onOpenChange={(o) => !o && setHistoryModalOpen(false)}
+      >
         <DialogContent className="max-w-lg">
           <DialogHeader>
             <DialogTitle>
@@ -939,12 +978,16 @@ function CronJobsPage() {
       {/* Confirm Dialog */}
       <AlertDialog
         open={confirmState.open}
-        onOpenChange={(o) => !o && setConfirmState((s) => ({ ...s, open: false }))}
+        onOpenChange={(o) =>
+          !o && setConfirmState((s) => ({ ...s, open: false }))
+        }
       >
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>{confirmState.title}</AlertDialogTitle>
-            <AlertDialogDescription>{confirmState.description}</AlertDialogDescription>
+            <AlertDialogDescription>
+              {confirmState.description}
+            </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>{t("cronJobs.cancelText")}</AlertDialogCancel>

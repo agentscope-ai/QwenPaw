@@ -18,7 +18,9 @@ export default function ScopeTags({ scope, agentCount }: Props) {
   return (
     <div className={styles.scopeTags}>
       {scope.include_agents && agentCount ? (
-        <Badge variant="secondary">{t("backup.agents", { count: agentCount })}</Badge>
+        <Badge variant="secondary">
+          {t("backup.agents", { count: agentCount })}
+        </Badge>
       ) : null}
       {scope.include_global_config && (
         <Badge variant="secondary">{t("backup.globalConfig")}</Badge>

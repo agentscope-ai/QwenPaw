@@ -216,7 +216,12 @@ export function RuleModal({
   };
 
   return (
-    <Dialog open={open} onOpenChange={(v) => { if (!v) onCancel(); }}>
+    <Dialog
+      open={open}
+      onOpenChange={(v) => {
+        if (!v) onCancel();
+      }}
+    >
       <DialogContent className="max-w-[640px] max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>
@@ -310,7 +315,9 @@ export function RuleModal({
               }}
             />
             {errors.patterns && (
-              <span className="text-xs text-destructive">{errors.patterns}</span>
+              <span className="text-xs text-destructive">
+                {errors.patterns}
+              </span>
             )}
             <span className="text-xs text-muted-foreground">
               {t("security.rules.patternsTooltip")}

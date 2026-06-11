@@ -45,7 +45,9 @@ export function EnvRow({
 
       <div className={styles.fieldsWrap}>
         <div
-          className={`${styles.inputGroup} ${error ? styles.inputGroupError : ""}`}
+          className={`${styles.inputGroup} ${
+            error ? styles.inputGroupError : ""
+          }`}
         >
           <span className={styles.inputLabel}>Key</span>
           <Input

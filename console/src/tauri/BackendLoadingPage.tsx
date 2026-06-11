@@ -23,7 +23,11 @@ interface CircularProgressProps {
   isDark: boolean;
 }
 
-function CircularProgress({ percent, hasFailed, isDark }: CircularProgressProps) {
+function CircularProgress({
+  percent,
+  hasFailed,
+  isDark,
+}: CircularProgressProps) {
   const size = 160;
   const strokeWidth = 8;
   const radius = (size - strokeWidth) / 2;
@@ -105,7 +109,9 @@ export default function BackendLoadingPage({
 
   return (
     <div
-      className={`${styles.page} ${isDark ? styles.pageDark : styles.pageLight}`}
+      className={`${styles.page} ${
+        isDark ? styles.pageDark : styles.pageLight
+      }`}
       style={style}
     >
       <div className={styles.card}>
@@ -133,7 +139,9 @@ export default function BackendLoadingPage({
         </div>
 
         <p
-          className={`${styles.statusText} ${hasFailed ? styles.failedText : ""}`}
+          className={`${styles.statusText} ${
+            hasFailed ? styles.failedText : ""
+          }`}
         >
           {statusText}
         </p>

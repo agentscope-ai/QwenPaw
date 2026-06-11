@@ -1,6 +1,10 @@
 import { memo, useCallback, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { useTranslation } from "react-i18next";
 import { useAgentStore } from "../../../stores/agentStore";
 import { PageHeader } from "@/components/PageHeader";
@@ -101,7 +105,9 @@ const ProviderChips = memo(function ProviderChips({
               </span>
             </TooltipTrigger>
             {!p.available && (
-              <TooltipContent>{p.reason ?? t("market.providerUnavailable")}</TooltipContent>
+              <TooltipContent>
+                {p.reason ?? t("market.providerUnavailable")}
+              </TooltipContent>
             )}
           </Tooltip>
         );
@@ -281,4 +287,3 @@ function MarketPage() {
 }
 
 export default MarketPage;
-

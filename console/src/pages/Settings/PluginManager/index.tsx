@@ -51,7 +51,6 @@ export default function PluginManagerPage() {
     onUninstall: handleUninstall,
   });
 
-
   return (
     <div className={styles.page}>
       <PageHeader
@@ -79,9 +78,15 @@ export default function PluginManagerPage() {
       <div className={styles.content}>
         <Tabs defaultValue="installed" className={styles.tabs}>
           <TabsList>
-            <TabsTrigger value="installed">{t("pluginManager.installed")}</TabsTrigger>
-            <TabsTrigger value="official">{t("pluginManager.officialTitle")}</TabsTrigger>
-            <TabsTrigger value="market">{t("pluginManager.marketTitle")}</TabsTrigger>
+            <TabsTrigger value="installed">
+              {t("pluginManager.installed")}
+            </TabsTrigger>
+            <TabsTrigger value="official">
+              {t("pluginManager.officialTitle")}
+            </TabsTrigger>
+            <TabsTrigger value="market">
+              {t("pluginManager.marketTitle")}
+            </TabsTrigger>
           </TabsList>
 
           <TabsContent value="installed">
@@ -96,7 +101,10 @@ export default function PluginManagerPage() {
                   <TableHeader>
                     <TableRow>
                       {columns.map((col) => (
-                        <TableHead key={col.key} style={col.width ? { width: col.width } : {}}>
+                        <TableHead
+                          key={col.key}
+                          style={col.width ? { width: col.width } : {}}
+                        >
                           {col.title}
                         </TableHead>
                       ))}
@@ -108,7 +116,12 @@ export default function PluginManagerPage() {
                         {columns.map((col) => (
                           <TableCell key={col.key}>
                             {col.render
-                              ? (col.render as (v: unknown, r: typeof plugin) => React.ReactNode)(
+                              ? (
+                                  col.render as (
+                                    v: unknown,
+                                    r: typeof plugin,
+                                  ) => React.ReactNode
+                                )(
                                   col.dataIndex
                                     ? (plugin as any)[col.dataIndex as string]
                                     : undefined,
@@ -141,13 +154,19 @@ export default function PluginManagerPage() {
 
       <AlertDialog
         open={!!confirmPlugin}
-        onOpenChange={(v) => { if (!v) setConfirmPlugin(null); }}
+        onOpenChange={(v) => {
+          if (!v) setConfirmPlugin(null);
+        }}
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>{t("pluginManager.confirmTitle")}</AlertDialogTitle>
+            <AlertDialogTitle>
+              {t("pluginManager.confirmTitle")}
+            </AlertDialogTitle>
             <AlertDialogDescription>
-              {t("pluginManager.uninstallConfirm", { name: confirmPlugin?.name ?? "" })}
+              {t("pluginManager.uninstallConfirm", {
+                name: confirmPlugin?.name ?? "",
+              })}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

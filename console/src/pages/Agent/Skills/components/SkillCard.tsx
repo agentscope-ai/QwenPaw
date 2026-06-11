@@ -141,7 +141,9 @@ export const SkillCard = React.memo(function SkillCard({
         setIsHover(false);
         onMouseLeave?.();
       }}
-      className={`${styles.skillCard} ${selected ? styles.selectedCard : ""} cursor-pointer`}
+      className={`${styles.skillCard} ${
+        selected ? styles.selectedCard : ""
+      } cursor-pointer`}
     >
       <CardContent className="p-0">
         <div className={styles.cardTopRow}>

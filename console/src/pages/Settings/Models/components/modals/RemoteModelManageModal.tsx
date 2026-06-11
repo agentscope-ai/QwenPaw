@@ -127,15 +127,23 @@ function CapabilityTags({
   const c = tagColors(isDark);
   if (model.supports_image && model.supports_video) {
     return (
-      <Badge variant="outline" style={{ fontSize: 11, marginRight: 4, ...c.multimodal }}>
-        <Layers style={{ fontSize: 10, marginRight: 3, height: 10, width: 10 }} />
+      <Badge
+        variant="outline"
+        style={{ fontSize: 11, marginRight: 4, ...c.multimodal }}
+      >
+        <Layers
+          style={{ fontSize: 10, marginRight: 3, height: 10, width: 10 }}
+        />
         {t("models.tagMultimodal", "多模态")}
       </Badge>
     );
   }
   if (model.supports_image) {
     return (
-      <Badge variant="outline" style={{ fontSize: 11, marginRight: 4, ...c.vision }}>
+      <Badge
+        variant="outline"
+        style={{ fontSize: 11, marginRight: 4, ...c.vision }}
+      >
         <Eye style={{ fontSize: 10, marginRight: 3, height: 10, width: 10 }} />
         {t("models.tagVision", "视觉")}
       </Badge>
@@ -143,23 +151,38 @@ function CapabilityTags({
   }
   if (model.supports_video) {
     return (
-      <Badge variant="outline" style={{ fontSize: 11, marginRight: 4, ...c.video }}>
-        <VideoIcon style={{ fontSize: 10, marginRight: 3, height: 10, width: 10 }} />
+      <Badge
+        variant="outline"
+        style={{ fontSize: 11, marginRight: 4, ...c.video }}
+      >
+        <VideoIcon
+          style={{ fontSize: 10, marginRight: 3, height: 10, width: 10 }}
+        />
         {t("models.tagVideo", "视频")}
       </Badge>
     );
   }
   if (model.supports_multimodal === false) {
     return (
-      <Badge variant="outline" style={{ fontSize: 11, marginRight: 4, ...c.text }}>
-        <FileText style={{ fontSize: 10, marginRight: 3, height: 10, width: 10 }} />
+      <Badge
+        variant="outline"
+        style={{ fontSize: 11, marginRight: 4, ...c.text }}
+      >
+        <FileText
+          style={{ fontSize: 10, marginRight: 3, height: 10, width: 10 }}
+        />
         {t("models.tagText", "文本")}
       </Badge>
     );
   }
   return (
-    <Badge variant="outline" style={{ fontSize: 11, marginRight: 4, ...c.notProbed }}>
-      <HelpCircle style={{ fontSize: 10, marginRight: 3, height: 10, width: 10 }} />
+    <Badge
+      variant="outline"
+      style={{ fontSize: 11, marginRight: 4, ...c.notProbed }}
+    >
+      <HelpCircle
+        style={{ fontSize: 10, marginRight: 3, height: 10, width: 10 }}
+      />
       {t("models.tagNotProbed", "未检测")}
     </Badge>
   );
@@ -254,8 +277,12 @@ function ModelConfigEditor({
     }
   };
 
-  const labelClass = `text-sm font-medium mb-1 ${isDark ? "text-white/85" : "text-gray-800"}`;
-  const hintClass = `text-xs mt-1 ${isDark ? "text-white/35" : "text-gray-400"}`;
+  const labelClass = `text-sm font-medium mb-1 ${
+    isDark ? "text-white/85" : "text-gray-800"
+  }`;
+  const hintClass = `text-xs mt-1 ${
+    isDark ? "text-white/35" : "text-gray-400"
+  }`;
 
   return (
     <div className="py-2">
@@ -301,7 +328,9 @@ function ModelConfigEditor({
           </div>
         </div>
       </div>
-      <div className={`text-xs mb-1 ${isDark ? "text-white/45" : "text-gray-500"}`}>
+      <div
+        className={`text-xs mb-1 ${isDark ? "text-white/45" : "text-gray-500"}`}
+      >
         {t("models.modelGenerateConfigHint")}
       </div>
       <JsonConfigEditor
@@ -310,11 +339,7 @@ function ModelConfigEditor({
         placeholder={`Example:\n{\n  "extra_body": {\n    "enable_thinking": false\n  }\n}`}
       />
       <div className="flex justify-end mt-2 gap-2">
-        <Button
-          size="sm"
-          disabled={!dirty || saving}
-          onClick={handleSave}
-        >
+        <Button size="sm" disabled={!dirty || saving} onClick={handleSave}>
           {t("models.save")}
         </Button>
       </div>
@@ -337,7 +362,9 @@ export function RemoteModelManageModal({
   const [discoveringModels, setDiscoveringModels] = useState(false);
   const [testingModelId, setTestingModelId] = useState<string | null>(null);
   const [probingModelId, setProbingModelId] = useState<string | null>(null);
-  const [configOpenModelId, setConfigOpenModelId] = useState<string | null>(null);
+  const [configOpenModelId, setConfigOpenModelId] = useState<string | null>(
+    null,
+  );
   const [modelSearchQuery, setModelSearchQuery] = useState("");
   const [modelIdInput, setModelIdInput] = useState("");
   const [modelNameInput, setModelNameInput] = useState("");
@@ -360,9 +387,13 @@ export function RemoteModelManageModal({
   const isOpenRouter = provider.id === "openrouter";
   const [showFilters, setShowFilters] = useState(false);
   const [availableSeries, setAvailableSeries] = useState<string[]>([]);
-  const [discoveredModels, setDiscoveredModels] = useState<ExtendedModelInfo[]>([]);
+  const [discoveredModels, setDiscoveredModels] = useState<ExtendedModelInfo[]>(
+    [],
+  );
   const [selectedSeries, setSelectedSeries] = useState<string[]>([]);
-  const [selectedInputModalities, setSelectedInputModalities] = useState<string[]>([]);
+  const [selectedInputModalities, setSelectedInputModalities] = useState<
+    string[]
+  >([]);
   const [showFreeOnly, setShowFreeOnly] = useState(false);
   const [loadingFilters, setLoadingFilters] = useState(false);
   const [loadingDiscoveredModels, setLoadingDiscoveredModels] = useState(false);
@@ -424,7 +455,9 @@ export function RemoteModelManageModal({
   const handleTestModel = async (modelId: string) => {
     setTestingModelId(modelId);
     try {
-      const result = await api.testModelConnection(provider.id, { model_id: modelId });
+      const result = await api.testModelConnection(provider.id, {
+        model_id: modelId,
+      });
       if (result.success) {
         message.success(getLocalizedTestConnectionMessage(result, t));
       } else {
@@ -432,7 +465,9 @@ export function RemoteModelManageModal({
       }
     } catch (error) {
       const errMsg =
-        error instanceof Error ? error.message : t("models.testConnectionError");
+        error instanceof Error
+          ? error.message
+          : t("models.testConnectionError");
       message.error(errMsg);
     } finally {
       setTestingModelId(null);
@@ -447,13 +482,16 @@ export function RemoteModelManageModal({
       if (result.supports_image) parts.push(t("models.probeImage"));
       if (result.supports_video) parts.push(t("models.probeVideo"));
       if (parts.length > 0) {
-        message.success(t("models.probeSupported", { types: parts.join(", ") }));
+        message.success(
+          t("models.probeSupported", { types: parts.join(", ") }),
+        );
       } else {
         message.info(t("models.probeNotSupported"));
       }
       await onSaved();
     } catch (error) {
-      const errMsg = error instanceof Error ? error.message : t("models.probeFailed");
+      const errMsg =
+        error instanceof Error ? error.message : t("models.probeFailed");
       message.error(errMsg);
     } finally {
       setProbingModelId(null);
@@ -586,7 +624,9 @@ export function RemoteModelManageModal({
       );
     } catch (error) {
       const errMsg =
-        error instanceof Error ? error.message : t("models.autoDiscoverModelsFailed");
+        error instanceof Error
+          ? error.message
+          : t("models.autoDiscoverModelsFailed");
       message.error(errMsg);
     } finally {
       setDiscoveringModels(false);
@@ -646,7 +686,12 @@ export function RemoteModelManageModal({
 
   return (
     <>
-      <Dialog open={open} onOpenChange={(v) => { if (!v) handleClose(); }}>
+      <Dialog
+        open={open}
+        onOpenChange={(v) => {
+          if (!v) handleClose();
+        }}
+      >
         <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>
@@ -667,17 +712,22 @@ export function RemoteModelManageModal({
           {/* Model list */}
           <div className={styles.modelList}>
             {filteredModels.length === 0 ? (
-              <div className={styles.modelListEmpty}>{t("models.noModels")}</div>
+              <div className={styles.modelListEmpty}>
+                {t("models.noModels")}
+              </div>
             ) : (
               <>
                 {filteredModels.slice(0, visibleCount).map((m) => {
-                  const isDeletable = provider.is_custom || extraModelIds.has(m.id);
+                  const isDeletable =
+                    provider.is_custom || extraModelIds.has(m.id);
                   const isConfigOpen = configOpenModelId === m.id;
                   return (
                     <div key={m.id}>
                       <div className={styles.modelListItem}>
                         <div className={styles.modelListItemInfo}>
-                          <span className={styles.modelListItemName}>{m.name}</span>
+                          <span className={styles.modelListItemName}>
+                            {m.name}
+                          </span>
                           <span className={styles.modelListItemId}>{m.id}</span>
                         </div>
                         <div className={styles.modelListItemActions}>
@@ -685,9 +735,19 @@ export function RemoteModelManageModal({
                           {m.is_free && (
                             <Badge
                               variant="outline"
-                              style={{ fontSize: 11, marginRight: 4, ...colors.free }}
+                              style={{
+                                fontSize: 11,
+                                marginRight: 4,
+                                ...colors.free,
+                              }}
                             >
-                              <Gift style={{ height: 10, width: 10, marginRight: 3 }} />
+                              <Gift
+                                style={{
+                                  height: 10,
+                                  width: 10,
+                                  marginRight: 3,
+                                }}
+                              />
                               {t("models.free")}
                             </Badge>
                           )}
@@ -696,22 +756,42 @@ export function RemoteModelManageModal({
                             style={{
                               fontSize: 11,
                               marginRight: 4,
-                              ...(isDeletable ? colors.userAdded : colors.builtin),
+                              ...(isDeletable
+                                ? colors.userAdded
+                                : colors.builtin),
                             }}
                           >
                             {isDeletable ? (
-                              <User style={{ height: 10, width: 10, marginRight: 3 }} />
+                              <User
+                                style={{
+                                  height: 10,
+                                  width: 10,
+                                  marginRight: 3,
+                                }}
+                              />
                             ) : (
-                              <Database style={{ height: 10, width: 10, marginRight: 3 }} />
+                              <Database
+                                style={{
+                                  height: 10,
+                                  width: 10,
+                                  marginRight: 3,
+                                }}
+                              />
                             )}
-                            {t(isDeletable ? "models.userAdded" : "models.builtin")}
+                            {t(
+                              isDeletable
+                                ? "models.userAdded"
+                                : "models.builtin",
+                            )}
                           </Badge>
                           <span
                             style={{
                               display: "inline-block",
                               width: 1,
                               height: 16,
-                              background: isDark ? "rgba(255,255,255,0.15)" : "#e5e7eb",
+                              background: isDark
+                                ? "rgba(255,255,255,0.15)"
+                                : "#e5e7eb",
                               margin: "0 8px",
                               flexShrink: 0,
                             }}
@@ -729,7 +809,9 @@ export function RemoteModelManageModal({
                                   <FlaskConical className="h-4 w-4" />
                                 </Button>
                               </TooltipTrigger>
-                              <TooltipContent>{t("models.probeMultimodal", "测试多模态")}</TooltipContent>
+                              <TooltipContent>
+                                {t("models.probeMultimodal", "测试多模态")}
+                              </TooltipContent>
                             </Tooltip>
                           )}
                           <Tooltip>
@@ -744,7 +826,9 @@ export function RemoteModelManageModal({
                                 <Network className="h-4 w-4" />
                               </Button>
                             </TooltipTrigger>
-                            <TooltipContent>{t("models.testConnection")}</TooltipContent>
+                            <TooltipContent>
+                              {t("models.testConnection")}
+                            </TooltipContent>
                           </Tooltip>
                           <Tooltip>
                             <TooltipTrigger asChild>
@@ -752,7 +836,9 @@ export function RemoteModelManageModal({
                                 variant="ghost"
                                 size="sm"
                                 onClick={() =>
-                                  setConfigOpenModelId(isConfigOpen ? null : m.id)
+                                  setConfigOpenModelId(
+                                    isConfigOpen ? null : m.id,
+                                  )
                                 }
                                 className="h-7 w-7 p-0"
                               >
@@ -763,7 +849,9 @@ export function RemoteModelManageModal({
                                 )}
                               </Button>
                             </TooltipTrigger>
-                            <TooltipContent>{t("models.modelConfigLabel", "模型配置")}</TooltipContent>
+                            <TooltipContent>
+                              {t("models.modelConfigLabel", "模型配置")}
+                            </TooltipContent>
                           </Tooltip>
                           {isDeletable && (
                             <Button
@@ -806,7 +894,10 @@ export function RemoteModelManageModal({
                       onClick={() => setVisibleCount((c) => c + PAGE_SIZE)}
                     >
                       {t("models.loadMore", {
-                        count: Math.min(PAGE_SIZE, filteredModels.length - visibleCount),
+                        count: Math.min(
+                          PAGE_SIZE,
+                          filteredModels.length - visibleCount,
+                        ),
                         total: filteredModels.length,
                       })}
                     </Button>
@@ -857,7 +948,9 @@ export function RemoteModelManageModal({
                           setShowSuggestions(true);
                         }}
                         onFocus={() => setShowSuggestions(true)}
-                        onBlur={() => setTimeout(() => setShowSuggestions(false), 150)}
+                        onBlur={() =>
+                          setTimeout(() => setShowSuggestions(false), 150)
+                        }
                         placeholder={t("models.modelIdPlaceholder")}
                       />
                       {showSuggestions && filteredSuggestions.length > 0 && (
@@ -876,13 +969,15 @@ export function RemoteModelManageModal({
                           ))}
                         </div>
                       )}
-                      {showSuggestions && filteredSuggestions.length === 0 && modelIdInput && (
-                        <div className="absolute z-50 w-full mt-1 bg-popover border rounded-md shadow-md px-3 py-2 text-sm text-muted-foreground">
-                          {loadingDiscoveredModels
-                            ? t("common.loading")
-                            : t("models.modelDiscoveryUnavailableHint")}
-                        </div>
-                      )}
+                      {showSuggestions &&
+                        filteredSuggestions.length === 0 &&
+                        modelIdInput && (
+                          <div className="absolute z-50 w-full mt-1 bg-popover border rounded-md shadow-md px-3 py-2 text-sm text-muted-foreground">
+                            {loadingDiscoveredModels
+                              ? t("common.loading")
+                              : t("models.modelDiscoveryUnavailableHint")}
+                          </div>
+                        )}
                     </div>
                   </div>
                   <div>
@@ -946,11 +1041,15 @@ export function RemoteModelManageModal({
       {/* Test failure confirm dialog */}
       <AlertDialog
         open={Boolean(testFailDialog?.open)}
-        onOpenChange={(v) => { if (!v) setTestFailDialog(null); }}
+        onOpenChange={(v) => {
+          if (!v) setTestFailDialog(null);
+        }}
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>{t("models.testConnectionFailed")}</AlertDialogTitle>
+            <AlertDialogTitle>
+              {t("models.testConnectionFailed")}
+            </AlertDialogTitle>
             <AlertDialogDescription>
               {t("models.modelTestFailedConfirm", {
                 message: testFailDialog?.message ?? "",
@@ -969,7 +1068,9 @@ export function RemoteModelManageModal({
                   await doAddModel(id, name);
                 } catch (error) {
                   const errMsg =
-                    error instanceof Error ? error.message : t("models.modelAddFailed");
+                    error instanceof Error
+                      ? error.message
+                      : t("models.modelAddFailed");
                   message.error(errMsg);
                 } finally {
                   setSaving(false);
@@ -985,7 +1086,9 @@ export function RemoteModelManageModal({
       {/* Remove confirm dialog */}
       <AlertDialog
         open={Boolean(removeDialog?.open)}
-        onOpenChange={(v) => { if (!v) setRemoveDialog(null); }}
+        onOpenChange={(v) => {
+          if (!v) setRemoveDialog(null);
+        }}
       >
         <AlertDialogContent>
           <AlertDialogHeader>

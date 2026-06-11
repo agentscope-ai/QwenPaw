@@ -77,11 +77,7 @@ export function HeaderActions({
             <Button variant="outline" size="sm" onClick={onSelectAll}>
               {t("skills.selectAll")}
             </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={onClearSelection}
-            >
+            <Button variant="outline" size="sm" onClick={onClearSelection}>
               <X size={14} className="mr-1" />
               {t("skills.clearSelection")}
             </Button>

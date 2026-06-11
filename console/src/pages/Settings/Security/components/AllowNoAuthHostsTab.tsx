@@ -115,8 +115,12 @@ export function AllowNoAuthHostsTab({ onSave }: AllowNoAuthHostsTabProps = {}) {
       <div className="flex items-start gap-2 rounded-md border border-yellow-200 bg-yellow-50 px-3 py-2 text-sm text-yellow-800 dark-mode:border-yellow-800 dark-mode:bg-yellow-950 dark-mode:text-yellow-200 mb-4">
         <AlertTriangle size={16} className="mt-0.5 shrink-0" />
         <div>
-          <p className="font-medium">{t("security.allowNoAuthHosts.warningTitle")}</p>
-          <p className="text-xs mt-0.5">{t("security.allowNoAuthHosts.warningDescription")}</p>
+          <p className="font-medium">
+            {t("security.allowNoAuthHosts.warningTitle")}
+          </p>
+          <p className="text-xs mt-0.5">
+            {t("security.allowNoAuthHosts.warningDescription")}
+          </p>
         </div>
       </div>
 
@@ -126,13 +130,12 @@ export function AllowNoAuthHostsTab({ onSave }: AllowNoAuthHostsTabProps = {}) {
             value={newHost}
             onChange={(e) => setNewHost(e.target.value)}
             placeholder={t("security.allowNoAuthHosts.inputPlaceholder")}
-            onKeyDown={(e) => { if (e.key === "Enter") handleAdd(); }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") handleAdd();
+            }}
             className="flex-1"
           />
-          <Button
-            onClick={handleAdd}
-            disabled={!newHost.trim()}
-          >
+          <Button onClick={handleAdd} disabled={!newHost.trim()}>
             <Plus size={16} className="mr-2" />
             {t("security.allowNoAuthHosts.add")}
           </Button>
@@ -149,7 +152,9 @@ export function AllowNoAuthHostsTab({ onSave }: AllowNoAuthHostsTabProps = {}) {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>{t("security.allowNoAuthHosts.ipAddress")}</TableHead>
+                  <TableHead>
+                    {t("security.allowNoAuthHosts.ipAddress")}
+                  </TableHead>
                   <TableHead style={{ width: 80 }}>
                     {t("security.allowNoAuthHosts.actions")}
                   </TableHead>
@@ -163,7 +168,10 @@ export function AllowNoAuthHostsTab({ onSave }: AllowNoAuthHostsTabProps = {}) {
                         <Shield size={16} className="text-green-500" />
                         <code className="text-sm">{host}</code>
                         {isDefaultHost(host) && (
-                          <Badge variant="outline" className="text-xs border-blue-300 text-blue-600">
+                          <Badge
+                            variant="outline"
+                            className="text-xs border-blue-300 text-blue-600"
+                          >
                             {t("security.allowNoAuthHosts.default")}
                           </Badge>
                         )}
@@ -189,11 +197,15 @@ export function AllowNoAuthHostsTab({ onSave }: AllowNoAuthHostsTabProps = {}) {
 
       <AlertDialog
         open={!!removeConfirm}
-        onOpenChange={(v) => { if (!v) setRemoveConfirm(null); }}
+        onOpenChange={(v) => {
+          if (!v) setRemoveConfirm(null);
+        }}
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>{t("security.allowNoAuthHosts.removeConfirm")}</AlertDialogTitle>
+            <AlertDialogTitle>
+              {t("security.allowNoAuthHosts.removeConfirm")}
+            </AlertDialogTitle>
             <AlertDialogDescription>{removeConfirm}</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

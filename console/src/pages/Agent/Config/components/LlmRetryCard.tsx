@@ -12,7 +12,12 @@ interface LlmRetryCardProps {
 
 export function LlmRetryCard({ llmRetryEnabled = true }: LlmRetryCardProps) {
   const { t } = useTranslation();
-  const { register, control, getValues, formState: { errors } } = useFormContext();
+  const {
+    register,
+    control,
+    getValues,
+    formState: { errors },
+  } = useFormContext();
 
   return (
     <Card className={styles.formCard}>
@@ -48,7 +53,10 @@ export function LlmRetryCard({ llmRetryEnabled = true }: LlmRetryCardProps) {
               placeholder={t("agentConfig.llmMaxRetriesPlaceholder")}
               {...register("llm_max_retries", {
                 required: t("agentConfig.llmMaxRetriesRequired") as string,
-                min: { value: 1, message: t("agentConfig.llmMaxRetriesMin") as string },
+                min: {
+                  value: 1,
+                  message: t("agentConfig.llmMaxRetriesMin") as string,
+                },
                 valueAsNumber: true,
               })}
             />
@@ -68,7 +76,10 @@ export function LlmRetryCard({ llmRetryEnabled = true }: LlmRetryCardProps) {
               placeholder={t("agentConfig.llmBackoffBasePlaceholder")}
               {...register("llm_backoff_base", {
                 required: t("agentConfig.llmBackoffBaseRequired") as string,
-                min: { value: 0.1, message: t("agentConfig.llmBackoffBaseMin") as string },
+                min: {
+                  value: 0.1,
+                  message: t("agentConfig.llmBackoffBaseMin") as string,
+                },
                 valueAsNumber: true,
               })}
             />
@@ -88,11 +99,18 @@ export function LlmRetryCard({ llmRetryEnabled = true }: LlmRetryCardProps) {
               placeholder={t("agentConfig.llmBackoffCapPlaceholder")}
               {...register("llm_backoff_cap", {
                 required: t("agentConfig.llmBackoffCapRequired") as string,
-                min: { value: 0.5, message: t("agentConfig.llmBackoffCapMin") as string },
+                min: {
+                  value: 0.5,
+                  message: t("agentConfig.llmBackoffCapMin") as string,
+                },
                 validate: (value: unknown) => {
                   const backoffBase = getValues("llm_backoff_base") as number;
                   const v = value as number;
-                  if (typeof v !== "number" || typeof backoffBase !== "number" || v >= backoffBase) {
+                  if (
+                    typeof v !== "number" ||
+                    typeof backoffBase !== "number" ||
+                    v >= backoffBase
+                  ) {
                     return true;
                   }
                   return t("agentConfig.llmBackoffCapGteBase") as string;

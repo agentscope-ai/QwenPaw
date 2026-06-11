@@ -64,7 +64,8 @@ export default function BackupTable({
     const q = searchQuery.trim().toLowerCase();
     const filtered = q
       ? backups.filter(
-          (s) => s.name.toLowerCase().includes(q) || s.id.toLowerCase().includes(q),
+          (s) =>
+            s.name.toLowerCase().includes(q) || s.id.toLowerCase().includes(q),
         )
       : backups;
     return [...filtered].sort((a, b) => {
@@ -74,7 +75,10 @@ export default function BackupTable({
   }, [backups, searchQuery, sortDir]);
 
   const totalPages = Math.ceil(filteredBackups.length / PAGE_SIZE);
-  const pageData = filteredBackups.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  const pageData = filteredBackups.slice(
+    (page - 1) * PAGE_SIZE,
+    page * PAGE_SIZE,
+  );
 
   const handleDelete = async () => {
     if (!deleteTarget) return;
@@ -118,11 +122,15 @@ export default function BackupTable({
             <TableRow>
               <TableHead className="w-[300px]">ID</TableHead>
               <TableHead>{t("backup.name")}</TableHead>
-              <TableHead className="w-[320px]">{t("backup.scopeSummary")}</TableHead>
+              <TableHead className="w-[320px]">
+                {t("backup.scopeSummary")}
+              </TableHead>
               <TableHead>{t("backup.descriptionLabel")}</TableHead>
               <TableHead
                 className="w-[160px] cursor-pointer select-none"
-                onClick={() => setSortDir((d) => (d === "desc" ? "asc" : "desc"))}
+                onClick={() =>
+                  setSortDir((d) => (d === "desc" ? "asc" : "desc"))
+                }
               >
                 {t("backup.createdAt")} {sortDir === "desc" ? "↓" : "↑"}
               </TableHead>
@@ -135,25 +143,44 @@ export default function BackupTable({
                 <TableCell>
                   <span className={styles.idCell}>{record.id}</span>
                 </TableCell>
-                <TableCell className="max-w-[200px] truncate">{record.name}</TableCell>
-                <TableCell>
-                  <ScopeTags scope={record.scope} agentCount={record.agent_count} />
+                <TableCell className="max-w-[200px] truncate">
+                  {record.name}
                 </TableCell>
-                <TableCell className="max-w-[150px] truncate">{record.description}</TableCell>
+                <TableCell>
+                  <ScopeTags
+                    scope={record.scope}
+                    agentCount={record.agent_count}
+                  />
+                </TableCell>
+                <TableCell className="max-w-[150px] truncate">
+                  {record.description}
+                </TableCell>
                 <TableCell>
                   <Tooltip>
                     <TooltipTrigger asChild>
-                      <span className="cursor-default">{dayjs(record.created_at).fromNow()}</span>
+                      <span className="cursor-default">
+                        {dayjs(record.created_at).fromNow()}
+                      </span>
                     </TooltipTrigger>
-                    <TooltipContent>{dayjs(record.created_at).format("YYYY-MM-DD HH:mm:ss")}</TooltipContent>
+                    <TooltipContent>
+                      {dayjs(record.created_at).format("YYYY-MM-DD HH:mm:ss")}
+                    </TooltipContent>
                   </Tooltip>
                 </TableCell>
                 <TableCell>
                   <span className={styles.actions}>
-                    <Button variant="link" size="sm" onClick={() => onRestore(record)}>
+                    <Button
+                      variant="link"
+                      size="sm"
+                      onClick={() => onRestore(record)}
+                    >
                       {t("backup.restore")}
                     </Button>
-                    <Button variant="link" size="sm" onClick={() => setExportTarget(record)}>
+                    <Button
+                      variant="link"
+                      size="sm"
+                      onClick={() => setExportTarget(record)}
+                    >
                       {t("backup.export")}
                     </Button>
                     <Button
@@ -183,7 +210,9 @@ export default function BackupTable({
               >
                 &lt;
               </Button>
-              <span className="px-2 py-1">{page} / {totalPages}</span>
+              <span className="px-2 py-1">
+                {page} / {totalPages}
+              </span>
               <Button
                 variant="outline"
                 size="sm"
@@ -198,11 +227,18 @@ export default function BackupTable({
       </Card>
 
       {/* Export confirmation */}
-      <AlertDialog open={!!exportTarget} onOpenChange={(open) => !open && setExportTarget(null)}>
+      <AlertDialog
+        open={!!exportTarget}
+        onOpenChange={(open) => !open && setExportTarget(null)}
+      >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>{t("backup.exportWarningTitle")}</AlertDialogTitle>
-            <AlertDialogDescription>{t("backup.exportWarningContent")}</AlertDialogDescription>
+            <AlertDialogTitle>
+              {t("backup.exportWarningTitle")}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {t("backup.exportWarningContent")}
+            </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
@@ -217,7 +253,10 @@ export default function BackupTable({
       </AlertDialog>
 
       {/* Delete confirmation */}
-      <AlertDialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
+      <AlertDialog
+        open={!!deleteTarget}
+        onOpenChange={(open) => !open && setDeleteTarget(null)}
+      >
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>{t("backup.deleteConfirm")}</AlertDialogTitle>

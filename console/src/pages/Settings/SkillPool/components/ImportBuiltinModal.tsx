@@ -115,7 +115,12 @@ export function ImportBuiltinModal({
   };
 
   return (
-    <Dialog open={open} onOpenChange={(v) => { if (!v) handleCancel(); }}>
+    <Dialog
+      open={open}
+      onOpenChange={(v) => {
+        if (!v) handleCancel();
+      }}
+    >
       <DialogContent className="max-w-[720px] max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>{t("skillPool.importBuiltin")}</DialogTitle>
@@ -168,7 +173,9 @@ export function ImportBuiltinModal({
                   {t("skillPool.langDefault")}
                 </Button>
               </TooltipTrigger>
-              <TooltipContent>{t("skillPool.langDefaultTooltip")}</TooltipContent>
+              <TooltipContent>
+                {t("skillPool.langDefaultTooltip")}
+              </TooltipContent>
             </Tooltip>
             <Button
               size="sm"
@@ -207,7 +214,9 @@ export function ImportBuiltinModal({
                   )}
                   <Tooltip>
                     <TooltipTrigger asChild>
-                      <div className={skillStyles.pickerCardTitle}>{item.name}</div>
+                      <div className={skillStyles.pickerCardTitle}>
+                        {item.name}
+                      </div>
                     </TooltipTrigger>
                     <TooltipContent>{item.name}</TooltipContent>
                   </Tooltip>

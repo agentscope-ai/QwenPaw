@@ -27,7 +27,9 @@ export default function AgentMultiSelect({ agents, value, onChange }: Props) {
   );
 
   const toggle = (id: string) => {
-    onChange(value.includes(id) ? value.filter((v) => v !== id) : [...value, id]);
+    onChange(
+      value.includes(id) ? value.filter((v) => v !== id) : [...value, id],
+    );
   };
 
   const toggleAll = () => {
@@ -36,7 +38,10 @@ export default function AgentMultiSelect({ agents, value, onChange }: Props) {
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+      if (
+        containerRef.current &&
+        !containerRef.current.contains(e.target as Node)
+      ) {
         setOpen(false);
       }
     };
@@ -55,7 +60,9 @@ export default function AgentMultiSelect({ agents, value, onChange }: Props) {
       >
         <div className="flex flex-wrap gap-1">
           {selected.length === 0 ? (
-            <span className="text-muted-foreground">{t("backup.agentsPlaceholder")}</span>
+            <span className="text-muted-foreground">
+              {t("backup.agentsPlaceholder")}
+            </span>
           ) : selected.length <= 3 ? (
             selected.map((a) => (
               <span
@@ -74,7 +81,9 @@ export default function AgentMultiSelect({ agents, value, onChange }: Props) {
               </span>
             ))
           ) : (
-            <span className="text-xs">{t("backup.agentsSelected", { count: selected.length })}</span>
+            <span className="text-xs">
+              {t("backup.agentsSelected", { count: selected.length })}
+            </span>
           )}
         </div>
         <ChevronDown size={14} className="shrink-0 text-muted-foreground" />
@@ -97,7 +106,10 @@ export default function AgentMultiSelect({ agents, value, onChange }: Props) {
               className="flex w-full items-center gap-2 px-3 py-1.5 text-sm hover:bg-accent"
               onClick={toggleAll}
             >
-              <Check size={14} className={allSelected ? "opacity-100" : "opacity-0"} />
+              <Check
+                size={14}
+                className={allSelected ? "opacity-100" : "opacity-0"}
+              />
               {allSelected ? t("backup.deselectAll") : t("backup.selectAll")}
             </button>
             {filtered.map((a) => (
@@ -107,8 +119,12 @@ export default function AgentMultiSelect({ agents, value, onChange }: Props) {
                 className="flex w-full items-center gap-2 px-3 py-1.5 text-sm hover:bg-accent"
                 onClick={() => toggle(a.id)}
               >
-                <Check size={14} className={value.includes(a.id) ? "opacity-100" : "opacity-0"} />
-                {a.name} <span className="text-muted-foreground text-xs">({a.id})</span>
+                <Check
+                  size={14}
+                  className={value.includes(a.id) ? "opacity-100" : "opacity-0"}
+                />
+                {a.name}{" "}
+                <span className="text-muted-foreground text-xs">({a.id})</span>
               </button>
             ))}
           </div>

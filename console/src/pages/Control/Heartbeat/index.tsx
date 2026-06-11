@@ -80,8 +80,10 @@ function HeartbeatPage() {
     activeHoursEnd: "22:00",
   });
 
-  const set = <K extends keyof HeartbeatFormValues>(key: K, value: HeartbeatFormValues[K]) =>
-    setValues((prev) => ({ ...prev, [key]: value }));
+  const set = <K extends keyof HeartbeatFormValues>(
+    key: K,
+    value: HeartbeatFormValues[K],
+  ) => setValues((prev) => ({ ...prev, [key]: value }));
 
   const fetchConfig = async () => {
     setLoading(true);
@@ -121,7 +123,9 @@ function HeartbeatPage() {
       every,
       target: values.target ?? "main",
       activeHours:
-        values.useActiveHours && values.activeHoursStart && values.activeHoursEnd
+        values.useActiveHours &&
+        values.activeHoursStart &&
+        values.activeHoursEnd
           ? { start: values.activeHoursStart, end: values.activeHoursEnd }
           : undefined,
     };
@@ -140,7 +144,9 @@ function HeartbeatPage() {
   if (loading) {
     return (
       <div className="flex flex-col h-full">
-        <PageHeader items={[{ title: t("nav.control") }, { title: t("heartbeat.title") }]} />
+        <PageHeader
+          items={[{ title: t("nav.control") }, { title: t("heartbeat.title") }]}
+        />
         <div className="flex items-center justify-center h-32">
           <Loader2 className="animate-spin text-muted-foreground" />
         </div>
@@ -150,7 +156,9 @@ function HeartbeatPage() {
 
   return (
     <div className="flex flex-col h-full">
-      <PageHeader items={[{ title: t("nav.control") }, { title: t("heartbeat.title") }]} />
+      <PageHeader
+        items={[{ title: t("nav.control") }, { title: t("heartbeat.title") }]}
+      />
 
       <div className="flex-1 overflow-y-auto px-4 py-4">
         <Card className="max-w-[520px]">
@@ -169,7 +177,9 @@ function HeartbeatPage() {
                     type="number"
                     min={1}
                     value={values.everyNumber ?? ""}
-                    onChange={(e) => set("everyNumber", Number(e.target.value) || 1)}
+                    onChange={(e) =>
+                      set("everyNumber", Number(e.target.value) || 1)
+                    }
                     className="w-24"
                   />
                   <Select
@@ -240,7 +250,9 @@ function HeartbeatPage() {
 
               <div className="mt-4">
                 <Button type="submit" disabled={saving}>
-                  {saving && <Loader2 size={14} className="animate-spin mr-2" />}
+                  {saving && (
+                    <Loader2 size={14} className="animate-spin mr-2" />
+                  )}
                   {t("common.save")}
                 </Button>
               </div>

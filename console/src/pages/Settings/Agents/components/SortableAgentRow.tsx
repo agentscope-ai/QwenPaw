@@ -13,9 +13,12 @@ type SortableHandleContextValue = {
   disabled: boolean;
 };
 
-const SortableHandleContext = createContext<SortableHandleContextValue | null>(null);
+const SortableHandleContext = createContext<SortableHandleContextValue | null>(
+  null,
+);
 
-interface SortableAgentRowProps extends React.HTMLAttributes<HTMLTableRowElement> {
+interface SortableAgentRowProps
+  extends React.HTMLAttributes<HTMLTableRowElement> {
   id: string;
   children?: React.ReactNode;
 }
@@ -47,7 +50,9 @@ export function SortableAgentRow({
     .join(" ");
 
   return (
-    <SortableHandleContext.Provider value={{ attributes, listeners, disabled: false }}>
+    <SortableHandleContext.Provider
+      value={{ attributes, listeners, disabled: false }}
+    >
       <TableRow
         {...props}
         ref={setNodeRef}

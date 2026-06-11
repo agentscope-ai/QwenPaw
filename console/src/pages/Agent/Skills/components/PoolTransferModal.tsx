@@ -160,9 +160,9 @@ export function PoolTransferModal({
               return (
                 <div
                   key={skill.name}
-                  className={`${styles.pickerCard} ${styles.compactPickerCard} ${
-                    selected ? styles.pickerCardSelected : ""
-                  }`}
+                  className={`${styles.pickerCard} ${
+                    styles.compactPickerCard
+                  } ${selected ? styles.pickerCardSelected : ""}`}
                   onClick={() =>
                     setSelectedNames(
                       selected

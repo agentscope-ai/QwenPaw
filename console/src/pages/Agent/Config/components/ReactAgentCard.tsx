@@ -48,7 +48,11 @@ export function ReactAgentCard({
 }: ReactAgentCardProps) {
   const { t } = useTranslation();
   const { selectedAgent } = useAgentStore();
-  const { control, register, formState: { errors } } = useFormContext();
+  const {
+    control,
+    register,
+    formState: { errors },
+  } = useFormContext();
   const [planEnabled, setPlanEnabled] = useState(false);
   const [planLoading, setPlanLoading] = useState(false);
   const timezoneOptions = useTimezoneOptions();
@@ -141,7 +145,10 @@ export function ReactAgentCard({
               placeholder={t("agentConfig.maxItersPlaceholder")}
               {...register("max_iters", {
                 required: t("agentConfig.maxItersRequired") as string,
-                min: { value: 1, message: t("agentConfig.maxItersMin") as string },
+                min: {
+                  value: 1,
+                  message: t("agentConfig.maxItersMin") as string,
+                },
                 valueAsNumber: true,
               })}
             />
@@ -161,8 +168,13 @@ export function ReactAgentCard({
               step={10}
               placeholder={t("agentConfig.shellCommandTimeoutPlaceholder")}
               {...register("shell_command_timeout", {
-                required: t("agentConfig.shellCommandTimeoutRequired") as string,
-                min: { value: 1, message: t("agentConfig.shellCommandTimeoutMin") as string },
+                required: t(
+                  "agentConfig.shellCommandTimeoutRequired",
+                ) as string,
+                min: {
+                  value: 1,
+                  message: t("agentConfig.shellCommandTimeoutMin") as string,
+                },
                 valueAsNumber: true,
               })}
             />

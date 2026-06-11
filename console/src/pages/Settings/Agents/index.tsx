@@ -16,7 +16,8 @@ import styles from "./index.module.less";
 
 export default function AgentsPage() {
   const { t, i18n } = useTranslation();
-  const { agents, loading, deleteAgent, toggleAgent, loadAgents, setAgents } = useAgents();
+  const { agents, loading, deleteAgent, toggleAgent, loadAgents, setAgents } =
+    useAgents();
   const { selectedAgent, setSelectedAgent } = useAgentStore();
   const [modalVisible, setModalVisible] = useState(false);
   const [editingAgent, setEditingAgent] = useState<AgentSummary | null>(null);
@@ -91,12 +92,16 @@ export default function AgentsPage() {
     const values = await form.validateFields();
     const workspaceRaw = values.workspace_dir;
     const workspace_dir =
-      typeof workspaceRaw === "string" ? workspaceRaw.trim() || undefined : workspaceRaw;
+      typeof workspaceRaw === "string"
+        ? workspaceRaw.trim() || undefined
+        : workspaceRaw;
 
     const providerId = values.active_model_provider;
     const modelId = values.active_model_model;
     const active_model =
-      providerId && modelId ? { provider_id: providerId, model: modelId } : null;
+      providerId && modelId
+        ? { provider_id: providerId, model: modelId }
+        : null;
 
     const { active_model_provider, active_model_model, ...rest } = values;
     const payload = { ...rest, workspace_dir, active_model };
@@ -116,7 +121,9 @@ export default function AgentsPage() {
       await agentsApi.updateAgent(editingAgent.id, payload);
       installedSkillsRef.current = [
         ...previousInstalledSkills,
-        ...newSkills.filter((skill) => !previousInstalledSkills.includes(skill)),
+        ...newSkills.filter(
+          (skill) => !previousInstalledSkills.includes(skill),
+        ),
       ];
       invalidateSkillCache({ agentId: editingAgent.id });
       message.success(t("agent.updateSuccess"));

@@ -1,5 +1,11 @@
 import React, { useState, useCallback, useRef, useEffect } from "react";
-import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetDescription,
+} from "@/components/ui/sheet";
 import { Loader2, Search, ChevronRight, X } from "lucide-react";
 import { useChatAnywhereSessionsState } from "@agentscope-ai/chat";
 import { useTranslation } from "react-i18next";
@@ -254,14 +260,23 @@ const ChatSearchPanel: React.FC<ChatSearchPanelProps> = ({ open, onClose }) => {
   );
 
   return (
-    <Sheet open={open} onOpenChange={(v) => { if (!v) onClose(); }}>
+    <Sheet
+      open={open}
+      onOpenChange={(v) => {
+        if (!v) onClose();
+      }}
+    >
       <SheetContent
         side="right"
-        className={`w-[360px] p-0 flex flex-col h-full overflow-hidden ${styles.drawer ?? ""}`}
+        className={`w-[360px] p-0 flex flex-col h-full overflow-hidden ${
+          styles.drawer ?? ""
+        }`}
       >
         <SheetHeader className="sr-only">
           <SheetTitle>{t("chat.search.title") || "Search"}</SheetTitle>
-          <SheetDescription>{t("chat.search.title") || "Search chat sessions"}</SheetDescription>
+          <SheetDescription>
+            {t("chat.search.title") || "Search chat sessions"}
+          </SheetDescription>
         </SheetHeader>
         {/* Header bar */}
         <div className={styles.header}>
@@ -282,7 +297,10 @@ const ChatSearchPanel: React.FC<ChatSearchPanelProps> = ({ open, onClose }) => {
         {/* Search input */}
         <div className={styles.searchSection}>
           <div className="relative flex items-center">
-            <Search size={14} className="absolute left-3 text-muted-foreground pointer-events-none" />
+            <Search
+              size={14}
+              className="absolute left-3 text-muted-foreground pointer-events-none"
+            />
             <input
               ref={inputRef}
               placeholder={t("chat.search.placeholder")}
@@ -294,7 +312,10 @@ const ChatSearchPanel: React.FC<ChatSearchPanelProps> = ({ open, onClose }) => {
               <button
                 type="button"
                 className="absolute right-3 text-muted-foreground hover:text-foreground transition-colors"
-                onClick={() => { setSearchQuery(""); inputRef.current?.focus(); }}
+                onClick={() => {
+                  setSearchQuery("");
+                  inputRef.current?.focus();
+                }}
               >
                 <X size={13} />
               </button>
@@ -310,7 +331,9 @@ const ChatSearchPanel: React.FC<ChatSearchPanelProps> = ({ open, onClose }) => {
                 ? t("chat.search.searching", { progress: searchProgress })
                 : loading
                 ? t("chat.search.loading")
-                : t("chat.search.resultsCount", { count: searchResults.length })}
+                : t("chat.search.resultsCount", {
+                    count: searchResults.length,
+                  })}
             </span>
           </div>
         )}
@@ -321,7 +344,10 @@ const ChatSearchPanel: React.FC<ChatSearchPanelProps> = ({ open, onClose }) => {
           <div className={styles.list}>
             {loading && searchResults.length === 0 ? (
               <div className="flex justify-center p-10">
-                <Loader2 size={20} className="animate-spin text-muted-foreground" />
+                <Loader2
+                  size={20}
+                  className="animate-spin text-muted-foreground"
+                />
               </div>
             ) : searchQuery.trim() && !loading && searchResults.length === 0 ? (
               <div className="flex flex-col items-center justify-center mt-10 text-sm text-muted-foreground gap-2">
@@ -337,14 +363,22 @@ const ChatSearchPanel: React.FC<ChatSearchPanelProps> = ({ open, onClose }) => {
                     onClick={() => handleResultClick(item)}
                   >
                     <div className={styles.resultHeader}>
-                      <span className={styles.resultChatName}>{item.chatName}</span>
-                      <span className={styles.resultRole}>{item.roleLabel}</span>
+                      <span className={styles.resultChatName}>
+                        {item.chatName}
+                      </span>
+                      <span className={styles.resultRole}>
+                        {item.roleLabel}
+                      </span>
                     </div>
                     <div className={styles.resultContent}>
-                      <span className="text-[13px] line-clamp-2">{item.matchedText}</span>
+                      <span className="text-[13px] line-clamp-2">
+                        {item.matchedText}
+                      </span>
                     </div>
                     {item.timestamp && (
-                      <div className={styles.resultTime}>{formatTimestamp(item.timestamp)}</div>
+                      <div className={styles.resultTime}>
+                        {formatTimestamp(item.timestamp)}
+                      </div>
                     )}
                   </div>
                 ))}

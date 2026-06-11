@@ -91,10 +91,7 @@ export const FileItem: React.FC<FileItemProps> = ({
               title={t("workspace.systemPromptToggleTooltip")}
               onClick={(e) => e.stopPropagation()}
             >
-              <Switch
-                checked={enabled}
-                onCheckedChange={handleToggleClick}
-              />
+              <Switch checked={enabled} onCheckedChange={handleToggleClick} />
             </span>
             {isMemoryFile && (
               <span className={styles.expandIcon}>

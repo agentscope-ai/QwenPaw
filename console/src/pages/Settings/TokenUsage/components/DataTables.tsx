@@ -61,7 +61,10 @@ function useSortState<T>(initial: T[], getKey: (r: T) => string) {
     if (!sortCol || !sortDir) return 0;
     const av = (a as Record<string, unknown>)[sortCol];
     const bv = (b as Record<string, unknown>)[sortCol];
-    const n = typeof av === "number" && typeof bv === "number" ? av - bv : String(av).localeCompare(String(bv));
+    const n =
+      typeof av === "number" && typeof bv === "number"
+        ? av - bv
+        : String(av).localeCompare(String(bv));
     return sortDir === "asc" ? n : -n;
   });
 
@@ -96,25 +99,71 @@ export function DataTables({ byModelData, byDateData }: DataTablesProps) {
     <>
       {byModelData.length > 0 && (
         <div className={`${styles.tableCard} border rounded-lg p-4`}>
-          <div className="text-sm font-semibold mb-3">{t("tokenUsage.byModel")}</div>
+          <div className="text-sm font-semibold mb-3">
+            {t("tokenUsage.byModel")}
+          </div>
           <Table>
             <TableHeader>
               <TableRow>
-                <SH col="model" state={modelSort as ReturnType<typeof useSortState<ByModelData | ByDateData>>}>{t("tokenUsage.model")}</SH>
-                <SH col="prompt_tokens" state={modelSort as ReturnType<typeof useSortState<ByModelData | ByDateData>>}>{t("tokenUsage.promptTokens")}</SH>
-                <SH col="completion_tokens" state={modelSort as ReturnType<typeof useSortState<ByModelData | ByDateData>>}>{t("tokenUsage.completionTokens")}</SH>
+                <SH
+                  col="model"
+                  state={
+                    modelSort as ReturnType<
+                      typeof useSortState<ByModelData | ByDateData>
+                    >
+                  }
+                >
+                  {t("tokenUsage.model")}
+                </SH>
+                <SH
+                  col="prompt_tokens"
+                  state={
+                    modelSort as ReturnType<
+                      typeof useSortState<ByModelData | ByDateData>
+                    >
+                  }
+                >
+                  {t("tokenUsage.promptTokens")}
+                </SH>
+                <SH
+                  col="completion_tokens"
+                  state={
+                    modelSort as ReturnType<
+                      typeof useSortState<ByModelData | ByDateData>
+                    >
+                  }
+                >
+                  {t("tokenUsage.completionTokens")}
+                </SH>
                 <TableHead>{t("tokenUsage.totalTokens")}</TableHead>
-                <SH col="call_count" state={modelSort as ReturnType<typeof useSortState<ByModelData | ByDateData>>}>{t("tokenUsage.totalCalls")}</SH>
+                <SH
+                  col="call_count"
+                  state={
+                    modelSort as ReturnType<
+                      typeof useSortState<ByModelData | ByDateData>
+                    >
+                  }
+                >
+                  {t("tokenUsage.totalCalls")}
+                </SH>
               </TableRow>
             </TableHeader>
             <TableBody>
               {modelSort.sorted.map((row) => (
                 <TableRow key={row.key}>
                   <TableCell className="text-sm">{row.model}</TableCell>
-                  <TableCell className="text-sm">{formatCompact(row.prompt_tokens)}</TableCell>
-                  <TableCell className="text-sm">{formatCompact(row.completion_tokens)}</TableCell>
-                  <TableCell className="text-sm">{formatCompact(row.prompt_tokens + row.completion_tokens)}</TableCell>
-                  <TableCell className="text-sm">{formatCompact(row.call_count)}</TableCell>
+                  <TableCell className="text-sm">
+                    {formatCompact(row.prompt_tokens)}
+                  </TableCell>
+                  <TableCell className="text-sm">
+                    {formatCompact(row.completion_tokens)}
+                  </TableCell>
+                  <TableCell className="text-sm">
+                    {formatCompact(row.prompt_tokens + row.completion_tokens)}
+                  </TableCell>
+                  <TableCell className="text-sm">
+                    {formatCompact(row.call_count)}
+                  </TableCell>
                 </TableRow>
               ))}
             </TableBody>
@@ -124,25 +173,71 @@ export function DataTables({ byModelData, byDateData }: DataTablesProps) {
 
       {byDateData.length > 0 && (
         <div className={`${styles.tableCard} border rounded-lg p-4`}>
-          <div className="text-sm font-semibold mb-3">{t("tokenUsage.byDate")}</div>
+          <div className="text-sm font-semibold mb-3">
+            {t("tokenUsage.byDate")}
+          </div>
           <Table>
             <TableHeader>
               <TableRow>
-                <SH col="date" state={dateSort as ReturnType<typeof useSortState<ByModelData | ByDateData>>}>{t("tokenUsage.date")}</SH>
-                <SH col="prompt_tokens" state={dateSort as ReturnType<typeof useSortState<ByModelData | ByDateData>>}>{t("tokenUsage.promptTokens")}</SH>
-                <SH col="completion_tokens" state={dateSort as ReturnType<typeof useSortState<ByModelData | ByDateData>>}>{t("tokenUsage.completionTokens")}</SH>
+                <SH
+                  col="date"
+                  state={
+                    dateSort as ReturnType<
+                      typeof useSortState<ByModelData | ByDateData>
+                    >
+                  }
+                >
+                  {t("tokenUsage.date")}
+                </SH>
+                <SH
+                  col="prompt_tokens"
+                  state={
+                    dateSort as ReturnType<
+                      typeof useSortState<ByModelData | ByDateData>
+                    >
+                  }
+                >
+                  {t("tokenUsage.promptTokens")}
+                </SH>
+                <SH
+                  col="completion_tokens"
+                  state={
+                    dateSort as ReturnType<
+                      typeof useSortState<ByModelData | ByDateData>
+                    >
+                  }
+                >
+                  {t("tokenUsage.completionTokens")}
+                </SH>
                 <TableHead>{t("tokenUsage.totalTokens")}</TableHead>
-                <SH col="call_count" state={dateSort as ReturnType<typeof useSortState<ByModelData | ByDateData>>}>{t("tokenUsage.totalCalls")}</SH>
+                <SH
+                  col="call_count"
+                  state={
+                    dateSort as ReturnType<
+                      typeof useSortState<ByModelData | ByDateData>
+                    >
+                  }
+                >
+                  {t("tokenUsage.totalCalls")}
+                </SH>
               </TableRow>
             </TableHeader>
             <TableBody>
               {dateSort.sorted.map((row) => (
                 <TableRow key={row.key}>
                   <TableCell className="text-sm">{row.date}</TableCell>
-                  <TableCell className="text-sm">{formatCompact(row.prompt_tokens)}</TableCell>
-                  <TableCell className="text-sm">{formatCompact(row.completion_tokens)}</TableCell>
-                  <TableCell className="text-sm">{formatCompact(row.prompt_tokens + row.completion_tokens)}</TableCell>
-                  <TableCell className="text-sm">{formatCompact(row.call_count)}</TableCell>
+                  <TableCell className="text-sm">
+                    {formatCompact(row.prompt_tokens)}
+                  </TableCell>
+                  <TableCell className="text-sm">
+                    {formatCompact(row.completion_tokens)}
+                  </TableCell>
+                  <TableCell className="text-sm">
+                    {formatCompact(row.prompt_tokens + row.completion_tokens)}
+                  </TableCell>
+                  <TableCell className="text-sm">
+                    {formatCompact(row.call_count)}
+                  </TableCell>
                 </TableRow>
               ))}
             </TableBody>

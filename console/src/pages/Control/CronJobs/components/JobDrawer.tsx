@@ -6,7 +6,14 @@ import type {
 } from "../../../../api/types";
 import { DEFAULT_FORM_VALUES } from "./constants";
 import { useTimezoneOptions } from "../../../../hooks/useTimezoneOptions";
-import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetFooter } from "@/components/ui/sheet";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+  SheetFooter,
+} from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -134,11 +141,19 @@ export function JobDrawer({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [values]);
 
-  function flattenValues(obj: Record<string, any>, prefix = ""): Record<string, any> {
+  function flattenValues(
+    obj: Record<string, any>,
+    prefix = "",
+  ): Record<string, any> {
     const result: Record<string, any> = {};
     for (const [k, v] of Object.entries(obj)) {
       const key = prefix ? `${prefix}.${k}` : k;
-      if (v !== null && typeof v === "object" && !Array.isArray(v) && !(v instanceof Date)) {
+      if (
+        v !== null &&
+        typeof v === "object" &&
+        !Array.isArray(v) &&
+        !(v instanceof Date)
+      ) {
         Object.assign(result, flattenValues(v, key));
       } else {
         result[key] = v;
@@ -165,7 +180,9 @@ export function JobDrawer({
     search?: string,
   ): SelectOption[] => {
     const merged = new Set<string>();
-    Array.from(vals).forEach((v) => { if (v?.trim()) merged.add(v.trim()); });
+    Array.from(vals).forEach((v) => {
+      if (v?.trim()) merged.add(v.trim());
+    });
     if (selected?.trim()) merged.add(selected.trim());
     if (search?.trim()) merged.add(search.trim());
     return [...merged].sort().map((v) => ({ value: v, label: v }));
@@ -199,8 +216,18 @@ export function JobDrawer({
         opts.add(item.session_id);
       }
     });
-    return mergeOptions(opts, values["dispatch.target.session_id"], sessionSearch);
-  }, [targetItems, selectedChannel, selectedTargetUserId, sessionSearch, values]);
+    return mergeOptions(
+      opts,
+      values["dispatch.target.session_id"],
+      sessionSearch,
+    );
+  }, [
+    targetItems,
+    selectedChannel,
+    selectedTargetUserId,
+    sessionSearch,
+    values,
+  ]);
 
   const scheduleType = values["scheduleType"] || "cron";
   const cronType = values["cronType"] || "daily";
@@ -263,11 +290,19 @@ export function JobDrawer({
         <div className="flex-1 overflow-y-auto px-6 py-4">
           {isEdit && (
             <Field label={t("cronJobs.id")} tooltip={t("cronJobs.idTooltip")}>
-              <Input disabled value={values["id"] || ""} placeholder={t("cronJobs.jobIdPlaceholder")} />
+              <Input
+                disabled
+                value={values["id"] || ""}
+                placeholder={t("cronJobs.jobIdPlaceholder")}
+              />
             </Field>
           )}
 
-          <Field label={t("cronJobs.name")} required tooltip={t("cronJobs.nameTooltip")}>
+          <Field
+            label={t("cronJobs.name")}
+            required
+            tooltip={t("cronJobs.nameTooltip")}
+          >
             <Input
               value={values["name"] || ""}
               onChange={(e) => set("name", e.target.value)}
@@ -282,7 +317,10 @@ export function JobDrawer({
             />
           </Field>
 
-          <Field label={t("cronJobs.saveResultToInbox")} tooltip={t("cronJobs.saveResultToInboxTooltip")}>
+          <Field
+            label={t("cronJobs.saveResultToInbox")}
+            tooltip={t("cronJobs.saveResultToInboxTooltip")}
+          >
             <Switch
               checked={Boolean(values["save_result_to_inbox"])}
               onCheckedChange={(v) => {
@@ -293,13 +331,20 @@ export function JobDrawer({
           </Field>
 
           <Field label={t("cronJobs.scheduleType")} required>
-            <Select value={scheduleType} onValueChange={(v) => set("scheduleType", v)}>
+            <Select
+              value={scheduleType}
+              onValueChange={(v) => set("scheduleType", v)}
+            >
               <SelectTrigger>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="cron">{t("cronJobs.scheduleTypeRecurring")}</SelectItem>
-                <SelectItem value="once">{t("cronJobs.scheduleTypeOnce")}</SelectItem>
+                <SelectItem value="cron">
+                  {t("cronJobs.scheduleTypeRecurring")}
+                </SelectItem>
+                <SelectItem value="once">
+                  {t("cronJobs.scheduleTypeOnce")}
+                </SelectItem>
               </SelectContent>
             </Select>
           </Field>
@@ -313,7 +358,10 @@ export function JobDrawer({
                   onChange={(e) => set("onceRunAt", e.target.value)}
                 />
               </Field>
-              <Field label={t("cronJobs.repeatEnabled")} tooltip={t("cronJobs.repeatEnabledTooltip")}>
+              <Field
+                label={t("cronJobs.repeatEnabled")}
+                tooltip={t("cronJobs.repeatEnabledTooltip")}
+              >
                 <Switch
                   checked={onceRepeatEnabled}
                   onCheckedChange={(v) => set("onceRepeatEnabled", v)}
@@ -326,15 +374,21 @@ export function JobDrawer({
             <>
               <Field label={t("cronJobs.repeatFrequency")}>
                 <div className="flex items-center gap-2">
-                  <span className="text-sm">{t("cronJobs.repeatEveryPrefix")}</span>
+                  <span className="text-sm">
+                    {t("cronJobs.repeatEveryPrefix")}
+                  </span>
                   <Input
                     type="number"
                     min={1}
                     className="w-24"
                     value={values["onceRepeatEveryDays"] || 1}
-                    onChange={(e) => set("onceRepeatEveryDays", Number(e.target.value))}
+                    onChange={(e) =>
+                      set("onceRepeatEveryDays", Number(e.target.value))
+                    }
                   />
-                  <span className="text-sm">{t("cronJobs.repeatEverySuffix")}</span>
+                  <span className="text-sm">
+                    {t("cronJobs.repeatEverySuffix")}
+                  </span>
                 </div>
               </Field>
               <Field label={t("cronJobs.repeatEndType")} required>
@@ -346,9 +400,15 @@ export function JobDrawer({
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="never">{t("cronJobs.repeatEndNever")}</SelectItem>
-                    <SelectItem value="until">{t("cronJobs.repeatEndUntil")}</SelectItem>
-                    <SelectItem value="count">{t("cronJobs.repeatEndCount")}</SelectItem>
+                    <SelectItem value="never">
+                      {t("cronJobs.repeatEndNever")}
+                    </SelectItem>
+                    <SelectItem value="until">
+                      {t("cronJobs.repeatEndUntil")}
+                    </SelectItem>
+                    <SelectItem value="count">
+                      {t("cronJobs.repeatEndCount")}
+                    </SelectItem>
                   </SelectContent>
                 </Select>
               </Field>
@@ -367,7 +427,9 @@ export function JobDrawer({
                     type="number"
                     min={1}
                     value={values["onceRepeatCount"] || 2}
-                    onChange={(e) => set("onceRepeatCount", Number(e.target.value))}
+                    onChange={(e) =>
+                      set("onceRepeatCount", Number(e.target.value))
+                    }
                   />
                 </Field>
               )}
@@ -376,16 +438,31 @@ export function JobDrawer({
 
           {scheduleType === "cron" && (
             <>
-              <Field label={t("cronJobs.scheduleCronLabel")} required tooltip={t("cronJobs.cronTooltip")}>
-                <Select value={cronType} onValueChange={(v) => set("cronType", v)}>
+              <Field
+                label={t("cronJobs.scheduleCronLabel")}
+                required
+                tooltip={t("cronJobs.cronTooltip")}
+              >
+                <Select
+                  value={cronType}
+                  onValueChange={(v) => set("cronType", v)}
+                >
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="hourly">{t("cronJobs.cronTypeHourly")}</SelectItem>
-                    <SelectItem value="daily">{t("cronJobs.cronTypeDaily")}</SelectItem>
-                    <SelectItem value="weekly">{t("cronJobs.cronTypeWeekly")}</SelectItem>
-                    <SelectItem value="custom">{t("cronJobs.cronTypeCustom")}</SelectItem>
+                    <SelectItem value="hourly">
+                      {t("cronJobs.cronTypeHourly")}
+                    </SelectItem>
+                    <SelectItem value="daily">
+                      {t("cronJobs.cronTypeDaily")}
+                    </SelectItem>
+                    <SelectItem value="weekly">
+                      {t("cronJobs.cronTypeWeekly")}
+                    </SelectItem>
+                    <SelectItem value="custom">
+                      {t("cronJobs.cronTypeCustom")}
+                    </SelectItem>
                   </SelectContent>
                 </Select>
               </Field>
@@ -418,7 +495,10 @@ export function JobDrawer({
                               set("cronDaysOfWeek", next);
                             }}
                           />
-                          <Label htmlFor={checkId} className="font-normal cursor-pointer">
+                          <Label
+                            htmlFor={checkId}
+                            className="font-normal cursor-pointer"
+                          >
                             {t(labelKey)}
                           </Label>
                         </div>
@@ -429,10 +509,7 @@ export function JobDrawer({
               )}
 
               {cronType === "custom" && (
-                <Field
-                  label={t("cronJobs.cronCustomExpression")}
-                  required
-                >
+                <Field label={t("cronJobs.cronCustomExpression")} required>
                   <Input
                     placeholder="0 9 * * *"
                     value={values["cronCustom"] || ""}
@@ -457,7 +534,10 @@ export function JobDrawer({
             </>
           )}
 
-          <Field label={t("cronJobs.scheduleTimezone")} tooltip={t("cronJobs.timezoneTooltip")}>
+          <Field
+            label={t("cronJobs.scheduleTimezone")}
+            tooltip={t("cronJobs.timezoneTooltip")}
+          >
             <Select
               value={values["schedule.timezone"] || "UTC"}
               onValueChange={(v) => set("schedule.timezone", v)}
@@ -475,7 +555,11 @@ export function JobDrawer({
             </Select>
           </Field>
 
-          <Field label={t("cronJobs.taskType")} required tooltip={t("cronJobs.taskTypeTooltip")}>
+          <Field
+            label={t("cronJobs.taskType")}
+            required
+            tooltip={t("cronJobs.taskTypeTooltip")}
+          >
             <Select value={taskType} onValueChange={(v) => set("task_type", v)}>
               <SelectTrigger>
                 <SelectValue />
@@ -512,10 +596,16 @@ export function JobDrawer({
               onChange={(e) => set("request.input", e.target.value)}
               className="font-mono text-xs"
             />
-            <p className="text-xs text-muted-foreground mt-1">{t("cronJobs.requestInputExample")}</p>
+            <p className="text-xs text-muted-foreground mt-1">
+              {t("cronJobs.requestInputExample")}
+            </p>
           </Field>
 
-          <Field label={t("cronJobs.dispatchChannel")} required tooltip={t("cronJobs.dispatchChannelTooltip")}>
+          <Field
+            label={t("cronJobs.dispatchChannel")}
+            required
+            tooltip={t("cronJobs.dispatchChannelTooltip")}
+          >
             <Select
               value={selectedChannel || ""}
               onValueChange={(v) => set("dispatch.channel", v)}
@@ -525,13 +615,19 @@ export function JobDrawer({
               </SelectTrigger>
               <SelectContent>
                 {channelOptions.map((opt) => (
-                  <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+                  <SelectItem key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </SelectItem>
                 ))}
               </SelectContent>
             </Select>
           </Field>
 
-          <Field label={t("cronJobs.dispatchTargetUserId")} required tooltip={t("cronJobs.dispatchTargetUserIdTooltip")}>
+          <Field
+            label={t("cronJobs.dispatchTargetUserId")}
+            required
+            tooltip={t("cronJobs.dispatchTargetUserIdTooltip")}
+          >
             <Select
               value={selectedTargetUserId || ""}
               onValueChange={(v) => set("dispatch.target.user_id", v)}
@@ -541,13 +637,19 @@ export function JobDrawer({
               </SelectTrigger>
               <SelectContent>
                 {userOptions.map((opt) => (
-                  <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+                  <SelectItem key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </SelectItem>
                 ))}
               </SelectContent>
             </Select>
           </Field>
 
-          <Field label={t("cronJobs.dispatchTargetSessionId")} required tooltip={t("cronJobs.dispatchTargetSessionIdTooltip")}>
+          <Field
+            label={t("cronJobs.dispatchTargetSessionId")}
+            required
+            tooltip={t("cronJobs.dispatchTargetSessionIdTooltip")}
+          >
             <Select
               value={values["dispatch.target.session_id"] || ""}
               onValueChange={(v) => set("dispatch.target.session_id", v)}
@@ -557,18 +659,25 @@ export function JobDrawer({
               </SelectTrigger>
               <SelectContent>
                 {sessionOptions.map((opt) => (
-                  <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+                  <SelectItem key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </SelectItem>
                 ))}
               </SelectContent>
             </Select>
           </Field>
 
-          <Field label={t("cronJobs.dispatchMode")} tooltip={t("cronJobs.dispatchModeTooltip")}>
+          <Field
+            label={t("cronJobs.dispatchMode")}
+            tooltip={t("cronJobs.dispatchModeTooltip")}
+          >
             <Select
               value={values["dispatch.mode"] || "final"}
               onValueChange={(v) => set("dispatch.mode", v)}
             >
-              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
               <SelectContent>
                 <SelectItem value="stream">stream</SelectItem>
                 <SelectItem value="final">final</SelectItem>
@@ -576,40 +685,67 @@ export function JobDrawer({
             </Select>
           </Field>
 
-          <Field label={t("cronJobs.runtimeShareSession")} tooltip={t("cronJobs.shareSessionTooltip")}>
+          <Field
+            label={t("cronJobs.runtimeShareSession")}
+            tooltip={t("cronJobs.shareSessionTooltip")}
+          >
             <Switch
               checked={values["runtime.share_session"] !== false}
               onCheckedChange={(v) => set("runtime.share_session", v)}
             />
           </Field>
 
-          <Field label={t("cronJobs.runtimeMaxConcurrency")} tooltip={t("cronJobs.maxConcurrencyTooltip")}>
+          <Field
+            label={t("cronJobs.runtimeMaxConcurrency")}
+            tooltip={t("cronJobs.maxConcurrencyTooltip")}
+          >
             <Input
               type="number"
               min={1}
               placeholder="1"
               value={values["runtime.max_concurrency"] ?? ""}
-              onChange={(e) => set("runtime.max_concurrency", e.target.value ? Number(e.target.value) : undefined)}
+              onChange={(e) =>
+                set(
+                  "runtime.max_concurrency",
+                  e.target.value ? Number(e.target.value) : undefined,
+                )
+              }
             />
           </Field>
 
-          <Field label={t("cronJobs.runtimeTimeoutSeconds")} tooltip={t("cronJobs.timeoutSecondsTooltip")}>
+          <Field
+            label={t("cronJobs.runtimeTimeoutSeconds")}
+            tooltip={t("cronJobs.timeoutSecondsTooltip")}
+          >
             <Input
               type="number"
               min={1}
               placeholder="300"
               value={values["runtime.timeout_seconds"] ?? ""}
-              onChange={(e) => set("runtime.timeout_seconds", e.target.value ? Number(e.target.value) : undefined)}
+              onChange={(e) =>
+                set(
+                  "runtime.timeout_seconds",
+                  e.target.value ? Number(e.target.value) : undefined,
+                )
+              }
             />
           </Field>
 
-          <Field label={t("cronJobs.runtimeMisfireGraceSeconds")} tooltip={t("cronJobs.misfireGraceSecondsTooltip")}>
+          <Field
+            label={t("cronJobs.runtimeMisfireGraceSeconds")}
+            tooltip={t("cronJobs.misfireGraceSecondsTooltip")}
+          >
             <Input
               type="number"
               min={0}
               placeholder="60"
               value={values["runtime.misfire_grace_seconds"] ?? ""}
-              onChange={(e) => set("runtime.misfire_grace_seconds", e.target.value ? Number(e.target.value) : undefined)}
+              onChange={(e) =>
+                set(
+                  "runtime.misfire_grace_seconds",
+                  e.target.value ? Number(e.target.value) : undefined,
+                )
+              }
             />
           </Field>
         </div>

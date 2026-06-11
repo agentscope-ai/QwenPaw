@@ -110,7 +110,12 @@ export function CustomProviderModal({
   };
 
   return (
-    <Dialog open={open} onOpenChange={(v) => { if (!v) onClose(); }}>
+    <Dialog
+      open={open}
+      onOpenChange={(v) => {
+        if (!v) onClose();
+      }}
+    >
       <DialogContent className="max-w-lg">
         <DialogHeader>
           <DialogTitle>{t("models.addProviderTitle")}</DialogTitle>
@@ -136,7 +141,9 @@ export function CustomProviderModal({
                       {...field}
                     />
                   </FormControl>
-                  <FormDescription>{t("models.providerIdHint")}</FormDescription>
+                  <FormDescription>
+                    {t("models.providerIdHint")}
+                  </FormDescription>
                   <FormMessage />
                 </FormItem>
               )}

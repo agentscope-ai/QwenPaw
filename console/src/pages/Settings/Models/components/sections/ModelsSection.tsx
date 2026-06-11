@@ -45,8 +45,12 @@ export const ModelsSection = React.memo(function ModelsSection({
 }: ModelsSectionProps) {
   const { t } = useTranslation();
   const [saving, setSaving] = useState(false);
-  const [selectedProviderId, setSelectedProviderId] = useState<string | undefined>(undefined);
-  const [selectedModel, setSelectedModel] = useState<string | undefined>(undefined);
+  const [selectedProviderId, setSelectedProviderId] = useState<
+    string | undefined
+  >(undefined);
+  const [selectedModel, setSelectedModel] = useState<string | undefined>(
+    undefined,
+  );
   const [dirty, setDirty] = useState(false);
   const { message } = useAppMessage();
 
@@ -55,7 +59,8 @@ export const ModelsSection = React.memo(function ModelsSection({
   const eligible = useMemo(
     () =>
       providers.filter((p) => {
-        const hasModels = (p.models?.length ?? 0) + (p.extra_models?.length ?? 0) > 0;
+        const hasModels =
+          (p.models?.length ?? 0) + (p.extra_models?.length ?? 0) > 0;
         if (!hasModels) return false;
         if (p.require_api_key === false) return !!p.base_url;
         if (p.is_custom) return !!p.base_url;
@@ -99,7 +104,11 @@ export const ModelsSection = React.memo(function ModelsSection({
       ...(selectedProvider?.extra_models ?? []),
     ].find((model) => model.id === selectedModel);
     if (selectedProvider && selectedModelInfo) {
-      const confirmed = await confirmFreeModelSwitch({ provider: selectedProvider, model: selectedModelInfo, t });
+      const confirmed = await confirmFreeModelSwitch({
+        provider: selectedProvider,
+        model: selectedModelInfo,
+        t,
+      });
       if (!confirmed) return;
     }
     const body: ModelSlotRequest = {
@@ -114,7 +123,8 @@ export const ModelsSection = React.memo(function ModelsSection({
       setDirty(false);
       onSaved();
     } catch (error) {
-      const errMsg = error instanceof Error ? error.message : t("models.failedToSave");
+      const errMsg =
+        error instanceof Error ? error.message : t("models.failedToSave");
       message.error(errMsg);
     } finally {
       setSaving(false);
@@ -136,13 +146,18 @@ export const ModelsSection = React.memo(function ModelsSection({
         <div className={styles.slotForm}>
           <div className={styles.slotField}>
             <Label className={styles.slotLabel}>{t("models.provider")}</Label>
-            <Select value={selectedProviderId} onValueChange={handleProviderChange}>
+            <Select
+              value={selectedProviderId}
+              onValueChange={handleProviderChange}
+            >
               <SelectTrigger className="w-full">
                 <SelectValue placeholder={t("models.selectProvider")} />
               </SelectTrigger>
               <SelectContent>
                 {eligible.map((p) => (
-                  <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
+                  <SelectItem key={p.id} value={p.id}>
+                    {p.name}
+                  </SelectItem>
                 ))}
               </SelectContent>
             </Select>
@@ -150,20 +165,36 @@ export const ModelsSection = React.memo(function ModelsSection({
 
           <div className={styles.slotField}>
             <Label className={styles.slotLabel}>{t("models.model")}</Label>
-            <Select value={selectedModel} onValueChange={handleModelChange} disabled={!hasModels}>
+            <Select
+              value={selectedModel}
+              onValueChange={handleModelChange}
+              disabled={!hasModels}
+            >
               <SelectTrigger className="w-full">
-                <SelectValue placeholder={hasModels ? t("models.selectModel") : t("models.addModelFirst")} />
+                <SelectValue
+                  placeholder={
+                    hasModels
+                      ? t("models.selectModel")
+                      : t("models.addModelFirst")
+                  }
+                />
               </SelectTrigger>
               <SelectContent>
                 {modelOptions.map((m) => (
-                  <SelectItem key={m.id} value={m.id}>{m.name} ({m.id})</SelectItem>
+                  <SelectItem key={m.id} value={m.id}>
+                    {m.name} ({m.id})
+                  </SelectItem>
                 ))}
               </SelectContent>
             </Select>
           </div>
 
           <div className={[styles.slotField, styles.slotActionField].join(" ")}>
-            <Label className={[styles.slotLabel, styles.visuallyHiddenLabel].join(" ")}>
+            <Label
+              className={[styles.slotLabel, styles.visuallyHiddenLabel].join(
+                " ",
+              )}
+            >
               {t("models.actions")}
             </Label>
             <Button

@@ -1,6 +1,8 @@
 import { toast } from "sonner";
 
-type ToastContent = string | { content: string; key?: string; duration?: number };
+type ToastContent =
+  | string
+  | { content: string; key?: string; duration?: number };
 
 function resolveContent(content: ToastContent): string {
   if (typeof content === "string") return content;
@@ -17,10 +19,14 @@ const messageAdapter = {
   open: (config: { type?: string; content: string }) => {
     const msg = config.content;
     switch (config.type) {
-      case "success": return toast.success(msg);
-      case "error": return toast.error(msg);
-      case "warning": return toast.warning(msg);
-      default: return toast.info(msg);
+      case "success":
+        return toast.success(msg);
+      case "error":
+        return toast.error(msg);
+      case "warning":
+        return toast.warning(msg);
+      default:
+        return toast.info(msg);
     }
   },
 };

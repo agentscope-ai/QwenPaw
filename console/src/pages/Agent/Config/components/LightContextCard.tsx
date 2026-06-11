@@ -56,7 +56,11 @@ export function LightContextCard({ maxInputLength }: LightContextCardProps) {
           <Controller
             name="light_context_config.token_count_estimate_divisor"
             control={control}
-            rules={{ required: t("agentConfig.tokenCountEstimateDivisorRequired") as string }}
+            rules={{
+              required: t(
+                "agentConfig.tokenCountEstimateDivisorRequired",
+              ) as string,
+            }}
             render={({ field }) => (
               <SliderWithValue
                 value={field.value as number | undefined}
@@ -98,7 +102,11 @@ export function LightContextCard({ maxInputLength }: LightContextCardProps) {
                 <Controller
                   name="light_context_config.context_compact_config.compact_threshold_ratio"
                   control={control}
-                  rules={{ required: t("agentConfig.contextCompactRatioRequired") as string }}
+                  rules={{
+                    required: t(
+                      "agentConfig.contextCompactRatioRequired",
+                    ) as string,
+                  }}
                   render={({ field }) => (
                     <SliderWithValue
                       value={field.value as number | undefined}
@@ -116,8 +124,14 @@ export function LightContextCard({ maxInputLength }: LightContextCardProps) {
                 <Label>{t("agentConfig.contextCompactThreshold")}</Label>
                 <Input
                   disabled
-                  value={compactThreshold > 0 ? compactThreshold.toLocaleString() : ""}
-                  placeholder={t("agentConfig.contextCompactThresholdPlaceholder")}
+                  value={
+                    compactThreshold > 0
+                      ? compactThreshold.toLocaleString()
+                      : ""
+                  }
+                  placeholder={t(
+                    "agentConfig.contextCompactThresholdPlaceholder",
+                  )}
                 />
               </div>
 
@@ -126,7 +140,11 @@ export function LightContextCard({ maxInputLength }: LightContextCardProps) {
                 <Controller
                   name="light_context_config.context_compact_config.reserve_threshold_ratio"
                   control={control}
-                  rules={{ required: t("agentConfig.contextCompactReserveRatioRequired") as string }}
+                  rules={{
+                    required: t(
+                      "agentConfig.contextCompactReserveRatioRequired",
+                    ) as string,
+                  }}
                   render={({ field }) => (
                     <SliderWithValue
                       value={field.value as number | undefined}
@@ -144,8 +162,14 @@ export function LightContextCard({ maxInputLength }: LightContextCardProps) {
                 <Label>{t("agentConfig.contextCompactReserveThreshold")}</Label>
                 <Input
                   disabled
-                  value={reserveThreshold > 0 ? reserveThreshold.toLocaleString() : ""}
-                  placeholder={t("agentConfig.contextCompactReserveThresholdPlaceholder")}
+                  value={
+                    reserveThreshold > 0
+                      ? reserveThreshold.toLocaleString()
+                      : ""
+                  }
+                  placeholder={t(
+                    "agentConfig.contextCompactReserveThresholdPlaceholder",
+                  )}
                 />
               </div>
 
@@ -195,7 +219,11 @@ export function LightContextCard({ maxInputLength }: LightContextCardProps) {
                 <Controller
                   name="light_context_config.tool_result_pruning_config.pruning_recent_n"
                   control={control}
-                  rules={{ required: t("agentConfig.toolResultCompactRecentNRequired") as string }}
+                  rules={{
+                    required: t(
+                      "agentConfig.toolResultCompactRecentNRequired",
+                    ) as string,
+                  }}
                   render={({ field }) => (
                     <SliderWithValue
                       value={field.value as number | undefined}
@@ -212,20 +240,36 @@ export function LightContextCard({ maxInputLength }: LightContextCardProps) {
               <div className="space-y-1">
                 <Label>{t("agentConfig.toolResultCompactOldThreshold")}</Label>
                 <Input
-                  placeholder={t("agentConfig.toolResultCompactOldThresholdPlaceholder")}
-                  {...register("light_context_config.tool_result_pruning_config.pruning_old_msg_max_bytes", {
-                    required: t("agentConfig.toolResultCompactOldThresholdRequired") as string,
-                  })}
+                  placeholder={t(
+                    "agentConfig.toolResultCompactOldThresholdPlaceholder",
+                  )}
+                  {...register(
+                    "light_context_config.tool_result_pruning_config.pruning_old_msg_max_bytes",
+                    {
+                      required: t(
+                        "agentConfig.toolResultCompactOldThresholdRequired",
+                      ) as string,
+                    },
+                  )}
                 />
               </div>
 
               <div className="space-y-1">
-                <Label>{t("agentConfig.toolResultCompactRecentThreshold")}</Label>
+                <Label>
+                  {t("agentConfig.toolResultCompactRecentThreshold")}
+                </Label>
                 <Input
-                  placeholder={t("agentConfig.toolResultCompactRecentThresholdPlaceholder")}
-                  {...register("light_context_config.tool_result_pruning_config.pruning_recent_msg_max_bytes", {
-                    required: t("agentConfig.toolResultCompactRecentThresholdRequired") as string,
-                  })}
+                  placeholder={t(
+                    "agentConfig.toolResultCompactRecentThresholdPlaceholder",
+                  )}
+                  {...register(
+                    "light_context_config.tool_result_pruning_config.pruning_recent_msg_max_bytes",
+                    {
+                      required: t(
+                        "agentConfig.toolResultCompactRecentThresholdRequired",
+                      ) as string,
+                    },
+                  )}
                 />
               </div>
 
@@ -234,7 +278,11 @@ export function LightContextCard({ maxInputLength }: LightContextCardProps) {
                 <Controller
                   name="light_context_config.tool_result_pruning_config.offload_retention_days"
                   control={control}
-                  rules={{ required: t("agentConfig.toolResultCompactRetentionDaysRequired") as string }}
+                  rules={{
+                    required: t(
+                      "agentConfig.toolResultCompactRetentionDaysRequired",
+                    ) as string,
+                  }}
                   render={({ field }) => (
                     <SliderWithValue
                       value={field.value as number | undefined}
@@ -252,7 +300,9 @@ export function LightContextCard({ maxInputLength }: LightContextCardProps) {
                 <Label>{t("agentConfig.exemptFileExtensions")}</Label>
                 <Input
                   placeholder={t("agentConfig.exemptFileExtensionsPlaceholder")}
-                  {...register("light_context_config.tool_result_pruning_config.exempt_file_extensions")}
+                  {...register(
+                    "light_context_config.tool_result_pruning_config.exempt_file_extensions",
+                  )}
                 />
               </div>
 
@@ -260,7 +310,9 @@ export function LightContextCard({ maxInputLength }: LightContextCardProps) {
                 <Label>{t("agentConfig.exemptToolNames")}</Label>
                 <Input
                   placeholder={t("agentConfig.exemptToolNamesPlaceholder")}
-                  {...register("light_context_config.tool_result_pruning_config.exempt_tool_names")}
+                  {...register(
+                    "light_context_config.tool_result_pruning_config.exempt_tool_names",
+                  )}
                 />
               </div>
             </AccordionContent>

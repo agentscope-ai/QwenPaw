@@ -56,8 +56,18 @@ export const DetailDrawer = memo(function DetailDrawer({
     const result: Array<[string, React.ReactNode]> = [
       [t("market.detail.author"), item.author || missing],
       [t("market.detail.version"), item.version || missing],
-      [t("market.detail.sourceUrl"), <code key="src" className={styles.mono}>{item.source_url}</code>],
-      [t("market.detail.slug"), <code key="slug" className={styles.mono}>{item.slug}</code>],
+      [
+        t("market.detail.sourceUrl"),
+        <code key="src" className={styles.mono}>
+          {item.source_url}
+        </code>,
+      ],
+      [
+        t("market.detail.slug"),
+        <code key="slug" className={styles.mono}>
+          {item.slug}
+        </code>,
+      ],
     ];
     if (item.stats) {
       for (const [key, value] of Object.entries(item.stats)) {
@@ -71,7 +81,10 @@ export const DetailDrawer = memo(function DetailDrawer({
 
   return (
     <Sheet open={open} onOpenChange={(o) => !o && onClose()}>
-      <SheetContent side="right" className="w-[520px] max-w-full overflow-y-auto">
+      <SheetContent
+        side="right"
+        className="w-[520px] max-w-full overflow-y-auto"
+      >
         <SheetHeader>
           <SheetTitle>{t("market.detail.title")}</SheetTitle>
         </SheetHeader>
@@ -79,11 +92,17 @@ export const DetailDrawer = memo(function DetailDrawer({
         {item && (
           <>
             <div className={styles.detailHeader}>
-              <SkillIcon url={item.icon_url} alt={item.name} source={item.source} />
+              <SkillIcon
+                url={item.icon_url}
+                alt={item.name}
+                source={item.source}
+              />
               <div className={styles.detailHeaderText}>
                 <h3 className={styles.detailTitle}>{item.name}</h3>
                 <div className={styles.detailMeta}>
-                  <span className={styles.sourceBadge}>{sourceLabel(item.source)}</span>
+                  <span className={styles.sourceBadge}>
+                    {sourceLabel(item.source)}
+                  </span>
                 </div>
               </div>
             </div>

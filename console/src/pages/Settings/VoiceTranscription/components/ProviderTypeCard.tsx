@@ -38,7 +38,10 @@ export function ProviderTypeCard({
         </p>
         <div className="flex flex-col gap-3">
           {PROVIDER_TYPES.map((value) => (
-            <label key={value} className="flex cursor-pointer items-start gap-2">
+            <label
+              key={value}
+              className="flex cursor-pointer items-start gap-2"
+            >
               <input
                 type="radio"
                 name="providerType"
@@ -68,7 +71,9 @@ export function ProviderTypeCard({
               </div>
             ) : (
               <div className="rounded-md border border-yellow-200 bg-yellow-50 px-3 py-2 text-sm text-yellow-800 dark-mode:border-yellow-800 dark-mode:bg-yellow-950 dark-mode:text-yellow-200">
-                <div className="font-medium">{t("voiceTranscription.localWhisperMissing")}</div>
+                <div className="font-medium">
+                  {t("voiceTranscription.localWhisperMissing")}
+                </div>
                 <div className="mt-1 text-yellow-700 dark-mode:text-yellow-300">
                   {t("voiceTranscription.localWhisperMissingDesc", {
                     ffmpeg: localWhisperStatus.ffmpeg_installed

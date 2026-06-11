@@ -31,7 +31,13 @@ function extractText(children: ReactNode): string {
  *
  * Language is encoded in `className` as `language-mermaid` by react-markdown.
  */
-function CodeWithMermaid({ children, className, inline, node: _node, ...rest }: CodeProps) {
+function CodeWithMermaid({
+  children,
+  className,
+  inline,
+  node: _node,
+  ...rest
+}: CodeProps) {
   const isMermaid = !inline && className === "language-mermaid";
   if (isMermaid) {
     const chartSource = extractText(children);

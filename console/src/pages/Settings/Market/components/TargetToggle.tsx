@@ -30,5 +30,3 @@ export function TargetToggle({ target, onChange, size }: TargetToggleProps) {
     </div>
   );
 }
-
-

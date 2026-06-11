@@ -46,9 +46,7 @@ export function QrcodeAuthBlock({
             className="w-[200px] h-[200px]"
           />
           <p
-            className={`text-xs ${
-              isDark ? "text-white/45" : "text-black/45"
-            }`}
+            className={`text-xs ${isDark ? "text-white/45" : "text-black/45"}`}
           >
             {hintText}
           </p>

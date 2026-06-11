@@ -116,7 +116,11 @@ export default function CreateBackupModal({
               />
             </div>
 
-            <BackupScopeForm value={scope} onChange={setScope} agents={agents} />
+            <BackupScopeForm
+              value={scope}
+              onChange={setScope}
+              agents={agents}
+            />
 
             <div className="flex items-start gap-2 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-800 dark-mode:border-blue-800 dark-mode:bg-blue-950 dark-mode:text-blue-200">
               <span>ℹ</span>

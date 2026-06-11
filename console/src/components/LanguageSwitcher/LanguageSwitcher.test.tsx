@@ -50,7 +50,9 @@ describe("LanguageSwitcher", () => {
     const user = userEvent.setup();
     renderWithProviders(<LanguageSwitcher />);
     await user.click(screen.getByRole("button"));
-    await waitFor(() => expect(screen.getByText("简体中文")).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByText("简体中文")).toBeInTheDocument(),
+    );
     await user.click(screen.getByText("简体中文"));
     expect(mockChangeLanguage).toHaveBeenCalledWith("zh");
   });
@@ -68,7 +70,9 @@ describe("LanguageSwitcher", () => {
     const user = userEvent.setup();
     renderWithProviders(<LanguageSwitcher />);
     await user.click(screen.getByRole("button"));
-    await waitFor(() => expect(screen.getByText("English")).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByText("English")).toBeInTheDocument(),
+    );
     await user.click(screen.getByText("English"));
     expect(mockUpdateLanguage).toHaveBeenCalledWith("en");
   });

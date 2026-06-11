@@ -57,7 +57,9 @@ export const RemoteProviderCard = React.memo(function RemoteProviderCard({
       onSaved();
     } catch (error) {
       const errMsg =
-        error instanceof Error ? error.message : t("models.providerDeleteFailed");
+        error instanceof Error
+          ? error.message
+          : t("models.providerDeleteFailed");
       message.error(errMsg);
     } finally {
       setDeleteDialogOpen(false);
@@ -80,11 +82,21 @@ export const RemoteProviderCard = React.memo(function RemoteProviderCard({
     : isConfigured
     ? t("models.providerNoModels")
     : t("models.providerNotConfigured");
-  const statusType = isAvailable ? "enabled" : isConfigured ? "partial" : "disabled";
-  const statusDotColor = isAvailable ? "rgba(20, 184, 166, 1)" : isConfigured ? "#faad14" : "#d9d9d9";
+  const statusType = isAvailable
+    ? "enabled"
+    : isConfigured
+    ? "partial"
+    : "disabled";
+  const statusDotColor = isAvailable
+    ? "rgba(20, 184, 166, 1)"
+    : isConfigured
+    ? "#faad14"
+    : "#d9d9d9";
   const statusDotShadow = isAvailable
     ? "0 0 0 2px rgba(82, 196, 26, 0.2)"
-    : isConfigured ? "0 0 0 2px rgba(250, 173, 20, 0.2)" : "none";
+    : isConfigured
+    ? "0 0 0 2px rgba(250, 173, 20, 0.2)"
+    : "none";
 
   return (
     <>
@@ -94,9 +106,20 @@ export const RemoteProviderCard = React.memo(function RemoteProviderCard({
           <div className={styles.cardStatusHeader}>
             <span
               className={styles.statusDot}
-              style={{ backgroundColor: statusDotColor, boxShadow: statusDotShadow }}
+              style={{
+                backgroundColor: statusDotColor,
+                boxShadow: statusDotShadow,
+              }}
             />
-            <span className={`${styles.statusText} ${statusType === "enabled" ? styles.enabled : statusType === "partial" ? styles.partial : styles.disabled}`}>
+            <span
+              className={`${styles.statusText} ${
+                statusType === "enabled"
+                  ? styles.enabled
+                  : statusType === "partial"
+                  ? styles.partial
+                  : styles.disabled
+              }`}
+            >
               {statusLabel}
             </span>
           </div>
@@ -111,7 +134,9 @@ export const RemoteProviderCard = React.memo(function RemoteProviderCard({
           <div className={styles.infoRow}>
             <span className={styles.infoLabel}>Base URL:</span>
             {provider.base_url ? (
-              <span className={styles.infoValue} title={provider.base_url}>{provider.base_url}</span>
+              <span className={styles.infoValue} title={provider.base_url}>
+                {provider.base_url}
+              </span>
             ) : (
               <span className={styles.infoEmpty}>{t("models.notSet")}</span>
             )}
@@ -121,7 +146,9 @@ export const RemoteProviderCard = React.memo(function RemoteProviderCard({
             {provider.api_key ? (
               <span className={styles.infoValue}>{provider.api_key}</span>
             ) : provider.require_api_key === false ? (
-              <span className={styles.infoEmpty}>{t("models.notRequired")}</span>
+              <span className={styles.infoEmpty}>
+                {t("models.notRequired")}
+              </span>
             ) : (
               <div className={styles.inlineKeyInput}>
                 <Input
@@ -150,7 +177,10 @@ export const RemoteProviderCard = React.memo(function RemoteProviderCard({
                       setApiKeyInput("");
                       onSaved();
                     } catch (err) {
-                      const msg = err instanceof Error ? err.message : t("models.failedToSave");
+                      const msg =
+                        err instanceof Error
+                          ? err.message
+                          : t("models.failedToSave");
                       message.error(msg);
                     } finally {
                       setApiKeySaving(false);
@@ -174,18 +204,46 @@ export const RemoteProviderCard = React.memo(function RemoteProviderCard({
 
         <div className={styles.cardActions}>
           {needsOAuth && (
-            <Button size="sm" onClick={(e) => { e.stopPropagation(); setOauthModalOpen(true); }} className={styles.actionBtn}>
+            <Button
+              size="sm"
+              onClick={(e) => {
+                e.stopPropagation();
+                setOauthModalOpen(true);
+              }}
+              className={styles.actionBtn}
+            >
               {t("models.connect")}
             </Button>
           )}
-          <Button variant="outline" size="sm" onClick={(e) => { e.stopPropagation(); onOpenModels(provider); }} className={styles.actionBtn}>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={(e) => {
+              e.stopPropagation();
+              onOpenModels(provider);
+            }}
+            className={styles.actionBtn}
+          >
             {t("models.models")}
           </Button>
-          <Button variant="outline" size="sm" onClick={(e) => { e.stopPropagation(); onOpenConfig(provider); }} className={styles.actionBtn}>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={(e) => {
+              e.stopPropagation();
+              onOpenConfig(provider);
+            }}
+            className={styles.actionBtn}
+          >
             {t("models.settings")}
           </Button>
           {provider.is_custom && (
-            <Button variant="outline" size="sm" className={`${styles.actionBtn} text-destructive border-destructive hover:bg-destructive/10`} onClick={handleDeleteProvider}>
+            <Button
+              variant="outline"
+              size="sm"
+              className={`${styles.actionBtn} text-destructive border-destructive hover:bg-destructive/10`}
+              onClick={handleDeleteProvider}
+            >
               {t("common.delete")}
             </Button>
           )}
@@ -195,7 +253,10 @@ export const RemoteProviderCard = React.memo(function RemoteProviderCard({
           open={oauthModalOpen}
           providerId={provider.id}
           providerName={provider.name}
-          onSuccess={() => { setOauthModalOpen(false); onSaved(); }}
+          onSuccess={() => {
+            setOauthModalOpen(false);
+            onSaved();
+          }}
           onCancel={() => setOauthModalOpen(false)}
         />
       </Card>

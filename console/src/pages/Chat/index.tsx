@@ -13,7 +13,11 @@ import {
   DialogDescription,
   DialogFooter,
 } from "@/components/ui/dialog";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { useAppMessage } from "../../hooks/useAppMessage";
 import { AlertTriangle, Settings, Paperclip, Copy } from "lucide-react";
 import { usePlugins } from "../../plugins/PluginContext";
@@ -1882,7 +1886,10 @@ export default function ChatPage() {
       ))}
 
       <Dialog open={showModelPrompt} onOpenChange={() => {}}>
-        <DialogContent className="max-w-[480px]" onInteractOutside={(e) => e.preventDefault()}>
+        <DialogContent
+          className="max-w-[480px]"
+          onInteractOutside={(e) => e.preventDefault()}
+        >
           <DialogHeader>
             <div className="flex justify-center mb-4">
               <AlertTriangle size={40} className="text-yellow-500" />

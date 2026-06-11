@@ -32,14 +32,24 @@ export function MagazineStackViewer({
   const current = magazines[currentIndex];
 
   return (
-    <Dialog open={open} onOpenChange={(isOpen) => { if (!isOpen) onClose(); }}>
+    <Dialog
+      open={open}
+      onOpenChange={(isOpen) => {
+        if (!isOpen) onClose();
+      }}
+    >
       <DialogContent className="max-w-[1100px] w-full">
         <DialogHeader>
           <DialogTitle>{harvest.name} · History</DialogTitle>
         </DialogHeader>
 
         <div className={cn("flex gap-4 mt-2", styles.viewerContainer)}>
-          <div className={cn("flex items-center gap-3 flex-1 min-w-0", styles.mainArea)}>
+          <div
+            className={cn(
+              "flex items-center gap-3 flex-1 min-w-0",
+              styles.mainArea,
+            )}
+          >
             <Button
               variant="outline"
               size="icon"

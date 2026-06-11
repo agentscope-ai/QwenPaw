@@ -3,7 +3,13 @@ import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { Download, ExternalLink, Package, RefreshCw, Search } from "lucide-react";
+import {
+  Download,
+  ExternalLink,
+  Package,
+  RefreshCw,
+  Search,
+} from "lucide-react";
 import type { MarketPluginEntry } from "@/api/modules/pluginMarket";
 import { useMarketPlugins } from "../hooks/useMarketPlugins";
 import styles from "./OfficialPluginList.module.less";
@@ -116,7 +122,10 @@ export function MarketPluginList({ onInstalled }: MarketPluginListProps) {
         )}
         <div className={marketStyles.toolbarRight}>
           <div className="relative" style={{ width: 220 }}>
-            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+            <Search
+              size={14}
+              className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
+            />
             <Input
               className="pl-8"
               placeholder={t("pluginManager.marketSearch")}
@@ -150,7 +159,9 @@ export function MarketPluginList({ onInstalled }: MarketPluginListProps) {
 
       <div className={loading ? "opacity-60 pointer-events-none" : ""}>
         {!loading && plugins.length === 0 && !error && (
-          <span className="text-sm text-muted-foreground">{t("pluginManager.marketEmpty")}</span>
+          <span className="text-sm text-muted-foreground">
+            {t("pluginManager.marketEmpty")}
+          </span>
         )}
         <div className={styles.catalogList}>
           {plugins.map((entry) => (

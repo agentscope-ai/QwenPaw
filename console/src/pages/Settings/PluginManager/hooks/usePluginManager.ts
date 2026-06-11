@@ -35,9 +35,7 @@ export function usePluginManager() {
       setTimeout(() => window.location.reload(), 800);
     } catch (err) {
       const msg =
-        err instanceof Error
-          ? err.message
-          : t("pluginManager.uninstallFailed");
+        err instanceof Error ? err.message : t("pluginManager.uninstallFailed");
       message.error(msg);
     } finally {
       setUninstallingId(null);

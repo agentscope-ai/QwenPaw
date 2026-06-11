@@ -95,16 +95,16 @@ export function AgentTable({
     ? confirm.type === "delete"
       ? t("agent.deleteConfirm")
       : confirm.agent.enabled
-        ? t("agent.disableConfirm")
-        : t("agent.enableConfirm")
+      ? t("agent.disableConfirm")
+      : t("agent.enableConfirm")
     : "";
 
   const confirmDesc = confirm
     ? confirm.type === "delete"
       ? t("agent.deleteConfirmDesc")
       : confirm.agent.enabled
-        ? t("agent.disableConfirmDesc")
-        : t("agent.enableConfirmDesc")
+      ? t("agent.disableConfirmDesc")
+      : t("agent.enableConfirmDesc")
     : "";
 
   return (
@@ -116,8 +116,15 @@ export function AgentTable({
         </div>
       )}
 
-      <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-        <SortableContext items={agents.map((a) => a.id)} strategy={verticalListSortingStrategy}>
+      <DndContext
+        sensors={sensors}
+        collisionDetection={closestCenter}
+        onDragEnd={handleDragEnd}
+      >
+        <SortableContext
+          items={agents.map((a) => a.id)}
+          strategy={verticalListSortingStrategy}
+        >
           <Table>
             <TableHeader>
               <TableRow>
@@ -140,13 +147,20 @@ export function AgentTable({
                           <DragHandle disabled={reordering || loading} />
                         </span>
                       </TooltipTrigger>
-                      <TooltipContent>{t("agent.dragHandleTooltip")}</TooltipContent>
+                      <TooltipContent>
+                        {t("agent.dragHandleTooltip")}
+                      </TooltipContent>
                     </Tooltip>
                   </TableCell>
                   <TableCell>
                     <div className="flex items-center gap-2 flex-wrap">
-                      <Bot size={16} className={agent.enabled ? "" : "opacity-50"} />
-                      <span className={agent.enabled ? "" : "opacity-50 text-sm"}>
+                      <Bot
+                        size={16}
+                        className={agent.enabled ? "" : "opacity-50"}
+                      />
+                      <span
+                        className={agent.enabled ? "" : "opacity-50 text-sm"}
+                      >
                         {getAgentDisplayName(agent, t)}
                       </span>
                       {!agent.enabled && (
@@ -156,22 +170,38 @@ export function AgentTable({
                       )}
                     </div>
                   </TableCell>
-                  <TableCell className="text-sm text-muted-foreground">{agent.id}</TableCell>
-                  <TableCell className="max-w-[200px] truncate text-sm text-muted-foreground">{agent.description}</TableCell>
-                  <TableCell className="max-w-[200px] truncate text-sm text-muted-foreground">{agent.workspace_dir}</TableCell>
+                  <TableCell className="text-sm text-muted-foreground">
+                    {agent.id}
+                  </TableCell>
+                  <TableCell className="max-w-[200px] truncate text-sm text-muted-foreground">
+                    {agent.description}
+                  </TableCell>
+                  <TableCell className="max-w-[200px] truncate text-sm text-muted-foreground">
+                    {agent.workspace_dir}
+                  </TableCell>
                   <TableCell>
                     {agent.active_model ? (
                       <div className="flex items-center gap-1.5">
-                        <img src={providerIcon(agent.active_model.provider_id)} alt="" className="w-4 h-4" />
+                        <img
+                          src={providerIcon(agent.active_model.provider_id)}
+                          alt=""
+                          className="w-4 h-4"
+                        />
                         <Tooltip>
                           <TooltipTrigger asChild>
-                            <span className="text-sm truncate max-w-[180px] block">{agent.active_model.model}</span>
+                            <span className="text-sm truncate max-w-[180px] block">
+                              {agent.active_model.model}
+                            </span>
                           </TooltipTrigger>
-                          <TooltipContent>{agent.active_model.model}</TooltipContent>
+                          <TooltipContent>
+                            {agent.active_model.model}
+                          </TooltipContent>
                         </Tooltip>
                       </div>
                     ) : (
-                      <span className="text-sm opacity-45">{t("agent.modelPlaceholder")}</span>
+                      <span className="text-sm opacity-45">
+                        {t("agent.modelPlaceholder")}
+                      </span>
                     )}
                   </TableCell>
                   <TableCell>
@@ -184,12 +214,18 @@ export function AgentTable({
                             className="h-7 w-7"
                             onClick={() => onEdit(agent)}
                             disabled={agent.id === "default"}
-                            title={agent.id === "default" ? t("agent.defaultNotEditable") : undefined}
+                            title={
+                              agent.id === "default"
+                                ? t("agent.defaultNotEditable")
+                                : undefined
+                            }
                           >
                             <Pencil size={14} />
                           </Button>
                         </TooltipTrigger>
-                        {agent.id !== "default" && <TooltipContent>{t("common.edit")}</TooltipContent>}
+                        {agent.id !== "default" && (
+                          <TooltipContent>{t("common.edit")}</TooltipContent>
+                        )}
                       </Tooltip>
 
                       <Tooltip>
@@ -198,16 +234,28 @@ export function AgentTable({
                             variant="ghost"
                             size="icon"
                             className="h-7 w-7"
-                            onClick={() => setConfirm({ type: "toggle", agent })}
+                            onClick={() =>
+                              setConfirm({ type: "toggle", agent })
+                            }
                             disabled={agent.id === "default"}
-                            title={agent.id === "default" ? t("agent.defaultNotDisablable") : undefined}
+                            title={
+                              agent.id === "default"
+                                ? t("agent.defaultNotDisablable")
+                                : undefined
+                            }
                           >
-                            {agent.enabled ? <EyeOff size={14} /> : <Eye size={14} />}
+                            {agent.enabled ? (
+                              <EyeOff size={14} />
+                            ) : (
+                              <Eye size={14} />
+                            )}
                           </Button>
                         </TooltipTrigger>
                         {agent.id !== "default" && (
                           <TooltipContent>
-                            {agent.enabled ? t("agent.disableConfirm") : t("agent.enableConfirm")}
+                            {agent.enabled
+                              ? t("agent.disableConfirm")
+                              : t("agent.enableConfirm")}
                           </TooltipContent>
                         )}
                       </Tooltip>
@@ -218,14 +266,22 @@ export function AgentTable({
                             variant="ghost"
                             size="icon"
                             className="h-7 w-7 text-destructive hover:text-destructive"
-                            onClick={() => setConfirm({ type: "delete", agent })}
+                            onClick={() =>
+                              setConfirm({ type: "delete", agent })
+                            }
                             disabled={agent.id === "default"}
-                            title={agent.id === "default" ? t("agent.defaultNotDeletable") : undefined}
+                            title={
+                              agent.id === "default"
+                                ? t("agent.defaultNotDeletable")
+                                : undefined
+                            }
                           >
                             <Trash2 size={14} />
                           </Button>
                         </TooltipTrigger>
-                        {agent.id !== "default" && <TooltipContent>{t("common.delete")}</TooltipContent>}
+                        {agent.id !== "default" && (
+                          <TooltipContent>{t("common.delete")}</TooltipContent>
+                        )}
                       </Tooltip>
                     </div>
                   </TableCell>
@@ -236,15 +292,24 @@ export function AgentTable({
         </SortableContext>
       </DndContext>
 
-      <AlertDialog open={!!confirm} onOpenChange={(o) => { if (!o) setConfirm(null); }}>
+      <AlertDialog
+        open={!!confirm}
+        onOpenChange={(o) => {
+          if (!o) setConfirm(null);
+        }}
+      >
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>{confirmTitle}</AlertDialogTitle>
             <AlertDialogDescription>{confirmDesc}</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel onClick={() => setConfirm(null)}>{t("common.cancel")}</AlertDialogCancel>
-            <AlertDialogAction onClick={handleConfirm}>{t("common.confirm")}</AlertDialogAction>
+            <AlertDialogCancel onClick={() => setConfirm(null)}>
+              {t("common.cancel")}
+            </AlertDialogCancel>
+            <AlertDialogAction onClick={handleConfirm}>
+              {t("common.confirm")}
+            </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

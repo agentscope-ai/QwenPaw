@@ -186,27 +186,27 @@ function AppInner() {
       >
         <AntdApp>
           <TooltipProvider>
-          <Toaster theme={isDark ? "dark" : "light"} />
-          <ApprovalProvider>
-            <Routes>
-              <Route
-                path="/login"
-                element={
-                  <Suspense fallback={null}>
-                    <LoginPage />
-                  </Suspense>
-                }
-              />
-              <Route
-                path="/*"
-                element={
-                  <AuthGuard>
-                    <MainLayout />
-                  </AuthGuard>
-                }
-              />
-            </Routes>
-          </ApprovalProvider>
+            <Toaster theme={isDark ? "dark" : "light"} />
+            <ApprovalProvider>
+              <Routes>
+                <Route
+                  path="/login"
+                  element={
+                    <Suspense fallback={null}>
+                      <LoginPage />
+                    </Suspense>
+                  }
+                />
+                <Route
+                  path="/*"
+                  element={
+                    <AuthGuard>
+                      <MainLayout />
+                    </AuthGuard>
+                  }
+                />
+              </Routes>
+            </ApprovalProvider>
           </TooltipProvider>
         </AntdApp>
       </ConfigProvider>

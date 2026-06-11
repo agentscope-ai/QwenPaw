@@ -97,10 +97,7 @@ export function ApprovalCard({
 
     const timer = setInterval(() => {
       const newElapsed = Date.now() / 1000 - createdAt;
-      const newRemaining = Math.max(
-        0,
-        Math.floor(timeoutSeconds - newElapsed),
-      );
+      const newRemaining = Math.max(0, Math.floor(timeoutSeconds - newElapsed));
       setRemaining(newRemaining);
       if (newRemaining <= 0) clearInterval(timer);
     }, 1000);
@@ -113,7 +110,11 @@ export function ApprovalCard({
     try {
       await onApprove(requestId);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : t("common.operationFailed", "Operation failed"));
+      toast.error(
+        err instanceof Error
+          ? err.message
+          : t("common.operationFailed", "Operation failed"),
+      );
     } finally {
       setLoading(null);
     }
@@ -124,7 +125,11 @@ export function ApprovalCard({
     try {
       await onDeny(requestId);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : t("common.operationFailed", "Operation failed"));
+      toast.error(
+        err instanceof Error
+          ? err.message
+          : t("common.operationFailed", "Operation failed"),
+      );
     } finally {
       setLoading(null);
     }
@@ -136,7 +141,11 @@ export function ApprovalCard({
     try {
       await onAcknowledge(requestId);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : t("common.operationFailed", "Operation failed"));
+      toast.error(
+        err instanceof Error
+          ? err.message
+          : t("common.operationFailed", "Operation failed"),
+      );
     } finally {
       setLoading(null);
     }
@@ -287,7 +296,10 @@ export function ApprovalCard({
                     copiedField === "params" && "text-green-500",
                   )}
                   onClick={() =>
-                    void handleCopy(JSON.stringify(toolParams, null, 2), "params")
+                    void handleCopy(
+                      JSON.stringify(toolParams, null, 2),
+                      "params",
+                    )
                   }
                   title={t("common.copy", "Copy")}
                 >

@@ -61,7 +61,10 @@ export default function RestoreAgentTable({
     );
   }, [allAgentRows, agentSearch]);
 
-  const allAgentIds = useMemo(() => allAgentRows.map((r) => r.aid), [allAgentRows]);
+  const allAgentIds = useMemo(
+    () => allAgentRows.map((r) => r.aid),
+    [allAgentRows],
+  );
 
   const allSelected =
     allAgentIds.length > 0 &&
@@ -76,7 +79,12 @@ export default function RestoreAgentTable({
     const filteredIds = new Set(filteredAgentRows.map((r) => r.aid));
     const kept = selectedAgents.filter((id) => !filteredIds.has(id));
     if (checked) {
-      onSelectionChange([...kept, ...filteredAgentRows.filter((r) => selectedAgents.includes(r.aid) || r.aid === aid).map((r) => r.aid)]);
+      onSelectionChange([
+        ...kept,
+        ...filteredAgentRows
+          .filter((r) => selectedAgents.includes(r.aid) || r.aid === aid)
+          .map((r) => r.aid),
+      ]);
     } else {
       onSelectionChange(kept.filter((id) => id !== aid));
     }
@@ -89,7 +97,10 @@ export default function RestoreAgentTable({
   };
 
   const totalPages = Math.ceil(filteredAgentRows.length / PAGE_SIZE);
-  const pageRows = filteredAgentRows.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  const pageRows = filteredAgentRows.slice(
+    (page - 1) * PAGE_SIZE,
+    page * PAGE_SIZE,
+  );
 
   return (
     <div>
@@ -103,13 +114,18 @@ export default function RestoreAgentTable({
               setAgentsExpanded(!!checked);
             }}
           />
-          <label htmlFor="include-agents" className="cursor-pointer text-sm font-medium">
+          <label
+            htmlFor="include-agents"
+            className="cursor-pointer text-sm font-medium"
+          >
             {t("backup.scopeAgents")}
             {includeAgents && detailLoading && (
               <Loader2 size={12} className="ml-2 inline animate-spin" />
             )}
             {includeAgents && !detailLoading && summaryText && (
-              <span className="ml-1 text-muted-foreground text-xs">— {summaryText}</span>
+              <span className="ml-1 text-muted-foreground text-xs">
+                — {summaryText}
+              </span>
             )}
           </label>
         </div>
@@ -121,7 +137,9 @@ export default function RestoreAgentTable({
           >
             <ChevronRight
               size={14}
-              className={`transition-transform ${agentsExpanded ? "rotate-90" : ""}`}
+              className={`transition-transform ${
+                agentsExpanded ? "rotate-90" : ""
+              }`}
             />
           </button>
         )}
@@ -132,7 +150,9 @@ export default function RestoreAgentTable({
           {detailLoading ? (
             <div className={styles.agentsLoading}>
               <Loader2 className="animate-spin" />
-              <div className={styles.agentsLoadingText}>{t("backup.loadingAgents")}</div>
+              <div className={styles.agentsLoadingText}>
+                {t("backup.loadingAgents")}
+              </div>
             </div>
           ) : (
             <>
@@ -146,7 +166,9 @@ export default function RestoreAgentTable({
                     onChange={(e) => setAgentSearch(e.target.value)}
                   />
                 </div>
-                <span className={`${styles.selectAllCount} text-muted-foreground text-xs`}>
+                <span
+                  className={`${styles.selectAllCount} text-muted-foreground text-xs`}
+                >
                   ({selectedAgents.length}/{allAgentIds.length})
                 </span>
               </div>
@@ -168,7 +190,10 @@ export default function RestoreAgentTable({
                 <TableBody>
                   {pageRows.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={3} className="text-center text-muted-foreground py-4">
+                      <TableCell
+                        colSpan={3}
+                        className="text-center text-muted-foreground py-4"
+                      >
                         {t("backup.noAgentsInBackup")}
                       </TableCell>
                     </TableRow>
@@ -178,20 +203,32 @@ export default function RestoreAgentTable({
                         <TableCell className="w-8">
                           <Checkbox
                             checked={selectedAgents.includes(row.aid)}
-                            onCheckedChange={(checked) => handleRowToggle(row.aid, !!checked)}
+                            onCheckedChange={(checked) =>
+                              handleRowToggle(row.aid, !!checked)
+                            }
                           />
                         </TableCell>
                         <TableCell>
                           <div className="flex flex-wrap items-center gap-1">
-                            <span className={`${styles.agentName} font-medium text-sm`}>{row.name}</span>
+                            <span
+                              className={`${styles.agentName} font-medium text-sm`}
+                            >
+                              {row.name}
+                            </span>
                             {row.name !== row.aid && (
-                              <span className={`${styles.agentId} text-xs text-muted-foreground`}>
+                              <span
+                                className={`${styles.agentId} text-xs text-muted-foreground`}
+                              >
                                 ({row.aid})
                               </span>
                             )}
                             <Badge
                               variant="secondary"
-                              className={row.isExisting ? "bg-blue-100 text-blue-700" : "bg-green-100 text-green-700"}
+                              className={
+                                row.isExisting
+                                  ? "bg-blue-100 text-blue-700"
+                                  : "bg-green-100 text-green-700"
+                              }
                             >
                               {row.isExisting
                                 ? t("backup.agentActionReplace")
@@ -214,13 +251,34 @@ export default function RestoreAgentTable({
                 <div className="flex items-center justify-between px-2 py-1 text-xs text-muted-foreground">
                   <span>
                     {agentSearch
-                      ? t("backup.agentSearchTotal", { count: filteredAgentRows.length, total: allAgentIds.length })
-                      : t("backup.agentTotal", { count: filteredAgentRows.length })}
+                      ? t("backup.agentSearchTotal", {
+                          count: filteredAgentRows.length,
+                          total: allAgentIds.length,
+                        })
+                      : t("backup.agentTotal", {
+                          count: filteredAgentRows.length,
+                        })}
                   </span>
                   <div className="flex gap-1">
-                    <button type="button" disabled={page === 1} onClick={() => setPage((p) => p - 1)} className="px-1 disabled:opacity-40">&lt;</button>
-                    <span>{page}/{totalPages}</span>
-                    <button type="button" disabled={page === totalPages} onClick={() => setPage((p) => p + 1)} className="px-1 disabled:opacity-40">&gt;</button>
+                    <button
+                      type="button"
+                      disabled={page === 1}
+                      onClick={() => setPage((p) => p - 1)}
+                      className="px-1 disabled:opacity-40"
+                    >
+                      &lt;
+                    </button>
+                    <span>
+                      {page}/{totalPages}
+                    </span>
+                    <button
+                      type="button"
+                      disabled={page === totalPages}
+                      onClick={() => setPage((p) => p + 1)}
+                      className="px-1 disabled:opacity-40"
+                    >
+                      &gt;
+                    </button>
                   </div>
                 </div>
               )}

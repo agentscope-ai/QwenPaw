@@ -140,7 +140,9 @@ export default function CodingModeToggle() {
           </button>
         </TooltipTrigger>
         <TooltipContent side="bottom">
-          {codingMode ? t("codingMode.exitTooltip") : t("codingMode.enterTooltip")}
+          {codingMode
+            ? t("codingMode.exitTooltip")
+            : t("codingMode.enterTooltip")}
         </TooltipContent>
       </Tooltip>
 

@@ -10,7 +10,7 @@
           },
           {
             "type": "command",
-            "command": "python .claude/hooks/protect_lockfiles.py"
+            "command": "python \"$CLAUDE_PROJECT_DIR/.claude/hooks/protect_lockfiles.py\""
           },
           {
             "type": "command",
@@ -29,7 +29,7 @@
           },
           {
             "type": "command",
-            "command": "python .claude/hooks/eslint_fix_console.py"
+            "command": "python \"$CLAUDE_PROJECT_DIR/.claude/hooks/eslint_fix_console.py\""
           }
         ]
       }

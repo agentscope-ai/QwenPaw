@@ -43,7 +43,9 @@ export function BroadcastModal({
   const { t } = useTranslation();
   const [selectedSkillNames, setSelectedSkillNames] =
     useState<string[]>(initialSkillNames);
-  const [selectedWorkspaceIds, setSelectedWorkspaceIds] = useState<string[]>([]);
+  const [selectedWorkspaceIds, setSelectedWorkspaceIds] = useState<string[]>(
+    [],
+  );
   const [filterOpen, setFilterOpen] = useState(false);
   const { searchTags, setSearchTags, allTags, filteredSkills } =
     useSkillFilter(skills);
@@ -71,7 +73,12 @@ export function BroadcastModal({
     selectedSkillNames.length > 0 && selectedWorkspaceIds.length > 0;
 
   return (
-    <Dialog open={open} onOpenChange={(v) => { if (!v) handleCancel(); }}>
+    <Dialog
+      open={open}
+      onOpenChange={(v) => {
+        if (!v) handleCancel();
+      }}
+    >
       <DialogContent className="max-w-[640px] max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>{t("skillPool.broadcast")}</DialogTitle>
@@ -116,7 +123,9 @@ export function BroadcastModal({
                 className={`${styles.tagSelect} border rounded-md px-2 py-1 text-sm w-full text-left`}
                 onClick={() => setFilterOpen((v) => !v)}
               >
-                {searchTags.length > 0 ? searchTags.join(", ") : t("skills.filterByTag")}
+                {searchTags.length > 0
+                  ? searchTags.join(", ")
+                  : t("skills.filterByTag")}
               </button>
               {filterOpen && (
                 <div className="absolute z-50 bg-popover border rounded-md shadow-md mt-1 w-full">
@@ -137,9 +146,9 @@ export function BroadcastModal({
               return (
                 <div
                   key={skill.name}
-                  className={`${styles.pickerCard} ${styles.compactPickerCard} ${
-                    selected ? styles.pickerCardSelected : ""
-                  }`}
+                  className={`${styles.pickerCard} ${
+                    styles.compactPickerCard
+                  } ${selected ? styles.pickerCardSelected : ""}`}
                   onClick={() =>
                     setSelectedSkillNames(
                       selected
@@ -149,13 +158,17 @@ export function BroadcastModal({
                   }
                 >
                   {selected && (
-                    <span className={`${styles.pickerCheck} ${styles.compactPickerCheck}`}>
+                    <span
+                      className={`${styles.pickerCheck} ${styles.compactPickerCheck}`}
+                    >
                       <Check size={12} />
                     </span>
                   )}
                   <Tooltip>
                     <TooltipTrigger asChild>
-                      <div className={`${styles.pickerCardTitle} ${styles.compactPickerTitle}`}>
+                      <div
+                        className={`${styles.pickerCardTitle} ${styles.compactPickerTitle}`}
+                      >
                         {skill.name}
                       </div>
                     </TooltipTrigger>
@@ -193,13 +206,15 @@ export function BroadcastModal({
 
           <div className={`${styles.pickerGrid} ${styles.compactPickerGrid}`}>
             {workspaces.map((workspace) => {
-              const selected = selectedWorkspaceIds.includes(workspace.agent_id);
+              const selected = selectedWorkspaceIds.includes(
+                workspace.agent_id,
+              );
               return (
                 <div
                   key={workspace.agent_id}
-                  className={`${styles.pickerCard} ${styles.compactPickerCard} ${
-                    selected ? styles.pickerCardSelected : ""
-                  }`}
+                  className={`${styles.pickerCard} ${
+                    styles.compactPickerCard
+                  } ${selected ? styles.pickerCardSelected : ""}`}
                   onClick={() =>
                     setSelectedWorkspaceIds(
                       selected
@@ -211,13 +226,17 @@ export function BroadcastModal({
                   }
                 >
                   {selected && (
-                    <span className={`${styles.pickerCheck} ${styles.compactPickerCheck}`}>
+                    <span
+                      className={`${styles.pickerCheck} ${styles.compactPickerCheck}`}
+                    >
                       <Check size={12} />
                     </span>
                   )}
                   <Tooltip>
                     <TooltipTrigger asChild>
-                      <div className={`${styles.pickerCardTitle} ${styles.compactPickerTitle}`}>
+                      <div
+                        className={`${styles.pickerCardTitle} ${styles.compactPickerTitle}`}
+                      >
                         {getAgentDisplayName(
                           {
                             id: workspace.agent_id,
@@ -241,7 +260,9 @@ export function BroadcastModal({
           </Button>
           <Button
             disabled={!canConfirm}
-            onClick={() => void onConfirm(selectedSkillNames, selectedWorkspaceIds)}
+            onClick={() =>
+              void onConfirm(selectedSkillNames, selectedWorkspaceIds)
+            }
           >
             {t("common.confirm")}
           </Button>

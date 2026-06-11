@@ -1,11 +1,6 @@
 import { useFormContext, useWatch, Controller } from "react-hook-form";
 import { useTranslation } from "react-i18next";
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Accordion,
   AccordionContent,
@@ -198,9 +193,7 @@ export function ReMeLightMemoryCard() {
                   {t("agentConfig.embeddingModelName")}
                 </Label>
                 <Input
-                  placeholder={t(
-                    "agentConfig.embeddingModelNamePlaceholder",
-                  )}
+                  placeholder={t("agentConfig.embeddingModelNamePlaceholder")}
                   {...register(
                     "reme_light_memory_config.embedding_model_config.model_name",
                   )}
@@ -270,9 +263,7 @@ export function ReMeLightMemoryCard() {
               </div>
 
               <div className="space-y-1">
-                <Label
-                  title={t("agentConfig.embeddingMaxInputLengthTooltip")}
-                >
+                <Label title={t("agentConfig.embeddingMaxInputLengthTooltip")}>
                   {t("agentConfig.embeddingMaxInputLength")}
                 </Label>
                 <Input
@@ -288,9 +279,7 @@ export function ReMeLightMemoryCard() {
               </div>
 
               <div className="space-y-1">
-                <Label
-                  title={t("agentConfig.embeddingMaxBatchSizeTooltip")}
-                >
+                <Label title={t("agentConfig.embeddingMaxBatchSizeTooltip")}>
                   {t("agentConfig.embeddingMaxBatchSize")}
                 </Label>
                 <Input

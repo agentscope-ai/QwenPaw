@@ -79,9 +79,7 @@ export function ToolExecutionLevelCard({
               className={cn(
                 "cursor-pointer transition-all",
                 styles.levelOptionCard,
-                level === option.value
-                  ? "ring-2"
-                  : "ring-1 ring-border",
+                level === option.value ? "ring-2" : "ring-1 ring-border",
               )}
               style={{
                 borderColor: level === option.value ? option.color : undefined,
@@ -103,7 +101,10 @@ export function ToolExecutionLevelCard({
                     disabled={disabled}
                     className="mt-1"
                   />
-                  <div style={{ color: option.color }} className="mt-0.5 shrink-0">
+                  <div
+                    style={{ color: option.color }}
+                    className="mt-0.5 shrink-0"
+                  >
                     {option.icon}
                   </div>
                   <div>

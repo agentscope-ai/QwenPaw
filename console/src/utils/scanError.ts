@@ -92,7 +92,13 @@ interface ScanDialogProps {
   onClose: () => void;
 }
 
-function ScanDialog({ title, description, findings, t, onClose }: ScanDialogProps) {
+function ScanDialog({
+  title,
+  description,
+  findings,
+  t,
+  onClose,
+}: ScanDialogProps) {
   return React.createElement(
     "div",
     {
@@ -123,8 +129,16 @@ function ScanDialog({ title, description, findings, t, onClose }: ScanDialogProp
           boxShadow: "0 8px 32px rgba(0,0,0,0.15)",
         },
       },
-      React.createElement("h3", { style: { margin: "0 0 12px", fontSize: 16 } }, title),
-      React.createElement("p", { style: { margin: "0 0 8px", color: "#555" } }, description),
+      React.createElement(
+        "h3",
+        { style: { margin: "0 0 12px", fontSize: 16 } },
+        title,
+      ),
+      React.createElement(
+        "p",
+        { style: { margin: "0 0 8px", color: "#555" } },
+        description,
+      ),
       renderFindings(findings, t),
       React.createElement(
         "div",
@@ -150,7 +164,12 @@ function ScanDialog({ title, description, findings, t, onClose }: ScanDialogProp
   );
 }
 
-function showScanDialog(title: string, description: string, findings: BlockedSkillFinding[], t: TFunction) {
+function showScanDialog(
+  title: string,
+  description: string,
+  findings: BlockedSkillFinding[],
+  t: TFunction,
+) {
   const container = document.createElement("div");
   document.body.appendChild(container);
   const root = createRoot(container);
@@ -161,7 +180,13 @@ function showScanDialog(title: string, description: string, findings: BlockedSki
   };
 
   root.render(
-    React.createElement(ScanDialog, { title, description, findings, t, onClose: close }),
+    React.createElement(ScanDialog, {
+      title,
+      description,
+      findings,
+      t,
+      onClose: close,
+    }),
   );
 }
 

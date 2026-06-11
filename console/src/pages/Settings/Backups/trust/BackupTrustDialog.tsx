@@ -37,13 +37,18 @@ export default function BackupTrustDialog({
         <DialogHeader>
           <DialogTitle>
             {isLegacy
-              ? t("backup.trustLegacyTitle", { defaultValue: "Trust legacy backup?" })
-              : t("backup.trustForeignTitle", { defaultValue: "Trust this backup?" })}
+              ? t("backup.trustLegacyTitle", {
+                  defaultValue: "Trust legacy backup?",
+                })
+              : t("backup.trustForeignTitle", {
+                  defaultValue: "Trust this backup?",
+                })}
           </DialogTitle>
         </DialogHeader>
         <div className="rounded-md border border-yellow-200 bg-yellow-50 px-3 py-2 text-sm dark-mode:border-yellow-800 dark-mode:bg-yellow-950">
           <div className="font-medium text-yellow-800 dark-mode:text-yellow-200">
-            {backupName || t("backup.unknownBackupName", { defaultValue: "Backup archive" })}
+            {backupName ||
+              t("backup.unknownBackupName", { defaultValue: "Backup archive" })}
           </div>
           <div className="mt-1 text-yellow-700 dark-mode:text-yellow-300">
             {isLegacy
@@ -58,10 +63,18 @@ export default function BackupTrustDialog({
           </div>
         </div>
         <DialogFooter>
-          <Button variant="outline" onClick={onCancel} disabled={confirmLoading}>
+          <Button
+            variant="outline"
+            onClick={onCancel}
+            disabled={confirmLoading}
+          >
             {t("common.cancel")}
           </Button>
-          <Button variant="destructive" onClick={onConfirm} disabled={confirmLoading}>
+          <Button
+            variant="destructive"
+            onClick={onConfirm}
+            disabled={confirmLoading}
+          >
             {t("common.confirm")}
           </Button>
         </DialogFooter>

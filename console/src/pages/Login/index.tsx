@@ -87,9 +87,7 @@ export default function LoginPage() {
           : "[background:linear-gradient(135deg,#f5f7fa_0%,#c3cfe2_100%)]",
       )}
     >
-      <div
-        className="w-[400px] p-8 rounded-xl shadow-2xl bg-card"
-      >
+      <div className="w-[400px] p-8 rounded-xl shadow-2xl bg-card">
         <div className="text-center mb-8">
           <img
             src={isDark ? "/logo-dark.svg" : "/logo-light.svg"}
@@ -100,15 +98,17 @@ export default function LoginPage() {
             {isRegister ? t("login.registerTitle") : t("login.title")}
           </h2>
           {!hasUsers && (
-            <p
-              className="mt-2 mb-0 text-[13px] text-muted-foreground"
-            >
+            <p className="mt-2 mb-0 text-[13px] text-muted-foreground">
               {t("login.firstUserHint")}
             </p>
           )}
         </div>
 
-        <form onSubmit={onSubmit} className="flex flex-col gap-4" autoComplete="off">
+        <form
+          onSubmit={onSubmit}
+          className="flex flex-col gap-4"
+          autoComplete="off"
+        >
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="login-username" className="sr-only">
               {t("login.usernamePlaceholder")}

@@ -128,7 +128,9 @@ export const LocalRuntimePanel = memo(function LocalRuntimePanel({
                   {installBadge.label}
                 </button>
               </TooltipTrigger>
-              <TooltipContent>{t("models.localRuntimeUpdateAction")}</TooltipContent>
+              <TooltipContent>
+                {t("models.localRuntimeUpdateAction")}
+              </TooltipContent>
             </Tooltip>
           ) : !installable && serverStatus?.message ? (
             <Tooltip>
@@ -192,10 +194,7 @@ export const LocalRuntimePanel = memo(function LocalRuntimePanel({
             </span>
           ) : null}
           {!isDownloading && !installed ? (
-            <Button
-              onClick={onStart}
-              disabled={!installable}
-            >
+            <Button onClick={onStart} disabled={!installable}>
               <Download className="mr-2 h-4 w-4" />
               {t("models.localInstallLlamacpp")}
             </Button>
@@ -207,7 +206,9 @@ export const LocalRuntimePanel = memo(function LocalRuntimePanel({
         <div className={styles.localRuntimeDownloadRow}>
           <div className={styles.localRuntimeProgressBlock}>
             <div className={styles.localRuntimeProgressBarRow}>
-              <div className={`${styles.localRuntimeProgress} flex-1 h-2 rounded-full bg-muted overflow-hidden`}>
+              <div
+                className={`${styles.localRuntimeProgress} flex-1 h-2 rounded-full bg-muted overflow-hidden`}
+              >
                 <div
                   className="h-full rounded-full transition-all"
                   style={{
@@ -227,7 +228,9 @@ export const LocalRuntimePanel = memo(function LocalRuntimePanel({
                     <X className="h-3 w-3" />
                   </Button>
                 </TooltipTrigger>
-                <TooltipContent>{t("models.localCancelDownloadAction")}</TooltipContent>
+                <TooltipContent>
+                  {t("models.localCancelDownloadAction")}
+                </TooltipContent>
               </Tooltip>
             </div>
             {progressText ? (
@@ -242,11 +245,14 @@ export const LocalRuntimePanel = memo(function LocalRuntimePanel({
       <AlertDialog open={updateDialogOpen} onOpenChange={setUpdateDialogOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>{t("models.localRuntimeUpdateConfirmTitle")}</AlertDialogTitle>
+            <AlertDialogTitle>
+              {t("models.localRuntimeUpdateConfirmTitle")}
+            </AlertDialogTitle>
             <AlertDialogDescription>
               {isRunning
                 ? t("models.localRuntimeUpdateConfirmContentWithServer", {
-                    model: serverStatus?.model_name ?? t("models.localLlamacppName"),
+                    model:
+                      serverStatus?.model_name ?? t("models.localLlamacppName"),
                   })
                 : t("models.localRuntimeUpdateConfirmContent")}
             </AlertDialogDescription>
@@ -254,7 +260,10 @@ export const LocalRuntimePanel = memo(function LocalRuntimePanel({
           <AlertDialogFooter>
             <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
             <AlertDialogAction
-              onClick={() => { setUpdateDialogOpen(false); onStart(); }}
+              onClick={() => {
+                setUpdateDialogOpen(false);
+                onStart();
+              }}
             >
               {t("common.confirm")}
             </AlertDialogAction>

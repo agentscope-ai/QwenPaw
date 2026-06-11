@@ -74,12 +74,18 @@ export function usePluginColumns({
       width: 110,
       render: (loaded: boolean) =>
         loaded ? (
-          <Badge variant="outline" className="inline-flex items-center gap-1 text-xs text-green-600 border-green-300">
+          <Badge
+            variant="outline"
+            className="inline-flex items-center gap-1 text-xs text-green-600 border-green-300"
+          >
             <CheckCircle size={12} />
             {t("pluginManager.statusLoaded")}
           </Badge>
         ) : (
-          <Badge variant="outline" className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+          <Badge
+            variant="outline"
+            className="inline-flex items-center gap-1 text-xs text-muted-foreground"
+          >
             <XCircle size={12} />
             {t("pluginManager.statusUnloaded")}
           </Badge>

@@ -20,14 +20,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import api from "../../../api";
-import {
-  Eye,
-  EyeOff,
-  Zap,
-  Clock,
-  Settings,
-  Loader2,
-} from "lucide-react";
+import { Eye, EyeOff, Zap, Clock, Settings, Loader2 } from "lucide-react";
 import { useTools } from "./useTools";
 import { useTranslation } from "react-i18next";
 import type { ToolInfo } from "../../../api/modules/tools";
@@ -115,7 +108,9 @@ function ToolConfigModal({
     }
   });
 
-  const renderField = (field: import("../../../api/modules/tools").ToolConfigField) => {
+  const renderField = (
+    field: import("../../../api/modules/tools").ToolConfigField,
+  ) => {
     switch (field.type) {
       case "password":
         return (
@@ -144,10 +139,7 @@ function ToolConfigModal({
             control={form.control}
             name={field.name}
             render={({ field: f }) => (
-              <Switch
-                checked={Boolean(f.value)}
-                onCheckedChange={f.onChange}
-              />
+              <Switch checked={Boolean(f.value)} onCheckedChange={f.onChange} />
             )}
           />
         );
@@ -205,7 +197,11 @@ function ToolConfigModal({
             <Loader2 className="animate-spin" />
           </div>
         ) : (
-          <form id="tool-config-form" onSubmit={handleSave} className="space-y-4">
+          <form
+            id="tool-config-form"
+            onSubmit={handleSave}
+            className="space-y-4"
+          >
             {tool.config_fields?.map((field) => (
               <div key={field.name} className="space-y-1">
                 <Label>{field.label}</Label>
@@ -297,7 +293,9 @@ export default function ToolsPage() {
             <p>{t("common.loading")}</p>
           </div>
         ) : tools.length === 0 ? (
-          <p className="text-sm text-muted-foreground">{t("tools.emptyState")}</p>
+          <p className="text-sm text-muted-foreground">
+            {t("tools.emptyState")}
+          </p>
         ) : (
           <div className={styles.toolsGrid}>
             {tools.map((tool) => (
@@ -310,8 +308,7 @@ export default function ToolsPage() {
                 <CardContent className="p-0">
                   <div className={styles.cardHeader}>
                     <h3 className={styles.toolName}>
-                      <ToolIcon icon={tool.icon} name={tool.name} />{" "}
-                      {tool.name}
+                      <ToolIcon icon={tool.icon} name={tool.name} /> {tool.name}
                     </h3>
                     <div className={styles.statusContainer}>
                       <span className={styles.statusDot} />

@@ -263,7 +263,9 @@ export function ImportHubModal({
                 >
                   <Link size={12} className={styles.exampleItemIcon} />
                   <span className={styles.exampleUrl}>{example.url}</span>
-                  <span className={styles.exampleItemLabel}>{example.label}</span>
+                  <span className={styles.exampleItemLabel}>
+                    {example.label}
+                  </span>
                 </button>
               ))}
             </div>

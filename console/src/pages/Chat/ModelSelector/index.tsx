@@ -13,8 +13,19 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { Loader2, Check, Search, X, ChevronDown, ChevronUp } from "lucide-react";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import {
+  Loader2,
+  Check,
+  Search,
+  X,
+  ChevronDown,
+  ChevronUp,
+} from "lucide-react";
 import { useAppMessage } from "../../../hooks/useAppMessage";
 import { AlertTriangle, Link as LinkIcon, Settings } from "lucide-react";
 import { useLocation, useNavigate } from "react-router-dom";
@@ -433,7 +444,9 @@ export default function ModelSelector() {
                         {t("modelSelector.vision")}
                       </span>
                     )}
-                    {isActive && <Check size={12} className={styles.checkIcon} />}
+                    {isActive && (
+                      <Check size={12} className={styles.checkIcon} />
+                    )}
                   </div>
                 </div>
               );
@@ -581,7 +594,11 @@ export default function ModelSelector() {
               }}
             >
               <span>{t("modelSelector.moreProviders")}</span>
-              {showMoreFree ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+              {showMoreFree ? (
+                <ChevronUp size={14} />
+              ) : (
+                <ChevronDown size={14} />
+              )}
             </div>
             {showMoreFree && (
               <div ref={moreContentRef} className={styles.moreContent}>
@@ -689,12 +706,17 @@ export default function ModelSelector() {
           <TooltipTrigger asChild>
             <DropdownMenuTrigger asChild>
               <div
-                className={[styles.trigger, open ? styles.triggerActive : ""].join(
-                  " ",
-                )}
+                className={[
+                  styles.trigger,
+                  open ? styles.triggerActive : "",
+                ].join(" ")}
               >
                 {saving && (
-                  <Loader2 size={11} className="animate-spin" style={{ color: "var(--primary)" }} />
+                  <Loader2
+                    size={11}
+                    className="animate-spin"
+                    style={{ color: "var(--primary)" }}
+                  />
                 )}
                 {showActiveProviderIcon && activeProviderId && (
                   <ProviderIcon providerId={activeProviderId} size={16} />
@@ -706,14 +728,20 @@ export default function ModelSelector() {
           </TooltipTrigger>
           <TooltipContent>{t("chat.modelSelectTooltip")}</TooltipContent>
         </Tooltip>
-        <DropdownMenuContent align="start" className="p-0 border-0 shadow-none bg-transparent" onCloseAutoFocus={(e) => e.preventDefault()}>
+        <DropdownMenuContent
+          align="start"
+          className="p-0 border-0 shadow-none bg-transparent"
+          onCloseAutoFocus={(e) => e.preventDefault()}
+        >
           {dropdownContent}
         </DropdownMenuContent>
       </DropdownMenu>
 
       <Dialog
         open={configNavModal.open}
-        onOpenChange={(v) => !v && setConfigNavModal((prev) => ({ ...prev, open: false }))}
+        onOpenChange={(v) =>
+          !v && setConfigNavModal((prev) => ({ ...prev, open: false }))
+        }
       >
         <DialogContent className="max-w-[400px]">
           <DialogHeader>
@@ -725,13 +753,20 @@ export default function ModelSelector() {
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setConfigNavModal((prev) => ({ ...prev, open: false }))}>
+            <Button
+              variant="outline"
+              onClick={() =>
+                setConfigNavModal((prev) => ({ ...prev, open: false }))
+              }
+            >
               {t("common.cancel")}
             </Button>
-            <Button onClick={() => {
-              setConfigNavModal((prev) => ({ ...prev, open: false }));
-              navigate(`/models?provider=${configNavModal.providerId}`);
-            }}>
+            <Button
+              onClick={() => {
+                setConfigNavModal((prev) => ({ ...prev, open: false }));
+                navigate(`/models?provider=${configNavModal.providerId}`);
+              }}
+            >
               {t("modelSelector.goToConfigure")}
             </Button>
           </DialogFooter>

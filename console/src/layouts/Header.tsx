@@ -1,5 +1,16 @@
 import { useState, useEffect } from "react";
-import { Loader2, Copy, Check, Tag, Github, FileText, BookOpen, Play, HelpCircle, ChevronDown } from "lucide-react";
+import {
+  Loader2,
+  Copy,
+  Check,
+  Tag,
+  Github,
+  FileText,
+  BookOpen,
+  Play,
+  HelpCircle,
+  ChevronDown,
+} from "lucide-react";
 import LanguageSwitcher from "../components/LanguageSwitcher/index";
 import ThemeToggleButton from "../components/ThemeToggleButton";
 import CodingModeToggle from "../components/CodingModeToggle";
@@ -220,13 +231,17 @@ export default function Header() {
                 {t("header.tutorial")}
               </DropdownMenuItem>
               <DropdownMenuItem
-                onClick={() => handleNavClick(getFeatureDemosUrl(i18n.language))}
+                onClick={() =>
+                  handleNavClick(getFeatureDemosUrl(i18n.language))
+                }
               >
                 <Play className="h-4 w-4" />
                 {t("header.featureDemos")}
               </DropdownMenuItem>
               <DropdownMenuItem
-                onClick={() => handleNavClick(getReleaseNotesUrl(i18n.language))}
+                onClick={() =>
+                  handleNavClick(getReleaseNotesUrl(i18n.language))
+                }
               >
                 <FileText className="h-4 w-4" />
                 {t("header.changelog")}
@@ -274,7 +289,10 @@ export default function Header() {
               })}
             </DialogTitle>
             <DialogDescription>
-              {t("sidebar.updateModal.description", "Release notes and update instructions.")}
+              {t(
+                "sidebar.updateModal.description",
+                "Release notes and update instructions.",
+              )}
             </DialogDescription>
           </DialogHeader>
           {/* Banner area */}
@@ -323,8 +341,8 @@ export default function Header() {
                   code({ node, className, children, ...props }: any) {
                     const match = /language-(\w+)/.exec(className || "");
                     const isBlock =
-                      node?.position?.start?.line !== node?.position?.end?.line ||
-                      match;
+                      node?.position?.start?.line !==
+                        node?.position?.end?.line || match;
                     return isBlock ? (
                       <UpdateCodeBlock
                         code={String(children).replace(/\n$/, "")}

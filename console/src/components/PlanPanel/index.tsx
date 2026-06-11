@@ -119,7 +119,12 @@ const PlanPanel: React.FC<PlanPanelProps> = ({ open, onClose }) => {
           <SheetDescription className="sr-only">
             {t("plan.title", "Plan")}
           </SheetDescription>
-          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={onClose}>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-7 w-7"
+            onClick={onClose}
+          >
             <ChevronRight size={16} />
           </Button>
         </SheetHeader>
@@ -127,14 +132,20 @@ const PlanPanel: React.FC<PlanPanelProps> = ({ open, onClose }) => {
         <div className="flex-1 overflow-y-auto p-4">
           {loading && !plan ? (
             <div className="flex items-center justify-center h-32">
-              <Loader2 size={24} className="animate-spin text-muted-foreground" />
+              <Loader2
+                size={24}
+                className="animate-spin text-muted-foreground"
+              />
             </div>
           ) : !plan ? (
             <div className="flex flex-col items-center justify-center h-32 gap-2 text-muted-foreground text-sm">
               <span className="text-3xl">📋</span>
               <div>{t("plan.noPlan", "No active plan")}</div>
               <div className="text-xs text-center">
-                {t("plan.noPlanHint", "Use /plan <description> to create a plan")}
+                {t(
+                  "plan.noPlanHint",
+                  "Use /plan <description> to create a plan",
+                )}
               </div>
             </div>
           ) : (
@@ -171,7 +182,9 @@ const PlanPanel: React.FC<PlanPanelProps> = ({ open, onClose }) => {
                   <div
                     className={cn(
                       "h-full rounded-full transition-all",
-                      plan.state === "abandoned" ? "bg-destructive" : "bg-primary",
+                      plan.state === "abandoned"
+                        ? "bg-destructive"
+                        : "bg-primary",
                     )}
                     style={{ width: `${percent}%` }}
                   />
@@ -204,7 +217,8 @@ const PlanPanel: React.FC<PlanPanelProps> = ({ open, onClose }) => {
 
               {plan.outcome && (
                 <div className="text-sm border-t pt-3 mt-1">
-                  <strong>{t("plan.outcome", "Outcome")}:</strong> {plan.outcome}
+                  <strong>{t("plan.outcome", "Outcome")}:</strong>{" "}
+                  {plan.outcome}
                 </div>
               )}
             </div>

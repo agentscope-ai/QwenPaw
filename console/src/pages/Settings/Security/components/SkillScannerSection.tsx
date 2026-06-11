@@ -66,7 +66,12 @@ function FindingsModal({
   const { t } = useTranslation();
 
   return (
-    <Dialog open={open} onOpenChange={(v) => { if (!v) onClose(); }}>
+    <Dialog
+      open={open}
+      onOpenChange={(v) => {
+        if (!v) onClose();
+      }}
+    >
       <DialogContent className="max-w-[700px]">
         <DialogHeader>
           <DialogTitle>
@@ -90,7 +95,9 @@ function FindingsModal({
                     ? `${f.file_path}:${f.line_number}`
                     : f.file_path}
                 </TableCell>
-                <TableCell className="max-w-[200px] truncate">{f.description}</TableCell>
+                <TableCell className="max-w-[200px] truncate">
+                  {f.description}
+                </TableCell>
               </TableRow>
             ))}
           </TableBody>
@@ -122,7 +129,9 @@ export function SkillScannerSection() {
     skillName: string;
   }>({ open: false, findings: [], skillName: "" });
 
-  const [removeWhitelistDialog, setRemoveWhitelistDialog] = useState<string | null>(null);
+  const [removeWhitelistDialog, setRemoveWhitelistDialog] = useState<
+    string | null
+  >(null);
   const [clearHistoryDialog, setClearHistoryDialog] = useState(false);
 
   const [pendingTimeout, setPendingTimeout] = useState<number | null>(null);
@@ -203,7 +212,9 @@ export function SkillScannerSection() {
                   {t("security.skillScanner.mode")}
                 </span>
               </TooltipTrigger>
-              <TooltipContent>{t("security.skillScanner.modeTooltip")}</TooltipContent>
+              <TooltipContent>
+                {t("security.skillScanner.modeTooltip")}
+              </TooltipContent>
             </Tooltip>
             <Select
               value={config.mode}
@@ -214,9 +225,15 @@ export function SkillScannerSection() {
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="block">{t("security.skillScanner.modeBlock")}</SelectItem>
-                <SelectItem value="warn">{t("security.skillScanner.modeWarn")}</SelectItem>
-                <SelectItem value="off">{t("security.skillScanner.modeOff")}</SelectItem>
+                <SelectItem value="block">
+                  {t("security.skillScanner.modeBlock")}
+                </SelectItem>
+                <SelectItem value="warn">
+                  {t("security.skillScanner.modeWarn")}
+                </SelectItem>
+                <SelectItem value="off">
+                  {t("security.skillScanner.modeOff")}
+                </SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -228,7 +245,9 @@ export function SkillScannerSection() {
                   {t("security.skillScanner.timeout")}
                 </span>
               </TooltipTrigger>
-              <TooltipContent>{t("security.skillScanner.timeoutTooltip")}</TooltipContent>
+              <TooltipContent>
+                {t("security.skillScanner.timeoutTooltip")}
+              </TooltipContent>
             </Tooltip>
             <Input
               type="number"
@@ -237,7 +256,9 @@ export function SkillScannerSection() {
               value={pendingTimeout ?? config.timeout}
               onChange={(e) => setPendingTimeout(parseInt(e.target.value, 10))}
               onBlur={handleTimeoutBlur}
-              onKeyDown={(e) => { if (e.key === "Enter") void handleTimeoutBlur(); }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") void handleTimeoutBlur();
+              }}
               disabled={!enabled}
               style={{ width: 100 }}
             />
@@ -314,14 +335,23 @@ export function SkillScannerSection() {
                             }`}
                           >
                             {record.action === "blocked"
-                              ? t("security.skillScanner.scanAlerts.actionBlocked")
-                              : t("security.skillScanner.scanAlerts.actionWarned")}
+                              ? t(
+                                  "security.skillScanner.scanAlerts.actionBlocked",
+                                )
+                              : t(
+                                  "security.skillScanner.scanAlerts.actionWarned",
+                                )}
                           </Badge>
                         </TableCell>
                         <TableCell>
                           {(() => {
-                            try { return new Date(record.blocked_at).toLocaleString(); }
-                            catch { return record.blocked_at; }
+                            try {
+                              return new Date(
+                                record.blocked_at,
+                              ).toLocaleString();
+                            } catch {
+                              return record.blocked_at;
+                            }
                           })()}
                         </TableCell>
                         <TableCell>
@@ -344,7 +374,9 @@ export function SkillScannerSection() {
                                 </Button>
                               </TooltipTrigger>
                               <TooltipContent>
-                                {t("security.skillScanner.scanAlerts.viewFindings")}
+                                {t(
+                                  "security.skillScanner.scanAlerts.viewFindings",
+                                )}
                               </TooltipContent>
                             </Tooltip>
                             <Tooltip>
@@ -353,13 +385,17 @@ export function SkillScannerSection() {
                                   variant="ghost"
                                   size="sm"
                                   className="h-7 w-7 p-0"
-                                  onClick={() => void handleAllowSkill(record, index)}
+                                  onClick={() =>
+                                    void handleAllowSkill(record, index)
+                                  }
                                 >
                                   <ShieldCheck size={14} />
                                 </Button>
                               </TooltipTrigger>
                               <TooltipContent>
-                                {t("security.skillScanner.scanAlerts.allowSkill")}
+                                {t(
+                                  "security.skillScanner.scanAlerts.allowSkill",
+                                )}
                               </TooltipContent>
                             </Tooltip>
                             <Tooltip>
@@ -428,7 +464,9 @@ export function SkillScannerSection() {
                                   {entry.content_hash.substring(0, 16)}...
                                 </code>
                               </TooltipTrigger>
-                              <TooltipContent>{entry.content_hash}</TooltipContent>
+                              <TooltipContent>
+                                {entry.content_hash}
+                              </TooltipContent>
                             </Tooltip>
                           ) : (
                             <span className="text-muted-foreground">any</span>
@@ -436,8 +474,11 @@ export function SkillScannerSection() {
                         </TableCell>
                         <TableCell>
                           {(() => {
-                            try { return new Date(entry.added_at).toLocaleString(); }
-                            catch { return entry.added_at; }
+                            try {
+                              return new Date(entry.added_at).toLocaleString();
+                            } catch {
+                              return entry.added_at;
+                            }
                           })()}
                         </TableCell>
                         <TableCell>
@@ -447,7 +488,9 @@ export function SkillScannerSection() {
                                 variant="ghost"
                                 size="sm"
                                 className="h-7 w-7 p-0 text-destructive hover:text-destructive"
-                                onClick={() => setRemoveWhitelistDialog(entry.skill_name)}
+                                onClick={() =>
+                                  setRemoveWhitelistDialog(entry.skill_name)
+                                }
                               >
                                 <Trash2 size={14} />
                               </Button>
@@ -471,12 +514,16 @@ export function SkillScannerSection() {
         findings={findingsModal.findings}
         skillName={findingsModal.skillName}
         open={findingsModal.open}
-        onClose={() => setFindingsModal({ open: false, findings: [], skillName: "" })}
+        onClose={() =>
+          setFindingsModal({ open: false, findings: [], skillName: "" })
+        }
       />
 
       <AlertDialog
         open={!!removeWhitelistDialog}
-        onOpenChange={(v) => { if (!v) setRemoveWhitelistDialog(null); }}
+        onOpenChange={(v) => {
+          if (!v) setRemoveWhitelistDialog(null);
+        }}
       >
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -504,7 +551,9 @@ export function SkillScannerSection() {
 
       <AlertDialog
         open={clearHistoryDialog}
-        onOpenChange={(v) => { if (!v) setClearHistoryDialog(false); }}
+        onOpenChange={(v) => {
+          if (!v) setClearHistoryDialog(false);
+        }}
       >
         <AlertDialogContent>
           <AlertDialogHeader>

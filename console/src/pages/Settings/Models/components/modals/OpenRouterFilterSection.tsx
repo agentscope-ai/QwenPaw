@@ -5,7 +5,17 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
-import { Filter, Gift, Plus, Image, Music, Video, FileText, Type, ImagePlay } from "lucide-react";
+import {
+  Filter,
+  Gift,
+  Plus,
+  Image,
+  Music,
+  Video,
+  FileText,
+  Type,
+  ImagePlay,
+} from "lucide-react";
 import type { ExtendedModelInfo } from "../../../../../api/types";
 import styles from "./OpenRouterFilterSection.module.less";
 
@@ -258,7 +268,10 @@ export function OpenRouterFilterSection({
             <div className={styles.freeOnlyLabel}>
               {t("models.filterFreeOnly") || "Free Models Only:"}
             </div>
-            <Switch checked={showFreeOnly} onCheckedChange={onShowFreeOnlyChange} />
+            <Switch
+              checked={showFreeOnly}
+              onCheckedChange={onShowFreeOnlyChange}
+            />
           </div>
 
           <Button

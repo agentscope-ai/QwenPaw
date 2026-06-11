@@ -57,7 +57,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import styles from "./GitPanel.module.less";
 
 const STATUS_LABELS: Record<string, { label: string; color: string }> = {
@@ -501,7 +505,10 @@ export default function GitPanel() {
       </Dialog>
 
       {/* New branch dialog */}
-      <Dialog open={newBranchModal} onOpenChange={(o) => !o && setNewBranchModal(false)}>
+      <Dialog
+        open={newBranchModal}
+        onOpenChange={(o) => !o && setNewBranchModal(false)}
+      >
         <DialogContent className="max-w-[360px]">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-1.5">
@@ -517,7 +524,13 @@ export default function GitPanel() {
             autoFocus
           />
           <DialogFooter>
-            <Button variant="outline" onClick={() => { setNewBranchModal(false); setNewBranchName(""); }}>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setNewBranchModal(false);
+                setNewBranchName("");
+              }}
+            >
               Cancel
             </Button>
             <Button onClick={handleCreateBranch}>Create & Switch</Button>
@@ -548,11 +561,7 @@ function CommitRow({ commit: c, onDiff, onRevert }: CommitRowProps) {
         <div className={styles.logActions}>
           <Tooltip>
             <TooltipTrigger asChild>
-              <button
-                type="button"
-                className={styles.iconBtn}
-                onClick={onDiff}
-              >
+              <button type="button" className={styles.iconBtn} onClick={onDiff}>
                 <FileDiff size={11} />
               </button>
             </TooltipTrigger>
@@ -576,7 +585,10 @@ function CommitRow({ commit: c, onDiff, onRevert }: CommitRowProps) {
         {c.author} · {c.date}
       </span>
 
-      <AlertDialog open={confirmOpen} onOpenChange={(o) => !o && setConfirmOpen(false)}>
+      <AlertDialog
+        open={confirmOpen}
+        onOpenChange={(o) => !o && setConfirmOpen(false)}
+      >
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>{`Revert commit "${c.message}"?`}</AlertDialogTitle>
@@ -586,7 +598,12 @@ function CommitRow({ commit: c, onDiff, onRevert }: CommitRowProps) {
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={() => { onRevert(); setConfirmOpen(false); }}>
+            <AlertDialogAction
+              onClick={() => {
+                onRevert();
+                setConfirmOpen(false);
+              }}
+            >
               Revert
             </AlertDialogAction>
           </AlertDialogFooter>
@@ -651,7 +668,10 @@ function FileRow({
               </TooltipTrigger>
               <TooltipContent>Discard changes</TooltipContent>
             </Tooltip>
-            <AlertDialog open={confirmDiscard} onOpenChange={(o) => !o && setConfirmDiscard(false)}>
+            <AlertDialog
+              open={confirmDiscard}
+              onOpenChange={(o) => !o && setConfirmDiscard(false)}
+            >
               <AlertDialogContent>
                 <AlertDialogHeader>
                   <AlertDialogTitle>Discard changes?</AlertDialogTitle>
@@ -661,7 +681,13 @@ function FileRow({
                 </AlertDialogHeader>
                 <AlertDialogFooter>
                   <AlertDialogCancel>Cancel</AlertDialogCancel>
-                  <AlertDialogAction className="bg-destructive text-destructive-foreground" onClick={() => { onDiscard(); setConfirmDiscard(false); }}>
+                  <AlertDialogAction
+                    className="bg-destructive text-destructive-foreground"
+                    onClick={() => {
+                      onDiscard();
+                      setConfirmDiscard(false);
+                    }}
+                  >
                     Discard
                   </AlertDialogAction>
                 </AlertDialogFooter>

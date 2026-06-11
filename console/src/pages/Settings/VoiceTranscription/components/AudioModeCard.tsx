@@ -27,7 +27,10 @@ export function AudioModeCard({
         </p>
         <div className="flex flex-col gap-3">
           {(["auto", "native"] as const).map((value) => (
-            <label key={value} className="flex cursor-pointer items-start gap-2">
+            <label
+              key={value}
+              className="flex cursor-pointer items-start gap-2"
+            >
               <input
                 type="radio"
                 name="audioMode"
@@ -38,10 +41,18 @@ export function AudioModeCard({
               />
               <span>
                 <span className={styles.optionLabel}>
-                  {t(`voiceTranscription.mode${value.charAt(0).toUpperCase() + value.slice(1)}`)}
+                  {t(
+                    `voiceTranscription.mode${
+                      value.charAt(0).toUpperCase() + value.slice(1)
+                    }`,
+                  )}
                 </span>
                 <span className={styles.optionDescription}>
-                  {t(`voiceTranscription.mode${value.charAt(0).toUpperCase() + value.slice(1)}Desc`)}
+                  {t(
+                    `voiceTranscription.mode${
+                      value.charAt(0).toUpperCase() + value.slice(1)
+                    }Desc`,
+                  )}
                 </span>
               </span>
             </label>
@@ -57,7 +68,9 @@ export function AudioModeCard({
               </div>
             ) : (
               <div className="rounded-md border border-yellow-200 bg-yellow-50 px-3 py-2 text-sm text-yellow-800 dark-mode:border-yellow-800 dark-mode:bg-yellow-950 dark-mode:text-yellow-200">
-                <div className="font-medium">{t("voiceTranscription.ffmpegMissing")}</div>
+                <div className="font-medium">
+                  {t("voiceTranscription.ffmpegMissing")}
+                </div>
                 <div className="mt-1 text-yellow-700 dark-mode:text-yellow-300">
                   {t("voiceTranscription.ffmpegMissingDesc")}
                 </div>

@@ -6,8 +6,18 @@ import React, {
   useState,
 } from "react";
 import { useNavigate } from "react-router-dom";
-import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetDescription,
+} from "@/components/ui/sheet";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { Loader2, Lock, LockOpen, ChevronRight } from "lucide-react";
 import { FixedSizeList, type ListChildComponentProps } from "react-window";
 import {
@@ -502,95 +512,110 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
   return (
     <Sheet
       open={props.open}
-      onOpenChange={(v) => { if (!v && !props.pinned) props.onClose(); }}
+      onOpenChange={(v) => {
+        if (!v && !props.pinned) props.onClose();
+      }}
     >
       <SheetContent
         side="right"
-        className={`w-[360px] p-0 flex flex-col h-full overflow-hidden ${!props.pinned ? "" : "[&>[data-radix-collection-item]]:hidden"} ${styles.drawer ?? ""}`}
+        className={`w-[360px] p-0 flex flex-col h-full overflow-hidden ${
+          !props.pinned ? "" : "[&>[data-radix-collection-item]]:hidden"
+        } ${styles.drawer ?? ""}`}
         style={{ "--tw-shadow": "none" } as React.CSSProperties}
-        onInteractOutside={(e) => { if (props.pinned) e.preventDefault(); }}
+        onInteractOutside={(e) => {
+          if (props.pinned) e.preventDefault();
+        }}
       >
         <SheetHeader className="sr-only">
           <SheetTitle>{t("chat.allChats") || "Chats"}</SheetTitle>
-          <SheetDescription>{t("chat.allChats") || "Chat sessions"}</SheetDescription>
+          <SheetDescription>
+            {t("chat.allChatsDesc", "Browse and manage your chat sessions")}
+          </SheetDescription>
         </SheetHeader>
-      {/* Header bar */}
-      <div className={styles.header}>
-        <div className={styles.headerLeft}>
-          <span className={styles.headerTitle}>{t("chat.allChats")}</span>
-        </div>
-        <div className={styles.headerRight}>
-          <Tooltip>
-            <TooltipTrigger asChild>
+        {/* Header bar */}
+        <div className={styles.header}>
+          <div className={styles.headerLeft}>
+            <span className={styles.headerTitle}>{t("chat.allChats")}</span>
+          </div>
+          <div className={styles.headerRight}>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  className={`inline-flex items-center justify-center rounded-md p-1.5 text-muted-foreground hover:text-foreground hover:bg-accent transition-colors ${
+                    props.pinned ? "text-primary" : ""
+                  }`}
+                  onClick={() => props.onPinChange?.(!props.pinned)}
+                >
+                  {props.pinned ? <Lock size={16} /> : <LockOpen size={16} />}
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>
+                {props.pinned
+                  ? t("chat.unpinDrawer", "Unpin")
+                  : t("chat.pinDrawer", "Pin")}
+              </TooltipContent>
+            </Tooltip>
+            {!props.pinned && (
               <button
                 type="button"
-                className={`inline-flex items-center justify-center rounded-md p-1.5 text-muted-foreground hover:text-foreground hover:bg-accent transition-colors ${props.pinned ? "text-primary" : ""}`}
-                onClick={() => props.onPinChange?.(!props.pinned)}
+                className="inline-flex items-center justify-center rounded-md p-1.5 text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+                onClick={props.onClose}
               >
-                {props.pinned ? <Lock size={16} /> : <LockOpen size={16} />}
+                <ChevronRight size={16} />
               </button>
-            </TooltipTrigger>
-            <TooltipContent>
-              {props.pinned ? t("chat.unpinDrawer", "Unpin") : t("chat.pinDrawer", "Pin")}
-            </TooltipContent>
-          </Tooltip>
-          {!props.pinned && (
-            <button
-              type="button"
-              className="inline-flex items-center justify-center rounded-md p-1.5 text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
-              onClick={props.onClose}
-            >
-              <ChevronRight size={16} />
-            </button>
-          )}
-        </div>
-      </div>
-
-      {/* Create new chat button */}
-      <div className={styles.createSection}>
-        <div className={styles.createButton} onClick={handleCreateSession}>
-          {t("chat.createNewChat")}
-        </div>
-      </div>
-
-      {/* Session list */}
-      <div
-        className={styles.listWrapper}
-        ref={listWrapperRef}
-        style={switchingSessionId ? { pointerEvents: "none" } : undefined}
-      >
-        <div className={styles.topGradient} />
-        {listLoading ? (
-          <div className="flex justify-center p-10">
-            <Loader2 size={20} className="animate-spin text-muted-foreground" />
+            )}
           </div>
-        ) : (
-          <>
-            <FixedSizeList
-              height={listHeight}
-              width="100%"
-              itemCount={sortedSessions.length}
-              itemSize={ITEM_HEIGHT}
-              overscanCount={20}
-              itemData={itemData}
-              className={styles.list}
-            >
-              {SessionRow}
-            </FixedSizeList>
-          </>
-        )}
-        <div className={styles.bottomGradient} />
-      </div>
+        </div>
 
-      {/* Shared context menu — single instance for all session items */}
-      <ContextMenu
-        visible={sharedContextMenu.visible}
-        x={sharedContextMenu.x}
-        y={sharedContextMenu.y}
-        items={contextMenuItems}
-        onClose={sharedContextMenu.hide}
-      />
-    </SheetContent>
+        {/* Create new chat button */}
+        <div className={styles.createSection}>
+          <div className={styles.createButton} onClick={handleCreateSession}>
+            {t("chat.createNewChat")}
+          </div>
+        </div>
+
+        {/* Session list */}
+        <div
+          className={styles.listWrapper}
+          ref={listWrapperRef}
+          style={switchingSessionId ? { pointerEvents: "none" } : undefined}
+        >
+          <div className={styles.topGradient} />
+          {listLoading ? (
+            <div className="flex justify-center p-10">
+              <Loader2
+                size={20}
+                className="animate-spin text-muted-foreground"
+              />
+            </div>
+          ) : (
+            <>
+              <FixedSizeList
+                height={listHeight}
+                width="100%"
+                itemCount={sortedSessions.length}
+                itemSize={ITEM_HEIGHT}
+                overscanCount={20}
+                itemData={itemData}
+                className={styles.list}
+              >
+                {SessionRow}
+              </FixedSizeList>
+            </>
+          )}
+          <div className={styles.bottomGradient} />
+        </div>
+
+        {/* Shared context menu — single instance for all session items */}
+        <ContextMenu
+          visible={sharedContextMenu.visible}
+          x={sharedContextMenu.x}
+          y={sharedContextMenu.y}
+          items={contextMenuItems}
+          onClose={sharedContextMenu.hide}
+        />
+      </SheetContent>
     </Sheet>
   );
 };

@@ -18,7 +18,15 @@ interface MarkdownCopyProps {
   showMarkdown?: boolean;
   onShowMarkdownChange?: (show: boolean) => void;
   copyButtonProps?: {
-    type?: "text" | "link" | "default" | "primary" | "dashed" | "primaryLess" | "textCompact" | undefined;
+    type?:
+      | "text"
+      | "link"
+      | "default"
+      | "primary"
+      | "dashed"
+      | "primaryLess"
+      | "textCompact"
+      | undefined;
     size?: "small" | "middle" | "large" | undefined;
     style?: CSSProperties;
   };
@@ -131,7 +139,10 @@ export function MarkdownCopy({
           <span className="text-sm font-medium">{t("common.content")}</span>
           <div className="flex items-center gap-3">
             <div className="flex items-center gap-1.5">
-              <Label htmlFor={switchId} className="text-sm cursor-pointer select-none">
+              <Label
+                htmlFor={switchId}
+                className="text-sm cursor-pointer select-none"
+              >
                 {t("common.preview")}
               </Label>
               <Switch
@@ -174,7 +185,9 @@ export function MarkdownCopy({
           value={editable ? editContent : content}
           onChange={handleContentChange}
           rows={textareaProps.rows ?? 12}
-          placeholder={textareaProps.placeholder ?? t("common.contentPlaceholder")}
+          placeholder={
+            textareaProps.placeholder ?? t("common.contentPlaceholder")
+          }
           disabled={textareaProps.disabled}
           readOnly={!editable || textareaProps.disabled}
           className={cn("font-mono text-sm resize-y", textareaProps.className)}

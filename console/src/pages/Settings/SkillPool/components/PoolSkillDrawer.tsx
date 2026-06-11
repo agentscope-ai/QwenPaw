@@ -62,7 +62,12 @@ function TagInput({
 
   const add = (val: string) => {
     const t = val.trim();
-    if (t && !values.includes(t) && values.length < MAX_TAGS && t.length <= MAX_TAG_LENGTH) {
+    if (
+      t &&
+      !values.includes(t) &&
+      values.length < MAX_TAGS &&
+      t.length <= MAX_TAG_LENGTH
+    ) {
       onChange([...values, t]);
     }
     setInp("");
@@ -133,8 +138,16 @@ export function PoolSkillDrawer({
   const isOpen = mode === "create" || mode === "edit";
 
   return (
-    <Sheet open={isOpen} onOpenChange={(v) => { if (!v) onClose(); }}>
-      <SheetContent side="right" className="w-[520px] sm:w-[520px] flex flex-col">
+    <Sheet
+      open={isOpen}
+      onOpenChange={(v) => {
+        if (!v) onClose();
+      }}
+    >
+      <SheetContent
+        side="right"
+        className="w-[520px] sm:w-[520px] flex flex-col"
+      >
         <SheetHeader>
           <SheetTitle>
             {mode === "edit"

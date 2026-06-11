@@ -89,11 +89,7 @@ const MediaPreview: React.FC<MediaPreviewProps> = ({ media }) => {
       {media.type === "audio" && (
         <div className={styles.bubbleAudio}>
           {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
-          <audio
-            src={media.url}
-            controls
-            onError={handleMediaError}
-          />
+          <audio src={media.url} controls onError={handleMediaError} />
         </div>
       )}
       {media.type === "file" && (

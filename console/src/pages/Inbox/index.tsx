@@ -112,7 +112,11 @@ function SimplePagination({
           key={page}
           variant={page === current ? "default" : "outline"}
           size="sm"
-          className={page === current ? "bg-primary text-primary-foreground hover:bg-primary/90 border-0" : ""}
+          className={
+            page === current
+              ? "bg-primary text-primary-foreground hover:bg-primary/90 border-0"
+              : ""
+          }
           onClick={() => onChange(page)}
         >
           {page}
@@ -159,7 +163,8 @@ export default function InboxPage() {
   const filteredPushMessages = useMemo(() => {
     if (!selectedAgentFilter) return pushMessages;
     return pushMessages.filter(
-      (msg) => (msg.metadata?.agentId || DEFAULT_AGENT_ID) === selectedAgentFilter,
+      (msg) =>
+        (msg.metadata?.agentId || DEFAULT_AGENT_ID) === selectedAgentFilter,
     );
   }, [pushMessages, selectedAgentFilter]);
 
@@ -218,7 +223,9 @@ export default function InboxPage() {
     rootSessionId: string,
   ) => {
     await commandsApi.sendApprovalCommand("approve", requestId, rootSessionId);
-    setApprovals((prev) => prev.filter((item) => item.request_id !== requestId));
+    setApprovals((prev) =>
+      prev.filter((item) => item.request_id !== requestId),
+    );
     toast.success(t("approval.approved"));
   };
 
@@ -227,7 +234,9 @@ export default function InboxPage() {
     rootSessionId: string,
   ) => {
     await commandsApi.sendApprovalCommand("deny", requestId, rootSessionId);
-    setApprovals((prev) => prev.filter((item) => item.request_id !== requestId));
+    setApprovals((prev) =>
+      prev.filter((item) => item.request_id !== requestId),
+    );
     toast.success(t("approval.denied"));
   };
 
@@ -342,7 +351,10 @@ export default function InboxPage() {
           onValueChange={(key) => setActiveTab(key as TabKey)}
         >
           <TabsList className="mb-4">
-            <TabsTrigger value="messages" className="inline-flex items-center gap-2 text-[15px]">
+            <TabsTrigger
+              value="messages"
+              className="inline-flex items-center gap-2 text-[15px]"
+            >
               <Bell size={15} />
               {t("inbox.tabPushMessages")}
               {summary.pushMessages.unread > 0 && (
@@ -351,7 +363,10 @@ export default function InboxPage() {
                 </Badge>
               )}
             </TabsTrigger>
-            <TabsTrigger value="approvals" className="inline-flex items-center gap-2 text-[15px]">
+            <TabsTrigger
+              value="approvals"
+              className="inline-flex items-center gap-2 text-[15px]"
+            >
               <PackageOpen size={15} />
               {t("inbox.tabApprovals")}
               {urgentApprovalCount > 0 && (
@@ -402,14 +417,22 @@ export default function InboxPage() {
                         disabled={currentPageMessageIds.length <= 0}
                         id="select-all"
                       />
-                      <label htmlFor="select-all" className="text-sm cursor-pointer">
+                      <label
+                        htmlFor="select-all"
+                        className="text-sm cursor-pointer"
+                      >
                         {t("inbox.selectAllCurrentPage")}
                       </label>
                     </div>
                     <span className="text-sm text-muted-foreground text-[12px]">
-                      {t("inbox.selectedItems", { count: selectedMessageIds.length })}
+                      {t("inbox.selectedItems", {
+                        count: selectedMessageIds.length,
+                      })}
                     </span>
-                    <AlertDialog open={batchDeleteOpen} onOpenChange={setBatchDeleteOpen}>
+                    <AlertDialog
+                      open={batchDeleteOpen}
+                      onOpenChange={setBatchDeleteOpen}
+                    >
                       <AlertDialogTrigger asChild>
                         <Button
                           variant="destructive"
@@ -427,11 +450,16 @@ export default function InboxPage() {
                             })}
                           </AlertDialogTitle>
                           <AlertDialogDescription>
-                            {t("common.actionCannotBeUndone", "This action cannot be undone.")}
+                            {t(
+                              "common.actionCannotBeUndone",
+                              "This action cannot be undone.",
+                            )}
                           </AlertDialogDescription>
                         </AlertDialogHeader>
                         <AlertDialogFooter>
-                          <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
+                          <AlertDialogCancel>
+                            {t("common.cancel")}
+                          </AlertDialogCancel>
                           <AlertDialogAction
                             className="bg-destructive text-white hover:bg-destructive/90"
                             onClick={() => void handleBatchDeleteMessages()}
@@ -465,7 +493,9 @@ export default function InboxPage() {
                       variant="outline"
                       size="sm"
                       onClick={() => void handleMarkAllRead()}
-                      disabled={markAllReading || summary.pushMessages.unread <= 0}
+                      disabled={
+                        markAllReading || summary.pushMessages.unread <= 0
+                      }
                     >
                       {markAllReading && (
                         <Loader2 size={14} className="animate-spin" />
@@ -552,7 +582,9 @@ export default function InboxPage() {
                         .catch(() => undefined)
                         .then(() => {
                           setApprovals((prev) =>
-                            prev.filter((item) => item.request_id !== requestId),
+                            prev.filter(
+                              (item) => item.request_id !== requestId,
+                            ),
                           );
                         });
                     }}
@@ -570,12 +602,15 @@ export default function InboxPage() {
       </div>
 
       {/* Message detail dialog */}
-      <Dialog open={detailOpen} onOpenChange={(open) => { if (!open) closeDetail(); }}>
+      <Dialog
+        open={detailOpen}
+        onOpenChange={(open) => {
+          if (!open) closeDetail();
+        }}
+      >
         <DialogContent className="max-w-[820px] w-full max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>
-              {getDetailModalTitle(selectedMessage, t)}
-            </DialogTitle>
+            <DialogTitle>{getDetailModalTitle(selectedMessage, t)}</DialogTitle>
           </DialogHeader>
 
           {selectedMessage ? (
@@ -624,7 +659,10 @@ export default function InboxPage() {
                     value: selectedMessage.id || "-",
                   },
                 ].map(({ label, value }) => (
-                  <div key={label} className="flex border-b border-border last:border-b-0 [&:nth-child(odd)]:border-r">
+                  <div
+                    key={label}
+                    className="flex border-b border-border last:border-b-0 [&:nth-child(odd)]:border-r"
+                  >
                     <div className="bg-muted/50 px-3 py-2 text-xs font-medium text-muted-foreground w-32 shrink-0">
                       {label}
                     </div>
@@ -642,7 +680,10 @@ export default function InboxPage() {
 
                 {traceLoading ? (
                   <div className="flex justify-center py-8 px-3 rounded-lg border border-dashed border-black/15 dark-mode:border-white/18 text-foreground/55 dark-mode:text-white/55 mx-auto w-full">
-                    <Loader2 size={20} className="animate-spin text-muted-foreground" />
+                    <Loader2
+                      size={20}
+                      className="animate-spin text-muted-foreground"
+                    />
                   </div>
                 ) : traceEvents.length > 0 ? (
                   <div
@@ -694,17 +735,21 @@ export default function InboxPage() {
                                 collapsible
                                 value={isPanelActive ? collapseKey : ""}
                                 onValueChange={(value) => {
-                                  toggleTracePanel(collapseKey, value === collapseKey);
+                                  toggleTracePanel(
+                                    collapseKey,
+                                    value === collapseKey,
+                                  );
                                 }}
                                 className={cn(
                                   "border-none rounded-lg bg-transparent transition-colors hover:bg-black/[0.02] dark-mode:hover:bg-white/[0.04]",
                                   isPanelActive && "bg-muted",
                                 )}
                               >
-                                <AccordionItem value={collapseKey} className="border-0">
-                                  <AccordionTrigger
-                                    className="py-0 hover:no-underline flex items-center gap-2 w-full"
-                                  >
+                                <AccordionItem
+                                  value={collapseKey}
+                                  className="border-0"
+                                >
+                                  <AccordionTrigger className="py-0 hover:no-underline flex items-center gap-2 w-full">
                                     <div className="flex items-center gap-1.5">
                                       {foldIcon && (
                                         <span className="inline-flex items-center justify-center text-foreground/50 dark-mode:text-white/55">

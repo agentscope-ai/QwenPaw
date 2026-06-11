@@ -142,7 +142,10 @@
     font-feature-settings: "cv02", "cv03", "cv04", "cv11";
   }
   /* AionUi headings: tight tracking, semibold */
-  h1, h2, h3, h4 {
+  h1,
+  h2,
+  h3,
+  h4 {
     letter-spacing: -0.02em;
   }
 }

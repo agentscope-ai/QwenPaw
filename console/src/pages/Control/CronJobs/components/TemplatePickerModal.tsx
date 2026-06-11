@@ -94,10 +94,7 @@ export function TemplatePickerModal({
                 {t(template.frequencyKey)}
               </div>
               <div className="mt-2">
-                <Button
-                  size="sm"
-                  onClick={() => handleUseTemplate(template)}
-                >
+                <Button size="sm" onClick={() => handleUseTemplate(template)}>
                   {t("cronJobs.useTemplate")}
                 </Button>
               </div>

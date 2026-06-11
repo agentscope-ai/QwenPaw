@@ -51,7 +51,9 @@ function VoiceTranscriptionPage() {
       <div className="flex items-start gap-2 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-800 dark-mode:border-blue-800 dark-mode:bg-blue-950 dark-mode:text-blue-200">
         <span>ℹ</span>
         <div>
-          <div className="font-medium">{t("voiceTranscription.transcriptionInfoTitle")}</div>
+          <div className="font-medium">
+            {t("voiceTranscription.transcriptionInfoTitle")}
+          </div>
           <div className="mt-1">
             {isLocalWhisper
               ? t("voiceTranscription.transcriptionInfoDescLocal")

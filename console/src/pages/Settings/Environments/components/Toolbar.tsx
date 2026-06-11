@@ -47,7 +47,9 @@ export function Toolbar({
         )}
         <span className={styles.toolbarCount}>
           {someSelected
-            ? `${selectedSize} ${t("environments.of")} ${workingRowsLength} ${t("environments.selected")}`
+            ? `${selectedSize} ${t("environments.of")} ${workingRowsLength} ${t(
+                "environments.selected",
+              )}`
             : `${workingRowsLength} ${
                 workingRowsLength !== 1
                   ? t("environments.variables")
@@ -70,7 +72,12 @@ export function Toolbar({
         )}
         {dirty && (
           <>
-            <Button variant="outline" size="sm" onClick={onReset} disabled={saving}>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={onReset}
+              disabled={saving}
+            >
               {t("common.reset")}
             </Button>
             <Button size="sm" disabled={saving} onClick={onSave}>

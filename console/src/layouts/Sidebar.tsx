@@ -74,7 +74,12 @@ interface AccountFormValues {
 }
 
 function emptyAccount(): AccountFormValues {
-  return { currentPassword: "", newUsername: "", newPassword: "", confirmPassword: "" };
+  return {
+    currentPassword: "",
+    newUsername: "",
+    newPassword: "",
+    confirmPassword: "",
+  };
 }
 
 // ── NavItem (leaf menu item) ──────────────────────────────────────────────
@@ -99,7 +104,9 @@ function ExpandedMenu({ items, selectedKey, onItemClick }: ExpandedMenuProps) {
         const isGroup = item.isGroup || children.length > 0;
 
         if (isGroup) {
-          const visibleChildren = children.filter((c: MenuItem) => c.visible?.() !== false);
+          const visibleChildren = children.filter(
+            (c: MenuItem) => c.visible?.() !== false,
+          );
           return (
             <div key={item.id} className="mb-1">
               {/* Group label */}
@@ -122,7 +129,9 @@ function ExpandedMenu({ items, selectedKey, onItemClick }: ExpandedMenuProps) {
                     >
                       {renderIcon(child.icon, 16)}
                       <span className="truncate">
-                        {typeof child.label === "function" ? child.label() : child.label}
+                        {typeof child.label === "function"
+                          ? child.label()
+                          : child.label}
                       </span>
                     </button>
                   );
@@ -166,8 +175,11 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
   const [authEnabled, setAuthEnabled] = useState(false);
   const [accountModalOpen, setAccountModalOpen] = useState(false);
   const [accountLoading, setAccountLoading] = useState(false);
-  const [accountForm, setAccountForm] = useState<AccountFormValues>(emptyAccount);
-  const [accountErrors, setAccountErrors] = useState<Partial<AccountFormValues>>({});
+  const [accountForm, setAccountForm] =
+    useState<AccountFormValues>(emptyAccount);
+  const [accountErrors, setAccountErrors] = useState<
+    Partial<AccountFormValues>
+  >({});
   const [collapsed, setCollapsed] = useState(false);
   const [isMobile, setIsMobile] = useState(isMobileSidebarViewport);
   const [hasInboxUnread, setHasInboxUnread] = useState(false);
@@ -262,7 +274,10 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
     if (accountForm.newUsername && !trimmedUsername) {
       errors.newUsername = t("account.usernameEmpty");
     }
-    if (accountForm.newPassword && accountForm.confirmPassword !== accountForm.newPassword) {
+    if (
+      accountForm.newPassword &&
+      accountForm.confirmPassword !== accountForm.newPassword
+    ) {
       errors.confirmPassword = t("account.passwordMismatch");
     }
 
@@ -377,16 +392,18 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
                       )}
                       onClick={() =>
                         item.href
-                          ? window.open(item.href, "_blank", "noopener,noreferrer")
+                          ? window.open(
+                              item.href,
+                              "_blank",
+                              "noopener,noreferrer",
+                            )
                           : navigate(item.path)
                       }
                     >
                       {item.icon}
                     </button>
                   </TooltipTrigger>
-                  <TooltipContent side="right">
-                    {item.label}
-                  </TooltipContent>
+                  <TooltipContent side="right">{item.label}</TooltipContent>
                 </Tooltip>
               );
             })}
@@ -530,11 +547,16 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
                 type="password"
                 value={accountForm.currentPassword}
                 onChange={(e) =>
-                  setAccountForm((f) => ({ ...f, currentPassword: e.target.value }))
+                  setAccountForm((f) => ({
+                    ...f,
+                    currentPassword: e.target.value,
+                  }))
                 }
               />
               {accountErrors.currentPassword && (
-                <p className="text-[12px] text-destructive">{accountErrors.currentPassword}</p>
+                <p className="text-[12px] text-destructive">
+                  {accountErrors.currentPassword}
+                </p>
               )}
             </div>
 
@@ -550,7 +572,9 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
                 }
               />
               {accountErrors.newUsername && (
-                <p className="text-[12px] text-destructive">{accountErrors.newUsername}</p>
+                <p className="text-[12px] text-destructive">
+                  {accountErrors.newUsername}
+                </p>
               )}
             </div>
 
@@ -566,7 +590,9 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
                 }
               />
               {accountErrors.newPassword && (
-                <p className="text-[12px] text-destructive">{accountErrors.newPassword}</p>
+                <p className="text-[12px] text-destructive">
+                  {accountErrors.newPassword}
+                </p>
               )}
             </div>
 
@@ -580,11 +606,16 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
                 placeholder={t("account.confirmPasswordPlaceholder")}
                 value={accountForm.confirmPassword}
                 onChange={(e) =>
-                  setAccountForm((f) => ({ ...f, confirmPassword: e.target.value }))
+                  setAccountForm((f) => ({
+                    ...f,
+                    confirmPassword: e.target.value,
+                  }))
                 }
               />
               {accountErrors.confirmPassword && (
-                <p className="text-[12px] text-destructive">{accountErrors.confirmPassword}</p>
+                <p className="text-[12px] text-destructive">
+                  {accountErrors.confirmPassword}
+                </p>
               )}
             </div>
 

@@ -69,7 +69,9 @@ function FreeModelWarningDialog({
     <AlertDialog open>
       <AlertDialogContent>
         <AlertDialogHeader>
-          <AlertDialogTitle>{t("models.freeModelWarningTitle")}</AlertDialogTitle>
+          <AlertDialogTitle>
+            {t("models.freeModelWarningTitle")}
+          </AlertDialogTitle>
           <AlertDialogDescription asChild>
             <div className="flex flex-col gap-3">
               <p>{t("models.freeModelWarningMessage")}</p>
@@ -87,7 +89,10 @@ function FreeModelWarningDialog({
                   checked={dontShowAgain}
                   onCheckedChange={(v) => setDontShowAgain(Boolean(v))}
                 />
-                <Label htmlFor={checkboxId} className="cursor-pointer font-normal">
+                <Label
+                  htmlFor={checkboxId}
+                  className="cursor-pointer font-normal"
+                >
                   {t("models.freeModelWarningDontShowAgain")}
                 </Label>
               </div>

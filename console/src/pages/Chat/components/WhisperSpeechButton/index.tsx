@@ -5,7 +5,11 @@ import React, {
   forwardRef,
   useImperativeHandle,
 } from "react";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { Loader2, Mic } from "lucide-react";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";

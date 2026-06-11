@@ -89,9 +89,16 @@ export function OAuthConfirmModal({
   return (
     <Dialog
       open={open}
-      onOpenChange={(v) => { if (!v && phase === "confirm") onCancel(); }}
+      onOpenChange={(v) => {
+        if (!v && phase === "confirm") onCancel();
+      }}
     >
-      <DialogContent className="max-w-[420px]" onInteractOutside={phase !== "confirm" ? (e) => e.preventDefault() : undefined}>
+      <DialogContent
+        className="max-w-[420px]"
+        onInteractOutside={
+          phase !== "confirm" ? (e) => e.preventDefault() : undefined
+        }
+      >
         {phase === "confirm" ? (
           <>
             <DialogHeader>
@@ -102,11 +109,15 @@ export function OAuthConfirmModal({
                 {t("modelSelector.oauthTitle", { provider: providerName })}
               </DialogTitle>
               <DialogDescription className="text-center">
-                {t("modelSelector.oauthDescription", { provider: providerName })}
+                {t("modelSelector.oauthDescription", {
+                  provider: providerName,
+                })}
               </DialogDescription>
             </DialogHeader>
             <div className="flex gap-3 justify-center mt-4">
-              <Button variant="outline" onClick={onCancel}>{t("common.cancel")}</Button>
+              <Button variant="outline" onClick={onCancel}>
+                {t("common.cancel")}
+              </Button>
               <Button onClick={handleContinue}>
                 {t("modelSelector.oauthContinue")}
               </Button>
@@ -126,7 +137,9 @@ export function OAuthConfirmModal({
               </DialogDescription>
             </DialogHeader>
             <div className="flex justify-center mt-4">
-              <Button variant="outline" onClick={onCancel}>{t("common.cancel")}</Button>
+              <Button variant="outline" onClick={onCancel}>
+                {t("common.cancel")}
+              </Button>
             </div>
           </>
         )}

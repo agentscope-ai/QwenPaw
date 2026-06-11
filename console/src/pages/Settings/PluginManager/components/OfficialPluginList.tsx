@@ -109,7 +109,9 @@ export function OfficialPluginList({ onInstalled }: OfficialPluginListProps) {
               <SelectValue placeholder={t("pluginManager.filterByKind")} />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="">{t("pluginManager.allKinds", "All")}</SelectItem>
+              <SelectItem value="">
+                {t("pluginManager.allKinds", "All")}
+              </SelectItem>
               {kindOptions.map((opt) => (
                 <SelectItem key={opt.value} value={opt.value}>
                   {opt.label}
@@ -137,7 +139,9 @@ export function OfficialPluginList({ onInstalled }: OfficialPluginListProps) {
 
       <div className={loading ? "opacity-60 pointer-events-none" : ""}>
         {!loading && filteredPlugins.length === 0 && !catalogError && (
-          <span className="text-sm text-muted-foreground">{t("pluginManager.catalogEmpty")}</span>
+          <span className="text-sm text-muted-foreground">
+            {t("pluginManager.catalogEmpty")}
+          </span>
         )}
         <div className={styles.catalogList}>
           {filteredPlugins.map((entry) => (
@@ -159,12 +163,18 @@ export function OfficialPluginList({ onInstalled }: OfficialPluginListProps) {
                     </Badge>
                   )}
                   {entry.installed && !entry.upgrade_available && (
-                    <Badge variant="outline" className="text-xs text-green-600 border-green-300">
+                    <Badge
+                      variant="outline"
+                      className="text-xs text-green-600 border-green-300"
+                    >
                       {t("pluginManager.catalogInstalled")}
                     </Badge>
                   )}
                   {entry.upgrade_available && (
-                    <Badge variant="outline" className="text-xs text-blue-600 border-blue-300">
+                    <Badge
+                      variant="outline"
+                      className="text-xs text-blue-600 border-blue-300"
+                    >
                       {t("pluginManager.catalogUpgrade")}
                     </Badge>
                   )}
@@ -182,7 +192,11 @@ export function OfficialPluginList({ onInstalled }: OfficialPluginListProps) {
               </div>
               <div className={styles.catalogActions}>
                 <Button
-                  variant={entry.installed && !entry.upgrade_available ? "outline" : "default"}
+                  variant={
+                    entry.installed && !entry.upgrade_available
+                      ? "outline"
+                      : "default"
+                  }
                   size="sm"
                   disabled={installingId !== null}
                   onClick={() => void handleInstall(entry)}

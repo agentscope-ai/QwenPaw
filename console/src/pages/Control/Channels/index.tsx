@@ -22,7 +22,8 @@ type FilterType = "all" | "builtin" | "custom";
 function ChannelsPage() {
   const { t } = useTranslation();
   const { message } = useAppMessage();
-  const { channels, orderedKeys, isBuiltin, loading, fetchChannels } = useChannels();
+  const { channels, orderedKeys, isBuiltin, loading, fetchChannels } =
+    useChannels();
   const [filter, setFilter] = useState<FilterType>("all");
   const [saving, setSaving] = useState(false);
   const [activeKey, setActiveKey] = useState<ChannelKey | null>(null);
@@ -53,8 +54,12 @@ function ChannelsPage() {
   }, [fetchPendingCount]);
 
   const cards = useMemo(() => {
-    const enabledCards: { key: ChannelKey; config: Record<string, unknown> }[] = [];
-    const disabledCards: { key: ChannelKey; config: Record<string, unknown> }[] = [];
+    const enabledCards: { key: ChannelKey; config: Record<string, unknown> }[] =
+      [];
+    const disabledCards: {
+      key: ChannelKey;
+      config: Record<string, unknown>;
+    }[] = [];
 
     orderedKeys.forEach((key) => {
       const config = channels[key] || { enabled: false, bot_prefix: "" };
@@ -76,9 +81,11 @@ function ChannelsPage() {
     setDrawerOpen(true);
     const channelConfig = channels[key] || { enabled: false, bot_prefix: "" };
     const accessControlDm =
-      channelConfig.access_control_dm || channelConfig.dm_policy === "allowlist";
+      channelConfig.access_control_dm ||
+      channelConfig.dm_policy === "allowlist";
     const accessControlGroup =
-      channelConfig.access_control_group || channelConfig.group_policy === "allowlist";
+      channelConfig.access_control_group ||
+      channelConfig.group_policy === "allowlist";
     form.current.setFieldsValue({
       ...channelConfig,
       access_control_dm: accessControlDm,
@@ -109,7 +116,9 @@ function ChannelsPage() {
     try {
       await api.updateChannelConfig(
         activeKey,
-        updatedChannel as unknown as Parameters<typeof api.updateChannelConfig>[1],
+        updatedChannel as unknown as Parameters<
+          typeof api.updateChannelConfig
+        >[1],
       );
       await fetchChannels();
       setDrawerOpen(false);

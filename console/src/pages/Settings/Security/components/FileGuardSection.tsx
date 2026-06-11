@@ -135,9 +135,13 @@ export function FileGuardSection({ onSave }: FileGuardSectionProps = {}) {
 
   return (
     <>
-      <div className={`${styles.formCard} border rounded-lg p-4 flex flex-col gap-4`}>
+      <div
+        className={`${styles.formCard} border rounded-lg p-4 flex flex-col gap-4`}
+      >
         <div className="flex items-center justify-between">
-          <span className="font-medium">{t("security.fileGuard.enableLabel")}</span>
+          <span className="font-medium">
+            {t("security.fileGuard.enableLabel")}
+          </span>
           <Switch checked={enabled} onCheckedChange={handleToggle} />
         </div>
 
@@ -161,14 +165,13 @@ export function FileGuardSection({ onSave }: FileGuardSectionProps = {}) {
             value={newPath}
             onChange={(e) => setNewPath(e.target.value)}
             placeholder={t("security.fileGuard.inputPlaceholder")}
-            onKeyDown={(e) => { if (e.key === "Enter") handleAdd(); }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") handleAdd();
+            }}
             disabled={!enabled}
             className="flex-1"
           />
-          <Button
-            onClick={handleAdd}
-            disabled={!newPath.trim() || !enabled}
-          >
+          <Button onClick={handleAdd} disabled={!newPath.trim() || !enabled}>
             <PlusCircle size={16} className="mr-2" />
             {t("security.fileGuard.add")}
           </Button>
@@ -186,7 +189,9 @@ export function FileGuardSection({ onSave }: FileGuardSectionProps = {}) {
               <TableHeader>
                 <TableRow>
                   <TableHead>{t("security.fileGuard.path")}</TableHead>
-                  <TableHead style={{ width: 80 }}>{t("security.fileGuard.actions")}</TableHead>
+                  <TableHead style={{ width: 80 }}>
+                    {t("security.fileGuard.actions")}
+                  </TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -203,7 +208,10 @@ export function FileGuardSection({ onSave }: FileGuardSectionProps = {}) {
                           )}
                           <code className="text-sm">{path}</code>
                           {isDir && (
-                            <Badge variant="outline" className="text-xs border-orange-300 text-orange-600">
+                            <Badge
+                              variant="outline"
+                              className="text-xs border-orange-300 text-orange-600"
+                            >
                               {t("security.fileGuard.directory")}
                             </Badge>
                           )}
@@ -230,11 +238,15 @@ export function FileGuardSection({ onSave }: FileGuardSectionProps = {}) {
 
       <AlertDialog
         open={!!removeConfirm}
-        onOpenChange={(v) => { if (!v) setRemoveConfirm(null); }}
+        onOpenChange={(v) => {
+          if (!v) setRemoveConfirm(null);
+        }}
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>{t("security.fileGuard.removeConfirm")}</AlertDialogTitle>
+            <AlertDialogTitle>
+              {t("security.fileGuard.removeConfirm")}
+            </AlertDialogTitle>
             <AlertDialogDescription>{removeConfirm}</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

@@ -7,7 +7,11 @@ import styles from "../index.module.less";
 
 export function LlmRateLimiterCard() {
   const { t } = useTranslation();
-  const { register, getValues, formState: { errors } } = useFormContext();
+  const {
+    register,
+    getValues,
+    formState: { errors },
+  } = useFormContext();
 
   return (
     <Card className={styles.formCard}>
@@ -24,7 +28,10 @@ export function LlmRateLimiterCard() {
             placeholder={t("agentConfig.llmMaxConcurrentPlaceholder")}
             {...register("llm_max_concurrent", {
               required: t("agentConfig.llmMaxConcurrentRequired") as string,
-              min: { value: 1, message: t("agentConfig.llmMaxConcurrentRange") as string },
+              min: {
+                value: 1,
+                message: t("agentConfig.llmMaxConcurrentRange") as string,
+              },
               valueAsNumber: true,
             })}
           />
@@ -44,7 +51,10 @@ export function LlmRateLimiterCard() {
             placeholder={t("agentConfig.llmMaxQpmPlaceholder")}
             {...register("llm_max_qpm", {
               required: t("agentConfig.llmMaxQpmRequired") as string,
-              min: { value: 0, message: t("agentConfig.llmMaxQpmRange") as string },
+              min: {
+                value: 0,
+                message: t("agentConfig.llmMaxQpmRange") as string,
+              },
               valueAsNumber: true,
             })}
           />
@@ -63,7 +73,10 @@ export function LlmRateLimiterCard() {
             placeholder={t("agentConfig.llmRateLimitPausePlaceholder")}
             {...register("llm_rate_limit_pause", {
               required: t("agentConfig.llmRateLimitPauseRequired") as string,
-              min: { value: 1.0, message: t("agentConfig.llmRateLimitPauseMin") as string },
+              min: {
+                value: 1.0,
+                message: t("agentConfig.llmRateLimitPauseMin") as string,
+              },
               valueAsNumber: true,
             })}
           />
@@ -82,7 +95,10 @@ export function LlmRateLimiterCard() {
             placeholder={t("agentConfig.llmRateLimitJitterPlaceholder")}
             {...register("llm_rate_limit_jitter", {
               required: t("agentConfig.llmRateLimitJitterRequired") as string,
-              min: { value: 0.0, message: t("agentConfig.llmRateLimitJitterMin") as string },
+              min: {
+                value: 0.0,
+                message: t("agentConfig.llmRateLimitJitterMin") as string,
+              },
               valueAsNumber: true,
             })}
           />
@@ -101,15 +117,25 @@ export function LlmRateLimiterCard() {
             placeholder={t("agentConfig.llmAcquireTimeoutPlaceholder")}
             {...register("llm_acquire_timeout", {
               required: t("agentConfig.llmAcquireTimeoutRequired") as string,
-              min: { value: 10.0, message: t("agentConfig.llmAcquireTimeoutMin") as string },
+              min: {
+                value: 10.0,
+                message: t("agentConfig.llmAcquireTimeoutMin") as string,
+              },
               validate: (value: unknown) => {
                 const pause = getValues("llm_rate_limit_pause") as number;
                 const jitter = getValues("llm_rate_limit_jitter") as number;
                 const v = value as number;
-                if (typeof v !== "number" || typeof pause !== "number" || typeof jitter !== "number" || v > pause + jitter) {
+                if (
+                  typeof v !== "number" ||
+                  typeof pause !== "number" ||
+                  typeof jitter !== "number" ||
+                  v > pause + jitter
+                ) {
                   return true;
                 }
-                return t("agentConfig.llmAcquireTimeoutGtPauseJitter") as string;
+                return t(
+                  "agentConfig.llmAcquireTimeoutGtPauseJitter",
+                ) as string;
               },
               valueAsNumber: true,
             })}

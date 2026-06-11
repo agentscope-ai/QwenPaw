@@ -72,7 +72,8 @@ export const LocalProviderCard = React.memo(function LocalProviderCard({
 
       <div className={styles.cardActions}>
         <Button
-          variant="outline" size="sm"
+          variant="outline"
+          size="sm"
           onClick={(e) => {
             e.stopPropagation();
             onOpenModels(provider);
@@ -85,4 +86,3 @@ export const LocalProviderCard = React.memo(function LocalProviderCard({
     </Card>
   );
 });
-

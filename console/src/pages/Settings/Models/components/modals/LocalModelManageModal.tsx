@@ -144,15 +144,21 @@ export function LocalModelManageModal({
     useState<LocalDownloadSource>("huggingface");
   const [loadingLocal, setLoadingLocal] = useState(false);
   const [loadingStatus, setLoadingStatus] = useState(false);
-  const [serverStatus, setServerStatus] = useState<LocalServerStatus | null>(null);
+  const [serverStatus, setServerStatus] = useState<LocalServerStatus | null>(
+    null,
+  );
   const [serverUpdateStatus, setServerUpdateStatus] =
     useState<LocalServerUpdateStatus | null>(null);
   const [llamacppDownload, setLlamacppDownload] =
     useState<LocalDownloadProgress | null>(null);
   const [modelDownload, setModelDownload] =
     useState<LocalDownloadProgress | null>(null);
-  const [startingModelName, setStartingModelName] = useState<string | null>(null);
-  const [deletingModelName, setDeletingModelName] = useState<string | null>(null);
+  const [startingModelName, setStartingModelName] = useState<string | null>(
+    null,
+  );
+  const [deletingModelName, setDeletingModelName] = useState<string | null>(
+    null,
+  );
   const [stoppingServer, setStoppingServer] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [advancedSaving, setAdvancedSaving] = useState(false);
@@ -170,8 +176,11 @@ export function LocalModelManageModal({
 
   // AlertDialog states
   const [cancelLlamacppDialog, setCancelLlamacppDialog] = useState(false);
-  const [cancelModelDialog, setCancelModelDialog] = useState<string | null>(null);
-  const [deleteModelDialog, setDeleteModelDialog] = useState<LocalModelInfo | null>(null);
+  const [cancelModelDialog, setCancelModelDialog] = useState<string | null>(
+    null,
+  );
+  const [deleteModelDialog, setDeleteModelDialog] =
+    useState<LocalModelInfo | null>(null);
   const [switchServerDialog, setSwitchServerDialog] = useState<{
     current: string;
     next: LocalModelInfo;
@@ -282,7 +291,9 @@ export function LocalModelManageModal({
       value:
         | LocalDownloadProgress
         | null
-        | ((prev: LocalDownloadProgress | null) => LocalDownloadProgress | null),
+        | ((
+            prev: LocalDownloadProgress | null,
+          ) => LocalDownloadProgress | null),
     ) => {
       setModelDownload((prev) => {
         const next = typeof value === "function" ? value(prev) : value;
@@ -296,17 +307,24 @@ export function LocalModelManageModal({
   const refreshUpdateStatus = useCallback(
     async (nextServerStatus?: LocalServerStatus | null) => {
       const effectiveServerStatus = nextServerStatus ?? serverStatus;
-      if (!effectiveServerStatus?.installable || !effectiveServerStatus.installed) {
+      if (
+        !effectiveServerStatus?.installable ||
+        !effectiveServerStatus.installed
+      ) {
         const fallbackStatus = { has_update: false };
         setServerUpdateStatus((prev) =>
-          isSameServerUpdateStatus(prev, fallbackStatus) ? prev : fallbackStatus,
+          isSameServerUpdateStatus(prev, fallbackStatus)
+            ? prev
+            : fallbackStatus,
         );
         return fallbackStatus;
       }
       try {
         const nextUpdateStatus = await api.getLocalServerUpdateStatus();
         setServerUpdateStatus((prev) =>
-          isSameServerUpdateStatus(prev, nextUpdateStatus) ? prev : nextUpdateStatus,
+          isSameServerUpdateStatus(prev, nextUpdateStatus)
+            ? prev
+            : nextUpdateStatus,
         );
         return nextUpdateStatus;
       } catch {
@@ -338,10 +356,14 @@ export function LocalModelManageModal({
           );
         }
         setLlamacppDownload((prev) =>
-          isSameDownloadProgress(prev, nextLlamacppDownload) ? prev : nextLlamacppDownload,
+          isSameDownloadProgress(prev, nextLlamacppDownload)
+            ? prev
+            : nextLlamacppDownload,
         );
         setModelDownloadState((prev) =>
-          isSameDownloadProgress(prev, nextModelDownload) ? prev : nextModelDownload,
+          isSameDownloadProgress(prev, nextModelDownload)
+            ? prev
+            : nextModelDownload,
         );
 
         if (
@@ -464,19 +486,25 @@ export function LocalModelManageModal({
     }
     if (maxContextLength < MIN_LOCAL_MAX_CONTEXT_LENGTH) {
       message.error(
-        t("models.localMaxContextLengthMin", { min: MIN_LOCAL_MAX_CONTEXT_LENGTH }),
+        t("models.localMaxContextLengthMin", {
+          min: MIN_LOCAL_MAX_CONTEXT_LENGTH,
+        }),
       );
       return;
     }
     setAdvancedSaving(true);
     try {
-      await api.configureLocalModelSettings({ max_context_length: maxContextLength });
+      await api.configureLocalModelSettings({
+        max_context_length: maxContextLength,
+      });
       setSavedMaxContextLength(maxContextLength);
       message.success(t("models.localAdvancedConfigSaved"));
       await onSavedRef.current();
     } catch (error) {
       const errMsg =
-        error instanceof Error ? error.message : t("models.localAdvancedConfigSaveFailed");
+        error instanceof Error
+          ? error.message
+          : t("models.localAdvancedConfigSaveFailed");
       message.error(errMsg);
     } finally {
       setAdvancedSaving(false);
@@ -506,7 +534,9 @@ export function LocalModelManageModal({
       await onSavedRef.current();
     } catch (error) {
       const errMsg =
-        error instanceof Error ? error.message : t("models.localAdvancedConfigSaveFailed");
+        error instanceof Error
+          ? error.message
+          : t("models.localAdvancedConfigSaveFailed");
       message.error(errMsg);
     } finally {
       setAdvancedSaving(false);
@@ -519,7 +549,9 @@ export function LocalModelManageModal({
       parsed = parseGenerateConfig(generateKwargsText) ?? {};
     } catch (error) {
       message.error(
-        error instanceof Error ? error.message : t("models.generateConfigInvalidJson"),
+        error instanceof Error
+          ? error.message
+          : t("models.generateConfigInvalidJson"),
       );
       return;
     }
@@ -534,7 +566,9 @@ export function LocalModelManageModal({
       await onSavedRef.current();
     } catch (error) {
       const errMsg =
-        error instanceof Error ? error.message : t("models.localAdvancedConfigSaveFailed");
+        error instanceof Error
+          ? error.message
+          : t("models.localAdvancedConfigSaveFailed");
       message.error(errMsg);
     } finally {
       setAdvancedSaving(false);
@@ -569,7 +603,9 @@ export function LocalModelManageModal({
       await refreshStatus();
       startPolling();
       const errMsg =
-        error instanceof Error ? error.message : t("models.localLlamacppInstallFailed");
+        error instanceof Error
+          ? error.message
+          : t("models.localLlamacppInstallFailed");
       message.error(errMsg);
     }
   }, [llamacppDownload, refreshStatus, startPolling, t]);
@@ -590,7 +626,9 @@ export function LocalModelManageModal({
       startPolling();
     } catch (error) {
       const errMsg =
-        error instanceof Error ? error.message : t("models.localCancelDownloadFailed");
+        error instanceof Error
+          ? error.message
+          : t("models.localCancelDownloadFailed");
       message.error(errMsg);
     }
   };
@@ -620,7 +658,9 @@ export function LocalModelManageModal({
         setModelDownloadState(previousModelDownload);
         previousModelStatusRef.current = previousModelStatus;
         const errMsg =
-          error instanceof Error ? error.message : t("models.localDownloadFailed");
+          error instanceof Error
+            ? error.message
+            : t("models.localDownloadFailed");
         message.error(errMsg);
       }
     },
@@ -658,7 +698,9 @@ export function LocalModelManageModal({
       startPolling();
     } catch (error) {
       const errMsg =
-        error instanceof Error ? error.message : t("models.localCancelDownloadFailed");
+        error instanceof Error
+          ? error.message
+          : t("models.localCancelDownloadFailed");
       message.error(errMsg);
     }
   };
@@ -673,7 +715,9 @@ export function LocalModelManageModal({
           onSaved();
         } catch (error) {
           const errMsg =
-            error instanceof Error ? error.message : t("models.localServerStartFailed");
+            error instanceof Error
+              ? error.message
+              : t("models.localServerStartFailed");
           message.error(errMsg);
         } finally {
           setStartingModelName(null);
@@ -708,7 +752,9 @@ export function LocalModelManageModal({
       onSaved();
     } catch (error) {
       const errMsg =
-        error instanceof Error ? error.message : t("models.localServerStartFailed");
+        error instanceof Error
+          ? error.message
+          : t("models.localServerStartFailed");
       message.error(errMsg);
     } finally {
       setStartingModelName(null);
@@ -723,7 +769,9 @@ export function LocalModelManageModal({
       onSaved();
     } catch (error) {
       const errMsg =
-        error instanceof Error ? error.message : t("models.localServerStopFailed");
+        error instanceof Error
+          ? error.message
+          : t("models.localServerStopFailed");
       message.error(errMsg);
     } finally {
       setStoppingServer(false);
@@ -768,10 +816,14 @@ export function LocalModelManageModal({
       : t("models.localModelsLockedHint");
   const isCustomDownloadDisabled =
     customModelRepoId.trim().length === 0 || isModelDownloading || isServerBusy;
-  const downloadedModelCount = localModels.filter((model) => model.downloaded).length;
+  const downloadedModelCount = localModels.filter(
+    (model) => model.downloaded,
+  ).length;
 
   const currentRunningModelName = serverStatus?.model_name ?? null;
-  const currentRunningModelDisplayName = getLocalModelDisplayName(currentRunningModelName);
+  const currentRunningModelDisplayName = getLocalModelDisplayName(
+    currentRunningModelName,
+  );
   const currentModelDownloadName =
     getLocalModelDisplayName(modelDownload?.model_name ?? null) ||
     t("models.localDownloadPending");
@@ -779,7 +831,12 @@ export function LocalModelManageModal({
 
   return (
     <>
-      <Dialog open={open} onOpenChange={(v) => { if (!v) handleClose(); }}>
+      <Dialog
+        open={open}
+        onOpenChange={(v) => {
+          if (!v) handleClose();
+        }}
+      >
         <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>
@@ -841,7 +898,9 @@ export function LocalModelManageModal({
                     <div className={styles.localRuntimeDownloadRow}>
                       <div className={styles.localRuntimeProgressBlock}>
                         <div className={styles.localRuntimeProgressBarRow}>
-                          <div className={`${styles.localRuntimeProgress} flex-1 h-2 rounded-full bg-muted overflow-hidden`}>
+                          <div
+                            className={`${styles.localRuntimeProgress} flex-1 h-2 rounded-full bg-muted overflow-hidden`}
+                          >
                             <div
                               className="h-full rounded-full transition-all"
                               style={{
@@ -853,7 +912,11 @@ export function LocalModelManageModal({
                           <Button
                             variant="destructive"
                             size="sm"
-                            onClick={() => handleCancelModelDownload(currentModelDownloadName)}
+                            onClick={() =>
+                              handleCancelModelDownload(
+                                currentModelDownloadName,
+                              )
+                            }
                           >
                             {t("models.localCancelDownloadAction")}
                           </Button>
@@ -886,7 +949,9 @@ export function LocalModelManageModal({
 
               <div className={styles.modelList}>
                 {serverStatus?.installed && loadingLocal ? (
-                  <div className={styles.modelListEmpty}>{t("common.loading")}</div>
+                  <div className={styles.modelListEmpty}>
+                    {t("common.loading")}
+                  </div>
                 ) : serverStatus?.installed && localModels.length === 0 ? (
                   <div className={styles.modelListEmpty}>
                     {t("models.localNoRecommendedModels")}
@@ -927,7 +992,9 @@ export function LocalModelManageModal({
                       </div>
                       <Button
                         size="sm"
-                        onClick={() => { void handleStartCustomModelDownload(); }}
+                        onClick={() => {
+                          void handleStartCustomModelDownload();
+                        }}
                         disabled={isCustomDownloadDisabled}
                       >
                         {t("common.download")}
@@ -938,7 +1005,8 @@ export function LocalModelManageModal({
                         value={customModelRepoId}
                         onChange={(e) => setCustomModelRepoId(e.target.value)}
                         onKeyDown={(e) => {
-                          if (e.key === "Enter") void handleStartCustomModelDownload();
+                          if (e.key === "Enter")
+                            void handleStartCustomModelDownload();
                         }}
                         placeholder={t("models.localRepoIdPlaceholder")}
                         className={styles.customModelRepoInput}
@@ -949,7 +1017,9 @@ export function LocalModelManageModal({
                           setCustomModelSource(value as LocalDownloadSource)
                         }
                       >
-                        <SelectTrigger className={styles.customModelSourceSelect}>
+                        <SelectTrigger
+                          className={styles.customModelSourceSelect}
+                        >
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
@@ -999,7 +1069,10 @@ export function LocalModelManageModal({
                     <span>{t("models.localMaxContextLengthLabel")}</span>
                     <Button
                       size="sm"
-                      disabled={advancedSaving || maxContextLength === savedMaxContextLength}
+                      disabled={
+                        advancedSaving ||
+                        maxContextLength === savedMaxContextLength
+                      }
                       onClick={() => {
                         if (maxContextLength !== savedMaxContextLength) {
                           void handleSaveMaxContextLength();
@@ -1018,7 +1091,7 @@ export function LocalModelManageModal({
                     onChange={(e) =>
                       setMaxContextLength(
                         typeof e.target.valueAsNumber === "number" &&
-                        !isNaN(e.target.valueAsNumber)
+                          !isNaN(e.target.valueAsNumber)
                           ? Math.trunc(e.target.valueAsNumber)
                           : DEFAULT_LOCAL_MAX_CONTEXT_LENGTH,
                       )
@@ -1040,7 +1113,9 @@ export function LocalModelManageModal({
                     <span>{t("models.localServerPortLabel")}</span>
                     <Button
                       size="sm"
-                      disabled={advancedSaving || serverPort === savedServerPort}
+                      disabled={
+                        advancedSaving || serverPort === savedServerPort
+                      }
                       onClick={() => {
                         if (serverPort !== savedServerPort) {
                           void handleSaveServerPort();
@@ -1119,10 +1194,15 @@ export function LocalModelManageModal({
       </Dialog>
 
       {/* Cancel llamacpp download dialog */}
-      <AlertDialog open={cancelLlamacppDialog} onOpenChange={setCancelLlamacppDialog}>
+      <AlertDialog
+        open={cancelLlamacppDialog}
+        onOpenChange={setCancelLlamacppDialog}
+      >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>{t("models.localCancelDownloadTitle")}</AlertDialogTitle>
+            <AlertDialogTitle>
+              {t("models.localCancelDownloadTitle")}
+            </AlertDialogTitle>
             <AlertDialogDescription>
               {t("models.localCancelDownloadConfirm", {
                 repo: t("models.localLlamacppName"),
@@ -1144,11 +1224,15 @@ export function LocalModelManageModal({
       {/* Cancel model download dialog */}
       <AlertDialog
         open={cancelModelDialog !== null}
-        onOpenChange={(v) => { if (!v) setCancelModelDialog(null); }}
+        onOpenChange={(v) => {
+          if (!v) setCancelModelDialog(null);
+        }}
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>{t("models.localCancelDownloadTitle")}</AlertDialogTitle>
+            <AlertDialogTitle>
+              {t("models.localCancelDownloadTitle")}
+            </AlertDialogTitle>
             <AlertDialogDescription>
               {t("models.localCancelDownloadConfirm", {
                 repo: cancelModelDialog ?? "",
@@ -1170,13 +1254,17 @@ export function LocalModelManageModal({
       {/* Delete model dialog */}
       <AlertDialog
         open={deleteModelDialog !== null}
-        onOpenChange={(v) => { if (!v) setDeleteModelDialog(null); }}
+        onOpenChange={(v) => {
+          if (!v) setDeleteModelDialog(null);
+        }}
       >
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>{t("models.localDeleteModel")}</AlertDialogTitle>
             <AlertDialogDescription>
-              {t("models.localDeleteConfirm", { name: deleteModelDialog?.name ?? "" })}
+              {t("models.localDeleteConfirm", {
+                name: deleteModelDialog?.name ?? "",
+              })}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -1194,14 +1282,20 @@ export function LocalModelManageModal({
       {/* Switch server dialog */}
       <AlertDialog
         open={switchServerDialog !== null}
-        onOpenChange={(v) => { if (!v) setSwitchServerDialog(null); }}
+        onOpenChange={(v) => {
+          if (!v) setSwitchServerDialog(null);
+        }}
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>{t("models.localServerSwitchTitle")}</AlertDialogTitle>
+            <AlertDialogTitle>
+              {t("models.localServerSwitchTitle")}
+            </AlertDialogTitle>
             <AlertDialogDescription>
               {t("models.localServerSwitchConfirm", {
-                current: getLocalModelDisplayName(switchServerDialog?.current ?? null),
+                current: getLocalModelDisplayName(
+                  switchServerDialog?.current ?? null,
+                ),
                 next: switchServerDialog?.next.name ?? "",
               })}
             </AlertDialogDescription>

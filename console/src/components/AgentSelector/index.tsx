@@ -1,5 +1,11 @@
 import { useEffect, useState } from "react";
-import { Bot, CheckCircle, EyeOff, ChevronRight, ChevronsUpDown } from "lucide-react";
+import {
+  Bot,
+  CheckCircle,
+  EyeOff,
+  ChevronRight,
+  ChevronsUpDown,
+} from "lucide-react";
 import { useAgentStore } from "../../stores/agentStore";
 import { agentsApi } from "../../api/modules/agents";
 import { useTranslation } from "react-i18next";
@@ -111,9 +117,7 @@ export default function AgentSelector({
         <span>
           {t("agent.currentWorkspace")}
           {enabledCount > 0 && (
-            <span className="text-muted-foreground">
-              {" "}({enabledCount})
-            </span>
+            <span className="text-muted-foreground"> ({enabledCount})</span>
           )}
         </span>
       </div>
@@ -126,17 +130,28 @@ export default function AgentSelector({
             aria-label={t("agent.selectAgent")}
           >
             <div className="flex items-center gap-1.5 flex-1 min-w-0">
-              <Bot size={14} strokeWidth={2} className="text-foreground shrink-0" />
+              <Bot
+                size={14}
+                strokeWidth={2}
+                className="text-foreground shrink-0"
+              />
               <span className="font-semibold text-[13px] text-foreground/85 truncate">
                 {currentAgentInfo
                   ? getAgentDisplayName(currentAgentInfo, t)
                   : selectedAgent}
               </span>
               {currentAgentInfo && !currentAgentInfo.enabled && (
-                <EyeOff size={12} strokeWidth={2} className="shrink-0 text-foreground/40" />
+                <EyeOff
+                  size={12}
+                  strokeWidth={2}
+                  className="shrink-0 text-foreground/40"
+                />
               )}
             </div>
-            <ChevronsUpDown size={14} className="shrink-0 text-muted-foreground" />
+            <ChevronsUpDown
+              size={14}
+              className="shrink-0 text-muted-foreground"
+            />
           </button>
         </PopoverTrigger>
 
@@ -209,7 +224,10 @@ export default function AgentSelector({
                               />
                             )}
                             {!agent.enabled && (
-                              <Badge variant="outline" className="text-[10px] px-1 py-0 h-4">
+                              <Badge
+                                variant="outline"
+                                className="text-[10px] px-1 py-0 h-4"
+                              >
                                 {t("agent.disabled")}
                               </Badge>
                             )}

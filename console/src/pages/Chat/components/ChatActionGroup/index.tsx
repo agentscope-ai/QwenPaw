@@ -2,7 +2,11 @@ import React, { useState } from "react";
 import { History, MessageSquarePlus, Search } from "lucide-react";
 import { useChatAnywhereSessions } from "@agentscope-ai/chat";
 import { useTranslation } from "react-i18next";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import ChatSessionDrawer from "../ChatSessionDrawer";
 import ChatSearchPanel from "../ChatSearchPanel";
 import PlanPanel from "../../../../components/PlanPanel";
@@ -62,14 +66,19 @@ const ChatActionGroup: React.FC<ChatActionGroupProps> = ({
   const [planOpen, setPlanOpen] = useState(false);
   const { createSession } = useChatAnywhereSessions();
 
-  const iconBtnClass = "inline-flex items-center justify-center rounded-md p-1.5 text-muted-foreground hover:text-foreground hover:bg-accent transition-colors";
+  const iconBtnClass =
+    "inline-flex items-center justify-center rounded-md p-1.5 text-muted-foreground hover:text-foreground hover:bg-accent transition-colors";
 
   return (
     <div className="flex items-center gap-2">
       {planEnabled && (
         <Tooltip>
           <TooltipTrigger asChild>
-            <button type="button" className={iconBtnClass} onClick={() => setPlanOpen(true)}>
+            <button
+              type="button"
+              className={iconBtnClass}
+              onClick={() => setPlanOpen(true)}
+            >
               <PlanIcon />
             </button>
           </TooltipTrigger>
@@ -78,7 +87,11 @@ const ChatActionGroup: React.FC<ChatActionGroupProps> = ({
       )}
       <Tooltip>
         <TooltipTrigger asChild>
-          <button type="button" className={iconBtnClass} onClick={() => createSession()}>
+          <button
+            type="button"
+            className={iconBtnClass}
+            onClick={() => createSession()}
+          >
             <MessageSquarePlus size={16} />
           </button>
         </TooltipTrigger>
@@ -86,7 +99,11 @@ const ChatActionGroup: React.FC<ChatActionGroupProps> = ({
       </Tooltip>
       <Tooltip>
         <TooltipTrigger asChild>
-          <button type="button" className={iconBtnClass} onClick={() => setSearchOpen(true)}>
+          <button
+            type="button"
+            className={iconBtnClass}
+            onClick={() => setSearchOpen(true)}
+          >
             <Search size={16} />
           </button>
         </TooltipTrigger>
@@ -94,7 +111,11 @@ const ChatActionGroup: React.FC<ChatActionGroupProps> = ({
       </Tooltip>
       <Tooltip>
         <TooltipTrigger asChild>
-          <button type="button" className={iconBtnClass} onClick={() => setHistoryOpen(true)}>
+          <button
+            type="button"
+            className={iconBtnClass}
+            onClick={() => setHistoryOpen(true)}
+          >
             <History size={16} />
           </button>
         </TooltipTrigger>

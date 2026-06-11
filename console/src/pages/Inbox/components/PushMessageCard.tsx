@@ -96,7 +96,10 @@ export function PushMessageCard(props: PushMessageCardProps) {
                 className="shrink-0"
               />
             )}
-            <Avatar className="w-9 h-9 shrink-0" style={{ backgroundColor: channelColor }}>
+            <Avatar
+              className="w-9 h-9 shrink-0"
+              style={{ backgroundColor: channelColor }}
+            >
               <AvatarFallback
                 className="text-white"
                 style={{ backgroundColor: channelColor }}
@@ -149,7 +152,10 @@ export function PushMessageCard(props: PushMessageCardProps) {
                     {t("inbox.deleteMessageConfirm")}
                   </AlertDialogTitle>
                   <AlertDialogDescription>
-                    {t("common.actionCannotBeUndone", "This action cannot be undone.")}
+                    {t(
+                      "common.actionCannotBeUndone",
+                      "This action cannot be undone.",
+                    )}
                   </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>

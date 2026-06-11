@@ -110,7 +110,10 @@ export function AgentModal({
   // Internal controlled form state — synced to formRef
   const [formVals, setFormVals] = useState<AgentFormValues>(EMPTY_FORM);
 
-  const setField = <K extends keyof AgentFormValues>(key: K, value: AgentFormValues[K]) => {
+  const setField = <K extends keyof AgentFormValues>(
+    key: K,
+    value: AgentFormValues[K],
+  ) => {
     const updated = { ...formVals, [key]: value };
     setFormVals(updated);
     formRef.setValues({ [key]: value });
@@ -128,7 +131,8 @@ export function AgentModal({
   const eligibleProviders: EligibleProvider[] = useMemo(() => {
     return providers
       .filter((p) => {
-        const hasModels = (p.models?.length ?? 0) + (p.extra_models?.length ?? 0) > 0;
+        const hasModels =
+          (p.models?.length ?? 0) + (p.extra_models?.length ?? 0) > 0;
         if (!hasModels) return false;
         if (p.require_api_key === false) return !!p.base_url;
         if (p.is_custom) return !!p.base_url;
@@ -144,7 +148,10 @@ export function AgentModal({
 
   const availableModels = useMemo(() => {
     if (!formVals.active_model_provider) return [];
-    return eligibleProviders.find((p) => p.id === formVals.active_model_provider)?.models ?? [];
+    return (
+      eligibleProviders.find((p) => p.id === formVals.active_model_provider)
+        ?.models ?? []
+    );
   }, [formVals.active_model_provider, eligibleProviders]);
 
   useEffect(() => {
@@ -153,18 +160,24 @@ export function AgentModal({
     setLoadingProviders(true);
     providerApi
       .listProviders()
-      .then((data) => { if (Array.isArray(data)) setProviders(data); })
+      .then((data) => {
+        if (Array.isArray(data)) setProviders(data);
+      })
       .catch((err) => console.error("Failed to load providers:", err))
       .finally(() => setLoadingProviders(false));
 
     setLoadingSkills(true);
     const fetchPool = skillApi.listSkillPoolSkills();
-    const fetchInstalled = editingAgent ? skillApi.listSkills(editingAgent.id) : Promise.resolve([]);
+    const fetchInstalled = editingAgent
+      ? skillApi.listSkills(editingAgent.id)
+      : Promise.resolve([]);
 
     Promise.all([fetchPool, fetchInstalled])
       .then(([pool, workspaceSkills]) => {
         const poolSkillNames = new Set(pool.map((s) => s.name));
-        const installed = workspaceSkills.filter((s) => poolSkillNames.has(s.name)).map((s) => s.name);
+        const installed = workspaceSkills
+          .filter((s) => poolSkillNames.has(s.name))
+          .map((s) => s.name);
         setPoolSkills(pool);
         setInstalledSkills(installed);
         onInstalledSkillsLoaded(installed);
@@ -174,7 +187,11 @@ export function AgentModal({
   }, [editingAgent, onInstalledSkillsLoaded, onSelectedSkillsChange, open]);
 
   const handleProviderChange = (providerId: string) => {
-    const updated = { ...formVals, active_model_provider: providerId, active_model_model: undefined };
+    const updated = {
+      ...formVals,
+      active_model_provider: providerId,
+      active_model_model: undefined,
+    };
     setFormVals(updated);
     formRef.setValues(updated);
   };
@@ -184,7 +201,11 @@ export function AgentModal({
   };
 
   const handleClearModel = () => {
-    const updated = { ...formVals, active_model_provider: undefined, active_model_model: undefined };
+    const updated = {
+      ...formVals,
+      active_model_provider: undefined,
+      active_model_model: undefined,
+    };
     setFormVals(updated);
     formRef.setValues(updated);
   };
@@ -198,38 +219,64 @@ export function AgentModal({
     );
   };
 
-  const handleSelectAll = () => onSelectedSkillsChange(poolSkills.map((s) => s.name));
+  const handleSelectAll = () =>
+    onSelectedSkillsChange(poolSkills.map((s) => s.name));
   const handleSelectBuiltin = () => {
-    const builtinNames = poolSkills.filter((s) => s.source === "builtin").map((s) => s.name);
-    onSelectedSkillsChange(Array.from(new Set([...installedSkills, ...builtinNames])));
+    const builtinNames = poolSkills
+      .filter((s) => s.source === "builtin")
+      .map((s) => s.name);
+    onSelectedSkillsChange(
+      Array.from(new Set([...installedSkills, ...builtinNames])),
+    );
   };
-  const handleSelectNone = () => onSelectedSkillsChange(editingAgent ? [...installedSkills] : []);
+  const handleSelectNone = () =>
+    onSelectedSkillsChange(editingAgent ? [...installedSkills] : []);
 
   const handleSave = async () => {
-    if (!formVals.name.trim()) { setNameError(t("agent.nameRequired")); return; }
+    if (!formVals.name.trim()) {
+      setNameError(t("agent.nameRequired"));
+      return;
+    }
     setNameError("");
     setSaving(true);
-    try { await onSave(); } finally { setSaving(false); }
+    try {
+      await onSave();
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
-    <Dialog open={open} onOpenChange={(o) => { if (!o) onCancel(); }}>
+    <Dialog
+      open={open}
+      onOpenChange={(o) => {
+        if (!o) onCancel();
+      }}
+    >
       <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>
             {editingAgent
-              ? t("agent.editTitle", { name: getAgentDisplayName(editingAgent, t) })
+              ? t("agent.editTitle", {
+                  name: getAgentDisplayName(editingAgent, t),
+                })
               : t("agent.createTitle")}
           </DialogTitle>
           <DialogDescription className="sr-only">
-            {editingAgent ? t("agent.editTitle", { name: getAgentDisplayName(editingAgent, t) }) : t("agent.createTitle")}
+            {editingAgent
+              ? t("agent.editTitle", {
+                  name: getAgentDisplayName(editingAgent, t),
+                })
+              : t("agent.createTitle")}
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4 py-2">
           {/* ID */}
           <div className="space-y-1.5">
-            <Label htmlFor="agent-id">{editingAgent ? t("agent.id") : t("agent.idLabel")}</Label>
+            <Label htmlFor="agent-id">
+              {editingAgent ? t("agent.id") : t("agent.idLabel")}
+            </Label>
             {editingAgent ? (
               <Input id="agent-id" value={formVals.id} disabled />
             ) : (
@@ -240,21 +287,30 @@ export function AgentModal({
                   placeholder={t("agent.idPlaceholder")}
                   onChange={(e) => setField("id", e.target.value)}
                 />
-                <p className="text-xs text-muted-foreground">{t("agent.idHelp")}</p>
+                <p className="text-xs text-muted-foreground">
+                  {t("agent.idHelp")}
+                </p>
               </>
             )}
           </div>
 
           {/* Name */}
           <div className="space-y-1.5">
-            <Label htmlFor="agent-name">{t("agent.name")} <span className="text-destructive">*</span></Label>
+            <Label htmlFor="agent-name">
+              {t("agent.name")} <span className="text-destructive">*</span>
+            </Label>
             <Input
               id="agent-name"
               value={formVals.name}
               placeholder={t("agent.namePlaceholder")}
-              onChange={(e) => { setField("name", e.target.value); if (nameError) setNameError(""); }}
+              onChange={(e) => {
+                setField("name", e.target.value);
+                if (nameError) setNameError("");
+              }}
             />
-            {nameError && <p className="text-xs text-destructive">{nameError}</p>}
+            {nameError && (
+              <p className="text-xs text-destructive">{nameError}</p>
+            )}
           </div>
 
           {/* Description */}
@@ -288,12 +344,18 @@ export function AgentModal({
                   </SelectTrigger>
                   <SelectContent>
                     {eligibleProviders.length === 0 ? (
-                      <div className="px-2 py-1.5 text-sm text-muted-foreground">{t("agent.noConfiguredModels")}</div>
+                      <div className="px-2 py-1.5 text-sm text-muted-foreground">
+                        {t("agent.noConfiguredModels")}
+                      </div>
                     ) : (
                       eligibleProviders.map((p) => (
                         <SelectItem key={p.id} value={p.id}>
                           <div className="flex items-center gap-1.5">
-                            <img src={providerIcon(p.id)} alt="" className="w-4 h-4" />
+                            <img
+                              src={providerIcon(p.id)}
+                              alt=""
+                              className="w-4 h-4"
+                            />
                             <span>{p.name}</span>
                           </div>
                         </SelectItem>
@@ -309,22 +371,38 @@ export function AgentModal({
                   disabled={!formVals.active_model_provider}
                 >
                   <SelectTrigger className="w-full">
-                    <SelectValue placeholder={formVals.active_model_provider ? t("models.model") : t("agent.modelPlaceholder")} />
+                    <SelectValue
+                      placeholder={
+                        formVals.active_model_provider
+                          ? t("models.model")
+                          : t("agent.modelPlaceholder")
+                      }
+                    />
                   </SelectTrigger>
                   <SelectContent>
                     {availableModels.map((m) => (
-                      <SelectItem key={m.id} value={m.id}>{m.name || m.id}</SelectItem>
+                      <SelectItem key={m.id} value={m.id}>
+                        {m.name || m.id}
+                      </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
               </div>
-              {(formVals.active_model_provider || formVals.active_model_model) && (
-                <Button variant="ghost" size="sm" onClick={handleClearModel} type="button">
+              {(formVals.active_model_provider ||
+                formVals.active_model_model) && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={handleClearModel}
+                  type="button"
+                >
                   {t("common.clear", "Clear")}
                 </Button>
               )}
             </div>
-            <p className="text-xs text-muted-foreground">{t("agent.modelHelp")}</p>
+            <p className="text-xs text-muted-foreground">
+              {t("agent.modelHelp")}
+            </p>
           </div>
 
           {/* Workspace */}
@@ -337,19 +415,46 @@ export function AgentModal({
               disabled={!!editingAgent}
               onChange={(e) => setField("workspace_dir", e.target.value)}
             />
-            {!editingAgent && <p className="text-xs text-muted-foreground">{t("agent.workspaceHelp")}</p>}
+            {!editingAgent && (
+              <p className="text-xs text-muted-foreground">
+                {t("agent.workspaceHelp")}
+              </p>
+            )}
           </div>
 
           {/* Skills */}
           <div className="space-y-2 pt-2 border-t">
             <div className="flex items-center justify-between">
               <p className="text-sm text-muted-foreground">
-                {editingAgent ? t("agent.addSkillsToAgent") : t("agent.initialSkills")}
+                {editingAgent
+                  ? t("agent.addSkillsToAgent")
+                  : t("agent.initialSkills")}
               </p>
               <div className="flex gap-1">
-                <Button size="sm" variant="default" onClick={handleSelectAll} type="button">{t("agent.selectAll")}</Button>
-                <Button size="sm" variant="outline" onClick={handleSelectBuiltin} type="button">{t("agent.selectBuiltin")}</Button>
-                <Button size="sm" variant="outline" onClick={handleSelectNone} type="button">{t("agent.selectNone")}</Button>
+                <Button
+                  size="sm"
+                  variant="default"
+                  onClick={handleSelectAll}
+                  type="button"
+                >
+                  {t("agent.selectAll")}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={handleSelectBuiltin}
+                  type="button"
+                >
+                  {t("agent.selectBuiltin")}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={handleSelectNone}
+                  type="button"
+                >
+                  {t("agent.selectNone")}
+                </Button>
               </div>
             </div>
 
@@ -366,11 +471,14 @@ export function AgentModal({
               <div className={styles.pickerGrid}>
                 {poolSkills.map((skill) => {
                   const selected = selectedSkills.includes(skill.name);
-                  const isInstalled = !!editingAgent && installedSkills.includes(skill.name);
+                  const isInstalled =
+                    !!editingAgent && installedSkills.includes(skill.name);
                   return (
                     <div
                       key={skill.name}
-                      className={`${styles.pickerCard} ${selected ? styles.pickerCardSelected : ""} ${isInstalled ? styles.pickerCardDisabled : ""}`}
+                      className={`${styles.pickerCard} ${
+                        selected ? styles.pickerCardSelected : ""
+                      } ${isInstalled ? styles.pickerCardDisabled : ""}`}
                       onClick={() => toggleSkill(skill.name)}
                     >
                       {selected && (
@@ -388,7 +496,9 @@ export function AgentModal({
         </div>
 
         <DialogFooter>
-          <Button variant="outline" onClick={onCancel} disabled={saving}>{t("common.cancel")}</Button>
+          <Button variant="outline" onClick={onCancel} disabled={saving}>
+            {t("common.cancel")}
+          </Button>
           <Button onClick={handleSave} disabled={saving}>
             {saving && <Loader2 size={14} className="animate-spin mr-1" />}
             {t("common.save")}

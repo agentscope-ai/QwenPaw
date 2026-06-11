@@ -29,7 +29,11 @@ import {
   Save,
   X,
 } from "lucide-react";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import FilePreview, { isPreviewable } from "./FilePreview";
 import { workspaceApi } from "../../api/modules/workspace";
 import { useWorkspaceWatch } from "../../hooks/useWorkspaceWatch";
@@ -858,7 +862,9 @@ export default function TabbedEditor({
                   Undo all
                 </button>
               </TooltipTrigger>
-              <TooltipContent>Undo all changes in this file (revert to original)</TooltipContent>
+              <TooltipContent>
+                Undo all changes in this file (revert to original)
+              </TooltipContent>
             </Tooltip>
           </div>
         ) : (
@@ -877,7 +883,9 @@ export default function TabbedEditor({
                     {activeInPreview ? <Code2 size={13} /> : <Eye size={13} />}
                   </button>
                 </TooltipTrigger>
-                <TooltipContent>{activeInPreview ? "Switch to Code" : "Open Preview"}</TooltipContent>
+                <TooltipContent>
+                  {activeInPreview ? "Switch to Code" : "Open Preview"}
+                </TooltipContent>
               </Tooltip>
             )}
             {!activeInPreview && (
@@ -893,7 +901,11 @@ export default function TabbedEditor({
                       <MessageSquarePlus size={13} />
                     </button>
                   </TooltipTrigger>
-                  <TooltipContent>{hasSelection ? "Copy selection to Chat" : "Copy file to Chat"}</TooltipContent>
+                  <TooltipContent>
+                    {hasSelection
+                      ? "Copy selection to Chat"
+                      : "Copy file to Chat"}
+                  </TooltipContent>
                 </Tooltip>
                 <Tooltip>
                   <TooltipTrigger asChild>

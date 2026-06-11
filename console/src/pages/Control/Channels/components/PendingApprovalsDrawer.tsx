@@ -7,7 +7,12 @@ import {
 } from "../../../../api/modules/accessControl";
 import { getChannelLabel, type ChannelKey } from "./constants";
 import { ChannelIcon } from "./ChannelIcon";
-import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import {
   AlertDialog,
@@ -72,10 +77,19 @@ interface PendingApprovalsDrawerProps {
 }
 
 // Inline editable cell
-function EditableCell({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+function EditableCell({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+}) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(value);
-  const commit = () => { if (draft !== value) onChange(draft); setEditing(false); };
+  const commit = () => {
+    if (draft !== value) onChange(draft);
+    setEditing(false);
+  };
   if (editing) {
     return (
       <input
@@ -86,7 +100,10 @@ function EditableCell({ value, onChange }: { value: string; onChange: (v: string
         onBlur={commit}
         onKeyDown={(e) => {
           if (e.key === "Enter") commit();
-          if (e.key === "Escape") { setDraft(value); setEditing(false); }
+          if (e.key === "Escape") {
+            setDraft(value);
+            setEditing(false);
+          }
         }}
       />
     );
@@ -94,7 +111,10 @@ function EditableCell({ value, onChange }: { value: string; onChange: (v: string
   return (
     <span
       className="cursor-pointer hover:text-primary text-sm"
-      onClick={() => { setDraft(value); setEditing(true); }}
+      onClick={() => {
+        setDraft(value);
+        setEditing(true);
+      }}
     >
       {value || <span className="text-muted-foreground/40">-</span>}
     </span>
@@ -105,16 +125,26 @@ function EditableCell({ value, onChange }: { value: string; onChange: (v: string
 function CopyButton({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);
   const copy = async () => {
-    try { await navigator.clipboard.writeText(text); setCopied(true); setTimeout(() => setCopied(false), 1500); } catch {}
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {}
   };
   return (
-    <button onClick={copy} className="text-muted-foreground hover:text-foreground">
+    <button
+      onClick={copy}
+      className="text-muted-foreground hover:text-foreground"
+    >
       {copied ? <Check size={12} /> : <Copy size={12} />}
     </button>
   );
 }
 
-export function PendingApprovalsDrawer({ open, onClose }: PendingApprovalsDrawerProps) {
+export function PendingApprovalsDrawer({
+  open,
+  onClose,
+}: PendingApprovalsDrawerProps) {
   const { t } = useTranslation();
   const { message } = useAppMessage();
   const [pending, setPending] = useState<PendingEntry[]>([]);
@@ -138,7 +168,10 @@ export function PendingApprovalsDrawer({ open, onClose }: PendingApprovalsDrawer
   }, []);
 
   useEffect(() => {
-    if (open) { fetchPending(); setSelectedRowIds(new Set()); }
+    if (open) {
+      fetchPending();
+      setSelectedRowIds(new Set());
+    }
   }, [open, fetchPending]);
 
   const availableChannels = useMemo(() => {
@@ -151,51 +184,82 @@ export function PendingApprovalsDrawer({ open, onClose }: PendingApprovalsDrawer
   }, [pending, channelFilter]);
 
   const selectedEntries = useMemo(
-    () => Array.from(selectedRowIds).map((key) => {
-      const [channel, ...rest] = key.split(":");
-      return { channel, user_id: rest.join(":") };
-    }),
+    () =>
+      Array.from(selectedRowIds).map((key) => {
+        const [channel, ...rest] = key.split(":");
+        return { channel, user_id: rest.join(":") };
+      }),
     [selectedRowIds],
   );
 
   const handleRemarkSave = async (entry: PendingEntry, remark: string) => {
     try {
-      await accessControlApi.updatePendingRemark(entry.channel, entry.user_id, remark);
-      setPending((prev) => prev.map((p) =>
-        p.channel === entry.channel && p.user_id === entry.user_id ? { ...p, remark } : p
-      ));
-    } catch { message.error(t("channels.operationFailed")); }
+      await accessControlApi.updatePendingRemark(
+        entry.channel,
+        entry.user_id,
+        remark,
+      );
+      setPending((prev) =>
+        prev.map((p) =>
+          p.channel === entry.channel && p.user_id === entry.user_id
+            ? { ...p, remark }
+            : p,
+        ),
+      );
+    } catch {
+      message.error(t("channels.operationFailed"));
+    }
   };
 
   const handleUsernameSave = async (entry: PendingEntry, username: string) => {
     try {
-      await accessControlApi.updateUsername(entry.channel, entry.user_id, username);
-      setPending((prev) => prev.map((p) =>
-        p.channel === entry.channel && p.user_id === entry.user_id ? { ...p, username } : p
-      ));
-    } catch { message.error(t("channels.operationFailed")); }
+      await accessControlApi.updateUsername(
+        entry.channel,
+        entry.user_id,
+        username,
+      );
+      setPending((prev) =>
+        prev.map((p) =>
+          p.channel === entry.channel && p.user_id === entry.user_id
+            ? { ...p, username }
+            : p,
+        ),
+      );
+    } catch {
+      message.error(t("channels.operationFailed"));
+    }
   };
 
   const handleAction = async (entry: PendingEntry, action: PendingAction) => {
     const key = `${entry.channel}:${entry.user_id}`;
     setActionLoading(key);
     try {
-      await ACTION_API_MAP[action]([{ channel: entry.channel, user_id: entry.user_id }]);
+      await ACTION_API_MAP[action]([
+        { channel: entry.channel, user_id: entry.user_id },
+      ]);
       message.success(t(ACTION_SUCCESS_KEY[action]));
       await fetchPending();
-    } catch { message.error(t("channels.operationFailed")); }
-    finally { setActionLoading(null); }
+    } catch {
+      message.error(t("channels.operationFailed"));
+    } finally {
+      setActionLoading(null);
+    }
   };
 
   const handleBatchAction = async (action: PendingAction) => {
     setBatchLoading(true);
     try {
       await ACTION_API_MAP[action](selectedEntries);
-      message.success(t("channels.batchSuccess", { count: selectedEntries.length }));
+      message.success(
+        t("channels.batchSuccess", { count: selectedEntries.length }),
+      );
       setSelectedRowIds(new Set());
       await fetchPending();
-    } catch { message.error(t("channels.operationFailed")); }
-    finally { setBatchLoading(false); }
+    } catch {
+      message.error(t("channels.operationFailed"));
+    } finally {
+      setBatchLoading(false);
+    }
   };
 
   const columns: ColumnDef<PendingEntry>[] = [
@@ -207,11 +271,18 @@ export function PendingApprovalsDrawer({ open, onClose }: PendingApprovalsDrawer
         <Tooltip>
           <TooltipTrigger asChild>
             <div className="flex items-center gap-1.5">
-              <ChannelIcon channelKey={row.original.channel as ChannelKey} size={16} />
-              <span className="text-sm">{getChannelLabel(row.original.channel as ChannelKey, t)}</span>
+              <ChannelIcon
+                channelKey={row.original.channel as ChannelKey}
+                size={16}
+              />
+              <span className="text-sm">
+                {getChannelLabel(row.original.channel as ChannelKey, t)}
+              </span>
             </div>
           </TooltipTrigger>
-          <TooltipContent>{getChannelLabel(row.original.channel as ChannelKey, t)}</TooltipContent>
+          <TooltipContent>
+            {getChannelLabel(row.original.channel as ChannelKey, t)}
+          </TooltipContent>
         </Tooltip>
       ),
     },
@@ -232,7 +303,9 @@ export function PendingApprovalsDrawer({ open, onClose }: PendingApprovalsDrawer
       size: 140,
       cell: ({ row }) => (
         <div className="flex items-center gap-1 max-w-[140px]">
-          <span className="truncate text-sm" title={row.original.user_id}>{row.original.user_id}</span>
+          <span className="truncate text-sm" title={row.original.user_id}>
+            {row.original.user_id}
+          </span>
           <CopyButton text={row.original.user_id} />
         </div>
       ),
@@ -244,7 +317,9 @@ export function PendingApprovalsDrawer({ open, onClose }: PendingApprovalsDrawer
       cell: ({ row }) => (
         <Tooltip>
           <TooltipTrigger asChild>
-            <span className="truncate max-w-[140px] block text-sm">{row.original.first_message || "-"}</span>
+            <span className="truncate max-w-[140px] block text-sm">
+              {row.original.first_message || "-"}
+            </span>
           </TooltipTrigger>
           <TooltipContent>{row.original.first_message}</TooltipContent>
         </Tooltip>
@@ -267,7 +342,9 @@ export function PendingApprovalsDrawer({ open, onClose }: PendingApprovalsDrawer
       size: 150,
       cell: ({ row }) => (
         <span className="text-xs text-muted-foreground">
-          {row.original.timestamp ? new Date(row.original.timestamp * 1000).toLocaleString() : "-"}
+          {row.original.timestamp
+            ? new Date(row.original.timestamp * 1000).toLocaleString()
+            : "-"}
         </span>
       ),
     },
@@ -287,7 +364,11 @@ export function PendingApprovalsDrawer({ open, onClose }: PendingApprovalsDrawer
               disabled={isLoading}
               onClick={() => handleAction(row.original, "approve")}
             >
-              {isLoading ? <Loader2 size={10} className="animate-spin" /> : <Check size={12} className="mr-1" />}
+              {isLoading ? (
+                <Loader2 size={10} className="animate-spin" />
+              ) : (
+                <Check size={12} className="mr-1" />
+              )}
               {t("channels.approve")}
             </Button>
             <Button
@@ -339,13 +420,18 @@ export function PendingApprovalsDrawer({ open, onClose }: PendingApprovalsDrawer
             <div className="flex items-center justify-between mb-4 gap-2">
               <Select
                 value={channelFilter}
-                onValueChange={(v) => { setChannelFilter(v); setSelectedRowIds(new Set()); }}
+                onValueChange={(v) => {
+                  setChannelFilter(v);
+                  setSelectedRowIds(new Set());
+                }}
               >
                 <SelectTrigger className="w-[200px]">
                   <SelectValue placeholder={t("channels.filterByChannel")} />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="all">{t("channels.filterByChannel")}</SelectItem>
+                  <SelectItem value="all">
+                    {t("channels.filterByChannel")}
+                  </SelectItem>
                   {availableChannels.map((ch) => (
                     <SelectItem key={ch} value={ch}>
                       {getChannelLabel(ch as ChannelKey, t)}
@@ -357,7 +443,9 @@ export function PendingApprovalsDrawer({ open, onClose }: PendingApprovalsDrawer
               <div className="flex items-center gap-2">
                 {hasSelection && (
                   <span className="text-xs text-muted-foreground">
-                    {t("channels.selectedCount", { count: selectedRowIds.size })}
+                    {t("channels.selectedCount", {
+                      count: selectedRowIds.size,
+                    })}
                   </span>
                 )}
                 <Button
@@ -365,7 +453,11 @@ export function PendingApprovalsDrawer({ open, onClose }: PendingApprovalsDrawer
                   disabled={!hasSelection}
                   onClick={() => setConfirmBatch("approve")}
                 >
-                  {batchLoading ? <Loader2 size={12} className="animate-spin mr-1" /> : <Check size={12} className="mr-1" />}
+                  {batchLoading ? (
+                    <Loader2 size={12} className="animate-spin mr-1" />
+                  ) : (
+                    <Check size={12} className="mr-1" />
+                  )}
                   {t("channels.batchApprove")}
                 </Button>
                 <Button
@@ -404,10 +496,21 @@ export function PendingApprovalsDrawer({ open, onClose }: PendingApprovalsDrawer
                           <input
                             type="checkbox"
                             className="cursor-pointer"
-                            checked={filteredPending.length > 0 && filteredPending.every((r) => selectedRowIds.has(`${r.channel}:${r.user_id}`))}
+                            checked={
+                              filteredPending.length > 0 &&
+                              filteredPending.every((r) =>
+                                selectedRowIds.has(`${r.channel}:${r.user_id}`),
+                              )
+                            }
                             onChange={(e) => {
                               if (e.target.checked) {
-                                setSelectedRowIds(new Set(filteredPending.map((r) => `${r.channel}:${r.user_id}`)));
+                                setSelectedRowIds(
+                                  new Set(
+                                    filteredPending.map(
+                                      (r) => `${r.channel}:${r.user_id}`,
+                                    ),
+                                  ),
+                                );
                               } else {
                                 setSelectedRowIds(new Set());
                               }
@@ -415,8 +518,14 @@ export function PendingApprovalsDrawer({ open, onClose }: PendingApprovalsDrawer
                           />
                         </TableHead>
                         {hg.headers.map((header) => (
-                          <TableHead key={header.id} style={{ width: header.getSize() }}>
-                            {flexRender(header.column.columnDef.header, header.getContext())}
+                          <TableHead
+                            key={header.id}
+                            style={{ width: header.getSize() }}
+                          >
+                            {flexRender(
+                              header.column.columnDef.header,
+                              header.getContext(),
+                            )}
                           </TableHead>
                         ))}
                       </TableRow>
@@ -426,7 +535,12 @@ export function PendingApprovalsDrawer({ open, onClose }: PendingApprovalsDrawer
                     {table.getRowModel().rows.map((row) => {
                       const rowKey = `${row.original.channel}:${row.original.user_id}`;
                       return (
-                        <TableRow key={row.id} className={cn(selectedRowIds.has(rowKey) ? "bg-muted/50" : "")}>
+                        <TableRow
+                          key={row.id}
+                          className={cn(
+                            selectedRowIds.has(rowKey) ? "bg-muted/50" : "",
+                          )}
+                        >
                           <TableCell>
                             <input
                               type="checkbox"
@@ -442,7 +556,10 @@ export function PendingApprovalsDrawer({ open, onClose }: PendingApprovalsDrawer
                           </TableCell>
                           {row.getVisibleCells().map((cell) => (
                             <TableCell key={cell.id}>
-                              {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                              {flexRender(
+                                cell.column.columnDef.cell,
+                                cell.getContext(),
+                              )}
                             </TableCell>
                           ))}
                         </TableRow>
@@ -450,7 +567,10 @@ export function PendingApprovalsDrawer({ open, onClose }: PendingApprovalsDrawer
                     })}
                     {table.getRowModel().rows.length === 0 && (
                       <TableRow>
-                        <TableCell colSpan={columns.length + 1} className="h-16 text-center text-muted-foreground text-sm">
+                        <TableCell
+                          colSpan={columns.length + 1}
+                          className="h-16 text-center text-muted-foreground text-sm"
+                        >
                           {t("channels.noPendingApprovals")}
                         </TableCell>
                       </TableRow>
@@ -464,7 +584,10 @@ export function PendingApprovalsDrawer({ open, onClose }: PendingApprovalsDrawer
       </Sheet>
 
       {/* Batch action confirm */}
-      <AlertDialog open={!!confirmBatch} onOpenChange={(o) => !o && setConfirmBatch(null)}>
+      <AlertDialog
+        open={!!confirmBatch}
+        onOpenChange={(o) => !o && setConfirmBatch(null)}
+      >
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>
@@ -476,10 +599,14 @@ export function PendingApprovalsDrawer({ open, onClose }: PendingApprovalsDrawer
             </AlertDialogTitle>
             <AlertDialogDescription>
               {confirmBatch === "approve"
-                ? t("channels.batchApproveConfirm", { count: selectedRowIds.size })
+                ? t("channels.batchApproveConfirm", {
+                    count: selectedRowIds.size,
+                  })
                 : confirmBatch === "deny"
                 ? t("channels.batchDenyConfirm", { count: selectedRowIds.size })
-                : t("channels.batchDismissConfirm", { count: selectedRowIds.size })}
+                : t("channels.batchDismissConfirm", {
+                    count: selectedRowIds.size,
+                  })}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

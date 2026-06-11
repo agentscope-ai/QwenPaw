@@ -40,11 +40,18 @@ function AgentConfigPage() {
     languageConfirmDialog,
   } = useAgentConfig();
 
-  const llmRetryEnabled = useWatch({ control: form.control, name: "llm_retry_enabled" }) ?? true;
+  const llmRetryEnabled =
+    useWatch({ control: form.control, name: "llm_retry_enabled" }) ?? true;
   const contextBackend =
-    (useWatch({ control: form.control, name: "context_manager_backend" }) as string) || "light";
+    (useWatch({
+      control: form.control,
+      name: "context_manager_backend",
+    }) as string) || "light";
   const memoryBackend =
-    (useWatch({ control: form.control, name: "memory_manager_backend" }) as string) || "remelight";
+    (useWatch({
+      control: form.control,
+      name: "memory_manager_backend",
+    }) as string) || "remelight";
 
   const [maxInputLength, setMaxInputLength] = useState(131072);
   useEffect(() => {

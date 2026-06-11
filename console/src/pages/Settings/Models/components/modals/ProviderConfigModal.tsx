@@ -29,9 +29,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Network, ChevronDown, ChevronRight, X, Plus } from "lucide-react";
 import { useAppMessage } from "../../../../../hooks/useAppMessage";
-import type {
-  BaseUrlOption,
-} from "../../../../../api/types";
+import type { BaseUrlOption } from "../../../../../api/types";
 import api from "../../../../../api";
 import { useTranslation } from "react-i18next";
 import { getLocalizedTestConnectionMessage } from "./testConnectionMessage";
@@ -380,11 +378,19 @@ export function ProviderConfigModal({
         ? t("models.anthropicEndpointHint")
         : t("models.openAICompatibleEndpoint");
     return t("models.apiEndpointHint");
-  }, [canEditBaseUrl, useBaseUrlSelect, provider.id, provider.is_custom, effectiveChatModel, t]);
+  }, [
+    canEditBaseUrl,
+    useBaseUrlSelect,
+    provider.id,
+    provider.is_custom,
+    effectiveChatModel,
+    t,
+  ]);
 
   const baseUrlPlaceholder = useMemo(() => {
     if (!canEditBaseUrl) return "";
-    if (provider.id === "azure-openai") return "https://<resource>.openai.azure.com/openai/v1";
+    if (provider.id === "azure-openai")
+      return "https://<resource>.openai.azure.com/openai/v1";
     if (provider.id === "anthropic") return "https://api.anthropic.com";
     if (provider.id === "openai") return "https://api.openai.com/v1";
     if (provider.id === "opencode") return "https://opencode.ai/zen/v1";
@@ -403,7 +409,7 @@ export function ProviderConfigModal({
       setChatModel(provider.chat_model || "OpenAIChatModel");
       setGenerateKwargsText(
         provider.generate_kwargs &&
-        Object.keys(provider.generate_kwargs).length > 0
+          Object.keys(provider.generate_kwargs).length > 0
           ? JSON.stringify(provider.generate_kwargs, null, 2)
           : "",
       );
@@ -540,7 +546,9 @@ export function ProviderConfigModal({
       }
     } catch (error) {
       const errMsg =
-        error instanceof Error ? error.message : t("models.testConnectionError");
+        error instanceof Error
+          ? error.message
+          : t("models.testConnectionError");
       message.error(errMsg);
     } finally {
       setTesting(false);
@@ -576,7 +584,12 @@ export function ProviderConfigModal({
 
   return (
     <>
-      <Dialog open={open} onOpenChange={(v) => { if (!v) onClose(); }}>
+      <Dialog
+        open={open}
+        onOpenChange={(v) => {
+          if (!v) onClose();
+        }}
+      >
         <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>
@@ -591,7 +604,10 @@ export function ProviderConfigModal({
                 <Select
                   disabled
                   value={chatModel}
-                  onValueChange={(v) => { setChatModel(v); markDirty(); }}
+                  onValueChange={(v) => {
+                    setChatModel(v);
+                    markDirty();
+                  }}
                 >
                   <SelectTrigger>
                     <SelectValue />
@@ -619,7 +635,10 @@ export function ProviderConfigModal({
               {useBaseUrlSelect ? (
                 <Select
                   value={baseUrl}
-                  onValueChange={(v) => { setBaseUrl(v); markDirty(); }}
+                  onValueChange={(v) => {
+                    setBaseUrl(v);
+                    markDirty();
+                  }}
                 >
                   <SelectTrigger>
                     <SelectValue placeholder={t("models.selectBaseURL")} />
@@ -635,13 +654,18 @@ export function ProviderConfigModal({
               ) : (
                 <Input
                   value={baseUrl}
-                  onChange={(e) => { setBaseUrl(e.target.value); markDirty(); }}
+                  onChange={(e) => {
+                    setBaseUrl(e.target.value);
+                    markDirty();
+                  }}
                   placeholder={baseUrlPlaceholder}
                   disabled={!canEditBaseUrl}
                 />
               )}
               {baseUrlExtra && (
-                <p className="text-xs text-muted-foreground mt-1">{baseUrlExtra}</p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  {baseUrlExtra}
+                </p>
               )}
               {baseUrlError && (
                 <p className="text-xs text-destructive mt-1">{baseUrlError}</p>
@@ -654,7 +678,10 @@ export function ProviderConfigModal({
               <Input
                 type="password"
                 value={apiKey}
-                onChange={(e) => { setApiKey(e.target.value); markDirty(); }}
+                onChange={(e) => {
+                  setApiKey(e.target.value);
+                  markDirty();
+                }}
                 placeholder={apiKeyPlaceholder}
               />
               {apiKeyError && (
@@ -690,7 +717,10 @@ export function ProviderConfigModal({
                         name="authMode"
                         value="api_key"
                         checked={authMode === "api_key"}
-                        onChange={() => { setAuthMode("api_key"); markDirty(); }}
+                        onChange={() => {
+                          setAuthMode("api_key");
+                          markDirty();
+                        }}
                         className="accent-primary"
                       />
                       {t("models.authModeApiKey")}
@@ -701,7 +731,10 @@ export function ProviderConfigModal({
                         name="authMode"
                         value="auth_token"
                         checked={authMode === "auth_token"}
-                        onChange={() => { setAuthMode("auth_token"); markDirty(); }}
+                        onChange={() => {
+                          setAuthMode("auth_token");
+                          markDirty();
+                        }}
                         className="accent-primary"
                       />
                       {t("models.authModeAuthToken")}
@@ -713,7 +746,9 @@ export function ProviderConfigModal({
               {/* Custom Headers editor */}
               {advancedOpen && (
                 <div className="mt-3">
-                  <Label className="mb-1 block">{t("models.customHeaders")}</Label>
+                  <Label className="mb-1 block">
+                    {t("models.customHeaders")}
+                  </Label>
                   <p className="text-xs text-muted-foreground mb-2">
                     {t("models.customHeadersHint")}
                   </p>
@@ -726,7 +761,10 @@ export function ProviderConfigModal({
                           value={header.key}
                           onChange={(e) => {
                             const next = [...customHeaders];
-                            next[index] = { ...next[index], key: e.target.value };
+                            next[index] = {
+                              ...next[index],
+                              key: e.target.value,
+                            };
                             setCustomHeaders(next);
                             markDirty();
                           }}
@@ -737,7 +775,10 @@ export function ProviderConfigModal({
                           value={header.value}
                           onChange={(e) => {
                             const next = [...customHeaders];
-                            next[index] = { ...next[index], value: e.target.value };
+                            next[index] = {
+                              ...next[index],
+                              value: e.target.value,
+                            };
                             setCustomHeaders(next);
                             markDirty();
                           }}
@@ -760,7 +801,10 @@ export function ProviderConfigModal({
                       type="button"
                       className={styles.addHeaderBtn}
                       onClick={() => {
-                        setCustomHeaders([...customHeaders, { key: "", value: "" }]);
+                        setCustomHeaders([
+                          ...customHeaders,
+                          { key: "", value: "" },
+                        ]);
                         markDirty();
                       }}
                     >
@@ -773,18 +817,25 @@ export function ProviderConfigModal({
 
               {advancedOpen && (
                 <div className="mt-3">
-                  <Label className="mb-1 block">{t("models.generateConfig")}</Label>
+                  <Label className="mb-1 block">
+                    {t("models.generateConfig")}
+                  </Label>
                   <p className="text-xs text-muted-foreground mb-2">
                     {t("models.generateConfigHint")}
                   </p>
                   <JsonCodeEditor
                     rows={8}
                     value={generateKwargsText}
-                    onChange={(v) => { setGenerateKwargsText(v); markDirty(); }}
+                    onChange={(v) => {
+                      setGenerateKwargsText(v);
+                      markDirty();
+                    }}
                     placeholder={`Example:\n{\n  "extra_body": {\n    "enable_thinking": false\n  },\n  "max_tokens": 2048\n}`}
                   />
                   {generateError && (
-                    <p className="text-xs text-destructive mt-1">{generateError}</p>
+                    <p className="text-xs text-destructive mt-1">
+                      {generateError}
+                    </p>
                   )}
                 </div>
               )}
@@ -819,10 +870,7 @@ export function ProviderConfigModal({
               <Button variant="outline" onClick={onClose}>
                 {t("models.cancel")}
               </Button>
-              <Button
-                disabled={!formDirty || saving}
-                onClick={handleSubmit}
-              >
+              <Button disabled={!formDirty || saving} onClick={handleSubmit}>
                 {t("models.save")}
               </Button>
             </div>
@@ -833,7 +881,9 @@ export function ProviderConfigModal({
       <AlertDialog open={revokeDialogOpen} onOpenChange={setRevokeDialogOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>{t("models.revokeAuthorization")}</AlertDialogTitle>
+            <AlertDialogTitle>
+              {t("models.revokeAuthorization")}
+            </AlertDialogTitle>
             <AlertDialogDescription>
               {isActiveLlmProvider
                 ? t("models.revokeConfirmContent", { name: provider.name })

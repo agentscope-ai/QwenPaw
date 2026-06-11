@@ -6,7 +6,11 @@ import { useAppMessage } from "../../../../hooks/useAppMessage";
 import { TFunction } from "i18next";
 import { parseCron } from "./parseCron";
 import { Button } from "@/components/ui/button";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -75,9 +79,13 @@ export const createColumns = (
         return (
           <span className="flex items-center gap-1.5">
             <span
-              className={`inline-block w-2 h-2 rounded-full ${enabled ? "bg-green-500" : "bg-gray-400"}`}
+              className={`inline-block w-2 h-2 rounded-full ${
+                enabled ? "bg-green-500" : "bg-gray-400"
+              }`}
             />
-            {enabled ? handlers.t("common.enabled") : handlers.t("common.disabled")}
+            {enabled
+              ? handlers.t("common.enabled")
+              : handlers.t("common.disabled")}
           </span>
         );
       },
@@ -107,7 +115,9 @@ export const createColumns = (
           return (
             <Tooltip>
               <TooltipTrigger asChild>
-                <span className="truncate max-w-[160px] block cursor-default">{displayText}</span>
+                <span className="truncate max-w-[160px] block cursor-default">
+                  {displayText}
+                </span>
               </TooltipTrigger>
               <TooltipContent>{schedule?.run_at || displayText}</TooltipContent>
             </Tooltip>
@@ -121,7 +131,9 @@ export const createColumns = (
             displayText = handlers.t("cronJobs.cronTypeHourly");
             break;
           case "daily":
-            displayText = `${handlers.t("cronJobs.cronTypeDaily")} ${String(cronParts.hour).padStart(2, "0")}:${String(cronParts.minute).padStart(2, "0")}`;
+            displayText = `${handlers.t("cronJobs.cronTypeDaily")} ${String(
+              cronParts.hour,
+            ).padStart(2, "0")}:${String(cronParts.minute).padStart(2, "0")}`;
             break;
           case "weekly": {
             const dayMap: Record<string, string> = {
@@ -133,8 +145,14 @@ export const createColumns = (
               sat: handlers.t("cronJobs.cronDaySat"),
               sun: handlers.t("cronJobs.cronDaySun"),
             };
-            const dayNames = (cronParts.daysOfWeek || []).map((d) => dayMap[d] || d).join(",");
-            displayText = `${handlers.t("cronJobs.cronTypeWeekly")} ${dayNames} ${String(cronParts.hour).padStart(2, "0")}:${String(cronParts.minute).padStart(2, "0")}`;
+            const dayNames = (cronParts.daysOfWeek || [])
+              .map((d) => dayMap[d] || d)
+              .join(",");
+            displayText = `${handlers.t(
+              "cronJobs.cronTypeWeekly",
+            )} ${dayNames} ${String(cronParts.hour).padStart(2, "0")}:${String(
+              cronParts.minute,
+            ).padStart(2, "0")}`;
             break;
           }
           case "custom":
@@ -144,11 +162,15 @@ export const createColumns = (
         return (
           <Tooltip>
             <TooltipTrigger asChild>
-              <span className="truncate max-w-[160px] block cursor-default">{displayText}</span>
+              <span className="truncate max-w-[160px] block cursor-default">
+                {displayText}
+              </span>
             </TooltipTrigger>
             <TooltipContent>
               <div>Cron: {cron}</div>
-              <div className="opacity-80 mt-1 text-xs">Format: min hr day month weekday</div>
+              <div className="opacity-80 mt-1 text-xs">
+                Format: min hr day month weekday
+              </div>
             </TooltipContent>
           </Tooltip>
         );
@@ -175,7 +197,9 @@ export const createColumns = (
         return (
           <Tooltip>
             <TooltipTrigger asChild>
-              <span className="truncate max-w-[180px] block cursor-default">{text}</span>
+              <span className="truncate max-w-[180px] block cursor-default">
+                {text}
+              </span>
             </TooltipTrigger>
             <TooltipContent>{text}</TooltipContent>
           </Tooltip>
@@ -215,12 +239,17 @@ export const createColumns = (
             </TooltipTrigger>
             <TooltipContent className="max-w-[400px]">
               <div className="flex items-start gap-1">
-                <pre className="text-xs whitespace-pre-wrap break-all max-h-[200px] overflow-auto">{fullText}</pre>
+                <pre className="text-xs whitespace-pre-wrap break-all max-h-[200px] overflow-auto">
+                  {fullText}
+                </pre>
                 <Button
                   variant="ghost"
                   size="sm"
                   className="h-6 w-6 p-0 shrink-0"
-                  onClick={(e) => { e.stopPropagation(); copyToClipboard(fullText); }}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    copyToClipboard(fullText);
+                  }}
                 >
                   <Copy size={12} />
                 </Button>
@@ -292,7 +321,9 @@ export const createColumns = (
               className="h-auto p-0 text-xs"
               onClick={() => handlers.onToggleEnabled(record)}
             >
-              {record.enabled ? handlers.t("cronJobs.disable") : handlers.t("common.enable")}
+              {record.enabled
+                ? handlers.t("cronJobs.disable")
+                : handlers.t("common.enable")}
             </Button>
             <Button
               variant="link"

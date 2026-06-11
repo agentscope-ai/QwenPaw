@@ -44,7 +44,9 @@ export function ProviderSelectCard({
             onValueChange={onProviderChange}
           >
             <SelectTrigger className="w-full max-w-[400px]">
-              <SelectValue placeholder={t("voiceTranscription.providerPlaceholder")} />
+              <SelectValue
+                placeholder={t("voiceTranscription.providerPlaceholder")}
+              />
             </SelectTrigger>
             <SelectContent>
               {availableProviders.map((p) => (

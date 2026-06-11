@@ -44,7 +44,10 @@ function ToolSelect({
       <div className="flex items-center gap-1">
         <Label>{label}</Label>
         {tooltip && (
-          <span className="text-xs text-muted-foreground cursor-help" title={tooltip}>
+          <span
+            className="text-xs text-muted-foreground cursor-help"
+            title={tooltip}
+          >
             ?
           </span>
         )}
@@ -157,7 +160,9 @@ export function ToolGuardTab({
           {t("security.toolGuardDescription")}
         </p>
 
-        <div className={`${styles.formCard} border rounded-lg p-4 flex flex-col gap-4`}>
+        <div
+          className={`${styles.formCard} border rounded-lg p-4 flex flex-col gap-4`}
+        >
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <Label>{t("security.enabled")}</Label>

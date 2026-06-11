@@ -21,7 +21,11 @@ export const TYPE_COLORS: Record<string, string> = {
   "Total Tokens": "#fa8c16",
 };
 
-const TOKEN_TYPE_KEYS = ["Prompt Tokens", "Completion Tokens", "Total Tokens"] as const;
+const TOKEN_TYPE_KEYS = [
+  "Prompt Tokens",
+  "Completion Tokens",
+  "Total Tokens",
+] as const;
 
 export interface TokenTypeChartData {
   /** Pivoted rows: { date, "Prompt Tokens": n, "Completion Tokens": n, "Total Tokens": n } */
@@ -46,7 +50,11 @@ export function useTokenTypeConfig({
     }
 
     const chartData = allDates.map((date) => {
-      const d = byDate[date] ?? { prompt_tokens: 0, completion_tokens: 0, call_count: 0 };
+      const d = byDate[date] ?? {
+        prompt_tokens: 0,
+        completion_tokens: 0,
+        call_count: 0,
+      };
       return {
         date,
         "Prompt Tokens": d.prompt_tokens,

@@ -54,7 +54,10 @@ export function LogViewer({ lines, query, loading }: LogViewerProps) {
           ))
         ) : (
           <span className="text-muted-foreground text-sm">
-            {t("debug.backend.placeholder", "Backend log output will appear here.")}
+            {t(
+              "debug.backend.placeholder",
+              "Backend log output will appear here.",
+            )}
           </span>
         )}
       </div>

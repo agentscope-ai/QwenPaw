@@ -95,16 +95,24 @@ function SecurityPage() {
         >
           <TabsList>
             <TabsTrigger value="toolGuard">
-              <span className={styles.tabLabel}>{t("security.toolGuardTitle")}</span>
+              <span className={styles.tabLabel}>
+                {t("security.toolGuardTitle")}
+              </span>
             </TabsTrigger>
             <TabsTrigger value="fileGuard">
-              <span className={styles.tabLabel}>{t("security.fileGuard.title")}</span>
+              <span className={styles.tabLabel}>
+                {t("security.fileGuard.title")}
+              </span>
             </TabsTrigger>
             <TabsTrigger value="skillScanner">
-              <span className={styles.tabLabel}>{t("security.skillScanner.title")}</span>
+              <span className={styles.tabLabel}>
+                {t("security.skillScanner.title")}
+              </span>
             </TabsTrigger>
             <TabsTrigger value="allowNoAuthHosts">
-              <span className={styles.tabLabel}>{t("security.allowNoAuthHosts.title")}</span>
+              <span className={styles.tabLabel}>
+                {t("security.allowNoAuthHosts.title")}
+              </span>
             </TabsTrigger>
           </TabsList>
 

@@ -34,12 +34,17 @@ export default function PreRestoreConfirmModal({
         <DialogHeader>
           <DialogTitle>{t("backup.preRestoreBackupTitle")}</DialogTitle>
         </DialogHeader>
-        <p className="text-sm leading-relaxed">{t("backup.preRestoreBackupContent")}</p>
+        <p className="text-sm leading-relaxed">
+          {t("backup.preRestoreBackupContent")}
+        </p>
         <DialogFooter>
           <Button variant="outline" onClick={onCancel}>
             {t("common.cancel")}
           </Button>
-          <Button variant="outline" onClick={() => target && onNoBackup(target)}>
+          <Button
+            variant="outline"
+            onClick={() => target && onNoBackup(target)}
+          >
             {t("backup.preRestoreBackupNo")}
           </Button>
           <Button onClick={() => target && onYesBackup(target)}>

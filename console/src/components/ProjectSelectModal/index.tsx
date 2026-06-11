@@ -69,16 +69,24 @@ type AlertType = "info" | "warning" | "error";
 function InfoAlert({ type, message }: { type: AlertType; message: string }) {
   const iconMap: Record<AlertType, React.ReactNode> = {
     info: <Info size={14} className="text-blue-500 shrink-0 mt-0.5" />,
-    warning: <TriangleAlert size={14} className="text-yellow-500 shrink-0 mt-0.5" />,
-    error: <TriangleAlert size={14} className="text-destructive shrink-0 mt-0.5" />,
+    warning: (
+      <TriangleAlert size={14} className="text-yellow-500 shrink-0 mt-0.5" />
+    ),
+    error: (
+      <TriangleAlert size={14} className="text-destructive shrink-0 mt-0.5" />
+    ),
   };
   const bgMap: Record<AlertType, string> = {
     info: "bg-blue-50 border-blue-200 dark-mode:bg-blue-950/30 dark-mode:border-blue-800",
-    warning: "bg-yellow-50 border-yellow-200 dark-mode:bg-yellow-950/30 dark-mode:border-yellow-800",
-    error: "bg-red-50 border-red-200 dark-mode:bg-red-950/30 dark-mode:border-red-800",
+    warning:
+      "bg-yellow-50 border-yellow-200 dark-mode:bg-yellow-950/30 dark-mode:border-yellow-800",
+    error:
+      "bg-red-50 border-red-200 dark-mode:bg-red-950/30 dark-mode:border-red-800",
   };
   return (
-    <div className={`flex gap-2 p-3 rounded-md border text-sm mb-3 ${bgMap[type]}`}>
+    <div
+      className={`flex gap-2 p-3 rounded-md border text-sm mb-3 ${bgMap[type]}`}
+    >
       {iconMap[type]}
       <span>{message}</span>
     </div>
@@ -102,13 +110,17 @@ function WorkspaceTab({
       <InfoAlert type="info" message={t("codingMode.workspaceDesc")} />
       {workspaceDir && (
         <div className="flex items-center gap-2 text-sm">
-          <span className="text-muted-foreground">{t("codingMode.workingDir")}:</span>
+          <span className="text-muted-foreground">
+            {t("codingMode.workingDir")}:
+          </span>
           <code className="bg-muted px-1.5 py-0.5 rounded text-xs font-mono">
             {workspaceDir}
           </code>
         </div>
       )}
-      <Button onClick={() => onSelect(null)}>{t("codingMode.confirmBtn")}</Button>
+      <Button onClick={() => onSelect(null)}>
+        {t("codingMode.confirmBtn")}
+      </Button>
     </div>
   );
 }
@@ -207,7 +219,9 @@ function CloneTab({ onDone }: { onDone: (path: string) => void }) {
         <div className="bg-muted rounded-md p-3 max-h-36 overflow-y-auto text-xs font-mono">
           {logs.map((l, i) => (
             // eslint-disable-next-line react/no-array-index-key
-            <div key={i} className="leading-relaxed">{l}</div>
+            <div key={i} className="leading-relaxed">
+              {l}
+            </div>
           ))}
           <div ref={logEndRef} />
         </div>
@@ -400,10 +414,7 @@ function LocalPathTab({ onSelect }: { onSelect: (path: string) => void }) {
           </div>
           <InfoAlert type="warning" message={t("codingMode.importCopyNote")} />
           {error && <InfoAlert type="error" message={error} />}
-          <Button
-            disabled={loading}
-            onClick={() => void handleImport()}
-          >
+          <Button disabled={loading} onClick={() => void handleImport()}>
             {loading && <Loader2 size={14} className="animate-spin mr-2" />}
             {loading ? t("codingMode.importing") : t("codingMode.openBtn")}
           </Button>
@@ -411,9 +422,10 @@ function LocalPathTab({ onSelect }: { onSelect: (path: string) => void }) {
       ) : (
         <div
           className={`flex flex-col items-center justify-center gap-2 p-8 rounded-lg border-2 border-dashed cursor-pointer transition-colors
-            ${dragOver
-              ? "border-primary bg-primary/5"
-              : "border-border hover:border-muted-foreground/50 hover:bg-muted/30"
+            ${
+              dragOver
+                ? "border-primary bg-primary/5"
+                : "border-border hover:border-muted-foreground/50 hover:bg-muted/30"
             }`}
           onDragOver={handleDragOver}
           onDragLeave={handleDragLeave}
@@ -423,9 +435,17 @@ function LocalPathTab({ onSelect }: { onSelect: (path: string) => void }) {
           tabIndex={0}
           onKeyDown={(e) => e.key === "Enter" && dirInputRef.current?.click()}
         >
-          <FolderOpen size={36} strokeWidth={1.2} className="text-muted-foreground" />
-          <span className="text-sm font-medium">{t("codingMode.dropPrimary")}</span>
-          <span className="text-xs text-muted-foreground">{t("codingMode.dropSecondary")}</span>
+          <FolderOpen
+            size={36}
+            strokeWidth={1.2}
+            className="text-muted-foreground"
+          />
+          <span className="text-sm font-medium">
+            {t("codingMode.dropPrimary")}
+          </span>
+          <span className="text-xs text-muted-foreground">
+            {t("codingMode.dropSecondary")}
+          </span>
         </div>
       )}
     </div>
@@ -468,7 +488,6 @@ function OpenDirTab({ onSelect }: { onSelect: (path: string) => void }) {
 
   useEffect(() => {
     navigate("~");
-     
   }, []);
 
   const breadcrumbParts = data?.current.split("/").filter(Boolean) ?? [];
@@ -517,7 +536,11 @@ function OpenDirTab({ onSelect }: { onSelect: (path: string) => void }) {
                 <ChevronRight size={10} />
                 <button
                   type="button"
-                  className={isLast ? "text-foreground font-medium" : "hover:text-foreground"}
+                  className={
+                    isLast
+                      ? "text-foreground font-medium"
+                      : "hover:text-foreground"
+                  }
                   onClick={() => !isLast && navigate(segPath)}
                   disabled={isLast}
                 >
@@ -652,7 +675,9 @@ function RecentProjects({
   if (projects.length === 0) return null;
   return (
     <div className="mt-4 border-t pt-3">
-      <div className="text-xs font-medium text-muted-foreground mb-2">Recent</div>
+      <div className="text-xs font-medium text-muted-foreground mb-2">
+        Recent
+      </div>
       <div className="flex flex-col divide-y border rounded-md overflow-hidden">
         {projects.map((item) => (
           <button
@@ -687,11 +712,27 @@ interface TabDef {
 }
 
 const TAB_DEFS: TabDef[] = [
-  { key: "workspace", icon: <HardDrive size={13} />, labelKey: "codingMode.tabWorkspace" },
-  { key: "clone",     icon: <GitBranch size={13} />, labelKey: "codingMode.tabClone" },
-  { key: "opendir",   icon: <FolderSymlink size={13} />, labelKey: "codingMode.tabOpenDir" },
-  { key: "local",     icon: <FolderOpen size={13} />, labelKey: "codingMode.tabLocal" },
-  { key: "new",       icon: <PlusCircle size={13} />, labelKey: "codingMode.tabNew" },
+  {
+    key: "workspace",
+    icon: <HardDrive size={13} />,
+    labelKey: "codingMode.tabWorkspace",
+  },
+  {
+    key: "clone",
+    icon: <GitBranch size={13} />,
+    labelKey: "codingMode.tabClone",
+  },
+  {
+    key: "opendir",
+    icon: <FolderSymlink size={13} />,
+    labelKey: "codingMode.tabOpenDir",
+  },
+  {
+    key: "local",
+    icon: <FolderOpen size={13} />,
+    labelKey: "codingMode.tabLocal",
+  },
+  { key: "new", icon: <PlusCircle size={13} />, labelKey: "codingMode.tabNew" },
 ];
 
 // ---------------------------------------------------------------------------
@@ -725,7 +766,6 @@ export default function ProjectSelectModal({
   // Trigger data fetch when modal opens
   useEffect(() => {
     if (open) handleOpen();
-     
   }, [open]);
 
   const handleConfirm = async (path: string | null) => {
@@ -809,9 +849,10 @@ export default function ProjectSelectModal({
               type="button"
               onClick={() => setActiveTab(tab.key)}
               className={`flex items-center gap-1.5 px-3 py-2 text-xs font-medium border-b-2 -mb-px transition-colors whitespace-nowrap
-                ${activeTab === tab.key
-                  ? "border-primary text-primary"
-                  : "border-transparent text-muted-foreground hover:text-foreground"
+                ${
+                  activeTab === tab.key
+                    ? "border-primary text-primary"
+                    : "border-transparent text-muted-foreground hover:text-foreground"
                 }`}
             >
               {tab.icon}

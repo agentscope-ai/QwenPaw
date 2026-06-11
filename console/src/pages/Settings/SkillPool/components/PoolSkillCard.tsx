@@ -43,7 +43,9 @@ export function PoolSkillCard({
 
   return (
     <div
-      className={`${styles.skillCard} ${isSelected ? styles.selectedCard : ""} border rounded-lg p-4 cursor-pointer`}
+      className={`${styles.skillCard} ${
+        isSelected ? styles.selectedCard : ""
+      } border rounded-lg p-4 cursor-pointer`}
       onMouseEnter={() => setIsHover(true)}
       onMouseLeave={() => setIsHover(false)}
       onClick={() => {
@@ -87,7 +89,9 @@ export function PoolSkillCard({
                   {t("skillPool.builtin")}
                 </span>
               ) : (
-                <span className={styles.customTag}>{t("skillPool.custom")}</span>
+                <span className={styles.customTag}>
+                  {t("skillPool.custom")}
+                </span>
               )}
             </h3>
           </TooltipTrigger>

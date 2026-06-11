@@ -26,7 +26,8 @@ const TYPE_LABELS = {
 
 const PRIORITY_BADGE_CLASS: Record<string, string> = {
   low: "bg-secondary text-secondary-foreground border-0",
-  normal: "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400 border-0",
+  normal:
+    "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400 border-0",
   high: "bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-400 border-0",
   urgent: "bg-destructive/10 text-destructive border-0",
 };
@@ -67,7 +68,8 @@ export function ApprovalCard({
             variant="secondary"
             className={cn(
               "text-[11px] font-semibold shrink-0",
-              PRIORITY_BADGE_CLASS[approval.priority] ?? PRIORITY_BADGE_CLASS["normal"],
+              PRIORITY_BADGE_CLASS[approval.priority] ??
+                PRIORITY_BADGE_CLASS["normal"],
             )}
           >
             {approval.priority.toUpperCase()}

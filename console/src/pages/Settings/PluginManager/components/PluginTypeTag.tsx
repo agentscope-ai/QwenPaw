@@ -48,10 +48,7 @@ const PLUGIN_TYPE_CONFIG: Record<
 export function PluginTypeTag({ type }: { type: PluginType }) {
   const cfg = PLUGIN_TYPE_CONFIG[type] ?? PLUGIN_TYPE_CONFIG.general;
   return (
-    <Badge
-      variant="outline"
-      className="inline-flex items-center gap-1 text-xs"
-    >
+    <Badge variant="outline" className="inline-flex items-center gap-1 text-xs">
       {cfg.icon}
       {cfg.label}
     </Badge>

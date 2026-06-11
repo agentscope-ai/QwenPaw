@@ -74,7 +74,11 @@ function SkillPoolPage() {
                     count: pool.selectedPoolSkills.size,
                   })}
                 </span>
-                <Button variant="outline" size="sm" onClick={pool.selectAllPool}>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={pool.selectAllPool}
+                >
                   {t("skills.selectAll")}
                 </Button>
                 <Button
@@ -114,7 +118,9 @@ function SkillPoolPage() {
                         />
                       </Button>
                     </TooltipTrigger>
-                    <TooltipContent>{t("skillPool.refreshHint")}</TooltipContent>
+                    <TooltipContent>
+                      {t("skillPool.refreshHint")}
+                    </TooltipContent>
                   </Tooltip>
                   <Tooltip>
                     <TooltipTrigger asChild>
@@ -128,7 +134,9 @@ function SkillPoolPage() {
                         {t("skillPool.broadcast")}
                       </Button>
                     </TooltipTrigger>
-                    <TooltipContent>{t("skillPool.broadcastHint")}</TooltipContent>
+                    <TooltipContent>
+                      {t("skillPool.broadcastHint")}
+                    </TooltipContent>
                   </Tooltip>
                   <Tooltip>
                     <TooltipTrigger asChild>
@@ -171,7 +179,9 @@ function SkillPoolPage() {
                         {t("skills.uploadZip")}
                       </Button>
                     </TooltipTrigger>
-                    <TooltipContent>{t("skillPool.uploadZipHint")}</TooltipContent>
+                    <TooltipContent>
+                      {t("skillPool.uploadZipHint")}
+                    </TooltipContent>
                   </Tooltip>
                   <Tooltip>
                     <TooltipTrigger asChild>
@@ -184,9 +194,15 @@ function SkillPoolPage() {
                         {t("skills.importHub")}
                       </Button>
                     </TooltipTrigger>
-                    <TooltipContent>{t("skillPool.importHubHint")}</TooltipContent>
+                    <TooltipContent>
+                      {t("skillPool.importHubHint")}
+                    </TooltipContent>
                   </Tooltip>
-                  <Button size="sm" variant="outline" onClick={pool.toggleBatchMode}>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={pool.toggleBatchMode}
+                  >
                     {t("skills.batchOperation")}
                   </Button>
                   <Tooltip>
@@ -200,7 +216,9 @@ function SkillPoolPage() {
                         {t("skills.createSkill")}
                       </Button>
                     </TooltipTrigger>
-                    <TooltipContent>{t("skills.createSkillHint")}</TooltipContent>
+                    <TooltipContent>
+                      {t("skills.createSkillHint")}
+                    </TooltipContent>
                   </Tooltip>
                 </div>
               </>
@@ -363,7 +381,9 @@ function SkillPoolPage() {
       {/* Generic confirm dialog (replaces Modal.confirm) */}
       <AlertDialog
         open={pool.confirmDialog.open}
-        onOpenChange={(v) => { if (!v) pool.handleConfirmDialogCancel(); }}
+        onOpenChange={(v) => {
+          if (!v) pool.handleConfirmDialogCancel();
+        }}
       >
         <AlertDialogContent>
           <AlertDialogHeader>

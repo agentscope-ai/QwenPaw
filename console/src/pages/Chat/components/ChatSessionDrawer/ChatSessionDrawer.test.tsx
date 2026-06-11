@@ -194,7 +194,8 @@ describe("ChatSessionDrawer", () => {
 
   it("renders title chat.allChats when open=true", () => {
     renderWithProviders(<ChatSessionDrawer {...defaultProps} />);
-    expect(screen.getByText("chat.allChats")).toBeInTheDocument();
+    // Title is rendered both as an sr-only SheetTitle (a11y) and the visible header.
+    expect(screen.getAllByText("chat.allChats").length).toBeGreaterThan(0);
   });
 
   it("clicking new chat calls createSession", async () => {

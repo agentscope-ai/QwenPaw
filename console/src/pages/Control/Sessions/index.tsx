@@ -63,7 +63,9 @@ function SessionsPage() {
   const [editingSession, setEditingSession] = useState<Session | null>(null);
   const [saving, setSaving] = useState(false);
   const [formValues, setFormValues] = useState({ name: "" });
-  const [sorting, setSorting] = useState<SortingState>([{ id: "updated_at", desc: true }]);
+  const [sorting, setSorting] = useState<SortingState>([
+    { id: "updated_at", desc: true },
+  ]);
 
   const [selectedRowIds, setSelectedRowIds] = useState<Set<string>>(new Set());
 
@@ -81,7 +83,8 @@ function SessionsPage() {
   const { message } = useAppMessage();
 
   useEffect(() => {
-    api.listChannelTypes()
+    api
+      .listChannelTypes()
       .then(setAvailableChannels)
       .catch((err) => console.error("Failed to load channel types:", err));
   }, []);
@@ -90,8 +93,8 @@ function SessionsPage() {
   useEffect(() => {
     let filtered: Session[] = sessions;
     if (filterUserId) {
-      filtered = filtered.filter((s) =>
-        s.user_id?.toLowerCase().includes(filterUserId.toLowerCase()),
+      filtered = filtered.filter(
+        (s) => s.user_id?.toLowerCase().includes(filterUserId.toLowerCase()),
       );
     }
     if (filterChannel) {
@@ -129,7 +132,9 @@ function SessionsPage() {
     setConfirmState({
       open: true,
       title: t("sessions.confirmDelete"),
-      description: t("sessions.batchDeleteConfirm", { count: selectedRowIds.size }),
+      description: t("sessions.batchDeleteConfirm", {
+        count: selectedRowIds.size,
+      }),
       onConfirm: async () => {
         const success = await batchDeleteSessions(Array.from(selectedRowIds));
         if (success) {
@@ -217,11 +222,15 @@ function SessionsPage() {
                           className="cursor-pointer"
                           checked={
                             filteredSessions.length > 0 &&
-                            filteredSessions.every((s) => selectedRowIds.has(s.id))
+                            filteredSessions.every((s) =>
+                              selectedRowIds.has(s.id),
+                            )
                           }
                           onChange={(e) => {
                             if (e.target.checked) {
-                              setSelectedRowIds(new Set(filteredSessions.map((s) => s.id)));
+                              setSelectedRowIds(
+                                new Set(filteredSessions.map((s) => s.id)),
+                              );
                             } else {
                               setSelectedRowIds(new Set());
                             }
@@ -229,8 +238,14 @@ function SessionsPage() {
                         />
                       </TableHead>
                       {hg.headers.map((header) => (
-                        <TableHead key={header.id} style={{ width: header.getSize() }}>
-                          {flexRender(header.column.columnDef.header, header.getContext())}
+                        <TableHead
+                          key={header.id}
+                          style={{ width: header.getSize() }}
+                        >
+                          {flexRender(
+                            header.column.columnDef.header,
+                            header.getContext(),
+                          )}
                         </TableHead>
                       ))}
                     </TableRow>
@@ -241,7 +256,9 @@ function SessionsPage() {
                     <TableRow
                       key={row.id}
                       className={cn(
-                        selectedRowIds.has(row.original.id) ? "bg-muted/50" : "",
+                        selectedRowIds.has(row.original.id)
+                          ? "bg-muted/50"
+                          : "",
                       )}
                     >
                       <TableCell>
@@ -262,7 +279,10 @@ function SessionsPage() {
                       </TableCell>
                       {row.getVisibleCells().map((cell) => (
                         <TableCell key={cell.id} className="text-sm">
-                          {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                          {flexRender(
+                            cell.column.columnDef.cell,
+                            cell.getContext(),
+                          )}
                         </TableCell>
                       ))}
                     </TableRow>
@@ -296,12 +316,16 @@ function SessionsPage() {
 
       <AlertDialog
         open={confirmState.open}
-        onOpenChange={(o) => !o && setConfirmState((s) => ({ ...s, open: false }))}
+        onOpenChange={(o) =>
+          !o && setConfirmState((s) => ({ ...s, open: false }))
+        }
       >
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>{confirmState.title}</AlertDialogTitle>
-            <AlertDialogDescription>{confirmState.description}</AlertDialogDescription>
+            <AlertDialogDescription>
+              {confirmState.description}
+            </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>{t("cronJobs.cancelText")}</AlertDialogCancel>

@@ -184,7 +184,11 @@ export function useSkillPool() {
       setFormName("");
       setFormTags([]);
     },
-    setFieldsValue: (values: { name?: string; content?: string; tags?: string[] }) => {
+    setFieldsValue: (values: {
+      name?: string;
+      content?: string;
+      tags?: string[];
+    }) => {
       if (values.name !== undefined) setFormName(values.name);
       if (values.tags !== undefined) setFormTags(values.tags);
     },
@@ -594,23 +598,31 @@ export function useSkillPool() {
           t("skillPool.importBuiltinConflictTitle"),
           <div style={{ display: "grid", gap: 8 }}>
             <div>{t("skillPool.importBuiltinConflictContent")}</div>
-            {conflicts.map((item: { skill_name?: string; status?: string; language?: string; current_version_text?: string; source_version_text?: string }) => (
-              <div key={`${item.skill_name}-${item.language || "en"}`}>
-                <strong>{item.skill_name}</strong>
-                {"  "}
-                {getBuiltinImportStatusLabel(item.status, item.language)}
-                {item.status !== "language_switch" ? (
-                  <>
-                    {"  "}
-                    {t("skillPool.currentVersion")}:{" "}
-                    {item.current_version_text || "-"}
-                    {"  ->  "}
-                    {t("skillPool.sourceVersion")}:{" "}
-                    {item.source_version_text || "-"}
-                  </>
-                ) : null}
-              </div>
-            ))}
+            {conflicts.map(
+              (item: {
+                skill_name?: string;
+                status?: string;
+                language?: string;
+                current_version_text?: string;
+                source_version_text?: string;
+              }) => (
+                <div key={`${item.skill_name}-${item.language || "en"}`}>
+                  <strong>{item.skill_name}</strong>
+                  {"  "}
+                  {getBuiltinImportStatusLabel(item.status, item.language)}
+                  {item.status !== "language_switch" ? (
+                    <>
+                      {"  "}
+                      {t("skillPool.currentVersion")}:{" "}
+                      {item.current_version_text || "-"}
+                      {"  ->  "}
+                      {t("skillPool.sourceVersion")}:{" "}
+                      {item.source_version_text || "-"}
+                    </>
+                  ) : null}
+                </div>
+              ),
+            )}
           </div>,
         );
         if (confirmed) {

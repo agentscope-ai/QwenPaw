@@ -7,7 +7,12 @@ import {
   type ACLUserEntry,
 } from "../../../../api/modules/accessControl";
 import { getChannelLabel, type ChannelKey } from "./constants";
-import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -98,7 +103,10 @@ function EditableCell({
         onBlur={commit}
         onKeyDown={(e) => {
           if (e.key === "Enter") commit();
-          if (e.key === "Escape") { setDraft(value); setEditing(false); }
+          if (e.key === "Escape") {
+            setDraft(value);
+            setEditing(false);
+          }
         }}
       />
     );
@@ -108,7 +116,10 @@ function EditableCell({
     <span
       className="cursor-pointer hover:text-primary text-sm"
       title="Click to edit"
-      onClick={() => { setDraft(value); setEditing(true); }}
+      onClick={() => {
+        setDraft(value);
+        setEditing(true);
+      }}
     >
       {value || <span className="text-muted-foreground/40">-</span>}
     </span>
@@ -126,7 +137,10 @@ function CopyButton({ text }: { text: string }) {
     } catch {}
   };
   return (
-    <button onClick={copy} className="text-muted-foreground hover:text-foreground">
+    <button
+      onClick={copy}
+      className="text-muted-foreground hover:text-foreground"
+    >
       {copied ? <Check size={12} /> : <Copy size={12} />}
     </button>
   );
@@ -144,11 +158,15 @@ export function AccessControlDrawer({
   const [newUserId, setNewUserId] = useState("");
   const [newUsername, setNewUsername] = useState("");
   const [newRemark, setNewRemark] = useState("");
-  const [activeTab, setActiveTab] = useState<"whitelist" | "blacklist">("whitelist");
+  const [activeTab, setActiveTab] = useState<"whitelist" | "blacklist">(
+    "whitelist",
+  );
   const [selectedRowIds, setSelectedRowIds] = useState<Set<string>>(new Set());
   const [addModalOpen, setAddModalOpen] = useState(false);
   const [batchLoading, setBatchLoading] = useState(false);
-  const [confirmRemove, setConfirmRemove] = useState<{ userId: string } | null>(null);
+  const [confirmRemove, setConfirmRemove] = useState<{ userId: string } | null>(
+    null,
+  );
   const [confirmBatch, setConfirmBatch] = useState(false);
 
   const fetchACLs = useCallback(async () => {
@@ -183,12 +201,14 @@ export function AccessControlDrawer({
         ? accessControlApi.addAclWhitelist
         : accessControlApi.addAclBlacklist;
     try {
-      await addApi([{
-        channel: selectedChannel,
-        user_id: newUserId.trim(),
-        remark: newRemark.trim(),
-        username: newUsername.trim(),
-      }]);
+      await addApi([
+        {
+          channel: selectedChannel,
+          user_id: newUserId.trim(),
+          remark: newRemark.trim(),
+          username: newUsername.trim(),
+        },
+      ]);
       message.success(t("channels.userAdded"));
       setNewUserId("");
       setNewUsername("");
@@ -272,7 +292,9 @@ export function AccessControlDrawer({
           user_id: userId,
         })),
       );
-      message.success(t("channels.batchSuccess", { count: selectedRowIds.size }));
+      message.success(
+        t("channels.batchSuccess", { count: selectedRowIds.size }),
+      );
       setSelectedRowIds(new Set());
       await fetchACLs();
     } catch {
@@ -282,7 +304,9 @@ export function AccessControlDrawer({
     }
   };
 
-  const listData: ACLUserEntry[] = currentACL ? toEntries(currentACL[activeTab]) : [];
+  const listData: ACLUserEntry[] = currentACL
+    ? toEntries(currentACL[activeTab])
+    : [];
 
   const columns: ColumnDef<ACLUserEntry>[] = [
     {
@@ -367,7 +391,10 @@ export function AccessControlDrawer({
                         ? "bg-primary text-primary-foreground"
                         : "hover:bg-muted",
                     )}
-                    onClick={() => { setActiveTab(tab); setSelectedRowIds(new Set()); }}
+                    onClick={() => {
+                      setActiveTab(tab);
+                      setSelectedRowIds(new Set());
+                    }}
                   >
                     {t(`channels.${tab}`)}
                   </button>
@@ -387,7 +414,10 @@ export function AccessControlDrawer({
             <div className="flex items-center justify-between mb-3 gap-2">
               <Select
                 value={selectedChannel ?? ""}
-                onValueChange={(v) => { setSelectedChannel(v); setSelectedRowIds(new Set()); }}
+                onValueChange={(v) => {
+                  setSelectedChannel(v);
+                  setSelectedRowIds(new Set());
+                }}
                 disabled={channelKeys.length === 0}
               >
                 <SelectTrigger className="w-[180px]">
@@ -405,7 +435,9 @@ export function AccessControlDrawer({
               <div className="flex items-center gap-2">
                 {selectedRowIds.size > 0 && (
                   <span className="text-xs text-muted-foreground">
-                    {t("channels.selectedCount", { count: selectedRowIds.size })}
+                    {t("channels.selectedCount", {
+                      count: selectedRowIds.size,
+                    })}
                   </span>
                 )}
                 <Button
@@ -414,7 +446,9 @@ export function AccessControlDrawer({
                   disabled={selectedRowIds.size === 0}
                   onClick={() => setConfirmBatch(true)}
                 >
-                  {batchLoading && <Loader2 size={12} className="animate-spin mr-1" />}
+                  {batchLoading && (
+                    <Loader2 size={12} className="animate-spin mr-1" />
+                  )}
                   <Trash2 size={12} className="mr-1" />
                   {t("channels.batchRemove")}
                 </Button>
@@ -436,10 +470,17 @@ export function AccessControlDrawer({
                           <input
                             type="checkbox"
                             className="cursor-pointer"
-                            checked={listData.length > 0 && listData.every((r) => selectedRowIds.has(r.userId))}
+                            checked={
+                              listData.length > 0 &&
+                              listData.every((r) =>
+                                selectedRowIds.has(r.userId),
+                              )
+                            }
                             onChange={(e) => {
                               if (e.target.checked) {
-                                setSelectedRowIds(new Set(listData.map((r) => r.userId)));
+                                setSelectedRowIds(
+                                  new Set(listData.map((r) => r.userId)),
+                                );
                               } else {
                                 setSelectedRowIds(new Set());
                               }
@@ -447,8 +488,14 @@ export function AccessControlDrawer({
                           />
                         </TableHead>
                         {hg.headers.map((header) => (
-                          <TableHead key={header.id} style={{ width: header.getSize() }}>
-                            {flexRender(header.column.columnDef.header, header.getContext())}
+                          <TableHead
+                            key={header.id}
+                            style={{ width: header.getSize() }}
+                          >
+                            {flexRender(
+                              header.column.columnDef.header,
+                              header.getContext(),
+                            )}
                           </TableHead>
                         ))}
                       </TableRow>
@@ -456,7 +503,14 @@ export function AccessControlDrawer({
                   </TableHeader>
                   <TableBody>
                     {table.getRowModel().rows.map((row) => (
-                      <TableRow key={row.id} className={selectedRowIds.has(row.original.userId) ? "bg-muted/50" : ""}>
+                      <TableRow
+                        key={row.id}
+                        className={
+                          selectedRowIds.has(row.original.userId)
+                            ? "bg-muted/50"
+                            : ""
+                        }
+                      >
                         <TableCell>
                           <input
                             type="checkbox"
@@ -464,7 +518,8 @@ export function AccessControlDrawer({
                             checked={selectedRowIds.has(row.original.userId)}
                             onChange={(e) => {
                               const next = new Set(selectedRowIds);
-                              if (e.target.checked) next.add(row.original.userId);
+                              if (e.target.checked)
+                                next.add(row.original.userId);
                               else next.delete(row.original.userId);
                               setSelectedRowIds(next);
                             }}
@@ -472,14 +527,20 @@ export function AccessControlDrawer({
                         </TableCell>
                         {row.getVisibleCells().map((cell) => (
                           <TableCell key={cell.id}>
-                            {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                            {flexRender(
+                              cell.column.columnDef.cell,
+                              cell.getContext(),
+                            )}
                           </TableCell>
                         ))}
                       </TableRow>
                     ))}
                     {table.getRowModel().rows.length === 0 && (
                       <TableRow>
-                        <TableCell colSpan={columns.length + 1} className="h-16 text-center text-muted-foreground text-sm">
+                        <TableCell
+                          colSpan={columns.length + 1}
+                          className="h-16 text-center text-muted-foreground text-sm"
+                        >
                           {activeTab === "whitelist"
                             ? t("channels.noWhitelistUsers")
                             : t("channels.noBlacklistUsers")}
@@ -495,7 +556,10 @@ export function AccessControlDrawer({
       </Sheet>
 
       {/* Add user dialog */}
-      <Dialog open={addModalOpen} onOpenChange={(o) => !o && setAddModalOpen(false)}>
+      <Dialog
+        open={addModalOpen}
+        onOpenChange={(o) => !o && setAddModalOpen(false)}
+      >
         <DialogContent>
           <DialogHeader>
             <DialogTitle>{t("channels.addUser")}</DialogTitle>
@@ -527,12 +591,23 @@ export function AccessControlDrawer({
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => { setAddModalOpen(false); setNewUserId(""); setNewUsername(""); setNewRemark(""); }}>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setAddModalOpen(false);
+                setNewUserId("");
+                setNewUsername("");
+                setNewRemark("");
+              }}
+            >
               {t("common.cancel")}
             </Button>
             <Button
               disabled={!newUserId.trim()}
-              onClick={async () => { await handleAdd(); setAddModalOpen(false); }}
+              onClick={async () => {
+                await handleAdd();
+                setAddModalOpen(false);
+              }}
             >
               {t("common.save")}
             </Button>
@@ -541,7 +616,10 @@ export function AccessControlDrawer({
       </Dialog>
 
       {/* Confirm single remove */}
-      <AlertDialog open={!!confirmRemove} onOpenChange={(o) => !o && setConfirmRemove(null)}>
+      <AlertDialog
+        open={!!confirmRemove}
+        onOpenChange={(o) => !o && setConfirmRemove(null)}
+      >
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>{t("channels.batchRemove")}</AlertDialogTitle>
@@ -564,7 +642,10 @@ export function AccessControlDrawer({
       </AlertDialog>
 
       {/* Confirm batch remove */}
-      <AlertDialog open={confirmBatch} onOpenChange={(o) => !o && setConfirmBatch(false)}>
+      <AlertDialog
+        open={confirmBatch}
+        onOpenChange={(o) => !o && setConfirmBatch(false)}
+      >
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>{t("channels.batchRemove")}</AlertDialogTitle>
@@ -574,7 +655,12 @@ export function AccessControlDrawer({
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
-            <AlertDialogAction onClick={async () => { await handleBatchRemove(); setConfirmBatch(false); }}>
+            <AlertDialogAction
+              onClick={async () => {
+                await handleBatchRemove();
+                setConfirmBatch(false);
+              }}
+            >
               {t("channels.batchRemove")}
             </AlertDialogAction>
           </AlertDialogFooter>

@@ -42,7 +42,9 @@ function EnvironmentsPage() {
   const [saving, setSaving] = useState(false);
   const [keyErrors, setKeyErrors] = useState<Record<number, string>>({});
   const [selected, setSelected] = useState<Set<number>>(new Set());
-  const [deleteConfirm, setDeleteConfirm] = useState<DeleteConfirm | null>(null);
+  const [deleteConfirm, setDeleteConfirm] = useState<DeleteConfirm | null>(
+    null,
+  );
 
   const workingRows: Row[] = useMemo(
     () => rows ?? envVars.map((e) => ({ key: e.key, value: e.value })),
@@ -169,7 +171,9 @@ function EnvironmentsPage() {
           .filter(Boolean);
 
         if (persistedKeysToDelete.length > 0) {
-          await Promise.all(persistedKeysToDelete.map((key) => api.deleteEnv(key)));
+          await Promise.all(
+            persistedKeysToDelete.map((key) => api.deleteEnv(key)),
+          );
         }
 
         message.success(t("environments.deleteSuccess", { name: label }));
@@ -179,7 +183,15 @@ function EnvironmentsPage() {
         fetchAll();
       },
     });
-  }, [selected, workingRows, ensureLocal, envVars.length, fetchAll, t, message]);
+  }, [
+    selected,
+    workingRows,
+    ensureLocal,
+    envVars.length,
+    fetchAll,
+    t,
+    message,
+  ]);
 
   const validate = useCallback((): boolean => {
     const errors: Record<number, string> = {};
@@ -214,7 +226,8 @@ function EnvironmentsPage() {
       setSelected(new Set());
       fetchAll();
     } catch (err) {
-      const errMsg = err instanceof Error ? err.message : t("environments.saveFailed");
+      const errMsg =
+        err instanceof Error ? err.message : t("environments.saveFailed");
       message.error(errMsg);
     } finally {
       setSaving(false);
@@ -241,7 +254,12 @@ function EnvironmentsPage() {
       ) : error ? (
         <div className={styles.centerState}>
           <span className={styles.stateTextError}>{error}</span>
-          <Button size="sm" variant="outline" onClick={fetchAll} className="mt-3">
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={fetchAll}
+            className="mt-3"
+          >
             {t("environments.retry")}
           </Button>
         </div>
@@ -290,7 +308,9 @@ function EnvironmentsPage() {
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>{deleteConfirm?.title}</AlertDialogTitle>
-            <AlertDialogDescription>{deleteConfirm?.content}</AlertDialogDescription>
+            <AlertDialogDescription>
+              {deleteConfirm?.content}
+            </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
@@ -301,7 +321,10 @@ function EnvironmentsPage() {
                 try {
                   await deleteConfirm.onOk();
                 } catch (err) {
-                  const errMsg = err instanceof Error ? err.message : t("environments.deleteFailed");
+                  const errMsg =
+                    err instanceof Error
+                      ? err.message
+                      : t("environments.deleteFailed");
                   message.error(errMsg);
                 } finally {
                   setDeleteConfirm(null);

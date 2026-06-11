@@ -1,7 +1,4 @@
-import {
-  Card,
-  CardContent,
-} from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
@@ -236,7 +233,10 @@ export const MCPClientCard = React.memo(function MCPClientCard({
               )}
               {hasOauth && !isOauthAuthorized && !isOauthExpired && (
                 <span title={t("mcp.oauth.notAuthorized")}>
-                  <ShieldX size={13} className="text-muted-foreground shrink-0" />
+                  <ShieldX
+                    size={13}
+                    className="text-muted-foreground shrink-0"
+                  />
                 </span>
               )}
             </div>
@@ -426,7 +426,9 @@ export const MCPClientCard = React.memo(function MCPClientCard({
           <DialogHeader>
             <DialogTitle>{`${client.name} - Configuration`}</DialogTitle>
           </DialogHeader>
-          <div className={styles.maskedFieldHint}>{t("mcp.maskedFieldHint")}</div>
+          <div className={styles.maskedFieldHint}>
+            {t("mcp.maskedFieldHint")}
+          </div>
           {isEditing ? (
             <Textarea
               value={editedJson}
@@ -458,7 +460,9 @@ export const MCPClientCard = React.memo(function MCPClientCard({
             {isEditing ? (
               <Button onClick={handleSaveJson}>{t("common.save")}</Button>
             ) : (
-              <Button onClick={() => setIsEditing(true)}>{t("common.edit")}</Button>
+              <Button onClick={() => setIsEditing(true)}>
+                {t("common.edit")}
+              </Button>
             )}
           </DialogFooter>
         </DialogContent>

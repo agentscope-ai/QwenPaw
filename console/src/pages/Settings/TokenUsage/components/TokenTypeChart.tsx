@@ -37,16 +37,29 @@ export function TokenTypeChart({ chartConfig }: TokenTypeChartProps) {
         {t("tokenUsage.tokenTypeChart", "Token Type Trend")}
       </div>
       <ResponsiveContainer width="100%" height={300}>
-        <LineChart data={chartData} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
-          <CartesianGrid strokeDasharray="3 3" stroke="rgba(128,128,128,0.15)" />
+        <LineChart
+          data={chartData}
+          margin={{ top: 8, right: 16, left: 0, bottom: 0 }}
+        >
+          <CartesianGrid
+            strokeDasharray="3 3"
+            stroke="rgba(128,128,128,0.15)"
+          />
           <XAxis
             dataKey="date"
             tickFormatter={dateFormatter}
             tick={{ fontSize: 11 }}
           />
-          <YAxis tickFormatter={yTickFormatter} tick={{ fontSize: 11 }} width={48} />
+          <YAxis
+            tickFormatter={yTickFormatter}
+            tick={{ fontSize: 11 }}
+            width={48}
+          />
           <Tooltip
-            formatter={(value: number, name: string) => [formatCompact(value), name]}
+            formatter={(value: number, name: string) => [
+              formatCompact(value),
+              name,
+            ]}
             labelFormatter={(label: string) => label}
           />
           <Legend wrapperStyle={{ fontSize: 11 }} />

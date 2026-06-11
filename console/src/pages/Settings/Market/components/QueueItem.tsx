@@ -67,7 +67,7 @@ export const QueueItem = memo(function QueueItem({
           </Button>
         )}
         {canRetry && (
-          <Button size="sm"  onClick={handleRetry}>
+          <Button size="sm" onClick={handleRetry}>
             {t("market.retry")}
           </Button>
         )}
@@ -75,5 +75,3 @@ export const QueueItem = memo(function QueueItem({
     </div>
   );
 });
-
-

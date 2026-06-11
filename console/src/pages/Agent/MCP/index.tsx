@@ -337,8 +337,7 @@ function MCPPage() {
                       <code>{`{ "mcpServers": { "key": {...} } }`}</code>
                     </li>
                     <li>
-                      {t("mcp.directFormat")}:{" "}
-                      <code>{`{ "key": {...} }`}</code>
+                      {t("mcp.directFormat")}: <code>{`{ "key": {...} }`}</code>
                     </li>
                     <li>
                       {t("mcp.singleFormat")}:{" "}
@@ -387,7 +386,9 @@ function MCPPage() {
                   </label>
                   <Select
                     value={form.transport}
-                    onValueChange={(v) => setField("transport", v as MCPTransport)}
+                    onValueChange={(v) =>
+                      setField("transport", v as MCPTransport)
+                    }
                   >
                     <SelectTrigger>
                       <SelectValue />
@@ -480,7 +481,9 @@ function MCPPage() {
             </Button>
             <Button
               onClick={
-                activeTab === "json" ? handleCreateFromJson : handleCreateFromForm
+                activeTab === "json"
+                  ? handleCreateFromJson
+                  : handleCreateFromForm
               }
             >
               {t("common.create")}

@@ -67,10 +67,21 @@ interface TrendCardProps {
   yFormatter?: (v: number) => string;
 }
 
-function TrendCard({ title, tooltip, data, series, crossesYear, yFormatter }: TrendCardProps) {
+function TrendCard({
+  title,
+  tooltip,
+  data,
+  series,
+  crossesYear,
+  yFormatter,
+}: TrendCardProps) {
   const barData = data.map((d) => {
-    const row: Record<string, string | number> = { date: formatDateLabel(d.date, crossesYear) };
-    series.forEach((s) => { row[s.label] = d[s.dataKey]; });
+    const row: Record<string, string | number> = {
+      date: formatDateLabel(d.date, crossesYear),
+    };
+    series.forEach((s) => {
+      row[s.label] = d[s.dataKey];
+    });
     return row;
   });
 
@@ -78,14 +89,24 @@ function TrendCard({ title, tooltip, data, series, crossesYear, yFormatter }: Tr
     <div className={`${styles.chartCard} border rounded-lg p-4`}>
       <Tooltip>
         <TooltipTrigger asChild>
-          <div className={`${styles.chartTitle} cursor-default text-sm font-semibold mb-2`}>{title}</div>
+          <div
+            className={`${styles.chartTitle} cursor-default text-sm font-semibold mb-2`}
+          >
+            {title}
+          </div>
         </TooltipTrigger>
         <TooltipContent side="bottom">{tooltip}</TooltipContent>
       </Tooltip>
       <div className={styles.chartContainerShort}>
         <ResponsiveContainer width="100%" height={150}>
-          <BarChart data={barData} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke="rgba(128,128,128,0.15)" />
+          <BarChart
+            data={barData}
+            margin={{ top: 4, right: 8, left: 0, bottom: 0 }}
+          >
+            <CartesianGrid
+              strokeDasharray="3 3"
+              stroke="rgba(128,128,128,0.15)"
+            />
             <XAxis dataKey="date" tick={{ fontSize: 10 }} />
             <YAxis
               tick={{ fontSize: 10 }}
@@ -120,7 +141,11 @@ function PieCard({ title, tooltip, data }: PieCardProps) {
     <div className={`${styles.chartCard} border rounded-lg p-4`}>
       <Tooltip>
         <TooltipTrigger asChild>
-          <div className={`${styles.chartTitle} cursor-default text-sm font-semibold mb-2`}>{title}</div>
+          <div
+            className={`${styles.chartTitle} cursor-default text-sm font-semibold mb-2`}
+          >
+            {title}
+          </div>
         </TooltipTrigger>
         <TooltipContent side="bottom">{tooltip}</TooltipContent>
       </Tooltip>
@@ -134,7 +159,9 @@ function PieCard({ title, tooltip, data }: PieCardProps) {
               cx="50%"
               cy="50%"
               outerRadius={90}
-              label={({ channel, value }: { channel: string; value: number }) => `${channel}: ${value}`}
+              label={({ channel, value }: { channel: string; value: number }) =>
+                `${channel}: ${value}`
+              }
             >
               {data.map((_entry, idx) => (
                 <Cell key={idx} fill={PIE_COLORS[idx % PIE_COLORS.length]} />
@@ -180,7 +207,9 @@ function AgentStatsPage() {
   };
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => { fetchData(startDate, endDate); }, [selectedAgent]);
+  useEffect(() => {
+    fetchData(startDate, endDate);
+  }, [selectedAgent]);
 
   const handleStartDateChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const d = dayjs(e.target.value);
@@ -190,14 +219,21 @@ function AgentStatsPage() {
   const handleEndDateChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const d = dayjs(e.target.value);
     const today = dayjs();
-    if (d.isValid() && !d.isAfter(today, "day") && !d.isBefore(startDate, "day")) {
+    if (
+      d.isValid() &&
+      !d.isAfter(today, "day") &&
+      !d.isBefore(startDate, "day")
+    ) {
       setEndDate(d);
     }
   };
 
   const handleApplyDates = () => fetchData(startDate, endDate);
 
-  const crossesYear = useMemo(() => startDate.year() !== endDate.year(), [startDate, endDate]);
+  const crossesYear = useMemo(
+    () => startDate.year() !== endDate.year(),
+    [startDate, endDate],
+  );
 
   const chartData = useMemo((): ChartDataItem[] => {
     if (!data?.by_date) return [];
@@ -224,12 +260,20 @@ function AgentStatsPage() {
       (data.total_tool_calls ?? 0) > 0);
 
   const chatPieData = useMemo(
-    () => data?.channel_stats?.map((item) => ({ channel: item.channel, value: Number(item.session_count) })) ?? null,
+    () =>
+      data?.channel_stats?.map((item) => ({
+        channel: item.channel,
+        value: Number(item.session_count),
+      })) ?? null,
     [data?.channel_stats],
   );
 
   const messagePieData = useMemo(
-    () => data?.channel_stats?.map((item) => ({ channel: item.channel, value: Number(item.total_messages) })) ?? null,
+    () =>
+      data?.channel_stats?.map((item) => ({
+        channel: item.channel,
+        value: Number(item.total_messages),
+      })) ?? null,
     [data?.channel_stats],
   );
 
@@ -270,20 +314,53 @@ function AgentStatsPage() {
                 disabled={loading}
                 className="h-8 rounded-md border px-2 text-sm bg-background disabled:opacity-50"
               />
-              <Button variant="outline" size="sm" onClick={handleApplyDates} disabled={loading}>
-                {loading ? <Loader2 size={12} className="animate-spin" /> : t("common.apply", "Apply")}
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleApplyDates}
+                disabled={loading}
+              >
+                {loading ? (
+                  <Loader2 size={12} className="animate-spin" />
+                ) : (
+                  t("common.apply", "Apply")
+                )}
               </Button>
             </div>
 
             {hasData ? (
               <>
                 <div className={styles.summaryCards}>
-                  <SummaryCard value={data.total_active_sessions} label={t("agentStats.totalSessions")} tooltip={t("agentStats.totalSessionsTooltip")} />
-                  <SummaryCard value={data.total_messages} label={t("agentStats.totalMessages")} tooltip={t("agentStats.totalMessagesTooltip")} />
-                  <SummaryCard value={data.total_prompt_tokens} label={t("agentStats.promptTokens")} tooltip={t("agentStats.promptTokensTooltip")} />
-                  <SummaryCard value={data.total_completion_tokens} label={t("agentStats.completionTokens")} tooltip={t("agentStats.completionTokensTooltip")} />
-                  <SummaryCard value={data.total_llm_calls} label={t("agentStats.llmCalls")} tooltip={t("agentStats.llmCallsTooltip")} />
-                  <SummaryCard value={data.total_tool_calls} label={t("agentStats.toolCalls")} tooltip={t("agentStats.toolCallsTooltip")} />
+                  <SummaryCard
+                    value={data.total_active_sessions}
+                    label={t("agentStats.totalSessions")}
+                    tooltip={t("agentStats.totalSessionsTooltip")}
+                  />
+                  <SummaryCard
+                    value={data.total_messages}
+                    label={t("agentStats.totalMessages")}
+                    tooltip={t("agentStats.totalMessagesTooltip")}
+                  />
+                  <SummaryCard
+                    value={data.total_prompt_tokens}
+                    label={t("agentStats.promptTokens")}
+                    tooltip={t("agentStats.promptTokensTooltip")}
+                  />
+                  <SummaryCard
+                    value={data.total_completion_tokens}
+                    label={t("agentStats.completionTokens")}
+                    tooltip={t("agentStats.completionTokensTooltip")}
+                  />
+                  <SummaryCard
+                    value={data.total_llm_calls}
+                    label={t("agentStats.llmCalls")}
+                    tooltip={t("agentStats.llmCallsTooltip")}
+                  />
+                  <SummaryCard
+                    value={data.total_tool_calls}
+                    label={t("agentStats.toolCalls")}
+                    tooltip={t("agentStats.toolCallsTooltip")}
+                  />
                 </div>
 
                 <div className={styles.trendRow}>
@@ -292,8 +369,16 @@ function AgentStatsPage() {
                     tooltip={t("agentStats.messageTrendTooltip")}
                     data={chartData}
                     series={[
-                      { dataKey: "userMessages", label: t("agentStats.userMessages"), color: "#3b82f6" },
-                      { dataKey: "assistantMessages", label: t("agentStats.assistantMessages"), color: "#5b4b8a" },
+                      {
+                        dataKey: "userMessages",
+                        label: t("agentStats.userMessages"),
+                        color: "#3b82f6",
+                      },
+                      {
+                        dataKey: "assistantMessages",
+                        label: t("agentStats.assistantMessages"),
+                        color: "#5b4b8a",
+                      },
                     ]}
                     crossesYear={crossesYear}
                   />
@@ -302,8 +387,16 @@ function AgentStatsPage() {
                     tooltip={t("agentStats.sessionTrendTooltip")}
                     data={chartData}
                     series={[
-                      { dataKey: "chats", label: t("agentStats.newSessions"), color: "#5b4b8a" },
-                      { dataKey: "activeSessions", label: t("agentStats.activeSessions"), color: "#3b82f6" },
+                      {
+                        dataKey: "chats",
+                        label: t("agentStats.newSessions"),
+                        color: "#5b4b8a",
+                      },
+                      {
+                        dataKey: "activeSessions",
+                        label: t("agentStats.activeSessions"),
+                        color: "#3b82f6",
+                      },
                     ]}
                     crossesYear={crossesYear}
                   />
@@ -312,8 +405,16 @@ function AgentStatsPage() {
                     tooltip={t("agentStats.tokenTrendTooltip")}
                     data={chartData}
                     series={[
-                      { dataKey: "promptTokens", label: t("agentStats.promptTokens"), color: "#8b5cf6" },
-                      { dataKey: "completionTokens", label: t("agentStats.completionTokens"), color: "#10b981" },
+                      {
+                        dataKey: "promptTokens",
+                        label: t("agentStats.promptTokens"),
+                        color: "#8b5cf6",
+                      },
+                      {
+                        dataKey: "completionTokens",
+                        label: t("agentStats.completionTokens"),
+                        color: "#10b981",
+                      },
                     ]}
                     crossesYear={crossesYear}
                     yFormatter={formatCompact}
@@ -323,14 +424,22 @@ function AgentStatsPage() {
                     tooltip={t("agentStats.llmAndToolTrendTooltip")}
                     data={chartData}
                     series={[
-                      { dataKey: "llmCalls", label: t("agentStats.llmCalls"), color: "#ec4899" },
-                      { dataKey: "toolCalls", label: t("agentStats.toolCalls"), color: "#14b8a6" },
+                      {
+                        dataKey: "llmCalls",
+                        label: t("agentStats.llmCalls"),
+                        color: "#ec4899",
+                      },
+                      {
+                        dataKey: "toolCalls",
+                        label: t("agentStats.toolCalls"),
+                        color: "#14b8a6",
+                      },
                     ]}
                     crossesYear={crossesYear}
                   />
                 </div>
 
-                {(chatPieData?.length || messagePieData?.length) ? (
+                {chatPieData?.length || messagePieData?.length ? (
                   <div className={styles.pieChartsRow}>
                     {chatPieData?.length ? (
                       <PieCard

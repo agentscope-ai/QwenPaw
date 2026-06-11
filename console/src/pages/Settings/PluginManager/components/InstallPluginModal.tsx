@@ -43,7 +43,12 @@ export function InstallPluginModal({
         onChange={handleZipPicked}
       />
 
-      <Dialog open={installOpen} onOpenChange={(v) => { if (!v) closeModal(); }}>
+      <Dialog
+        open={installOpen}
+        onOpenChange={(v) => {
+          if (!v) closeModal();
+        }}
+      >
         <DialogContent className="max-w-[480px]">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
@@ -88,7 +93,9 @@ export function InstallPluginModal({
                 <span className={styles.dropPrimary}>
                   {t("pluginManager.dropPrimary")}
                 </span>
-                <span className={`${styles.dropSecondary} text-muted-foreground`}>
+                <span
+                  className={`${styles.dropSecondary} text-muted-foreground`}
+                >
                   {t("pluginManager.dropSecondary")}
                 </span>
               </div>

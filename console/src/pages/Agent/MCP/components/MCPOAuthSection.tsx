@@ -173,9 +173,7 @@ export const MCPOAuthSection: React.FC<MCPOAuthSectionProps> = ({
             variant={isAuthorized && !isExpired ? "outline" : "default"}
             onClick={handleStartOAuth}
             disabled={
-              !url.trim() ||
-              phase === "starting" ||
-              phase === "waiting"
+              !url.trim() || phase === "starting" || phase === "waiting"
             }
           >
             {(phase === "starting" || phase === "waiting") && (
@@ -189,9 +187,7 @@ export const MCPOAuthSection: React.FC<MCPOAuthSectionProps> = ({
         </div>
       </div>
 
-      {errorMsg && (
-        <p className="text-xs text-destructive">{errorMsg}</p>
-      )}
+      {errorMsg && <p className="text-xs text-destructive">{errorMsg}</p>}
 
       <div
         className="flex items-center gap-1 text-xs text-muted-foreground cursor-pointer"
@@ -229,7 +225,10 @@ export const MCPOAuthSection: React.FC<MCPOAuthSectionProps> = ({
             />
           </div>
           <div>
-            <label className="text-xs text-muted-foreground" title={t("mcp.oauth.endpointHint")}>
+            <label
+              className="text-xs text-muted-foreground"
+              title={t("mcp.oauth.endpointHint")}
+            >
               {t("mcp.oauth.authEndpoint")}
             </label>
             <Input

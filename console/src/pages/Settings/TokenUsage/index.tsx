@@ -24,7 +24,9 @@ function TokenUsagePage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const [records, setRecords] = useState<TokenUsageRecord[]>([]);
-  const [startDate, setStartDate] = useState<Dayjs>(dayjs().subtract(30, "day"));
+  const [startDate, setStartDate] = useState<Dayjs>(
+    dayjs().subtract(30, "day"),
+  );
   const [endDate, setEndDate] = useState<Dayjs>(dayjs());
 
   const fetchData = useCallback(async () => {
@@ -58,7 +60,11 @@ function TokenUsagePage() {
   const handleEndDateChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const d = dayjs(e.target.value);
     const today = dayjs();
-    if (d.isValid() && !d.isAfter(today, "day") && !d.isBefore(startDate, "day")) {
+    if (
+      d.isValid() &&
+      !d.isAfter(today, "day") &&
+      !d.isBefore(startDate, "day")
+    ) {
       setEndDate(d);
     }
   };
