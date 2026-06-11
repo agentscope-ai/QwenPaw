@@ -783,7 +783,8 @@ class _MCPClientMixin:
             # session proxy (which reads it at call time) routes correctly.
             self._name_alias_to_real = alias_to_real
             self._cached_tools = self._build_mcp_tools(
-                rewritten, alias_to_real
+                rewritten,
+                alias_to_real,
             )
             return self._cached_tools
 

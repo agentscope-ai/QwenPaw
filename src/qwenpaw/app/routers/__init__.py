@@ -27,6 +27,7 @@ from .settings import router as settings_router
 from .plugins import router as plugins_router
 from .frontend_plugin import router as frontend_plugin_router
 from .backup import router as backup_router
+
 # NOTE(agentscope-2.0 migration): the `plan` router/package was a 1.x wrapper over
 # agentscope.plan and was dropped in the 2.0 migration (no `app/routers/plan.py`
 # nor `qwenpaw/plan/` exists). Disabled to unblock imports; re-implement on the
