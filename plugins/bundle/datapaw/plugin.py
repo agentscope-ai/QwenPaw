@@ -65,11 +65,16 @@ class DataPawPlugin:
         logger.info("DataPaw plugin starting up")
 
         from .agents_setup import ensure_builtin_agents
-        from .hooks import setup_channel_sse_hook, setup_runner_hooks
+        from .hooks import (
+            setup_channel_sse_hook,
+            setup_console_request_context_hook,
+            setup_runner_hooks,
+        )
 
         ensure_builtin_agents()
         setup_runner_hooks()
         setup_channel_sse_hook()
+        setup_console_request_context_hook()
 
         logger.info("DataPaw plugin startup complete")
 
