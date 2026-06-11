@@ -11,7 +11,7 @@ import asyncio
 import inspect
 import logging
 from pathlib import Path
-from typing import Any, List, Literal, Optional, TYPE_CHECKING
+from typing import Any, List, Literal, Optional, Type, TYPE_CHECKING
 
 from agentscope.agent import Agent, ReActConfig
 from agentscope.message import Msg, TextBlock
@@ -31,6 +31,7 @@ from .prompt import (
     build_system_prompt_from_working_dir,
 )
 from .skill_system import (
+    apply_skill_config_env_overrides,
     ensure_skills_initialized,
     get_workspace_skills_dir,
     resolve_effective_skills,
@@ -67,6 +68,7 @@ from ..constant import (
 from ..providers.model_capability_cache import get_capability_cache
 
 if TYPE_CHECKING:
+    from pydantic import BaseModel
     from ..agents.memory import BaseMemoryManager
     from ..agents.context import BaseContextManager
     from ..config.config import AgentProfileConfig
@@ -97,6 +99,7 @@ class QwenPawAgent(CodingModeMixin, Agent):
         request_context: Optional[dict[str, str]] = None,
         workspace_dir: Path | None = None,
         task_tracker: Any | None = None,
+        plan_notebook: Any | None = None,
     ):
         """Initialize QwenPawAgent.
 
@@ -122,6 +125,7 @@ class QwenPawAgent(CodingModeMixin, Agent):
         self._mcp_clients = mcp_clients or []
         self._workspace_dir = workspace_dir
         self._task_tracker = task_tracker
+        self.plan_notebook = plan_notebook
 
         # Extract configuration from agent_config
         running_config = agent_config.running
@@ -996,6 +1000,8 @@ class QwenPawAgent(CodingModeMixin, Agent):
 
         # Process file and media blocks in messages
         if msg is not None:
+            from .utils import process_file_and_media_blocks_in_message
+
             await process_file_and_media_blocks_in_message(msg)
 
         # Check if message is a system command

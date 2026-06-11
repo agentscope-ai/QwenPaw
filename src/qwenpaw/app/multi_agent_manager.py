@@ -588,5 +588,3 @@ class MultiAgentManager:
         """String representation of manager."""
         loaded = list(self.agents.keys())
         return f"MultiAgentManager(loaded_agents={loaded})"
-
-

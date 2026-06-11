@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+# -*- coding: utf-8 -*-
 """PreToolUse guard for AgentScope / qwenpaw edits.
 
 Blocks Edit/Write on code that belongs to qwenpaw or uses AgentScope until the
@@ -124,7 +125,7 @@ def main() -> int:
         "      then returns APPROVE or REJECT with the correct AgentScope v2 API to use).\n"
         "  2. If APPROVED, the guardian records approval and this edit will go through.\n\n"
         "Escape hatch (only if the user explicitly authorizes skipping review):\n"
-        "  set QWENPAW_GUARDIAN_OFF=1 for the session.\n"
+        "  set QWENPAW_GUARDIAN_OFF=1 for the session.\n",
     )
     return 2
 

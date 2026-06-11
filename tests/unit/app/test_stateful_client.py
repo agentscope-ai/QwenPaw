@@ -52,7 +52,7 @@ class _FakeSession:
     async def list_tools(self):
         return mcp_types.ListToolsResult(tools=self._tools)
 
-    async def call_tool(self, name, arguments=None, **kwargs):
+    async def call_tool(self, name, arguments=None, **_kwargs):
         self.calls.append((name, arguments))
         return _FakeCallResult()
 

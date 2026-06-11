@@ -597,6 +597,29 @@ class ReMeLightMemoryManager(BaseMemoryManager):
             if recent_messages:
                 self.add_summarize_task(messages=recent_messages)
 
+    @staticmethod
+    def _backup_memory_file(workspace_path: Path) -> None:
+        """Snapshot MEMORY.md into ``<workspace>/backup`` before optimizing.
+
+        Best-effort: a backup failure is logged but never aborts the dream
+        pass. A missing MEMORY.md is a no-op.
+        """
+        backup_path = workspace_path.absolute() / "backup"
+        backup_path.mkdir(parents=True, exist_ok=True)
+
+        memory_file = workspace_path / "MEMORY.md"
+        if memory_file.exists():
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            backup_filename = f"memory_backup_{timestamp}.md"
+            backup_file = backup_path / backup_filename
+            try:
+                shutil.copyfile(memory_file, backup_file)
+                logger.info(f"Created MEMORY.md backup: {backup_file}")
+            except Exception as e:
+                logger.error(f"Failed to create MEMORY.md backup: {e}")
+        else:
+            logger.debug("No existing MEMORY.md file to backup")
+
     async def dream(
         self,
         *,
@@ -673,21 +696,7 @@ class ReMeLightMemoryManager(BaseMemoryManager):
             logger.debug("dream optimization skipped: empty query")
             return
 
-        backup_path = workspace_path.absolute() / "backup"
-        backup_path.mkdir(parents=True, exist_ok=True)
-
-        memory_file = workspace_path / "MEMORY.md"
-        if memory_file.exists():
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            backup_filename = f"memory_backup_{timestamp}.md"
-            backup_file = backup_path / backup_filename
-            try:
-                shutil.copyfile(memory_file, backup_file)
-                logger.info(f"Created MEMORY.md backup: {backup_file}")
-            except Exception as e:
-                logger.error(f"Failed to create MEMORY.md backup: {e}")
-        else:
-            logger.debug("No existing MEMORY.md file to backup")
+        self._backup_memory_file(workspace_path)
 
         if formatter is not None:
             innermost = chat_model

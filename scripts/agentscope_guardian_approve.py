@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+# -*- coding: utf-8 -*-
 """Record an approved AgentScope/qwenpaw edit so the guard hook lets it through.
 
 Usage:
@@ -29,14 +30,18 @@ def _norm(path: str) -> str:
 
 def main() -> int:
     if len(sys.argv) < 2:
-        sys.stderr.write("usage: agentscope_guardian_approve.py <file_path> ...\n")
+        sys.stderr.write(
+            "usage: agentscope_guardian_approve.py <file_path> ...\n",
+        )
         return 1
     os.makedirs(os.path.dirname(MARKER), exist_ok=True)
     now = str(time.time())
     with open(MARKER, "a", encoding="utf-8") as fh:
         for raw in sys.argv[1:]:
             fh.write(f"{_norm(raw)}\t{now}\n")
-    print(f"[agentscope-guardian] approved: {', '.join(_norm(p) for p in sys.argv[1:])}")
+    print(
+        f"[agentscope-guardian] approved: {', '.join(_norm(p) for p in sys.argv[1:])}",
+    )
     return 0
 
 

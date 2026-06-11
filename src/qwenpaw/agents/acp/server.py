@@ -696,7 +696,9 @@ class QwenPawACPAgent(Agent):
             from ...agents.command_handler import CommandHandler
 
             for name, desc in getattr(
-                CommandHandler, "SYSTEM_COMMAND_DESCRIPTIONS", {}
+                CommandHandler,
+                "SYSTEM_COMMAND_DESCRIPTIONS",
+                {},
             ).items():
                 commands.append(AvailableCommand(name=name, description=desc))
         except Exception:  # pylint: disable=broad-except

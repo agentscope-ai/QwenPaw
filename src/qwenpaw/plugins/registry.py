@@ -588,7 +588,6 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
         """Return a copy of registered prompt sections."""
         return list(self._prompt_sections)
 
-
     def register_control_command(
         self,
         plugin_id: str,
