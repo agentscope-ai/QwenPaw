@@ -15,7 +15,7 @@
 [![Discord](https://img.shields.io/badge/Discord-Join_Us-blueviolet.svg?logo=discord)](https://discord.gg/eYMpfnkG8h)
 [![X](https://img.shields.io/badge/X-Follow_Us-black.svg?logo=x)](https://x.com/agentscope_ai)
 [![DingTalk](https://img.shields.io/badge/DingTalk-Join_Us-orange.svg)](https://qr.dingtalk.com/action/joingroup?code=v1,k1,OmDlBXpjW+I2vWjKDsjvI9dhcXjGZi3bQiojOq3dlDw=&_dt_no_comment=1&origin=11)
-[![AgentScope Platform](https://img.shields.io/badge/Try_it_now-%F0%9F%90%BE_online_%C2%B7_free-FF6B2B.svg)](https://platform.agentscope.io/)
+[![AgentScope Platform](https://img.shields.io/badge/%F0%9F%90%BE_AgentScope_Platform-7%2F24_Online_%26_Free-FF6B2B.svg)](https://platform.agentscope.io/)
 
 [[Документация](https://qwenpaw.agentscope.io/)] [[English](README.md)] [[中文](README_zh.md)] [[日本語](README_ja.md)]
 
