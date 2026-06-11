@@ -996,6 +996,8 @@ class QwenPawAgent(CodingModeMixin, Agent):
 
         # Process file and media blocks in messages
         if msg is not None:
+            from .utils import process_file_and_media_blocks_in_message
+
             await process_file_and_media_blocks_in_message(msg)
 
         # Check if message is a system command
@@ -1011,16 +1013,19 @@ class QwenPawAgent(CodingModeMixin, Agent):
             return msg
 
         # Normal message processing
-        logger.info("QwenPawAgent.reply: max_iters=%s", self.max_iters)
+        logger.info(
+            "QwenPawAgent.reply: max_iters=%s", self.react_config.max_iters
+        )
 
         request_context = getattr(self, "_request_context", {}) or {}
         channel_name = request_context.get("channel", "console")
         workspace_dir = Path(self._workspace_dir or WORKING_DIR)
+        from .skill_system import apply_skill_config_env_overrides
+
         with apply_skill_config_env_overrides(workspace_dir, channel_name):
-            return await super().reply(
-                msg=msg,
-                structured_model=structured_model,
-            )
+            # AgentScope 2.0 Agent.reply(inputs=...) takes a single positional
+            # argument and has no ``structured_model`` parameter (1.x had both).
+            return await super().reply(msg)
 
     async def interrupt(self, msg: Msg | list[Msg] | None = None) -> None:
         """Interrupt the current reply process and wait for cleanup."""
