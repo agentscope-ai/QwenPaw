@@ -6,18 +6,6 @@ from __future__ import annotations
 import pytest
 
 
-_AGENT_PROFILE_TOP_LEVEL_KEYS = (
-    "channels",
-    "mcp",
-    "heartbeat",
-    "running",
-    "llm_routing",
-    "system_prompt_files",
-    "tools",
-    "plan",
-)
-
-
 @pytest.mark.integration
 @pytest.mark.p0
 def test_api_agent_scoped_chats_create_list_batch_delete(app_server) -> None:

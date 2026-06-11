@@ -100,6 +100,65 @@ def get_pool_skill_manifest_path() -> Path:
     return get_skill_pool_dir() / "skill.json"
 
 
+def get_extra_skill_dirs() -> list[Path]:
+    """Return configured additional read-only skill roots that exist."""
+    try:
+        from ...config.utils import load_config
+
+        raw_paths = list(load_config().skill_paths or [])
+    except Exception as exc:  # pragma: no cover
+        logger.warning("Failed to load configured skill_paths: %s", exc)
+        return []
+
+    primary = get_skill_pool_dir().resolve()
+    dirs: list[Path] = []
+    seen: set[Path] = {primary}
+    for raw in raw_paths:
+        try:
+            path = Path(str(raw)).expanduser().resolve()
+        except Exception:
+            logger.warning("Skipping invalid skill path: %r", raw)
+            continue
+        if path in seen or not path.is_dir():
+            continue
+        seen.add(path)
+        dirs.append(path)
+    return dirs
+
+
+def get_skill_pool_dirs() -> list[Path]:
+    """Return ordered skill pool roots: primary pool first, then extras."""
+    return [get_skill_pool_dir(), *get_extra_skill_dirs()]
+
+
+def resolve_pool_skill_dir(skill_name: str) -> Path | None:
+    """Resolve a pool skill's directory across all roots, in order.
+
+    Returns the first ``<root>/<skill_name>`` containing ``SKILL.md`` (primary
+    pool wins), or ``None`` when the skill is not found in any root.
+    """
+    try:
+        normalized = normalize_skill_dir_name(skill_name)
+    except SkillsError:
+        return None
+    for root in get_skill_pool_dirs():
+        try:
+            candidate = safe_skill_dir(root, normalized)
+        except SkillsError:
+            continue
+        if (candidate / "SKILL.md").exists():
+            return candidate
+    return None
+
+
+def is_primary_pool_skill_dir(skill_dir: Path) -> bool:
+    """Return whether ``skill_dir`` lives under the primary pool."""
+    try:
+        return skill_dir.resolve().parent == get_skill_pool_dir().resolve()
+    except Exception:  # pragma: no cover
+        return False
+
+
 # ---------------------------------------------------------------------------
 # Frontmatter + directory introspection
 # ---------------------------------------------------------------------------

@@ -520,6 +520,8 @@
     "broadcast": "Broadcast to Agentes",
     "broadcastHint": "Broadcast skills to selected agents",
     "refreshHint": "Refresh skill pool from disk",
+    "deleteExternalConfirm": "Exclui os arquivos da skill externa em {{path}} do disco.",
+    "deleteExternalBatchWarning": "As skills externas selecionadas serão excluídas permanentemente do disco.",
     "broadcastTitle": "Broadcast {{name}}",
     "importBuiltin": "Atualizar Integrado Skills",
     "importBuiltinHint": "Update built-in skills to the latest version",
@@ -2023,7 +2025,9 @@
       "duplicate": "This path is already in the list",
       "saveSuccess": "File guard Configuracoes saved",
       "saveFailed": "Falha ao Salvar file guard Configuracoes",
-      "loadFailed": "Falha ao load file guard Configuracoes"
+      "loadFailed": "Falha ao load file guard Configuracoes",
+      "allowPreviewOutsideWorkspace": "Permitir Preview Fora do Workspace no Console",
+      "allowPreviewOutsideWorkspaceDesc": "Permite visualizar arquivos fora do diretório do workspace no console. A proteção de arquivos sensíveis continua ativa."
     },
     "allowNoAuthHosts": {
       "title": "Allow Nao Auth Hosts",
@@ -2193,7 +2197,18 @@
     "kindBundle": "Pacote",
     "kindTool": "Ferramenta",
     "filterByName": "Filtrar por nome",
-    "filterByKind": "Filtrar por tipo"
+    "filterByKind": "Filtrar por tipo",
+    "marketTitle": "Plugin Market",
+    "marketEmpty": "No plugins found in market",
+    "marketLoadFailed": "Failed to load plugin market",
+    "marketUnavailable": "Plugin Market is currently under maintenance, please try again later",
+    "marketAll": "All",
+    "marketSearch": "Search plugins...",
+    "marketCategory": "Filter by category",
+    "marketSearchResult": "Found {{count}} plugins matching \"{{keyword}}\"",
+    "marketDetails": "Details",
+    "marketDownloads": "Downloads",
+    "marketDeveloper": "Developer"
   },
   "plan": {
     "title": "Plan",
@@ -2372,5 +2387,14 @@
     "timeout": "O backend nao iniciou em {{seconds}} segundos.",
     "timeoutHint": "Falha ao iniciar o backend. Tente novamente ou verifique os logs do aplicativo.",
     "retry": "Tentar novamente"
+  },
+  "preview": {
+    "error": {
+      "SENSITIVE_FILE_BLOCKED": "Este arquivo está bloqueado pelo File Guard (proteção de arquivos sensíveis).",
+      "OUTSIDE_WORKSPACE": "Este arquivo está fora do escopo do workspace. Ative \"Permitir Preview Fora do Workspace no Console\" em Configurações → Segurança → File Guard.",
+      "FORBIDDEN": "Acesso negado: permissões insuficientes para visualizar este arquivo.",
+      "NOT_FOUND": "Arquivo não encontrado. Pode ter sido movido ou excluído.",
+      "LOAD_FAILED": "Falha ao carregar a visualização do arquivo."
+    }
   }
 }
