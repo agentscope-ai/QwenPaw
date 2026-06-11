@@ -17,8 +17,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from .._utils.constants import PREFIX_SECRETS, PREFIX_WORKSPACES
-from ..models import BackupMeta, RestoreBackupRequest
+from ..models import BackupMeta, BackupValidationError, RestoreBackupRequest
 from ...constant import BACKUP_DIR, SECRET_DIR, WORKING_DIR
+from ...security.workspace_paths import reserved_workspace_root_for
 
 logger = logging.getLogger(__name__)
 
@@ -66,6 +67,63 @@ def collect_workspace_agents_from_zip(zf: zipfile.ZipFile) -> set[str]:
     return agents
 
 
+def _resolve_path(p: Path) -> Path:
+    """Resolve *p* even when it does not exist yet.
+
+    Falls back to absolute path when resolve() fails.
+    """
+    try:
+        return p.resolve()
+    except OSError:
+        return p.absolute()
+
+
+def assert_safe_agent_id(aid: str) -> None:
+    """Reject agent ids that are not a single safe path segment.
+
+    Restore derives both filesystem destinations and zip entry prefixes from
+    the agent id.  Values such as ``..`` or ones containing path separators
+    let a crafted backup escape the workspace area during extraction (e.g. a
+    ``data/workspaces/../custom_channels/...`` entry lands in
+    ``custom_channels`` → remote code execution), bypassing the reserved
+    directory guard which only inspects the resolved destination directory.
+    Rejecting unsafe ids before any path is built closes that gap.
+    """
+    separators = {"/", "\\", os.sep}
+    if os.altsep:
+        separators.add(os.altsep)
+    has_separator = any(sep in aid for sep in separators)
+    if aid in ("", ".", "..") or has_separator:
+        raise BackupValidationError(
+            "restore_invalid_agent_id",
+            f"Agent id {aid!r} is not a valid single path segment and "
+            "cannot be restored.",
+            {"agent_id": aid},
+        )
+
+
+def assert_safe_workspace_dst(dst: Path, aid: str) -> None:
+    """Reject restore destinations that target reserved server directories.
+
+    ``default_workspace_dir`` and the agent id are attacker influenceable
+    through a crafted restore request.  Placing a workspace inside an
+    auto-loaded code directory (e.g. ``custom_channels``) lets the next agent
+    reload import attacker-controlled modules, yielding remote code execution;
+    placing it inside ``SECRET_DIR`` tampers with stored credentials.  Custom
+    workspace paths elsewhere remain allowed.
+    """
+    reserved = reserved_workspace_root_for(dst)
+    if reserved is not None:
+        raise BackupValidationError(
+            "restore_workspace_dir_reserved",
+            "Restore destination for agent "
+            f"'{aid}' ({dst}) targets a reserved directory ({reserved}). "
+            "Agent workspaces cannot be restored into custom_channels, "
+            "plugins, or the secrets directory.",
+            {"agent_id": aid, "destination": str(dst)},
+        )
+
+
 def resolve_workspace_dst(
     aid: str,
     ref,  # AgentProfileRef | None
@@ -87,10 +145,19 @@ def resolve_workspace_dst(
     All returned paths are fully resolved (absolute, symlinks expanded) so
     that ``str(dst)`` is always canonical regardless of which branch is taken.
     """
+    # The agent id feeds both the destination path and the zip entry prefix,
+    # so validate it before it is used to build either.
+    assert_safe_agent_id(aid)
+
     if ref is not None:
         dst = Path(ref.workspace_dir).expanduser()
         if dst.exists():
-            return dst.resolve(), False
+            resolved = dst.resolve()
+            # An existing profile may point at a reserved directory (e.g. an
+            # agent created with workspace_dir inside custom_channels); still
+            # block restoring code/secrets there.
+            assert_safe_workspace_dst(resolved, aid)
+            return resolved, False
         # Existing agent in config but local path is absent (cross-machine
         # restore or manually deleted directory) – fall through to defaults.
 
@@ -101,12 +168,14 @@ def resolve_workspace_dst(
 
     # Resolve even when the directory does not yet exist so that the returned
     # path string is always in fully-qualified, canonical form.
-    try:
-        return dst.resolve(), ref is None
-    except OSError:
-        # resolve() can fail on some platforms when parts of the path don't
-        # exist; fall back to absolute path without symlink expansion.
-        return dst.absolute(), ref is None
+    resolved = _resolve_path(dst)
+
+    # Block restores into auto-loaded code / secret directories (RCE / secret
+    # tampering) before any files are extracted, while still allowing custom
+    # workspace locations anywhere else.
+    assert_safe_workspace_dst(resolved, aid)
+
+    return resolved, ref is None
 
 
 def rewrite_agent_workspace_dir(dst: Path, aid: str) -> None:
