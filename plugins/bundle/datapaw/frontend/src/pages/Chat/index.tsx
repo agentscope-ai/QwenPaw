@@ -936,7 +936,7 @@ export default function ChatPage() {
             <ChatHeaderTitle />
             <span style={{ flex: 1 }} />
             <ModelSelector />
-            <ChatActionGroup />
+            <ChatActionGroup onArtifactsOpen={() => setArtifactDrawerOpen(true)} />
           </>
         ),
       },

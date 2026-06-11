@@ -1,13 +1,9 @@
 import type { PlanSnapshot } from "./types";
 import { TaskGraphPanel } from "./panel";
-import { createPlanCorrectionPopover } from "./plan-correction-popover";
 import { createArtifactManageDrawerBridge } from "./artifact-manage-drawer-bridge";
 import { createTaskNodeDrawerBridge } from "./task-node-drawer-bridge";
-import { putPlanSop } from "../lib/api";
 import { resolveBackendSessionId } from "../lib/session-id";
-import { refreshTaskCard } from "../patches/task-card";
 import { getCurrentPlan, subscribeCurrentPlan } from "../lib/plan-store";
-import { tTaskGraph } from "./i18n";
 import type { HostBundle } from "../types";
 import {
   EMPTY_NODE_STREAM_EVENTS,
@@ -30,8 +26,7 @@ export interface TaskGraphCardData {
 
 export function createTaskGraphCard(host: HostBundle) {
   const { React } = host;
-  const { useMemo, useState, useSyncExternalStore, useEffect } = React;
-  const PlanCorrectionPopover = createPlanCorrectionPopover(host);
+  const { useMemo, useState, useSyncExternalStore } = React;
   const ArtifactManageDrawer = createArtifactManageDrawerBridge(host);
   const TaskNodeDrawer = createTaskNodeDrawerBridge(host);
 
@@ -93,24 +88,6 @@ export function createTaskGraphCard(host: HostBundle) {
       return items;
     }, [plan]);
 
-    const handlePlanCorrection = async (yaml: string) => {
-      if (!sessionId) {
-        host.antd.message?.error?.(tTaskGraph("noSession"));
-        return;
-      }
-      try {
-        const result = await putPlanSop(sessionId, yaml);
-        await refreshTaskCard(sessionId);
-        host.antd.message?.success?.(
-          result.detail || tTaskGraph("planUpdateSuccess"),
-        );
-      } catch (error) {
-        const msg =
-          error instanceof Error ? error.message : tTaskGraph("planUpdateFailed");
-        host.antd.message?.error?.(msg || tTaskGraph("planUpdateFailed"));
-      }
-    };
-
     if (!plan) return null;
 
     const showActions = data.showActions ?? false;
@@ -125,9 +102,7 @@ export function createTaskGraphCard(host: HostBundle) {
           plan,
           React: host.React,
           antd: host.antd,
-          PlanCorrectionPopover,
           showActions,
-          onPlanCorrection: showActions ? handlePlanCorrection : undefined,
           onArtifactManage: showActions ? () => setArtifactOpen(true) : undefined,
           onNodeClick: (nodeId: string) => setDrawerNodeId(nodeId),
         }),

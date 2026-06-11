@@ -3,6 +3,8 @@
 export const PYPI_URL = "https://pypi.org/pypi/qwenpaw/json";
 
 export const GITHUB_URL = "https://github.com/agentscope-ai/QwenPaw" as const;
+export const SEMANTIC_WEAVING_URL =
+  "https://bailian.console.aliyun.com/" as const;
 
 // ── Timing ────────────────────────────────────────────────────────────────
 

@@ -1,5 +1,10 @@
 import type { PlanSnapshot } from "../task-graph/types";
-import { fetchTasksSummary, subscribeDagEvents } from "../lib/api";
+import {
+  fetchHistoricalTaskPlan,
+  fetchTasksSummary,
+  subscribeDagEvents,
+  type TasksSummaryResponse,
+} from "../lib/api";
 import { setCurrentPlan } from "../lib/plan-store";
 import { toPlainJson } from "../lib/plain";
 import { resolveBackendSessionId, getHostSessionApi } from "../lib/session-id";
@@ -179,7 +184,7 @@ export async function refreshTaskCard(
 
 async function fetchAndApplyTaskPlan(sessionId: string): Promise<boolean> {
   const summary = await fetchTasksSummary(sessionId);
-  const plan = summary?.current_plan ?? null;
+  const plan = await resolvePlanFromSummary(sessionId, summary);
   if (!plan) return false;
   applyCurrentPlan(plan, sessionId);
   console.info(
@@ -190,6 +195,29 @@ async function fetchAndApplyTaskPlan(sessionId: string): Promise<boolean> {
   return true;
 }
 
+function getLatestHistoricalPlanId(
+  summary: TasksSummaryResponse | null,
+): string | null {
+  const plans = summary?.historical_plans ?? [];
+  if (!plans.length) return null;
+  const sorted = [...plans].sort((a, b) => {
+    const at = a.finished_at ? Date.parse(a.finished_at) : 0;
+    const bt = b.finished_at ? Date.parse(b.finished_at) : 0;
+    return bt - at;
+  });
+  return sorted[0]?.id || plans[plans.length - 1]?.id || null;
+}
+
+async function resolvePlanFromSummary(
+  sessionId: string,
+  summary: TasksSummaryResponse | null,
+): Promise<PlanSnapshot | null> {
+  if (summary?.current_plan) return summary.current_plan;
+  const historicalPlanId = getLatestHistoricalPlanId(summary);
+  if (!historicalPlanId) return null;
+  return fetchHistoricalTaskPlan(sessionId, historicalPlanId);
+}
+
 async function syncTaskPlanForCurrentSession(sessionId: string): Promise<void> {
   const token = ++sessionSyncToken;
   console.info("[datapaw:task-card] sync session task plan", { sessionId });
@@ -198,9 +226,9 @@ async function syncTaskPlanForCurrentSession(sessionId: string): Promise<void> {
     const summary = await fetchTasksSummary(sessionId);
     if (token !== sessionSyncToken || lastSyncedSessionId !== sessionId) return;
 
-    const plan = summary?.current_plan ?? null;
+    const plan = await resolvePlanFromSummary(sessionId, summary);
     if (!plan) {
-      console.info("[datapaw:task-card] no current_plan for session", {
+      console.info("[datapaw:task-card] no task plan for session", {
         sessionId,
       });
       return;

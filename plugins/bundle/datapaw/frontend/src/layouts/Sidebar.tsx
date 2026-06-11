@@ -40,7 +40,11 @@ import { clearAuthToken } from "../api/config";
 import { authApi } from "../api/modules/auth";
 import styles from "./index.module.less";
 import { useTheme } from "../contexts/ThemeContext";
-import { KEY_TO_PATH, DEFAULT_OPEN_KEYS } from "./constants";
+import {
+  KEY_TO_PATH,
+  DEFAULT_OPEN_KEYS,
+  SEMANTIC_WEAVING_URL,
+} from "./constants";
 
 // ── Layout ────────────────────────────────────────────────────────────────
 
@@ -143,6 +147,13 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
       icon: <SparkInternetLine size={18} />,
       path: "/datapaw/data-connection",
       label: t("nav.dataConnection"),
+    },
+    {
+      key: "semantic-weaving",
+      icon: <SparkDataLine size={18} />,
+      path: SEMANTIC_WEAVING_URL,
+      label: t("nav.semanticWeaving", "Semantic Weaving"),
+      external: true,
     },
     {
       key: "channels",
@@ -258,6 +269,11 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
           key: "data-connection",
           label: collapsed ? null : t("nav.dataConnection"),
           icon: <SparkInternetLine size={16} />,
+        },
+        {
+          key: "semantic-weaving",
+          label: collapsed ? null : t("nav.semanticWeaving", "Semantic Weaving"),
+          icon: <SparkDataLine size={16} />,
         },
       ],
     },
@@ -392,7 +408,13 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
                   className={`${styles.collapsedNavItem} ${
                     isActive ? styles.collapsedNavItemActive : ""
                   }`}
-                  onClick={() => navigate(item.path)}
+                  onClick={() => {
+                    if ("external" in item && item.external) {
+                      window.open(item.path, "_blank", "noopener,noreferrer");
+                    } else {
+                      navigate(item.path);
+                    }
+                  }}
                 >
                   {item.icon}
                 </button>
@@ -406,6 +428,14 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
           selectedKeys={[selectedKey]}
           openKeys={DEFAULT_OPEN_KEYS}
           onClick={({ key }) => {
+            if (key === "semantic-weaving") {
+              window.open(
+                SEMANTIC_WEAVING_URL,
+                "_blank",
+                "noopener,noreferrer",
+              );
+              return;
+            }
             const path = KEY_TO_PATH[String(key)];
             if (path) navigate(path);
           }}
