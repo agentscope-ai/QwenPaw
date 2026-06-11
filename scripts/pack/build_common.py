@@ -17,6 +17,9 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 ENV_PREFIX = "qwenpaw_pack_"
+# OpenSSL 3.5.7 regressed Windows cert-store DER cadata loading,
+# which breaks ssl.create_default_context() during aiohttp/discord imports.
+WINDOWS_OPENSSL_PIN = "openssl=3.5.6"
 
 # Packages affected by conda-unpack bug on Windows (conda-pack Issue #154)
 # conda-unpack modifies Python source files to replace path prefixes, but uses
@@ -72,6 +75,12 @@ def _pick_wheel(wheel_arg: str | None) -> Path:
     return wheels[0]
 
 
+def _windows_openssl_pin() -> list[str]:
+    if sys.platform != "win32":
+        return []
+    return [WINDOWS_OPENSSL_PIN]
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Conda-pack QwenPaw (temp env).",
@@ -120,6 +129,12 @@ def main() -> int:
     )
 
     conda = _conda_exe()
+    openssl_pin = _windows_openssl_pin()
+    if openssl_pin:
+        print(
+            f"Pinning {WINDOWS_OPENSSL_PIN} on Windows to avoid "
+            "OpenSSL 3.5.7 cert-store regression.",
+        )
     try:
         _run(
             [
@@ -128,6 +143,7 @@ def main() -> int:
                 "-n",
                 env_name,
                 f"python={args.python}",
+                *openssl_pin,
                 "pip",
                 "-y",
             ],
@@ -201,6 +217,7 @@ def main() -> int:
                 "pip",
                 "setuptools",
                 "wheel",
+                *openssl_pin,
             ],
         )
         _run(
@@ -213,8 +230,29 @@ def main() -> int:
                 "install",
                 "-y",
                 "conda-pack",
+                *openssl_pin,
             ],
         )
+        if openssl_pin:
+            _run(
+                [
+                    conda,
+                    "run",
+                    "-n",
+                    env_name,
+                    "python",
+                    "-c",
+                    (
+                        "import ssl; "
+                        "version = ssl.OPENSSL_VERSION; "
+                        "print(f'OpenSSL OK: {version}'); "
+                        "raise SystemExit("
+                        "0 if version.startswith('OpenSSL 3.5.6 ') "
+                        "else f'Unexpected OpenSSL version: {version}'"
+                        ")"
+                    ),
+                ],
+            )
         if out_path.exists():
             out_path.unlink()
         pack_cmd = [
