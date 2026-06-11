@@ -299,14 +299,9 @@ jobs:
             **Any FAIL** → comment with repro steps + logs, add label \`installation-bug\`, ping maintainer to decide whether to block the release announcement.
             `;
 
-            // Collect unique assignees across platforms
-            const assigneeSet = new Set(
-              Object.values(assignees)
-                .map(a => a.github)
-                .filter(Boolean)
-            );
-
-            const issueParams = {
+            // Create issue first (without assignees to avoid 422 on
+            // repos where roster members aren't collaborators)
+            const { data: issue } = await github.rest.issues.create({
               owner: context.repo.owner,
               repo:  context.repo.repo,
               title: `[Release Duty] QwenPaw ${tag} (${typeBadge}) — Installation Verification`,
@@ -314,13 +309,33 @@ jobs:
               labels: ['release-duty', releaseType === 'stable' || releaseType === 'post'
                 ? 'stable'
                 : 'pre-release'],
-              assignees: [...assigneeSet],
-            };
-
-            const { data: issue } = await github.rest.issues.create(issueParams);
+            });
             console.log(
               `Created duty issue #${issue.number}: ${issue.html_url}`
             );
+
+            // Try to assign platform owners; log warning if any aren't
+            // collaborators (the @mentions in the body still notify them)
+            const assigneeSet = [...new Set(
+              Object.values(assignees).map(a => a.github).filter(Boolean)
+            )];
+            if (assigneeSet.length > 0) {
+              try {
+                await github.rest.issues.addAssignees({
+                  owner:      context.repo.owner,
+                  repo:       context.repo.repo,
+                  issue_number: issue.number,
+                  assignees:  assigneeSet,
+                });
+                console.log(`Assigned: ${assigneeSet.join(', ')}`);
+              } catch (err) {
+                core.warning(
+                  `Could not assign ${assigneeSet.join(', ')}: ${err.message}. ` +
+                  `They are still @mentioned in the issue body.`
+                );
+              }
+            }
+
             core.summary.addRaw(
               `Created [Release Duty Issue #${issue.number}](${issue.html_url})`
             );
