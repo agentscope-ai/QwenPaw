@@ -19,6 +19,7 @@ import {
   GitHubIcon,
   ModelIcon,
   AliyunIcon,
+  AgentScopePlatformIcon,
 } from "@/components/Icon";
 import { sectionStyles } from "@/lib/utils";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
@@ -26,13 +27,14 @@ import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 type InstallMethod = "pip" | "script" | "docker" | "cloud" | "desktop";
 type ScriptPlatform = "mac" | "windows";
 type ScriptWindowsVariant = "cmd" | "ps";
-type CloudPlatform = "aliyun" | "modelscope";
+type CloudPlatform = "agentscope" | "aliyun" | "modelscope";
 
 type QuickStartProps = {
   docsBase: string;
 };
 
 const DOCKER_IMAGE = "agentscope/qwenpaw:latest";
+const AGENTSCOPE_PLATFORM_URL = "https://platform.agentscope.io/";
 const MODELSCOPE_URL =
   "https://modelscope.cn/studios/fork?target=AgentScope/QwenPaw";
 const ALIYUN_ECS_URL =
@@ -229,7 +231,8 @@ export function QuickStart({ docsBase }: QuickStartProps) {
   const [scriptPlatform, setScriptPlatform] = useState<ScriptPlatform>("mac");
   const [scriptWinVariant, setScriptWinVariant] =
     useState<ScriptWindowsVariant>("cmd");
-  const [cloudPlatform, setCloudPlatform] = useState<CloudPlatform>("aliyun");
+  const [cloudPlatform, setCloudPlatform] =
+    useState<CloudPlatform>("agentscope");
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
   const currentScriptCommands = useMemo(() => {
@@ -491,28 +494,34 @@ export function QuickStart({ docsBase }: QuickStartProps) {
                           >
                             <div className="flex justify-center">
                               <div className="inline-flex h-11 items-center rounded-xl border border-[#ebe5df] bg-(--color-fill-tertiary) p-1 sm:h-11">
-                                {(["aliyun", "modelscope"] as const).map(
-                                  (platform) => (
-                                    <button
-                                      key={platform}
-                                      type="button"
-                                      onClick={() => setCloudPlatform(platform)}
-                                      className={`inline-flex h-9 items-center justify-center whitespace-nowrap rounded-lg px-4 text-sm font-semibold leading-none sm:h-10 sm:px-6 sm:text-[1.05rem] ${
-                                        cloudPlatform === platform
-                                          ? "bg-white text-(--color-text) shadow-[0_1px_2px_rgba(0,0,0,0.08)]"
-                                          : "text-(--color-text-secondary)"
-                                      }`}
-                                    >
-                                      {t(`quickstart.cloud.${platform}`)}
-                                    </button>
-                                  ),
-                                )}
+                                {(
+                                  [
+                                    "agentscope",
+                                    "aliyun",
+                                    "modelscope",
+                                  ] as const
+                                ).map((platform) => (
+                                  <button
+                                    key={platform}
+                                    type="button"
+                                    onClick={() => setCloudPlatform(platform)}
+                                    className={`inline-flex h-9 items-center justify-center whitespace-nowrap rounded-lg px-3 text-sm font-semibold leading-none sm:h-10 sm:px-5 sm:text-[1.05rem] ${
+                                      cloudPlatform === platform
+                                        ? "bg-white text-(--color-text) shadow-[0_1px_2px_rgba(0,0,0,0.08)]"
+                                        : "text-(--color-text-secondary)"
+                                    }`}
+                                  >
+                                    {t(`quickstart.cloud.${platform}`)}
+                                  </button>
+                                ))}
                               </div>
                             </div>
 
                             <a
                               href={
-                                cloudPlatform === "aliyun"
+                                cloudPlatform === "agentscope"
+                                  ? AGENTSCOPE_PLATFORM_URL
+                                  : cloudPlatform === "aliyun"
                                   ? ALIYUN_ECS_URL
                                   : MODELSCOPE_URL
                               }
@@ -520,7 +529,12 @@ export function QuickStart({ docsBase }: QuickStartProps) {
                               rel="noopener noreferrer"
                               className="inline-flex items-center justify-center gap-2 rounded-xl bg-(--color-secondary) px-4 py-3 text-sm font-medium text-(--color-text) hover:brightness-105 md:px-5 md:py-3.5 md:text-[1.08rem]"
                             >
-                              {cloudPlatform === "aliyun" ? (
+                              {cloudPlatform === "agentscope" ? (
+                                <>
+                                  <AgentScopePlatformIcon size={20} />
+                                  {t("quickstart.cloud.agentscopeGo")}
+                                </>
+                              ) : cloudPlatform === "aliyun" ? (
                                 <>
                                   <AliyunIcon size={20} />
                                   {t("quickstart.cloud.aliyunDeploy")}

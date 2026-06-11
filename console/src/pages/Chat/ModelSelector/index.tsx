@@ -163,8 +163,12 @@ export default function ModelSelector() {
       if (freeModels.length > 0 || (p.is_free_tier && p.models.length === 0)) {
         freeMap.set(p.id, { ...p, models: freeModels });
       }
-      // PRO: only show paid models when user has API key configured
-      if (proModels.length > 0 && p.has_api_key) {
+      // PRO: show paid models when API key is configured, or when
+      // the provider doesn't require an API key (e.g. ollama, lmstudio)
+      if (
+        proModels.length > 0 &&
+        (p.has_api_key || p.require_api_key === false)
+      ) {
         proMap.set(p.id, { ...p, models: proModels });
       }
     }

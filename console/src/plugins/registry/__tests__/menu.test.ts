@@ -55,6 +55,28 @@ describe("menuRegistry.add", () => {
     expect(items).toContain("shown");
     expect(items).not.toContain("hidden");
   });
+
+  it("recomputes visible() after refresh", () => {
+    let visible = false;
+    menuRegistry.add("p1", {
+      id: "refreshable",
+      label: "R",
+      visible: () => visible,
+    });
+    expect(
+      menuRegistry.snapshot("primary.settings").map((i) => i.id),
+    ).not.toContain("refreshable");
+
+    visible = true;
+    expect(
+      menuRegistry.snapshot("primary.settings").map((i) => i.id),
+    ).not.toContain("refreshable");
+
+    menuRegistry.refresh();
+    expect(
+      menuRegistry.snapshot("primary.settings").map((i) => i.id),
+    ).toContain("refreshable");
+  });
 });
 
 describe("menuRegistry.replace", () => {

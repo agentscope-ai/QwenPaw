@@ -15,6 +15,7 @@
 [![Discord](https://img.shields.io/badge/Discord-Join_Us-blueviolet.svg?logo=discord)](https://discord.gg/eYMpfnkG8h)
 [![X](https://img.shields.io/badge/X-Follow_Us-black.svg?logo=x)](https://x.com/agentscope_ai)
 [![钉钉群](https://img.shields.io/badge/DingTalk-Join_Us-orange.svg)](https://qr.dingtalk.com/action/joingroup?code=v1,k1,OmDlBXpjW+I2vWjKDsjvI9dhcXjGZi3bQiojOq3dlDw=&_dt_no_comment=1&origin=11)
+[![AgentScope 体验平台](https://img.shields.io/badge/%E2%98%81_AgentScope_Platform-%F0%9F%90%BE_7%2F24_Online_%26_Free-FF6B2B.svg)](https://platform.agentscope.io/)
 
 [[文档](https://qwenpaw.agentscope.io/)] [[English](README.md)] [[日本語](README_ja.md)] [[Русский](README_ru.md)]
 
@@ -59,6 +60,8 @@
 ---
 
 ## 新闻
+
+- [2026-06-11] **AgentScope 体验平台上线** — 支持免费部署 QwenPaw、插件分享与 Skill 市场。[立即体验 →](https://platform.agentscope.io/)
 
 - [2026-06-10] **v1.1.11 — 免费模型 OAuth & 插件市场** | 零配置免费模型一键 OAuth 认证；插件市场集成 AgentScope 平台。
 
