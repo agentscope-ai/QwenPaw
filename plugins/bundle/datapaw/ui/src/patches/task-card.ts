@@ -45,11 +45,50 @@ type ChatRefHolder = {
 let chatRefHolder: ChatRefHolder = { current: null };
 let activePlanId: string | null = null;
 let injectInFlight = false;
+let chatSyncRetryTimer: ReturnType<typeof setTimeout> | null = null;
+let chatSyncAttempts = 0;
+const MAX_CHAT_SYNC_ATTEMPTS = 40;
 let dagAbort: AbortController | null = null;
 let dagSessionId: string | null = null;
 let sessionSyncScheduled = false;
 let lastSyncedSessionId: string | null = null;
 let sessionSyncToken = 0;
+
+function pushTaskCardToLiveChat(
+  message: ReturnType<typeof buildTaskCardMessage>,
+): boolean {
+  const msgsApi = chatRefHolder.current?.messages;
+  const updateMessage = msgsApi?.updateMessage as
+    | ((msg: Record<string, unknown> & { id: string }) => void)
+    | undefined;
+  if (typeof updateMessage !== "function") return false;
+
+  updateMessage(message);
+  schedulePinTaskCardDomToBottom();
+  return true;
+}
+
+function scheduleTaskCardChatSync(
+  message: ReturnType<typeof buildTaskCardMessage>,
+): void {
+  if (pushTaskCardToLiveChat(message)) {
+    chatSyncAttempts = 0;
+    if (chatSyncRetryTimer) {
+      window.clearTimeout(chatSyncRetryTimer);
+      chatSyncRetryTimer = null;
+    }
+    return;
+  }
+
+  if (chatSyncAttempts >= MAX_CHAT_SYNC_ATTEMPTS) return;
+  chatSyncAttempts += 1;
+  if (chatSyncRetryTimer) return;
+
+  chatSyncRetryTimer = window.setTimeout(() => {
+    chatSyncRetryTimer = null;
+    scheduleTaskCardChatSync(message);
+  }, 200);
+}
 
 function syncTaskCardMessage(plan: PlanSnapshot): void {
   if (!isDatapawAgentSelected()) return;
@@ -63,19 +102,19 @@ function syncTaskCardMessage(plan: PlanSnapshot): void {
     setPersistent(message);
   }
 
-  const msgsApi = chatRefHolder.current?.messages;
-  const updateMessage = msgsApi?.updateMessage as
-    | ((msg: Record<string, unknown> & { id: string }) => void)
-    | undefined;
-  if (typeof updateMessage === "function") {
-    updateMessage(message);
-  }
+  chatSyncAttempts = 0;
+  scheduleTaskCardChatSync(message);
 
-  schedulePinTaskCardDomToBottom();
   console.info("[datapaw:task-card] synced task card message", {
     planId: plan.id,
     messageId: TASK_GRAPH_MESSAGE_ID,
   });
+}
+
+/** Re-inject the current plan into chat after sessionApi patch or chat mount. */
+export function resyncTaskCardFromPlanStore(): void {
+  const plan = getDisplayPlan();
+  if (plan) syncTaskCardMessage(plan);
 }
 
 function removeTaskCardFromChat(): void {
@@ -230,8 +269,7 @@ export function installChatBridge(): void {
   const bindRef = (ref: ChatRefHolder) => {
     chatRefHolder = ref;
     purgeLegacyTaskGraphMessages();
-    const plan = getDisplayPlan();
-    if (plan) syncTaskCardMessage(plan);
+    resyncTaskCardFromPlanStore();
   };
 
   bridge.setChatRef = bindRef;

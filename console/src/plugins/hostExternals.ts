@@ -54,6 +54,7 @@ export interface HostExternals {
   chatBridge?: {
     setChatRef?: (ref: { current: unknown }) => void;
     _ref?: { current: unknown };
+    _sessionApi?: unknown;
   };
   // ── Hooks + helpers attached later by installHostSdk() ─────────────────────
   useTheme?: () => HostThemeMode;

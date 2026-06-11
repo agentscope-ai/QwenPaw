@@ -10,14 +10,19 @@ import { PLUGIN_ID } from "./lib/constants";
 import { injectTaskGraphStyles } from "./task-graph/styles";
 import { createFetchDataRender } from "./renders/fetch-data";
 import { createTaskGraphCard } from "./task-graph/card";
+import { createTaskGraphAppend } from "./renders/task-graph-append";
 import { installFetchPatch } from "./patches/fetch-patch";
 import { ensureDefaultAgent } from "./patches/ensure-agent";
 import { patchWelcomeAndTheme } from "./patches/welcome-theme";
 import {
   installChatBridge,
   scheduleSessionTaskPlanSync,
+  resyncTaskCardFromPlanStore,
 } from "./patches/task-card";
-import { patchHostSessionApi } from "./patches/session-api";
+import {
+  patchHostSessionApi,
+  setSessionApiPatchedListener,
+} from "./patches/session-api";
 import { installConsoleLogoPatch } from "./patches/console-logo";
 import { registerChatArtifactsButton } from "./patches/chat-artifacts-button";
 import { registerDatapawNavigation } from "./patches/datapaw-navigation";
@@ -51,6 +56,11 @@ function buildPlugin() {
         id: string,
         renders: Record<string, unknown>,
       ) => void;
+      chat?: {
+        response?: {
+          render?: (pluginId: string, fn: unknown) => void;
+        };
+      };
     };
   }).QwenPaw;
 
@@ -63,14 +73,23 @@ function buildPlugin() {
     task_graph: TaskGraphCard,
   });
 
+  QP?.chat?.response?.render?.(PLUGIN_ID, createTaskGraphAppend(bundle));
+
+  setSessionApiPatchedListener(() => {
+    resyncTaskCardFromPlanStore();
+  });
+
   if (!patchHostSessionApi()) {
     let attempts = 0;
     const timer = window.setInterval(() => {
       attempts += 1;
       if (patchHostSessionApi() || attempts >= 50) {
         window.clearInterval(timer);
+        if (attempts < 50) resyncTaskCardFromPlanStore();
       }
     }, 200);
+  } else {
+    resyncTaskCardFromPlanStore();
   }
   installChatBridge();
   scheduleSessionTaskPlanSync();
