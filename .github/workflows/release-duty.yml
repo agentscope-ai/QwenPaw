@@ -93,7 +93,7 @@ jobs:
           print(f"Previous releases: {idx}, rotation index: {idx}")
 
           # ── Pick assignees from roster ───────────────────────────────────
-          roster_path = ".github/beta-duty-roster.yml"
+          roster_path = ".github/release-duty-roster.yml"
           with open(roster_path) as f:
               roster = yaml.safe_load(f)
 

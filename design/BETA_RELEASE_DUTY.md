@@ -82,7 +82,7 @@ Each assignee receives a GitHub notification
 
 ## Rotation Design
 
-### Roster file: `.github/beta-duty-roster.yml`
+### Roster file: `.github/release-duty-roster.yml`
 
 Each platform has its own independent rotation list.
 
@@ -161,11 +161,11 @@ and select **"Read and write permissions"** so the Action can create issues.
 
 ```
 .github/
-├── beta-duty-roster.yml              # Per-platform rotation roster
+├── release-duty-roster.yml           # Per-platform rotation roster
 ├── ISSUE_TEMPLATE/
-│   └── 6-beta_release_duty.md       # Manual fallback template
+│   └── 6-release_duty.md            # Manual fallback template
 └── workflows/
-    └── beta-release-duty.yml        # Action: auto-create Duty Issue on pre-release
+    └── release-duty.yml             # Action: auto-create Duty Issue on every release
 design/
 └── BETA_RELEASE_DUTY.md             # This design document
 ```
