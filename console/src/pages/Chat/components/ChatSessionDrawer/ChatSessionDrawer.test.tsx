@@ -228,10 +228,9 @@ describe("ChatSessionDrawer", () => {
     const user = userEvent.setup();
     const onClose = vi.fn();
     renderWithProviders(<ChatSessionDrawer open onClose={onClose} />);
+    // Component uses lucide ChevronRight icon after shadcn migration
     await user.click(
-      document
-        .querySelector('[data-icon="SparkOperateRightLine"]')!
-        .closest("button")!,
+      document.querySelector(".lucide-chevron-right")!.closest("button")!,
     );
     expect(onClose).toHaveBeenCalledOnce();
   });

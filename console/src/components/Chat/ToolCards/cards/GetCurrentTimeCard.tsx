@@ -1,6 +1,6 @@
 import React from "react";
 import { useTranslation } from "react-i18next";
-import { ClockCircleOutlined } from "@ant-design/icons";
+import { Clock } from "lucide-react";
 import type { ToolCallContent } from "../shared/types";
 import { ToolCardShell } from "../shared";
 
@@ -48,7 +48,7 @@ const GetCurrentTimeCard: React.FC<GetCurrentTimeCardProps> = ({
     <ToolCardShell
       content={content}
       isStreaming={isStreaming}
-      icon={<ClockCircleOutlined />}
+      icon={<Clock size={13} />}
       title={title}
       inlineResult={inlineResult}
     />

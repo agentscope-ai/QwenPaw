@@ -1,4 +1,4 @@
-import { Slider } from "@agentscope-ai/design";
+import { Slider } from "@/components/ui/slider";
 import styles from "../index.module.less";
 
 interface SliderWithValueProps {
@@ -12,10 +12,9 @@ interface SliderWithValueProps {
 
 export function SliderWithValue({
   value,
-  min,
-  max,
-  step,
-  marks,
+  min = 0,
+  max = 100,
+  step = 1,
   onChange,
 }: SliderWithValueProps) {
   const formatValue = (v: number) => {
@@ -24,18 +23,17 @@ export function SliderWithValue({
   };
 
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
-      <div style={{ flex: 1 }}>
+    <div className="flex items-center gap-4">
+      <div className="flex-1">
         <Slider
-          value={value}
+          value={value !== undefined ? [value] : undefined}
           min={min}
           max={max}
           step={step}
-          marks={marks}
-          onChange={onChange}
+          onValueChange={(vals) => onChange?.(vals[0])}
         />
       </div>
-      <div style={{ minWidth: 50, textAlign: "right", lineHeight: "32px" }}>
+      <div className="min-w-[50px] text-right leading-8">
         <span className={styles.sliderValue}>
           {value !== undefined ? formatValue(value) : "-"}
         </span>

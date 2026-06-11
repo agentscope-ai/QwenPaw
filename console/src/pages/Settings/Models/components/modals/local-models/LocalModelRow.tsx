@@ -1,11 +1,6 @@
 import { memo } from "react";
-import { Button } from "@agentscope-ai/design";
-import {
-  DeleteOutlined,
-  DownloadOutlined,
-  PlayCircleOutlined,
-  StopOutlined,
-} from "@ant-design/icons";
+import { Button } from "@/components/ui/button";
+import { Download, Play, Square, Trash2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { LocalModelInfo } from "../../../../../../api/types";
 import styles from "../../../index.module.less";
@@ -54,56 +49,51 @@ export const LocalModelRow = memo(function LocalModelRow({
       <div className={styles.modelListItemActions}>
         {!model.downloaded ? (
           <Button
-            type="primary"
-            size="small"
-            icon={<DownloadOutlined />}
+            size="sm"
             onClick={() => onStartDownload(model)}
             disabled={isModelDownloading || isServerBusy}
           >
+            <Download className="mr-1 h-3 w-3" />
             {t("common.download")}
           </Button>
         ) : isRunning ? (
           <>
             <Button
-              danger
-              size="small"
-              icon={<StopOutlined />}
-              loading={stoppingServer}
+              variant="destructive"
+              size="sm"
+              disabled={stoppingServer}
               onClick={onStopServer}
             >
+              <Square className="mr-1 h-3 w-3" />
               {t("models.localStopServer")}
             </Button>
             <Button
-              danger
-              size="small"
-              icon={<DeleteOutlined />}
-              loading={isDeleting}
+              variant="destructive"
+              size="sm"
               disabled
               onClick={() => onDeleteModel(model)}
             >
+              <Trash2 className="mr-1 h-3 w-3" />
               {t("common.delete")}
             </Button>
           </>
         ) : (
           <>
             <Button
-              type="primary"
-              size="small"
-              icon={<PlayCircleOutlined />}
-              loading={isStarting}
+              size="sm"
+              disabled={isStarting || isServerBusy || isDeleting}
               onClick={() => onStartServer(model)}
-              disabled={isServerBusy || isDeleting}
             >
+              <Play className="mr-1 h-3 w-3" />
               {t("models.localStartServer")}
             </Button>
             <Button
-              danger
-              size="small"
-              icon={<DeleteOutlined />}
-              loading={isDeleting}
-              onClick={() => onDeleteModel(model)}
+              variant="destructive"
+              size="sm"
               disabled={isDeleting || isServerBusy}
+              onClick={() => onDeleteModel(model)}
             >
+              <Trash2 className="mr-1 h-3 w-3" />
               {t("common.delete")}
             </Button>
           </>

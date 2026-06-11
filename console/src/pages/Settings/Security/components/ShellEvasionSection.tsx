@@ -1,4 +1,4 @@
-import { Switch } from "@agentscope-ai/design";
+import { Switch } from "@/components/ui/switch";
 import { useTranslation } from "react-i18next";
 import styles from "../index.module.less";
 
@@ -56,9 +56,8 @@ export function ShellEvasionSection({
                 )}
               </div>
               <Switch
-                size="small"
                 checked={isEnabled}
-                onChange={(val) => onToggle(checkKey, val)}
+                onCheckedChange={(val) => onToggle(checkKey, val)}
                 disabled={disabled}
               />
             </div>

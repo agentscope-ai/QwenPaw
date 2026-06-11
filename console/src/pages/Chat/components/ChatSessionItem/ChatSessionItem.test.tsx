@@ -51,8 +51,9 @@ describe("ChatSessionItem", () => {
     renderWithProviders(
       <ChatSessionItem {...baseProps} onClick={onClick} onEdit={onEdit} />,
     );
+    // Component uses lucide Pencil icon after shadcn migration
     fireEvent.click(
-      document.querySelector('[data-icon="SparkEditLine"]')!.closest("button")!,
+      document.querySelector(".lucide-pencil")!.closest("button")!,
     );
     expect(onEdit).toHaveBeenCalledOnce();
     expect(onClick).not.toHaveBeenCalled();
@@ -64,10 +65,9 @@ describe("ChatSessionItem", () => {
     renderWithProviders(
       <ChatSessionItem {...baseProps} onClick={onClick} onDelete={onDelete} />,
     );
+    // Component uses lucide Trash2 icon after shadcn migration
     fireEvent.click(
-      document
-        .querySelector('[data-icon="SparkDeleteLine"]')!
-        .closest("button")!,
+      document.querySelector(".lucide-trash-2")!.closest("button")!,
     );
     expect(onDelete).toHaveBeenCalledOnce();
     expect(onClick).not.toHaveBeenCalled();

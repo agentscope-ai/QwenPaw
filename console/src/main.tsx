@@ -1,4 +1,6 @@
 import { createRoot } from "react-dom/client";
+import "@fontsource-variable/inter";
+import "./index.css";
 import App from "./App.tsx";
 import "./i18n";
 import { installHostExternals } from "./plugins/hostExternals";

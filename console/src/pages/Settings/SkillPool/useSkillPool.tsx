@@ -6,7 +6,6 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { Modal, Form } from "@agentscope-ai/design";
 import { useAppMessage } from "../../../hooks/useAppMessage";
 import { useTranslation } from "react-i18next";
 import api from "../../../api";
@@ -79,6 +78,14 @@ function writeBuiltinNoticeAcknowledgement(fingerprint: string): void {
   }
 }
 
+// Promise-based confirm dialog state
+interface ConfirmDialogState {
+  open: boolean;
+  title: string;
+  content: ReactNode;
+  resolve: ((val: boolean) => void) | null;
+}
+
 export function useSkillPool() {
   const { t, i18n } = useTranslation();
   const [skills, setSkills] = useState<PoolSkillSpec[]>([]);
@@ -138,52 +145,59 @@ export function useSkillPool() {
   );
   const builtinNoticeTotal = builtinNotice?.total_changes || 0;
 
+  // Confirm dialog state (replaces Modal.confirm)
+  const [confirmDialog, setConfirmDialog] = useState<ConfirmDialogState>({
+    open: false,
+    title: "",
+    content: null,
+    resolve: null,
+  });
+
   const confirmOverwrite = useCallback(
     (title: string, content: ReactNode) =>
       new Promise<boolean>((resolve) => {
-        Modal.confirm({
-          title,
-          content,
-          okText: t("common.confirm"),
-          cancelText: t("common.cancel"),
-          onOk: () => resolve(true),
-          onCancel: () => resolve(false),
-        });
+        setConfirmDialog({ open: true, title, content, resolve });
       }),
-    [t],
+    [],
   );
 
-  const togglePoolSelect = (name: string) => {
-    setSelectedPoolSkills((prev) => {
-      const next = new Set(prev);
-      if (next.has(name)) next.delete(name);
-      else next.add(name);
-      return next;
-    });
+  const handleConfirmDialogOk = useCallback(() => {
+    confirmDialog.resolve?.(true);
+    setConfirmDialog((prev) => ({ ...prev, open: false, resolve: null }));
+  }, [confirmDialog]);
+
+  const handleConfirmDialogCancel = useCallback(() => {
+    confirmDialog.resolve?.(false);
+    setConfirmDialog((prev) => ({ ...prev, open: false, resolve: null }));
+  }, [confirmDialog]);
+
+  // Drawer form state (replaces antd Form.useForm)
+  const [formName, setFormName] = useState("");
+  const [formTags, setFormTags] = useState<string[]>([]);
+
+  const form = {
+    getName: () => formName,
+    setName: setFormName,
+    getTags: () => formTags,
+    setTags: setFormTags,
+    resetFields: () => {
+      setFormName("");
+      setFormTags([]);
+    },
+    setFieldsValue: (values: { name?: string; content?: string; tags?: string[] }) => {
+      if (values.name !== undefined) setFormName(values.name);
+      if (values.tags !== undefined) setFormTags(values.tags);
+    },
+    getValues: () => ({ name: formName, tags: formTags }),
+    validateFields: async () => {
+      if (!formName.trim()) return null;
+      return { name: formName, tags: formTags };
+    },
   };
 
-  const clearPoolSelection = () => {
-    setSelectedPoolSkills(new Set());
-    setBatchModeEnabled(false);
-  };
-
-  const toggleBatchMode = () => {
-    if (batchModeEnabled) {
-      clearPoolSelection();
-    } else {
-      setBatchModeEnabled(true);
-    }
-  };
-
-  const selectAllPool = () =>
-    setSelectedPoolSkills(new Set(filteredSkills.map((s) => s.name)));
-
-  // Form state for create/edit drawer
-  const [form] = Form.useForm();
   const [drawerContent, setDrawerContent] = useState("");
   const [showMarkdown, setShowMarkdown] = useState(true);
 
-  // Use ref to cache data and avoid unnecessary reloads
   const dataLoadedRef = useRef(false);
 
   const markBuiltinNoticeSeen = useCallback(
@@ -261,11 +275,6 @@ export function useSkillPool() {
     setDrawerContent("");
     setConfigText("{}");
     form.resetFields();
-    form.setFieldsValue({
-      name: "",
-      content: "",
-      tags: [],
-    });
   };
 
   const openBroadcast = (skill?: PoolSkillSpec) => {
@@ -333,7 +342,6 @@ export function useSkillPool() {
     setConfigText(JSON.stringify(skill.config || {}, null, 2));
     form.setFieldsValue({
       name: skill.name,
-      content: skill.content,
       tags: skill.tags || [],
     });
   };
@@ -345,7 +353,6 @@ export function useSkillPool() {
 
   const handleDrawerContentChange = (content: string) => {
     setDrawerContent(content);
-    form.setFieldsValue({ content });
   };
 
   const validateFrontmatter = useCallback(
@@ -583,36 +590,32 @@ export function useSkillPool() {
         ? detail.conflicts
         : [];
       if (conflicts.length && !overwriteConflicts) {
-        Modal.confirm({
-          title: t("skillPool.importBuiltinConflictTitle"),
-          content: (
-            <div style={{ display: "grid", gap: 8 }}>
-              <div>{t("skillPool.importBuiltinConflictContent")}</div>
-              {conflicts.map((item) => (
-                <div key={`${item.skill_name}-${item.language || "en"}`}>
-                  <strong>{item.skill_name}</strong>
-                  {"  "}
-                  {getBuiltinImportStatusLabel(item.status, item.language)}
-                  {item.status !== "language_switch" ? (
-                    <>
-                      {"  "}
-                      {t("skillPool.currentVersion")}:{" "}
-                      {item.current_version_text || "-"}
-                      {"  ->  "}
-                      {t("skillPool.sourceVersion")}:{" "}
-                      {item.source_version_text || "-"}
-                    </>
-                  ) : null}
-                </div>
-              ))}
-            </div>
-          ),
-          okText: t("common.confirm"),
-          cancelText: t("common.cancel"),
-          onOk: async () => {
-            await handleImportBuiltins(selections, true);
-          },
-        });
+        const confirmed = await confirmOverwrite(
+          t("skillPool.importBuiltinConflictTitle"),
+          <div style={{ display: "grid", gap: 8 }}>
+            <div>{t("skillPool.importBuiltinConflictContent")}</div>
+            {conflicts.map((item: { skill_name?: string; status?: string; language?: string; current_version_text?: string; source_version_text?: string }) => (
+              <div key={`${item.skill_name}-${item.language || "en"}`}>
+                <strong>{item.skill_name}</strong>
+                {"  "}
+                {getBuiltinImportStatusLabel(item.status, item.language)}
+                {item.status !== "language_switch" ? (
+                  <>
+                    {"  "}
+                    {t("skillPool.currentVersion")}:{" "}
+                    {item.current_version_text || "-"}
+                    {"  ->  "}
+                    {t("skillPool.sourceVersion")}:{" "}
+                    {item.source_version_text || "-"}
+                  </>
+                ) : null}
+              </div>
+            ))}
+          </div>,
+        );
+        if (confirmed) {
+          await handleImportBuiltins(selections, true);
+        }
         return;
       }
       message.error(
@@ -664,7 +667,7 @@ export function useSkillPool() {
   );
 
   const handleSavePoolSkill = async () => {
-    const values = await form.validateFields().catch(() => null);
+    const values = await form.validateFields();
     if (!values) return;
 
     const trimmedConfig = configText.trim();
@@ -679,7 +682,7 @@ export function useSkillPool() {
     }
 
     const skillName = (values.name || "").trim();
-    const skillContent = drawerContent || values.content;
+    const skillContent = drawerContent;
 
     if (!skillName || !skillContent.trim()) return;
 
@@ -785,24 +788,21 @@ export function useSkillPool() {
   };
 
   const handleDelete = async (skill: PoolSkillSpec) => {
-    Modal.confirm({
-      title: t("skillPool.deleteTitle", { name: skill.name }),
-      content: skill.external
+    const confirmed = await confirmOverwrite(
+      t("skillPool.deleteTitle", { name: skill.name }),
+      skill.external
         ? t("skillPool.deleteExternalConfirm", {
             path: skill.external_path || skill.name,
           })
         : skill.source === "builtin"
         ? t("skillPool.deleteBuiltinConfirm")
         : t("skillPool.deleteConfirm"),
-      okText: t("common.delete"),
-      okType: "danger",
-      onOk: async () => {
-        await api.deleteSkillPoolSkill(skill.name);
-        message.success(t("skillPool.deletedFromPool"));
-        invalidateSkillCache({ pool: true });
-        await loadData(true);
-      },
-    });
+    );
+    if (!confirmed) return;
+    await api.deleteSkillPoolSkill(skill.name);
+    message.success(t("skillPool.deletedFromPool"));
+    invalidateSkillCache({ pool: true });
+    await loadData(true);
   };
 
   const handleZipImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -933,30 +933,21 @@ export function useSkillPool() {
     const hasExternal = skills.some(
       (s) => selectedPoolSkills.has(s.name) && s.external,
     );
-    const confirmed = await new Promise<boolean>((resolve) => {
-      Modal.confirm({
-        title: t("skillPool.batchDeleteTitle", { count: names.length }),
-        content: (
-          <>
-            <ul style={{ margin: "8px 0", paddingLeft: 20 }}>
-              {names.map((n) => (
-                <li key={n}>{n}</li>
-              ))}
-            </ul>
-            {hasExternal && (
-              <div style={{ color: "var(--ant-color-error, #ff4d4f)" }}>
-                {t("skillPool.deleteExternalBatchWarning")}
-              </div>
-            )}
-          </>
-        ),
-        okText: t("common.delete"),
-        okType: "danger",
-        cancelText: t("common.cancel"),
-        onOk: () => resolve(true),
-        onCancel: () => resolve(false),
-      });
-    });
+    const confirmed = await confirmOverwrite(
+      t("skillPool.batchDeleteTitle", { count: names.length }),
+      <>
+        <ul style={{ margin: "8px 0", paddingLeft: 20 }}>
+          {names.map((n) => (
+            <li key={n}>{n}</li>
+          ))}
+        </ul>
+        {hasExternal && (
+          <div className="text-destructive">
+            {t("skillPool.deleteExternalBatchWarning")}
+          </div>
+        )}
+      </>,
+    );
     if (!confirmed) return;
     try {
       const { results } = await api.batchDeletePoolSkills(names);
@@ -984,6 +975,31 @@ export function useSkillPool() {
       );
     }
   };
+
+  const togglePoolSelect = (name: string) => {
+    setSelectedPoolSkills((prev) => {
+      const next = new Set(prev);
+      if (next.has(name)) next.delete(name);
+      else next.add(name);
+      return next;
+    });
+  };
+
+  const clearPoolSelection = () => {
+    setSelectedPoolSkills(new Set());
+    setBatchModeEnabled(false);
+  };
+
+  const toggleBatchMode = () => {
+    if (batchModeEnabled) {
+      clearPoolSelection();
+    } else {
+      setBatchModeEnabled(true);
+    }
+  };
+
+  const selectAllPool = () =>
+    setSelectedPoolSkills(new Set(filteredSkills.map((s) => s.name)));
 
   return {
     loading,
@@ -1017,6 +1033,10 @@ export function useSkillPool() {
     drawerContent,
     showMarkdown,
     conflictRenameModal,
+    // Confirm dialog
+    confirmDialog,
+    handleConfirmDialogOk,
+    handleConfirmDialogCancel,
     setImportModalOpen,
     setConfigText,
     setShowMarkdown,

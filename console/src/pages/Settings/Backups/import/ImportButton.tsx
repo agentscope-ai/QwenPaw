@@ -1,21 +1,16 @@
 /**
  * Wraps a hidden <input type="file"> and an "Import" button into one component.
- * The parent only needs to handle the picked File object via onPick — it never
- * has to manage a ref or wire up onChange directly.
+ * The parent only needs to handle the picked File object via onPick.
  */
 import { useRef } from "react";
-import { Button } from "antd";
-import { ImportOutlined } from "@ant-design/icons";
+import { Upload } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { Button } from "@/components/ui/button";
 
 interface Props {
   onPick: (file: File) => void;
 }
 
-/**
- * Wraps the hidden file input + trigger button so the parent
- * doesn't need to manage a ref or wire up onChange directly.
- */
 export default function ImportButton({ onPick }: Props) {
   const { t } = useTranslation();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -35,10 +30,8 @@ export default function ImportButton({ onPick }: Props) {
           }
         }}
       />
-      <Button
-        icon={<ImportOutlined />}
-        onClick={() => fileInputRef.current?.click()}
-      >
+      <Button variant="outline" onClick={() => fileInputRef.current?.click()}>
+        <Upload className="mr-2 h-4 w-4" />
         {t("backup.import")}
       </Button>
     </>

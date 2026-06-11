@@ -1,6 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import { useTranslation } from "react-i18next";
-import { Form } from "antd";
+import { useForm } from "react-hook-form";
 import { useAppMessage } from "@/hooks/useAppMessage";
 import { installPlugin, uploadPlugin } from "@/api/modules/plugin";
 import { readDirEntry, type LocalSelection } from "../utils";
@@ -14,7 +14,7 @@ export function useInstallModal(onSuccess: () => void) {
   const [urlInstalling, setUrlInstalling] = useState(false);
   const [localSel, setLocalSel] = useState<LocalSelection | null>(null);
   const [dragOver, setDragOver] = useState(false);
-  const [form] = Form.useForm<{ source: string }>();
+  const form = useForm<{ source: string }>({ defaultValues: { source: "" } });
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -35,7 +35,7 @@ export function useInstallModal(onSuccess: () => void) {
     setInstallOpen(false);
     setLocalSel(null);
     setDragOver(false);
-    form.resetFields();
+    form.reset();
   }, [localInstalling, urlInstalling, form]);
 
   const handleZipPicked = useCallback(
@@ -126,19 +126,18 @@ export function useInstallModal(onSuccess: () => void) {
   }, [localSel, message, t, onSuccess]);
 
   const handleInstallUrl = useCallback(async () => {
-    let values: { source: string };
-    try {
-      values = await form.validateFields();
-    } catch {
+    const values = form.getValues();
+    const source = values.source.trim();
+    if (!source) {
+      form.setError("source", { message: " " });
       return;
     }
-    const source = values.source.trim();
     setUrlInstalling(true);
     try {
       const result = await installPlugin(source);
       message.success(`${t("pluginManager.installSuccess")}: ${result.name}`);
       setInstallOpen(false);
-      form.resetFields();
+      form.reset();
       onSuccess();
       setTimeout(() => window.location.reload(), 800);
     } catch (err) {

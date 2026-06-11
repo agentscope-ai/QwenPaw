@@ -1,6 +1,7 @@
 /// <reference types="vitest" />
 import { defineConfig, loadEnv } from "vite";
 import react from "@vitejs/plugin-react";
+import tailwindcss from "@tailwindcss/vite";
 import path from "path";
 
 // Vitest plugin: transforms .css imports inside node_modules to empty stubs.
@@ -26,7 +27,7 @@ export default defineConfig(({ mode }) => {
       TOKEN: JSON.stringify(env.TOKEN || ""),
       MOBILE: false,
     },
-    plugins: [react(), cssStubPlugin],
+    plugins: [react(), tailwindcss(), cssStubPlugin],
     css: {
       modules: {
         localsConvention: "camelCase",
@@ -137,7 +138,7 @@ export default defineConfig(({ mode }) => {
             ) {
               return "react-vendor";
             }
-            // Ant Design + AgentScope design system (merged to avoid circular deps)
+            // Ant Design + AgentScope design system (kept for plugin host / chat SDK)
             if (
               id.includes("node_modules/antd/") ||
               id.includes("node_modules/antd-style/") ||
@@ -145,6 +146,18 @@ export default defineConfig(({ mode }) => {
               id.includes("node_modules/@agentscope-ai/")
             ) {
               return "ui-vendor";
+            }
+            // shadcn/ui + Radix + styling utilities
+            if (
+              id.includes("node_modules/@radix-ui/") ||
+              id.includes("node_modules/class-variance-authority/") ||
+              id.includes("node_modules/tailwind-merge/") ||
+              id.includes("node_modules/clsx/") ||
+              id.includes("node_modules/sonner/") ||
+              id.includes("node_modules/lucide-react/") ||
+              id.includes("node_modules/motion/")
+            ) {
+              return "shadcn-vendor";
             }
             // i18n
             if (

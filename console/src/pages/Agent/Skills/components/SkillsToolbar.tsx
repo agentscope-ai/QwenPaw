@@ -1,6 +1,6 @@
 import type { Dispatch, SetStateAction } from "react";
-import { Input, Select } from "@agentscope-ai/design";
-import { UnorderedListOutlined, AppstoreOutlined } from "@ant-design/icons";
+import { Input } from "@/components/ui/input";
+import { List, LayoutGrid } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { SkillFilterDropdown } from "./SkillFilterDropdown";
 import styles from "../index.module.less";
@@ -39,30 +39,43 @@ export function SkillsToolbar({
           value={searchQuery}
           onChange={(e) => onSearchChange(e.target.value)}
         />
-        <Select
-          mode="multiple"
-          className={styles.tagSelect}
-          placeholder={t("skills.filterByTag")}
-          value={searchTags}
-          onChange={onTagsChange}
-          open={filterOpen}
-          onOpenChange={onFilterOpenChange}
-          allowClear
-          maxTagCount="responsive"
-          notFoundContent={<></>}
-          popupRender={() =>
-            allTags.length > 0 ? (
-              <SkillFilterDropdown
-                allTags={allTags}
-                searchTags={searchTags}
-                setSearchTags={onTagsChange}
-                styles={styles}
-              />
+        <div className="relative">
+          <div
+            className={`${styles.tagSelect} flex flex-wrap items-center gap-1 px-3 py-1.5 border rounded-md cursor-pointer min-h-9 min-w-[160px]`}
+            onClick={() => onFilterOpenChange(!filterOpen)}
+          >
+            {searchTags.length === 0 ? (
+              <span className="text-xs text-muted-foreground">
+                {t("skills.filterByTag")}
+              </span>
             ) : (
-              <div className={styles.tagSelectEmpty}>{t("skills.noTags")}</div>
-            )
-          }
-        />
+              searchTags.map((tag) => (
+                <span
+                  key={tag}
+                  className="rounded bg-primary/10 px-1.5 py-0.5 text-xs text-primary"
+                >
+                  {tag}
+                </span>
+              ))
+            )}
+          </div>
+          {filterOpen && (
+            <div className="absolute z-50 mt-1 w-full rounded-md border bg-popover shadow-md">
+              {allTags.length > 0 ? (
+                <SkillFilterDropdown
+                  allTags={allTags}
+                  searchTags={searchTags}
+                  setSearchTags={onTagsChange}
+                  styles={styles}
+                />
+              ) : (
+                <div className={styles.tagSelectEmpty}>
+                  {t("skills.noTags")}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
       </div>
       <div className={styles.toolbarRight}>
         <div className={styles.viewToggle}>
@@ -73,7 +86,7 @@ export function SkillsToolbar({
             onClick={() => onViewModeChange("list")}
             title={t("skills.listView")}
           >
-            <UnorderedListOutlined />
+            <List size={16} />
           </button>
           <button
             className={`${styles.viewToggleBtn} ${
@@ -82,7 +95,7 @@ export function SkillsToolbar({
             onClick={() => onViewModeChange("card")}
             title={t("skills.gridView")}
           >
-            <AppstoreOutlined />
+            <LayoutGrid size={16} />
           </button>
         </div>
       </div>

@@ -1,4 +1,5 @@
-import { Button, Checkbox, Switch } from "@agentscope-ai/design";
+import { Button } from "@/components/ui/button";
+import { Switch } from "@/components/ui/switch";
 import { useTranslation } from "react-i18next";
 import type { SkillSpec } from "../../../../api/types";
 import { isSkillBuiltin } from "@/utils/skill";
@@ -45,12 +46,15 @@ export function SkillListItem({
       }}
     >
       {batchModeEnabled && (
-        <Checkbox
+        <input
+          type="checkbox"
           checked={isSelected}
           onClick={(e) => {
             e.stopPropagation();
             onSelect();
           }}
+          onChange={() => {}}
+          className="h-4 w-4 cursor-pointer"
         />
       )}
       <div className={styles.listItemLeft}>
@@ -87,11 +91,12 @@ export function SkillListItem({
           <Switch
             checked={skill.enabled}
             disabled={batchModeEnabled}
-            onChange={onToggleEnabled}
+            onCheckedChange={onToggleEnabled}
           />
         </span>
         <Button
-          danger
+          variant="destructive"
+          size="sm"
           disabled={batchModeEnabled}
           onClick={(e) => {
             e.stopPropagation();

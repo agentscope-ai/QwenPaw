@@ -1,5 +1,4 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import { Modal } from "@agentscope-ai/design";
 import { useAppMessage } from "../../../hooks/useAppMessage";
 import api from "../../../api";
 import type { SecurityScanErrorResponse } from "../../../api/modules/security";
@@ -274,17 +273,7 @@ export function useSkills() {
   };
 
   const deleteSkill = async (skill: SkillSpec) => {
-    const confirmed = await new Promise<boolean>((resolve) => {
-      Modal.confirm({
-        title: t("common.confirm"),
-        content: t("skills.deleteConfirm"),
-        okText: t("common.delete"),
-        okType: "danger",
-        cancelText: t("common.cancel"),
-        onOk: () => resolve(true),
-        onCancel: () => resolve(false),
-      });
-    });
+    const confirmed = window.confirm(t("skills.deleteConfirm"));
 
     if (!confirmed) return false;
 

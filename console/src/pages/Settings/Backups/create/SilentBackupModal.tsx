@@ -1,7 +1,12 @@
 import { useEffect } from "react";
-import { Modal } from "antd";
 import { useTranslation } from "react-i18next";
 import type { BackupMeta } from "@/api/types/backup";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { useBackupRunner } from "../shared/useBackupRunner";
 import { buildPreRestoreScope } from "../shared/scope";
 import BackupProgress from "./BackupProgress";
@@ -43,20 +48,20 @@ export default function SilentBackupModal({
   }, [target]);
 
   return (
-    <Modal
-      title={t("backup.creatingPreRestoreBackup")}
-      open={target !== null}
-      onCancel={runner.cancel}
-      footer={null}
-      destroyOnHidden
-      centered
-      closable={false}
-      maskClosable={false}
-    >
-      <BackupProgress
-        progress={runner.progress}
-        progressMsg={runner.progressMsg}
-      />
-    </Modal>
+    <Dialog open={target !== null} onOpenChange={() => runner.cancel()}>
+      <DialogContent
+        className="max-w-md"
+        onInteractOutside={(e) => e.preventDefault()}
+        onEscapeKeyDown={(e) => e.preventDefault()}
+      >
+        <DialogHeader>
+          <DialogTitle>{t("backup.creatingPreRestoreBackup")}</DialogTitle>
+        </DialogHeader>
+        <BackupProgress
+          progress={runner.progress}
+          progressMsg={runner.progressMsg}
+        />
+      </DialogContent>
+    </Dialog>
   );
 }

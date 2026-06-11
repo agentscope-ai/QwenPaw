@@ -28,13 +28,17 @@ vi.mock("lucide-react", () => ({
   Loader2: () => "Loader2",
   ExternalLink: () => "ExternalLink",
   ChevronDown: () => "ChevronDown",
+  ChevronUp: () => "ChevronUp",
   ChevronRight: () => "ChevronRight",
   Search: () => "Search",
   X: () => "X",
   Check: () => "Check",
   AlertCircle: () => "AlertCircle",
+  AlertTriangle: () => "AlertTriangle",
   Eye: () => "Eye",
   Zap: () => "Zap",
+  Link: () => "Link",
+  Settings: () => "Settings",
 }));
 
 // ---------------------------------------------------------------------------

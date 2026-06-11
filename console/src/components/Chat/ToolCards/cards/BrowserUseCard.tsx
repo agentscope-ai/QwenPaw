@@ -1,7 +1,7 @@
 import React from "react";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
-import { ChromeOutlined } from "@ant-design/icons";
+import { Globe } from "lucide-react";
 import type { ToolCallContent } from "../shared/types";
 import { ToolCardShell, DefaultBlock } from "../shared";
 import { stringifyResult } from "../shared/utils";
@@ -264,7 +264,7 @@ const BrowserUseCard: React.FC<BrowserUseCardProps> = ({
     <ToolCardShell
       content={content}
       isStreaming={isStreaming}
-      icon={<ChromeOutlined />}
+      icon={<Globe size={13} />}
       title={title}
     >
       {resultText && <DefaultBlock title="Output" content={resultText} />}

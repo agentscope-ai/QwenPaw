@@ -1,16 +1,15 @@
 /**
- * registry/adapter.tsx — bridge MenuItem (registry shape) → antd Menu items.
+ * registry/adapter.tsx — bridge MenuItem (registry shape) → Tailwind nav items.
  *
  * MenuItem stores neutral data: id, label-as-fn, icon-as-component-or-node,
  * route-id (logical), etc. Sidebar consumes via these helpers to:
- *   - resolve labels/icons into ReactNodes for antd
+ *   - resolve labels/icons into ReactNodes
  *   - look up the URL path from route id (router-driven, no constants table)
  *   - flatten the tree for collapsed mode
- *   - apply Sidebar-local decorations (e.g. inbox unread Badge)
+ *   - apply Sidebar-local decorations (e.g. inbox unread dot)
  */
 import type { CSSProperties, ReactNode } from "react";
 import { createElement, isValidElement } from "react";
-import type { MenuProps } from "antd";
 import type { MenuItem } from "../../plugins/registry/types";
 
 /** ReactNode + the resolved navigation path for a leaf item (or undefined for groups). */
@@ -64,46 +63,7 @@ export function routeIdToPath(
   return r?.path;
 }
 
-interface ToAntdOpts {
-  collapsed: boolean;
-  iconSize?: number;
-  /** Optional Sidebar-local decoration. e.g. wrap inbox label with unread Badge. */
-  decorateLabel?: (item: MenuItem, label: ReactNode) => ReactNode;
-}
-
 type ItemWithChildren = MenuItem & { __children?: MenuItem[] };
-
-/**
- * Convert a tree of MenuItems (snapshot output) into the antd Menu `items` shape.
- * Top-level items with isGroup or with __children render as expandable groups.
- */
-export function toAntdItems(
-  items: MenuItem[],
-  opts: ToAntdOpts,
-): MenuProps["items"] {
-  const { collapsed, iconSize = 16, decorateLabel } = opts;
-  return items
-    .filter((i) => i.visible?.() !== false)
-    .map((rawItem) => {
-      const i = rawItem as ItemWithChildren;
-      const baseLabel = collapsed ? null : resolveLabel(i.label);
-      const decorated = decorateLabel ? decorateLabel(i, baseLabel) : baseLabel;
-      const node: NonNullable<MenuProps["items"]>[number] = {
-        key: i.id,
-        label: decorated,
-        icon: renderIcon(i.icon, iconSize),
-      };
-      if (i.__children && i.__children.length > 0) {
-        // antd expects `children` on submenu / group items
-        const visibleChildren = i.__children.filter(
-          (c) => c.visible?.() !== false,
-        );
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        (node as any).children = toAntdItems(visibleChildren, opts);
-      }
-      return node;
-    });
-}
 
 /**
  * Flatten a menu tree into a leaf-only list (for the collapsed icon-nav).

@@ -1,5 +1,16 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Form, Modal } from "@agentscope-ai/design";
+import { useForm } from "react-hook-form";
+import type { UseFormReturn } from "react-hook-form";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import type { PoolSkillSpec, SkillSpec } from "../../../api/types";
 import type { SkillDrawerFormValues } from "./components";
 import { useConflictRenameModal } from "./components";
@@ -19,8 +30,6 @@ import {
 import { useSkills } from "./useSkills";
 import { useSkillFilter } from "./useSkillFilter";
 
-// ─── Types ──────────────────────────────────────────────────────────────────
-
 export type DownloadConflict =
   | { skill_name: string; reason: "conflict" }
   | {
@@ -35,8 +44,6 @@ export type DownloadConflict =
       source_language: string;
       current_language: string;
     };
-
-// ─── Hook ───────────────────────────────────────────────────────────────────
 
 export function useSkillsPage() {
   const { t } = useTranslation();
@@ -70,12 +77,11 @@ export function useSkillsPage() {
   const { showConflictRenameModal, conflictRenameModal } =
     useConflictRenameModal();
 
-  // ── Local state ─────────────────────────────────────────────────────────
-
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [importModalOpen, setImportModalOpen] = useState(false);
   const [editingSkill, setEditingSkill] = useState<SkillSpec | null>(null);
-  const [form] = Form.useForm<SkillDrawerFormValues>();
+  const form: UseFormReturn<SkillDrawerFormValues> =
+    useForm<SkillDrawerFormValues>();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [poolSkills, setPoolSkills] = useState<PoolSkillSpec[]>([]);
   const [poolModal, setPoolModal] = useState<"upload" | "download" | null>(
@@ -86,7 +92,12 @@ export function useSkillsPage() {
   const [viewMode, setViewMode] = useState<"card" | "list">("card");
   const [filterOpen, setFilterOpen] = useState(false);
 
-  // ── Derived ─────────────────────────────────────────────────────────────
+  // Confirm overwrite dialog state
+  const [confirmDialogOpen, setConfirmDialogOpen] = useState(false);
+  const [confirmDialogTitle, setConfirmDialogTitle] = useState("");
+  const [confirmDialogContent, setConfirmDialogContent] =
+    useState<ReactNode>(null);
+  const confirmResolverRef = useRef<((v: boolean) => void) | null>(null);
 
   const sortedSkills = useMemo(
     () =>
@@ -104,8 +115,6 @@ export function useSkillsPage() {
     sentinelRef,
   } = useProgressiveRender(sortedSkills);
 
-  // ── Effects ─────────────────────────────────────────────────────────────
-
   useEffect(() => {
     if (poolModal === "upload" || poolModal === "download") {
       void api
@@ -115,19 +124,25 @@ export function useSkillsPage() {
     }
   }, [poolModal]);
 
-  // ── Helpers ─────────────────────────────────────────────────────────────
-
   const confirmOverwrite = (title: string, content: ReactNode) =>
     new Promise<boolean>((resolve) => {
-      Modal.confirm({
-        title,
-        content,
-        okText: t("common.confirm"),
-        cancelText: t("common.cancel"),
-        onOk: () => resolve(true),
-        onCancel: () => resolve(false),
-      });
+      setConfirmDialogTitle(title);
+      setConfirmDialogContent(content);
+      confirmResolverRef.current = resolve;
+      setConfirmDialogOpen(true);
     });
+
+  const handleConfirmDialogOk = () => {
+    setConfirmDialogOpen(false);
+    confirmResolverRef.current?.(true);
+    confirmResolverRef.current = null;
+  };
+
+  const handleConfirmDialogCancel = () => {
+    setConfirmDialogOpen(false);
+    confirmResolverRef.current?.(false);
+    confirmResolverRef.current = null;
+  };
 
   const checkScanWarnings = async (skillName: string) => {
     await checkScanWarningsShared(
@@ -148,7 +163,6 @@ export function useSkillsPage() {
   };
 
   const clearSelection = () => setSelectedSkills(new Set());
-
   const selectAll = () =>
     setSelectedSkills(new Set(filteredSkills.map((s) => s.name)));
 
@@ -162,10 +176,7 @@ export function useSkillsPage() {
   };
 
   const closePoolModal = () => setPoolModal(null);
-
   const handleUploadClick = () => fileInputRef.current?.click();
-
-  // ── File upload ─────────────────────────────────────────────────────────
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -206,12 +217,9 @@ export function useSkillsPage() {
     }
   };
 
-  // ── Create / Edit / Delete ──────────────────────────────────────────────
-
   const handleCreate = () => {
     setEditingSkill(null);
-    form.resetFields();
-    form.setFieldsValue({ enabled: false, channels: ["all"], tags: [] });
+    form.reset({ enabled: false, channels: ["all"], tags: [] });
     setDrawerOpen(true);
   };
 
@@ -248,7 +256,7 @@ export function useSkillsPage() {
 
   const handleEdit = (skill: SkillSpec) => {
     setEditingSkill(skill);
-    form.setFieldsValue({
+    form.reset({
       name: skill.name,
       description: skill.description,
       content: skill.content,
@@ -273,8 +281,6 @@ export function useSkillsPage() {
     setDrawerOpen(false);
     setEditingSkill(null);
   };
-
-  // ── Drawer submit ───────────────────────────────────────────────────────
 
   const handleSubmit = async (values: SkillSpec) => {
     if (editingSkill) {
@@ -384,8 +390,6 @@ export function useSkillsPage() {
       }
     }
   };
-
-  // ── Pool transfer ───────────────────────────────────────────────────────
 
   const handleUploadToPool = async (workspaceSkillNames: string[]) => {
     if (workspaceSkillNames.length === 0) return;
@@ -523,7 +527,7 @@ export function useSkillsPage() {
                     {conflict.current_language === "zh"
                       ? t("skillPool.langZh")
                       : t("skillPool.langEn")}
-                    {"  →  "}
+                    {"  ->  "}
                     {conflict.source_language === "zh"
                       ? t("skillPool.langZh")
                       : t("skillPool.langEn")}
@@ -557,8 +561,6 @@ export function useSkillsPage() {
       );
     }
   };
-
-  // ── Batch enable / disable ───────────────────────────────────────────────
 
   const handleBatchEnable = async () => {
     const names = Array.from(selectedSkills);
@@ -628,28 +630,17 @@ export function useSkillsPage() {
     }
   };
 
-  // ── Batch delete ────────────────────────────────────────────────────────
-
   const handleBatchDelete = async () => {
     const names = Array.from(selectedSkills);
     if (names.length === 0) return;
-    const confirmed = await new Promise<boolean>((resolve) => {
-      Modal.confirm({
-        title: t("skills.batchDeleteTitle", { count: names.length }),
-        content: (
-          <ul style={{ margin: "8px 0", paddingLeft: 20 }}>
-            {names.map((n) => (
-              <li key={n}>{n}</li>
-            ))}
-          </ul>
-        ),
-        okText: t("common.delete"),
-        okType: "danger",
-        cancelText: t("common.cancel"),
-        onOk: () => resolve(true),
-        onCancel: () => resolve(false),
-      });
-    });
+    const confirmed = await confirmOverwrite(
+      t("skills.batchDeleteTitle", { count: names.length }),
+      <ul style={{ margin: "8px 0", paddingLeft: 20 }}>
+        {names.map((n) => (
+          <li key={n}>{n}</li>
+        ))}
+      </ul>,
+    );
     if (!confirmed) return;
     try {
       const { results } = await api.batchDeleteSkills(names);
@@ -676,6 +667,34 @@ export function useSkillsPage() {
     }
   };
 
+  const confirmDialog = (
+    <AlertDialog open={confirmDialogOpen} onOpenChange={setConfirmDialogOpen}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>{confirmDialogTitle}</AlertDialogTitle>
+          <AlertDialogDescription asChild>
+            <div>{confirmDialogContent}</div>
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel onClick={handleConfirmDialogCancel}>
+            {t("common.cancel")}
+          </AlertDialogCancel>
+          <AlertDialogAction onClick={handleConfirmDialogOk}>
+            {t("common.confirm")}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  );
+
+  const allConflictModals = (
+    <>
+      {conflictRenameModal}
+      {confirmDialog}
+    </>
+  );
+
   return {
     skills,
     sortedSkills,
@@ -685,7 +704,7 @@ export function useSkillsPage() {
     poolSkills,
     allTags,
     filteredSkills,
-    conflictRenameModal,
+    conflictRenameModal: allConflictModals,
     loading,
     uploading,
     importing,

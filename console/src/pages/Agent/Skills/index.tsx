@@ -1,6 +1,6 @@
 import { useTranslation } from "react-i18next";
-import { PlusOutlined } from "@ant-design/icons";
-import { Button } from "@agentscope-ai/design";
+import { Plus } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import {
   SkillCard,
   SkillDrawer,
@@ -139,11 +139,10 @@ function SkillsPage() {
           <p className={styles.emptyStateText}>{t("skills.emptyStateText")}</p>
           <div className={styles.emptyStateActions}>
             <Button
-              type="primary"
               className={styles.primaryActionButton}
               onClick={handleCreate}
-              icon={<PlusOutlined />}
             >
+              <Plus size={14} className="mr-1" />
               {t("skills.emptyStateCreate")}
             </Button>
           </div>

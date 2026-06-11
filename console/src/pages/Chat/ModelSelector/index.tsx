@@ -1,14 +1,21 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
-import { Dropdown, Spin, Tooltip, Modal } from "antd";
-import { useAppMessage } from "../../../hooks/useAppMessage";
 import {
-  CheckOutlined,
-  LoadingOutlined,
-  SearchOutlined,
-  CloseCircleFilled,
-  DownOutlined,
-  UpOutlined,
-} from "@ant-design/icons";
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { Loader2, Check, Search, X, ChevronDown, ChevronUp } from "lucide-react";
+import { useAppMessage } from "../../../hooks/useAppMessage";
 import { AlertTriangle, Link as LinkIcon, Settings } from "lucide-react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
@@ -385,7 +392,7 @@ export default function ModelSelector() {
             <AlertTriangle size={12} className={styles.oauthWarningIcon} />
           )}
           <span className={styles.collapseIcon}>
-            {isCollapsed ? <DownOutlined /> : <UpOutlined />}
+            {isCollapsed ? <ChevronDown size={12} /> : <ChevronUp size={12} />}
           </span>
         </div>
         {!isCollapsed && (
@@ -422,7 +429,7 @@ export default function ModelSelector() {
                         {t("modelSelector.vision")}
                       </span>
                     )}
-                    {isActive && <CheckOutlined className={styles.checkIcon} />}
+                    {isActive && <Check size={12} className={styles.checkIcon} />}
                   </div>
                 </div>
               );
@@ -509,7 +516,7 @@ export default function ModelSelector() {
     if (loading) {
       return (
         <div className={styles.spinWrapper}>
-          <Spin size="small" />
+          <Loader2 size={16} className="animate-spin text-muted-foreground" />
         </div>
       );
     }
@@ -570,7 +577,7 @@ export default function ModelSelector() {
               }}
             >
               <span>{t("modelSelector.moreProviders")}</span>
-              {showMoreFree ? <UpOutlined /> : <DownOutlined />}
+              {showMoreFree ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
             </div>
             {showMoreFree && (
               <div ref={moreContentRef} className={styles.moreContent}>
@@ -587,7 +594,7 @@ export default function ModelSelector() {
     if (loading) {
       return (
         <div className={styles.spinWrapper}>
-          <Spin size="small" />
+          <Loader2 size={16} className="animate-spin text-muted-foreground" />
         </div>
       );
     }
@@ -615,7 +622,7 @@ export default function ModelSelector() {
   const dropdownContent = (
     <div className={styles.panel}>
       <div className={styles.searchWrapper}>
-        <SearchOutlined className={styles.searchIcon} />
+        <Search size={14} className={styles.searchIcon} />
         <input
           ref={searchInputRef}
           className={styles.searchInput}
@@ -624,14 +631,17 @@ export default function ModelSelector() {
           onChange={(e) => setSearchQuery(e.target.value)}
         />
         {searchQuery && (
-          <CloseCircleFilled
+          <button
             className={styles.searchClear}
             onClick={(e) => {
               e.stopPropagation();
               setSearchQuery("");
               searchInputRef.current?.focus();
             }}
-          />
+            type="button"
+          >
+            <X size={14} />
+          </button>
         )}
       </div>
 
@@ -670,48 +680,59 @@ export default function ModelSelector() {
 
   return (
     <>
-      <Dropdown
-        open={open}
-        onOpenChange={handleOpenChange}
-        popupRender={() => dropdownContent}
-        trigger={["click"]}
-        placement="bottomLeft"
-      >
-        <Tooltip title={t("chat.modelSelectTooltip")} mouseEnterDelay={0.5}>
-          <div
-            className={[styles.trigger, open ? styles.triggerActive : ""].join(
-              " ",
-            )}
-          >
-            {saving && (
-              <LoadingOutlined style={{ fontSize: 11, color: "#FF7F16" }} />
-            )}
-            {showActiveProviderIcon && activeProviderId && (
-              <ProviderIcon providerId={activeProviderId} size={16} />
-            )}
-            <span className={styles.triggerName}>{activeModelName}</span>
-            {open ? <UpOutlined /> : <DownOutlined />}
-          </div>
+      <DropdownMenu open={open} onOpenChange={handleOpenChange}>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <DropdownMenuTrigger asChild>
+              <div
+                className={[styles.trigger, open ? styles.triggerActive : ""].join(
+                  " ",
+                )}
+              >
+                {saving && (
+                  <Loader2 size={11} className="animate-spin" style={{ color: "#FF7F16" }} />
+                )}
+                {showActiveProviderIcon && activeProviderId && (
+                  <ProviderIcon providerId={activeProviderId} size={16} />
+                )}
+                <span className={styles.triggerName}>{activeModelName}</span>
+                {open ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+              </div>
+            </DropdownMenuTrigger>
+          </TooltipTrigger>
+          <TooltipContent>{t("chat.modelSelectTooltip")}</TooltipContent>
         </Tooltip>
-      </Dropdown>
+        <DropdownMenuContent align="start" className="p-0 border-0 shadow-none bg-transparent" onCloseAutoFocus={(e) => e.preventDefault()}>
+          {dropdownContent}
+        </DropdownMenuContent>
+      </DropdownMenu>
 
-      <Modal
+      <Dialog
         open={configNavModal.open}
-        title={t("modelSelector.configureApiKeyTitle")}
-        onCancel={() => setConfigNavModal((prev) => ({ ...prev, open: false }))}
-        onOk={() => {
-          setConfigNavModal((prev) => ({ ...prev, open: false }));
-          navigate(`/models?provider=${configNavModal.providerId}`);
-        }}
-        okText={t("modelSelector.goToConfigure")}
-        cancelText={t("common.cancel")}
+        onOpenChange={(v) => !v && setConfigNavModal((prev) => ({ ...prev, open: false }))}
       >
-        <p>
-          {t("modelSelector.configureApiKeyConfirm", {
-            provider: configNavModal.providerName,
-          })}
-        </p>
-      </Modal>
+        <DialogContent className="max-w-[400px]">
+          <DialogHeader>
+            <DialogTitle>{t("modelSelector.configureApiKeyTitle")}</DialogTitle>
+            <DialogDescription>
+              {t("modelSelector.configureApiKeyConfirm", {
+                provider: configNavModal.providerName,
+              })}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setConfigNavModal((prev) => ({ ...prev, open: false }))}>
+              {t("common.cancel")}
+            </Button>
+            <Button onClick={() => {
+              setConfigNavModal((prev) => ({ ...prev, open: false }));
+              navigate(`/models?provider=${configNavModal.providerId}`);
+            }}>
+              {t("modelSelector.goToConfigure")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <OAuthConfirmModal
         open={oauthModal.open}

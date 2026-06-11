@@ -1,4 +1,5 @@
-import { Button, Checkbox } from "@agentscope-ai/design";
+import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { useTranslation } from "react-i18next";
 import dayjs from "dayjs";
 import relativeTime from "dayjs/plugin/relativeTime";
@@ -85,6 +86,8 @@ export function PoolSkillListItem({
       </div>
       <div className={styles.listItemRight}>
         <Button
+          variant="outline"
+          size="sm"
           className={styles.actionButton}
           disabled={batchModeEnabled}
           onClick={(e) => {
@@ -95,7 +98,8 @@ export function PoolSkillListItem({
           {t("skillPool.broadcast")}
         </Button>
         <Button
-          danger
+          variant="destructive"
+          size="sm"
           className={styles.deleteButton}
           disabled={batchModeEnabled}
           onClick={(e) => {

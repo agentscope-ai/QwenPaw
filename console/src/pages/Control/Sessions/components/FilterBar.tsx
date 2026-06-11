@@ -1,6 +1,12 @@
-import { Input, Select } from "@agentscope-ai/design";
 import { useTranslation } from "react-i18next";
-import styles from "../index.module.less";
+import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 interface FilterBarProps {
   filterUserId: string;
@@ -20,28 +26,28 @@ export function FilterBar({
   const { t } = useTranslation();
 
   return (
-    <div className={styles.filterBar}>
+    <div className="flex items-center gap-2">
       <Input
         placeholder={t("sessions.filterUserId")}
         value={filterUserId}
         onChange={(e) => onUserIdChange(e.target.value)}
-        allowClear
-        className="sessions-filter-input"
-        style={{ width: 200, marginRight: 8 }}
+        className="w-[200px]"
       />
       <Select
-        placeholder={t("sessions.filterChannel")}
-        value={filterChannel || undefined}
-        onChange={(value) => onChannelChange(value || "")}
-        allowClear
-        className="sessions-filter-select"
-        style={{ width: 180 }}
+        value={filterChannel || "all"}
+        onValueChange={(value) => onChannelChange(value === "all" ? "" : value)}
       >
-        {uniqueChannels.map((channel) => (
-          <Select.Option key={channel} value={channel}>
-            {channel}
-          </Select.Option>
-        ))}
+        <SelectTrigger className="w-[180px]">
+          <SelectValue placeholder={t("sessions.filterChannel")} />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="all">{t("sessions.filterChannel")}</SelectItem>
+          {uniqueChannels.map((channel) => (
+            <SelectItem key={channel} value={channel}>
+              {channel}
+            </SelectItem>
+          ))}
+        </SelectContent>
       </Select>
     </div>
   );

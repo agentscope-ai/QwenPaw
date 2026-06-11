@@ -1,5 +1,5 @@
 import { Suspense, useMemo } from "react";
-import { Layout, Spin } from "antd";
+import { Loader2 } from "lucide-react";
 import { Routes, Route, useLocation, matchPath } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import Sidebar from "../Sidebar";
@@ -7,11 +7,8 @@ import Header from "../Header";
 import ConsolePollService from "../../components/ConsolePollService";
 import { ChunkErrorBoundary } from "../../components/ChunkErrorBoundary";
 import { useSyncCodingMode } from "../../stores/useSyncCodingMode";
-import styles from "../index.module.less";
 import { useRoutes } from "../../plugins/registry/hooks";
 import { Slot } from "../../plugins/registry/Slot";
-
-const { Content } = Layout;
 
 /**
  * Find the registered route whose path pattern matches the current URL.
@@ -46,21 +43,23 @@ export default function MainLayout() {
   );
 
   return (
-    <Layout className={styles.mainLayout}>
+    <div className="flex flex-col h-screen">
       <Header />
-      <Layout>
+      <div className="flex flex-1 overflow-hidden">
         <Sidebar selectedKey={selectedKey} />
-        <Content className="page-container">
+        <main className="flex-1 flex flex-col overflow-auto page-container">
           <ConsolePollService />
           <Slot name="content.statusBar" kind="fill" />
-          <div className="page-content">
+          <div className="flex-1 page-content">
             <ChunkErrorBoundary resetKey={currentPath}>
               <Suspense
                 fallback={
-                  <Spin
-                    tip={t("common.loading")}
-                    style={{ display: "block", margin: "20vh auto" }}
-                  />
+                  <div className="flex items-center justify-center mt-[20vh]">
+                    <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                    <span className="ml-2 text-muted-foreground text-sm">
+                      {t("common.loading")}
+                    </span>
+                  </div>
                 }
               >
                 <Routes>
@@ -71,9 +70,9 @@ export default function MainLayout() {
               </Suspense>
             </ChunkErrorBoundary>
           </div>
-        </Content>
-      </Layout>
+        </main>
+      </div>
       <Slot name="overlay.global" kind="fill" />
-    </Layout>
+    </div>
   );
 }

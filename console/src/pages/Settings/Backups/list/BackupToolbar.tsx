@@ -1,11 +1,9 @@
 /**
  * Search bar that lives above the BackupTable.
- * Filtering is applied client-side in BackupTable via the searchQuery prop,
- * so this component is purely presentational (controlled input).
  */
-import { Input } from "antd";
-import { SearchOutlined } from "@ant-design/icons";
+import { Search } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { Input } from "@/components/ui/input";
 import styles from "./BackupToolbar.module.less";
 
 interface Props {
@@ -17,14 +15,15 @@ export default function BackupToolbar({ searchQuery, onSearchChange }: Props) {
   const { t } = useTranslation();
   return (
     <div className={styles.toolbar}>
-      <Input
-        className={styles.searchInput}
-        prefix={<SearchOutlined />}
-        placeholder={t("backup.searchPlaceholder")}
-        value={searchQuery}
-        onChange={(e) => onSearchChange(e.target.value)}
-        allowClear
-      />
+      <div className="relative">
+        <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground pointer-events-none" />
+        <Input
+          className={`${styles.searchInput} pl-8`}
+          placeholder={t("backup.searchPlaceholder")}
+          value={searchQuery}
+          onChange={(e) => onSearchChange(e.target.value)}
+        />
+      </div>
     </div>
   );
 }

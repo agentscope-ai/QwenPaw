@@ -14,7 +14,7 @@
  */
 import { Suspense } from "react";
 import { Navigate } from "react-router-dom";
-import { Spin } from "antd";
+import { Loader2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { lazyImportWithRetry } from "../../utils/lazyWithRetry";
 import { useCodingMode } from "../../stores/codingModeStore";
@@ -65,10 +65,12 @@ function DefaultRedirect() {
   const { codingMode, initialized } = useCodingMode();
   if (!initialized) {
     return (
-      <Spin
-        tip={t("common.loading")}
-        style={{ display: "block", margin: "20vh auto" }}
-      />
+      <div className="flex items-center justify-center mt-[20vh]">
+        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+        <span className="ml-2 text-muted-foreground text-sm">
+          {t("common.loading")}
+        </span>
+      </div>
     );
   }
   return <Navigate to={codingMode ? "/coding" : "/chat"} replace />;

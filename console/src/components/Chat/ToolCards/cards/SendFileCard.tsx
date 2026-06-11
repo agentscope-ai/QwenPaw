@@ -1,6 +1,6 @@
 import React from "react";
 import { useTranslation } from "react-i18next";
-import { SendOutlined } from "@ant-design/icons";
+import { Send } from "lucide-react";
 import type { ToolCallContent } from "../shared/types";
 import { ToolCardShell, MediaPreview } from "../shared";
 import { shortFileName, getMediaInfo } from "../shared/utils";
@@ -26,7 +26,7 @@ const SendFileCard: React.FC<SendFileCardProps> = ({
     <ToolCardShell
       content={content}
       isStreaming={isStreaming}
-      icon={<SendOutlined />}
+      icon={<Send size={13} />}
       title={title}
     >
       {media && <MediaPreview media={media} />}

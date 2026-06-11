@@ -1,6 +1,7 @@
 import React from "react";
-import { Button, Card } from "@agentscope-ai/design";
-import { ReloadOutlined } from "@ant-design/icons";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import { RefreshCw } from "lucide-react";
 import {
   DndContext,
   closestCenter,
@@ -69,57 +70,60 @@ export const FileListPanel: React.FC<FileListPanelProps> = ({
 
   return (
     <div className={styles.fileListPanel}>
-      <Card
-        bodyStyle={{
-          padding: 16,
-          display: "flex",
-          flexDirection: "column",
-          height: "100%",
-          overflow: "auto",
-        }}
-        style={{ flex: 1, minHeight: 0 }}
-      >
-        <div className={styles.headerRow}>
-          <h3 className={styles.sectionTitle}>{t("workspace.coreFiles")}</h3>
-          <Button size="small" onClick={onRefresh} icon={<ReloadOutlined />} />
-        </div>
+      <Card style={{ flex: 1, minHeight: 0 }}>
+        <CardContent
+          style={{
+            padding: 16,
+            display: "flex",
+            flexDirection: "column",
+            height: "100%",
+            overflow: "auto",
+          }}
+        >
+          <div className={styles.headerRow}>
+            <h3 className={styles.sectionTitle}>{t("workspace.coreFiles")}</h3>
+            <Button size="sm" variant="outline" onClick={onRefresh}>
+              <RefreshCw size={14} />
+            </Button>
+          </div>
 
-        <p className={styles.infoText}>{t("workspace.coreFilesDesc")}</p>
-        <div className={styles.divider} />
+          <p className={styles.infoText}>{t("workspace.coreFilesDesc")}</p>
+          <div className={styles.divider} />
 
-        <div className={styles.scrollContainer}>
-          {files.length > 0 ? (
-            <DndContext
-              sensors={sensors}
-              collisionDetection={closestCenter}
-              onDragEnd={handleDragEnd}
-            >
-              <SortableContext
-                items={enabledFiles}
-                strategy={verticalListSortingStrategy}
+          <div className={styles.scrollContainer}>
+            {files.length > 0 ? (
+              <DndContext
+                sensors={sensors}
+                collisionDetection={closestCenter}
+                onDragEnd={handleDragEnd}
               >
-                {files.map((file) => {
-                  const isEnabled = enabledFiles.includes(file.filename);
-                  return (
-                    <FileItem
-                      key={file.filename}
-                      file={file}
-                      selectedFile={selectedFile}
-                      expandedMemory={expandedMemory}
-                      dailyMemories={dailyMemories}
-                      enabled={isEnabled}
-                      onFileClick={onFileClick}
-                      onDailyMemoryClick={onDailyMemoryClick}
-                      onToggleEnabled={onToggleEnabled}
-                    />
-                  );
-                })}
-              </SortableContext>
-            </DndContext>
-          ) : (
-            <div className={styles.emptyState}>{t("workspace.noFiles")}</div>
-          )}
-        </div>
+                <SortableContext
+                  items={enabledFiles}
+                  strategy={verticalListSortingStrategy}
+                >
+                  {files.map((file) => {
+                    const isEnabled = enabledFiles.includes(file.filename);
+                    return (
+                      <FileItem
+                        key={file.filename}
+                        file={file}
+                        selectedFile={selectedFile}
+                        expandedMemory={expandedMemory}
+                        dailyMemories={dailyMemories}
+                        enabled={isEnabled}
+                        onFileClick={onFileClick}
+                        onDailyMemoryClick={onDailyMemoryClick}
+                        onToggleEnabled={onToggleEnabled}
+                      />
+                    );
+                  })}
+                </SortableContext>
+              </DndContext>
+            ) : (
+              <div className={styles.emptyState}>{t("workspace.noFiles")}</div>
+            )}
+          </div>
+        </CardContent>
       </Card>
     </div>
   );

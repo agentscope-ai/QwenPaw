@@ -1,6 +1,6 @@
 import React from "react";
 import { useTranslation } from "react-i18next";
-import { FolderOpenOutlined } from "@ant-design/icons";
+import { FolderOpen } from "lucide-react";
 import type { ToolCallContent } from "../shared/types";
 import { ToolCardShell, DefaultBlock } from "../shared";
 import { countLines, stringifyResult } from "../shared/utils";
@@ -36,7 +36,7 @@ const GlobSearchCard: React.FC<GlobSearchCardProps> = ({
     <ToolCardShell
       content={content}
       isStreaming={isStreaming}
-      icon={<FolderOpenOutlined />}
+      icon={<FolderOpen size={13} />}
       title={title}
       badges={badge}
     >

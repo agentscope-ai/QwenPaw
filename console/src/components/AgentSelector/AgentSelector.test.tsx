@@ -60,16 +60,22 @@ describe("AgentSelector", () => {
     expect(sortedAgents[1].enabled).toBe(false);
   });
 
-  it("does not render Select in collapsed mode", async () => {
+  it("does not render the agent selector button in collapsed mode", async () => {
     renderWithProviders(<AgentSelector collapsed />);
     await waitFor(() => expect(mockListAgents).toHaveBeenCalled());
-    expect(screen.queryByRole("combobox")).not.toBeInTheDocument();
+    // Collapsed mode shows only a tooltip icon, not the popover trigger button
+    expect(
+      screen.queryByRole("button", { name: /agent\.selectAgent/i }),
+    ).not.toBeInTheDocument();
   });
 
-  it("renders Select in non-collapsed mode", async () => {
+  it("renders the agent selector button in non-collapsed mode", async () => {
     renderWithProviders(<AgentSelector />);
     await waitFor(() => expect(mockListAgents).toHaveBeenCalled());
-    expect(screen.getByRole("combobox")).toBeInTheDocument();
+    // Non-collapsed mode renders a button that opens a Popover (replaces antd Select)
+    expect(
+      screen.getByRole("button", { name: /agent\.selectAgent/i }),
+    ).toBeInTheDocument();
   });
 
   it("does not crash when listAgents fails", async () => {

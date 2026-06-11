@@ -1,6 +1,6 @@
 import React from "react";
 import { useTranslation } from "react-i18next";
-import { MessageOutlined } from "@ant-design/icons";
+import { MessageSquare } from "lucide-react";
 import type { ToolCallContent } from "../shared/types";
 import { ToolCardShell, DefaultBlock } from "../shared";
 import { stringifyResult } from "../shared/utils";
@@ -27,7 +27,7 @@ const ChatWithAgentCard: React.FC<ChatWithAgentCardProps> = ({
     <ToolCardShell
       content={content}
       isStreaming={isStreaming}
-      icon={<MessageOutlined />}
+      icon={<MessageSquare size={13} />}
       title={title}
     >
       {resultText && <DefaultBlock title="Output" content={resultText} />}

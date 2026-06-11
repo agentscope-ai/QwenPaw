@@ -3,22 +3,18 @@ import { screen, fireEvent } from "@testing-library/react";
 import { renderWithProviders } from "@/test/common_setup";
 import { SliderWithValue } from "./SliderWithValue";
 
-// Mock the Slider component from @agentscope-ai/design
-vi.mock("@agentscope-ai/design", async () => {
-  const actual = await vi.importActual("@agentscope-ai/design");
-  return {
-    ...actual,
-    Slider: ({ value, onChange, ...props }: any) => (
-      <input
-        type="range"
-        data-testid="slider"
-        value={value ?? 0}
-        onChange={(e) => onChange?.(Number(e.target.value))}
-        {...props}
-      />
-    ),
-  };
-});
+// Mock the shadcn Slider component
+vi.mock("@/components/ui/slider", () => ({
+  Slider: ({ value, onValueChange, ...props }: any) => (
+    <input
+      type="range"
+      data-testid="slider"
+      value={value?.[0] ?? 0}
+      onChange={(e) => onValueChange?.([Number(e.target.value)])}
+      {...props}
+    />
+  ),
+}));
 
 describe("SliderWithValue", () => {
   it("renders without crashing", () => {

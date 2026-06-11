@@ -1,6 +1,6 @@
 import React from "react";
 import { useTranslation } from "react-i18next";
-import { DesktopOutlined } from "@ant-design/icons";
+import { Monitor } from "lucide-react";
 import type { ToolCallContent } from "../shared/types";
 import { ToolCardShell, MediaPreview } from "../shared";
 import { getMediaInfo } from "../shared/utils";
@@ -22,7 +22,7 @@ const DesktopScreenshotCard: React.FC<DesktopScreenshotCardProps> = ({
     <ToolCardShell
       content={content}
       isStreaming={isStreaming}
-      icon={<DesktopOutlined />}
+      icon={<Monitor size={13} />}
       title={title}
     >
       {media && <MediaPreview media={media} />}

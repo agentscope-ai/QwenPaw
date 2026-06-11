@@ -2,6 +2,7 @@ import { render, type RenderOptions } from "@testing-library/react";
 import { MemoryRouter, type MemoryRouterProps } from "react-router-dom";
 import { type ReactNode, createContext, useState } from "react";
 import { App } from "antd";
+import { TooltipProvider } from "@/components/ui/tooltip";
 
 const ApprovalContext = createContext<{
   approvals: any[];
@@ -26,7 +27,9 @@ function AllProviders({
   return (
     <ApprovalContext.Provider value={{ approvals, setApprovals }}>
       <App>
-        <MemoryRouter {...routerProps}>{children}</MemoryRouter>
+        <TooltipProvider>
+          <MemoryRouter {...routerProps}>{children}</MemoryRouter>
+        </TooltipProvider>
       </App>
     </ApprovalContext.Provider>
   );

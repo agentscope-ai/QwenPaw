@@ -27,15 +27,15 @@ describe("ChatActionGroup", () => {
 
   it("renders history icon button", () => {
     renderWithProviders(<ChatActionGroup />);
-    expect(
-      document.querySelector('[data-icon="SparkHistoryLine"]'),
-    ).toBeInTheDocument();
+    // Component uses lucide History icon after shadcn migration
+    expect(document.querySelector(".lucide-history")).toBeInTheDocument();
   });
 
   it("renders new chat icon button", () => {
     renderWithProviders(<ChatActionGroup />);
+    // Component uses lucide MessageSquarePlus icon after shadcn migration
     expect(
-      document.querySelector('[data-icon="SparkNewChatFill"]'),
+      document.querySelector(".lucide-message-square-plus"),
     ).toBeInTheDocument();
   });
 });

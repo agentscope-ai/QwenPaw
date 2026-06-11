@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { message } from "antd";
+import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
 import api from "../../../api";
 import type { PushMessage } from "../types";
@@ -121,9 +121,9 @@ export function useTraceViewer(
       if (!text) return;
       try {
         await navigator.clipboard.writeText(text);
-        message.success(t("common.copied"));
+        toast.success(t("common.copied"));
       } catch {
-        message.error(t("common.copyFailed"));
+        toast.error(t("common.copyFailed"));
       }
     },
     [t],

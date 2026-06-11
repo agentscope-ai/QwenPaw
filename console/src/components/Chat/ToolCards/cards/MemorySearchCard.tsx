@@ -1,6 +1,6 @@
 import React from "react";
 import { useTranslation } from "react-i18next";
-import { BulbOutlined } from "@ant-design/icons";
+import { Lightbulb } from "lucide-react";
 import type { ToolCallContent } from "../shared/types";
 import { ToolCardShell, DefaultBlock } from "../shared";
 import { formatMemorySearch } from "../shared/utils";
@@ -36,7 +36,7 @@ const MemorySearchCard: React.FC<MemorySearchCardProps> = ({
     <ToolCardShell
       content={content}
       isStreaming={isStreaming}
-      icon={<BulbOutlined />}
+      icon={<Lightbulb size={13} />}
       title={title}
     >
       {formattedResult && (

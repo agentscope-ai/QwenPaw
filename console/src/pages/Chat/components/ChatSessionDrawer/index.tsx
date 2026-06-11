@@ -6,14 +6,10 @@ import React, {
   useState,
 } from "react";
 import { useNavigate } from "react-router-dom";
-import { Drawer, Spin, Tooltip } from "antd";
+import { Sheet, SheetContent } from "@/components/ui/sheet";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { Loader2, Lock, LockOpen, ChevronRight } from "lucide-react";
 import { FixedSizeList, type ListChildComponentProps } from "react-window";
-import { IconButton } from "@agentscope-ai/design";
-import {
-  SparkOperateRightLine,
-  SparkLockLine,
-  SparkLockFill,
-} from "@agentscope-ai/icons";
 import {
   useChatAnywhereSessionsState,
   useChatAnywhereSessions,
@@ -504,55 +500,44 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
   );
 
   return (
-    <Drawer
+    <Sheet
       open={props.open}
-      onClose={props.pinned ? undefined : props.onClose}
-      destroyOnHidden={!props.pinned}
-      placement="right"
-      width={360}
-      closable={false}
-      title={null}
-      mask={!props.pinned}
-      styles={{
-        header: { display: "none" },
-        body: {
-          padding: 0,
-          display: "flex",
-          flexDirection: "column",
-          height: "100%",
-          overflow: "hidden",
-        },
-        mask: { background: "transparent" },
-      }}
-      className={styles.drawer}
+      onOpenChange={(v) => { if (!v && !props.pinned) props.onClose(); }}
     >
+      <SheetContent
+        side="right"
+        className={`w-[360px] p-0 flex flex-col h-full overflow-hidden ${!props.pinned ? "" : "[&>[data-radix-collection-item]]:hidden"} ${styles.drawer ?? ""}`}
+        style={{ "--tw-shadow": "none" } as React.CSSProperties}
+        onInteractOutside={(e) => { if (props.pinned) e.preventDefault(); }}
+      >
       {/* Header bar */}
       <div className={styles.header}>
         <div className={styles.headerLeft}>
           <span className={styles.headerTitle}>{t("chat.allChats")}</span>
         </div>
         <div className={styles.headerRight}>
-          <Tooltip
-            title={
-              props.pinned
-                ? t("chat.unpinDrawer", "Unpin")
-                : t("chat.pinDrawer", "Pin")
-            }
-            mouseEnterDelay={0.5}
-          >
-            <IconButton
-              bordered={false}
-              icon={props.pinned ? <SparkLockFill /> : <SparkLockLine />}
-              className={props.pinned ? styles.pinActive : undefined}
-              onClick={() => props.onPinChange?.(!props.pinned)}
-            />
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                className={`inline-flex items-center justify-center rounded-md p-1.5 text-muted-foreground hover:text-foreground hover:bg-accent transition-colors ${props.pinned ? "text-primary" : ""}`}
+                onClick={() => props.onPinChange?.(!props.pinned)}
+              >
+                {props.pinned ? <Lock size={16} /> : <LockOpen size={16} />}
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>
+              {props.pinned ? t("chat.unpinDrawer", "Unpin") : t("chat.pinDrawer", "Pin")}
+            </TooltipContent>
           </Tooltip>
           {!props.pinned && (
-            <IconButton
-              bordered={false}
-              icon={<SparkOperateRightLine />}
+            <button
+              type="button"
+              className="inline-flex items-center justify-center rounded-md p-1.5 text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
               onClick={props.onClose}
-            />
+            >
+              <ChevronRight size={16} />
+            </button>
           )}
         </div>
       </div>
@@ -572,14 +557,8 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
       >
         <div className={styles.topGradient} />
         {listLoading ? (
-          <div
-            style={{
-              display: "flex",
-              justifyContent: "center",
-              padding: 40,
-            }}
-          >
-            <Spin />
+          <div className="flex justify-center p-10">
+            <Loader2 size={20} className="animate-spin text-muted-foreground" />
           </div>
         ) : (
           <>
@@ -607,7 +586,8 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
         items={contextMenuItems}
         onClose={sharedContextMenu.hide}
       />
-    </Drawer>
+    </SheetContent>
+    </Sheet>
   );
 };
 

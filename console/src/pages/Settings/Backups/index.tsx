@@ -1,16 +1,9 @@
-/**
- * Backups page — thin assembly layer.
- * Owns the shared data (backup list + agent list) and composes the
- * sub-feature modules (list/, create/, restore/, import/) together.
- * All modal/flow logic lives in the dedicated hooks and components;
- * this file is intentionally kept short (~90 lines).
- */
-import { useCallback, useEffect, useState } from "react";
-import { Button, Spin } from "antd";
-import { PlusOutlined } from "@ant-design/icons";
+import { Plus, Loader2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import api, { agentsApi } from "@/api";
+import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/PageHeader";
+import { useCallback, useEffect, useState } from "react";
+import api, { agentsApi } from "@/api";
 import { useAppMessage } from "@/hooks/useAppMessage";
 import type { BackupMeta } from "@/api/types/backup";
 import type { AgentSummary } from "@/api/types/agents";
@@ -37,7 +30,6 @@ export default function BackupsPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [createOpen, setCreateOpen] = useState(false);
 
-  /** Fetches backups and agents in parallel; both are needed before rendering the table. */
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
@@ -65,7 +57,7 @@ export default function BackupsPage() {
     return (
       <div className={styles.page}>
         <div className={styles.centerState}>
-          <Spin />
+          <Loader2 className="animate-spin" />
         </div>
       </div>
     );
@@ -79,11 +71,8 @@ export default function BackupsPage() {
         extra={
           <div className={styles.headerRight}>
             <ImportButton onPick={importFlow.handleImport} />
-            <Button
-              type="primary"
-              icon={<PlusOutlined />}
-              onClick={() => setCreateOpen(true)}
-            >
+            <Button onClick={() => setCreateOpen(true)}>
+              <Plus className="mr-2 h-4 w-4" />
               {t("backup.create")}
             </Button>
           </div>
@@ -103,7 +92,6 @@ export default function BackupsPage() {
         />
       </div>
 
-      {/* Import flow */}
       <ImportConflictModal
         conflictMeta={importFlow.conflictMeta}
         onChoice={importFlow.handleConflictChoice}
@@ -118,7 +106,6 @@ export default function BackupsPage() {
         onCancel={importFlow.clearTrust}
       />
 
-      {/* Create flow */}
       <CreateBackupModal
         open={createOpen}
         agents={agents}
@@ -126,7 +113,6 @@ export default function BackupsPage() {
         onSuccess={fetchData}
       />
 
-      {/* Restore flow */}
       <PreRestoreConfirmModal
         target={restoreFlow.preRestoreConfirmTarget}
         onCancel={restoreFlow.cancelPreRestore}
