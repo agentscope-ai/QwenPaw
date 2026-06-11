@@ -1,9 +1,10 @@
-# Auto-create a Release Duty issue when a pre-release is published.
+# Auto-create a Release Duty issue for every published release
+# (pre-release, stable, and post-release).
 # Each platform gets its own assignee from an independent rotation list.
-# Rotation is sequential: index = (number of previous pre-releases) % list length.
-# This is stateless — the count is derived from the GitHub Releases API at runtime.
+# Rotation is sequential: index = (number of releases published BEFORE
+# this one) % list length. Stateless — derived from the GitHub Releases API.
 
-name: Beta Release Duty Issue
+name: Release Duty Issue
 
 on:
   release:
@@ -15,12 +16,6 @@ permissions:
 
 jobs:
   create-duty-issue:
-    # Only run for pre-releases or tags containing beta / alpha / rc
-    if: |
-      github.event.release.prerelease == true ||
-      contains(github.event.release.tag_name, 'beta') ||
-      contains(github.event.release.tag_name, 'alpha') ||
-      contains(github.event.release.tag_name, 'rc')
     runs-on: ubuntu-latest
 
     steps:
@@ -35,15 +30,17 @@ jobs:
       - name: Install dependencies
         run: pip install pyyaml requests
 
-      - name: Compute per-platform assignees
-        id: assignees
+      - name: Classify release type and compute assignees
+        id: meta
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}
           CURRENT_TAG: ${{ github.event.release.tag_name }}
+          IS_PRERELEASE: ${{ github.event.release.prerelease }}
         run: |
           python - << 'EOF'
           import os
+          import re
           import json
           import yaml
           import requests
@@ -52,11 +49,28 @@ jobs:
           repo = os.environ["REPO"]
           current_tag = os.environ["CURRENT_TAG"]
 
-          # Count how many pre-releases were published BEFORE this one.
-          # This gives us the sequential index for the rotation.
+          # ── Classify release type ────────────────────────────────────────
+          tag_lower = current_tag.lower()
+          if re.search(r"(beta|alpha|rc|dev)", tag_lower):
+              if re.search(r"beta", tag_lower):
+                  release_type = "beta"
+              elif re.search(r"alpha", tag_lower):
+                  release_type = "alpha"
+              elif re.search(r"rc", tag_lower):
+                  release_type = "rc"
+              else:
+                  release_type = "dev"
+          elif re.search(r"\.post\d*$", tag_lower):
+              release_type = "post"
+          else:
+              release_type = "stable"
+
+          print(f"Tag: {current_tag}, Release type: {release_type}")
+
+          # ── Count releases published BEFORE this one (rotation index) ───
           headers = {"Authorization": f"Bearer {token}"}
           url = f"https://api.github.com/repos/{repo}/releases"
-          releases = []
+          all_releases = []
           page = 1
           while True:
               r = requests.get(
@@ -68,16 +82,17 @@ jobs:
               batch = r.json()
               if not batch:
                   break
-              releases.extend(batch)
+              all_releases.extend(batch)
               page += 1
 
-          pre_releases = [
-              rel for rel in releases
-              if rel["prerelease"] and rel["tag_name"] != current_tag
+          previous = [
+              rel for rel in all_releases
+              if rel["tag_name"] != current_tag
           ]
-          idx = len(pre_releases)
-          print(f"Previous pre-release count: {idx}, rotation index: {idx}")
+          idx = len(previous)
+          print(f"Previous releases: {idx}, rotation index: {idx}")
 
+          # ── Pick assignees from roster ───────────────────────────────────
           roster_path = ".github/beta-duty-roster.yml"
           with open(roster_path) as f:
               roster = yaml.safe_load(f)
@@ -94,9 +109,11 @@ jobs:
                   result[platform] = {"github": ""}
                   print(f"{platform}: no rotation configured")
 
+          # ── Write outputs ────────────────────────────────────────────────
           out_path = os.environ["GITHUB_OUTPUT"]
           with open(out_path, "a") as f:
               f.write(f"assignees={json.dumps(result)}\n")
+              f.write(f"release_type={release_type}\n")
           EOF
 
       - name: Compute deadline (4h from now)
@@ -109,15 +126,27 @@ jobs:
       - name: Create Duty Issue
         uses: actions/github-script@v7
         env:
-          ASSIGNEES_JSON: ${{ steps.assignees.outputs.assignees }}
+          ASSIGNEES_JSON: ${{ steps.meta.outputs.assignees }}
+          RELEASE_TYPE: ${{ steps.meta.outputs.release_type }}
           DUE_TIME: ${{ steps.due.outputs.due }}
         with:
           script: |
-            const tag      = context.payload.release.tag_name;
-            const version  = tag.replace(/^v/, '');
-            const releaseUrl = context.payload.release.html_url;
-            const dueTime  = process.env.DUE_TIME;
-            const assignees = JSON.parse(process.env.ASSIGNEES_JSON);
+            const tag         = context.payload.release.tag_name;
+            const version     = tag.replace(/^v/, '');
+            const releaseUrl  = context.payload.release.html_url;
+            const dueTime     = process.env.DUE_TIME;
+            const assignees   = JSON.parse(process.env.ASSIGNEES_JSON);
+            const releaseType = process.env.RELEASE_TYPE;
+
+            // Human-readable badge for title / label
+            const typeBadge = {
+              beta:   'Beta',
+              alpha:  'Alpha',
+              rc:     'RC',
+              dev:    'Dev',
+              post:   'Post',
+              stable: 'Stable',
+            }[releaseType] || releaseType;
 
             const mention = (platform) => {
               const gh = assignees[platform]?.github;
@@ -127,6 +156,7 @@ jobs:
             const body = `## Release Info
 
             - **Version:** ${tag}
+            - **Type:** ${typeBadge}
             - **Release page:** ${releaseUrl}
             - **Deadline:** ${dueTime} (4 hours after publish)
 
@@ -231,9 +261,11 @@ jobs:
             const issueParams = {
               owner: context.repo.owner,
               repo:  context.repo.repo,
-              title: `[Release Duty] QwenPaw ${tag} — Installation Verification`,
+              title: `[Release Duty] QwenPaw ${tag} (${typeBadge}) — Installation Verification`,
               body:  body,
-              labels: ['release-duty'],
+              labels: ['release-duty', releaseType === 'stable' || releaseType === 'post'
+                ? 'stable'
+                : 'pre-release'],
               assignees: [...assigneeSet],
             };
 

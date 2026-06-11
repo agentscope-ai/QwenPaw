@@ -144,8 +144,10 @@ Go to **Issues → Labels** and create:
 
 | Label name | Suggested color | Purpose |
 |------------|----------------|---------|
-| `release-duty` | `#0075ca` | Marks duty tracking issues |
-| `installation-bug` | `#d93f0b` | Marks issues found during duty |
+| `release-duty` | `#0075ca` | Applied to every duty issue |
+| `pre-release` | `#e4e669` | Applied to beta / alpha / rc / dev duty issues |
+| `stable` | `#0e8a16` | Applied to stable and post duty issues |
+| `installation-bug` | `#d93f0b` | Marks failures found during duty |
 | `verified` | `#0e8a16` | Marks issues where all platforms passed |
 
 ### Actions permissions
@@ -240,7 +242,9 @@ A: No. The Duty Issue records the verification *result*, not the fix status.
 If you find a FAIL, create a separate bug issue linked to the Duty Issue,
 and let the maintainer decide whether to block the release announcement.
 
-**Q: Do stable releases (non-pre-release) also need duty?**
-A: No. The Action only triggers on pre-releases (tags containing
-beta / alpha / rc, or GitHub's `prerelease` flag set to true). Stable
-releases are promoted from a tested beta, so the risk is lower.
+**Q: Do stable and post releases also need duty?**
+A: Yes. The Action triggers on **every** published release — pre-release
+(beta / alpha / rc / dev), stable, and `.post` patch releases. Each release
+advances the rotation by one slot regardless of type. The Issue title and
+labels include the release type badge (Beta / RC / Stable / Post) so it
+is clear at a glance what kind of release is being verified.
