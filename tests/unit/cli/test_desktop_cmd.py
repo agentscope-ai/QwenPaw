@@ -49,7 +49,8 @@ def test_save_file_passes_headers_to_download_request(
 
     monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
 
-    saved = desktop_cmd.WebViewAPI().save_file(
+    backend = desktop_cmd.BackendProcessManager()
+    saved = desktop_cmd.WebViewAPI(backend).save_file(
         "http://127.0.0.1:43123/api/backups/abc/export",
         "backup.zip",
         {"Authorization": "Bearer tok", "X-Agent-Id": "agent-a"},

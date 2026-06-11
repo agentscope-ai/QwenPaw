@@ -6,11 +6,11 @@ from __future__ import annotations
 
 import logging
 import os
+import pathlib
 import socket
 import subprocess
 import sys
 import threading
-import time
 import traceback
 import webbrowser
 from collections.abc import Mapping
@@ -27,9 +27,220 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
+# Maximum number of characters kept in the captured stderr ring buffer.
+_MAX_STDERR_CHARS = 4000
+
+
+class BackendProcessManager:
+    """Manages the backend subprocess lifecycle and stderr capture.
+
+    Thread-safe: all mutable state is guarded by a lock so the main
+    thread, stream-reader threads, and pywebview JS callbacks can
+    safely interact.
+    """
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._proc: subprocess.Popen | None = None
+        self._host: str = "127.0.0.1"
+        self._port: int = 0
+        self._log_level: str = "info"
+        self._stderr_buf: str = ""
+        self._manually_terminated: bool = False
+
+    # -- public properties ---------------------------------------------------
+
+    @property
+    def process(self) -> subprocess.Popen | None:
+        with self._lock:
+            return self._proc
+
+    @property
+    def is_running(self) -> bool:
+        with self._lock:
+            return self._proc is not None and self._proc.poll() is None
+
+    @property
+    def exit_code(self) -> int | None:
+        with self._lock:
+            return self._proc.returncode if self._proc else None
+
+    @property
+    def manually_terminated(self) -> bool:
+        with self._lock:
+            return self._manually_terminated
+
+    @property
+    def console_url(self) -> str:
+        return f"http://{self._host}:{self._port}"
+
+    @property
+    def version_url(self) -> str:
+        return f"http://{self._host}:{self._port}/api/version"
+
+    # -- stderr capture ------------------------------------------------------
+
+    def append_stderr(self, text: str) -> None:
+        with self._lock:
+            self._stderr_buf += text
+            if len(self._stderr_buf) > _MAX_STDERR_CHARS:
+                half = _MAX_STDERR_CHARS // 2
+                head = self._stderr_buf[:half]
+                tail = self._stderr_buf[-half:]
+                self._stderr_buf = f"{head}\n[...stderr truncated...]\n{tail}"
+
+    def get_stderr(self) -> str:
+        with self._lock:
+            return self._stderr_buf.strip()
+
+    # -- lifecycle -----------------------------------------------------------
+
+    def start(
+        self,
+        host: str,
+        port: int,
+        log_level: str,
+    ) -> None:
+        """Spawn the backend subprocess."""
+        self._host = host
+        self._port = port
+        self._log_level = log_level
+
+        env = os.environ.copy()
+        env[LOG_LEVEL_ENV] = log_level
+
+        is_windows = sys.platform == "win32"
+
+        with self._lock:
+            self._stderr_buf = ""
+            self._manually_terminated = False
+            self._proc = subprocess.Popen(
+                [
+                    sys.executable,
+                    "-m",
+                    "qwenpaw",
+                    "app",
+                    "--host",
+                    host,
+                    "--port",
+                    str(port),
+                    "--log-level",
+                    log_level,
+                ],
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE if is_windows else sys.stdout,
+                stderr=subprocess.PIPE if is_windows else sys.stderr,
+                env=env,
+                bufsize=1,
+                universal_newlines=True,
+            )
+
+        if is_windows:
+            threading.Thread(
+                target=_stream_reader,
+                args=(self._proc.stdout, sys.stdout),
+                daemon=True,
+            ).start()
+            threading.Thread(
+                target=_stderr_capture_reader,
+                args=(self._proc.stderr, sys.stderr, self),
+                daemon=True,
+            ).start()
+
+        logger.info(
+            "Backend subprocess started (pid=%s, port=%s)",
+            self._proc.pid,
+            port,
+        )
+
+    def stop(self) -> None:
+        """Terminate the backend subprocess gracefully."""
+        with self._lock:
+            proc = self._proc
+            if proc is None or proc.poll() is not None:
+                return
+            self._manually_terminated = True
+
+        logger.info("Terminating backend server...")
+        try:
+            proc.terminate()
+            try:
+                proc.wait(timeout=5.0)
+                logger.info("Backend server terminated cleanly.")
+            except subprocess.TimeoutExpired:
+                logger.warning(
+                    "Backend did not exit in 5s, force killing...",
+                )
+                try:
+                    proc.kill()
+                    proc.wait()
+                    logger.info("Backend server force killed.")
+                except (ProcessLookupError, OSError) as exc:
+                    logger.debug(
+                        "kill() raised %s (process already exited)",
+                        exc.__class__.__name__,
+                    )
+        except (ProcessLookupError, OSError) as exc:
+            logger.debug(
+                "terminate() raised %s (process already exited)",
+                exc.__class__.__name__,
+            )
+
+    def restart(self) -> None:
+        """Stop the current backend and start a fresh one."""
+        self.stop()
+        self.start(self._host, self._port, self._log_level)
+
 
 class WebViewAPI:
-    """API exposed to the webview for external links and file downloads."""
+    """API exposed to the webview for external links, file downloads,
+    and backend lifecycle queries used by the loading page."""
+
+    def __init__(self, backend: BackendProcessManager) -> None:
+        self._backend = backend
+
+    # -- Loading page callbacks ----------------------------------------------
+
+    def check_backend_ready(self) -> dict:
+        """Called by the loading page JS to poll backend readiness.
+
+        Returns a dict with ``status`` (``ready`` | ``checking`` |
+        ``error``) and, when ready, a ``url`` to navigate to.
+        """
+        import urllib.request
+
+        if not self._backend.is_running:
+            stderr = self._backend.get_stderr()
+            return {
+                "status": "error",
+                "error": stderr or "Backend process exited unexpectedly.",
+            }
+
+        try:
+            req = urllib.request.Request(
+                self._backend.version_url,
+                method="GET",
+            )
+            with urllib.request.urlopen(req, timeout=2.5) as resp:
+                if resp.status == 200:
+                    return {
+                        "status": "ready",
+                        "url": self._backend.console_url,
+                    }
+        except Exception:
+            pass
+
+        return {"status": "checking"}
+
+    def get_startup_error(self) -> str:
+        """Return captured stderr from the backend process."""
+        return self._backend.get_stderr()
+
+    def restart_backend(self) -> None:
+        """Kill the current backend and start a fresh one."""
+        self._backend.restart()
+
+    # -- Runtime callbacks (used after console is loaded) --------------------
 
     def open_external_link(self, url: str) -> None:
         """Open URL in system's default browser."""
@@ -66,19 +277,15 @@ class WebViewAPI:
         if not url.startswith(("http://", "https://")):
             return False
 
-        # Sanitize filename: remove characters illegal on Windows
-        # (< > : " / \ | ? *) and trim leading/trailing whitespace/dots.
-        # Colons are common in backup names like "Backup 2026-04-22 17:36".
         safe_name = re.sub(r'[<>:"/\\|?*]', "_", filename).strip(" .")
 
         try:
-            # Show native OS save dialog via pywebview
             result = webview.windows[0].create_file_dialog(
                 webview.SAVE_DIALOG,
                 save_filename=safe_name,
             )
             if not result:
-                return False  # user cancelled
+                return False
 
             dest_path = result if isinstance(result, str) else result[0]
 
@@ -91,7 +298,6 @@ class WebViewAPI:
                 },
             )
 
-            # Download from the local backend and write to chosen path
             with urllib.request.urlopen(request) as response:
                 with open(dest_path, "wb") as f:
                     shutil.copyfileobj(response, f)
@@ -110,32 +316,44 @@ def _find_free_port(host: str = "127.0.0.1") -> int:
         return sock.getsockname()[1]
 
 
-def _wait_for_http(host: str, port: int, timeout_sec: float = 300.0) -> bool:
-    """Return True when something accepts TCP on host:port."""
-    deadline = time.monotonic() + timeout_sec
-    while time.monotonic() < deadline:
-        try:
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                s.settimeout(2.0)
-                s.connect((host, port))
-                return True
-        except (OSError, socket.error):
-            time.sleep(1)
-    return False
+def _loading_page_url() -> str:
+    """Return a ``file://`` URL pointing to the bundled loading page."""
+    html = pathlib.Path(__file__).with_name("desktop_loading.html")
+    if not html.exists():
+        raise FileNotFoundError(f"loading page not found: {html}")
+    return html.as_uri()
 
 
 def _stream_reader(in_stream, out_stream) -> None:
-    """Read from in_stream line by line and write to out_stream.
-
-    Used on Windows to prevent subprocess buffer blocking. Runs in a
-    background thread to continuously drain the subprocess output.
-    """
+    """Drain *in_stream* line-by-line into *out_stream* (stdout relay)."""
     try:
         for line in iter(in_stream.readline, ""):
             if not line:
                 break
             out_stream.write(line)
             out_stream.flush()
+    except Exception:
+        pass
+    finally:
+        try:
+            in_stream.close()
+        except Exception:
+            pass
+
+
+def _stderr_capture_reader(
+    in_stream,
+    out_stream,
+    backend: BackendProcessManager,
+) -> None:
+    """Drain stderr into *out_stream* and capture into *backend*."""
+    try:
+        for line in iter(in_stream.readline, ""):
+            if not line:
+                break
+            out_stream.write(line)
+            out_stream.flush()
+            backend.append_stderr(line)
     except Exception:
         pass
     finally:
@@ -168,168 +386,60 @@ def desktop_cmd(
 ) -> None:
     """Run QwenPaw app on an auto-selected free port in a webview window.
 
-    Starts the FastAPI app in a subprocess on a free port, then opens a
-    native webview window loading that URL. Use for a dedicated desktop
-    window without conflicting with an existing QwenPaw app instance.
+    Starts the FastAPI app in a subprocess on a free port, then
+    immediately opens a native webview window with a loading page.
+    The loading page polls the backend and navigates to the console
+    once it is ready — giving instant visual feedback instead of
+    blocking on HTTP readiness.
     """
-    # Setup logger for desktop command (separate from backend subprocess)
     setup_logger(log_level)
 
     port = _find_free_port(host)
     url = f"http://{host}:{port}"
     click.echo(f"Starting QwenPaw app on {url} (port {port})")
-    logger.info("Server subprocess starting...")
 
-    env = os.environ.copy()
-    env[LOG_LEVEL_ENV] = log_level
+    backend = BackendProcessManager()
 
-    if "SSL_CERT_FILE" in env:
-        cert_file = env["SSL_CERT_FILE"]
-        if os.path.exists(cert_file):
-            logger.info(f"SSL certificate: {cert_file}")
-        else:
-            logger.warning(
-                f"SSL_CERT_FILE set but not found: {cert_file}",
-            )
-    else:
-        logger.warning("SSL_CERT_FILE not set on environment")
-
-    is_windows = sys.platform == "win32"
-    proc = None
-    manually_terminated = (
-        False  # Track if we intentionally terminated the process
-    )
     try:
-        proc = subprocess.Popen(
-            [
-                sys.executable,
-                "-m",
-                "qwenpaw",
-                "app",
-                "--host",
-                host,
-                "--port",
-                str(port),
-                "--log-level",
-                log_level,
-            ],
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.PIPE if is_windows else sys.stdout,
-            stderr=subprocess.PIPE if is_windows else sys.stderr,
-            env=env,
-            bufsize=1,
-            universal_newlines=True,
-        )
-        try:
-            if is_windows:
-                stdout_thread = threading.Thread(
-                    target=_stream_reader,
-                    args=(proc.stdout, sys.stdout),
-                    daemon=True,
-                )
-                stderr_thread = threading.Thread(
-                    target=_stream_reader,
-                    args=(proc.stderr, sys.stderr),
-                    daemon=True,
-                )
-                stdout_thread.start()
-                stderr_thread.start()
-            logger.info("Waiting for HTTP ready...")
-            if _wait_for_http(host, port):
-                logger.info("HTTP ready, creating webview window...")
-                api = WebViewAPI()
-                webview.create_window(
-                    "QwenPaw Desktop",
-                    url,
-                    width=1280,
-                    height=800,
-                    text_select=True,
-                    js_api=api,
-                )
-                logger.info(
-                    "Calling webview.start() (blocks until closed)...",
-                )
-                webview.start(
-                    private_mode=False,
-                )  # blocks until user closes the window
-                logger.info("webview.start() returned (window closed).")
-            else:
-                logger.error("Server did not become ready in time.")
-                click.echo(
-                    "Server did not become ready in time; open manually: "
-                    + url,
-                    err=True,
-                )
-                try:
-                    proc.wait()
-                except KeyboardInterrupt:
-                    pass  # will be handled in finally
-        finally:
-            # Ensure backend process is always cleaned up
-            # Wrap all cleanup operations to handle race conditions:
-            # - Process may exit between poll() and terminate()
-            # - terminate()/kill() may raise ProcessLookupError/OSError
-            # - We must not let cleanup exceptions mask the original error
-            if proc and proc.poll() is None:  # process still running
-                logger.info("Terminating backend server...")
-                manually_terminated = (
-                    True  # Mark that we're intentionally terminating
-                )
-                try:
-                    proc.terminate()
-                    try:
-                        proc.wait(timeout=5.0)
-                        logger.info("Backend server terminated cleanly.")
-                    except subprocess.TimeoutExpired:
-                        logger.warning(
-                            "Backend did not exit in 5s, force killing...",
-                        )
-                        try:
-                            proc.kill()
-                            proc.wait()
-                            logger.info("Backend server force killed.")
-                        except (ProcessLookupError, OSError) as e:
-                            # Process already exited, which is fine
-                            logger.debug(
-                                f"kill() raised {e.__class__.__name__} "
-                                f"(process already exited)",
-                            )
-                except (ProcessLookupError, OSError) as e:
-                    # Process already exited between poll() and terminate()
-                    logger.debug(
-                        f"terminate() raised {e.__class__.__name__} "
-                        f"(process already exited)",
-                    )
-            elif proc:
-                logger.info(
-                    f"Backend already exited with code {proc.returncode}",
-                )
+        backend.start(host, port, log_level)
 
-        # Only report errors if process exited unexpectedly
-        # (not manually terminated)
-        # On Windows, terminate() doesn't use signals so exit codes vary
-        # (1, 259, etc.)
-        # On Unix/Linux/macOS, terminate() sends SIGTERM (exit code -15)
-        # Using a flag is more reliable than checking specific exit codes
-        if proc and proc.returncode != 0 and not manually_terminated:
-            logger.error(
-                f"Backend process exited unexpectedly with code "
-                f"{proc.returncode}",
-            )
-            # Follow POSIX convention for exit codes:
-            # - Negative (signal): 128 + signal_number
-            # - Positive (normal): use as-is
-            # Example: -15 (SIGTERM) -> 143 (128+15), -11 (SIGSEGV) ->
-            # 139 (128+11)
-            if proc.returncode < 0:
-                sys.exit(128 + abs(proc.returncode))
-            else:
-                sys.exit(proc.returncode or 1)
+        loading_url = _loading_page_url()
+        logger.info("Opening webview with loading page: %s", loading_url)
+
+        api = WebViewAPI(backend)
+        webview.create_window(
+            "QwenPaw Desktop",
+            loading_url,
+            width=1280,
+            height=800,
+            text_select=True,
+            js_api=api,
+        )
+        logger.info("Calling webview.start() (blocks until closed)...")
+        webview.start(private_mode=False)
+        logger.info("webview.start() returned (window closed).")
     except KeyboardInterrupt:
         logger.warning("KeyboardInterrupt in main, cleaning up...")
         raise
-    except Exception as e:
-        logger.error(f"Exception: {e!r}")
+    except Exception as exc:
+        logger.error("Exception: %r", exc)
         traceback.print_exc(file=sys.stderr)
         sys.stderr.flush()
         raise
+    finally:
+        backend.stop()
+
+        exit_code = backend.exit_code
+        if (
+            exit_code is not None
+            and exit_code != 0
+            and not backend.manually_terminated
+        ):
+            logger.error(
+                "Backend process exited unexpectedly with code %s",
+                exit_code,
+            )
+            if exit_code < 0:
+                sys.exit(128 + abs(exit_code))
+            else:
+                sys.exit(exit_code or 1)
