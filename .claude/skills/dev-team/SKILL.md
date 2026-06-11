@@ -17,7 +17,7 @@ Orchestrates a multi-agent pipeline that implements a change to qwenpaw the way 
 
 - **Subagents** (`.claude/agents/`): `qwenpaw-coder` (backend), `qwenpaw-frontend-designer` (UI/UX), `qwenpaw-reviewer` (surface-aware), `qwenpaw-tester` (pytest + vitest).
 - **Sourcing** (`.claude/agents/`, runs *before* the pipeline): `qwenpaw-resource-scout` scouts the public ecosystem (top-rated GitHub repos, MCP registries, skill/plugin/agent-team marketplaces) for resources compatible with the fork's AgentScope 2.x + QwenPaw stack, then delivers an **implementation report and awaits approval**. It is **read-only / propose-only** — it never installs, adds an MCP server, or edits anything on its own. On approval it hands the concrete integration to this pipeline. Companion: `qwenpaw-upstream-watcher` does the same for the single upstream repo.
-- **Orchestrator** (`.claude/workflows/dev-team.js`): plan/classify → code ↔ review (loop) → test ↔ fix (loop). The Code phase is routed to the coder and/or the frontend-designer by detected surface.
+- **Orchestrator** (`.claude/workflows/dev-team.js`): plan/classify, then a single cyclic **state graph** `CODE → REVIEW → {CODE | TEST} → {CODE | DONE}` (LangGraph-style) — so a fix prompted by a test failure is re-reviewed before re-testing. One global budget (`maxRounds` code iterations) bounds the cycle. The Code phase is routed to the coder and/or the frontend-designer by detected surface.
 - **Gate** (backend only): edits to `src/qwenpaw/**` / agentscope-importing `.py` are blocked until the plan stage records approval (`scripts/agentscope_guardian_approve.py`). Frontend `console/**` files are not gated. The pipeline handles this itself.
 
 ## How to run

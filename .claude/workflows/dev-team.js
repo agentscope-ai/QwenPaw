@@ -9,6 +9,18 @@ export const meta = {
   ],
 }
 
+// Per-role permission contract (modeled on AgentScope's Permission System —
+// docs/agentscope-v2/building-blocks/permission-system.md). These are Claude Code
+// subagents, so the boundary is enforced via each agent's `tools:` frontmatter
+// (not a Python PermissionContext), but the intent maps to PermissionMode:
+//   - plan/guardian : DEFAULT  — explores read-only, but DOES mutate state (runs the
+//                                guardian-approve script + git); needs Bash. Not EXPLORE.
+//   - qwenpaw-reviewer : EXPLORE — read-only; Write/Edit withheld in its frontmatter.
+//   - qwenpaw-coder / frontend-designer : ACCEPT_EDITS-equivalent — may edit approved files.
+//   - qwenpaw-tester : may Write/run tests (records guardian approval for agentscope-importing
+//                      test files first); not read-only.
+// Only the reviewer is a true read-only (EXPLORE) role; the prompt below restates that.
+
 // args: { task: string, files?: string[], maxRounds?: number, surface?: 'backend'|'frontend'|'mixed'|'auto' }
 //   OR  a plain task string.
 const cfg = typeof args === 'string' ? { task: args } : (args || {})
@@ -132,17 +144,34 @@ The approved files are already cleared with the guardian-approve script, so your
   return [feReport, beReport].filter(Boolean).join('\n\n---\n\n') || null
 }
 
-// ---- Phase 2-3: Code <-> Review loop ----
-let lastReview = null
-let codeReport = null
-for (let round = 1; round <= MAX_ROUNDS; round++) {
-  phase('Code')
-  const fixNote = lastReview ? (lastReview.findings || []).join('\n- ') : ''
-  codeReport = await runCode(`round${round}`, fixNote)
+// ---- Phases 2-4: explicit Code -> Review -> Test state graph (LangGraph-style) ----
+// A single cyclic state machine replaces the former two separate loops. Key gain over
+// the old code: a fix prompted by a TEST failure now loops back through REVIEW before
+// re-testing (the old test loop applied a code fix and re-tested WITHOUT re-reviewing,
+// so a "make the test pass" change could ship unreviewed). States and transitions:
+//   CODE   -> REVIEW
+//   REVIEW -> TEST            (verdict APPROVE)
+//          -> CODE            (REQUEST_CHANGES, budget left)  [carries findings as fixNote]
+//          -> TEST            (REQUEST_CHANGES, budget exhausted — still test once to report)
+//   TEST   -> DONE            (PASS)
+//          -> CODE            (FAIL, budget left)             [carries failures as fixNote]
+//          -> STUCK           (FAIL, budget exhausted)
+// A single global budget (MAX_ROUNDS *code* iterations) bounds the whole cycle; exhausting
+// it lands NEEDS_ATTENTION. `round` increments only on CODE, so the graph always terminates.
+const TEST_GUIDE = IS_FRONTEND
+  ? 'Add focused vitest + @testing-library/react tests co-located under console/src/ mirroring the component; mock network/host SDK calls. Run only the affected tests from console/: `cd console && npm run test:run -- <path>`. Report real results.'
+  : 'Add focused tests under tests/ mirroring the code; mock external/model calls; run only the affected test paths with .venv/Scripts/python.exe -m pytest ... -q. Report real results.'
+  + (IS_MIXED ? ' For the frontend slice, also add vitest tests under console/src/ and run them with `cd console && npm run test:run -- <path>`.' : '')
 
-  phase('Review')
-  lastReview = await agent(
+let lastReview = null
+let test = null
+let codeReport = null
+
+async function runReview(round) {
+  return await agent(
     `Review the current working-tree change for this task. Inspect it with: git diff -- ${plan.files.map((f) => '"' + f + '"').join(' ')}  (and git status for new files).
+
+You are READ-ONLY (AgentScope PermissionMode.EXPLORE-equivalent): inspect with read-only commands only (git diff/status, grep/rg, version checks) and do NOT modify, stage, commit, or write any file. Produce findings; the coder fixes them.
 
 TASK: ${TASK}
 SURFACE: ${SURFACE}
@@ -150,21 +179,10 @@ ${KB}
 Apply your full checklist for this surface (backend: AgentScope/guardian correctness; frontend: window.QwenPaw.* contract, theme tokens, i18n, accessibility). Return your structured verdict.`,
     { label: `review:round${round}`, phase: 'Review', agentType: 'qwenpaw-reviewer', schema: REVIEW_SCHEMA }
   )
-
-  if (lastReview && lastReview.verdict === 'APPROVE') break
-  log(`Round ${round}: review = ${lastReview ? lastReview.verdict : 'null'} (${lastReview ? lastReview.blockers : '?'} blockers)`)
 }
 
-// ---- Phase 4: Test loop ----
-const TEST_GUIDE = IS_FRONTEND
-  ? 'Add focused vitest + @testing-library/react tests co-located under console/src/ mirroring the component; mock network/host SDK calls. Run only the affected tests from console/: `cd console && npm run test:run -- <path>`. Report real results.'
-  : 'Add focused tests under tests/ mirroring the code; mock external/model calls; run only the affected test paths with .venv/Scripts/python.exe -m pytest ... -q. Report real results.'
-  + (IS_MIXED ? ' For the frontend slice, also add vitest tests under console/src/ and run them with `cd console && npm run test:run -- <path>`.' : '')
-
-phase('Test')
-let test = null
-for (let round = 1; round <= MAX_ROUNDS; round++) {
-  test = await agent(
+async function runTest(round) {
+  return await agent(
     `Write and run tests for this change.
 
 TASK: ${TASK}
@@ -176,12 +194,45 @@ ${KB}
 ${TEST_GUIDE}`,
     { label: `test:round${round}`, phase: 'Test', agentType: 'qwenpaw-tester', schema: TEST_SCHEMA }
   )
-  if (!test || test.result === 'PASS') break
+}
 
-  // Tests failed -> one code fix pass, then retest.
-  phase('Code')
-  codeReport = await runCode(`testfix${round}`, 'Tests are FAILING: ' + (test.failures || []).join('; ') + '. Fix the implementation (not the tests, unless a test is genuinely wrong). Keep the change minimal.')
-  phase('Test')
+let state = 'CODE'
+let round = 0
+let fixNote = ''
+while (state !== 'DONE' && state !== 'STUCK') {
+  if (state === 'CODE') {
+    round++
+    phase('Code')
+    codeReport = await runCode(`round${round}`, fixNote)
+    fixNote = ''
+    state = 'REVIEW'
+  } else if (state === 'REVIEW') {
+    phase('Review')
+    lastReview = await runReview(round)
+    if (lastReview && lastReview.verdict === 'APPROVE') {
+      state = 'TEST'
+    } else {
+      log(`Round ${round}: review = ${lastReview ? lastReview.verdict : 'null'} (${lastReview ? lastReview.blockers : '?'} blockers)`)
+      if (round >= MAX_ROUNDS) {
+        state = 'TEST' // code budget spent on review fixes; run tests once so the report is complete
+      } else {
+        fixNote = (lastReview && lastReview.findings || []).join('\n- ')
+        state = 'CODE'
+      }
+    }
+  } else { // state === 'TEST'
+    phase('Test')
+    test = await runTest(round)
+    if (!test || test.result === 'PASS') {
+      state = 'DONE'
+    } else if (round >= MAX_ROUNDS) {
+      log(`Round ${round}: tests FAIL and code budget exhausted`)
+      state = 'STUCK'
+    } else {
+      fixNote = 'Tests are FAILING: ' + (test.failures || []).join('; ') + '. Fix the implementation (not the tests, unless a test is genuinely wrong). Keep the change minimal.'
+      state = 'CODE' // a test-driven fix loops back through REVIEW too (the key improvement)
+    }
+  }
 }
 
 return {
