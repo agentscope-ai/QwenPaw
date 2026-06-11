@@ -572,11 +572,21 @@ class QwenPawAgent(CodingModeMixin, Agent):
                         except (ValueError, TypeError):
                             pass
 
-    async def _acting(self, tool_call) -> dict | None:
-        """Check plan tool gate before delegating to ToolGuardMixin."""
-        from ..plan.hints import check_plan_tool_gate
+    async def _acting(self, tool_call):
+        """Check plan tool gate, then delegate to the 2.0 async-generator _acting.
 
-        tool_name = str(tool_call.get("name", ""))
+        AgentScope 2.0 invokes ``_acting`` as an async generator yielding
+        ``ToolChunk | ToolResponse`` (1.x returned a single result), so this
+        override must ``yield`` from ``super()._acting(...)`` rather than
+        ``await`` it.
+        """
+        # AgentScope 2.0 passes a ``ToolCallBlock`` object here (1.x passed a
+        # dict), so read fields by attribute, falling back to dict access.
+        tool_name = str(
+            tool_call.get("name", "")
+            if isinstance(tool_call, dict)
+            else getattr(tool_call, "name", "") or ""
+        )
 
         if tool_name in self._PLAN_TOOLS_WITH_JSON_ARGS:
             self._fix_stringified_json_args(tool_call)
@@ -594,6 +604,13 @@ class QwenPawAgent(CodingModeMixin, Agent):
             nb._plan_awaiting_user_confirm = True
 
         if nb is not None:
+            # The qwenpaw `plan` package was dropped in the agentscope 2.0
+            # migration (agentscope.plan no longer exists); plan_notebook is
+            # never set, so this import is only reached if the plan feature is
+            # reintroduced. Keep it local so a missing module can't break the
+            # tool path.
+            from ..plan.hints import check_plan_tool_gate
+
             err = check_plan_tool_gate(nb, tool_name)
             if err:
                 from agentscope.message import ToolResultBlock
@@ -612,9 +629,10 @@ class QwenPawAgent(CodingModeMixin, Agent):
                 )
                 await self.print(tool_res_msg, True)
                 await self.memory.add(tool_res_msg)
-                return None
+                return
 
-        result = await super()._acting(tool_call)
+        async for chunk in super()._acting(tool_call):
+            yield chunk
 
         if nb is not None and tool_name in {
             "create_plan",
@@ -625,8 +643,6 @@ class QwenPawAgent(CodingModeMixin, Agent):
             # run before the user has confirmed the plan or modified it.
             # pylint: disable=protected-access
             nb._plan_text_only_after_mutation = True
-
-        return result
 
     _AUTO_CONTINUE_MAX_EXTRA = 2
     _AUTO_CONTINUE_TAIL_CHARS = 600

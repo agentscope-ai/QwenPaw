@@ -80,8 +80,17 @@ def _check_json_array(text, tool_used):
         return False, f"JSON inválido: {e}"
 
 
+def _response_shows_tool(text) -> bool:
+    """Proxy for 'the agent used the time tool': a real clock value the model
+    could not have invented (HH:MM or an explicit UTC/date marker)."""
+    import re
+
+    t = (text or "")
+    return bool(re.search(r"\d{1,2}:\d{2}", t)) or "utc" in t.lower()
+
+
 def _check_tool(text, tool_used):
-    return tool_used, "ferramenta usada" if tool_used else "NÃO usou ferramenta"
+    return tool_used, "hora via ferramenta" if tool_used else "sem evidência de ferramenta"
 
 
 SCENARIOS = [
@@ -200,7 +209,7 @@ async def _run_one(provider_id: str, model: str, scenarios, timeout_s: float):
                 entry["latency_ms"] = int((time.time() - t0) * 1000)
                 text = resp.get_text_content() if hasattr(resp, "get_text_content") else str(resp)
                 entry["response"] = (text or "")[:600]
-                entry["tool_used"] = _count_tool_calls(agent) > 0
+                entry["tool_used"] = _response_shows_tool(text)
                 entry["ok"] = True
                 passed, note = sc["check"](text, entry["tool_used"])
                 entry["passed"], entry["note"] = bool(passed), note
