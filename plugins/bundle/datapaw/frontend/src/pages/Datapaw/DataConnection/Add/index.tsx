@@ -105,13 +105,6 @@ function AddDataSourcePage() {
     [t, types],
   );
 
-  const handleTypeChange = (type: DataSourceType) => {
-    const info = types.find((item) => item.type === type);
-    if (info?.defaultPort) {
-      form.setFieldValue("port", info.defaultPort);
-    }
-  };
-
   const handleTest = async () => {
     try {
       const values = await form.validateFields();
@@ -186,11 +179,6 @@ function AddDataSourcePage() {
         <Form
           form={form}
           layout="vertical"
-          onValuesChange={(changed) => {
-            if ("type" in changed && changed.type) {
-              handleTypeChange(changed.type as DataSourceType);
-            }
-          }}
         >
           <Form.Item
             name="type"

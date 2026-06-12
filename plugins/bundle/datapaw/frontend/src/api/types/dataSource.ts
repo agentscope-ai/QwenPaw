@@ -53,7 +53,3 @@ export interface DataSourceTypeInfo {
   type: DataSourceType;
   defaultPort?: number;
 }
-
-export interface DataSourceTypesResponse {
-  items: DataSourceTypeInfo[];
-}
