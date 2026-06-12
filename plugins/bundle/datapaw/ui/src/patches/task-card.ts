@@ -180,6 +180,7 @@ function ensureDagEventsSubscription(sessionId: string): void {
         return;
       }
       // finish_plan archives the graph: current_plan becomes null in DAG SSE.
+      logTaskGraphDebug("dag-current-plan-null", { sessionId: sid });
       void fetchAndApplyTaskPlan(sid);
     },
     dagAbort.signal,
@@ -343,6 +344,11 @@ function getTaskPlanSessionCandidates(sessionId?: string | null): string[] {
 
 async function fetchAndApplyTaskPlan(sessionId: string): Promise<boolean> {
   const candidates = getTaskPlanSessionCandidates(sessionId);
+  logTaskGraphDebug("fetch-apply-task-plan-start", {
+    requestedSessionId: sessionId,
+    candidates,
+    activePlanId,
+  });
   for (const candidateSessionId of candidates) {
     const summary = await fetchTasksSummary(candidateSessionId);
     const plans = await resolvePlansFromSummary(candidateSessionId, summary);
@@ -353,10 +359,23 @@ async function fetchAndApplyTaskPlan(sessionId: string): Promise<boolean> {
       hasCurrentPlan: Boolean(summary?.current_plan),
       historicalCount: summary?.historical_plans?.length ?? 0,
       resolvedPlanIds: plans.map((plan) => plan.id),
+      resolvedPlans: plans.map((plan) => ({
+        id: plan.id,
+        state: plan.state,
+        anchorMessageId: plan.anchor_message_id ?? null,
+      })),
     });
     if (!plans.length) continue;
+    const retainedCurrentPlanId =
+      summary?.current_plan?.id ?? activePlanId ?? plans[plans.length - 1]?.id;
+    logTaskGraphDebug("apply-task-plans", {
+      requestedSessionId: sessionId,
+      sourceSessionId: candidateSessionId,
+      retainedCurrentPlanId,
+      planIds: plans.map((plan) => plan.id),
+    });
     for (const plan of plans) {
-      if (summary?.current_plan?.id === plan.id) {
+      if (retainedCurrentPlanId === plan.id) {
         applyCurrentPlan(plan, sessionId, candidateSessionId);
       } else {
         applyHistoricalPlan(plan, sessionId, candidateSessionId);
@@ -364,6 +383,10 @@ async function fetchAndApplyTaskPlan(sessionId: string): Promise<boolean> {
     }
     return true;
   }
+  logTaskGraphDebug("fetch-apply-task-plan-empty", {
+    requestedSessionId: sessionId,
+    candidates,
+  });
   return false;
 }
 
@@ -394,9 +417,21 @@ async function resolvePlansFromSummary(
   const historicalIds = (summary?.historical_plans ?? [])
     .map((historical) => historical.id)
     .filter((id) => id && !seen.has(id));
+  logTaskGraphDebug("resolve-plans-from-summary", {
+    sessionId,
+    currentPlanId: summary?.current_plan?.id ?? null,
+    historicalIds,
+  });
   const historicalPlans = await Promise.all(
     historicalIds.map((planId) => fetchHistoricalTaskPlan(sessionId, planId)),
   );
+  logTaskGraphDebug("resolve-historical-plans-result", {
+    sessionId,
+    requestedHistoricalIds: historicalIds,
+    returnedHistoricalIds: historicalPlans
+      .filter(Boolean)
+      .map((plan) => plan?.id),
+  });
   for (const plan of historicalPlans) {
     if (!plan || seen.has(plan.id)) continue;
     plans.push(plan);
@@ -485,11 +520,21 @@ export function scheduleSessionTaskPlanSync(): void {
         lastSyncedSessionId = null;
         clearCurrentPlan(null, { removeCache: false });
       }
+      logTaskGraphDebug("schedule-session-sync-skip", {
+        reason: "agent-not-selected",
+      });
       return;
     }
 
     const sessionId = getCurrentBackendSessionId();
-    if (!sessionId || sessionId === lastSyncedSessionId) return;
+    if (!sessionId || sessionId === lastSyncedSessionId) {
+      logTaskGraphDebug("schedule-session-sync-skip", {
+        reason: !sessionId ? "missing-session" : "same-session",
+        sessionId,
+        lastSyncedSessionId,
+      });
+      return;
+    }
 
     lastSyncedSessionId = sessionId;
     activePlanId = null;
