@@ -31,5 +31,5 @@ LangString qwenpawCliPathPageDescription ${LANG_JAPANESE} "This adds the bundled
 LangString qwenpawCliPathCheckbox ${LANG_JAPANESE} "Add qwenpaw to PATH"
 LangString qwenpawCliPathAdded ${LANG_JAPANESE} "Added qwenpaw to user PATH"
 LangString qwenpawCliPathSkipped ${LANG_JAPANESE} "Skipped adding qwenpaw to user PATH"
-LangString qwenpawCliPathMissing ${LANG_JAPANESE} "qwenpaw.exe was not found; skipped PATH update"
+LangString qwenpawCliPathMissing ${LANG_JAPANESE} "qwenpaw.cmd was not found; skipped PATH update"
 LangString qwenpawCliPathUpdateFailed ${LANG_JAPANESE} "Failed to update user PATH"

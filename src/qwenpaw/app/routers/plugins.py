@@ -842,8 +842,9 @@ async def serve_plugin_ui_file(
     plugin's source directory.
     """
     loader = getattr(request.app.state, "plugin_loader", None)
+    loader_ready = getattr(request.app.state, "plugin_loader_ready", False)
 
-    if loader is not None:
+    if loader is not None and loader_ready:
         record = loader.get_loaded_plugin(plugin_id)
         if record is None:
             raise HTTPException(

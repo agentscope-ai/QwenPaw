@@ -36,8 +36,9 @@ async def list_frontend_plugins(request: Request):
     management data (install paths, etc.) is not exposed here.
     """
     loader = getattr(request.app.state, "plugin_loader", None)
+    loader_ready = getattr(request.app.state, "plugin_loader_ready", False)
 
-    if loader is None:
+    if loader is None or not loader_ready:
         return _list_plugins_from_disk()
 
     result = []

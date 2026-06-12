@@ -31,5 +31,5 @@ LangString qwenpawCliPathPageDescription ${LANG_SIMPCHINESE} "这会把随包提
 LangString qwenpawCliPathCheckbox ${LANG_SIMPCHINESE} "将 qwenpaw 添加到 PATH"
 LangString qwenpawCliPathAdded ${LANG_SIMPCHINESE} "已将 qwenpaw 添加到用户 PATH"
 LangString qwenpawCliPathSkipped ${LANG_SIMPCHINESE} "已跳过添加 qwenpaw 到用户 PATH"
-LangString qwenpawCliPathMissing ${LANG_SIMPCHINESE} "未找到 qwenpaw.exe，已跳过 PATH 更新"
+LangString qwenpawCliPathMissing ${LANG_SIMPCHINESE} "未找到 qwenpaw.cmd，已跳过 PATH 更新"
 LangString qwenpawCliPathUpdateFailed ${LANG_SIMPCHINESE} "更新用户 PATH 失败"

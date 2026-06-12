@@ -18,7 +18,7 @@ Page custom QWENPAW_CLI_PATH_PAGE QWENPAW_CLI_PATH_PAGE_LEAVE
   ${If} $QwenPawCliPathState == 0
     DetailPrint "$(qwenpawCliPathSkipped)"
   ${Else}
-    IfFileExists "$INSTDIR\binaries\qwenpaw-backend\qwenpaw.exe" 0 qwenpaw_cli_path_missing
+    IfFileExists "$INSTDIR\binaries\qwenpaw-backend\qwenpaw.cmd" 0 qwenpaw_cli_path_missing
     !insertmacro QWENPAW_UPDATE_CLI_PATH "Add"
     ${If} $0 == 0
       DetailPrint "$(qwenpawCliPathAdded)"
@@ -87,7 +87,7 @@ FunctionEnd
 !macro QWENPAW_STOP_BACKEND_SIDECAR
   ; The Python backend is a Tauri sidecar, not a user-facing window. If it is
   ; left behind during update/uninstall, stop only the copy under $INSTDIR and
-  ; wait for the PyInstaller backend bundle to release its file handles.
+  ; wait for the packaged Python backend to release its file handles.
   ; The script is unpacked to NSIS' temporary plugin directory. Bypass is scoped
   ; to this unsigned local installer helper so user PowerShell policy is not
   ; permanently changed.

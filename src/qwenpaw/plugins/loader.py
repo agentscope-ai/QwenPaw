@@ -237,6 +237,7 @@ class PluginLoader:
         missing_deps = self._check_dependencies_satisfied(requirements_file)
         if not missing_deps:
             return
+
         logger.info(
             "Plugin '%s' has %d unsatisfied dependency(ies): %s. "
             "Installing...",
@@ -622,64 +623,6 @@ class PluginLoader:
             )
         logger.info(
             f"Dependencies installed for plugin '{plugin_id}' (via uv)",
-        )
-
-    def _install_requirements_frozen(
-        self,
-        req: str,
-        plugin_id: str,
-        timeout: int,
-    ) -> None:
-        """Install plugin deps in the frozen desktop build.
-
-        Uses the bundled standalone CPython (same ``X.Y``/arch as the frozen
-        runtime) to ``pip install --target`` into a user-writable, ABI-bucketed
-        directory. Never runs ``sys.executable`` — that is the frozen backend
-        binary, and invoking it re-launches the backend and crash-loops the
-        desktop app (issue #5209).
-        """
-        python = _desktop_python()
-        if python is None:
-            raise RuntimeError(
-                f"Cannot install dependencies for plugin '{plugin_id}': the "
-                "bundled Python runtime is unavailable "
-                "(QWENPAW_DESKTOP_PY_RUNTIME not set). Reinstall QwenPaw "
-                "Desktop, or install the plugin's dependencies manually.",
-            )
-        target = str(_plugin_site_dir())
-        try:
-            result = self._run_subprocess_with_streaming_log(
-                [
-                    python,
-                    "-m",
-                    "pip",
-                    "install",
-                    "--disable-pip-version-check",
-                    "--no-input",
-                    "--target",
-                    target,
-                    "-r",
-                    req,
-                ],
-                timeout=timeout,
-                plugin_id=plugin_id,
-            )
-        except subprocess.TimeoutExpired as exc:
-            raise RuntimeError(
-                f"Dependency installation timed out for '{plugin_id}' "
-                f"(300 s limit exceeded)",
-            ) from exc
-
-        if result.returncode != 0:
-            raise RuntimeError(
-                f"Dependency installation failed for '{plugin_id}': "
-                f"{result.stdout}",
-            )
-        importlib.invalidate_caches()
-        logger.info(
-            "Dependencies installed for plugin '%s' into %s",
-            plugin_id,
-            target,
         )
 
     async def load_plugin_from_path(

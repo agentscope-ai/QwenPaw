@@ -11,7 +11,7 @@ try {
   exit 0
 }
 
-$processNames = @("qwenpaw-backend.exe", "qwenpaw.exe")
+$processNames = @("python.exe")
 
 $targets = foreach ($processName in $processNames) {
   Get-CimInstance Win32_Process -Filter "Name = '$processName'" |

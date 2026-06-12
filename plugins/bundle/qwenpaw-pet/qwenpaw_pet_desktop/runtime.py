@@ -460,7 +460,7 @@ def detached_popen(
 
 def current_process_status() -> dict[str, Any]:
     pid = read_pid()
-    running = bool(pid and is_pid_running(pid))
+    running = bool(pid and is_pet_desktop_pid(pid))
     return {
         "running": running,
         "pid": pid if running else None,
@@ -476,7 +476,7 @@ def stop_process() -> dict[str, Any]:
     pid = read_pid()
     if not pid:
         return {"ok": True, "stopped": False, "reason": "no pid file"}
-    if not is_pid_running(pid):
+    if not is_pet_desktop_pid(pid):
         return {"ok": True, "stopped": False, "reason": "not running"}
     stopped = terminate_process_tree(pid)
     return {"ok": True, "stopped": stopped, "pid": pid}

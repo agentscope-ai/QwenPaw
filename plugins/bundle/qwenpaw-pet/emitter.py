@@ -274,7 +274,12 @@ def _clear_desktop_spawn_markers() -> None:
 
 def desktop_status_summary() -> dict[str, Any]:
     """Plugin-side desktop status (works before /health is ready)."""
-    health = desktop_health()
+    # Use a longer timeout for the status page — the default 0.35s is
+    # optimized for fire-and-forget event pushes but too aggressive for
+    # interactive status queries, especially on Windows where the first
+    # TCP connection in a packaged process can be slow due
+    # to Windows Defender / firewall checks.
+    health = desktop_health(timeout=2.0)
     if health and health.get("ok"):
         return {**health, "ready": True, "starting": False}
     try:
@@ -342,7 +347,39 @@ def _spawn_desktop_background() -> tuple[bool, str | None]:
         return _spawn_desktop_background_impl()
 
 
+def _build_spawn_command(
+    python_exe: str,
+    host: str,
+    port: int,
+    env: dict[str, str],
+) -> list[str]:
+    """Build the command line for spawning the pet desktop subprocess.
+
+    The desktop package lives next to this plugin and is passed to the child
+    process via ``PYTHONPATH`` so it can run from the same Python environment
+    as the main backend without installing the plugin package globally.
+    """
+    plugin_dir = str(Path(__file__).resolve().parent)
+
+    extra_args: list[str] = ["--host", host, "--port", str(port)]
+    scale = os.environ.get("QWENPAW_PET_DESKTOP_SCALE")
+    if scale:
+        extra_args.extend(["--scale", str(scale)])
+    pet_dir = os.environ.get("QWENPAW_PET_DESKTOP_PET_DIR")
+    if pet_dir:
+        extra_args.extend(["--pet-dir", pet_dir])
+
+    existing_pp = env.get("PYTHONPATH", "")
+    env["PYTHONPATH"] = (
+        plugin_dir + os.pathsep + existing_pp if existing_pp else plugin_dir
+    )
+    if sys.platform == "win32" and Path(python_exe).stem.lower() == "py":
+        return [python_exe, "-3", "-m", "qwenpaw_pet_desktop.app", *extra_args]
+    return [python_exe, "-m", "qwenpaw_pet_desktop.app", *extra_args]
+
+
 def _spawn_desktop_background_impl() -> tuple[bool, str | None]:
+    python_exe = sys.executable
     try:
         from qwenpaw_pet_desktop import runtime as pet_rt
     except ImportError as exc:
@@ -504,7 +541,7 @@ def stop_desktop(
         )
         _clear_desktop_base_url_cache()
         return {"ok": True, "stopped": False, "reason": "pid is qwenpaw"}
-    running = pet_rt.is_pid_running(pid)
+    running = pet_rt.is_pet_desktop_pid(pid)
     if not running and not force:
         _clear_desktop_base_url_cache()
         return {"ok": True, "stopped": False, "reason": "not running"}

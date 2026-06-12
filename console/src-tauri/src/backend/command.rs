@@ -45,83 +45,71 @@ pub(super) fn create(app: &tauri::AppHandle) -> Result<Command, String> {
 /// Builds the command used to start the packaged Python backend sidecar.
 #[cfg(not(debug_assertions))]
 pub(super) fn create(app: &tauri::AppHandle) -> Result<Command, String> {
-    let backend = packaged_backend_executable(app)?;
-    let backend_dir = backend
-        .parent()
-        .ok_or_else(|| format!("backend executable has no parent: {}", backend.display()))?
-        .to_path_buf();
+    let python = packaged_backend_python(app)?;
+    let backend_dir = python_env_root(&python)?;
     log::info!(
-        "[backend] packaged command: {} cwd={}",
-        backend.display(),
+        "[backend] packaged command: {} -u -m qwenpaw.tauri.entry cwd={}",
+        python.display(),
         backend_dir.display(),
     );
-    let mut command = app
+    let command = app
         .shell()
-        .command(backend)
+        .command(python)
+        .args(["-u", "-m", "qwenpaw.tauri.entry"])
         .current_dir(&backend_dir)
-        .env(path_env_key(), path_with_backend_dir(&backend_dir)?);
-    // Bundled standalone Python used by the backend to install third-party
-    // plugin dependencies (sys.executable is the frozen backend, not Python).
-    if let Some(python) = packaged_python_runtime(app) {
-        log::info!("[backend] bundled python runtime: {}", python.display());
-        command = command.env(
-            "QWENPAW_DESKTOP_PY_RUNTIME",
-            python.to_string_lossy().to_string(),
-        );
-    } else {
-        log::warn!(
-            "[backend] bundled python runtime not found; plugin dependency \
-             installation will be unavailable"
-        );
-    }
+        .env("PYTHONNOUSERSITE", "1")
+        .env(path_env_key(), path_with_backend_env(&backend_dir)?);
+
+    #[cfg(not(windows))]
+    let command = command.env("PYTHONHOME", backend_dir.display().to_string());
+
     Ok(command)
 }
 
 #[cfg(not(debug_assertions))]
-fn packaged_python_runtime(app: &tauri::AppHandle) -> Option<PathBuf> {
-    let base = app
-        .path()
-        .resource_dir()
-        .ok()?
-        .join("binaries")
-        .join("python-runtime")
-        .join("python");
-    let candidates = if cfg!(windows) {
-        vec![base.join("python.exe")]
-    } else {
-        vec![base.join("bin").join("python3"), base.join("bin").join("python")]
-    };
-    candidates.into_iter().find(|path| path.is_file())
-}
-
-#[cfg(not(debug_assertions))]
-fn packaged_backend_executable(app: &tauri::AppHandle) -> Result<PathBuf, String> {
-    let executable_name = if cfg!(windows) {
-        "qwenpaw-backend.exe"
-    } else {
-        "qwenpaw-backend"
-    };
-    let path = app
+fn packaged_backend_python(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    let backend_dir = app
         .path()
         .resource_dir()
         .map_err(|err| format!("failed to resolve resource directory: {err}"))?
         .join("binaries")
-        .join("qwenpaw-backend")
-        .join(executable_name);
+        .join("qwenpaw-backend");
+
+    let path = if cfg!(windows) {
+        backend_dir.join("python.exe")
+    } else {
+        backend_dir.join("bin").join("python")
+    };
 
     if path.is_file() {
         Ok(path)
     } else {
-        Err(format!(
-            "backend executable not found at {}",
-            path.display()
-        ))
+        Err(format!("backend Python not found at {}", path.display()))
     }
 }
 
 #[cfg(not(debug_assertions))]
-fn path_with_backend_dir(backend_dir: &Path) -> Result<String, String> {
-    let mut paths = vec![backend_dir.to_path_buf()];
+fn python_env_root(python: &Path) -> Result<PathBuf, String> {
+    let parent = python
+        .parent()
+        .ok_or_else(|| format!("backend Python has no parent: {}", python.display()))?;
+    if parent
+        .file_name()
+        .and_then(|name| name.to_str())
+        .is_some_and(|name| matches!(name.to_ascii_lowercase().as_str(), "bin" | "scripts"))
+    {
+        parent
+            .parent()
+            .map(Path::to_path_buf)
+            .ok_or_else(|| format!("backend Python env root missing: {}", python.display()))
+    } else {
+        Ok(parent.to_path_buf())
+    }
+}
+
+#[cfg(not(debug_assertions))]
+fn path_with_backend_env(backend_dir: &Path) -> Result<String, String> {
+    let mut paths = backend_path_entries(backend_dir);
     if let Some(existing) = std::env::var_os(path_env_key()) {
         paths.extend(std::env::split_paths(&existing));
     }
@@ -130,6 +118,20 @@ fn path_with_backend_dir(backend_dir: &Path) -> Result<String, String> {
         .map_err(|err| format!("failed to join backend PATH entries: {err}"))?
         .into_string()
         .map_err(|_| "backend PATH contains non-Unicode data".to_string())
+}
+
+#[cfg(all(not(debug_assertions), windows))]
+fn backend_path_entries(backend_dir: &Path) -> Vec<PathBuf> {
+    vec![
+        backend_dir.to_path_buf(),
+        backend_dir.join("Scripts"),
+        backend_dir.join("Library").join("bin"),
+    ]
+}
+
+#[cfg(all(not(debug_assertions), not(windows)))]
+fn backend_path_entries(backend_dir: &Path) -> Vec<PathBuf> {
+    vec![backend_dir.join("bin"), backend_dir.to_path_buf()]
 }
 
 #[cfg(all(not(debug_assertions), windows))]

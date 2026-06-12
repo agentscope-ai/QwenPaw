@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # Re-sign all Mach-O files in a macOS bundle/directory with one identity.
 #
-# PyInstaller collects Python frameworks and native extension libraries from
-# third-party packages. Re-signing every Mach-O file after collection keeps the
-# backend executable, Python runtime, and native dependencies in one signature
-# state before Tauri embeds them in the final app.
+# The conda-packed backend carries Python frameworks and native extension
+# libraries from third-party packages. Re-signing every Mach-O file keeps the
+# Python runtime and native dependencies in one signature state before Tauri
+# embeds them in the final app.
 
 set -euo pipefail
 
