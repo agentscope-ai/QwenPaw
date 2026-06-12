@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { GlobalOutlined } from "@ant-design/icons";
 import type { ToolCallContent } from "../shared/types";
 import { ToolCardShell } from "../shared";
+import { stringifyResult } from "../shared/utils";
 
 export interface SetTimezoneCardProps {
   content: ToolCallContent;
@@ -19,12 +20,10 @@ const SetTimezoneCard: React.FC<SetTimezoneCardProps> = ({
     timezone: (params.timezone_name || "") as string,
   });
 
-  const inlineResult = (() => {
-    if (content.status !== "done" || !content.result) return null;
-    const result = typeof content.result === "string" ? content.result : "";
-    if (!result) return null;
-    return result.length > 60 ? result.slice(0, 60) + "…" : result;
-  })();
+  const inlineResult =
+    content.status === "done" && content.result
+      ? stringifyResult(content.result) || null
+      : null;
 
   return (
     <ToolCardShell

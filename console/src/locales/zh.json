@@ -2563,7 +2563,9 @@
     "inlineResult": {
       "taskId": "任务 #{{id}}",
       "submitted": "已提交"
-    }
+    },
+    "execute": "执行 {{tool}}",
+    "executeDefault": "执行 工具"
   },
   "preview": {
     "error": {

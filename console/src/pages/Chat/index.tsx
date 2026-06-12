@@ -45,6 +45,7 @@ import {
 } from "../../plugins/registry/types";
 import { ChatScalar, ChatList } from "../../plugins/registry/slotKeys";
 import { HostRequestCard, HostResponseCard } from "./HostBubbles";
+import { withGenericFallback } from "../../components/Chat/ToolCards/adapters/v1Adapter";
 
 interface ApprovalMessageData {
   requestId: string;
@@ -1656,10 +1657,7 @@ export default function ChatPage() {
           });
         },
       },
-      customToolRenderConfig:
-        Object.keys(mergedToolRenderers).length > 0
-          ? mergedToolRenderers
-          : undefined,
+      customToolRenderConfig: withGenericFallback(mergedToolRenderers),
       cards: {
         // Host wrappers that delegate to vendor defaults when no plugin
         // request/response render/prepend/append is registered — and
