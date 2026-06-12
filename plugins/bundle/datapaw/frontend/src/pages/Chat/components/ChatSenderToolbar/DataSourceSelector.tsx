@@ -58,7 +58,7 @@ const DataSourceSelector: FC = () => {
 
   const handleAddSource = useCallback(() => {
     setOpen(false);
-    navigateDataConnection("/plugin/datapaw/datapaw/data-connection/add");
+    navigateDataConnection("/plugin/datapaw/datapaw/data-connection");
   }, []);
 
   const content = (
