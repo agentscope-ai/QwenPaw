@@ -5,8 +5,6 @@ import type {
   DataSourceRecord,
   DataSourceTestPayload,
   DataSourceTestResult,
-  DataSourceTypeInfo,
-  DataSourceTypesResponse,
 } from "../../types/dataSource";
 
 const BASE = "/datapaw/data-sources";
@@ -33,24 +31,6 @@ function normalizeListResponse(raw: unknown): DataSourceListResponse {
   };
 }
 
-function normalizeTypesResponse(raw: unknown): DataSourceTypesResponse {
-  const body = (raw ?? {}) as Record<string, unknown>;
-  const items = Array.isArray(body.items) ? body.items : [];
-  return {
-    items: items.map((item) => {
-      const row = item as Record<string, unknown>;
-      const info: DataSourceTypeInfo = {
-        type: row.type as DataSourceTypeInfo["type"],
-      };
-      const defaultPort = row.defaultPort ?? row.default_port;
-      if (defaultPort !== undefined && defaultPort !== null) {
-        info.defaultPort = Number(defaultPort);
-      }
-      return info;
-    }),
-  };
-}
-
 /** POST /test always returns 200 with { success, message, latencyMs }. */
 function normalizeTestResult(raw: unknown): DataSourceTestResult {
   const body = (raw ?? {}) as Record<string, unknown>;
@@ -65,9 +45,6 @@ function normalizeTestResult(raw: unknown): DataSourceTestResult {
 
 export const httpDataSourceApi = {
   list: async () => normalizeListResponse(await request(BASE)),
-
-  listTypes: async () =>
-    normalizeTypesResponse(await request(`${BASE}/types`)),
 
   create: async (payload: DataSourceCreatePayload) =>
     normalizeRecord(

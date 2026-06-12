@@ -1,6 +1,16 @@
-import type { DataSourceType } from "../../../api/types/dataSource";
+import type {
+  DataSourceType,
+  DataSourceTypeInfo,
+} from "../../../api/types/dataSource";
 
 export type { DataSourceType };
+
+/** Supported types for the add-data-source form (static, no API). */
+export const SUPPORTED_DATA_SOURCE_TYPES: DataSourceTypeInfo[] = [
+  { type: "mysql" },
+  { type: "postgresql" },
+  { type: "odps" },
+];
 
 export const DATA_CONNECTION_TYPE_META: Record<
   DataSourceType,
