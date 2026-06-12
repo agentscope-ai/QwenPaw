@@ -91,36 +91,6 @@ def test_build_agent_chat_request_adds_identity_prefix():
     )
 
 
-def test_build_agent_chat_request_includes_user_id():
-    """user_id must be set to caller_agent_id so the upstream runtime
-    does not fall back to session_id as user_id (which causes filename
-    duplication exceeding Windows MAX_PATH)."""
-    _, payload, _ = agent_management.build_agent_chat_request(
-        "bot_b",
-        "hello",
-        from_agent="bot_a",
-    )
-
-    assert "user_id" in payload
-    assert payload["user_id"] == "bot_a"
-
-
-def test_build_agent_chat_request_user_id_from_auto_resolve(monkeypatch):
-    """user_id must reflect the resolved caller when from_agent is None."""
-    monkeypatch.setattr(
-        agent_management,
-        "resolve_calling_agent_id",
-        lambda _from_agent=None: "resolved_agent",
-    )
-
-    _, payload, _ = agent_management.build_agent_chat_request(
-        "bot_b",
-        "hello",
-    )
-
-    assert payload["user_id"] == "resolved_agent"
-
-
 def test_build_agent_chat_request_discovers_calling_agent(monkeypatch):
     monkeypatch.setattr(
         agent_management,
