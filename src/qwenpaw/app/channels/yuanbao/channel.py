@@ -150,6 +150,7 @@ class YuanbaoChannel(BaseChannel):
         require_mention: bool = True,
         access_control_dm: bool = False,
         access_control_group: bool = False,
+        accept_bot_messages: bool = False,
     ):
         super().__init__(
             process,
@@ -166,6 +167,7 @@ class YuanbaoChannel(BaseChannel):
             access_control_group=access_control_group,
         )
 
+        self.accept_bot_messages = accept_bot_messages
         self.enabled = enabled
         self.app_id = app_id
         self.app_secret = app_secret
@@ -225,6 +227,40 @@ class YuanbaoChannel(BaseChannel):
     # ------------------------------------------------------------------
 
     @classmethod
+    def from_env(
+        cls,
+        process: ProcessHandler,
+        on_reply_sent: OnReplySent = None,
+    ) -> "YuanbaoChannel":
+        import os
+
+        allow_from_env = os.getenv("YUANBAO_ALLOW_FROM", "")
+        allow_from = (
+            [s.strip() for s in allow_from_env.split(",") if s.strip()]
+            if allow_from_env
+            else []
+        )
+        return cls(
+            process=process,
+            enabled=os.getenv("YUANBAO_CHANNEL_ENABLED", "1") == "1",
+            app_id=os.getenv("YUANBAO_APP_ID", ""),
+            app_secret=os.getenv("YUANBAO_APP_SECRET", ""),
+            api_domain=os.getenv("YUANBAO_API_DOMAIN", DEFAULT_API_DOMAIN),
+            bot_prefix=os.getenv("YUANBAO_BOT_PREFIX", ""),
+            on_reply_sent=on_reply_sent,
+            dm_policy=os.getenv("YUANBAO_DM_POLICY", "open"),
+            group_policy=os.getenv("YUANBAO_GROUP_POLICY", "open"),
+            allow_from=allow_from,
+            deny_message=os.getenv("YUANBAO_DENY_MESSAGE", ""),
+            require_mention=os.getenv("YUANBAO_REQUIRE_MENTION", "1") == "1",
+            accept_bot_messages=os.getenv(
+                "YUANBAO_ACCEPT_BOT_MESSAGES",
+                "0",
+            )
+            == "1",
+        )
+
+    @classmethod
     def from_config(
         cls,
         process: ProcessHandler,
@@ -263,6 +299,9 @@ class YuanbaoChannel(BaseChannel):
                 access_control_group=bool(
                     config.get("access_control_group", False),
                 ),
+                accept_bot_messages=bool(
+                    config.get("accept_bot_messages", False),
+                ),
             )
 
         return cls(
@@ -288,6 +327,9 @@ class YuanbaoChannel(BaseChannel):
             ),
             access_control_group=bool(
                 getattr(config, "access_control_group", False),
+            ),
+            accept_bot_messages=bool(
+                getattr(config, "accept_bot_messages", False),
             ),
         )
 
@@ -852,8 +894,10 @@ class YuanbaoChannel(BaseChannel):
         chat_type = "group" if is_group else "c2c"
         group_code = inbound.get("group_code", "") if is_group else ""
 
-        # Ignore messages from self
-        if raw_sender_id == self._bot_id:
+        # Filter bot messages unless accept_bot_messages is enabled.
+        # Yuanbao does not push the bot's own messages back, so there is
+        # no need to filter by self._bot_id here.
+        if not self.accept_bot_messages and self._is_bot_message(inbound):
             return
 
         # Parse content from msg_body
@@ -976,6 +1020,32 @@ class YuanbaoChannel(BaseChannel):
                 return custom.get("user_id", "") == self._bot_id
         except (ValueError, TypeError):
             pass
+        return False
+
+    def _is_bot_message(self, inbound: dict) -> bool:
+        """Return True if the inbound message was sent by a bot.
+
+        Two signals are used in combination:
+        1. ``from_account`` starts with ``bot_`` — the platform uses this
+           prefix for all custom bot accounts.
+        2. Any ``TIMTextElem`` carries a ``data`` field whose JSON payload
+           has ``elem_type == 1013`` — the platform attaches this structured
+           copy exclusively to bot-originated text messages.
+        """
+        if inbound.get("from_account", "").startswith("bot_"):
+            return True
+        for elem in inbound.get("msg_body", []):
+            if elem.get("msg_type") != "TIMTextElem":
+                continue
+            data_str = elem.get("msg_content", {}).get("data", "")
+            if not data_str:
+                continue
+            try:
+                parsed = json.loads(data_str)
+                if parsed.get("elem_type") == 1013:
+                    return True
+            except (ValueError, TypeError):
+                pass
         return False
 
     # pylint: disable=unused-argument,too-many-branches
