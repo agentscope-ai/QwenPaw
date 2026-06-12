@@ -27,6 +27,17 @@ export interface TaskGraphCardData {
   showActions?: boolean;
 }
 
+let lastCardRenderLogKey = "";
+
+function logTaskGraphDebug(
+  event: string,
+  payload?: Record<string, unknown>,
+): void {
+  const label = `[DataPaw][TaskGraph][card] ${event}`;
+  if (payload) console.debug(label, payload);
+  else console.debug(label);
+}
+
 export function createTaskGraphCard(host: HostBundle) {
   const { React } = host;
   const { useMemo, useState, useSyncExternalStore } = React;
@@ -90,7 +101,33 @@ export function createTaskGraphCard(host: HostBundle) {
       return items;
     }, [plan]);
 
-    if (!plan) return null;
+    const cardRenderLogKey = [
+      initialPlan?.id ?? "no-initial-plan",
+      plan?.id ?? "no-plan",
+      plan?.state ?? "no-state",
+      sessionId || "no-session",
+    ].join(":");
+    if (cardRenderLogKey !== lastCardRenderLogKey) {
+      lastCardRenderLogKey = cardRenderLogKey;
+      logTaskGraphDebug("render", {
+        hasInitialPlan: Boolean(initialPlan),
+        initialPlanId: initialPlan?.id ?? null,
+        hasPlan: Boolean(plan),
+        planId: plan?.id ?? null,
+        planState: plan?.state ?? null,
+        nodeCount: plan ? Object.keys(plan.nodes ?? {}).length : 0,
+        sessionId: sessionId || null,
+        showActions: data.showActions ?? false,
+      });
+    }
+
+    if (!plan) {
+      logTaskGraphDebug("render-skip", {
+        reason: "missing-plan",
+        initialPlanId: initialPlan?.id ?? null,
+      });
+      return null;
+    }
 
     const showActions = data.showActions ?? false;
 
