@@ -71,6 +71,7 @@ include-package-data = true
 # Dockerfile copies console build output to src/qwenpaw/console/ (no dist subdir).
 "qwenpaw" = [
     "console/**",
+    "cli/*.html",
     "agents/md_files/**",
     "agents/skills/**",
     "tokenizer/**",
