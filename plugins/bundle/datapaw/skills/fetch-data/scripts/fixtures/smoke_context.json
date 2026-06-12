@@ -1,0 +1,6 @@
+{
+  "dialect": "hologres",
+  "question": "近三个月中国用户 QwenChat DAU 在 iOS 和 Web 各多少？",
+  "schema": "### Table: public.dws_user_active  (QwenChat/OLAP)\n- description: 用户活跃明细表\n- columns:\n  - `ds` (date) — 业务日期 [partition]\n  - `platform` (varchar) — 客户端（ios/web/android）\n  - `country` (varchar) — 国家\n  - `user_id` (bigint) — 用户 id\n",
+  "evidence": "- **DAU**  (quantity, north_star)  synonyms=['日活']\n  - dataset=`dws_user_active`  date_range=1d\n      formula: count(distinct user_id)\n"
+}

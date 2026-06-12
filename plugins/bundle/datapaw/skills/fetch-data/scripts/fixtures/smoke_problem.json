@@ -1,0 +1,7 @@
+{
+  "question": "近三个月中国用户 QwenChat DAU 在 iOS 和 Web 各多少？",
+  "domain": "QwenChat",
+  "metric": "DAU",
+  "intention": "分析 DAU 在 iOS 与 Web 端的分布",
+  "scope": ["近 3 个月", "中国用户"]
+}
