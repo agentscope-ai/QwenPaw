@@ -20,9 +20,8 @@ function logTaskGraphDebug(
   event: string,
   payload?: Record<string, unknown>,
 ): void {
-  const label = `[DataPaw][TaskGraph][session-api] ${event}`;
-  if (payload) console.debug(label, payload);
-  else console.debug(label);
+  void event;
+  void payload;
 }
 
 function onHostChatRoute(): boolean {

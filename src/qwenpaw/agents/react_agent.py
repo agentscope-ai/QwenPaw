@@ -995,14 +995,18 @@ class QwenPawAgent(CodingModeMixin, ToolGuardMixin, ReActAgent):
         if nb is None or not isinstance(msg.content, list):
             return msg
         mut = ("create_plan", "revise_current_plan")
-        if any(
+        has_plan_mutation = any(
             isinstance(b, dict)
             and b.get("type") == "tool_use"
             and b.get("name", "") in mut
             for b in msg.content
-        ):
+        )
+        if has_plan_mutation:
             # pylint: disable-next=protected-access
             nb._plan_awaiting_user_confirm = True
+            set_trigger_msg_id = getattr(nb, "set_trigger_msg_id", None)
+            if callable(set_trigger_msg_id):
+                set_trigger_msg_id(getattr(msg, "id", "") or "")
         return msg
 
     # pylint: disable=too-many-branches

@@ -34,7 +34,7 @@ function logTaskGraphDebug(
   payload?: Record<string, unknown>,
 ): void {
   const label = `[DataPaw][TaskGraph][card] ${event}`;
-  if (payload) console.debug(label, payload);
+  if (payload) console.debug(label, JSON.stringify(payload));
   else console.debug(label);
 }
 

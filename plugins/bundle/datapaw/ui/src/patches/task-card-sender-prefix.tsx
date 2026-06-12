@@ -39,9 +39,8 @@ function logTaskGraphDebug(
   event: string,
   payload?: Record<string, unknown>,
 ): void {
-  const label = `[DataPaw][TaskGraph][sender-prefix] ${event}`;
-  if (payload) console.debug(label, payload);
-  else console.debug(label);
+  void event;
+  void payload;
 }
 
 function useDatapawAgentSelected(React: HostBundle["React"]): boolean {

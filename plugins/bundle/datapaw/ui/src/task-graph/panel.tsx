@@ -54,17 +54,16 @@ export function TaskGraphPanel({
   ].join(":");
   if (panelRenderLogKey !== lastPanelRenderLogKey) {
     lastPanelRenderLogKey = panelRenderLogKey;
-    console.debug("[DataPaw][TaskGraph][panel] render", {
-      planId: plan.id,
-      planName: plan.name,
-      planState: plan.state,
-      rowCount: rows.length,
-      showActions,
-      nodeStates: rows.map((row) => ({
-        nodeId: row.node_id,
-        state: row.state,
-      })),
-    });
+    console.debug(
+      "[DataPaw][TaskGraph][panel] render",
+      JSON.stringify({
+        planId: plan.id,
+        planName: plan.name,
+        planState: plan.state,
+        rowCount: rows.length,
+        showActions,
+      }),
+    );
   }
 
   const columns: Array<Record<string, unknown>> = [

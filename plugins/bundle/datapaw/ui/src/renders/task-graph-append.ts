@@ -11,14 +11,18 @@ let nextResponseInstanceId = 0;
 const latestResponseListeners = new Set<() => void>();
 let lastRenderLogKey = "";
 const EMPTY_PLANS: StoredPlanSnapshot[] = [];
-const liveMirrorResponseByPlanId = new Map<string, string>();
+const GRAPH_ID_PATTERN = /\bgraph_[A-Za-z0-9_-]+\b/g;
+
+function sampleIds(ids: Set<string>): string[] {
+  return [...ids].slice(0, 8);
+}
 
 function logTaskGraphDebug(
   event: string,
   payload?: Record<string, unknown>,
 ): void {
   const label = `[DataPaw][TaskGraph][append] ${event}`;
-  if (payload) console.debug(label, payload);
+  if (payload) console.debug(label, JSON.stringify(payload));
   else console.debug(label);
 }
 
@@ -84,6 +88,12 @@ function collectResponseIds(
   }
 
   for (const value of Object.values(record)) {
+    if (typeof value === "string") {
+      for (const match of value.matchAll(GRAPH_ID_PATTERN)) {
+        ids.graphIds.add(match[0]);
+      }
+      continue;
+    }
     collectResponseIds(value, ids, seen);
   }
 
@@ -159,31 +169,15 @@ export function createTaskGraphAppend(host: HostBundle) {
       });
 
       const liveMirror = liveCandidates[liveCandidates.length - 1];
-      if (liveMirror) {
+      if (liveMirror && isLatestResponse) {
         const anchor = liveMirror.anchor_message_id ?? null;
-        const pinnedResponseId = liveMirrorResponseByPlanId.get(liveMirror.id);
-        const hasResponseOutput = responseMessageIds.size > 1;
-        const canPinLiveMirror =
-          Boolean(responseId) &&
-          (isLatestResponse || ctx.isLast !== false || hasResponseOutput);
-        if (pinnedResponseId === responseId || (!pinnedResponseId && canPinLiveMirror)) {
-          if (!pinnedResponseId && responseId) {
-            liveMirrorResponseByPlanId.set(liveMirror.id, responseId);
-          }
-          return {
-            plan: liveMirror,
-            reason: isLatestResponse
-              ? anchor
-                ? "latest-current-live-mirror"
-                : "latest-current-no-anchor"
-              : hasResponseOutput
-                ? "current-response-output-fallback"
-                : "current-response-fallback",
-            anchorMessageId: anchor,
-            isAnchoredResponse: false,
-            isLiveMirror: true,
-          };
-        }
+        return {
+          plan: liveMirror,
+          reason: anchor ? "latest-current-live-mirror" : "latest-current-no-anchor",
+          anchorMessageId: anchor,
+          isAnchoredResponse: false,
+          isLiveMirror: true,
+        };
       }
 
       return {
@@ -220,7 +214,6 @@ export function createTaskGraphAppend(host: HostBundle) {
       logTaskGraphDebug("response-append-render", {
         isLast: ctx.isLast ?? null,
         responseId,
-        responseDataId,
         latestId,
         isLatestResponse,
         planCount: plans.length,
@@ -229,18 +222,19 @@ export function createTaskGraphAppend(host: HostBundle) {
           state: item.state,
           current: Boolean(item.__datapawCurrent),
           anchorMessageId: item.anchor_message_id ?? null,
+          anchorInResponse: item.anchor_message_id
+            ? responseMessageIds.has(item.anchor_message_id)
+            : false,
+          graphInResponse: responseGraphIds.has(item.id),
         })),
         hasPlan: Boolean(plan),
         planId: plan?.id ?? null,
         planState: plan?.state ?? null,
-        planCurrent: plan?.__datapawCurrent ?? null,
         anchorMessageId: selected.anchorMessageId,
-        responseMessageIds: [...responseMessageIds],
-        responseGraphIds: [...responseGraphIds],
-        isAnchoredResponse: selected.isAnchoredResponse,
-        isLiveMirror: selected.isLiveMirror,
+        responseMessageIdCount: responseMessageIds.size,
+        responseMessageIdSample: sampleIds(responseMessageIds),
+        responseGraphIds: sampleIds(responseGraphIds),
         selectedReason: selected.reason,
-        shouldRenderGraph,
         willRenderGraph: Boolean(graph),
       });
     }
