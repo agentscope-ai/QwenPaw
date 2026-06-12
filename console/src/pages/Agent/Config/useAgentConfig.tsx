@@ -97,10 +97,60 @@ export function useAgentConfig() {
       const values = await form.validateFields();
       setSaving(true);
 
-      // Merge form values with original config to ensure complete config
+      // Deep-merge nested config objects so that collapsed (unrendered)
+      // Collapse panels don't lose their saved values.  Shallow spread
+      // would overwrite the entire nested object with only the rendered
+      // fields, dropping anything inside a collapsed panel.
+      const original = originalConfigRef.current!;
+      const formValues = values as AgentsRunningConfig;
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const deepMergeConfig = <T,>(
+        base: T | undefined | null,
+        override: T | undefined | null,
+      ): T | undefined => {
+        if (!base) return override ?? undefined;
+        if (!override) return base;
+        const result = { ...(base as any) };
+        for (const key of Object.keys(override as any)) {
+          const overrideVal = (override as any)[key];
+          const baseVal = (base as any)[key];
+          if (
+            overrideVal != null &&
+            typeof overrideVal === "object" &&
+            !Array.isArray(overrideVal) &&
+            baseVal != null &&
+            typeof baseVal === "object" &&
+            !Array.isArray(baseVal)
+          ) {
+            result[key] = deepMergeConfig(baseVal, overrideVal);
+          } else {
+            result[key] = overrideVal;
+          }
+        }
+        return result as T;
+      };
+
       const configToSave: AgentsRunningConfig = {
-        ...originalConfigRef.current!,
-        ...(values as AgentsRunningConfig),
+        ...original,
+        ...formValues,
+        // Deep-merge nested config sections to preserve collapsed fields
+        reme_light_memory_config: deepMergeConfig(
+          original.reme_light_memory_config,
+          formValues.reme_light_memory_config,
+        ) as typeof original.reme_light_memory_config,
+        light_context_config: deepMergeConfig(
+          original.light_context_config,
+          formValues.light_context_config,
+        ) as typeof original.light_context_config,
+        adbpg_memory_config: deepMergeConfig(
+          original.adbpg_memory_config,
+          formValues.adbpg_memory_config,
+        ) as typeof original.adbpg_memory_config,
+        auto_title_config: deepMergeConfig(
+          original.auto_title_config,
+          formValues.auto_title_config,
+        ) as typeof original.auto_title_config,
         approval_level: approvalLevel,
       };
 
