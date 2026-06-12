@@ -512,6 +512,7 @@ function getCurrentBackendSessionId(): string | null {
  * localStorage plans in a fresh session.
  */
 export function scheduleSessionTaskPlanSync(): void {
+  console.log("scheduleSessionTaskPlanSync");
   if (sessionSyncScheduled) return;
   sessionSyncScheduled = true;
 
