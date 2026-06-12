@@ -318,16 +318,13 @@ class ConsoleChannel(BaseChannel):
                 )
         return media_message
 
-    async def _emit_trailing_usage(
-        self,
-        session_id: str,
-    ) -> AsyncGenerator[str, None]:
-        """Emit post-turn usage as a custom SSE event for the console UI."""
+    def _build_trailing_usage_sse(self, session_id: str) -> str | None:
+        """Return one trailing turn_usage SSE block for the console UI."""
         from ....token_usage import get_pending_usage_for_stream
 
         turn, ctx = get_pending_usage_for_stream(session_id)
         if turn is None and ctx is None:
-            return
+            return None
 
         if turn:
             logger.info("Usage for session %s: %s", session_id, turn)
@@ -340,7 +337,7 @@ class ConsoleChannel(BaseChannel):
             "usage": turn,
             "context_usage": ctx,
         }
-        yield f"data: {_json.dumps(payload, ensure_ascii=False)}\n\n"
+        return f"data: {_json.dumps(payload, ensure_ascii=False)}\n\n"
 
     def _print_status_line(
         self,
@@ -462,8 +459,8 @@ class ConsoleChannel(BaseChannel):
                     agent_id=agent_id,
                 )
 
-            async for sse in self._emit_trailing_usage(session_id):
-                yield sse
+            if trailing := self._build_trailing_usage_sse(session_id):
+                yield trailing
 
             logger.info(
                 "console stream done: event_count=%s has_response=%s",
