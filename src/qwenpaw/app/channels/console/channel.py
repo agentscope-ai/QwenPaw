@@ -322,13 +322,10 @@ class ConsoleChannel(BaseChannel):
         self,
         session_id: str,
     ) -> AsyncGenerator[str, None]:
-        """Emit post-turn usage as HEARTBEAT for console UI action popover."""
-        runner = getattr(self._workspace, "runner", None)
-        turn, ctx = (
-            runner.get_pending_usage_for_stream(session_id)
-            if runner is not None
-            else (None, None)
-        )
+        """Emit post-turn usage as a custom SSE event for the console UI."""
+        from ....token_usage import get_pending_usage_for_stream
+
+        turn, ctx = get_pending_usage_for_stream(session_id)
         if turn is None and ctx is None:
             return
 
@@ -337,18 +334,13 @@ class ConsoleChannel(BaseChannel):
             if ctx:
                 self._print_status_line(turn, ctx)
 
-        usage_meta: Dict[str, Any] = {"session_id": session_id}
-        if ctx:
-            usage_meta["context_usage"] = ctx
-        signal = Message(
-            type=MessageType.HEARTBEAT,
-            status=RunStatus.Completed,
-            role="assistant",
-            content=[],
-            usage=turn,
-            metadata=usage_meta,
-        )
-        yield f"data: {signal.model_dump_json()}\n\n"
+        payload: Dict[str, Any] = {
+            "type": "turn_usage",
+            "session_id": session_id,
+            "usage": turn,
+            "context_usage": ctx,
+        }
+        yield f"data: {_json.dumps(payload, ensure_ascii=False)}\n\n"
 
     def _print_status_line(
         self,
@@ -405,7 +397,16 @@ class ConsoleChannel(BaseChannel):
                     return
                 if merged and hasattr(request.input[0], "content"):
                     request.input[0].content = merged
+        session_id = getattr(request, "session_id", "") or session_id
+        user_id = getattr(request, "user_id", "") or ""
+        channel_name = getattr(request, "channel", "") or self.channel
         try:
+            from ....token_usage import (
+                finalize_console_turn_usage,
+                reset_pending_usage_for_stream,
+            )
+
+            reset_pending_usage_for_stream(session_id)
             send_meta = getattr(request, "channel_meta", None) or {}
             send_meta.setdefault("bot_prefix", self.bot_prefix)
             last_response = None
@@ -444,6 +445,22 @@ class ConsoleChannel(BaseChannel):
 
                 elif obj == "response":
                     last_response = event
+
+            runner = getattr(self._workspace, "runner", None)
+            session = getattr(runner, "session", None) if runner else None
+            agent_id = (
+                getattr(self._workspace, "agent_id", "default")
+                if self._workspace is not None
+                else "default"
+            )
+            if session is not None and session_id:
+                await finalize_console_turn_usage(
+                    session=session,
+                    session_id=session_id,
+                    user_id=user_id,
+                    channel=channel_name,
+                    agent_id=agent_id,
+                )
 
             async for sse in self._emit_trailing_usage(session_id):
                 yield sse

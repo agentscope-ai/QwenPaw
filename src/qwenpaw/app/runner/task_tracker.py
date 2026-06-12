@@ -223,7 +223,6 @@ class TaskTracker:
     async def request_stop(self, run_key: str) -> bool:
         """Cancel the run. Returns ``True`` if it was running."""
         logger.debug("[STOP] request_stop called for run_key=%s", run_key)
-        task: asyncio.Task | None = None
         async with self._lock:
             state = self._runs.get(run_key)
             logger.debug(
@@ -242,21 +241,9 @@ class TaskTracker:
                 "[STOP] Calling task.cancel() for run_key=%s",
                 run_key,
             )
-            task = state.task
-            task.cancel()
+            state.task.cancel()
             logger.debug("[STOP] task.cancel() called for run_key=%s", run_key)
-
-        if task is not None:
-            try:
-                await asyncio.wait_for(task, timeout=5.0)
-            except asyncio.CancelledError:
-                pass
-            except asyncio.TimeoutError:
-                logger.warning(
-                    "[STOP] teardown timeout run_key=%s",
-                    run_key,
-                )
-        return True
+            return True
 
     async def attach_or_start(
         self,

@@ -29,11 +29,7 @@ import styles from "./index.module.less";
 import { IconButton } from "@agentscope-ai/design";
 import ChatActionGroup from "./components/ChatActionGroup";
 import TurnUsageAction from "./components/TurnUsageAction";
-import {
-  extractUsageHeartbeatFromPayload,
-  schedulePatchLastResponseCardUsage,
-  wrapChatResponseUsageStream,
-} from "./turnUsage";
+import { wrapChatResponseUsageStream } from "./turnUsage";
 import ChatHeaderTitle from "./components/ChatHeaderTitle";
 import ChatSessionInitializer from "./components/ChatSessionInitializer";
 import { ApprovalCard } from "../../components/ApprovalCard/ApprovalCard";
@@ -1611,12 +1607,8 @@ export default function ChatPage() {
         responseParser: (chunk: string) => {
           const payload = JSON.parse(chunk) as Record<string, unknown>;
 
-          const usageHeartbeat = extractUsageHeartbeatFromPayload(payload);
-          if (usageHeartbeat) {
-            schedulePatchLastResponseCardUsage(
-              chatRef,
-              usageHeartbeat.snapshot,
-            );
+          if (payload.type === "turn_usage") {
+            return null;
           }
 
           if (payload.type === "rate_limited") {

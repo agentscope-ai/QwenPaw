@@ -310,8 +310,3 @@ class TokenUsageManager:
 def get_token_usage_manager() -> TokenUsageManager:
     """Return the process-wide singleton ``TokenUsageManager``."""
     return TokenUsageManager.get_instance()
-
-
-def fmt_tokens(n: int) -> str:
-    """Compact token count for terminal status lines."""
-    return f"{n / 1000:.1f}K" if n >= 1000 else str(n)

@@ -122,7 +122,8 @@ function findPatchTargetAssistant(
   for (let i = assistants.length - 1; i >= 0; i--) {
     const data = getResponseCardData(assistants[i].cards);
     if (!data) continue;
-    if (!readTurnUsageFromResponseCardData(data)) {
+    const snap = readTurnUsageFromResponseCardData(data);
+    if (!snap || !snap.context_usage) {
       return assistants[i];
     }
   }
@@ -215,10 +216,7 @@ function parseSseDataLines(buffer: string): {
 
 function snapshotFromSsePayload(raw: string): TurnUsageSnapshot | null {
   try {
-    const heartbeat = extractUsageHeartbeatFromPayload(
-      JSON.parse(raw) as Record<string, unknown>,
-    );
-    return heartbeat?.snapshot ?? null;
+    return parseTurnUsageSsePayload(JSON.parse(raw) as Record<string, unknown>);
   } catch {
     return null;
   }
@@ -227,7 +225,7 @@ function snapshotFromSsePayload(raw: string): TurnUsageSnapshot | null {
 /**
  * Observe the SSE body and patch usage when the stream finishes.
  *
- * Trailing usage HEARTBEAT arrives after the Completed response. The chat SDK
+ * Trailing `turn_usage` SSE arrives after Completed response. The chat SDK
  * may drop it via isStillActive (session id drift after realId URL resolve),
  * so we capture it here and patch after the SDK has finished reading.
  */
@@ -274,47 +272,14 @@ export function wrapChatResponseUsageStream(
   });
 }
 
-export function parseUsageHeartbeatPayload(
-  chunk: string,
-): { snapshot: TurnUsageSnapshot; sessionId?: string } | null {
-  try {
-    return extractUsageHeartbeatFromPayload(
-      JSON.parse(chunk) as Record<string, unknown>,
-    );
-  } catch {
+function parseTurnUsageSsePayload(
+  payload: Record<string, unknown>,
+): TurnUsageSnapshot | null {
+  if (payload.type !== "turn_usage") {
     return null;
   }
-}
-
-export function extractUsageHeartbeatFromPayload(
-  payload: Record<string, unknown>,
-): { snapshot: TurnUsageSnapshot; sessionId?: string } | null {
-  const msgType = payload.type ?? payload.object;
-  if (msgType !== "heartbeat" && msgType !== "HEARTBEAT") {
-    const nestedType =
-      payload.data &&
-      typeof payload.data === "object" &&
-      !Array.isArray(payload.data)
-        ? (payload.data as Record<string, unknown>).type
-        : undefined;
-    if (nestedType !== "heartbeat" && nestedType !== "HEARTBEAT") {
-      return null;
-    }
-  }
-  const nested =
-    payload.data &&
-    typeof payload.data === "object" &&
-    !Array.isArray(payload.data)
-      ? (payload.data as Record<string, unknown>)
-      : null;
-  const source = nested ?? payload;
-  const usage = source.usage ?? payload.usage;
-  const meta = source.metadata;
-  const metadataCtx =
-    meta && typeof meta === "object" && !Array.isArray(meta)
-      ? (meta as Record<string, unknown>).context_usage
-      : undefined;
-  const ctx = metadataCtx ?? source.context_usage ?? payload.context_usage;
+  const usage = payload.usage;
+  const ctx = payload.context_usage;
   const usageTotal =
     readNumber(usage, "total_tokens") ||
     readNumber(usage, "prompt_tokens") + readNumber(usage, "completion_tokens");
@@ -323,43 +288,8 @@ export function extractUsageHeartbeatFromPayload(
     ctx && typeof ctx === "object" && readNumber(ctx, "estimated_tokens") > 0;
   if (!hasUsage && !hasCtx) return null;
 
-  let sessionId: string | undefined;
-  if (meta && typeof meta === "object" && !Array.isArray(meta)) {
-    const sid = (meta as Record<string, unknown>).session_id;
-    if (typeof sid === "string" && sid) sessionId = sid;
-  }
-
   return {
-    snapshot: {
-      usage: hasUsage ? (usage as TurnUsage) : null,
-      context_usage: hasCtx ? (ctx as ContextUsage) : null,
-    },
-    sessionId,
+    usage: hasUsage ? (usage as TurnUsage) : null,
+    context_usage: hasCtx ? (ctx as ContextUsage) : null,
   };
-}
-
-export function usageSessionIdsMatch(a: string, b: string): boolean {
-  if (!a || !b) return false;
-  if (a === b) return true;
-  return (
-    a.endsWith(`_${b}`) ||
-    a.startsWith(`${b}_`) ||
-    a.includes(`_${b}_`) ||
-    b.endsWith(`_${a}`) ||
-    b.startsWith(`${a}_`) ||
-    b.includes(`_${a}_`)
-  );
-}
-
-/** Decide whether a trailing usage HEARTBEAT belongs to the active chat. */
-export function shouldApplyUsageHeartbeat(
-  eventSessionId: string | undefined,
-  ...activeIds: Array<string | null | undefined>
-): boolean {
-  if (!eventSessionId) return true;
-  const candidates = activeIds.filter(
-    (id): id is string => typeof id === "string" && id.length > 0,
-  );
-  if (candidates.length === 0) return true;
-  return candidates.some((id) => usageSessionIdsMatch(eventSessionId, id));
 }
