@@ -33,9 +33,8 @@ function logTaskGraphDebug(
   event: string,
   payload?: Record<string, unknown>,
 ): void {
-  const label = `[DataPaw][TaskGraph][card] ${event}`;
-  if (payload) console.debug(label, JSON.stringify(payload));
-  else console.debug(label);
+  void event;
+  void payload;
 }
 
 export function createTaskGraphCard(host: HostBundle) {
