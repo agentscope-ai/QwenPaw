@@ -8,9 +8,10 @@ from __future__ import annotations
 import logging
 import time
 
-from fastapi import APIRouter, HTTPException, Path
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Path
 from pydantic import ValidationError
 
+from ..data_sources.cm_notifier import notify_cm
 from ..data_sources.connection_testers import test_connection
 from ..data_sources.models import (
     DataSourceCreateRequest,
@@ -134,17 +135,23 @@ async def get_data_source(
 )
 async def create_data_source(
     body: DataSourceCreateRequest,
+    background_tasks: BackgroundTasks,
 ) -> DataSourceRecord:
     """Create and persist a new data source."""
     try:
         validate_config_for_type(body.type, body.config)
-        return _store.create(body)
+        created = _store.create(body)
     except ValidationError as exc:
         raise HTTPException(status_code=400, detail=exc.errors()) from exc
     except ValueError as exc:
         raise _validation_http_error(exc) from exc
     except DataSourceConflictError as exc:
         raise _store_http_error(exc) from exc
+
+    background_tasks.add_task(
+        notify_cm, "created", _store.get(created.id, masked=False)
+    )
+    return created
 
 
 @router.put(
@@ -155,15 +162,21 @@ async def create_data_source(
 )
 async def update_data_source(
     body: DataSourceUpdateRequest,
+    background_tasks: BackgroundTasks,
     record_id: str = Path(..., description="Data source id"),
 ) -> DataSourceRecord:
     """Update name and/or config; masked secrets are preserved."""
     try:
-        return _store.update(record_id, body)
+        updated = _store.update(record_id, body)
     except ValidationError as exc:
         raise HTTPException(status_code=400, detail=exc.errors()) from exc
     except (DataSourceNotFoundError, DataSourceConflictError, ValueError) as exc:
         raise _store_http_error(exc) from exc
+
+    background_tasks.add_task(
+        notify_cm, "updated", _store.get(record_id, masked=False)
+    )
+    return updated
 
 
 @router.delete(
@@ -172,11 +185,15 @@ async def update_data_source(
     summary="Delete a data source",
 )
 async def delete_data_source(
+    background_tasks: BackgroundTasks,
     record_id: str = Path(..., description="Data source id"),
 ) -> None:
     """Remove a data source by id."""
     try:
+        existing = _store.get(record_id, masked=False)
         _store.delete(record_id)
     except DataSourceNotFoundError as exc:
         raise _store_http_error(exc) from exc
+
+    background_tasks.add_task(notify_cm, "deleted", existing)
 
