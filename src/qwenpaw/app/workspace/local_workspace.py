@@ -31,6 +31,16 @@ class QwenPawLocalWorkspace(AgentScopeLocalWorkspace):
     def __init__(self, tool_registry: ToolRegistry, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self._tool_registry = tool_registry
+        self._governor: Any = None
+
+    def set_governor(self, governor: Any) -> None:
+        """Inject the ResourceGovernor for policy-governed tool wrapping.
+
+        Called by :class:`AgentBuilder` after the governor is created.
+        Must be called before the first :meth:`list_tools` invocation
+        for the governor to take effect on workspace tools.
+        """
+        self._governor = governor
 
     async def list_tools(  # type: ignore[override]
         self,
@@ -50,6 +60,7 @@ class QwenPawLocalWorkspace(AgentScopeLocalWorkspace):
         result is narrowed by config gates and four-dimensional
         filtering.
         """
+        from ...governance import PolicyGuardedTool
         from ...runtime.tool_guard import GuardedFunctionTool
 
         if agent_config is not None:
@@ -64,6 +75,16 @@ class QwenPawLocalWorkspace(AgentScopeLocalWorkspace):
             allowed=allowed,
             denied=denied,
         )
+
+        if self._governor:
+            return [
+                PolicyGuardedTool(
+                    d.func,
+                    governor=self._governor,
+                    request_context=request_context,
+                )
+                for d in descs
+            ]
         return [
             GuardedFunctionTool(
                 d.func,

@@ -108,7 +108,6 @@ async def _policy_tool_check_permissions(
         "session_id", ""
     )
 
-    
 
     tc_spec = ToolCallSpec(
         tool_name=tool_name,
@@ -145,6 +144,7 @@ async def _policy_tool_check_permissions(
     elif decision.action is GovernanceAction.ASK:
         # Requires user confirmation
         self._qp_policy_decision = decision
+
         return await _ask_user_approval(
             governor=governor,
             tool_name=tool_name,
@@ -229,6 +229,9 @@ async def _policy_tool_call(
     session_id = request_context.get("session_id", "")
 
     from agentscope.permission import PermissionBehavior, PermissionDecision
+    governance_reason = getattr(
+        getattr(self, "_qp_policy_decision", None), "reason", None,
+    )
     decision = await _ask_user_approval(
         governor=governor,
         tool_name=tool_name,
@@ -237,6 +240,8 @@ async def _policy_tool_call(
         agent_id=agent_id,
         session_id=session_id,
         request_context=request_context,
+        violation_msg=violation_msg or None,
+        governance_reason=governance_reason,
     )
 
     if decision.behavior == PermissionBehavior.ALLOW:
@@ -275,6 +280,9 @@ async def _ask_user_approval(
     agent_id: str,
     session_id: str,
     request_context: dict[str, str],
+    *,
+    violation_msg: str | None = None,
+    governance_reason: str | None = None,
 ) -> Any:
     """Request user approval, blocking until a reply is received."""
     from agentscope.permission import PermissionBehavior, PermissionDecision
@@ -312,11 +320,19 @@ async def _ask_user_approval(
                 description=(
                     f"Tool '{tool_name}' with target '{target}' "
                     f"requires user approval per governance policy."
+                    + (
+                        f"\n\nGovernance reason: {governance_reason}"
+                        if governance_reason else ""
+                    )
+                    + (
+                        f"\n\nSandbox violation: {violation_msg}"
+                        if violation_msg else ""
+                    )
                 ),
                 tool_name=tool_name,
                 remediation="Approve or deny this tool call",
                 guardian="governance_policy",
-                metadata={"target": target},
+                metadata={"target": target, **({"sandbox_violation": violation_msg} if violation_msg else {})},
             ),
         ],
         guardians_used=["governance_policy"],

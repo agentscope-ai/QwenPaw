@@ -8,10 +8,12 @@ Public surface:
 """
 from .resource_governor import ResourceGovernor
 from .policy import GovernanceAction, GovernanceDecision
+from .tool_adapter import PolicyGuardedTool
 
 
 __all__ = [
     "ResourceGovernor",
     "GovernanceAction",
     "GovernanceDecision",
+    "PolicyGuardedTool",
 ]

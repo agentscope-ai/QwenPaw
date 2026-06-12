@@ -138,6 +138,15 @@ class AgentBuilder:
             if plugins is not None:
                 active_modes = plugins.active_mode_names(ctx)
 
+        # Governor (governance policy layer).
+        governor = self._init_governor(workspace_dir)
+
+        # Inject governor into local_workspace so list_tools() can
+        # wrap tools with PolicyGuardedTool instead of GuardedFunctionTool.
+        local_ws = self._get_local_workspace(ctx) if ctx else None
+        if local_ws is not None and governor is not None:
+            local_ws.set_governor(governor)
+
         # Toolkit.
         extra_tools = self._collect_coding_mode_tools(
             agent_config,
@@ -191,6 +200,7 @@ class AgentBuilder:
             memory_manager=self._get_memory_manager(ctx),
             context_manager=self._get_context_manager(ctx),
             effective_skills=effective_skills,
+            governor=governor,
         )
 
         # Load session state if SessionLoadHook populated it.
@@ -273,6 +283,30 @@ class AgentBuilder:
         return model, formatter
 
     # ------------------------------------------------------- helpers
+
+    @staticmethod
+    def _init_governor(workspace_dir: Any) -> Any:
+        """Initialize ResourceGovernor if governance is available.
+
+        Returns the started governor, or ``None`` when governance cannot
+        be initialised (missing dependencies, unsupported platform, etc.).
+        """
+        if not workspace_dir:
+            return None
+        try:
+            from ..governance import ResourceGovernor
+
+            governor = ResourceGovernor(str(workspace_dir))
+            governor.start()
+            _logger.info("Governance started: dir=%s", workspace_dir)
+            return governor
+        except Exception:
+            _logger.warning(
+                "Failed to start governance; falling back to "
+                "GuardedFunctionTool",
+                exc_info=True,
+            )
+            return None
 
     @staticmethod
     def _get_local_workspace(ctx: Any) -> Any:

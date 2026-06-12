@@ -64,6 +64,7 @@ class QwenPawAgent(CodingModeMixin, Agent):
         memory_manager: "BaseMemoryManager | None" = None,
         context_manager: "BaseContextManager | None" = None,
         effective_skills: Optional[list[str]] = None,
+        governor: Any = None,
     ):
         """Initialize QwenPawAgent.
 
@@ -79,22 +80,7 @@ class QwenPawAgent(CodingModeMixin, Agent):
         # Register skills metadata on toolkit
         self._register_skills(toolkit, effective_skills=effective_skills or [])
 
-        # Initialize governance (feature flag controlled)
-        self._governor = None
-        try:
-            from ..governance import ResourceGovernor
-            self._governor = ResourceGovernor(str(workspace_dir))
-            self._governor.start()
-            logger.info(
-                "Governance started: dir=%s",
-                workspace_dir,
-            )
-        except Exception:  # pylint: disable=broad-except
-            logger.warning(
-                "Failed to start governance; falling back to "
-                "GuardedFunctionTool",
-                exc_info=True,
-            )
+        self._governor = governor
 
         # Store managers for downstream consumers
         self.memory_manager = memory_manager
@@ -105,7 +91,7 @@ class QwenPawAgent(CodingModeMixin, Agent):
             memory_tools = self.memory_manager.list_memory_tools()
             basic_group = toolkit.tool_groups[0]
             for tool_fn in memory_tools:
-                if self._use_governance_policy():
+                if self._governor:
                     from ..governance import PolicyGuardedTool
                     basic_group.tools.append(
                         PolicyGuardedTool(
@@ -201,10 +187,6 @@ class QwenPawAgent(CodingModeMixin, Agent):
             raise KeyError(
                 "state_dict has neither 'state' nor 'memory' key",
             )
-
-    def _use_governance_policy(self) -> bool:
-        """Return True when governance policy should be used."""
-        return self._governor is not None
 
     async def close(self) -> None:
         """Shut down governor (flush audit log, persist policy)."""
