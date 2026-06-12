@@ -131,23 +131,6 @@ function Write-QwenPawCliWrapper {
 "@ | Set-Content -Path $qwenpawCmd -Encoding ASCII
 }
 
-function Copy-BundledPlugins {
-  param([string]$EnvRoot)
-
-  $src = Join-Path $RepoRoot "plugins\bundle"
-  $dest = Join-Path $EnvRoot "bundled-plugins"
-  if (-not (Test-Path $src)) {
-    Write-Host "[tauri-conda] WARN: bundled plugins source not found at $src" -ForegroundColor Yellow
-    return
-  }
-  if (Test-Path $dest) {
-    Remove-Item -LiteralPath $dest -Recurse -Force
-  }
-  Copy-Item -Recurse -Force $src $dest
-  $pluginCount = (Get-ChildItem $dest -Directory).Count
-  Write-Host "[tauri-conda] Copied $pluginCount bundled plugin(s) to $dest"
-}
-
 function Copy-ToTauriResource {
   param(
     [string]$EnvRoot,
@@ -206,7 +189,6 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 Write-QwenPawCliWrapper -EnvRoot $envRoot
-Copy-BundledPlugins -EnvRoot $envRoot
 
 Write-Host "== Copying to Tauri resource directory =="
 Copy-ToTauriResource -EnvRoot $envRoot -Dest $OutputDir

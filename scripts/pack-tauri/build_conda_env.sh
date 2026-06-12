@@ -61,19 +61,6 @@ EOF
   chmod +x "${env_root}/qwenpaw"
 }
 
-copy_bundled_plugins() {
-  local env_root="$1"
-  local src="${REPO_ROOT}/plugins/bundle"
-  local dest="${env_root}/bundled-plugins"
-  if [[ ! -d "$src" ]]; then
-    echo "WARN: bundled plugins source not found at $src" >&2
-    return
-  fi
-  rm -rf "$dest"
-  cp -R "$src" "$dest"
-  echo "Copied bundled plugins to $dest"
-}
-
 echo "========================================="
 echo "QwenPaw Tauri Backend - conda-pack"
 echo "========================================="
@@ -118,7 +105,6 @@ echo "== Pre-compiling Python bytecode =="
   echo "WARN: bytecode compilation had errors" >&2
 
 write_qwenpaw_wrapper "$ENV_ROOT"
-copy_bundled_plugins "$ENV_ROOT"
 
 echo "== Copying to Tauri resource directory =="
 mkdir -p "$OUTPUT_DIR"
