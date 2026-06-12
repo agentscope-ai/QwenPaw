@@ -1,25 +1,23 @@
 import { createTaskGraphCard } from "../task-graph/card";
-import { getDisplayPlan, subscribeCurrentPlan } from "../lib/plan-store";
+import {
+  getDisplayPlans,
+  subscribeCurrentPlan,
+  type StoredPlanSnapshot,
+} from "../lib/plan-store";
 import type { HostBundle } from "../types";
 
 let latestResponseId: string | null = null;
 let nextResponseInstanceId = 0;
 const latestResponseListeners = new Set<() => void>();
-const seenMessageIds = new Set<string>();
-let responseTrackingPlanKey = "";
 let lastRenderLogKey = "";
+const EMPTY_PLANS: StoredPlanSnapshot[] = [];
 
 function logTaskGraphDebug(
   event: string,
   payload?: Record<string, unknown>,
 ): void {
-  console.info("[datapaw:task-graph-debug]", event, payload ?? {});
-}
-
-function resetResponseTrackingIfNeeded(planKey: string): void {
-  if (responseTrackingPlanKey === planKey) return;
-  responseTrackingPlanKey = planKey;
-  seenMessageIds.clear();
+  void event;
+  void payload;
 }
 
 function subscribeLatestResponse(listener: () => void): () => void {
@@ -60,30 +58,31 @@ function getResponseId(data: unknown): string | null {
   return null;
 }
 
-function collectResponseMessageIds(
+function collectResponseIds(
   data: unknown,
-  ids = new Set<string>(),
-): Set<string> {
+  ids = { messageIds: new Set<string>(), graphIds: new Set<string>() },
+  seen = new WeakSet<object>(),
+): { messageIds: Set<string>; graphIds: Set<string> } {
   if (!data || typeof data !== "object") return ids;
+  if (seen.has(data)) return ids;
+  seen.add(data);
+  if (Array.isArray(data)) {
+    for (const item of data) collectResponseIds(item, ids, seen);
+    return ids;
+  }
   const record = data as Record<string, unknown>;
 
-  for (const key of ["id", "msg_id", "message_id"]) {
+  for (const key of ["id", "msg_id", "message_id", "response_id", "run_id"]) {
     const value = record[key];
-    if (typeof value === "string" && value) ids.add(value);
+    if (typeof value === "string" && value) ids.messageIds.add(value);
+  }
+  const graphId = record.graph_id;
+  if (typeof graphId === "string" && graphId) {
+    ids.graphIds.add(graphId);
   }
 
-  const output = record.output;
-  if (Array.isArray(output)) {
-    for (const item of output) {
-      collectResponseMessageIds(item, ids);
-    }
-  }
-
-  for (const key of ["message", "response", "data", "raw"]) {
-    const nested = record[key];
-    if (nested && typeof nested === "object") {
-      collectResponseMessageIds(nested, ids);
-    }
+  for (const value of Object.values(record)) {
+    collectResponseIds(value, ids, seen);
   }
 
   return ids;
@@ -99,10 +98,10 @@ export function createTaskGraphAppend(host: HostBundle) {
     fallback?: () => unknown;
     isLast?: boolean;
   }) {
-    const plan = useSyncExternalStore(
+    const plans = useSyncExternalStore(
       subscribeCurrentPlan,
-      getDisplayPlan,
-      () => null,
+      getDisplayPlans,
+      () => EMPTY_PLANS,
     );
     const latestId = useSyncExternalStore(
       subscribeLatestResponse,
@@ -115,14 +114,9 @@ export function createTaskGraphAppend(host: HostBundle) {
       instanceIdRef.current = `instance:${nextResponseInstanceId}`;
     }
 
-    const anchorMessageId = plan?.anchor_message_id ?? null;
-    const responseMessageIds = collectResponseMessageIds(ctx.data);
-    resetResponseTrackingIfNeeded(
-      `${plan?.id ?? "no-plan"}:${anchorMessageId ?? "no-anchor"}`,
-    );
-    for (const messageId of responseMessageIds) {
-      seenMessageIds.add(messageId);
-    }
+    const responseIds = collectResponseIds(ctx.data);
+    const responseMessageIds = responseIds.messageIds;
+    const responseGraphIds = responseIds.graphIds;
 
     const responseDataId = getResponseId(ctx.data);
     const responseId = responseDataId ?? instanceIdRef.current;
@@ -134,17 +128,58 @@ export function createTaskGraphAppend(host: HostBundle) {
     const isLatestResponse =
       Boolean(responseId && latestId && responseId === latestId) ||
       (!latestId && ctx.isLast !== false);
-    const isAnchoredResponse = Boolean(
-      anchorMessageId && responseMessageIds.has(anchorMessageId),
-    );
-    const hasSeenAnchor = Boolean(
-      anchorMessageId && seenMessageIds.has(anchorMessageId),
-    );
-    const shouldRenderGraph = plan
-      ? isAnchoredResponse ||
-        (!hasSeenAnchor && isLatestResponse) ||
-        (!anchorMessageId && isLatestResponse)
-      : false;
+    const selectPlanForResponse = (): {
+      plan: StoredPlanSnapshot | null;
+      reason: string;
+      anchorMessageId: string | null;
+      isAnchoredResponse: boolean;
+      isLiveMirror: boolean;
+    } => {
+      const anchored = plans.find((candidate) => {
+        const anchor = candidate.anchor_message_id;
+        return Boolean(
+          (anchor && responseMessageIds.has(anchor)) ||
+            responseGraphIds.has(candidate.id),
+        );
+      });
+      if (anchored) {
+        return {
+          plan: anchored,
+          reason: responseGraphIds.has(anchored.id) ? "graph-id" : "anchor",
+          anchorMessageId: anchored.anchor_message_id ?? null,
+          isAnchoredResponse: true,
+          isLiveMirror: false,
+        };
+      }
+
+      const liveCandidates = plans.filter((candidate) => {
+        return candidate.__datapawCurrent;
+      });
+
+      const liveMirror = liveCandidates[liveCandidates.length - 1];
+      if (liveMirror && isLatestResponse) {
+        const anchor = liveMirror.anchor_message_id ?? null;
+        return {
+          plan: liveMirror,
+          reason: anchor ? "latest-current-live-mirror" : "latest-current-no-anchor",
+          anchorMessageId: anchor,
+          isAnchoredResponse: false,
+          isLiveMirror: true,
+        };
+      }
+
+      return {
+        plan: null,
+        reason: "none",
+        anchorMessageId: null,
+        isAnchoredResponse: false,
+        isLiveMirror: false,
+      };
+    };
+
+    const selected = selectPlanForResponse();
+    const plan = selected.plan;
+    const shouldRenderGraph = Boolean(plan);
 
     const fallback = ctx.fallback?.() ?? null;
     const graph =
@@ -158,7 +193,9 @@ export function createTaskGraphAppend(host: HostBundle) {
       ctx.isLast ? "last" : "not-last",
       shouldRenderGraph ? "show" : "hide",
       plan?.id ?? "no-plan",
-      anchorMessageId ?? "no-anchor",
+      selected.anchorMessageId ?? "no-anchor",
+      selected.reason,
+      responseId,
     ].join(":");
     if (logKey !== lastRenderLogKey) {
       lastRenderLogKey = logKey;
@@ -168,13 +205,23 @@ export function createTaskGraphAppend(host: HostBundle) {
         responseDataId,
         latestId,
         isLatestResponse,
+        planCount: plans.length,
+        plans: plans.map((item) => ({
+          id: item.id,
+          state: item.state,
+          current: Boolean(item.__datapawCurrent),
+          anchorMessageId: item.anchor_message_id ?? null,
+        })),
         hasPlan: Boolean(plan),
         planId: plan?.id ?? null,
         planState: plan?.state ?? null,
-        anchorMessageId,
+        planCurrent: plan?.__datapawCurrent ?? null,
+        anchorMessageId: selected.anchorMessageId,
         responseMessageIds: [...responseMessageIds],
-        isAnchoredResponse,
-        hasSeenAnchor,
+        responseGraphIds: [...responseGraphIds],
+        isAnchoredResponse: selected.isAnchoredResponse,
+        isLiveMirror: selected.isLiveMirror,
+        selectedReason: selected.reason,
         shouldRenderGraph,
         willRenderGraph: Boolean(graph),
       });

@@ -2,6 +2,7 @@
 """Tests for data-source store, masking, and REST routes."""
 from __future__ import annotations
 
+import asyncio
 import importlib.util
 import json
 import sys
@@ -11,6 +12,12 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from plugin_datapaw.core.data_sources import cm_notifier
+from plugin_datapaw.core.data_sources.cm_notifier import (
+    CM_BASE_URL_ENV,
+    _data_source_payload,
+    notify_cm,
+)
 from plugin_datapaw.core.data_sources.masking import mask_value, restore_config_values
 from plugin_datapaw.core.data_sources.models import (
     DataSourceCreateRequest,
@@ -279,3 +286,152 @@ def test_router_missing_fields_returns_400(api_client: TestClient) -> None:
         json={"type": "mysql", "name": "bad", "config": {"host": "127.0.0.1"}},
     )
     assert resp.status_code == 400
+
+
+class _FakeResponse:
+    def __init__(self, status_code: int = 200) -> None:
+        self.status_code = status_code
+
+
+class _RecordingAsyncClient:
+    """Captures the single POST a notify_cm call makes."""
+
+    captured: list[dict] = []
+    status_code = 200
+    raise_on_post = False
+
+    def __init__(self, **kwargs) -> None:
+        self.kwargs = kwargs
+
+    async def __aenter__(self) -> "_RecordingAsyncClient":
+        return self
+
+    async def __aexit__(self, *_exc) -> bool:
+        return False
+
+    async def post(self, url, json=None, headers=None):  # noqa: A002
+        type(self).captured.append({"url": url, "json": json, "headers": headers})
+        if type(self).raise_on_post:
+            raise RuntimeError("network down")
+        return _FakeResponse(type(self).status_code)
+
+
+@pytest.fixture
+def recording_client(monkeypatch: pytest.MonkeyPatch):
+    _RecordingAsyncClient.captured = []
+    _RecordingAsyncClient.status_code = 200
+    _RecordingAsyncClient.raise_on_post = False
+    monkeypatch.setattr(cm_notifier.httpx, "AsyncClient", _RecordingAsyncClient)
+    return _RecordingAsyncClient
+
+
+def _make_unmasked_record(store: DataSourceStore):
+    created = store.create(
+        DataSourceCreateRequest(type="mysql", name="cm-src", config=dict(MYSQL_CONFIG)),
+    )
+    return store.get(created.id, masked=False)
+
+
+def test_cm_payload_created_is_unmasked(store: DataSourceStore) -> None:
+    record = _make_unmasked_record(store)
+    payload = _data_source_payload("created", record)
+    assert payload["action"] == "created"
+    assert payload["dataSource"]["config"]["password"] == MYSQL_CONFIG["password"]
+    assert "createdAt" in payload["dataSource"]
+
+
+def test_cm_payload_deleted_only_id_and_type(store: DataSourceStore) -> None:
+    record = _make_unmasked_record(store)
+    payload = _data_source_payload("deleted", record)
+    assert payload["dataSource"] == {"id": record.id, "type": "mysql"}
+
+
+def test_notify_cm_skips_when_unset(
+    store: DataSourceStore,
+    monkeypatch: pytest.MonkeyPatch,
+    recording_client,
+) -> None:
+    monkeypatch.delenv(CM_BASE_URL_ENV, raising=False)
+    record = _make_unmasked_record(store)
+    asyncio.run(notify_cm("created", record))
+    assert recording_client.captured == []
+
+
+def test_notify_cm_posts_unmasked_payload(
+    store: DataSourceStore,
+    monkeypatch: pytest.MonkeyPatch,
+    recording_client,
+) -> None:
+    monkeypatch.setenv(CM_BASE_URL_ENV, "http://cm.local/")
+    record = _make_unmasked_record(store)
+    asyncio.run(notify_cm("created", record))
+
+    assert len(recording_client.captured) == 1
+    sent = recording_client.captured[0]
+    assert sent["url"] == "http://cm.local/api/datasources/sync"
+    assert sent["json"]["dataSource"]["config"]["password"] == MYSQL_CONFIG["password"]
+    assert sent["headers"]["X-Request-Id"]
+
+
+def test_notify_cm_swallows_errors(
+    store: DataSourceStore,
+    monkeypatch: pytest.MonkeyPatch,
+    recording_client,
+) -> None:
+    monkeypatch.setenv(CM_BASE_URL_ENV, "http://cm.local")
+    recording_client.raise_on_post = True
+    record = _make_unmasked_record(store)
+    asyncio.run(notify_cm("updated", record))
+
+
+def test_router_create_notifies_unmasked(
+    api_client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    router_mod = _load_router_module()
+    calls: list[tuple] = []
+    monkeypatch.setattr(
+        router_mod,
+        "notify_cm",
+        lambda action, record: calls.append((action, record)),
+    )
+
+    resp = api_client.post(
+        "/datapaw/data-sources",
+        json={"type": "mysql", "name": "notify-db", "config": MYSQL_CONFIG},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["config"]["password"] != MYSQL_CONFIG["password"]
+
+    assert len(calls) == 1
+    action, record = calls[0]
+    assert action == "created"
+    assert record.config["password"] == MYSQL_CONFIG["password"]
+
+
+def test_router_delete_notifies_id_and_type(
+    api_client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    router_mod = _load_router_module()
+    create_resp = api_client.post(
+        "/datapaw/data-sources",
+        json={"type": "mysql", "name": "del-db", "config": MYSQL_CONFIG},
+    )
+    record_id = create_resp.json()["id"]
+
+    calls: list[tuple] = []
+    monkeypatch.setattr(
+        router_mod,
+        "notify_cm",
+        lambda action, record: calls.append((action, record)),
+    )
+
+    resp = api_client.delete(f"/datapaw/data-sources/{record_id}")
+    assert resp.status_code == 204
+
+    assert len(calls) == 1
+    action, record = calls[0]
+    assert action == "deleted"
+    assert record.id == record_id
+    assert record.type == "mysql"

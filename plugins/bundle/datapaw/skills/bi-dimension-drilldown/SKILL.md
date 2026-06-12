@@ -1,6 +1,6 @@
 ---
 name: bi-dimension-drilldown
-description: 对指标按维度逐层下拆，定位驱动变动的关键维度（组）值。当需要找出"哪些维度值导致了指标变化"时调用。
+description: 对指标按维度逐层下拆，通过单维度扫描、交叉分析和层级下钻定位关键维度（组）值。当需要知道"从哪些维度拆解、按什么顺序拆解来定位指标变动来源"时调用。
 ---
 # bi-dimension-drilldown
 

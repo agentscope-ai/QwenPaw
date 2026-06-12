@@ -77,16 +77,42 @@ function getTaskGraphAnchorMessageId(
     : null;
 }
 
+function getTaskGraphPlanId(message: Record<string, unknown>): string | null {
+  const cards = message.cards as
+    | Array<{ code?: string; data?: { plan?: { id?: string } } }>
+    | undefined;
+  const taskGraphCard = cards?.find((card) => card.code === "task_graph");
+  const planId = taskGraphCard?.data?.plan?.id;
+  return typeof planId === "string" && planId ? planId : null;
+}
+
+function outputMatchesPlan(
+  item: { id?: string; metadata?: { graph_id?: string } | null; graph_id?: string },
+  anchorMessageId?: string | null,
+  planId?: string | null,
+): boolean {
+  if (anchorMessageId && item.id === anchorMessageId) return true;
+  if (!planId) return false;
+  return item.metadata?.graph_id === planId || item.graph_id === planId;
+}
+
 function findAssistantResponseIndex(
   messages: Array<Record<string, unknown>>,
   anchorMessageId?: string | null,
+  planId?: string | null,
 ): number {
-  if (anchorMessageId) {
+  if (anchorMessageId || planId) {
     const anchoredIndex = messages.findIndex((message) => {
       const cards = message.cards as
         | Array<{
             code?: string;
-            data?: { output?: Array<{ id?: string }> };
+            data?: {
+              output?: Array<{
+                id?: string;
+                metadata?: { graph_id?: string } | null;
+                graph_id?: string;
+              }>;
+            };
           }>
         | undefined;
 
@@ -94,7 +120,9 @@ function findAssistantResponseIndex(
         message.role === "assistant" &&
         cards?.some((card) =>
           card.code === "AgentScopeRuntimeResponseCard"
-            ? card.data?.output?.some((item) => item.id === anchorMessageId)
+            ? card.data?.output?.some((item) =>
+                outputMatchesPlan(item, anchorMessageId, planId),
+              )
             : false,
         )
       );
@@ -129,7 +157,8 @@ function mergePersistentMessages(
 
   for (const message of candidates) {
     const anchorMessageId = getTaskGraphAnchorMessageId(message);
-    const targetIndex = findAssistantResponseIndex(next, anchorMessageId);
+    const planId = getTaskGraphPlanId(message);
+    const targetIndex = findAssistantResponseIndex(next, anchorMessageId, planId);
     if (targetIndex < 0) {
       next.push(message);
       continue;
@@ -243,7 +272,6 @@ export function patchHostSessionApi(): boolean {
   }
 
   (api as { [PATCHED]?: boolean })[PATCHED] = true;
-  console.info("[datapaw] Patched host sessionApi for task card persistence");
   onSessionApiPatched?.();
   return true;
 }

@@ -6,7 +6,7 @@
 # operates in that regime; per-site disables would be noise.
 """Monkey-patches the DataPaw plugin applies to host runtime.
 
-Two patches, installed from ``plugin._on_startup``:
+Three patches, installed from ``plugin._on_startup``:
 
 1. ``setup_runner_hooks`` — replaces ``qwenpaw.app.runner.runner.QwenPawAgent``
    with a smart factory that returns ``DataPawAgent`` when
@@ -17,6 +17,9 @@ Two patches, installed from ``plugin._on_startup``:
 2. ``setup_channel_sse_hook`` — replaces ``ConsoleChannel.stream_one`` so the
    DAG ``TaskEvent`` queue attached to ``request._datapaw_sse_queue`` gets
    drained into SSE frames alongside the regular message stream.
+3. ``setup_console_request_context_hook`` — restores the top-level
+   ``request_context`` (e.g. ``{"datasource_id": ...}``) that the console
+   chat router otherwise drops, so it reaches the agent's ``_request_context``.
 """
 from __future__ import annotations
 
@@ -439,3 +442,94 @@ def setup_channel_sse_hook(_channel_cls=None) -> None:
     _channel_cls._extract_datapaw_metadata = staticmethod(
         _extract_datapaw_metadata,
     )
+
+
+# ---------------------------------------------------------------------------
+# Console request_context pass-through
+#
+# The ``/console/chat`` router rebuilds a ``native_payload`` that drops the
+# top-level ``request_context`` (e.g. ``{"datasource_id": ...}``) before it
+# reaches the channel. Two cooperating patches restore it:
+#
+# 1. ``_extract_session_and_payload`` — copy ``request_context`` into the
+#    native payload so it survives the router → channel hand-off.
+# 2. ``ConsoleChannel.build_agent_request_from_native`` — attach it to the
+#    ``AgentRequest`` so the host runner's existing merge into
+#    ``base_request_context`` carries it to the agent's ``_request_context``.
+# ---------------------------------------------------------------------------
+
+
+def _read_request_context(request_data: Any) -> dict | None:
+    """Pull a dict ``request_context`` from an AgentRequest or raw dict."""
+    if isinstance(request_data, dict):
+        rc = request_data.get("request_context")
+    else:
+        rc = getattr(request_data, "request_context", None)
+    return rc if isinstance(rc, dict) and rc else None
+
+
+def _wrap_extract_session_and_payload(orig):
+    """Wrap router ``_extract_session_and_payload`` to keep request_context."""
+
+    def _patched(request_data):
+        native_payload = orig(request_data)
+        request_context = _read_request_context(request_data)
+        if request_context is not None and isinstance(native_payload, dict):
+            native_payload["request_context"] = request_context
+        return native_payload
+
+    _patched._datapaw_patched = True  # type: ignore[attr-defined]
+    return _patched
+
+
+def _wrap_build_agent_request_from_native(orig):
+    """Wrap channel ``build_agent_request_from_native`` to set request_context."""
+
+    def _patched(self, native_payload):
+        request = orig(self, native_payload)
+        payload = native_payload if isinstance(native_payload, dict) else {}
+        request_context = payload.get("request_context")
+        if isinstance(request_context, dict) and request_context:
+            try:
+                request.request_context = request_context
+            except AttributeError:
+                logger.debug(
+                    "Could not attach request_context to AgentRequest"
+                    " (frozen object?); datasource context will be absent.",
+                    exc_info=True,
+                )
+        return request
+
+    _patched._datapaw_patched = True  # type: ignore[attr-defined]
+    return _patched
+
+
+def setup_console_request_context_hook(
+    _console_module=None,
+    _channel_cls=None,
+) -> None:
+    """Restore ``request_context`` pass-through on the console chat path.
+
+    The optional arguments inject fakes for unit tests; production imports
+    the real router module and ``ConsoleChannel`` from host.
+    """
+    if _console_module is None:
+        from importlib import import_module
+
+        _console_module = import_module("qwenpaw.app.routers.console")
+    if _channel_cls is None:
+        from qwenpaw.app.channels.console.channel import ConsoleChannel
+
+        _channel_cls = ConsoleChannel
+
+    orig_extract = _console_module._extract_session_and_payload
+    if not getattr(orig_extract, "_datapaw_patched", False):
+        _console_module._extract_session_and_payload = (
+            _wrap_extract_session_and_payload(orig_extract)
+        )
+
+    orig_build = _channel_cls.build_agent_request_from_native
+    if not getattr(orig_build, "_datapaw_patched", False):
+        _channel_cls.build_agent_request_from_native = (
+            _wrap_build_agent_request_from_native(orig_build)
+        )

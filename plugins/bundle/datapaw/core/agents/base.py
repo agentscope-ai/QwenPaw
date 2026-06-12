@@ -61,6 +61,12 @@ _HOST_PLAN_MODE_FLAGS: tuple[str, ...] = (
 )
 
 
+# MCP client whose tool calls must carry the request's ``datasource_id`` in
+# their ``metadata`` argument. Tool names are collected from this client at
+# registration (see ``register_mcp_clients``) and matched in ``_acting``.
+CM_MCP_NAME = "DataAgent Context Manager"
+
+
 def _read_master_md(lang: str = "zh") -> str:
     """Read the plugin's MASTER.{lang}.md runtime-section.
 
@@ -485,11 +491,62 @@ class DataPawAgent(QwenPawAgent):
         self.plan_notebook.append_to_trace(msg)
         return msg
 
+    async def register_mcp_clients(
+        self,
+        namesake_strategy: NamesakeStrategy = "skip",
+    ) -> None:
+        """Register MCP clients, then collect ``CM_MCP_NAME`` tool names.
+
+        The collected (already sanitized) tool names are matched in
+        ``_acting`` to inject the request's ``datasource_id`` into the
+        tool's ``metadata`` argument before execution.
+        """
+        await super().register_mcp_clients(namesake_strategy=namesake_strategy)
+
+        self._cm_tool_names: set[str] = set()
+        for client in self._mcp_clients:
+            if getattr(client, "name", "") != CM_MCP_NAME:
+                continue
+            try:
+                tools = await client.list_tools()
+            except Exception:  # pylint: disable=broad-except
+                logger.warning(
+                    "Failed to collect %s tool names for metadata injection",
+                    CM_MCP_NAME,
+                    exc_info=True,
+                )
+                continue
+            self._cm_tool_names.update(
+                name for t in tools if (name := getattr(t, "name", ""))
+            )
+
+    def _inject_datasource_metadata(self, tool_call: dict) -> None:
+        """Replace ``metadata`` with the request's datasource_id in place.
+
+        Only applies to tools exposed by ``CM_MCP_NAME`` (collected in
+        ``register_mcp_clients``) when the request carries a
+        ``datasource_id``. The replacement is intentional: the model's own
+        ``metadata`` value, if any, is overwritten.
+        """
+        cm_tool_names = getattr(self, "_cm_tool_names", set())
+        if tool_call.get("name") not in cm_tool_names:
+            return
+        datasource_id = (self._request_context or {}).get("datasource_id")
+        if not datasource_id:
+            return
+        inp = tool_call.get("input")
+        if not isinstance(inp, dict):
+            inp = {}
+            tool_call["input"] = inp
+        inp["metadata"] = {"datasource_id": datasource_id}
+
     async def _acting(  # type: ignore[override]
         self,
         tool_call: dict,
     ) -> dict | None:
         """Run the tool, then append its result to the current node's trace."""
+        self._inject_datasource_metadata(tool_call)
+
         result = await super()._acting(tool_call)
 
         if self.memory.content:
