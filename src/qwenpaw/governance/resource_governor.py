@@ -10,15 +10,15 @@ from pathlib import Path
 from typing import Optional
 
 from .policy import (
-    GovernancePolicy, PolicyRule, PolicyDecision, ToolCallSpec,
+    GovernancePolicy, GovernanceRule, GovernanceAction, GovernanceDecision, ToolCallSpec,
     DEFAULT_SANDBOX_DENY_PATHS, FILE_READ_TOOLS, FILE_WRITE_TOOLS,
     load_governance_policy, save_governance_policy,
     _parse_match,
 )
 from .audit import AuditLog
-from ...constant import WORKING_DIR
+from ..constant import WORKING_DIR
 
-from ...sandbox import SandboxCapability, SandboxConfig, MountSpec, probe_sandbox_support, detect_platform_mode
+from ..sandbox import SandboxCapability, SandboxConfig, MountSpec, probe_sandbox_support, detect_platform_mode
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +27,7 @@ class ResourceGovernor:
     """ResourceGovernor — core of policy and audit.
 
     Responsibilities:
-        1. Policy evaluation: assert_and_audit(tool_call) → PolicyDecision
+        1. Policy evaluation: assert_and_audit(tool_call) → GovernanceDecision
         2. Sandbox config compilation: compile_sandbox_config() → SandboxConfig
         3. Audit logging: each assert_and_audit records an audit log entry
         4. Dynamic rule addition: add_rule(...) after user approval
@@ -40,7 +40,7 @@ class ResourceGovernor:
     def __init__(self, workspace_dir: str):
         self.workspace_dir = Path(workspace_dir)
         # Policy is stored outside the workspace to prevent agent tampering
-        self._policy_dir = WORKING_DIR / "policies" / self.workspace_dir.name
+        self._policy_dir = WORKING_DIR / "governance" / self.workspace_dir.name
         self._policy: Optional[GovernancePolicy] = None
         self._sandbox_available: bool = False
         self._sandbox_capability: Optional[SandboxCapability] = None
@@ -86,36 +86,41 @@ class ResourceGovernor:
     # Core interface 1: Policy evaluation + audit
     # ------------------------------------------------------------------
 
-    def assert_and_audit(self, tc_spec: ToolCallSpec) -> PolicyDecision:
+    def assert_and_audit(self, tc_spec: ToolCallSpec) -> GovernanceDecision:
         """Evaluate policy for a tool call and record an audit log entry.
 
         Flow:
-            1. policy.evaluate(tc_spec) → decision
+            1. policy.evaluate(tc_spec) → GovernanceDecision
             2. audit_log.append(tc_spec, decision)
             3. return decision
 
-        Returns PolicyDecision:
+        Returns GovernanceDecision:
             ALLOW            → explicit resource tool executes directly;
                                bash tool executes with sandbox pre-authorization
             DENY             → rejected
             ASK              → ask user
             SANDBOX_FALLBACK → bash tool with no rule match, sandbox fallback
         """
-        decision, reason = self.policy.evaluate(tc_spec)
+        decision = self.policy.evaluate(tc_spec)
 
         # Early probe degradation: if sandbox is unavailable, escalate SANDBOX_FALLBACK to ASK
-        if decision is PolicyDecision.SANDBOX_FALLBACK and not self._sandbox_available:
+        if decision.action is GovernanceAction.SANDBOX_FALLBACK and not self._sandbox_available:
             logger.info(
                 "ResourceGovernor: sandbox unavailable, escalating "
                 "SANDBOX_FALLBACK to ASK for tool '%s'",
                 tc_spec.tool_name,
             )
-            decision = PolicyDecision.ASK
-            reason = f"sandbox unavailable ({self._sandbox_capability.reason}), ask user"
+            decision = GovernanceDecision(
+                action=GovernanceAction.ASK,
+                reason=f"sandbox unavailable ({self._sandbox_capability.reason}), ask user",
+            )
 
+        # compile sandbox config
+        if decision.action is GovernanceAction.SANDBOX_FALLBACK:
+            decision.sandbox_config = self.compile_sandbox_config(tc_spec)
         # Audit record
         AuditLog.get_instance().record(
-            str(self.workspace_dir), tc_spec, decision, reason=reason,
+            str(self.workspace_dir), tc_spec, decision,
         )
         return decision
 
@@ -214,7 +219,7 @@ class ResourceGovernor:
     # Core interface 3: Dynamic rule addition
     # ------------------------------------------------------------------
 
-    def add_rule(self, rule: PolicyRule) -> None:
+    def add_rule(self, rule: GovernanceRule) -> None:
         """Dynamically append a rule to the policy after user approval.
 
         Approved rules carry a duration (session / permanent).
@@ -233,10 +238,12 @@ class ResourceGovernor:
             assert_and_audit → ASK (already recorded)
             record_approval  → ALLOW/DENY (supplementary entry)
         """
-        decision = PolicyDecision.ALLOW if approved else PolicyDecision.DENY
-        reason = "User Approve" if approved else "User Deny"
+        decision = GovernanceDecision(
+            action=GovernanceAction.ALLOW if approved else GovernanceAction.DENY,
+            reason="User Approve" if approved else "User Deny",
+        )
         AuditLog.get_instance().record(
-            str(self.workspace_dir), tc_spec, decision, reason=reason,
+            str(self.workspace_dir), tc_spec, decision,
         )
 
     def is_builtin_ask(self, tc_spec: ToolCallSpec) -> bool:

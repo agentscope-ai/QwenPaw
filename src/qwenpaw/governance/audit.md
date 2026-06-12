@@ -141,16 +141,16 @@ class AuditLog:
 
 ```python
 # resource_governor.py:assert_and_audit
-decision, reason = self.policy.evaluate(tc_spec)
-audit_log = AuditLog.get_instance()
-audit_log.record(str(self.workspace_dir), tc_spec, decision, reason=reason)
+decision = self.policy.evaluate(tc_spec)
+...
+AuditLog.get_instance().record(str(self.workspace_dir), tc_spec, decision)
 return decision
 ```
 
 `record()` 内部：
 1. 生成 ISO 8601 UTC 时间戳
 2. 从 `ToolCallSpec`提取 agent_id / session_id / tool_name / target
-3. 从 `PolicyDecision` 提取 decision value
+3. 从 `GovernanceDecision` 提取 action 和 reason
 4. 直接 `INSERT INTO` SQLite 并 `COMMIT`
 5. 检查总条目数，若达到 `MAX_RECORDS`（10 万条），自动删除最旧的 `PURGE_COUNT`（1 万条）
 
@@ -213,7 +213,6 @@ def query(
 **翻页示例**：
 
 ```python
-audit_log = AuditLog.get_instance()
 page_size = 50
 
 # 第 1 页
@@ -295,7 +294,6 @@ deleted = audit_log.purge(cutoff)
 ### 查询某 agent 最近 100 条记录
 
 ```python
-audit_log = AuditLog.get_instance()
 events, total = audit_log.query(agent_id="coder", limit=100)
 print(f"共 {total} 条")
 for e in events:

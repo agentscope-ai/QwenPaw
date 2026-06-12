@@ -289,12 +289,12 @@ class TestGovernanceSandboxUnavailable:
             reason="Kernel 5.10 < 5.13, Landlock unavailable",
         )
 
-        from qwenpaw.app.governance.resource_governor import ResourceGovernor
+        from qwenpaw.governance.resource_governor import ResourceGovernor
 
         governor = ResourceGovernor(workspace_dir="/tmp/test_ws")
 
         # Mock policy loading to avoid filesystem operations
-        with patch("qwenpaw.app.governance.resource_governor.load_governance_policy") as mock_load, \
+        with patch("qwenpaw.governance.resource_governor.load_governance_policy") as mock_load, \
              patch("pathlib.Path.mkdir"), \
              patch("qwenpaw.sandbox.config.probe_sandbox_support", return_value=cap):
             mock_policy = MagicMock()

@@ -18,26 +18,25 @@ from typing import Any, List, Optional
 import yaml
 
 from .tool_registry import ToolRegistry, DEFAULT_REGISTRY
-
+from ..sandbox import SandboxConfig
 
 # ---------------------------------------------------------------------------
 # Core types
 # ---------------------------------------------------------------------------
 
-class PolicyAction(str, Enum):
-    """Action taken when a rule matches."""
-    ALLOW = "allow"
-    DENY = "deny"
-    ASK = "ask"
-
-
-class PolicyDecision(str, Enum):
-    """Decision result from assert_and_audit."""
+class GovernanceAction(str, Enum):
     ALLOW = "allow"
     DENY = "deny"
     ASK = "ask"
     # bash tool with no hit → sandbox fallback
     SANDBOX_FALLBACK = "sandbox_fallback"
+
+
+@dataclass
+class GovernanceDecision:
+    action: GovernanceAction
+    reason: str
+    sandbox_config: SandboxConfig | None = None
 
 
 class ToolCallSpec:
@@ -59,7 +58,7 @@ class ToolCallSpec:
 
 
 @dataclass
-class PolicyRule:
+class GovernanceRule:
     """Unified policy rule.
 
     match format: "ToolName(pattern)"
@@ -67,10 +66,10 @@ class PolicyRule:
         - pattern: glob pattern matched against the tool's target argument
 
     Examples:
-        PolicyRule(match="Bash(git *)", action=PolicyAction.ALLOW)
-        PolicyRule(match="Write(.env*)", action=PolicyAction.DENY)
-        PolicyRule(match="*(.ssh/**)", action=PolicyAction.ASK)   # all tools
-        PolicyRule(match="Read(src/**)", action=PolicyAction.ALLOW,
+        GovernanceRule(match="Bash(git *)", action=GovernanceAction.ALLOW)
+        GovernanceRule(match="Write(.env*)", action=GovernanceAction.DENY)
+        GovernanceRule(match="*(.ssh/**)", action=GovernanceAction.ASK)   # all tools
+        GovernanceRule(match="Read(src/**)", action=GovernanceAction.ALLOW,
                    grantee="agent-abc", duration="session")
 
     Action semantics vary by tool type:
@@ -84,7 +83,7 @@ class PolicyRule:
             ask   → ask user, execute in sandbox after approval
     """
     match: str                              # "ToolName(pattern)"
-    action: PolicyAction = PolicyAction.DENY
+    action: GovernanceAction = GovernanceAction.DENY
     reason: str = ""                        # Rule description
     grantee: str = "*"                      # Authorized subject
     duration: str = "permanent"             # "session" | "permanent"
@@ -144,77 +143,77 @@ class PolicyRule:
 # builtin_rules
 # ---------------------------------------------------------------------------
 
-DEFAULT_BUILTIN_RULES: List[PolicyRule] = [
+DEFAULT_BUILTIN_RULES: List[GovernanceRule] = [
     # ── Resource protection (any tool access requires user confirmation) ──
-    PolicyRule(
+    GovernanceRule(
         match="*(**/.env*)",
-        action=PolicyAction.ASK,
+        action=GovernanceAction.ASK,
         reason="Env file may contain secrets/credentials",
     ),
-    PolicyRule(
+    GovernanceRule(
         match="*(**/.ssh/**)",
-        action=PolicyAction.ASK,
+        action=GovernanceAction.ASK,
         reason="SSH credentials directory",
     ),
-    PolicyRule(
+    GovernanceRule(
         match="*(**/*.pem)",
-        action=PolicyAction.ASK,
+        action=GovernanceAction.ASK,
         reason="Private key file",
     ),
-    PolicyRule(
+    GovernanceRule(
         match="*(**/*.key)",
-        action=PolicyAction.ASK,
+        action=GovernanceAction.ASK,
         reason="Private key file",
     ),
-    PolicyRule(
+    GovernanceRule(
         match="*(**/*.p12)",
-        action=PolicyAction.ASK,
+        action=GovernanceAction.ASK,
         reason="PKCS#12 certificate bundle",
     ),
-    PolicyRule(
+    GovernanceRule(
         match="*(**/*.pfx)",
-        action=PolicyAction.ASK,
+        action=GovernanceAction.ASK,
         reason="PKCS#12 certificate bundle",
     ),
-    PolicyRule(
+    GovernanceRule(
         match="*(**/.aws/**)",
-        action=PolicyAction.ASK,
+        action=GovernanceAction.ASK,
         reason="AWS credentials directory",
     ),
-    PolicyRule(
+    GovernanceRule(
         match="*(**/.gnupg/**)",
-        action=PolicyAction.ASK,
+        action=GovernanceAction.ASK,
         reason="GPG keys directory",
     ),
-    PolicyRule(
+    GovernanceRule(
         match="*(**/.kube/**)",
-        action=PolicyAction.ASK,
+        action=GovernanceAction.ASK,
         reason="Kubernetes config directory",
     ),
-    PolicyRule(
+    GovernanceRule(
         match="*(**/.netrc)",
-        action=PolicyAction.ASK,
+        action=GovernanceAction.ASK,
         reason="Netrc login credentials file",
     ),
-    PolicyRule(
+    GovernanceRule(
         match="*(**/.npmrc)",
-        action=PolicyAction.ASK,
+        action=GovernanceAction.ASK,
         reason="npm auth token file",
     ),
-    PolicyRule(
+    GovernanceRule(
         match="*(**/.pypirc)",
-        action=PolicyAction.ASK,
+        action=GovernanceAction.ASK,
         reason="PyPI API token file",
     ),
     # ── High-risk commands (hard wall, never allowed) ──
-    PolicyRule(
+    GovernanceRule(
         match="Bash(rm * -rf *//*)",
-        action=PolicyAction.DENY,
+        action=GovernanceAction.DENY,
         reason="Root filesystem deletion",
     ),
-    PolicyRule(
+    GovernanceRule(
         match="Bash(sudo *)",
-        action=PolicyAction.DENY,
+        action=GovernanceAction.DENY,
         reason="Privilege escalation prohibited",
     ),
 ]
@@ -274,37 +273,37 @@ FILE_WRITE_TOOLS: frozenset[str] = frozenset({"Write", "Edit", "Append"})
 # Default user_rules (for cold start)
 # ---------------------------------------------------------------------------
 
-DEFAULT_USER_RULES: List[PolicyRule] = [
+DEFAULT_USER_RULES: List[GovernanceRule] = [
     # ── Internal tools (no side effects, always allowed) ──
-    PolicyRule(match="GetCurrentTime(*)", action=PolicyAction.ALLOW,
+    GovernanceRule(match="GetCurrentTime(*)", action=GovernanceAction.ALLOW,
                reason="Read-only system tool"),
-    PolicyRule(match="GetTokenUsage(*)", action=PolicyAction.ALLOW,
+    GovernanceRule(match="GetTokenUsage(*)", action=GovernanceAction.ALLOW,
                reason="Read-only usage query"),
-    PolicyRule(match="ListAgents(*)", action=PolicyAction.ALLOW,
+    GovernanceRule(match="ListAgents(*)", action=GovernanceAction.ALLOW,
                reason="Read-only agent list"),
-    PolicyRule(match="ChatWithAgent(*)", action=PolicyAction.ALLOW,
+    GovernanceRule(match="ChatWithAgent(*)", action=GovernanceAction.ALLOW,
                reason="Inter-agent messaging"),
-    PolicyRule(match="SubmitToAgent(*)", action=PolicyAction.ALLOW,
+    GovernanceRule(match="SubmitToAgent(*)", action=GovernanceAction.ALLOW,
                reason="Inter-agent task submission"),
-    PolicyRule(match="CheckAgentTask(*)", action=PolicyAction.ALLOW,
+    GovernanceRule(match="CheckAgentTask(*)", action=GovernanceAction.ALLOW,
                reason="Read-only task status query"),
-    PolicyRule(match="DelegateExternalAgent(*)", action=PolicyAction.ALLOW,
+    GovernanceRule(match="DelegateExternalAgent(*)", action=GovernanceAction.ALLOW,
                reason="Inter-agent delegation"),
     # ── File tools (operations within WORKSPACE_DIR, always allowed) ──
-    PolicyRule(match="Read(WORKSPACE_DIR/**)", action=PolicyAction.ALLOW,
+    GovernanceRule(match="Read(WORKSPACE_DIR/**)", action=GovernanceAction.ALLOW,
                reason="File read within workspace"),
-    PolicyRule(match="Write(WORKSPACE_DIR/**)", action=PolicyAction.ALLOW,
+    GovernanceRule(match="Write(WORKSPACE_DIR/**)", action=GovernanceAction.ALLOW,
                reason="File write within workspace"),
-    PolicyRule(match="Edit(WORKSPACE_DIR/**)", action=PolicyAction.ALLOW,
+    GovernanceRule(match="Edit(WORKSPACE_DIR/**)", action=GovernanceAction.ALLOW,
                reason="File edit within workspace"),
-    PolicyRule(match="Append(WORKSPACE_DIR/**)", action=PolicyAction.ALLOW,
+    GovernanceRule(match="Append(WORKSPACE_DIR/**)", action=GovernanceAction.ALLOW,
                reason="File append within workspace"),
-    PolicyRule(match="Grep(WORKSPACE_DIR/**)", action=PolicyAction.ALLOW,
+    GovernanceRule(match="Grep(WORKSPACE_DIR/**)", action=GovernanceAction.ALLOW,
                reason="Content search within workspace"),
-    PolicyRule(match="Glob(WORKSPACE_DIR/**)", action=PolicyAction.ALLOW,
+    GovernanceRule(match="Glob(WORKSPACE_DIR/**)", action=GovernanceAction.ALLOW,
                reason="File listing within workspace"),
     # ── Browser (treat as always allowed for now) ──
-    PolicyRule(match="Browser(**)", action=PolicyAction.ALLOW,
+    GovernanceRule(match="Browser(**)", action=GovernanceAction.ALLOW,
                reason="Allow all browser access"),
 ]
 
@@ -326,8 +325,8 @@ class GovernancePolicy:
         load → evaluate (hot path) → add_rule (user approve) → save
     """
     version: str = "1.0"
-    builtin_rules: List[PolicyRule] = field(default_factory=list)
-    user_rules: List[PolicyRule] = field(default_factory=list)
+    builtin_rules: List[GovernanceRule] = field(default_factory=list)
+    user_rules: List[GovernanceRule] = field(default_factory=list)
     audit_level: str = "all"       # "all" | "write_only" | "none"
 
     # Internal reference to registry (defaults to module-level DEFAULT_REGISTRY)
@@ -344,7 +343,7 @@ class GovernancePolicy:
     # ------------------------------------------------------------------
 
     @property
-    def rules(self) -> List[PolicyRule]:
+    def rules(self) -> List[GovernanceRule]:
         """Merge builtin_rules + user_rules (read-only snapshot).
 
         Note: returns a snapshot; modifications will not affect the original list.
@@ -354,8 +353,8 @@ class GovernancePolicy:
 
     def evaluate(
         self, tc_spec: ToolCallSpec,
-    ) -> tuple[PolicyDecision, str]:
-        """Evaluate policy decision for a tool call, returning the matched rule's reason.
+    ) -> GovernanceDecision:
+        """Evaluate policy decision for a tool call.
 
         Evaluation flow (§5):
             0. ToolRegistry type check: unknown → DENY, internal → ALLOW
@@ -363,33 +362,45 @@ class GovernancePolicy:
             2. user_rules first-match-wins
             3. Global fallback: shell → SANDBOX_FALLBACK, others → ASK
 
-        Returns: (PolicyDecision, reason)
+        Returns: GovernanceDecision
         """
         # ── Step 0: ToolRegistry type check ──
         tool_type = self._registry.get_type(tc_spec.tool_name)
         if tool_type == "unknown":
-            return PolicyDecision.DENY, f"Unregistered tool: {tc_spec.tool_name}"
+            return GovernanceDecision(
+                action=GovernanceAction.DENY,
+                reason=f"Unregistered tool: {tc_spec.tool_name}",
+            )
         if tool_type == "internal":
-            return PolicyDecision.ALLOW, ""
+            return GovernanceDecision(action=GovernanceAction.ALLOW, reason="")
 
         # ── Step 1: builtin_rules ──
         for rule in self.builtin_rules:
             if rule.matches_tool_call(
                 tc_spec, tool_type=tool_type,
             ):
-                return PolicyDecision(rule.action.value), rule.reason
+                return GovernanceDecision(
+                    action=GovernanceAction(rule.action.value),
+                    reason=rule.reason,
+                )
 
         # ── Step 2: user_rules ──
         for rule in self.user_rules:
             if rule.matches_tool_call(
                 tc_spec, tool_type=tool_type,
             ):
-                return PolicyDecision(rule.action.value), rule.reason
+                return GovernanceDecision(
+                    action=GovernanceAction(rule.action.value),
+                    reason=rule.reason,
+                )
 
         # ── Step 3: Global fallback ──
         if tool_type == "shell":
-            return PolicyDecision.SANDBOX_FALLBACK, "sandbox fallback"
-        return PolicyDecision.ASK, "No rule hit"
+            return GovernanceDecision(
+                action=GovernanceAction.SANDBOX_FALLBACK,
+                reason="sandbox fallback",
+            )
+        return GovernanceDecision(action=GovernanceAction.ASK, reason="No rule hit")
 
     def evaluate_source(self, tc_spec: ToolCallSpec) -> str:
         """Determine which rule source a tool call matches.
@@ -416,12 +427,16 @@ class GovernancePolicy:
     # Dynamic mutation (only operates on user_rules)
     # ------------------------------------------------------------------
 
-    def add_rule(self, rule: PolicyRule) -> None:
-        """Append a rule to user_rules (called after user approval).
+    def add_rule(self, rule: GovernanceRule) -> None:
+        """Prepend a rule to user_rules (called after user approval).
+
+        New rules are inserted at the beginning so they take priority
+        (first-match-wins evaluation). This ensures a newly added DENY
+        can override an earlier ALLOW (e.g. Browser(**) → ALLOW).
 
         Note: builtin_rules are read-only and cannot be modified via this method.
         """
-        self.user_rules.append(rule)
+        self.user_rules.insert(0, rule)
 
     def remove_rule(self, index: int) -> None:
         """Remove a rule from user_rules (Console UI / admin operation).
@@ -588,22 +603,22 @@ def _create_default_policy(workspace_dir: str = "") -> GovernancePolicy:
     )
 
 
-def _resolve_workspace_dir(rules: List[PolicyRule], workspace_dir: str):
+def _resolve_workspace_dir(rules: List[GovernanceRule], workspace_dir: str):
     """Replace WORKSPACE_DIR in rules with actual paths (in-place)."""
     for rule in rules:
         if "WORKSPACE_DIR" in rule.match:
             rule.match = rule.match.replace("WORKSPACE_DIR", workspace_dir)
 
 
-def _unresolve_workspace_dir(rules: List[PolicyRule], workspace_dir: str):
+def _unresolve_workspace_dir(rules: List[GovernanceRule], workspace_dir: str):
     """Restore actual paths in rules back to WORKSPACE_DIR placeholders."""
     for rule in rules:
         if workspace_dir in rule.match:
             rule.match = rule.match.replace(workspace_dir, "WORKSPACE_DIR")
 
 
-def _parse_rules(items: Optional[list[dict[str, Any]]]) -> List[PolicyRule]:
-    """Parse a list of PolicyRule from YAML list."""
+def _parse_rules(items: Optional[list[dict[str, Any]]]) -> List[GovernanceRule]:
+    """Parse a list of GovernanceRule from YAML list."""
     if not items:
         return []
     rules = []
@@ -612,10 +627,10 @@ def _parse_rules(items: Optional[list[dict[str, Any]]]) -> List[PolicyRule]:
             continue
         action_str = item.get("action", "deny")
         try:
-            action = PolicyAction(action_str)
+            action = GovernanceAction(action_str)
         except ValueError:
-            action = PolicyAction.DENY
-        rules.append(PolicyRule(
+            action = GovernanceAction.DENY
+        rules.append(GovernanceRule(
             match=item["match"],
             action=action,
             reason=item.get("reason", ""),
@@ -626,8 +641,8 @@ def _parse_rules(items: Optional[list[dict[str, Any]]]) -> List[PolicyRule]:
     return rules
 
 
-def _rule_to_dict(rule: PolicyRule) -> dict[str, Any]:
-    """Serialize a PolicyRule to dict (for YAML output)."""
+def _rule_to_dict(rule: GovernanceRule) -> dict[str, Any]:
+    """Serialize a GovernanceRule to dict (for YAML output)."""
     d = {
         "match": rule.match,
         "action": rule.action.value,

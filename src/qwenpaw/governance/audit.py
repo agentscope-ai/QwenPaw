@@ -16,9 +16,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import List, Optional, Tuple
 
-from ...constant import WORKING_DIR
+from ..constant import WORKING_DIR
 
-from .policy import PolicyDecision, ToolCallSpec
+from .policy import GovernanceDecision, ToolCallSpec
 
 _SCHEMA = """\
 CREATE TABLE IF NOT EXISTS audit_events (
@@ -89,7 +89,7 @@ class AuditLog:
     def get_instance(cls) -> AuditLog:
         """Get the global singleton, initializing on first call."""
         if cls._instance is None:
-            db_path = WORKING_DIR / "auditlog" / "audit.db"
+            db_path = WORKING_DIR / "governance" / "audit.db"
             cls._instance = cls._create(db_path)
         return cls._instance
 
@@ -117,14 +117,13 @@ class AuditLog:
         AuditLog._instance = None
 
     def record(self, workspace_dir: str, tc_spec: ToolCallSpec,
-               decision: PolicyDecision, reason: str = "") -> None:
+               decision: GovernanceDecision) -> None:
         """Record a policy decision, writing to SQLite immediately.
 
         Args:
             workspace_dir: Workspace path this event belongs to
             tc_spec: ToolCallSpec instance
-            decision: PolicyDecision value
-            reason: Matched rule description (e.g. "Env file may contain secrets/credentials")
+            decision: GovernanceDecision instance (action + reason)
         """
         self._conn.execute(
             "INSERT INTO audit_events "
@@ -137,8 +136,8 @@ class AuditLog:
                 tc_spec.session_id,
                 tc_spec.tool_name,
                 tc_spec.target,
-                str(decision.value),
-                reason,
+                str(decision.action.value),
+                decision.reason,
                 "{}",
             ),
         )

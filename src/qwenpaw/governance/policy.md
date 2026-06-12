@@ -204,7 +204,7 @@ evaluate() 根据这个信息去匹配 policy.yaml 中的规则。
 
 ## 四、policy.yaml 结构
 
-Policy 用**一个文件**，分两个 section：
+GovernancePolicy 用**一个文件**，分两个 section：
 
 ```
 ~/.qwenpaw/policies/<workspace>/
@@ -306,7 +306,7 @@ user_rules:
 | `builtin_rules` | 系统初始化 | agent 的 add_rule / remove_rule 不可碰 |
 | `user_rules` | 用户 / approve 流程 | agent approve 后的规则追加到这里 |
 
-代码层面：`Policy.add_rule()` 只往 `user_rules` 追加，`builtin_rules` 是只读的。
+代码层面：`GovernancePolicy.add_rule()` 只往 `user_rules` 追加，`builtin_rules` 是只读的。
 
 ### 4.2 冷启动初始化
 
@@ -433,7 +433,7 @@ Tool Call 进来
 ```
 ① builtin_rules → 无命中（memory 路径不在内置保护中）
 ② user_rules   → 命中 "Write(memory/**)" → deny
-→ PolicyDecision: DENY
+→ GovernanceDecision: DENY
 ```
 
 **示例 B：default user_rules（File 类默认权限）**  
@@ -442,7 +442,7 @@ Tool Call 进来
 ```
 ① builtin_rules → 无命中
 ② user_rules   → 命中 "Read(WORKSPACE_DIR/**)" → allow（默认规则）
-→ PolicyDecision: ALLOW
+→ GovernanceDecision: ALLOW
 ```
 
 **示例 C：builtin ask（资源保护，防绕过）**  
@@ -450,7 +450,7 @@ Tool Call 进来
 
 ```
 ① builtin_rules → 命中 "*(.env*)" → ask
-→ PolicyDecision: ASK（用户确认后放行，但不记规则，下次还问）
+→ GovernanceDecision: ASK（用户确认后放行，但不记规则，下次还问）
 ```
 
 > `*` 匹配所有 tool（Read、Write、Bash 等），不会被换 tool 绕过。
@@ -460,7 +460,7 @@ Tool Call 进来
 
 ```
 ① builtin_rules → 命中 "Bash(sudo *)" → deny
-→ PolicyDecision: DENY（硬墙，不可放行）
+→ GovernanceDecision: DENY（硬墙，不可放行）
 ```
 
 **示例 E：user_rules ask（可记录）**  
@@ -469,7 +469,7 @@ Tool Call 进来
 ```
 ① builtin_rules → 无命中
 ② user_rules   → 命中 "Bash(git push *)" → ask
-→ PolicyDecision: ASK（用户确认后，记录 allow 规则，下次不问）
+→ GovernanceDecision: ASK（用户确认后，记录 allow 规则，下次不问）
 ```
 
 **示例 F：Bash sandbox fallback**  

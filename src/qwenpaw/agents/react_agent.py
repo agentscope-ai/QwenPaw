@@ -82,7 +82,7 @@ class QwenPawAgent(CodingModeMixin, Agent):
         # Initialize governance (feature flag controlled)
         self._governor = None
         try:
-            from ..app.governance import ResourceGovernor
+            from ..governance import ResourceGovernor
             self._governor = ResourceGovernor(str(workspace_dir))
             self._governor.start()
             logger.info(
@@ -106,7 +106,7 @@ class QwenPawAgent(CodingModeMixin, Agent):
             basic_group = toolkit.tool_groups[0]
             for tool_fn in memory_tools:
                 if self._use_governance_policy():
-                    from ..app.governance import PolicyGuardedTool
+                    from ..governance import PolicyGuardedTool
                     basic_group.tools.append(
                         PolicyGuardedTool(
                             tool_fn,

@@ -13,7 +13,7 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-from .policy import PolicyRule, PolicyAction, PolicyDecision, ToolCallSpec
+from .policy import GovernanceRule, GovernanceAction, GovernanceDecision, ToolCallSpec
 from .tool_registry import DEFAULT_REGISTRY
 
 from agentscope.message import TextBlock
@@ -80,7 +80,7 @@ async def _policy_tool_check_permissions(
 
     Flow:
         1. Construct ToolCallSpec(tool_name, target, agent_id, session_id)
-        2. governor.assert_and_audit(tool_call) → PolicyDecision
+        2. governor.assert_and_audit(tool_call) → GovernanceDecision
         3. Map to PermissionDecision
     """
     from agentscope.permission import PermissionBehavior, PermissionDecision
@@ -123,26 +123,26 @@ async def _policy_tool_check_permissions(
     self._qp_policy_decision = decision
     self._qp_sandbox_mode = False
 
-    if decision is PolicyDecision.ALLOW:
+    if decision.action is GovernanceAction.ALLOW:
         return PermissionDecision(
             behavior=PermissionBehavior.ALLOW,
             message="governance: tool allowed.",
         )
-    elif decision is PolicyDecision.DENY:
+    elif decision.action is GovernanceAction.DENY:
         return PermissionDecision(
             behavior=PermissionBehavior.DENY,
             message=f"Tool '{tool_name}' is denied by governance policy "
             f"(target: {target}).",
         )
-    elif decision is PolicyDecision.SANDBOX_FALLBACK:
+    elif decision.action is GovernanceAction.SANDBOX_FALLBACK:
         # Bash tool with no rule match → allow execution in sandbox
         self._qp_sandbox_mode = True
-        self._qp_sandbox_config = governor.compile_sandbox_config(tc_spec)
+        self._qp_sandbox_config = decision.sandbox_config
         return PermissionDecision(
             behavior=PermissionBehavior.ALLOW,
             message="governance: sandbox fallback.",
         )
-    elif decision is PolicyDecision.ASK:
+    elif decision.action is GovernanceAction.ASK:
         # Requires user confirmation
         self._qp_policy_decision = decision
         return await _ask_user_approval(
@@ -158,7 +158,7 @@ async def _policy_tool_check_permissions(
         # Unknown decision → deny as safe default
         return PermissionDecision(
             behavior=PermissionBehavior.DENY,
-            message=f"Unknown policy decision: {decision}",
+            message=f"Unknown policy decision: {decision.action}",
         )
 
 
@@ -279,13 +279,13 @@ async def _ask_user_approval(
     """Request user approval, blocking until a reply is received."""
     from agentscope.permission import PermissionBehavior, PermissionDecision
 
-    from ...app.approvals import get_approval_service
-    from ...constant import TOOL_GUARD_APPROVAL_TIMEOUT_SECONDS
-    from ...security.tool_guard.approval import (
+    from ..app.approvals import get_approval_service
+    from ..constant import TOOL_GUARD_APPROVAL_TIMEOUT_SECONDS
+    from ..security.tool_guard.approval import (
         ApprovalDecision,
         format_findings_summary,
     )
-    from ...security.tool_guard.models import (
+    from ..security.tool_guard.models import (
         GuardFinding,
         GuardSeverity,
         GuardThreatCategory,
@@ -389,9 +389,9 @@ async def _ask_user_approval(
 
                 # Empty pattern guard (§8.1): tools with empty target don't write rules
                 if rule_pattern:
-                    rule = PolicyRule(
+                    rule = GovernanceRule(
                         match=generalized,
-                        action=PolicyAction.ALLOW,
+                        action=GovernanceAction.ALLOW,
                         reason="user approved",
                         grantee=agent_id or "*",
                         duration="session",

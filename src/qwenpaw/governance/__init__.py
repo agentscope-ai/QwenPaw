@@ -1,48 +1,17 @@
 # -*- coding: utf-8 -*-
-"""Governance interface stubs (NOT IMPLEMENTED).
+"""Governance layer
 
-Future workspace-level policy evaluator that replaces
-GuardedFunctionTool's check_permissions via GovernanceAwareTool.
+Public surface:
+    ResourceGovernor  — Core entry point (assert_and_audit / compile_sandbox_config / add_rule)
+    GovernanceAction  — Rule action enum (ALLOW / DENY / ASK / SANDBOX_FALLBACK)
+    GovernanceDecision — Decision result with action + reason + sandbox_config
 """
-from __future__ import annotations
-
-from dataclasses import dataclass
-from enum import StrEnum
-from typing import Any
-
-
-class GovernanceAction(StrEnum):
-    ALLOW = "allow"
-    DENY = "deny"
-    ASK = "ask"
-    SANDBOX_FALLBACK = "sandbox_fallback"
-
-
-@dataclass
-class GovernanceDecision:
-    action: GovernanceAction
-    reason: str
-    sandbox_config: dict[str, Any] | None = None
-
-
-class GovernanceAdapter:
-    """Future workspace-level policy evaluator — NOT IMPLEMENTED.
-
-    Integration point: replaces GuardedFunctionTool's check_permissions
-    via a thin GovernanceAwareTool wrapper.
-    """
-
-    async def evaluate(
-        self,
-        tool_name: str,
-        input_data: dict[str, Any],
-        context: Any,
-    ) -> GovernanceDecision:
-        raise NotImplementedError
+from .resource_governor import ResourceGovernor
+from .policy import GovernanceAction, GovernanceDecision
 
 
 __all__ = [
+    "ResourceGovernor",
     "GovernanceAction",
-    "GovernanceAdapter",
     "GovernanceDecision",
 ]
