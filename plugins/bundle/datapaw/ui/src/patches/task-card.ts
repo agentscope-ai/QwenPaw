@@ -62,8 +62,9 @@ function logTaskGraphDebug(
   event: string,
   payload?: Record<string, unknown>,
 ): void {
-  void event;
-  void payload;
+  const label = `[DataPaw][TaskGraph][plan] ${event}`;
+  if (payload) console.debug(label, payload);
+  else console.debug(label);
 }
 
 function pushTaskCardToLiveChat(
@@ -528,8 +529,9 @@ export function scheduleSessionTaskPlanSync(): void {
 
     const sessionId = getCurrentBackendSessionId();
     if (!sessionId || sessionId === lastSyncedSessionId) {
+      if (sessionId === lastSyncedSessionId) return;
       logTaskGraphDebug("schedule-session-sync-skip", {
-        reason: !sessionId ? "missing-session" : "same-session",
+        reason: "missing-session",
         sessionId,
         lastSyncedSessionId,
       });

@@ -16,6 +16,15 @@ export function setSessionApiPatchedListener(listener: (() => void) | null): voi
   onSessionApiPatched = listener;
 }
 
+function logTaskGraphDebug(
+  event: string,
+  payload?: Record<string, unknown>,
+): void {
+  const label = `[DataPaw][TaskGraph][session-api] ${event}`;
+  if (payload) console.debug(label, payload);
+  else console.debug(label);
+}
+
 function onHostChatRoute(): boolean {
   if (typeof window === "undefined") return false;
   const path = window.location.pathname;
@@ -159,8 +168,21 @@ function mergePersistentMessages(
     const anchorMessageId = getTaskGraphAnchorMessageId(message);
     const planId = getTaskGraphPlanId(message);
     const targetIndex = findAssistantResponseIndex(next, anchorMessageId, planId);
+    logTaskGraphDebug("session-merge-candidate", {
+      messageId: message.id ?? null,
+      anchorMessageId,
+      planId,
+      targetIndex,
+      messageCount: messages.length,
+      persistentCount: persistentMessages.length,
+    });
     if (targetIndex < 0) {
       next.push(message);
+      logTaskGraphDebug("session-merge-append-standalone", {
+        messageId: message.id ?? null,
+        anchorMessageId,
+        planId,
+      });
       continue;
     }
 
@@ -168,12 +190,24 @@ function mergePersistentMessages(
     const targetCards = Array.isArray(target.cards) ? [...target.cards] : [];
     const sourceCards = Array.isArray(message.cards) ? message.cards : [];
     if (targetCards.some((card) => card.code === "task_graph")) {
+      logTaskGraphDebug("session-merge-skip-existing-card", {
+        messageId: message.id ?? null,
+        targetIndex,
+        targetMessageId: target.id ?? null,
+      });
       continue;
     }
     next[targetIndex] = {
       ...target,
       cards: [...targetCards, ...sourceCards],
     };
+    logTaskGraphDebug("session-merge-attached", {
+      messageId: message.id ?? null,
+      anchorMessageId,
+      planId,
+      targetIndex,
+      targetMessageId: target.id ?? null,
+    });
   }
 
   return next;
@@ -185,6 +219,11 @@ function mergeTaskCardIntoSession(
 ): void {
   if (!onHostChatRoute()) return;
   const stored = loadStoredCardMessage(sessionId);
+  logTaskGraphDebug("merge-stored-card", {
+    sessionId,
+    hasStored: Boolean(stored),
+    messageCount: session.messages?.length ?? 0,
+  });
   if (!stored) return;
   const messages = session.messages ?? [];
   session.messages = mergePersistentMessages(messages, [stored]);
@@ -205,13 +244,24 @@ function sortTaskCardsLast(
 export function patchHostSessionApi(): boolean {
   const api = getSessionApiInstance();
 
-  if (!api) return false;
-  if ((api as { [PATCHED]?: boolean })[PATCHED]) return true;
+  if (!api) {
+    logTaskGraphDebug("patch-skip", { reason: "missing-api" });
+    return false;
+  }
+  if ((api as { [PATCHED]?: boolean })[PATCHED]) {
+    logTaskGraphDebug("patch-skip", { reason: "already-patched" });
+    return true;
+  }
 
   const persistentMessages: Array<Record<string, unknown>> = [];
 
   api.setPersistentMessage = (message: Record<string, unknown>) => {
     if (isTaskGraphMessageId(message.id)) {
+      logTaskGraphDebug("set-persistent-task-card", {
+        messageId: message.id,
+        planId: getTaskGraphPlanId(message),
+        anchorMessageId: getTaskGraphAnchorMessageId(message),
+      });
       for (let i = persistentMessages.length - 1; i >= 0; i -= 1) {
         if (isTaskGraphMessageId(persistentMessages[i].id)) {
           persistentMessages.splice(i, 1);
@@ -235,6 +285,9 @@ export function patchHostSessionApi(): boolean {
   };
 
   api.removePersistentMessage = (id: string) => {
+    if (isTaskGraphMessageId(id)) {
+      logTaskGraphDebug("remove-persistent-task-card", { messageId: id });
+    }
     const i = persistentMessages.findIndex((m) => m.id === id);
     if (i > -1) persistentMessages.splice(i, 1);
     if (isTaskGraphMessageId(id)) {
@@ -244,6 +297,9 @@ export function patchHostSessionApi(): boolean {
   };
 
   api.clearPersistentMessages = () => {
+    logTaskGraphDebug("clear-persistent-messages", {
+      count: persistentMessages.length,
+    });
     persistentMessages.length = 0;
   };
 
@@ -256,6 +312,11 @@ export function patchHostSessionApi(): boolean {
     ) => Promise<{ messages?: Array<Record<string, unknown>> }>;
     api.getSession = async (sessionId: string) => {
       const session = await boundGetSession(sessionId);
+      logTaskGraphDebug("get-session", {
+        sessionId,
+        messageCount: session.messages?.length ?? 0,
+        persistentCount: persistentMessages.length,
+      });
 
       mergeTaskCardIntoSession(sessionId, session);
 
@@ -263,6 +324,11 @@ export function patchHostSessionApi(): boolean {
         const messages = session.messages ?? [];
         const merged = mergePersistentMessages(messages, persistentMessages);
         session.messages = sortTaskCardsLast(merged);
+        logTaskGraphDebug("get-session-merged-persistent", {
+          sessionId,
+          messageCount: session.messages.length,
+          persistentCount: persistentMessages.length,
+        });
       } else if (session.messages?.length) {
         session.messages = sortTaskCardsLast(session.messages);
       }
@@ -272,6 +338,7 @@ export function patchHostSessionApi(): boolean {
   }
 
   (api as { [PATCHED]?: boolean })[PATCHED] = true;
+  logTaskGraphDebug("patch-installed");
   onSessionApiPatched?.();
   return true;
 }
