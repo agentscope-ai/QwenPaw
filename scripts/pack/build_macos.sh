@@ -10,9 +10,8 @@ DIST="${DIST:-dist}"
 ARCHIVE="${DIST}/qwenpaw-env.tar.gz"
 APP_NAME="QwenPaw"
 APP_DIR="${DIST}/${APP_NAME}.app"
+REUSE_PACKED_ENV="${QWENPAW_REUSE_PACKED_ENV:-0}"
 
-echo "== Building wheel (includes console frontend) =="
-# Skip wheel_build if dist already has a wheel for current version
 VERSION_FILE="${REPO_ROOT}/src/qwenpaw/__version__.py"
 CURRENT_VERSION=""
 if [[ -f "${VERSION_FILE}" ]]; then
@@ -21,26 +20,38 @@ if [[ -f "${VERSION_FILE}" ]]; then
       "${VERSION_FILE}" 2>/dev/null
   )"
 fi
-if [[ -n "${CURRENT_VERSION}" ]]; then
-  shopt -s nullglob
-  whls=("${REPO_ROOT}/dist/qwenpaw-${CURRENT_VERSION}-"*.whl)
-  if [[ ${#whls[@]} -gt 0 ]]; then
-    echo "dist/ already has wheel for version ${CURRENT_VERSION}, skipping."
-  else
-    # Clean up old wheels to avoid confusion
-    old_whls=("${REPO_ROOT}/dist/qwenpaw-"*.whl)
-    if [[ ${#old_whls[@]} -gt 0 ]]; then
-      echo "Removing old wheel files: ${old_whls[*]}"
-      rm -f "${old_whls[@]}"
+
+if [[ "${REUSE_PACKED_ENV}" == "1" ]]; then
+  echo "== Using existing conda-packed env archive =="
+  if [[ ! -f "${ARCHIVE}" ]]; then
+    echo "ERROR: QWENPAW_REUSE_PACKED_ENV=1 but archive was not found: ${ARCHIVE}" >&2
+    exit 1
+  fi
+  echo "Reusing archive: ${ARCHIVE}"
+else
+  echo "== Building wheel (includes console frontend) =="
+  # Skip wheel_build if dist already has a wheel for current version
+  if [[ -n "${CURRENT_VERSION}" ]]; then
+    shopt -s nullglob
+    whls=("${REPO_ROOT}/dist/qwenpaw-${CURRENT_VERSION}-"*.whl)
+    if [[ ${#whls[@]} -gt 0 ]]; then
+      echo "dist/ already has wheel for version ${CURRENT_VERSION}, skipping."
+    else
+      # Clean up old wheels to avoid confusion
+      old_whls=("${REPO_ROOT}/dist/qwenpaw-"*.whl)
+      if [[ ${#old_whls[@]} -gt 0 ]]; then
+        echo "Removing old wheel files: ${old_whls[*]}"
+        rm -f "${old_whls[@]}"
+      fi
+      bash scripts/wheel_build.sh
     fi
+  else
     bash scripts/wheel_build.sh
   fi
-else
-  bash scripts/wheel_build.sh
-fi
 
-echo "== Building conda-packed env =="
-python "${PACK_DIR}/build_common.py" --output "$ARCHIVE" --format tar.gz
+  echo "== Building conda-packed env =="
+  python "${PACK_DIR}/build_common.py" --output "$ARCHIVE" --format tar.gz
+fi
 
 echo "== Building .app bundle =="
 rm -rf "$APP_DIR"

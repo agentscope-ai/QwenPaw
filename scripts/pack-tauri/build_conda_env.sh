@@ -15,10 +15,11 @@ if [[ "$OUTPUT_DIR" != /* ]]; then
   OUTPUT_DIR="${REPO_ROOT}/${OUTPUT_DIR}"
 fi
 
-ARCHIVE="${DIST}/qwenpaw-tauri-env.tar.gz"
+ARCHIVE="${DIST}/qwenpaw-env.tar.gz"
 UNPACKED="${DIST}/tauri-macos-unpacked"
 PACK_DIR="${REPO_ROOT}/scripts/pack"
 BUILD_COMMON="${PACK_DIR}/build_common.py"
+REUSE_PACKED_ENV="${QWENPAW_REUSE_PACKED_ENV:-0}"
 VERSION="$(
   sed -n 's/^__version__[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' \
     src/qwenpaw/__version__.py
@@ -32,6 +33,23 @@ ensure_wheel() {
   fi
   rm -f "${DIST}"/qwenpaw-*.whl
   bash scripts/wheel_build.sh
+}
+
+ensure_packed_archive() {
+  if [[ "$REUSE_PACKED_ENV" == "1" ]]; then
+    echo "== Using existing conda-packed env archive =="
+    if [[ ! -f "$ARCHIVE" ]]; then
+      echo "ERROR: QWENPAW_REUSE_PACKED_ENV=1 but archive was not found: $ARCHIVE" >&2
+      exit 1
+    fi
+    echo "Reusing archive: ${ARCHIVE}"
+    return
+  fi
+
+  ensure_wheel
+
+  echo "== Building conda-packed env =="
+  python "$BUILD_COMMON" --output "$ARCHIVE" --format tar.gz
 }
 
 resolve_env_root() {
@@ -71,10 +89,7 @@ command -v python >/dev/null 2>&1 || {
   exit 1
 }
 
-ensure_wheel
-
-echo "== Building conda-packed env =="
-python "$BUILD_COMMON" --output "$ARCHIVE" --format tar.gz
+ensure_packed_archive
 
 echo "== Unpacking env =="
 rm -rf "$UNPACKED"

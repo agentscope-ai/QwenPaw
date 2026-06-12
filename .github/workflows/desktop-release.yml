@@ -20,7 +20,67 @@ permissions:
   contents: read
 
 jobs:
+  build-env-windows:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: console/package-lock.json
+
+      - name: Set up Miniconda
+        uses: conda-incubator/setup-miniconda@v3
+        with:
+          auto-update-conda: true
+          python-version: "3.10"
+          activate-environment: "qwenpaw-build"
+          condarc-file: .github/condarc
+          conda-remove-defaults: false
+
+      - name: Clean dist directory
+        shell: pwsh
+        run: |
+          if (Test-Path dist) {
+            Remove-Item -Recurse -Force dist
+          }
+          if (Test-Path packed-env-artifact) {
+            Remove-Item -Recurse -Force packed-env-artifact
+          }
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+
+      - name: Build Windows packed env archive
+        shell: pwsh
+        run: |
+          conda run -n qwenpaw-build pwsh -File ./scripts/wheel_build.ps1
+          conda run -n qwenpaw-build python ./scripts/pack/build_common.py --output dist/qwenpaw-env.zip --format zip --cache-wheels
+
+      - name: Stage Windows packed env artifact
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path packed-env-artifact/dist | Out-Null
+          Copy-Item -Force dist/qwenpaw-env.zip packed-env-artifact/dist/
+          if (Test-Path .cache/conda_unpack_wheels) {
+            New-Item -ItemType Directory -Force -Path packed-env-artifact/.cache | Out-Null
+            Copy-Item -Recurse -Force .cache/conda_unpack_wheels packed-env-artifact/.cache/
+          }
+
+      - name: Upload Windows packed env artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: QwenPaw-Packed-Env-Windows
+          path: packed-env-artifact/**
+          include-hidden-files: true
+          if-no-files-found: error
+
   build-windows:
+    needs: build-env-windows
     runs-on: windows-latest
     steps:
       - name: Checkout
@@ -42,13 +102,6 @@ jobs:
           $v | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
           "EOF" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
 
-      - name: Set up Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-          cache: "npm"
-          cache-dependency-path: console/package-lock.json
-
       - name: Set up Miniconda
         uses: conda-incubator/setup-miniconda@v3
         with:
@@ -69,8 +122,16 @@ jobs:
           }
           New-Item -ItemType Directory -Force -Path dist | Out-Null
 
+      - name: Download Windows packed env artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: QwenPaw-Packed-Env-Windows
+          path: .
+
       - name: Build Windows installer
         shell: pwsh
+        env:
+          QWENPAW_REUSE_PACKED_ENV: "1"
         run: conda run -n qwenpaw-build pwsh -File ./scripts/pack/build_win.ps1
 
       - name: List dist (on failure)
@@ -90,17 +151,13 @@ jobs:
           name: QwenPaw-Desktop-Windows-${{ steps.version.outputs.version }}
           path: dist/QwenPaw-Setup-*.exe
 
-  build-macos:
+  build-env-macos:
     runs-on: macos-14
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           submodules: recursive
-
-      - name: Get version
-        id: version
-        run: echo "version=$(sed -n 's/^__version__[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' src/qwenpaw/__version__.py)" >> $GITHUB_OUTPUT
 
       - name: Set up Node
         uses: actions/setup-node@v4
@@ -119,11 +176,60 @@ jobs:
           conda-remove-defaults: false
 
       - name: Clean dist directory
+        run: rm -rf dist packed-env-artifact && mkdir -p dist
+
+      - name: Build macOS packed env archive
+        run: |
+          conda run -n qwenpaw-build bash scripts/wheel_build.sh
+          conda run -n qwenpaw-build python scripts/pack/build_common.py --output dist/qwenpaw-env.tar.gz --format tar.gz
+
+      - name: Stage macOS packed env artifact
+        run: |
+          mkdir -p packed-env-artifact/dist
+          cp dist/qwenpaw-env.tar.gz packed-env-artifact/dist/
+
+      - name: Upload macOS packed env artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: QwenPaw-Packed-Env-macOS
+          path: packed-env-artifact/**
+          if-no-files-found: error
+
+  build-macos:
+    needs: build-env-macos
+    runs-on: macos-14
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Get version
+        id: version
+        run: echo "version=$(sed -n 's/^__version__[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' src/qwenpaw/__version__.py)" >> $GITHUB_OUTPUT
+
+      - name: Set up Miniconda
+        uses: conda-incubator/setup-miniconda@v3
+        with:
+          auto-update-conda: true
+          python-version: "3.10"
+          activate-environment: "qwenpaw-build"
+          condarc-file: .github/condarc
+          conda-remove-defaults: false
+
+      - name: Clean dist directory
         run: rm -rf dist && mkdir -p dist
+
+      - name: Download macOS packed env artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: QwenPaw-Packed-Env-macOS
+          path: .
 
       - name: Build macOS .app
         env:
           NODE_OPTIONS: "--max-old-space-size=8192"
+          QWENPAW_REUSE_PACKED_ENV: "1"
         run: |
           chmod +x scripts/pack/build_macos.sh
           conda run -n qwenpaw-build bash -c 'CREATE_ZIP=1 ./scripts/pack/build_macos.sh'
@@ -135,6 +241,7 @@ jobs:
           path: dist/QwenPaw-*.zip
 
   build-tauri-windows:
+    needs: build-env-windows
     runs-on: windows-latest
     steps:
       - name: Checkout
@@ -194,8 +301,16 @@ jobs:
           }
           New-Item -ItemType Directory -Force -Path dist | Out-Null
 
+      - name: Download Windows packed env artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: QwenPaw-Packed-Env-Windows
+          path: .
+
       - name: Build Tauri Windows package
         shell: pwsh
+        env:
+          QWENPAW_REUSE_PACKED_ENV: "1"
         run: conda run -n qwenpaw-build pwsh -File ./scripts/pack-tauri/build_win.ps1
 
       - name: Stage Tauri Windows installer
@@ -216,6 +331,7 @@ jobs:
           path: dist/QwenPaw-Tauri-*-Windows-setup.exe
 
   build-tauri-macos:
+    needs: build-env-macos
     runs-on: macos-14
     steps:
       - name: Checkout
@@ -254,12 +370,16 @@ jobs:
       - name: Clean dist directory
         run: rm -rf dist && mkdir -p dist
 
+      - name: Download macOS packed env artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: QwenPaw-Packed-Env-macOS
+          path: .
+
       - name: Build Tauri macOS package
         env:
           NODE_OPTIONS: "--max-old-space-size=8192"
-          # Authenticate the python-build-standalone release lookup in
-          # stage_python_runtime.py to avoid anonymous API rate limits.
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          QWENPAW_REUSE_PACKED_ENV: "1"
         run: |
           chmod +x scripts/pack-tauri/build_macos.sh scripts/pack-tauri/build_conda_env.sh
           conda run -n qwenpaw-build bash -c './scripts/pack-tauri/build_macos.sh'

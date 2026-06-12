@@ -19,10 +19,11 @@ if (-not $OutputDir) {
   $OutputDir = Join-Path $RepoRoot $OutputDir
 }
 
-$Archive = Join-Path $Dist "qwenpaw-tauri-env.zip"
+$Archive = Join-Path $Dist "qwenpaw-env.zip"
 $Unpacked = Join-Path $Dist "tauri-win-unpacked"
 $PackDir = Join-Path $RepoRoot "scripts\pack"
 $BuildCommon = Join-Path $PackDir "build_common.py"
+$ReusePackedEnv = $env:QWENPAW_REUSE_PACKED_ENV -eq "1"
 
 $CondaUnpackAffectedPackages = @(
   "huggingface_hub",
@@ -142,6 +143,30 @@ function Copy-ToTauriResource {
   Copy-Item -Recurse -Force (Join-Path $EnvRoot "*") $Dest
 }
 
+function Ensure-PackedArchive {
+  param([string]$Version)
+
+  if ($ReusePackedEnv) {
+    Write-Host "== Using existing conda-packed env archive =="
+    if (-not (Test-Path $Archive)) {
+      throw "QWENPAW_REUSE_PACKED_ENV=1 but archive was not found: $Archive"
+    }
+    Write-Host "[tauri-conda] Reusing archive: $Archive"
+    return
+  }
+
+  Ensure-QwenPawWheel -Version $Version
+
+  Write-Host "== Building conda-packed env =="
+  & python $BuildCommon --output $Archive --format zip --cache-wheels
+  if ($LASTEXITCODE -ne 0) {
+    throw "build_common.py failed with exit code $LASTEXITCODE"
+  }
+  if (-not (Test-Path $Archive)) {
+    throw "Archive not created: $Archive"
+  }
+}
+
 $version = Get-QwenPawVersion
 Write-Host "========================================="
 Write-Host "QwenPaw Tauri Backend - conda-pack (Windows)"
@@ -160,16 +185,7 @@ if (-not (Test-Path $BuildCommon)) {
   throw "build_common.py not found: $BuildCommon"
 }
 
-Ensure-QwenPawWheel -Version $version
-
-Write-Host "== Building conda-packed env =="
-& python $BuildCommon --output $Archive --format zip --cache-wheels
-if ($LASTEXITCODE -ne 0) {
-  throw "build_common.py failed with exit code $LASTEXITCODE"
-}
-if (-not (Test-Path $Archive)) {
-  throw "Archive not created: $Archive"
-}
+Ensure-PackedArchive -Version $version
 
 Write-Host "== Unpacking env =="
 if (Test-Path $Unpacked) {

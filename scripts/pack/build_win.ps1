@@ -10,6 +10,7 @@ $Dist = if ($env:DIST) { $env:DIST } else { "dist" }
 $Archive = Join-Path $Dist "qwenpaw-env.zip"
 $Unpacked = Join-Path $Dist "win-unpacked"
 $NsiPath = Join-Path $PackDir "desktop.nsi"
+$ReusePackedEnv = $env:QWENPAW_REUSE_PACKED_ENV -eq "1"
 
 # Packages affected by conda-unpack bug on Windows (conda-pack Issue #154)
 # conda-unpack corrupts Python string escaping when replacing path prefixes.
@@ -21,48 +22,57 @@ $CondaUnpackAffectedPackages = @(
   "discord.py"       # ARG_NAME_SUBREGEX contains \\?\* which gets corrupted
 )
 
-New-Item -ItemType Directory -Force -Path $Dist | Out-Null
-
-Write-Host "== Building wheel (includes console frontend) =="
-# Skip wheel_build if dist already has a wheel for current version
 $VersionFile = Join-Path $RepoRoot "src\qwenpaw\__version__.py"
 $CurrentVersion = ""
 if (Test-Path $VersionFile) {
   $m = (Get-Content $VersionFile -Raw) -match '__version__\s*=\s*"([^"]+)"'
   if ($m) { $CurrentVersion = $Matches[1] }
 }
-$RunWheelBuild = $true
-if ($CurrentVersion) {
-  $wheelGlob = Join-Path $Dist "qwenpaw-$CurrentVersion-*.whl"
-  $existingWheels = Get-ChildItem -Path $wheelGlob -ErrorAction SilentlyContinue
-  if ($existingWheels.Count -gt 0) {
-    Write-Host "dist/ already has wheel for version $CurrentVersion, skipping."
-    $RunWheelBuild = $false
-  } else {
-    # Clean up old wheels to avoid confusion
-    $oldWheels = Get-ChildItem -Path (Join-Path $Dist "qwenpaw-*.whl") -ErrorAction SilentlyContinue
-    if ($oldWheels.Count -gt 0) {
-      Write-Host "Removing old wheel files: $($oldWheels | ForEach-Object { $_.Name })"
-      $oldWheels | Remove-Item -Force
+
+New-Item -ItemType Directory -Force -Path $Dist | Out-Null
+
+if ($ReusePackedEnv) {
+  Write-Host "== Using existing conda-packed env archive =="
+  if (-not (Test-Path $Archive)) {
+    throw "QWENPAW_REUSE_PACKED_ENV=1 but archive was not found: $Archive"
+  }
+  Write-Host "[build_win] Reusing archive: $Archive"
+} else {
+  Write-Host "== Building wheel (includes console frontend) =="
+  # Skip wheel_build if dist already has a wheel for current version
+  $RunWheelBuild = $true
+  if ($CurrentVersion) {
+    $wheelGlob = Join-Path $Dist "qwenpaw-$CurrentVersion-*.whl"
+    $existingWheels = Get-ChildItem -Path $wheelGlob -ErrorAction SilentlyContinue
+    if ($existingWheels.Count -gt 0) {
+      Write-Host "dist/ already has wheel for version $CurrentVersion, skipping."
+      $RunWheelBuild = $false
+    } else {
+      # Clean up old wheels to avoid confusion
+      $oldWheels = Get-ChildItem -Path (Join-Path $Dist "qwenpaw-*.whl") -ErrorAction SilentlyContinue
+      if ($oldWheels.Count -gt 0) {
+        Write-Host "Removing old wheel files: $($oldWheels | ForEach-Object { $_.Name })"
+        $oldWheels | Remove-Item -Force
+      }
     }
   }
-}
-if ($RunWheelBuild) {
-  $WheelBuildScript = Join-Path $RepoRoot "scripts\wheel_build.ps1"
-  if (-not (Test-Path $WheelBuildScript)) {
-    throw "wheel_build.ps1 not found: $WheelBuildScript"
+  if ($RunWheelBuild) {
+    $WheelBuildScript = Join-Path $RepoRoot "scripts\wheel_build.ps1"
+    if (-not (Test-Path $WheelBuildScript)) {
+      throw "wheel_build.ps1 not found: $WheelBuildScript"
+    }
+    & $WheelBuildScript
+    if ($LASTEXITCODE -ne 0) { throw "wheel_build.ps1 failed with exit code $LASTEXITCODE" }
   }
-  & $WheelBuildScript
-  if ($LASTEXITCODE -ne 0) { throw "wheel_build.ps1 failed with exit code $LASTEXITCODE" }
-}
 
-Write-Host "== Building conda-packed env =="
-& python $PackDir\build_common.py --output $Archive --format zip --cache-wheels
-if ($LASTEXITCODE -ne 0) {
-  throw "build_common.py failed with exit code $LASTEXITCODE"
-}
-if (-not (Test-Path $Archive)) {
-  throw "Archive not created: $Archive"
+  Write-Host "== Building conda-packed env =="
+  & python $PackDir\build_common.py --output $Archive --format zip --cache-wheels
+  if ($LASTEXITCODE -ne 0) {
+    throw "build_common.py failed with exit code $LASTEXITCODE"
+  }
+  if (-not (Test-Path $Archive)) {
+    throw "Archive not created: $Archive"
+  }
 }
 
 Write-Host "== Unpacking env =="
