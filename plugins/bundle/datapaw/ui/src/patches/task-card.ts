@@ -7,8 +7,9 @@ import {
 } from "../lib/api";
 import {
   clearStickyPlan,
-  getDisplayPlan,
+  getDisplayPlans,
   setCurrentPlan,
+  upsertHistoricalPlan,
 } from "../lib/plan-store";
 import { toPlainJson } from "../lib/plain";
 import { resolveBackendSessionId, getHostSessionApi } from "../lib/session-id";
@@ -22,6 +23,7 @@ import {
   TASK_GRAPH_MESSAGE_ID,
   buildTaskCardMessage,
   loadTaskCardPlan,
+  loadTaskCardPlans,
   saveTaskCardForSession,
   removeTaskCardForSession,
 } from "../lib/task-card-storage";
@@ -195,8 +197,7 @@ function clearCurrentPlan(
 ): void {
   const sid = resolveBackendSessionId(sessionId);
   activePlanId = null;
-  clearStickyPlan();
-  setCurrentPlan(null);
+  clearStickyPlan(sid);
   activePlanSourceSessionId = null;
   stopDagEventsSubscription();
   logTaskGraphDebug("clear-current-plan", {
@@ -215,7 +216,6 @@ function applyCurrentPlan(
   const plainPlan = toPlainJson(plan);
   const sid = resolveBackendSessionId(sessionId);
   const sourceSid = sourceSessionId || sessionId || sid;
-  const planChanged = Boolean(activePlanId && activePlanId !== plainPlan.id);
 
   logTaskGraphDebug("apply-current-plan", {
     sessionId: sid,
@@ -224,17 +224,11 @@ function applyCurrentPlan(
     planState: plainPlan.state,
     anchorMessageId: plainPlan.anchor_message_id ?? null,
     previousPlanId: activePlanId,
-    planChanged,
   });
-
-  if (planChanged) {
-    resetNodeStreamEvents();
-    clearCurrentPlan(sessionId);
-  }
 
   activePlanId = plainPlan.id;
   activePlanSourceSessionId = sourceSid ?? null;
-  setCurrentPlan(plainPlan);
+  setCurrentPlan(plainPlan, sourceSid ?? sid);
 
   const storageSessionIds = new Set(
     [sourceSid, sid, sessionId].filter(Boolean) as string[],
@@ -245,7 +239,7 @@ function applyCurrentPlan(
     }
   }
   for (const storageSessionId of storageSessionIds) {
-    saveTaskCardForSession(storageSessionId, plainPlan);
+    saveTaskCardForSession(storageSessionId, plainPlan, { current: true });
     logTaskGraphDebug("save-task-card-storage", {
       sessionId: storageSessionId,
       planId: plainPlan.id,
@@ -259,6 +253,33 @@ function applyCurrentPlan(
 
   purgeLegacyTaskGraphMessages();
   syncTaskCardMessage(plainPlan);
+}
+
+function applyHistoricalPlan(
+  plan: PlanSnapshot,
+  sessionId?: string | null,
+  sourceSessionId?: string | null,
+): void {
+  const plainPlan = toPlainJson(plan);
+  const sid = resolveBackendSessionId(sessionId);
+  const sourceSid = sourceSessionId || sessionId || sid;
+
+  logTaskGraphDebug("apply-historical-plan", {
+    sessionId: sid,
+    sourceSessionId: sourceSid,
+    planId: plainPlan.id,
+    planState: plainPlan.state,
+    anchorMessageId: plainPlan.anchor_message_id ?? null,
+  });
+
+  upsertHistoricalPlan(plainPlan, sourceSid ?? sid);
+
+  const storageSessionIds = new Set(
+    [sourceSid, sid, sessionId].filter(Boolean) as string[],
+  );
+  for (const storageSessionId of storageSessionIds) {
+    saveTaskCardForSession(storageSessionId, plainPlan, { current: false });
+  }
 }
 
 export function installChatBridge(): void {
@@ -327,18 +348,23 @@ async function fetchAndApplyTaskPlan(sessionId: string): Promise<boolean> {
   const candidates = getTaskPlanSessionCandidates(sessionId);
   for (const candidateSessionId of candidates) {
     const summary = await fetchTasksSummary(candidateSessionId);
-    const plan = await resolvePlanFromSummary(candidateSessionId, summary);
+    const plans = await resolvePlansFromSummary(candidateSessionId, summary);
     logTaskGraphDebug("tasks-summary", {
       requestedSessionId: sessionId,
       sessionId: candidateSessionId,
       candidates,
       hasCurrentPlan: Boolean(summary?.current_plan),
       historicalCount: summary?.historical_plans?.length ?? 0,
-      resolvedPlanId: plan?.id ?? null,
-      resolvedPlanState: plan?.state ?? null,
+      resolvedPlanIds: plans.map((plan) => plan.id),
     });
-    if (!plan) continue;
-    applyCurrentPlan(plan, sessionId, candidateSessionId);
+    if (!plans.length) continue;
+    for (const plan of plans) {
+      if (summary?.current_plan?.id === plan.id) {
+        applyCurrentPlan(plan, sessionId, candidateSessionId);
+      } else {
+        applyHistoricalPlan(plan, sessionId, candidateSessionId);
+      }
+    }
     return true;
   }
   return false;
@@ -357,14 +383,37 @@ function getLatestHistoricalPlanId(
   return sorted[0]?.id || plans[plans.length - 1]?.id || null;
 }
 
-async function resolvePlanFromSummary(
+async function resolvePlansFromSummary(
   sessionId: string,
   summary: TasksSummaryResponse | null,
-): Promise<PlanSnapshot | null> {
-  if (summary?.current_plan) return summary.current_plan;
-  const historicalPlanId = getLatestHistoricalPlanId(summary);
-  if (!historicalPlanId) return null;
-  return fetchHistoricalTaskPlan(sessionId, historicalPlanId);
+): Promise<PlanSnapshot[]> {
+  const plans: PlanSnapshot[] = [];
+  const seen = new Set<string>();
+  if (summary?.current_plan) {
+    plans.push(summary.current_plan);
+    seen.add(summary.current_plan.id);
+  }
+
+  const historicalIds = (summary?.historical_plans ?? [])
+    .map((historical) => historical.id)
+    .filter((id) => id && !seen.has(id));
+  const historicalPlans = await Promise.all(
+    historicalIds.map((planId) => fetchHistoricalTaskPlan(sessionId, planId)),
+  );
+  for (const plan of historicalPlans) {
+    if (!plan || seen.has(plan.id)) continue;
+    plans.push(plan);
+    seen.add(plan.id);
+  }
+
+  if (!plans.length) {
+    const historicalPlanId = getLatestHistoricalPlanId(summary);
+    if (historicalPlanId) {
+      const plan = await fetchHistoricalTaskPlan(sessionId, historicalPlanId);
+      if (plan) plans.push(plan);
+    }
+  }
+  return plans;
 }
 
 async function syncTaskPlanForCurrentSession(sessionId: string): Promise<void> {
@@ -391,20 +440,28 @@ async function syncTaskPlanForCurrentSession(sessionId: string): Promise<void> {
     });
     if (ok) return;
 
-    const cached = loadTaskCardPlan(sessionId);
-    if (cached) {
+    const cachedPlans = loadTaskCardPlans(sessionId);
+    if (cachedPlans.length) {
+      const currentCached =
+        cachedPlans.find((item) => item.current)?.plan ?? loadTaskCardPlan(sessionId);
       logTaskGraphDebug("sync-session-plan-cache-hit", {
         sessionId,
-        planId: cached.id,
-        planState: cached.state,
+        planIds: cachedPlans.map((item) => item.plan.id),
+        currentPlanId: currentCached?.id ?? null,
       });
-      applyCurrentPlan(cached, sessionId);
+      for (const item of cachedPlans) {
+        if (item.plan.id === currentCached?.id) {
+          applyCurrentPlan(item.plan, sessionId);
+        } else {
+          applyHistoricalPlan(item.plan, sessionId);
+        }
+      }
       return;
     }
-    if (getDisplayPlan()) {
+    if (getDisplayPlans().length) {
       console.info("[datapaw:task-card] keep sticky plan after empty summary", {
         sessionId,
-        planId: getDisplayPlan()?.id,
+        planIds: getDisplayPlans().map((plan) => plan.id),
       });
       return;
     }
