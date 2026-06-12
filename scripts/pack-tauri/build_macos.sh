@@ -60,10 +60,8 @@ echo "Generating Tauri icons..."
 npm exec -- tauri icon ../scripts/pack/assets/icon.svg
 echo "Syncing Tauri version..."
 node ../scripts/pack-tauri/sync_tauri_version.mjs
-echo "Building console frontend..."
-npm run build:prod
 cd ..
-echo "Console static assets built"
+echo "Console prerequisites ready"
 echo ""
 
 echo "== Step 2: Building conda-packed backend =="

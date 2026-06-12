@@ -101,12 +101,8 @@ Write-Host "Syncing Tauri version..."
 node ../scripts/pack-tauri/sync_tauri_version.mjs
 if ($LASTEXITCODE -ne 0) { throw "Tauri version sync failed" }
 
-Write-Host "Building console frontend..."
-npm run build:prod
-if ($LASTEXITCODE -ne 0) { throw "console frontend build failed" }
-
 Set-Location $REPO_ROOT
-Write-Host "Console static assets built" -ForegroundColor Green
+Write-Host "Console prerequisites ready" -ForegroundColor Green
 Write-Host ""
 
 Write-Host "== Step 2: Building conda-packed backend ==" -ForegroundColor Yellow

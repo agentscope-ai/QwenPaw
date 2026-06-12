@@ -692,14 +692,8 @@ class PluginLoader:
                 f"Copied plugin '{plugin_id}' to {target_dir}",
             )
 
-        # Install Python dependencies (off the event loop)
-        requirements_file = target_dir / "requirements.txt"
-        if requirements_file.exists():
-            await asyncio.to_thread(
-                self._install_requirements,
-                requirements_file,
-                plugin_id,
-            )
+        # Install Python dependencies into the current QwenPaw interpreter.
+        await self._ensure_dependencies_installed(target_dir, plugin_id)
 
         # Re-read manifest from the installed location so that
         # source_path in the record points to the correct directory

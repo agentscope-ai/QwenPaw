@@ -51,16 +51,6 @@ resolve_env_root() {
   exit 1
 }
 
-write_qwenpaw_wrapper() {
-  local env_root="$1"
-  cat > "${env_root}/qwenpaw" <<'EOF'
-#!/usr/bin/env bash
-DIR="$(cd "$(dirname "$0")" && pwd)"
-exec "$DIR/bin/python" -u -m qwenpaw "$@"
-EOF
-  chmod +x "${env_root}/qwenpaw"
-}
-
 echo "========================================="
 echo "QwenPaw Tauri Backend - conda-pack"
 echo "========================================="
@@ -104,15 +94,12 @@ echo "== Pre-compiling Python bytecode =="
 "${ENV_ROOT}/bin/python" -m compileall -q -j 0 "$ENV_ROOT" || \
   echo "WARN: bytecode compilation had errors" >&2
 
-write_qwenpaw_wrapper "$ENV_ROOT"
-
 echo "== Copying to Tauri resource directory =="
 mkdir -p "$OUTPUT_DIR"
 find "$OUTPUT_DIR" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
 cp -R "${ENV_ROOT}/." "$OUTPUT_DIR/"
 chmod +x "${OUTPUT_DIR}/bin/python"
 [[ -x "${OUTPUT_DIR}/bin/qwenpaw" ]] && chmod +x "${OUTPUT_DIR}/bin/qwenpaw"
-chmod +x "${OUTPUT_DIR}/qwenpaw"
 
 [[ -x "${OUTPUT_DIR}/bin/python" ]] || {
   echo "ERROR: bin/python not found in Tauri backend resource: $OUTPUT_DIR" >&2
