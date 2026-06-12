@@ -82,7 +82,7 @@ function ACPRedirect() {
 export const BUILTIN_ROUTES: Route[] = [
   { id: "core.root", path: "/", component: DefaultRedirect },
   { id: "core.chat", path: "/chat/*", component: Chat },
-  { id: "core.coding", path: "/coding", component: CodingPage },
+  { id: "core.coding", path: "/coding/*", component: CodingPage },
   { id: "core.channels", path: "/channels", component: ChannelsPage },
   { id: "core.sessions", path: "/sessions", component: SessionsPage },
   { id: "core.inbox", path: "/inbox", component: InboxPage },
