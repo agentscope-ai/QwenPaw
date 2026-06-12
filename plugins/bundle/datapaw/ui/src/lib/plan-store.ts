@@ -118,14 +118,6 @@ export function setCurrentPlan(
   });
   plansBySession.set(normalizedSessionId, sessionPlans);
   currentPlanIdBySession.set(normalizedSessionId, next.id);
-  console.info("[datapaw:plan-store] setCurrentPlan", {
-    hasPlan: true,
-    planId: next.id,
-    planName: next.name,
-    sessionId: normalizedSessionId,
-    planCount: sessionPlans.size,
-    listenerCount: listeners.size,
-  });
   notifyPlanListeners();
 }
 
@@ -145,12 +137,5 @@ export function upsertHistoricalPlan(
     __datapawSessionId: normalizedSessionId,
   });
   plansBySession.set(normalizedSessionId, sessionPlans);
-  console.info("[datapaw:plan-store] upsertHistoricalPlan", {
-    planId: next.id,
-    planName: next.name,
-    sessionId: normalizedSessionId,
-    planCount: sessionPlans.size,
-    listenerCount: listeners.size,
-  });
   notifyPlanListeners();
 }

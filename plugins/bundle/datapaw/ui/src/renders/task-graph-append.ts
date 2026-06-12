@@ -16,7 +16,8 @@ function logTaskGraphDebug(
   event: string,
   payload?: Record<string, unknown>,
 ): void {
-  console.info("[datapaw:task-graph-debug]", event, payload ?? {});
+  void event;
+  void payload;
 }
 
 function subscribeLatestResponse(listener: () => void): () => void {

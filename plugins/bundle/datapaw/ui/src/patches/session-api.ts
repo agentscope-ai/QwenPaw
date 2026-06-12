@@ -243,7 +243,6 @@ export function patchHostSessionApi(): boolean {
   }
 
   (api as { [PATCHED]?: boolean })[PATCHED] = true;
-  console.info("[datapaw] Patched host sessionApi for task card persistence");
   onSessionApiPatched?.();
   return true;
 }

@@ -62,7 +62,8 @@ function logTaskGraphDebug(
   event: string,
   payload?: Record<string, unknown>,
 ): void {
-  console.info("[datapaw:task-graph-debug]", event, payload ?? {});
+  void event;
+  void payload;
 }
 
 function pushTaskCardToLiveChat(
@@ -101,13 +102,9 @@ function scheduleTaskCardChatSync(
   }, 200);
 }
 
-function syncTaskCardMessage(plan: PlanSnapshot): void {
+function syncTaskCardMessage(): void {
   if (!isDatapawAgentSelected()) return;
   removeTaskCardFromChat();
-  console.info("[datapaw:task-card] cleared persistent task card message", {
-    planId: plan.id,
-    messageId: TASK_GRAPH_MESSAGE_ID,
-  });
 }
 
 /** Re-inject the current plan into chat after sessionApi patch or chat mount. */
@@ -252,7 +249,7 @@ function applyCurrentPlan(
   }
 
   purgeLegacyTaskGraphMessages();
-  syncTaskCardMessage(plainPlan);
+  syncTaskCardMessage();
 }
 
 function applyHistoricalPlan(
@@ -459,10 +456,6 @@ async function syncTaskPlanForCurrentSession(sessionId: string): Promise<void> {
       return;
     }
     if (getDisplayPlans().length) {
-      console.info("[datapaw:task-card] keep sticky plan after empty summary", {
-        sessionId,
-        planIds: getDisplayPlans().map((plan) => plan.id),
-      });
       return;
     }
     clearCurrentPlan(sessionId, { removeCache: false });
