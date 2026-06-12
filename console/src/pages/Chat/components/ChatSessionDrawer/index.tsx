@@ -23,6 +23,7 @@ import { useTranslation } from "react-i18next";
 import type { ChatStatus } from "../../../../api/types/chat";
 import { chatApi } from "../../../../api/modules/chat";
 import sessionApi from "../../sessionApi";
+import { buildSessionPath } from "../../../../utils/sessionRoute";
 import { useCodingMode } from "../../../../stores/codingModeStore";
 import ChatSessionItem from "../ChatSessionItem";
 import { getChannelLabel } from "../../../Control/Channels/components";
@@ -296,15 +297,14 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
       sessionApi
         .preloadSession(sessionId)
         .then(({ realId }) => {
-          // Issue #4987: In coding mode, skip URL navigation to /chat/<id>.
-          // The redirect effect in ChatPage would immediately navigate back
-          // to /coding before session data loads, causing the switch to fail.
-          // Instead, just set the session directly — the UI stays on /coding.
-          if (!codingMode) {
-            const targetUrl = `/chat/${realId || sessionId}`;
-            sessionApi.lastNavigatedChatId = realId || sessionId;
-            navigate(targetUrl, { replace: true });
-          }
+          // Issue #5142: Navigate to the correct URL for the current mode.
+          const effectiveId = realId || sessionId;
+          const targetUrl = buildSessionPath(
+            codingMode ? "coding" : "chat",
+            effectiveId,
+          );
+          sessionApi.lastNavigatedChatId = effectiveId;
+          navigate(targetUrl, { replace: true });
           // Now set currentSessionId — the library's getSession will hit cache.
           setCurrentSessionId(sessionId);
         })
