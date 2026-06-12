@@ -9,7 +9,7 @@ const ROUTE_BASE = "/plugin/datapaw";
 const DATA_CONNECTION_ROUTE_ID = "datapaw.data-connection";
 const DATA_CONNECTION_ADD_ROUTE_ID = "datapaw.data-connection.add";
 const DATAPAW_GROUP_ID = "datapaw.group";
-const SEMANTIC_WEAVING_URL = "https://bailian.console.aliyun.com/";
+const SEMANTIC_WEAVING_URL = "https://pre-datascope-config-backend.alibaba-inc.com/";
 
 function datapawAgentVisible(): boolean {
   const hostSelectedAgent = (

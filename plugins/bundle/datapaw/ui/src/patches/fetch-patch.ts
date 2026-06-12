@@ -7,6 +7,8 @@ import {
   handleToolResult,
 } from "../lib/node-stream-events";
 import { handlePlanToolInStream } from "./task-card";
+import { readSelectedDataSourceId } from "@/pages/Chat/components/ChatSenderToolbar/dataSourceSelection";
+import { resolveSessionStorageKey } from "@/pages/Chat/components/ChatSenderToolbar/utils";
 
 let installed = false;
 
@@ -30,6 +32,40 @@ function withDatapawAgentHeader(init?: RequestInit): RequestInit {
   const headers = new Headers(init?.headers as HeadersInit | undefined);
   headers.set("X-Agent-Id", DATAPAW_AGENT_ID);
   return { ...init, headers };
+}
+
+function withDatapawChatBody(init?: RequestInit): RequestInit {
+  if (!init?.body || typeof init.body !== "string") {
+    return init ?? {};
+  }
+
+  try {
+    const parsed = JSON.parse(init.body) as Record<string, unknown>;
+    const sessionId =
+      typeof parsed.session_id === "string" ? parsed.session_id : "";
+    const datasourceId = readSelectedDataSourceId(
+      resolveSessionStorageKey(sessionId),
+    );
+    if (!datasourceId) return init;
+
+    const existingContext =
+      typeof parsed.request_context === "object" && parsed.request_context
+        ? (parsed.request_context as Record<string, unknown>)
+        : {};
+
+    return {
+      ...init,
+      body: JSON.stringify({
+        ...parsed,
+        request_context: {
+          ...existingContext,
+          datasource_id: datasourceId,
+        },
+      }),
+    };
+  } catch {
+    return init;
+  }
 }
 
 /**
@@ -56,7 +92,7 @@ export function installFetchPatch(): void {
     const datapawActive =
       isConsoleChatUrl(url) && isDatapawAgentSelected();
     const effectiveInit = datapawActive
-      ? withDatapawAgentHeader(init)
+      ? withDatapawChatBody(withDatapawAgentHeader(init))
       : init;
 
     const response = await originalFetch(input, effectiveInit);

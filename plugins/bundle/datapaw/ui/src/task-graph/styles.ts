@@ -8,6 +8,11 @@ const CSS = `
   flex-shrink: 0;
   width: 100%;
 }
+.datapaw-chat-sender-toolbar {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+}
 .datapaw-task-plan {
   margin-top: 8px;
   margin-bottom: 8px;

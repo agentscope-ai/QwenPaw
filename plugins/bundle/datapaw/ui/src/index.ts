@@ -24,6 +24,7 @@ import {
 } from "./patches/session-api";
 import { installConsoleLogoPatch } from "./patches/console-logo";
 import { registerChatArtifactsButton } from "./patches/chat-artifacts-button";
+import { registerChatSenderToolbar } from "./patches/chat-sender-toolbar";
 import { registerDatapawNavigation } from "./patches/datapaw-navigation";
 import type { HostBundle } from "./types";
 
@@ -102,6 +103,7 @@ function buildPlugin() {
   scheduleSessionTaskPlanSync();
   registerDatapawNavigation(bundle);
   registerChatArtifactsButton(bundle);
+  registerChatSenderToolbar(bundle);
   installConsoleLogoPatch(bundle);
   installFetchPatch();
   ensureDefaultAgent();

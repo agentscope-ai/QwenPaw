@@ -15,11 +15,12 @@
  */
 import DataConnectionPage from "@/pages/Datapaw/DataConnection";
 import AddDataSourcePage from "@/pages/Datapaw/DataConnection/Add";
+import { useDataConnectionPathname } from "@/pages/Datapaw/DataConnection/navigation";
 
 const BASE = "/plugin/datapaw/datapaw/data-connection";
 
 export function DataPawRoute() {
-  const pathname = window.location.pathname;
+  const pathname = useDataConnectionPathname();
   if (pathname === `${BASE}/add`) {
     return <AddDataSourcePage />;
   }
