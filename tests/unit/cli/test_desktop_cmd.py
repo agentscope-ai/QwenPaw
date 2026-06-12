@@ -21,20 +21,20 @@ def test_save_file_passes_headers_to_download_request(
     tmp_path,
 ) -> None:
     destination = tmp_path / "backup.zip"
-    monkeypatch.setattr(
-        desktop_cmd,
-        "webview",
-        types.SimpleNamespace(
-            SAVE_DIALOG=1,
-            windows=[
-                types.SimpleNamespace(
-                    create_file_dialog=lambda *_args, **_kwargs: str(
-                        destination,
-                    ),
+
+    fake_webview = types.SimpleNamespace(
+        SAVE_DIALOG=1,
+        windows=[
+            types.SimpleNamespace(
+                create_file_dialog=lambda *_args, **_kwargs: str(
+                    destination,
                 ),
-            ],
-        ),
+            ),
+        ],
     )
+    import sys
+
+    monkeypatch.setitem(sys.modules, "webview", fake_webview)
 
     captured_url = ""
     captured_headers: dict[str, str] = {}

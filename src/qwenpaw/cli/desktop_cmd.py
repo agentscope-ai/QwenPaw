@@ -13,18 +13,12 @@ import subprocess
 import sys
 import threading
 import traceback
-import webbrowser
 from collections.abc import Mapping
 
 import click
 
 from ..constant import LOG_LEVEL_ENV
 from ..utils.logging import setup_logger
-
-try:
-    import webview
-except ImportError:
-    webview = None  # type: ignore[assignment]
 
 logger = logging.getLogger(__name__)
 
@@ -245,6 +239,8 @@ class WebViewAPI:
 
     def open_external_link(self, url: str) -> None:
         """Open URL in system's default browser."""
+        import webbrowser
+
         if not url.startswith(("http://", "https://")):
             return
         webbrowser.open(url)
@@ -274,6 +270,8 @@ class WebViewAPI:
         import re
         import shutil
         import urllib.request
+
+        import webview
 
         if not url.startswith(("http://", "https://")):
             return False
@@ -412,6 +410,9 @@ def desktop_cmd(
     The loading page polls the backend and navigates to the console
     once it is ready — giving instant visual feedback instead of
     blocking on HTTP readiness.
+
+    Backend startup and window creation run in parallel to minimize
+    time-to-first-paint.
     """
     setup_logger(log_level)
 
@@ -425,11 +426,27 @@ def desktop_cmd(
     url = f"http://{host}:{port}"
     click.echo(f"Starting QwenPaw app on {url} (port {port})")
 
+    # Lazy import: defer heavy webview module until needed
+    import webview
+
     backend = BackendProcessManager()
+    backend_start_error: list[Exception] = []
+
+    def _start_backend_in_thread() -> None:
+        try:
+            backend.start(host, port, log_level)
+        except Exception as exc:
+            backend_start_error.append(exc)
+
+    # Start backend in background thread so window creation can proceed
+    # in parallel, minimizing time-to-first-paint.
+    backend_thread = threading.Thread(
+        target=_start_backend_in_thread,
+        daemon=True,
+    )
+    backend_thread.start()
 
     try:
-        backend.start(host, port, log_level)
-
         loading_url = _loading_page_url()
         logger.info("Opening webview with loading page: %s", loading_url)
 
@@ -455,6 +472,11 @@ def desktop_cmd(
         raise
     finally:
         backend.stop()
+
+        # If backend failed to start, report the error
+        if backend_start_error:
+            backend_exc = backend_start_error[0]
+            logger.error("Backend failed to start: %r", backend_exc)
 
         exit_code = backend.exit_code
         if (
