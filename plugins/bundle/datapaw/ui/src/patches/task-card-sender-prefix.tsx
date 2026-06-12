@@ -4,8 +4,12 @@
  * (updated by patches/task-card.ts on create_plan / DAG events).
  */
 import { PLUGIN_ID } from "../lib/constants";
-import { isDatapawAgentSelected } from "../lib/agent";
-import { getDisplayPlan, subscribeCurrentPlan } from "../lib/plan-store";
+import { getSelectedAgentId, isDatapawAgentSelected } from "../lib/agent";
+import {
+  getDisplayPlan,
+  getDisplayPlans,
+  subscribeCurrentPlan,
+} from "../lib/plan-store";
 import { resolveBackendSessionId } from "../lib/session-id";
 import { refreshTaskCard } from "./task-card";
 import { TaskGraphPanel } from "../task-graph/panel";
@@ -29,6 +33,16 @@ import type { StreamEvent } from "@/pages/Chat/components/TaskGraphPanel/types";
 import { putPlanSop } from "../lib/api";
 
 const SENDER_PREFIX_ID = "datapaw-task-card-sender-prefix";
+let lastGuardLogKey = "";
+
+function logTaskGraphDebug(
+  event: string,
+  payload?: Record<string, unknown>,
+): void {
+  const label = `[DataPaw][TaskGraph][sender-prefix] ${event}`;
+  if (payload) console.debug(label, payload);
+  else console.debug(label);
+}
 
 function useDatapawAgentSelected(React: HostBundle["React"]): boolean {
   const { useSyncExternalStore } = React;
@@ -76,6 +90,34 @@ export function createTaskCardSenderPrefix(host: HostBundle) {
     const userId =
       (window as Window & { currentUserId?: string }).currentUserId ||
       "default";
+
+    const selectedAgentId = getSelectedAgentId();
+    const displayPlans = getDisplayPlans();
+    const guardLogKey = [
+      datapawAgent ? "datapaw" : selectedAgentId || "no-agent",
+      plan?.id ?? "no-plan",
+      sessionId || "no-session",
+      displayPlans.length,
+    ].join(":");
+    if (guardLogKey !== lastGuardLogKey) {
+      lastGuardLogKey = guardLogKey;
+      logTaskGraphDebug("render-guard", {
+        datapawAgent,
+        selectedAgentId,
+        hasPlan: Boolean(plan),
+        planId: plan?.id ?? null,
+        planState: plan?.state ?? null,
+        displayPlanCount: displayPlans.length,
+        displayPlans: displayPlans.map((item) => ({
+          id: item.id,
+          state: item.state,
+          current: Boolean(item.__datapawCurrent),
+          anchorMessageId: item.anchor_message_id ?? null,
+        })),
+        sessionId: sessionId || null,
+        userId,
+      });
+    }
 
     const drawerNode =
       drawerNodeId && plan
@@ -182,6 +224,11 @@ export function registerTaskCardSenderPrefix(host: HostBundle): void {
   ).QwenPaw?.chat;
 
   if (!chat?.sender?.addPrefix) {
+    logTaskGraphDebug("register-skip", {
+      reason: "missing-chat-sender-addPrefix",
+      hasChat: Boolean(chat),
+      hasSender: Boolean(chat?.sender),
+    });
     console.warn(
       `[${PLUGIN_ID}] window.QwenPaw.chat.sender.addPrefix missing — task card dock skipped`,
     );
@@ -189,6 +236,7 @@ export function registerTaskCardSenderPrefix(host: HostBundle): void {
   }
 
   const Prefix = createTaskCardSenderPrefix(host);
+  logTaskGraphDebug("register", { id: SENDER_PREFIX_ID });
   chat.sender.addPrefix(PLUGIN_ID, host.React.createElement(Prefix), {
     id: SENDER_PREFIX_ID,
     order: 0,

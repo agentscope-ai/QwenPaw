@@ -5,6 +5,7 @@ import { createHighlightIcon } from "../lib/icons";
 import type { HostBundle } from "../types";
 
 const STATUS_COL_WIDTH = 108;
+let lastPanelRenderLogKey = "";
 
 type HostReact = typeof import("react");
 type HostAntd = HostBundle["antd"];
@@ -44,6 +45,27 @@ export function TaskGraphPanel({
     name: node.name || node.node_id,
     state: node.state,
   }));
+
+  const panelRenderLogKey = [
+    plan.id,
+    plan.state,
+    rows.length,
+    showActions ? "actions" : "readonly",
+  ].join(":");
+  if (panelRenderLogKey !== lastPanelRenderLogKey) {
+    lastPanelRenderLogKey = panelRenderLogKey;
+    console.debug("[DataPaw][TaskGraph][panel] render", {
+      planId: plan.id,
+      planName: plan.name,
+      planState: plan.state,
+      rowCount: rows.length,
+      showActions,
+      nodeStates: rows.map((row) => ({
+        nodeId: row.node_id,
+        state: row.state,
+      })),
+    });
+  }
 
   const columns: Array<Record<string, unknown>> = [
     {
