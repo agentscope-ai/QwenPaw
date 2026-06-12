@@ -10,6 +10,17 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 DataSourceType = Literal["mysql", "postgresql", "odps"]
 
+SUPPORTED_DATA_SOURCE_TYPES: tuple[DataSourceType, ...] = (
+    "mysql",
+    "postgresql",
+    "odps",
+)
+
+DEFAULT_PORTS: dict[DataSourceType, int] = {
+    "mysql": 3306,
+    "postgresql": 5432,
+}
+
 MYSQL_PG_REQUIRED = ("host", "port", "user", "password", "db")
 ODPS_REQUIRED = (
     "endpoint",
@@ -131,3 +142,33 @@ class DataSourceListResponse(BaseModel):
     """List response wrapper."""
 
     items: list[DataSourceRecord]
+
+
+class DataSourceTypeInfo(BaseModel):
+    """One supported data-source type for the add-data-source form."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    type: DataSourceType
+    default_port: Optional[int] = Field(
+        default=None,
+        serialization_alias="defaultPort",
+    )
+
+
+class DataSourceTypesResponse(BaseModel):
+    """Supported data-source types."""
+
+    items: list[DataSourceTypeInfo]
+
+    @classmethod
+    def supported(cls) -> "DataSourceTypesResponse":
+        return cls(
+            items=[
+                DataSourceTypeInfo(
+                    type=ds_type,
+                    default_port=DEFAULT_PORTS.get(ds_type),
+                )
+                for ds_type in SUPPORTED_DATA_SOURCE_TYPES
+            ],
+        )

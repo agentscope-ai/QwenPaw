@@ -7,7 +7,7 @@ const ChatSenderToolbar: FC = () => {
   return (
     <div className={styles.toolbar}>
       <DataSourceSelector />
-      <PlanModeSelector />
+      {/* <PlanModeSelector /> */}
     </div>
   );
 };

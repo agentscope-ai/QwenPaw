@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import { Button, Card, Modal, Table } from "@agentscope-ai/design";
 import { PlusOutlined } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
@@ -7,25 +7,26 @@ import type { DataSourceRecord, DataSourceType } from "../../../api/types/dataSo
 import { PageHeader } from "@/components/PageHeader";
 import { useAppMessage } from "../../../hooks/useAppMessage";
 import { DATA_CONNECTION_TYPE_META } from "./types";
+import {
+  isDataConnectionListPath,
+  navigateDataConnection,
+  useDataConnectionPathname,
+} from "./navigation";
+import { resolveApiErrorCode, resolveErrorMessage } from "./errors";
 import { useDataConnections } from "./useDataConnections";
 import styles from "./index.module.less";
-
-function getDataConnectionRouteBase(): string {
-  return window.location.pathname.startsWith("/plugin/datapaw/")
-    ? "/plugin/datapaw/datapaw/data-connection"
-    : "/datapaw/data-connection";
-}
-
-function navigateInHost(path: string): void {
-  window.history.pushState({}, "", path);
-  window.dispatchEvent(new PopStateEvent("popstate"));
-}
 
 function DataConnectionPage() {
   const { t } = useTranslation();
   const { message } = useAppMessage();
-  const { connections, loading, removeConnection } = useDataConnections();
-  const routeBase = getDataConnectionRouteBase();
+  const pathname = useDataConnectionPathname();
+  const { connections, loading, removeConnection, refresh } = useDataConnections();
+
+  useEffect(() => {
+    if (isDataConnectionListPath(pathname)) {
+      void refresh();
+    }
+  }, [pathname, refresh]);
 
   const handleDelete = (record: DataSourceRecord) => {
     Modal.confirm({
@@ -40,7 +41,9 @@ function DataConnectionPage() {
           message.success(t("dataConnection.deleteSuccess"));
         } catch (error) {
           console.error("Failed to delete data source:", error);
-          message.error(t("dataConnection.deleteFailed"));
+          message.error(
+            resolveErrorMessage(t, resolveApiErrorCode(error), "dataConnection.errors.deleteFailed"),
+          );
         }
       },
     });
@@ -107,7 +110,7 @@ function DataConnectionPage() {
         <Button
           type="primary"
           icon={<PlusOutlined />}
-          onClick={() => navigateInHost(`${routeBase}/add`)}
+          onClick={() => navigateDataConnection("/add")}
         >
           {t("dataConnection.add")}
         </Button>

@@ -102,10 +102,11 @@
     "passwordRequired": "Please enter password",
     "dbRequired": "Please enter database name",
     "testConnection": "Test Connection",
-    "testSuccess": "Connection successful ({{latency}}ms)",
+    "testSuccess": "{{message}} ({{latency}}ms)",
     "confirmDeleteTitle": "Confirm Delete",
     "confirmDelete": "Delete data source \"{{name}}\"?",
     "addSuccess": "Data source added",
+    "addSuccessWithName": "Data source \"{{name}}\" added",
     "deleteSuccess": "Data source deleted",
     "deleteFailed": "Failed to delete. Please try again.",
     "types": {
@@ -129,6 +130,7 @@
       "connectionRejected": "Connection rejected. Check credentials.",
       "connectionOk": "Connection successful",
       "createFailed": "Failed to create. Please try again.",
+      "testFailed": "Connection test failed. Please try again.",
       "notFound": "Data source not found"
     }
   },
@@ -1219,7 +1221,8 @@
       "yingmi": "Yingmi Fund",
       "hackernews": "Hacker News",
       "add": "Connect data source",
-      "addComingSoon": "Data source integration is coming soon"
+      "addComingSoon": "Data source integration is coming soon",
+      "empty": "No data sources available"
     },
     "planMode": {
       "label": "Plan",

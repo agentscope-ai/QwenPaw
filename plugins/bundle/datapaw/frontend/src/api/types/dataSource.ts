@@ -48,3 +48,12 @@ export interface DataSourceTestResult {
 export interface DataSourceListResponse {
   items: DataSourceRecord[];
 }
+
+export interface DataSourceTypeInfo {
+  type: DataSourceType;
+  defaultPort?: number;
+}
+
+export interface DataSourceTypesResponse {
+  items: DataSourceTypeInfo[];
+}

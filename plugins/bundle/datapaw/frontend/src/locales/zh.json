@@ -102,10 +102,11 @@
     "passwordRequired": "请输入密码",
     "dbRequired": "请输入数据库名",
     "testConnection": "测试连接",
-    "testSuccess": "连接成功（{{latency}}ms）",
+    "testSuccess": "{{message}}（{{latency}}ms）",
     "confirmDeleteTitle": "确认删除",
     "confirmDelete": "确定删除数据源「{{name}}」吗？",
     "addSuccess": "数据源已添加",
+    "addSuccessWithName": "数据源「{{name}}」已添加",
     "deleteSuccess": "数据源已删除",
     "deleteFailed": "删除失败，请稍后重试",
     "types": {
@@ -129,6 +130,7 @@
       "connectionRejected": "连接被拒绝，请检查账号或密码",
       "connectionOk": "连接成功",
       "createFailed": "创建失败，请稍后重试",
+      "testFailed": "连接测试失败，请稍后重试",
       "notFound": "数据源不存在"
     }
   },
@@ -1193,7 +1195,8 @@
       "yingmi": "盈米基金",
       "hackernews": "Hacker News",
       "add": "接入数据源",
-      "addComingSoon": "数据源接入功能即将上线"
+      "addComingSoon": "数据源接入功能即将上线",
+      "empty": "暂无可用数据源"
     },
     "planMode": {
       "label": "Plan",

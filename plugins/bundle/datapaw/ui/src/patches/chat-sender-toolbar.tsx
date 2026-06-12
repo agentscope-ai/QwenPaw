@@ -1,8 +1,8 @@
 /**
- * Register DataPaw chat sender toolbar (data source + plan mode) in the host
- * chat input via `window.QwenPaw.chat.sender.addPrefix`.
+ * Register DataPaw data source selector in the host chat input via
+ * `window.QwenPaw.chat.sender.addPrefix`.
  */
-import ChatSenderToolbar from "@/pages/Chat/components/ChatSenderToolbar";
+import { createDataSourceSelector } from "../chat-sender/data-source-selector";
 import { ChatToolbarI18nProvider } from "../lib/chat-toolbar-i18n";
 import { isDatapawAgentSelected } from "../lib/agent";
 import { PLUGIN_ID } from "../lib/constants";
@@ -52,6 +52,7 @@ export function registerChatSenderToolbar(host: HostBundle): void {
   }
 
   const { React } = host;
+  const DataSourceSelector = createDataSourceSelector(host);
 
   function ChatSenderToolbarPrefix() {
     const active = useDatapawAgentSelected(React);
@@ -66,7 +67,7 @@ export function registerChatSenderToolbar(host: HostBundle): void {
       React.createElement(
         ChatToolbarI18nProvider,
         null,
-        React.createElement(ChatSenderToolbar),
+        React.createElement(DataSourceSelector),
       ),
     );
   }

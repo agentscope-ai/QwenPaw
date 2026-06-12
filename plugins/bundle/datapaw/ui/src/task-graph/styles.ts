@@ -12,6 +12,112 @@ const CSS = `
   display: inline-flex;
   align-items: center;
   flex-shrink: 0;
+  gap: 8px;
+}
+.datapaw-ds-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  border-radius: 6px;
+  background: transparent;
+  color: rgba(0, 0, 0, 0.65);
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+  user-select: none;
+  transition: border-color 0.2s ease, color 0.2s ease;
+}
+.datapaw-ds-trigger:hover,
+.datapaw-ds-trigger-open {
+  border-color: var(--qwenpaw-color-primary, #1677ff);
+  color: var(--qwenpaw-color-primary, #1677ff);
+}
+.datapaw-ds-trigger-icon {
+  display: inline-flex;
+  align-items: center;
+  font-size: 14px;
+}
+.datapaw-ds-trigger-chevron {
+  display: inline-flex;
+  align-items: center;
+  font-size: 12px;
+  opacity: 0.55;
+}
+.datapaw-ds-panel {
+  min-width: 220px;
+}
+.datapaw-ds-panel-title {
+  margin: 0 0 4px;
+  padding: 0 4px 8px;
+  font-size: 13px;
+  font-weight: 500;
+  color: rgba(0, 0, 0, 0.88);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+}
+.datapaw-ds-option-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-top: 4px;
+}
+.datapaw-ds-option-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 36px;
+  padding: 4px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+}
+.datapaw-ds-option-row:hover {
+  background: rgba(0, 0, 0, 0.04);
+}
+.datapaw-ds-option-left {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.datapaw-ds-option-label {
+  font-size: 13px;
+  color: rgba(0, 0, 0, 0.88);
+  white-space: nowrap;
+}
+.datapaw-ds-add-button {
+  width: 100%;
+  margin-top: 8px;
+}
+.datapaw-ds-empty-hint {
+  padding: 8px 4px 12px;
+  font-size: 13px;
+  color: rgba(0, 0, 0, 0.45);
+}
+html.dark-mode .datapaw-ds-trigger {
+  border-color: rgba(255, 255, 255, 0.16);
+  color: rgba(255, 255, 255, 0.65);
+}
+html.dark-mode .datapaw-ds-trigger-open,
+html.dark-mode .datapaw-ds-trigger:hover {
+  border-color: var(--qwenpaw-color-primary, #1677ff);
+  color: var(--qwenpaw-color-primary, #1677ff);
+}
+html.dark-mode .datapaw-ds-panel-title {
+  color: rgba(255, 255, 255, 0.85);
+  border-bottom-color: rgba(255, 255, 255, 0.08);
+}
+html.dark-mode .datapaw-ds-option-row:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+html.dark-mode .datapaw-ds-option-label {
+  color: rgba(255, 255, 255, 0.85);
+}
+html.dark-mode .datapaw-ds-empty-hint {
+  color: rgba(255, 255, 255, 0.45);
 }
 .datapaw-task-plan {
   margin-top: 8px;

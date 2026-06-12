@@ -18,6 +18,7 @@ from ..data_sources.models import (
     DataSourceRecord,
     DataSourceTestRequest,
     DataSourceTestResponse,
+    DataSourceTypesResponse,
     DataSourceUpdateRequest,
     validate_config_for_type,
 )
@@ -108,6 +109,18 @@ async def test_data_source_connection(
         message=message,
         latency_ms=int((time.monotonic() - started) * 1000),
     )
+
+
+@router.get(
+    "/types",
+    response_model=DataSourceTypesResponse,
+    response_model_by_alias=True,
+    response_model_exclude_none=True,
+    summary="List supported data-source types",
+)
+async def list_data_source_types() -> DataSourceTypesResponse:
+    """Return types available on the add-data-source form."""
+    return DataSourceTypesResponse.supported()
 
 
 @router.get(

@@ -34,7 +34,8 @@ import ArtifactManageDrawer from './components/TaskGraphPanel/ArtifactManageDraw
 import { FetchDataToolAdapter } from './components/FetchDataBlock';
 import type { StreamEvent } from './components/TaskGraphPanel/types';
 import { useTaskGraphChat } from './hooks/useTaskGraphChat';
-import { resolveBackendSessionId } from './components/ChatSenderToolbar/utils';
+import { readSelectedDataSourceId } from './components/ChatSenderToolbar/dataSourceSelection';
+import { resolveBackendSessionId, resolveSessionStorageKey } from './components/ChatSenderToolbar/utils';
 import {
   toDisplayUrl,
   copyText,
@@ -800,19 +801,35 @@ export default function ChatPage() {
             ]
           : lastInput;
 
-      const requestBody = {
+      const sessionId =
+        window.currentSessionId || session?.session_id || "";
+      const datasourceId = readSelectedDataSourceId(
+        resolveSessionStorageKey(sessionId),
+      );
+
+      const requestBody: Record<string, unknown> = {
         input: rewrittenInput,
-        session_id: window.currentSessionId || session?.session_id || "",
+        session_id: sessionId,
         user_id: window.currentUserId || session?.user_id || DEFAULT_USER_ID,
         channel: window.currentChannel || session?.channel || DEFAULT_CHANNEL,
         stream: true,
         ...biz_params,
       };
 
+      if (datasourceId) {
+        const existingContext = requestBody.request_context;
+        requestBody.request_context = {
+          ...(typeof existingContext === "object" && existingContext !== null
+            ? existingContext
+            : {}),
+          datasource_id: datasourceId,
+        };
+      }
+
       const backendChatId =
-        sessionApi.getRealIdForSession(requestBody.session_id) ??
+        sessionApi.getRealIdForSession(sessionId) ??
         chatIdRef.current ??
-        requestBody.session_id;
+        sessionId;
       if (backendChatId) {
         const userText = rewrittenInput
           .filter((m: any) => m.role === "user")

@@ -217,6 +217,17 @@ def api_client(store: DataSourceStore, monkeypatch: pytest.MonkeyPatch) -> TestC
     return TestClient(app)
 
 
+def test_router_list_types(api_client: TestClient) -> None:
+    resp = api_client.get("/datapaw/data-sources/types")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert len(body["items"]) == 3
+    assert body["items"][0]["type"] == "mysql"
+    assert body["items"][0]["defaultPort"] == 3306
+    assert body["items"][2]["type"] == "odps"
+    assert "defaultPort" not in body["items"][2]
+
+
 def test_router_create_list_delete(api_client: TestClient) -> None:
     create_resp = api_client.post(
         "/datapaw/data-sources",

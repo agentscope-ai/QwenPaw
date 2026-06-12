@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Row, Col } from "antd";
 import {
   Button,
@@ -9,7 +9,7 @@ import {
 } from "@agentscope-ai/design";
 import { useTranslation } from "react-i18next";
 import { PageHeader } from "@/components/PageHeader";
-import { dataSourceApi } from "../../../../api/modules/dataSource";
+import { httpDataSourceApi } from "../../../../api/modules/dataSource/http";
 import type {
   DataSourceConnectionConfig,
   DataSourceCreatePayload,
@@ -18,21 +18,16 @@ import type {
 import { useAppMessage } from "../../../../hooks/useAppMessage";
 import {
   DATA_CONNECTION_TYPE_META,
-  DEFAULT_PORTS,
-  FORM_DATA_SOURCE_TYPES,
 } from "../types";
+import { useDataSourceTypes } from "../useDataSourceTypes";
+import { navigateDataConnection } from "../navigation";
+import {
+  formatCreateSuccessMessage,
+  formatTestSuccessMessage,
+  resolveApiErrorCode,
+  resolveErrorMessage,
+} from "../errors";
 import styles from "./index.module.less";
-
-function getDataConnectionRouteBase(): string {
-  return window.location.pathname.startsWith("/plugin/datapaw/")
-    ? "/plugin/datapaw/datapaw/data-connection"
-    : "/datapaw/data-connection";
-}
-
-function navigateInHost(path: string): void {
-  window.history.pushState({}, "", path);
-  window.dispatchEvent(new PopStateEvent("popstate"));
-}
 
 interface AddFormValues {
   type: DataSourceType;
@@ -76,43 +71,44 @@ function toPayload(values: AddFormValues): DataSourceCreatePayload {
   return { type: values.type, name, config };
 }
 
-function resolveApiErrorCode(error: unknown): string {
-  if (error instanceof Error) {
-    const idx = error.message.indexOf(" - ");
-    return idx === -1 ? error.message : error.message.slice(0, idx);
-  }
-  return "createFailed";
-}
-
-function resolveErrorMessage(t: (key: string) => string, code: string): string {
-  const key = `dataConnection.errors.${code}`;
-  const translated = t(key);
-  return translated === key ? code : translated;
-}
-
 function AddDataSourcePage() {
   const { t } = useTranslation();
   const { message } = useAppMessage();
   const [form] = Form.useForm<AddFormValues>();
   const [testing, setTesting] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const routeBase = getDataConnectionRouteBase();
+  const { types, loading: typesLoading } = useDataSourceTypes();
 
-  const selectedType = Form.useWatch("type", form) ?? "mysql";
+  const selectedType = Form.useWatch("type", form);
+
+  useEffect(() => {
+    if (types.length === 0) return;
+    const currentType = form.getFieldValue("type");
+    if (!currentType || !types.some((item) => item.type === currentType)) {
+      const first = types[0];
+      form.setFieldsValue({
+        type: first.type,
+        port: first.defaultPort,
+      });
+    }
+  }, [types, form]);
 
   const typeOptions = useMemo(
     () =>
-      FORM_DATA_SOURCE_TYPES.map((type) => ({
-        value: type,
-        label: t(DATA_CONNECTION_TYPE_META[type].labelKey),
+      types.map((item) => ({
+        value: item.type,
+        label: t(
+          DATA_CONNECTION_TYPE_META[item.type]?.labelKey ??
+            `dataConnection.types.${item.type}`,
+        ),
       })),
-    [t],
+    [t, types],
   );
 
   const handleTypeChange = (type: DataSourceType) => {
-    const port = DEFAULT_PORTS[type];
-    if (port) {
-      form.setFieldValue("port", port);
+    const info = types.find((item) => item.type === type);
+    if (info?.defaultPort) {
+      form.setFieldValue("port", info.defaultPort);
     }
   };
 
@@ -121,21 +117,27 @@ function AddDataSourcePage() {
       const values = await form.validateFields();
       setTesting(true);
       const payload = toPayload(values);
-      const result = await dataSourceApi.testConnection({
+      const result = await httpDataSourceApi.testConnection({
         type: payload.type,
         config: payload.config,
       });
       if (result.success) {
-        message.success(
-          t("dataConnection.testSuccess", {
-            latency: result.latencyMs ?? 0,
-          }),
-        );
+        message.success(formatTestSuccessMessage(t, result));
       } else {
-        message.error(resolveErrorMessage(t, result.message));
+        message.error(
+          resolveErrorMessage(t, result.message, "dataConnection.errors.testFailed"),
+        );
       }
-    } catch {
-      /* validation */
+    } catch (error) {
+      if (error instanceof Error && error.message !== "Not authenticated") {
+        message.error(
+          resolveErrorMessage(
+            t,
+            resolveApiErrorCode(error, "testFailed"),
+            "dataConnection.errors.testFailed",
+          ),
+        );
+      }
     } finally {
       setTesting(false);
     }
@@ -145,11 +147,23 @@ function AddDataSourcePage() {
     try {
       const values = await form.validateFields();
       setSubmitting(true);
-      await dataSourceApi.create(toPayload(values));
-      message.success(t("dataConnection.addSuccess"));
-      navigateInHost(routeBase);
+      const payload = toPayload(values);
+      const record = await httpDataSourceApi.create(payload);
+      message.success(
+        formatCreateSuccessMessage(t, {
+          ...record,
+          name: record.name || payload.name,
+        }),
+      );
+      navigateDataConnection();
     } catch (error) {
-      message.error(resolveErrorMessage(t, resolveApiErrorCode(error)));
+      message.error(
+          resolveErrorMessage(
+            t,
+            resolveApiErrorCode(error, "createFailed"),
+            "dataConnection.errors.createFailed",
+          ),
+      );
     } finally {
       setSubmitting(false);
     }
@@ -172,7 +186,6 @@ function AddDataSourcePage() {
         <Form
           form={form}
           layout="vertical"
-          initialValues={{ type: "mysql", port: DEFAULT_PORTS.mysql }}
           onValuesChange={(changed) => {
             if ("type" in changed && changed.type) {
               handleTypeChange(changed.type as DataSourceType);
@@ -187,6 +200,7 @@ function AddDataSourcePage() {
             ]}
           >
             <Select
+              loading={typesLoading}
               options={typeOptions}
               placeholder={t("dataConnection.typePlaceholder")}
             />
@@ -368,7 +382,7 @@ function AddDataSourcePage() {
             >
               {t("common.confirm")}
             </Button>
-            <Button onClick={() => navigateInHost(routeBase)}>
+            <Button onClick={() => navigateDataConnection()}>
               {t("common.cancel")}
             </Button>
           </div>

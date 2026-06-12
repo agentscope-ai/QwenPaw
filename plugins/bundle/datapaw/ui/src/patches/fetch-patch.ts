@@ -7,8 +7,12 @@ import {
   handleToolResult,
 } from "../lib/node-stream-events";
 import { handlePlanToolInStream } from "./task-card";
-import { readSelectedDataSourceId } from "@/pages/Chat/components/ChatSenderToolbar/dataSourceSelection";
-import { resolveSessionStorageKey } from "@/pages/Chat/components/ChatSenderToolbar/utils";
+import { readSelectedDataSourceId } from "../chat-sender/data-source-selection";
+import { resolveBackendSessionId } from "../lib/session-id";
+
+function resolveSessionStorageKey(currentSessionId?: string | null): string {
+  return resolveBackendSessionId(currentSessionId) || "default";
+}
 
 let installed = false;
 
