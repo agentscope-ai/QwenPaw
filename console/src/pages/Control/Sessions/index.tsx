@@ -35,6 +35,10 @@ import { PageHeader } from "@/components/PageHeader";
 import styles from "./index.module.less";
 
 const SESSION_COLUMN_ORDER_STORAGE_KEY = "qwenpaw.sessions.columnOrder";
+const FIXED_SESSION_COLUMN_KEY: SessionColumnKey = "action";
+const CONFIGURABLE_SESSION_COLUMN_ORDER = DEFAULT_SESSION_COLUMN_ORDER.filter(
+  (key) => key !== FIXED_SESSION_COLUMN_KEY,
+);
 
 const normalizeColumnOrder = (order: unknown): SessionColumnKey[] => {
   const validKeys = new Set<SessionColumnKey>(DEFAULT_SESSION_COLUMN_ORDER);
@@ -45,6 +49,25 @@ const normalizeColumnOrder = (order: unknown): SessionColumnKey[] => {
   );
 
   DEFAULT_SESSION_COLUMN_ORDER.forEach((key) => {
+    if (!normalized.includes(key)) normalized.push(key);
+  });
+
+  return normalized;
+};
+
+const normalizeConfigurableColumnOrder = (
+  order: unknown,
+): SessionColumnKey[] => {
+  const validKeys = new Set<SessionColumnKey>(
+    CONFIGURABLE_SESSION_COLUMN_ORDER,
+  );
+  const customOrder = Array.isArray(order) ? order : [];
+  const normalized = customOrder.filter(
+    (key): key is SessionColumnKey =>
+      typeof key === "string" && validKeys.has(key as SessionColumnKey),
+  );
+
+  CONFIGURABLE_SESSION_COLUMN_ORDER.forEach((key) => {
     if (!normalized.includes(key)) normalized.push(key);
   });
 
@@ -125,7 +148,7 @@ function SessionsPage() {
   );
   const [columnSettingsOpen, setColumnSettingsOpen] = useState(false);
   const [draftColumnOrder, setDraftColumnOrder] = useState<SessionColumnKey[]>(
-    DEFAULT_SESSION_COLUMN_ORDER,
+    CONFIGURABLE_SESSION_COLUMN_ORDER,
   );
   const columnOrderSensors = useSensors(
     useSensor(PointerSensor, {
@@ -147,7 +170,7 @@ function SessionsPage() {
 
       const normalized = normalizeColumnOrder(JSON.parse(stored));
       setColumnOrder(normalized);
-      setDraftColumnOrder(normalized);
+      setDraftColumnOrder(normalizeConfigurableColumnOrder(normalized));
     } catch (error) {
       console.error("❌ Failed to load session column order:", error);
       window.localStorage.removeItem(SESSION_COLUMN_ORDER_STORAGE_KEY);
@@ -255,7 +278,7 @@ function SessionsPage() {
   };
 
   const handleOpenColumnSettings = () => {
-    setDraftColumnOrder(columnOrder);
+    setDraftColumnOrder(normalizeConfigurableColumnOrder(columnOrder));
     setColumnSettingsOpen(true);
   };
 
@@ -277,7 +300,10 @@ function SessionsPage() {
   };
 
   const handleSaveColumnOrder = () => {
-    const normalized = normalizeColumnOrder(draftColumnOrder);
+    const normalized = [
+      ...normalizeConfigurableColumnOrder(draftColumnOrder),
+      FIXED_SESSION_COLUMN_KEY,
+    ];
     setColumnOrder(normalized);
     window.localStorage.setItem(
       SESSION_COLUMN_ORDER_STORAGE_KEY,
@@ -287,7 +313,7 @@ function SessionsPage() {
   };
 
   const handleResetColumnOrder = () => {
-    setDraftColumnOrder(DEFAULT_SESSION_COLUMN_ORDER);
+    setDraftColumnOrder(CONFIGURABLE_SESSION_COLUMN_ORDER);
   };
 
   const columns = createColumns({

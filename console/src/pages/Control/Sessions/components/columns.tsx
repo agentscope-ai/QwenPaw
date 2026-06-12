@@ -137,14 +137,5 @@ export const createColumns = (
     ? handlers.columnOrder
     : DEFAULT_SESSION_COLUMN_ORDER;
 
-  return order
-    .map((key, index) => {
-      const column = columnsByKey[key];
-      if (key !== "action") return column;
-      return {
-        ...column,
-        fixed: index === order.length - 1 ? ("right" as const) : undefined,
-      };
-    })
-    .filter(Boolean);
+  return order.map((key) => columnsByKey[key]).filter(Boolean);
 };
