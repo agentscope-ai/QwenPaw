@@ -11,6 +11,7 @@ let nextResponseInstanceId = 0;
 const latestResponseListeners = new Set<() => void>();
 let lastRenderLogKey = "";
 const EMPTY_PLANS: StoredPlanSnapshot[] = [];
+const liveMirrorResponseByPlanId = new Map<string, string>();
 
 function logTaskGraphDebug(
   event: string,
@@ -158,15 +159,31 @@ export function createTaskGraphAppend(host: HostBundle) {
       });
 
       const liveMirror = liveCandidates[liveCandidates.length - 1];
-      if (liveMirror && isLatestResponse) {
+      if (liveMirror) {
         const anchor = liveMirror.anchor_message_id ?? null;
-        return {
-          plan: liveMirror,
-          reason: anchor ? "latest-current-live-mirror" : "latest-current-no-anchor",
-          anchorMessageId: anchor,
-          isAnchoredResponse: false,
-          isLiveMirror: true,
-        };
+        const pinnedResponseId = liveMirrorResponseByPlanId.get(liveMirror.id);
+        const hasResponseOutput = responseMessageIds.size > 1;
+        const canPinLiveMirror =
+          Boolean(responseId) &&
+          (isLatestResponse || ctx.isLast !== false || hasResponseOutput);
+        if (pinnedResponseId === responseId || (!pinnedResponseId && canPinLiveMirror)) {
+          if (!pinnedResponseId && responseId) {
+            liveMirrorResponseByPlanId.set(liveMirror.id, responseId);
+          }
+          return {
+            plan: liveMirror,
+            reason: isLatestResponse
+              ? anchor
+                ? "latest-current-live-mirror"
+                : "latest-current-no-anchor"
+              : hasResponseOutput
+                ? "current-response-output-fallback"
+                : "current-response-fallback",
+            anchorMessageId: anchor,
+            isAnchoredResponse: false,
+            isLiveMirror: true,
+          };
+        }
       }
 
       return {
