@@ -15,20 +15,70 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-async def create_mcp_service(ws: "Workspace", mcp):
-    """Initialize MCP manager.
+async def create_driver_service(ws: "Workspace", _service):
+    """Create and initialize the per-workspace DriverManager.
 
-    Args:
-        ws: Workspace instance
-        mcp: MCPClientManager instance
+    DriverManager is the runtime for external capabilities.  MCP is wired as
+    the first concrete Driver protocol; legacy MCP config is migrated into
+    DriverCard storage and is not exposed through the old MCP runtime path.
     """
     # pylint: disable=protected-access
-    if ws._config.mcp:
-        try:
-            await mcp.init_from_config(ws._config.mcp)
-            logger.debug(f"MCP initialized for agent: {ws.agent_id}")
-        except Exception as e:
-            logger.warning(f"Failed to init MCP: {e}")
+    from ...drivers.adapters.mcp_legacy_config import (
+        migrate_legacy_mcp_if_needed,
+    )
+    from ...drivers.credentials.store import AsyncCredentialStore
+    from ...drivers.handlers import MCPDriverHandler
+    from ...drivers.handlers.mcp import validate_mcp_endpoint
+    from ...drivers.manager import DriverManager
+    from ..approvals.driver_gate import QwenPawDriverApprovalGate
+
+    credential_store = AsyncCredentialStore(
+        ws.workspace_dir / "credentials.yaml",
+    )
+    driver_manager = DriverManager(
+        ws.workspace_dir / "drivers",
+        credential_store,
+        approval_gate=QwenPawDriverApprovalGate(),
+    )
+    driver_manager.register_handler_type(
+        "mcp",
+        MCPDriverHandler,
+        endpoint_validator=validate_mcp_endpoint,
+    )
+    # Future Driver protocols should be registered here together with their
+    # endpoint validator and tests.  This PR intentionally keeps the concrete
+    # runtime surface to MCP while leaving DriverManager protocol-neutral.
+    await migrate_legacy_mcp_if_needed(ws, driver_manager)
+    await driver_manager.start()
+    ws._service_manager.services["driver_manager"] = driver_manager
+    logger.debug(
+        "DriverManager external capability runtime initialized for agent: %s",
+        ws.agent_id,
+    )
+    return driver_manager
+    # pylint: enable=protected-access
+
+
+async def create_driver_config_watcher(ws: "Workspace", _service):
+    """Create watcher for manual DriverCard edits.
+
+    Console/API updates call ``DriverConfigService.reload_driver_best_effort``
+    immediately.  This watcher covers the manual-edit path and works for all
+    Driver protocols instead of only MCP.
+    """
+    # pylint: disable=protected-access
+    driver_manager = ws._service_manager.services.get("driver_manager")
+    if driver_manager is None:
+        return None
+
+    from ..driver_config_watcher import DriverConfigWatcher
+
+    watcher = DriverConfigWatcher(
+        driver_manager,
+        ws.workspace_dir / "drivers",
+    )
+    ws._service_manager.services["driver_config_watcher"] = watcher
+    return watcher
     # pylint: enable=protected-access
 
 
@@ -134,37 +184,5 @@ async def create_agent_config_watcher(ws: "Workspace", _):
         workspace=ws,
     )
     ws._service_manager.services["agent_config_watcher"] = watcher
-    return watcher
-    # pylint: enable=protected-access
-
-
-async def create_mcp_config_watcher(ws: "Workspace", _):
-    """Create MCP config watcher if MCP manager exists.
-
-    Args:
-        ws: Workspace instance
-        _: Unused service parameter
-
-    Returns:
-        MCPConfigWatcher instance or None if not needed
-    """
-    # pylint: disable=protected-access
-    mcp_mgr = ws._service_manager.services.get("mcp_manager")
-    if not mcp_mgr:
-        return None
-
-    from ..mcp.watcher import MCPConfigWatcher
-    from ...config.config import load_agent_config
-
-    def mcp_config_loader():
-        agent_config = load_agent_config(ws.agent_id)
-        return agent_config.mcp
-
-    watcher = MCPConfigWatcher(
-        mcp_manager=mcp_mgr,
-        config_loader=mcp_config_loader,
-        config_path=ws.workspace_dir / "agent.json",
-    )
-    ws._service_manager.services["mcp_config_watcher"] = watcher
     return watcher
     # pylint: enable=protected-access

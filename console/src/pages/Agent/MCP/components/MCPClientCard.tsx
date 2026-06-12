@@ -1,16 +1,7 @@
-import {
-  Card,
-  Button,
-  Modal,
-  Tooltip,
-  Input,
-  Empty,
-  Tag,
-} from "@agentscope-ai/design";
-import { Spin } from "antd";
-import type { MCPClientInfo, MCPToolInfo } from "../../../../api/types";
+import { Card, Button, Modal, Tooltip, Input } from "@agentscope-ai/design";
+import type { MCPAccessPolicy, MCPClientInfo } from "../../../../api/types";
 import { useTranslation } from "react-i18next";
-import React, { useState, useCallback } from "react";
+import React, { useState } from "react";
 import { useTheme } from "../../../../contexts/ThemeContext";
 import {
   EyeOutlined,
@@ -18,7 +9,7 @@ import {
   ToolOutlined,
 } from "@ant-design/icons";
 import { ShieldCheck, ShieldAlert, ShieldX, KeyRound } from "lucide-react";
-import api from "../../../../api";
+import { MCPAccessModal } from "./MCPAccessModal";
 import { MCPOAuthSection } from "./MCPOAuthSection";
 import styles from "../index.module.less";
 
@@ -40,6 +31,7 @@ interface MCPClientCardProps {
   onToggle: (client: MCPClientInfo, e: React.MouseEvent) => void;
   onDelete: (client: MCPClientInfo, e: React.MouseEvent) => void;
   onUpdate: (key: string, updates: MCPClientUpdate) => Promise<boolean>;
+  onUpdatePolicy: (key: string, policy: MCPAccessPolicy) => Promise<boolean>;
   onRefresh?: () => Promise<void>;
 }
 
@@ -48,6 +40,7 @@ export const MCPClientCard = React.memo(function MCPClientCard({
   onToggle,
   onDelete,
   onUpdate,
+  onUpdatePolicy,
   onRefresh,
 }: MCPClientCardProps) {
   const { t } = useTranslation();
@@ -55,10 +48,7 @@ export const MCPClientCard = React.memo(function MCPClientCard({
   const [isHovered, setIsHovered] = useState(false);
   const [jsonModalOpen, setJsonModalOpen] = useState(false);
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
-  const [toolsModalOpen, setToolsModalOpen] = useState(false);
-  const [tools, setTools] = useState<MCPToolInfo[]>([]);
-  const [toolsLoading, setToolsLoading] = useState(false);
-  const [toolsError, setToolsError] = useState<string | null>(null);
+  const [accessModalOpen, setAccessModalOpen] = useState(false);
   const [editedJson, setEditedJson] = useState("");
   const [isEditing, setIsEditing] = useState(false);
   const [oauthModalOpen, setOauthModalOpen] = useState(false);
@@ -119,30 +109,6 @@ export const MCPClientCard = React.memo(function MCPClientCard({
       alert("Invalid JSON format");
     }
   };
-
-  const handleShowTools = useCallback(
-    async (e: React.MouseEvent) => {
-      e.stopPropagation();
-      setToolsModalOpen(true);
-      setToolsLoading(true);
-      setToolsError(null);
-      setTools([]);
-      try {
-        const data = await api.listMCPTools(client.key);
-        setTools(data);
-      } catch (err: any) {
-        const msg = err?.message || "";
-        if (msg.includes("connecting") || msg.includes("not ready")) {
-          setToolsError(t("mcp.toolsConnecting"));
-        } else {
-          setToolsError(msg || t("mcp.toolsLoadError"));
-        }
-      } finally {
-        setToolsLoading(false);
-      }
-    },
-    [client.key, t],
-  );
 
   const clientJson = JSON.stringify(client, null, 2);
 
@@ -214,10 +180,11 @@ export const MCPClientCard = React.memo(function MCPClientCard({
         <div className={styles.cardFooter}>
           <Button
             className={styles.toolsButton}
-            onClick={handleShowTools}
+            onClick={(e) => {
+              e.stopPropagation();
+              setAccessModalOpen(true);
+            }}
             icon={<ToolOutlined />}
-            disabled={!client.enabled || toolsLoading}
-            loading={toolsLoading}
           >
             {t("mcp.tools")}
           </Button>
@@ -298,52 +265,6 @@ export const MCPClientCard = React.memo(function MCPClientCard({
       </Modal>
 
       <Modal
-        title={`${client.name} - ${t("mcp.tools")}`}
-        open={toolsModalOpen}
-        onCancel={() => setToolsModalOpen(false)}
-        footer={
-          <div style={{ textAlign: "right" }}>
-            <Button onClick={() => setToolsModalOpen(false)}>
-              {t("common.close")}
-            </Button>
-          </div>
-        }
-        width={700}
-      >
-        {toolsLoading ? (
-          <div className={styles.toolsLoading}>
-            <Spin />
-          </div>
-        ) : toolsError ? (
-          <div className={styles.toolsError}>{toolsError}</div>
-        ) : tools.length === 0 ? (
-          <Empty description={t("mcp.noTools")} />
-        ) : (
-          <div className={styles.toolsList}>
-            {tools.map((tool) => (
-              <div key={tool.name} className={styles.toolItem}>
-                <div className={styles.toolHeader}>
-                  <Tag color="blue">{tool.name}</Tag>
-                </div>
-                {tool.description && (
-                  <p className={styles.toolDescription}>{tool.description}</p>
-                )}
-                {tool.input_schema &&
-                  Object.keys(tool.input_schema).length > 0 && (
-                    <details className={styles.toolSchema}>
-                      <summary>{t("mcp.toolSchema")}</summary>
-                      <pre className={styles.toolSchemaContent}>
-                        {JSON.stringify(tool.input_schema, null, 2)}
-                      </pre>
-                    </details>
-                  )}
-              </div>
-            ))}
-          </div>
-        )}
-      </Modal>
-
-      <Modal
         title={`${client.name} - Configuration`}
         open={jsonModalOpen}
         onCancel={() => setJsonModalOpen(false)}
@@ -394,6 +315,13 @@ export const MCPClientCard = React.memo(function MCPClientCard({
           </pre>
         )}
       </Modal>
+
+      <MCPAccessModal
+        client={client}
+        open={accessModalOpen}
+        onClose={() => setAccessModalOpen(false)}
+        onSave={(policy) => onUpdatePolicy(client.key, policy)}
+      />
 
       {/* Dedicated OAuth modal — opened only via the Authorize button */}
       <Modal

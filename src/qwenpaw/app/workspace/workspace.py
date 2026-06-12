@@ -4,7 +4,7 @@
 Each Workspace represents a standalone agent workspace with its own:
 - ChannelManager (communication channels)
 - BaseMemoryManager (conversation memory)
-- MCPClientManager (MCP tool clients)
+- DriverManager (external capability runtime, currently MCP)
 - CronManager (scheduled tasks)
 - WorkspacePlugins (tool/hook/command/prompt registries)
 
@@ -20,16 +20,15 @@ from ...config.utils import load_config
 from .service_manager import ServiceDescriptor, ServiceManager
 from .workspace_plugins import WorkspacePlugins
 from .service_factories import (
-    create_mcp_service,
+    create_driver_service,
+    create_driver_config_watcher,
     create_chat_service,
     create_channel_service,
     create_agent_config_watcher,
-    create_mcp_config_watcher,
 )
 from .local_workspace import QwenPawLocalWorkspace
 from ..task_tracker import TaskTracker
 from ..chats.session import SafeJSONSession
-from ..mcp import MCPClientManager
 from ..crons.manager import CronManager
 from ..crons.repo.json_repo import JsonJobRepository
 from ...config.config import load_agent_config
@@ -43,7 +42,7 @@ class Workspace:
     Each Workspace is an independent agent instance with its own:
     - ChannelManager: Manages communication channels
     - BaseMemoryManager: Manages conversation memory
-    - MCPClientManager: Manages MCP tool clients
+    - DriverManager: Manages external capabilities exposed through Drivers
     - CronManager: Manages scheduled tasks
     - WorkspacePlugins: Per-workspace pluggable registries
 
@@ -106,9 +105,9 @@ class Workspace:
         return self._service_manager.services.get("context_manager")
 
     @property
-    def mcp_manager(self):
-        """Get MCP manager instance from ServiceManager."""
-        return self._service_manager.services.get("mcp_manager")
+    def driver_manager(self):
+        """Get DriverManager instance from ServiceManager."""
+        return self._service_manager.services.get("driver_manager")
 
     @property
     def chat_manager(self):
@@ -365,12 +364,13 @@ class Workspace:
 
         sm.register(
             ServiceDescriptor(
-                name="mcp_manager",
-                service_class=MCPClientManager,
-                post_init=create_mcp_service,
-                stop_method="close_all",
+                name="driver_manager",
+                service_class=None,
+                post_init=create_driver_service,
+                stop_method="shutdown_all",
                 priority=20,
                 concurrent_init=True,
+                optional=True,
             ),
         )
 
@@ -437,12 +437,12 @@ class Workspace:
             ),
         )
 
-        # Priority 51: MCP Config Watcher (conditional)
+        # Priority 51: Driver Card Watcher (conditional)
         sm.register(
             ServiceDescriptor(
-                name="mcp_config_watcher",
+                name="driver_config_watcher",
                 service_class=None,
-                post_init=create_mcp_config_watcher,
+                post_init=create_driver_config_watcher,
                 start_method="start",
                 stop_method="stop",
                 priority=51,

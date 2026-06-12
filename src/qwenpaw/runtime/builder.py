@@ -43,7 +43,6 @@ class AgentBuilder:
         enabled_features: Iterable[str] | None = None,
         extra_tools: Iterable[Any] | None = None,
         memory_tools: Iterable[Any] | None = None,
-        mcp_clients: list[Any] | None = None,
         ctx: Any = None,
     ) -> Any:
         """Build a populated ``Toolkit`` for one agent invocation.
@@ -81,7 +80,7 @@ class AgentBuilder:
                     ),
                 )
 
-        return Toolkit(tools=tools, mcps=mcp_clients or None)
+        return Toolkit(tools=tools)
 
     # ----------------------------------------------------------------- build
 
@@ -139,9 +138,6 @@ class AgentBuilder:
             if plugins is not None:
                 active_modes = plugins.active_mode_names(ctx)
 
-        # MCP clients (async).
-        mcp_clients = await self._get_mcp_clients_async(ctx)
-
         # Toolkit.
         extra_tools = self._collect_coding_mode_tools(
             agent_config,
@@ -149,6 +145,18 @@ class AgentBuilder:
             agent_id,
             request_context,
         )
+        (
+            driver_tools,
+            driver_prompt_hints,
+        ) = await self._collect_driver_tools_and_prompts(
+            ctx,
+            request_context,
+        )
+        extra_tools.extend(driver_tools)
+        if not hasattr(ctx, "extras") or ctx.extras is None:
+            ctx.extras = {}
+        ctx.extras["driver_prompt_hints"] = driver_prompt_hints
+
         toolkit = await self.build_toolkit(
             agent_config,
             agent_id=agent_id,
@@ -156,7 +164,6 @@ class AgentBuilder:
             active_modes=active_modes,
             effective_skills=effective_skills,
             extra_tools=extra_tools,
-            mcp_clients=mcp_clients,
             ctx=ctx,
         )
 
@@ -183,7 +190,6 @@ class AgentBuilder:
             request_context=request_context,
             memory_manager=self._get_memory_manager(ctx),
             context_manager=self._get_context_manager(ctx),
-            mcp_clients=mcp_clients,
             effective_skills=effective_skills,
         )
 
@@ -232,6 +238,7 @@ class AgentBuilder:
                 "memory_manager": self._get_memory_manager(ctx),
                 "env_context": self._build_env_context(ctx, agent_config),
                 "agent_config": agent_config,
+                "driver_prompt_hints": self._get_driver_prompt_hints(ctx),
             },
         )
 
@@ -369,6 +376,35 @@ class AgentBuilder:
         )
 
     @staticmethod
+    def _get_driver_prompt_hints(ctx: Any) -> list[str]:
+        extras = getattr(ctx, "extras", {}) or {}
+        hints = extras.get("driver_prompt_hints") or []
+        return [str(hint) for hint in hints if hint]
+
+    @staticmethod
+    async def _collect_driver_tools_and_prompts(
+        ctx: Any,
+        request_context: dict[str, Any],
+    ) -> tuple[list[Any], list[str]]:
+        """Build request-time Driver tools and prompt hints.
+
+        MCP is exposed through Driver capabilities only, so a server cannot
+        be exposed twice through separate runtime paths.
+        """
+        workspace = getattr(ctx, "workspace", None)
+        driver_manager = (
+            getattr(workspace, "driver_manager", None)
+            if workspace is not None
+            else None
+        )
+        from ..drivers.adapters.agentscope_tool import build_driver_agent_tools
+
+        return await build_driver_agent_tools(
+            driver_manager,
+            request_context,
+        )
+
+    @staticmethod
     def _get_memory_manager(ctx: Any) -> Any:
         workspace = getattr(ctx, "workspace", None)
         if workspace is not None:
@@ -381,19 +417,6 @@ class AgentBuilder:
         if workspace is not None:
             return getattr(workspace, "context_manager", None)
         return None
-
-    @staticmethod
-    async def _get_mcp_clients_async(ctx: Any) -> list[Any] | None:
-        workspace = getattr(ctx, "workspace", None)
-        if workspace is None:
-            return None
-        mcp_mgr = getattr(workspace, "mcp_manager", None)
-        if mcp_mgr is None:
-            return None
-        try:
-            return await mcp_mgr.get_clients()
-        except Exception:
-            return None
 
     @staticmethod
     def _build_middlewares(

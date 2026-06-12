@@ -81,6 +81,7 @@ function MCPPage() {
     deleteClient,
     createClient,
     updateClient,
+    updatePolicy,
     refreshClients,
   } = useMCP();
   const [createModalOpen, setCreateModalOpen] = useState(false);
@@ -294,6 +295,7 @@ function MCPPage() {
               onToggle={handleToggleEnabled}
               onDelete={handleDelete}
               onUpdate={updateClient}
+              onUpdatePolicy={updatePolicy}
               onRefresh={refreshClients}
             />
           ))}

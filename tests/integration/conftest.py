@@ -20,6 +20,7 @@ pytest-cov (or use ``--no-cov``) so the parent process does not enforce
 ``fail_under`` on near-zero host-process coverage. This flow is not
 validated under ``pytest-xdist``.
 """
+
 from __future__ import annotations
 
 import json
@@ -314,6 +315,10 @@ def app_server(  # pylint: disable=too-many-statements,too-many-branches
     env["QWENPAW_SECRET_DIR"] = str(secret_dir)
     env["QWENPAW_BACKUP_DIR"] = str(backups_dir)
     env["QWENPAW_AUTH_ENABLED"] = "false"
+    # Integration tests run in a temporary isolated workspace and must not
+    # touch the developer's OS keychain. Force file-backed secrets so first
+    # encryption does not block on desktop keyring discovery.
+    env["QWENPAW_RUNNING_IN_CONTAINER"] = "true"
     env["NO_PROXY"] = "*"
     env["PYTHONUNBUFFERED"] = "1"
     # Force UTF-8 stdio in the subprocess so non-ASCII log lines (e.g.

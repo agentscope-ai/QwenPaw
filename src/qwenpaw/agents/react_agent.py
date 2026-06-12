@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Any, List, Literal, Optional, TYPE_CHECKING
+from typing import Any, Literal, Optional, TYPE_CHECKING
 
 from agentscope.agent import Agent, ReActConfig
 from agentscope.message import Msg, TextBlock
@@ -63,8 +63,7 @@ class QwenPawAgent(CodingModeMixin, Agent):
         request_context: Optional[dict[str, str]] = None,
         memory_manager: "BaseMemoryManager | None" = None,
         context_manager: "BaseContextManager | None" = None,
-        mcp_clients: Optional[List[Any]] = None,
-        effective_skills: Optional[List[str]] = None,
+        effective_skills: Optional[list[str]] = None,
     ):
         """Initialize QwenPawAgent.
 
@@ -74,7 +73,6 @@ class QwenPawAgent(CodingModeMixin, Agent):
         """
         self._agent_config = agent_config
         self._request_context = dict(request_context or {})
-        self._mcp_clients = mcp_clients or []
         self._workspace_dir = workspace_dir
         self._language = agent_config.language
 

@@ -14,6 +14,7 @@ Contributors read configuration from ``ctx.extras``:
 * ``memory_manager``    — ``ctx.extras.get("memory_manager")``
 * ``env_context``       — ``ctx.extras.get("env_context")``
 * ``agent_config``      — ``ctx.extras.get("agent_config")``
+* ``driver_prompt_hints`` — ``ctx.extras.get("driver_prompt_hints", [])``
 """
 
 from __future__ import annotations
@@ -254,6 +255,19 @@ class EnvContextContributor(SyncPromptContributor):
         return extras.get("env_context") or None
 
 
+class DriverPolicyHintContributor(SyncPromptContributor):
+    """Append request-time Driver policy guidance when tools are exposed."""
+
+    name = "driver_policy_hint"
+    priority = 88
+
+    def contribute_sync(self, ctx: "HookContext") -> str | None:
+        extras = getattr(ctx, "extras", {}) or {}
+        hints = extras.get("driver_prompt_hints") or []
+        rendered = "\n\n".join(str(hint) for hint in hints if hint)
+        return rendered or None
+
+
 # ---------------------------------------------------------------------------
 # Factory
 # ---------------------------------------------------------------------------
@@ -265,6 +279,7 @@ _ALL_CONTRIBUTORS = (
     ProfileMdContributor,
     MultimodalHintContributor,
     CodingModeContributor,
+    DriverPolicyHintContributor,
     EnvContextContributor,
 )
 
@@ -284,6 +299,7 @@ __all__ = [
     "ProfileMdContributor",
     "MultimodalHintContributor",
     "CodingModeContributor",
+    "DriverPolicyHintContributor",
     "EnvContextContributor",
     "build_default_prompt_manager",
 ]

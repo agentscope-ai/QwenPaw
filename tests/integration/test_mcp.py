@@ -1,8 +1,13 @@
 # -*- coding: utf-8 -*-
 """Integration tests for MCP client APIs."""
+
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 import pytest
+import yaml
 
 
 @pytest.mark.integration
@@ -243,6 +248,78 @@ def test_mcp_tools_returns_empty_for_disabled_client(app_server) -> None:
 
 @pytest.mark.integration
 @pytest.mark.p1
+def test_mcp_create_writes_driver_card_and_credentials_not_agent_json(
+    app_server,
+) -> None:
+    agent_id = "integ_mcp_driver_storage_01"
+    headers = {"X-Agent-Id": agent_id}
+    client_key = "integ_mcp_driver_storage_client"
+
+    create_agent = app_server.api_request(
+        "POST",
+        "/api/agents",
+        json={"id": agent_id, "name": "MCP Driver storage", "description": ""},
+    )
+    assert create_agent.status_code == 201, app_server.logs_tail()
+    workspace_dir = Path(create_agent.json()["workspace_dir"])
+
+    try:
+        create_client = app_server.api_request(
+            "POST",
+            "/api/mcp",
+            headers=headers,
+            json={
+                "client_key": client_key,
+                "client": {
+                    "name": "driver storage mcp",
+                    "enabled": False,
+                    "transport": "stdio",
+                    "command": "python",
+                    "env": {"ECHO_SECRET": "secret-value"},
+                },
+            },
+        )
+        assert create_client.status_code == 201, app_server.logs_tail()
+
+        card_path = workspace_dir / "drivers" / "mcp" / f"{client_key}.yaml"
+        flat_card_path = workspace_dir / "drivers" / f"{client_key}.yaml"
+        credentials_path = workspace_dir / "credentials.yaml"
+        agent_config = json.loads(
+            (workspace_dir / "agent.json").read_text(encoding="utf-8"),
+        )
+        card = yaml.safe_load(card_path.read_text(encoding="utf-8"))
+        credentials = yaml.safe_load(
+            credentials_path.read_text(encoding="utf-8"),
+        )
+
+        assert not flat_card_path.exists()
+        assert card["protocol"] == "mcp"
+        assert card["credentials"]["static"] == {
+            "kind": "static",
+            "ref": f"mcp/{client_key}",
+        }
+        assert card["endpoint"]["env"]["ECHO_SECRET"] == {
+            "source": "credential",
+            "credential": "static",
+            "field": "ECHO_SECRET",
+        }
+        assert "secret-value" not in card_path.read_text(encoding="utf-8")
+        assert credentials["credentials"][f"mcp/{client_key}"]["secrets"][
+            "ECHO_SECRET"
+        ].startswith("ENC:")
+        old_clients = (agent_config.get("mcp") or {}).get("clients") or {}
+        assert client_key not in old_clients
+    finally:
+        app_server.api_request(
+            "DELETE",
+            f"/api/mcp/{client_key}",
+            headers=headers,
+        )
+        app_server.api_request("DELETE", f"/api/agents/{agent_id}")
+
+
+@pytest.mark.integration
+@pytest.mark.p1
 def test_mcp_scoped_path_get_client(app_server) -> None:
     """Test purpose:
     - Verify MCP client can be fetched via ``/api/agents/{agentId}/mcp/...``
@@ -376,6 +453,99 @@ def test_mcp_create_duplicate_client_rejected(app_server) -> None:
             f"/api/mcp/{client_key}",
             headers=headers,
         )
+        app_server.api_request("DELETE", f"/api/agents/{agent_id}")
+
+
+@pytest.mark.integration
+@pytest.mark.p1
+def test_mcp_create_or_update_duplicate_display_name_rejected(
+    app_server,
+) -> None:
+    """Verify MCP display names are unique user-facing identifiers."""
+    agent_id = "integ_mcp_duplicate_name_01"
+    headers = {"X-Agent-Id": agent_id}
+    first_key = "integ_mcp_dup_name_first"
+    second_key = "integ_mcp_dup_name_second"
+
+    create_agent = app_server.api_request(
+        "POST",
+        "/api/agents",
+        json={
+            "id": agent_id,
+            "name": "MCP duplicate name agent",
+            "description": "",
+        },
+    )
+    assert create_agent.status_code == 201, app_server.logs_tail()
+
+    try:
+        first = app_server.api_request(
+            "POST",
+            "/api/mcp",
+            headers=headers,
+            json={
+                "client_key": first_key,
+                "client": {
+                    "name": "aone-code-platform",
+                    "enabled": True,
+                    "transport": "stdio",
+                    "command": "echo",
+                    "args": ["first"],
+                },
+            },
+        )
+        assert first.status_code == 201, app_server.logs_tail()
+
+        duplicate_create = app_server.api_request(
+            "POST",
+            "/api/mcp",
+            headers=headers,
+            json={
+                "client_key": second_key,
+                "client": {
+                    "name": "AONE-CODE-PLATFORM",
+                    "enabled": True,
+                    "transport": "stdio",
+                    "command": "echo",
+                    "args": ["second"],
+                },
+            },
+        )
+        assert duplicate_create.status_code == 400, app_server.logs_tail()
+        assert "already exists" in duplicate_create.json().get("detail", "")
+
+        second = app_server.api_request(
+            "POST",
+            "/api/mcp",
+            headers=headers,
+            json={
+                "client_key": second_key,
+                "client": {
+                    "name": "other-platform",
+                    "enabled": True,
+                    "transport": "stdio",
+                    "command": "echo",
+                    "args": ["second"],
+                },
+            },
+        )
+        assert second.status_code == 201, app_server.logs_tail()
+
+        duplicate_update = app_server.api_request(
+            "PUT",
+            f"/api/mcp/{second_key}",
+            headers=headers,
+            json={"name": "aone-code-platform"},
+        )
+        assert duplicate_update.status_code == 400, app_server.logs_tail()
+        assert "already exists" in duplicate_update.json().get("detail", "")
+    finally:
+        for key in (first_key, second_key):
+            app_server.api_request(
+                "DELETE",
+                f"/api/mcp/{key}",
+                headers=headers,
+            )
         app_server.api_request("DELETE", f"/api/agents/{agent_id}")
 
 

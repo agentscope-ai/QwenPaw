@@ -26,6 +26,19 @@ You are a helpful assistant.
 # Backward compatibility alias
 SYS_PROMPT = DEFAULT_SYS_PROMPT
 
+DRIVER_POLICY_RECHECK_HINT = (
+    "Driver and MCP permission results are evaluated at the moment of a "
+    "tool call. A previous `driver_policy_denied` result in the "
+    "conversation history does not prove the tool is still denied in a "
+    "later user turn, because users may change Driver policy between "
+    "messages. If the user asks for the action again in a later turn, "
+    "attempt the relevant tool again and let the current policy decide. "
+    "Previous assistant messages that only explained such a denial are "
+    "also point-in-time. "
+    "Do not refuse solely because of an earlier `driver_policy_denied` "
+    "result."
+)
+
 
 class PromptConfig:
     """Configuration for system prompt building."""
@@ -453,6 +466,11 @@ def build_multimodal_hint() -> str:
     return format_multimodal_hint(model_info, model_name)
 
 
+def build_driver_policy_recheck_hint() -> str:
+    """Build guidance for point-in-time Driver/MCP policy results."""
+    return DRIVER_POLICY_RECHECK_HINT
+
+
 def format_multimodal_hint(model_info, _model_name: str) -> str:
     """Format the multimodal hint string for the system prompt."""
     if (
@@ -472,6 +490,7 @@ __all__ = [
     "build_system_prompt_from_working_dir",
     "build_bootstrap_guidance",
     "build_multimodal_hint",
+    "build_driver_policy_recheck_hint",
     "format_multimodal_hint",
     "get_active_model_supports_multimodal",
     "get_active_model_multimodal_raw",

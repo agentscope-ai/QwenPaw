@@ -164,12 +164,7 @@ class _MCPClientMixin:
                     self._ready_event.set()
                     logger.info(f"MCP client connected: {self.name}")
 
-                    # Wait for a reload or stop signal (0.1 s poll).
-                    while (
-                        not self._reload_event.is_set()
-                        and not self._stop_event.is_set()
-                    ):
-                        await asyncio.sleep(0.1)
+                    await self._wait_for_reload_or_stop()
 
                     # Clear state before the context manager exits and
                     # tears down the transport / subprocess.  Note we do
@@ -307,9 +302,8 @@ class _MCPClientMixin:
     async def list_tools(self):
         """Return all tools available from the MCP server.
 
-        Returns ``MCPTool`` instances so the tools are compatible with
-        agentscope 2.0's ``Toolkit`` (which expects ``ToolBase`` objects
-        with ``is_state_injected``, ``is_mcp``, etc.).
+        Returns raw MCP ``Tool`` schema objects. Tool wrapping belongs to the
+        runtime exposure layer, not the transport client.
 
         If the client is in a transient reconnect window (``is_connected``
         is False but the lifecycle task is still alive), wait briefly for
@@ -320,15 +314,13 @@ class _MCPClientMixin:
         (and thus ``compress_context`` → ``_reply``).
 
         Returns:
-            List of MCPTool wrappers
+            List of raw MCP Tool objects
 
         Raises:
             RuntimeError: If not connected and no reconnect is in flight,
                 or if the reconnect does not complete within
                 ``_LIST_TOOLS_RECONNECT_WAIT`` seconds.
         """
-        from agentscope.tool import MCPTool
-
         if not self.is_connected:
             has_task = self._lifecycle_task is not None and not (
                 self._lifecycle_task.done()
@@ -356,24 +348,12 @@ class _MCPClientMixin:
                 self._handle_transport_error(exc)
                 raise
             self._cached_tools = res.tools
-            return [
-                MCPTool(
-                    mcp_name=self.name,
-                    tool=t,
-                    session=self.session,
-                )
-                for t in res.tools
-            ]
+            return res.tools
 
         # Reconnect didn't land in time.  Fall back to the cache from the
         # last successful list_tools call (preserved across transient
         # reconnects on purpose — see ``_handle_transport_error`` and
-        # ``_run_lifecycle``).  The returned MCPTool wrappers will have
-        # ``session=None``, so any ``call_tool`` issued this turn will
-        # raise — but agentscope ReAct catches per-tool errors and records
-        # them as tool results, so the user's turn survives.
-        # This shape mirrors how agentscope 1.x worked: schemas captured
-        # once and reused, only ``call_tool`` was sensitive to liveness.
+        # ``_run_lifecycle``).  Only ``call_tool`` is sensitive to liveness.
         if self._cached_tools is not None:
             logger.warning(
                 "MCP client '%s' still disconnected after %.1fs; serving "
@@ -381,14 +361,7 @@ class _MCPClientMixin:
                 self.name,
                 _LIST_TOOLS_RECONNECT_WAIT,
             )
-            return [
-                MCPTool(
-                    mcp_name=self.name,
-                    tool=t,
-                    session=self.session,
-                )
-                for t in self._cached_tools
-            ]
+            return self._cached_tools
 
         # No cache and not connected — this is the cold-start failure mode.
         self._validate_connection()
@@ -531,6 +504,24 @@ class _MCPClientMixin:
         # session is left as-is; see docstring above.
         if not self._stop_event.is_set():
             self._reload_event.set()
+
+    async def _wait_for_reload_or_stop(self) -> None:
+        """Wait for lifecycle control events without polling."""
+        reload_wait = asyncio.create_task(self._reload_event.wait())
+        stop_wait = asyncio.create_task(self._stop_event.wait())
+        pending = {reload_wait, stop_wait}
+        try:
+            done, pending = await asyncio.wait(
+                pending,
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            for task in done:
+                task.result()
+        finally:
+            for task in pending:
+                task.cancel()
+            if pending:
+                await asyncio.gather(*pending, return_exceptions=True)
 
     def _validate_connection(self) -> None:
         """Raise ``RuntimeError`` if the session is not ready.

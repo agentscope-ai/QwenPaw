@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useAppMessage } from "../../../hooks/useAppMessage";
 import api from "../../../api";
-import type { MCPClientInfo } from "../../../api/types";
+import type { MCPAccessPolicy, MCPClientInfo } from "../../../api/types";
 import { useTranslation } from "react-i18next";
 import { useAgentStore } from "../../../stores/agentStore";
 
@@ -120,11 +120,28 @@ export function useMCP() {
     [t, loadClients],
   );
 
+  const updatePolicy = useCallback(
+    async (clientKey: string, policy: MCPAccessPolicy) => {
+      try {
+        await api.updateMCPPolicy(clientKey, policy);
+        message.success(t("mcp.access.saveSuccess"));
+        await loadClients();
+        return true;
+      } catch (error: any) {
+        const errorMsg = error?.message || t("mcp.access.saveError");
+        message.error(errorMsg);
+        return false;
+      }
+    },
+    [t, loadClients],
+  );
+
   return {
     clients,
     loading,
     createClient,
     updateClient,
+    updatePolicy,
     toggleEnabled,
     deleteClient,
     refreshClients: loadClients,
