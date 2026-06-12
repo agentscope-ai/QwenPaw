@@ -4,6 +4,7 @@
 # pylint:disable=too-many-branches,too-many-statements,consider-using-with
 from __future__ import annotations
 
+import ipaddress
 import logging
 import os
 import pathlib
@@ -308,6 +309,26 @@ class WebViewAPI:
             return False
 
 
+def _validate_loopback_host(host: str) -> str:
+    """Ensure *host* is a loopback address.
+
+    The desktop backend must only bind to the local machine; binding to
+    a non-loopback address would expose the API to the network.
+    """
+    if host in ("localhost", "127.0.0.1", "::1"):
+        return host
+    try:
+        addr = ipaddress.ip_address(host)
+    except ValueError as exc:
+        raise ValueError(f"Invalid host: {host}") from exc
+    if not addr.is_loopback:
+        raise ValueError(
+            f"Host {host!r} is not a loopback address; "
+            "the desktop backend must only bind locally.",
+        )
+    return host
+
+
 def _find_free_port(host: str = "127.0.0.1") -> int:
     """Bind to port 0 and return the OS-assigned free port."""
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
@@ -368,7 +389,7 @@ def _stderr_capture_reader(
     "--host",
     default="127.0.0.1",
     show_default=True,
-    help="Bind host for the app server.",
+    help="Bind host for the app server. Must be a loopback address.",
 )
 @click.option(
     "--log-level",
@@ -393,6 +414,12 @@ def desktop_cmd(
     blocking on HTTP readiness.
     """
     setup_logger(log_level)
+
+    try:
+        host = _validate_loopback_host(host)
+    except ValueError as exc:
+        click.echo(f"Error: {exc}", err=True)
+        sys.exit(1)
 
     port = _find_free_port(host)
     url = f"http://{host}:{port}"
