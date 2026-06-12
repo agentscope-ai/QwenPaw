@@ -223,6 +223,14 @@ DEFAULT_BUILTIN_RULES: List[GovernanceRule] = [
 # Default sandbox deny_paths — paths forbidden for sandbox processes
 # ---------------------------------------------------------------------------
 
+DEFAULT_ENV_BLACKLIST: List[str] = [
+    "OPENAI_API_KEY",
+    "ANTHROPIC_API_KEY",
+    "AWS_SECRET_ACCESS_KEY",
+    "AWS_ACCESS_KEY_ID",
+]
+
+
 DEFAULT_SANDBOX_DENY_PATHS: List[str] = [
     # SSH keys and config
     "~/.ssh",
@@ -327,6 +335,7 @@ class GovernancePolicy:
     version: str = "1.0"
     builtin_rules: List[GovernanceRule] = field(default_factory=list)
     user_rules: List[GovernanceRule] = field(default_factory=list)
+    env_blacklist: List[str] = field(default_factory=list)
     audit_level: str = "all"       # "all" | "write_only" | "none"
 
     # Internal reference to registry (defaults to module-level DEFAULT_REGISTRY)
@@ -530,11 +539,18 @@ def load_governance_policy(policy_dir: str, workspace_dir: str) -> GovernancePol
     builtin_rules = _parse_rules(data.get("builtin_rules", []))
     user_rules = _parse_rules(data.get("user_rules", []))
 
+    # ── env_blacklist ──
+    env_blacklist = data.get("env_blacklist", [])
+    if not isinstance(env_blacklist, list):
+        env_blacklist = []
+
     # ── Cold start: fill in missing default rules ──
     if not builtin_rules:
         builtin_rules = copy.deepcopy(DEFAULT_BUILTIN_RULES)
     if not user_rules:
         user_rules = copy.deepcopy(DEFAULT_USER_RULES)
+    if not env_blacklist:
+        env_blacklist = list(DEFAULT_ENV_BLACKLIST)
 
     # ── Replace WORKSPACE_DIR with actual path ──
     if workspace_dir:
@@ -545,6 +561,7 @@ def load_governance_policy(policy_dir: str, workspace_dir: str) -> GovernancePol
         version=version,
         builtin_rules=builtin_rules,
         user_rules=user_rules,
+        env_blacklist=env_blacklist,
         audit_level=audit_level,
     )
 
@@ -571,6 +588,7 @@ def save_governance_policy(policy: GovernancePolicy, policy_dir: str,
     data = {
         "version": policy.version,
         "audit_level": policy.audit_level,
+        "env_blacklist": list(policy.env_blacklist),
         "builtin_rules": [
             _rule_to_dict(r) for r in builtin_rules
         ],
@@ -600,6 +618,7 @@ def _create_default_policy(workspace_dir: str = "") -> GovernancePolicy:
         version="1.0",
         builtin_rules=builtin_rules,
         user_rules=user_rules,
+        env_blacklist=list(DEFAULT_ENV_BLACKLIST),
     )
 
 

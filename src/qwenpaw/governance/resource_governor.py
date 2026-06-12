@@ -187,6 +187,7 @@ class ResourceGovernor:
             deny_paths=list(DEFAULT_SANDBOX_DENY_PATHS),
             network_allow=["*"],
             timeout_seconds=60,
+            env_vars={k: "" for k in self.policy.env_blacklist},
         )
 
     @staticmethod

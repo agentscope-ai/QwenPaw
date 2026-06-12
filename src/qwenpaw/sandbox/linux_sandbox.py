@@ -490,6 +490,17 @@ def _generate_sandbox_script(
         "os.close(fd)",
         "assert ret == 0, f'restrict_self failed: {ctypes.get_errno()}'",
         "",
+    ]
+
+    # Apply env_vars (e.g. mask blacklisted env keys with empty string)
+    if config.env_vars:
+        env_vars_repr = repr(list(config.env_vars.items()))
+        script_lines.append(f"# Apply env_vars (override / mask)")
+        script_lines.append(f"for _k, _v in {env_vars_repr}:")
+        script_lines.append(f"    os.environ[_k] = _v")
+        script_lines.append("")
+
+    script_lines += [
         "# Exec the command",
         f"os.chdir({cwd!r})",
         f"os.execvp('/bin/sh', ['/bin/sh', '-c', {cmd!r}])",

@@ -233,6 +233,11 @@ class MacOSSandbox(LocalSandbox):
         if not os.path.exists(shell):
             shell = "/bin/bash"
 
+        # Build subprocess env: inherit + apply env_vars (overrides)
+        env = dict(os.environ)
+        if self._config.env_vars:
+            env.update(self._config.env_vars)
+
         start = time.monotonic()
         try:
             self._process = await asyncio.create_subprocess_exec(
@@ -240,6 +245,7 @@ class MacOSSandbox(LocalSandbox):
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 cwd=cwd,
+                env=env,
                 start_new_session=True,
             )
             stdout_bytes, stderr_bytes = await asyncio.wait_for(
@@ -301,6 +307,11 @@ class NoneSandbox(LocalSandbox):
         if not os.path.exists(shell):
             shell = "/bin/bash"
 
+        # Build subprocess env: inherit + apply env_vars (overrides)
+        env = dict(os.environ)
+        if self._config.env_vars:
+            env.update(self._config.env_vars)
+
         start = time.monotonic()
         try:
             self._process = await asyncio.create_subprocess_exec(
@@ -308,6 +319,7 @@ class NoneSandbox(LocalSandbox):
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 cwd=cwd,
+                env=env,
                 start_new_session=True,
             )
             stdout_bytes, stderr_bytes = await asyncio.wait_for(
