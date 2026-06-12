@@ -193,6 +193,14 @@ class CodingModeMixin:
             return False
         return bool(getattr(cm, "enabled", False))
 
+    def _should_use_governance(self) -> bool:
+        """Return True."""
+        return True
+
+    # ------------------------------------------------------------------
+    # Tool registration hook (called from QwenPawAgent._create_toolkit)
+    # ------------------------------------------------------------------
+
     def _collect_coding_mode_tools(
         self,
         agent_id: str | None = None,
