@@ -111,7 +111,7 @@ def _seed_persona_md_files(ws_dir: Path, language: str = "zh") -> None:
             shutil.copy2(src, dst)
 
 
-_WORKSPACE_PRESERVE_DIRS = {"sessions", "artifacts"}
+_WORKSPACE_PRESERVE = {"sessions", "artifacts", "chats.json", "jobs.json"}
 
 
 def uninstall_builtin_agents() -> None:
@@ -134,7 +134,7 @@ def uninstall_builtin_agents() -> None:
     if not ws.exists():
         return
     for item in ws.iterdir():
-        if item.name in _WORKSPACE_PRESERVE_DIRS:
+        if item.name in _WORKSPACE_PRESERVE:
             continue
         if item.is_dir():
             shutil.rmtree(item, ignore_errors=True)

@@ -212,3 +212,99 @@ def test_setup_channel_sse_hook_idempotent():
     setup_channel_sse_hook(_channel_cls=FakeChannel)
 
     assert FakeChannel.stream_one is first
+
+
+# ---------------------------------------------------------------------------
+# _maybe_inject_node_metadata — inline routing block tests
+# ---------------------------------------------------------------------------
+
+
+def test_maybe_inject_updates_metadata_from_routing_block():
+    """Content frame with _r routing block updates cached metadata."""
+    import json
+    from plugin_datapaw.hooks import _maybe_inject_node_metadata
+
+    store = {"msg-1": {"graph_id": "g1", "node_id": "n1", "subagent_event": "tool_call", "subagent_tool_name": "old_tool"}}
+
+    output_blocks = [
+        {"type": "text", "text": "hello"},
+        {"type": "_r", "e": "thinking", "t": None},
+    ]
+    content_frame = json.dumps({
+        "object": "content",
+        "msg_id": "msg-1",
+        "data": {
+            "call_id": "tc-1",
+            "name": "spawn_subagent",
+            "output": json.dumps(output_blocks, ensure_ascii=False),
+        },
+    }, ensure_ascii=False)
+    frame = f"data: {content_frame}\n\n"
+
+    result = _maybe_inject_node_metadata(frame, store)
+
+    result_payload = json.loads(result[len("data: "):-2])
+    # Metadata should be updated to "thinking"
+    assert result_payload["metadata"]["subagent_event"] == "thinking"
+    # Routing block should be stripped from output
+    output = json.loads(result_payload["data"]["output"])
+    assert len(output) == 1
+    assert output[0]["type"] == "text"
+
+
+def test_maybe_inject_routing_block_with_tool_name():
+    """Routing block with tool_name updates subagent_tool_name in cache."""
+    import json
+    from plugin_datapaw.hooks import _maybe_inject_node_metadata
+
+    store = {"msg-2": {"graph_id": "g1", "node_id": "n1"}}
+
+    output_blocks = [
+        {"type": "text", "text": "data"},
+        {"type": "_r", "e": "tool_call", "t": "get_domain_overview"},
+    ]
+    content_frame = json.dumps({
+        "object": "content",
+        "msg_id": "msg-2",
+        "data": {
+            "call_id": "tc-2",
+            "name": "spawn_subagent",
+            "output": json.dumps(output_blocks, ensure_ascii=False),
+        },
+    }, ensure_ascii=False)
+    frame = f"data: {content_frame}\n\n"
+
+    result = _maybe_inject_node_metadata(frame, store)
+
+    result_payload = json.loads(result[len("data: "):-2])
+    assert result_payload["metadata"]["subagent_event"] == "tool_call"
+    assert result_payload["metadata"]["subagent_tool_name"] == "get_domain_overview"
+
+
+def test_maybe_inject_no_routing_block_passthrough():
+    """Content frame without routing block still gets cached metadata."""
+    import json
+    from plugin_datapaw.hooks import _maybe_inject_node_metadata
+
+    store = {"msg-3": {"graph_id": "g1", "subagent_event": "thinking"}}
+
+    output_blocks = [{"type": "text", "text": "no routing"}]
+    content_frame = json.dumps({
+        "object": "content",
+        "msg_id": "msg-3",
+        "data": {
+            "call_id": "tc-3",
+            "name": "spawn_subagent",
+            "output": json.dumps(output_blocks, ensure_ascii=False),
+        },
+    }, ensure_ascii=False)
+    frame = f"data: {content_frame}\n\n"
+
+    result = _maybe_inject_node_metadata(frame, store)
+
+    result_payload = json.loads(result[len("data: "):-2])
+    # Should still inject the cached metadata
+    assert result_payload["metadata"]["subagent_event"] == "thinking"
+    # Output should be unchanged
+    output = json.loads(result_payload["data"]["output"])
+    assert len(output) == 1

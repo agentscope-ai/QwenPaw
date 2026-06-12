@@ -34,27 +34,20 @@ from ..orchestration import RuntimeStateManager
 from ..path_context import PathContext, default_artifacts_root
 from ..sse_metadata import NODE_ROUTING_METADATA_KEYS
 from ..tools import DEFAULT_TOOL_NAMES, TOOL_REGISTRY
-from .spawn_subagent import make_spawn_subagent_fn
+from .pending_edits import format_pending_edits
+from .subagent_config import build_spawn_subagent_fn, acting_spawn_subagent
 
 if TYPE_CHECKING:
     from qwenpaw.agents.memory import BaseMemoryManager
     from qwenpaw.config.config import AgentProfileConfig
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("qwenpaw.datapaw.agents")
 
 
-# This file lives at plugins/bundle/datapaw/core/agents/base.py; three
-# ``parent`` hops reach the plugin root where ``prompts/`` sits.
 PLUGIN_DIR = Path(__file__).resolve().parent.parent.parent
 PLUGIN_PROMPTS_DIR = PLUGIN_DIR / "prompts"
 
 
-# Private flags host runner stamps on the PlanNotebook it constructs.
-# DataPaw replaces that notebook with its own RuntimeStateManager and
-# must migrate the flags so the /plan command and the post-mutation
-# lock keep working. Keep this tuple in sync with the host setattr
-# sites — adding a new ``_plan_*`` flag on host without updating this
-# list silently breaks the migration.
 _HOST_PLAN_MODE_FLAGS: tuple[str, ...] = (
     "_plan_tool_gate",
     "_plan_awaiting_user_confirm",
@@ -71,12 +64,7 @@ CM_MCP_NAME = "DataAgent Context Manager"
 
 
 def _read_master_md(lang: str = "zh") -> str:
-    """Read the plugin's MASTER.{lang}.md runtime-section.
-
-    Falls back to ``MASTER.zh.md`` if the requested language pack is
-    missing; finally falls back to a legacy ``MASTER.md`` if neither
-    localized variant exists. Returns the empty string on any read error.
-    """
+    """Read the plugin's MASTER.{lang}.md runtime-section."""
     candidates = [
         PLUGIN_PROMPTS_DIR / f"MASTER.{lang}.md",
         PLUGIN_PROMPTS_DIR / "MASTER.zh.md",
@@ -134,78 +122,6 @@ class DataPawConfig:
 
 
 # ---------------------------------------------------------------------------
-# _pending_edits formatter
-# ---------------------------------------------------------------------------
-
-
-def format_pending_edits(edits: list[dict], lang: str = "zh") -> str:
-    """Render ``_pending_edits`` into an LLM-readable summary in ``lang``."""
-    lines: list[str] = []
-    unnamed = tr("edit.sop_unnamed", lang)
-    for edit in edits:
-        etype = edit.get("type")
-        if etype in ("sop_replaced", "sop_loaded"):
-            # ``sop_loaded`` is the legacy name kept for old session files.
-            name = edit.get("name", unnamed)
-            node_count = edit.get("node_count", "?")
-            replaced = edit.get("replaced_graph_id")
-            node_summary = edit.get("node_summary") or []
-            summary_lines = "\n".join(
-                f"  - `{x['id']}`: {x['name']}" f" deps={x.get('deps') or []}"
-                for x in node_summary
-                if isinstance(x, dict)
-            )
-            head = tr("edit.sop_loaded_head", lang, name=name, n=node_count)
-            if replaced:
-                head += tr("edit.sop_loaded_replaced", lang, gid=replaced)
-            body = tr("edit.sop_loaded_body", lang, head=head)
-            if summary_lines:
-                body = body + "\n" + summary_lines
-            lines.append(body)
-        elif etype == "dag_merged":
-            name = edit.get("name", unnamed)
-            added = edit.get("added") or []
-            removed = edit.get("removed") or []
-            modified = edit.get("modified") or []
-            overridden = edit.get("state_overridden") or []
-            downstream_reset = edit.get("downstream_reset") or []
-            lines.append(
-                tr(
-                    "edit.dag_merged",
-                    lang,
-                    name=name,
-                    added=added,
-                    modified=modified,
-                    removed=removed,
-                    overridden=overridden,
-                    downstream_reset=downstream_reset,
-                ),
-            )
-        elif etype == "node_edited":
-            # Legacy rendering for old session files.
-            node_id = edit.get("node_id", "?")
-            changes = edit.get("changes", {})
-            lines.append(
-                tr("edit.node_edited", lang, nid=node_id, changes=changes),
-            )
-            downstream_reset = edit.get("downstream_reset") or []
-            if downstream_reset:
-                lines.append(
-                    tr(
-                        "edit.node_downstream_reset_warn",
-                        lang,
-                        downstream_reset=downstream_reset,
-                    ),
-                )
-        elif etype == "graph_replaced":
-            # Legacy rendering for old session files.
-            lines.append(tr("edit.graph_replaced", lang))
-        else:
-            lines.append(tr("edit.unknown", lang, raw=edit))
-    return "\n".join(lines) if lines else tr("edit.no_pending", lang)
-
-
-# ---------------------------------------------------------------------------
 # DataPawAgent
 # ---------------------------------------------------------------------------
 
@@ -214,18 +130,6 @@ class DataPawAgent(QwenPawAgent):
     """DataPaw MasterAgent.
 
     Inheritance: ``QwenPawAgent → ToolGuardMixin → ReActAgent → ...``.
-
-    Overridden methods (kept minimal):
-    - ``_build_sys_prompt``: append DataPaw's MASTER.md and the env hint
-      on top of the host's three-piece prompt set.
-    - ``reply``: consume ``_pending_edits``, then delegate to super.
-    - ``_reasoning`` / ``_acting`` / ``_summarizing``: append to the
-      current node's trace.
-    - ``handle_interrupt``: return a Msg containing the DAG progress.
-    - ``state_dict`` / ``load_state_dict``: keep DAG state out of session
-      JSON and restore it from the DAG backing file.
-    - ``print``: inject ``graph_id`` / ``node_id`` into message metadata
-      for SSE downstream consumption.
     """
 
     def __init__(
@@ -244,15 +148,11 @@ class DataPawAgent(QwenPawAgent):
         task_tracker: Any | None = None,
         plan_notebook: Any | None = None,
     ) -> None:
-        # _build_sys_prompt runs inside super().__init__ and reads
-        # self._datapaw_config and self._lang, so configure both before
-        # super().
         self._datapaw_config = datapaw_config or DataPawConfig()
         self._sub_agent_dispatcher = self._datapaw_config.sub_agent_dispatcher
         self._lang = getattr(agent_config, "language", None) or "zh"
         self._datapaw_workspace_dir = workspace_dir
 
-        # Diagnostic-only: avoid calling host helpers on a missing skills dir.
         if workspace_dir is not None:
             skills_path = get_workspace_skills_dir(
                 Path(workspace_dir),
@@ -260,9 +160,6 @@ class DataPawAgent(QwenPawAgent):
             if skills_path.exists():
                 logger.debug("DataPaw skills dir present at %s", skills_path)
 
-        # Don't forward plan_notebook: the host runner hands in an
-        # agentscope PlanNotebook, but we replace it entirely with our
-        # RuntimeStateManager below — forwarding wastes one init.
         super().__init__(
             agent_config=agent_config,
             env_context=env_context,
@@ -278,25 +175,12 @@ class DataPawAgent(QwenPawAgent):
 
         self._disable_send_file_to_user_tool()
 
-        # Post-init: assigning to ``self.plan_notebook`` triggers
-        # StateModule.__setattr__, which registers the StateModule under
-        # ``_module_dict["plan_notebook"]`` so state_dict / load_state_dict
-        # automatically cover the entire runtime state.
         if runtime_state is None:
-            # DataPawPlanToHint is RuntimeStateManager's default — no need
-            # to pass graph_to_hint explicitly.
             runtime_state = RuntimeStateManager(lang=self._lang)
         else:
-            # Caller-supplied notebook (tests / explicit injection): align
-            # its locale with the agent so tool responses stay consistent.
             runtime_state.lang = self._lang
         self.plan_notebook = runtime_state
 
-        # Migrate host plan-mode flags from the discarded host
-        # PlanNotebook (constructed by runner when plan.enabled=True) to
-        # our RuntimeStateManager. Without this, /plan command's
-        # _plan_tool_gate (set on host PlanNotebook before agent init)
-        # would be lost.
         if plan_notebook is not None and plan_notebook is not runtime_state:
             for attr in _HOST_PLAN_MODE_FLAGS:
                 if hasattr(plan_notebook, attr):
@@ -306,8 +190,9 @@ class DataPawAgent(QwenPawAgent):
         self._register_plan_tools(namesake_strategy)
         self._register_datapaw_tools(namesake_strategy)
 
+    # --- Internal helpers -----------------------------------------------------
+
     def _disable_send_file_to_user_tool(self) -> None:
-        """DataPaw uses artifacts / preview APIs, not direct file pushing."""
         if not getattr(self, "toolkit", None):
             return
         if "send_file_to_user" not in getattr(self.toolkit, "tools", {}):
@@ -321,7 +206,6 @@ class DataPawAgent(QwenPawAgent):
             )
 
     def _current_node_id(self) -> str | None:
-        """Return the current in-progress DataPaw node id, if any."""
         try:
             return _get_in_progress_node_id(self.plan_notebook.current_plan)
         except Exception:  # pylint: disable=broad-except
@@ -331,26 +215,7 @@ class DataPawAgent(QwenPawAgent):
             )
             return None
 
-    def _artifact_base_dir(self, workspace_dir: Path | None) -> Path:
-        """Artifact root for this agent."""
-        return default_artifacts_root(
-            agent_id=self._agent_config.id,
-            workspace_dir=workspace_dir,
-        )
-
-    def _configure_artifact_path_resolver(
-        self,
-        workspace_dir: Path | None,
-    ) -> None:
-        """Give the RuntimeStateManager a resolver for artifact size stat."""
-        context = PathContext(
-            mount_dir=self._artifact_base_dir(workspace_dir),
-            lang=self._lang,
-        )
-        self.plan_notebook.path_resolver = context.resolve_artifact_path
-
     def _current_graph_id(self) -> str | None:
-        """Return the current DataPaw graph id, if any."""
         try:
             plan = self.plan_notebook.current_plan
             if plan is None:
@@ -363,31 +228,36 @@ class DataPawAgent(QwenPawAgent):
             )
             return None
 
+    def _artifact_base_dir(self, workspace_dir: Path | None) -> Path:
+        return default_artifacts_root(
+            agent_id=self._agent_config.id,
+            workspace_dir=workspace_dir,
+        )
+
+    def _configure_artifact_path_resolver(
+        self,
+        workspace_dir: Path | None,
+    ) -> None:
+        context = PathContext(
+            mount_dir=self._artifact_base_dir(workspace_dir),
+            lang=self._lang,
+        )
+        self.plan_notebook.path_resolver = context.resolve_artifact_path
+
+    # --- SSE metadata annotation ----------------------------------------------
+
     def _annotate_msg_node_id(self, msg: Msg) -> Msg:
-        """Attach the current DataPaw graph/node ids to message metadata.
-
-        ``graph_id`` is set whenever an active plan exists; ``node_id`` is
-        set only when a node is currently ``in_progress``. The frontend
-        routes content frames by ``graph_id`` alone (plan-level grouping)
-        when ``node_id`` is absent — necessary for LLM output emitted
-        between nodes (post-finish_subtask, pre-update_subtask_state),
-        during plan-confirmation wait, or in the final summary phase.
-
-        The keys written below must remain a subset of
-        :data:`NODE_ROUTING_METADATA_KEYS` (the channel reader iterates
-        that tuple to extract metadata for SSE content-frame injection).
-        """
+        """Attach graph_id / node_id to message metadata for SSE routing."""
         graph_id = self._current_graph_id()
         if not graph_id:
             return msg
 
         metadata = dict(getattr(msg, "metadata", None) or {})
-        graph_key, node_key = NODE_ROUTING_METADATA_KEYS
-        metadata.setdefault(graph_key, graph_id)
+        metadata.setdefault("graph_id", graph_id)
 
         node_id = self._current_node_id()
         if node_id:
-            metadata.setdefault(node_key, node_id)
+            metadata.setdefault("node_id", node_id)
 
         msg.metadata = metadata
         return msg
@@ -402,13 +272,12 @@ class DataPawAgent(QwenPawAgent):
             msg = self._annotate_msg_node_id(msg)
         return await super().print(msg, last, speech=speech)
 
-    # --- Tool registration --------------------------------------------------
+    # --- Tool registration ----------------------------------------------------
 
     def _register_plan_tools(
         self,
         namesake_strategy: NamesakeStrategy = "skip",
     ) -> None:
-        """Register all plan tools from plan_notebook + spawn_subagent."""
         for tool in self.plan_notebook.list_tools():
             try:
                 self.toolkit.register_tool_function(
@@ -423,7 +292,7 @@ class DataPawAgent(QwenPawAgent):
                 )
 
         try:
-            spawn_fn = self._make_spawn_subagent_fn()
+            spawn_fn = build_spawn_subagent_fn(self)
             self.toolkit.register_tool_function(
                 spawn_fn,
                 namesake_strategy="override",
@@ -433,60 +302,6 @@ class DataPawAgent(QwenPawAgent):
                 "Failed to register spawn_subagent tool",
                 exc_info=True,
             )
-
-    _SKILL_DIRS = {
-        "data_fetcher": [
-            str(PLUGIN_DIR / "skills" / "fetch-data"),
-        ],
-    }
-
-    def _make_spawn_subagent_fn(self) -> Any:
-        """Build the ``spawn_subagent`` closure with captured dependencies."""
-        from qwenpaw.agents.model_factory import create_model_and_formatter
-
-        agent_id = self._agent_config.id
-
-        def _get_model_and_formatter():
-            return create_model_and_formatter(agent_id=agent_id)
-
-        def _get_tools_for_role(role: str) -> list:
-            """Return tool functions appropriate for the given sub-agent role."""
-            if role == "data_fetcher":
-                return self._get_data_fetcher_tools()
-            return []
-
-        def _get_skill_dirs_for_role(role: str) -> list:
-            """Return skill directory paths for the given sub-agent role."""
-            return self._SKILL_DIRS.get(role, [])
-
-        return make_spawn_subagent_fn(
-            runtime_state=self.plan_notebook,
-            get_model_and_formatter=_get_model_and_formatter,
-            get_tools_for_role=_get_tools_for_role,
-            get_skill_dirs_for_role=_get_skill_dirs_for_role,
-        )
-
-    _DATA_FETCHER_BUILTINS = frozenset({
-        "execute_shell_command",
-        "read_file",
-        "write_file",
-        "edit_file",
-        "grep_search",
-        "glob_search",
-    })
-
-    def _get_data_fetcher_tools(self) -> list:
-        """Tools for the ``data_fetcher`` role: file/shell builtins + MCP."""
-        tools = []
-        for name, registered in self.toolkit.tools.items():
-            if (
-                name in self._DATA_FETCHER_BUILTINS
-                or registered.source == "mcp_server"
-            ):
-                fn = registered.original_func
-                if fn is not None:
-                    tools.append(fn)
-        return tools
 
     def _register_datapaw_tools(
         self,
@@ -521,18 +336,13 @@ class DataPawAgent(QwenPawAgent):
                     exc_info=True,
                 )
 
-    # --- reply (light override) --------------------------------------------
+    # --- reply ----------------------------------------------------------------
 
     async def reply(
         self,
         msg: Msg | list[Msg] | None = None,
         structured_model: Type[BaseModel] | None = None,
     ) -> Msg:
-        """Drain ``_pending_edits`` into memory, then defer to super().reply().
-
-        The behavior delta from base ReAct is driven by RuntimeStateManager
-        through the hint + prompt, not by additional dispatch logic here.
-        """
         trigger_msg_id = ""
         if isinstance(msg, Msg):
             trigger_msg_id = getattr(msg, "id", "") or ""
@@ -559,7 +369,7 @@ class DataPawAgent(QwenPawAgent):
 
         return await super().reply(msg=msg, structured_model=structured_model)
 
-    # --- ReAct hooks: append to the current node's trace -------------------
+    # --- ReAct hooks ----------------------------------------------------------
 
     async def _reasoning(
         self,
@@ -628,13 +438,16 @@ class DataPawAgent(QwenPawAgent):
     ) -> dict | None:
         """Run the tool, then append its result to the current node's trace.
 
-        When ``parallel_tool_calls=True``, multiple ``_acting`` coroutines
-        run concurrently via ``asyncio.gather``.  All concurrent calls
-        (e.g. multiple ``spawn_subagent``) target the same ``in_progress``
-        node, so trace append ordering is non-deterministic but correct.
+        For ``spawn_subagent``, delegates to ``acting_spawn_subagent``
+        which captures trace metadata for SSE and session persistence.
         """
         self._inject_datasource_metadata(tool_call)
-        result = await super()._acting(tool_call)
+        tool_name = tool_call.get("name", "")
+
+        if tool_name == "spawn_subagent":
+            result = await acting_spawn_subagent(self, tool_call)
+        else:
+            result = await super()._acting(tool_call)
 
         if self.memory.content:
             latest_msg, _ = self.memory.content[-1]
@@ -647,14 +460,13 @@ class DataPawAgent(QwenPawAgent):
         self.plan_notebook.append_to_trace(msg)
         return msg
 
-    # --- handle_interrupt (full override) ----------------------------------
+    # --- handle_interrupt -----------------------------------------------------
 
     async def handle_interrupt(
         self,
         msg: Msg | list[Msg] | None = None,
         structured_model: Type[BaseModel] | None = None,
     ) -> Msg:
-        """On interrupt, return a progress message; never mutate node state."""
         _ = (msg, structured_model)
 
         graph = self.plan_notebook.current_plan
@@ -684,12 +496,7 @@ class DataPawAgent(QwenPawAgent):
             logger.debug("memory.add interrupted msg failed", exc_info=True)
         return response_msg
 
-    # --- state_dict / load_state_dict --------------------------------------
-    #
-    # DataPaw DAG state is persisted through ``DAGStore`` into
-    # ``sessions/dag/<user_id>_<sid>.json``. The host session JSON still owns
-    # regular agent state such as memory/toolkit, but embedded DAG fields are
-    # ignored.
+    # --- state_dict / load_state_dict -----------------------------------------
 
     def state_dict(self) -> dict:
         notebook = self.plan_notebook
@@ -714,26 +521,6 @@ class DataPawAgent(QwenPawAgent):
         state_dict: dict,
         strict: bool = True,  # pylint: disable=unused-argument
     ) -> None:
-        """Load host state and restore DAG state from the DAG backing file.
-
-        The file under ``sessions/dag/`` is the only authoritative DAG backing
-        store. Any session-embedded ``plan_notebook`` / ``runtime_state`` block
-        is discarded before delegating to the host loader so it cannot
-        overwrite DataPaw's runtime state.
-
-        .. note::
-
-           The ``strict`` parameter is **intentionally ignored** — DataPaw
-           always delegates to the superclass with ``strict=False`` so
-           schema drift between plugin versions does not raise. The
-           signature keeps ``strict`` for compatibility with host callers
-           that pass it as a keyword (e.g.
-           ``agent.load_state_dict(state, strict=True)``); they get the
-           lenient behavior either way. This is by design: a freshly
-           installed plugin version reading a session JSON written by
-           the previous version must not raise on missing StateModule
-           keys.
-        """
         mapped = dict(state_dict)
         mapped.pop("runtime_state", None)
         mapped.pop("plan_notebook", None)

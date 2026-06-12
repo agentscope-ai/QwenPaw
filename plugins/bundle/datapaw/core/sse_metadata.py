@@ -14,4 +14,11 @@ tuple below; the writer and reader iterate over it.
 from __future__ import annotations
 
 
-NODE_ROUTING_METADATA_KEYS: tuple[str, ...] = ("graph_id", "node_id")
+NODE_ROUTING_METADATA_KEYS: tuple[str, ...] = (
+    "graph_id",
+    "node_id",
+    "subagent_event",
+    "subagent_tool_name",
+)
+
+SUBAGENT_ROUTING_BLOCK_TYPE = "_r"
