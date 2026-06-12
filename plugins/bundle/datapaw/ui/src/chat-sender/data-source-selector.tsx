@@ -97,7 +97,7 @@ export function createDataSourceSelector(host: HostBundle) {
   const ChevronDownIcon = createChevronDownIcon(React);
   const PlusIcon = createPlusIcon(React);
 
-  return function DataSourceSelector() {
+  return function DataSourceSelector(): React.ReactElement {
     const { t } = useTranslation();
     const currentSessionId = useCurrentSessionId(React);
     const [open, setOpen] = useState(false);

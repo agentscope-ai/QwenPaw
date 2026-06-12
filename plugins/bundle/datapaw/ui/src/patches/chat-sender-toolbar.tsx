@@ -3,7 +3,7 @@
  * `window.QwenPaw.chat.sender.addPrefix`.
  */
 import { createDataSourceSelector } from "../chat-sender/data-source-selector";
-import { ChatToolbarI18nProvider } from "../lib/chat-toolbar-i18n";
+import { createChatToolbarI18nProvider } from "../lib/chat-toolbar-i18n";
 import { isDatapawAgentSelected } from "../lib/agent";
 import { PLUGIN_ID } from "../lib/constants";
 import type { HostBundle } from "../types";
@@ -53,6 +53,7 @@ export function registerChatSenderToolbar(host: HostBundle): void {
 
   const { React } = host;
   const DataSourceSelector = createDataSourceSelector(host);
+  const ChatToolbarI18nProvider = createChatToolbarI18nProvider(React);
 
   function ChatSenderToolbarPrefix() {
     const active = useDatapawAgentSelected(React);
@@ -64,11 +65,9 @@ export function registerChatSenderToolbar(host: HostBundle): void {
         className: "datapaw-chat-sender-toolbar",
         "data-datapaw-chat-sender-toolbar": true,
       },
-      React.createElement(
-        ChatToolbarI18nProvider,
-        null,
-        React.createElement(DataSourceSelector),
-      ),
+      React.createElement(ChatToolbarI18nProvider, {
+        children: React.createElement(DataSourceSelector),
+      }),
     );
   }
 

@@ -1,7 +1,7 @@
 import i18n from "i18next";
 import { I18nextProvider, initReactI18next } from "react-i18next";
-import type { ReactNode } from "react";
 import en from "@/locales/en.json";
+import type { HostBundle } from "../types";
 import zh from "@/locales/zh.json";
 import ja from "@/locales/ja.json";
 import ru from "@/locales/ru.json";
@@ -47,6 +47,20 @@ toolbarI18n.use(initReactI18next).init({
   interpolation: { escapeValue: false },
 });
 
-export function ChatToolbarI18nProvider({ children }: { children: ReactNode }) {
-  return <I18nextProvider i18n={toolbarI18n}>{children}</I18nextProvider>;
+export function createChatToolbarI18nProvider(React: HostBundle["React"]) {
+  type I18nProviderProps = {
+    i18n: typeof toolbarI18n;
+    children?: React.ReactNode;
+  };
+
+  return function ChatToolbarI18nProvider({
+    children,
+  }: {
+    children?: React.ReactNode;
+  }) {
+    return React.createElement(
+      I18nextProvider as React.ComponentType<I18nProviderProps>,
+      { i18n: toolbarI18n, children },
+    );
+  };
 }
