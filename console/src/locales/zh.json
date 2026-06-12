@@ -2509,6 +2509,16 @@
     "materializeSkillDefault": "创建 技能",
     "shell": "执行 {{command}}",
     "shellDefault": "执行 命令",
+    "formatTable": {
+      "file": "文件",
+      "lineNumber": "行号",
+      "score": "分数",
+      "summary": "摘要",
+      "name": "名称",
+      "id": "ID",
+      "description": "描述",
+      "status": "状态"
+    },
     "loading": "处理中...",
     "browserAction": {
       "startHeaded": "启动浏览器(有界面)",

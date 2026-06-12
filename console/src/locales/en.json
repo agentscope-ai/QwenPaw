@@ -2500,6 +2500,16 @@
     "materializeSkillDefault": "Create skill",
     "shell": "Run {{command}}",
     "shellDefault": "Run command",
+    "formatTable": {
+      "file": "File",
+      "lineNumber": "Line",
+      "score": "Score",
+      "summary": "Summary",
+      "name": "Name",
+      "id": "ID",
+      "description": "Description",
+      "status": "Status"
+    },
     "loading": "Loading...",
     "browserAction": {
       "startHeaded": "Start browser (headed)",
