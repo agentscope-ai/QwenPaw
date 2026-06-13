@@ -1,6 +1,5 @@
 import { lazy, useEffect, useState } from "react";
 import { Routes, Route, Navigate } from "react-router-dom";
-import { useTranslation } from "react-i18next";
 import { loadSiteConfig, type SiteConfig, defaultConfig } from "@/config";
 import { SiteConfigProvider } from "@/config-context";
 import { SiteLayout } from "@/components/SiteLayout";
@@ -77,24 +76,11 @@ function loadGoogleAnalytics(id: string) {
   document.head.appendChild(script);
 }
 
-/**
- * Initial loading fallback component
- */
-function LoadingFallback() {
-  const { t } = useTranslation();
-
-  return (
-    <div className="min-h-screen flex items-center justify-center text-[var(--text-muted)]">
-      {t("docs.searchLoading")}
-    </div>
-  );
-}
-
 export default function App() {
   const [config, setConfig] = useState<SiteConfig>(defaultConfig);
-  const [isLoading, setIsLoading] = useState(true);
 
-  // Load site configuration
+  // Load site configuration in the background. First paint uses
+  // defaultConfig so rendering is not blocked on this fetch.
   useEffect(() => {
     loadSiteConfig()
       .then((loadedConfig) => {
@@ -102,9 +88,6 @@ export default function App() {
       })
       .catch((error) => {
         console.error("[Config] Failed to load configuration:", error);
-      })
-      .finally(() => {
-        setIsLoading(false);
       });
   }, []);
 
@@ -125,11 +108,6 @@ export default function App() {
       window.removeEventListener("load", handleLoad);
     };
   }, []);
-
-  // Show loading state while config is being loaded
-  if (isLoading) {
-    return <LoadingFallback />;
-  }
 
   return (
     <SiteConfigProvider config={config}>

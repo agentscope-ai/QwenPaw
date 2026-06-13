@@ -7,12 +7,6 @@ settings:
 importers:
   .:
     dependencies:
-      "@fontsource-variable/geist":
-        specifier: ^5.2.8
-        version: 5.2.8
-      "@types/react-syntax-highlighter":
-        specifier: ^15.5.13
-        version: 15.5.13
       class-variance-authority:
         specifier: ^0.7.1
         version: 0.7.1
@@ -70,9 +64,6 @@ importers:
       remark-gfm:
         specifier: ^4.0.1
         version: 4.0.1
-      shadcn:
-        specifier: ^4.1.0
-        version: 4.1.0(@types/node@25.5.0)(typescript@5.6.3)
       tailwind-merge:
         specifier: ^3.5.0
         version: 3.5.0
@@ -83,9 +74,6 @@ importers:
       "@tailwindcss/vite":
         specifier: ^4.2.2
         version: 4.2.2(vite@6.4.1(@types/node@25.5.0)(jiti@2.6.1)(lightningcss@1.32.0))
-      "@types/highlight.js":
-        specifier: ^10.1.0
-        version: 10.1.0
       "@types/node":
         specifier: ^25.5.0
         version: 25.5.0
@@ -95,12 +83,18 @@ importers:
       "@types/react-dom":
         specifier: ^18.3.1
         version: 18.3.7(@types/react@18.3.28)
+      "@types/react-syntax-highlighter":
+        specifier: ^15.5.13
+        version: 15.5.13
       "@vitejs/plugin-react":
         specifier: ^4.3.4
         version: 4.7.0(vite@6.4.1(@types/node@25.5.0)(jiti@2.6.1)(lightningcss@1.32.0))
       prettier:
         specifier: 3.0.0
         version: 3.0.0
+      shadcn:
+        specifier: ^4.1.0
+        version: 4.1.0(@types/node@25.5.0)(typescript@5.6.3)
       tailwindcss:
         specifier: ^4.2.2
         version: 4.2.2
@@ -667,12 +661,6 @@ packages:
     resolution:
       {
         integrity: sha512-RiB/yIh78pcIxl6lLMG0CgBXAZ2Y0eVHqMPYugu+9U0AeT6YBeiJpf7lbdJNIugFP5SIjwNRgo4DhR1Qxi26Gg==,
-      }
-
-  "@fontsource-variable/geist@5.2.8":
-    resolution:
-      {
-        integrity: sha512-cJ6m9e+8MQ5dCYJsLylfZrgBh6KkG4bOLckB35Tr9J/EqdkEM6QllH5PxqP1dhTvFup+HtMRPuz9xOjxXJggxw==,
       }
 
   "@hono/node-server@1.19.11":
@@ -1794,6 +1782,7 @@ packages:
       }
     cpu: [arm]
     os: [linux]
+    libc: [glibc]
 
   "@rollup/rollup-linux-arm-musleabihf@4.57.1":
     resolution:
@@ -1802,6 +1791,7 @@ packages:
       }
     cpu: [arm]
     os: [linux]
+    libc: [musl]
 
   "@rollup/rollup-linux-arm64-gnu@4.57.1":
     resolution:
@@ -1810,6 +1800,7 @@ packages:
       }
     cpu: [arm64]
     os: [linux]
+    libc: [glibc]
 
   "@rollup/rollup-linux-arm64-musl@4.57.1":
     resolution:
@@ -1818,6 +1809,7 @@ packages:
       }
     cpu: [arm64]
     os: [linux]
+    libc: [musl]
 
   "@rollup/rollup-linux-loong64-gnu@4.57.1":
     resolution:
@@ -1826,6 +1818,7 @@ packages:
       }
     cpu: [loong64]
     os: [linux]
+    libc: [glibc]
 
   "@rollup/rollup-linux-loong64-musl@4.57.1":
     resolution:
@@ -1834,6 +1827,7 @@ packages:
       }
     cpu: [loong64]
     os: [linux]
+    libc: [musl]
 
   "@rollup/rollup-linux-ppc64-gnu@4.57.1":
     resolution:
@@ -1842,6 +1836,7 @@ packages:
       }
     cpu: [ppc64]
     os: [linux]
+    libc: [glibc]
 
   "@rollup/rollup-linux-ppc64-musl@4.57.1":
     resolution:
@@ -1850,6 +1845,7 @@ packages:
       }
     cpu: [ppc64]
     os: [linux]
+    libc: [musl]
 
   "@rollup/rollup-linux-riscv64-gnu@4.57.1":
     resolution:
@@ -1858,6 +1854,7 @@ packages:
       }
     cpu: [riscv64]
     os: [linux]
+    libc: [glibc]
 
   "@rollup/rollup-linux-riscv64-musl@4.57.1":
     resolution:
@@ -1866,6 +1863,7 @@ packages:
       }
     cpu: [riscv64]
     os: [linux]
+    libc: [musl]
 
   "@rollup/rollup-linux-s390x-gnu@4.57.1":
     resolution:
@@ -1874,6 +1872,7 @@ packages:
       }
     cpu: [s390x]
     os: [linux]
+    libc: [glibc]
 
   "@rollup/rollup-linux-x64-gnu@4.57.1":
     resolution:
@@ -1882,6 +1881,7 @@ packages:
       }
     cpu: [x64]
     os: [linux]
+    libc: [glibc]
 
   "@rollup/rollup-linux-x64-musl@4.57.1":
     resolution:
@@ -1890,6 +1890,7 @@ packages:
       }
     cpu: [x64]
     os: [linux]
+    libc: [musl]
 
   "@rollup/rollup-openbsd-x64@4.57.1":
     resolution:
@@ -2011,6 +2012,7 @@ packages:
     engines: { node: ">= 20" }
     cpu: [arm64]
     os: [linux]
+    libc: [glibc]
 
   "@tailwindcss/oxide-linux-arm64-musl@4.2.2":
     resolution:
@@ -2020,6 +2022,7 @@ packages:
     engines: { node: ">= 20" }
     cpu: [arm64]
     os: [linux]
+    libc: [musl]
 
   "@tailwindcss/oxide-linux-x64-gnu@4.2.2":
     resolution:
@@ -2029,6 +2032,7 @@ packages:
     engines: { node: ">= 20" }
     cpu: [x64]
     os: [linux]
+    libc: [glibc]
 
   "@tailwindcss/oxide-linux-x64-musl@4.2.2":
     resolution:
@@ -2038,6 +2042,7 @@ packages:
     engines: { node: ">= 20" }
     cpu: [x64]
     os: [linux]
+    libc: [musl]
 
   "@tailwindcss/oxide-wasm32-wasi@4.2.2":
     resolution:
@@ -2333,13 +2338,6 @@ packages:
         integrity: sha512-WPs+bbQw5aCj+x6laNGWLH3wviHtoCv/P3+otBhbOhJgG8qtpdAMlTCxLtsTWA7LH1Oh/bFCHsBn0TPS5m30EQ==,
       }
 
-  "@types/highlight.js@10.1.0":
-    resolution:
-      {
-        integrity: sha512-77hF2dGBsOgnvZll1vymYiNUtqJ8cJfXPD6GG/2M0aLRc29PkvB7Au6sIDjIEFcSICBhCh2+Pyq6WSRS7LUm6A==,
-      }
-    deprecated: This is a stub types definition. highlight.js provides its own type definitions, so you do not need this installed.
-
   "@types/mdast@4.0.4":
     resolution:
       {
@@ -2425,6 +2423,7 @@ packages:
       {
         integrity: sha512-WmoN8qaIAo7WTYWbAZuG8PYEhn5fkz7dZrqTBZ7dtt//lL2Gwms1IcnQ5yHqjDfX8Ft5j4YzDM23f87zBfDe9g==,
       }
+    deprecated: Potential CWE-502 - Update to 1.3.1 or higher
 
   "@vitejs/plugin-react@4.7.0":
     resolution:
@@ -4247,6 +4246,7 @@ packages:
     engines: { node: ">= 12.0.0" }
     cpu: [arm64]
     os: [linux]
+    libc: [glibc]
 
   lightningcss-linux-arm64-musl@1.32.0:
     resolution:
@@ -4256,6 +4256,7 @@ packages:
     engines: { node: ">= 12.0.0" }
     cpu: [arm64]
     os: [linux]
+    libc: [musl]
 
   lightningcss-linux-x64-gnu@1.32.0:
     resolution:
@@ -4265,6 +4266,7 @@ packages:
     engines: { node: ">= 12.0.0" }
     cpu: [x64]
     os: [linux]
+    libc: [glibc]
 
   lightningcss-linux-x64-musl@1.32.0:
     resolution:
@@ -4274,6 +4276,7 @@ packages:
     engines: { node: ">= 12.0.0" }
     cpu: [x64]
     os: [linux]
+    libc: [musl]
 
   lightningcss-win32-arm64-msvc@1.32.0:
     resolution:
@@ -6500,8 +6503,6 @@ snapshots:
 
   "@floating-ui/utils@0.2.11": {}
 
-  "@fontsource-variable/geist@5.2.8": {}
-
   "@hono/node-server@1.19.11(hono@4.12.9)":
     dependencies:
       hono: 4.12.9
@@ -7680,10 +7681,6 @@ snapshots:
   "@types/hast@3.0.4":
     dependencies:
       "@types/unist": 3.0.3
-
-  "@types/highlight.js@10.1.0":
-    dependencies:
-      highlight.js: 11.11.1
 
   "@types/mdast@4.0.4":
     dependencies:

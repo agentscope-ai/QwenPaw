@@ -22,7 +22,6 @@ import {
   AgentScopePlatformIcon,
 } from "@/components/Icon";
 import { sectionStyles } from "@/lib/utils";
-import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 
 type InstallMethod = "pip" | "script" | "docker" | "cloud" | "desktop";
 type ScriptPlatform = "mac" | "windows";
@@ -103,6 +102,70 @@ const COMMANDS = {
   ],
 } as const;
 
+/**
+ * Minimal hand-rolled bash highlighting for the few install commands shown
+ * here, replacing the react-syntax-highlighter dependency on the home page.
+ * Commands are purple, operators red — matching the previous Prism theme.
+ */
+function highlightBashLine(
+  line: string,
+  lineKey: number,
+  isContinuation: boolean,
+): JSX.Element {
+  const tokens = line.match(/(\s+|&&|\|\||[|\\]|\S+)/g) ?? [];
+  let expectCommand = !isContinuation;
+  return (
+    <span key={lineKey}>
+      {tokens.map((token, i) => {
+        if (/^\s+$/.test(token)) return <span key={i}>{token}</span>;
+        if (token === "&&" || token === "||" || token === "|") {
+          expectCommand = true;
+          return (
+            <span key={i} style={{ color: "#d73a49" }}>
+              {token}
+            </span>
+          );
+        }
+        if (token === "\\") {
+          return (
+            <span key={i} style={{ color: "#d73a49" }}>
+              {token}
+            </span>
+          );
+        }
+        if (expectCommand) {
+          expectCommand = false;
+          return (
+            <span key={i} style={{ color: "#6f42c1", fontWeight: 600 }}>
+              {token}
+            </span>
+          );
+        }
+        return <span key={i}>{token}</span>;
+      })}
+    </span>
+  );
+}
+
+function BashCode({ code }: { code: string }) {
+  // Continuation lines (after a trailing "\") are not new commands.
+  let continued = false;
+  return (
+    <div className="whitespace-pre text-left" style={{ color: "#1A1716" }}>
+      {code.split("\n").map((line, i) => {
+        const el = highlightBashLine(line, i, continued);
+        continued = line.trimEnd().endsWith("\\");
+        return (
+          <div key={i}>
+            {el}
+            {line === "" ? "\u00a0" : null}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 const sectionVariants = {
   hidden: { opacity: 0, y: 20 },
   show: {
@@ -156,70 +219,7 @@ function CodeBlock({
         </button>
       </div>
       <div className="min-h-0 flex-1 overflow-x-auto px-4 py-4 text-center font-mono md:px-5 md:py-5">
-        <SyntaxHighlighter
-          language="bash"
-          style={{
-            'code[class*="language-"]': {
-              color: "#1A1716",
-              background: "transparent",
-              fontFamily: "inherit",
-              fontSize: "inherit",
-              lineHeight: "inherit",
-              textAlign: "left",
-            },
-            'pre[class*="language-"]': {
-              background: "transparent",
-              margin: 0,
-              padding: 0,
-            },
-            comment: { color: "#6a737d", fontStyle: "italic" },
-            prolog: { color: "#6a737d" },
-            doctype: { color: "#6a737d" },
-            cdata: { color: "#6a737d" },
-            punctuation: { color: "#393A34" },
-            property: { color: "#d73a49" },
-            tag: { color: "#d73a49" },
-            boolean: { color: "#d73a49" },
-            number: { color: "#005cc5" },
-            constant: { color: "#d73a49" },
-            symbol: { color: "#d73a49" },
-            deleted: { color: "#d73a49" },
-            selector: { color: "#6f42c1" },
-            "attr-name": { color: "#6f42c1" },
-            string: { color: "#032f62" },
-            char: { color: "#032f62" },
-            builtin: { color: "#d73a49", fontWeight: "600" },
-            inserted: { color: "#22863a" },
-            operator: { color: "#d73a49" },
-            entity: { color: "#6f42c1" },
-            url: { color: "#032f62" },
-            variable: { color: "#e36209" },
-            atrule: { color: "#d73a49" },
-            "attr-value": { color: "#032f62" },
-            function: { color: "#6f42c1" },
-            keyword: { color: "#d73a49", fontWeight: "600" },
-            regex: { color: "#22863a" },
-            important: { color: "#d73a49", fontWeight: "bold" },
-            bold: { fontWeight: "bold" },
-            italic: { fontStyle: "italic" },
-          }}
-          customStyle={{
-            margin: 0,
-            padding: 0,
-            background: "transparent",
-            fontSize: "inherit",
-            lineHeight: "inherit",
-          }}
-          codeTagProps={{
-            style: {
-              fontFamily: "inherit",
-              background: "transparent",
-            },
-          }}
-          PreTag="div"
-        >
-          {code}
-        </SyntaxHighlighter>
+        <BashCode code={code} />
       </div>
     </div>
   );
@@ -331,8 +331,6 @@ export function QuickStart({ docsBase }: QuickStartProps) {
                 <motion.div
                   className="overflow-hidden rounded-[16px] bg-white"
                   variants={itemVariants}
-                  layout
-                  transition={{ duration: 0.3, ease: "easeInOut" }}
                 >
                   <div className="grid grid-cols-2 gap-px bg-(--bg) pb-px sm:grid-cols-5">
                     {METHOD_ORDER.map((method) => {
@@ -360,11 +358,7 @@ export function QuickStart({ docsBase }: QuickStartProps) {
                     })}
                   </div>
 
-                  <motion.div
-                    className="flex min-h-[420px] flex-col p-3 md:min-h-[400px] md:p-7"
-                    layout
-                    transition={{ duration: 0.3, ease: "easeInOut" }}
-                  >
+                  <div className="flex min-h-[420px] flex-col p-3 md:min-h-[400px] md:p-7">
                     <p className="font-inter mb-4 mt-2 text-sm leading-relaxed text-(--color-text-secondary) md:mb-4 md:mt-3 md:text-base">
                       {t(`quickstart.desc.${selectedMethod}`)}
                     </p>
@@ -377,8 +371,12 @@ export function QuickStart({ docsBase }: QuickStartProps) {
                             className="flex min-h-0 flex-1 flex-col"
                             initial={{ opacity: 0, y: 10 }}
                             animate={{ opacity: 1, y: 0 }}
-                            exit={{ opacity: 0, y: -8 }}
-                            transition={{ duration: 0.2 }}
+                            exit={{
+                              opacity: 0,
+                              y: -8,
+                              transition: { duration: 0.08 },
+                            }}
+                            transition={{ duration: 0.15 }}
                           >
                             <CodeBlock
                               lines={COMMANDS.pip}
@@ -396,8 +394,12 @@ export function QuickStart({ docsBase }: QuickStartProps) {
                             className="flex min-h-0 flex-1 flex-col gap-3"
                             initial={{ opacity: 0, y: 10 }}
                             animate={{ opacity: 1, y: 0 }}
-                            exit={{ opacity: 0, y: -8 }}
-                            transition={{ duration: 0.2 }}
+                            exit={{
+                              opacity: 0,
+                              y: -8,
+                              transition: { duration: 0.08 },
+                            }}
+                            transition={{ duration: 0.15 }}
                           >
                             <div className="flex justify-center">
                               <div className="inline-flex rounded-xl border border-[#ebe5df] bg-(--color-fill-tertiary) p-1">
@@ -468,8 +470,12 @@ export function QuickStart({ docsBase }: QuickStartProps) {
                             className="flex min-h-0 flex-1 flex-col"
                             initial={{ opacity: 0, y: 10 }}
                             animate={{ opacity: 1, y: 0 }}
-                            exit={{ opacity: 0, y: -8 }}
-                            transition={{ duration: 0.2 }}
+                            exit={{
+                              opacity: 0,
+                              y: -8,
+                              transition: { duration: 0.08 },
+                            }}
+                            transition={{ duration: 0.15 }}
                           >
                             <CodeBlock
                               lines={COMMANDS.docker}
@@ -489,8 +495,12 @@ export function QuickStart({ docsBase }: QuickStartProps) {
                             className="grid min-h-[140px] gap-3"
                             initial={{ opacity: 0, y: 10 }}
                             animate={{ opacity: 1, y: 0 }}
-                            exit={{ opacity: 0, y: -8 }}
-                            transition={{ duration: 0.2 }}
+                            exit={{
+                              opacity: 0,
+                              y: -8,
+                              transition: { duration: 0.08 },
+                            }}
+                            transition={{ duration: 0.15 }}
                           >
                             <div className="flex justify-center">
                               <div className="inline-flex h-11 items-center rounded-xl border border-[#ebe5df] bg-(--color-fill-tertiary) p-1 sm:h-11">
@@ -567,8 +577,12 @@ export function QuickStart({ docsBase }: QuickStartProps) {
                             className="grid min-h-[220px] gap-3"
                             initial={{ opacity: 0, y: 10 }}
                             animate={{ opacity: 1, y: 0 }}
-                            exit={{ opacity: 0, y: -8 }}
-                            transition={{ duration: 0.2 }}
+                            exit={{
+                              opacity: 0,
+                              y: -8,
+                              transition: { duration: 0.08 },
+                            }}
+                            transition={{ duration: 0.15 }}
                           >
                             <div className="rounded-xl border border-[#ececec] bg-[#fafafa] p-4 md:p-5">
                               <div className="mb-2 font-mono text-sm font-semibold tracking-[0.01em] text-(--color-text) md:text-[0.95rem]">
@@ -617,7 +631,7 @@ export function QuickStart({ docsBase }: QuickStartProps) {
                         ) : null}
                       </AnimatePresence>
                     </div>
-                  </motion.div>
+                  </div>
                 </motion.div>
               </div>
               <div
