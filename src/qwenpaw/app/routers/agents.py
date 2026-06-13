@@ -114,24 +114,38 @@ def _normalized_agent_order(config) -> list[str]:
     """Return a deduplicated agent order covering every configured agent."""
     profile_ids = list(config.agents.profiles.keys())
     ordered_ids: list[str] = []
+    seen: set[str] = set()
 
     for agent_id in config.agents.agent_order:
-        if agent_id in config.agents.profiles and agent_id not in ordered_ids:
+        if agent_id in config.agents.profiles and agent_id not in seen:
             ordered_ids.append(agent_id)
+            seen.add(agent_id)
 
     for agent_id in profile_ids:
-        if agent_id not in ordered_ids:
+        if agent_id not in seen:
             ordered_ids.append(agent_id)
+            seen.add(agent_id)
 
     return ordered_ids
 
 
+# mtime-cache parsed PROFILE.md snippets so the agent-list endpoint does
+# not re-read/re-parse every agent's PROFILE.md on each request (#4559).
+_profile_desc_cache: dict[str, tuple[float, str]] = {}
+
+
 def _read_profile_description(workspace_dir: str) -> str:
-    """Read description from PROFILE.md if exists."""
+    """Read description from PROFILE.md if exists (mtime-cached)."""
     try:
         profile_path = Path(workspace_dir) / "PROFILE.md"
         if not profile_path.exists():
             return ""
+
+        cache_key = str(profile_path)
+        mtime = profile_path.stat().st_mtime
+        cached = _profile_desc_cache.get(cache_key)
+        if cached is not None and cached[0] == mtime:
+            return cached[1]
 
         content = read_text_file_with_encoding_fallback(profile_path).strip()
         lines = []
@@ -149,7 +163,9 @@ def _read_profile_description(workspace_dir: str) -> str:
                 if line.strip() and not line.strip().startswith("#"):
                     lines.append(line.strip())
 
-        return " ".join(lines)[:200] if lines else ""
+        description = " ".join(lines)[:200] if lines else ""
+        _profile_desc_cache[cache_key] = (mtime, description)
+        return description
     except Exception:  # noqa: E722
         return ""
 
