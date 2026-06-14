@@ -22,6 +22,7 @@
         "test_persona_offline_tamper_startup_scan",
         "test_operator_editor_save_implicit_accept",
         "test_agent_write_persona_drift",
+        "test_agent_tool_no_watch_double_emit",
         "test_persona_watch_triggers_check_on_modify",
         "test_persona_drift_alert_restore_accept",
         "test_persona_restore_rejects_wrong_phrase"
@@ -53,6 +54,7 @@
     { "id": "PB-S16", "layer": "backend", "target": "test_persona_put_rejects_targets_when_disabled" },
     { "id": "PB-S20", "layer": "backend", "target": "test_persona_offline_tamper_startup_scan" },
     { "id": "PB-S30", "layer": "backend", "target": "test_agent_write_persona_drift" },
+    { "id": "PB-S31", "layer": "backend", "target": "test_agent_tool_no_watch_double_emit" },
     { "id": "PB-S40", "layer": "backend", "target": "test_operator_editor_save_implicit_accept" },
     { "id": "PB-S42", "layer": "backend", "target": "test_persona_drift_alert_restore_accept" },
     { "id": "PB-S43", "layer": "backend", "target": "test_persona_restore_rejects_wrong_phrase" },

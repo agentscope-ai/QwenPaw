@@ -112,6 +112,24 @@ class PersonaBaselineDriftObservation:
 
 
 @dataclass(frozen=True)
+class AgentToolWatchDedupeObservation:
+    single_pending_alert: bool
+    single_inbox_emit: bool
+    single_sse_emit: bool
+    failure_reasons: tuple[str, ...]
+
+    def satisfies_no_double_emit(self) -> bool:
+        return all(
+            (
+                self.single_pending_alert,
+                self.single_inbox_emit,
+                self.single_sse_emit,
+                not self.failure_reasons,
+            ),
+        )
+
+
+@dataclass(frozen=True)
 class PersonaDisabledRuntimeObservation:
     startup_scan_skipped: bool
     drift_count_zero: bool
@@ -531,6 +549,80 @@ class IntegrityProtectionHarness:
             accept_records_changed_content_as_new_baseline=False,
             no_auto_restore_or_accept_when_disabled=True,
             failure_reasons=(),
+        )
+
+    def verify_agent_tool_no_watch_double_emit(
+        self,
+        *,
+        protected_path: str = "SOUL.md",
+    ) -> AgentToolWatchDedupeObservation:
+        """P1 — PB-S31: agent_tool drift is not duplicated by external_watch echo."""
+        import asyncio
+        import sys
+        from pathlib import Path
+
+        repo_root = Path(__file__).resolve().parents[3]
+        ext_path = repo_root / "extension"
+        if str(ext_path) not in sys.path:
+            sys.path.insert(0, str(ext_path))
+
+        from persona_baseline.service import PersonaBaselineService
+
+        service = PersonaBaselineService(self.workspace_root)
+        soul_path = self.workspace_root / protected_path
+        soul_path.write_text("approved soul baseline\n", encoding="utf-8")
+        inbox_calls: list[str] = []
+        sse_calls: list[str] = []
+
+        async def _mock_inbox_append(**kwargs) -> dict:
+            provenance = str((kwargs.get("payload") or {}).get("provenance") or "")
+            inbox_calls.append(provenance)
+            return {"id": f"inbox-{len(inbox_calls)}"}
+
+        async def _mock_sse_publish(payload: dict) -> None:
+            if payload.get("type") == "persona_drift":
+                sse_calls.append(str(payload.get("provenance") or ""))
+
+        service.emitter.inbox_append = _mock_inbox_append
+        service.emitter.sse_publish = _mock_sse_publish
+
+        async def _run() -> tuple[int, int, int]:
+            await service.update_settings(enabled=True)
+            soul_path.write_text(
+                soul_path.read_text(encoding="utf-8")
+                + "# agent tool tamper\n",
+                encoding="utf-8",
+            )
+            await service.coordinator.on_file_saved(
+                agent_id="default",
+                absolute_path=soul_path,
+                provenance="agent_tool",
+            )
+            await service.coordinator.on_file_saved(
+                agent_id="default",
+                absolute_path=soul_path,
+                provenance="external_watch",
+            )
+            return (
+                service.drift_store.open_count(),
+                len(inbox_calls),
+                len(sse_calls),
+            )
+
+        pending_count, inbox_count, sse_count = asyncio.run(_run())
+        failure_reasons: list[str] = []
+        if pending_count != 1:
+            failure_reasons.append(f"expected_one_pending_alert got={pending_count}")
+        if inbox_count != 1:
+            failure_reasons.append(f"expected_one_inbox_emit got={inbox_count}")
+        if sse_count != 1:
+            failure_reasons.append(f"expected_one_sse_emit got={sse_count}")
+
+        return AgentToolWatchDedupeObservation(
+            single_pending_alert=pending_count == 1,
+            single_inbox_emit=inbox_count == 1,
+            single_sse_emit=sse_count == 1,
+            failure_reasons=tuple(failure_reasons),
         )
 
     def verify_persona_disabled_no_runtime(

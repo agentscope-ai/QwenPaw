@@ -310,6 +310,17 @@ def test_agent_write_persona_drift(integrity_harness: IntegrityProtectionHarness
 
 
 @pytest.mark.integration
+@pytest.mark.p1
+def test_agent_tool_no_watch_double_emit(
+    integrity_harness: IntegrityProtectionHarness,
+) -> None:
+    """Scenario PB-S31 (P1): agent_tool drift is not duplicated by watch echo."""
+
+    observation = integrity_harness.verify_agent_tool_no_watch_double_emit()
+    assert observation.satisfies_no_double_emit(), observation.failure_reasons
+
+
+@pytest.mark.integration
 @pytest.mark.p0
 def test_persona_disabled_no_startup_scan(
     integrity_harness: IntegrityProtectionHarness,

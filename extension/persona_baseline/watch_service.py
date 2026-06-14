@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
 import time
 from pathlib import Path
@@ -86,17 +87,38 @@ class PersonaWatchService:
                         content = target.read_bytes()
                     except OSError:
                         continue
+                    content_sha = hashlib.sha256(content).hexdigest()
                     if self.suppress.should_ignore(
                         agent_id=agent_id,
                         path=rel_path,
                         content=content,
                     ):
+                        logger.info(
+                            "persona_watch_suppressed agent_id=%s path=%s "
+                            "sha256=%s change=%s",
+                            agent_id,
+                            rel_path,
+                            content_sha[:12],
+                            _change.name,
+                        )
                         continue
                     debounce_key = (agent_id, rel_path)
                     now = time.time()
                     if self._debounce_until.get(debounce_key, 0) > now:
+                        logger.debug(
+                            "persona_watch_debounced agent_id=%s path=%s",
+                            agent_id,
+                            rel_path,
+                        )
                         continue
                     self._debounce_until[debounce_key] = now + _DEBOUNCE_SECONDS
+                    logger.info(
+                        "persona_watch_emit agent_id=%s path=%s sha256=%s change=%s",
+                        agent_id,
+                        rel_path,
+                        content_sha[:12],
+                        _change.name,
+                    )
                     await self._service._emit_drift_for_path(
                         settings,
                         agent_id,
