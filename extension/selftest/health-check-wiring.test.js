@@ -59,7 +59,9 @@ for (const filePath of requiredWiring) {
 const healthSection = read('console/src/extension/health_check/components/HealthCheckSection.tsx');
 assert.ok(healthSection.includes('runIntegrityHealthCheckScan'), 'HealthCheckSection must call scan API');
 assert.ok(healthSection.includes('runIntegrityHealthCheckFix'), 'HealthCheckSection must call fix API');
-assert.ok(healthSection.includes('runScan(true)'), 'HealthCheckSection must expose deep scan control');
+assert.ok(healthSection.includes('runCheck'), 'HealthCheckSection must expose single run check control');
+assert.ok(healthSection.includes('showIssuesOnly'), 'HealthCheckSection must expose issues-only filter');
+assert.ok(healthSection.includes('healthCheckSummary'), 'HealthCheckSection must expose scan summary');
 
 const healthApiClient = read('console/src/extension/health_check/api/client.ts');
 const securityApi = read('console/src/api/modules/security.ts');

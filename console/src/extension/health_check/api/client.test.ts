@@ -42,18 +42,15 @@ describe("securityApi health check", () => {
     );
   });
 
-  it("runIntegrityHealthCheckFix posts selected repair and confirmation phrase", async () => {
-    await securityApi.runIntegrityHealthCheckFix(
-      "repair_missing_console_static_build",
-      "Confirm selected doctor fix",
-    );
+  it("runIntegrityHealthCheckFix posts fix_id", async () => {
+    await securityApi.runIntegrityHealthCheckFix("ensure-working-dir");
     expect(request).toHaveBeenCalledWith(
       "/config/security/integrity-protection/health-check/fix",
       expect.objectContaining({
         method: "POST",
         body: JSON.stringify({
-          selected_repair: "repair_missing_console_static_build",
-          confirmation_phrase: "Confirm selected doctor fix",
+          fix_id: "ensure-working-dir",
+          selected_repair: "repair_ensure-working-dir",
         }),
       }),
     );

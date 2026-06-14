@@ -58,9 +58,8 @@ async def run_integrity_health_check_fix(
 
     result = await asyncio.to_thread(
         run_confirmed_health_fix,
-        selected_repair=body.selected_repair,
-        confirmation_phrase=body.confirmation_phrase,
-        expected_confirmation_phrase=body.expected_confirmation_phrase,
+        fix_id=body.fix_id,
+        selected_repair=body.selected_repair or f"repair_{body.fix_id}",
     )
     return HealthCheckFixResponse(**result.to_dict())
 

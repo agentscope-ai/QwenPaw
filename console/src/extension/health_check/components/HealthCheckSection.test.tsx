@@ -22,59 +22,58 @@ vi.mock("@agentscope-ai/design", async () => {
   return {
     Button: antd.Button,
     Card: antd.Card,
-    Input: antd.Input,
     Table: antd.Table,
     Tag: antd.Tag,
-    Progress: antd.Progress,
   };
 });
 
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({
-    t: (key: string, options?: { defaultValue?: string; repair?: string; item?: string; fixId?: string }) => {
+    t: (key: string, options?: Record<string, unknown>) => {
       const labels: Record<string, string> = {
-        "security.healthCheck.title": "Health Check",
-        "security.healthCheck.runReadOnlyScan": "Run read-only scan",
-        "security.healthCheck.runDeepScan": "Run deep connectivity scan",
-        "security.healthCheck.scanOnlyNotice": "Scan-only notice",
-        "security.healthCheck.status.idle": "Idle",
-        "security.healthCheck.status.running": "Running",
-        "security.healthCheck.status.completed": "Completed",
-        "security.healthCheck.status.readOnlyScan": "Read-only scan",
-        "security.healthCheck.status.failed": "Failed",
+        "security.healthCheck.panelTitle": "Runtime diagnostics",
+        "security.healthCheck.runCheck": "Run check",
+        "security.healthCheck.runCheckAgain": "Run again",
+        "security.healthCheck.status.idle": "Ready",
+        "security.healthCheck.status.running": "Checking",
+        "security.healthCheck.status.completed": "Done",
         "security.healthCheck.carousel.idle": "Waiting",
+        "security.healthCheck.carousel.runningHint": "Analyzing",
         "security.healthCheck.carousel.currentPrefix": "Checking {{item}}",
-        "security.healthCheck.carousel.completed": "Scan completed",
-        "security.healthCheck.emptyCheckItems": "No health check items yet",
-        "security.healthCheck.loadFailed": "Failed to run health check scan",
-        "security.healthCheck.columns.group": "Group",
+        "security.healthCheck.carousel.completed": "Check finished",
+        "security.healthCheck.emptyState.intro": "Click Run check",
+        "security.healthCheck.emptyState.step1": "Step 1",
+        "security.healthCheck.emptyState.step2": "Step 2",
+        "security.healthCheck.emptyState.step3": "Step 3",
+        "security.healthCheck.summary.allClearHeadline": "All {{total}} checks passed",
+        "security.healthCheck.summary.headline": "{{attention}} issues",
+        "security.healthCheck.view.issuesOnly": "Issues only",
+        "security.healthCheck.view.all": "All",
+        "security.healthCheck.columns.group": "Category",
         "security.healthCheck.columns.check": "Check",
         "security.healthCheck.columns.status": "Status",
-        "security.healthCheck.columns.detail": "Detail",
-        "security.healthCheck.columns.risk": "Risk",
-        "security.healthCheck.columns.fixId": "Fix ID",
-        "security.healthCheck.scanItems.working-dir": "Working directory",
+        "security.healthCheck.columns.detail": "Details",
+        "security.healthCheck.columns.guidance": "What to do",
+        "security.healthCheck.columns.action": "Action",
+        "security.healthCheck.scanItems.working-dir": "Data folder",
+        "security.healthCheck.scanItems.tool-guard": "Tool guard",
         "security.healthCheck.groups.environment": "Environment",
         "security.healthCheck.itemStatus.ok": "OK",
-        "security.healthCheck.selectedRepair": "Selected repair: {{repair}}",
-        "security.healthCheck.risks.title": "Risks",
-        "security.healthCheck.noRisks": "No risks",
-        "security.healthCheck.repairs.title": "Repairs",
-        "security.healthCheck.confirmationPhrase": "Confirm selected doctor fix",
-        "security.healthCheck.confirmSelectedDoctorFix": "Confirm selected doctor fix",
-        "security.healthCheck.repairs.repair_missing_console_static_build":
-          "Repair console static build",
-        "security.healthCheck.fixResult.executed": "Fix executed",
-        "security.healthCheck.fixResult.notExecuted": "Fix not executed",
-        "security.healthCheck.fixResult.doctorFixId": "Doctor fix: {{fixId}}",
+        "security.healthCheck.itemStatus.risk": "Needs attention",
+        "security.healthCheck.details.working-dir.ok": "Data folder OK",
+        "security.healthCheck.fix.action": "Fix",
+        "security.healthCheck.actions.manual": "Manual fix needed",
+        "security.healthCheck.errorHint": "Check failed",
+        "security.healthCheck.retry": "Retry",
+        "security.healthCheck.loadFailed": "Failed",
       };
-      if (key === "security.healthCheck.selectedRepair" && options?.repair) {
-        return `Selected repair: ${options.repair}`;
-      }
       if (key === "security.healthCheck.carousel.currentPrefix" && options?.item) {
         return `Checking ${options.item}`;
       }
-      return labels[key] ?? options?.defaultValue ?? key;
+      if (key === "security.healthCheck.summary.allClearHeadline" && options?.total) {
+        return `All ${options.total} checks passed`;
+      }
+      return labels[key] ?? String(options?.defaultValue ?? key);
     },
   }),
 }));
@@ -89,7 +88,7 @@ const sampleScan: HealthCheckScanResponse = {
       group: "environment",
       label: "Working directory",
       status: "ok",
-      detail: "exists",
+      detail: "/tmp/qwenpaw",
       risk: "",
       recommendation: "",
       fix_id: null,
@@ -97,23 +96,18 @@ const sampleScan: HealthCheckScanResponse = {
     },
   ],
   risk_summary: [],
-  repair_suggestions: [
-    {
-      label: "repair_missing_console_static_build",
-      doctor_fix_id: "static-build",
-      requires_confirmation: true,
-    },
-  ],
+  repair_suggestions: [],
   mutated_files: [],
 };
 
 describe("HealthCheckSection", () => {
   beforeEach(() => {
+    sessionStorage.clear();
     mockRunScan.mockResolvedValue(sampleScan);
     mockRunFix.mockResolvedValue({
       confirmed: true,
-      selected_repair: "repair_missing_console_static_build",
-      fix_id: "static-build",
+      selected_repair: "repair_ensure-working-dir",
+      fix_id: "ensure-working-dir",
       executed: true,
       exit_code: 0,
       output: ["done"],
@@ -124,85 +118,137 @@ describe("HealthCheckSection", () => {
     vi.clearAllMocks();
   });
 
-  it("renders scan actions", () => {
+  it("renders single run check action", () => {
     renderWithProviders(<HealthCheckSection />);
-    expect(screen.getByText("Health Check")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Run read-only scan" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Run deep connectivity scan" })).toBeInTheDocument();
+    expect(screen.getByText("Runtime diagnostics")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Run check" })).toBeInTheDocument();
   });
 
-  it("runs read-only scan with deep=false (HC-S01)", async () => {
+  it("runs scan with deep=false (HC-S01)", async () => {
     const user = userEvent.setup();
     renderWithProviders(<HealthCheckSection />);
-    await user.click(screen.getByRole("button", { name: "Run read-only scan" }));
+    await user.click(screen.getByRole("button", { name: "Run check" }));
     await waitFor(() => {
       expect(mockRunScan).toHaveBeenCalledWith(false);
     });
   });
 
-  it("runs deep scan with deep=true (HC-S02)", async () => {
+  it("shows summary when all checks pass (HC-S03)", async () => {
     const user = userEvent.setup();
     renderWithProviders(<HealthCheckSection />);
-    await user.click(screen.getByRole("button", { name: "Run deep connectivity scan" }));
+    await user.click(screen.getByRole("button", { name: "Run check" }));
     await waitFor(() => {
-      expect(mockRunScan).toHaveBeenCalledWith(true);
+      expect(screen.getByText("All 1 checks passed")).toBeInTheDocument();
     });
   });
 
-  it("shows grouped check items after scan (HC-S03)", async () => {
+  it("defaults to full checklist when all checks pass (HC-S03b)", async () => {
     const user = userEvent.setup();
     renderWithProviders(<HealthCheckSection />);
-    await user.click(screen.getByRole("button", { name: "Run read-only scan" }));
+    await user.click(screen.getByRole("button", { name: "Run check" }));
     await waitFor(() => {
-      expect(screen.getByText("Working directory")).toBeInTheDocument();
+      expect(screen.getByText("Data folder")).toBeInTheDocument();
     });
-    expect(screen.getByText("Environment")).toBeInTheDocument();
   });
 
-  it("requires confirmation phrase before running doctor fix (HC-S04)", async () => {
+  it("defaults to issues-only view when attention items exist (HC-S03c)", async () => {
+    mockRunScan.mockResolvedValueOnce({
+      ...sampleScan,
+      check_items: [
+        {
+          id: "working-dir",
+          group: "environment",
+          label: "Working directory",
+          status: "ok",
+          detail: "/tmp/qwenpaw",
+          risk: "",
+          recommendation: "",
+          fix_id: null,
+          deep_only: false,
+        },
+        {
+          id: "tool-guard",
+          group: "security",
+          label: "Tool guard",
+          status: "risk",
+          detail: "tool_guard.enabled is false",
+          risk: "disabled",
+          recommendation: "enable",
+          fix_id: null,
+          deep_only: false,
+        },
+      ],
+    });
     const user = userEvent.setup();
     renderWithProviders(<HealthCheckSection />);
-    await user.click(screen.getByRole("button", { name: "Run read-only scan" }));
+    await user.click(screen.getByRole("button", { name: "Run check" }));
     await waitFor(() => {
-      expect(screen.getByPlaceholderText("Confirm selected doctor fix")).toBeInTheDocument();
+      expect(screen.getByText("Manual fix needed")).toBeInTheDocument();
     });
-    const fixButton = screen.getByRole("button", { name: "Confirm selected doctor fix" });
-    expect(fixButton).toBeDisabled();
-    await user.type(
-      screen.getByPlaceholderText("Confirm selected doctor fix"),
-      "Confirm selected doctor fix",
+    expect(screen.queryByText("Data folder")).not.toBeInTheDocument();
+  });
+
+  it("shows row fix action for fixable items (HC-S05)", async () => {
+    mockRunScan.mockResolvedValueOnce({
+      ...sampleScan,
+      check_items: [
+        {
+          id: "working-dir",
+          group: "environment",
+          label: "Working directory",
+          status: "risk",
+          detail: "missing",
+          risk: "missing dir",
+          recommendation: "create dir",
+          fix_id: "ensure-working-dir",
+          deep_only: false,
+        },
+      ],
+    });
+    const user = userEvent.setup();
+    renderWithProviders(<HealthCheckSection />);
+    await user.click(screen.getByRole("button", { name: "Run check" }));
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Fix" })).toBeInTheDocument();
+    });
+  });
+
+  it("reports attention count to parent", async () => {
+    mockRunScan.mockResolvedValueOnce({
+      ...sampleScan,
+      check_items: [
+        {
+          id: "working-dir",
+          group: "environment",
+          label: "Working directory",
+          status: "risk",
+          detail: "missing",
+          risk: "missing dir",
+          recommendation: "create dir",
+          fix_id: "ensure-working-dir",
+          deep_only: false,
+        },
+      ],
+    });
+    const onAttentionCountChange = vi.fn();
+    const user = userEvent.setup();
+    renderWithProviders(
+      <HealthCheckSection onAttentionCountChange={onAttentionCountChange} />,
     );
-    expect(fixButton).not.toBeDisabled();
-  });
-
-  it("submits confirmed doctor fix after phrase match (HC-S05)", async () => {
-    const user = userEvent.setup();
-    renderWithProviders(<HealthCheckSection />);
-    await user.click(screen.getByRole("button", { name: "Run read-only scan" }));
+    await user.click(screen.getByRole("button", { name: "Run check" }));
     await waitFor(() => {
-      expect(screen.getByPlaceholderText("Confirm selected doctor fix")).toBeInTheDocument();
+      expect(onAttentionCountChange).toHaveBeenCalledWith(1);
     });
-    await user.type(
-      screen.getByPlaceholderText("Confirm selected doctor fix"),
-      "Confirm selected doctor fix",
-    );
-    await user.click(screen.getByRole("button", { name: "Confirm selected doctor fix" }));
-    await waitFor(() => {
-      expect(mockRunFix).toHaveBeenCalledWith(
-        "repair_missing_console_static_build",
-        "Confirm selected doctor fix",
-      );
-    });
-    expect(screen.getByText("Fix executed")).toBeInTheDocument();
   });
 
   it("shows failure state when scan request rejects (HC-S07)", async () => {
     mockRunScan.mockRejectedValueOnce(new Error("network down"));
     const user = userEvent.setup();
     renderWithProviders(<HealthCheckSection />);
-    await user.click(screen.getByRole("button", { name: "Run read-only scan" }));
+    await user.click(screen.getByRole("button", { name: "Run check" }));
     await waitFor(() => {
-      expect(screen.getByText("network down")).toBeInTheDocument();
+      expect(screen.getByText("Check failed")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Retry" })).toBeInTheDocument();
     });
   });
 });

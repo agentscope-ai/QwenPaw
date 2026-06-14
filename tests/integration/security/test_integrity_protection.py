@@ -101,8 +101,7 @@ def test_health_check_scan_and_confirmed_fix(integrity_harness: IntegrityProtect
     health_check_review = HealthCheckRepairScenario(
         health_check_dashboard_label="security_health_check_dashboard",
         scan_only_action_label="qwenpaw_doctor_scan_only",
-        selected_repair_label="repair_missing_console_static_build",
-        second_confirmation_phrase="Confirm selected doctor fix",
+        fix_id="ensure-working-dir",
     )
 
     # // WHEN

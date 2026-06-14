@@ -1,6 +1,5 @@
 import type { HealthCheckItem } from "../api/client";
 
-export const CONFIRMATION_PHRASE_KEY = "security.healthCheck.confirmationPhrase";
 export const CAROUSEL_DISPLAY_DURATION_MS = 1800;
 export const TERMINAL_SCAN_STATES = ["completed", "failed", "cancelled", "interrupted"];
 export const TERMINAL_CAROUSEL_KEYS: Record<string, string> = {
