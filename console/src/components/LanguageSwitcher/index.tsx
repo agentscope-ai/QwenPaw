@@ -19,11 +19,12 @@ interface LanguageConfig {
 
 const LANGUAGE_LIST: LanguageConfig[] = [
   { key: "en", label: "English", icon: <SparkEnglish02Line /> },
-  { key: "zh", label: "简体中文", icon: <SparkChinese02Line /> },
-  { key: "ja", label: "日本語", icon: <SparkJapanLine /> },
-  { key: "ru", label: "Русский", icon: <SparkRusLine /> },
-  { key: "pt-BR", label: "Português (Brasil)", icon: <SparkPtLine /> },
+  { key: "zh", label: "\u7b80\u4f53\u4e2d\u6587", icon: <SparkChinese02Line /> },
+  { key: "ja", label: "\u65e5\u672c\u8a9e", icon: <SparkJapanLine /> },
+  { key: "ru", label: "\u0420\u0443\u0441\u0441\u043a\u0438\u0439", icon: <SparkRusLine /> },
+  { key: "pt-BR", label: "Portugu\u00eas (Brasil)", icon: <SparkPtLine /> },
   { key: "id", label: "Bahasa Indonesia", icon: <SparkEnglish02Line /> },
+  { key: "vi", label: "Ti\u1ebfng Vi\u1ec7t", icon: <SparkEnglish02Line /> },
 ];
 
 const KNOWN_LANG_KEYS = new Set(LANGUAGE_LIST.map((lang) => lang.key));
