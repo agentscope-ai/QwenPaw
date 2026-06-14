@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
-  "productName": "QwenPaw Desktop",
-  "identifier": "io.agentscope.qwenpaw.desktop",
+  "productName": "Aword",
+  "identifier": "io.aword.app",
   "build": {
     "frontendDist": "../dist-tauri",
     "devUrl": "http://localhost:5173/tauri.html",
@@ -12,7 +12,7 @@
     "withGlobalTauri": false,
     "windows": [
       {
-        "title": "QwenPaw Desktop",
+        "title": "Aword",
         "width": 1280,
         "height": 800,
         "minWidth": 960,
@@ -55,7 +55,8 @@
           "Indonesian",
           "Japanese",
           "Russian",
-          "PortugueseBR"
+          "PortugueseBR",
+          "Vietnamese"
         ],
         "customLanguageFiles": {
           "English": "nsis-languages/English.nsh",
