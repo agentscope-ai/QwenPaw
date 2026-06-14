@@ -6,6 +6,7 @@ import zh from "./locales/zh.json";
 import ja from "./locales/ja.json";
 import ptBR from "./locales/pt-BR.json";
 import id from "./locales/id.json";
+import vi from "./locales/vi.json";
 const resources = {
   en: {
     translation: en,
@@ -24,6 +25,9 @@ const resources = {
   },
   id: {
     translation: id,
+  },
+  vi: {
+    translation: vi,
   },
 };
 
