@@ -469,6 +469,28 @@ class QwenPawAgent(CodingModeMixin, ToolGuardMixin, ReActAgent):
             language=self._language,
             memory_manager=self.memory_manager,
         )
+
+        # Inject autonomous context header for cron/heartbeat sources
+        source = (
+            str(self._request_context.get("source", "")).strip().lower()
+            if self._request_context
+            else ""
+        )
+        if source in ("cron", "heartbeat"):
+            context_header = (
+                "# Autonomous Execution Context\n\n"
+                "You are running in an automated context (source: "
+                + source
+                + "). "
+                "Execute the instructions fully and autonomously. "
+                "You have access to all tools — including "
+                "``write_file``, ``spawn_subagent``, "
+                "``execute_shell_command``, and others — and you are "
+                "expected to use them as needed to complete the task. "
+                "Do not skip or defer multi-step operations."
+            )
+            sys_prompt = context_header + "\n\n" + sys_prompt
+
         logger.debug("System prompt:\n%s...", sys_prompt[:100])
 
         from .prompt_builder import PromptBuilder

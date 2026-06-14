@@ -248,7 +248,7 @@ async def run_heartbeat_once(
                     )
 
             try:
-                await asyncio.wait_for(_run_and_dispatch(), timeout=120)
+                await asyncio.wait_for(_run_and_dispatch(), timeout=300)
             except asyncio.TimeoutError:
                 logger.warning("heartbeat run timed out")
             return
@@ -281,7 +281,7 @@ async def run_heartbeat_once(
                 pass
 
         try:
-            await asyncio.wait_for(_run_only(), timeout=120)
+            await asyncio.wait_for(_run_only(), timeout=300)
             delta = await append_trace_from_session_delta(
                 run_id=run_id,
                 runner=runner,
@@ -374,6 +374,6 @@ async def run_heartbeat_once(
             pass
 
     try:
-        await asyncio.wait_for(_run_without_dispatch(), timeout=120)
+        await asyncio.wait_for(_run_without_dispatch(), timeout=300)
     except asyncio.TimeoutError:
         logger.warning("heartbeat run timed out")
