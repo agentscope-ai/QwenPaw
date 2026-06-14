@@ -24,6 +24,22 @@ const PERSONA_SETTINGS_POLL_MS = 15_000;
 const ALERTS_SYNC_POLL_MS = 8_000;
 const MAX_VISIBLE_ALERTS = 3;
 
+function logPersonaDriftUi(
+  trigger: "poll" | "sse" | "sse_resolved" | "action",
+  payload: {
+    openAlertCount: number;
+    visibleAlertCount: number;
+    alertIds: string[];
+    provenances: string[];
+    paths: string[];
+    unreadInboxPersonaCount?: number;
+    sseAlertId?: string;
+    sseProvenance?: string;
+  },
+) {
+  console.info("[persona-drift-ui]", { trigger, ...payload });
+}
+
 export default function PersonaDriftAlertNotifier() {
   const { t } = useTranslation();
   const [personaEnabled, setPersonaEnabled] = useState(false);
@@ -32,7 +48,8 @@ export default function PersonaDriftAlertNotifier() {
     Record<string, "restore" | "accept" | null>
   >({});
 
-  const syncAlerts = useCallback(async () => {
+  const syncAlerts = useCallback(
+    async (trigger: "poll" | "sse" | "sse_resolved" | "action" = "poll") => {
     if (!personaEnabled) {
       setAlerts([]);
       return;
@@ -55,7 +72,16 @@ export default function PersonaDriftAlertNotifier() {
           body: getPersonaDriftBody(t, alert.path),
         }),
       );
-      setAlerts(merged.slice(0, MAX_VISIBLE_ALERTS));
+      const visible = merged.slice(0, MAX_VISIBLE_ALERTS);
+      logPersonaDriftUi(trigger, {
+        openAlertCount: alertsRes.alerts.length,
+        visibleAlertCount: visible.length,
+        alertIds: visible.map((item) => item.alertId),
+        provenances: visible.map((item) => item.provenance),
+        paths: visible.map((item) => item.path),
+        unreadInboxPersonaCount: inboxRes?.events?.length ?? 0,
+      });
+      setAlerts(visible);
     } catch {
       // Keep previous alerts when sync fails.
     }
@@ -92,14 +118,23 @@ export default function PersonaDriftAlertNotifier() {
   usePersonaDriftWatch(
     (event) => {
       if (event.type === "persona_drift") {
-        void syncAlerts();
+        logPersonaDriftUi("sse", {
+          openAlertCount: -1,
+          visibleAlertCount: -1,
+          alertIds: [event.alert_id],
+          provenances: [event.provenance],
+          paths: [event.path],
+          sseAlertId: event.alert_id,
+          sseProvenance: event.provenance,
+        });
+        void syncAlerts("sse");
         return;
       }
       if (event.type === "persona_alert_resolved") {
         setAlerts((prev) =>
           prev.filter((item) => item.alertId !== event.alert_id),
         );
-        void syncAlerts();
+        void syncAlerts("sse_resolved");
       }
     },
     personaEnabled,
@@ -127,7 +162,7 @@ export default function PersonaDriftAlertNotifier() {
       setAlerts((prev) =>
         prev.filter((alert) => alert.alertId !== item.alertId),
       );
-      void syncAlerts();
+      void syncAlerts("action");
     } finally {
       setActionLoading((prev) => ({ ...prev, [item.alertId]: null }));
     }

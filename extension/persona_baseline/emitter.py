@@ -35,7 +35,7 @@ class PersonaAlertEmitter:
         if not self.is_enabled():
             return None
 
-        review = self.drift_store.upsert_pending(
+        upsert = self.drift_store.upsert_pending(
             agent_id=agent_id,
             path=path,
             approved_sha256=approved_sha256,
@@ -43,6 +43,18 @@ class PersonaAlertEmitter:
             provenance=provenance,
             patch_path=patch_path,
         )
+        review = upsert.review
+        if not upsert.created:
+            logger.info(
+                "persona_drift_emit skipped=dedupe alert_id=%s agent_id=%s path=%s "
+                "provenance=%s current_sha256=%s",
+                review.alert_id,
+                agent_id,
+                path,
+                provenance,
+                current_sha256[:12],
+            )
+            return review
 
         title = (
             "Persona file changed (startup scan)"
@@ -60,8 +72,9 @@ class PersonaAlertEmitter:
             provenance,
         )
 
+        inbox_event_id = ""
         if self.inbox_append is not None:
-            await self.inbox_append(
+            inbox_event = await self.inbox_append(
                 agent_id=agent_id,
                 source_type="persona_protection",
                 source_id=review.alert_id,
@@ -83,19 +96,30 @@ class PersonaAlertEmitter:
                     ),
                 },
             )
+            inbox_event_id = str(inbox_event.get("id") or "")
 
-        await self._publish_sse(
-            {
-                "type": "persona_drift",
-                "alert_id": review.alert_id,
-                "agent_id": agent_id,
-                "path": path,
-                "approved_sha256": approved_sha256,
-                "current_sha256": current_sha256,
-                "patch_path": patch_path,
-                "provenance": provenance,
-                "detected_at": review.detected_at,
-            },
+        sse_payload = {
+            "type": "persona_drift",
+            "alert_id": review.alert_id,
+            "agent_id": agent_id,
+            "path": path,
+            "approved_sha256": approved_sha256,
+            "current_sha256": current_sha256,
+            "patch_path": patch_path,
+            "provenance": provenance,
+            "detected_at": review.detected_at,
+        }
+        await self._publish_sse(sse_payload)
+
+        logger.warning(
+            "persona_drift_emit alert_id=%s agent_id=%s path=%s provenance=%s "
+            "current_sha256=%s inbox_event_id=%s",
+            review.alert_id,
+            agent_id,
+            path,
+            provenance,
+            current_sha256[:12],
+            inbox_event_id or "-",
         )
 
         return review

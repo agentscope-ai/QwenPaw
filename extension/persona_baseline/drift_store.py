@@ -2,11 +2,14 @@
 from __future__ import annotations
 
 import json
+import logging
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 
 def _utc_now() -> str:
@@ -37,6 +40,12 @@ class DriftReview:
             "detected_at": self.detected_at,
             "patch_path": self.patch_path,
         }
+
+
+@dataclass(frozen=True)
+class DriftUpsertResult:
+    review: DriftReview
+    created: bool
 
 
 class DriftReviewStore:
@@ -92,7 +101,7 @@ class DriftReviewStore:
         current_sha256: str,
         provenance: str,
         patch_path: str | None,
-    ) -> DriftReview:
+    ) -> DriftUpsertResult:
         records = self.load_all()
         for item in records:
             if (
@@ -101,16 +110,29 @@ class DriftReviewStore:
                 and item.get("path") == path
                 and item.get("current_sha256") == current_sha256
             ):
-                return DriftReview(
-                    alert_id=str(item.get("alert_id") or ""),
-                    agent_id=agent_id,
-                    path=path,
-                    approved_sha256=str(item.get("approved_sha256") or approved_sha256),
-                    current_sha256=current_sha256,
-                    provenance=str(item.get("provenance") or provenance),
-                    status="pending_review",
-                    detected_at=str(item.get("detected_at") or _utc_now()),
-                    patch_path=item.get("patch_path") or patch_path,
+                alert_id = str(item.get("alert_id") or "")
+                logger.info(
+                    "persona_drift_upsert action=dedupe alert_id=%s agent_id=%s "
+                    "path=%s provenance=%s current_sha256=%s",
+                    alert_id,
+                    agent_id,
+                    path,
+                    provenance,
+                    current_sha256[:12],
+                )
+                return DriftUpsertResult(
+                    review=DriftReview(
+                        alert_id=alert_id,
+                        agent_id=agent_id,
+                        path=path,
+                        approved_sha256=str(item.get("approved_sha256") or approved_sha256),
+                        current_sha256=current_sha256,
+                        provenance=str(item.get("provenance") or provenance),
+                        status="pending_review",
+                        detected_at=str(item.get("detected_at") or _utc_now()),
+                        patch_path=item.get("patch_path") or patch_path,
+                    ),
+                    created=False,
                 )
 
         review = DriftReview(
@@ -126,7 +148,16 @@ class DriftReviewStore:
         )
         records.insert(0, review.to_dict())
         self.save_all(records)
-        return review
+        logger.info(
+            "persona_drift_upsert action=new alert_id=%s agent_id=%s path=%s "
+            "provenance=%s current_sha256=%s",
+            review.alert_id,
+            agent_id,
+            path,
+            provenance,
+            current_sha256[:12],
+        )
+        return DriftUpsertResult(review=review, created=True)
 
     def resolve_for_path(self, *, agent_id: str, path: str, status: str) -> int:
         records = self.load_all()

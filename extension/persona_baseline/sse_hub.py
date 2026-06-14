@@ -4,8 +4,11 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from collections.abc import AsyncIterator
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 
 class PersonaSSEHub:
@@ -16,6 +19,16 @@ class PersonaSSEHub:
     async def publish(self, event: dict[str, Any]) -> None:
         async with self._lock:
             subscribers = list(self._subscribers)
+        event_type = str(event.get("type") or "unknown")
+        logger.info(
+            "persona_sse_publish type=%s subscribers=%s alert_id=%s path=%s "
+            "provenance=%s",
+            event_type,
+            len(subscribers),
+            event.get("alert_id", "-"),
+            event.get("path", "-"),
+            event.get("provenance", "-"),
+        )
         for queue in subscribers:
             try:
                 queue.put_nowait(event)
