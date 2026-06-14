@@ -2,14 +2,14 @@
 
 ## Purpose
 
-Refactor Integrity Protection–related Console code into `console/src/extension/` without changing runtime behavior. This document mirrors the backend `extension/` layout (persona baseline + health check) and defers **source trust** and **rule integrity** UI decoupling.
+Integrity Protection Console code lives under `console/src/extension/`. Host pages (`Settings/Security`, `MainLayout`, `Inbox`) are thin integration shells. Source trust is **not implemented** in this repository.
 
 ## Principles
 
-1. **Behavior freeze:** Move/re-export only; no changes to API payloads, state transitions, UI copy, or effect ordering.
-2. **Backward-compatible imports:** Legacy paths (`utils/persona*`, `hooks/usePersonaDriftWatch`, etc.) re-export from `@extension/*` until callers migrate.
-3. **Dependency direction:** `extension/*` may import `@/api`, `@/pages/Settings/Security/index.module.less` (shared Security styles). Host pages import `@extension/*/index`, not deep `lib/` paths.
-4. **Out of scope (this phase):** Source trust (C), rule integrity backend split (D), backend `src/qwenpaw` decoupling.
+1. **Extension ownership:** Persona baseline, health check, and rule integrity UI/API clients live under `console/src/extension/`.
+2. **Backward-compatible imports:** Legacy paths re-export from `@extension/*` where needed (e.g. `pages/.../HealthCheckSection.tsx`).
+3. **Dependency direction:** `extension/*` may import `@/api`, `@/pages/Settings/Security/index.module.less`, and i18n keys. Host pages import `@extension/*/index`, not deep `lib/` paths.
+4. **As-built UX:** Health Check and Integrity Check strings use `react-i18next` keys in `locales/en.json` and `locales/zh.json`.
 
 ## Directory Layout
 
@@ -24,18 +24,31 @@ console/src/extension/
 │   ├── api/client.ts
 │   ├── components/
 │   │   ├── PersonaDriftAlertNotifier/
-│   │   └── PersonaProtectionSection.tsx   # Context + embedded Integrity Check persona UI
+│   │   ├── PersonaProtectionSection.tsx
+│   │   └── IntegrityCheckPersonaFrame.tsx
 │   ├── hooks/usePersonaDriftWatch.ts
 │   └── lib/
 │       ├── alertActions.ts
 │       ├── driftDisplay.ts
 │       ├── driftAlertItems.ts
 │       └── navigation.ts
-└── health_check/
+├── health_check/
+│   ├── index.ts
+│   ├── api/client.ts
+│   ├── components/HealthCheckSection.tsx
+│   └── lib/
+│       ├── scanUi.ts
+│       ├── detailMessages.ts
+│       ├── actionLinks.ts
+│       ├── fixRisk.ts
+│       └── scanSummary.ts
+└── rule_integrity/
     ├── index.ts
     ├── api/client.ts
-    ├── components/HealthCheckSection.tsx
-    └── lib/scanUi.ts
+    ├── hooks/useRuleIntegrity.ts
+    └── components/
+        ├── RuleIntegrityPassiveCard.tsx
+        └── RuleIntegrityRepairBanner.tsx
 ```
 
 Path alias: `@extension/*` → `console/src/extension/*` (Vite + `tsconfig.app.json`).
@@ -45,43 +58,45 @@ Path alias: `@extension/*` → `console/src/extension/*` (Vite + `tsconfig.app.j
 | Module | Owns |
 |--------|------|
 | `persona_baseline` | Persona API client, SSE watch, drift alert notifier, Restore/Accept actions, Inbox deep links, Integrity Check persona panel |
-| `health_check` | Health scan/fix API client, Health Check tab UI |
+| `health_check` | Health scan/fix API client, Health Check tab UI (carousel, grouped table, i18n detail/guidance, sessionStorage, fix confirmations) |
+| `rule_integrity` | Rule integrity API client, passive check card, repair banner, polling hook |
 | `shared/inbox` | `INBOX_CHANGED_EVENT` bus (used by persona + Sidebar + Inbox) |
 
 ## Host Integration (thin shell)
 
-| Host file | Role after decoupling |
-|-----------|---------------------|
+| Host file | Role |
+|-----------|------|
 | `layouts/MainLayout` | Renders `PersonaDriftAlertNotifier` from `@extension/persona_baseline` |
-| `pages/Settings/Security/index.tsx` | Tabs; imports `HealthCheckSection` from extension |
-| `pages/Settings/Security/components/IntegrityCheckSection.tsx` | Source trust + rule integrity + composes persona panel from extension |
-| `api/modules/security.ts` | Tool Guard / File Guard / etc. unchanged; persona + health methods delegate to extension clients |
-| `locales/en.json`, `zh.json` | Unchanged; keys remain `security.integrityProtection.*`, `security.healthCheck.*` |
+| `pages/Settings/Security/index.tsx` | Tabs; `RuleIntegrityRepairBanner`; imports `HealthCheckSection` from extension |
+| `pages/Settings/Security/components/IntegrityCheckSection.tsx` | Composes persona panel + `RuleIntegrityPassiveCard` from extension (no source trust UI) |
+| `pages/Settings/Security/components/HealthCheckSection.tsx` | Re-exports `@extension/health_check` |
+| `api/modules/security.ts` | Tool Guard / File Guard / etc.; persona + health methods delegate to extension clients |
+| `locales/en.json`, `zh.json` | `security.integrityProtection.*`, `security.healthCheck.*`, `security.rulesIntegrity.*` |
 
 ## Persona Panel Split
 
-`IntegrityCheckSection` keeps:
+`IntegrityCheckSection` keeps aggregate settings load via `IntegrityCheckPersonaFrame` and renders:
 
-- Aggregate `IntegrityProtectionSettings` load (`Promise.all` with persona `loadPersonaData` preserved)
-- Source trust verify UI
-- Rule integrity table
+- `PersonaProtectionSwitchRow` + protected paths + drift alerts
+- `RuleIntegrityPassiveCard` (manual check button + findings table)
 
-Persona UI moves to `PersonaProtectionSection` (Provider + compound parts) with the same DOM structure inside the first Card and alert cards.
+Persona UI compound parts live in `@extension/persona_baseline`.
+
+## Health Check UI (as-built)
+
+- Default scan: `runIntegrityHealthCheckScan(false)` only (no Deep scan button).
+- API client supports `deep=true`; harness verifies API boundary, not Console Deep button.
+- Fix flow: Popconfirm or high-risk Modal → `runIntegrityHealthCheckFix(fixId)`.
 
 ## Testing
 
-- Co-locate tests under each extension module (or keep legacy test paths re-exporting targets).
-- Update `scripts/persona-protection-selftest.manifest.json` and `scripts/health-check-selftest.manifest.json` frontend targets.
+- Co-located tests under each extension module.
+- Manifests: `scripts/persona-protection-selftest.manifest.json`, `scripts/health-check-selftest.manifest.json`.
 - Verify: `run-persona-protection-selftest.py`, `run-health-check-selftest.py`, `npm run build`.
-
-## Future Phases
-
-- Backend: `extension/health_check/`, shrink `integrity_protection.py`
-- Console: `extension/source_trust/` when C is scheduled
-- Architecture guard: forbid new `persona*` files outside `console/src/extension/`
 
 ## Related Documents
 
 - `extension/ARCHITECTURE.md` — backend extension zone
+- `extension/Intergrity  Protection Design.md` — delivery design (as-built)
 - `extension/Persona Baseline Guardian Design.md`
 - `console/ARCHITECTURE.md` — Settings/Security console contract

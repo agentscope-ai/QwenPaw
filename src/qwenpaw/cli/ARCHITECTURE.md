@@ -39,5 +39,5 @@ element_path: src/qwenpaw/cli
 
 ### Notes
 - The current repository state keeps command modules mostly flat under this directory, while startup cost is constrained by LazyGroup-based deferred imports in main.py.
-- For `ip-e2e-007-healthcheck-full-doctor-coverage`, this element owns doctor semantics but not the Settings/Security backend orchestration or console rendering. Coding/Repair must expose structured check semantics to `src/qwenpaw/security/integrity_protection.py` through reusable helpers or a small registry-style projection, not by scraping `click.echo` output from `doctor_cmd.py`.
-- Deep connectivity remains opt-in. `doctor_connectivity.py` may be called only when the backend Health Check receives an explicit deep scan request.
+- For `ip-e2e-007-healthcheck-full-doctor-coverage`, this element owns doctor semantics consumed by `extension/health_check/projection.py` and `fix.py`. Reusable helpers live in `doctor_checks.py` and `doctor_connectivity.py`; projection must not scrape `click.echo` output from `doctor_cmd.py`.
+- Deep connectivity remains opt-in. `doctor_connectivity.py` is used only when the Health Check scan API receives `deep=true` (Console UI currently calls `deep=false` only).

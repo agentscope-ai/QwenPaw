@@ -16,24 +16,24 @@ element_path: extension
 
 ### Out Of Scope
 - Owning backend router composition, runtime security semantics, or console rendering.
-- Duplicating ClawSec soul-guardian, ClawSec guarded skill install, qwenpaw doctor, or built-in rule integrity behavior.
-- Storing production signing private keys. The PRD plaintext private-key tool is limited to local/demo signing until a separate production key-management decision is made.
-- Owning console i18n implementation details or Health Check carousel rendering mechanics; those remain under the `console` contract and are only constrained here by the PRD-scoped Integrity Protection intent.
-- Owning doctor check semantics or parsing doctor CLI text; full coverage projection must reuse stable doctor helpers through the runtime/security boundary.
+- Duplicating ClawSec soul-guardian, qwenpaw doctor, or built-in rule integrity behavior beyond stable adapters.
+- Source trust verification (not implemented in this repository).
+- Owning console i18n implementation details or Health Check carousel rendering mechanics; those remain under the `console` contract.
+- Owning doctor check semantics or parsing doctor CLI text; full coverage projection must reuse stable doctor helpers through `extension/health_check/projection.py`.
 
 ### Children
 - path: Intergrity  Protection PRD.txt
   kind: business-prd-evidence
-  role: user-provided integrity-protection requirements for persona drift, source trust, health check, rule integrity, and console placement
+  role: as-built integrity-protection requirements for persona drift, health check, rule integrity, and console placement (source trust removed from as-built scope)
 - path: Intergrity  Protection Design.md
   kind: implementation-design-contract
-  role: adapter-level implementation design and Coding/Repair constraints for Integrity Protection Delivery
+  role: adapter-level implementation design and as-built constraints for Integrity Protection Delivery
 - path: persona_baseline/
   kind: extension-module
   role: persona drift protection business logic and host_bridge wiring for inbox/push/SSE
 - path: health_check/
   kind: extension-module
-  role: doctor-derived Health Check projection (projection.py), scan orchestration (scanner.py), confirmed fix (fix.py)
+  role: doctor projection (projection.py), scan orchestration (scanner.py), confirmed fix (fix.py), fix allowlist (constants.py)
 - path: rule_integrity/
   kind: extension-module
   role: built-in tool guard rule integrity verify/repair, API routes, startup polling, and acceptance harness/tests
@@ -55,6 +55,8 @@ element_path: extension
 - tests/integration/security/test_integrity_protection.py::test_healthcheck_full_doctor_coverage_projection
 
 ### Current Evidence
-- Current repository evidence confirms the PRD path, existing reusable capabilities, implemented Integrity Protection backend APIs, console submenus, persona drift actions, health-check dashboard, and passive rule-integrity entry. Source trust (PRD section 二) is deferred; prior demo verifier was removed.
-- The acceptance entrypoints now pass through production behavior behind `tests/integration/security/integrity_harness.py`; this extension contract must keep the low-intrusion adapter boundary and local/demo signing constraint stable.
-- Current repository evidence confirms grouped doctor coverage lives in `extension/health_check/projection.py` with core re-exports from `src/qwenpaw/security/integrity_protection.py`; console UI lives under `console/src/extension/health_check/`.
+- PRD and Design documents describe as-built behavior aligned with current code.
+- Grouped doctor coverage lives in `extension/health_check/projection.py` with re-exports from `src/qwenpaw/security/integrity_protection.py`.
+- Console UI lives under `console/src/extension/{persona_baseline,health_check,rule_integrity}/`.
+- Source trust is not implemented; prior demo verifier was removed.
+- Acceptance entrypoints pass through production behavior behind `tests/integration/security/integrity_harness.py`.

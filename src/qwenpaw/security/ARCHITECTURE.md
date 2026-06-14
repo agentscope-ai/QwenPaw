@@ -117,31 +117,30 @@ element_path: src/qwenpaw/security
 ## Integrity Protection Delivery Addendum
 
 ### Responsibility
-- Own backend semantics for `intent-integrity-protection-delivery`, including default-off settings, persona baseline protection, health-check orchestration, and rule-integrity exposure. Source trust (`intent-source-trust-verifier`) is deferred.
-- Keep all new Integrity Protection features opt-in and disabled by default.
-- Preserve scan-before-fix, verify-before-trust, alert-before-restore, and explicit-action-before-mutation semantics.
+- Own backend semantics for `intent-integrity-protection-delivery`, including default-off settings, persona baseline protection, health-check orchestration, and rule-integrity exposure.
+- Persona protection is opt-in via `persona_protection_enabled`. Health Check scan/fix APIs and Settings menus are always available; `health_check_enabled` is a projection field defaulting to false and does not gate routes.
+- Preserve scan-before-fix, alert-before-restore, and explicit-action-before-mutation semantics.
 
 ### Stable Boundaries
 - integrity-protection settings seam
-  - Coding/Repair must expose backend state showing every Integrity Protection feature off by default.
-  - Existing startup, agent, skill, doctor, and rule-loading flows must remain unchanged while disabled.
+  - Expose backend state with persona protection off by default and `health_check_enabled` false in settings projection.
+  - Persona monitoring must not start until explicitly enabled; Health Check tab/API remain available without enablement.
 - persona baseline guardian seam
-  - Coding/Repair must adapt ClawSec soul-guardian baseline, check, restore, and approve concepts behind QwenPaw APIs.
-  - Detection may run on startup or watch notifications only after enablement.
-  - Restore and Accept must remain separate user actions.
-- source trust verifier seam (deferred)
-  - Prior demo Ed25519 verify-only implementation was removed 2026-06-11. Future Coding/Repair must expose verify-only skill or agent package verification that reuses ClawSec guarded skill install or extracted release-verification primitives per extension/Intergrity  Protection PRD.txt section 二.
-  - Verification must not install or execute the selected package.
-  - The PRD plaintext private-key signing tool remains local/demo only unless the user approves production key-management requirements.
+  - Adapt ClawSec soul-guardian baseline, check, restore, and approve concepts behind QwenPaw APIs in `extension/persona_baseline/`.
+  - Detection runs on startup or watch notifications only after enablement.
+  - Restore and Accept remain separate user actions.
+- source trust verifier seam
+  - **Not implemented** in this repository (prior demo removed 2026-06-11).
 - health check orchestrator seam
-  - Coding/Repair must wrap `qwenpaw doctor` as read-only scan and `qwenpaw doctor fix` as a selected, second-confirmed repair.
-  - Scan progress, check items, risk summary, and suggestions are observation points; file mutation before confirmation is forbidden.
-  - Coding/Repair must replace the current fixed `working-dir` / `console-static-build` adapter with a structured doctor coverage projection owned by `src/qwenpaw/security/integrity_protection.py`.
-  - The projection must expose `group`, `id`, `status`, `detail`, `risk`, `recommendation`, `fix_id`, and `deep_only` for each check item, and must reuse doctor helper semantics from `src/qwenpaw/cli/doctor_checks.py`, `src/qwenpaw/cli/doctor_connectivity.py`, and doctor fix ids rather than parsing `qwenpaw doctor` CLI text.
-  - Default scan is `deep=false`, local/read-only, and must omit connectivity-heavy checks. Explicit `deep=true` may add channel connectivity and local LLM deep notes, still without running doctor fix or mutating files.
-- built-in rule integrity console seam
-  - Coding/Repair must reuse `tool_guard/rules_integrity.py` for `dangerous_shell_commands.yaml` integrity status.
-  - Repair must remain a separate explicit action and must not be triggered by the check entry.
+  - Read-only scan: `extension/health_check/scanner.py` calling `extension/health_check/projection.py`.
+  - Confirmed fix: `extension/health_check/fix.py` via `run_doctor_fix` with `CONSOLE_FIX_IDS` allowlist.
+  - Routes: `src/qwenpaw/app/routers/integrity_protection_routes.py`.
+  - Re-export bridge: `src/qwenpaw/security/integrity_protection.py`.
+  - Projection exposes `group`, `id`, `label`, `status`, `detail`, `risk`, `recommendation`, `fix_id`, and `deep_only`; reuses `doctor_checks.py` and `doctor_connectivity.py` without parsing CLI text.
+  - Default scan is `deep=false`, local/read-only, omitting deep-only connectivity items. `deep=true` on the scan API adds deep-only items without running fix or mutating files. Console UI currently calls `deep=false` only.
+- built-in rule integrity seam
+  - Implemented in `extension/rule_integrity/` with bridge to tool guard rule integrity mechanics.
+  - Repair remains a separate explicit action and must not run from passive check alone.
 
 ### Explicit Testcase Entrypoints
 - testcase_name: ip-e2e-001-integrity-security-menu-default-off
@@ -161,15 +160,16 @@ element_path: src/qwenpaw/security
   control_point: run Health Check scan, inspect progress and risks, then confirm one selected repair
   observation_point: scan is read-only, suggestions are visible, and only the selected doctor fix runs after a second explicit confirmation
 - testcase_name: ip-e2e-005-rule-integrity-entry-visible
-  entry_path: ../../tests/integration/security/test_integrity_protection.py::test_rule_integrity_entry_visible
-  control_point: click the Integrity Check rule-integrity entry for `dangerous_shell_commands.yaml`
+  entry_path: ../../extension/rule_integrity/tests/test_integration_entry.py::test_rule_integrity_entry_visible
+  control_point: invoke rule-integrity passive check backend for `dangerous_shell_commands.yaml` (Console PassiveCard/Banner are as-built UI; this harness exercises backend passive check)
   observation_point: existing backend rule-integrity status and findings are visible, LF/CRLF invariant remains preserved, and no repair runs without explicit repair action
 - testcase_name: ip-e2e-007-healthcheck-full-doctor-coverage
   entry_path: ../../tests/integration/security/test_integrity_protection.py::test_healthcheck_full_doctor_coverage_projection
-  control_point: run a default Settings/Security Health Check scan, then run an explicit deep scan through the harness without confirming any fix
+  control_point: run default and `deep=true` health check scans via backend API/harness (Console UI calls `deep=false` only; no Deep scan button)
   observation_point: the scan and carousel candidates expose the full grouped qwenpaw doctor inventory as structured items, default scan omits deep-only connectivity, explicit deep scan includes deep-only items, and scan-only behavior produces no file mutation or doctor fix before second confirmation
 
 ### Current Evidence And Gaps
-- Current repository evidence confirms existing `tool_guard/rules_integrity.py`, `doctor_cmd.py`, `doctor_checks.py`, `doctor_connectivity.py`, `doctor_fix_runner.py`, `console/src/api/modules/security.ts`, and thirdparty ClawSec assets.
-- Current repository evidence does not yet include source-trust verify-only endpoint (deferred). Persona, health-check, and rule-integrity flows are implemented behind `../../tests/integration/security/integrity_harness.py`.
-- `ip-e2e-007-healthcheck-full-doctor-coverage` is expected to fail until Coding/Repair adds the structured full doctor coverage projection and deep option behind this backend boundary.
+- Persona, health-check, and rule-integrity flows are implemented in `extension/{persona_baseline,health_check,rule_integrity}/` and verified through `../../tests/integration/security/integrity_harness.py`.
+- Full doctor projection and scan API `deep=true` parameter are implemented in `extension/health_check/`.
+- Source-trust verify-only endpoint is not implemented.
+- Console Health Check UI calls scan with `deep=false` only; no Deep scan button.

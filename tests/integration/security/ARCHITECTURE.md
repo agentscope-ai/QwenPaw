@@ -10,7 +10,7 @@ element_path: tests/integration/security
 ## Implementation Architecture Contract
 
 ### Responsibility
-- Own the read-only explicit security acceptance entrypoints required by the intent graph for audit-foundation scenarios.
+- Own the read-only explicit security acceptance entrypoints required by the intent graph for audit-foundation scenarios and Integrity Protection delivery (ip-e2e-001 through ip-e2e-007, excluding deferred ip-e2e-003).
 - Keep testcase bodies business-readable and GIVEN/WHEN/THEN-shaped by routing live app-subprocess HTTP, logs, and working-directory inspection through local harness abstractions instead of raw plumbing in the testcase body.
 - Freeze runtime-inspection expectations for `sec-e2e-024`, `sec-e2e-025`, `sec-e2e-027`, `sec-e2e-028`, and `sec-e2e-021`: tool-boundary context spying, direct physical ledger inspection, local hash-chain verification, second committed non-tail audit-record tamper detection with readable `UNTRUSTED` state, lease-expiry-driven `UNTRUSTED` downgrade plus reconnect gating, normal-offline reconnect CLEAR projection, durable rejected-event evidence with trace-bound nonce semantics, and pre-execution evidence ordering.
 - Freeze Security Event Ingestion V1 explicit API/data entrypoints: legal event durable acceptance, invalid config/schema/payload rejection, undefined payload field preservation, sourceSystem plus eventId idempotency, and bounded failed reception records.
@@ -33,8 +33,28 @@ element_path: tests/integration/security
 - path: test_security_event_ingestion.py
   kind: explicit-testcase-entry
   role: single explicit security event ingestion API/data entrypoint file for V1 acceptance baselines
+- path: integrity_harness.py
+  kind: protected-explicit-test-fixture
+  role: business-readable harness for Integrity Protection delivery (persona, health check, default-off menu semantics)
+- path: test_integrity_protection.py
+  kind: explicit-testcase-entry
+  role: Integrity Protection delivery acceptance bodies (ip-e2e-001, 002, 004, 006, 007; ip-e2e-002 is P2)
 
-### Explicit Testcase Entrypoints
+### Explicit Testcase Entrypoints — Integrity Protection
+- testcase_name: ip-e2e-001-integrity-security-menu-default-off
+  entry_path: test_integrity_protection.py::test_integrity_security_menu_default_off
+- testcase_name: ip-e2e-002-persona-drift-alert-restore-accept
+  entry_path: test_integrity_protection.py::test_persona_drift_alert_restore_accept
+- testcase_name: ip-e2e-004-health-check-scan-and-confirmed-fix
+  entry_path: test_integrity_protection.py::test_health_check_scan_and_confirmed_fix
+- testcase_name: ip-e2e-005-rule-integrity-entry-visible
+  entry_path: ../../extension/rule_integrity/tests/test_integration_entry.py::test_rule_integrity_entry_visible
+- testcase_name: ip-e2e-006-security-i18n-progress-carousel
+  entry_path: test_integrity_protection.py::test_security_i18n_and_healthcheck_progress_carousel
+- testcase_name: ip-e2e-007-healthcheck-full-doctor-coverage
+  entry_path: test_integrity_protection.py::test_healthcheck_full_doctor_coverage_projection
+
+### Explicit Testcase Entrypoints — Audit Foundation
 - testcase_name: sec-e2e-024-end-to-end-non-repudiation-evidence-chain
   entry_path: test_audit_foundation.py::test_end_to_end_non_repudiation_evidence_chain
   control_point: authenticate an employee, request a delegated high-risk action through the real app subprocess, and provide the required confirmation through the harness
@@ -79,8 +99,10 @@ element_path: tests/integration/security
 ### Protected Fixtures
 - harness.py
 - security_event_harness.py
+- integrity_harness.py
 
 ### Notes
+- Integrity Protection acceptance is verified through `integrity_harness.py` against as-built paths in `extension/{persona_baseline,health_check,rule_integrity}/` and `console/src/extension/`. ip-e2e-005 backend passive check is exercised from `extension/rule_integrity/tests/`; Console PassiveCard/Banner are as-built UI not fully covered by that harness.
 - The testcase body in `test_audit_foundation.py` is frozen as a business contract baseline. Coding/Repair may realize runtime behavior underneath the harness, but should not rewrite the business wording, GIVEN/WHEN/THEN structure, or explicit entrypoint paths without an upstream architecture change.
 - In the current repository state, the harness is still expected to fail with business-readable `Audit_Integrity_Lockdown_Gap` if the live runtime only detects checkpoint loss or tail truncation and does not detect OS-level editing of the second committed non-tail audit record before the next high-risk boundary.
 - sec-e2e-027 is now frozen around two control points and two console observation points inside one explicit entrypoint, and the current repository evidence shows that baseline can execute without sharing one mutable final console status across both frames.

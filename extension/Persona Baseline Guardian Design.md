@@ -965,13 +965,13 @@ i18n（`en.json` / `zh.json`）：
 | 项 | 约定 |
 |----|------|
 | 导航 | 设置 → 安全 → **完整性校验**（Integrity Check）子 Tab |
-| 控件 | 「人格完整性保护」`Switch`（与来源可信校验开关同级，同 `integrityGrid` 风格） |
+| 控件 | 「人格完整性保护」`Switch`（`integrityGrid` 风格，Integrity Check Tab 内） |
 | 绑定字段 | `persona_protection_enabled`（与后端 `settings.enabled` 一一对应） |
 | 默认值 | **关**（`false`）；首次安装、无 `settings.json` 时均为关 |
 | 打开 | 功能**使能**：hook、watch、check、隐式 Accept、drift 告警全流程生效 |
 | 关闭 | 功能**不使能**：零运行时副作用；**删除**基线/drift 状态（§14.3.1）；**保留**保护文件清单 |
 
-**注意：** 来源可信校验、健康体检、规则完整性有各自逻辑；本开关**仅**控制人格基线保护，不联动其它 Integrity Protection 子功能。
+**注意：** 健康体检、规则完整性有各自逻辑（见 `extension/Intergrity  Protection Design.md`）；本开关**仅**控制人格基线保护，不联动其它 Integrity Protection 子功能。规则完整性 as-built：`RuleIntegrityPassiveCard`（Integrity Check 内手动检查）+ `RuleIntegrityRepairBanner`（Security 页顶轮询 Banner + Repair）。来源可信校验本仓库未实现。
 
 ### 14.2 前端交互（对齐 File Guard 模式）
 

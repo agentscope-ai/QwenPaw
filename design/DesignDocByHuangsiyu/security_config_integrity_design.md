@@ -1,5 +1,14 @@
 # QwenPaw 内置工具检测规则完整性保护设计
 
+> **As-built 实现（与当前代码对齐，2026-06）**
+>
+> 运行时实现已迁至 `extension/rule_integrity/`（verify/repair/routes/startup）及 Console：
+> - `console/src/extension/rule_integrity/` — `RuleIntegrityRepairBanner`（Security 页顶，5s 轮询）、`RuleIntegrityPassiveCard`（Integrity Check Tab 内手动「检查」按钮 + findings 表格）、`useRuleIntegrity`
+> - 验收：`extension/rule_integrity/tests/test_integration_entry.py::test_rule_integrity_entry_visible`
+> - 总交付设计见 `extension/Intergrity  Protection Design.md`
+>
+> 下文为早期设计稿；若与 as-built 路径或 UI 描述不一致，以 extension 模块与 Console 代码为准。
+
 ## 1. 背景
 
 当前 QwenPaw 的工具防护内置规则主要来自：

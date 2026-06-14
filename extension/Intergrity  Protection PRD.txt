@@ -1,48 +1,50 @@
 一、人格完整性保护
 目的：保护AGENTS.md、SOUL.md、PROFILE.md 等人格基线不被破坏，防止prompt投毒
 1、利用thirdparty目录下clawsec的soul_guardian能力对 AGENTS.md、SOUL.md、PROFILE.md 等建基线、漂移检测，防prompt层投毒，以免改人设让 agent「自愿」绕过策略）
-2、文件被修改后要能立刻在前端提醒用户（可以参考利用 qwenpaw 的SSE watch机制），并提供接受修改和恢复按钮，如果用户点击修复，要能支持还原到修改前的版本；如果用户点击接受修改，要建立新的基线。
-3、认知文件保护范围包含AGENTS.md、SOUL.md、PROFILE.md等，同时支持动态配置，以后可以增加扩展保护skill文件。
-4、程序启动时进行一次全量扫描
-5、本功能在前台界面支持开关，且开关默认关闭，即功能默认不使能；开关开启后功能使能。
+2、文件被修改后要能立刻在前端提醒用户（利用 qwenpaw 的 SSE watch 机制），并提供接受修改和恢复按钮；用户点击恢复则还原到修改前的版本；用户点击接受则建立新的基线。
+3、认知文件保护范围包含 AGENTS.md、SOUL.md、PROFILE.md 等，同时支持动态配置，以后可以增加扩展保护 skill 文件。
+4、程序启动时进行一次全量扫描（仅 persona_protection_enabled=true 时）
+5、本功能在前台界面支持开关，且开关默认关闭；开关开启后功能使能。
 6、界面部署参考第四章 界面部署
 
-二、 来源可信校验
-目的：可以校验skill/agent的发布来源合法可控
-1、在前端网页提供一个可信校验skill/agent发布包的入口，支持从磁盘选择skill/agent发布包进行校验，校验流程复用thirdparty目录下clawsec的guarded_skill_install中的校验逻辑
-2、提供一个签名工具（python脚本即可，参考thirdparty目录下clawsec的现有机制），支持对skill/agent进行签名
-3、签名公私钥在本地生成，私钥明文预置到签名工具中，公钥硬编码到可信校验功能中
-4、界面部署参考第四章 界面部署
-
 三、健康体检
-目的：对qwenpaw进行健康体检
-1、提供健康体检入口，点击该入口时进行健康体检，用户可以实时看到体检进度和检查项，以及检测出的风险，风险项汇总后给出处理建议逐一让用户确认，切记只做扫描，不要修改用户文件，处理建议和用户二次确认后再执行。
-2、体检范围：
-调用qwenpaw doctor能力进行扫描
-3、修复方式
-调用doctor fix能力再用户二次确认后执行修复
-4、界面部署参考第四章 界面部署
+目的：对 qwenpaw 进行健康体检
+1、入口：设置/安全 → 「健康检查」Tab（与工具防护、文件防护、完整性校验同级）
+2、扫描：点击「Run check」触发只读扫描（POST /config/security/integrity-protection/health-check/scan，deep=false）
+   - 扫描中：进度区轮播当前检查项（约 1.8 秒切换）
+   - 完成后：汇总行 + 分组表格（Category / Check / Status / Details / What to do / Action）
+   - 支持「Issues only / All」视图；环境类 OK 项可折叠
+   - 上次结果保存在浏览器 sessionStorage（同会话刷新仍可见）
+   - 扫描不修改任何用户文件
+3、修复：有 fix_id 的项可点「Fix」
+   - 普通 fix：Popconfirm 二次确认后调用 POST .../health-check/fix
+   - 高风险 fix（如 seed-missing-agent-json、rebuild-console-npm 等）：Modal 二次确认
+   - 仅允许 CONSOLE_FIX_IDS 白名单内的 doctor fix id
+   - 无 fix 的项：显示 Manual fix 或跳转到 Tool Guard / File Guard / Skill Scanner Tab
+4、体检范围：复用 qwenpaw doctor 结构化检查（extension/health_check/projection.py），非 CLI 文本解析
+5、Deep 扫描：后端 API 支持 deep=true（含通道连通性、本地 LLM 深度项）；Console 当前仅提供默认扫描（deep=false），无 Deep 扫描按钮
+6、界面部署参考第四章 界面部署
 
 四、界面部署
-1、【完整性校验】在qwenpaw前端网页设置/安全菜单下，新增子菜单完整性校验，该菜单和现有的工具防护、文件防护平级，同风格
+1、【完整性校验】在 qwenpaw 前端网页设置/安全菜单下，新增子菜单完整性校验，该菜单和现有的工具防护、文件防护平级，同风格
 1.1、菜单内容
-1.1.1 部署人格完整性保护功能开关，开关开启时罗列被保护的文件路径
-1.1.2 部署来源可信校验入口，提供简单功能说明，点击可信校验按钮可以从磁盘选择发布包进行校验，校验完成后界面提示校验结果
-1.1.3 提供规则完整性校验入口，点击后检查dangerous_shell_commands.yaml完整性。
+1.1.1 部署人格完整性保护功能 Switch（默认关），开关开启时罗列被保护的文件路径；漂移告警卡片提供 Restore / Accept
+1.1.2 规则完整性：Integrity Check 内「检查」按钮 + findings 表格（RuleIntegrityPassiveCard）；Security 页顶篡改 Banner（轮询）+ Repair 按钮（RuleIntegrityRepairBanner）
+   （本仓库未实现来源可信校验入口）
 
-1.2 【健康体检】在qwenpaw前端网页设置/安全菜单下，新增子菜单健康体检，该菜单和现有的工具防护、文件防护平级，同风格
-1.2.1 按照第三章健康体检的要求提供界面，界面要精美，可以考虑以仪表盘来表示进度
+1.2 【健康体检】在 qwenpaw 前端网页设置/安全菜单下，新增子菜单健康体检，该菜单和现有的工具防护、文件防护平级，同风格
+1.2.1 按第三章 as-built 描述提供界面；Tab 始终可见；settings 中 health_check_enabled 默认为 false，但不拦截扫描
 
 五、其他要求
-1、减小侵入式修改，代码尽量解耦，写到extension下
-2、thirdparty目录下clawsec已有的能力直接复用，不要重复造轮子
-3、要有设计文档，也写入到extension目录下
+1、减小侵入式修改，代码尽量解耦，写到 extension 下
+   - 后端：extension/{persona_baseline,health_check,rule_integrity}/
+   - 前端：console/src/extension/{persona_baseline,health_check,rule_integrity}/
+2、thirdparty 目录下 clawsec 已有的能力直接复用，不要重复造轮子
+3、要有设计文档，也写入到 extension 目录下
 
-
-
-
-
-
-
-
-每个功能要有一个开关，默认是关闭的，不开启时不影响所有流程
+六、实现状态（As-built，与当前代码一致）
+- 已实现：人格完整性保护、健康体检、内置规则完整性（Banner + PassiveCard + 显式 Repair）
+- 未实现：来源可信校验（原 PRD 第二节整节需求）
+- persona_protection_enabled：UI Switch 控制，默认 false，enable 后才有 watch/scan/告警
+- health_check_enabled：settings 投影字段，默认 false；不控制 Tab 可见性，不拦截 scan/fix API
+- rule_integrity_check_passive：默认 true；repair 必须用户显式点击
