@@ -2034,126 +2034,264 @@
       }
     },
     "healthCheck": {
-      "title": "Security Health Check",
-      "description": "Run qwenpaw doctor as a read-only scan before a confirmed selected fix.",
-      "scanOnlyNotice": "The first health-check action is scan-only. A doctor fix runs only after the selected repair and confirmation phrase are submitted.",
-      "runReadOnlyScan": "Run read-only scan",
-      "runDeepScan": "Run deep connectivity scan",
-      "selectedRepair": "Selected repair: {{repair}}",
-      "confirmationPhrase": "Confirm selected doctor fix",
-      "confirmSelectedDoctorFix": "Confirm selected doctor fix",
-      "emptyCheckItems": "No health check items yet",
-      "loadFailed": "Failed to run health check scan",
-      "noRisks": "No risks detected",
+      "title": "Security health check",
+      "panelTitle": "Runtime diagnostics",
+      "tabIntro": "Checks whether Agents, models, messaging channels, disk, and settings are ready to use. Scanning never changes your files; some issues can be fixed in one click. Unlike Integrity Check, this tab focuses on whether QwenPaw runs — not whether persona/rules were tampered with.",
+      "description": "Checks Agents, models, channels, disk, and settings. Nothing is changed during the scan.",
+      "runCheck": "Run check",
+      "runCheckAgain": "Run again",
+      "retry": "Retry",
+      "errorHint": "Check failed. Make sure the QwenPaw service is running, then try again.",
+      "emptyCheckItems": "No check results yet. Run a check to get started.",
+      "loadFailed": "Could not run the health check",
+      "summary": {
+        "headline": "{{total}} checks · {{ok}} OK · {{attention}} need attention ({{risk}} critical, {{suggestion}} notices)",
+        "allClearHeadline": "All {{total}} checks passed",
+        "allClear": "No issues found.",
+        "lastRun": "Last check: {{time}}"
+      },
+      "view": {
+        "issuesOnly": "Issues only",
+        "all": "All"
+      },
+      "emptyState": {
+        "intro": "Click Run check to see whether QwenPaw is ready to use.",
+        "step1": "Click Run check",
+        "step2": "Review the summary and issue list",
+        "step3": "Fix items or open the related settings tab"
+      },
+      "environmentCollapse": {
+        "title": "Environment info ({{count}} items, all OK)"
+      },
+      "actions": {
+        "manual": "Manual fix needed",
+        "gotoTab": {
+          "toolGuard": "Open Tool Guard",
+          "fileGuard": "Open File Guard",
+          "skillScanner": "Open Skill Scanner"
+        }
+      },
       "status": {
         "idle": "Ready",
-        "running": "Scanning",
-        "readOnlyScan": "read-only scan",
-        "mutatingScan": "mutating scan",
-        "completed": "Completed",
+        "running": "Checking",
+        "completed": "Done",
         "failed": "Failed",
         "cancelled": "Cancelled",
         "interrupted": "Interrupted"
       },
       "itemStatus": {
         "ok": "OK",
-        "risk": "Risk",
-        "suggestion": "Suggestion",
-        "skipped": "Skipped"
+        "risk": "Needs attention",
+        "suggestion": "Notice",
+        "skipped": "Not checked yet"
       },
       "columns": {
-        "group": "Group",
+        "group": "Category",
         "check": "Check",
         "status": "Status",
-        "detail": "Detail",
-        "risk": "Risk / recommendation",
-        "fixId": "Fix ID"
-      },
-      "fixResult": {
-        "executed": "executed",
-        "notExecuted": "not executed",
-        "doctorFixId": "doctor fix id: {{fixId}}"
+        "detail": "Details",
+        "guidance": "What to do",
+        "action": "Action"
       },
       "carousel": {
-        "idle": "Start a scan to see the current check.",
-        "currentPrefix": "Scanning: {{item}}",
-        "completed": "Scan completed. Review risks and suggested repairs before confirming any fix.",
-        "failed": "Scan failed. No fix was executed.",
-        "cancelled": "Scan cancelled. No fix was executed.",
-        "interrupted": "Scan interrupted. No fix was executed."
+        "idle": "Waiting to start",
+        "runningHint": "Analyzing, please wait…",
+        "currentPrefix": "Checking: {{item}}",
+        "completed": "Check finished. Review any items that need attention.",
+        "failed": "Check failed.",
+        "cancelled": "Check cancelled.",
+        "interrupted": "Check interrupted."
+      },
+      "details": {
+        "fallback": "See technical details for more information.",
+        "fallbackEmpty": "No additional details.",
+        "showTechnical": "Show technical details",
+        "hideTechnical": "Hide technical details",
+        "patterns": {
+          "indexHtmlMissing": "Web console files are missing.",
+          "channelTokenEmpty": "A messaging channel is on but the bot token is missing.",
+          "channelCredentialsIncomplete": "A messaging channel is on but account details are incomplete.",
+          "toolGuardOff": "Dangerous command blocking is turned off.",
+          "skillScannerOff": "Skill safety scanning is turned off.",
+          "fileGuardOff": "Sensitive file path protection is turned off.",
+          "diskSpaceLow": "Free disk space is running low.",
+          "commandNotOnPath": "A required command was not found on this computer.",
+          "workspaceMissing": "An Agent folder path is missing or invalid.",
+          "agentJsonMissing": "An Agent is missing its settings file.",
+          "noUnknownConfigKeys": "No outdated settings fields were found.",
+          "modelUnreachable": "The model service could not be reached.",
+          "apiKeyMissing": "The model provider is missing an API key.",
+          "baseUrlMissing": "The model provider base URL is not set.",
+          "providerNotFound": "The configured model provider was not found."
+        },
+        "working-dir": {
+          "ok": "Data folder: {{value}} · OK"
+        },
+        "python-version": {
+          "ok": "Python {{value}} · OK"
+        },
+        "qwenpaw-version": {
+          "ok": "QwenPaw {{value}} · OK"
+        },
+        "platform": {
+          "ok": "System: {{value}} · OK"
+        },
+        "sqlite-library": {
+          "ok": "Database component {{value}} · OK"
+        },
+        "root-config-json": {
+          "ok": "Main settings file looks valid."
+        },
+        "unknown-config-keys": {
+          "ok": "No outdated settings fields found."
+        },
+        "agent-workspaces": {
+          "ok": "Agent folders look complete."
+        },
+        "agent-json-profiles": {
+          "ok": "Agent settings files look valid."
+        },
+        "enabled-agent-config-load": {
+          "ok": "Enabled Agents can load their settings."
+        },
+        "enabled-channel-credentials": {
+          "ok": "Enabled messaging channels have credentials."
+        },
+        "mcp-stdio-command": {
+          "ok": "Local external tool commands look fine."
+        },
+        "mcp-http-sse-url": {
+          "ok": "Remote external tool addresses look fine."
+        },
+        "enabled-skill-layout": {
+          "ok": "Enabled skills are present on disk."
+        },
+        "browser-playwright-dependencies": {
+          "ok": "Browser automation environment looks ready."
+        },
+        "security-baseline-posture": {
+          "ok": "Core security features are enabled."
+        },
+        "memory-embedding-config": {
+          "ok": "Memory search credentials look configured."
+        },
+        "workspace-hygiene": {
+          "ok": "Agent storage looks tidy."
+        },
+        "cron-jobs-json": {
+          "ok": "Scheduled task files look valid."
+        },
+        "startup-log-writable": {
+          "ok": "Log files can be written."
+        },
+        "workspace-writable": {
+          "ok": "Agent folders can be written to."
+        },
+        "extra-volume-disk-space": {
+          "ok": "Other disks have enough free space."
+        },
+        "console-static-build": {
+          "ok": "Web console files are present."
+        },
+        "web-authentication": {
+          "ok": "Web sign-in settings can be checked."
+        },
+        "provider-configuration": {
+          "ok": "Custom model providers look complete."
+        },
+        "enabled-agent-model-connectivity": {
+          "ok": "Agent models responded successfully."
+        },
+        "api-target-mismatch": {
+          "ok": "Service address matches the saved target."
+        },
+        "working-dir-disk-space": {
+          "ok": "Data disk space: {{value}} · OK"
+        }
+      },
+      "guidance": {
+        "manualFallback": "Follow the guidance manually, or expand details for the underlying reason.",
+        "patterns": {
+          "fixRootConfig": "Fix errors in your main settings file, then run the check again.",
+          "completeChannelCredentials": "Fill in the missing account details for enabled messaging channels.",
+          "rebuildConsole": "Rebuild or reinstall the web console files.",
+          "createWorkingDir": "Create or initialize the QwenPaw data folder.",
+          "freeDiskSpace": "Free up disk space before writes start failing.",
+          "reviewSecurityControls": "Turn important security features back on before production use.",
+          "configureEmbedding": "Add an API key for memory search.",
+          "fixProviderModel": "Fix the model provider settings for affected Agents.",
+          "matchApiHost": "Use the same address and port as your running QwenPaw service.",
+          "fixPermissions": "Fix write permissions on the listed folders.",
+          "reconcileSkills": "Sync enabled skills with on-disk skill folders.",
+          "reviewObsoleteConfig": "You can remove obsolete config fields manually; they do not block current use."
+        }
+      },
+      "fix": {
+        "action": "Fix",
+        "success": "Fixed successfully. Running check again…",
+        "failed": "Fix failed. See technical details for more information.",
+        "confirmTitle": "Fix this item?",
+        "confirmDescription": "This will apply an automatic fix and may create or update files.",
+        "confirmOk": "Fix",
+        "confirmCancel": "Cancel",
+        "highRiskTitle": "Confirm this fix",
+        "highRiskDefault": "This fix may overwrite existing files or take several minutes.",
+        "highRisk": {
+          "seed-missing-agent-json": "This will create or reset Agent settings files. Custom content may be overwritten.",
+          "reset-invalid-agent-json": "This will reset invalid Agent settings files. Custom content may be overwritten.",
+          "rebuild-console-npm": "This will rebuild the web console. It may take several minutes and requires Node.js."
+        }
       },
       "scanItems": {
-        "working-dir": "Working directory",
-        "python-version": "Python version",
+        "working-dir": "Data folder",
+        "python-version": "Runtime version",
         "qwenpaw-version": "QwenPaw version",
-        "platform": "Platform",
-        "working-dir-disk-space": "Working directory disk space",
-        "sqlite-library": "SQLite library",
-        "root-config-json": "Root config.json",
-        "unknown-config-keys": "Unknown config keys",
-        "agent-workspaces": "Agent workspaces",
-        "agent-json-profiles": "Agent JSON profiles",
-        "enabled-agent-config-load": "Enabled agent config load",
-        "enabled-channel-credentials": "Enabled channel credentials",
-        "enabled-channel-connectivity": "Enabled channel connectivity",
-        "mcp-stdio-command": "MCP stdio command",
-        "mcp-http-sse-url": "MCP HTTP/SSE URL",
-        "enabled-skill-layout": "Enabled skill layout",
-        "browser-playwright-dependencies": "Browser / Playwright dependencies",
-        "security-baseline-posture": "Security baseline posture",
-        "memory-embedding-config": "Memory / embedding config",
-        "workspace-hygiene": "Workspace hygiene",
-        "cron-jobs-json": "Cron jobs.json",
-        "startup-log-writable": "Startup log writable",
-        "workspace-writable": "Workspace writable",
-        "extra-volume-disk-space": "Extra volume disk space",
-        "console-static-build": "Console static build",
-        "web-authentication": "Web authentication",
-        "provider-configuration": "Provider configuration",
-        "active-llm-connectivity": "Active LLM connectivity",
-        "enabled-agent-model-connectivity": "Enabled agent model connectivity",
-        "api-health": "API health",
-        "api-version": "API version",
-        "api-target-mismatch": "API target mismatch",
-        "console-over-http": "Console over HTTP",
-        "qwenpaw-local-llm-deep": "QwenPaw local LLM deep check"
+        "platform": "System type",
+        "working-dir-disk-space": "Data disk free space",
+        "sqlite-library": "Local database version",
+        "root-config-json": "Main settings file",
+        "unknown-config-keys": "Outdated settings fields",
+        "agent-workspaces": "Agent folders",
+        "agent-json-profiles": "Agent settings files",
+        "enabled-agent-config-load": "Enabled Agents load OK",
+        "enabled-channel-credentials": "Channel credentials",
+        "enabled-channel-connectivity": "Channel connectivity",
+        "mcp-stdio-command": "Local tool commands",
+        "mcp-http-sse-url": "Remote tool URLs",
+        "enabled-skill-layout": "Enabled skills on disk",
+        "browser-playwright-dependencies": "Browser automation ready",
+        "security-baseline-posture": "Security features status",
+        "memory-embedding-config": "Memory search API keys",
+        "workspace-hygiene": "Storage clutter",
+        "cron-jobs-json": "Scheduled tasks file",
+        "startup-log-writable": "Log file writable",
+        "workspace-writable": "Agent folders writable",
+        "extra-volume-disk-space": "Other disks free space",
+        "console-static-build": "Web console files",
+        "web-authentication": "Web sign-in setup",
+        "provider-configuration": "Custom model providers",
+        "enabled-agent-model-connectivity": "Agent model connectivity",
+        "api-target-mismatch": "Service address match",
+        "qwenpaw-local-llm-deep": "Local AI runtime (deep scan only)"
       },
       "groups": {
         "environment": "Environment",
-        "config": "Config",
+        "config": "Basic settings",
         "agents": "Agents",
-        "channels": "Channels",
-        "mcp-clients": "MCP clients",
+        "channels": "Messaging channels",
+        "mcp-clients": "External tool connections",
         "skills": "Skills",
-        "browser-playwright": "Browser / Playwright",
-        "security-baseline": "Security baseline",
-        "memory-embedding": "Memory / embedding",
-        "workspace-hygiene": "Workspace hygiene",
-        "cron": "Cron",
-        "startup-paths": "Startup paths",
-        "console-static-files": "Console static files",
-        "web-authentication": "Web authentication",
-        "providers": "Providers",
-        "active-llm": "Active LLM",
-        "per-agent-models": "Per-agent models",
-        "api": "API",
-        "api-target": "API target",
-        "console-over-http": "Console over HTTP"
-      },
-      "risks": {
-        "title": "Risks"
-      },
-      "repairs": {
-        "title": "Suggested repairs",
-        "repair_missing_console_static_build": "Repair missing console static build",
-        "repair_working-dir": "Repair working directory",
-        "repair_agent-workspaces": "Repair agent workspaces",
-        "repair_agent-json-profiles": "Repair agent JSON profiles",
-        "repair_enabled-agent-config-load": "Repair enabled agent config load",
-        "repair_enabled-skill-layout": "Reconcile workspace skills",
-        "repair_cron-jobs-json": "Validate jobs.json",
-        "repair_startup-log-writable": "Repair startup log path",
-        "repair_console-static-build": "Rebuild console static build"
+        "browser-playwright": "Browser automation",
+        "security-baseline": "Security protection",
+        "memory-embedding": "Memory & search",
+        "workspace-hygiene": "Storage & cleanup",
+        "cron": "Scheduled tasks",
+        "startup-paths": "Startup & write access",
+        "console-static-files": "Web console",
+        "web-authentication": "Sign-in & accounts",
+        "providers": "Model providers",
+        "per-agent-models": "Models per Agent",
+        "api-target": "Service address"
       }
     },
     "rulesIntegrity": {

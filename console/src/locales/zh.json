@@ -1884,21 +1884,45 @@
     },
     "healthCheck": {
       "title": "安全健康检查",
-      "description": "先以只读扫描方式运行 qwenpaw doctor，再执行已确认的指定修复。",
-      "scanOnlyNotice": "首次健康检查只执行扫描。只有提交选定修复项和确认短语后，才会运行 doctor fix。",
-      "runReadOnlyScan": "运行只读扫描",
-      "runDeepScan": "运行深度连通性扫描",
-      "selectedRepair": "选定修复：{{repair}}",
-      "confirmationPhrase": "确认执行选定 doctor 修复",
-      "confirmSelectedDoctorFix": "确认执行选定 doctor 修复",
-      "emptyCheckItems": "暂无健康检查项",
-      "loadFailed": "运行健康检查扫描失败",
-      "noRisks": "未发现风险",
+      "panelTitle": "运行状态诊断",
+      "tabIntro": "检查 Agent、模型、消息通道、磁盘与配置是否能正常使用。检查过程不会修改任何文件；部分问题可一键修复。与「完整性检查」不同：本页关注能不能跑起来，不检测人格/规则是否被篡改。",
+      "description": "检查 Agent、模型、消息通道、磁盘与配置是否能正常使用。检查过程不会修改任何文件。",
+      "runCheck": "开始检查",
+      "runCheckAgain": "重新检查",
+      "retry": "重试",
+      "errorHint": "检查失败，请确认 QwenPaw 服务已启动后再试。",
+      "emptyCheckItems": "暂无检查结果，请先运行检查。",
+      "loadFailed": "无法运行健康检查",
+      "summary": {
+        "headline": "共 {{total}} 项 · {{ok}} 项正常 · {{attention}} 项需关注（{{risk}} 需处理，{{suggestion}} 提醒）",
+        "allClearHeadline": "共 {{total}} 项，全部正常",
+        "allClear": "未发现需要处理的问题。",
+        "lastRun": "上次检查：{{time}}"
+      },
+      "view": {
+        "issuesOnly": "仅问题项",
+        "all": "全部"
+      },
+      "emptyState": {
+        "intro": "点击下方「开始检查」，查看 QwenPaw 是否能正常运行。",
+        "step1": "点击「开始检查」",
+        "step2": "查看摘要与问题列表",
+        "step3": "按提示修复或前往相关设置"
+      },
+      "environmentCollapse": {
+        "title": "环境信息（{{count}} 项，均已正常）"
+      },
+      "actions": {
+        "manual": "需手动处理",
+        "gotoTab": {
+          "toolGuard": "前往工具防护",
+          "fileGuard": "前往文件防护",
+          "skillScanner": "前往技能扫描"
+        }
+      },
       "status": {
         "idle": "就绪",
-        "running": "扫描中",
-        "readOnlyScan": "只读扫描",
-        "mutatingScan": "会修改文件的扫描",
+        "running": "检查中",
         "completed": "已完成",
         "failed": "失败",
         "cancelled": "已取消",
@@ -1906,103 +1930,217 @@
       },
       "itemStatus": {
         "ok": "正常",
-        "risk": "风险",
-        "suggestion": "建议",
-        "skipped": "已跳过"
+        "risk": "需处理",
+        "suggestion": "提醒",
+        "skipped": "暂未检查"
       },
       "columns": {
-        "group": "分组",
-        "check": "检查项",
+        "group": "类别",
+        "check": "检查内容",
         "status": "状态",
-        "detail": "详情",
-        "risk": "风险 / 建议",
-        "fixId": "修复 ID"
-      },
-      "fixResult": {
-        "executed": "已执行",
-        "notExecuted": "未执行",
-        "doctorFixId": "doctor 修复 ID：{{fixId}}"
+        "detail": "具体情况",
+        "guidance": "问题说明",
+        "action": "操作"
       },
       "carousel": {
-        "idle": "开始扫描后会显示当前检查项。",
-        "currentPrefix": "正在扫描：{{item}}",
-        "completed": "扫描已完成。请先查看风险和建议，再确认任何修复。",
-        "failed": "扫描失败。未执行任何修复。",
-        "cancelled": "扫描已取消。未执行任何修复。",
-        "interrupted": "扫描已中断。未执行任何修复。"
+        "idle": "等待开始",
+        "runningHint": "正在分析，请稍候…",
+        "currentPrefix": "正在检查：{{item}}",
+        "completed": "检查已完成，请查看需要处理的项。",
+        "failed": "检查失败。",
+        "cancelled": "检查已取消。",
+        "interrupted": "检查已中断。"
+      },
+      "details": {
+        "fallback": "更多信息请查看技术详情。",
+        "fallbackEmpty": "暂无更多说明。",
+        "showTechnical": "查看详细信息",
+        "hideTechnical": "收起详细信息",
+        "patterns": {
+          "indexHtmlMissing": "网页管理界面文件缺失。",
+          "channelTokenEmpty": "已开启消息通道，但未填写机器人密钥（Token）。",
+          "channelCredentialsIncomplete": "已开启消息通道，但账号信息不完整。",
+          "toolGuardOff": "已关闭危险命令拦截。",
+          "skillScannerOff": "已关闭技能安全扫描。",
+          "fileGuardOff": "已关闭敏感路径保护。",
+          "diskSpaceLow": "磁盘剩余空间不足。",
+          "commandNotOnPath": "未找到所需的命令程序。",
+          "workspaceMissing": "Agent 文件夹路径缺失或无效。",
+          "agentJsonMissing": "Agent 缺少设置文件。",
+          "noUnknownConfigKeys": "未发现过时的设置字段。",
+          "modelUnreachable": "模型服务暂时无法连接。",
+          "apiKeyMissing": "模型服务缺少 API 密钥。",
+          "baseUrlMissing": "模型服务地址未配置。",
+          "providerNotFound": "未找到配置的模型服务商。"
+        },
+        "working-dir": {
+          "ok": "数据目录：{{value}} · 正常"
+        },
+        "python-version": {
+          "ok": "Python {{value}} · 正常"
+        },
+        "qwenpaw-version": {
+          "ok": "QwenPaw {{value}} · 正常"
+        },
+        "platform": {
+          "ok": "系统：{{value}} · 正常"
+        },
+        "sqlite-library": {
+          "ok": "数据库组件 {{value}} · 正常"
+        },
+        "root-config-json": {
+          "ok": "主配置文件格式正常。"
+        },
+        "unknown-config-keys": {
+          "ok": "未发现过时的设置字段。"
+        },
+        "agent-workspaces": {
+          "ok": "Agent 文件夹完整。"
+        },
+        "agent-json-profiles": {
+          "ok": "Agent 设置文件格式正常。"
+        },
+        "enabled-agent-config-load": {
+          "ok": "已启用的 Agent 可以正常加载配置。"
+        },
+        "enabled-channel-credentials": {
+          "ok": "已开启的消息通道凭据完整。"
+        },
+        "mcp-stdio-command": {
+          "ok": "本地外部工具命令正常。"
+        },
+        "mcp-http-sse-url": {
+          "ok": "网络外部工具地址正常。"
+        },
+        "enabled-skill-layout": {
+          "ok": "已开启的技能文件存在。"
+        },
+        "browser-playwright-dependencies": {
+          "ok": "浏览器自动化环境就绪。"
+        },
+        "security-baseline-posture": {
+          "ok": "核心安全功能已开启。"
+        },
+        "memory-embedding-config": {
+          "ok": "记忆搜索 API 已配置。"
+        },
+        "workspace-hygiene": {
+          "ok": "Agent 存储状态正常。"
+        },
+        "cron-jobs-json": {
+          "ok": "定时任务文件格式正常。"
+        },
+        "startup-log-writable": {
+          "ok": "运行日志可以正常写入。"
+        },
+        "workspace-writable": {
+          "ok": "Agent 目录可以正常写入。"
+        },
+        "extra-volume-disk-space": {
+          "ok": "其他磁盘空间充足。"
+        },
+        "console-static-build": {
+          "ok": "网页管理界面文件完整。"
+        },
+        "web-authentication": {
+          "ok": "网页登录设置可检查。"
+        },
+        "provider-configuration": {
+          "ok": "自定义模型服务商配置完整。"
+        },
+        "enabled-agent-model-connectivity": {
+          "ok": "Agent 模型连接正常。"
+        },
+        "api-target-mismatch": {
+          "ok": "服务地址与记录一致。"
+        },
+        "working-dir-disk-space": {
+          "ok": "数据盘空间：{{value}} · 正常"
+        }
+      },
+      "guidance": {
+        "manualFallback": "请根据说明手动处理，或展开详细信息查看原因。",
+        "patterns": {
+          "fixRootConfig": "请修正主配置文件中的错误，然后重新检查。",
+          "completeChannelCredentials": "请补全已开启消息通道的账号信息。",
+          "rebuildConsole": "请重建或重新安装网页管理界面文件。",
+          "createWorkingDir": "请创建或初始化 QwenPaw 数据目录。",
+          "freeDiskSpace": "请清理磁盘空间，避免写入失败。",
+          "reviewSecurityControls": "建议在生产环境开启重要安全功能。",
+          "configureEmbedding": "请为记忆搜索配置 API 密钥。",
+          "fixProviderModel": "请修正相关 Agent 的模型服务商设置。",
+          "matchApiHost": "请使用与正在运行的 QwenPaw 服务相同的地址和端口。",
+          "fixPermissions": "请检查相关文件夹的写入权限。",
+          "reconcileSkills": "请同步已启用技能与磁盘上的技能文件夹。",
+          "reviewObsoleteConfig": "可手动清理过时的配置字段，不影响当前使用。"
+        }
+      },
+      "fix": {
+        "action": "修复",
+        "success": "修复成功，正在重新检查…",
+        "failed": "修复失败，请查看技术详情。",
+        "confirmTitle": "确认修复此项？",
+        "confirmDescription": "将自动修复，可能会创建或更新相关文件。",
+        "confirmOk": "修复",
+        "confirmCancel": "取消",
+        "highRiskTitle": "确认修复",
+        "highRiskDefault": "此修复可能覆盖现有文件或需要较长时间。",
+        "highRisk": {
+          "seed-missing-agent-json": "将创建或重置 Agent 设置文件，已有自定义内容可能被覆盖。",
+          "reset-invalid-agent-json": "将重置无效的 Agent 设置文件，已有自定义内容可能被覆盖。",
+          "rebuild-console-npm": "将重新构建网页控制台，可能需要数分钟且需要安装 Node.js。"
+        }
       },
       "scanItems": {
-        "working-dir": "工作目录",
-        "python-version": "Python 版本",
+        "working-dir": "数据存放位置",
+        "python-version": "运行环境版本",
         "qwenpaw-version": "QwenPaw 版本",
-        "platform": "平台",
-        "working-dir-disk-space": "工作目录磁盘空间",
-        "sqlite-library": "SQLite 库",
-        "root-config-json": "根 config.json",
-        "unknown-config-keys": "未知配置键",
-        "agent-workspaces": "Agent 工作区",
-        "agent-json-profiles": "Agent JSON 配置",
-        "enabled-agent-config-load": "已启用 Agent 配置加载",
-        "enabled-channel-credentials": "已启用通道凭据",
-        "enabled-channel-connectivity": "已启用通道连通性",
-        "mcp-stdio-command": "MCP stdio 命令",
-        "mcp-http-sse-url": "MCP HTTP/SSE URL",
-        "enabled-skill-layout": "已启用技能布局",
-        "browser-playwright-dependencies": "Browser / Playwright 依赖",
-        "security-baseline-posture": "安全基线姿态",
-        "memory-embedding-config": "记忆 / 嵌入配置",
-        "workspace-hygiene": "工作区卫生",
-        "cron-jobs-json": "Cron jobs.json",
-        "startup-log-writable": "启动日志可写性",
-        "workspace-writable": "工作区可写性",
-        "extra-volume-disk-space": "额外卷磁盘空间",
-        "console-static-build": "控制台静态构建",
-        "web-authentication": "Web 认证",
-        "provider-configuration": "Provider 配置",
-        "active-llm-connectivity": "当前 LLM 连通性",
-        "enabled-agent-model-connectivity": "已启用 Agent 模型连通性",
-        "api-health": "API 健康状态",
-        "api-version": "API 版本",
-        "api-target-mismatch": "API 目标不一致",
-        "console-over-http": "HTTP 控制台",
-        "qwenpaw-local-llm-deep": "QwenPaw 本地 LLM 深度检查"
+        "platform": "系统类型",
+        "working-dir-disk-space": "数据盘剩余空间",
+        "sqlite-library": "本地数据库版本",
+        "root-config-json": "主配置文件",
+        "unknown-config-keys": "过时设置字段",
+        "agent-workspaces": "Agent 文件夹",
+        "agent-json-profiles": "Agent 设置文件",
+        "enabled-agent-config-load": "已启用 Agent 加载",
+        "enabled-channel-credentials": "消息通道凭据",
+        "enabled-channel-connectivity": "消息通道连通性（仅深度扫描）",
+        "mcp-stdio-command": "本地工具命令",
+        "mcp-http-sse-url": "网络工具地址",
+        "enabled-skill-layout": "已开启技能文件",
+        "browser-playwright-dependencies": "浏览器自动化",
+        "security-baseline-posture": "安全功能状态",
+        "memory-embedding-config": "记忆搜索 API",
+        "workspace-hygiene": "存储臃肿",
+        "cron-jobs-json": "定时任务文件",
+        "startup-log-writable": "日志可写入",
+        "workspace-writable": "Agent 目录可写",
+        "extra-volume-disk-space": "其他磁盘空间",
+        "console-static-build": "网页管理界面",
+        "web-authentication": "网页登录",
+        "provider-configuration": "模型服务商",
+        "enabled-agent-model-connectivity": "Agent 模型连通性",
+        "api-target-mismatch": "服务地址一致",
+        "qwenpaw-local-llm-deep": "本机 AI 模型状态（仅深度扫描）"
       },
       "groups": {
-        "environment": "环境信息",
-        "config": "配置",
+        "environment": "运行环境",
+        "config": "基础设置",
         "agents": "Agent",
-        "channels": "Channels",
-        "mcp-clients": "MCP clients",
-        "skills": "Skills",
-        "browser-playwright": "Browser / Playwright",
-        "security-baseline": "安全基线",
-        "memory-embedding": "Memory / embedding",
-        "workspace-hygiene": "工作区卫生",
-        "cron": "Cron",
-        "startup-paths": "启动路径",
-        "console-static-files": "控制台静态文件",
-        "web-authentication": "Web 认证",
-        "providers": "Providers",
-        "active-llm": "当前 LLM",
-        "per-agent-models": "每 Agent 模型",
-        "api": "API",
-        "api-target": "API 目标",
-        "console-over-http": "HTTP 控制台"
-      },
-      "risks": {
-        "title": "风险"
-      },
-      "repairs": {
-        "title": "建议修复",
-        "repair_missing_console_static_build": "修复缺失的控制台静态构建",
-        "repair_working-dir": "修复工作目录",
-        "repair_agent-workspaces": "修复 Agent 工作区",
-        "repair_agent-json-profiles": "修复 Agent JSON 配置",
-        "repair_enabled-agent-config-load": "修复已启用 Agent 配置加载",
-        "repair_enabled-skill-layout": "同步工作区技能",
-        "repair_cron-jobs-json": "校验 jobs.json",
-        "repair_startup-log-writable": "修复启动日志路径",
-        "repair_console-static-build": "重建控制台静态构建"
+        "channels": "消息通道",
+        "mcp-clients": "外部工具连接",
+        "skills": "技能",
+        "browser-playwright": "浏览器自动化",
+        "security-baseline": "安全防护",
+        "memory-embedding": "记忆与搜索",
+        "workspace-hygiene": "存储与清理",
+        "cron": "定时任务",
+        "startup-paths": "启动与写入",
+        "console-static-files": "网页控制台",
+        "web-authentication": "登录与账号",
+        "providers": "模型服务商",
+        "per-agent-models": "各 Agent 模型",
+        "api-target": "服务地址"
       }
     },
     "rulesIntegrity": {

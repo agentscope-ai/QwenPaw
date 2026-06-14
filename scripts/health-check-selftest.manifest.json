@@ -36,16 +36,17 @@
       "targets": [
         "src/extension/health_check/api/client.test.ts",
         "src/extension/health_check/components/HealthCheckSection.test.tsx",
+        "src/extension/health_check/lib/detailMessages.test.ts",
         "src/pages/Settings/Security/useSecurityPage.health.test.tsx"
       ]
     }
   },
   "scenarios": [
     { "id": "HC-S01", "layer": "frontend", "target": "read-only scan deep=false" },
-    { "id": "HC-S02", "layer": "frontend", "target": "deep scan deep=true" },
+    { "id": "HC-S02", "layer": "frontend", "target": "single run check button only" },
     { "id": "HC-S03", "layer": "frontend", "target": "grouped check items table" },
-    { "id": "HC-S04", "layer": "frontend", "target": "confirmation phrase gate" },
-    { "id": "HC-S05", "layer": "frontend", "target": "confirmed doctor fix submit" },
+    { "id": "HC-S04", "layer": "frontend", "target": "row fix action visible" },
+    { "id": "HC-S05", "layer": "frontend", "target": "per-row fix API wiring" },
     { "id": "HC-S06", "layer": "frontend", "target": "healthCheck tab deep link" },
     { "id": "HC-S07", "layer": "frontend", "target": "scan failure UI" },
     { "id": "ip-e2e-001", "layer": "backend", "target": "test_integrity_security_menu_default_off" },
@@ -53,6 +54,6 @@
     { "id": "HC-I18N", "layer": "backend", "target": "test_security_i18n_and_healthcheck_progress_carousel" },
     { "id": "HC-DOCTOR", "layer": "backend", "target": "test_healthcheck_full_doctor_coverage_projection" },
     { "id": "HC-UNIT-SCAN", "layer": "backend", "target": "test_health_check_scan_is_read_only" },
-    { "id": "HC-UNIT-FIX", "layer": "backend", "target": "test_confirmed_health_fix_rejects_wrong_phrase" }
+    { "id": "HC-UNIT-FIX", "layer": "backend", "target": "test_confirmed_health_fix_rejects_unknown_fix_id" }
   ]
 }

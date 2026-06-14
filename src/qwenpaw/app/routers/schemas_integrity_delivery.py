@@ -52,9 +52,8 @@ class HealthCheckScanRequest(BaseModel):
 
 
 class HealthCheckFixRequest(BaseModel):
-    selected_repair: str
-    confirmation_phrase: str
-    expected_confirmation_phrase: str = "Confirm selected doctor fix"
+    fix_id: str
+    selected_repair: str = ""
 
 
 class HealthCheckFixResponse(BaseModel):

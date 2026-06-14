@@ -184,8 +184,7 @@ class ExternalWatchDriftObservation:
 class HealthCheckRepairScenario:
     health_check_dashboard_label: str
     scan_only_action_label: str
-    selected_repair_label: str
-    second_confirmation_phrase: str
+    fix_id: str
 
 
 @dataclass(frozen=True)
@@ -799,9 +798,7 @@ class IntegrityProtectionHarness:
             scan = run_health_check_scan(self.workspace_root)
         pre_confirmation_mutations = changed_files()
         fix = run_confirmed_health_fix(
-            selected_repair=scenario.selected_repair_label,
-            confirmation_phrase=scenario.second_confirmation_phrase,
-            expected_confirmation_phrase=scenario.second_confirmation_phrase,
+            fix_id=scenario.fix_id,
             working_dir=self.workspace_root,
         )
 
@@ -815,7 +812,7 @@ class IntegrityProtectionHarness:
             no_user_file_mutation_before_confirmation=not pre_confirmation_mutations,
             second_confirmation_required=fix.confirmed,
             only_selected_fix_executes_after_confirmation=(
-                fix.executed and fix.selected_repair == scenario.selected_repair_label
+                fix.executed and fix.fix_id == scenario.fix_id
             ),
             fix_result_reported_to_user=fix.exit_code == 0 and bool(fix.output),
             failure_reasons=(),
@@ -863,17 +860,17 @@ class IntegrityProtectionHarness:
             "security.integrityProtection.columns.reason",
             "security.integrityProtection.columns.detail",
             "security.healthCheck.title",
-            "security.healthCheck.description",
-            "security.healthCheck.runReadOnlyScan",
-            "security.healthCheck.selectedRepair",
-            "security.healthCheck.confirmationPhrase",
-            "security.healthCheck.confirmSelectedDoctorFix",
+            "security.healthCheck.tabIntro",
+            "security.healthCheck.panelTitle",
+            "security.healthCheck.runCheck",
+            "security.healthCheck.summary.headline",
+            "security.healthCheck.summary.allClearHeadline",
+            "security.healthCheck.view.issuesOnly",
+            "security.healthCheck.view.all",
+            "security.healthCheck.actions.manual",
             "security.healthCheck.emptyCheckItems",
             "security.healthCheck.loadFailed",
-            "security.healthCheck.noRisks",
             "security.healthCheck.status.running",
-            "security.healthCheck.status.readOnlyScan",
-            "security.healthCheck.status.mutatingScan",
             "security.healthCheck.status.completed",
             "security.healthCheck.status.failed",
             "security.healthCheck.status.cancelled",
@@ -881,9 +878,10 @@ class IntegrityProtectionHarness:
             "security.healthCheck.columns.check",
             "security.healthCheck.columns.status",
             "security.healthCheck.columns.detail",
-            "security.healthCheck.fixResult.executed",
-            "security.healthCheck.fixResult.notExecuted",
-            "security.healthCheck.fixResult.doctorFixId",
+            "security.healthCheck.columns.guidance",
+            "security.healthCheck.columns.action",
+            "security.healthCheck.fix.action",
+            "security.healthCheck.fix.success",
             "security.healthCheck.carousel.currentPrefix",
             "security.healthCheck.carousel.completed",
             "security.healthCheck.carousel.failed",
@@ -891,8 +889,6 @@ class IntegrityProtectionHarness:
             "security.healthCheck.carousel.interrupted",
             "security.healthCheck.scanItems.working-dir",
             "security.healthCheck.scanItems.console-static-build",
-            "security.healthCheck.risks.title",
-            "security.healthCheck.repairs.title",
         )
         english_missing = self._missing_locale_keys(english_locale, required_locale_keys)
         chinese_missing = self._missing_locale_keys(chinese_locale, required_locale_keys)
@@ -919,6 +915,7 @@ class IntegrityProtectionHarness:
             "security.healthCheck." in health_ui_sources
             and "Security Health Check" not in health_section
             and "Run read-only scan" not in health_section
+            and "Run deep connectivity scan" not in health_section
             and "Confirm selected doctor fix" not in health_section
         )
         localized_scan_item_ids = {

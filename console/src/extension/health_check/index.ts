@@ -1,4 +1,5 @@
 export { HealthCheckSection } from "./components/HealthCheckSection";
+export type { HealthCheckSectionProps } from "./components/HealthCheckSection";
 export {
   healthCheckApi,
   type HealthCheckFixResponse,

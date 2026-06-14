@@ -48,17 +48,14 @@ export const healthCheckApi = {
       },
     ),
 
-  runIntegrityHealthCheckFix: (
-    selectedRepair: string,
-    confirmationPhrase: string,
-  ) =>
+  runIntegrityHealthCheckFix: (fixId: string) =>
     request<HealthCheckFixResponse>(
       "/config/security/integrity-protection/health-check/fix",
       {
         method: "POST",
         body: JSON.stringify({
-          selected_repair: selectedRepair,
-          confirmation_phrase: confirmationPhrase,
+          fix_id: fixId,
+          selected_repair: `repair_${fixId}`,
         }),
       },
     ),

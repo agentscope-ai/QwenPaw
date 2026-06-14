@@ -20,6 +20,7 @@ import styles from "./index.module.less";
 function SecurityPage() {
   const { t } = useTranslation();
   const [personaAlertCount, setPersonaAlertCount] = useState(0);
+  const [healthAttentionCount, setHealthAttentionCount] = useState(0);
 
   const {
     activeTab,
@@ -181,14 +182,24 @@ function SecurityPage() {
               label: (
                 <span className={styles.tabLabel}>
                   {t("security.integrityProtection.tabs.healthCheck")}
+                  {healthAttentionCount > 0 ? (
+                    <Badge
+                      count={healthAttentionCount}
+                      size="small"
+                      style={{ marginLeft: 8 }}
+                    />
+                  ) : null}
                 </span>
               ),
               children: (
                 <div className={styles.tabContent}>
                   <p className={styles.tabDescription}>
-                    {t("security.healthCheck.description")}
+                    {t("security.healthCheck.tabIntro")}
                   </p>
-                  <HealthCheckSection />
+                  <HealthCheckSection
+                    onAttentionCountChange={setHealthAttentionCount}
+                    onNavigateSecurityTab={setActiveTab}
+                  />
                 </div>
               ),
             },
