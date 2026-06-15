@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useState } from "react";
 import { Drawer, Spin } from "antd";
 import { useTranslation } from "react-i18next";
-import { useArtifactFiles } from "../../hooks/useArtifactFiles";
+import { useArtifactManage } from "../../hooks/useArtifactManage";
 import { downloadArtifactFile } from "./artifactFileActions";
 import ArtifactFilePreviewPanel from "./ArtifactFilePreviewPanel";
-import ArtifactFileList from "./ArtifactFileList";
-import type { TaskArtifact } from "../../../../api/modules/tasks";
+import ArtifactGraphCollapse from "./ArtifactGraphCollapse";
+import type { ArtifactFileListItem } from "./ArtifactFileList";
+import type { TasksSummaryResponse } from "../../../../api/modules/tasks";
 import drawerStyles from "./TaskNodeDrawer.module.less";
 import styles from "./ArtifactManageDrawer.module.less";
 
@@ -14,11 +15,12 @@ export interface ArtifactManageDrawerProps {
   onClose: () => void;
   sessionId: string;
   userId: string;
+  /** Graph to expand by default when the drawer opens (does not filter the list). */
   graphId?: string | null;
 }
 
 /**
- * 工件管理抽屉 — 文件列表与内联预览与 TaskNodeDrawer「文件」Tab 保持一致。
+ * 工件管理抽屉 — 按任务图 graph_id 折叠分组，展开时用接口 graph_id 参数懒加载。
  */
 export default function ArtifactManageDrawer({
   open,
@@ -28,19 +30,78 @@ export default function ArtifactManageDrawer({
   graphId,
 }: ArtifactManageDrawerProps) {
   const { t } = useTranslation();
-  const [viewingFile, setViewingFile] = useState<TaskArtifact | null>(null);
-  const { files, loading, refresh } = useArtifactFiles({
+  const [viewingFile, setViewingFile] = useState<ArtifactFileListItem | null>(null);
+  const [expandedGraphIds, setExpandedGraphIds] = useState<Set<string>>(
+    () => new Set(),
+  );
+
+  const {
+    groups,
+    filesByGraph,
+    loadingGraphIds,
+    indexLoading,
+    refreshIndex,
+    loadGraphFiles,
+    resetLoadedFiles,
+  } = useArtifactManage({
     sessionId,
     userId,
-    graphId,
     enabled: open && !!sessionId,
   });
+
+  const expandGraph = useCallback(
+    (
+      targetGraphId: string,
+      summaryOverride?: TasksSummaryResponse | null,
+    ) => {
+      setExpandedGraphIds((prev) => {
+        if (prev.has(targetGraphId)) return prev;
+        const next = new Set(prev);
+        next.add(targetGraphId);
+        return next;
+      });
+      void loadGraphFiles(targetGraphId, { summary: summaryOverride });
+    },
+    [loadGraphFiles],
+  );
+
+  const handleToggleGraph = useCallback(
+    (targetGraphId: string) => {
+      setExpandedGraphIds((prev) => {
+        const next = new Set(prev);
+        if (next.has(targetGraphId)) {
+          next.delete(targetGraphId);
+          return next;
+        }
+        next.add(targetGraphId);
+        void loadGraphFiles(targetGraphId);
+        return next;
+      });
+    },
+    [loadGraphFiles],
+  );
+
+  const handleDrawerOpen = useCallback(async () => {
+    resetLoadedFiles();
+    setExpandedGraphIds(new Set());
+    const { groups: nextGroups, summary: nextSummary } = await refreshIndex();
+    if (graphId) {
+      expandGraph(graphId, nextSummary);
+      return;
+    }
+    const currentGroup = nextGroups.find((group) => group.isCurrent);
+    if (currentGroup) {
+      expandGraph(currentGroup.graphId, nextSummary);
+    }
+  }, [expandGraph, graphId, refreshIndex, resetLoadedFiles]);
 
   useEffect(() => {
     if (!open) {
       setViewingFile(null);
+      setExpandedGraphIds(new Set());
+      resetLoadedFiles();
     }
-  }, [open]);
+  }, [open, resetLoadedFiles]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -54,7 +115,7 @@ export default function ArtifactManageDrawer({
   }, [open, viewingFile]);
 
   const handleDownload = useCallback(
-    async (file: TaskArtifact) => {
+    async (file: ArtifactFileListItem) => {
       try {
         await downloadArtifactFile(file, sessionId, userId);
       } catch (e) {
@@ -79,7 +140,7 @@ export default function ArtifactManageDrawer({
       width={520}
       destroyOnClose
       afterOpenChange={(visible) => {
-        if (visible) void refresh();
+        if (visible) void handleDrawerOpen();
       }}
     >
       {!viewingFile && (
@@ -105,18 +166,20 @@ export default function ArtifactManageDrawer({
               userId={userId}
               onBack={() => setViewingFile(null)}
             />
-          ) : loading ? (
-            <div className={drawerStyles.previewLoading}>
+          ) : indexLoading ? (
+            <div className={styles.loadingWrap}>
               <Spin size="small" />
               <span>{t("taskGraph.previewLoading")}</span>
             </div>
           ) : (
-            <ArtifactFileList
-              type="ArtifactManage"
-              files={files}
+            <ArtifactGraphCollapse
+              groups={groups}
+              expandedGraphIds={expandedGraphIds}
+              filesByGraph={filesByGraph}
+              loadingGraphIds={loadingGraphIds}
+              onToggleGraph={handleToggleGraph}
               onPreview={setViewingFile}
               onDownload={handleDownload}
-              emptyText={t("taskGraph.artifactManageEmpty")}
             />
           )}
         </div>

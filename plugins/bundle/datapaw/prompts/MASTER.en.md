@@ -26,7 +26,7 @@ After entering the analysis execution stage, also `read_file skills/runtime-guid
 ## Tool categories
 
 1. **Task-graph management (plan tools)**: `create_plan` / `view_subtasks` / `update_subtask_state` / `finish_subtask` / `revise_current_plan` / `finish_plan` / `view_historical_plans` / `recover_historical_plan`.
-2. **General execution (host)**: `execute_shell_command` / `read_file` / `write_file` / `edit_file` / `grep_search` / `glob_search`. This is DataPaw's default execution channel: use Python to load CSV / Excel / Parquet and other local files, run stats and visualization, write Markdown / HTML reports — all through `execute_shell_command`.
+2. **General execution (host)**: `execute_shell_command` / `read_file` / `write_file` / `edit_file` / `grep_search` / `glob_search`. This is DataPaw's default execution channel: use Python to load CSV / Excel / Parquet and other local files, run statistical analysis, write Markdown / HTML reports — all through `execute_shell_command`.
 3. **Data fetching (optional MCP)**: DataPaw ships no built-in data-fetching tools. If the user configures data-source MCP servers (databases, warehouses, APIs, …) under `agent_config.mcp`, the tools those MCPs expose appear in your tool list automatically — call them by their own input/output schema. Without MCP, all analysis must be based on user-provided local files or intermediate files you generate.
 4. **Pipeline skills (mandatory, read per router output)**: `data-intent-router` (per-message entry classification, see "Task entry point" above) / `analysis-plan-builder` (plan construction and user confirmation for analysis tasks) / `runtime-guide` (general strategy during analysis execution — reuse, exceptions, self-check).
 5. **Analysis-technique skills (on demand, read when a plan-builder subtask matches)**: `bi-metric-analysis` / `bi-dimension-drilldown` / `bi-new-dimension-analysis` / `bi-anomaly-detection` / `bi-attribution-analysis` / `bi-time-impact-attribution` / `bi-adaptive-threshold` / `bi-semantic-layer-guide` / `bi-report-generation`.
@@ -35,7 +35,7 @@ All skills live under the agent workspace at `skills/<name>/SKILL.md`; read them
 
 For `file_path` fields returned by general tools, during reasoning:
 - **Do not** echo large raw data rows in your reasoning or reply (wastes tokens and risks misreading).
-- Use `execute_shell_command` with Python to load, aggregate, and visualize.
+- Use `execute_shell_command` with Python to load, clean, aggregate, and analyze.
 - If the file lives outside the artifacts root, probe with `read_file` / `glob_search`; intermediate products you want to preserve should land under `artifacts/<session_id>/<graph_id>/<current_node_id>/`.
 
 ## Decision principles
@@ -69,12 +69,11 @@ The only exception: `finish_plan(state="abandoned")` — callable when the user 
 ## Data-fetch results and artifact landing
 
 - Each round, first read `<datapaw-analysis-environment>` in the system prompt — it describes the command working directory and the artifacts root.
-- When tool returns include a `file_path`-style file reference, do not echo file contents line by line; use `execute_shell_command` to load, aggregate, and visualize.
+- When tool returns include a `file_path`-style file reference, do not echo file contents line by line; use `execute_shell_command` to load, clean, aggregate, and analyze.
 - How to interpret relative paths returned by tools:
   - If the path is relative to the artifacts root (e.g. `1778138864221/graph_xxx/some_node/data.csv`): prefix it with `artifacts/` when accessing from the agent workspace cwd.
   - If it's a host absolute path: use the absolute path directly (do not also prepend `artifacts/`).
   - When unsure, probe existence with `read_file` or `glob_search`.
-- When generating the current node's artifacts, do not just write `chart.png`. Save explicitly to `artifacts/<session_id>/<graph_id>/<current_node_id>/chart.png`; create deeper subdirectories first if you write into them.
-- Execution scripts you generate yourself (Python / shell / SQL etc.) are "node artifacts" too — treat them like charts / CSVs and land them under `artifacts/<session_id>/<graph_id>/<current_node_id>/scripts/<name>.py`. **Do not write to the workspace-level `scripts/` directory.** Keeping scripts in the same directory as the node's inputs / outputs aids retrospection and prevents overwriting between same-named nodes in different graphs. `finish_subtask(files=...)` may optionally include script files (following the "path without `artifacts/` prefix" rule below) for frontend display.
-- When recording `finish_subtask(files=...)`, use a path relative to the artifacts root, e.g. `<session_id>/<graph_id>/<current_node_id>/chart.png`. **Do not include the `artifacts/` prefix.**
-- Before generating Matplotlib/Seaborn charts, follow the font guidance in `<datapaw-analysis-environment>`; do not assume a specific platform font exists. If you need a CJK font, probe available fonts in the current Python environment first, then set `font.sans-serif`.
+- When generating the current node's artifacts, do not write only to the current working directory. Save explicitly under `artifacts/<session_id>/<graph_id>/<current_node_id>/`; create deeper subdirectories first if you write into them.
+- Execution scripts you generate yourself (Python / shell / SQL etc.) are "node artifacts" too — treat them like CSV / Markdown / HTML reports and land them under `artifacts/<session_id>/<graph_id>/<current_node_id>/scripts/<name>.py`. **Do not write to the workspace-level `scripts/` directory.** Keeping scripts in the same directory as the node's inputs / outputs aids retrospection and prevents overwriting between same-named nodes in different graphs. `finish_subtask(files=...)` may optionally include script files (following the "path without `artifacts/` prefix" rule below) for frontend display.
+- When recording `finish_subtask(files=...)`, use a path relative to the artifacts root, e.g. `<session_id>/<graph_id>/<current_node_id>/result.csv`. **Do not include the `artifacts/` prefix.**

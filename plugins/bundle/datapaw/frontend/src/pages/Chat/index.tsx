@@ -970,7 +970,7 @@ export default function ChatPage() {
         ...i18nConfig.welcome,
         nick: "DataPaw",
         avatar:
-          "https://gw.alicdn.com/imgextra/i2/O1CN01pyXzjQ1EL1PuZMlSd_!!6000000000334-2-tps-288-288.png",
+          "https://img.alicdn.com/imgextra/i3/O1CN019jgrYq1DuurD1Z7JA_!!6000000000277-2-tps-1024-1024.png",
       },
       sender: {
         ...(i18nConfig as any)?.sender,

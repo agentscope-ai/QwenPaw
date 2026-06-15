@@ -59,6 +59,97 @@
   padding: 0 16px 16px;
 }
 
+.graphCollapse {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 8px;
+}
+
+.graphGroup {
+  border: 1px solid var(--colorBorderSecondary, #f0f0f0);
+  border-radius: 8px;
+  overflow: hidden;
+
+  :global(html.dark-mode) & {
+    border-color: rgba(255, 255, 255, 0.12);
+  }
+}
+
+.graphHeader {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 12px 14px;
+  border: none;
+  background: var(--color-fill-quaternary, #fafafa);
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.15s ease;
+
+  &:hover {
+    background: var(--color-fill-tertiary, #f5f5f5);
+  }
+
+  :global(html.dark-mode) & {
+    background: rgba(255, 255, 255, 0.04);
+
+    &:hover {
+      background: rgba(255, 255, 255, 0.08);
+    }
+  }
+}
+
+.graphTitle {
+  flex: 1;
+  min-width: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--colorText, rgba(0, 0, 0, 0.88));
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+
+  :global(html.dark-mode) & {
+    color: rgba(255, 255, 255, 0.88);
+  }
+}
+
+.currentBadge {
+  flex-shrink: 0;
+  font-size: 11px;
+  line-height: 18px;
+  padding: 0 6px;
+  border-radius: 4px;
+  color: #1677ff;
+  background: rgba(22, 119, 255, 0.1);
+}
+
+.fileCountBadge {
+  flex-shrink: 0;
+  font-size: 12px;
+  color: var(--colorTextSecondary, rgba(0, 0, 0, 0.45));
+
+  :global(html.dark-mode) & {
+    color: rgba(255, 255, 255, 0.45);
+  }
+}
+
+.graphBody {
+  padding: 0 8px 8px;
+}
+
+.groupLoading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 72px;
+  color: var(--colorTextSecondary, rgba(0, 0, 0, 0.45));
+  font-size: 13px;
+}
+
 .list {
   margin: 0;
   padding: 0;

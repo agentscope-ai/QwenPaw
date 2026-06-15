@@ -150,8 +150,11 @@ export async function subscribeDagEvents(
     dataLines = [];
     if (!payload) return;
     try {
-      const parsed = JSON.parse(payload) as { current_plan?: PlanSnapshot | null };
-      onSnapshot(parsed.current_plan ?? null);
+      const parsed = JSON.parse(payload) as {
+        current_plan?: PlanSnapshot | null;
+        graph_snapshot?: PlanSnapshot | null;
+      };
+      onSnapshot(parsed.current_plan ?? parsed.graph_snapshot ?? null);
     } catch {
       /* ignore */
     }

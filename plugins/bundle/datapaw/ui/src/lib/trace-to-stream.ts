@@ -169,7 +169,7 @@ export function mergeStreamEvents(
   }
 
   // Completed: keep the same live stream snapshot used during execution
-  // (FetchDataBlock / TextBlock / ThinkingBlock), only backfill missing fields.
+  // (FetchDataBlock / TextBlock), only backfill missing fields.
   return backfillLiveEvents(live, persisted);
 }
 

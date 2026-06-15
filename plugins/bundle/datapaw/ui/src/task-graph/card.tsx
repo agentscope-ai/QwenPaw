@@ -6,7 +6,11 @@ import { resolveBackendSessionId } from "../lib/session-id";
 import { refreshTaskCard } from "../patches/task-card";
 import { putPlanSop } from "../lib/api";
 import { tTaskGraph } from "./i18n";
-import { getDisplayPlanById, subscribeCurrentPlan } from "../lib/plan-store";
+import {
+  getDisplayPlan,
+  getDisplayPlanById,
+  subscribeCurrentPlan,
+} from "../lib/plan-store";
 import type { HostBundle } from "../types";
 import {
   EMPTY_NODE_STREAM_EVENTS,
@@ -23,6 +27,8 @@ import type { StreamEvent } from "@/pages/Chat/components/TaskGraphPanel/types";
 export interface TaskGraphCardData {
   plan: PlanSnapshot;
   showActions?: boolean;
+  /** When true, follow the session's active plan from plan-store (not a frozen id). */
+  live?: boolean;
 }
 
 let lastCardRenderLogKey = "";
@@ -47,7 +53,12 @@ export function createTaskGraphCard(host: HostBundle) {
     const initialPlan = data?.plan ? toPlainJson(data.plan) : null;
     const planFromStore = useSyncExternalStore(
       subscribeCurrentPlan,
-      () => getDisplayPlanById(initialPlan?.id),
+      () => {
+        if (data.live) {
+          return getDisplayPlan() ?? getDisplayPlanById(initialPlan?.id);
+        }
+        return getDisplayPlanById(initialPlan?.id);
+      },
       () => initialPlan,
     );
     const plan = planFromStore ?? initialPlan;
@@ -182,7 +193,7 @@ export function createTaskGraphCard(host: HostBundle) {
             sessionId,
             userId,
             onClose: () => setDrawerNodeId(null),
-            showFollowTab: isNodeStreaming,
+            showFollowTab: isNodeStreaming || drawerNode?.state === "done" || drawerNode?.state === "failed",
           })
         : null,
     );

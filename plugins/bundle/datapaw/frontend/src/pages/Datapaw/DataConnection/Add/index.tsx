@@ -28,6 +28,7 @@ import {
   resolveErrorMessage,
 } from "../errors";
 import styles from "./index.module.less";
+import { DataConnectionThemeProvider } from "../DataConnectionThemeProvider";
 
 interface AddFormValues {
   type: DataSourceType;
@@ -71,7 +72,7 @@ function toPayload(values: AddFormValues): DataSourceCreatePayload {
   return { type: values.type, name, config };
 }
 
-function AddDataSourcePage() {
+function AddDataSourcePageInner() {
   const { t } = useTranslation();
   const { message } = useAppMessage();
   const [form] = Form.useForm<AddFormValues>();
@@ -380,4 +381,10 @@ function AddDataSourcePage() {
   );
 }
 
-export default AddDataSourcePage;
+export default function AddDataSourcePage() {
+  return (
+    <DataConnectionThemeProvider>
+      <AddDataSourcePageInner />
+    </DataConnectionThemeProvider>
+  );
+}

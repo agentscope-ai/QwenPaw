@@ -6,7 +6,6 @@
  * `/plugin/datapaw` route or fixed top-right cron bubbles).
  */
 
-import { installDatapawHostChat } from "./hostChatIntegration";
 import en from "./locales/en.json";
 import zh from "./locales/zh.json";
 import ja from "./locales/ja.json";
@@ -122,7 +121,79 @@ function registerDatapawLocales(): void {
     });
 }
 
+function isDatapawAgentSelectedForTheme(): boolean {
+  const hostAgent = window.QwenPaw?.host?.getSelectedAgentId?.();
+  if (typeof hostAgent === "string" && hostAgent) {
+    return hostAgent === DATAPAW_AGENT_ID;
+  }
+
+  try {
+    const sessionRaw = sessionStorage.getItem(STORAGE_KEY);
+    if (sessionRaw) {
+      const agent = JSON.parse(sessionRaw)?.state?.selectedAgent;
+      if (typeof agent === "string" && agent) {
+        return agent === DATAPAW_AGENT_ID;
+      }
+    }
+    const localRaw = localStorage.getItem(STORAGE_KEY);
+    if (localRaw) {
+      const agent = JSON.parse(localRaw)?.state?.selectedAgent;
+      if (typeof agent === "string" && agent) {
+        return agent === DATAPAW_AGENT_ID;
+      }
+    }
+  } catch {
+    /* ignore */
+  }
+  return false;
+}
+
 function patchWelcomeAndTheme(): void {
+  const LOGO =
+    "https://img.alicdn.com/imgextra/i3/O1CN019jgrYq1DuurD1Z7JA_!!6000000000277-2-tps-1024-1024.png";
+
+  const descriptions: Record<string, string> = {
+    zh: "基于 DAG 任务图分阶段推进复杂数据分析。请在左上角切换到 DataPaw Agent 后使用；任务面板会在对话右侧实时更新。",
+    en: "Multi-step data analysis via a DAG task graph. Switch to the DataPaw agent in the top-left dropdown; the task panel updates live on the right during chat.",
+    ja: "DAG タスクグラフで段階的にデータ分析を進めます。左上で DataPaw Agent に切り替えてください。",
+    ru: "Пошаговый анализ данных через DAG. Переключитесь на агента DataPaw в выпадающем списке слева вверху.",
+  };
+
+  function resolveDescription(locale?: string): string | undefined {
+    if (!isDatapawAgentSelectedForTheme()) return undefined;
+    const stored = localStorage.getItem("language") || "";
+    const lang = (locale || stored || navigator.language || "en").split("-")[0];
+    return descriptions[lang] || descriptions.en;
+  }
+
+  function resolveNick(): string | undefined {
+    return isDatapawAgentSelectedForTheme() ? "DataPaw" : undefined;
+  }
+
+  function resolveAvatar(): string | undefined {
+    return isDatapawAgentSelectedForTheme() ? LOGO : undefined;
+  }
+
+  const chat = window.QwenPaw?.chat;
+
+  let appliedWithChatSdk = false;
+  if (chat?.welcome?.set) {
+    chat.welcome.set(PLUGIN_ID, {
+      description: resolveDescription,
+      nick: resolveNick,
+      avatar: resolveAvatar,
+    });
+    appliedWithChatSdk = true;
+  }
+  if (chat?.response?.set) {
+    chat.response.set(PLUGIN_ID, {
+      nick: resolveNick,
+      avatar: resolveAvatar,
+    });
+    appliedWithChatSdk = true;
+  }
+  if (appliedWithChatSdk) return;
+
   const modules = (window as { QwenPaw?: { modules?: Record<string, unknown> } })
     .QwenPaw?.modules;
   if (!modules) return;
@@ -141,15 +212,7 @@ function patchWelcomeAndTheme(): void {
   if (!provider?.getConfig) return;
 
   const originalGetConfig = provider.getConfig.bind(provider);
-  const LOGO =
-    "https://gw.alicdn.com/imgextra/i2/O1CN01pyXzjQ1EL1PuZMlSd_!!6000000000334-2-tps-288-288.png";
-
-  const descriptions: Record<string, string> = {
-    zh: "基于 DAG 任务图分阶段推进复杂数据分析。请在左上角切换到 DataPaw Agent 后使用；任务面板会在对话右侧实时更新。",
-    en: "Multi-step data analysis via a DAG task graph. Switch to the DataPaw agent in the top-left dropdown; the task panel updates live on the right during chat.",
-    ja: "DAG タスクグラフで段階的にデータ分析を進めます。左上で DataPaw Agent に切り替えてください。",
-    ru: "Пошаговый анализ данных через DAG. Переключитесь на агента DataPaw в выпадающем списке слева вверху.",
-  };
+  const originalGetDescription = provider.getDescription?.bind(provider);
 
   function detectLang(): string {
     const stored = localStorage.getItem("language") || "";
@@ -158,10 +221,14 @@ function patchWelcomeAndTheme(): void {
   }
 
   provider.getDescription = () =>
-    descriptions[detectLang()] || descriptions.en;
+    isDatapawAgentSelectedForTheme()
+      ? descriptions[detectLang()] || descriptions.en
+      : originalGetDescription?.() || "";
 
   provider.getConfig = (t: (k: string) => string) => {
     const base = originalGetConfig(t) as Record<string, unknown>;
+    if (!isDatapawAgentSelectedForTheme()) return base;
+
     const welcome = (base.welcome as Record<string, unknown>) || {};
     const theme = (base.theme as Record<string, unknown>) || {};
     const leftHeader = (theme.leftHeader as Record<string, unknown>) || {};
@@ -193,6 +260,5 @@ export function setupHostChatIntegration(): void {
 
   registerDatapawLocales();
   patchWelcomeAndTheme();
-  installDatapawHostChat();
   ensureDefaultAgent();
 }

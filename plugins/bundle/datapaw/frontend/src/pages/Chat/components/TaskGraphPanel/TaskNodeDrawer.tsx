@@ -28,7 +28,7 @@ interface TaskNodeDrawerProps {
   userId: string;
   /** 关闭抽屉的回调 */
   onClose: () => void;
-  /** 是否展示「实时跟随」Tab（任务卡片中已完成节点应设为 false） */
+  /** 是否展示「实时跟随」Tab（已完成 / 进行中节点应为 true） */
   showFollowTab?: boolean;
 }
 
@@ -56,7 +56,10 @@ export default function TaskNodeDrawer({
   const isUserScrollingRef = useRef(false);
   const scrollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const isTerminalNode = node?.state === 'done' || node?.state === 'failed';
+  const isTerminalNode =
+    node?.state === 'done' ||
+    node?.state === 'failed' ||
+    node?.state === 'abandoned';
 
   /**
    * 监听 Escape 键：优先关闭文件预览，再关闭抽屉
@@ -230,14 +233,14 @@ export default function TaskNodeDrawer({
 
         <div className={styles.drawerContent} ref={contentRef}>
           {activeTab === 'follow' && showFollowTab && (
-            isTerminalNode ? (
-              <CompletedNodeContent node={node} />
-            ) : (
+            streamEvents.length > 0 || !isTerminalNode ? (
               <StreamFollowContent
                 agentType={node.type}
                 streamEvents={streamEvents}
                 showStreamingIndicator={isStreaming}
               />
+            ) : (
+              <CompletedNodeContent node={node} />
             )
           )}
 
