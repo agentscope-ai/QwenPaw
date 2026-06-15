@@ -119,14 +119,14 @@ def get_stable_port(
     if last_port is not None:
         reused_socket = try_bind_port(host, last_port)
         if reused_socket:
-            logger.info("Reusing previous desktop port %d", last_port)
+            logger.debug("Reusing previous desktop port %d", last_port)
             return last_port, reused_socket
-        logger.info(
+        logger.debug(
             "Previous port %d unavailable, falling back to random",
             last_port,
         )
 
     port = find_free_port(host)
-    logger.info("Allocated new desktop port %d", port)
+    logger.debug("Allocated new desktop port %d", port)
     write_port_file(port_file, port)
     return port, None
