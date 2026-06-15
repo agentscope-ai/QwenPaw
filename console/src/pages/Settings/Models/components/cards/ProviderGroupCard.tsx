@@ -24,6 +24,7 @@ const VARIANT_LABELS: Record<string, string> = {
   coding_plan_cn: "Coding (CN)",
   coding_plan_intl: "Coding (Intl)",
   token_plan: "Token Plan",
+  token_plan_intl: "Token (Intl)",
   china: "China",
   international: "International",
 };

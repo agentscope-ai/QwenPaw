@@ -861,6 +861,22 @@ PROVIDER_ALIYUN_TOKENPLAN = OpenAIProvider(
     provider_variant="token_plan",
 )
 
+PROVIDER_ALIYUN_TOKENPLAN_INTL = OpenAIProvider(
+    id="aliyun-tokenplan-intl",
+    name="Aliyun Token Plan (International)",
+    base_url=(
+        "https://token-plan.ap-southeast-1.maas.aliyuncs.com/"
+        "compatible-mode/v1"
+    ),
+    api_key_prefix="sk-sp",
+    models=ALIYUN_TOKENPLAN_MODELS,
+    support_connection_check=False,
+    freeze_url=True,
+    provider_group="aliyun",
+    provider_group_name="Aliyun",
+    provider_variant="token_plan_intl",
+)
+
 PROVIDER_ZHIPU_CN = OpenAIProvider(
     id="zhipu-cn",
     name="Zhipu (BigModel)",
@@ -1269,6 +1285,7 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
         self._add_builtin(PROVIDER_ALIYUN_CODINGPLAN)
         self._add_builtin(PROVIDER_ALIYUN_CODINGPLAN_INTL)
         self._add_builtin(PROVIDER_ALIYUN_TOKENPLAN)
+        self._add_builtin(PROVIDER_ALIYUN_TOKENPLAN_INTL)
         self._add_builtin(PROVIDER_OPENCODE)
         self._add_builtin(PROVIDER_KILO)
         self._add_builtin(PROVIDER_OPENAI)
