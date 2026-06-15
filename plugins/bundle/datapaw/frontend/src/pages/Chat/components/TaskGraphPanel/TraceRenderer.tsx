@@ -1,7 +1,6 @@
 import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { TraceItem } from './types';
-import ThinkingBlock from './ThinkingBlock';
 import TextBlock from './TextBlock';
 
 interface PlanItem {
@@ -68,7 +67,7 @@ export default function TraceRenderer({ trace }: TraceRendererProps) {
   // 前端标准格式
   if (trace.type && trace.data) {
     if (trace.type === 'thinking') {
-      return <ThinkingBlock content={trace.data} />;
+      return <TextBlock content={trace.data} />;
     }
     if (trace.type === 'plan') {
       return <PlanBlock data={trace.data} />;
