@@ -122,6 +122,15 @@ class ResourceGovernor:
         AuditLog.get_instance().record(
             str(self.workspace_dir), tc_spec, decision,
         )
+        # Observability: log every governance decision so operators can
+        # trace policy evaluation results without querying audit.db.
+        # ``target`` is truncated to keep log lines bounded.
+        target_repr = (tc_spec.target or "")[:120]
+        logger.info(
+            "governance decision: tool=%s target=%r action=%s reason=%s",
+            tc_spec.tool_name, target_repr,
+            decision.action.value, decision.reason,
+        )
         return decision
 
     # ------------------------------------------------------------------

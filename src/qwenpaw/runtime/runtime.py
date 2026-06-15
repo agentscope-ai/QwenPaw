@@ -153,6 +153,19 @@ class Runtime:
                 yield ev
             raise
         finally:
+            # Close agent first so governor can flush audit log and persist
+            # policy before downstream FINALLY hooks observe the context.
+            # See ``QwenPawAgent.close`` (agents/react_agent.py).
+            agent = getattr(ctx, "agent", None)
+            if agent is not None and hasattr(agent, "close"):
+                try:
+                    await agent.close()
+                except Exception:  # pylint: disable=broad-except
+                    logger.warning(
+                        "runtime: agent.close() failed session=%s",
+                        getattr(ctx, "session_id", ""),
+                        exc_info=True,
+                    )
             await hooks.run(Phase.FINALLY, ctx)
 
     # ----------------------------------------------------------------- helpers
