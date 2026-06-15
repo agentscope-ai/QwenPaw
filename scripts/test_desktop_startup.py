@@ -32,13 +32,13 @@ def test_desktop_startup():
 
     # Start desktop command
     print("\n[1] Starting desktop command...")
-    proc = subprocess.Popen(
+    with subprocess.Popen(
         [sys.executable, "-m", "qwenpaw", "desktop", "--log-level", "info"],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
         cwd=str(repo_root),
-    )
+    ) as proc:
 
     # Wait for window creation (look for "Opening webview" in logs)
     window_created = False
