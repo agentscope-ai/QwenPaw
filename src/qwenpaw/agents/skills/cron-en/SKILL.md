@@ -1,6 +1,6 @@
 ---
 name: cron
-description: Use this skill only for scheduled or recurring tasks. Manage jobs with qwenpaw cron list/create/get/state/pause/resume/delete/run, and always pass --agent-id explicitly.
+description: Use this skill only for scheduled or recurring tasks. Manage jobs with qwenpaw cron list/create/get/state/update/pause/resume/delete/run, and always pass --agent-id explicitly.
 metadata:
   builtin_skill_version: "1.6"
   qwenpaw:
@@ -73,6 +73,9 @@ qwenpaw cron resume <job_id> --agent-id <agent_id>
 
 # Run an existing task once immediately
 qwenpaw cron run <job_id> --agent-id <agent_id>
+
+# Update an existing task
+qwenpaw cron update <job_id> --agent-id <agent_id> ...
 ```
 
 ---

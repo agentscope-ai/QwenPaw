@@ -28,8 +28,9 @@ def _base_url(ctx: click.Context, base_url: Optional[str]) -> str:
 def cron_group() -> None:
     """Manage scheduled cron jobs via the HTTP API (/cron).
 
-    Use list/get/state to inspect jobs; create/delete to add or remove;
-    pause/resume to toggle execution; run to trigger a one-off run.
+    Use list/get/state to inspect jobs; create/update/delete to
+    add, modify, or remove; pause/resume to toggle execution;
+    run to trigger a one-off run.
     """
 
 
@@ -578,6 +579,295 @@ def create_job(
     with client(base_url) as c:
         headers = {"X-Agent-Id": agent_id}
         r = c.post("/cron/jobs", json=payload, headers=headers)
+        r.raise_for_status()
+        print_json(r.json())
+
+
+@cron_group.command("update")
+@click.argument("job_id", metavar="JOB_ID")
+@click.option(
+    "-f",
+    "--file",
+    "file_",
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    default=None,
+    help=(
+        "Path to a JSON file containing the full cron job spec. "
+        "Mutually exclusive with inline options (--type, --name, etc.)."
+    ),
+)
+@click.option(
+    "--type",
+    "task_type",
+    type=click.Choice(["text", "agent"], case_sensitive=False),
+    default=None,
+    help="Task type: 'text' or 'agent'.",
+)
+@click.option(
+    "--schedule-type",
+    type=click.Choice(["cron", "scheduled"], case_sensitive=False),
+    default=None,
+    help="Schedule type: 'cron' or 'scheduled'.",
+)
+@click.option(
+    "--name",
+    default=None,
+    help="Display name for the job.",
+)
+@click.option(
+    "--cron",
+    default=None,
+    help="Cron expression (5 fields). Example: '0 9 * * *'.",
+)
+@click.option(
+    "--run-at",
+    default=None,
+    help="Run time for scheduled jobs in ISO 8601 format.",
+)
+@click.option(
+    "--repeat-every-days",
+    type=click.IntRange(min=1),
+    default=None,
+    help="For scheduled: repeat every N days.",
+)
+@click.option(
+    "--repeat-end-type",
+    type=click.Choice(["never", "until", "count"], case_sensitive=False),
+    default=None,
+    help="For scheduled: end condition.",
+)
+@click.option(
+    "--repeat-until",
+    default=None,
+    help="For scheduled: end date-time (ISO 8601).",
+)
+@click.option(
+    "--repeat-count",
+    type=click.IntRange(min=1),
+    default=None,
+    help="For scheduled: max run count.",
+)
+@click.option(
+    "--channel",
+    default=None,
+    help="Delivery channel.",
+)
+@click.option(
+    "--target-user",
+    default=None,
+    help="Target user_id.",
+)
+@click.option(
+    "--target-session",
+    default=None,
+    help="Target session_id.",
+)
+@click.option(
+    "--text",
+    default=None,
+    help="Text content or agent prompt.",
+)
+@click.option(
+    "--timezone",
+    default=None,
+    help="Timezone for the schedule.",
+)
+@click.option(
+    "--enabled/--no-enabled",
+    default=None,
+    help="Enable or disable the job.",
+)
+@click.option(
+    "--mode",
+    type=click.Choice(["stream", "final"], case_sensitive=False),
+    default=None,
+    help="Delivery mode: 'stream' or 'final'.",
+)
+@click.option(
+    "--save-result-to-inbox/--no-save-result-to-inbox",
+    default=None,
+    help="Save execution results to Inbox.",
+)
+@click.option(
+    "--share-session/--no-share-session",
+    default=None,
+    help="Share session with target user.",
+)
+@click.option(
+    "--timeout",
+    "timeout_seconds",
+    type=click.IntRange(min=1),
+    default=None,
+    help="Maximum execution time in seconds.",
+)
+@click.option(
+    "--base-url",
+    default=None,
+    help="Override the API base URL.",
+)
+@click.option(
+    "--agent-id",
+    default="default",
+    help="Agent ID (defaults to 'default')",
+)
+@click.pass_context
+def update_job(
+    ctx: click.Context,
+    job_id: str,
+    file_: Optional[Path],
+    task_type: Optional[str],
+    schedule_type: Optional[str],
+    name: Optional[str],
+    cron: Optional[str],
+    run_at: Optional[str],
+    repeat_every_days: Optional[int],
+    repeat_end_type: Optional[str],
+    repeat_until: Optional[str],
+    repeat_count: Optional[int],
+    channel: Optional[str],
+    target_user: Optional[str],
+    target_session: Optional[str],
+    text: Optional[str],
+    timezone: Optional[str],
+    enabled: Optional[bool],
+    mode: Optional[str],
+    save_result_to_inbox: Optional[bool],
+    share_session: Optional[bool],
+    timeout_seconds: Optional[int],
+    base_url: Optional[str],
+    agent_id: str,
+) -> None:
+    """Update an existing cron job.
+
+    Either pass -f/--file with a complete JSON spec to replace the
+    job entirely, or specify individual options to override specific
+    fields.  Unspecified options keep their current values.
+    """
+    base_url = _base_url(ctx, base_url)
+
+    # Fetch the existing job first so we can merge partial updates
+    with client(base_url) as c:
+        headers = {"X-Agent-Id": agent_id}
+        r = c.get(f"/cron/jobs/{job_id}", headers=headers)
+        if r.status_code == 404:
+            raise click.ClickException("Job not found.")
+        r.raise_for_status()
+        existing = r.json()
+
+    if file_ is not None:
+        payload = json.loads(file_.read_text(encoding="utf-8"))
+        payload["id"] = job_id
+    else:
+        spec = existing.get("spec", existing)
+
+        # --- build schedule dict from CLI overrides ---
+        ext_schedule = spec.get("schedule", {})
+        cli_schedule_type = schedule_type or ext_schedule.get("type", "cron")
+        # Normalise scheduled type: the model uses 'once' or 'scheduled'
+        # but CLI exposes 'scheduled'; map for internal use.
+        if cli_schedule_type == "scheduled":
+            int_schedule_type = "once"
+        else:
+            int_schedule_type = cli_schedule_type
+
+        # Use existing timezone if not overridden
+        tz = timezone or ext_schedule.get("timezone", "UTC")
+
+        cli_cron = cron or ext_schedule.get("cron", "")
+        cli_run_at = run_at or ext_schedule.get("run_at")
+        cli_repeat_days = (
+            repeat_every_days
+            if repeat_every_days is not None
+            else ext_schedule.get("repeat_every_days")
+        )
+        cli_repeat_end = (
+            repeat_end_type
+            if repeat_end_type is not None
+            else ext_schedule.get("repeat_end_type")
+        )
+        cli_repeat_until = (
+            repeat_until
+            if repeat_until is not None
+            else ext_schedule.get("repeat_until")
+        )
+        cli_repeat_count = (
+            repeat_count
+            if repeat_count is not None
+            else ext_schedule.get("repeat_count")
+        )
+
+        schedule = _build_schedule_from_cli(
+            schedule_type=cli_schedule_type,
+            cron=cli_cron if int_schedule_type == "cron" else "",
+            run_at=cli_run_at if int_schedule_type == "once" else None,
+            timezone=tz,
+            repeat_every_days=cli_repeat_days,
+            repeat_end_type=cli_repeat_end,
+            repeat_until=cli_repeat_until,
+            repeat_count=cli_repeat_count,
+        )
+
+        # --- resolve other fields with CLI-override semantics ---
+        t_type = task_type or spec.get("task_type", "text")
+        t_name = name if name is not None else spec.get("name", "")
+        t_enabled = enabled if enabled is not None else spec.get("enabled", True)
+        t_mode = mode or spec.get("dispatch", {}).get("mode", "final")
+        t_save = (
+            save_result_to_inbox
+            if save_result_to_inbox is not None
+            else spec.get("save_result_to_inbox")
+        )
+        t_share = (
+            share_session
+            if share_session is not None
+            else spec.get("runtime", {}).get("share_session", True)
+        )
+        t_timeout = (
+            timeout_seconds
+            if timeout_seconds is not None
+            else spec.get("runtime", {}).get("timeout_seconds", 120)
+        )
+
+        ext_dispatch = spec.get("dispatch", {})
+        ext_target = ext_dispatch.get("target", {})
+        t_channel = channel or ext_dispatch.get("channel", DEFAULT_CHANNEL)
+        t_user = target_user or ext_target.get("user_id", "")
+        t_session = target_session or ext_target.get("session_id", "")
+        t_text = (
+            text
+            if text is not None
+            else spec.get("text", spec.get("request", {}).get("input", [{}])[0].get("content", [{}])[0].get("text", "")
+               if spec.get("task_type") == "agent"
+               else spec.get("text", ""))
+        )
+
+        payload = _build_spec_from_cli(
+            task_type=t_type,
+            schedule_type=cli_schedule_type,
+            name=t_name,
+            cron=cli_cron,
+            run_at=cli_run_at,
+            repeat_every_days=cli_repeat_days,
+            repeat_end_type=cli_repeat_end,
+            repeat_until=cli_repeat_until,
+            repeat_count=cli_repeat_count,
+            channel=t_channel,
+            target_user=t_user,
+            target_session=t_session,
+            text=t_text,
+            timezone=tz,
+            enabled=t_enabled,
+            mode=t_mode,
+            save_result_to_inbox=t_save,
+            share_session=t_share,
+            timeout_seconds=t_timeout,
+        )
+
+    payload["id"] = job_id
+
+    with client(base_url) as c:
+        headers = {"X-Agent-Id": agent_id}
+        r = c.put(f"/cron/jobs/{job_id}", json=payload, headers=headers)
         r.raise_for_status()
         print_json(r.json())
 

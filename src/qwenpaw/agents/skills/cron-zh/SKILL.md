@@ -1,6 +1,6 @@
 ---
 name: cron
-description: 仅在需要未来定时执行或周期执行任务时，使用本 skill。使用 qwenpaw cron list/create/get/state/pause/resume/delete/run 管理任务，并始终显式传入 --agent-id。
+description: 仅在需要未来定时执行或周期执行任务时，使用本 skill。使用 qwenpaw cron list/create/get/state/update/pause/resume/delete/run 管理任务，并始终显式传入 --agent-id。
 metadata:
   builtin_skill_version: "1.6"
   qwenpaw:
@@ -73,6 +73,9 @@ qwenpaw cron resume <job_id> --agent-id <agent_id>
 
 # 立即执行一次已有任务
 qwenpaw cron run <job_id> --agent-id <agent_id>
+
+# 更新已有任务
+qwenpaw cron update <job_id> --agent-id <agent_id> ...
 ```
 
 ---
