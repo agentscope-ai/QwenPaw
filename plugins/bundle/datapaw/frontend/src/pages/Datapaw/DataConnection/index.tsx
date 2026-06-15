@@ -14,9 +14,10 @@ import {
 } from "./navigation";
 import { resolveApiErrorCode, resolveErrorMessage } from "./errors";
 import { useDataConnections } from "./useDataConnections";
+import { DataConnectionThemeProvider } from "./DataConnectionThemeProvider";
 import styles from "./index.module.less";
 
-function DataConnectionPage() {
+function DataConnectionPageInner() {
   const { t } = useTranslation();
   const { message } = useAppMessage();
   const pathname = useDataConnectionPathname();
@@ -130,4 +131,10 @@ function DataConnectionPage() {
   );
 }
 
-export default DataConnectionPage;
+export default function DataConnectionPage() {
+  return (
+    <DataConnectionThemeProvider>
+      <DataConnectionPageInner />
+    </DataConnectionThemeProvider>
+  );
+}
