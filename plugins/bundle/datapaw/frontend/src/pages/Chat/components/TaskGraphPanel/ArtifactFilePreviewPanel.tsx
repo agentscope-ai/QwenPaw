@@ -4,7 +4,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { filesApi } from "@/api/modules/files";
 import { buildAuthHeaders } from "@/api/authHeaders";
-import { safeFormatJson } from "./fileUtils";
+import { safeFormatJson, isPythonArtifactFile } from "./fileUtils";
 import {
   downloadArtifactFile,
   type ArtifactFileLike,
@@ -107,7 +107,11 @@ export default function ArtifactFilePreviewPanel({
         return;
       }
 
-      if (mimeType.startsWith("text/") || mimeType === "application/json") {
+      if (
+        mimeType.startsWith("text/") ||
+        mimeType === "application/json" ||
+        isPythonArtifactFile(target)
+      ) {
         setPreviewLoading(true);
         try {
           const content = await filesApi.fetchTextContent(
@@ -272,6 +276,16 @@ export default function ArtifactFilePreviewPanel({
         <div className={styles.markdownBody}>
           <pre>
             <code>{formatted}</code>
+          </pre>
+        </div>
+      );
+    }
+
+    if (isPythonArtifactFile(file)) {
+      return (
+        <div className={styles.pythonPreview}>
+          <pre className={styles.filePreviewText}>
+            <code>{previewContent}</code>
           </pre>
         </div>
       );
