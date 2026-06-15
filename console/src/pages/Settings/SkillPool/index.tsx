@@ -24,6 +24,7 @@ import {
 } from "./components";
 import { getBuiltinNoticeLines } from "./builtinNotice";
 import { useSkillPool } from "./useSkillPool";
+import { SkillPoolSecureImportButton } from "@extension/skill_sign";
 import { useProgressiveRender } from "../../../hooks/useProgressiveRender";
 import { PageHeader } from "@/components/PageHeader";
 import type { PoolSkillSpec } from "../../../api/types";
@@ -128,6 +129,7 @@ function SkillPoolPage() {
                       </Button>
                     </Badge>
                   </Tooltip>
+                  <SkillPoolSecureImportButton {...pool.secureImportShell} />
                 </div>
                 <div className={styles.headerActionsRight}>
                   <Tooltip title={t("skillPool.uploadZipHint")}>

@@ -24,6 +24,11 @@
       "id": "health-check",
       "label": "Integrity Protection Health Check",
       "manifest": "scripts/health-check-selftest.manifest.json"
+    },
+    {
+      "id": "skill-sign",
+      "label": "Skill pool secure import (Ed25519)",
+      "manifest": "extension/skill-sign-selftest.manifest.json"
     }
   ]
 }

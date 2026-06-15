@@ -1544,3 +1544,8 @@ async def delete_skill_config_endpoint(
     if not updated:
         raise HTTPException(status_code=404, detail="Skill not found")
     return {"cleared": True}
+
+
+from ...security.skill_sign_bridge import get_skill_sign_router  # noqa: E402
+
+router.include_router(get_skill_sign_router())

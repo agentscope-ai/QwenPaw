@@ -17,9 +17,8 @@ element_path: extension
 ### Out Of Scope
 - Owning backend router composition, runtime security semantics, or console rendering.
 - Duplicating ClawSec soul-guardian, qwenpaw doctor, or built-in rule integrity behavior beyond stable adapters.
-- Source trust verification (not implemented in this repository).
+- Source trust verification for skill pool secure import (`extension/skill_sign/`); broader source-trust verifier remains future work.
 - Owning console i18n implementation details or Health Check carousel rendering mechanics; those remain under the `console` contract.
-- Owning doctor check semantics or parsing doctor CLI text; full coverage projection must reuse stable doctor helpers through `extension/health_check/projection.py`.
 
 ### Children
 - path: Intergrity  Protection PRD.txt
@@ -46,6 +45,12 @@ element_path: extension
 - path: rule_integrity/
   kind: extension-module
   role: built-in tool guard rule integrity verify/repair, API routes, startup polling, and acceptance harness/tests
+- path: skill_sign/
+  kind: extension-module
+  role: Ed25519 skill ZIP verification, sign tool, and secure pool import bridge
+- path: Skill Secure Import Design.md
+  kind: implementation-design-contract
+  role: skill pool secure import and sign-tool design
 - path: Console Frontend Decoupling Design.md
   kind: implementation-design-contract
   role: console/src/extension module layout and re-export boundary

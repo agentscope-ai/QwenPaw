@@ -879,6 +879,27 @@ export function useSkillPool() {
     }
   };
 
+  const checkScanWarningsForSkill = useCallback(
+    async (skillName: string) => {
+      await checkScanWarnings(
+        skillName,
+        api.getBlockedHistory,
+        api.getSkillScanner,
+        t,
+      );
+    },
+    [t],
+  );
+
+  const secureImportShell = useMemo(
+    () => ({
+      onReload: () => loadData(true),
+      showConflictRenameModal,
+      checkScanWarningsForSkill,
+    }),
+    [checkScanWarningsForSkill, loadData, showConflictRenameModal],
+  );
+
   const handleConfirmImport = async (url: string, targetName?: string) => {
     try {
       setImporting(true);
@@ -982,6 +1003,7 @@ export function useSkillPool() {
     broadcastInitialNames,
     configText,
     zipInputRef,
+    secureImportShell,
     importBuiltinModalOpen,
     builtinSources,
     builtinLanguage,

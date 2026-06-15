@@ -1,11 +1,15 @@
 # File Baseline Protection Design
 
 > **Slice ID:** `intent-file-baseline-protection`  
-> **Supersedes:** `extension/File Baseline Protection Design.md` (v0.6.7) — runtime semantics below inherit unchanged sections unless this document explicitly overrides them.  
+> **Supersedes:** `extension/Persona Baseline Guardian Design.md` (v0.6.7) — runtime semantics below inherit unchanged sections unless this document explicitly overrides them.  
 > **Parent:** `extension/Intergrity  Protection Design.md`  
-> **Version:** 1.0.0  
+> **Version:** 1.0.4  
 > **Product name (operator-facing):** 文件基线保护 / File Baseline Protection  
-> **变更（1.0）：** 将「人格完整性保护 / File Baseline Protection」一次性 breaking rename 为通用「文件基线保护」；Tab 改为「完整性保护」；补全受保护路径逐条点选 UI；默认仍仅 `SOUL.md` 试点默认值、功能默认关闭、规则完整性同 Tab 区块 B。
+> **变更（1.0）：** 将「人格完整性保护 / Persona Baseline Guardian」一次性 breaking rename 为通用「文件基线保护」；Tab 改为「完整性保护」；补全受保护路径逐条点选 UI；默认仍仅 `SOUL.md` 试点默认值、功能默认关闭、规则完整性同 Tab 区块 B。  
+> **变更（1.0.1）：** OS 只读（`attrib +R`）+ 唯一写通道 `temporary_os_writable`；shell/python 写 preflight。  
+> **变更（1.0.2）：** rename/chmod mutate preflight；命令后 `verify_protected_baselines_after_command`（`post_command_restore`）；watch deleted。  
+> **变更（1.0.3）：** 信任根 `integrity-protection/**` 不可写；frozen 快照；restore 优先 frozen；命令后 state hash 校验（`state_tamper`）。  
+> **变更（1.0.4）：** 低层写入 preflight（`os.open`/`os.write`/Windows API 等）补洞；shell guard **fail-closed**（异常或无响应均不得裸跑）。
 
 ---
 
@@ -268,7 +272,8 @@ Tab key: `integrityProtection`（i18n: `security.integrityProtection.tabs.integr
 
 **信任根防护（v1.0.3 — metadata 偷梁换柱）：**
 - Agent **永远不能写** `<WORKING_DIR>/integrity-protection/**`（含 `baselines.json`、`approved/`、`settings.json`）；**无审批豁免**；仅 `file_baseline_maintenance_context` 内 QwenPaw 自身可写
-- `write_file` / shell / python 三层拦截；enable 时对 **`frozen/` 与 `trust_anchors.json`** 叠加 OS 只读（mutable state 由软件层拦截，避免阻断 soul-guardian 子进程 audit/approve）
+- `write_file` / shell / python 三层拦截；shell/python 对 `integrity-protection/**` 的预检与 v1.0.4 **同源低层写信号**（`os.open(O_TRUNC/...)`、`os.write`、`SetFileAttributesW` 等），**无审批豁免**
+- enable 时对 **`frozen/` 与 `trust_anchors.json`** 叠加 OS 只读（mutable state 由软件层拦截，避免阻断 soul-guardian 子进程 audit/approve）
 - **frozen 快照**：enable / Operator Accept / 已审批写 commit 后，在 `integrity-protection/file-baseline/frozen/<agent_id>/` 封存 `approved` 副本与 sha 锚点；Agent 不可写
 - **restore 来源**：workspace 还原 **优先** frozen 快照；mutable `approved/` 与 frozen 不一致则视为 state tamper，从 frozen 修复 state 再还原 workspace
 - **命令后 state 校验**：shell/python 执行前后比对 state 目录 hash；Agent 触发的变更 → 从 frozen 修复 + drift（`state_tamper`）
@@ -285,7 +290,7 @@ Tab key: `integrityProtection`（i18n: `security.integrityProtection.tabs.integr
 - Windows 属性/原生 API 视作 mutate 信号：`SetFileAttributesA/W`、`CreateFileW`、`WriteFile`、`DeleteFileW`、`MoveFileExW`、`ReplaceFileW`、`CopyFileW`、`SetEndOfFile`；命中受保护路径 → 审批
 - shell/PowerShell 补充 `attrib -R`、`del`/`erase`、`Remove-Item`、`fsutil file seteof`、`.NET FileStream/StreamWriter/OpenWrite/Create/Open` 等写/删/截断信号
 - 语义不变：审批通过后仍使用 `temporary_os_writable` 执行，并通过 `notify_approved_paths` 接受新 baseline/frozen；未审批则不执行
-- `execute_shell_command` 的 File Baseline guard 异常必须 **fail-closed** 返回 Error，不得 fallback 到 unguarded shell
+- `execute_shell_command` 的 File Baseline guard **异常或无响应** 时必须 **fail-closed** 返回 Error，不得 fallback 到 unguarded shell
 
 | 场景 ID | 说明 | 优先级 |
 |---------|------|--------|
@@ -307,14 +312,14 @@ Tab key: `integrityProtection`（i18n: `security.integrityProtection.tabs.integr
 
 以下章节 **逻辑不变**，实现时按 §3 矩阵替换类名/路径/事件名：
 
-| 主题 | 继承自 File Baseline Protection Design |
-|------|----------------------------------------|
+| 主题 | 继承自 Persona Baseline Guardian Design (v0.6.7) |
+|------|--------------------------------------------------|
 | Enable Gate | §2 原则 3、§5.5 Enable Gate |
 | startup scan-before-agents | §5.5 |
 | write hook + watch | §5.5、§11 |
 | Restore / Accept + 确认短语 | §7、§14 |
-| Disable 保留清单 / 删基线 | §14.3 |
-| Re-enable 建新基线确认 | §14.3.2 |
+| Disable 保留清单 / 删基线 | §14.3（**不**改 workspace 受保护文件本身；仅删 `integrity-protection/file-baseline/` 元数据） |
+| Re-enable 建新基线确认 | §14.3.2（以 **当前工作区磁盘内容** 建新基线；关闭期间对文件的修改不会被追溯） |
 | 隐式 Accept（Console 编辑器保存） | §9 |
 | Inbox + SSE + toast | §18.8 FB-S20（原 PB-S20） |
 | Out of Scope read-time | §1.3 |
