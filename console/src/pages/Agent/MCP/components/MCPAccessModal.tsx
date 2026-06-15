@@ -104,10 +104,7 @@ export const MCPAccessModal: React.FC<MCPAccessModalProps> = ({
     [tools, policy],
   );
   const isDirty = useMemo(
-    () =>
-      Boolean(
-        policy && policySignature(policy) !== initialPolicySignature,
-      ),
+    () => Boolean(policy && policySignature(policy) !== initialPolicySignature),
     [policy, initialPolicySignature],
   );
 
