@@ -6,9 +6,6 @@ import {
 } from "../lib/plan-store";
 import type { HostBundle } from "../types";
 
-let latestResponseId: string | null = null;
-let nextResponseInstanceId = 0;
-const latestResponseListeners = new Set<() => void>();
 let lastRenderLogKey = "";
 const EMPTY_PLANS: StoredPlanSnapshot[] = [];
 const GRAPH_ID_PATTERN = /\bgraph_[A-Za-z0-9_-]+\b/g;
@@ -23,21 +20,6 @@ function logTaskGraphDebug(
 ): void {
   void event;
   void payload;
-}
-
-function subscribeLatestResponse(listener: () => void): () => void {
-  latestResponseListeners.add(listener);
-  return () => latestResponseListeners.delete(listener);
-}
-
-function getLatestResponseId(): string | null {
-  return latestResponseId;
-}
-
-function setLatestResponseId(responseId: string | null): void {
-  if (!responseId || latestResponseId === responseId) return;
-  latestResponseId = responseId;
-  latestResponseListeners.forEach((listener) => listener());
 }
 
 function getResponseId(data: unknown): string | null {
@@ -101,7 +83,7 @@ function collectResponseIds(
 
 export function createTaskGraphAppend(host: HostBundle) {
   const { React } = host;
-  const { useEffect, useRef, useSyncExternalStore } = React;
+  const { useSyncExternalStore } = React;
   const TaskGraphCard = createTaskGraphCard(host);
 
   return function TaskGraphResponseRender(ctx: {
@@ -114,55 +96,17 @@ export function createTaskGraphAppend(host: HostBundle) {
       getDisplayPlans,
       () => EMPTY_PLANS,
     );
-    const latestId = useSyncExternalStore(
-      subscribeLatestResponse,
-      getLatestResponseId,
-      () => null,
-    );
-    const instanceIdRef = useRef<string | null>(null);
-    if (!instanceIdRef.current) {
-      nextResponseInstanceId += 1;
-      instanceIdRef.current = `instance:${nextResponseInstanceId}`;
-    }
-
     const responseIds = collectResponseIds(ctx.data);
     const responseMessageIds = responseIds.messageIds;
     const responseGraphIds = responseIds.graphIds;
 
-    const responseDataId = getResponseId(ctx.data);
-    const responseId = responseDataId ?? instanceIdRef.current;
-
-    useEffect(() => {
-      setLatestResponseId(responseId);
-    }, [responseId]);
-
-    const isLatestResponse =
-      ctx.isLast === true ||
-      Boolean(responseId && latestId && responseId === latestId) ||
-      (!latestId && ctx.isLast !== false);
+    const responseId = getResponseId(ctx.data);
     const selectPlanForResponse = (): {
       plan: StoredPlanSnapshot | null;
       reason: string;
       anchorMessageId: string | null;
       isAnchoredResponse: boolean;
-      isLiveMirror: boolean;
     } => {
-      const liveCandidates = plans.filter((candidate) => candidate.__datapawCurrent);
-      const liveMirror = liveCandidates[liveCandidates.length - 1];
-
-      // Latest assistant bubble always tracks the active plan, even when the
-      // response still references an older graph id from a prior turn.
-      if (liveMirror && isLatestResponse) {
-        const anchor = liveMirror.anchor_message_id ?? null;
-        return {
-          plan: liveMirror,
-          reason: anchor ? "latest-current-live-mirror" : "latest-current-no-anchor",
-          anchorMessageId: anchor,
-          isAnchoredResponse: false,
-          isLiveMirror: true,
-        };
-      }
-
       const anchored = plans.find((candidate) => {
         const anchor = candidate.anchor_message_id;
         return Boolean(
@@ -176,7 +120,6 @@ export function createTaskGraphAppend(host: HostBundle) {
           reason: responseGraphIds.has(anchored.id) ? "graph-id" : "anchor",
           anchorMessageId: anchored.anchor_message_id ?? null,
           isAnchoredResponse: true,
-          isLiveMirror: false,
         };
       }
 
@@ -185,7 +128,6 @@ export function createTaskGraphAppend(host: HostBundle) {
         reason: "none",
         anchorMessageId: null,
         isAnchoredResponse: false,
-        isLiveMirror: false,
       };
     };
 
@@ -197,7 +139,7 @@ export function createTaskGraphAppend(host: HostBundle) {
     const graph =
       shouldRenderGraph && plan
         ? React.createElement(TaskGraphCard, {
-            data: { plan, showActions: true, live: selected.isLiveMirror },
+            data: { plan, showActions: true },
           })
         : null;
 
@@ -214,8 +156,6 @@ export function createTaskGraphAppend(host: HostBundle) {
       logTaskGraphDebug("response-append-render", {
         isLast: ctx.isLast ?? null,
         responseId,
-        latestId,
-        isLatestResponse,
         planCount: plans.length,
         plans: plans.map((item) => ({
           id: item.id,

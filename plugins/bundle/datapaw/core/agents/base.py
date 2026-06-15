@@ -32,6 +32,7 @@ from ..i18n import tr
 from ..orchestration import RuntimeStateManager
 from ..path_context import PathContext, default_artifacts_root
 from ..sse_metadata import NODE_ROUTING_METADATA_KEYS
+from ..tools import DEFAULT_TOOL_NAMES, TOOL_REGISTRY
 
 if TYPE_CHECKING:
     from qwenpaw.agents.memory import BaseMemoryManager
@@ -118,9 +119,13 @@ class DataPawConfig:
     prompt_dir: Path = field(default_factory=lambda: PLUGIN_PROMPTS_DIR)
     """Prompt template directory; defaults to the plugin's ``prompts/``."""
 
-    tools: List[str] = field(default_factory=list)
-    """DataPaw-owned tool names. Currently none built-in — real data tools
-    such as ``get_data`` are expected to come from ``agent_config.mcp``."""
+    tools: List[str] = field(default_factory=lambda: list(DEFAULT_TOOL_NAMES))
+    """DataPaw-owned tool names.
+
+    Real data query tools such as ``execute_sql`` are expected to come from
+    ``agent_config.mcp``. ``download_file`` is built in so agents can persist
+    result files returned by those external tools.
+    """
 
     sub_agent_dispatcher: Any = None
     """P1 extension point for a sub-agent dispatcher. ``None`` in MVP."""
@@ -415,12 +420,12 @@ class DataPawAgent(QwenPawAgent):
     ) -> None:
         """Register DataPaw built-in tools listed in ``DataPawConfig.tools``.
 
-        Currently no built-in tools — fetchers like ``get_data`` are expected
-        to come from MCP clients configured on ``agent_config.mcp``. This
-        method stays as an extension point: unknown names log a warning so
-        misconfigurations are visible.
+        Data query tools are expected to come from MCP clients configured on
+        ``agent_config.mcp``. This method registers DataPaw-owned helpers such
+        as ``download_file``; unknown names log a warning so misconfigurations
+        are visible.
         """
-        tool_registry: dict[str, Any] = {}
+        tool_registry: dict[str, Any] = TOOL_REGISTRY
         for tool_name in self._datapaw_config.tools:
             fn = tool_registry.get(tool_name)
             if fn is None:

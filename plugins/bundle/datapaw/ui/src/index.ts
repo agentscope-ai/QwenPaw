@@ -26,6 +26,7 @@ import { installConsoleLogoPatch } from "./patches/console-logo";
 import { registerChatArtifactsButton } from "./patches/chat-artifacts-button";
 import { registerChatSenderToolbar } from "./patches/chat-sender-toolbar";
 import { registerDatapawNavigation } from "./patches/datapaw-navigation";
+import { installDatapawFaviconPatch } from "./patches/favicon";
 import type { HostBundle } from "./types";
 
 function buildPlugin() {
@@ -105,6 +106,7 @@ function buildPlugin() {
   registerChatArtifactsButton(bundle);
   registerChatSenderToolbar(bundle);
   installConsoleLogoPatch(bundle);
+  installDatapawFaviconPatch();
   installFetchPatch();
   ensureDefaultAgent();
   patchWelcomeAndTheme();
