@@ -195,6 +195,17 @@ describe("window.QwenPaw.chat.request / response", () => {
     );
   });
 
+  it("response.set writes the assistant identity through welcome avatar/nick", () => {
+    window.QwenPaw.chat!.response.set("p1", {
+      avatar: "/bot.png",
+      nick: "My Bot",
+    });
+
+    const snap = chatExtensions.getScalarSnapshot();
+    expect(snap["welcome.avatar"]?.value).toBe("/bot.png");
+    expect(snap["welcome.nick"]?.value).toBe("My Bot");
+  });
+
   it("request.prepend / append append to their respective lists", () => {
     const r1 = () => null;
     const r2 = () => null;

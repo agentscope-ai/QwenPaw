@@ -189,6 +189,18 @@ export interface QwenPawChatNamespace {
     ): Disposable;
   };
   response: {
+    /**
+     * Configure the default assistant identity shown by the response card.
+     * This intentionally reuses welcome.avatar/nick because the default
+     * ResponseCard reads those fields.
+     */
+    set(
+      pluginId: string,
+      partial: Partial<{
+        avatar: Localized<string | React.ReactNode>;
+        nick: Localized<string | React.ReactNode>;
+      }>,
+    ): Disposable;
     /** Whole-bubble replacement for the assistant response card. */
     render(pluginId: string, fn: ChatResponseRenderFn): Disposable;
     /** Insert a custom component above the AI bubble. */

@@ -555,6 +555,13 @@ The transform may return a new object to replace the payload. Returning `undefin
 ### Message Bubble Customization — `chat.request` / `chat.response`
 
 ```tsx
+// Set the default assistant response avatar and nickname
+// This currently reuses welcome.avatar / welcome.nick because the default ResponseCard reads those fields
+window.QwenPaw.chat.response.set("my-plugin", {
+  avatar: "https://example.com/bot-avatar.png",
+  nick: "My Bot",
+});
+
 // Prepend content before user messages
 window.QwenPaw.chat.request.prepend("my-plugin", ({ data }) => {
   return <div style={{ fontSize: 10, color: "#999" }}>User</div>;

@@ -71,6 +71,11 @@ interface SenderPartial {
   disclaimer?: ChatScalarValues["sender.disclaimer"];
 }
 
+interface ResponsePartial {
+  avatar?: ChatScalarValues["welcome.avatar"];
+  nick?: ChatScalarValues["welcome.nick"];
+}
+
 export interface QwenPawChatNamespace {
   welcome: {
     set(pluginId: string, partial: WelcomePartial): Disposable;
@@ -128,6 +133,8 @@ export interface QwenPawChatNamespace {
     ): Disposable;
   };
   response: {
+    /** Configure the default assistant identity. Reuses welcome.avatar/nick because the vendor ResponseCard reads those fields. */
+    set(pluginId: string, partial: ResponsePartial): Disposable;
     /** Whole-bubble replacement for the assistant response card. */
     render(pluginId: string, fn: ChatResponseRenderFn): Disposable;
     /** Append a custom component above the AI bubble. */
@@ -237,6 +244,11 @@ function makeChatNamespace(): QwenPawChatNamespace {
     disclaimer: ChatScalar.senderDisclaimer,
   };
 
+  const responseFieldMap: Record<keyof ResponsePartial, ChatScalarField> = {
+    avatar: ChatScalar.welcomeAvatar,
+    nick: ChatScalar.welcomeNick,
+  };
+
   return {
     welcome: {
       set: (pid, partial) => applyPartial(pid, partial, welcomeFieldMap),
@@ -318,6 +330,7 @@ function makeChatNamespace(): QwenPawChatNamespace {
       },
     },
     response: {
+      set: (pid, partial) => applyPartial(pid, partial, responseFieldMap),
       render: (pid, fn) =>
         chatExtensions.setScalar(pid, ChatScalar.responseRender, fn),
       prepend: (pid, fn, opts) => {

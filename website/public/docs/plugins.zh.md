@@ -555,6 +555,13 @@ window.QwenPaw.chat.requestPayload.add(
 ### 消息气泡自定义 — `chat.request` / `chat.response`
 
 ```tsx
+// 设置默认 AI 回复的头像和昵称
+// 当前会复用 welcome.avatar / welcome.nick，因为默认 ResponseCard 读取这两个字段
+window.QwenPaw.chat.response.set("my-plugin", {
+  avatar: "https://example.com/bot-avatar.png",
+  nick: "My Bot",
+});
+
 // 在用户消息前方追加内容
 window.QwenPaw.chat.request.prepend("my-plugin", ({ data }) => {
   return <div style={{ fontSize: 10, color: "#999" }}>User</div>;
