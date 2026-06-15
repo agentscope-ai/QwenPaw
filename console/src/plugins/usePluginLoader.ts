@@ -17,6 +17,7 @@ import { getApiUrl, getApiToken } from "../api/config";
 interface PluginInfo {
   id: string;
   name: string;
+  version?: string;
   frontend_entry?: string;
 }
 
@@ -41,7 +42,10 @@ async function executePluginScript(entryUrl: string): Promise<void> {
   const headers: Record<string, string> = {};
   if (token) headers["Authorization"] = `Bearer ${token}`;
 
-  const response = await fetch(entryUrl, { headers });
+  const response = await fetch(entryUrl, {
+    headers,
+    cache: "no-store",
+  });
   if (!response.ok) {
     throw new Error(`HTTP ${response.status} for ${entryUrl}`);
   }
@@ -94,7 +98,11 @@ export async function loadAllPlugins(): Promise<{
 
   const results = await Promise.allSettled(
     frontendPlugins.map(async (p) => {
-      await executePluginScript(resolveUrl(p.id, p.frontend_entry!));
+      const entryUrl = resolveUrl(p.id, p.frontend_entry!);
+      const cacheBustedUrl = p.version
+        ? `${entryUrl}${entryUrl.includes("?") ? "&" : "?"}v=${encodeURIComponent(p.version)}`
+        : entryUrl;
+      await executePluginScript(cacheBustedUrl);
       console.info(`[PluginLoader] ✓ ${p.id}`);
     }),
   );

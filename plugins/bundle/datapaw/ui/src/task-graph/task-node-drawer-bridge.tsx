@@ -19,6 +19,7 @@ export interface TaskNodeDrawerBridgeProps {
   sessionId: string;
   userId: string;
   onClose: () => void;
+  showFollowTab?: boolean;
 }
 
 export function createTaskNodeDrawerBridge(host: HostBundle) {
@@ -32,6 +33,7 @@ export function createTaskNodeDrawerBridge(host: HostBundle) {
     sessionId,
     userId,
     onClose,
+    showFollowTab,
   }: TaskNodeDrawerBridgeProps) {
     if (!node) return null;
 
@@ -50,6 +52,7 @@ export function createTaskNodeDrawerBridge(host: HostBundle) {
         sessionId,
         userId,
         onClose,
+        showFollowTab,
       }),
     );
   };

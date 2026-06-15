@@ -206,7 +206,7 @@ export function createTaskCardSenderPrefix(host: HostBundle) {
             sessionId,
             userId,
             onClose: () => setDrawerNodeId(null),
-            showFollowTab: isNodeStreaming,
+            showFollowTab: isNodeStreaming || drawerNode?.state === "done" || drawerNode?.state === "failed",
           })
         : null,
     );

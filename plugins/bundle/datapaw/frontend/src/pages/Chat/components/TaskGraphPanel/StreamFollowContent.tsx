@@ -3,7 +3,6 @@ import { ToolCall } from '@agentscope-ai/chat';
 import type { StreamEvent } from './types';
 import LoadingDots from './LoadingDots';
 import TextBlock from './TextBlock';
-import ThinkingBlock from './ThinkingBlock';
 import FetchDataBlock from '../FetchDataBlock';
 import styles from './TaskNodeDrawer.module.less';
 
@@ -68,7 +67,7 @@ export default function StreamFollowContent({
           );
         }
         if (event.type === 'thinking') {
-          return <ThinkingBlock key={`thinking-${idx}`} content={event.thinking} />;
+          return <TextBlock key={`thinking-${idx}`} content={event.thinking} />;
         }
         return null;
       })}
