@@ -69,6 +69,18 @@ const CHANNEL_SOURCE_OPTIONS: { label: string; value: string }[] =
     value,
   }));
 
+function channelSourceOptions(
+  allChannelsLabel: string,
+): { label: string; value: string }[] {
+  return [
+    {
+      label: allChannelsLabel,
+      value: "*",
+    },
+    ...CHANNEL_SOURCE_OPTIONS,
+  ];
+}
+
 interface MCPAccessRuleRowsProps<Rule extends MCPAccessRule> {
   rules: Rule[];
   getKey: (rule: Rule) => string;
@@ -89,6 +101,9 @@ export function MCPAccessRuleRows<Rule extends MCPAccessRule>({
   effectLabel,
 }: MCPAccessRuleRowsProps<Rule>) {
   const { t } = useTranslation();
+  const sourceValueOptions = channelSourceOptions(
+    t("mcp.access.sourceValueAllChannels"),
+  );
   const subjectTypeOptions = [
     { label: t("mcp.access.subjectTypeOption.all"), value: "all" },
     { label: t("mcp.access.subjectTypeOption.user"), value: "user" },
@@ -114,7 +129,7 @@ export function MCPAccessRuleRows<Rule extends MCPAccessRule>({
                   source_value: String(sourceValue),
                 })
               }
-              options={CHANNEL_SOURCE_OPTIONS}
+              options={sourceValueOptions}
             />
           </div>
           <div className={styles.accessRuleField}>

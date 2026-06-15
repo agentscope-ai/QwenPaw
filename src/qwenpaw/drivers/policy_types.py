@@ -23,6 +23,7 @@ ALLOWED_POLICY_EFFECTS: frozenset[str] = POLICY_EFFECTS
 ALLOWED_POLICY_TARGET_KINDS: frozenset[str] = frozenset(
     {*get_args(CapabilityKind), POLICY_TARGET_WILDCARD},
 )
+_MISSING = object()
 
 __all__ = [
     "ALLOWED_POLICY_EFFECTS",
@@ -171,19 +172,33 @@ def _coerce_policy_target(value: Any) -> PolicyTarget:
 def _coerce_policy_principal(value: Any) -> PolicyPrincipal:
     if isinstance(value, PolicyPrincipal):
         return PolicyPrincipal(
-            source_type=str(value.source_type or "*"),
-            source_value=str(value.source_value or "*"),
-            subject_type=str(value.subject_type or "*"),
-            subject_value=str(value.subject_value),
+            source_type=_coerce_selector_value(value.source_type),
+            source_value=_coerce_selector_value(value.source_value),
+            subject_type=_coerce_selector_value(value.subject_type),
+            subject_value=_coerce_selector_value(value.subject_value),
         )
     if isinstance(value, dict):
         return PolicyPrincipal(
-            source_type=str(value.get("source_type") or "*"),
-            source_value=str(value.get("source_value") or "*"),
-            subject_type=str(value.get("subject_type") or "*"),
-            subject_value=str(value.get("subject_value", "*")),
+            source_type=_coerce_selector_value(
+                value.get("source_type", _MISSING),
+            ),
+            source_value=_coerce_selector_value(
+                value.get("source_value", _MISSING),
+            ),
+            subject_type=_coerce_selector_value(
+                value.get("subject_type", _MISSING),
+            ),
+            subject_value=_coerce_selector_value(
+                value.get("subject_value", _MISSING),
+            ),
         )
     return PolicyPrincipal()
+
+
+def _coerce_selector_value(value: Any) -> str:
+    if value is _MISSING or value is None:
+        return POLICY_TARGET_WILDCARD
+    return str(value)
 
 
 def _coerce_policy_effect(

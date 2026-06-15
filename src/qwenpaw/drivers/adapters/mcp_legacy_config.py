@@ -24,7 +24,7 @@ from ..constants import (
     CREDENTIAL_ALIAS_STATIC,
     CREDENTIAL_KIND_OAUTH_AUTH_CODE,
     CREDENTIAL_KIND_STATIC,
-    POLICY_EFFECT_ALLOW,
+    POLICY_EFFECT_ASK,
     POLICY_TARGET_WILDCARD,
     PROTOCOL_MCP,
 )
@@ -219,7 +219,7 @@ def legacy_mcp_client_to_driver(
             rules=[
                 PolicyRule(
                     subject=POLICY_TARGET_WILDCARD,
-                    effect=POLICY_EFFECT_ALLOW,
+                    effect=POLICY_EFFECT_ASK,
                     target=PolicyTarget(
                         kind=CAPABILITY_KIND_TOOL,
                         name=POLICY_TARGET_WILDCARD,
@@ -319,6 +319,6 @@ def _write_report(cards_dir: Path, report: LegacyMCPMigrationReport) -> None:
     path = cards_dir / ".legacy_mcp_migration_report.yaml"
     payload = asdict(report)
     path.write_text(
-        yaml.safe_dump(payload, allow_unicode=False, sort_keys=False),
+        yaml.safe_dump(payload, allow_unicode=True, sort_keys=False),
         encoding="utf-8",
     )

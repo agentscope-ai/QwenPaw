@@ -172,6 +172,19 @@ def dump_card(card: DriverCard, path: Path) -> None:
 
     tmp_name = ""
     try:
+        serialized = yaml.safe_dump(
+            payload,
+            allow_unicode=True,
+            sort_keys=False,
+        )
+        try:
+            if (
+                path.is_file()
+                and path.read_text(encoding="utf-8") == serialized
+            ):
+                return
+        except OSError:
+            pass
         with tempfile.NamedTemporaryFile(
             "w",
             encoding="utf-8",
@@ -181,12 +194,7 @@ def dump_card(card: DriverCard, path: Path) -> None:
             delete=False,
         ) as tmp:
             tmp_name = tmp.name
-            yaml.safe_dump(
-                payload,
-                tmp,
-                allow_unicode=True,
-                sort_keys=False,
-            )
+            tmp.write(serialized)
             tmp.flush()
             os.fsync(tmp.fileno())
         os.replace(tmp_name, path)
@@ -420,11 +428,17 @@ def _policy_principal_from_mapping(value: Any, path: Path) -> PolicyPrincipal:
             f"DriverCard {path} policy principal must be a mapping",
         )
     return PolicyPrincipal(
-        source_type=str(value.get("source_type") or POLICY_TARGET_WILDCARD),
-        source_value=str(value.get("source_value") or POLICY_TARGET_WILDCARD),
-        subject_type=str(value.get("subject_type") or POLICY_TARGET_WILDCARD),
-        subject_value=str(value.get("subject_value", POLICY_TARGET_WILDCARD)),
+        source_type=_policy_selector_from_mapping(value, "source_type"),
+        source_value=_policy_selector_from_mapping(value, "source_value"),
+        subject_type=_policy_selector_from_mapping(value, "subject_type"),
+        subject_value=_policy_selector_from_mapping(value, "subject_value"),
     )
+
+
+def _policy_selector_from_mapping(value: dict[str, Any], key: str) -> str:
+    if key not in value or value[key] is None:
+        return POLICY_TARGET_WILDCARD
+    return str(value[key])
 
 
 def _condition_from_mapping(

@@ -123,7 +123,8 @@ class DriverConfigWatcher:
                     exc_info=True,
                 )
 
-        # reload_driver() normalizes and rewrites cards, which updates mtimes.
-        # Refresh after handling changes so the watcher does not reload the
-        # same Driver again on every poll.
-        self._last_snapshot = await self._card_store.snapshot()
+        # Use the snapshot that triggered this pass as the baseline. If a
+        # manual edit lands while reload_driver() is running, the next poll
+        # will compare against this observed state and reload it instead of
+        # accidentally swallowing the newer write.
+        self._last_snapshot = current

@@ -168,7 +168,7 @@ class AsyncCredentialStore:
                 yaml.safe_dump(
                     data,
                     tmp,
-                    allow_unicode=False,
+                    allow_unicode=True,
                     sort_keys=False,
                 )
                 tmp.flush()

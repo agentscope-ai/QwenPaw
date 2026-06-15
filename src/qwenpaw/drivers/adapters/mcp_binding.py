@@ -204,8 +204,11 @@ def mask_mcp_secret_value(value: str) -> str:
     length = len(value)
     if length <= 8:
         return "*" * length
+    if length <= 12:
+        return f"{value[:1]}{'*' * max(length - 2, 4)}{value[-1:]}"
     prefix_len = 3 if length > 2 and value[2] == "-" else 2
     prefix = value[:prefix_len]
-    suffix = value[-4:]
-    masked_len = max(length - prefix_len - 4, 4)
+    suffix_len = 4 if length >= 16 else 2
+    suffix = value[-suffix_len:]
+    masked_len = max(length - prefix_len - suffix_len, 4)
     return f"{prefix}{'*' * masked_len}{suffix}"

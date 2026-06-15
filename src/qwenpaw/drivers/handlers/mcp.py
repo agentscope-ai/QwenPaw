@@ -6,6 +6,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
+import time
 from typing import Any
 
 from ..capabilities import (
@@ -44,12 +45,17 @@ from ..handler import DriverHandler
 from ..policy import PolicyContext
 
 logger = logging.getLogger(__name__)
+_CAPABILITY_CACHE_TTL_SECONDS = 10.0
 
 
 class MCPDriverHandler(DriverHandler):
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self._client: Any | None = None
+        self._capability_cache: tuple[
+            float,
+            list[DriverCapability],
+        ] | None = None
 
     async def _setup(self) -> None:
         """Create and connect StdIOStatefulClient or HttpStatefulClient."""
@@ -94,6 +100,7 @@ class MCPDriverHandler(DriverHandler):
 
     async def _teardown(self) -> None:
         """Close connected MCP client if present."""
+        self._capability_cache = None
         if self._client is not None:
             await self._client.close()
             self._client = None
@@ -126,8 +133,14 @@ class MCPDriverHandler(DriverHandler):
     ) -> list[DriverCapability]:
         """Expose MCP tools as protocol-neutral Driver capabilities."""
         del request_context
+        now = time.monotonic()
+        if self._capability_cache is not None:
+            cached_at, cached = self._capability_cache
+            if now - cached_at <= _CAPABILITY_CACHE_TTL_SECONDS:
+                return list(cached)
+
         tools = await self.list_tools()
-        return [
+        capabilities = [
             _mcp_tool_to_capability(
                 self.name,
                 tool,
@@ -135,6 +148,8 @@ class MCPDriverHandler(DriverHandler):
             )
             for tool in tools
         ]
+        self._capability_cache = (now, capabilities)
+        return list(capabilities)
 
     async def invoke_capability(
         self,
@@ -272,10 +287,6 @@ def validate_mcp_endpoint(card: DriverCard) -> None:
             f"DriverCard {card.name} HTTP MCP endpoint.url must be "
             "a non-empty string",
         )
-
-
-def _subject_from_context(request_context: dict[str, str]) -> str:
-    return _subjects_from_context(request_context)[0]
 
 
 def _subjects_from_context(request_context: dict[str, str]) -> tuple[str, ...]:

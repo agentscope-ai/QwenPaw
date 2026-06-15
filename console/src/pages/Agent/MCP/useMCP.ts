@@ -23,7 +23,7 @@ export function useMCP() {
     } finally {
       setLoading(false);
     }
-  }, [t]);
+  }, [message, t]);
 
   useEffect(() => {
     loadClients();
@@ -59,7 +59,7 @@ export function useMCP() {
         return false;
       }
     },
-    [t, loadClients],
+    [message, t, loadClients],
   );
 
   const updateClient = useCallback(
@@ -89,7 +89,7 @@ export function useMCP() {
         return false;
       }
     },
-    [t, loadClients],
+    [message, t, loadClients],
   );
 
   const toggleEnabled = useCallback(
@@ -104,7 +104,7 @@ export function useMCP() {
         message.error(t("mcp.toggleError"));
       }
     },
-    [t, loadClients],
+    [message, t, loadClients],
   );
 
   const deleteClient = useCallback(
@@ -117,7 +117,7 @@ export function useMCP() {
         message.error(t("mcp.deleteError"));
       }
     },
-    [t, loadClients],
+    [message, t, loadClients],
   );
 
   const updatePolicy = useCallback(
@@ -133,7 +133,7 @@ export function useMCP() {
         return false;
       }
     },
-    [t, loadClients],
+    [message, t, loadClients],
   );
 
   return {

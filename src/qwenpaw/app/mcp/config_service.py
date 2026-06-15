@@ -489,11 +489,10 @@ def _mcp_access_rule_from_rule(
     source_value = principal.source_value.strip()
     subject_type = principal.subject_type.strip().lower()
     subject_value = principal.subject_value.strip()
-    if (
-        source_type == PRINCIPAL_SOURCE_CHANNEL
-        and source_value
-        and subject_type in {PRINCIPAL_SUBJECT_ALL, PRINCIPAL_SUBJECT_USER}
-    ):
+    if source_type == PRINCIPAL_SOURCE_CHANNEL and subject_type in {
+        PRINCIPAL_SUBJECT_ALL,
+        PRINCIPAL_SUBJECT_USER,
+    }:
         return MCPAccessRule(
             source_type=source_type,  # type: ignore[arg-type]
             source_value=source_value,

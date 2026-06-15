@@ -326,13 +326,14 @@ function nextDefaultSourceValue(
 
 function normalizeSourceValue(sourceValue: string): string {
   const trimmed = (sourceValue || "").trim();
-  return trimmed || DEFAULT_CHANNEL_SOURCE;
+  return trimmed;
 }
 
 function normalizeSourceType(
-  _sourceType: MCPAccessSourceType | string,
+  sourceType: MCPAccessSourceType | string,
 ): MCPAccessSourceType {
-  return "channel";
+  const trimmed = (sourceType || "").trim();
+  return trimmed || "channel";
 }
 
 function normalizeSubjectType(

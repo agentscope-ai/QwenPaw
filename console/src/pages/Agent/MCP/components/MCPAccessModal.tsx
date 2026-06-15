@@ -47,6 +47,7 @@ export const MCPAccessModal: React.FC<MCPAccessModalProps> = ({
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [toolsError, setToolsError] = useState("");
+  const [initialPolicySignature, setInitialPolicySignature] = useState("");
 
   useEffect(() => {
     if (!open) return;
@@ -58,7 +59,9 @@ export const MCPAccessModal: React.FC<MCPAccessModalProps> = ({
       try {
         const savedPolicy = await api.getMCPPolicy(client.key);
         if (!cancelled) {
-          setPolicy(normalizeMCPAccessPolicy(savedPolicy));
+          const normalized = normalizeMCPAccessPolicy(savedPolicy);
+          setPolicy(normalized);
+          setInitialPolicySignature(policySignature(normalized));
         }
 
         if (!client.enabled) {
@@ -81,6 +84,7 @@ export const MCPAccessModal: React.FC<MCPAccessModalProps> = ({
       } catch {
         if (!cancelled) {
           setPolicy(null);
+          setInitialPolicySignature("");
           setToolsError(t("mcp.access.loadError"));
         }
       } finally {
@@ -98,6 +102,13 @@ export const MCPAccessModal: React.FC<MCPAccessModalProps> = ({
   const groups = useMemo(
     () => (policy ? buildMCPAccessToolGroups(tools, policy) : []),
     [tools, policy],
+  );
+  const isDirty = useMemo(
+    () =>
+      Boolean(
+        policy && policySignature(policy) !== initialPolicySignature,
+      ),
+    [policy, initialPolicySignature],
   );
 
   const effectLabel = (effect: MCPAccessEffect) =>
@@ -155,6 +166,7 @@ export const MCPAccessModal: React.FC<MCPAccessModalProps> = ({
     try {
       const ok = await onSave(policy);
       if (ok) {
+        setInitialPolicySignature(policySignature(policy));
         onClose();
       }
     } finally {
@@ -162,15 +174,29 @@ export const MCPAccessModal: React.FC<MCPAccessModalProps> = ({
     }
   };
 
+  const handleClose = () => {
+    if (!isDirty || saving) {
+      onClose();
+      return;
+    }
+    Modal.confirm({
+      title: t("mcp.access.discardTitle"),
+      content: t("mcp.access.discardContent"),
+      okText: t("common.confirm"),
+      cancelText: t("common.cancel"),
+      onOk: onClose,
+    });
+  };
+
   return (
     <Modal
       title={`${client.name} - ${t("mcp.tools")}`}
       open={open}
-      onCancel={onClose}
+      onCancel={handleClose}
       width={1040}
       footer={
         <div style={{ textAlign: "right" }}>
-          <Button onClick={onClose} style={{ marginRight: 8 }}>
+          <Button onClick={handleClose} style={{ marginRight: 8 }}>
             {t("common.cancel")}
           </Button>
           <Button
@@ -254,4 +280,8 @@ function withRuleDefaults<Rule extends MCPAccessRule>(
     );
   }
   return nextRule;
+}
+
+function policySignature(policy: MCPAccessPolicy): string {
+  return JSON.stringify(normalizeMCPAccessPolicy(policy));
 }

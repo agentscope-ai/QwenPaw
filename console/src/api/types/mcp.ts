@@ -112,7 +112,7 @@ export interface MCPToolInfo {
   input_schema: Record<string, unknown>;
 }
 
-export type MCPAccessSourceType = "channel";
+export type MCPAccessSourceType = "channel" | (string & {});
 export type MCPAccessSubjectType = "all" | "user";
 
 export interface MCPAccessRule {

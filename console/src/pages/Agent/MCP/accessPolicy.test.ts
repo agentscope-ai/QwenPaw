@@ -142,7 +142,7 @@ describe("MCP access policy helpers", () => {
     ).toEqual([]);
   });
 
-  it("preserves custom source values instead of coercing them", () => {
+  it("preserves custom source selectors instead of coercing them", () => {
     const normalized = addClientRule({
       ...policy,
       client_overrides: [
@@ -154,8 +154,8 @@ describe("MCP access policy helpers", () => {
           effect: "allow",
         },
         {
-          source_type: "channel",
-          source_value: "custom-secondary-channel",
+          source_type: "future-source",
+          source_value: "",
           subject_type: "user",
           subject_value: "alice",
           effect: "deny",
@@ -172,8 +172,8 @@ describe("MCP access policy helpers", () => {
       effect: "allow",
     });
     expect(normalized.client_overrides).toContainEqual({
-      source_type: "channel",
-      source_value: "custom-secondary-channel",
+      source_type: "future-source",
+      source_value: "",
       subject_type: "user",
       subject_value: "alice",
       effect: "deny",

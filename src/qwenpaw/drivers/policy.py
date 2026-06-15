@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from datetime import datetime, time, timezone
 from typing import Any
@@ -50,6 +51,8 @@ _STRICTNESS: dict[str, int] = {
     POLICY_EFFECT_ASK: 2,
     POLICY_EFFECT_ALLOW: 1,
 }
+logger = logging.getLogger(__name__)
+_WARNED_UNKNOWN_SOURCE_TYPES: set[str] = set()
 
 
 @dataclass(frozen=True)
@@ -234,6 +237,12 @@ def _source_matches(
         if source_value in {"", POLICY_TARGET_WILDCARD}:
             return bool(channel)
         return channel.lower() == source_value.lower()
+    if source_type not in _WARNED_UNKNOWN_SOURCE_TYPES:
+        _WARNED_UNKNOWN_SOURCE_TYPES.add(source_type)
+        logger.warning(
+            "Unknown Driver policy source_type '%s'; rule will not match",
+            source_type,
+        )
     return False
 
 

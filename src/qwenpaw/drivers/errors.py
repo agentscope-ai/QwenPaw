@@ -102,7 +102,6 @@ class DriverPermissionDeniedError(PermissionDeniedError):
             "Driver policy denied the request.\n\n"
             f"- Driver: `{self.driver_name}`\n"
             f"- Operation: `{self.operation}`\n"
-            f"- Subject: `{self.subject}`\n"
             f"- Reason: {self.reason}\n\n"
             "This denial applies only to the current tool call under the "
             "policy observed at execution time."
@@ -113,7 +112,6 @@ class DriverPermissionDeniedError(PermissionDeniedError):
             "ok": False,
             "type": "driver_policy_denied",
             "driver_id": self.driver_name,
-            "subject": self.subject,
             "operation": self.operation,
             "message": self.to_user_message(),
         }

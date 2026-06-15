@@ -276,7 +276,6 @@ def _is_tool_access_override(rule: Any) -> bool:
     principal = rule.principal
     if (
         principal.source_type.strip().lower() == PRINCIPAL_SOURCE_CHANNEL
-        and principal.source_value.strip()
         and principal.subject_type.strip().lower()
         in {PRINCIPAL_SUBJECT_ALL, PRINCIPAL_SUBJECT_USER}
     ):
