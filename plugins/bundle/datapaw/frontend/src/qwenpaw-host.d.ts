@@ -51,6 +51,31 @@ declare global {
     dispose(): void;
   }
 
+  type QwenPawLocalized<T> = T | ((locale: string) => T);
+
+  interface QwenPawChatWelcome {
+    set(
+      pluginId: string,
+      partial: Partial<{
+        greeting: QwenPawLocalized<string | ReactNS.ReactNode>;
+        description: QwenPawLocalized<string | ReactNS.ReactNode>;
+        avatar: QwenPawLocalized<string | ReactNS.ReactNode>;
+        nick: QwenPawLocalized<string | ReactNS.ReactNode>;
+        prompts: QwenPawLocalized<ReactNS.ReactNode[]>;
+      }>,
+    ): QwenPawDisposable;
+  }
+
+  interface QwenPawChatResponse {
+    set(
+      pluginId: string,
+      partial: Partial<{
+        avatar: QwenPawLocalized<string | ReactNS.ReactNode>;
+        nick: QwenPawLocalized<string | ReactNS.ReactNode>;
+      }>,
+    ): QwenPawDisposable;
+  }
+
   interface QwenPawChatSender {
     addPrefix(
       pluginId: string,
@@ -60,6 +85,8 @@ declare global {
   }
 
   interface QwenPawChatNamespace {
+    welcome?: QwenPawChatWelcome;
+    response?: QwenPawChatResponse;
     sender: QwenPawChatSender;
     card?: (
       pluginId: string,

@@ -9,6 +9,7 @@ import { PLUGIN_ID } from "../lib/constants";
 import type { HostBundle } from "../types";
 
 const SENDER_TOOLBAR_PREFIX_ID = "datapaw-chat-sender-toolbar";
+const SENDER_TOOLBAR_INSTALLED_KEY = "__datapawDataSourceSenderPrefixInstalled";
 
 function useDatapawAgentSelected(React: HostBundle["React"]): boolean {
   const { useSyncExternalStore } = React;
@@ -28,6 +29,9 @@ function useDatapawAgentSelected(React: HostBundle["React"]): boolean {
 }
 
 export function registerChatSenderToolbar(host: HostBundle): void {
+  const win = window as Window & Record<string, boolean | undefined>;
+  if (win[SENDER_TOOLBAR_INSTALLED_KEY]) return;
+
   const chat = (
     window as {
       QwenPaw?: {
@@ -76,4 +80,5 @@ export function registerChatSenderToolbar(host: HostBundle): void {
     React.createElement(ChatSenderToolbarPrefix as React.ComponentType),
     { id: SENDER_TOOLBAR_PREFIX_ID, order: 10 },
   );
+  win[SENDER_TOOLBAR_INSTALLED_KEY] = true;
 }
