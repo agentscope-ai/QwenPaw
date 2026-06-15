@@ -218,6 +218,12 @@ def build_agent_chat_request(
     final_text = ensure_agent_identity_prefix(text, caller_agent_id)
     request_payload = {
         "session_id": final_session_id,
+        # Pass an explicit, non-empty user_id (the calling agent) so the
+        # runtime does not fall back to ``user_id = user_id or session_id``.
+        # Without it the session file is named
+        # ``{session_id}_{session_id}.json`` -- doubling its length and
+        # overflowing the Windows MAX_PATH limit (issue #5025).
+        "user_id": caller_agent_id,
         "input": [
             {
                 "role": "user",

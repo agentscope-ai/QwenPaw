@@ -91,6 +91,27 @@ def test_build_agent_chat_request_adds_identity_prefix():
     )
 
 
+def test_build_agent_chat_request_sets_caller_as_user_id():
+    """Payload carries an explicit non-empty ``user_id`` (the caller agent).
+
+    Without it the runtime applies ``user_id = user_id or session_id`` and the
+    session file becomes ``{session_id}_{session_id}.json`` -- doubling its
+    length and overflowing the Windows MAX_PATH (260) limit. Regression test
+    for issue #5025.
+    """
+    (
+        _session_id,
+        payload,
+        _prefix_added,
+    ) = agent_management.build_agent_chat_request(
+        "bot_b",
+        "Need a summary",
+        from_agent="bot_a",
+    )
+
+    assert payload.get("user_id") == "bot_a"
+
+
 def test_build_agent_chat_request_discovers_calling_agent(monkeypatch):
     monkeypatch.setattr(
         agent_management,
@@ -113,6 +134,9 @@ def test_build_agent_chat_request_discovers_calling_agent(monkeypatch):
         "[Agent auto_bot requesting] ",
     )
     assert prefix_added is True
+    # Real bug path (#5025): when from_agent is None the caller is resolved
+    # from context, and that resolved id must still become the user_id.
+    assert payload["user_id"] == "auto_bot"
 
 
 def test_build_agent_chat_request_reuses_session_id_when_provided():
