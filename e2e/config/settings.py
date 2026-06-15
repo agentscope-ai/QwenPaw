@@ -43,7 +43,7 @@ class BrowserConfig:
 @dataclass
 class ServerConfig:
     """Server configuration"""
-    base_url: str = "http://localhost:8088"
+    base_url: str = "http://localhost:7077"
     api_base_url: str = ""  # Leave empty to use base_url + /api
 
     model_key: str = ""     # Key for Model connection tests
