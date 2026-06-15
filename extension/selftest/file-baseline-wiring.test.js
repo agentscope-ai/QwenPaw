@@ -21,17 +21,21 @@ function exists(relativePath) {
 }
 
 const manifest = readJson('scripts/file-baseline-selftest.manifest.json');
-const integrationBody = read('tests/integration/security/test_integrity_protection.py');
-const shellPreflightBody = read('tests/unit/extension/test_file_baseline_shell_preflight.py');
-const postCommandVerifyBody = read('tests/unit/extension/test_file_baseline_post_command_verify.py');
-const osReadonlyBody = read('tests/unit/extension/test_file_baseline_os_readonly.py');
 
-const backendModuleBodies = {
-    'tests/integration/security/test_integrity_protection.py': integrationBody,
-    'tests/unit/extension/test_file_baseline_shell_preflight.py': shellPreflightBody,
-    'tests/unit/extension/test_file_baseline_post_command_verify.py': postCommandVerifyBody,
-    'tests/unit/extension/test_file_baseline_os_readonly.py': osReadonlyBody,
-};
+function loadBackendModuleBody(modulePath) {
+    if (!exists(modulePath)) {
+        return null;
+    }
+    return read(modulePath);
+}
+
+function backendTestMarker(testName) {
+    if (testName.includes('::')) {
+        const methodName = testName.split('::').pop();
+        return `def ${methodName}`;
+    }
+    return `def ${testName}`;
+}
 
 assert.strictEqual(manifest.name, 'file-baseline-selftest');
 
@@ -46,10 +50,10 @@ for (const layerName of ['wiring', 'frontend']) {
 
 for (const target of manifest.layers.backend.targets) {
     assert.ok(exists(target.module), `missing backend module: ${target.module}`);
-    const body = backendModuleBodies[target.module];
-    assert.ok(body, `missing backend module body mapping for: ${target.module}`);
+    const body = loadBackendModuleBody(target.module);
+    assert.ok(body, `missing backend module body for: ${target.module}`);
     for (const testName of target.tests || []) {
-        const marker = `def ${testName}`;
+        const marker = backendTestMarker(testName);
         assert.ok(body.includes(marker), `backend test not found: ${target.module}::${testName}`);
     }
 }

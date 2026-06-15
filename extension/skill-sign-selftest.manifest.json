@@ -1,0 +1,47 @@
+{
+  "version": 1,
+  "name": "skill-sign-selftest",
+  "description": "Self-test net for skill pool secure import (Ed25519 verify + sign tool fixtures).",
+  "layers": {
+    "wiring": {
+      "label": "Extension wiring",
+      "runner": "node",
+      "targets": [
+        "extension/selftest/skill-sign-wiring.test.js"
+      ]
+    },
+    "backend": {
+      "label": "Backend unit + integration",
+      "runner": "pytest",
+      "targets": [
+        {
+          "module": "extension/skill_sign/tests/test_verifier.py",
+          "tests": []
+        },
+        {
+          "module": "extension/skill_sign/tests/test_pool_import.py",
+          "tests": []
+        },
+        {
+          "module": "extension/skill_sign/tests/test_integration_entry.py",
+          "tests": []
+        }
+      ]
+    },
+    "frontend": {
+      "label": "Console frontend",
+      "runner": "vitest",
+      "cwd": "console",
+      "targets": [
+        "src/extension/skill_sign/api/client.test.ts",
+        "src/extension/skill_sign/components/SkillPoolSecureImportButton.test.tsx"
+      ]
+    }
+  },
+  "scenarios": [
+    { "id": "ip-e2e-003-helper", "layer": "backend", "target": "test_valid_example_verifies" },
+    { "id": "ip-e2e-003-helper-invalid", "layer": "backend", "target": "test_tampered_example_fails" },
+    { "id": "ip-e2e-003-entry", "layer": "backend", "target": "test_skill_secure_import_verification_entry" },
+    { "id": "SS-UI-ENTRY", "layer": "frontend", "target": "client.test.ts" }
+  ]
+}

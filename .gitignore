@@ -57,7 +57,14 @@ __pycache__/
 *.rdb
 *.egg-info/
 *.zip
+!extension/skill_sign/sign_tool/examples/**/*.zip
+!extension/skill_sign/sign_tool/examples/**/*.sig
 config.json
+
+# Skill sign tool — never commit private keys
+extension/skill_sign/sign_tool/keys/*
+!extension/skill_sign/sign_tool/keys/.gitkeep
+extension/skill_sign/sign_tool/**/*-private.pem
 
 # IDEs and editors
 .idea/

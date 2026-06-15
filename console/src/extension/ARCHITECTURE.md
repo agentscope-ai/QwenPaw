@@ -24,6 +24,7 @@ element_path: console/src/extension
 - `file_baseline/` — persona protection UI, API client, SSE watch
 - `health_check/` — health scan UI, API client, lib helpers (`scanUi`, `detailMessages`, `actionLinks`, `fixRisk`, `scanSummary`)
 - `rule_integrity/` — rule integrity API client, passive check card, repair banner, polling hook
+- `skill_sign/` — skill pool secure import API client, hook, and header button component
 
 ## Dependency Direction
 

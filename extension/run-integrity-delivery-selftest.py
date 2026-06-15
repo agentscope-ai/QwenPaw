@@ -6,6 +6,7 @@ Covers:
   - Built-in tool rule integrity
   - File Baseline Protection
   - Integrity Protection Health Check
+  - Skill pool secure import (Ed25519)
 
 Usage:
   python extension/run-integrity-delivery-selftest.py
