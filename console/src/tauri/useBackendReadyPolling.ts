@@ -14,6 +14,19 @@ export const BACKEND_POLL_TIMEOUT_SECONDS = 180;
 export const BACKEND_REQUEST_TIMEOUT_MS = 2500;
 export const BACKEND_STARTUP_ERROR_POLL_INTERVAL_MS = 3000;
 
+function logBackendGateTiming(
+  phase: string,
+  startedAt: number,
+  details: Record<string, unknown> = {},
+) {
+  const elapsedMs = Math.round((performance.now() - startedAt) * 10) / 10;
+  console.info("[QwenPaw Desktop] backend gate timing", {
+    phase,
+    elapsedMs,
+    ...details,
+  });
+}
+
 interface BackendReadyPollingState {
   shouldGate: boolean;
   status: BackendReadyStatus;
@@ -74,13 +87,16 @@ export default function useBackendReadyPolling(): BackendReadyPollingState {
     setReadyUrl("");
 
     const start = Date.now();
+    const perfStart = performance.now();
     let lastStartupErrorCheckAt = 0;
+    let loggedApiBaseUrl = false;
 
     const checkStartupError = async (): Promise<boolean> => {
       const startupError = await getBackendStartupError().catch(() => "");
       if (runRef.current !== runId) return true;
       if (!startupError) return false;
 
+      logBackendGateTiming("startup_error", perfStart);
       setErrorMessage(startupError);
       setStatus("error");
       return true;
@@ -91,6 +107,12 @@ export default function useBackendReadyPolling(): BackendReadyPollingState {
       if (runRef.current !== runId) return;
 
       if (apiBaseUrl) {
+        if (!loggedApiBaseUrl) {
+          loggedApiBaseUrl = true;
+          logBackendGateTiming("api_base_url_available", perfStart, {
+            apiBaseUrl,
+          });
+        }
         try {
           controller = new AbortController();
           const timeoutId = setTimeout(
@@ -103,6 +125,9 @@ export default function useBackendReadyPolling(): BackendReadyPollingState {
               cache: "no-store",
             });
             if (runRef.current === runId && res.ok) {
+              logBackendGateTiming("api_version_ready", perfStart, {
+                apiBaseUrl,
+              });
               setReadyUrl(backendConsoleUrl(apiBaseUrl));
               setStatus("ready");
               return;
@@ -136,6 +161,7 @@ export default function useBackendReadyPolling(): BackendReadyPollingState {
           return;
         }
         if (runRef.current !== runId) return;
+        logBackendGateTiming("timeout", perfStart);
         setStatus("timeout");
         return;
       }

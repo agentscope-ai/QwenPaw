@@ -1,61 +1,131 @@
 # -*- coding: utf-8 -*-
 # pylint: disable=redefined-outer-name,unused-argument
+# pylint: disable=wrong-import-position,wrong-import-order
 import inspect
 import asyncio
+import json
 import mimetypes
 import os
 import sys
 import time
-import uuid
-from contextlib import asynccontextmanager, suppress
-from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse, ORJSONResponse
-from agentscope_runtime.engine.app import AgentApp
-from agentscope_runtime.engine.schemas.exception import (
+# Keep this before heavier imports so startup timing includes module import cost.
+_APP_IMPORT_STARTED_AT = time.perf_counter()
+_APP_STARTUP_LAST_AT = _APP_IMPORT_STARTED_AT
+
+import uuid  # noqa: E402
+from contextlib import asynccontextmanager, suppress  # noqa: E402
+from pathlib import Path  # noqa: E402
+
+
+def _desktop_startup_timing_enabled() -> bool:
+    return os.environ.get("QWENPAW_DESKTOP_APP") == "1"
+
+
+def _emit_desktop_startup_timing_stdout(
+    phase: str,
+    **details: object,
+) -> dict[str, object] | None:
+    if not _desktop_startup_timing_enabled():
+        return None
+
+    global _APP_STARTUP_LAST_AT
+    now = time.perf_counter()
+    elapsed_ms = round((now - _APP_IMPORT_STARTED_AT) * 1000.0, 1)
+    delta_ms = round((now - _APP_STARTUP_LAST_AT) * 1000.0, 1)
+    _APP_STARTUP_LAST_AT = now
+    payload = {
+        "component": "qwenpaw.app",
+        "phase": phase,
+        "elapsed_ms": elapsed_ms,
+        "delta_ms": delta_ms,
+        **details,
+    }
+    line = json.dumps(payload, separators=(",", ":"), ensure_ascii=True)
+    print(f"QWENPAW_BACKEND_TIMING {line}", flush=True)
+    return payload
+
+
+_emit_desktop_startup_timing_stdout("stdlib_imports_loaded")
+
+from fastapi import FastAPI, HTTPException  # noqa: E402
+from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
+from fastapi.staticfiles import StaticFiles  # noqa: E402
+from fastapi.responses import FileResponse, ORJSONResponse  # noqa: E402
+
+_emit_desktop_startup_timing_stdout("web_framework_imports_loaded")
+
+from agentscope_runtime.engine.app import AgentApp  # noqa: E402
+from agentscope_runtime.engine.schemas.exception import (  # noqa: E402
     AppBaseException,
 )
 
-from ..config import load_config  # pylint: disable=no-name-in-module
-from ..config.utils import get_config_path
-from ..constant import (
+_emit_desktop_startup_timing_stdout("agentscope_runtime_imports_loaded")
+
+from ..config import load_config  # noqa: E402  # pylint: disable=no-name-in-module
+from ..config.utils import get_config_path  # noqa: E402
+from ..constant import (  # noqa: E402
     DOCS_ENABLED,
     LOG_LEVEL_ENV,
     CORS_ORIGINS,
     WORKING_DIR,
     PROJECT_NAME,
 )
-from ..__version__ import __version__
-from ..backup._utils.safe_swap import cleanup_startup_restore_artifacts
-from ..utils.logging import (
+from ..__version__ import __version__  # noqa: E402
+from ..backup._utils.safe_swap import (  # noqa: E402
+    cleanup_startup_restore_artifacts,
+)
+from ..utils.logging import (  # noqa: E402
     setup_logger,
     add_project_file_handler,
     LOG_FILE_PATH,
 )
-from ..utils.system_info import summarize_python_environment
-from .auth import AuthMiddleware, auto_register_from_env
-from .routers import router as api_router, create_agent_scoped_router
-from .routers.agent_scoped import AgentContextMiddleware
-from .routers.approval import router as approval_router
-from .routers.coding_mode import router as coding_mode_router
-from .routers.voice import voice_router
-from ..envs import load_envs_into_environ
-from ..providers.provider_manager import ProviderManager
-from ..local_models.manager import LocalModelManager
-from .multi_agent_manager import MultiAgentManager
-from .migration import (
+from ..utils.system_info import summarize_python_environment  # noqa: E402
+
+_emit_desktop_startup_timing_stdout("core_qwenpaw_imports_loaded")
+
+from .auth import AuthMiddleware, auto_register_from_env  # noqa: E402
+
+_emit_desktop_startup_timing_stdout("auth_imports_loaded")
+
+from .routers import router as api_router, create_agent_scoped_router  # noqa: E402
+from .routers.agent_scoped import AgentContextMiddleware  # noqa: E402
+from .routers.approval import router as approval_router  # noqa: E402
+from .routers.coding_mode import router as coding_mode_router  # noqa: E402
+from .routers.voice import voice_router  # noqa: E402
+
+_emit_desktop_startup_timing_stdout("router_imports_loaded")
+
+from ..envs import load_envs_into_environ  # noqa: E402
+from ..providers.provider_manager import ProviderManager  # noqa: E402
+from ..local_models.manager import LocalModelManager  # noqa: E402
+from .multi_agent_manager import MultiAgentManager  # noqa: E402
+
+_emit_desktop_startup_timing_stdout("manager_imports_loaded")
+
+from .migration import (  # noqa: E402
     migrate_legacy_workspace_to_default_agent,
     migrate_legacy_skills_to_skill_pool,
     ensure_default_agent_exists,
     ensure_qa_agent_exists,
 )
-from .channels.registry import register_custom_channel_routes
+from .channels.registry import register_custom_channel_routes  # noqa: E402
+
+_emit_desktop_startup_timing_stdout("startup_support_imports_loaded")
 
 # Apply log level on load so reload child process gets same level as CLI.
 logger = setup_logger(os.environ.get(LOG_LEVEL_ENV, "info"))
+
+
+def _emit_desktop_startup_timing(phase: str, **details: object) -> None:
+    payload = _emit_desktop_startup_timing_stdout(phase, **details)
+    if payload is None:
+        return
+
+    logger.info("Desktop startup timing: %s", payload)
+
+
+_emit_desktop_startup_timing("imports_loaded")
 
 # Ensure static assets are served with browser-compatible MIME types across
 # platforms (notably Windows may miss .js/.mjs mappings).
@@ -69,6 +139,7 @@ mimetypes.add_type("image/svg+xml", ".svg")
 # Load persisted env vars into os.environ at module import time
 # so they are available before the lifespan starts.
 load_envs_into_environ()
+_emit_desktop_startup_timing("env_vars_loaded")
 
 
 # Dynamic runner that selects the correct workspace runner based on request
@@ -217,6 +288,7 @@ agent_app = AgentApp(
     stream_task_queue="stream_query",
     stream_task_timeout=1800,
 )
+_emit_desktop_startup_timing("agent_app_created")
 
 
 @asynccontextmanager
@@ -224,6 +296,7 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
     app: FastAPI,
 ):
     startup_start_time = time.time()
+    _emit_desktop_startup_timing("lifespan_started")
     add_project_file_handler(LOG_FILE_PATH)
 
     # ================================================================
@@ -242,8 +315,10 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
         )
         logger.error(message, exc_info=True)
         raise RuntimeError(f"{message} Original error: {exc}") from exc
+    _emit_desktop_startup_timing("restore_cleanup_finished")
 
     auto_register_from_env()
+    _emit_desktop_startup_timing("auth_env_registered")
 
     # Telemetry runs in a background thread to avoid blocking startup.
     def _maybe_collect_telemetry():
@@ -276,6 +351,7 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
     # skill files so it can overlap safely.
     logger.debug("Checking for legacy config migration...")
     await asyncio.to_thread(migrate_legacy_workspace_to_default_agent)
+    _emit_desktop_startup_timing("legacy_workspace_migration_finished")
 
     async def _agent_ensures():
         await asyncio.to_thread(ensure_default_agent_exists)
@@ -285,12 +361,14 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
         _agent_ensures(),
         asyncio.to_thread(migrate_legacy_skills_to_skill_pool),
     )
+    _emit_desktop_startup_timing("agent_config_migrations_finished")
 
     # Create core managers (instant — no I/O)
     logger.debug("Initializing MultiAgentManager...")
     multi_agent_manager = MultiAgentManager()
     provider_manager = ProviderManager.get_instance()
     local_model_manager = LocalModelManager.get_instance()
+    _emit_desktop_startup_timing("core_managers_created")
 
     # Start token usage manager background tasks
     logger.debug("Starting TokenUsageManager background tasks...")
@@ -298,6 +376,7 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
 
     token_usage_manager = get_token_usage_manager()
     token_usage_manager.start(flush_interval=10)
+    _emit_desktop_startup_timing("token_usage_started")
 
     # Expose to endpoints (must be set before first request arrives)
     app.state.multi_agent_manager = multi_agent_manager
@@ -319,6 +398,10 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
     app.state.get_agent_by_id = _get_agent_by_id
 
     fast_elapsed = time.time() - startup_start_time
+    _emit_desktop_startup_timing(
+        "server_ready",
+        fast_elapsed_ms=round(fast_elapsed * 1000.0, 1),
+    )
     logger.info(
         f"Server ready in {fast_elapsed:.3f}s "
         f"(agents loading in background)",
@@ -333,6 +416,7 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
     # ================================================================
 
     async def _background_startup():  # pylint: disable=too-many-statements
+        _emit_desktop_startup_timing("background_startup_started")
         try:
             # ---- Parallel: agents + plugins + local model resume ----
             # These are independent and together dominate startup time.
@@ -488,6 +572,10 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
                 logger.warning(f"Approval service setup skipped: {e}")
 
             startup_elapsed = time.time() - startup_start_time
+            _emit_desktop_startup_timing(
+                "background_startup_finished",
+                startup_elapsed_ms=round(startup_elapsed * 1000.0, 1),
+            )
             logger.info(
                 "Background startup completed in "
                 f"{startup_elapsed:.3f} seconds",
@@ -771,3 +859,6 @@ if os.path.isdir(_CONSOLE_STATIC_DIR):
                     return FileResponse(static_file)
 
         return _serve_console_index()
+
+
+_emit_desktop_startup_timing("app_module_loaded")

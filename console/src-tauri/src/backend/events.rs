@@ -1,5 +1,7 @@
 //! Sidecar process event handling and stderr capture.
 
+use std::time::Instant;
+
 use serde::Deserialize;
 use tauri::Manager;
 use tauri_plugin_shell::process::{CommandEvent, TerminatedPayload};
@@ -20,17 +22,26 @@ pub(super) fn watch(
     app: tauri::AppHandle,
     generation: u64,
     mut rx: tauri::async_runtime::Receiver<CommandEvent>,
+    startup_started_at: Instant,
+    spawned_at: Instant,
 ) {
     tauri::async_runtime::spawn(async move {
         let mut last_stderr = String::new();
-        log::info!("[backend] watching process generation={generation}");
+        log::info!(
+            "[backend] watching process generation={generation} elapsed_ms={:.1}",
+            startup_started_at.elapsed().as_secs_f64() * 1000.0,
+        );
         while let Some(event) = rx.recv().await {
             match event {
                 CommandEvent::Stdout(line) => {
                     let text = String::from_utf8_lossy(&line);
                     log::info!("[backend:{generation}] stdout: {}", text.trim_end());
                     if let Some(port) = ready_port_from_stdout(&text) {
-                        log::info!("[backend:{generation}] ready port={port}");
+                        log::info!(
+                            "[backend:{generation}] ready port={port} elapsed_ms={:.1} after_spawn_ms={:.1}",
+                            startup_started_at.elapsed().as_secs_f64() * 1000.0,
+                            spawned_at.elapsed().as_secs_f64() * 1000.0,
+                        );
                         app.state::<BackendState>()
                             .set_port_if_current(generation, port);
                     }

@@ -1,171 +1,56 @@
 # -*- coding: utf-8 -*-
+# pylint: disable=wrong-import-position,wrong-import-order
 """Tauri sidecar entry point for starting the Python backend."""
 from __future__ import annotations
 
-from collections.abc import Sequence
-import json
-import logging
-import multiprocessing as mp
-import os
-import socket
-import sys
+import time
 
-import click
+# Keep this before heavier imports so startup timing includes module import cost.
+_STARTUP_STARTED_AT = time.perf_counter()
+_STARTUP_LAST_AT = _STARTUP_STARTED_AT
 
-from qwenpaw.tauri.env import (
+from collections.abc import Sequence  # noqa: E402
+import json  # noqa: E402
+import logging  # noqa: E402
+import multiprocessing as mp  # noqa: E402
+import os  # noqa: E402
+import socket  # noqa: E402
+import sys  # noqa: E402
+
+import click  # noqa: E402
+
+from qwenpaw.tauri.env import (  # noqa: E402
     DESKTOP_APP_ENV,
     DESKTOP_CORS_ORIGINS_ENV,
     DESKTOP_READY_PREFIX,
     ensure_desktop_cors_origins,
 )
-from qwenpaw.tauri.sidecar_logging import install_sidecar_logging
+from qwenpaw.tauri.sidecar_logging import install_sidecar_logging  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
 
-def _is_frozen_desktop() -> bool:
-    return bool(getattr(sys, "frozen", False)) or (
-        os.environ.get(DESKTOP_APP_ENV) == "1"
-    )
+def _emit_startup_timing(phase: str, **details: object) -> None:
+    global _STARTUP_LAST_AT
+
+    now = time.perf_counter()
+    elapsed_ms = round((now - _STARTUP_STARTED_AT) * 1000.0, 1)
+    delta_ms = round((now - _STARTUP_LAST_AT) * 1000.0, 1)
+    _STARTUP_LAST_AT = now
+
+    payload = {
+        "component": "tauri.entry",
+        "phase": phase,
+        "elapsed_ms": elapsed_ms,
+        "delta_ms": delta_ms,
+        **details,
+    }
+    line = json.dumps(payload, separators=(",", ":"), ensure_ascii=True)
+    print(f"QWENPAW_BACKEND_TIMING {line}", flush=True)
+    logger.info("Desktop startup timing: %s", payload)
 
 
-def _looks_like_python_invocation(args: Sequence[str]) -> bool:
-    """True if *args* look like a Python interpreter command line.
-
-    The packaged backend is launched with no positional arguments, so any
-    Python-style argv means a plugin spawned ``sys.executable <args>`` treating
-    this binary as an interpreter (e.g. ``-m pkg``, ``script.py``, ``-c ...``).
-    """
-    if not args:
-        return False
-    first = args[0]
-    if first in ("-m", "-c", "-"):
-        return True
-    if first.endswith(".py"):
-        return True
-    # Single-dash interpreter flags (-u, -E, -X ...), but not --options.
-    return len(first) >= 2 and first[0] == "-" and first[1] != "-"
-
-
-def _bundled_python() -> str:
-    """Path to the bundled standalone CPython, or ``""`` if missing."""
-    python = (os.environ.get("QWENPAW_DESKTOP_PY_RUNTIME") or "").strip()
-    if python and os.path.isfile(python):
-        return python
-    return ""
-
-
-def _child_env_with_plugin_site(env: "dict | None") -> "dict | None":
-    """Return *env* (or a copy of ``os.environ``) with the plugin site dir
-    prepended to ``PYTHONPATH`` so the bundled CPython can import plugin deps.
-    """
-    site_dir = (os.environ.get("QWENPAW_PLUGIN_SITE") or "").strip()
-    if not site_dir:
-        return env
-    base = dict(os.environ if env is None else env)
-    existing = base.get("PYTHONPATH", "")
-    base["PYTHONPATH"] = (
-        site_dir + os.pathsep + existing if existing else site_dir
-    )
-    return base
-
-
-def _redirect_backend_python_cmd(cmd: object) -> "list | None":
-    """If *cmd* runs this backend binary as a Python interpreter, return a
-    rewritten command targeting the bundled CPython; otherwise ``None``.
-
-    Plugins commonly spawn ``[sys.executable, "-m", pkg]`` to launch helper
-    processes. In the frozen desktop build ``sys.executable`` is the backend
-    binary, so that would start another backend and crash-loop the app
-    (issue #5209). Redirecting at spawn time keeps the caller's ``Popen.pid``
-    pointing at the real interpreter on every platform.
-    """
-    if not isinstance(cmd, (list, tuple)) or not cmd:
-        return None
-    exe = cmd[0]
-    if not isinstance(exe, str):
-        return None
-    if os.path.normcase(exe) != os.path.normcase(sys.executable):
-        return None
-    if not _looks_like_python_invocation([str(a) for a in cmd[1:]]):
-        return None
-    python = _bundled_python()
-    if not python:
-        return None
-    return [python, *cmd[1:]]
-
-
-def _reexec_as_bundled_python(args: Sequence[str]) -> None:
-    """Re-run a mis-routed interpreter invocation via the bundled CPython.
-
-    Deep fallback for spawn paths that bypass ``subprocess`` (``os.execv``,
-    shell strings, etc.) and reach this binary's ``main()`` with Python-style
-    argv. Re-exec the bundled standalone CPython with the same arguments, with
-    plugin-installed deps (``QWENPAW_PLUGIN_SITE``) importable.
-    """
-    python = _bundled_python()
-    if not python:
-        print(
-            "qwenpaw-backend is the desktop backend, not a Python "
-            "interpreter, and no bundled runtime is available to run: "
-            f"{list(args)}",
-            file=sys.stderr,
-        )
-        raise SystemExit(2)
-    site_dir = (os.environ.get("QWENPAW_PLUGIN_SITE") or "").strip()
-    if site_dir:
-        existing = os.environ.get("PYTHONPATH", "")
-        os.environ["PYTHONPATH"] = (
-            site_dir + os.pathsep + existing if existing else site_dir
-        )
-    os.execv(python, [python, *args])
-
-
-def _install_subprocess_guard() -> None:
-    """Harden child-process spawning in the frozen desktop build.
-
-    Two transparent fixes, applied without plugins having to cooperate:
-
-    * Redirect ``subprocess`` calls that run this backend binary as a Python
-      interpreter (``[sys.executable, "-m", ...]`` etc.) to the bundled
-      CPython. The spawned process *is* the real interpreter, so the caller's
-      ``Popen.pid`` stays accurate on every platform (issue #5209).
-      ``multiprocessing`` is unaffected: it spawns via ``_winapi`` /
-      ``posix_spawn`` rather than ``subprocess.Popen``.
-    * On Windows, suppress console windows for child processes that don't pass
-      ``CREATE_NO_WINDOW`` themselves (e.g. plugins shelling out to
-      ``tasklist``).
-    """
-    if not _is_frozen_desktop():
-        return
-    import subprocess
-
-    if getattr(subprocess.Popen, "_qwenpaw_guarded", False):
-        return
-
-    is_windows = os.name == "nt"
-    create_no_window = 0x08000000
-    create_new_console = 0x00000010
-    original_init = subprocess.Popen.__init__
-
-    def _init(self, args=None, *rest, **kwargs):  # type: ignore
-        redirected = _redirect_backend_python_cmd(args)
-        if redirected is not None:
-            args = redirected
-            kwargs["env"] = _child_env_with_plugin_site(kwargs.get("env"))
-        if is_windows:
-            flags = kwargs.get("creationflags", 0) or 0
-            # Respect callers that explicitly want a visible new console.
-            if not flags & create_new_console:
-                kwargs["creationflags"] = flags | create_no_window
-            startupinfo = kwargs.get("startupinfo") or subprocess.STARTUPINFO()
-            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-            startupinfo.wShowWindow = 0  # SW_HIDE
-            kwargs["startupinfo"] = startupinfo
-        return original_init(self, args, *rest, **kwargs)
-
-    subprocess.Popen.__init__ = _init  # type: ignore[method-assign]
-    setattr(subprocess.Popen, "_qwenpaw_guarded", True)
+_emit_startup_timing("module_loaded")
 
 
 def _ensure_qwenpaw_app_not_loaded() -> None:
@@ -258,8 +143,10 @@ def _emit_backend_ready(port: int) -> None:
 
 
 def _run_backend_server(log_level: str) -> None:
+    _emit_startup_timing("backend_server_start", log_level=log_level)
     import uvicorn
 
+    _emit_startup_timing("uvicorn_imported")
     from qwenpaw.config.utils import write_last_api
     from qwenpaw.constant import LOG_LEVEL_ENV, WORKING_DIR
     from qwenpaw.utils.logging import (
@@ -267,6 +154,7 @@ def _run_backend_server(log_level: str) -> None:
         setup_logger,
     )
     from qwenpaw.utils.port import get_stable_port, write_port_file
+    _emit_startup_timing("backend_dependencies_imported")
 
     host = "127.0.0.1"
     normalized_log_level = log_level.lower()
@@ -283,6 +171,10 @@ def _run_backend_server(log_level: str) -> None:
     os.environ[LOG_LEVEL_ENV] = normalized_log_level
     os.environ.pop("QWENPAW_RELOAD_MODE", None)
     setup_logger(normalized_log_level)
+    _emit_startup_timing(
+        "backend_logger_configured",
+        normalized_log_level=normalized_log_level,
+    )
     if normalized_log_level in ("debug", "trace"):
         from qwenpaw.cli.main import log_init_timings
 
@@ -305,17 +197,21 @@ def _run_backend_server(log_level: str) -> None:
         workers=1,
         log_level=normalized_log_level,
     )
-
+    _emit_startup_timing("uvicorn_config_created")
     if reused_socket:
         backend_socket = reused_socket
+        _emit_startup_timing("socket_reused", port=port)
     else:
         backend_socket = config.bind_socket()
-
+        _emit_startup_timing("socket_bound")
     try:
         port = _socket_port(backend_socket)
         write_port_file(port_file, port)
         write_last_api(host, port)
+        _emit_startup_timing("last_api_written", port=port)
         _emit_backend_ready(port)
+        _emit_startup_timing("ready_signal_emitted", port=port)
+        _emit_startup_timing("uvicorn_server_starting", port=port)
         uvicorn.Server(config).run(sockets=[backend_socket])
     except Exception:
         backend_socket.close()
@@ -330,28 +226,33 @@ def _socket_port(sock: socket.socket) -> int:
 
 
 def main() -> None:
-    if _is_frozen_desktop() and _looks_like_python_invocation(sys.argv[1:]):
-        _reexec_as_bundled_python(sys.argv[1:])
-        return
+    _emit_startup_timing("main_started")
     _ensure_utf8_stdio()
-    _install_subprocess_guard()
+    _emit_startup_timing("stdio_configured")
     _install_desktop_runtime()
+    _emit_startup_timing("desktop_runtime_installed")
 
     from qwenpaw.constant import LOG_LEVEL_ENV, WORKING_DIR
 
+    _emit_startup_timing("constants_imported")
     install_sidecar_logging(WORKING_DIR / "desktop.log")
+    _emit_startup_timing("sidecar_logging_installed")
     _install_certifi_env()
+    _emit_startup_timing("certifi_env_installed")
 
     # Auto-initialize if no config exists
     config_path = WORKING_DIR / "config.json"
+    _emit_startup_timing("config_checked", exists=config_path.exists())
     if not config_path.exists():
         from qwenpaw.cli.init_cmd import init_cmd
 
+        _emit_startup_timing("initialization_starting")
         _run_click_command(
             init_cmd,
             args=["--defaults", "--accept-security"],
             label="initialization",
         )
+        _emit_startup_timing("initialization_finished")
 
     _run_backend_server(os.environ.get(LOG_LEVEL_ENV, "info"))
 

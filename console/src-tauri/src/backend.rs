@@ -4,6 +4,7 @@ use std::sync::{
     atomic::{AtomicU64, Ordering},
     Mutex,
 };
+use std::time::Instant;
 
 use tauri::Manager;
 use tauri_plugin_log::{Target, TargetKind};
@@ -153,6 +154,7 @@ fn start(app: &tauri::AppHandle) {
     let state = app.state::<BackendState>();
     let generation = state.next_generation();
     state.clear_startup_state();
+    let startup_started_at = Instant::now();
 
     let command = match command::create(app) {
         Ok(command) => command,
@@ -166,8 +168,13 @@ fn start(app: &tauri::AppHandle) {
     .env("PYTHONUNBUFFERED", "1")
     .env("PYTHONFAULTHANDLER", "1")
     .env("QWENPAW_DESKTOP_APP", "1");
+    log::info!(
+        "[backend] startup timing generation={generation} phase=command_created elapsed_ms={:.1}",
+        startup_started_at.elapsed().as_secs_f64() * 1000.0,
+    );
 
     log::info!("[backend] starting generation={generation}");
+    let spawn_started_at = Instant::now();
 
     let (rx, child) = match command.spawn() {
         Ok(child) => child,
@@ -178,9 +185,14 @@ fn start(app: &tauri::AppHandle) {
     };
 
     let child_pid = child.pid();
-    log::info!("[backend] spawned generation={generation} pid={child_pid}");
+    let spawned_at = Instant::now();
+    log::info!(
+        "[backend] spawned generation={generation} pid={child_pid} spawn_ms={:.1} elapsed_ms={:.1}",
+        spawn_started_at.elapsed().as_secs_f64() * 1000.0,
+        startup_started_at.elapsed().as_secs_f64() * 1000.0,
+    );
     state.with_inner(|inner| {
         inner.child = Some(child);
     });
-    events::watch(app.clone(), generation, rx);
+    events::watch(app.clone(), generation, rx, startup_started_at, spawned_at);
 }
