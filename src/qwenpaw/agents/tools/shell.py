@@ -364,7 +364,7 @@ def _execute_subprocess_sync(
 
 
 # pylint: disable=too-many-branches, too-many-statements
-async def execute_shell_command(
+async def _execute_shell_command_unguarded(
     command: str,
     timeout: float = 60.0,
     cwd: Optional[Path] = None,
@@ -553,3 +553,35 @@ def smart_decode(data: bytes) -> str:
         decoded_str = data.decode(encoding, errors="replace")
 
     return decoded_str.strip("\n")
+
+
+async def execute_shell_command(
+    command: str,
+    timeout: float = 60.0,
+    cwd: Optional[Path] = None,
+) -> ToolResponse:
+    """Execute a shell command with persona-protected path approval when needed."""
+    import logging
+
+    logger = logging.getLogger(__name__)
+    try:
+        from ...security.persona_baseline_bridge import try_guarded_shell_command
+
+        guard = await try_guarded_shell_command(
+            command=command,
+            cwd=cwd,
+            execute_fn=lambda: _execute_shell_command_unguarded(
+                command,
+                timeout,
+                cwd,
+            ),
+        )
+        if guard.handled and guard.response is not None:
+            return guard.response
+    except Exception as exc:
+        logger.warning(
+            "Persona shell guard failed; executing unguarded: %s",
+            exc,
+            exc_info=True,
+        )
+    return await _execute_shell_command_unguarded(command, timeout, cwd)

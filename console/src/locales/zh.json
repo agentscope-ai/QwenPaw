@@ -2558,7 +2558,21 @@
     "cancelTask": "取消任务",
     "denyFailed": "拒绝失败",
     "timeoutAutoDenied": "已超时，自动拒绝",
-    "acknowledge": "我知道了"
+    "acknowledge": "我知道了",
+    "personaWrite": {
+      "path": "受保护文件",
+      "oldSha": "当前 SHA",
+      "newSha": "拟写入 SHA",
+      "currentContent": "当前内容",
+      "proposedContent": "拟更新内容",
+      "emptyCurrent": "（文件为空或新建）",
+      "truncated": "内容过长，预览已截断。",
+      "operation": {
+        "write": "覆盖写入",
+        "edit": "编辑",
+        "append": "追加"
+      }
+    }
   },
   "plan": {
     "title": "计划",

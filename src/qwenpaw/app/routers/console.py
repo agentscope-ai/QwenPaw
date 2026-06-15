@@ -614,21 +614,10 @@ async def get_push_messages(
         all_pending = list(approval_svc._pending.values())
 
     # Serialize approval data with root_session_id for frontend filtering
+    from ..approvals.serialize import pending_approval_to_console_dict
+
     approvals_data = [
-        {
-            "request_id": p.request_id,
-            "session_id": p.session_id,
-            "root_session_id": p.root_session_id,
-            "owner_agent_id": p.owner_agent_id,
-            "agent_id": p.agent_id,
-            "tool_name": p.tool_name,
-            "severity": p.severity,
-            "findings_count": p.findings_count,
-            "findings_summary": p.result_summary,
-            "tool_params": p.extra.get("tool_call", {}).get("input", {}),
-            "created_at": p.created_at,
-            "timeout_seconds": p.timeout_seconds,
-        }
+        pending_approval_to_console_dict(p)
         for p in all_pending
     ]
 

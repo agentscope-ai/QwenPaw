@@ -33,6 +33,8 @@ import { ApprovalCard } from "../../components/ApprovalCard/ApprovalCard";
 import { commandsApi } from "../../api/modules/commands";
 import { useApprovalContext } from "../../contexts/ApprovalContext";
 import { planApi } from "../../api/modules/plan";
+import type { PendingApproval } from "../../api/modules/console";
+import { coercePersonaWriteDetails } from "../../extension/persona_baseline/lib/personaWriteApproval";
 
 interface ApprovalMessageData {
   requestId: string;
@@ -46,6 +48,7 @@ interface ApprovalMessageData {
   toolParams: Record<string, unknown>;
   createdAt: number;
   timeoutSeconds: number;
+  personaWrite?: PendingApproval["persona_write"];
 }
 
 import WhisperSpeechButton, {
@@ -741,10 +744,13 @@ export default function ChatPage() {
 
     // Build a stable key from the filtered request IDs so we can skip
     // the Map rebuild when nothing changed (avoids re-render every 2.5s poll).
-    const approvalKey = sessionApprovals
-      .map((a) => a.request_id)
-      .sort()
-      .join(",");
+    const approvalKey = JSON.stringify(
+      sessionApprovals.map((approval) => ({
+        id: approval.request_id,
+        persona_write: approval.persona_write ?? null,
+        tool_params: approval.tool_params ?? null,
+      })),
+    );
 
     if (approvalKey === prevApprovalKeyRef.current) return;
     prevApprovalKeyRef.current = approvalKey;
@@ -763,6 +769,7 @@ export default function ChatPage() {
         toolParams: approval.tool_params,
         createdAt: approval.created_at,
         timeoutSeconds: approval.timeout_seconds,
+        personaWrite: approval.persona_write,
       });
     }
 
@@ -1449,7 +1456,13 @@ export default function ChatPage() {
             bottom: 80,
             right: 24,
             zIndex: 1000,
-            maxWidth: 480,
+            maxWidth: coercePersonaWriteDetails(
+              request.personaWrite,
+              request.toolName,
+              request.toolParams,
+            )
+              ? 720
+              : 480,
             width: "calc(100vw - 48px)",
           }}
         >
@@ -1465,6 +1478,7 @@ export default function ChatPage() {
             timeoutSeconds={request.timeoutSeconds}
             sessionId={request.sessionId}
             rootSessionId={request.rootSessionId}
+            personaWrite={request.personaWrite}
             onApprove={handleApprove}
             onDeny={handleDeny}
             onCancel={() => {

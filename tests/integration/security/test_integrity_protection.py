@@ -289,12 +289,12 @@ def test_persona_offline_tamper_startup_scan(tmp_path: Path) -> None:
 
 @pytest.mark.integration
 @pytest.mark.p1
-def test_operator_editor_save_implicit_accept(
+def test_operator_editor_save_requires_approval(
     integrity_harness: IntegrityProtectionHarness,
 ) -> None:
-    """Scenario PB-S40 (P1): operator save implicitly accepts baseline on SOUL.md."""
+    """Scenario PB-S40 (P1): approved operator Console save updates baseline on SOUL.md."""
 
-    observation = integrity_harness.verify_operator_implicit_accept_on_save()
+    observation = integrity_harness.verify_operator_approved_save_no_drift()
     assert observation.restore_returns_prior_approved_content
     assert observation.accept_records_changed_content_as_new_baseline
 
@@ -302,7 +302,19 @@ def test_operator_editor_save_implicit_accept(
 @pytest.mark.integration
 @pytest.mark.p1
 def test_agent_write_persona_drift(integrity_harness: IntegrityProtectionHarness) -> None:
-    """Scenario PB-S30 (P1): agent tool write on SOUL.md emits drift alert."""
+    """Scenario PB-S30 (P1): approved agent write updates baseline without drift."""
+
+    observation = integrity_harness.verify_agent_approved_write_no_drift()
+    assert observation.immediate_backend_drift_detection_ready
+    assert observation.accept_records_changed_content_as_new_baseline
+
+
+@pytest.mark.integration
+@pytest.mark.p1
+def test_agent_tool_bypass_emits_drift(
+    integrity_harness: IntegrityProtectionHarness,
+) -> None:
+    """Scenario PB-S33 (P1): bypass agent_tool save on SOUL.md still emits drift."""
 
     observation = integrity_harness.verify_agent_write_emits_drift()
     assert observation.immediate_backend_drift_detection_ready

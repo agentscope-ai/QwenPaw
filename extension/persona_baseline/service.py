@@ -278,11 +278,6 @@ class PersonaBaselineService:
             import hashlib
 
             current_sha = hashlib.sha256(target.read_bytes()).hexdigest()
-            self.watch_service.suppress.register(
-                agent_id=review.agent_id,
-                path=review.path,
-                sha256=current_sha,
-            )
             await self.emitter.emit_baseline_updated(
                 agent_id=review.agent_id,
                 path=review.path,

@@ -46,6 +46,19 @@ export interface PendingApproval {
   tool_params: Record<string, unknown>;
   created_at: number;
   timeout_seconds: number;
+  persona_write?: {
+    proposal_id: string;
+    relative_path: string;
+    absolute_path?: string;
+    operation: string;
+    old_sha256: string;
+    new_sha256: string;
+    current_content?: string;
+    proposed_content?: string;
+    content_preview?: string;
+    current_truncated?: boolean;
+    proposed_truncated?: boolean;
+  };
 }
 
 export const consoleApi = {
