@@ -31,6 +31,61 @@ async def _notify_persona_file_saved(resolved_path: str, provenance: str) -> Non
         return
 
 
+async def _write_with_persona_guard(
+    *,
+    file_path: str,
+    content: str,
+    tool_name: str,
+    operation: str,
+) -> ToolResponse | None:
+    """Return a ToolResponse when persona guard handled the write; None to fall through."""
+    try:
+        from ...security.persona_baseline_bridge import try_guarded_agent_file_write
+
+        encoding = _get_encoding_for_file(file_path)
+        outcome = await try_guarded_agent_file_write(
+            absolute_path=file_path,
+            content=content,
+            tool_name=tool_name,
+            operation=operation,
+            encoding=encoding,
+        )
+    except Exception:
+        return None
+
+    if outcome.status == "direct":
+        return None
+
+    if outcome.ok:
+        if outcome.status == "unchanged":
+            return ToolResponse(
+                content=[
+                    TextBlock(
+                        type="text",
+                        text=outcome.message or "Content unchanged; no write performed.",
+                    ),
+                ],
+            )
+        return ToolResponse(
+            content=[
+                TextBlock(
+                    type="text",
+                    text=outcome.message
+                    or f"Wrote {outcome.bytes_written} bytes to {file_path}.",
+                ),
+            ],
+        )
+
+    return ToolResponse(
+        content=[
+            TextBlock(
+                type="text",
+                text=f"Error: {outcome.message}",
+            ),
+        ],
+    )
+
+
 def _resolve_file_path(file_path: str) -> str:
     """Resolve file path: use absolute path as-is,
     resolve relative path from current workspace or WORKING_DIR.
@@ -242,6 +297,15 @@ async def write_file(
     file_path = _resolve_file_path(file_path)
     encoding = _get_encoding_for_file(file_path)
 
+    guarded = await _write_with_persona_guard(
+        file_path=file_path,
+        content=content,
+        tool_name="write_file",
+        operation="write",
+    )
+    if guarded is not None:
+        return guarded
+
     try:
         with open(file_path, "w", encoding=encoding) as file:
             file.write(content)
@@ -338,6 +402,26 @@ async def edit_file(
         )
 
     new_content = content.replace(old_text, new_text)
+    guarded = await _write_with_persona_guard(
+        file_path=resolved_path,
+        content=new_content,
+        tool_name="edit_file",
+        operation="edit",
+    )
+    if guarded is not None:
+        if guarded.content and len(guarded.content) > 0:
+            guarded_text = guarded.content[0].get("text", "")
+            if guarded_text.startswith("Error:"):
+                return guarded
+        return ToolResponse(
+            content=[
+                TextBlock(
+                    type="text",
+                    text=f"Successfully replaced text in {file_path}.",
+                ),
+            ],
+        )
+
     write_response = await write_file(
         file_path=resolved_path,
         content=new_content,
@@ -386,8 +470,24 @@ async def append_file(
     encoding = _get_encoding_for_file(file_path)
 
     try:
+        if os.path.exists(file_path) and os.path.isfile(file_path):
+            existing = await read_file_safe(file_path)
+            merged_content = existing + content
+        else:
+            merged_content = content
+
+        guarded = await _write_with_persona_guard(
+            file_path=file_path,
+            content=merged_content,
+            tool_name="append_file",
+            operation="append",
+        )
+        if guarded is not None:
+            return guarded
+
         with open(file_path, "a", encoding=encoding) as file:
             file.write(content)
+        await _notify_persona_file_saved(file_path, "agent_tool")
         return ToolResponse(
             content=[
                 TextBlock(

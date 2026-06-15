@@ -2549,7 +2549,21 @@
     "cancelTask": "Cancel Task",
     "denyFailed": "Failed to deny",
     "timeoutAutoDenied": "Timed out, auto denied",
-    "acknowledge": "Got it"
+    "acknowledge": "Got it",
+    "personaWrite": {
+      "path": "Protected file",
+      "oldSha": "Current SHA",
+      "newSha": "Proposed SHA",
+      "currentContent": "Current content",
+      "proposedContent": "Proposed content",
+      "emptyCurrent": "(file empty or new)",
+      "truncated": "Content truncated for preview.",
+      "operation": {
+        "write": "Overwrite",
+        "edit": "Edit",
+        "append": "Append"
+      }
+    }
   },
   "plan": {
     "title": "Plan",

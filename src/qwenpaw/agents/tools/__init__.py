@@ -1,6 +1,5 @@
 # -*- coding: utf-8 -*-
 from agentscope.tool import (
-    execute_python_code,
     view_text_file,
     write_text_file,
 )
@@ -15,6 +14,7 @@ from .file_search import (
     grep_search,
     glob_search,
 )
+from .python_code import execute_python_code
 from .shell import execute_shell_command
 from .send_file import send_file_to_user
 from .browser_control import browser_use

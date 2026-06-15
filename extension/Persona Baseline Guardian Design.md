@@ -571,9 +571,10 @@ sequenceDiagram
 
 | 来源 ID | 典型入口 | 保存瞬间行为 |
 |---------|----------|--------------|
-| `operator_console` | `PUT /workspace/files/{md}`（Agent 工作区 MD 编辑器） | **隐式 Accept** → 同步升基线，不产生 drift 告警 |
-| `operator_console` | `PUT /workspace/code-files/{path}`（Coding TabbedEditor） | 同上 |
-| `agent_tool` | `write_file` / `edit_file`（`file_io.py`） | **视为修改** → 保存瞬间 check → 产生 drift 告警 |
+| `operator_console` | 未审批直写 protected（遗留/绕过） | **视为修改** → drift 告警 |
+| `approved_operator_console` | Console Save 审批通过后的 atomic commit | 升基线 + suppress（审批锚点） |
+| `agent_tool` | 未审批工具直写 + `on_file_saved(agent_tool)` | **视为修改** → drift 告警 |
+| `approved_agent_write` | agent 工具（含 shell/python 审批通过后）atomic commit / notify | 升基线 + suppress（审批锚点） |
 | `system_maintenance` | init、语言切换、`copy_workspace_md_files`、Restore API | suppress / 专用流程，不误报告警 |
 | `external_untrusted` | shell、外部进程、未 hook 的写入 | watch 在写入瞬间 check → 产生 drift 告警 |
 
@@ -581,11 +582,25 @@ sequenceDiagram
 
 | 方式 | 触发 | 确认 | 基线更新时机 |
 |------|------|------|-------------|
-| **A. 编辑器保存** | Operator 在 Console 保存 | 无（主动编辑即信任） | 保存成功同步 `approve` |
-| **B. Accept 按钮** | Security → Integrity Check | Health Check 式**确认短语** | API 同步 `approve` |
-| **C. 编辑器保存 agent 改过的文件** | 用户打开 drift 文件审阅后 Save | 无 | 保存瞬间 `approve`（内容可为 agent 版） |
+| **A. Console Save + 审批** | Operator 在 Console 保存 protected 文件 | Console `/api/approval` | 审批通过后 atomic commit → `approved_operator_console` |
+| **B. Accept 按钮** | Security → Integrity Check | 确认短语 | API 同步 `approve`（**不** suppress） |
+| **C. Agent 提案 + Console 审批** | `write_file` / shell / python 等命中 protected | Console `/api/approval` | 审批通过后 commit 或执行工具 → `approved_agent_write` |
 
 **Restore** 仅 Security 页（+ 确认短语）：还原到**旧**基线，不升基线。
+
+### 6.2 Agent 受控写入（Proposal → Approval → Atomic Commit）
+
+protected path 上，agent 工具**不得**先落盘再告警。流程：
+
+1. **Proposal**：计算 `old_sha256`（磁盘当前）与 `new_sha256`（拟写内容），持久化 proposal（path、content、operation、agent/session 元数据）。
+2. **Approval**：复用 `ApprovalService.create_pending` + `wait_for_approval`；`extra` 携带 path、sha、content 预览。
+3. **Atomic Commit**：校验 `old_sha256` 仍匹配 → temp 写盘 + rename → `on_file_saved(provenance=approved_agent_write|approved_operator_console)` → `approve` + **唯一** suppress watch + `emit_baseline_updated`。
+
+### 6.3 Shell / Python 受控执行（简版 preflight）
+
+`execute_shell_command` / `execute_python_code` 执行前：检测命令/代码是否可能写入 protected 路径 → 是则 `ApprovalService` 审批（展示 command/code + 当前文件）→ 通过后执行原工具 → `notify_approved_paths(approved_agent_write)`。检测漏网时 watch 兜底产生 drift（无 suppress）。
+
+未审批时工具返回 pending/denied，**磁盘不变**。审批通过后不得走 `agent_tool` drift 分支。
 
 ---
 
@@ -602,11 +617,11 @@ on_file_saved(agent_id, rel_path, provenance, *, suppress_watch_sec=2):
   IF provenance == system_maintenance:
     RETURN (或仅写 audit)
 
-  IF provenance == operator_console:
+  IF provenance IN (approved_agent_write, approved_operator_console):
     1. soul_guardian approve --file <rel_path>
     2. 清除该 path 的 pending drift alert（若有）
-    3. 注册 watch suppress(agent_id, path, current_sha256, ttl=2s)
-    4. audit: event=operator_implicit_accept, actor=console
+    3. 注册 watch suppress(agent_id, path, current_sha256, ttl=2s)  # 唯一锚点
+    4. audit: event=approved_write
     5. PersonaAlertEmitter.emit_baseline_updated(path, ...)  # SSE persona_baseline_updated
     RETURN
 
@@ -626,32 +641,36 @@ on_file_saved(agent_id, rel_path, provenance, *, suppress_watch_sec=2):
 |------------|------|------------|
 | `PUT /workspace/files/{md_name}` | `workspace.py` → `write_working_file` | `operator_console` |
 | `PUT /workspace/code-files/{path}` | `workspace.py` → `write_code_file` | `operator_console` |
-| `write_file` / `edit_file` | `agents/tools/file_io.py` | `agent_tool` |
+| `write_file` / `edit_file` / `append_file` | `agents/tools/file_io.py` | 受控路径：proposal → approval → `approved_agent_write`；非 protected / disabled：普通写入 |
 | enable / init / restore | persona service | `system_maintenance` |
 | 外部磁盘写入 | PersonaWatchService | `external_untrusted` |
 
 实现：`PersonaWriteContext(provenance=...)` 上下文变量；系统路径显式设置。
 
-### 7.2 Agent 写入时序
+### 7.2 Agent 受控写入时序
 
 ```mermaid
 sequenceDiagram
   participant Agent
-  participant Tool as write_file/edit_file
+  participant Tool as write_file/edit_file/append_file
+  participant Prop as WriteProposalStore
+  participant Appr as ApprovalService
   participant Coord as PersonaWriteCoordinator
   participant SG as soul-guardian
   participant UI as Console
 
   Agent->>Tool: 写 SOUL.md
-  Tool->>Tool: 磁盘写入完成
-  Tool->>Coord: on_file_saved(agent_tool)
-  Coord->>SG: check --no-restore
-  SG-->>Coord: drift + patch
-  Coord->>Coord: emit_drift
-  Coord->>UI: Inbox + toast（SSE P1）
-  Tool-->>Agent: 工具成功（不阻塞）
+  Tool->>Prop: proposal(old_sha, new_sha, content)
+  Tool->>Appr: create_pending + wait
+  Appr->>UI: Inbox 审批（含 path / diff 预览）
+  UI->>Appr: approve
+  Tool->>Tool: atomic write (temp + rename)
+  Tool->>Coord: on_file_saved(approved_agent_write)
+  Coord->>SG: approve --file SOUL.md
+  Coord->>UI: baseline_updated（无 drift toast）
+  Tool-->>Agent: 工具成功
 
-  Note over UI: Accept + 确认短语，或编辑器 Save → approve
+  Note over Tool,Coord: 绕过审批直接落盘仍走 agent_tool → drift（PB-S33）
 ```
 
 ### 7.3 Operator 编辑器保存时序

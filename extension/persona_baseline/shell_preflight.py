@@ -1,0 +1,262 @@
+# -*- coding: utf-8
+"""Lightweight detection of agent shell/python writes to persona-protected paths."""
+from __future__ import annotations
+
+import os
+import re
+import shlex
+from pathlib import Path
+from typing import TYPE_CHECKING
+
+from .agent_write import resolve_protected_relative_path
+
+if TYPE_CHECKING:
+    from .service import PersonaBaselineService
+
+_SHELL_REDIRECTS = frozenset({">", ">>", "1>", "1>>", "2>", "2>>", "&>", "&>>"})
+
+_POWERSHELL_WRAPPER = re.compile(
+    r"(?:^|[\s|&;])(?:powershell(?:\.exe)?|pwsh(?:\.exe)?)\b",
+    re.IGNORECASE,
+)
+
+_POWERSHELL_COMMAND_ARG = re.compile(
+    r"-(?:Command|c)\s+(.+)$",
+    re.IGNORECASE | re.DOTALL,
+)
+
+# Explicit write / mutate-then-write patterns (not plain reads like Get-Content).
+_SHELL_WRITE_INTENT = re.compile(
+    r"(?:"
+    r">>|>>|>|"
+    r"Set-Content|Add-Content|Out-File|Clear-Content|"
+    r"WriteAllText|WriteAllBytes|WriteAllLines|"
+    r"AppendAllText|AppendAllBytes|AppendAllLines|"
+    r"\[System\.IO\.File\]|IO\.File\]::|"
+    r"Copy-Item|Move-Item|Rename-Item|"
+    r"-replace\b|"
+    r"\btee\b|\bcp\b|\bmv\b|\bcopy\b|\bmove\b"
+    r")",
+    re.IGNORECASE,
+)
+
+_PYTHON_WRITE_SIGNAL = re.compile(
+    r"(?:"
+    r"\.write_text\s*\(|\.write_bytes\s*\(|"
+    r"open\s*\([^)]*['\"][wa]"
+    r")",
+    re.IGNORECASE,
+)
+
+_QUOTED_PATH = re.compile(r"""['"]([^'"]+)['"]""")
+
+
+def _looks_like_filename(token: str) -> bool:
+    cleaned = token.strip().strip("'\"")
+    if not cleaned or cleaned.startswith("-"):
+        return False
+    return "." in cleaned or cleaned.upper().endswith(".MD")
+
+
+def _extract_shell_write_paths(command: str) -> list[str]:
+    from qwenpaw.security.tool_guard.guardians.file_guardian import (
+        _extract_paths_from_shell_command,
+    )
+
+    candidates = list(_extract_paths_from_shell_command(command))
+    use_posix = os.name != "nt"
+    try:
+        tokens = shlex.split(command, posix=use_posix)
+    except ValueError:
+        tokens = command.split()
+    if not use_posix:
+        tokens = [t.strip("'\"") for t in tokens]
+
+    i = 0
+    while i < len(tokens):
+        token = tokens[i]
+        if token in _SHELL_REDIRECTS and i + 1 < len(tokens):
+            nxt = tokens[i + 1].strip("'\"")
+            if _looks_like_filename(nxt):
+                candidates.append(nxt)
+            i += 2
+            continue
+        lowered = token.lower()
+        if lowered in {"set-content", "out-file", "add-content"} and i + 1 < len(tokens):
+            for j in range(i + 1, min(i + 6, len(tokens))):
+                maybe = tokens[j].strip("'\"")
+                if maybe.lower() in {"-path", "-filepath", "-literalpath"}:
+                    continue
+                if _looks_like_filename(maybe):
+                    candidates.append(maybe)
+                    break
+        i += 1
+
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for item in candidates:
+        if item not in seen:
+            seen.add(item)
+            deduped.append(item)
+    return deduped
+
+
+def _strip_outer_quotes(text: str) -> str:
+    cleaned = text.strip()
+    if len(cleaned) >= 2 and cleaned[0] == cleaned[-1] and cleaned[0] in ("'", '"'):
+        return cleaned[1:-1]
+    return cleaned
+
+
+def _iter_shell_script_fragments(command: str) -> list[str]:
+    """Return command segments to scan, including nested PowerShell -Command scripts."""
+    text = (command or "").strip()
+    if not text:
+        return []
+
+    fragments: list[str] = [text]
+    if not _POWERSHELL_WRAPPER.search(text):
+        return fragments
+
+    match = _POWERSHELL_COMMAND_ARG.search(text)
+    if not match:
+        return fragments
+
+    inner = _strip_outer_quotes(match.group(1).strip())
+    if inner and inner not in fragments:
+        fragments.append(inner)
+    return fragments
+
+
+def _path_name_variants(relative_path: str) -> tuple[str, ...]:
+    rel = relative_path.replace("\\", "/")
+    base = Path(rel).name
+    return tuple(
+        dict.fromkeys(
+            item
+            for item in (rel, base, f"./{rel}", f".\\{rel}")
+            if item
+        ),
+    )
+
+
+def _mentions_protected_path(text: str, relative_path: str) -> bool:
+    for variant in _path_name_variants(relative_path):
+        pattern = rf"(?<![\w./\\-]){re.escape(variant)}(?![\w.-])"
+        if re.search(pattern, text, re.IGNORECASE):
+            return True
+    return False
+
+
+def _resolve_command_path(raw_path: str, *, workspace: Path, cwd: Path | None) -> Path:
+    candidate = raw_path.strip()
+    if not candidate:
+        return Path()
+    expanded = Path(candidate).expanduser()
+    if expanded.is_absolute():
+        return expanded.resolve(strict=False)
+    base = cwd if cwd is not None else workspace
+    return (base / expanded).resolve(strict=False)
+
+
+def _protected_targets_from_paths(
+    service: "PersonaBaselineService",
+    *,
+    agent_id: str,
+    raw_paths: list[str],
+    cwd: Path | None = None,
+) -> list[str]:
+    if not service.is_enabled():
+        return []
+    workspace = service.settings_store.resolve_workspace(agent_id)
+    rel_paths: list[str] = []
+    seen: set[str] = set()
+    for raw in raw_paths:
+        absolute = _resolve_command_path(raw, workspace=workspace, cwd=cwd)
+        if not absolute:
+            continue
+        rel = resolve_protected_relative_path(
+            service,
+            agent_id=agent_id,
+            absolute_path=absolute,
+        )
+        if rel and rel not in seen:
+            seen.add(rel)
+            rel_paths.append(rel)
+    return rel_paths
+
+
+def detect_shell_protected_write_targets(
+    service: "PersonaBaselineService",
+    *,
+    agent_id: str,
+    command: str,
+    cwd: Path | None = None,
+) -> list[str]:
+    """Return protected relative paths the shell command may write, or []."""
+    if not service.is_enabled():
+        return []
+
+    settings = service.settings_store.load()
+    protected = service.settings_store.effective_paths(settings, agent_id)
+    if not protected:
+        return []
+
+    hits: list[str] = []
+    seen: set[str] = set()
+
+    for fragment in _iter_shell_script_fragments(command):
+        text = fragment.strip()
+        if not text or not _SHELL_WRITE_INTENT.search(text):
+            continue
+
+        for rel in protected:
+            if rel in seen:
+                continue
+            if not _mentions_protected_path(text, rel):
+                continue
+            seen.add(rel)
+            hits.append(rel)
+
+        raw_paths = _extract_shell_write_paths(text)
+        for resolved in _protected_targets_from_paths(
+            service,
+            agent_id=agent_id,
+            raw_paths=raw_paths,
+            cwd=cwd,
+        ):
+            if resolved not in seen:
+                seen.add(resolved)
+                hits.append(resolved)
+
+    return hits
+
+
+def detect_python_protected_write_targets(
+    service: "PersonaBaselineService",
+    *,
+    agent_id: str,
+    code: str,
+    cwd: Path | None = None,
+) -> list[str]:
+    """Return protected relative paths python code may write, or []."""
+    text = (code or "").strip()
+    if not text or not _PYTHON_WRITE_SIGNAL.search(text):
+        return []
+    raw_paths = [match.group(1) for match in _QUOTED_PATH.finditer(text)]
+    return _protected_targets_from_paths(
+        service,
+        agent_id=agent_id,
+        raw_paths=raw_paths,
+        cwd=cwd,
+    )
+
+
+def absolute_paths_for_relative(
+    service: "PersonaBaselineService",
+    *,
+    agent_id: str,
+    relative_paths: list[str],
+) -> list[Path]:
+    workspace = service.settings_store.resolve_workspace(agent_id)
+    return [workspace / rel for rel in relative_paths]

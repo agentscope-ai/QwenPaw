@@ -4,6 +4,9 @@ import { Shield, Check, X, Clock, Copy } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useAgentStore } from "../../stores/agentStore";
 import { getAgentDisplayName } from "../../utils/agentDisplayName";
+import type { PersonaWriteApprovalDetails } from "../../extension/persona_baseline/lib/personaWriteApproval";
+import { coercePersonaWriteDetails } from "../../extension/persona_baseline/lib/personaWriteApproval";
+import { PersonaWriteApprovalPreview } from "../../extension/persona_baseline/components/PersonaWriteApprovalPreview";
 import styles from "./ApprovalCard.module.less";
 
 const { Text } = Typography;
@@ -22,6 +25,7 @@ export interface ApprovalCardProps {
   showInboxAgentContext?: boolean;
   sessionId?: string;
   rootSessionId?: string;
+  personaWrite?: PersonaWriteApprovalDetails;
   onApprove: (requestId: string) => Promise<void>;
   onDeny: (requestId: string) => Promise<void>;
   onCancel?: () => void;
@@ -42,6 +46,7 @@ export function ApprovalCard({
   showInboxAgentContext = false,
   sessionId,
   rootSessionId,
+  personaWrite,
   onApprove,
   onDeny,
   onCancel,
@@ -86,6 +91,11 @@ export function ApprovalCard({
   }, [agentsById, ownerAgentId, agentId, t]);
   const shouldShowExecutionAgent =
     showInboxAgentContext && Boolean(isCrossSession);
+
+  const resolvedPersonaWrite = useMemo(
+    () => coercePersonaWriteDetails(personaWrite, toolName, toolParams),
+    [personaWrite, toolName, toolParams],
+  );
 
   useEffect(() => {
     const elapsed = Date.now() / 1000 - createdAt;
@@ -223,7 +233,7 @@ export function ApprovalCard({
           </div>
         )}
 
-        {findingsSummary && (
+        {findingsSummary && !resolvedPersonaWrite && (
           <div className={styles.summaryBox}>
             <Text className={styles.summaryText}>{findingsSummary}</Text>
             <button
@@ -238,7 +248,11 @@ export function ApprovalCard({
           </div>
         )}
 
-        {toolParams && Object.keys(toolParams).length > 0 && (
+        {resolvedPersonaWrite ? (
+          <PersonaWriteApprovalPreview details={resolvedPersonaWrite} />
+        ) : null}
+
+        {toolParams && Object.keys(toolParams).length > 0 && !resolvedPersonaWrite && (
           <details className={styles.paramsDetails}>
             <summary className={styles.paramsSummary}>
               {t("approval.parameters", "Parameters")}

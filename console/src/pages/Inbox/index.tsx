@@ -425,6 +425,7 @@ export default function InboxPage() {
                   timeoutSeconds={approval.timeout_seconds}
                   sessionId={approval.session_id}
                   rootSessionId={approval.root_session_id}
+                  personaWrite={approval.persona_write}
                   onApprove={() =>
                     handleApproveRequest(
                       approval.request_id,

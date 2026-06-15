@@ -445,12 +445,12 @@ class IntegrityProtectionHarness:
             failure_reasons=(),
         )
 
-    def verify_operator_implicit_accept_on_save(
+    def verify_operator_approved_save_no_drift(
         self,
         *,
         protected_path: str = "SOUL.md",
     ) -> PersonaBaselineDriftObservation:
-        """P1 — PB-S40: operator console save implicitly accepts baseline."""
+        """P1 — PB-S40: operator Console save after approval updates baseline."""
         import asyncio
         import sys
         from pathlib import Path
@@ -479,10 +479,15 @@ class IntegrityProtectionHarness:
                 provenance="startup_scan",
             )
             drift_after_tamper = service.drift_store.open_count()
-            await service.coordinator.on_file_saved(
+            baseline_sha = service.coordinator._file_sha(soul_path)
+            new_content = soul_path.read_text(encoding="utf-8") + "# operator approved\n"
+            await service.coordinator.commit_approved_write(
                 agent_id="default",
                 absolute_path=soul_path,
-                provenance="operator_console",
+                content=new_content,
+                encoding="utf-8",
+                expected_old_sha256=baseline_sha,
+                provenance="approved_operator_console",
             )
             drift_after_save = service.drift_store.open_count()
             return drift_after_tamper, drift_after_save
@@ -501,12 +506,72 @@ class IntegrityProtectionHarness:
             failure_reasons=(),
         )
 
+    def verify_agent_approved_write_no_drift(
+        self,
+        *,
+        protected_path: str = "SOUL.md",
+    ) -> PersonaBaselineDriftObservation:
+        """P1 — PB-S30: approved agent write commits without drift alert."""
+        import asyncio
+        import sys
+        from pathlib import Path
+
+        repo_root = Path(__file__).resolve().parents[3]
+        ext_path = repo_root / "extension"
+        if str(ext_path) not in sys.path:
+            sys.path.insert(0, str(ext_path))
+
+        from persona_baseline.service import PersonaBaselineService
+
+        service = PersonaBaselineService(self.workspace_root)
+        soul_path = self.workspace_root / protected_path
+        soul_path.write_text("approved soul baseline\n", encoding="utf-8")
+
+        async def _run() -> tuple[int, str]:
+            await service.update_settings(enabled=True)
+            workspace = service.settings_store.resolve_workspace("default")
+            state_dir = service.settings_store.agent_state("default")
+            await asyncio.to_thread(
+                service.adapter.approve_file,
+                workspace_root=workspace,
+                state_dir=state_dir,
+                relative_path=protected_path,
+            )
+            baseline_sha = service.coordinator._file_sha(soul_path)
+            new_content = (
+                soul_path.read_text(encoding="utf-8") + "# approved agent change\n"
+            )
+            await service.coordinator.commit_approved_write(
+                agent_id="default",
+                absolute_path=soul_path,
+                content=new_content,
+                encoding="utf-8",
+                expected_old_sha256=baseline_sha,
+            )
+            return service.drift_store.open_count(), soul_path.read_text(encoding="utf-8")
+
+        open_count, final_content = asyncio.run(_run())
+        no_drift = open_count == 0
+        content_updated = "# approved agent change" in final_content
+        return PersonaBaselineDriftObservation(
+            feature_enabled=True,
+            startup_scan_ready=True,
+            dynamic_protected_path_ready=True,
+            immediate_backend_drift_detection_ready=no_drift,
+            console_realtime_alert_ready=no_drift,
+            alert_identifies_changed_path=no_drift,
+            restore_returns_prior_approved_content=no_drift,
+            accept_records_changed_content_as_new_baseline=content_updated,
+            no_auto_restore_or_accept_when_disabled=True,
+            failure_reasons=(),
+        )
+
     def verify_agent_write_emits_drift(
         self,
         *,
         protected_path: str = "SOUL.md",
     ) -> PersonaBaselineDriftObservation:
-        """P1 — PB-S30: agent tool write on protected path emits drift."""
+        """P1 — PB-S33: unapproved agent_tool save still emits drift (bypass path)."""
         import asyncio
         import sys
         from pathlib import Path

@@ -155,22 +155,41 @@ async def write_working_file(
     """Write a working directory markdown file."""
     try:
         workspace = await get_agent_for_request(request)
-        workspace_manager = AgentMdManager(
-            str(workspace.workspace_dir),
-            agent_id=workspace.agent_id,
-        )
-        workspace_manager.write_working_md(md_name, body.content)
-        from ...security.extension_host import notify_file_saved
-
         md_file = workspace.workspace_dir / (
             md_name if md_name.endswith(".md") else f"{md_name}.md"
         )
-        await notify_file_saved(
-            workspace.agent_id,
-            md_file,
-            "operator_console",
+        from ...security.persona_baseline_bridge import try_guarded_operator_file_write
+
+        outcome = await try_guarded_operator_file_write(
+            absolute_path=str(md_file),
+            content=body.content,
+            agent_id=workspace.agent_id,
         )
-        return {"written": True}
+        if outcome.status == "direct":
+            workspace_manager = AgentMdManager(
+                str(workspace.workspace_dir),
+                agent_id=workspace.agent_id,
+            )
+            workspace_manager.write_working_md(md_name, body.content)
+            from ...security.extension_host import notify_file_saved
+
+            await notify_file_saved(
+                workspace.agent_id,
+                md_file,
+                "operator_console",
+            )
+            return {"written": True}
+        if outcome.status in {"committed", "unchanged"}:
+            return {"written": True}
+        if outcome.status == "denied":
+            raise HTTPException(status_code=403, detail=outcome.message) from None
+        if outcome.status == "timeout":
+            raise HTTPException(status_code=408, detail=outcome.message) from None
+        if outcome.status == "conflict":
+            raise HTTPException(status_code=409, detail=outcome.message) from None
+        raise HTTPException(status_code=500, detail=outcome.message or "Save failed")
+    except HTTPException:
+        raise
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
@@ -418,23 +437,43 @@ async def write_code_file(
     if not isinstance(content, str):
         raise HTTPException(status_code=422, detail="content must be a string")
 
-    def _write() -> int:
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(content, encoding="utf-8")
-        return target.stat().st_size
+    from ...security.persona_baseline_bridge import try_guarded_operator_file_write
 
-    try:
-        size = await asyncio.to_thread(_write)
-    except Exception as exc:  # noqa: BLE001
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
-    from ...security.extension_host import notify_file_saved
-
-    await notify_file_saved(
-        workspace.agent_id,
-        target,
-        "operator_console",
+    outcome = await try_guarded_operator_file_write(
+        absolute_path=str(target),
+        content=content,
+        agent_id=workspace.agent_id,
     )
-    return {"path": file_path, "size": size}
+    if outcome.status == "direct":
+
+        def _write() -> int:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(content, encoding="utf-8")
+            return target.stat().st_size
+
+        try:
+            size = await asyncio.to_thread(_write)
+        except Exception as exc:  # noqa: BLE001
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
+        from ...security.extension_host import notify_file_saved
+
+        await notify_file_saved(
+            workspace.agent_id,
+            target,
+            "operator_console",
+        )
+        return {"path": file_path, "size": size}
+
+    if outcome.status in {"committed", "unchanged"}:
+        size = target.stat().st_size if target.is_file() else 0
+        return {"path": file_path, "size": size}
+    if outcome.status == "denied":
+        raise HTTPException(status_code=403, detail=outcome.message)
+    if outcome.status == "timeout":
+        raise HTTPException(status_code=408, detail=outcome.message)
+    if outcome.status == "conflict":
+        raise HTTPException(status_code=409, detail=outcome.message)
+    raise HTTPException(status_code=500, detail=outcome.message or "Save failed")
 
 
 @router.get(

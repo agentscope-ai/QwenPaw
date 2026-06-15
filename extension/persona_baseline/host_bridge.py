@@ -24,6 +24,16 @@ from .guardian import PersonaBaselineState as ExtensionPersonaBaselineState
 from .guardian import PersonaDriftAlert as ExtensionPersonaDriftAlert
 from .service import PersonaBaselineService
 from .sse_hub import PersonaSSEHub
+from .agent_write import GuardedWriteOutcome
+from .agent_write import try_guarded_agent_file_write as _try_guarded_agent_file_write
+from .command_guard import GuardedCommandOutcome
+from .command_guard import (
+    try_guarded_python_code as _try_guarded_python_code,
+)
+from .command_guard import (
+    try_guarded_shell_command as _try_guarded_shell_command,
+)
+from .operator_write import try_guarded_operator_file_write as _try_guarded_operator_file_write
 
 
 def _wire_emitter(service: PersonaBaselineService) -> None:
@@ -74,6 +84,71 @@ async def notify_file_saved(
         agent_id=agent_id,
         absolute_path=absolute_path,
         provenance=provenance,
+    )
+
+
+async def try_guarded_agent_file_write(
+    *,
+    absolute_path: str,
+    content: str,
+    tool_name: str,
+    operation: str = "write",
+    encoding: str = "utf-8",
+) -> GuardedWriteOutcome:
+    """Proposal → approval → atomic commit for persona-protected agent writes."""
+    service = get_persona_service()
+    return await _try_guarded_agent_file_write(
+        service,
+        absolute_path=absolute_path,
+        content=content,
+        tool_name=tool_name,
+        operation=operation,
+        encoding=encoding,
+    )
+
+
+async def try_guarded_operator_file_write(
+    *,
+    absolute_path: str,
+    content: str,
+    agent_id: str,
+    encoding: str = "utf-8",
+) -> GuardedWriteOutcome:
+    service = get_persona_service()
+    return await _try_guarded_operator_file_write(
+        service,
+        absolute_path=absolute_path,
+        content=content,
+        agent_id=agent_id,
+        encoding=encoding,
+    )
+
+
+async def try_guarded_shell_command(
+    *,
+    command: str,
+    cwd: Path | None,
+    execute_fn,
+) -> GuardedCommandOutcome:
+    service = get_persona_service()
+    return await _try_guarded_shell_command(
+        service,
+        command=command,
+        cwd=cwd,
+        execute_fn=execute_fn,
+    )
+
+
+async def try_guarded_python_code(
+    *,
+    code: str,
+    execute_fn,
+) -> GuardedCommandOutcome:
+    service = get_persona_service()
+    return await _try_guarded_python_code(
+        service,
+        code=code,
+        execute_fn=execute_fn,
     )
 
 
@@ -140,4 +215,10 @@ __all__ = [
     "notify_file_saved",
     "run_startup_scan_if_enabled",
     "stream_persona_events",
+    "try_guarded_agent_file_write",
+    "try_guarded_operator_file_write",
+    "try_guarded_shell_command",
+    "try_guarded_python_code",
+    "GuardedWriteOutcome",
+    "GuardedCommandOutcome",
 ]
