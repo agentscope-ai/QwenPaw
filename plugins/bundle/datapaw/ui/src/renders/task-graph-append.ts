@@ -21,9 +21,8 @@ function logTaskGraphDebug(
   event: string,
   payload?: Record<string, unknown>,
 ): void {
-  const label = `[DataPaw][TaskGraph][append] ${event}`;
-  if (payload) console.debug(label, JSON.stringify(payload));
-  else console.debug(label);
+  void event;
+  void payload;
 }
 
 function subscribeLatestResponse(listener: () => void): () => void {

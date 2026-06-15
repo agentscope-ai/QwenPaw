@@ -62,15 +62,8 @@ function logTaskGraphDebug(
   event: string,
   payload?: Record<string, unknown>,
 ): void {
-  if (
-    event !== "apply-current-plan" &&
-    event !== "fetch-apply-task-plan-empty"
-  ) {
-    return;
-  }
-  const label = `[DataPaw][TaskGraph][plan] ${event}`;
-  if (payload) console.debug(label, JSON.stringify(payload));
-  else console.debug(label);
+  void event;
+  void payload;
 }
 
 function pushTaskCardToLiveChat(
