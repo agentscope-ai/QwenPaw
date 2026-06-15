@@ -210,7 +210,7 @@ class SlackChannel(BaseChannel):
     def from_config(
         cls,
         process: ProcessHandler,
-        config:Any ,
+        config: Any,
         on_reply_sent=None,
         show_tool_details=True,
         filter_tool_messages=False,
@@ -234,7 +234,9 @@ class SlackChannel(BaseChannel):
             allow_from=getattr(config, "allow_from", None),
             deny_message=getattr(config, "deny_message", ""),
             access_control_dm=getattr(config, "access_control_dm", False),
-            access_control_group=getattr(config, "access_control_group", False),
+            access_control_group=getattr(
+                config, "access_control_group", False
+            ),
         )
 
     # ── Lifecycle ──
