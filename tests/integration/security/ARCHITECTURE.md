@@ -44,7 +44,7 @@ element_path: tests/integration/security
 - testcase_name: ip-e2e-001-integrity-security-menu-default-off
   entry_path: test_integrity_protection.py::test_integrity_security_menu_default_off
 - testcase_name: ip-e2e-002-persona-drift-alert-restore-accept
-  entry_path: test_integrity_protection.py::test_persona_drift_alert_restore_accept
+  entry_path: test_integrity_protection.py::test_file_baseline_drift_alert_restore_accept
 - testcase_name: ip-e2e-004-health-check-scan-and-confirmed-fix
   entry_path: test_integrity_protection.py::test_health_check_scan_and_confirmed_fix
 - testcase_name: ip-e2e-005-rule-integrity-entry-visible
@@ -102,7 +102,7 @@ element_path: tests/integration/security
 - integrity_harness.py
 
 ### Notes
-- Integrity Protection acceptance is verified through `integrity_harness.py` against as-built paths in `extension/{persona_baseline,health_check,rule_integrity}/` and `console/src/extension/`. ip-e2e-005 backend passive check is exercised from `extension/rule_integrity/tests/`; Console PassiveCard/Banner are as-built UI not fully covered by that harness.
+- Integrity Protection acceptance is verified through `integrity_harness.py` against as-built paths in `extension/{file_baseline,health_check,rule_integrity}/` and `console/src/extension/`. ip-e2e-005 backend passive check is exercised from `extension/rule_integrity/tests/`; Console PassiveCard/Banner are as-built UI not fully covered by that harness.
 - The testcase body in `test_audit_foundation.py` is frozen as a business contract baseline. Coding/Repair may realize runtime behavior underneath the harness, but should not rewrite the business wording, GIVEN/WHEN/THEN structure, or explicit entrypoint paths without an upstream architecture change.
 - In the current repository state, the harness is still expected to fail with business-readable `Audit_Integrity_Lockdown_Gap` if the live runtime only detects checkpoint loss or tail truncation and does not detect OS-level editing of the second committed non-tail audit record before the next high-risk boundary.
 - sec-e2e-027 is now frozen around two control points and two console observation points inside one explicit entrypoint, and the current repository evidence shows that baseline can execute without sharing one mutable final console status across both frames.

@@ -4,12 +4,12 @@
 
 Covers:
   - Built-in tool rule integrity
-  - Persona Baseline Guardian
+  - File Baseline Protection
   - Integrity Protection Health Check
 
 Usage:
   python extension/run-integrity-delivery-selftest.py
-  python extension/run-integrity-delivery-selftest.py --delivery persona-protection
+  python extension/run-integrity-delivery-selftest.py --delivery file-baseline
   python extension/run-integrity-delivery-selftest.py --delivery rule-integrity --delivery health-check
   python extension/run-integrity-delivery-selftest.py --layer backend
   python extension/run-integrity-delivery-selftest.py --layer frontend --layer wiring

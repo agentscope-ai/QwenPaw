@@ -560,12 +560,12 @@ async def execute_shell_command(
     timeout: float = 60.0,
     cwd: Optional[Path] = None,
 ) -> ToolResponse:
-    """Execute a shell command with persona-protected path approval when needed."""
+    """Execute a shell command with file-baseline-protected path approval when needed."""
     import logging
 
     logger = logging.getLogger(__name__)
     try:
-        from ...security.persona_baseline_bridge import try_guarded_shell_command
+        from ...security.file_baseline_bridge import try_guarded_shell_command
 
         guard = await try_guarded_shell_command(
             command=command,
@@ -576,11 +576,11 @@ async def execute_shell_command(
                 cwd,
             ),
         )
-        if guard.handled and guard.response is not None:
+        if guard.response is not None:
             return guard.response
     except Exception as exc:
         logger.warning(
-            "Persona shell guard failed; executing unguarded: %s",
+            "File baseline shell guard failed; executing unguarded: %s",
             exc,
             exc_info=True,
         )

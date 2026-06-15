@@ -34,7 +34,7 @@ import { commandsApi } from "../../api/modules/commands";
 import { useApprovalContext } from "../../contexts/ApprovalContext";
 import { planApi } from "../../api/modules/plan";
 import type { PendingApproval } from "../../api/modules/console";
-import { coercePersonaWriteDetails } from "../../extension/persona_baseline/lib/personaWriteApproval";
+import { coerceFileBaselineWriteDetails } from "../../extension/file_baseline/lib/fileBaselineWriteApproval";
 
 interface ApprovalMessageData {
   requestId: string;
@@ -48,7 +48,7 @@ interface ApprovalMessageData {
   toolParams: Record<string, unknown>;
   createdAt: number;
   timeoutSeconds: number;
-  personaWrite?: PendingApproval["persona_write"];
+  fileBaselineWrite?: PendingApproval["file_baseline_write"];
 }
 
 import WhisperSpeechButton, {
@@ -747,7 +747,7 @@ export default function ChatPage() {
     const approvalKey = JSON.stringify(
       sessionApprovals.map((approval) => ({
         id: approval.request_id,
-        persona_write: approval.persona_write ?? null,
+        file_baseline_write: approval.file_baseline_write ?? null,
         tool_params: approval.tool_params ?? null,
       })),
     );
@@ -769,7 +769,7 @@ export default function ChatPage() {
         toolParams: approval.tool_params,
         createdAt: approval.created_at,
         timeoutSeconds: approval.timeout_seconds,
-        personaWrite: approval.persona_write,
+        fileBaselineWrite: approval.file_baseline_write,
       });
     }
 
@@ -1456,8 +1456,8 @@ export default function ChatPage() {
             bottom: 80,
             right: 24,
             zIndex: 1000,
-            maxWidth: coercePersonaWriteDetails(
-              request.personaWrite,
+            maxWidth: coerceFileBaselineWriteDetails(
+              request.fileBaselineWrite,
               request.toolName,
               request.toolParams,
             )
@@ -1478,7 +1478,7 @@ export default function ChatPage() {
             timeoutSeconds={request.timeoutSeconds}
             sessionId={request.sessionId}
             rootSessionId={request.rootSessionId}
-            personaWrite={request.personaWrite}
+            fileBaselineWrite={request.fileBaselineWrite}
             onApprove={handleApprove}
             onDeny={handleDeny}
             onCancel={() => {

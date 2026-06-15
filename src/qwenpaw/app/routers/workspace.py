@@ -158,7 +158,7 @@ async def write_working_file(
         md_file = workspace.workspace_dir / (
             md_name if md_name.endswith(".md") else f"{md_name}.md"
         )
-        from ...security.persona_baseline_bridge import try_guarded_operator_file_write
+        from ...security.file_baseline_bridge import try_guarded_operator_file_write
 
         outcome = await try_guarded_operator_file_write(
             absolute_path=str(md_file),
@@ -437,7 +437,7 @@ async def write_code_file(
     if not isinstance(content, str):
         raise HTTPException(status_code=422, detail="content must be a string")
 
-    from ...security.persona_baseline_bridge import try_guarded_operator_file_write
+    from ...security.file_baseline_bridge import try_guarded_operator_file_write
 
     outcome = await try_guarded_operator_file_write(
         absolute_path=str(target),

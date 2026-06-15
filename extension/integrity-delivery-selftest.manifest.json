@@ -1,7 +1,7 @@
 {
   "version": 1,
   "name": "integrity-delivery-selftest",
-  "description": "Unified self-test net for all Integrity Protection deliveries (rule integrity, persona baseline, health check).",
+  "description": "Unified self-test net for all Integrity Protection deliveries (rule integrity, file baseline, health check).",
   "console_gate": {
     "typecheck": {
       "label": "Console tsc + vite build",
@@ -16,9 +16,9 @@
       "manifest": "extension/rule-integrity-selftest.manifest.json"
     },
     {
-      "id": "persona-protection",
-      "label": "Persona Baseline Guardian",
-      "manifest": "scripts/persona-protection-selftest.manifest.json"
+      "id": "file-baseline",
+      "label": "File Baseline Protection",
+      "manifest": "scripts/file-baseline-selftest.manifest.json"
     },
     {
       "id": "health-check",

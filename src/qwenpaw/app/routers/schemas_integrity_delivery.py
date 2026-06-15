@@ -18,11 +18,11 @@ __all__ = [
     "HealthCheckScanRequest",
     "HealthCheckScanResponse",
     "IntegrityProtectionSettingsResponse",
-    "PersonaProtectionActionRequest",
-    "PersonaProtectionActionResponse",
-    "PersonaProtectionAlertsResponse",
-    "PersonaProtectionSettingsResponse",
-    "PersonaProtectionSettingsUpdateRequest",
+    "FileBaselineProtectionActionRequest",
+    "FileBaselineProtectionActionResponse",
+    "FileBaselineProtectionAlertsResponse",
+    "FileBaselineProtectionSettingsResponse",
+    "FileBaselineProtectionSettingsUpdateRequest",
     "ToolGuardRuleIntegrityFindingResponse",
     "ToolGuardRuleIntegrityRepairResponse",
     "ToolGuardRuleIntegrityResponse",
@@ -30,7 +30,7 @@ __all__ = [
 
 
 class IntegrityProtectionSettingsResponse(BaseModel):
-    persona_protection_enabled: bool = False
+    file_baseline_enabled: bool = False
     health_check_enabled: bool = False
     rule_integrity_check_passive: bool = True
     protected_paths: List[str] = Field(default_factory=list)
@@ -65,7 +65,7 @@ class HealthCheckFixResponse(BaseModel):
     output: List[str] = Field(default_factory=list)
 
 
-class PersonaProtectionSettingsResponse(BaseModel):
+class FileBaselineProtectionSettingsResponse(BaseModel):
     enabled: bool = False
     pilot_mode: bool = True
     protected_targets: List[str] = Field(default_factory=list)
@@ -79,25 +79,25 @@ class PersonaProtectionSettingsResponse(BaseModel):
     agents: List[dict[str, Any]] = Field(default_factory=list)
 
 
-class PersonaProtectionSettingsUpdateRequest(BaseModel):
+class FileBaselineProtectionSettingsUpdateRequest(BaseModel):
     enabled: Optional[bool] = None
     protected_targets: Optional[List[str]] = None
     confirmation_phrase: Optional[str] = None
 
 
-class PersonaProtectionAlertsResponse(BaseModel):
+class FileBaselineProtectionAlertsResponse(BaseModel):
     enabled: bool = False
     scanning: bool = False
     alerts: List[dict[str, Any]] = Field(default_factory=list)
     open_alert_count: int = 0
 
 
-class PersonaProtectionActionRequest(BaseModel):
+class FileBaselineProtectionActionRequest(BaseModel):
     alert_id: str
     confirmation_phrase: str
 
 
-class PersonaProtectionActionResponse(BaseModel):
+class FileBaselineProtectionActionResponse(BaseModel):
     confirmed: bool
     message: Optional[str] = None
     alert_id: Optional[str] = None

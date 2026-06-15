@@ -1,0 +1,118 @@
+.panel {
+  margin-top: 4px;
+}
+
+.headerRow {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.sectionTitle {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.infoText {
+  margin: 0 0 12px;
+  font-size: 12px;
+  color: #999;
+  line-height: 1.5;
+}
+
+.divider {
+  height: 1px;
+  background-color: #e8e8e8;
+  margin-bottom: 12px;
+}
+
+.fileList {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.fileItem {
+  padding: 12px;
+  border: 1px solid #e8e8e8;
+  border-radius: 8px;
+  background-color: #fff;
+  transition: border-color 0.2s, background-color 0.2s;
+
+  &:hover {
+    border-color: #d9d9d9;
+    background-color: #fafafa;
+  }
+}
+
+.fileItemProtected {
+  border-color: #ffe7ba;
+  background-color: #fffbf0;
+}
+
+.fileItemHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.fileInfo {
+  flex: 1;
+  min-width: 0;
+}
+
+.fileItemName {
+  font-size: 14px;
+  font-weight: 600;
+  margin-bottom: 4px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.enabledBadge {
+  color: #52c41a;
+  font-size: 8px;
+  line-height: 1;
+}
+
+.fileItemMeta {
+  font-size: 12px;
+  color: #999;
+  line-height: 1.4;
+}
+
+.fileItemActions {
+  flex-shrink: 0;
+}
+
+.customSection {
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px dashed #e8e8e8;
+}
+
+.customTitle {
+  margin: 0 0 8px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.customAddRow {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.customInput {
+  flex: 1;
+}
+
+.emptyCustom {
+  font-size: 12px;
+  color: #999;
+  margin: 0;
+}

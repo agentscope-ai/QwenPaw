@@ -9,10 +9,10 @@ import {
   getAgentDisplayName,
 } from "../../../utils/agentDisplayName";
 import {
-  getPersonaDriftBody,
-  getPersonaDriftTitle,
-  getPersonaProtectionChannelName,
-} from "@extension/persona_baseline/lib/driftDisplay";
+  getFileBaselineDriftBody,
+  getFileBaselineDriftTitle,
+  getFileBaselineProtectionChannelName,
+} from "@extension/file_baseline/lib/driftDisplay";
 import type { HarvestInstance, InboxSummary, PushMessage } from "../types";
 import {
   INBOX_CHANGED_EVENT,
@@ -25,7 +25,7 @@ const PUSH_POLLING_INTERVAL_MS = 6000;
 export const INBOX_MESSAGE_SOURCE_TYPES = [
   "cron",
   "heartbeat",
-  "persona_protection",
+  "file_baseline_protection",
 ] as const;
 
 const MOCK_HARVESTS: HarvestInstance[] = [];
@@ -79,18 +79,18 @@ const mapEventToPushMessage = (
         ? "Heartbeat"
         : event.source_type === "cron"
           ? "Cron"
-          : event.source_type === "persona_protection"
-            ? getPersonaProtectionChannelName(t)
+          : event.source_type === "file_baseline_protection"
+            ? getFileBaselineProtectionChannelName(t)
             : "System",
     title:
-      event.source_type === "persona_protection"
-        ? getPersonaDriftTitle(t, personaProvenance)
+      event.source_type === "file_baseline_protection"
+        ? getFileBaselineDriftTitle(t, personaProvenance)
         : event.title,
     content:
       event.source_type === "heartbeat"
         ? getHeartbeatSummary(event.status)
-        : event.source_type === "persona_protection"
-          ? getPersonaDriftBody(t, personaPath || event.title)
+        : event.source_type === "file_baseline_protection"
+          ? getFileBaselineDriftBody(t, personaPath || event.title)
           : stripExecutionTimeText(event.body),
     sender: {
       userId: event.agent_id || "default",

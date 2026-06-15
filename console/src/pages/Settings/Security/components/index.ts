@@ -6,5 +6,5 @@ export * from "./FileGuardSection";
 export * from "./ShellEvasionSection";
 export * from "./ToolGuardTab";
 export * from "./AllowNoAuthHostsTab";
-export * from "./IntegrityCheckSection";
+export * from "./IntegrityProtectionSection";
 export * from "./HealthCheckSection";

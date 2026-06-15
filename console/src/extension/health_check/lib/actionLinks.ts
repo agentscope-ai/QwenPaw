@@ -6,7 +6,7 @@ export type SecurityTabKey =
   | "toolGuard"
   | "fileGuard"
   | "skillScanner"
-  | "integrityCheck";
+  | "integrityProtection";
 
 export function resolveSecurityTabLink(
   record: HealthCheckRecord | HealthCheckItem,

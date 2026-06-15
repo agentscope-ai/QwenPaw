@@ -62,7 +62,7 @@ element_path: console
 
 ### Explicit Testcase Entrypoints
 - ../tests/integration/security/test_integrity_protection.py::test_integrity_security_menu_default_off
-- ../tests/integration/security/test_integrity_protection.py::test_persona_drift_alert_restore_accept
+- ../tests/integration/security/test_integrity_protection.py::test_file_baseline_drift_alert_restore_accept
 - ../tests/integration/security/test_integrity_protection.py::test_health_check_scan_and_confirmed_fix
 - ../extension/rule_integrity/tests/test_integration_entry.py::test_rule_integrity_entry_visible
 - ../tests/integration/security/test_integrity_protection.py::test_security_i18n_and_healthcheck_progress_carousel
@@ -72,7 +72,7 @@ element_path: console
 - `console/src/api/modules/security.ts` covers Tool Guard, File Guard, Skill Scanner, and delegates persona/health/rule-integrity calls to extension clients.
 - Health Check UI: `console/src/extension/health_check/components/HealthCheckSection.tsx` (grouped table, carousel, i18n detail/guidance, sessionStorage, Issues only/All, cross-tab links, high-risk fix Modal).
 - Legacy re-export: `console/src/pages/Settings/Security/components/HealthCheckSection.tsx` exports from `@extension/health_check`.
-- Integrity Check: `console/src/pages/Settings/Security/components/IntegrityCheckSection.tsx` composes `@extension/persona_baseline` and `@extension/rule_integrity` (`RuleIntegrityPassiveCard`). No source-trust UI (not implemented).
+- Integrity Check: `console/src/pages/Settings/Security/components/IntegrityProtectionSection.tsx` composes `@extension/file_baseline` and `@extension/rule_integrity` (`RuleIntegrityPassiveCard`). No source-trust UI (not implemented).
 - Rule integrity banner: `RuleIntegrityRepairBanner` on `pages/Settings/Security/index.tsx` with `useRuleIntegrity` 5s polling.
 - Locales: `en.json` and `zh.json` define full `security.healthCheck.groups.*` and `security.healthCheck.scanItems.*` coverage for doctor projection items.
 - Acceptance: `tests/integration/security/integrity_harness.py` verifies i18n, carousel, and full doctor coverage against these as-built paths.

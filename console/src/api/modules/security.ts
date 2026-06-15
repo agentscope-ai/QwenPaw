@@ -1,6 +1,6 @@
 import { request } from "../request";
 import { healthCheckApi } from "@extension/health_check/api/client";
-import { personaApi } from "@extension/persona_baseline/api/client";
+import { fileBaselineApi } from "@extension/file_baseline/api/client";
 import { ruleIntegrityApi } from "@extension/rule_integrity/api/client";
 
 export type {
@@ -10,12 +10,12 @@ export type {
   HealthCheckScanResponse,
 } from "@extension/health_check/api/client";
 export type {
-  PersonaProtectionActionResponse,
-  PersonaProtectionAlert,
-  PersonaProtectionAlertsResponse,
-  PersonaProtectionSettings,
-  PersonaProtectionSettingsUpdateBody,
-} from "@extension/persona_baseline/api/client";
+  FileBaselineProtectionActionResponse,
+  FileBaselineProtectionAlert,
+  FileBaselineProtectionAlertsResponse,
+  FileBaselineProtectionSettings,
+  FileBaselineProtectionSettingsUpdateBody,
+} from "@extension/file_baseline/api/client";
 export type {
   ToolGuardRuleIntegrityFinding,
   ToolGuardRulesIntegrity,
@@ -47,7 +47,7 @@ export interface ToolGuardConfig {
 // ── Integrity Protection types ─────────────────────────────────────
 
 export interface IntegrityProtectionSettings {
-  persona_protection_enabled: boolean;
+  file_baseline_enabled: boolean;
   health_check_enabled: boolean;
   rule_integrity_check_passive: boolean;
   protected_paths: string[];
@@ -149,17 +149,17 @@ export const securityApi = {
 
   checkIntegrityRuleEntry: ruleIntegrityApi.checkIntegrityRuleEntry,
 
-  getPersonaProtectionSettings: personaApi.getPersonaProtectionSettings,
+  getFileBaselineProtectionSettings: fileBaselineApi.getFileBaselineProtectionSettings,
 
-  updatePersonaProtectionSettings: personaApi.updatePersonaProtectionSettings,
+  updateFileBaselineProtectionSettings: fileBaselineApi.updateFileBaselineProtectionSettings,
 
-  getPersonaProtectionAlerts: personaApi.getPersonaProtectionAlerts,
+  getFileBaselineProtectionAlerts: fileBaselineApi.getFileBaselineProtectionAlerts,
 
-  restorePersonaProtectionAlert: personaApi.restorePersonaProtectionAlert,
+  restoreFileBaselineProtectionAlert: fileBaselineApi.restoreFileBaselineProtectionAlert,
 
-  acceptPersonaProtectionAlert: personaApi.acceptPersonaProtectionAlert,
+  acceptFileBaselineProtectionAlert: fileBaselineApi.acceptFileBaselineProtectionAlert,
 
-  getPersonaProtectionWatchUrl: personaApi.getPersonaProtectionWatchUrl,
+  getFileBaselineProtectionWatchUrl: fileBaselineApi.getFileBaselineProtectionWatchUrl,
 
   // ── File Guard ─────────────────────────────────────────────────
 

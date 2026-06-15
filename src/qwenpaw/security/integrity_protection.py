@@ -16,14 +16,14 @@ from typing import Any
 
 @dataclass(frozen=True)
 class IntegrityProtectionSettings:
-    persona_protection_enabled: bool = False
+    file_baseline_enabled: bool = False
     health_check_enabled: bool = False
     rule_integrity_check_passive: bool = True
     protected_paths: tuple[str, ...] = ()
     menus: tuple[str, ...] = (
         "Tool Guard",
         "File Guard",
-        "Integrity Check",
+        "Integrity Protection",
         "Health Check",
     )
 
@@ -32,7 +32,7 @@ class IntegrityProtectionSettings:
 
 
 @dataclass(frozen=True)
-class PersonaDriftAlert:
+class FileBaselineDriftAlert:
     path: str
     previous_sha256: str
     current_sha256: str
@@ -43,10 +43,10 @@ class PersonaDriftAlert:
 
 
 @dataclass(frozen=True)
-class PersonaBaselineState:
+class FileBaselineState:
     enabled: bool
     protected_paths: tuple[str, ...]
-    alerts: tuple[PersonaDriftAlert, ...] = ()
+    alerts: tuple[FileBaselineDriftAlert, ...] = ()
     startup_scan_ran: bool = False
 
     def to_dict(self) -> dict[str, Any]:
@@ -83,32 +83,32 @@ class HealthCheckFixResult:
 
 
 def get_default_integrity_settings() -> IntegrityProtectionSettings:
-    """Return Integrity Protection settings including persisted persona state."""
+    """Return Integrity Protection settings including persisted file baseline state."""
 
-    from .persona_baseline_bridge import get_integrity_settings_projection
+    from .file_baseline_bridge import get_integrity_settings_projection
 
     return get_integrity_settings_projection()
 
 
-def _load_persona_baseline_guardian():
-    from .persona_baseline_bridge import PersonaBaselineGuardian as BridgeGuardian
+def _load_file_baseline_guardian():
+    from .file_baseline_bridge import FileBaselineGuardian as BridgeGuardian
 
     return BridgeGuardian
 
 
-class PersonaBaselineGuardian:
-    """Delegate persona baseline operations to extension implementation."""
+class FileBaselineGuardian:
+    """Delegate file baseline operations to extension implementation."""
 
     def __init__(self, workspace_root: Path, state_dir: Path | None = None) -> None:
-        self._delegate = _load_persona_baseline_guardian()(
+        self._delegate = _load_file_baseline_guardian()(
             workspace_root,
             state_dir=state_dir,
         )
 
-    def enable(self, protected_paths: tuple[str, ...]) -> PersonaBaselineState:
+    def enable(self, protected_paths: tuple[str, ...]) -> FileBaselineState:
         return self._delegate.enable(protected_paths)
 
-    def scan(self) -> PersonaBaselineState:
+    def scan(self) -> FileBaselineState:
         return self._delegate.scan()
 
     def restore(self, relative_path: str) -> bool:
@@ -130,7 +130,7 @@ from health_check.scanner import run_health_check_scan  # noqa: E402
 @dataclass
 class IntegrityProtectionProbeResult:
     settings: IntegrityProtectionSettings = field(default_factory=get_default_integrity_settings)
-    persona_state: PersonaBaselineState | None = None
+    file_baseline_state: FileBaselineState | None = None
     health_scan: HealthCheckScanResult | None = None
     health_fix: HealthCheckFixResult | None = None
     rule_integrity: dict[str, Any] | None = None

@@ -48,7 +48,7 @@ from .schemas_config import (
     HeartbeatBody,
 )
 from .integrity_protection_routes import router as integrity_protection_delivery_router
-from .persona_protection_routes import router as persona_protection_delivery_router
+from .file_baseline_routes import router as file_baseline_protection_delivery_router
 from ...security.rule_integrity_bridge import get_rule_integrity_router
 from ..channels.qrcode_auth_handler import (
     QRCODE_AUTH_HANDLERS,
@@ -57,7 +57,7 @@ from ..channels.qrcode_auth_handler import (
 
 router = APIRouter(prefix="/config", tags=["config"])
 router.include_router(integrity_protection_delivery_router)
-router.include_router(persona_protection_delivery_router)
+router.include_router(file_baseline_protection_delivery_router)
 router.include_router(get_rule_integrity_router())
 
 

@@ -10,8 +10,8 @@ from .integrity_harness import (
     HealthCheckRepairScenario,
     IntegrityProtectionHarness,
     IntegritySecurityMenuExpectation,
-    PersonaBaselineDriftScenario,
-    PersonaDisableReenableScenario,
+    FileBaselineDriftScenario,
+    FileBaselineDisableReenableScenario,
     SecurityI18nProgressCarouselScenario,
 )
 
@@ -26,14 +26,14 @@ def integrity_harness(tmp_path: Path) -> IntegrityProtectionHarness:
 def test_integrity_security_menu_default_off(integrity_harness: IntegrityProtectionHarness) -> None:
     """Control point: inspect Settings/Security without enabling new features.
 
-    Observation point: Integrity Check and Health Check are visible peer menus,
+    Observation point: Integrity Protection and Health Check are visible peer menus,
     all new switches are off by default, and no protected-path monitoring or
     repair side effect starts before explicit user enablement.
     """
 
     # // GIVEN
     expected_default_off_security_menu = IntegritySecurityMenuExpectation(
-        integrity_check_submenu_label="Integrity Check",
+        integrity_check_submenu_label="Integrity Protection",
         health_check_submenu_label="Health Check",
         peer_security_menus=("Tool Guard", "File Guard"),
         default_feature_switch_state="off",
@@ -54,7 +54,7 @@ def test_integrity_security_menu_default_off(integrity_harness: IntegrityProtect
 
 @pytest.mark.integration
 @pytest.mark.p2
-def test_persona_drift_alert_restore_accept(integrity_harness: IntegrityProtectionHarness) -> None:
+def test_file_baseline_drift_alert_restore_accept(integrity_harness: IntegrityProtectionHarness) -> None:
     """Scenarios PB-S42, PB-S44 (P2): Restore/Accept with confirmation phrase on SOUL.md.
 
     Story: persona protection is enabled on the pilot file SOUL.md; an unauthorized
@@ -67,22 +67,22 @@ def test_persona_drift_alert_restore_accept(integrity_harness: IntegrityProtecti
     """
 
     # // GIVEN
-    persona_drift_review = PersonaBaselineDriftScenario(
-        protected_persona_paths=("SOUL.md",),
+    file_baseline_drift_review = FileBaselineDriftScenario(
+        protected_file_baseline_paths=("SOUL.md",),
         dynamically_added_protected_path="",
-        changed_persona_path="SOUL.md",
+        changed_file_baseline_path="SOUL.md",
         approved_baseline_label="approved_soul_baseline_before_prompt_poisoning",
         operator_review_action_label="integrity_check_restore_or_accept_with_confirmation",
     )
 
     # // WHEN
-    drift_observation = integrity_harness.verify_persona_drift_alert_restore_accept(
-        persona_drift_review,
+    drift_observation = integrity_harness.verify_file_baseline_drift_alert_restore_accept(
+        file_baseline_drift_review,
     )
 
     # // THEN
-    assert drift_observation.supports_restore_and_accept_contract(), integrity_harness.render_persona_drift_failure_report(
-        scenario=persona_drift_review,
+    assert drift_observation.supports_restore_and_accept_contract(), integrity_harness.render_file_baseline_drift_failure_report(
+        scenario=file_baseline_drift_review,
         observation=drift_observation,
     )
 
@@ -123,7 +123,7 @@ def test_security_i18n_and_healthcheck_progress_carousel(
 ) -> None:
     """Control point: switch Security console language and run Health Check scan.
 
-    Observation point: Integrity Check and Health Check copy changes between
+    Observation point: Integrity Protection and Health Check copy changes between
     English and Simplified Chinese, unsupported languages fall back to English,
     and the running Health Check progress display rotates readable localized
     scan items before terminal scan states stop the carousel without fixing.
@@ -134,7 +134,7 @@ def test_security_i18n_and_healthcheck_progress_carousel(
         english_language_code="en",
         simplified_chinese_language_code="zh",
         unsupported_language_code="ru",
-        integrity_check_tab_business_name="Integrity Check",
+        integrity_check_tab_business_name="Integrity Protection",
         health_check_tab_business_name="Health Check",
         required_scan_item_ids=("working-dir", "console-static-build"),
         terminal_scan_states=("completed", "failed", "cancelled", "interrupted"),
@@ -249,7 +249,7 @@ def test_healthcheck_full_doctor_coverage_projection(
 
 @pytest.mark.integration
 @pytest.mark.p0
-def test_persona_offline_tamper_startup_scan(tmp_path: Path) -> None:
+def test_file_baseline_offline_tamper_startup_scan(tmp_path: Path) -> None:
     """Scenarios PB-S20/S21/S22 (P0): offline SOUL.md tamper detected at startup scan."""
 
     import asyncio
@@ -260,20 +260,21 @@ def test_persona_offline_tamper_startup_scan(tmp_path: Path) -> None:
     if str(ext_path) not in sys.path:
         sys.path.insert(0, str(ext_path))
 
-    from persona_baseline.service import PersonaBaselineService
+    from file_baseline.service import FileBaselineService
 
     workspace = tmp_path
     soul_path = workspace / "SOUL.md"
     soul_path.write_text("approved soul baseline\n", encoding="utf-8")
 
-    service = PersonaBaselineService(workspace)
+    service = FileBaselineService(workspace)
 
     async def _run() -> tuple[dict, dict]:
         await service.update_settings(enabled=True)
-        soul_path.write_text(
-            soul_path.read_text(encoding="utf-8")
-            + "# offline tamper while qwenpaw stopped\n",
-            encoding="utf-8",
+        from file_baseline.os_readonly import append_external_edit
+
+        append_external_edit(
+            soul_path,
+            "# offline tamper while qwenpaw stopped\n",
         )
         scan_result = await service.run_startup_scan()
         alerts = await service.list_alerts()
@@ -301,7 +302,7 @@ def test_operator_editor_save_requires_approval(
 
 @pytest.mark.integration
 @pytest.mark.p1
-def test_agent_write_persona_drift(integrity_harness: IntegrityProtectionHarness) -> None:
+def test_agent_write_file_baseline_drift(integrity_harness: IntegrityProtectionHarness) -> None:
     """Scenario PB-S30 (P1): approved agent write updates baseline without drift."""
 
     observation = integrity_harness.verify_agent_approved_write_no_drift()
@@ -314,11 +315,11 @@ def test_agent_write_persona_drift(integrity_harness: IntegrityProtectionHarness
 def test_agent_tool_bypass_emits_drift(
     integrity_harness: IntegrityProtectionHarness,
 ) -> None:
-    """Scenario PB-S33 (P1): bypass agent_tool save on SOUL.md still emits drift."""
+    """Scenario PB-S33 / FB-S22 (P1): unapproved agent write blocked by OS read-only."""
 
     observation = integrity_harness.verify_agent_write_emits_drift()
     assert observation.immediate_backend_drift_detection_ready
-    assert observation.alert_identifies_changed_path
+    assert observation.restore_returns_prior_approved_content
 
 
 @pytest.mark.integration
@@ -334,31 +335,31 @@ def test_agent_tool_no_watch_double_emit(
 
 @pytest.mark.integration
 @pytest.mark.p0
-def test_persona_disabled_no_startup_scan(
+def test_file_baseline_disabled_no_startup_scan(
     integrity_harness: IntegrityProtectionHarness,
 ) -> None:
     """Scenario PB-S02 (P0): disabled persona protection skips scan and watch."""
 
-    observation = integrity_harness.verify_persona_disabled_no_runtime()
+    observation = integrity_harness.verify_file_baseline_disabled_no_runtime()
     assert observation.satisfies_pb_s02_no_runtime(), (
-        integrity_harness.render_persona_disabled_runtime_failure_report(observation)
+        integrity_harness.render_file_baseline_disabled_runtime_failure_report(observation)
     )
 
 
 @pytest.mark.integration
 @pytest.mark.p0
-def test_persona_disable_reenable_lifecycle(
+def test_file_baseline_disable_reenable_lifecycle(
     integrity_harness: IntegrityProtectionHarness,
 ) -> None:
     """Scenarios PB-S10–S13 (P0): enable, disable preserves targets, re-enable baseline."""
 
-    scenario = PersonaDisableReenableScenario(
+    scenario = FileBaselineDisableReenableScenario(
         protected_path="SOUL.md",
         tamper_while_disabled=True,
     )
-    observation = integrity_harness.verify_persona_disable_reenable_lifecycle(scenario)
+    observation = integrity_harness.verify_file_baseline_disable_reenable_lifecycle(scenario)
     assert observation.satisfies_disable_reenable_lifecycle(), (
-        integrity_harness.render_persona_disable_reenable_failure_report(
+        integrity_harness.render_file_baseline_disable_reenable_failure_report(
             scenario,
             observation,
         )
@@ -367,37 +368,63 @@ def test_persona_disable_reenable_lifecycle(
 
 @pytest.mark.integration
 @pytest.mark.p0
-def test_persona_disabled_agent_write_silent(
+def test_file_baseline_disabled_agent_write_silent(
     integrity_harness: IntegrityProtectionHarness,
 ) -> None:
     """Scenario PB-S15 (P0): agent write is ignored while persona protection is off."""
 
-    observation = integrity_harness.verify_persona_disabled_agent_write_silent()
+    observation = integrity_harness.verify_file_baseline_disabled_agent_write_silent()
     assert observation.no_auto_restore_or_accept_when_disabled
     assert not observation.failure_reasons
 
 
 @pytest.mark.integration
 @pytest.mark.p0
-def test_persona_put_rejects_targets_when_disabled(
+def test_file_baseline_put_targets_when_disabled(
     integrity_harness: IntegrityProtectionHarness,
 ) -> None:
-    """Scenario PB-S16 (P0): PUT protected_targets while disabled returns conflict."""
+    """Scenario FB-S16 (P0): PUT protected_targets while disabled persists list."""
 
-    observation = integrity_harness.verify_persona_put_rejects_target_change_when_disabled()
+    observation = integrity_harness.verify_file_baseline_put_targets_when_disabled()
     assert observation.satisfies_pb_s02_no_runtime(), (
-        integrity_harness.render_persona_disabled_runtime_failure_report(observation)
+        integrity_harness.render_file_baseline_disabled_runtime_failure_report(observation)
+    )
+
+
+@pytest.mark.integration
+@pytest.mark.p0
+def test_file_baseline_put_targets_when_enabled(
+    integrity_harness: IntegrityProtectionHarness,
+) -> None:
+    """Scenario FB-S17 (P0): PUT protected_targets while enabled refreshes policy."""
+
+    observation = integrity_harness.verify_file_baseline_put_targets_when_enabled()
+    assert observation.satisfies_pb_s02_no_runtime(), (
+        integrity_harness.render_file_baseline_disabled_runtime_failure_report(observation)
+    )
+
+
+@pytest.mark.integration
+@pytest.mark.p0
+def test_file_baseline_read_does_not_emit_drift(
+    integrity_harness: IntegrityProtectionHarness,
+) -> None:
+    """Scenario FB-S19 (P0): read-only access must not create drift alerts."""
+
+    observation = integrity_harness.verify_file_baseline_read_does_not_emit_drift()
+    assert observation.satisfies_pb_s02_no_runtime(), (
+        integrity_harness.render_file_baseline_disabled_runtime_failure_report(observation)
     )
 
 
 @pytest.mark.integration
 @pytest.mark.p1
-def test_persona_watch_triggers_check_on_modify(
+def test_file_baseline_watch_triggers_check_on_modify(
     integrity_harness: IntegrityProtectionHarness,
 ) -> None:
     """Scenario PB-S50 (P1): external filesystem change emits external_watch drift."""
 
-    observation = integrity_harness.verify_external_persona_drift(
+    observation = integrity_harness.verify_external_file_baseline_drift(
         use_filesystem_watch=True,
     )
     assert observation.satisfies_pb_s50_external(), (
@@ -407,7 +434,7 @@ def test_persona_watch_triggers_check_on_modify(
 
 @pytest.mark.integration
 @pytest.mark.p2
-def test_persona_restore_rejects_wrong_phrase(tmp_path: Path) -> None:
+def test_file_baseline_restore_rejects_wrong_phrase(tmp_path: Path) -> None:
     """Scenario PB-S43 (P2): wrong Restore confirmation phrase leaves disk unchanged."""
 
     import asyncio
@@ -418,12 +445,13 @@ def test_persona_restore_rejects_wrong_phrase(tmp_path: Path) -> None:
     if str(ext_path) not in sys.path:
         sys.path.insert(0, str(ext_path))
 
-    from persona_baseline.service import PersonaBaselineService
+    from file_baseline.os_readonly import write_external_content
+    from file_baseline.service import FileBaselineService
 
     workspace = tmp_path
     soul_path = workspace / "SOUL.md"
     soul_path.write_text("approved soul baseline\n", encoding="utf-8")
-    service = PersonaBaselineService(workspace)
+    service = FileBaselineService(workspace)
 
     async def _run() -> tuple[dict, str]:
         await service.update_settings(enabled=True)
@@ -431,7 +459,7 @@ def test_persona_restore_rejects_wrong_phrase(tmp_path: Path) -> None:
             soul_path.read_text(encoding="utf-8")
             + "# unauthorized change\n"
         )
-        soul_path.write_text(tampered, encoding="utf-8")
+        write_external_content(soul_path, tampered)
         await service._check_all_agents(
             service.settings_store.load(),
             provenance="startup_scan",

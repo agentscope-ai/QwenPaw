@@ -10,23 +10,23 @@ if TYPE_CHECKING:
 
 def pending_approval_to_console_dict(pending: "PendingApproval") -> dict[str, Any]:
     """Shape used by ``GET /console/push-messages`` pending_approvals entries."""
-    persona_write = pending.extra.get("persona_write")
+    file_baseline_write = pending.extra.get("file_baseline_write")
     tool_params = pending.extra.get("tool_call", {}).get("input", {})
     if not isinstance(tool_params, dict):
         tool_params = {}
 
-    if isinstance(persona_write, dict):
+    if isinstance(file_baseline_write, dict):
         tool_params = {
             **tool_params,
-            "file_path": persona_write.get("relative_path") or tool_params.get("file_path"),
-            "operation": persona_write.get("operation") or tool_params.get("operation"),
-            "current_content": persona_write.get("current_content"),
+            "file_path": file_baseline_write.get("relative_path") or tool_params.get("file_path"),
+            "operation": file_baseline_write.get("operation") or tool_params.get("operation"),
+            "current_content": file_baseline_write.get("current_content"),
             "proposed_content": (
-                persona_write.get("proposed_content")
-                or persona_write.get("content_preview")
+                file_baseline_write.get("proposed_content")
+                or file_baseline_write.get("content_preview")
             ),
-            "old_sha256": persona_write.get("old_sha256"),
-            "new_sha256": persona_write.get("new_sha256"),
+            "old_sha256": file_baseline_write.get("old_sha256"),
+            "new_sha256": file_baseline_write.get("new_sha256"),
         }
 
     payload: dict[str, Any] = {
@@ -43,7 +43,7 @@ def pending_approval_to_console_dict(pending: "PendingApproval") -> dict[str, An
         "created_at": pending.created_at,
         "timeout_seconds": pending.timeout_seconds,
     }
-    if isinstance(persona_write, dict):
-        payload["approval_kind"] = "persona_write"
-        payload["persona_write"] = persona_write
+    if isinstance(file_baseline_write, dict):
+        payload["approval_kind"] = "file_baseline_write"
+        payload["file_baseline_write"] = file_baseline_write
     return payload

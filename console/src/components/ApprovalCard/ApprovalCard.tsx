@@ -4,9 +4,9 @@ import { Shield, Check, X, Clock, Copy } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useAgentStore } from "../../stores/agentStore";
 import { getAgentDisplayName } from "../../utils/agentDisplayName";
-import type { PersonaWriteApprovalDetails } from "../../extension/persona_baseline/lib/personaWriteApproval";
-import { coercePersonaWriteDetails } from "../../extension/persona_baseline/lib/personaWriteApproval";
-import { PersonaWriteApprovalPreview } from "../../extension/persona_baseline/components/PersonaWriteApprovalPreview";
+import type { FileBaselineWriteApprovalDetails } from "../../extension/file_baseline/lib/fileBaselineWriteApproval";
+import { coerceFileBaselineWriteDetails } from "../../extension/file_baseline/lib/fileBaselineWriteApproval";
+import { FileBaselineWriteApprovalPreview } from "../../extension/file_baseline/components/FileBaselineWriteApprovalPreview";
 import styles from "./ApprovalCard.module.less";
 
 const { Text } = Typography;
@@ -25,7 +25,7 @@ export interface ApprovalCardProps {
   showInboxAgentContext?: boolean;
   sessionId?: string;
   rootSessionId?: string;
-  personaWrite?: PersonaWriteApprovalDetails;
+  fileBaselineWrite?: FileBaselineWriteApprovalDetails;
   onApprove: (requestId: string) => Promise<void>;
   onDeny: (requestId: string) => Promise<void>;
   onCancel?: () => void;
@@ -46,7 +46,7 @@ export function ApprovalCard({
   showInboxAgentContext = false,
   sessionId,
   rootSessionId,
-  personaWrite,
+  fileBaselineWrite,
   onApprove,
   onDeny,
   onCancel,
@@ -92,9 +92,9 @@ export function ApprovalCard({
   const shouldShowExecutionAgent =
     showInboxAgentContext && Boolean(isCrossSession);
 
-  const resolvedPersonaWrite = useMemo(
-    () => coercePersonaWriteDetails(personaWrite, toolName, toolParams),
-    [personaWrite, toolName, toolParams],
+  const resolvedFileBaselineWrite = useMemo(
+    () => coerceFileBaselineWriteDetails(fileBaselineWrite, toolName, toolParams),
+    [fileBaselineWrite, toolName, toolParams],
   );
 
   useEffect(() => {
@@ -233,7 +233,7 @@ export function ApprovalCard({
           </div>
         )}
 
-        {findingsSummary && !resolvedPersonaWrite && (
+        {findingsSummary && !resolvedFileBaselineWrite && (
           <div className={styles.summaryBox}>
             <Text className={styles.summaryText}>{findingsSummary}</Text>
             <button
@@ -248,11 +248,11 @@ export function ApprovalCard({
           </div>
         )}
 
-        {resolvedPersonaWrite ? (
-          <PersonaWriteApprovalPreview details={resolvedPersonaWrite} />
+        {resolvedFileBaselineWrite ? (
+          <FileBaselineWriteApprovalPreview details={resolvedFileBaselineWrite} />
         ) : null}
 
-        {toolParams && Object.keys(toolParams).length > 0 && !resolvedPersonaWrite && (
+        {toolParams && Object.keys(toolParams).length > 0 && !resolvedFileBaselineWrite && (
           <details className={styles.paramsDetails}>
             <summary className={styles.paramsSummary}>
               {t("approval.parameters", "Parameters")}
