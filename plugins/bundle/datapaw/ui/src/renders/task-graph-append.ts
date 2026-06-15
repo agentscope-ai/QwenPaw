@@ -137,6 +137,7 @@ export function createTaskGraphAppend(host: HostBundle) {
     }, [responseId]);
 
     const isLatestResponse =
+      ctx.isLast === true ||
       Boolean(responseId && latestId && responseId === latestId) ||
       (!latestId && ctx.isLast !== false);
     const selectPlanForResponse = (): {
@@ -146,6 +147,22 @@ export function createTaskGraphAppend(host: HostBundle) {
       isAnchoredResponse: boolean;
       isLiveMirror: boolean;
     } => {
+      const liveCandidates = plans.filter((candidate) => candidate.__datapawCurrent);
+      const liveMirror = liveCandidates[liveCandidates.length - 1];
+
+      // Latest assistant bubble always tracks the active plan, even when the
+      // response still references an older graph id from a prior turn.
+      if (liveMirror && isLatestResponse) {
+        const anchor = liveMirror.anchor_message_id ?? null;
+        return {
+          plan: liveMirror,
+          reason: anchor ? "latest-current-live-mirror" : "latest-current-no-anchor",
+          anchorMessageId: anchor,
+          isAnchoredResponse: false,
+          isLiveMirror: true,
+        };
+      }
+
       const anchored = plans.find((candidate) => {
         const anchor = candidate.anchor_message_id;
         return Boolean(
@@ -160,22 +177,6 @@ export function createTaskGraphAppend(host: HostBundle) {
           anchorMessageId: anchored.anchor_message_id ?? null,
           isAnchoredResponse: true,
           isLiveMirror: false,
-        };
-      }
-
-      const liveCandidates = plans.filter((candidate) => {
-        return candidate.__datapawCurrent;
-      });
-
-      const liveMirror = liveCandidates[liveCandidates.length - 1];
-      if (liveMirror && isLatestResponse) {
-        const anchor = liveMirror.anchor_message_id ?? null;
-        return {
-          plan: liveMirror,
-          reason: anchor ? "latest-current-live-mirror" : "latest-current-no-anchor",
-          anchorMessageId: anchor,
-          isAnchoredResponse: false,
-          isLiveMirror: true,
         };
       }
 
@@ -196,7 +197,7 @@ export function createTaskGraphAppend(host: HostBundle) {
     const graph =
       shouldRenderGraph && plan
         ? React.createElement(TaskGraphCard, {
-            data: { plan, showActions: true },
+            data: { plan, showActions: true, live: selected.isLiveMirror },
           })
         : null;
 
