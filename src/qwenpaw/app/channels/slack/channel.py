@@ -235,7 +235,9 @@ class SlackChannel(BaseChannel):
             deny_message=getattr(config, "deny_message", ""),
             access_control_dm=getattr(config, "access_control_dm", False),
             access_control_group=getattr(
-                config, "access_control_group", False
+                config,
+                "access_control_group",
+                False,
             ),
         )
 
