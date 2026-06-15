@@ -20,9 +20,12 @@ from ..constant import WORKING_DIR
 
 from .policy import GovernanceDecision, ToolCallSpec
 
+# ``ts`` is stored as INTEGER (milliseconds since epoch, UTC) so that
+# ``WHERE ts >= ? / <= ?`` performs strict numeric comparison instead of
+# fragile lexicographic comparison on ISO 8601 strings.
 _SCHEMA = """\
 CREATE TABLE IF NOT EXISTS audit_events (
-    ts            TEXT NOT NULL,
+    ts            INTEGER NOT NULL,
     workspace_dir TEXT NOT NULL,
     agent_id      TEXT NOT NULL,
     session_id    TEXT NOT NULL,
@@ -39,6 +42,11 @@ CREATE INDEX IF NOT EXISTS idx_audit_tool ON audit_events(tool_name);
 """
 
 
+def _now_unix_ms() -> int:
+    """Return current UTC timestamp in milliseconds since epoch."""
+    return int(datetime.now(timezone.utc).timestamp() * 1000)
+
+
 @dataclass
 class AuditEvent:
     """A single audit record.
@@ -46,7 +54,7 @@ class AuditEvent:
     Records 5W: who (agent_id), what (tool_name + target),
     when (ts), outcome (decision), why (reason).
     """
-    ts: str                          # ISO 8601 UTC
+    ts: int                          # Milliseconds since epoch, UTC
     workspace_dir: str
     agent_id: str
     session_id: str
@@ -104,10 +112,25 @@ class AuditLog:
         )
         obj._conn.row_factory = sqlite3.Row
         obj._conn.execute("PRAGMA journal_mode=WAL")
+        # Drop legacy schema where ``ts`` was TEXT (ISO 8601). Audit data
+        # written before the migration is discarded; this is acceptable
+        # while the feature is still pre-release.
+        cls._migrate_legacy_schema(obj._conn)
         obj._conn.executescript(_SCHEMA)
         obj._conn.commit()
         obj._insert_count = 0
         return obj
+
+    @staticmethod
+    def _migrate_legacy_schema(conn: sqlite3.Connection) -> None:
+        """Drop the table if its ``ts`` column was created as TEXT."""
+        cursor = conn.execute("PRAGMA table_info(audit_events)")
+        for row in cursor.fetchall():
+            # row: (cid, name, type, notnull, dflt_value, pk)
+            if row[1] == "ts" and row[2].upper() != "INTEGER":
+                conn.execute("DROP TABLE audit_events")
+                conn.commit()
+                break
 
     def close(self) -> None:
         """Close the database connection and reset the singleton."""
@@ -130,7 +153,7 @@ class AuditLog:
             "(ts, workspace_dir, agent_id, session_id, tool_name, target, decision, reason, extra) "
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
-                datetime.now(timezone.utc).isoformat(),
+                _now_unix_ms(),
                 workspace_dir,
                 tc_spec.agent_id,
                 tc_spec.session_id,
@@ -156,8 +179,8 @@ class AuditLog:
         agent_id: Optional[str] = None,
         tool_name: Optional[str] = None,
         decision: Optional[str] = None,
-        since: Optional[str] = None,
-        until: Optional[str] = None,
+        since: Optional[int] = None,
+        until: Optional[int] = None,
         limit: int = 100,
         offset: int = 0,
     ) -> Tuple[List[AuditEvent], int]:
@@ -168,8 +191,8 @@ class AuditLog:
             agent_id: Filter by agent
             tool_name: Filter by tool name
             decision: Filter by decision result
-            since: Start time (ISO 8601), inclusive
-            until: End time (ISO 8601), inclusive
+            since: Start time (unix ms, UTC), inclusive
+            until: End time (unix ms, UTC), inclusive
             limit: Page size
             offset: Offset (for pagination)
 
@@ -211,11 +234,11 @@ class AuditLog:
 
         return [_event_from_row(r) for r in rows], total
 
-    def purge(self, before: str) -> int:
+    def purge(self, before: int) -> int:
         """Delete records before the specified time and VACUUM to reclaim space.
 
         Args:
-            before: Cutoff time (ISO 8601), exclusive
+            before: Cutoff time (unix ms, UTC), exclusive
 
         Returns:
             Number of deleted records
