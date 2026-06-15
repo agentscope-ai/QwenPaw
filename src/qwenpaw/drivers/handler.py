@@ -34,6 +34,7 @@ from .contracts import (
     coerce_driver_policy,
 )
 from .policy import DriverInvocationContext, evaluate_policy
+from .time import current_policy_time
 
 logger = logging.getLogger(__name__)
 
@@ -116,6 +117,7 @@ class DriverHandler(ABC):
             target=target or PolicyTarget(),
             subjects=tuple(subjects or ()),
             request_context=dict(request_context or {}),
+            now=current_policy_time(),
             extras=dict(extras or {}),
         )
         effect = evaluate_policy(self._card.policy, context)

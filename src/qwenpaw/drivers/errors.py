@@ -3,44 +3,82 @@
 
 from __future__ import annotations
 
+from typing import Any
 
-class DriverError(Exception):
+from ..exceptions import (
+    AgentRuntimeErrorException,
+    AppBaseException,
+    ConfigurationException,
+)
+
+
+class DriverError(AppBaseException):
     """Base class for Driver subsystem errors."""
 
 
-class DriverCardError(DriverError):
+class DriverConfigurationError(ConfigurationException, DriverError):
+    """Driver configuration, declaration, or registry setup failed."""
+
+    def __init__(
+        self,
+        message: str | None = None,
+        **kwargs: Any,
+    ) -> None:
+        kwargs.setdefault("error_code", "DRIVER_CONFIGURATION_ERROR")
+        super().__init__(message=message, **kwargs)
+
+
+class DriverRuntimeError(AgentRuntimeErrorException, DriverError):
+    """Driver runtime operation failed."""
+
+    def __init__(
+        self,
+        message: str | None = None,
+        *,
+        details: dict[str, Any] | None = None,
+        **kwargs: Any,
+    ) -> None:
+        super().__init__(
+            error_code="DRIVER_RUNTIME_ERROR",
+            message=message,
+            details=details,
+            **kwargs,
+        )
+
+
+class DriverCardError(DriverConfigurationError):
     """DriverCard parse, validation, or persistence failed."""
 
 
-class DriverNotFoundError(DriverError):
+class DriverNotFoundError(DriverRuntimeError):
     def __init__(self, name: str) -> None:
         super().__init__(f"Driver not found: {name}")
         self.name = name
 
 
-class UnsupportedProtocolError(DriverError):
+class UnsupportedProtocolError(DriverConfigurationError):
     def __init__(self, protocol: str) -> None:
         super().__init__(f"Unsupported driver protocol: {protocol}")
         self.protocol = protocol
 
 
-class UnsupportedCredentialKindError(DriverError):
+class UnsupportedCredentialKindError(DriverConfigurationError):
     def __init__(self, kind: str) -> None:
         super().__init__(f"Unsupported credential kind: {kind}")
         self.kind = kind
 
 
-class DriverCredentialProviderError(DriverError):
+class DriverCredentialProviderError(DriverConfigurationError):
     """Credential provider registry/factory failed."""
 
 
-class CredentialNotFoundError(DriverError):
+class CredentialNotFoundError(DriverRuntimeError):
     def __init__(self, ref: str) -> None:
         super().__init__(f"Credential not found: {ref}")
         self.ref = ref
 
 
-class PermissionDeniedError(DriverError):
+class PermissionDeniedError(DriverRuntimeError):
     def __init__(self, driver_name: str, subject: str) -> None:
         super().__init__(f"Permission denied: {subject} -> {driver_name}")
         self.driver_name = driver_name
@@ -81,11 +119,11 @@ class DriverPermissionDeniedError(PermissionDeniedError):
         }
 
 
-class ApprovalRequiredError(DriverError):
+class ApprovalRequiredError(DriverRuntimeError):
     """Raised when policy returns ask but no approval requester is wired."""
 
 
-class OAuthRequiredError(DriverError):
+class OAuthRequiredError(DriverRuntimeError):
     def __init__(self, ref: str) -> None:
         super().__init__(f"OAuth authorization required for credential: {ref}")
         self.ref = ref

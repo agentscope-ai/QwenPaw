@@ -13,7 +13,14 @@ import logging
 from collections.abc import Awaitable, Callable
 from typing import Any
 
-from agentscope.tool import ToolBase
+from agentscope.message import (
+    Base64Source,
+    DataBlock,
+    TextBlock,
+    ToolResultState,
+)
+from agentscope.permission import PermissionBehavior, PermissionDecision
+from agentscope.tool import ToolBase, ToolChunk
 
 from ..capabilities import (
     DriverCapability,
@@ -27,8 +34,6 @@ DriverInvoker = Callable[[DriverInvocation], Awaitable[DriverInvocationResult]]
 
 
 def _text_block(text: str) -> Any:
-    from agentscope.message import TextBlock
-
     return TextBlock(type="text", text=text)
 
 
@@ -47,8 +52,6 @@ def _stringify(value: Any) -> str:
 
 
 def _blocks_from_mcp_content(content: Any) -> list[Any]:
-    from agentscope.message import Base64Source, DataBlock
-
     blocks: list[Any] = []
     for item in content or []:
         text = getattr(item, "text", None)
@@ -101,9 +104,6 @@ def _blocks_from_value(value: Any) -> list[Any]:
 
 
 def _tool_chunk_from_driver_result(result: DriverInvocationResult) -> Any:
-    from agentscope.message import ToolResultState
-    from agentscope.tool import ToolChunk
-
     if result.ok:
         value = result.value
         state = (
@@ -163,11 +163,6 @@ class DriverCapabilityTool(ToolBase):
         *_args: Any,
         **_kwargs: Any,
     ) -> Any:
-        from agentscope.permission import (
-            PermissionBehavior,
-            PermissionDecision,
-        )
-
         return PermissionDecision(
             behavior=PermissionBehavior.ALLOW,
             message="Driver capability policy is handled by Driver.",

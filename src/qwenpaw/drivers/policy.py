@@ -261,8 +261,10 @@ def _subject_scope_matches(
     subject_value = _selector_value(selector.subject_value)
     if subject_type in {POLICY_TARGET_WILDCARD, PRINCIPAL_SUBJECT_ALL}:
         return True
-    if subject_value in {"", POLICY_TARGET_WILDCARD}:
-        return subject_value == POLICY_TARGET_WILDCARD
+    if not subject_value:
+        return False
+    if subject_value == POLICY_TARGET_WILDCARD:
+        return True
     if subject_type == PRINCIPAL_SUBJECT_USER:
         return (
             _selector_value(context.request_context.get("user_id"))
