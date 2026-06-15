@@ -269,23 +269,6 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
         _maybe_collect_telemetry,
     )
 
-    # Migrations offloaded to thread pool — they do heavy file I/O.
-    # Workspace migration must finish first (others read its output).
-    # ensure_default/qa_agent both read-modify-write config.json so
-    # they stay sequential; skills migration only reads config + writes
-    # skill files so it can overlap safely.
-    logger.debug("Checking for legacy config migration...")
-    await asyncio.to_thread(migrate_legacy_workspace_to_default_agent)
-
-    async def _agent_ensures():
-        await asyncio.to_thread(ensure_default_agent_exists)
-        await asyncio.to_thread(ensure_qa_agent_exists)
-
-    await asyncio.gather(
-        _agent_ensures(),
-        asyncio.to_thread(migrate_legacy_skills_to_skill_pool),
-    )
-
     # Create core managers (instant — no I/O)
     logger.debug("Initializing MultiAgentManager...")
     multi_agent_manager = MultiAgentManager()
@@ -321,19 +304,33 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
     fast_elapsed = time.time() - startup_start_time
     logger.info(
         f"Server ready in {fast_elapsed:.3f}s "
-        f"(agents loading in background)",
+        f"(migrations and agents loading in background)",
     )
 
     # ================================================================
     # Phase 2: Background heavy initialization
-    # Agents, plugins, and services start in a background task so the
-    # server can begin accepting HTTP requests immediately.
-    # First API requests that need an agent will await its readiness
-    # via MultiAgentManager.get_agent() lazy-loading / event wait.
+    # Migrations, agents, plugins, and services start in a background task
+    # so the server can begin accepting HTTP requests immediately.
     # ================================================================
 
     async def _background_startup():  # pylint: disable=too-many-statements
         try:
+            # ---- Migrations (offloaded to thread pool) ----
+            logger.debug("Running migrations in background...")
+
+            # Workspace migration must finish first (others read its output).
+            await asyncio.to_thread(migrate_legacy_workspace_to_default_agent)
+
+            async def _agent_ensures():
+                await asyncio.to_thread(ensure_default_agent_exists)
+                await asyncio.to_thread(ensure_qa_agent_exists)
+
+            await asyncio.gather(
+                _agent_ensures(),
+                asyncio.to_thread(migrate_legacy_skills_to_skill_pool),
+            )
+            logger.debug("Migrations completed.")
+
             # ---- Parallel: agents + plugins + local model resume ----
             # These are independent and together dominate startup time.
 
@@ -343,6 +340,31 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
                 from ..config.utils import get_plugins_dir
 
                 plugin_dirs = [get_plugins_dir()]
+
+                # In conda-packed / PyInstaller environments, also scan
+                # the bundled plugins shipped with the application.
+                if getattr(sys, "frozen", False) or hasattr(sys, "_MEIPASS"):
+                    bundled_plugins = (
+                        Path(sys.executable).parent
+                        / "qwenpaw"
+                        / "plugins"
+                        / "bundle"
+                    )
+                    if not bundled_plugins.exists():
+                        # Fallback for PyInstaller onedir layout
+                        meipass = getattr(sys, "_MEIPASS", None)
+                        bundled_plugins = (
+                            Path(meipass) / "qwenpaw" / "plugins" / "bundle"
+                            if meipass
+                            else None
+                        )
+                    if bundled_plugins and bundled_plugins.exists():
+                        plugin_dirs.append(bundled_plugins)
+                        logger.debug(
+                            f"Added bundled plugins directory: "
+                            f"{bundled_plugins}",
+                        )
+
                 loader = PluginLoader(plugin_dirs)
                 loader.registry.set_plugin_http_app(app)
 
