@@ -315,6 +315,14 @@ class PathContext:
             return self.mount_dir
         if fp.startswith("/workspace/"):
             fp = fp[len("/workspace/") :]
+        if (
+            self.mount_dir.name == ARTIFACTS_DIR_NAME
+            and (
+                fp == ARTIFACTS_DIR_NAME
+                or fp.startswith(f"{ARTIFACTS_DIR_NAME}/")
+            )
+        ):
+            fp = fp[len(ARTIFACTS_DIR_NAME) :].lstrip("/")
         return (self.mount_dir / fp.lstrip("/")).resolve()
 
     def contains(self, path: Path) -> bool:
