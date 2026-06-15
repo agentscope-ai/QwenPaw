@@ -798,7 +798,7 @@ PROVIDER_DASHSCOPE = OpenAIProvider(
     models=DASHSCOPE_MODELS,
     provider_group="aliyun",
     provider_group_name="Aliyun",
-    provider_variant="open_platform",
+    provider_variant="dashscope",
     meta={
         "base_url_options": [
             {

@@ -17,6 +17,7 @@ interface ProviderGroupCardProps {
 }
 
 const VARIANT_LABELS: Record<string, string> = {
+  dashscope: "DashScope",
   open_platform: "Open Platform",
   open_platform_cn: "China",
   open_platform_intl: "International",
