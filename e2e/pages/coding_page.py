@@ -2,11 +2,19 @@
 """
 QwenPaw Coding Mode page object.
 
-Wraps the Coding Mode entry / exit toggle and the project-select modal.
-Designed for the two P0 cases:
+Wraps the Coding Mode entry / exit toggle, the project-select modal,
+the IDE shell file tree / editor tabs, and a small set of backend API
+helpers used by the test suite.
 
-- CODE-001 ``test_enter_and_exit_coding_mode``
-- CODE-002 ``test_create_empty_project_and_open``
+Cases covered:
+
+- CODE-001 P0 ``test_enter_and_exit_coding_mode``
+- CODE-002 P0 ``test_create_empty_project_and_open``
+- CODE-003 P1 ``test_open_existing_directory``
+- CODE-004 P1 ``test_chat_in_coding_mode_with_file_reference``
+- CODE-005 P1 ``test_file_tree_open_and_edit_tab``
+- CODE-006 P2 ``test_lsp_and_ast_search_tools_available``
+- CODE-007 P2 ``test_switch_project``
 
 Notes
 -----
@@ -83,6 +91,13 @@ class CodingPage(BasePage):
     # anchor on the always-present "Chat" header (also bilingual).
     IDE_CHAT_HEADER_TEXT = 'text=/^(Chat|聊天)$/'
     IDE_TOOLTIP_EXPLORER = '[role="tooltip"]:has-text("Explorer")'
+
+    # TabbedEditor placeholder text (shown when no tab is open).
+    EDITOR_EMPTY_HINT = (
+        'text=/^(Select a file to open|选择一个文件以打开)$/'
+    )
+    # Open tabs in TabbedEditor render as ``role="tab"``.
+    EDITOR_TAB = '[role="tab"]'
 
     # localStorage key used by the toggle to remember the confirm dialog.
     LS_KEY_CONFIRMED = "qwenpaw-coding-mode-confirmed"
@@ -323,3 +338,93 @@ class CodingPage(BasePage):
             return True
         except (TimeoutError, AssertionError):
             return False
+
+    # ========== Backend API helpers ==========
+    # Centralised so individual tests don't repeat URL strings or
+    # X-Agent-Id plumbing. All helpers raise AssertionError with the
+    # response body on non-2xx so failures point to the real cause.
+
+    def _agent_headers(self) -> dict:
+        return {"X-Agent-Id": self.AGENT_ID_DEFAULT}
+
+    def api_create_project(self, api_context, name: str) -> dict:
+        """POST /api/workspace/coding-project/create."""
+        resp = api_context.post(
+            "/api/workspace/coding-project/create",
+            data={"name": name},
+            headers=self._agent_headers(),
+        )
+        assert resp.ok, (
+            f"Project create failed [{resp.status}]: {resp.text()}"
+        )
+        body = resp.json()
+        assert "path" in body, f"Unexpected create response: {body}"
+        return body
+
+    def api_activate_project(self, api_context, path: str) -> dict:
+        """PUT /api/workspace/coding-project — set the active project."""
+        resp = api_context.put(
+            "/api/workspace/coding-project",
+            data={"path": path},
+            headers=self._agent_headers(),
+        )
+        assert resp.ok, (
+            f"Project activate failed [{resp.status}]: {resp.text()}"
+        )
+        return resp.json()
+
+    def api_set_coding_mode(self, api_context, enabled: bool) -> dict:
+        """POST /api/coding-mode — toggle Coding Mode on/off."""
+        resp = api_context.post(
+            "/api/coding-mode",
+            data={"enabled": enabled},
+            headers=self._agent_headers(),
+        )
+        assert resp.ok, (
+            f"Coding Mode toggle failed [{resp.status}]: {resp.text()}"
+        )
+        return resp.json()
+
+    def api_get_coding_project(self, api_context) -> dict:
+        """GET /api/workspace/coding-project — current bound project."""
+        resp = api_context.get(
+            "/api/workspace/coding-project",
+            headers=self._agent_headers(),
+        )
+        assert resp.ok, (
+            f"Coding project read failed [{resp.status}]: {resp.text()}"
+        )
+        return resp.json()
+
+    def api_list_tools(self, api_context) -> list:
+        """GET /api/tools — return list of tool names available to the agent."""
+        resp = api_context.get(
+            "/api/tools",
+            headers=self._agent_headers(),
+        )
+        assert resp.ok, f"Tools list failed [{resp.status}]: {resp.text()}"
+        body = resp.json()
+        if isinstance(body, list):
+            return [t.get("name") for t in body if isinstance(t, dict)]
+        # Defensive: some envs wrap results in {tools: [...]}.
+        if isinstance(body, dict) and isinstance(body.get("tools"), list):
+            return [t.get("name") for t in body["tools"] if isinstance(t, dict)]
+        return []
+
+    def api_save_code_file(
+        self,
+        api_context,
+        filename: str,
+        content: str,
+    ) -> None:
+        """PUT /api/workspace/code-files/<path> — write a file in the active project."""
+        # Path is URL-encoded by Playwright when passed as part of the URL.
+        url = f"/api/workspace/code-files/{filename}"
+        resp = api_context.put(
+            url,
+            data={"content": content},
+            headers=self._agent_headers(),
+        )
+        assert resp.ok, (
+            f"Code-file save failed [{resp.status}]: {resp.text()}"
+        )

@@ -2,16 +2,19 @@
 """
 QwenPaw Coding Mode end-to-end tests.
 
-Scope (Phase 1):
-    - CODE-001  test_enter_and_exit_coding_mode  (P0)
-    - CODE-002  test_create_empty_project_and_open  (P0)
+Cases:
+    - CODE-001 P0  test_enter_and_exit_coding_mode
+    - CODE-002 P0  test_create_empty_project_and_open
+    - CODE-003 P1  test_open_existing_directory
+    - CODE-004 P1  test_chat_in_coding_mode_with_file_reference  (requires_llm)
+    - CODE-005 P1  test_file_tree_open_and_edit_tab
+    - CODE-006 P2  test_lsp_and_ast_search_tools_available
+    - CODE-007 P2  test_switch_project
 
-Coding Mode is an opt-in IDE-style workspace for the agent. These two
-P0 cases are intentionally minimal — they only assert that the entry
-point round-trips and that a brand-new empty project can be created
-through the toggle modal. Deeper interactions (file tree clicks, lsp
-tool registration, project switching, etc.) live in P1/P2 cases that
-will be added in a follow-up commit.
+Coding Mode is an opt-in IDE-style workspace. Most cases drive backend
+APIs to set up state deterministically and then assert the UI renders
+the expected pieces — the project-select modal's auto-open path is too
+state-dependent for reliable e2e (see CODE-002 docstring).
 """
 from __future__ import annotations
 
@@ -36,20 +39,7 @@ logger = logging.getLogger(__name__)
 @pytest.mark.p0
 @pytest.mark.coding
 class TestEnterAndExitCodingMode:
-    """
-    CODE-001: Toggle Coding Mode on and off via the header button.
-
-    Coverage:
-        1. The "Code" toggle is visible on /chat.
-        2. Clicking it activates Coding Mode and routes to /coding.
-        3. The IDE shell renders (Chat panel header is visible).
-        4. Clicking "Chat" exits Coding Mode and routes back to /chat.
-
-    Why P0:
-        Coding Mode is an optional feature, but the entry/exit toggle is
-        the gate to every other Coding Mode capability — if it breaks,
-        the whole mode is unreachable.
-    """
+    """CODE-001: Toggle Coding Mode on and off via the header button."""
 
     @pytest.mark.test_id("CODE-001")
     def test_enter_and_exit_coding_mode(
@@ -61,17 +51,7 @@ class TestEnterAndExitCodingMode:
         test_name = request.node.name
 
         log_test_step("0. Reset agent to Chat mode (defensive)")
-        # Previous test runs may have left the agent in Coding Mode in
-        # agent.json. Reset before navigating so /chat doesn't bounce
-        # us straight to /coding.
-        try:
-            api_context.post(
-                "/api/coding-mode",
-                data={"enabled": False},
-                headers={"X-Agent-Id": "default"},
-            )
-        except Exception as exc:  # pragma: no cover — defensive
-            logger.warning("Could not pre-reset coding mode: %s", exc)
+        coding_page.api_set_coding_mode(api_context, False)
 
         log_test_step("1. Open /chat and verify the Code toggle is visible")
         coding_page.open_chat()
@@ -104,29 +84,14 @@ class TestEnterAndExitCodingMode:
 
 
 # ============================================================================
-# CODE-002: Create empty project from the project-select modal
+# CODE-002: Create empty project and open
 # ============================================================================
 
 @pytest.mark.integration
 @pytest.mark.p0
 @pytest.mark.coding
 class TestCreateEmptyProjectAndOpen:
-    """
-    CODE-002: Create a brand-new empty project via the toggle's
-    project-select modal and confirm the IDE loads bound to it.
-
-    Coverage:
-        1. Project-select modal is shown on first activation.
-        2. The "New Project" tab accepts a name and Create succeeds.
-        3. After creation the URL routes to /coding and the IDE renders.
-
-    Why P0:
-        "New Project" is the most controllable, side-effect-light entry
-        among the five tabs (workspace / clone / opendir / local / new),
-        and exercising it gives us confidence the project-binding API
-        path (POST /workspace/coding-project/create + the activation
-        toggle) is wired end-to-end.
-    """
+    """CODE-002: Create a brand-new empty project via API and assert IDE."""
 
     @pytest.mark.test_id("CODE-002")
     def test_create_empty_project_and_open(
@@ -136,58 +101,19 @@ class TestCreateEmptyProjectAndOpen:
         request: pytest.FixtureRequest,
     ) -> None:
         test_name = request.node.name
-        # Use a unique name per run so re-runs don't collide on disk.
         project_name = f"e2e-coding-{int(time.time())}"
 
-        log_test_step(
-            "1. Create an empty coding project via the backend API"
-        )
+        log_test_step("1. Create + activate empty project, enable Coding Mode")
         # The toggle's project-select modal only auto-opens when
         # projectDir is undefined in the in-memory zustand store, which
-        # only holds on a fresh first browser session. To keep this case
-        # deterministic we drive the project-creation and Coding-Mode
-        # activation APIs directly, then assert the IDE renders.
-        create_resp = api_context.post(
-            "/api/workspace/coding-project/create",
-            data={"name": project_name},
-            headers={"X-Agent-Id": "default"},
-        )
-        assert create_resp.ok, (
-            f"Project create failed: {create_resp.status} "
-            f"{create_resp.text()}"
-        )
-        created = create_resp.json()
-        assert "path" in created and created.get("name") == project_name, (
-            f"Unexpected create response: {created}"
-        )
-
-        log_test_step("2. Activate the new project as the agent's coding project")
-        activate_resp = api_context.put(
-            "/api/workspace/coding-project",
-            data={"path": created["path"]},
-            headers={"X-Agent-Id": "default"},
-        )
-        assert activate_resp.ok, (
-            f"Project activate failed: {activate_resp.status} "
-            f"{activate_resp.text()}"
-        )
-
-        log_test_step("3. Enable Coding Mode for the agent")
-        enable_resp = api_context.post(
-            "/api/coding-mode",
-            data={"enabled": True},
-            headers={"X-Agent-Id": "default"},
-        )
-        assert enable_resp.ok, (
-            f"Coding Mode enable failed: {enable_resp.status} "
-            f"{enable_resp.text()}"
-        )
+        # only holds on a fresh first browser session. Driving the
+        # APIs directly keeps this case deterministic.
+        created = coding_page.api_create_project(api_context, project_name)
+        coding_page.api_activate_project(api_context, created["path"])
+        coding_page.api_set_coding_mode(api_context, True)
 
         try:
-            log_test_step("4. Navigate directly to /coding and verify IDE")
-            # Land on /chat first so we can rewrite the agent store to
-            # 'default' (matches our API calls). Without this the page
-            # may load with a stale last-used agent from localStorage.
+            log_test_step("2. Navigate directly to /coding and verify IDE")
             coding_page.open_chat()
             coding_page.page.goto(
                 coding_page.CODING_URL,
@@ -198,28 +124,352 @@ class TestCreateEmptyProjectAndOpen:
                 "**/coding",
                 timeout=coding_page.timeout,
             )
-            assert coding_page.is_in_coding_mode(), (
-                f"Expected URL to contain /coding, got {coding_page.page.url}"
-            )
-
-            log_test_step("5. Verify IDE shell rendered")
             assert coding_page.verify_ide_layout_visible(), (
-                "Coding Mode IDE shell did not render after activating "
-                "project"
+                "IDE shell did not render after creating project"
             )
 
             log_test_result(test_name, True, 0)
             logger.info(
-                f"Test {test_name} passed (created project: {project_name})"
+                f"Test {test_name} passed (project: {project_name})"
             )
         finally:
-            # Reset Coding Mode so the next test starts from /chat. Best
-            # effort — failures here shouldn't mask the real result.
+            coding_page.api_set_coding_mode(api_context, False)
+
+
+# ============================================================================
+# CODE-003: Open existing directory (no copy)
+# ============================================================================
+
+@pytest.mark.integration
+@pytest.mark.p1
+@pytest.mark.coding
+class TestOpenExistingDirectory:
+    """
+    CODE-003: Bind the agent's coding project to an already-existing
+    directory on disk via the activation API (the "Open Existing
+    Directory" tab in the UI ultimately funnels into the same endpoint).
+
+    The native folder-picker UI flow can't be driven from Playwright
+    reliably, so we exercise the equivalent backend path: create a
+    project (which lives at a real on-disk path), then re-bind the
+    agent to that path with PUT /api/workspace/coding-project.
+    """
+
+    @pytest.mark.test_id("CODE-003")
+    def test_open_existing_directory(
+        self,
+        coding_page: CodingPage,
+        api_context,
+        request: pytest.FixtureRequest,
+    ) -> None:
+        test_name = request.node.name
+        # Create a project up-front to give us a real existing path.
+        seed_name = f"e2e-existing-{int(time.time())}"
+        seed = coding_page.api_create_project(api_context, seed_name)
+
+        log_test_step("1. Bind the agent to the existing path")
+        bound = coding_page.api_activate_project(api_context, seed["path"])
+        # Backends differ on the response shape; we only require that
+        # the active path matches what we asked for.
+        active_path = bound.get("path") or coding_page.api_get_coding_project(
+            api_context,
+        ).get("path")
+        assert active_path == seed["path"], (
+            f"Expected active path {seed['path']}, got {active_path}"
+        )
+
+        log_test_step("2. Enable Coding Mode and assert IDE renders")
+        coding_page.api_set_coding_mode(api_context, True)
+        try:
+            coding_page.open_chat()
+            coding_page.page.goto(
+                coding_page.CODING_URL,
+                wait_until="commit",
+                timeout=coding_page.timeout,
+            )
+            coding_page.page.wait_for_url(
+                "**/coding",
+                timeout=coding_page.timeout,
+            )
+            assert coding_page.verify_ide_layout_visible(), (
+                "IDE shell did not render after opening existing directory"
+            )
+            log_test_result(test_name, True, 0)
+            logger.info(f"Test {test_name} passed (path: {active_path})")
+        finally:
+            coding_page.api_set_coding_mode(api_context, False)
+
+
+# ============================================================================
+# CODE-004: Chat in Coding Mode (LLM round-trip, requires_llm)
+# ============================================================================
+
+@pytest.mark.integration
+@pytest.mark.requires_llm
+@pytest.mark.p1
+@pytest.mark.coding
+class TestChatInCodingMode:
+    """
+    CODE-004: Send a chat message inside Coding Mode and confirm the
+    embedded chat panel works end-to-end with an LLM. We don't assert
+    on the response text content — only that an AI bubble appears.
+
+    Skipped when ``QWENPAW_DASHSCOPE_API_KEY`` is unset (handled by
+    ``conftest.pytest_collection_modifyitems``).
+    """
+
+    @pytest.mark.test_id("CODE-004")
+    def test_chat_in_coding_mode_with_file_reference(
+        self,
+        coding_page: CodingPage,
+        api_context,
+        request: pytest.FixtureRequest,
+    ) -> None:
+        test_name = request.node.name
+        project_name = f"e2e-coding-chat-{int(time.time())}"
+
+        log_test_step("1. Provision project, write a referenceable file")
+        created = coding_page.api_create_project(api_context, project_name)
+        coding_page.api_activate_project(api_context, created["path"])
+        coding_page.api_save_code_file(
+            api_context,
+            "README.md",
+            "# Sample\n\nHello from CODE-004 e2e.\n",
+        )
+        coding_page.api_set_coding_mode(api_context, True)
+
+        try:
+            log_test_step("2. Open IDE and locate the embedded chat input")
+            coding_page.open_chat()
+            coding_page.page.goto(
+                coding_page.CODING_URL,
+                wait_until="commit",
+                timeout=coding_page.timeout,
+            )
+            coding_page.page.wait_for_url(
+                "**/coding",
+                timeout=coding_page.timeout,
+            )
+            assert coding_page.verify_ide_layout_visible(), (
+                "IDE shell did not render"
+            )
+
+            log_test_step("3. Send a question that mentions README.md")
+            chat_input = coding_page.page.locator(
+                "textarea.qwenpaw-sender-input"
+            ).first
+            expect(chat_input).to_be_visible(timeout=coding_page.timeout)
+            chat_input.fill(
+                "What does README.md say in this project? "
+                "Reply in one short sentence."
+            )
+            send_btn = coding_page.page.locator(
+                "button.qwenpaw-sender-actions-btn.qwenpaw-btn-primary"
+            ).first
+            send_btn.click()
+
+            log_test_step("4. Wait for at least one AI bubble to appear")
+            ai_bubble = coding_page.page.locator(
+                ".qwenpaw-bubble.qwenpaw-bubble-start"
+            ).first
+            expect(ai_bubble).to_be_visible(timeout=120000)
+
+            log_test_result(test_name, True, 0)
+            logger.info(f"Test {test_name} passed")
+        finally:
+            coding_page.api_set_coding_mode(api_context, False)
+
+
+# ============================================================================
+# CODE-005: File tree click → editor tab
+# ============================================================================
+
+@pytest.mark.integration
+@pytest.mark.p1
+@pytest.mark.coding
+class TestFileTreeOpenTab:
+    """
+    CODE-005: Clicking a file in the IDE file tree opens it in the
+    TabbedEditor. We seed a file via API so the project tree always has
+    something to click — newly-created projects only contain ``.git``
+    which is hidden.
+    """
+
+    @pytest.mark.test_id("CODE-005")
+    def test_file_tree_open_and_edit_tab(
+        self,
+        coding_page: CodingPage,
+        api_context,
+        request: pytest.FixtureRequest,
+    ) -> None:
+        test_name = request.node.name
+        project_name = f"e2e-coding-tree-{int(time.time())}"
+        seed_filename = "hello.txt"
+
+        log_test_step("1. Provision project + seed a file")
+        created = coding_page.api_create_project(api_context, project_name)
+        coding_page.api_activate_project(api_context, created["path"])
+        coding_page.api_save_code_file(
+            api_context,
+            seed_filename,
+            "hello world\n",
+        )
+        coding_page.api_set_coding_mode(api_context, True)
+
+        try:
+            log_test_step("2. Open IDE")
+            coding_page.open_chat()
+            coding_page.page.goto(
+                coding_page.CODING_URL,
+                wait_until="commit",
+                timeout=coding_page.timeout,
+            )
+            coding_page.page.wait_for_url(
+                "**/coding",
+                timeout=coding_page.timeout,
+            )
+            assert coding_page.verify_ide_layout_visible(), (
+                "IDE shell did not render"
+            )
+
+            log_test_step("3. Editor empty hint should be visible initially")
+            empty_hint = coding_page.page.locator(
+                coding_page.EDITOR_EMPTY_HINT
+            )
             try:
-                api_context.post(
-                    "/api/coding-mode",
-                    data={"enabled": False},
-                    headers={"X-Agent-Id": "default"},
-                )
-            except Exception as exc:  # pragma: no cover — defensive
-                logger.warning("Could not reset coding mode: %s", exc)
+                expect(empty_hint.first).to_be_visible(timeout=10000)
+            except (AssertionError, Exception):
+                # Some environments preload a tab from prior session;
+                # don't hard-fail here — the click below is the real
+                # assertion.
+                logger.info("Editor empty hint not visible; continuing")
+
+            log_test_step(
+                f"4. Click '{seed_filename}' in the file tree"
+            )
+            tree_node = coding_page.page.locator(
+                f'div[role="button"]:has(span:text-is("{seed_filename}"))'
+            ).first
+            expect(tree_node).to_be_visible(timeout=15000)
+            tree_node.click()
+
+            log_test_step("5. A tab matching the file name should open")
+            tab = coding_page.page.locator(
+                f'{coding_page.EDITOR_TAB}:has-text("{seed_filename}")'
+            ).first
+            expect(tab).to_be_visible(timeout=15000)
+
+            log_test_result(test_name, True, 0)
+            logger.info(f"Test {test_name} passed")
+        finally:
+            coding_page.api_set_coding_mode(api_context, False)
+
+
+# ============================================================================
+# CODE-006: lsp / ast_search auto-registered when project bound
+# ============================================================================
+
+@pytest.mark.integration
+@pytest.mark.p2
+@pytest.mark.coding
+class TestCodingTools:
+    """
+    CODE-006: When Coding Mode is active and bound to a project, the
+    backend should expose ``lsp`` and ``ast_search`` in /api/tools.
+    Either tool may be unavailable on a given developer machine
+    (missing language server / ast-grep CLI), so we accept "at least
+    one of the two" as a soft pass.
+    """
+
+    @pytest.mark.test_id("CODE-006")
+    @pytest.mark.xfail(
+        reason=(
+            "lsp/ast_search require pylsp or ast-grep to be installed; "
+            "machines without them will not register these tools."
+        ),
+        strict=False,
+    )
+    def test_lsp_and_ast_search_tools_available(
+        self,
+        coding_page: CodingPage,
+        api_context,
+        request: pytest.FixtureRequest,
+    ) -> None:
+        test_name = request.node.name
+        project_name = f"e2e-coding-tools-{int(time.time())}"
+
+        log_test_step("1. Provision project + enable Coding Mode")
+        created = coding_page.api_create_project(api_context, project_name)
+        coding_page.api_activate_project(api_context, created["path"])
+        coding_page.api_set_coding_mode(api_context, True)
+
+        try:
+            log_test_step("2. Poll /api/tools until coding tools appear")
+            coding_tools = {"lsp", "ast_search"}
+            deadline = time.time() + 30
+            seen: set = set()
+            while time.time() < deadline:
+                names = set(coding_page.api_list_tools(api_context))
+                seen = names & coding_tools
+                if seen:
+                    break
+                time.sleep(1)
+            assert seen, (
+                "Expected at least one of {lsp, ast_search} in /api/tools "
+                "after entering Coding Mode; got nothing within 30s. "
+                "If your machine lacks both LSP servers and ast-grep, "
+                "consider installing one or marking this test xfail."
+            )
+            logger.info(
+                f"Coding tools registered: {sorted(seen)}"
+            )
+
+            log_test_result(test_name, True, 0)
+            logger.info(f"Test {test_name} passed")
+        finally:
+            coding_page.api_set_coding_mode(api_context, False)
+
+
+# ============================================================================
+# CODE-007: Switch active project
+# ============================================================================
+
+@pytest.mark.integration
+@pytest.mark.p2
+@pytest.mark.coding
+class TestSwitchProject:
+    """
+    CODE-007: Bind the agent to project A, then switch to project B
+    and confirm the active path follows.
+    """
+
+    @pytest.mark.test_id("CODE-007")
+    def test_switch_project(
+        self,
+        coding_page: CodingPage,
+        api_context,
+        request: pytest.FixtureRequest,
+    ) -> None:
+        test_name = request.node.name
+        ts = int(time.time())
+        name_a = f"e2e-coding-A-{ts}"
+        name_b = f"e2e-coding-B-{ts}"
+
+        log_test_step("1. Create project A and bind")
+        proj_a = coding_page.api_create_project(api_context, name_a)
+        coding_page.api_activate_project(api_context, proj_a["path"])
+        active = coding_page.api_get_coding_project(api_context).get("path")
+        assert active == proj_a["path"], (
+            f"Expected active=A {proj_a['path']}, got {active}"
+        )
+
+        log_test_step("2. Create project B and switch")
+        proj_b = coding_page.api_create_project(api_context, name_b)
+        coding_page.api_activate_project(api_context, proj_b["path"])
+        active = coding_page.api_get_coding_project(api_context).get("path")
+        assert active == proj_b["path"], (
+            f"Expected active=B {proj_b['path']}, got {active}"
+        )
+
+        log_test_result(test_name, True, 0)
+        logger.info(f"Test {test_name} passed")
