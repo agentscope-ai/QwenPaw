@@ -22,7 +22,7 @@ def test_backend_starts_in_parallel_with_window():
     call_log = []
     lock = threading.Lock()
 
-    def mock_backend_start(*args, **kwargs):
+    def mock_backend_start(*args, **kwargs):  # pylint: disable=unused-argument
         with lock:
             call_log.append(("backend_start", time.time()))
         # Simulate slow backend startup
@@ -30,7 +30,7 @@ def test_backend_starts_in_parallel_with_window():
         with lock:
             call_log.append(("backend_start_done", time.time()))
 
-    def mock_create_window(*args, **kwargs):
+    def mock_create_window(*args, **kwargs):  # pylint: disable=unused-argument
         with lock:
             call_log.append(("create_window", time.time()))
         # Simulate window creation
@@ -38,7 +38,7 @@ def test_backend_starts_in_parallel_with_window():
         with lock:
             call_log.append(("create_window_done", time.time()))
 
-    def mock_webview_start(*args, **kwargs):
+    def mock_webview_start(*args, **kwargs):  # pylint: disable=unused-argument
         # Immediately return to avoid blocking
         with lock:
             call_log.append(("webview_start", time.time()))
@@ -112,17 +112,17 @@ def test_backend_failure_does_not_block_window():
     call_log = []
     lock = threading.Lock()
 
-    def mock_backend_start(*args, **kwargs):
+    def mock_backend_start(*args, **kwargs):  # pylint: disable=unused-argument
         with lock:
             call_log.append(("backend_start", time.time()))
         # Simulate immediate failure
         raise RuntimeError("Backend failed")
 
-    def mock_create_window(*args, **kwargs):
+    def mock_create_window(*args, **kwargs):  # pylint: disable=unused-argument
         with lock:
             call_log.append(("create_window", time.time()))
 
-    def mock_webview_start(*args, **kwargs):
+    def mock_webview_start(*args, **kwargs):  # pylint: disable=unused-argument
         with lock:
             call_log.append(("webview_start", time.time()))
 

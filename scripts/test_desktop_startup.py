@@ -39,40 +39,41 @@ def test_desktop_startup():
         text=True,
         cwd=str(repo_root),
     ) as proc:
+        # Wait for window creation (look for "Opening webview" in logs)
+        window_created = False
+        backend_started = False
 
-    # Wait for window creation (look for "Opening webview" in logs)
-    window_created = False
-    backend_started = False
-
-    try:
-        for line in proc.stderr:
-            elapsed = time.time() - start_time
-
-            if "Opening webview with loading page" in line:
-                window_created = True
-                status = "FAST (<2s)" if elapsed < 2 else "SLOW (>2s)"
-                print(f"\n[OK] Window created at {elapsed:.2f}s -> {status}")
-
-            if "Backend subprocess started" in line:
-                backend_started = True
-                print(f"[OK] Backend started at {elapsed:.2f}s")
-
-            # Stop after both events or timeout
-            if window_created and backend_started:
-                break
-
-            if elapsed > 15:  # 15s timeout
-                print(f"\n[!] Timeout after {elapsed:.2f}s")
-                break
-    except Exception as e:
-        print(f"\n[!] Error reading stderr: {e}")
-    finally:
-        # Terminate the process
-        proc.terminate()
         try:
-            proc.wait(timeout=5)
-        except subprocess.TimeoutExpired:
-            proc.kill()
+            for line in proc.stderr:
+                elapsed = time.time() - start_time
+
+                if "Opening webview with loading page" in line:
+                    window_created = True
+                    status = "FAST (<2s)" if elapsed < 2 else "SLOW (>2s)"
+                    print(
+                        f"\n[OK] Window created at {elapsed:.2f}s -> {status}",
+                    )
+
+                if "Backend subprocess started" in line:
+                    backend_started = True
+                    print(f"[OK] Backend started at {elapsed:.2f}s")
+
+                # Stop after both events or timeout
+                if window_created and backend_started:
+                    break
+
+                if elapsed > 15:  # 15s timeout
+                    print(f"\n[!] Timeout after {elapsed:.2f}s")
+                    break
+        except Exception as e:
+            print(f"\n[!] Error reading stderr: {e}")
+        finally:
+            # Terminate the process
+            proc.terminate()
+            try:
+                proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                proc.kill()
 
     print("\n" + "=" * 60)
     if window_created:

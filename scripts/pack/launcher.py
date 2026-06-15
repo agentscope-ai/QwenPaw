@@ -119,6 +119,9 @@ class QwenPawLauncher:
             "--log-level", "info",
         ]
 
+        # pylint: disable=consider-using-with
+        # Cannot use 'with' here: process must live beyond this method
+        # so it can be terminated in the finally block of run().
         self.backend_process = subprocess.Popen(
             cmd,
             env=env,
@@ -165,6 +168,8 @@ class QwenPawLauncher:
             f"webview.start()"
         )
 
+        # pylint: disable=consider-using-with
+        # Short-lived process; no cleanup needed beyond return.
         app_process = subprocess.Popen(
             [python_exe, "-c", webview_script],
         )
