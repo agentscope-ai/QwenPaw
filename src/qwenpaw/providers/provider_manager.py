@@ -796,6 +796,9 @@ PROVIDER_DASHSCOPE = OpenAIProvider(
     base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
     api_key_prefix="sk",
     models=DASHSCOPE_MODELS,
+    provider_group="aliyun",
+    provider_group_name="Aliyun",
+    provider_variant="open_platform",
     meta={
         "base_url_options": [
             {
@@ -823,9 +826,11 @@ PROVIDER_ALIYUN_CODINGPLAN = OpenAIProvider(
     base_url="https://coding.dashscope.aliyuncs.com/v1",
     api_key_prefix="sk-sp",
     models=ALIYUN_CODINGPLAN_MODELS,
-    # This provider doesn't support connection check without model config
     support_connection_check=False,
     freeze_url=True,
+    provider_group="aliyun",
+    provider_group_name="Aliyun",
+    provider_variant="coding_plan_cn",
 )
 
 PROVIDER_ALIYUN_CODINGPLAN_INTL = OpenAIProvider(
@@ -834,21 +839,26 @@ PROVIDER_ALIYUN_CODINGPLAN_INTL = OpenAIProvider(
     base_url="https://coding-intl.dashscope.aliyuncs.com/v1",
     api_key_prefix="sk-sp",
     models=ALIYUN_CODINGPLAN_MODELS,
-    # This provider doesn't support connection check without model config
     support_connection_check=False,
     freeze_url=True,
+    provider_group="aliyun",
+    provider_group_name="Aliyun",
+    provider_variant="coding_plan_intl",
 )
 
 PROVIDER_ALIYUN_TOKENPLAN = OpenAIProvider(
     id="aliyun-tokenplan",
     name="Aliyun Token Plan",
     base_url=(
-        "https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1"
+        "https://token-plan.cn-beijing.maas.aliyuncs.com/" "compatible-mode/v1"
     ),
     api_key_prefix="sk-sp",
     models=ALIYUN_TOKENPLAN_MODELS,
     support_connection_check=False,
     freeze_url=True,
+    provider_group="aliyun",
+    provider_group_name="Aliyun",
+    provider_variant="token_plan",
 )
 
 PROVIDER_ZHIPU_CN = OpenAIProvider(
@@ -858,6 +868,9 @@ PROVIDER_ZHIPU_CN = OpenAIProvider(
     api_key_prefix="",
     models=ZHIPU_MODELS,
     freeze_url=True,
+    provider_group="zhipu",
+    provider_group_name="Zhipu",
+    provider_variant="open_platform_cn",
     meta={"is_free_tier": True},
 )
 
@@ -869,6 +882,9 @@ PROVIDER_ZHIPU_CN_CODINGPLAN = OpenAIProvider(
     models=ZHIPU_MODELS,
     freeze_url=True,
     support_connection_check=False,
+    provider_group="zhipu",
+    provider_group_name="Zhipu",
+    provider_variant="coding_plan_cn",
 )
 
 PROVIDER_ZHIPU_INTL = OpenAIProvider(
@@ -878,6 +894,9 @@ PROVIDER_ZHIPU_INTL = OpenAIProvider(
     api_key_prefix="",
     models=ZHIPU_MODELS,
     freeze_url=True,
+    provider_group="zhipu",
+    provider_group_name="Zhipu",
+    provider_variant="open_platform_intl",
 )
 
 PROVIDER_ZHIPU_INTL_CODINGPLAN = OpenAIProvider(
@@ -888,6 +907,9 @@ PROVIDER_ZHIPU_INTL_CODINGPLAN = OpenAIProvider(
     models=ZHIPU_MODELS,
     freeze_url=True,
     support_connection_check=False,
+    provider_group="zhipu",
+    provider_group_name="Zhipu",
+    provider_variant="coding_plan_intl",
 )
 
 PROVIDER_QWENPAW = OpenAIProvider(
@@ -948,8 +970,10 @@ PROVIDER_MINIMAX = AnthropicProvider(
     models=MINIMAX_MODELS,
     chat_model="AnthropicChatModel",
     freeze_url=True,
-    # This provider doesn't support connection check without model config
     support_connection_check=False,
+    provider_group="minimax",
+    provider_group_name="MiniMax",
+    provider_variant="open_platform_intl",
 )
 
 PROVIDER_MINIMAX_CN = AnthropicProvider(
@@ -959,8 +983,10 @@ PROVIDER_MINIMAX_CN = AnthropicProvider(
     models=MINIMAX_MODELS,
     chat_model="AnthropicChatModel",
     freeze_url=True,
-    # This provider doesn't support connection check without model config
     support_connection_check=False,
+    provider_group="minimax",
+    provider_group_name="MiniMax",
+    provider_variant="open_platform_cn",
 )
 
 PROVIDER_KIMI_CN = OpenAIProvider(
@@ -970,6 +996,9 @@ PROVIDER_KIMI_CN = OpenAIProvider(
     api_key_prefix="",
     models=KIMI_MODELS,
     freeze_url=True,
+    provider_group="kimi",
+    provider_group_name="Kimi",
+    provider_variant="open_platform_cn",
 )
 
 PROVIDER_KIMI_INTL = OpenAIProvider(
@@ -979,6 +1008,32 @@ PROVIDER_KIMI_INTL = OpenAIProvider(
     api_key_prefix="",
     models=KIMI_MODELS,
     freeze_url=True,
+    provider_group="kimi",
+    provider_group_name="Kimi",
+    provider_variant="open_platform_intl",
+)
+
+KIMI_CODINGPLAN_MODELS: List[ModelInfo] = [
+    ModelInfo(
+        id="kimi-for-coding",
+        name="Kimi for Coding",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+    ),
+]
+
+PROVIDER_KIMI_CODINGPLAN = OpenAIProvider(
+    id="kimi-codingplan",
+    name="Kimi Coding Plan",
+    base_url="https://api.kimi.com/coding/v1",
+    api_key_prefix="sk-kimi-",
+    models=KIMI_CODINGPLAN_MODELS,
+    freeze_url=True,
+    support_connection_check=False,
+    provider_group="kimi",
+    provider_group_name="Kimi",
+    provider_variant="coding_plan",
 )
 
 PROVIDER_DEEPSEEK = OpenAIProvider(
@@ -1102,6 +1157,9 @@ PROVIDER_SILICONFLOW_CN = OpenAIProvider(
     models=[],
     freeze_url=True,
     require_api_key=True,
+    provider_group="siliconflow",
+    provider_group_name="SiliconFlow",
+    provider_variant="china",
     meta={
         "is_free_tier": True,
     },
@@ -1115,6 +1173,9 @@ PROVIDER_SILICONFLOW_INTL = OpenAIProvider(
     models=[],
     freeze_url=True,
     require_api_key=True,
+    provider_group="siliconflow",
+    provider_group_name="SiliconFlow",
+    provider_variant="international",
     meta={
         "is_free_tier": True,
     },
@@ -1128,6 +1189,9 @@ PROVIDER_VOLCENGINE_CN = OpenAIProvider(
     models=VOLCENGINE_MODELS,
     freeze_url=True,
     support_model_discovery=False,
+    provider_group="volcengine",
+    provider_group_name="Volcano Engine",
+    provider_variant="open_platform",
 )
 
 PROVIDER_VOLCENGINE_CN_CODINGPLAN = OpenAIProvider(
@@ -1139,6 +1203,9 @@ PROVIDER_VOLCENGINE_CN_CODINGPLAN = OpenAIProvider(
     support_connection_check=False,
     freeze_url=True,
     support_model_discovery=False,
+    provider_group="volcengine",
+    provider_group_name="Volcano Engine",
+    provider_variant="coding_plan",
 )
 
 PROVIDER_MIMO_TOKENPLAN = OpenAIProvider(
@@ -1211,6 +1278,7 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
         self._add_builtin(PROVIDER_DEEPSEEK)
         self._add_builtin(PROVIDER_KIMI_CN)
         self._add_builtin(PROVIDER_KIMI_INTL)
+        self._add_builtin(PROVIDER_KIMI_CODINGPLAN)
         self._add_builtin(PROVIDER_MINIMAX_CN)
         self._add_builtin(PROVIDER_MINIMAX)
         self._add_builtin(PROVIDER_ZHIPU_CN)

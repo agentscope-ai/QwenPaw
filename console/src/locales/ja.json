@@ -1118,6 +1118,8 @@
     "builtin": "組み込み",
     "freeTierGroup": "無料枠",
     "paidGroup": "有料",
+    "localCustomGroup": "ローカル & カスタム",
+    "endpointCount": "{{count}} エンドポイント",
     "connect": "OAuth",
     "saveApiKey": "保存",
     "addProvider": "プロバイダーを追加",

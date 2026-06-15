@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { SaveOutlined } from "@ant-design/icons";
-import { Select, Button, Card } from "@agentscope-ai/design";
+import { Select, Button } from "@agentscope-ai/design";
 import type { ModelSlotRequest } from "../../../../../api/types";
 import api from "../../../../../api";
 import { useTranslation } from "react-i18next";
@@ -133,10 +133,15 @@ export const ModelsSection = React.memo(function ModelsSection({
   const canSave = dirty && !!selectedProviderId && !!selectedModel;
 
   return (
-    <Card className={styles.slotSection} title={t("models.defaultLlm")}>
+    <div className={styles.defaultLlmBody}>
+      <p className={styles.llmDescription}>
+        {t("models.llmDescription")}
+      </p>
       <div className={styles.slotForm}>
         <div className={styles.slotField}>
-          <label className={styles.slotLabel}>{t("models.provider")}</label>
+          <label className={styles.slotLabel}>
+            {t("models.provider")}
+          </label>
           <Select
             style={{ width: "100%" }}
             placeholder={t("models.selectProvider")}
@@ -150,11 +155,15 @@ export const ModelsSection = React.memo(function ModelsSection({
         </div>
 
         <div className={styles.slotField}>
-          <label className={styles.slotLabel}>{t("models.model")}</label>
+          <label className={styles.slotLabel}>
+            {t("models.model")}
+          </label>
           <Select
             style={{ width: "100%" }}
             placeholder={
-              hasModels ? t("models.selectModel") : t("models.addModelFirst")
+              hasModels
+                ? t("models.selectModel")
+                : t("models.addModelFirst")
             }
             disabled={!hasModels}
             showSearch
@@ -168,9 +177,17 @@ export const ModelsSection = React.memo(function ModelsSection({
           />
         </div>
 
-        <div className={[styles.slotField, styles.slotActionField].join(" ")}>
+        <div
+          className={[
+            styles.slotField,
+            styles.slotActionField,
+          ].join(" ")}
+        >
           <label
-            className={[styles.slotLabel, styles.visuallyHiddenLabel].join(" ")}
+            className={[
+              styles.slotLabel,
+              styles.visuallyHiddenLabel,
+            ].join(" ")}
           >
             {t("models.actions")}
           </label>
@@ -186,7 +203,6 @@ export const ModelsSection = React.memo(function ModelsSection({
           </Button>
         </div>
       </div>
-      <p className={styles.slotDescription}>{t("models.llmDescription")}</p>
-    </Card>
+    </div>
   );
 });

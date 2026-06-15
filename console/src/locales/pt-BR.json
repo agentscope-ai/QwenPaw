@@ -1321,6 +1321,8 @@
     "builtin": "Integrado",
     "freeTierGroup": "Gratuito",
     "paidGroup": "Pago",
+    "localCustomGroup": "Local e Personalizado",
+    "endpointCount": "{{count}} endpoints",
     "connect": "OAuth",
     "saveApiKey": "Salvar",
     "addProvider": "Adicionar Provedor",
