@@ -11,6 +11,8 @@ CONSOLE_DEST="$REPO_ROOT/src/qwenpaw/console"
 
 echo "[wheel_build] Building console frontend..."
 (cd "$CONSOLE_DIR" && npm ci)
+# Increase Node.js memory limit for large builds (GitHub Actions macOS runner)
+export NODE_OPTIONS="--max-old-space-size=4096"
 (cd "$CONSOLE_DIR" && npm run build)
 
 echo "[wheel_build] Copying console/dist/* -> src/qwenpaw/console/..."
