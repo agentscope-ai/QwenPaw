@@ -24,6 +24,7 @@ import type {
   ChatCardItem,
   ChatListField,
   ChatNodeItem,
+  ChatRequestPayloadTransformItem,
   ChatRequestSlotFn,
   ChatResponseSlotFn,
   ChatScalarField,
@@ -125,6 +126,7 @@ export interface ChatListSnapshot {
   customToolRender: ListEntry<ChatToolRendererItem>[];
   "request.prepend": ListEntry<ChatSlotItem<ChatRequestSlotFn>>[];
   "request.append": ListEntry<ChatSlotItem<ChatRequestSlotFn>>[];
+  "request.payloadTransforms": ListEntry<ChatRequestPayloadTransformItem>[];
   "response.prepend": ListEntry<ChatSlotItem<ChatResponseSlotFn>>[];
   "response.append": ListEntry<ChatSlotItem<ChatResponseSlotFn>>[];
 }
@@ -150,6 +152,7 @@ class ChatExtensionsRegistry {
     customToolRender: [],
     "request.prepend": [],
     "request.append": [],
+    "request.payloadTransforms": [],
     "response.prepend": [],
     "response.append": [],
   };
@@ -294,6 +297,13 @@ class ChatExtensionsRegistry {
     item: ChatSlotItem<ChatRequestSlotFn>,
   ): Disposable {
     return this.addToList("request.append", pluginId, item);
+  }
+
+  addRequestPayloadTransform(
+    pluginId: string,
+    item: ChatRequestPayloadTransformItem,
+  ): Disposable {
+    return this.addToList("request.payloadTransforms", pluginId, item);
   }
 
   addResponsePrepend(
@@ -455,6 +465,8 @@ class ChatExtensionsRegistry {
       customToolRender: this.listMaps.customToolRender.slice(),
       "request.prepend": this.listMaps["request.prepend"].slice(),
       "request.append": this.listMaps["request.append"].slice(),
+      "request.payloadTransforms":
+        this.listMaps["request.payloadTransforms"].slice(),
       "response.prepend": this.listMaps["response.prepend"].slice(),
       "response.append": this.listMaps["response.append"].slice(),
     };
@@ -484,6 +496,9 @@ class ChatExtensionsRegistry {
     }
     if (field === "sender.suggestions") {
       return (item as ChatSuggestionsItem).id;
+    }
+    if (field === "request.payloadTransforms") {
+      return (item as { id?: string }).id ?? "(no id)";
     }
     return (item as ChatNodeItem).id ?? "(no id)";
   }

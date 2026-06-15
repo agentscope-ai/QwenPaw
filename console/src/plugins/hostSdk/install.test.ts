@@ -134,6 +134,27 @@ describe("window.QwenPaw.chat.rightHeader / actions", () => {
   });
 });
 
+describe("window.QwenPaw.chat.requestPayload", () => {
+  it("add writes a request payload transform list entry", () => {
+    const transform = ({ payload }: { payload: Record<string, unknown> }) => ({
+      ...payload,
+      request_context: { source: "test" },
+    });
+
+    window.QwenPaw.chat!.requestPayload.add("p1", transform, {
+      id: "p1.payload",
+      order: 25,
+    });
+
+    const list = chatExtensions.getListSnapshot()["request.payloadTransforms"];
+    expect(list).toHaveLength(1);
+    expect(list[0].pluginId).toBe("p1");
+    expect(list[0].item.id).toBe("p1.payload");
+    expect(list[0].item.order).toBe(25);
+    expect(list[0].item.transform).toBe(transform);
+  });
+});
+
 describe("window.QwenPaw.host.* hooks attached", () => {
   it("attaches the four hooks + fetch + imperative getters", () => {
     expect(typeof window.QwenPaw.host.useTheme).toBe("function");

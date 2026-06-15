@@ -18,6 +18,8 @@ import { ChatScalar } from "../registry/slotKeys";
 import type {
   ChatActionSpec,
   ChatNodeItem,
+  ChatRequestPayloadTransform,
+  ChatRequestPayloadTransformItem,
   ChatRequestRenderFn,
   ChatRequestSlotFn,
   ChatResponseRenderFn,
@@ -102,6 +104,13 @@ export interface QwenPawChatNamespace {
   };
   actions: { add(pluginId: string, spec: ChatActionSpec): Disposable };
   requestActions: { add(pluginId: string, spec: ChatActionSpec): Disposable };
+  requestPayload: {
+    add(
+      pluginId: string,
+      fn: ChatRequestPayloadTransform,
+      opts?: { id?: string; order?: number },
+    ): Disposable;
+  };
   request: {
     /** Whole-bubble replacement for the user request card. Wins over host default; prepend/append still render around it. */
     render(pluginId: string, fn: ChatRequestRenderFn): Disposable;
@@ -277,6 +286,16 @@ function makeChatNamespace(): QwenPawChatNamespace {
     actions: { add: (pid, action) => chatExtensions.addAction(pid, action) },
     requestActions: {
       add: (pid, action) => chatExtensions.addRequestAction(pid, action),
+    },
+    requestPayload: {
+      add: (pid, fn, opts) => {
+        const item: ChatRequestPayloadTransformItem = {
+          id: opts?.id ?? anonId(`${pid}.request.payloadTransform`),
+          transform: fn,
+          order: opts?.order,
+        };
+        return chatExtensions.addRequestPayloadTransform(pid, item);
+      },
     },
     request: {
       render: (pid, fn) =>

@@ -241,6 +241,12 @@ function useIMEComposition(isChatActive: () => boolean) {
   return isComposingRef;
 }
 
+function sortByOrder<T extends { item: { order?: number } }>(arr: T[]): T[] {
+  return arr
+    .slice()
+    .sort((a, b) => (a.item.order ?? 100) - (b.item.order ?? 100));
+}
+
 /** Fetch and track multimodal capabilities for the active model. */
 function useMultimodalCapabilities(
   refreshKey: number,
@@ -1235,7 +1241,7 @@ export default function ChatPage() {
             ]
           : lastInput;
 
-      const requestBody = {
+      let requestBody: Record<string, unknown> = {
         input: rewrittenInput,
         session_id: window.currentSessionId || session?.session_id || "",
         user_id: window.currentUserId || session?.user_id || DEFAULT_USER_ID,
@@ -1244,10 +1250,23 @@ export default function ChatPage() {
         ...biz_params,
       };
 
+      for (const entry of sortByOrder(
+        extLists[ChatList.requestPayloadTransforms],
+      )) {
+        const next = entry.item.transform({
+          payload: requestBody,
+          sessionId: String(requestBody.session_id || ""),
+          selectedAgent,
+        });
+        if (next && typeof next === "object") {
+          requestBody = next;
+        }
+      }
+
       const backendChatId =
-        sessionApi.getRealIdForSession(requestBody.session_id) ??
+        sessionApi.getRealIdForSession(String(requestBody.session_id || "")) ??
         chatIdRef.current ??
-        requestBody.session_id;
+        String(requestBody.session_id || "");
       if (backendChatId) {
         const userText = rewrittenInput
           .filter((m: any) => m.role === "user")
@@ -1268,7 +1287,7 @@ export default function ChatPage() {
 
       return response;
     },
-    [selectedAgent],
+    [extLists, selectedAgent],
   );
 
   const handleFileUpload = useCallback(
@@ -1420,9 +1439,6 @@ export default function ChatPage() {
           </PluginSlotBoundary>
         )
       : undefined;
-
-    const sortByOrder = <T extends { item: { order?: number } }>(arr: T[]) =>
-      arr.slice().sort((a, b) => (a.item.order ?? 100) - (b.item.order ?? 100));
 
     const pluginRightHeader = sortByOrder(extLists[ChatList.rightHeader]).map(
       (e) => (
