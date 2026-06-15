@@ -47,11 +47,10 @@ function ModelsPage() {
     providers: ProviderInfo[];
   } | null>(null);
   const [llmModalOpen, setLlmModalOpen] = useState(false);
-  const [activeTab, setActiveTab] = useState<"cloud" | "local">(
-    () =>
-      (localStorage.getItem("models_tab") as "cloud" | "local") ||
-      "cloud",
-  );
+  const [activeTab, setActiveTab] = useState<"cloud" | "local">(() => {
+    const stored = localStorage.getItem("models_tab");
+    return stored === "local" ? "local" : "cloud";
+  });
 
   // Auto-open provider config modal from URL param
   useEffect(() => {
