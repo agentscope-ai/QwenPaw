@@ -46,6 +46,7 @@ export interface TaskNode {
   state: NodeStatus;
   started_at?: string;
   finished_at?: string | null;
+  trace?: TraceItem[];
   output?: NodeOutput;
   outcome?: string | null;
   error?: string | null;

@@ -2,6 +2,7 @@ import { getApiUrl } from "../config";
 import { buildAuthHeaders } from "../authHeaders";
 import { request } from "../request";
 import type { PlanSnapshot } from "../../pages/Chat/components/TaskGraphPanel/types";
+import { resolveTaskApiSessionId } from "../../pages/Chat/lib/taskApiSession";
 
 export interface HistoricalPlanSummary {
   id: string;
@@ -42,7 +43,8 @@ export interface TaskMutationResponse {
 }
 
 function tasksPath(sessionId: string, suffix = ""): string {
-  const encoded = encodeURIComponent(sessionId);
+  const resolved = resolveTaskApiSessionId(sessionId) || sessionId;
+  const encoded = encodeURIComponent(resolved);
   return `/tasks/${encoded}${suffix}`;
 }
 

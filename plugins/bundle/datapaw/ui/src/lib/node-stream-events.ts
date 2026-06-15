@@ -3,6 +3,8 @@ import type { StreamEvent } from "@/pages/Chat/components/TaskGraphPanel/types";
 type Listener = () => void;
 
 const eventsMap: Record<string, StreamEvent[]> = {};
+/** Frozen snapshots captured when nodes finish — survives until session reset. */
+const frozenEventsMap: Record<string, StreamEvent[]> = {};
 const listeners = new Set<Listener>();
 let streamRevision = 0;
 
@@ -12,6 +14,10 @@ export const EMPTY_NODE_STREAM_EVENTS: StreamEvent[] = [];
 function notify(): void {
   streamRevision += 1;
   listeners.forEach((listener) => listener());
+}
+
+function cloneEvents(events: StreamEvent[]): StreamEvent[] {
+  return events.map((event) => ({ ...event }));
 }
 
 /** Monotonic revision for useSyncExternalStore (events mutate in place). */
@@ -24,14 +30,35 @@ export function subscribeNodeStreamEvents(listener: Listener): () => void {
   return () => listeners.delete(listener);
 }
 
-/** Return the store array reference (mutated in place). Required for useSyncExternalStore. */
+/** Return live events, or a frozen snapshot from when the node completed. */
 export function getNodeStreamEvents(nodeId: string): StreamEvent[] {
-  return eventsMap[nodeId] ?? EMPTY_NODE_STREAM_EVENTS;
+  const live = eventsMap[nodeId];
+  if (live?.length) return live;
+  return frozenEventsMap[nodeId] ?? EMPTY_NODE_STREAM_EVENTS;
+}
+
+/** Preserve in-progress stream snapshots when nodes reach a terminal state. */
+export function snapshotCompletedNodeStreams(
+  nodes: Record<string, { node_id?: string; state?: string } | undefined>,
+): void {
+  let changed = false;
+  for (const node of Object.values(nodes)) {
+    if (!node?.node_id) continue;
+    if (node.state !== "done" && node.state !== "failed") continue;
+    const live = eventsMap[node.node_id];
+    if (!live?.length) continue;
+    frozenEventsMap[node.node_id] = cloneEvents(live);
+    changed = true;
+  }
+  if (changed) notify();
 }
 
 export function resetNodeStreamEvents(): void {
   for (const key of Object.keys(eventsMap)) {
     delete eventsMap[key];
+  }
+  for (const key of Object.keys(frozenEventsMap)) {
+    delete frozenEventsMap[key];
   }
   notify();
 }
@@ -130,6 +157,9 @@ export function handleToolResult(
     );
     if (matched && matched.type === "tool_call") {
       matched.output = data.output;
+      if (data.name && !matched.name) {
+        matched.name = data.name;
+      }
       notify();
       return;
     }
@@ -144,6 +174,9 @@ export function handleToolResult(
     );
     if (matched && matched.type === "tool_call") {
       matched.output = data.output;
+      if (data.name && !matched.name) {
+        matched.name = data.name;
+      }
       notify();
       return;
     }

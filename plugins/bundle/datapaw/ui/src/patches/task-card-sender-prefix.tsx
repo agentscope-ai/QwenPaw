@@ -21,12 +21,10 @@ import {
   EMPTY_NODE_STREAM_EVENTS,
   getNodeStreamEvents,
   getNodeStreamRevision,
+  snapshotCompletedNodeStreams,
   subscribeNodeStreamEvents,
 } from "../lib/node-stream-events";
-import {
-  mergeStreamEvents,
-  traceToStreamEvents,
-} from "../lib/trace-to-stream";
+import { resolveDrawerStreamEvents } from "../lib/trace-to-stream";
 import { toPlainJson } from "../lib/plain";
 import { normalizeDrawerFile } from "@/pages/Chat/components/TaskGraphPanel/fileUtils";
 import type { StreamEvent } from "@/pages/Chat/components/TaskGraphPanel/types";
@@ -62,7 +60,7 @@ function useDatapawAgentSelected(React: HostBundle["React"]): boolean {
 
 export function createTaskCardSenderPrefix(host: HostBundle) {
   const { React } = host;
-  const { useMemo, useState, useSyncExternalStore } = React;
+  const { useEffect, useMemo, useState, useSyncExternalStore } = React;
   const PlanCorrectionPopover = createPlanCorrectionPopover(host);
   const TaskNodeDrawer = createTaskNodeDrawerBridge(host);
 
@@ -125,10 +123,19 @@ export function createTaskCardSenderPrefix(host: HostBundle) {
 
     const isNodeStreaming = drawerNode?.state === "in_progress";
 
+    useEffect(() => {
+      if (plan?.nodes) {
+        snapshotCompletedNodeStreams(plan.nodes);
+      }
+    }, [plan]);
+
     const streamEvents = useMemo(() => {
       if (!drawerNode) return [] as StreamEvent[];
-      const persisted = traceToStreamEvents(drawerNode);
-      return mergeStreamEvents(persisted, liveStreamEvents, isNodeStreaming);
+      return resolveDrawerStreamEvents(
+        drawerNode,
+        liveStreamEvents,
+        isNodeStreaming,
+      );
     }, [drawerNode, liveStreamEvents, streamRevision, isNodeStreaming]);
 
     const allFiles = useMemo(() => {
@@ -199,6 +206,7 @@ export function createTaskCardSenderPrefix(host: HostBundle) {
             sessionId,
             userId,
             onClose: () => setDrawerNodeId(null),
+            showFollowTab: isNodeStreaming,
           })
         : null,
     );

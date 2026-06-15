@@ -1,12 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { ToolCall } from '@agentscope-ai/chat';
 import type { TaskNode, FileItem, StreamEvent } from './types';
 import { getStatusConfig } from './constants';
-import LoadingDots from './LoadingDots';
-import TextBlock from './TextBlock';
-import ThinkingBlock from './ThinkingBlock';
-import FetchDataBlock from '../FetchDataBlock';
+import StreamFollowContent from './StreamFollowContent';
+import CompletedNodeContent from './CompletedNodeContent';
 import { downloadArtifactFile } from './artifactFileActions';
 import ArtifactFileList from './ArtifactFileList';
 import ArtifactFilePreviewPanel from './ArtifactFilePreviewPanel';
@@ -31,6 +28,8 @@ interface TaskNodeDrawerProps {
   userId: string;
   /** 关闭抽屉的回调 */
   onClose: () => void;
+  /** 是否展示「实时跟随」Tab（任务卡片中已完成节点应设为 false） */
+  showFollowTab?: boolean;
 }
 
 /**
@@ -38,13 +37,26 @@ interface TaskNodeDrawerProps {
  * 右侧滑出的抽屉面板，用于展示任务节点的执行追踪和关联文件
  * 包含"实时跟随"和"文件"两个 Tab 页签
  */
-export default function TaskNodeDrawer({ node, allFiles = [], isStreaming = false, streamEvents = [], sessionId, userId, onClose }: TaskNodeDrawerProps) {
+export default function TaskNodeDrawer({
+  node,
+  allFiles = [],
+  isStreaming = false,
+  streamEvents = [],
+  sessionId,
+  userId,
+  onClose,
+  showFollowTab = true,
+}: TaskNodeDrawerProps) {
   const { t } = useTranslation();
-  const [activeTab, setActiveTab] = useState<'follow' | 'files'>('follow');
+  const [activeTab, setActiveTab] = useState<'follow' | 'files'>(() =>
+    showFollowTab ? 'follow' : 'files',
+  );
   const [viewingFile, setViewingFile] = useState<FileItem | null>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const isUserScrollingRef = useRef(false);
   const scrollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const isTerminalNode = node?.state === 'done' || node?.state === 'failed';
 
   /**
    * 监听 Escape 键：优先关闭文件预览，再关闭抽屉
@@ -155,11 +167,16 @@ export default function TaskNodeDrawer({ node, allFiles = [], isStreaming = fals
       if (contentRef.current) {
         contentRef.current.scrollTop = 0;
       }
-      // 打开时自动切换到 follow tab
-      setActiveTab('follow');
+      setActiveTab(showFollowTab ? 'follow' : 'files');
       setViewingFile(null);
     }
-  }, [node?.node_id]);
+  }, [node?.node_id, showFollowTab]);
+
+  useEffect(() => {
+    if (!showFollowTab && activeTab === 'follow') {
+      setActiveTab('files');
+    }
+  }, [showFollowTab, activeTab]);
 
   const handleDownloadFile = async (file: FileItem) => {
     try {
@@ -195,12 +212,14 @@ export default function TaskNodeDrawer({ node, allFiles = [], isStreaming = fals
         </div>
 
         <div className={styles.tabs}>
-          <button
-            className={`${styles.tab} ${activeTab === 'follow' ? styles.tabActive : ''}`}
-            onClick={() => setActiveTab('follow')}
-          >
-            {t('taskGraph.tabFollow')}
-          </button>
+          {showFollowTab && (
+            <button
+              className={`${styles.tab} ${activeTab === 'follow' ? styles.tabActive : ''}`}
+              onClick={() => setActiveTab('follow')}
+            >
+              {t('taskGraph.tabFollow')}
+            </button>
+          )}
           <button
             className={`${styles.tab} ${activeTab === 'files' ? styles.tabActive : ''}`}
             onClick={() => setActiveTab('files')}
@@ -210,65 +229,16 @@ export default function TaskNodeDrawer({ node, allFiles = [], isStreaming = fals
         </div>
 
         <div className={styles.drawerContent} ref={contentRef}>
-          {activeTab === 'follow' && (
-            <>
-              {node.type && (
-                <div className={styles.agentTitle}>
-                  <span className={styles.agentBadge}>{node.type}</span>
-                </div>
-              )}
-
-              {streamEvents.map((event, idx) => {
-                if (event.type === 'text') {
-                  return <TextBlock key={`text-${idx}`} content={event.text} />;
-                } else if (event.type === 'tool_call') {
-                  // fetch_data 工具调用使用通用 FetchDataBlock 组件（主 Chat 和抽屉共用）
-                  if (event.name === 'fetch_data') {
-                    return (
-                      <FetchDataBlock
-                        key={event.call_id || `tool-${idx}`}
-                        argumentsStr={event.arguments}
-                        output={event.output}
-                        loading={!event.output}
-                        fallbackTitle={event.name}
-                      />
-                    );
-                  }
-
-                  // 其他工具调用使用默认 ToolCall 组件
-                  let inputContent = event.arguments || '{}';
-                  if (typeof inputContent === 'object') {
-                    inputContent = JSON.stringify(inputContent, null, 2);
-                  }
-                  let outputContent = event.output || '';
-                  if (outputContent && typeof outputContent === 'string') {
-                    try {
-                      outputContent = JSON.stringify(JSON.parse(outputContent), null, 2);
-                    } catch {
-                      // 非 JSON 格式，保持原样
-                    }
-                  }
-                  return (
-                    <ToolCall
-                      key={event.call_id || `tool-${idx}`}
-                      title={event.name}
-                      input={inputContent}
-                      output={outputContent}
-                      defaultOpen={false}
-                    />
-                  );
-                } else if (event.type === 'thinking') {
-                  return <ThinkingBlock key={`thinking-${idx}`} content={event.thinking} />;
-                }
-                return null;
-              })}
-
-              {streamEvents.length === 0 && !isStreaming && (
-                <div className={styles.emptyState}>{t('taskGraph.noTrace')}</div>
-              )}
-
-              {isStreaming && <LoadingDots />}
-            </>
+          {activeTab === 'follow' && showFollowTab && (
+            isTerminalNode ? (
+              <CompletedNodeContent node={node} />
+            ) : (
+              <StreamFollowContent
+                agentType={node.type}
+                streamEvents={streamEvents}
+                showStreamingIndicator={isStreaming}
+              />
+            )
           )}
 
           {activeTab === 'files' && (

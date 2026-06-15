@@ -33,9 +33,14 @@ import PlanDetailModal from './components/TaskGraphPanel/PlanDetailModal';
 import ArtifactManageDrawer from './components/TaskGraphPanel/ArtifactManageDrawer';
 import { FetchDataToolAdapter } from './components/FetchDataBlock';
 import type { StreamEvent } from './components/TaskGraphPanel/types';
+import {
+  mergeStreamEvents,
+  traceToStreamEvents,
+} from '@datapaw/ui/lib/trace-to-stream';
 import { useTaskGraphChat } from './hooks/useTaskGraphChat';
 import { readSelectedDataSourceId } from './components/ChatSenderToolbar/dataSourceSelection';
 import { resolveBackendSessionId, resolveSessionStorageKey } from './components/ChatSenderToolbar/utils';
+import { resolveTaskApiSessionId } from './lib/taskApiSession';
 import {
   toDisplayUrl,
   copyText,
@@ -1085,6 +1090,23 @@ export default function ChatPage() {
     setDrawerNodeId(null);
   }, []);
 
+  const drawerNode =
+    drawerNodeId && currentPlan?.nodes[drawerNodeId]
+      ? currentPlan.nodes[drawerNodeId]
+      : null;
+  const drawerIsStreaming = drawerNode?.state === 'in_progress';
+  const drawerStreamEvents = useMemo(() => {
+    if (!drawerNode || !drawerNodeId) return [] as StreamEvent[];
+    const persisted = traceToStreamEvents(drawerNode);
+    const live = nodeStreamEventsMap[drawerNodeId] || [];
+    return mergeStreamEvents(persisted, live, drawerIsStreaming);
+  }, [drawerNode, drawerNodeId, nodeStreamEventsMap, drawerIsStreaming]);
+
+  const taskApiSessionId =
+    resolveTaskApiSessionId(
+      taskSessionId || chatIdRef.current || window.currentSessionId,
+    ) || "";
+
   return (
     <div
       style={{
@@ -1158,19 +1180,19 @@ export default function ChatPage() {
       <ArtifactManageDrawer
         open={artifactDrawerOpen}
         onClose={() => setArtifactDrawerOpen(false)}
-        sessionId={taskSessionId || window.currentSessionId || chatIdRef.current || ''}
+        sessionId={taskApiSessionId}
         userId={taskUserId}
         graphId={currentPlan?.id}
       />
 
       {/* Task Node Drawer */}
-      {drawerNodeId && currentPlan?.nodes[drawerNodeId] && (
+      {drawerNode && (
         <TaskNodeDrawer
-          node={currentPlan.nodes[drawerNodeId]}
+          node={drawerNode}
           allFiles={getAllFilesFromPlan}
-          isStreaming={currentPlan.nodes[drawerNodeId].state === 'in_progress'}
-          streamEvents={nodeStreamEventsMap[drawerNodeId] || []}
-          sessionId={taskSessionId || window.currentSessionId || chatIdRef.current || ''}
+          isStreaming={drawerIsStreaming}
+          streamEvents={drawerStreamEvents}
+          sessionId={taskApiSessionId}
           userId={taskUserId}
           onClose={handleDrawerClose}
         />

@@ -1,4 +1,5 @@
 import { buildAuthHeaders, getApiUrl } from "./api";
+import { resolveTaskApiSessionId } from "./session-id";
 
 export interface TaskArtifact {
   graph_id: string;
@@ -12,21 +13,15 @@ export interface TaskArtifact {
   download_url?: string;
 }
 
-export function resolveArtifactUrl(
-  apiUrl: string | undefined,
+function buildArtifactUrl(
   filepath: string,
   sessionId: string,
   userId: string,
   kind: "preview" | "download",
 ): string {
-  if (apiUrl) {
-    if (apiUrl.startsWith("http")) return apiUrl;
-    if (apiUrl.startsWith("/api/")) {
-      return getApiUrl(apiUrl.slice(4));
-    }
-    return getApiUrl(apiUrl);
-  }
-  const encodedSession = encodeURIComponent(sessionId);
+  const resolvedSessionId =
+    resolveTaskApiSessionId(sessionId, filepath) || sessionId;
+  const encodedSession = encodeURIComponent(resolvedSessionId);
   const encodedPath = encodeURIComponent(filepath);
   const base = kind === "preview" ? "preview" : "download";
   return getApiUrl(
@@ -34,12 +29,23 @@ export function resolveArtifactUrl(
   );
 }
 
+export function resolveArtifactUrl(
+  _apiUrl: string | undefined,
+  filepath: string,
+  sessionId: string,
+  userId: string,
+  kind: "preview" | "download",
+): string {
+  return buildArtifactUrl(filepath, sessionId, userId, kind);
+}
+
 export async function listTaskFiles(
   sessionId: string,
   userId = "default",
   filters?: { graph_id?: string; node_id?: string },
 ): Promise<TaskArtifact[]> {
-  const encoded = encodeURIComponent(sessionId);
+  const resolved = resolveTaskApiSessionId(sessionId) || sessionId;
+  const encoded = encodeURIComponent(resolved);
   const params = new URLSearchParams({ user_id: userId });
   if (filters?.graph_id) params.set("graph_id", filters.graph_id);
   if (filters?.node_id) params.set("node_id", filters.node_id);

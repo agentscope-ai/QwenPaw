@@ -11,37 +11,47 @@ function stringifyValue(value: unknown): string {
   }
 }
 
+function normalizeToolOutput(output: unknown): string {
+  if (output === undefined || output === null) return "";
+  if (typeof output === "string") return output;
+  return stringifyValue(output);
+}
+
 function pushToolCall(
   events: StreamEvent[],
   data: Record<string, unknown>,
 ): void {
   const callId = String(data.call_id || data.id || `tool-${events.length}`);
   const name = String(data.name || "");
-  const hasOutput = data.output !== undefined;
+  const argsRaw = data.arguments ?? data.input;
+  const argsStr =
+    argsRaw !== undefined && argsRaw !== null && argsRaw !== ""
+      ? stringifyValue(argsRaw)
+      : undefined;
+  const hasOutput = data.output !== undefined && data.output !== null;
+
   const existing = events.find(
     (event) => event.type === "tool_call" && event.call_id === callId,
   );
-  if (hasOutput) {
-    const output = stringifyValue(data.output);
-    if (existing && existing.type === "tool_call") {
-      existing.output = output;
-      return;
+  if (existing && existing.type === "tool_call") {
+    if (argsStr && argsStr.length >= (existing.arguments?.length || 0)) {
+      existing.arguments = argsStr;
     }
-    events.push({
-      type: "tool_call",
-      call_id: callId,
-      name,
-      arguments: "",
-      output,
-    });
+    if (hasOutput) {
+      existing.output = normalizeToolOutput(data.output);
+    }
+    if (name && !existing.name) {
+      existing.name = name;
+    }
     return;
   }
-  const args = data.arguments ?? data.input ?? "";
+
   events.push({
     type: "tool_call",
     call_id: callId,
     name,
-    arguments: stringifyValue(args),
+    arguments: argsStr ?? "",
+    ...(hasOutput ? { output: normalizeToolOutput(data.output) } : {}),
   });
 }
 
@@ -119,6 +129,33 @@ export function traceToStreamEvents(node: TaskNode): StreamEvent[] {
   return events;
 }
 
+function backfillLiveEvents(
+  live: StreamEvent[],
+  persisted: StreamEvent[],
+): StreamEvent[] {
+  const persistedByCallId = new Map<string, Extract<StreamEvent, { type: "tool_call" }>>();
+  for (const event of persisted) {
+    if (event.type === "tool_call" && event.call_id) {
+      persistedByCallId.set(event.call_id, event);
+    }
+  }
+
+  return live.map((event) => {
+    if (event.type !== "tool_call") return event;
+    const saved = persistedByCallId.get(event.call_id);
+    if (!saved) return event;
+    return {
+      ...event,
+      name: event.name || saved.name,
+      arguments:
+        event.arguments && event.arguments !== "{}" && event.arguments.trim()
+          ? event.arguments
+          : saved.arguments || event.arguments,
+      output: event.output ?? saved.output,
+    };
+  });
+}
+
 export function mergeStreamEvents(
   persisted: StreamEvent[],
   live: StreamEvent[],
@@ -126,8 +163,22 @@ export function mergeStreamEvents(
 ): StreamEvent[] {
   if (live.length === 0) return persisted;
   if (persisted.length === 0) return live;
+
   if (isStreaming) {
     return live.length >= persisted.length ? live : [...persisted, ...live];
   }
-  return persisted.length >= live.length ? persisted : live;
+
+  // Completed: keep the same live stream snapshot used during execution
+  // (FetchDataBlock / TextBlock / ThinkingBlock), only backfill missing fields.
+  return backfillLiveEvents(live, persisted);
+}
+
+/** Resolve drawer stream events from live SSE + persisted trace. */
+export function resolveDrawerStreamEvents(
+  node: TaskNode,
+  live: StreamEvent[],
+  isStreaming: boolean,
+): StreamEvent[] {
+  const persisted = traceToStreamEvents(node);
+  return mergeStreamEvents(persisted, live, isStreaming);
 }
