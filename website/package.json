@@ -2,7 +2,6 @@
   "name": "qwenpaw-website",
   "private": true,
   "type": "module",
-  "packageManager": "pnpm@11.6.0",
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && node scripts/build-search-index.mjs && vite build && node scripts/spa-fallback-pages.mjs",
