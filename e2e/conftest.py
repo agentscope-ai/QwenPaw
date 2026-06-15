@@ -83,6 +83,9 @@ agent_stats_page = pytest.fixture(scope="function", name="agent_stats_page")(
 acp_page = pytest.fixture(scope="function", name="acp_page")(
     _make_page_fixture("pages.acp_page", "ACPPage")
 )
+coding_page = pytest.fixture(scope="function", name="coding_page")(
+    _make_page_fixture("pages.coding_page", "CodingPage")
+)
 
 
 # ========== Business / Data Fixtures ==========
