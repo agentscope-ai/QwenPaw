@@ -2,9 +2,13 @@ import React, { useEffect, useMemo, useRef } from "react";
 import { useLocation } from "react-router-dom";
 import { useChatAnywhereSessionsState } from "@agentscope-ai/chat";
 import sessionApi from "../../sessionApi";
+import { getSessionIdFromPath } from "../../../../utils/sessionRoute";
 
 /**
  * URL chatId → context currentSessionId (one direction of bidirectional sync).
+ *
+ * Extracts sessionId from both `/chat/<id>` and `/coding/<id>` URLs so that
+ * Coding mode sessions survive page refreshes (issue #5142).
  *
  * Only reacts to URL or session list changes. currentSessionId is read via ref
  * to avoid triggering the effect when the context changes from the other direction
@@ -16,10 +20,13 @@ import sessionApi from "../../sessionApi";
  */
 const ChatSessionInitializer: React.FC = () => {
   const location = useLocation();
-  const chatId = useMemo(() => {
-    const match = location.pathname.match(/^\/chat\/(.+)$/);
-    return match?.[1];
-  }, [location.pathname]);
+
+  // Issue #5142: Match both /chat/<id> and /coding/<id> so that Coding mode
+  // sessions are restored from the URL on page refresh, just like Chat mode.
+  const chatId = useMemo(
+    () => getSessionIdFromPath(location.pathname),
+    [location.pathname],
+  );
 
   const { sessions, currentSessionId, setCurrentSessionId } =
     useChatAnywhereSessionsState();

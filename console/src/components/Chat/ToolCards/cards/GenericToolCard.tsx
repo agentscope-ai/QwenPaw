@@ -1,33 +1,37 @@
 /**
- * ShellCard — renders shell/terminal tool calls with command + output.
- * Self-contained: no dependency on ShellExecutionCard.
+ * GenericToolCard — fallback card for tool calls not in the builtin registry.
+ *
+ * Shows the tool name + spinner while no output is available,
+ * then a collapsible result block once the tool completes.
  */
 
 import React from "react";
 import { useTranslation } from "react-i18next";
-import { CodeOutlined } from "@ant-design/icons";
+import { ToolOutlined } from "@ant-design/icons";
 import type { ToolCallContent } from "../shared/types";
 import { ToolCardShell } from "../shared";
 import { DefaultBlock } from "../shared";
 import { stringifyResult } from "../shared/utils";
 
-export interface ShellCardProps {
+export interface GenericToolCardProps {
   content: ToolCallContent;
   isStreaming?: boolean;
 }
 
-const ShellCard: React.FC<ShellCardProps> = ({ content, isStreaming }) => {
+const GenericToolCard: React.FC<GenericToolCardProps> = ({
+  content,
+  isStreaming,
+}) => {
   const { t } = useTranslation();
-  const command =
-    (content.params?.command as string) ||
-    (content.params?.cmd as string) ||
-    "";
+  const toolLabel = content.serverLabel
+    ? `${content.serverLabel} / ${content.name}`
+    : content.name;
   const resultText = stringifyResult(content.result);
 
   return (
     <ToolCardShell
-      icon={<CodeOutlined />}
-      title={command ? t("tool.shell", { command }) : t("tool.shellDefault")}
+      icon={<ToolOutlined />}
+      title={t("tool.execute", { tool: toolLabel })}
       content={content}
       isStreaming={isStreaming}
     >
@@ -36,4 +40,4 @@ const ShellCard: React.FC<ShellCardProps> = ({ content, isStreaming }) => {
   );
 };
 
-export default ShellCard;
+export default GenericToolCard;

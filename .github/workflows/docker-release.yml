@@ -1,6 +1,8 @@
 # Build QwenPaw multi-arch Docker image and push to DockerHub + Aliyun ACR on release.
 # Pre-release: update <version> and pre only.
 # Formal release: update <version>, pre and latest.
+#
+# Pipeline: verify (build amd64 + health-check) → build-and-push (multi-arch).
 name: Docker Build and Push on Release
 
 on:
@@ -23,7 +25,16 @@ env:
   IMAGE: agentscope/qwenpaw
 
 jobs:
+  # ── Stage 1: Verify Docker image boots correctly ───────────────────────────
+  verify-docker:
+    uses: ./.github/workflows/release-verify.yml
+    with:
+      verify_docker: true
+    secrets: inherit
+
+  # ── Stage 2: Build multi-arch and push ─────────────────────────────────────
   build-and-push:
+    needs: [verify-docker]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout

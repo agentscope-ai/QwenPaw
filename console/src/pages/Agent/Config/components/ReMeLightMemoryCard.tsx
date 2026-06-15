@@ -84,6 +84,7 @@ export function ReMeLightMemoryCard() {
           {
             key: "autoMemorySearch",
             label: t("agentConfig.autoMemorySearchCollapseLabel"),
+            forceRender: true,
             children: (
               <>
                 <Form.Item
@@ -150,6 +151,7 @@ export function ReMeLightMemoryCard() {
           {
             key: "embeddingConfig",
             label: t("agentConfig.embeddingConfigCollapseLabel"),
+            forceRender: true,
             children: (
               <>
                 <Alert

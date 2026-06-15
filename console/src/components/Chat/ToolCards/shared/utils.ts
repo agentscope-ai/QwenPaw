@@ -245,70 +245,285 @@ export function extractMediaFromText(resultStr: string): MediaInfo | null {
 // Formatting helpers
 // ---------------------------------------------------------------------------
 
-/** Format memory_search result as markdown table */
-export function formatMemorySearch(raw: string, t: TFunction): string {
-  try {
-    const items = JSON.parse(raw) as Array<{
-      path?: string;
-      snippet?: string;
-      score?: number;
-      start_line?: number;
-      end_line?: number;
-    }>;
-    if (!Array.isArray(items) || items.length === 0) return raw;
+interface MemorySearchResultItem {
+  path?: string;
+  snippet?: string;
+  score?: number;
+  start_line?: number;
+  end_line?: number;
+}
 
-    const rows = items.map((item) => {
-      const fileName = item.path?.split("/").pop() || item.path || "unknown";
+/** Generic JSON parse that returns null on failure instead of throwing */
+function tryParseJson(text: string): unknown | null {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+}
+
+function isMemorySearchResultItem(
+  item: unknown,
+): item is MemorySearchResultItem {
+  if (!item || typeof item !== "object") return false;
+
+  const candidate = item as Record<string, unknown>;
+  // Require "path" plus at least one data field to avoid false positives
+  return (
+    "path" in candidate &&
+    ("score" in candidate ||
+      "snippet" in candidate ||
+      "start_line" in candidate)
+  );
+}
+
+function extractMemorySearchItems(
+  value: unknown,
+  depth = 0,
+): MemorySearchResultItem[] | null {
+  if (depth > 5) return null;
+
+  if (Array.isArray(value)) {
+    if (value.every(isMemorySearchResultItem)) {
+      return value;
+    }
+
+    for (const item of value) {
+      const extracted = extractMemorySearchItems(item, depth + 1);
+      if (extracted) return extracted;
+    }
+    return null;
+  }
+
+  if (!value || typeof value !== "object") return null;
+
+  const record = value as Record<string, unknown>;
+  if (typeof record.text === "string") {
+    const parsedText = tryParseJson(record.text);
+    if (parsedText !== null) {
+      return extractMemorySearchItems(parsedText, depth + 1);
+    }
+  }
+
+  if ("output" in record) {
+    return extractMemorySearchItems(record.output, depth + 1);
+  }
+
+  if (isMemorySearchResultItem(record)) {
+    return [record];
+  }
+
+  return null;
+}
+
+function normalizeToolText(text: string): string {
+  return text.replace(/\\n/g, "\n");
+}
+
+function extractTextBlockText(value: unknown): string | null {
+  if (Array.isArray(value)) {
+    const textParts = value
+      .map(extractTextBlockText)
+      .filter(
+        (chunk): chunk is string =>
+          typeof chunk === "string" && chunk.length > 0,
+      );
+    return textParts.length > 0 ? textParts.join("\n") : null;
+  }
+
+  if (!value || typeof value !== "object") return null;
+
+  const record = value as Record<string, unknown>;
+  if (typeof record.text === "string") {
+    return normalizeToolText(record.text);
+  }
+
+  if ("output" in record) {
+    return extractTextBlockText(record.output);
+  }
+
+  return null;
+}
+
+/**
+ * Parse truncated/malformed memory search text that starts with a JSON-like
+ * prefix but has real newlines inside "snippet", breaking JSON.parse.
+ * Supports multiple items separated by "}, {" or "},\n{".
+ */
+function parseMalformedMemorySearchText(
+  text: string,
+): MemorySearchResultItem[] | null {
+  const normalizedText = normalizeToolText(text).trim();
+
+  const itemPattern =
+    /\{\s*"path"\s*:\s*"([^"]+)"\s*,\s*"start_line"\s*:\s*(\d+)\s*,\s*"end_line"\s*:\s*(\d+)\s*,\s*"score"\s*:\s*([\d.]+)\s*,\s*"snippet"\s*:\s*"([\s\S]*?)(?="\s*\}(?:\s*,\s*\{|\s*\]|$))/g;
+
+  const items: MemorySearchResultItem[] = [];
+  let match: RegExpExecArray | null;
+
+  while ((match = itemPattern.exec(normalizedText)) !== null) {
+    const [, path, startLine, endLine, score, snippet] = match;
+    items.push({
+      path,
+      start_line: Number(startLine),
+      end_line: Number(endLine),
+      score: Number(score),
+      snippet: snippet.trim(),
+    });
+  }
+
+  if (items.length > 0) return items;
+
+  // Fallback: try single-item pattern for truncated text (no closing quote)
+  const singleMatch = normalizedText.match(
+    /^\[\s*\{\s*"path"\s*:\s*"([^"]+)"\s*,\s*"start_line"\s*:\s*(\d+)\s*,\s*"end_line"\s*:\s*(\d+)\s*,\s*"score"\s*:\s*([\d.]+)\s*,\s*"snippet"\s*:\s*"([\s\S]*)$/,
+  );
+
+  if (!singleMatch) return null;
+
+  const [, path, startLine, endLine, score, rawSnippet] = singleMatch;
+  return [
+    {
+      path,
+      start_line: Number(startLine),
+      end_line: Number(endLine),
+      score: Number(score),
+      snippet: rawSnippet.replace(/"\s*}\s*]\s*$/, "").trim(),
+    },
+  ];
+}
+
+function formatMemorySearchItems(
+  items: MemorySearchResultItem[],
+  t: TFunction,
+): string {
+  return items
+    .map((item, index) => {
+      const fileName = item.path || "unknown";
       const lines =
         item.start_line != null && item.end_line != null
           ? `L${item.start_line}-${item.end_line}`
           : "-";
       const score = item.score != null ? item.score.toFixed(2) : "-";
-      const snippet = (item.snippet || "")
-        .trim()
-        .replace(/\n/g, " ")
-        .slice(0, 80);
-      return `| ${fileName} | ${lines} | ${score} | ${snippet} |`;
-    });
+      const snippet = (item.snippet || "").trim();
 
-    return `| ${t("tool.formatTable.file")} | ${t(
-      "tool.formatTable.lineNumber",
-    )} | ${t("tool.formatTable.score")} | ${t(
-      "tool.formatTable.summary",
-    )} |\n| --- | --- | --- | --- |\n${rows.join("\n")}`;
-  } catch {
-    return raw;
+      return [
+        `### ${index + 1}. ${fileName}`,
+        `- **${t("tool.formatTable.lineNumber")}**: ${lines}`,
+        `- **${t("tool.formatTable.score")}**: ${score}`,
+        snippet ? `\n${snippet}` : "",
+      ]
+        .filter(Boolean)
+        .join("\n");
+    })
+    .join("\n\n---\n\n");
+}
+
+/** Format memory_search result as readable markdown */
+export function formatMemorySearch(raw: string, t: TFunction): string {
+  const parsed = tryParseJson(raw);
+  if (parsed === null) return raw;
+
+  const items = extractMemorySearchItems(parsed);
+  if (items && items.length > 0) {
+    return formatMemorySearchItems(items, t);
   }
+
+  const textBlockText = extractTextBlockText(parsed);
+  if (!textBlockText) return raw;
+
+  const malformedItems = parseMalformedMemorySearchText(textBlockText);
+  if (malformedItems && malformedItems.length > 0) {
+    return formatMemorySearchItems(malformedItems, t);
+  }
+
+  return textBlockText;
+}
+
+interface AgentListItem {
+  name?: string;
+  display_name?: string;
+  id?: string;
+  agent_id?: string;
+  description?: string;
+  status?: string;
+}
+
+function isAgentListItem(item: unknown): item is AgentListItem {
+  if (!item || typeof item !== "object") return false;
+
+  const candidate = item as Record<string, unknown>;
+  // Require at least two identifying fields to reduce false positives
+  const identifyingFields = ["name", "display_name", "id", "agent_id"].filter(
+    (field) => field in candidate,
+  );
+  return identifyingFields.length >= 1 && "description" in candidate;
+}
+
+function extractAgentListItems(
+  value: unknown,
+  depth = 0,
+): AgentListItem[] | null {
+  if (depth > 5) return null;
+
+  if (Array.isArray(value)) {
+    if (value.every(isAgentListItem)) {
+      return value;
+    }
+
+    for (const item of value) {
+      const extracted = extractAgentListItems(item, depth + 1);
+      if (extracted) return extracted;
+    }
+    return null;
+  }
+
+  if (!value || typeof value !== "object") return null;
+
+  const record = value as Record<string, unknown>;
+  if (Array.isArray(record.agents)) {
+    return extractAgentListItems(record.agents, depth + 1);
+  }
+
+  if (typeof record.text === "string") {
+    const parsedText = tryParseJson(record.text);
+    if (parsedText !== null) {
+      return extractAgentListItems(parsedText, depth + 1);
+    }
+  }
+
+  if ("output" in record) {
+    return extractAgentListItems(record.output, depth + 1);
+  }
+
+  if (isAgentListItem(record)) {
+    return [record];
+  }
+
+  return null;
 }
 
 /** Format list_agents result as markdown table */
 export function formatAgentList(raw: string, t: TFunction): string {
-  try {
-    const parsed = JSON.parse(raw);
-    const agents = (
-      Array.isArray(parsed) ? parsed : parsed?.agents || []
-    ) as Array<Record<string, unknown>>;
-    if (!Array.isArray(agents) || agents.length === 0) return raw;
+  const parsed = tryParseJson(raw);
+  if (parsed === null) return raw;
 
-    const rows = agents.map((agent) => {
-      const name = (agent.name ||
-        agent.display_name ||
-        agent.id ||
-        "") as string;
-      const id = (agent.id || agent.agent_id || "") as string;
-      const desc = (agent.description || "") as string;
-      const status = (agent.status || "") as string;
-      return `| ${name} | \`${id}\` | ${desc} | ${status} |`;
-    });
+  const agents = extractAgentListItems(parsed);
+  if (!agents || agents.length === 0) return raw;
 
-    return `| ${t("tool.formatTable.name")} | ${t("tool.formatTable.id")} | ${t(
-      "tool.formatTable.description",
-    )} | ${t(
-      "tool.formatTable.status",
-    )} |\n| --- | --- | --- | --- |\n${rows.join("\n")}`;
-  } catch {
-    return raw;
-  }
+  const rows = agents.map((agent) => {
+    const name = agent.name || agent.display_name || agent.id || "";
+    const id = agent.id || agent.agent_id || "";
+    const desc = agent.description || "";
+    const status = agent.status || "";
+    return `| ${name} | \`${id}\` | ${desc} | ${status} |`;
+  });
+
+  return `| ${t("tool.formatTable.name")} | ${t("tool.formatTable.id")} | ${t(
+    "tool.formatTable.description",
+  )} | ${t(
+    "tool.formatTable.status",
+  )} |\n| --- | --- | --- | --- |\n${rows.join("\n")}`;
 }
 
 /** Detect if content looks like markdown */

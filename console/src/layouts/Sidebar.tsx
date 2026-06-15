@@ -1,6 +1,6 @@
 import { Layout, Menu, Button, Modal, Input, Form, Tooltip, Badge } from "antd";
 import { useState, useEffect, useMemo } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { useAppMessage } from "../hooks/useAppMessage";
 import AgentSelector from "../components/AgentSelector";
@@ -16,6 +16,7 @@ import { clearAuthToken } from "../api/config";
 import { authApi } from "../api/modules/auth";
 import api from "../api";
 import { useCodingMode } from "../stores/codingModeStore";
+import { buildSessionPath, getSessionIdFromPath } from "../utils/sessionRoute";
 import styles from "./index.module.less";
 import { useTheme } from "../contexts/ThemeContext";
 import { useMenuItems, useRoutes } from "../plugins/registry/hooks";
@@ -57,13 +58,18 @@ interface SidebarProps {
 
 export default function Sidebar({ selectedKey }: SidebarProps) {
   const navigate = useNavigate();
+  const location = useLocation();
   const { t } = useTranslation();
   const { message } = useAppMessage();
   const { isDark } = useTheme();
   // When coding mode is on, the sidebar "Chat" entry should land on /coding
   // (FileTree + Editor + Chat panel) rather than the bare Chat page.
   const { codingMode } = useCodingMode();
-  const chatPath = codingMode ? "/coding" : "/chat";
+  const currentSessionId = getSessionIdFromPath(location.pathname);
+  const chatPath = buildSessionPath(
+    codingMode ? "coding" : "chat",
+    currentSessionId,
+  );
   const [authEnabled, setAuthEnabled] = useState(false);
   const [accountModalOpen, setAccountModalOpen] = useState(false);
   const [accountLoading, setAccountLoading] = useState(false);
