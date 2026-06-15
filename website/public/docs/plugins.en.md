@@ -165,76 +165,6 @@ class MyPlugin:
 plugin = MyPlugin()
 ```
 
-#### Backend Plugin API
-
-Backend plugins receive a `PluginApi` instance in `plugin.register(api)`.
-The main registration methods are:
-
-| Method                                                                              | Purpose                                                                                                                                               |
-| ----------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `register_provider(provider_id, provider_class, label="", base_url="", **metadata)` | Register a custom LLM provider.                                                                                                                       |
-| `register_startup_hook(hook_name, callback, priority=100)`                          | Run sync or async code during application startup. Lower priority runs earlier.                                                                       |
-| `register_shutdown_hook(hook_name, callback, priority=100)`                         | Run sync or async code during application shutdown.                                                                                                   |
-| `register_uninstall_hook(hook_name, callback, priority=100)`                        | Run one-time cleanup when the plugin is unloaded or uninstalled. The callback receives `plugin_id` and `delete_files`.                                |
-| `register_workspace_created_hook(hook_name, callback, priority=100)`                | Run sync or async code whenever a new workspace is created. The callback receives `workspace_info` with at least `agent_id` and `workspace_dir`.      |
-| `register_http_router(router, prefix, tags=None)`                                   | Mount a FastAPI `APIRouter` under `/api` + `prefix`, for example `prefix="/pets"` exposes routes under `/api/pets`.                                   |
-| `register_control_command(handler, priority_level=10)`                              | Register a custom control command handler.                                                                                                            |
-| `register_prompt_section(name, provider, after="workspace", agent_id=None)`         | Add a plugin-provided system-prompt section after a host anchor such as `workspace`, `multimodal`, or `env_context`.                                  |
-| `runtime`                                                                           | Access runtime helper functions exposed by the host registry.                                                                                         |
-| `get_tool_config(tool_name, agent_id)`                                              | Read a tool's saved configuration for an agent.                                                                                                       |
-| `set_tool_config(tool_name, agent_id, config)`                                      | Save a tool's configuration for an agent.                                                                                                             |
-| `register_tool(tool_name, tool_func, description="", icon="🔧", enabled=False)`     | Register a tool function into the agent toolkit and create a disabled-by-default tool config entry.                                                   |
-| `register_skill_provider(skills_dir, enabled_by_default=True, channels=None)`       | Publish a directory of Skills from this plugin. Skills are installed on startup, removed on uninstall, and provisioned into newly created workspaces. |
-
-**Uninstall hook example:**
-
-```python
-def cleanup(plugin_id: str, delete_files: bool):
-    logger.info("Cleaning up %s, delete_files=%s", plugin_id, delete_files)
-
-api.register_uninstall_hook("cleanup", cleanup)
-```
-
-**Workspace creation hook example:**
-
-```python
-async def on_workspace_created(workspace_info: dict):
-    agent_id = workspace_info["agent_id"]
-    workspace_dir = workspace_info["workspace_dir"]
-    logger.info("Workspace ready for %s at %s", agent_id, workspace_dir)
-
-api.register_workspace_created_hook(
-    "provision_workspace",
-    on_workspace_created,
-)
-```
-
-**Tool registration example:**
-
-```python
-from .tool import lookup_order
-
-api.register_tool(
-    tool_name="lookup_order",
-    tool_func=lookup_order,
-    description="Look up an order by ID",
-    icon="🔎",
-    enabled=False,
-)
-```
-
-**Skill provider example:**
-
-```python
-from pathlib import Path
-
-api.register_skill_provider(
-    skills_dir=Path(__file__).parent / "skills",
-    enabled_by_default=True,
-    channels=["all"],
-)
-```
-
 ### Frontend Plugins
 
 Frontend plugins are JavaScript extensions that run in the browser. Unlike backend plugins that register capabilities via the Python `PluginApi`, frontend plugins declaratively extend the Console UI through the global `window.QwenPaw.*` API.
@@ -272,6 +202,7 @@ Plugins don't need to declare which extension points they use; the system automa
 | `chat.leftHeader` / `rightHeader` | Chat header                                           | Set brand logo, add action buttons                              |
 | `chat.sender`                     | Input box                                             | Custom placeholder, input suggestions                           |
 | `chat.actions` / `requestActions` | Message action buttons                                | Add custom actions below messages                               |
+| `chat.requestPayload`             | Outgoing chat request payload                         | Add custom fields before the request is sent to the backend     |
 | `chat.request` / `response`       | Message bubbles                                       | Prepend/append content or fully replace rendering               |
 | `chat.toolRender`                 | Tool-call rendering                                   | Custom tool result display (e.g. weather card)                  |
 | `chat.card`                       | Custom cards                                          | Register new card types                                         |
@@ -376,49 +307,6 @@ qwenpaw app
 ```
 
 You can copy `console/src/plugins/types/qwenpaw.d.ts` into your plugin project as `qwenpaw-host.d.ts` for full type hints.
-
-## Runtime Plugin HTTP API
-
-These endpoints are used by the Console plugin manager and can also be called by automation. Authenticated management endpoints are under `/api/plugins`; public read-only frontend loading endpoints are under `/frontend_plugin`.
-
-### Authenticated Management API
-
-| Method   | Path                                         | Description                                                                                                                                                   |
-| -------- | -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `GET`    | `/api/plugins`                               | List loaded plugins. Falls back to scanning installed plugin manifests if the loader is still starting.                                                       |
-| `GET`    | `/api/plugins/catalog`                       | Return the official plugin catalog used by the in-app browser.                                                                                                |
-| `POST`   | `/api/plugins/install`                       | Install and hot-load a plugin from a local directory path or remote ZIP URL. Body: `{ "source": "...", "force": false }`.                                     |
-| `POST`   | `/api/plugins/upload?force=false`            | Upload a plugin ZIP archive as multipart field `file`, then install and hot-load it. Use `force=true` to reinstall an already loaded plugin.                  |
-| `DELETE` | `/api/plugins/{plugin_id}`                   | Unload and delete a plugin, run uninstall hooks, clean runtime provider / command registrations, remove plugin tools from agents, and schedule agent reloads. |
-| `GET`    | `/api/plugins/{plugin_id}/status`            | Return `{ id, loaded, enabled, version }` for a loaded plugin, or `{ id, loaded: false, enabled: false }` when present on disk but not loaded.                |
-| `GET`    | `/api/plugins/{plugin_id}/files/{file_path}` | Serve a static file from a plugin directory with path-traversal protection.                                                                                   |
-| `GET`    | `/api/plugins/market/search`                 | Proxy AgentScope Platform plugin search. Query parameters: `page_number`, `page_size`, `search`, `category`.                                                  |
-
-**Install from path or URL:**
-
-```bash
-curl -X POST "$QWENPAW_BASE/api/plugins/install" \
-  -H "Authorization: Bearer $QWENPAW_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"source":"/path/to/my-plugin","force":false}'
-```
-
-**Upload a ZIP:**
-
-```bash
-curl -X POST "$QWENPAW_BASE/api/plugins/upload?force=true" \
-  -H "Authorization: Bearer $QWENPAW_TOKEN" \
-  -F "file=@my-plugin.zip"
-```
-
-### Public Frontend Loading API
-
-These endpoints are intentionally unauthenticated so the Console can load frontend plugin bundles before login, for example on a customized login page.
-
-| Method | Path                                             | Description                                                                                                                 |
-| ------ | ------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------- |
-| `GET`  | `/frontend_plugin`                               | List plugins with frontend metadata needed by the browser loader.                                                           |
-| `GET`  | `/frontend_plugin/{plugin_id}/files/{file_path}` | Serve frontend plugin JS, CSS, and assets publicly, using the same path-traversal guard as the authenticated file endpoint. |
 
 ## Frontend Extension API
 
@@ -642,6 +530,27 @@ window.QwenPaw.chat.requestActions.add("my-plugin", {
   onClick: ({ data }) => console.log("Edit:", data),
 });
 ```
+
+### Request Payload Transform — `chat.requestPayload`
+
+Use `chat.requestPayload.add` to modify the outgoing chat request body before the Console sends it to the backend. Transforms run in ascending `order` and receive the current payload plus the resolved `sessionId` and `selectedAgent`.
+
+```ts
+window.QwenPaw.chat.requestPayload.add(
+  "my-plugin",
+  ({ payload, sessionId, selectedAgent }) => ({
+    ...payload,
+    request_context: {
+      session_id: sessionId,
+      agent_id: selectedAgent,
+      datasource_id: "ds-123",
+    },
+  }),
+  { id: "my-plugin.request-context", order: 10 },
+);
+```
+
+The transform may return a new object to replace the payload. Returning `undefined` leaves the payload unchanged. Use a globally unique `id` so the registration can be audited and disposed cleanly.
 
 ### Message Bubble Customization — `chat.request` / `chat.response`
 
