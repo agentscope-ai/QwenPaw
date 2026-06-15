@@ -845,55 +845,78 @@
   color: #6b7280;
 }
 
-/* ---- Default LLM Collapsible Section ---- */
+/* ---- LLM Floating Pill ---- */
 
-.llmSectionHeader {
-  display: flex;
+.llmPill {
+  display: inline-flex;
   align-items: center;
-  justify-content: center;
+  gap: 10px;
+  padding: 6px 14px;
+  border-radius: 20px;
   cursor: pointer;
   user-select: none;
-  gap: 8px;
+  transition: box-shadow 0.2s, background 0.2s;
+  margin: 0;
+  border: 1.5px solid transparent;
 }
 
-.defaultLlmSection {
-  margin: 0 20px;
-  overflow: hidden;
+.llmPillOn {
+  background: linear-gradient(135deg, #ecfdf5, #d1fae5, #fff);
+  border-color: #6ee7b7;
+  box-shadow: 0 1px 6px rgba(16, 185, 129, 0.12);
+
+  &:hover {
+    box-shadow: 0 2px 10px rgba(16, 185, 129, 0.2);
+  }
 }
 
-.defaultLlmHeader {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 10px 0;
-  cursor: pointer;
-  user-select: none;
-  transition: background 0.15s;
-  border-radius: 6px;
-}
-.defaultLlmHeader:hover {
-  background: rgba(0, 0, 0, 0.02);
+.llmPillOff {
+  background: linear-gradient(135deg, #fef2f2, #fee2e2, #fff);
+  border-color: #fca5a5;
+  box-shadow: 0 1px 6px rgba(239, 68, 68, 0.12);
+
+  &:hover {
+    box-shadow: 0 2px 10px rgba(239, 68, 68, 0.2);
+  }
 }
 
-.defaultLlmHeaderLeft {
-  display: flex;
-  align-items: center;
-  gap: 12px;
+.llmPillDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #10b981;
+  flex-shrink: 0;
 }
 
-.defaultLlmTitle {
-  font-size: 14px;
-  font-weight: 600;
-  color: #1a1a1a;
+.llmPillDotOff {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #ef4444;
+  flex-shrink: 0;
 }
 
-.defaultLlmSummary {
+.llmPillLabel {
   font-size: 13px;
   color: #6b7280;
-  padding: 2px 10px;
-  background: #f3f4f6;
-  border-radius: 4px;
+  white-space: nowrap;
 }
+
+.llmPillValue {
+  font-size: 13px;
+  font-weight: 600;
+  color: #1f2937;
+  white-space: nowrap;
+}
+
+.llmPillEdit {
+  font-size: 12px;
+  color: #6366f1;
+  font-weight: 500;
+  margin-left: 4px;
+  white-space: nowrap;
+}
+
 
 .llmDescription {
   font-size: 13px;
@@ -902,22 +925,83 @@
   line-height: 1.5;
 }
 
-.defaultLlmChevron {
-  font-size: 12px;
-  color: #9ca3af;
-  transition: transform 0.2s ease;
-}
-.defaultLlmChevronOpen {
-  transform: rotate(180deg);
+/* ---- Panel Section (grouped containers) ---- */
+
+.panelSection {
+  background: #fafbfc;
+  border: 1px solid #f3f4f6;
+  border-radius: 12px;
+  padding: 18px;
+  margin: 0 16px 16px;
 }
 
-.defaultLlmBody {
-  padding: 16px 24px;
-  margin: 4px auto 0;
-  background: rgba(0, 0, 0, 0.015);
-  border-radius: 10px;
-  border: 1px solid rgba(0, 0, 0, 0.04);
-  max-width: 560px;
+.panelSectionDashed {
+  background: #fff;
+  border: 1px dashed #e5e7eb;
+  border-radius: 12px;
+  padding: 18px;
+  margin: 0 16px 16px;
+}
+
+.panelTitle {
+  font-size: 13px;
+  font-weight: 600;
+  color: #6b7280;
+  margin-bottom: 14px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.panelDotGreen {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #10b981;
+  flex-shrink: 0;
+}
+
+.panelDotGray {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #d1d5db;
+  flex-shrink: 0;
+}
+
+.panelCount {
+  font-size: 11px;
+  color: #10b981;
+  font-weight: 400;
+  margin-left: auto;
+}
+
+/* ---- Tab Navigation ---- */
+
+.tabsNav {
+  display: flex;
+  gap: 0;
+  border-bottom: 2px solid #f3f4f6;
+  margin: 0 16px 16px;
+}
+
+.tabItem {
+  padding: 10px 20px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #9ca3af;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -2px;
+  transition: color 0.15s, border-color 0.15s;
+  user-select: none;
+}
+.tabItem:hover {
+  color: #6b7280;
+}
+.tabItemActive {
+  color: #6366f1;
+  border-bottom-color: #6366f1;
 }
 
 /* ---- Model Slot Sections ---- */
@@ -2002,26 +2086,79 @@
     color: rgba(255, 255, 255, 0.3);
   }
 
-  .defaultLlmHeader:hover {
-    background: rgba(255, 255, 255, 0.03);
+  .llmPillOn {
+    background: linear-gradient(
+      135deg,
+      rgba(16, 185, 129, 0.1),
+      rgba(16, 185, 129, 0.05),
+      rgba(255, 255, 255, 0.03)
+    );
+    border-color: rgba(16, 185, 129, 0.4);
+    box-shadow: 0 1px 6px rgba(16, 185, 129, 0.15);
+
+    &:hover {
+      box-shadow: 0 2px 10px rgba(16, 185, 129, 0.25);
+    }
   }
-  .defaultLlmTitle {
+  .llmPillOff {
+    background: linear-gradient(
+      135deg,
+      rgba(239, 68, 68, 0.1),
+      rgba(239, 68, 68, 0.05),
+      rgba(255, 255, 255, 0.03)
+    );
+    border-color: rgba(239, 68, 68, 0.4);
+    box-shadow: 0 1px 6px rgba(239, 68, 68, 0.15);
+
+    &:hover {
+      box-shadow: 0 2px 10px rgba(239, 68, 68, 0.25);
+    }
+  }
+  .llmPillLabel {
+    color: rgba(255, 255, 255, 0.5);
+  }
+  .llmPillValue {
     color: rgba(255, 255, 255, 0.85);
   }
-  .defaultLlmSummary {
-    color: rgba(255, 255, 255, 0.5);
-    background: rgba(255, 255, 255, 0.06);
+  .llmPillEdit {
+    color: #a5b4fc;
   }
-  .defaultLlmChevron {
-    color: rgba(255, 255, 255, 0.3);
+  .llmDescription {
+    color: rgba(255, 255, 255, 0.45);
   }
-  .defaultLlmBody {
+  .panelSection {
     background: rgba(255, 255, 255, 0.03);
     border-color: rgba(255, 255, 255, 0.06);
   }
+  .panelSectionDashed {
+    background: transparent;
+    border-color: rgba(255, 255, 255, 0.1);
+  }
+  .panelTitle {
+    color: rgba(255, 255, 255, 0.5);
+  }
+  .panelDotGreen {
+    background: #34d399;
+  }
+  .panelDotGray {
+    background: rgba(255, 255, 255, 0.2);
+  }
+  .panelCount {
+    color: #34d399;
+  }
+  .tabsNav {
+    border-bottom-color: rgba(255, 255, 255, 0.08);
+  }
+  .tabItem {
+    color: rgba(255, 255, 255, 0.4);
 
-  .llmDescription {
-    color: rgba(255, 255, 255, 0.45);
+    &:hover {
+      color: rgba(255, 255, 255, 0.6);
+    }
+  }
+  .tabItemActive {
+    color: #a5b4fc;
+    border-bottom-color: #a5b4fc;
   }
 
   /* Slot section (LLM 顶部选择区) */
