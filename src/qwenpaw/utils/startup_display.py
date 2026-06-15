@@ -8,6 +8,19 @@ from rich.panel import Panel
 from rich.tree import Tree
 
 
+def _safe_print(console: Console, *args, **kwargs) -> None:
+    """Call ``console.print`` with an OSError fallback for legacy Windows.
+
+    On legacy Windows consoles Rich can raise
+    ``OSError: [Errno 22] Invalid argument``.  When that happens we fall
+    back to the built-in ``print`` so the application does not crash.
+    """
+    try:
+        console.print(*args, **kwargs)
+    except OSError:
+        print(*args, **kwargs)
+
+
 def print_ready_banner(
     api_info: Optional[Tuple[str, int]] = None,
     elapsed_seconds: Optional[float] = None,
@@ -28,7 +41,7 @@ def print_ready_banner(
     console = Console()
 
     # Extra spacing before banner
-    console.print()
+    _safe_print(console)
 
     if api_info:
         host, port = api_info
@@ -76,5 +89,5 @@ def print_ready_banner(
             expand=False,
         )
 
-    console.print(panel)
-    console.print()
+    _safe_print(console, panel)
+    _safe_print(console)
