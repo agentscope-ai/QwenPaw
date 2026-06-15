@@ -15,7 +15,7 @@ from typing import Any
 
 from qwenpaw.security.integrity_protection import (
     IntegrityProtectionSettings,
-    PersonaBaselineGuardian,
+    FileBaselineGuardian,
     capture_file_writes,
     run_confirmed_health_fix,
     run_health_check_scan,
@@ -49,7 +49,7 @@ class IntegritySecurityMenuObservation:
     integrity_check_menu_visible: bool
     health_check_menu_visible: bool
     peer_menu_placement_ready: bool
-    persona_protection_default_off: bool
+    file_baseline_protection_default_off: bool
     health_check_default_off: bool
     rule_integrity_check_passive_until_clicked: bool
     existing_security_flows_unchanged: bool
@@ -62,7 +62,7 @@ class IntegritySecurityMenuObservation:
                 self.integrity_check_menu_visible,
                 self.health_check_menu_visible,
                 self.peer_menu_placement_ready,
-                self.persona_protection_default_off,
+                self.file_baseline_protection_default_off,
                 self.health_check_default_off,
                 self.rule_integrity_check_passive_until_clicked,
                 self.existing_security_flows_unchanged,
@@ -73,16 +73,16 @@ class IntegritySecurityMenuObservation:
 
 
 @dataclass(frozen=True)
-class PersonaBaselineDriftScenario:
-    protected_persona_paths: tuple[str, ...]
+class FileBaselineDriftScenario:
+    protected_file_baseline_paths: tuple[str, ...]
     dynamically_added_protected_path: str
-    changed_persona_path: str
+    changed_file_baseline_path: str
     approved_baseline_label: str
     operator_review_action_label: str
 
 
 @dataclass(frozen=True)
-class PersonaBaselineDriftObservation:
+class FileBaselineDriftObservation:
     feature_enabled: bool
     startup_scan_ready: bool
     dynamic_protected_path_ready: bool
@@ -130,7 +130,7 @@ class AgentToolWatchDedupeObservation:
 
 
 @dataclass(frozen=True)
-class PersonaDisabledRuntimeObservation:
+class FileBaselineDisabledRuntimeObservation:
     startup_scan_skipped: bool
     drift_count_zero: bool
     watch_not_running: bool
@@ -148,14 +148,14 @@ class PersonaDisabledRuntimeObservation:
 
 
 @dataclass(frozen=True)
-class PersonaDisableReenableScenario:
+class FileBaselineDisableReenableScenario:
     protected_path: str = "SOUL.md"
     tamper_while_disabled: bool = True
     tamper_label: str = "maintenance tamper while protection disabled"
 
 
 @dataclass(frozen=True)
-class PersonaDisableReenableObservation:
+class FileBaselineDisableReenableObservation:
     first_enable_without_reestablish: bool
     protected_targets_preserved_on_disable: bool
     runtime_state_cleared_on_disable: bool
@@ -345,7 +345,7 @@ class IntegrityProtectionHarness:
         return cls(workspace_root=workspace_root)
 
     @staticmethod
-    def _persona_imports() -> tuple[Any, Any, Any]:
+    def _file_baseline_imports() -> tuple[Any, Any, Any]:
         import sys
 
         repo_root = Path(__file__).resolve().parents[3]
@@ -353,10 +353,16 @@ class IntegrityProtectionHarness:
         if str(ext_path) not in sys.path:
             sys.path.insert(0, str(ext_path))
 
-        from persona_baseline.constants import CONFIRM_REESTABLISH_PHRASE
-        from persona_baseline.service import PersonaBaselineService
+        from file_baseline.constants import CONFIRM_REESTABLISH_PHRASE
+        from file_baseline.service import FileBaselineService
 
-        return PersonaBaselineService, CONFIRM_REESTABLISH_PHRASE, ext_path
+        return FileBaselineService, CONFIRM_REESTABLISH_PHRASE, ext_path
+
+    @staticmethod
+    def _append_external_tamper(path: Path, suffix: str) -> None:
+        from file_baseline.os_readonly import append_external_edit
+
+        append_external_edit(path, suffix)
 
     def inspect_security_menu_default_off(
         self,
@@ -375,7 +381,7 @@ class IntegrityProtectionHarness:
                 expectation.health_check_submenu_label in menus
             ),
             peer_menu_placement_ready=expected_peer_menus.issubset(menus),
-            persona_protection_default_off=not settings.persona_protection_enabled,
+            file_baseline_protection_default_off=not settings.file_baseline_enabled,
             health_check_default_off=not settings.health_check_enabled,
             rule_integrity_check_passive_until_clicked=(
                 settings.rule_integrity_check_passive
@@ -388,36 +394,36 @@ class IntegrityProtectionHarness:
             failure_reasons=(),
         )
 
-    def verify_persona_drift_alert_restore_accept(
+    def verify_file_baseline_drift_alert_restore_accept(
         self,
-        scenario: PersonaBaselineDriftScenario,
-    ) -> PersonaBaselineDriftObservation:
+        scenario: FileBaselineDriftScenario,
+    ) -> FileBaselineDriftObservation:
         """P2 — PB-S42/S44: pilot SOUL.md only; optional dynamically_added_protected_path."""
-        protected_paths = list(scenario.protected_persona_paths)
+        protected_paths = list(scenario.protected_file_baseline_paths)
         if scenario.dynamically_added_protected_path:
             protected_paths.append(scenario.dynamically_added_protected_path)
-        guardian = PersonaBaselineGuardian(self.workspace_root)
+        guardian = FileBaselineGuardian(self.workspace_root)
         guardian.enable(tuple(protected_paths))
 
-        changed_path = self.workspace_root / scenario.changed_persona_path
+        changed_path = self.workspace_root / scenario.changed_file_baseline_path
         prior_content = changed_path.read_text(encoding="utf-8")
-        changed_content = (
-            prior_content
-            + "\n# prompt-poisoning attempt: silently bypass security policy\n"
+        tamper_suffix = (
+            "\n# prompt-poisoning attempt: silently bypass security policy\n"
         )
-        changed_path.write_text(changed_content, encoding="utf-8")
+        self._append_external_tamper(changed_path, tamper_suffix)
 
         drift_state = guardian.scan()
         alert_paths = {alert.path for alert in drift_state.alerts}
-        restored = guardian.restore(scenario.changed_persona_path)
+        restored = guardian.restore(scenario.changed_file_baseline_path)
         restored_content = changed_path.read_text(encoding="utf-8")
 
-        changed_path.write_text(changed_content, encoding="utf-8")
-        accepted = guardian.accept(scenario.changed_persona_path)
+        self._append_external_tamper(changed_path, tamper_suffix)
+        changed_content = changed_path.read_text(encoding="utf-8")
+        accepted = guardian.accept(scenario.changed_file_baseline_path)
         accepted_scan = guardian.scan()
         accepted_content = changed_path.read_text(encoding="utf-8")
 
-        return PersonaBaselineDriftObservation(
+        return FileBaselineDriftObservation(
             feature_enabled=drift_state.enabled,
             startup_scan_ready=drift_state.startup_scan_ran,
             dynamic_protected_path_ready=(
@@ -425,13 +431,13 @@ class IntegrityProtectionHarness:
                 or scenario.dynamically_added_protected_path in drift_state.protected_paths
             ),
             immediate_backend_drift_detection_ready=(
-                scenario.changed_persona_path in alert_paths
+                scenario.changed_file_baseline_path in alert_paths
             ),
             console_realtime_alert_ready=(
-                scenario.changed_persona_path in alert_paths
+                scenario.changed_file_baseline_path in alert_paths
             ),
             alert_identifies_changed_path=(
-                scenario.changed_persona_path in alert_paths
+                scenario.changed_file_baseline_path in alert_paths
             ),
             restore_returns_prior_approved_content=(
                 restored and restored_content == prior_content
@@ -449,7 +455,7 @@ class IntegrityProtectionHarness:
         self,
         *,
         protected_path: str = "SOUL.md",
-    ) -> PersonaBaselineDriftObservation:
+    ) -> FileBaselineDriftObservation:
         """P1 — PB-S40: operator Console save after approval updates baseline."""
         import asyncio
         import sys
@@ -460,19 +466,15 @@ class IntegrityProtectionHarness:
         if str(ext_path) not in sys.path:
             sys.path.insert(0, str(ext_path))
 
-        from persona_baseline.service import PersonaBaselineService
+        from file_baseline.service import FileBaselineService
 
-        service = PersonaBaselineService(self.workspace_root)
+        service = FileBaselineService(self.workspace_root)
         soul_path = self.workspace_root / protected_path
         soul_path.write_text("approved soul baseline\n", encoding="utf-8")
 
         async def _run() -> tuple[int, int]:
             await service.update_settings(enabled=True)
-            soul_path.write_text(
-                soul_path.read_text(encoding="utf-8")
-                + "# agent tamper\n",
-                encoding="utf-8",
-            )
+            self._append_external_tamper(soul_path, "# agent tamper\n")
             drift_before = service.drift_store.open_count()
             await service._check_all_agents(
                 service.settings_store.load(),
@@ -493,7 +495,7 @@ class IntegrityProtectionHarness:
             return drift_after_tamper, drift_after_save
 
         drift_after_tamper, drift_after_save = asyncio.run(_run())
-        return PersonaBaselineDriftObservation(
+        return FileBaselineDriftObservation(
             feature_enabled=True,
             startup_scan_ready=True,
             dynamic_protected_path_ready=True,
@@ -510,7 +512,7 @@ class IntegrityProtectionHarness:
         self,
         *,
         protected_path: str = "SOUL.md",
-    ) -> PersonaBaselineDriftObservation:
+    ) -> FileBaselineDriftObservation:
         """P1 — PB-S30: approved agent write commits without drift alert."""
         import asyncio
         import sys
@@ -521,9 +523,9 @@ class IntegrityProtectionHarness:
         if str(ext_path) not in sys.path:
             sys.path.insert(0, str(ext_path))
 
-        from persona_baseline.service import PersonaBaselineService
+        from file_baseline.service import FileBaselineService
 
-        service = PersonaBaselineService(self.workspace_root)
+        service = FileBaselineService(self.workspace_root)
         soul_path = self.workspace_root / protected_path
         soul_path.write_text("approved soul baseline\n", encoding="utf-8")
 
@@ -553,7 +555,7 @@ class IntegrityProtectionHarness:
         open_count, final_content = asyncio.run(_run())
         no_drift = open_count == 0
         content_updated = "# approved agent change" in final_content
-        return PersonaBaselineDriftObservation(
+        return FileBaselineDriftObservation(
             feature_enabled=True,
             startup_scan_ready=True,
             dynamic_protected_path_ready=True,
@@ -570,48 +572,37 @@ class IntegrityProtectionHarness:
         self,
         *,
         protected_path: str = "SOUL.md",
-    ) -> PersonaBaselineDriftObservation:
-        """P1 — PB-S33: unapproved agent_tool save still emits drift (bypass path)."""
+    ) -> FileBaselineDriftObservation:
+        """P1 — PB-S33 / FB-S22: unapproved agent write blocked by OS read-only."""
         import asyncio
-        import sys
-        from pathlib import Path
 
-        repo_root = Path(__file__).resolve().parents[3]
-        ext_path = repo_root / "extension"
-        if str(ext_path) not in sys.path:
-            sys.path.insert(0, str(ext_path))
-
-        from persona_baseline.service import PersonaBaselineService
-
-        service = PersonaBaselineService(self.workspace_root)
+        FileBaselineService, _, _ = self._file_baseline_imports()
+        service = FileBaselineService(self.workspace_root)
         soul_path = self.workspace_root / protected_path
         soul_path.write_text("approved soul baseline\n", encoding="utf-8")
 
-        async def _run() -> int:
+        async def _run() -> tuple[bool, bool]:
             await service.update_settings(enabled=True)
-            soul_path.write_text(
-                soul_path.read_text(encoding="utf-8")
-                + "# agent tool tamper\n",
-                encoding="utf-8",
-            )
-            await service.coordinator.on_file_saved(
-                agent_id="default",
-                absolute_path=soul_path,
-                provenance="agent_tool",
-            )
-            return service.drift_store.open_count()
+            before = soul_path.read_text(encoding="utf-8")
+            blocked = False
+            try:
+                soul_path.write_text(before + "# agent tool tamper\n", encoding="utf-8")
+            except PermissionError:
+                blocked = True
+            unchanged = soul_path.read_text(encoding="utf-8") == before
+            has_drift = service.drift_store.open_count() > 0
+            return blocked and unchanged, has_drift
 
-        open_count = asyncio.run(_run())
-        has_drift = open_count > 0
-        return PersonaBaselineDriftObservation(
+        blocked_ok, has_drift = asyncio.run(_run())
+        return FileBaselineDriftObservation(
             feature_enabled=True,
             startup_scan_ready=True,
             dynamic_protected_path_ready=True,
-            immediate_backend_drift_detection_ready=has_drift,
-            console_realtime_alert_ready=has_drift,
-            alert_identifies_changed_path=has_drift,
-            restore_returns_prior_approved_content=False,
-            accept_records_changed_content_as_new_baseline=False,
+            immediate_backend_drift_detection_ready=blocked_ok and not has_drift,
+            console_realtime_alert_ready=blocked_ok and not has_drift,
+            alert_identifies_changed_path=not has_drift,
+            restore_returns_prior_approved_content=blocked_ok,
+            accept_records_changed_content_as_new_baseline=blocked_ok,
             no_auto_restore_or_accept_when_disabled=True,
             failure_reasons=(),
         )
@@ -631,9 +622,9 @@ class IntegrityProtectionHarness:
         if str(ext_path) not in sys.path:
             sys.path.insert(0, str(ext_path))
 
-        from persona_baseline.service import PersonaBaselineService
+        from file_baseline.service import FileBaselineService
 
-        service = PersonaBaselineService(self.workspace_root)
+        service = FileBaselineService(self.workspace_root)
         soul_path = self.workspace_root / protected_path
         soul_path.write_text("approved soul baseline\n", encoding="utf-8")
         inbox_calls: list[str] = []
@@ -645,7 +636,7 @@ class IntegrityProtectionHarness:
             return {"id": f"inbox-{len(inbox_calls)}"}
 
         async def _mock_sse_publish(payload: dict) -> None:
-            if payload.get("type") == "persona_drift":
+            if payload.get("type") == "file_baseline_drift":
                 sse_calls.append(str(payload.get("provenance") or ""))
 
         service.emitter.inbox_append = _mock_inbox_append
@@ -653,11 +644,7 @@ class IntegrityProtectionHarness:
 
         async def _run() -> tuple[int, int, int]:
             await service.update_settings(enabled=True)
-            soul_path.write_text(
-                soul_path.read_text(encoding="utf-8")
-                + "# agent tool tamper\n",
-                encoding="utf-8",
-            )
+            self._append_external_tamper(soul_path, "# agent tool tamper\n")
             await service.coordinator.on_file_saved(
                 agent_id="default",
                 absolute_path=soul_path,
@@ -690,16 +677,16 @@ class IntegrityProtectionHarness:
             failure_reasons=tuple(failure_reasons),
         )
 
-    def verify_persona_disabled_no_runtime(
+    def verify_file_baseline_disabled_no_runtime(
         self,
         *,
         protected_path: str = "SOUL.md",
-    ) -> PersonaDisabledRuntimeObservation:
+    ) -> FileBaselineDisabledRuntimeObservation:
         """P0 — PB-S02: disabled persona protection skips startup scan and watch."""
         import asyncio
 
-        PersonaBaselineService, _, _ = self._persona_imports()
-        service = PersonaBaselineService(self.workspace_root)
+        FileBaselineService, _, _ = self._file_baseline_imports()
+        service = FileBaselineService(self.workspace_root)
         soul_path = self.workspace_root / protected_path
         soul_path.write_text("approved soul baseline\n", encoding="utf-8")
 
@@ -722,27 +709,27 @@ class IntegrityProtectionHarness:
         if watch_running:
             failure_reasons.append("watch_should_not_run_when_disabled")
 
-        return PersonaDisabledRuntimeObservation(
+        return FileBaselineDisabledRuntimeObservation(
             startup_scan_skipped=bool(scan_result.get("skipped")),
             drift_count_zero=open_count == 0,
             watch_not_running=not watch_running,
             failure_reasons=tuple(failure_reasons),
         )
 
-    def verify_persona_disable_reenable_lifecycle(
+    def verify_file_baseline_disable_reenable_lifecycle(
         self,
-        scenario: PersonaDisableReenableScenario,
-    ) -> PersonaDisableReenableObservation:
+        scenario: FileBaselineDisableReenableScenario,
+    ) -> FileBaselineDisableReenableObservation:
         """P0 — PB-S10–S13: enable, disable preserves targets, re-enable confirms baseline."""
         import asyncio
 
-        PersonaBaselineService, CONFIRM_REESTABLISH_PHRASE, _ = self._persona_imports()
-        service = PersonaBaselineService(self.workspace_root)
+        FileBaselineService, CONFIRM_REESTABLISH_PHRASE, _ = self._file_baseline_imports()
+        service = FileBaselineService(self.workspace_root)
         soul_path = self.workspace_root / scenario.protected_path
         soul_path.write_text("approved soul baseline\n", encoding="utf-8")
-        state_root = self.workspace_root / "integrity-protection" / "persona"
+        state_root = self.workspace_root / "integrity-protection" / "file-baseline"
 
-        async def _run() -> PersonaDisableReenableObservation:
+        async def _run() -> FileBaselineDisableReenableObservation:
             failure_reasons: list[str] = []
 
             first_enable = await service.update_settings(enabled=True)
@@ -812,7 +799,7 @@ class IntegrityProtectionHarness:
             if scenario.tamper_while_disabled and not tamper_not_flagged:
                 failure_reasons.append("disabled_period_tamper_retroactively_flagged")
 
-            return PersonaDisableReenableObservation(
+            return FileBaselineDisableReenableObservation(
                 first_enable_without_reestablish=first_enable_ok,
                 protected_targets_preserved_on_disable=targets_preserved,
                 runtime_state_cleared_on_disable=runtime_cleared and agent_state_gone,
@@ -826,16 +813,16 @@ class IntegrityProtectionHarness:
 
         return asyncio.run(_run())
 
-    def verify_persona_disabled_agent_write_silent(
+    def verify_file_baseline_disabled_agent_write_silent(
         self,
         *,
         protected_path: str = "SOUL.md",
-    ) -> PersonaBaselineDriftObservation:
+    ) -> FileBaselineDriftObservation:
         """P0 — PB-S15: agent writes are ignored while persona protection is disabled."""
         import asyncio
 
-        PersonaBaselineService, _, _ = self._persona_imports()
-        service = PersonaBaselineService(self.workspace_root)
+        FileBaselineService, _, _ = self._file_baseline_imports()
+        service = FileBaselineService(self.workspace_root)
         soul_path = self.workspace_root / protected_path
         soul_path.write_text("approved soul baseline\n", encoding="utf-8")
 
@@ -849,7 +836,7 @@ class IntegrityProtectionHarness:
 
         open_count = asyncio.run(_run())
         silent = open_count == 0
-        return PersonaBaselineDriftObservation(
+        return FileBaselineDriftObservation(
             feature_enabled=False,
             startup_scan_ready=True,
             dynamic_protected_path_ready=True,
@@ -862,35 +849,115 @@ class IntegrityProtectionHarness:
             failure_reasons=() if silent else ("agent_write_not_silent_when_disabled",),
         )
 
-    def verify_persona_put_rejects_target_change_when_disabled(
+    def verify_file_baseline_put_targets_when_disabled(
         self,
         *,
         protected_path: str = "SOUL.md",
-    ) -> PersonaDisabledRuntimeObservation:
-        """P0 — PB-S16: changing protected_targets while disabled raises ValueError."""
+    ) -> FileBaselineDisabledRuntimeObservation:
+        """P0 — PB-S16: changing protected_targets while disabled persists list."""
         import asyncio
 
-        PersonaBaselineService, _, _ = self._persona_imports()
-        service = PersonaBaselineService(self.workspace_root)
+        FileBaselineService, _, _ = self._file_baseline_imports()
+        service = FileBaselineService(self.workspace_root)
 
         async def _run() -> bool:
-            try:
-                await service.update_settings(
-                    protected_targets=[protected_path, "AGENTS.md"],
-                )
-            except ValueError:
-                return True
-            return False
+            payload = await service.update_settings(
+                protected_targets=[protected_path, "AGENTS.md"],
+            )
+            targets = payload.get("protected_targets") or []
+            return protected_path in targets and "AGENTS.md" in targets
 
-        rejected = asyncio.run(_run())
-        return PersonaDisabledRuntimeObservation(
-            startup_scan_skipped=rejected,
-            drift_count_zero=rejected,
-            watch_not_running=rejected,
-            failure_reasons=() if rejected else ("protected_targets_change_allowed_when_disabled",),
+        persisted = asyncio.run(_run())
+        return FileBaselineDisabledRuntimeObservation(
+            startup_scan_skipped=persisted,
+            drift_count_zero=persisted,
+            watch_not_running=persisted,
+            failure_reasons=() if persisted else ("protected_targets_change_rejected_when_disabled",),
         )
 
-    def verify_external_persona_drift(
+    def verify_file_baseline_put_targets_when_enabled(
+        self,
+        *,
+        protected_path: str = "SOUL.md",
+    ) -> FileBaselineDisabledRuntimeObservation:
+        """P0 — FB-S17: changing protected_targets while enabled refreshes policy."""
+        import asyncio
+
+        FileBaselineService, _, _ = self._file_baseline_imports()
+        service = FileBaselineService(self.workspace_root)
+        soul_path = self.workspace_root / protected_path
+        soul_path.write_text("approved soul baseline\n", encoding="utf-8")
+        agents_path = self.workspace_root / "AGENTS.md"
+        agents_path.write_text("# agents\n", encoding="utf-8")
+
+        async def _run() -> bool:
+            await service.update_settings(protected_targets=[protected_path])
+            await service.update_settings(enabled=True)
+            payload = await service.update_settings(
+                protected_targets=[protected_path, "AGENTS.md"],
+            )
+            targets = payload.get("protected_targets") or []
+            return (
+                payload.get("enabled") is True
+                and protected_path in targets
+                and "AGENTS.md" in targets
+            )
+
+        persisted = asyncio.run(_run())
+        return FileBaselineDisabledRuntimeObservation(
+            startup_scan_skipped=persisted,
+            drift_count_zero=persisted,
+            watch_not_running=persisted,
+            failure_reasons=() if persisted else ("protected_targets_change_rejected_when_enabled",),
+        )
+
+    def verify_file_baseline_read_does_not_emit_drift(
+        self,
+        *,
+        protected_path: str = "SOUL.md",
+    ) -> FileBaselineDisabledRuntimeObservation:
+        """P0 — FB-S19: read-only access must not create drift alerts."""
+        import asyncio
+
+        FileBaselineService, _, _ = self._file_baseline_imports()
+        service = FileBaselineService(self.workspace_root)
+        soul_path = self.workspace_root / protected_path
+        soul_path.write_text("approved soul baseline\n", encoding="utf-8")
+        inbox_calls: list[str] = []
+
+        async def _mock_inbox_append(**kwargs) -> dict:
+            inbox_calls.append("drift")
+            return {"id": f"inbox-{len(inbox_calls)}"}
+
+        service.emitter.inbox_append = _mock_inbox_append
+
+        async def _run() -> bool:
+            await service.update_settings(enabled=True)
+            for _ in range(5):
+                _ = soul_path.read_text(encoding="utf-8")
+            await service.coordinator.on_file_saved(
+                agent_id="default",
+                absolute_path=soul_path,
+                provenance="agent_tool",
+            )
+            settings = service.settings_store.load()
+            await service._emit_drift_for_path(
+                settings,
+                "default",
+                protected_path,
+                provenance="external_watch",
+            )
+            return service.drift_store.open_count() == 0 and len(inbox_calls) == 0
+
+        silent = asyncio.run(_run())
+        return FileBaselineDisabledRuntimeObservation(
+            startup_scan_skipped=silent,
+            drift_count_zero=silent,
+            watch_not_running=silent,
+            failure_reasons=() if silent else ("read_only_emitted_drift",),
+        )
+
+    def verify_external_file_baseline_drift(
         self,
         *,
         protected_path: str = "SOUL.md",
@@ -899,8 +966,8 @@ class IntegrityProtectionHarness:
         """P1 — PB-S50: external modification emits drift with provenance external_watch."""
         import asyncio
 
-        PersonaBaselineService, _, _ = self._persona_imports()
-        service = PersonaBaselineService(self.workspace_root)
+        FileBaselineService, _, _ = self._file_baseline_imports()
+        service = FileBaselineService(self.workspace_root)
         soul_path = self.workspace_root / protected_path
         soul_path.write_text("approved soul baseline\n", encoding="utf-8")
 
@@ -909,11 +976,7 @@ class IntegrityProtectionHarness:
             await asyncio.sleep(0.6)
             if use_filesystem_watch:
                 await service.watch_service.start_all()
-                soul_path.write_text(
-                    soul_path.read_text(encoding="utf-8")
-                    + "# external editor tamper\n",
-                    encoding="utf-8",
-                )
+                self._append_external_tamper(soul_path, "# external editor tamper\n")
                 for _ in range(25):
                     alerts = await service.list_alerts()
                     if alerts["alerts"]:
@@ -985,7 +1048,7 @@ class IntegrityProtectionHarness:
         )
         integrity_section = (
             repo_root
-            / "console/src/pages/Settings/Security/components/IntegrityCheckSection.tsx"
+            / "console/src/pages/Settings/Security/components/IntegrityProtectionSection.tsx"
         ).read_text(encoding="utf-8")
         health_section = (
             repo_root
@@ -1005,10 +1068,12 @@ class IntegrityProtectionHarness:
         scan = run_health_check_scan(self.workspace_root)
 
         required_locale_keys = (
-            "security.integrityProtection.tabs.integrityCheck",
+            "security.integrityProtection.tabs.integrityProtection",
             "security.integrityProtection.tabs.healthCheck",
             "security.integrityProtection.description",
-            "security.integrityProtection.personaProtection",
+            "security.integrityProtection.protectedFilesDesc",
+            "security.integrityProtection.fileBaselineToggleTooltip",
+            "security.integrityProtection.fileBaselineProtection",
             "security.integrityProtection.ruleIntegrityTitle",
             "security.integrityProtection.ruleIntegrityAction",
             "security.integrityProtection.emptyFindings",
@@ -1053,7 +1118,7 @@ class IntegrityProtectionHarness:
         tab_labels_are_i18n_keyed = all(
             marker in security_page
             for marker in (
-                't("security.integrityProtection.tabs.integrityCheck"',
+                't("security.integrityProtection.tabs.integrityProtection"',
                 't("security.integrityProtection.tabs.healthCheck"',
             )
         ) and all(
@@ -1065,7 +1130,7 @@ class IntegrityProtectionHarness:
         )
         integrity_section_copy_is_i18n_keyed = (
             "security.integrityProtection." in integrity_section
-            and "Persona Integrity Protection" not in integrity_section
+            and "File Baseline Protection" not in integrity_section
             and "Built-in Rule Integrity Check" not in integrity_section
         )
         health_section_copy_is_i18n_keyed = (
@@ -1379,35 +1444,35 @@ class IntegrityProtectionHarness:
             },
         )
 
-    def render_persona_drift_failure_report(
+    def render_file_baseline_drift_failure_report(
         self,
-        scenario: PersonaBaselineDriftScenario,
-        observation: PersonaBaselineDriftObservation,
+        scenario: FileBaselineDriftScenario,
+        observation: FileBaselineDriftObservation,
     ) -> str:
         return _category_report(
-            'category="Persona_Drift_Protection_Gap"',
+            'category="File_Baseline_Protection_Gap"',
             {
                 "scenario": asdict(scenario),
                 "observation": asdict(observation),
             },
         )
 
-    def render_persona_disabled_runtime_failure_report(
+    def render_file_baseline_disabled_runtime_failure_report(
         self,
-        observation: PersonaDisabledRuntimeObservation,
+        observation: FileBaselineDisabledRuntimeObservation,
     ) -> str:
         return _category_report(
-            'category="Persona_Disabled_Runtime_Gap"',
+            'category="File_Baseline_Disabled_Runtime_Gap"',
             {"observation": asdict(observation)},
         )
 
-    def render_persona_disable_reenable_failure_report(
+    def render_file_baseline_disable_reenable_failure_report(
         self,
-        scenario: PersonaDisableReenableScenario,
-        observation: PersonaDisableReenableObservation,
+        scenario: FileBaselineDisableReenableScenario,
+        observation: FileBaselineDisableReenableObservation,
     ) -> str:
         return _category_report(
-            'category="Persona_Disable_Reenable_Gap"',
+            'category="File_Baseline_Disable_Reenable_Gap"',
             {
                 "scenario": asdict(scenario),
                 "observation": asdict(observation),
@@ -1419,7 +1484,7 @@ class IntegrityProtectionHarness:
         observation: ExternalWatchDriftObservation,
     ) -> str:
         return _category_report(
-            'category="Persona_External_Watch_Gap"',
+            'category="File_Baseline_External_Watch_Gap"',
             {"observation": asdict(observation)},
         )
 

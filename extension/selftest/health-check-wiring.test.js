@@ -44,11 +44,11 @@ for (const target of manifest.layers.backend.targets) {
 
 const requiredWiring = [
     'console/src/extension/health_check/components/HealthCheckSection.tsx',
-    'console/src/extension/persona_baseline/components/PersonaDriftAlertNotifier/index.tsx',
+    'console/src/extension/file_baseline/components/FileBaselineDriftAlertNotifier/index.tsx',
     'src/qwenpaw/security/integrity_protection.py',
     'src/qwenpaw/app/routers/integrity_protection_routes.py',
     'src/qwenpaw/app/routers/config.py',
-    'console/src/pages/Settings/Security/components/IntegrityCheckSection.tsx',
+    'console/src/pages/Settings/Security/components/IntegrityProtectionSection.tsx',
     'console/src/api/modules/security.ts',
 ];
 

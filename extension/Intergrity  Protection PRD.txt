@@ -1,11 +1,11 @@
-一、人格完整性保护
-目的：保护AGENTS.md、SOUL.md、PROFILE.md 等人格基线不被破坏，防止prompt投毒
-1、利用thirdparty目录下clawsec的soul_guardian能力对 AGENTS.md、SOUL.md、PROFILE.md 等建基线、漂移检测，防prompt层投毒，以免改人设让 agent「自愿」绕过策略）
+一、文件基线保护（原：人格完整性保护）
+目的：保护用户在工作区指定的关键文件（如 AGENTS.md、SOUL.md、PROFILE.md、skills/*/SKILL.md 等）不被静默篡改，防止 prompt 投毒
+1、利用thirdparty目录下clawsec的soul_guardian能力对用户配置的 protected_targets 建基线、漂移检测
 2、文件被修改后要能立刻在前端提醒用户（利用 qwenpaw 的 SSE watch 机制），并提供接受修改和恢复按钮；用户点击恢复则还原到修改前的版本；用户点击接受则建立新的基线。
-3、认知文件保护范围包含 AGENTS.md、SOUL.md、PROFILE.md 等，同时支持动态配置，以后可以增加扩展保护 skill 文件。
-4、程序启动时进行一次全量扫描（仅 persona_protection_enabled=true 时）
+3、保护范围由用户在 Console 逐条点选（预设 + Skill 列表 + 自定义路径）；试点默认清单仅 SOUL.md，不自动全开。
+4、程序启动时进行一次全量扫描（仅 file_baseline_enabled=true 时）
 5、本功能在前台界面支持开关，且开关默认关闭；开关开启后功能使能。
-6、界面部署参考第四章 界面部署
+6、界面：设置/安全/完整性保护 Tab → 区块 A「文件基线保护」
 
 三、健康体检
 目的：对 qwenpaw 进行健康体检
@@ -26,10 +26,10 @@
 6、界面部署参考第四章 界面部署
 
 四、界面部署
-1、【完整性校验】在 qwenpaw 前端网页设置/安全菜单下，新增子菜单完整性校验，该菜单和现有的工具防护、文件防护平级，同风格
+1、【完整性保护】在 qwenpaw 前端网页设置/安全菜单下，子 Tab「完整性保护」（与工具防护、文件防护、健康检查平级）
 1.1、菜单内容
-1.1.1 部署人格完整性保护功能 Switch（默认关），开关开启时罗列被保护的文件路径；漂移告警卡片提供 Restore / Accept
-1.1.2 规则完整性：Integrity Check 内「检查」按钮 + findings 表格（RuleIntegrityPassiveCard）；Security 页顶篡改 Banner（轮询）+ Repair 按钮（RuleIntegrityRepairBanner）
+1.1.1 区块 A — 文件基线保护：Switch（默认关）；受保护文件逐条点选（预设 / Skill / 自定义）；漂移告警 Restore / Accept
+1.1.2 区块 B — 规则完整性：「检查」按钮 + findings 表格（RuleIntegrityPassiveCard）；Security 页顶篡改 Banner + Repair（RuleIntegrityRepairBanner）
    （本仓库未实现来源可信校验入口）
 
 1.2 【健康体检】在 qwenpaw 前端网页设置/安全菜单下，新增子菜单健康体检，该菜单和现有的工具防护、文件防护平级，同风格
@@ -37,14 +37,15 @@
 
 五、其他要求
 1、减小侵入式修改，代码尽量解耦，写到 extension 下
-   - 后端：extension/{persona_baseline,health_check,rule_integrity}/
-   - 前端：console/src/extension/{persona_baseline,health_check,rule_integrity}/
+   - 后端：extension/{file_baseline,health_check,rule_integrity}/
+   - 前端：console/src/extension/{file_baseline,health_check,rule_integrity}/
 2、thirdparty 目录下 clawsec 已有的能力直接复用，不要重复造轮子
 3、要有设计文档，也写入到 extension 目录下
 
-六、实现状态（As-built，与当前代码一致）
-- 已实现：人格完整性保护、健康体检、内置规则完整性（Banner + PassiveCard + 显式 Repair）
+六、实现状态（目标 as-built，File Baseline v1.0 rename）
+- 已实现（待 rename）：文件基线保护、健康体检、内置规则完整性
 - 未实现：来源可信校验（原 PRD 第二节整节需求）
-- persona_protection_enabled：UI Switch 控制，默认 false，enable 后才有 watch/scan/告警
+- file_baseline_enabled：UI Switch 控制，默认 false，enable 后才有 watch/scan/告警
+- 一次性 breaking rename：persona_* → file_baseline_*；无 API alias
 - health_check_enabled：settings 投影字段，默认 false；不控制 Tab 可见性，不拦截 scan/fix API
 - rule_integrity_check_passive：默认 true；repair 必须用户显式点击

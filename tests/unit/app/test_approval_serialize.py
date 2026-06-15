@@ -9,7 +9,7 @@ from qwenpaw.app.approvals.service import PendingApproval
 from qwenpaw.security.tool_guard.approval import ApprovalDecision
 
 
-def test_pending_approval_to_console_dict_includes_persona_write() -> None:
+def test_pending_approval_to_console_dict_includes_file_baseline_write() -> None:
     loop = asyncio.new_event_loop()
     future = loop.create_future()
     future.set_result(ApprovalDecision.APPROVED)
@@ -26,7 +26,7 @@ def test_pending_approval_to_console_dict_includes_persona_write() -> None:
         created_at=1.0,
         future=future,
         extra={
-            "persona_write": {
+            "file_baseline_write": {
                 "relative_path": "SOUL.md",
                 "proposed_content": "new soul",
                 "current_content": "old soul",
@@ -36,8 +36,8 @@ def test_pending_approval_to_console_dict_includes_persona_write() -> None:
 
     payload: dict[str, Any] = pending_approval_to_console_dict(pending)
     assert payload["request_id"] == "req-1"
-    assert payload["approval_kind"] == "persona_write"
-    assert payload["persona_write"]["relative_path"] == "SOUL.md"
-    assert payload["persona_write"]["proposed_content"] == "new soul"
+    assert payload["approval_kind"] == "file_baseline_write"
+    assert payload["file_baseline_write"]["relative_path"] == "SOUL.md"
+    assert payload["file_baseline_write"]["proposed_content"] == "new soul"
     assert payload["tool_params"]["proposed_content"] == "new soul"
     assert payload["tool_params"]["file_path"] == "SOUL.md"

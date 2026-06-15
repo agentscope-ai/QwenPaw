@@ -33,7 +33,7 @@ import { commandsApi } from "../../api/modules/commands";
 import { chatApi } from "../../api/modules/chat";
 import sessionApi from "../Chat/sessionApi";
 import { PushMessageCard } from "./components";
-import { resolvePersonaDriftNavigation } from "@extension/persona_baseline/lib/navigation";
+import { resolveFileBaselineDriftNavigation } from "@extension/file_baseline/lib/navigation";
 import { useInboxData } from "./hooks/useInboxData";
 import { useTraceViewer } from "./hooks/useTraceViewer";
 import { useAgentStore } from "../../stores/agentStore";
@@ -223,7 +223,7 @@ export default function InboxPage() {
     }
     const eventType = found.metadata?.eventType;
     const payload = found.metadata?.payload;
-    const deepLink = resolvePersonaDriftNavigation(eventType, payload);
+    const deepLink = resolveFileBaselineDriftNavigation(eventType, payload);
     if (deepLink) {
       void markMessageAsRead(messageId);
       navigate(deepLink);
@@ -425,7 +425,7 @@ export default function InboxPage() {
                   timeoutSeconds={approval.timeout_seconds}
                   sessionId={approval.session_id}
                   rootSessionId={approval.root_session_id}
-                  personaWrite={approval.persona_write}
+                  fileBaselineWrite={approval.file_baseline_write}
                   onApprove={() =>
                     handleApproveRequest(
                       approval.request_id,

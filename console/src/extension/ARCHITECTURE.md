@@ -21,14 +21,14 @@ element_path: console/src/extension
 ## Children
 
 - `shared/inbox/` — generic Inbox change event utilities
-- `persona_baseline/` — persona protection UI, API client, SSE watch
+- `file_baseline/` — persona protection UI, API client, SSE watch
 - `health_check/` — health scan UI, API client, lib helpers (`scanUi`, `detailMessages`, `actionLinks`, `fixRisk`, `scanSummary`)
 - `rule_integrity/` — rule integrity API client, passive check card, repair banner, polling hook
 
 ## Dependency Direction
 
 - Extension modules may import `@/api`, `@/pages/Settings/Security/index.module.less`, and i18n keys.
-- Host code imports `@extension/persona_baseline`, `@extension/health_check`, and `@extension/rule_integrity` public `index.ts` exports only.
+- Host code imports `@extension/file_baseline`, `@extension/health_check`, and `@extension/rule_integrity` public `index.ts` exports only.
 
 ## As-built Notes
 

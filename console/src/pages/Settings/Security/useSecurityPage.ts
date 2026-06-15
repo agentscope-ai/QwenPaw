@@ -30,7 +30,7 @@ export function useSecurityPage() {
   const [activeTab, setActiveTab] = useState(
     () => searchParams.get("tab") || "toolGuard",
   );
-  const personaHighlightAlertId = searchParams.get("personaAlertId") ?? undefined;
+  const fileBaselineHighlightAlertId = searchParams.get("fileBaselineAlertId") ?? undefined;
 
   useEffect(() => {
     const tab = searchParams.get("tab");
@@ -295,6 +295,6 @@ export function useSecurityPage() {
     loading,
     error,
     fetchAll,
-    personaHighlightAlertId,
+    fileBaselineHighlightAlertId,
   };
 }

@@ -252,10 +252,10 @@
 - `tests/integration/security/test_integrity_protection.py` owns the business-readable acceptance bodies and must call `tests/integration/security/integrity_harness.py` rather than raw HTTP, raw environment, raw filesystem, SQL, Cypher, or GraphQL plumbing.
 
 ### Integrity Protection Intent Realization Mapping
-- direct implementation: `extension/persona_baseline/` plus `src/qwenpaw/security` bridge realizes `intent-persona-baseline-guardian`.
+- direct implementation: `extension/file_baseline/` plus `src/qwenpaw/security` bridge realizes `intent-persona-baseline-guardian`.
 - direct implementation: `extension/health_check/` plus `src/qwenpaw/security/integrity_protection.py` re-export bridge realizes `intent-health-check-orchestrator`.
 - direct implementation: `extension/rule_integrity/` realizes built-in rule integrity verify/repair exposure for `intent-builtin-tool-rule-integrity`.
-- direct implementation: `console/src/extension/{persona_baseline,health_check,rule_integrity}/` realizes `intent-integrity-security-console`.
+- direct implementation: `console/src/extension/{file_baseline,health_check,rule_integrity}/` realizes `intent-integrity-security-console`.
 - not implemented: `intent-source-trust-verifier` (prior demo removed 2026-06-11).
 - indirect implementation chain: `thirdparty/clawsec-main/clawsec-main/skills/soul-guardian` carries persona baseline mechanics for `intent-persona-baseline-guardian`.
 - indirect implementation chain: `src/qwenpaw/cli/doctor_checks.py`, `doctor_connectivity.py`, and `doctor_fix_runner.py` carry doctor semantics reused by `extension/health_check/projection.py` and `fix.py`.
@@ -272,7 +272,7 @@
 
 - testcase: ip-e2e-002-persona-drift-alert-restore-accept
   intent_element: intent-persona-baseline-guardian
-  entrypoint: tests/integration/security/test_integrity_protection.py::test_persona_drift_alert_restore_accept
+  entrypoint: tests/integration/security/test_integrity_protection.py::test_file_baseline_drift_alert_restore_accept
   runtime_mode: business-readable integration harness, currently passing after Coding/Repair implementation
 
 - testcase: ip-e2e-003-source-trust-verification-package

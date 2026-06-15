@@ -118,7 +118,7 @@ element_path: src/qwenpaw/security
 
 ### Responsibility
 - Own backend semantics for `intent-integrity-protection-delivery`, including default-off settings, persona baseline protection, health-check orchestration, and rule-integrity exposure.
-- Persona protection is opt-in via `persona_protection_enabled`. Health Check scan/fix APIs and Settings menus are always available; `health_check_enabled` is a projection field defaulting to false and does not gate routes.
+- Persona protection is opt-in via `file_baseline_enabled`. Health Check scan/fix APIs and Settings menus are always available; `health_check_enabled` is a projection field defaulting to false and does not gate routes.
 - Preserve scan-before-fix, alert-before-restore, and explicit-action-before-mutation semantics.
 
 ### Stable Boundaries
@@ -126,7 +126,7 @@ element_path: src/qwenpaw/security
   - Expose backend state with persona protection off by default and `health_check_enabled` false in settings projection.
   - Persona monitoring must not start until explicitly enabled; Health Check tab/API remain available without enablement.
 - persona baseline guardian seam
-  - Adapt ClawSec soul-guardian baseline, check, restore, and approve concepts behind QwenPaw APIs in `extension/persona_baseline/`.
+  - Adapt ClawSec soul-guardian baseline, check, restore, and approve concepts behind QwenPaw APIs in `extension/file_baseline/`.
   - Detection runs on startup or watch notifications only after enablement.
   - Restore and Accept remain separate user actions.
 - source trust verifier seam
@@ -148,7 +148,7 @@ element_path: src/qwenpaw/security
   control_point: inspect Settings/Security without enabling new features
   observation_point: Integrity Check and Health Check are visible peer menus, all new switches are off by default, protected paths are not monitored, and existing security flows remain unchanged
 - testcase_name: ip-e2e-002-persona-drift-alert-restore-accept
-  entry_path: ../../tests/integration/security/test_integrity_protection.py::test_persona_drift_alert_restore_accept
+  entry_path: ../../tests/integration/security/test_integrity_protection.py::test_file_baseline_drift_alert_restore_accept
   control_point: enable persona protection, configure protected persona paths, change one protected file, then choose Restore and Accept paths
   observation_point: drift alert is immediate and path-specific, Restore returns prior approved content, and Accept records changed content as the new baseline
 - testcase_name: ip-e2e-003-source-trust-verification-package
@@ -169,7 +169,7 @@ element_path: src/qwenpaw/security
   observation_point: the scan and carousel candidates expose the full grouped qwenpaw doctor inventory as structured items, default scan omits deep-only connectivity, explicit deep scan includes deep-only items, and scan-only behavior produces no file mutation or doctor fix before second confirmation
 
 ### Current Evidence And Gaps
-- Persona, health-check, and rule-integrity flows are implemented in `extension/{persona_baseline,health_check,rule_integrity}/` and verified through `../../tests/integration/security/integrity_harness.py`.
+- Persona, health-check, and rule-integrity flows are implemented in `extension/{file_baseline,health_check,rule_integrity}/` and verified through `../../tests/integration/security/integrity_harness.py`.
 - Full doctor projection and scan API `deep=true` parameter are implemented in `extension/health_check/`.
 - Source-trust verify-only endpoint is not implemented.
 - Console Health Check UI calls scan with `deep=false` only; no Deep scan button.

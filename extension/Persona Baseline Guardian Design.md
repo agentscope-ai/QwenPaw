@@ -1,9 +1,10 @@
 # Persona Baseline Guardian Design
 
-> **Slice ID:** `intent-persona-baseline-guardian`  
-> **PRD 来源:** `extension/Intergrity  Protection PRD.txt` → 一、人格完整性保护  
+> **⚠️ SUPERSEDED:** 由 `extension/File Baseline Protection Design.md` (v1.0) 取代。产品更名为「文件基线保护」；一次性 breaking rename（`file_baseline_*`）。下文保留作历史/runtime 细节参考；新实现以 File Baseline Protection Design 为准。  
+> **Slice ID:** `intent-persona-baseline-guardian` → **`intent-file-baseline-protection`**  
+> **PRD 来源:** `extension/Intergrity  Protection PRD.txt` → 一、文件基线保护（原人格完整性保护）  
 > **父设计:** `extension/Intergrity  Protection Design.md`（Integrity Protection 总交付切片）  
-> **版本:** 0.6.7  
+> **版本:** 0.6.7 (frozen)
 > **变更（0.6）：** 明确 Out of Scope：read-time verification；强化 §5.5 启动扫描（scan-before-agents）与统一告警管道 `PersonaAlertEmitter`（Inbox + 日志 + push toast）。  
 > **变更（0.6.1）：** 复核并统一 **Enable Gate**：本文档全部运行时规格 **仅在 `settings.enabled=true` 时生效**（含启动全量扫描、告警、hook、watch）。  
 > **变更（0.6.2）：** 明确 **Disable 时保留 `protected_targets` 保护文件清单**；再次 Enable 时沿用同一列表，无需用户重新添加路径。  

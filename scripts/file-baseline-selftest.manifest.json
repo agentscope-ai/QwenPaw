@@ -1,0 +1,95 @@
+{
+  "version": 1,
+  "name": "file-baseline-selftest",
+  "description": "Unified self-test net for File Baseline Protection (wiring + backend + frontend).",
+  "layers": {
+    "wiring": {
+      "label": "Extension wiring",
+      "runner": "node",
+      "targets": [
+        "extension/selftest/file-baseline-wiring.test.js"
+      ]
+    },
+    "backend": {
+      "label": "Backend integration + unit",
+      "runner": "pytest",
+      "targets": [
+        {
+          "module": "tests/integration/security/test_integrity_protection.py",
+          "tests": [
+            "test_file_baseline_disabled_no_startup_scan",
+            "test_file_baseline_disable_reenable_lifecycle",
+            "test_file_baseline_disabled_agent_write_silent",
+            "test_file_baseline_put_targets_when_disabled",
+            "test_file_baseline_put_targets_when_enabled",
+            "test_file_baseline_read_does_not_emit_drift",
+            "test_file_baseline_offline_tamper_startup_scan",
+            "test_operator_editor_save_requires_approval",
+            "test_agent_write_file_baseline_drift",
+            "test_agent_tool_bypass_emits_drift",
+            "test_agent_tool_no_watch_double_emit",
+            "test_file_baseline_watch_triggers_check_on_modify",
+            "test_file_baseline_drift_alert_restore_accept",
+            "test_file_baseline_restore_rejects_wrong_phrase"
+          ]
+        },
+        {
+          "module": "tests/unit/extension/test_file_baseline_shell_preflight.py",
+          "tests": []
+        },
+        {
+          "module": "tests/unit/extension/test_file_baseline_post_command_verify.py",
+          "tests": []
+        },
+        {
+          "module": "tests/unit/extension/test_file_baseline_os_readonly.py",
+          "tests": []
+        }
+      ]
+    },
+    "frontend": {
+      "label": "Console frontend",
+      "runner": "vitest",
+      "cwd": "console",
+      "targets": [
+        "src/extension/file_baseline/api/client.test.ts",
+        "src/extension/file_baseline/lib/alertActions.test.ts",
+        "src/extension/file_baseline/lib/driftAlertItems.test.ts",
+        "src/extension/file_baseline/lib/fileBaselineWriteApproval.test.ts",
+        "src/extension/file_baseline/lib/navigation.test.ts",
+        "src/extension/file_baseline/hooks/useFileBaselineDriftWatch.test.ts",
+        "src/pages/Settings/Security/components/IntegrityProtectionSection.test.tsx",
+        "src/pages/Settings/Security/useSecurityPage.fileBaseline.test.tsx",
+        "src/pages/Inbox/hooks/useInboxData.fileBaseline.test.ts"
+      ]
+    }
+  },
+  "scenarios": [
+    { "id": "PB-S02", "layer": "backend", "target": "test_file_baseline_disabled_no_startup_scan" },
+    { "id": "PB-S10", "layer": "backend", "target": "test_file_baseline_disable_reenable_lifecycle" },
+    { "id": "PB-S11", "layer": "backend", "target": "test_file_baseline_disable_reenable_lifecycle" },
+    { "id": "PB-S12", "layer": "backend", "target": "test_file_baseline_disable_reenable_lifecycle" },
+    { "id": "PB-S13", "layer": "backend", "target": "test_file_baseline_disable_reenable_lifecycle" },
+    { "id": "PB-S15", "layer": "backend", "target": "test_file_baseline_disabled_agent_write_silent" },
+    { "id": "FB-S17", "layer": "backend", "target": "test_file_baseline_put_targets_when_enabled" },
+    { "id": "FB-S19", "layer": "backend", "target": "test_file_baseline_read_does_not_emit_drift" },
+    { "id": "FB-S16", "layer": "backend", "target": "test_file_baseline_put_targets_when_disabled" },
+    { "id": "PB-S20", "layer": "backend", "target": "test_file_baseline_offline_tamper_startup_scan" },
+    { "id": "PB-S30", "layer": "backend", "target": "test_agent_write_file_baseline_drift" },
+    { "id": "FB-S22", "layer": "backend", "target": "test_agent_tool_bypass_emits_drift" },
+    { "id": "FB-S24", "layer": "backend", "target": "test_python_detects_os_rename" },
+    { "id": "FB-S25", "layer": "backend", "target": "test_post_command_verify_restores_tampered_soul" },
+    { "id": "FB-S26", "layer": "backend", "target": "test_post_command_verify_restores_missing_soul" },
+    { "id": "FB-S27", "layer": "backend", "target": "test_file_baseline_watch_triggers_check_on_modify" },
+    { "id": "PB-S31", "layer": "backend", "target": "test_agent_tool_no_watch_double_emit" },
+    { "id": "PB-S40", "layer": "backend", "target": "test_operator_editor_save_requires_approval" },
+    { "id": "PB-S42", "layer": "backend", "target": "test_file_baseline_drift_alert_restore_accept" },
+    { "id": "PB-S43", "layer": "backend", "target": "test_file_baseline_restore_rejects_wrong_phrase" },
+    { "id": "PB-S44", "layer": "backend", "target": "test_file_baseline_drift_alert_restore_accept" },
+    { "id": "PB-S50", "layer": "backend", "target": "test_file_baseline_watch_triggers_check_on_modify" },
+    { "id": "PB-S01", "layer": "frontend", "target": "IntegrityProtectionSection.test.tsx" },
+    { "id": "FB-S18", "layer": "frontend", "target": "IntegrityProtectionSection.test.tsx" },
+    { "id": "FB-SUI-NOTIFIER", "layer": "frontend", "target": "alertActions.test.ts" },
+    { "id": "FB-SUI-INBOX", "layer": "frontend", "target": "useInboxData.fileBaseline.test.ts" }
+  ]
+}

@@ -20,7 +20,7 @@ from ...config.context import (
 from ...constant import WORKING_DIR, TRUNCATION_NOTICE_MARKER
 
 
-async def _notify_persona_file_saved(resolved_path: str, provenance: str) -> None:
+async def _notify_file_baseline_file_saved(resolved_path: str, provenance: str) -> None:
     try:
         from ...app.agent_context import get_current_agent_id
         from ...security.extension_host import notify_file_saved
@@ -31,7 +31,7 @@ async def _notify_persona_file_saved(resolved_path: str, provenance: str) -> Non
         return
 
 
-async def _write_with_persona_guard(
+async def _write_with_file_baseline_guard(
     *,
     file_path: str,
     content: str,
@@ -40,7 +40,7 @@ async def _write_with_persona_guard(
 ) -> ToolResponse | None:
     """Return a ToolResponse when persona guard handled the write; None to fall through."""
     try:
-        from ...security.persona_baseline_bridge import try_guarded_agent_file_write
+        from ...security.file_baseline_bridge import try_guarded_agent_file_write
 
         encoding = _get_encoding_for_file(file_path)
         outcome = await try_guarded_agent_file_write(
@@ -297,7 +297,7 @@ async def write_file(
     file_path = _resolve_file_path(file_path)
     encoding = _get_encoding_for_file(file_path)
 
-    guarded = await _write_with_persona_guard(
+    guarded = await _write_with_file_baseline_guard(
         file_path=file_path,
         content=content,
         tool_name="write_file",
@@ -309,7 +309,7 @@ async def write_file(
     try:
         with open(file_path, "w", encoding=encoding) as file:
             file.write(content)
-        await _notify_persona_file_saved(file_path, "agent_tool")
+        await _notify_file_baseline_file_saved(file_path, "agent_tool")
         return ToolResponse(
             content=[
                 TextBlock(
@@ -402,7 +402,7 @@ async def edit_file(
         )
 
     new_content = content.replace(old_text, new_text)
-    guarded = await _write_with_persona_guard(
+    guarded = await _write_with_file_baseline_guard(
         file_path=resolved_path,
         content=new_content,
         tool_name="edit_file",
@@ -476,7 +476,7 @@ async def append_file(
         else:
             merged_content = content
 
-        guarded = await _write_with_persona_guard(
+        guarded = await _write_with_file_baseline_guard(
             file_path=file_path,
             content=merged_content,
             tool_name="append_file",
@@ -487,7 +487,7 @@ async def append_file(
 
         with open(file_path, "a", encoding=encoding) as file:
             file.write(content)
-        await _notify_persona_file_saved(file_path, "agent_tool")
+        await _notify_file_baseline_file_saved(file_path, "agent_tool")
         return ToolResponse(
             content=[
                 TextBlock(

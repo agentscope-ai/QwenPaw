@@ -24,13 +24,22 @@ element_path: extension
 ### Children
 - path: Intergrity  Protection PRD.txt
   kind: business-prd-evidence
-  role: as-built integrity-protection requirements for persona drift, health check, rule integrity, and console placement (source trust removed from as-built scope)
+  role: as-built integrity-protection requirements for file baseline drift, health check, rule integrity, and console placement (source trust removed from as-built scope)
+- path: File Baseline Protection Design.md
+  kind: implementation-design-contract
+  role: file baseline protection slice design (supersedes File Baseline Protection Design.md)
+- path: File Baseline Protection Design.md
+  kind: implementation-design-contract
+  role: superseded historical reference for runtime semantics pre-v1.0 rename
 - path: Intergrity  Protection Design.md
   kind: implementation-design-contract
   role: adapter-level implementation design and as-built constraints for Integrity Protection Delivery
-- path: persona_baseline/
+- path: file_baseline/
   kind: extension-module
-  role: persona drift protection business logic and host_bridge wiring for inbox/push/SSE
+  role: superseded — rename to file_baseline/ per File Baseline Protection Design.md
+- path: file_baseline/
+  kind: extension-module
+  role: file baseline protection business logic and host_bridge wiring for inbox/push/SSE
 - path: health_check/
   kind: extension-module
   role: doctor projection (projection.py), scan orchestration (scanner.py), confirmed fix (fix.py), fix allowlist (constants.py)
@@ -48,7 +57,7 @@ element_path: extension
 
 ### Explicit Testcase Entrypoints
 - tests/integration/security/test_integrity_protection.py::test_integrity_security_menu_default_off
-- tests/integration/security/test_integrity_protection.py::test_persona_drift_alert_restore_accept
+- tests/integration/security/test_integrity_protection.py::test_file_baseline_drift_alert_restore_accept
 - tests/integration/security/test_integrity_protection.py::test_health_check_scan_and_confirmed_fix
 - extension/rule_integrity/tests/test_integration_entry.py::test_rule_integrity_entry_visible
 - tests/integration/security/test_integrity_protection.py::test_security_i18n_and_healthcheck_progress_carousel
@@ -57,6 +66,6 @@ element_path: extension
 ### Current Evidence
 - PRD and Design documents describe as-built behavior aligned with current code.
 - Grouped doctor coverage lives in `extension/health_check/projection.py` with re-exports from `src/qwenpaw/security/integrity_protection.py`.
-- Console UI lives under `console/src/extension/{persona_baseline,health_check,rule_integrity}/`.
+- Console UI lives under `console/src/extension/{file_baseline,health_check,rule_integrity}/`.
 - Source trust is not implemented; prior demo verifier was removed.
 - Acceptance entrypoints pass through production behavior behind `tests/integration/security/integrity_harness.py`.

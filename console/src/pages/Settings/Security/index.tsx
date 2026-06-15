@@ -10,7 +10,7 @@ import {
   SkillScannerSection,
   FileGuardSection,
   AllowNoAuthHostsTab,
-  IntegrityCheckSection,
+  IntegrityProtectionSection,
   HealthCheckSection,
 } from "./components";
 import { PageHeader } from "@/components/PageHeader";
@@ -19,7 +19,7 @@ import styles from "./index.module.less";
 
 function SecurityPage() {
   const { t } = useTranslation();
-  const [personaAlertCount, setPersonaAlertCount] = useState(0);
+  const [fileBaselineAlertCount, setFileBaselineAlertCount] = useState(0);
   const [healthAttentionCount, setHealthAttentionCount] = useState(0);
 
   const {
@@ -60,7 +60,7 @@ function SecurityPage() {
     loading,
     error,
     fetchAll,
-    personaHighlightAlertId,
+    fileBaselineHighlightAlertId,
   } = useSecurityPage();
 
   // Loading state
@@ -152,13 +152,13 @@ function SecurityPage() {
               ),
             },
             {
-              key: "integrityCheck",
+              key: "integrityProtection",
               label: (
                 <span className={styles.tabLabel}>
-                  {t("security.integrityProtection.tabs.integrityCheck")}
-                  {personaAlertCount > 0 ? (
+                  {t("security.integrityProtection.tabs.integrityProtection")}
+                  {fileBaselineAlertCount > 0 ? (
                     <Badge
-                      count={personaAlertCount}
+                      count={fileBaselineAlertCount}
                       size="small"
                       style={{ marginLeft: 8 }}
                     />
@@ -170,9 +170,9 @@ function SecurityPage() {
                   <p className={styles.tabDescription}>
                     {t("security.integrityProtection.description")}
                   </p>
-                  <IntegrityCheckSection
-                    onAlertCountChange={setPersonaAlertCount}
-                    highlightAlertId={personaHighlightAlertId}
+                  <IntegrityProtectionSection
+                    onAlertCountChange={setFileBaselineAlertCount}
+                    highlightAlertId={fileBaselineHighlightAlertId}
                   />
                 </div>
               ),

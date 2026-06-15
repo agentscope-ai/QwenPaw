@@ -62,7 +62,7 @@ const requiredWiring = [
     'console/src/extension/rule_integrity/components/RuleIntegrityPassiveCard.tsx',
     'console/src/pages/Settings/Security/useToolGuard.ts',
     'console/src/pages/Settings/Security/useSecurityPage.ts',
-    'console/src/pages/Settings/Security/components/IntegrityCheckSection.tsx',
+    'console/src/pages/Settings/Security/components/IntegrityProtectionSection.tsx',
 ];
 
 for (const filePath of requiredWiring) {
@@ -80,8 +80,8 @@ assert.ok(routesBody.includes('check_integrity_rule_entry'), 'extension routes m
 const toolGuardHook = read('console/src/pages/Settings/Security/useToolGuard.ts');
 assert.ok(toolGuardHook.includes('useRuleIntegrity'), 'useToolGuard must compose rule integrity hook');
 
-const integritySection = read('console/src/pages/Settings/Security/components/IntegrityCheckSection.tsx');
-assert.ok(integritySection.includes('RuleIntegrityPassiveCard'), 'IntegrityCheckSection must compose rule integrity card');
+const integritySection = read('console/src/pages/Settings/Security/components/IntegrityProtectionSection.tsx');
+assert.ok(integritySection.includes('RuleIntegrityPassiveCard'), 'IntegrityProtectionSection must compose rule integrity card');
 
 const scenarioIds = new Set(manifest.scenarios.map((item) => item.id));
 for (const scenarioId of ['sec-e2e-029', 'ip-e2e-005', 'RI-UI-ENTRY']) {

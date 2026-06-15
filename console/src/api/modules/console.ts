@@ -46,7 +46,8 @@ export interface PendingApproval {
   tool_params: Record<string, unknown>;
   created_at: number;
   timeout_seconds: number;
-  persona_write?: {
+  approval_kind?: string;
+  file_baseline_write?: {
     proposal_id: string;
     relative_path: string;
     absolute_path?: string;
