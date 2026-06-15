@@ -33,10 +33,14 @@ _SHELL_WRITE_INTENT = re.compile(
     r"(?:"
     r">>|>>|>|"
     r"Set-Content|Add-Content|Out-File|Clear-Content|"
+    r"Remove-Item|"
     r"WriteAllText|WriteAllBytes|WriteAllLines|"
     r"AppendAllText|AppendAllBytes|AppendAllLines|"
+    r"FileStream|StreamWriter|OpenWrite|"
     r"\[System\.IO\.File\]|IO\.File\]::|"
     r"Copy-Item|Move-Item|Rename-Item|"
+    r"\battrib\b|"
+    r"\bdel\b|\berase\b|\bfsutil\b|"
     r"-replace\b|"
     r"\btee\b|\bcp\b|\bmv\b|\bcopy\b|\bmove\b|"
     r"\bren\b"
@@ -46,8 +50,11 @@ _SHELL_WRITE_INTENT = re.compile(
 
 _PYTHON_WRITE_SIGNAL = re.compile(
     r"(?:"
-    r"\.write_text\s*\(|\.write_bytes\s*\(|"
-    r"open\s*\([^)]*['\"][wa]"
+    r"\.write_text\s*\(|\.write_bytes\s*\(|\.open\s*\([^)]*['\"](?:[wa]|r[bt]?\+|[rwab]?\+)|"
+    r"open\s*\([^)]*['\"](?:[wa]|r[bt]?\+|[rwab]?\+)|"
+    r"\bos\.open\s*\([^)]*(?:O_WRONLY|O_RDWR|O_APPEND|O_TRUNC|O_CREAT)|"
+    r"\bos\.writev?\s*\(|"
+    r"\bos\.fdopen\s*\([^)]*['\"](?:[wa]|r[bt]?\+|[rwab]?\+)"
     r")",
     re.IGNORECASE,
 )
@@ -57,11 +64,26 @@ _PYTHON_MUTATE_SIGNAL = re.compile(
     r"\bos\.rename\s*\(|"
     r"\bos\.replace\s*\(|"
     r"\bos\.chmod\s*\(|"
+    r"\bos\.truncate\s*\(|"
+    r"\bos\.ftruncate\s*\(|"
+    r"\bos\.remove\s*\(|"
+    r"\bos\.unlink\s*\(|"
     r"\bshutil\.move\s*\(|"
     r"\bshutil\.copy2?\s*\(|"
+    r"\bshutil\.copyfile\s*\(|"
+    r"\bSetFileAttributes[AW]?\s*\(|"
+    r"\bCreateFile[AW]?\s*\(|"
+    r"\bWriteFile\s*\(|"
+    r"\bDeleteFile[AW]?\s*\(|"
+    r"\bMoveFileEx[AW]?\s*\(|"
+    r"\bReplaceFile[AW]?\s*\(|"
+    r"\bCopyFile[AW]?\s*\(|"
+    r"\bSetEndOfFile\s*\(|"
     r"\.rename\s*\(|"
     r"\.replace\s*\(|"
-    r"\.chmod\s*\("
+    r"\.chmod\s*\(|"
+    r"\.unlink\s*\(|"
+    r"\.truncate\s*\("
     r")",
     re.IGNORECASE,
 )

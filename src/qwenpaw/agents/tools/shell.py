@@ -578,10 +578,33 @@ async def execute_shell_command(
         )
         if guard.response is not None:
             return guard.response
-    except Exception as exc:
-        logger.warning(
-            "File baseline shell guard failed; executing unguarded: %s",
-            exc,
-            exc_info=True,
+        logger.error(
+            "File baseline shell guard returned no response; blocking shell command",
         )
-    return await _execute_shell_command_unguarded(command, timeout, cwd)
+        return ToolResponse(
+            content=[
+                TextBlock(
+                    type="text",
+                    text=(
+                        "Error: Shell command blocked because File Baseline "
+                        "guard returned no executable decision."
+                    ),
+                ),
+            ],
+        )
+    except Exception as exc:
+        logger.exception(
+            "File baseline shell guard failed; blocking shell command: %s",
+            exc,
+        )
+        return ToolResponse(
+            content=[
+                TextBlock(
+                    type="text",
+                    text=(
+                        "Error: Shell command blocked because File Baseline "
+                        f"guard failed closed: {exc}"
+                    ),
+                ),
+            ],
+        )

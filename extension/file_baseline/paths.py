@@ -29,6 +29,21 @@ def file_baseline_root(working_dir: Path) -> Path:
     return working_dir / "integrity-protection" / "file-baseline"
 
 
+def integrity_protection_root(working_dir: Path) -> Path:
+    return working_dir / "integrity-protection"
+
+
+def frozen_agent_dir(working_dir: Path, agent_id: str) -> Path:
+    return file_baseline_root(working_dir) / "frozen" / agent_id
+
+
+def resolve_under_working_dir(working_dir: Path, absolute: Path) -> Path | None:
+    try:
+        return absolute.resolve().relative_to(working_dir.resolve())
+    except ValueError:
+        return None
+
+
 def settings_path(working_dir: Path) -> Path:
     return file_baseline_root(working_dir) / "settings.json"
 

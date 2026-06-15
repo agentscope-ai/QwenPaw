@@ -42,6 +42,16 @@
           "tests": []
         },
         {
+          "module": "tests/unit/extension/test_file_baseline_trust_root.py",
+          "tests": []
+        },
+        {
+          "module": "tests/unit/agents/tools/test_shell.py",
+          "tests": [
+            "TestExecuteShellCommand::test_file_baseline_guard_failure_blocks_shell"
+          ]
+        },
+        {
           "module": "tests/unit/extension/test_file_baseline_os_readonly.py",
           "tests": []
         }
@@ -80,7 +90,13 @@
     { "id": "FB-S24", "layer": "backend", "target": "test_python_detects_os_rename" },
     { "id": "FB-S25", "layer": "backend", "target": "test_post_command_verify_restores_tampered_soul" },
     { "id": "FB-S26", "layer": "backend", "target": "test_post_command_verify_restores_missing_soul" },
-    { "id": "FB-S27", "layer": "backend", "target": "test_file_baseline_watch_triggers_check_on_modify" },
+    { "id": "FB-S29", "layer": "backend", "target": "test_write_file_guard_denies_baselines_json" },
+    { "id": "FB-S30", "layer": "backend", "target": "test_shell_detects_hidden_integrity_state_write" },
+    { "id": "FB-S31", "layer": "backend", "target": "test_frozen_restore_after_poisoned_approved" },
+    { "id": "FB-S33", "layer": "backend", "target": "test_shell_detects_python_os_open_truncate_write" },
+    { "id": "FB-S34", "layer": "backend", "target": "test_python_detects_open_read_plus" },
+    { "id": "FB-S35", "layer": "backend", "target": "test_shell_detects_attrib_delete_and_fsutil" },
+    { "id": "FB-S36", "layer": "backend", "target": "TestExecuteShellCommand::test_file_baseline_guard_failure_blocks_shell" },
     { "id": "PB-S31", "layer": "backend", "target": "test_agent_tool_no_watch_double_emit" },
     { "id": "PB-S40", "layer": "backend", "target": "test_operator_editor_save_requires_approval" },
     { "id": "PB-S42", "layer": "backend", "target": "test_file_baseline_drift_alert_restore_accept" },

@@ -400,17 +400,23 @@ class FileBaselineWriteCoordinator:
 
 
 
-        await asyncio.to_thread(
+        from .frozen_store import sync_frozen_agent_paths
+        from .write_context import file_baseline_maintenance_context
 
-            self._service.adapter.approve_file,
-
-            workspace_root=workspace,
-
-            state_dir=state_dir,
-
-            relative_path=rel_path,
-
-        )
+        with file_baseline_maintenance_context():
+            await asyncio.to_thread(
+                self._service.adapter.approve_file,
+                workspace_root=workspace,
+                state_dir=state_dir,
+                relative_path=rel_path,
+            )
+            sync_frozen_agent_paths(
+                self._service.working_dir,
+                agent_id,
+                workspace=workspace,
+                state_dir=state_dir,
+                rel_paths=[rel_path],
+            )
 
         self._service.drift_store.resolve_for_path(
 

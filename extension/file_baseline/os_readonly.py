@@ -113,6 +113,24 @@ def clear_os_readonly_for_paths(workspace: Path, relative_paths: list[str]) -> N
         clear_os_readonly(absolute)
 
 
+def apply_os_readonly_under(root: Path) -> None:
+    """Mark every file under ``root`` read-only (best-effort)."""
+    if not root.is_dir():
+        return
+    for path in root.rglob("*"):
+        if path.is_file():
+            set_os_readonly(path)
+
+
+def clear_os_readonly_under(root: Path) -> None:
+    """Clear OS read-only on every file under ``root`` (best-effort)."""
+    if not root.is_dir():
+        return
+    for path in root.rglob("*"):
+        if path.is_file():
+            clear_os_readonly(path)
+
+
 def append_external_edit(path: Path, suffix: str, *, encoding: str = "utf-8") -> None:
     """Simulate an external editor append (clears OS read-only briefly if needed)."""
     existing = path.read_text(encoding=encoding) if path.is_file() else ""

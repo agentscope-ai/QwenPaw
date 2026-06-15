@@ -128,9 +128,36 @@ class SoulGuardianAdapter:
         state_dir: Path,
         relative_path: str,
         actor: str = "qwenpaw",
+        working_dir: Path | None = None,
+        agent_id: str = "default",
     ) -> None:
-        approved = state_dir / "approved" / relative_path.replace("\\", "/")
+        from .frozen_store import (
+            live_approved_matches_frozen,
+            repair_mutable_state_from_frozen,
+            restore_workspace_from_frozen,
+        )
+        from .write_context import file_baseline_maintenance_context
+
         target = workspace_root / relative_path
+        root = working_dir or workspace_root.parent
+
+        with file_baseline_maintenance_context():
+            if not live_approved_matches_frozen(root, agent_id, state_dir, relative_path):
+                repair_mutable_state_from_frozen(
+                    root,
+                    agent_id,
+                    state_dir=state_dir,
+                    rel_paths=[relative_path],
+                )
+            if restore_workspace_from_frozen(
+                root,
+                agent_id,
+                workspace=workspace_root,
+                rel_path=relative_path,
+            ):
+                return
+
+        approved = state_dir / "approved" / relative_path.replace("\\", "/")
         if approved.is_file():
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_bytes(approved.read_bytes())

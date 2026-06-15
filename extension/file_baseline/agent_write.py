@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from .paths import workspace_relative_path
+from .trust_root import agent_integrity_write_blocked
 from .write_proposal import WriteProposal, WriteProposalStore
 
 if TYPE_CHECKING:
@@ -158,6 +159,14 @@ async def try_guarded_agent_file_write(
     from qwenpaw.security.tool_guard.approval import ApprovalDecision
 
     resolved_agent_id = agent_id or get_current_agent_id() or "default"
+
+    blocked = agent_integrity_write_blocked(
+        service.working_dir,
+        absolute_path,
+    )
+    if blocked:
+        return GuardedWriteOutcome(status="denied", message=blocked)
+
     rel_path = resolve_protected_relative_path(
         service,
         agent_id=resolved_agent_id,

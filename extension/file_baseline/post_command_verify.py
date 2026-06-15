@@ -83,6 +83,8 @@ async def verify_protected_baselines_after_command(
                     workspace_root=workspace,
                     state_dir=state_dir,
                     relative_path=rel_path,
+                    working_dir=service.working_dir,
+                    agent_id=agent_id,
                 )
 
         apply_os_readonly_for_paths(workspace, [rel_path])
