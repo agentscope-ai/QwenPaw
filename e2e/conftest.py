@@ -86,6 +86,12 @@ acp_page = pytest.fixture(scope="function", name="acp_page")(
 coding_page = pytest.fixture(scope="function", name="coding_page")(
     _make_page_fixture("pages.coding_page", "CodingPage")
 )
+plugin_page = pytest.fixture(scope="function", name="plugin_page")(
+    _make_page_fixture("pages.plugin_page", "PluginPage")
+)
+memory_page = pytest.fixture(scope="function", name="memory_page")(
+    _make_page_fixture("pages.memory_page", "MemoryPage")
+)
 
 
 # ========== Business / Data Fixtures ==========
