@@ -32,7 +32,7 @@ from ..i18n import tr
 from ..orchestration import RuntimeStateManager
 from ..path_context import PathContext, default_artifacts_root
 from ..sse_metadata import NODE_ROUTING_METADATA_KEYS
-from ..tools import DEFAULT_TOOL_NAMES, TOOL_REGISTRY
+from ..tools import DEFAULT_TOOL_NAMES, TOOL_REGISTRY, bind_download_file_tool
 
 if TYPE_CHECKING:
     from qwenpaw.agents.memory import BaseMemoryManager
@@ -244,6 +244,7 @@ class DataPawAgent(QwenPawAgent):
         self._datapaw_config = datapaw_config or DataPawConfig()
         self._sub_agent_dispatcher = self._datapaw_config.sub_agent_dispatcher
         self._lang = getattr(agent_config, "language", None) or "zh"
+        self._datapaw_workspace_dir = workspace_dir
 
         # Diagnostic-only: avoid calling host helpers on a missing skills dir.
         if workspace_dir is not None:
@@ -436,6 +437,8 @@ class DataPawAgent(QwenPawAgent):
                     tool_name,
                 )
                 continue
+            if tool_name == "download_file":
+                fn = bind_download_file_tool(self._datapaw_workspace_dir)
             try:
                 self.toolkit.register_tool_function(
                     fn,
