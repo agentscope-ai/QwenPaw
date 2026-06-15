@@ -18,6 +18,8 @@ import { ChatScalar } from "../registry/slotKeys";
 import type {
   ChatActionSpec,
   ChatNodeItem,
+  ChatRequestPayloadTransform,
+  ChatRequestPayloadTransformItem,
   ChatRequestRenderFn,
   ChatRequestSlotFn,
   ChatResponseRenderFn,
@@ -69,6 +71,11 @@ interface SenderPartial {
   disclaimer?: ChatScalarValues["sender.disclaimer"];
 }
 
+interface ResponsePartial {
+  avatar?: ChatScalarValues["welcome.avatar"];
+  nick?: ChatScalarValues["welcome.nick"];
+}
+
 export interface QwenPawChatNamespace {
   welcome: {
     set(pluginId: string, partial: WelcomePartial): Disposable;
@@ -102,6 +109,13 @@ export interface QwenPawChatNamespace {
   };
   actions: { add(pluginId: string, spec: ChatActionSpec): Disposable };
   requestActions: { add(pluginId: string, spec: ChatActionSpec): Disposable };
+  requestPayload: {
+    add(
+      pluginId: string,
+      fn: ChatRequestPayloadTransform,
+      opts?: { id?: string; order?: number },
+    ): Disposable;
+  };
   request: {
     /** Whole-bubble replacement for the user request card. Wins over host default; prepend/append still render around it. */
     render(pluginId: string, fn: ChatRequestRenderFn): Disposable;
@@ -119,6 +133,8 @@ export interface QwenPawChatNamespace {
     ): Disposable;
   };
   response: {
+    /** Configure the default assistant identity. Reuses welcome.avatar/nick because the vendor ResponseCard reads those fields. */
+    set(pluginId: string, partial: ResponsePartial): Disposable;
     /** Whole-bubble replacement for the assistant response card. */
     render(pluginId: string, fn: ChatResponseRenderFn): Disposable;
     /** Append a custom component above the AI bubble. */
@@ -228,6 +244,11 @@ function makeChatNamespace(): QwenPawChatNamespace {
     disclaimer: ChatScalar.senderDisclaimer,
   };
 
+  const responseFieldMap: Record<keyof ResponsePartial, ChatScalarField> = {
+    avatar: ChatScalar.welcomeAvatar,
+    nick: ChatScalar.welcomeNick,
+  };
+
   return {
     welcome: {
       set: (pid, partial) => applyPartial(pid, partial, welcomeFieldMap),
@@ -278,6 +299,16 @@ function makeChatNamespace(): QwenPawChatNamespace {
     requestActions: {
       add: (pid, action) => chatExtensions.addRequestAction(pid, action),
     },
+    requestPayload: {
+      add: (pid, fn, opts) => {
+        const item: ChatRequestPayloadTransformItem = {
+          id: opts?.id ?? anonId(`${pid}.request.payloadTransform`),
+          transform: fn,
+          order: opts?.order,
+        };
+        return chatExtensions.addRequestPayloadTransform(pid, item);
+      },
+    },
     request: {
       render: (pid, fn) =>
         chatExtensions.setScalar(pid, ChatScalar.requestRender, fn),
@@ -299,6 +330,7 @@ function makeChatNamespace(): QwenPawChatNamespace {
       },
     },
     response: {
+      set: (pid, partial) => applyPartial(pid, partial, responseFieldMap),
       render: (pid, fn) =>
         chatExtensions.setScalar(pid, ChatScalar.responseRender, fn),
       prepend: (pid, fn, opts) => {

@@ -116,11 +116,12 @@ def _run_backend_server(log_level: str) -> None:
     import uvicorn
 
     from qwenpaw.config.utils import write_last_api
-    from qwenpaw.constant import LOG_LEVEL_ENV
+    from qwenpaw.constant import LOG_LEVEL_ENV, WORKING_DIR
     from qwenpaw.utils.logging import (
         SuppressPathAccessLogFilter,
         setup_logger,
     )
+    from qwenpaw.utils.port import get_stable_port, write_port_file
 
     host = "127.0.0.1"
     normalized_log_level = log_level.lower()
@@ -146,6 +147,11 @@ def _run_backend_server(log_level: str) -> None:
         SuppressPathAccessLogFilter(["/console/push-messages"]),
     )
 
+    # Reuse the previous port so localStorage origin stays stable across
+    # restarts, preserving user preferences (selected agent, etc.).
+    port_file = str(WORKING_DIR / "desktop_port")
+    port, reused_socket = get_stable_port(port_file, host)
+
     config = uvicorn.Config(
         "qwenpaw.app._app:app",
         host=host,
@@ -154,9 +160,15 @@ def _run_backend_server(log_level: str) -> None:
         workers=1,
         log_level=normalized_log_level,
     )
-    backend_socket = config.bind_socket()
+
+    if reused_socket:
+        backend_socket = reused_socket
+    else:
+        backend_socket = config.bind_socket()
+
     try:
         port = _socket_port(backend_socket)
+        write_port_file(port_file, port)
         write_last_api(host, port)
         _emit_backend_ready(port)
         uvicorn.Server(config).run(sockets=[backend_socket])

@@ -38,6 +38,7 @@ export { default as CheckAgentTaskCard } from "./CheckAgentTaskCard";
 export { default as DelegateExternalAgentCard } from "./DelegateExternalAgentCard";
 export { default as MaterializeSkillCard } from "./MaterializeSkillCard";
 export { default as ShellCard } from "./ShellCard";
+export { default as GenericToolCard } from "./GenericToolCard";
 
 // ── Re-import for registry ────────────────────────────────────────────
 import ReadFileCard from "./ReadFileCard";

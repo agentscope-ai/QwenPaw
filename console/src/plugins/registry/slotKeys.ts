@@ -50,6 +50,7 @@ export const ChatList = {
   customToolRender: "customToolRender",
   requestPrepend: "request.prepend",
   requestAppend: "request.append",
+  requestPayloadTransforms: "request.payloadTransforms",
   responsePrepend: "response.prepend",
   responseAppend: "response.append",
 } as const;

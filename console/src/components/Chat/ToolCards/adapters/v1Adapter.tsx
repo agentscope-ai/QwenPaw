@@ -16,6 +16,33 @@
 import React from "react";
 import type { ToolCallContent, ToolCallStatus } from "../shared/types";
 import type { BuiltinCardComponent } from "../cards";
+import GenericToolCard from "../cards/GenericToolCard";
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+const ERROR_STATUSES = new Set(["failed", "rejected", "canceled"]);
+
+/**
+ * Derive the tool execution status from V1 message data.
+ *
+ * No result item (content[1]) → tool hasn't produced output yet → "calling".
+ * Message-level status on tool_call messages reflects *delivery*, not execution,
+ * so we only consult it when a result item exists.
+ */
+function deriveToolStatus(
+  resultItem: Record<string, unknown> | undefined,
+  data: Record<string, unknown>,
+): ToolCallStatus {
+  if (!resultItem) return "calling";
+
+  const rawStatus =
+    (data.status as string) || (resultItem.status as string) || "";
+  if (rawStatus === "completed") return "done";
+  if (ERROR_STATUSES.has(rawStatus)) return "error";
+  return "calling";
+}
 
 // ---------------------------------------------------------------------------
 // V1 props parsing
@@ -73,24 +100,11 @@ function parseV1Props(v1Props: Record<string, unknown>): {
   }
 
   // Extract result from content[1].data.output
-  const result = resultData.output ?? null;
+  const result = resultData.output;
 
-  // Map @agentscope-ai/chat status to ChatV2 ToolCallStatus
-  // V1 statuses: "created" | "in_progress" | "completed" | "canceled" | "failed" | "rejected" | "unknown"
-  let status: ToolCallStatus = "calling";
-  const rawStatus = (data.status as string) || "";
-  if (rawStatus === "completed") {
-    status = "done";
-  } else if (
-    rawStatus === "failed" ||
-    rawStatus === "rejected" ||
-    rawStatus === "canceled"
-  ) {
-    status = "error";
-  }
-  // "in_progress" and "created" map to "calling"
-
-  const isStreaming = rawStatus === "in_progress" || rawStatus === "created";
+  // No output content → tool hasn't executed yet → always "calling".
+  // Message-level status on *_call messages reflects delivery, not execution.
+  const status = deriveToolStatus(resultItem, data);
 
   // Extract id
   const toolId =
@@ -108,7 +122,10 @@ function parseV1Props(v1Props: Record<string, unknown>): {
     status,
   };
 
-  return { content: toolCallContent, isStreaming };
+  return {
+    content: toolCallContent,
+    isStreaming: status === "calling",
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -150,4 +167,35 @@ export function adaptRegistryForV1(
     adapted[toolName] = adaptCardForV1(CardComponent);
   }
   return adapted;
+}
+
+/** Lazy-cached V1-wrapped GenericToolCard for the fallback proxy. */
+let _genericFallback: React.FC<any> | null = null;
+function getGenericFallback(): React.FC<any> {
+  if (!_genericFallback) {
+    _genericFallback = adaptCardForV1(GenericToolCard);
+  }
+  return _genericFallback;
+}
+
+/**
+ * Wrap a plain tool-render config object with a Proxy so that any tool
+ * name not explicitly registered still returns a wrapped GenericToolCard.
+ *
+ * This must be applied **after** all registrations are merged (i.e. on the
+ * final config passed to V1 Chat), because `Object.assign` / spread only
+ * copy own-enumerable properties and would lose the Proxy behaviour.
+ */
+export function withGenericFallback(
+  config: Record<string, React.FC<any>>,
+): Record<string, React.FC<any>> {
+  const fallback = getGenericFallback();
+  return new Proxy(config, {
+    get(target, prop, receiver) {
+      if (typeof prop === "string" && !(prop in target)) {
+        return fallback;
+      }
+      return Reflect.get(target, prop, receiver);
+    },
+  });
 }

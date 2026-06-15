@@ -1,0 +1,83 @@
+# One-click release verification for fork repositories.
+# Builds the wheel, then runs all verification jobs (pip, Docker, script install).
+#
+# Docker uses public base images (node:20-slim, ghcr.io/astral-sh/uv) instead of
+# the private ACR registry, so forks can validate the full pipeline without credentials.
+#
+# Usage: trigger manually via Actions → Fork Release Verification → Run workflow.
+
+name: Fork Release Verification
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  # ── Build wheel (same steps as publish-pypi.yml build job) ─────────────────
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Set up Node (for console build)
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: console/package-lock.json
+
+      - name: Build console frontend
+        run: |
+          cd console && npm ci && npm run build
+
+      - name: Copy console build into package
+        run: |
+          rm -rf src/qwenpaw/console/*
+          mkdir -p src/qwenpaw/console
+          cp -R console/dist/* src/qwenpaw/console/
+
+      - name: Bundle docs into package
+        run: |
+          rm -rf src/qwenpaw/docs
+          mkdir -p src/qwenpaw/docs
+          cp website/public/docs/*.md src/qwenpaw/docs/
+
+      - name: Install build dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install setuptools wheel build
+
+      - name: Build package
+        run: python -m build
+
+      - name: Upload dist artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: qwenpaw-dist
+          path: dist/
+          retention-days: 7
+
+      - name: Upload version metadata
+        uses: actions/upload-artifact@v4
+        with:
+          name: qwenpaw-version
+          path: src/qwenpaw/__version__.py
+          retention-days: 7
+
+  # ── Run all verification jobs ──────────────────────────────────────────────
+  verify:
+    needs: [build]
+    uses: ./.github/workflows/release-verify.yml
+    with:
+      verify_pip: true
+      verify_docker: true
+      verify_script_install: true
+      docker_node_image: "node:20-slim"
+      docker_uv_image: "ghcr.io/astral-sh/uv:latest"
