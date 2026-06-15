@@ -157,6 +157,15 @@ if (Test-Path $pythonExe) {
   Write-Host "[build_win] WARN: python.exe not found at $pythonExe, skipping bytecode compilation" -ForegroundColor Yellow
 }
 
+# Copy launcher.py to env root for fast startup
+$LauncherSrc = Join-Path $PackDir "launcher.py"
+if (Test-Path $LauncherSrc) {
+  Copy-Item $LauncherSrc -Destination $EnvRoot -Force
+  Write-Host "[build_win] Copied launcher.py to env root"
+} else {
+  Write-Host "[build_win] WARN: launcher.py not found at $LauncherSrc"
+}
+
 # Main launcher .bat (will be hidden by VBS)
 $LauncherBat = Join-Path $EnvRoot "QwenPaw Desktop.bat"
 @"
@@ -173,24 +182,12 @@ set "PATH=%~dp0;%~dp0Scripts;%PATH%"
 REM Log level: env var QWENPAW_LOG_LEVEL or default to "info"
 if not defined QWENPAW_LOG_LEVEL set "QWENPAW_LOG_LEVEL=info"
 
-REM Set SSL certificate paths for packaged environment
-REM Use temp file to avoid for /f blocking issue in bat scripts
-set "CERT_TMP=%TEMP%\qwenpaw_cert_%RANDOM%.txt"
-"%~dp0python.exe" -u -c "import certifi; print(certifi.where())" > "%CERT_TMP%" 2>nul
-set /p CERT_FILE=<"%CERT_TMP%"
-del "%CERT_TMP%" 2>nul
-if defined CERT_FILE (
-  if exist "%CERT_FILE%" (
-    set "SSL_CERT_FILE=%CERT_FILE%"
-    set "REQUESTS_CA_BUNDLE=%CERT_FILE%"
-    set "CURL_CA_BUNDLE=%CERT_FILE%"
-  )
-)
-
 if not exist "%USERPROFILE%\.qwenpaw\config.json" (
   "%~dp0python.exe" -u -m qwenpaw init --defaults --accept-security
 )
-"%~dp0python.exe" -u -m qwenpaw desktop --log-level %QWENPAW_LOG_LEVEL%
+
+REM Use launcher.py for fast startup (shows loading window immediately)
+"%~dp0python.exe" -u "%~dp0launcher.py"
 "@ | Set-Content -Path $LauncherBat -Encoding ASCII
 
 # Debug launcher .bat (shows console)
@@ -209,20 +206,6 @@ set "PATH=%~dp0;%~dp0Scripts;%PATH%"
 REM Debug mode: use debug log level by default (can override with QWENPAW_LOG_LEVEL)
 if not defined QWENPAW_LOG_LEVEL set "QWENPAW_LOG_LEVEL=debug"
 
-REM Set SSL certificate paths for packaged environment
-REM Use temp file to avoid for /f blocking issue in bat scripts
-set "CERT_TMP=%TEMP%\qwenpaw_cert_%RANDOM%.txt"
-"%~dp0python.exe" -u -c "import certifi; print(certifi.where())" > "%CERT_TMP%" 2>nul
-set /p CERT_FILE=<"%CERT_TMP%"
-del "%CERT_TMP%" 2>nul
-if defined CERT_FILE (
-  if exist "%CERT_FILE%" (
-    set "SSL_CERT_FILE=%CERT_FILE%"
-    set "REQUESTS_CA_BUNDLE=%CERT_FILE%"
-    set "CURL_CA_BUNDLE=%CERT_FILE%"
-  )
-)
-
 echo ====================================
 echo QwenPaw Desktop - Debug Mode
 echo ====================================
@@ -231,18 +214,15 @@ echo Python: "%~dp0python.exe"
 echo PATH: %PATH%
 echo PYTHONNOUSERSITE: %PYTHONNOUSERSITE%
 echo Log Level: %QWENPAW_LOG_LEVEL%
-echo SSL_CERT_FILE: %SSL_CERT_FILE%
-echo REQUESTS_CA_BUNDLE: %REQUESTS_CA_BUNDLE%
-echo CURL_CA_BUNDLE: %CURL_CA_BUNDLE%
 echo.
 if not exist "%USERPROFILE%\.qwenpaw\config.json" (
   echo [Init] Creating config...
   "%~dp0python.exe" -u -m qwenpaw init --defaults --accept-security
 )
-echo [Launch] Starting QwenPaw Desktop with log-level=%QWENPAW_LOG_LEVEL%...
+echo [Launch] Starting QwenPaw Desktop with launcher.py...
 echo Press Ctrl+C to stop
 echo.
-"%~dp0python.exe" -u -m qwenpaw desktop --log-level %QWENPAW_LOG_LEVEL%
+"%~dp0python.exe" -u "%~dp0launcher.py"
 echo.
 echo [Exit] QwenPaw Desktop closed
 pause
