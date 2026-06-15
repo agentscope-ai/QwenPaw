@@ -170,21 +170,21 @@ plugin = MyPlugin()
 Backend plugins receive a `PluginApi` instance in `plugin.register(api)`.
 The main registration methods are:
 
-| Method | Purpose |
-| ------ | ------- |
-| `register_provider(provider_id, provider_class, label="", base_url="", **metadata)` | Register a custom LLM provider. |
-| `register_startup_hook(hook_name, callback, priority=100)` | Run sync or async code during application startup. Lower priority runs earlier. |
-| `register_shutdown_hook(hook_name, callback, priority=100)` | Run sync or async code during application shutdown. |
-| `register_uninstall_hook(hook_name, callback, priority=100)` | Run one-time cleanup when the plugin is unloaded or uninstalled. The callback receives `plugin_id` and `delete_files`. |
-| `register_workspace_created_hook(hook_name, callback, priority=100)` | Run sync or async code whenever a new workspace is created. The callback receives `workspace_info` with at least `agent_id` and `workspace_dir`. |
-| `register_http_router(router, prefix, tags=None)` | Mount a FastAPI `APIRouter` under `/api` + `prefix`, for example `prefix="/pets"` exposes routes under `/api/pets`. |
-| `register_control_command(handler, priority_level=10)` | Register a custom control command handler. |
-| `register_prompt_section(name, provider, after="workspace", agent_id=None)` | Add a plugin-provided system-prompt section after a host anchor such as `workspace`, `multimodal`, or `env_context`. |
-| `runtime` | Access runtime helper functions exposed by the host registry. |
-| `get_tool_config(tool_name, agent_id)` | Read a tool's saved configuration for an agent. |
-| `set_tool_config(tool_name, agent_id, config)` | Save a tool's configuration for an agent. |
-| `register_tool(tool_name, tool_func, description="", icon="🔧", enabled=False)` | Register a tool function into the agent toolkit and create a disabled-by-default tool config entry. |
-| `register_skill_provider(skills_dir, enabled_by_default=True, channels=None)` | Publish a directory of Skills from this plugin. Skills are installed on startup, removed on uninstall, and provisioned into newly created workspaces. |
+| Method                                                                              | Purpose                                                                                                                                               |
+| ----------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `register_provider(provider_id, provider_class, label="", base_url="", **metadata)` | Register a custom LLM provider.                                                                                                                       |
+| `register_startup_hook(hook_name, callback, priority=100)`                          | Run sync or async code during application startup. Lower priority runs earlier.                                                                       |
+| `register_shutdown_hook(hook_name, callback, priority=100)`                         | Run sync or async code during application shutdown.                                                                                                   |
+| `register_uninstall_hook(hook_name, callback, priority=100)`                        | Run one-time cleanup when the plugin is unloaded or uninstalled. The callback receives `plugin_id` and `delete_files`.                                |
+| `register_workspace_created_hook(hook_name, callback, priority=100)`                | Run sync or async code whenever a new workspace is created. The callback receives `workspace_info` with at least `agent_id` and `workspace_dir`.      |
+| `register_http_router(router, prefix, tags=None)`                                   | Mount a FastAPI `APIRouter` under `/api` + `prefix`, for example `prefix="/pets"` exposes routes under `/api/pets`.                                   |
+| `register_control_command(handler, priority_level=10)`                              | Register a custom control command handler.                                                                                                            |
+| `register_prompt_section(name, provider, after="workspace", agent_id=None)`         | Add a plugin-provided system-prompt section after a host anchor such as `workspace`, `multimodal`, or `env_context`.                                  |
+| `runtime`                                                                           | Access runtime helper functions exposed by the host registry.                                                                                         |
+| `get_tool_config(tool_name, agent_id)`                                              | Read a tool's saved configuration for an agent.                                                                                                       |
+| `set_tool_config(tool_name, agent_id, config)`                                      | Save a tool's configuration for an agent.                                                                                                             |
+| `register_tool(tool_name, tool_func, description="", icon="🔧", enabled=False)`     | Register a tool function into the agent toolkit and create a disabled-by-default tool config entry.                                                   |
+| `register_skill_provider(skills_dir, enabled_by_default=True, channels=None)`       | Publish a directory of Skills from this plugin. Skills are installed on startup, removed on uninstall, and provisioned into newly created workspaces. |
 
 **Uninstall hook example:**
 
@@ -383,16 +383,16 @@ These endpoints are used by the Console plugin manager and can also be called by
 
 ### Authenticated Management API
 
-| Method | Path | Description |
-| ------ | ---- | ----------- |
-| `GET` | `/api/plugins` | List loaded plugins. Falls back to scanning installed plugin manifests if the loader is still starting. |
-| `GET` | `/api/plugins/catalog` | Return the official plugin catalog used by the in-app browser. |
-| `POST` | `/api/plugins/install` | Install and hot-load a plugin from a local directory path or remote ZIP URL. Body: `{ "source": "...", "force": false }`. |
-| `POST` | `/api/plugins/upload?force=false` | Upload a plugin ZIP archive as multipart field `file`, then install and hot-load it. Use `force=true` to reinstall an already loaded plugin. |
-| `DELETE` | `/api/plugins/{plugin_id}` | Unload and delete a plugin, run uninstall hooks, clean runtime provider / command registrations, remove plugin tools from agents, and schedule agent reloads. |
-| `GET` | `/api/plugins/{plugin_id}/status` | Return `{ id, loaded, enabled, version }` for a loaded plugin, or `{ id, loaded: false, enabled: false }` when present on disk but not loaded. |
-| `GET` | `/api/plugins/{plugin_id}/files/{file_path}` | Serve a static file from a plugin directory with path-traversal protection. |
-| `GET` | `/api/plugins/market/search` | Proxy AgentScope Platform plugin search. Query parameters: `page_number`, `page_size`, `search`, `category`. |
+| Method   | Path                                         | Description                                                                                                                                                   |
+| -------- | -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET`    | `/api/plugins`                               | List loaded plugins. Falls back to scanning installed plugin manifests if the loader is still starting.                                                       |
+| `GET`    | `/api/plugins/catalog`                       | Return the official plugin catalog used by the in-app browser.                                                                                                |
+| `POST`   | `/api/plugins/install`                       | Install and hot-load a plugin from a local directory path or remote ZIP URL. Body: `{ "source": "...", "force": false }`.                                     |
+| `POST`   | `/api/plugins/upload?force=false`            | Upload a plugin ZIP archive as multipart field `file`, then install and hot-load it. Use `force=true` to reinstall an already loaded plugin.                  |
+| `DELETE` | `/api/plugins/{plugin_id}`                   | Unload and delete a plugin, run uninstall hooks, clean runtime provider / command registrations, remove plugin tools from agents, and schedule agent reloads. |
+| `GET`    | `/api/plugins/{plugin_id}/status`            | Return `{ id, loaded, enabled, version }` for a loaded plugin, or `{ id, loaded: false, enabled: false }` when present on disk but not loaded.                |
+| `GET`    | `/api/plugins/{plugin_id}/files/{file_path}` | Serve a static file from a plugin directory with path-traversal protection.                                                                                   |
+| `GET`    | `/api/plugins/market/search`                 | Proxy AgentScope Platform plugin search. Query parameters: `page_number`, `page_size`, `search`, `category`.                                                  |
 
 **Install from path or URL:**
 
@@ -415,10 +415,10 @@ curl -X POST "$QWENPAW_BASE/api/plugins/upload?force=true" \
 
 These endpoints are intentionally unauthenticated so the Console can load frontend plugin bundles before login, for example on a customized login page.
 
-| Method | Path | Description |
-| ------ | ---- | ----------- |
-| `GET` | `/frontend_plugin` | List plugins with frontend metadata needed by the browser loader. |
-| `GET` | `/frontend_plugin/{plugin_id}/files/{file_path}` | Serve frontend plugin JS, CSS, and assets publicly, using the same path-traversal guard as the authenticated file endpoint. |
+| Method | Path                                             | Description                                                                                                                 |
+| ------ | ------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------- |
+| `GET`  | `/frontend_plugin`                               | List plugins with frontend metadata needed by the browser loader.                                                           |
+| `GET`  | `/frontend_plugin/{plugin_id}/files/{file_path}` | Serve frontend plugin JS, CSS, and assets publicly, using the same path-traversal guard as the authenticated file endpoint. |
 
 ## Frontend Extension API
 

@@ -169,21 +169,21 @@ plugin = MyPlugin()
 
 后端插件会在 `plugin.register(api)` 中收到一个 `PluginApi` 实例，主要注册方法如下：
 
-| 方法 | 用途 |
-| ---- | ---- |
-| `register_provider(provider_id, provider_class, label="", base_url="", **metadata)` | 注册自定义 LLM Provider。 |
-| `register_startup_hook(hook_name, callback, priority=100)` | 应用启动时执行同步或异步代码。`priority` 越小越早执行。 |
-| `register_shutdown_hook(hook_name, callback, priority=100)` | 应用关闭时执行同步或异步代码。 |
-| `register_uninstall_hook(hook_name, callback, priority=100)` | 插件卸载或热卸载时执行一次性清理。回调会收到 `plugin_id` 和 `delete_files`。 |
-| `register_workspace_created_hook(hook_name, callback, priority=100)` | 新工作区创建时执行同步或异步代码。回调会收到 `workspace_info`，至少包含 `agent_id` 和 `workspace_dir`。 |
-| `register_http_router(router, prefix, tags=None)` | 将 FastAPI `APIRouter` 挂载到 `/api` + `prefix` 下，例如 `prefix="/pets"` 会暴露 `/api/pets` 下的路由。 |
-| `register_control_command(handler, priority_level=10)` | 注册自定义控制命令处理器。 |
-| `register_prompt_section(name, provider, after="workspace", agent_id=None)` | 在 `workspace`、`multimodal`、`env_context` 等宿主锚点后追加插件提供的系统 Prompt 片段。 |
-| `runtime` | 访问宿主注册表暴露的运行时辅助函数。 |
-| `get_tool_config(tool_name, agent_id)` | 读取某个 Agent 下工具保存的配置。 |
-| `set_tool_config(tool_name, agent_id, config)` | 保存某个 Agent 下工具的配置。 |
-| `register_tool(tool_name, tool_func, description="", icon="🔧", enabled=False)` | 将工具函数注册到 Agent 工具集，并创建默认关闭的工具配置项。 |
-| `register_skill_provider(skills_dir, enabled_by_default=True, channels=None)` | 从插件发布一个 Skills 目录。系统会在启动时安装这些 Skills、卸载插件时移除，并在新建工作区时自动注入。 |
+| 方法                                                                                | 用途                                                                                                    |
+| ----------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| `register_provider(provider_id, provider_class, label="", base_url="", **metadata)` | 注册自定义 LLM Provider。                                                                               |
+| `register_startup_hook(hook_name, callback, priority=100)`                          | 应用启动时执行同步或异步代码。`priority` 越小越早执行。                                                 |
+| `register_shutdown_hook(hook_name, callback, priority=100)`                         | 应用关闭时执行同步或异步代码。                                                                          |
+| `register_uninstall_hook(hook_name, callback, priority=100)`                        | 插件卸载或热卸载时执行一次性清理。回调会收到 `plugin_id` 和 `delete_files`。                            |
+| `register_workspace_created_hook(hook_name, callback, priority=100)`                | 新工作区创建时执行同步或异步代码。回调会收到 `workspace_info`，至少包含 `agent_id` 和 `workspace_dir`。 |
+| `register_http_router(router, prefix, tags=None)`                                   | 将 FastAPI `APIRouter` 挂载到 `/api` + `prefix` 下，例如 `prefix="/pets"` 会暴露 `/api/pets` 下的路由。 |
+| `register_control_command(handler, priority_level=10)`                              | 注册自定义控制命令处理器。                                                                              |
+| `register_prompt_section(name, provider, after="workspace", agent_id=None)`         | 在 `workspace`、`multimodal`、`env_context` 等宿主锚点后追加插件提供的系统 Prompt 片段。                |
+| `runtime`                                                                           | 访问宿主注册表暴露的运行时辅助函数。                                                                    |
+| `get_tool_config(tool_name, agent_id)`                                              | 读取某个 Agent 下工具保存的配置。                                                                       |
+| `set_tool_config(tool_name, agent_id, config)`                                      | 保存某个 Agent 下工具的配置。                                                                           |
+| `register_tool(tool_name, tool_func, description="", icon="🔧", enabled=False)`     | 将工具函数注册到 Agent 工具集，并创建默认关闭的工具配置项。                                             |
+| `register_skill_provider(skills_dir, enabled_by_default=True, channels=None)`       | 从插件发布一个 Skills 目录。系统会在启动时安装这些 Skills、卸载插件时移除，并在新建工作区时自动注入。   |
 
 **卸载钩子示例：**
 
@@ -382,16 +382,16 @@ qwenpaw app
 
 ### 认证管理 API
 
-| 方法 | 路径 | 说明 |
-| ---- | ---- | ---- |
-| `GET` | `/api/plugins` | 列出已加载插件；如果插件加载器仍在启动，会回退扫描已安装插件的清单文件。 |
-| `GET` | `/api/plugins/catalog` | 返回应用内浏览使用的官方插件目录。 |
-| `POST` | `/api/plugins/install` | 从本地目录路径或远程 ZIP URL 安装并热加载插件。请求体：`{ "source": "...", "force": false }`。 |
-| `POST` | `/api/plugins/upload?force=false` | 以 multipart 字段 `file` 上传插件 ZIP，然后安装并热加载。使用 `force=true` 可重装已加载插件。 |
-| `DELETE` | `/api/plugins/{plugin_id}` | 卸载并删除插件，执行卸载钩子，清理运行时 Provider / 命令注册，从 Agent 中移除插件工具，并调度 Agent 重载。 |
-| `GET` | `/api/plugins/{plugin_id}/status` | 对已加载插件返回 `{ id, loaded, enabled, version }`；如果插件在磁盘上但未加载，返回 `{ id, loaded: false, enabled: false }`。 |
-| `GET` | `/api/plugins/{plugin_id}/files/{file_path}` | 从插件目录提供静态文件，并带路径穿越保护。 |
-| `GET` | `/api/plugins/market/search` | 代理 AgentScope Platform 插件搜索。查询参数：`page_number`、`page_size`、`search`、`category`。 |
+| 方法     | 路径                                         | 说明                                                                                                                          |
+| -------- | -------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| `GET`    | `/api/plugins`                               | 列出已加载插件；如果插件加载器仍在启动，会回退扫描已安装插件的清单文件。                                                      |
+| `GET`    | `/api/plugins/catalog`                       | 返回应用内浏览使用的官方插件目录。                                                                                            |
+| `POST`   | `/api/plugins/install`                       | 从本地目录路径或远程 ZIP URL 安装并热加载插件。请求体：`{ "source": "...", "force": false }`。                                |
+| `POST`   | `/api/plugins/upload?force=false`            | 以 multipart 字段 `file` 上传插件 ZIP，然后安装并热加载。使用 `force=true` 可重装已加载插件。                                 |
+| `DELETE` | `/api/plugins/{plugin_id}`                   | 卸载并删除插件，执行卸载钩子，清理运行时 Provider / 命令注册，从 Agent 中移除插件工具，并调度 Agent 重载。                    |
+| `GET`    | `/api/plugins/{plugin_id}/status`            | 对已加载插件返回 `{ id, loaded, enabled, version }`；如果插件在磁盘上但未加载，返回 `{ id, loaded: false, enabled: false }`。 |
+| `GET`    | `/api/plugins/{plugin_id}/files/{file_path}` | 从插件目录提供静态文件，并带路径穿越保护。                                                                                    |
+| `GET`    | `/api/plugins/market/search`                 | 代理 AgentScope Platform 插件搜索。查询参数：`page_number`、`page_size`、`search`、`category`。                               |
 
 **从路径或 URL 安装：**
 
@@ -414,9 +414,9 @@ curl -X POST "$QWENPAW_BASE/api/plugins/upload?force=true" \
 
 这些接口有意不要求认证，这样 Console 可以在登录前加载前端插件 bundle，例如自定义登录页。
 
-| 方法 | 路径 | 说明 |
-| ---- | ---- | ---- |
-| `GET` | `/frontend_plugin` | 列出浏览器插件加载器需要的前端插件元数据。 |
+| 方法  | 路径                                             | 说明                                                                        |
+| ----- | ------------------------------------------------ | --------------------------------------------------------------------------- |
+| `GET` | `/frontend_plugin`                               | 列出浏览器插件加载器需要的前端插件元数据。                                  |
 | `GET` | `/frontend_plugin/{plugin_id}/files/{file_path}` | 公开提供前端插件 JS、CSS 和资源文件，使用与认证文件接口相同的路径穿越保护。 |
 
 ## 前端扩展 API
