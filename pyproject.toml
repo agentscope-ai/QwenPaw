@@ -29,6 +29,8 @@ dependencies = [
     "onnxruntime<1.24",
     "lark-oapi>=1.5.3",
     "python-telegram-bot>=20.0",
+	"slack-bolt>=1.27.0",
+	"slack-sdk>=3.40.1",
     "twilio>=9.10.2",
     "pywebview>=4.0",
     "aiofiles>=24.1.0",

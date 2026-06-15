@@ -34,6 +34,7 @@ const CHANNELS_WITH_ACCESS_CONTROL: ChannelKey[] = [
   "mqtt",
   "xiaoyi",
   "yuanbao",
+  "slack",
 ];
 
 // Doc EN URLs per channel (anchors on https://qwenpaw.agentscope.io/docs/channels)
@@ -629,6 +630,35 @@ export function ChannelDrawer({
             </Form.Item>
           </>
         );
+
+        case "slack":
+          return (
+            <>
+              <Form.Item
+                name="bot_token"
+                label="Bot Token"
+                rules={[{ required: true }]}
+                tooltip={t("channels.slackBotTokenTooltip")}
+              >
+                <Input.Password placeholder="xoxb-..." />
+              </Form.Item>
+              <Form.Item
+                name="app_token"
+                label="App Token"
+                rules={[{ required: true }]}
+                tooltip={t("channels.slackAppTokenTooltip")}
+              >
+                <Input.Password placeholder="xapp-..." />
+              </Form.Item>
+              <Form.Item
+                name="proxy"
+                label="HTTP Proxy"
+                tooltip={t("channels.slackProxyTooltip")}
+              >
+                <Input placeholder="http://127.0.0.1:18118" />
+              </Form.Item>
+            </>
+          );
 
       case "mqtt":
         return (
@@ -1447,7 +1477,8 @@ export function ChannelDrawer({
             activeKey === "telegram" ||
             activeKey === "dingtalk" ||
             activeKey === "feishu" ||
-            activeKey === "discord") && (
+            activeKey === "discord" ||
+            activeKey === "slack") && (
             <Form.Item
               name="streaming_enabled"
               label={t("channels.streamingEnabled")}

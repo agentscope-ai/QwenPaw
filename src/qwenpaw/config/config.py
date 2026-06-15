@@ -458,6 +458,22 @@ class WeChatConfig(BaseChannelConfig):
     message_merge_delay_ms: Optional[int] = 0
 
 
+class SlackConfig(BaseChannelConfig):
+    """Slack channel: Socket Mode connection with native streaming API.
+
+    Uses slack-bolt AsyncSocketModeHandler (aiohttp WebSocket) to connect
+    to a single Slack workspace. Supports incremental message rendering
+    via chat.startStream/appendStream/stopStream when replying in threads,
+    with automatic fallback to chat_update when native streaming is
+    unavailable.
+    """
+
+    bot_token: str = ""
+    app_token: str = ""
+    proxy: Optional[str] = None
+    streaming_enabled: bool = False
+
+
 class ChannelConfig(BaseModel):
     """Built-in channel configs; extra keys allowed for plugin channels."""
 
@@ -479,6 +495,7 @@ class ChannelConfig(BaseModel):
     xiaoyi: XiaoYiConfig = XiaoYiConfig()
     yuanbao: YuanbaoConfig = YuanbaoConfig()
     wechat: WeChatConfig = WeChatConfig()
+    slack: SlackConfig = SlackConfig()
     onebot: OneBotConfig = OneBotConfig()
 
     @model_validator(mode="before")
@@ -1854,6 +1871,7 @@ ChannelConfigUnion = Union[
     MatrixConfig,
     VoiceChannelConfig,
     SIPChannelConfig,
+    SlackConfig,
     WecomConfig,
     XiaoYiConfig,
     WeChatConfig,

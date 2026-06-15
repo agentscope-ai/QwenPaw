@@ -949,7 +949,9 @@
       "wecom": "企业微信",
       "wechat": "微信",
       "xiaoyi": "小艺",
-      "yuanbao": "元宝"
+      "yuanbao": "元宝",
+      "onebot": "OneBot",
+      "slack": "Slack"
     },
     "pleaseInputDbPath": "请输入数据库路径",
     "pleaseInputPollInterval": "请输入轮询间隔",
@@ -1012,6 +1014,11 @@
     "dingtalkEndpointTooltip": "用于钉钉私有化部署的自定义 API 地址。留空则使用官方默认地址。",
     "wecomCancelled": "授权已取消",
     "wecomAuthFailed": "授权失败：{{msg}}",
+    "slackBotToken": "Bot Token",
+    "slackBotTokenTooltip": "Slack Bot User OAuth Token，以 xoxb- 开头",
+    "slackAppToken": "App Token",
+    "slackAppTokenTooltip": "Slack App-Level Token（Socket Mode），以 xapp- 开头",
+    "slackProxyTooltip": "HTTP 代理地址，用于连接 Slack API",
     "voiceSetupGuide": "请先注册 Twilio 账户并购买电话号码，然后在下方填写凭据。Account SID 和 Auth Token 可在 Twilio 控制台首页找到。Phone Number SID 在 Phone Numbers → Active Numbers 中查看。",
     "voiceSetupLink": "打开 Twilio 控制台",
     "sipSetupGuide": "配置 SIP 注册服务器（如 Asterisk、FreeSWITCH），然后在下方填写 SIP 凭据。Dev 模式使用 pyVoIP 在本地处理 SIP/RTP；Production 模式使用 LiveKit SIP Server。",
