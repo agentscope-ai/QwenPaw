@@ -294,7 +294,14 @@ def probe_sandbox_support() -> SandboxCapability:
     elif sys.platform == "linux":
         return _probe_linux_landlock()
     elif sys.platform == "win32":
-        return _probe_windows_wsl2()
+        # Windows sandbox (WSL2 + Landlock) is currently disabled because the
+        # WSL2 delegation path is not production-ready. Re-enable by calling
+        # ``_probe_windows_wsl2()`` once the Windows sandbox path is ready.
+        return SandboxCapability(
+            supported=False,
+            mode=SandboxMode.NONE,
+            reason="Windows sandbox temporarily disabled until WSL2 path is ready",
+        )
     else:
         return SandboxCapability(
             supported=False,

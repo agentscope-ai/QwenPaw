@@ -49,15 +49,14 @@ class TestProbeSandboxSupport:
 
     @patch("sys.platform", "win32")
     @patch("qwenpaw.sandbox.config._probe_windows_wsl2")
-    def test_windows_delegates_to_wsl2(self, mock_probe):
-        mock_probe.return_value = SandboxCapability(
-            supported=False, mode=SandboxMode.NONE,
-            reason="WSL2 unavailable: wsl.exe not found in PATH",
-        )
+    def test_windows_disabled_returns_none(self, mock_probe):
+        # Windows sandbox is currently disabled at probe time. ``probe_sandbox_support``
+        # should return ``mode=NONE`` directly without calling ``_probe_windows_wsl2``.
         result = probe_sandbox_support()
         assert result.supported is False
         assert result.mode == SandboxMode.NONE
-        mock_probe.assert_called_once()
+        assert "disabled" in result.reason.lower()
+        mock_probe.assert_not_called()
 
     @patch("sys.platform", "freebsd13")
     def test_unknown_platform_returns_unsupported(self):

@@ -261,9 +261,13 @@ class AuditLog:
 
     def _auto_purge(self) -> None:
         """Delete the oldest PURGE_COUNT records and VACUUM."""
+        # ``OFFSET PURGE_COUNT - 1`` returns the rowid of the PURGE_COUNT-th
+        # oldest row; ``DELETE ... WHERE rowid <= ?`` then removes exactly
+        # PURGE_COUNT rows. Using ``OFFSET PURGE_COUNT`` would have left an
+        # off-by-one bug (deleting PURGE_COUNT + 1 rows).
         row = self._conn.execute(
             "SELECT rowid FROM audit_events ORDER BY rowid ASC LIMIT 1 OFFSET ?",
-            (self.PURGE_COUNT,),
+            (self.PURGE_COUNT - 1,),
         ).fetchone()
         if row:
             self._conn.execute(

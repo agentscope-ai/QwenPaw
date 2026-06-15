@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import logging
 import uuid
-from typing import Any
+from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -208,10 +208,10 @@ async def _policy_tool_call(
     request_context = getattr(self, "_qp_request_context", {}) or {}
 
     if governor is None:
-        # No governor, can't approve — return the violation as error
+        # No governor, can't approve — return the violation as DENIED
         return ToolChunk(
             is_last=True,
-            state=ToolResultState.SUCCESS,
+            state=ToolResultState.DENIED,
             content=[TextBlock(
                 type="text",
                 text=f"Sandbox violation: {violation_msg}\n"
@@ -255,10 +255,10 @@ async def _policy_tool_call(
         self._qp_sandbox_mode = False
         return await FunctionTool.__call__(self, *args, **kwargs)
     else:
-        # User denied: return the violation as error
+        # User denied: return the violation as DENIED
         return ToolChunk(
             is_last=True,
-            state=ToolResultState.SUCCESS,
+            state=ToolResultState.DENIED,
             content=[TextBlock(
                 type="text",
                 text=f"Sandbox violation: {violation_msg}\n"
@@ -398,7 +398,10 @@ async def _ask_user_approval(
             try:
                 from .policy import generalize_rule_match
 
-                # Rule generalization (§8.2): take first token + *
+                # Rule generalization (§8.2): currently records the exact
+                # ``Tool(target)`` match without wildcards (see
+                # ``generalize_rule_match`` in ``policy.py``) to avoid the
+                # security risks of broad wildcard rules.
                 generalized = generalize_rule_match(tool_name, target)
                 rule_tool, rule_pattern = generalized.split("(", 1)
                 rule_pattern = rule_pattern.rstrip(")")

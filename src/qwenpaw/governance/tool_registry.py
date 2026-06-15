@@ -106,7 +106,7 @@ def _create_default_registry() -> ToolRegistry:
     # ── Internal tools (7) ──
     registry.register("GetCurrentTime",        "internal", "")
     registry.register("GetTokenUsage",         "internal", "")
-    registry.register("ListAgents",            "internal", "agent_id")
+    registry.register("ListAgents",            "internal", "")
     registry.register("ChatWithAgent",         "internal", "agent_id")
     registry.register("SubmitToAgent",         "internal", "agent_id")
     registry.register("CheckAgentTask",        "internal", "task_id")

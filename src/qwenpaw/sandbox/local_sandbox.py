@@ -40,7 +40,7 @@ logger = logging.getLogger(__name__)
 
 
 class LocalSandbox(ABC):
-    """轻量级沙箱抽象基类。per-tool-call 生命周期。"""
+    """Lightweight sandbox abstract base. Per-tool-call lifecycle."""
 
     def __init__(self, config: SandboxConfig):
         self._config = config
@@ -52,10 +52,10 @@ class LocalSandbox(ABC):
 
     @abstractmethod
     async def execute(self, cmd: str, cwd: Optional[str] = None) -> ExecutionResult:
-        """在沙箱中执行命令。"""
+        """Execute a command inside the sandbox."""
 
     async def stop(self) -> None:
-        """销毁沙箱，杀死残留子进程。"""
+        """Tear down the sandbox and kill any straggler subprocesses."""
         if self._process and self._process.returncode is None:
             try:
                 os.killpg(os.getpgid(self._process.pid), signal.SIGKILL)
@@ -78,15 +78,16 @@ class MacOSSandbox(LocalSandbox):
     """macOS sandbox using sandbox-exec (Seatbelt profiles).
 
     deny-default whitelist model:
-      - 基本系统路径只读 (/System, /usr/lib, /usr/share, /Library, /dev)
-      - workspace_dir 可读写
-      - mounts 中声明的路径按 writable 决定 ro/rw
-      - 网络按 network_allow 控制
-      - ~/.ssh 等敏感路径显式拒绝
+      - Basic system paths are read-only (/System, /usr/lib, /usr/share,
+        /Library, /dev)
+      - workspace_dir is read-write
+      - Paths declared in mounts are ro/rw based on ``writable``
+      - Network access is governed by ``network_allow``
+      - Sensitive paths such as ~/.ssh are explicitly denied
     """
 
     def _compile_seatbelt_profile(self) -> str:
-        """生成 Seatbelt .sb 策略字符串。"""
+        """Build the Seatbelt .sb policy string."""
         config = self._config
         lines = [
             "(version 1)",
@@ -224,7 +225,7 @@ class MacOSSandbox(LocalSandbox):
         return "\n".join(lines)
 
     async def execute(self, cmd: str, cwd: Optional[str] = None) -> ExecutionResult:
-        """通过 sandbox-exec -p '<profile>' /bin/bash -c '<cmd>' 执行。"""
+        """Execute via ``sandbox-exec -p '<profile>' /bin/bash -c '<cmd>'``."""
         profile = self._compile_seatbelt_profile()
         cwd = cwd or self._config.workspace_dir
 
@@ -299,7 +300,7 @@ class MacOSSandbox(LocalSandbox):
 
 
 class NoneSandbox(LocalSandbox):
-    """不隔离，直接执行。用于信任场景或 resource tool。"""
+    """No isolation, executes directly. Used for trusted scenarios or resource tools."""
 
     async def execute(self, cmd: str, cwd: Optional[str] = None) -> ExecutionResult:
         cwd = cwd or self._config.workspace_dir
@@ -360,13 +361,15 @@ class NoneSandbox(LocalSandbox):
 
 
 def create_sandbox(config: SandboxConfig) -> LocalSandbox:
-    """根据 config.mode 创建对应的 sandbox 实例。
+    """Create a sandbox instance based on ``config.mode``.
 
-    支持:
+    Supported modes:
       - SEATBELT → MacOSSandbox
       - LANDLOCK → LinuxSandbox
-      - NONE → NoneSandbox
-      - WSL2 → 抛出 NotImplementedError
+      - NONE     → NoneSandbox
+      - WSL2     → WindowsSandbox (currently disabled at probe time;
+                   Re-enable in ``probe_sandbox_support`` when the
+                   Windows sandbox path is production-ready.)
     """
     if config.mode == SandboxMode.SEATBELT:
         return MacOSSandbox(config)

@@ -301,20 +301,17 @@ class TestFactoryWSL2:
 
 
 class TestConfigProbeWindows:
-    """Test that probe_sandbox_support routes to WSL2 on Windows."""
+    """Test that probe_sandbox_support disables Windows sandbox at probe time."""
 
     @patch("sys.platform", "win32")
     @patch("qwenpaw.sandbox.config._probe_windows_wsl2")
-    def test_windows_delegates_to_wsl2_probe(self, mock_probe):
+    def test_windows_disabled_returns_none(self, mock_probe):
         from qwenpaw.sandbox.config import probe_sandbox_support
 
-        from qwenpaw.sandbox import SandboxCapability
-        mock_probe.return_value = SandboxCapability(
-            supported=True, mode=SandboxMode.WSL2,
-            reason="WSL2 distro 'Ubuntu' with Landlock ABI v4",
-            landlock_abi_version=4,
-        )
+        # Windows sandbox is currently disabled at probe time — it should
+        # NOT call ``_probe_windows_wsl2`` and should return ``mode=NONE``.
         result = probe_sandbox_support()
-        assert result.supported is True
-        assert result.mode == SandboxMode.WSL2
-        mock_probe.assert_called_once()
+        assert result.supported is False
+        assert result.mode == SandboxMode.NONE
+        assert "disabled" in result.reason.lower()
+        mock_probe.assert_not_called()
