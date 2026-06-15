@@ -3,12 +3,13 @@ import {
   IAgentScopeRuntimeWebUISessionAPI,
   IAgentScopeRuntimeWebUIMessage,
 } from "@agentscope-ai/chat";
-import api, {
-  type ChatSpec,
-  type ChatHistory,
-  type ChatStatus,
-  type Message,
-} from "../../../api";
+import { chatApi } from "../../../api/modules/chat";
+import type {
+  ChatSpec,
+  ChatHistory,
+  ChatStatus,
+  Message,
+} from "../../../api/types";
 import { toDisplayUrl } from "../utils";
 import { loadTaskCardMessage } from "../../../../../ui/src/lib/task-card-storage";
 
@@ -743,7 +744,7 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
 
     this.sessionListRequest = (async () => {
       try {
-        const chats = await api.listChats();
+        const chats = await chatApi.listChats();
         return this.applyChatsToSessionList(chats);
       } finally {
         this.sessionListRequest = null;
@@ -789,7 +790,7 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
 
       // If realId is already resolved, use it directly to fetch history.
       if (fromList?.realId) {
-        const chatHistory = await api.getChat(fromList.realId);
+        const chatHistory = await chatApi.getChat(fromList.realId);
         const generating = isGenerating(chatHistory);
         const messages = convertMessages(chatHistory.messages || []);
         this.patchLastUserMessage(messages, generating, fromList.realId);
@@ -832,7 +833,7 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
         | ExtendedSession
         | undefined;
       if (refreshed?.realId) {
-        const chatHistory = await api.getChat(refreshed.realId);
+        const chatHistory = await chatApi.getChat(refreshed.realId);
         const generating = isGenerating(chatHistory);
         const messages = convertMessages(chatHistory.messages || []);
         this.patchLastUserMessage(messages, generating, refreshed.realId);
@@ -868,7 +869,7 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
       | ExtendedSession
       | undefined;
 
-    const chatHistory = await api.getChat(sessionId);
+    const chatHistory = await chatApi.getChat(sessionId);
     const generating = isGenerating(chatHistory);
     const messages = convertMessages(chatHistory.messages || []);
     this.patchLastUserMessage(messages, generating, sessionId);
@@ -951,7 +952,7 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     const deleteId =
       existing?.realId ?? (isLocalTimestamp(sessionId) ? null : sessionId);
 
-    if (deleteId) await api.deleteChat(deleteId);
+    if (deleteId) await chatApi.deleteChat(deleteId);
 
     this.sessionList = this.sessionList.filter((s) => s.id !== sessionId);
 
