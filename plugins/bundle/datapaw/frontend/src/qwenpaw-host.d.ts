@@ -28,6 +28,8 @@ declare global {
     getApiToken: () => string;
     /** Optional: base URL the host was built against. */
     apiBaseUrl?: string;
+    /** Currently selected agent id. */
+    getSelectedAgentId?: () => string;
   }
 
   /**

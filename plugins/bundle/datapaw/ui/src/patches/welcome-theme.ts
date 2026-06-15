@@ -1,5 +1,6 @@
 import { detectLang } from "../lib/lang";
 import { PLUGIN_ID } from "../lib/constants";
+import { isDatapawAgentSelected } from "../lib/agent";
 
 const LOGO =
   "https://img.alicdn.com/imgextra/i3/O1CN019jgrYq1DuurD1Z7JA_!!6000000000277-2-tps-1024-1024.png";
@@ -11,9 +12,18 @@ const descriptions: Record<string, string> = {
   ru: "Пошаговый анализ данных через DAG. Переключитесь на агента DataPaw в выпадающем списке слева вверху.",
 };
 
-function resolveDescription(locale?: string): string {
+function resolveDescription(locale?: string): string | undefined {
+  if (!isDatapawAgentSelected()) return undefined;
   const lang = (locale || detectLang()).split("-")[0];
   return descriptions[lang] || descriptions.en;
+}
+
+function resolveNick(): string | undefined {
+  return isDatapawAgentSelected() ? "DataPaw" : undefined;
+}
+
+function resolveAvatar(): string | undefined {
+  return isDatapawAgentSelected() ? LOGO : undefined;
 }
 
 export function patchWelcomeAndTheme(): void {
@@ -42,15 +52,15 @@ export function patchWelcomeAndTheme(): void {
   if (chat?.welcome?.set) {
     chat.welcome.set(PLUGIN_ID, {
       description: resolveDescription,
-      nick: "DataPaw",
-      avatar: LOGO,
+      nick: resolveNick,
+      avatar: resolveAvatar,
     });
     appliedWithChatSdk = true;
   }
   if (chat?.response?.set) {
     chat.response.set(PLUGIN_ID, {
-      nick: "DataPaw",
-      avatar: LOGO,
+      nick: resolveNick,
+      avatar: resolveAvatar,
     });
     appliedWithChatSdk = true;
   }
@@ -75,12 +85,17 @@ export function patchWelcomeAndTheme(): void {
   }
 
   const originalGetConfig = provider.getConfig.bind(provider);
+  const originalGetDescription = provider.getDescription?.bind(provider);
 
   provider.getDescription = () =>
-    descriptions[detectLang()] || descriptions.en;
+    isDatapawAgentSelected()
+      ? descriptions[detectLang()] || descriptions.en
+      : originalGetDescription?.() || "";
 
   provider.getConfig = (t: (k: string) => string) => {
     const base = originalGetConfig(t) as Record<string, unknown>;
+    if (!isDatapawAgentSelected()) return base;
+
     const welcome = (base.welcome as Record<string, unknown>) || {};
     const theme = (base.theme as Record<string, unknown>) || {};
     const leftHeader = (theme.leftHeader as Record<string, unknown>) || {};
