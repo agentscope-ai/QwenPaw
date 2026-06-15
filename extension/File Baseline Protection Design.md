@@ -266,6 +266,34 @@ Tab key: `integrityProtection`（i18n: `security.integrityProtection.tabs.integr
 | FB-S26 | Windows `rename` 不受 `+R` 阻止；mutate preflight + post-command restore 阻断偷梁换柱四步攻击 | P0 |
 | FB-S27 | watch 对 protected 路径 `deleted` 事件 emit drift（P1） | P1 |
 
+**信任根防护（v1.0.3 — metadata 偷梁换柱）：**
+- Agent **永远不能写** `<WORKING_DIR>/integrity-protection/**`（含 `baselines.json`、`approved/`、`settings.json`）；**无审批豁免**；仅 `file_baseline_maintenance_context` 内 QwenPaw 自身可写
+- `write_file` / shell / python 三层拦截；enable 时对 **`frozen/` 与 `trust_anchors.json`** 叠加 OS 只读（mutable state 由软件层拦截，避免阻断 soul-guardian 子进程 audit/approve）
+- **frozen 快照**：enable / Operator Accept / 已审批写 commit 后，在 `integrity-protection/file-baseline/frozen/<agent_id>/` 封存 `approved` 副本与 sha 锚点；Agent 不可写
+- **restore 来源**：workspace 还原 **优先** frozen 快照；mutable `approved/` 与 frozen 不一致则视为 state tamper，从 frozen 修复 state 再还原 workspace
+- **命令后 state 校验**：shell/python 执行前后比对 state 目录 hash；Agent 触发的变更 → 从 frozen 修复 + drift（`state_tamper`）
+
+| 场景 ID | 说明 | 优先级 |
+|---------|------|--------|
+| FB-S29 | Agent `write_file` 写 `integrity-protection/.../baselines.json` → 拒绝 | P0 |
+| FB-S30 | 审批后 shell 夹带写 state → 仍拒绝（OS 只读 + 预检） | P0 |
+| FB-S31 | poisoned `approved/` + restore → workspace 恢复为 frozen 内容 | P0 |
+| FB-S32 | 命令后 state hash 漂移 → 从 frozen 修复 + 告警 | P1 |
+
+**低层写入与 guard fail-closed（v1.0.4 — preflight 绕过补洞）：**
+- Python preflight 覆盖低层文件 API：`os.open(..., O_WRONLY/O_RDWR/O_APPEND/O_TRUNC/O_CREAT)`、`os.write`/`os.writev`、`os.truncate`/`os.ftruncate`、`os.remove`/`os.unlink`、`Path.unlink`、`shutil.copyfile` 等；命中受保护路径 → 仍走现有审批链
+- Windows 属性/原生 API 视作 mutate 信号：`SetFileAttributesA/W`、`CreateFileW`、`WriteFile`、`DeleteFileW`、`MoveFileExW`、`ReplaceFileW`、`CopyFileW`、`SetEndOfFile`；命中受保护路径 → 审批
+- shell/PowerShell 补充 `attrib -R`、`del`/`erase`、`Remove-Item`、`fsutil file seteof`、`.NET FileStream/StreamWriter/OpenWrite/Create/Open` 等写/删/截断信号
+- 语义不变：审批通过后仍使用 `temporary_os_writable` 执行，并通过 `notify_approved_paths` 接受新 baseline/frozen；未审批则不执行
+- `execute_shell_command` 的 File Baseline guard 异常必须 **fail-closed** 返回 Error，不得 fallback 到 unguarded shell
+
+| 场景 ID | 说明 | 优先级 |
+|---------|------|--------|
+| FB-S33 | `python -c` 使用 `SetFileAttributesW + os.open(O_TRUNC) + os.write` 写 protected → preflight 命中审批 | P0 |
+| FB-S34 | `open("SOUL.md", "r+")` / `Path.open("rb+")` 可写模式 → preflight 命中；纯读仍不命中 | P0 |
+| FB-S35 | `attrib -R SOUL.md`、`del SOUL.md`、`os.remove/unlink/truncate` 等破坏性操作 → preflight 命中审批 | P0 |
+| FB-S36 | File Baseline shell guard 异常 → 返回 Error，shell 不得裸跑 | P0 |
+
 **不推荐保护 agent.json：**
 - 运行时会在每次 Console 会话 dispatch 时更新 `agent.json` 的 `last_dispatch` 等 bookkeeping 字段
 - 若纳入基线保护会产生真实 drift，且 **不做** 静默 baseline refresh（用户原则：需要静默刷新的文件就不应保护）

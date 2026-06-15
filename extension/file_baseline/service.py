@@ -26,9 +26,15 @@ from .write_context import file_baseline_maintenance_context
 from .write_coordinator import FileBaselineWriteCoordinator
 from .os_readonly import (
     apply_os_readonly_for_paths,
+    apply_os_readonly_under,
     clear_os_readonly_for_paths,
+    clear_os_readonly_under,
+    set_os_readonly,
+    clear_os_readonly,
     temporary_os_writable,
 )
+from .paths import file_baseline_root
+from .frozen_store import sync_frozen_agent_paths, trust_anchors_path
 
 
 def _utc_now() -> str:
@@ -249,6 +255,8 @@ class FileBaselineService:
                     workspace_root=workspace,
                     state_dir=state_dir,
                     relative_path=review.path,
+                    working_dir=self.working_dir,
+                    agent_id=review.agent_id,
                 )
         if target.is_file() and self.is_enabled():
             apply_os_readonly_for_paths(workspace, [review.path])
@@ -290,6 +298,13 @@ class FileBaselineService:
                 workspace_root=workspace,
                 state_dir=state_dir,
                 relative_path=review.path,
+            )
+            sync_frozen_agent_paths(
+                self.working_dir,
+                review.agent_id,
+                workspace=workspace,
+                state_dir=state_dir,
+                rel_paths=[review.path],
             )
         self.drift_store.resolve(alert_id, status="accepted")
         self.watch_service.clear_debounce(review.agent_id, review.path)
@@ -338,6 +353,13 @@ class FileBaselineService:
                 continue
             workspace = self.settings_store.resolve_workspace(agent_id)
             apply_os_readonly_for_paths(workspace, paths)
+        integrity_root = file_baseline_root(self.working_dir)
+        frozen_root = integrity_root / "frozen"
+        if frozen_root.is_dir():
+            apply_os_readonly_under(frozen_root)
+        anchors = trust_anchors_path(self.working_dir)
+        if anchors.is_file():
+            set_os_readonly(anchors)
 
     def _clear_os_readonly_all(self, settings: FileBaselineSettings) -> None:
         for agent_id in self.settings_store.list_agent_ids():
@@ -346,6 +368,13 @@ class FileBaselineService:
                 continue
             workspace = self.settings_store.resolve_workspace(agent_id)
             clear_os_readonly_for_paths(workspace, paths)
+        integrity_root = file_baseline_root(self.working_dir)
+        frozen_root = integrity_root / "frozen"
+        if frozen_root.is_dir():
+            clear_os_readonly_under(frozen_root)
+        anchors = trust_anchors_path(self.working_dir)
+        if anchors.is_file():
+            clear_os_readonly(anchors)
 
     def scan_local(self) -> FileBaselineState:
         settings = self.settings_store.load()
@@ -382,6 +411,8 @@ class FileBaselineService:
                     workspace_root=workspace,
                     state_dir=state_dir,
                     relative_path=relative_path,
+                    working_dir=self.working_dir,
+                    agent_id=agent_id,
                 )
         except RuntimeError:
             return False
@@ -400,11 +431,19 @@ class FileBaselineService:
         workspace = self.settings_store.resolve_workspace(agent_id)
         state_dir = self.settings_store.agent_state(agent_id)
         try:
-            self.adapter.approve_file(
-                workspace_root=workspace,
-                state_dir=state_dir,
-                relative_path=relative_path,
-            )
+            with file_baseline_maintenance_context():
+                self.adapter.approve_file(
+                    workspace_root=workspace,
+                    state_dir=state_dir,
+                    relative_path=relative_path,
+                )
+                sync_frozen_agent_paths(
+                    self.working_dir,
+                    agent_id,
+                    workspace=workspace,
+                    state_dir=state_dir,
+                    rel_paths=[relative_path],
+                )
         except RuntimeError:
             return False
         for review in self.drift_store.list_open():
@@ -458,6 +497,13 @@ class FileBaselineService:
                 self.adapter.init,
                 workspace_root=workspace,
                 state_dir=state_dir,
+            )
+            sync_frozen_agent_paths(
+                self.working_dir,
+                agent_id,
+                workspace=workspace,
+                state_dir=state_dir,
+                rel_paths=paths,
             )
         agent_cfg = settings.agents.setdefault(agent_id, {})
         agent_cfg["init_status"] = "ready"

@@ -19,6 +19,11 @@ from .shell_preflight import (
     detect_shell_protected_write_targets,
 )
 from .os_readonly import temporary_os_writable
+from .state_integrity_verify import (
+    capture_state_hashes_for_agent,
+    verify_integrity_state_after_command,
+)
+from .trust_root import detect_integrity_state_write_in_text
 
 if TYPE_CHECKING:
     from agentscope.tool import ToolResponse
@@ -69,13 +74,50 @@ def _restored_command_response(
     )
 
 
+def _blocked_state_response(
+    *,
+    tool_name: str,
+    blocked_paths: list[str],
+) -> "GuardedCommandOutcome":
+    from agentscope.message import TextBlock
+    from agentscope.tool import ToolResponse
+
+    paths_text = ", ".join(blocked_paths)
+    message = (
+        f"Blocked: {tool_name} cannot modify integrity-protection state "
+        f"({paths_text}). Baseline metadata is operator-maintained only."
+    )
+    logger.warning(
+        "file_baseline_command_guard tool=%s outcome=state_blocked paths=%s",
+        tool_name,
+        blocked_paths,
+    )
+    return GuardedCommandOutcome(
+        status="state_blocked",
+        message=message,
+        response=ToolResponse(content=[TextBlock(type="text", text=f"Error: {message}")]),
+    )
+
+
 async def _finalize_command_execution(
     service: "FileBaselineService",
     *,
     agent_id: str,
     tool_name: str,
     result: "ToolResponse",
+    state_hashes_before: dict[str, str] | None = None,
 ) -> GuardedCommandOutcome:
+    state_drift = await verify_integrity_state_after_command(
+        service,
+        agent_id,
+        before_hashes=state_hashes_before,
+    )
+    if state_drift:
+        return _blocked_state_response(
+            tool_name=tool_name,
+            blocked_paths=state_drift,
+        )
+
     restored = await verify_protected_baselines_after_command(
         service,
         agent_id=agent_id,
@@ -193,7 +235,18 @@ async def _run_with_command_guard(
     execute_fn: Callable[[], Awaitable[T]],
     to_response: Callable[[T], "ToolResponse"],
     timeout_seconds: float = 0.0,
+    cwd: Path | None = None,
 ) -> GuardedCommandOutcome:
+    state_before = capture_state_hashes_for_agent(service, agent_id)
+
+    state_blocked = detect_integrity_state_write_in_text(
+        service.working_dir,
+        preview_text,
+        cwd=cwd,
+    )
+    if state_blocked:
+        return _blocked_state_response(tool_name=tool_name, blocked_paths=state_blocked)
+
     if not rel_paths:
         logger.info(
             "file_baseline_command_guard tool=%s agent_id=%s outcome=direct "
@@ -208,6 +261,7 @@ async def _run_with_command_guard(
             agent_id=agent_id,
             tool_name=tool_name,
             result=to_response(result),
+            state_hashes_before=state_before,
         )
 
     logger.info(
@@ -285,6 +339,7 @@ async def _run_with_command_guard(
         agent_id=agent_id,
         tool_name=tool_name,
         result=response,
+        state_hashes_before=state_before,
     )
 
 
@@ -330,6 +385,7 @@ async def try_guarded_shell_command(
         tool_input={"command": command, "cwd": str(cwd) if cwd else None},
         execute_fn=execute_fn,
         to_response=lambda r: r,
+        cwd=cwd,
     )
 
 
@@ -353,6 +409,7 @@ async def try_guarded_python_code(
         agent_id=agent_id,
         code=code,
     )
+    workspace = service.settings_store.resolve_workspace(agent_id)
     return await _run_with_command_guard(
         service,
         agent_id=agent_id,
@@ -366,4 +423,5 @@ async def try_guarded_python_code(
         tool_input={"code": code},
         execute_fn=execute_fn,
         to_response=lambda r: r,
+        cwd=workspace,
     )

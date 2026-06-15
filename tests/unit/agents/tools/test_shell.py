@@ -328,6 +328,38 @@ class TestExecuteShellCommand:
     @patch("qwenpaw.agents.tools.shell.get_current_shell_command_timeout")
     @patch("qwenpaw.agents.tools.shell.get_current_workspace_dir")
     @patch("qwenpaw.agents.tools.shell.get_current_shell_command_executable")
+    async def test_file_baseline_guard_failure_blocks_shell(
+        self,
+        mock_shell_exe,
+        mock_workspace,
+        mock_timeout,
+    ):
+        mock_shell_exe.return_value = None
+        mock_workspace.return_value = None
+        mock_timeout.return_value = None
+
+        create_subprocess = AsyncMock()
+        with patch(
+            "qwenpaw.security.file_baseline_bridge.try_guarded_shell_command",
+            AsyncMock(side_effect=RuntimeError("guard unavailable")),
+        ), patch(
+            "qwenpaw.agents.tools.shell.asyncio.create_subprocess_shell",
+            create_subprocess,
+        ):
+            from qwenpaw.agents.tools.shell import (
+                execute_shell_command,
+            )
+
+            result = await execute_shell_command("echo should-not-run")
+            text = result.content[0]["text"]
+            assert "blocked" in text.lower()
+            assert "guard failed closed" in text
+            create_subprocess.assert_not_called()
+
+    @pytest.mark.asyncio
+    @patch("qwenpaw.agents.tools.shell.get_current_shell_command_timeout")
+    @patch("qwenpaw.agents.tools.shell.get_current_workspace_dir")
+    @patch("qwenpaw.agents.tools.shell.get_current_shell_command_executable")
     async def test_command_failure(
         self,
         mock_shell_exe,
