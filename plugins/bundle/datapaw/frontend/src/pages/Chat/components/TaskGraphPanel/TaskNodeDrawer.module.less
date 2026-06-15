@@ -863,6 +863,33 @@
   }
 }
 
+.pythonPreview {
+  border: 1px solid var(--colorBorder, #e5e7eb);
+  border-radius: 10px;
+  background: var(--color-fill-quaternary, #f9fafb);
+  padding: 14px 16px;
+  overflow: auto;
+  max-height: min(70vh, 640px);
+
+  pre {
+    margin: 0;
+  }
+
+  code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-size: 13px;
+    line-height: 1.7;
+    color: inherit;
+    background: none;
+    padding: 0;
+  }
+
+  :global(html.dark-mode) & {
+    background: rgba(255, 255, 255, 0.04);
+    border-color: rgba(255, 255, 255, 0.1);
+  }
+}
+
 .filePreviewPlaceholder {
   color: var(--colorTextTertiary, #9ca3af);
   font-size: 13px;
