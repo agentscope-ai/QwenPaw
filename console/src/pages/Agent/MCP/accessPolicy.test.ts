@@ -33,10 +33,10 @@ const consoleEchoRule = {
   effect: "allow" as const,
 };
 
-const appSearchRule = {
+const dingtalkSearchRule = {
   tool_name: "search",
-  source_type: "app" as const,
-  source_value: "Creator",
+  source_type: "channel" as const,
+  source_value: "dingtalk",
   subject_type: "all" as const,
   subject_value: "",
   effect: "deny" as const,
@@ -61,7 +61,7 @@ const policy: MCPAccessPolicy = {
       tool_name: "old_tool",
       effect: "deny",
     },
-    appSearchRule,
+    dingtalkSearchRule,
   ],
   unmanaged_rules_count: 1,
 };
@@ -84,7 +84,7 @@ describe("MCP access policy helpers", () => {
         stale: false,
         defaultEffect: "deny",
         hasExplicitDefault: true,
-        rules: [appSearchRule],
+        rules: [dingtalkSearchRule],
       }),
       expect.objectContaining({
         toolName: "old_tool",
@@ -119,8 +119,8 @@ describe("MCP access policy helpers", () => {
     const updated = upsertClientRule(
       added,
       {
-        source_type: "app",
-        source_value: "Creator",
+        source_type: "channel",
+        source_value: "dingtalk",
         subject_type: "user",
         subject_value: "alice",
         effect: "deny",
@@ -130,8 +130,8 @@ describe("MCP access policy helpers", () => {
 
     expect(updated.client_overrides).toEqual([
       {
-        source_type: "app",
-        source_value: "Creator",
+        source_type: "channel",
+        source_value: "dingtalk",
         subject_type: "user",
         subject_value: "alice",
         effect: "deny",
@@ -154,8 +154,8 @@ describe("MCP access policy helpers", () => {
           effect: "allow",
         },
         {
-          source_type: "app",
-          source_value: "Builder",
+          source_type: "channel",
+          source_value: "custom-secondary-channel",
           subject_type: "user",
           subject_value: "alice",
           effect: "deny",
@@ -172,8 +172,8 @@ describe("MCP access policy helpers", () => {
       effect: "allow",
     });
     expect(normalized.client_overrides).toContainEqual({
-      source_type: "app",
-      source_value: "Builder",
+      source_type: "channel",
+      source_value: "custom-secondary-channel",
       subject_type: "user",
       subject_value: "alice",
       effect: "deny",
@@ -207,21 +207,21 @@ describe("MCP access policy helpers", () => {
     const renamed = upsertToolRule(
       policy,
       {
-        ...appSearchRule,
+        ...dingtalkSearchRule,
         source_type: "channel",
-        source_value: "dingtalk",
+        source_value: "feishu",
         subject_type: "user",
         subject_value: "alice",
         effect: "allow",
       },
-      appSearchRule,
+      dingtalkSearchRule,
     );
 
-    expect(renamed.tool_overrides).not.toContainEqual(appSearchRule);
+    expect(renamed.tool_overrides).not.toContainEqual(dingtalkSearchRule);
     expect(renamed.tool_overrides).toContainEqual({
       tool_name: "search",
       source_type: "channel",
-      source_value: "dingtalk",
+      source_value: "feishu",
       subject_type: "user",
       subject_value: "alice",
       effect: "allow",
@@ -230,7 +230,7 @@ describe("MCP access policy helpers", () => {
     const changedEffect = upsertToolRule(renamed, {
       tool_name: "search",
       source_type: "channel",
-      source_value: "dingtalk",
+      source_value: "feishu",
       subject_type: "user",
       subject_value: "alice",
       effect: "deny",
@@ -240,7 +240,7 @@ describe("MCP access policy helpers", () => {
         (item) =>
           item.tool_name === "search" &&
           item.source_type === "channel" &&
-          item.source_value === "dingtalk" &&
+          item.source_value === "feishu" &&
           item.subject_type === "user" &&
           item.subject_value === "alice",
       ),
@@ -248,7 +248,7 @@ describe("MCP access policy helpers", () => {
       {
         tool_name: "search",
         source_type: "channel",
-        source_value: "dingtalk",
+        source_value: "feishu",
         subject_type: "user",
         subject_value: "alice",
         effect: "deny",
@@ -260,6 +260,6 @@ describe("MCP access policy helpers", () => {
     const next = removeToolRule(policy, consoleEchoRule);
 
     expect(next.tool_overrides).not.toContainEqual(consoleEchoRule);
-    expect(next.tool_overrides).toContainEqual(appSearchRule);
+    expect(next.tool_overrides).toContainEqual(dingtalkSearchRule);
   });
 });

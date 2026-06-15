@@ -40,7 +40,6 @@ from ...drivers.constants import (
     POLICY_EFFECT_ASK,
     POLICY_EFFECT_DENY,
     POLICY_TARGET_WILDCARD,
-    PRINCIPAL_SOURCE_APP,
     PRINCIPAL_SOURCE_CHANNEL,
     PRINCIPAL_SUBJECT_ALL,
     PRINCIPAL_SUBJECT_USER,
@@ -491,7 +490,7 @@ def _mcp_access_rule_from_rule(
     subject_type = principal.subject_type.strip().lower()
     subject_value = principal.subject_value.strip()
     if (
-        source_type in {PRINCIPAL_SOURCE_CHANNEL, PRINCIPAL_SOURCE_APP}
+        source_type == PRINCIPAL_SOURCE_CHANNEL
         and source_value
         and subject_type in {PRINCIPAL_SUBJECT_ALL, PRINCIPAL_SUBJECT_USER}
     ):
@@ -527,16 +526,6 @@ def _legacy_subject_access_rule(
             source_type=PRINCIPAL_SOURCE_CHANNEL,
             source_value=(
                 subject.removeprefix("channel:") or POLICY_TARGET_WILDCARD
-            ),
-            subject_type=PRINCIPAL_SUBJECT_ALL,
-            subject_value="",
-            effect=rule.effect,
-        )
-    if subject.startswith("app:"):
-        return MCPAccessRule(
-            source_type=PRINCIPAL_SOURCE_APP,
-            source_value=(
-                subject.removeprefix("app:") or POLICY_TARGET_WILDCARD
             ),
             subject_type=PRINCIPAL_SUBJECT_ALL,
             subject_value="",

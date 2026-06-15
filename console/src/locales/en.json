@@ -716,16 +716,14 @@
       "subjectValue": "Object Value",
       "effectLabel": "Policy",
       "source": {
-        "channel": "Channel",
-        "app": "APP"
+        "channel": "Channel"
       },
       "subjectTypeOption": {
         "all": "All",
         "user": "User"
       },
       "sourceValuePlaceholder": {
-        "channel": "console / dingtalk",
-        "app": "Creator"
+        "channel": "console / dingtalk"
       },
       "subjectValuePlaceholder": "e.g. alice",
       "subjectValueAll": "All",

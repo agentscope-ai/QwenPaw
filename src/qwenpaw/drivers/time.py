@@ -21,7 +21,8 @@ def current_policy_time() -> datetime:
         return datetime.now(ZoneInfo(timezone_name))
     except (ZoneInfoNotFoundError, KeyError, ValueError) as exc:
         logger.debug(
-            "Invalid configured timezone for Driver policy; falling back to UTC",
+            "Invalid configured timezone for Driver policy; "
+            "falling back to UTC",
             exc_info=exc,
         )
     except Exception as exc:  # pragma: no cover - defensive config fallback

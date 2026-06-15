@@ -555,16 +555,14 @@
       "subjectValue": "对象值",
       "effectLabel": "策略",
       "source": {
-        "channel": "Channel",
-        "app": "APP"
+        "channel": "Channel"
       },
       "subjectTypeOption": {
         "all": "全部",
         "user": "用户"
       },
       "sourceValuePlaceholder": {
-        "channel": "console / dingtalk",
-        "app": "Creator"
+        "channel": "console / dingtalk"
       },
       "subjectValuePlaceholder": "例如 alice",
       "subjectValueAll": "全部",

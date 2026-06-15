@@ -19,7 +19,6 @@ from ..capabilities import (
 from ..constants import (
     CAPABILITY_KIND_TOOL,
     DRIVER_OPERATION_INVOKE,
-    PRINCIPAL_SOURCE_APP,
     PRINCIPAL_SOURCE_CHANNEL,
     PRINCIPAL_SUBJECT_SESSION,
     PRINCIPAL_SUBJECT_USER,
@@ -297,11 +296,6 @@ def _subjects_from_context(request_context: dict[str, str]) -> tuple[str, ...]:
     session_id = str(request_context.get("session_id") or "").strip()
     if session_id:
         add(_typed_subject(PRINCIPAL_SUBJECT_SESSION, session_id))
-
-    for key in ("app_id", "domain_app_id", "agent_id", "root_agent_id"):
-        value = str(request_context.get(key) or "").strip()
-        if value:
-            add(_typed_subject(PRINCIPAL_SOURCE_APP, value))
 
     channel = str(request_context.get("channel") or "").strip()
     if channel:

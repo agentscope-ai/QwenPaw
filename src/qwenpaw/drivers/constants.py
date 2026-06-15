@@ -32,7 +32,6 @@ POLICY_TARGET_WILDCARD: Final = "*"
 SUBJECT_UNKNOWN_USER: Final = "user:unknown"
 
 PRINCIPAL_SOURCE_CHANNEL: Final = "channel"
-PRINCIPAL_SOURCE_APP: Final = "app"
 PRINCIPAL_SUBJECT_ALL: Final = "all"
 PRINCIPAL_SUBJECT_USER: Final = "user"
 PRINCIPAL_SUBJECT_SESSION: Final = "session"

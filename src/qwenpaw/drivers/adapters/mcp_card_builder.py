@@ -24,7 +24,6 @@ from ..constants import (
     CREDENTIAL_KIND_STATIC,
     POLICY_EFFECT_ASK,
     PROTOCOL_MCP,
-    PRINCIPAL_SOURCE_APP,
     PRINCIPAL_SOURCE_CHANNEL,
     PRINCIPAL_SUBJECT_ALL,
     PRINCIPAL_SUBJECT_USER,
@@ -276,8 +275,7 @@ def _is_tool_access_override(rule: Any) -> bool:
         return False
     principal = rule.principal
     if (
-        principal.source_type.strip().lower()
-        in {PRINCIPAL_SOURCE_CHANNEL, PRINCIPAL_SOURCE_APP}
+        principal.source_type.strip().lower() == PRINCIPAL_SOURCE_CHANNEL
         and principal.source_value.strip()
         and principal.subject_type.strip().lower()
         in {PRINCIPAL_SUBJECT_ALL, PRINCIPAL_SUBJECT_USER}
@@ -287,7 +285,6 @@ def _is_tool_access_override(rule: Any) -> bool:
     return (
         subject == "*"
         or subject.startswith("channel:")
-        or subject.startswith("app:")
         or subject.startswith("user:")
     )
 

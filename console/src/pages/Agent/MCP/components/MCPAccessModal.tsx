@@ -7,7 +7,6 @@ import type {
   MCPAccessEffect,
   MCPAccessPolicy,
   MCPAccessRule,
-  MCPAccessSourceType,
   MCPAccessSubjectType,
   MCPClientInfo,
   MCPToolAccessOverride,
@@ -26,7 +25,7 @@ import {
 } from "../accessPolicy";
 import styles from "../index.module.less";
 import { MCPAccessClientPanel } from "./MCPAccessClientPanel";
-import { defaultSourceValue, defaultSubjectValue } from "./MCPAccessRuleRows";
+import { defaultSubjectValue } from "./MCPAccessRuleRows";
 import { MCPAccessToolPanel } from "./MCPAccessToolPanel";
 
 interface MCPAccessModalProps {
@@ -249,11 +248,6 @@ function withRuleDefaults<Rule extends MCPAccessRule>(
   patch: Partial<MCPAccessRule>,
 ): Rule {
   const nextRule = { ...rule, ...patch };
-  if (patch.source_type) {
-    nextRule.source_value = defaultSourceValue(
-      patch.source_type as MCPAccessSourceType,
-    );
-  }
   if (patch.subject_type) {
     nextRule.subject_value = defaultSubjectValue(
       patch.subject_type as MCPAccessSubjectType,

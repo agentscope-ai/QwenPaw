@@ -150,13 +150,13 @@ class MCPClientUpdateRequest(BaseModel):
 class MCPAccessRule(BaseModel):
     """Console-managed access rule for one MCP source/object tuple."""
 
-    source_type: Literal["channel", "app"] = Field(
+    source_type: Literal["channel"] = Field(
         default="channel",
         description="Where the tool call comes from",
     )
     source_value: str = Field(
         default="console",
-        description="Concrete source, e.g. console, dingtalk, Creator",
+        description="Concrete source, e.g. console, dingtalk",
     )
     subject_type: Literal["all", "user"] = Field(
         default="all",

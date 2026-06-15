@@ -27,7 +27,6 @@ type RuleIdentity = Pick<
 type ToolRuleIdentity = RuleIdentity & Pick<MCPToolAccessOverride, "tool_name">;
 
 const DEFAULT_CHANNEL_SOURCE = "console";
-const DEFAULT_APP_SOURCE = "Creator";
 
 export const MCP_CHANNEL_SOURCE_VALUES = [
   "console",
@@ -48,8 +47,6 @@ export const MCP_CHANNEL_SOURCE_VALUES = [
   "xiaoyi",
 ] as const;
 
-export const MCP_APP_SOURCE_VALUES = ["Creator", "Insight"] as const;
-
 export function normalizeMCPAccessPolicy(
   policy: MCPAccessPolicy,
 ): MCPAccessPolicy {
@@ -67,7 +64,7 @@ export function normalizeMCPAccessRule(rule: MCPAccessRule): MCPAccessRule {
   const subjectType = normalizeSubjectType(rule.subject_type);
   return {
     source_type: sourceType,
-    source_value: normalizeSourceValue(sourceType, rule.source_value),
+    source_value: normalizeSourceValue(rule.source_value),
     subject_type: subjectType,
     subject_value:
       subjectType === "all" ? "" : (rule.subject_value || "").trim(),
@@ -283,7 +280,7 @@ function normalizeAccessRuleIdentity(rule: RuleIdentity): RuleIdentity {
   const subjectType = normalizeSubjectType(rule.subject_type);
   return {
     source_type: sourceType,
-    source_value: normalizeSourceValue(sourceType, rule.source_value),
+    source_value: normalizeSourceValue(rule.source_value),
     subject_type: subjectType,
     subject_value:
       subjectType === "all" ? "" : (rule.subject_value || "").trim(),
@@ -327,22 +324,15 @@ function nextDefaultSourceValue(
   return DEFAULT_CHANNEL_SOURCE;
 }
 
-function defaultSourceValue(sourceType: MCPAccessSourceType): string {
-  return sourceType === "app" ? DEFAULT_APP_SOURCE : DEFAULT_CHANNEL_SOURCE;
-}
-
-function normalizeSourceValue(
-  sourceType: MCPAccessSourceType,
-  sourceValue: string,
-): string {
+function normalizeSourceValue(sourceValue: string): string {
   const trimmed = (sourceValue || "").trim();
-  return trimmed || defaultSourceValue(sourceType);
+  return trimmed || DEFAULT_CHANNEL_SOURCE;
 }
 
 function normalizeSourceType(
-  sourceType: MCPAccessSourceType,
+  _sourceType: MCPAccessSourceType | string,
 ): MCPAccessSourceType {
-  return sourceType === "app" ? "app" : "channel";
+  return "channel";
 }
 
 function normalizeSubjectType(

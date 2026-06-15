@@ -5,13 +5,9 @@ import { useTranslation } from "react-i18next";
 import type {
   MCPAccessEffect,
   MCPAccessRule,
-  MCPAccessSourceType,
   MCPAccessSubjectType,
 } from "../../../../api/types";
-import {
-  MCP_APP_SOURCE_VALUES,
-  MCP_CHANNEL_SOURCE_VALUES,
-} from "../accessPolicy";
+import { MCP_CHANNEL_SOURCE_VALUES } from "../accessPolicy";
 import styles from "../index.module.less";
 
 interface RuleTextInputProps {
@@ -45,10 +41,6 @@ const RuleTextInput: React.FC<RuleTextInputProps> = ({
   );
 };
 
-export function defaultSourceValue(sourceType: MCPAccessSourceType): string {
-  return sourceType === "app" ? "Creator" : "console";
-}
-
 export function defaultSubjectValue(subjectType: MCPAccessSubjectType): string {
   return subjectType === "user" ? "default" : "";
 }
@@ -77,16 +69,6 @@ const CHANNEL_SOURCE_OPTIONS: { label: string; value: string }[] =
     value,
   }));
 
-const APP_SOURCE_OPTIONS: { label: string; value: string }[] =
-  MCP_APP_SOURCE_VALUES.map((value) => ({
-    label: value,
-    value,
-  }));
-
-function getSourceValueOptions(sourceType: MCPAccessSourceType) {
-  return sourceType === "app" ? APP_SOURCE_OPTIONS : CHANNEL_SOURCE_OPTIONS;
-}
-
 interface MCPAccessRuleRowsProps<Rule extends MCPAccessRule> {
   rules: Rule[];
   getKey: (rule: Rule) => string;
@@ -107,10 +89,6 @@ export function MCPAccessRuleRows<Rule extends MCPAccessRule>({
   effectLabel,
 }: MCPAccessRuleRowsProps<Rule>) {
   const { t } = useTranslation();
-  const sourceTypeOptions = [
-    { label: t("mcp.access.source.channel"), value: "channel" },
-    { label: t("mcp.access.source.app"), value: "app" },
-  ];
   const subjectTypeOptions = [
     { label: t("mcp.access.subjectTypeOption.all"), value: "all" },
     { label: t("mcp.access.subjectTypeOption.user"), value: "user" },
@@ -126,21 +104,6 @@ export function MCPAccessRuleRows<Rule extends MCPAccessRule>({
         <div key={getKey(rule)} className={styles.accessRuleRow}>
           <div className={styles.accessRuleField}>
             <span className={styles.accessRuleFieldLabel}>
-              {t("mcp.access.sourceType")}
-            </span>
-            <Select
-              className={styles.accessRuleSourceType}
-              value={rule.source_type}
-              onChange={(value) =>
-                updateRule(rule, {
-                  source_type: value as MCPAccessSourceType,
-                })
-              }
-              options={sourceTypeOptions}
-            />
-          </div>
-          <div className={styles.accessRuleField}>
-            <span className={styles.accessRuleFieldLabel}>
               {t("mcp.access.sourceValue")}
             </span>
             <Select
@@ -151,7 +114,7 @@ export function MCPAccessRuleRows<Rule extends MCPAccessRule>({
                   source_value: String(sourceValue),
                 })
               }
-              options={getSourceValueOptions(rule.source_type)}
+              options={CHANNEL_SOURCE_OPTIONS}
             />
           </div>
           <div className={styles.accessRuleField}>

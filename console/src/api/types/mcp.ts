@@ -112,13 +112,13 @@ export interface MCPToolInfo {
   input_schema: Record<string, unknown>;
 }
 
-export type MCPAccessSourceType = "channel" | "app";
+export type MCPAccessSourceType = "channel";
 export type MCPAccessSubjectType = "all" | "user";
 
 export interface MCPAccessRule {
   /** Where the tool call comes from */
   source_type: MCPAccessSourceType;
-  /** Concrete source, e.g. console, dingtalk, Creator */
+  /** Concrete source, e.g. console, dingtalk */
   source_value: string;
   /** Object scope within the source */
   subject_type: MCPAccessSubjectType;

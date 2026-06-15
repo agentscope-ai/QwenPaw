@@ -13,7 +13,6 @@ from .constants import (
     POLICY_EFFECT_ASK,
     POLICY_EFFECT_DENY,
     POLICY_TARGET_WILDCARD,
-    PRINCIPAL_SOURCE_APP,
     PRINCIPAL_SOURCE_CHANNEL,
     PRINCIPAL_SUBJECT_ALL,
     PRINCIPAL_SUBJECT_SESSION,
@@ -235,21 +234,6 @@ def _source_matches(
         if source_value in {"", POLICY_TARGET_WILDCARD}:
             return bool(channel)
         return channel.lower() == source_value.lower()
-    if source_type == PRINCIPAL_SOURCE_APP:
-        app_candidates = (
-            context.request_context.get("app_id"),
-            context.request_context.get("domain_app_id"),
-            context.request_context.get("agent_id"),
-            context.request_context.get("root_agent_id"),
-        )
-        if source_value in {"", POLICY_TARGET_WILDCARD}:
-            return any(
-                _selector_value(candidate) for candidate in app_candidates
-            )
-        return any(
-            _selector_value(candidate) == source_value
-            for candidate in app_candidates
-        )
     return False
 
 
