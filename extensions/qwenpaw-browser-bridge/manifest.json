@@ -6,6 +6,7 @@
   "permissions": [
     "debugger",
     "tabs",
+    "tabGroups",
     "activeTab",
     "scripting",
     "storage",

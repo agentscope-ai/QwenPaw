@@ -173,7 +173,7 @@ async function handleTabCreate(params) {
   const tab = await chrome.tabs.create({ url: url || "about:blank", active: true });
   await attachDebugger(tab.id);
   managedTabs.set(tab.id, { debuggerAttached: true, originalTitle: tab.title || "" });
-  markTabAsTakeover(tab.id);
+  await markTabAsTakeover(tab.id);
   return { tabId: tab.id, title: tab.title || "", url: tab.url || "" };
 }
 
@@ -183,7 +183,7 @@ async function handleTabClaim(params) {
   await attachDebugger(tabId);
   const tab = await chrome.tabs.get(tabId);
   managedTabs.set(tabId, { debuggerAttached: true, originalTitle: tab.title || "" });
-  markTabAsTakeover(tabId);
+  await markTabAsTakeover(tabId);
   return { tabId, title: tab.title || "", url: tab.url || "" };
 }
 
@@ -394,164 +394,87 @@ function ensureManaged(tabId) {
   }
 }
 
-// ---- Tab appearance (border glow + corner badge + title + favicon) ----
-function markTabAsTakeover(tabId) {
-  chrome.scripting.executeScript({
-    target: { tabId },
-    func: () => {
-      const ID = "__qwenpaw_takeover_host__";
-      if (document.getElementById(ID)) return;
+// ---- Tab appearance: Tab Group + in-page gradient border ----
+const tabGroupMap = new Map(); // tabId -> groupId
 
-      // --- Title prefix ---
-      if (!document.title.startsWith("[QwenPaw] ")) {
-        document.title = "[QwenPaw] " + document.title;
-      }
+const GRADIENT_BORDER_JS = `
+(function(){
+  if(document.getElementById('__qp_glow__')) return 'exists';
+  var el=document.createElement('div');
+  el.id='__qp_glow__';
+  el.style.cssText='position:fixed;inset:0;z-index:2147483647;pointer-events:none;'
+    +'border:3px solid transparent;'
+    +'border-image:linear-gradient(135deg,#f97316,#fb923c,#fdba74,#f97316) 1;'
+    +'box-shadow:inset 0 0 20px rgba(249,115,22,0.08);';
+  document.documentElement.appendChild(el);
+  return 'injected';
+})()`;
 
-      // --- Custom favicon ---
-      let fav = document.querySelector("link#__qwenpaw_favicon__");
-      if (!fav) {
-        fav = document.createElement("link");
-        fav.id = "__qwenpaw_favicon__";
-        fav.rel = "icon";
-        fav.type = "image/svg+xml";
-        document.head.appendChild(fav);
-      }
-      fav.href = "data:image/svg+xml," + encodeURIComponent(
-        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">'
-        + '<circle cx="32" cy="32" r="30" fill="%236366f1"/>'
-        + '<text x="32" y="44" text-anchor="middle" font-size="32" '
-        + 'font-weight="bold" fill="white" font-family="sans-serif">P</text>'
-        + '</svg>'
-      );
+const REMOVE_BORDER_JS = `
+(function(){
+  var el=document.getElementById('__qp_glow__');
+  if(el)el.remove();
+  return 'removed';
+})()`;
 
-      // --- Visual overlay (Shadow DOM isolates styles) ---
-      const host = document.createElement("div");
-      host.id = ID;
-      host.style.cssText = [
-        "all:initial", "position:fixed", "top:0", "left:0",
-        "width:0", "height:0", "z-index:2147483647",
-        "pointer-events:none",
-      ].join(";");
+async function markTabAsTakeover(tabId) {
+  if (!managedTabs.has(tabId)) return;
 
-      const shadow = host.attachShadow({ mode: "closed" });
-      const css = document.createElement("style");
-      css.textContent = [
-        ":host { all: initial; }",
-
-        // Glowing border
-        ".glow {",
-        "  position:fixed; top:0; left:0; right:0; bottom:0;",
-        "  pointer-events:none;",
-        "  border: 2px solid rgba(99,102,241,0.5);",
-        "  box-shadow: inset 0 0 24px rgba(99,102,241,0.06);",
-        "  animation: breathe 3s ease-in-out infinite;",
-        "}",
-        "@keyframes breathe {",
-        "  0%,100% { border-color:rgba(99,102,241,0.5); }",
-        "  50%    { border-color:rgba(99,102,241,0.2); }",
-        "}",
-
-        // Corner badge
-        ".badge {",
-        "  position:fixed; top:8px; right:8px;",
-        "  display:flex; align-items:center; gap:5px;",
-        "  padding:4px 10px 4px 8px;",
-        "  background:rgba(15,23,42,0.85);",
-        "  backdrop-filter:blur(10px);",
-        "  border:1px solid rgba(99,102,241,0.3);",
-        "  border-radius:16px;",
-        "  font:500 11px/1 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;",
-        "  color:#e2e8f0;",
-        "  pointer-events:auto; cursor:default; user-select:none;",
-        "  box-shadow:0 2px 12px rgba(0,0,0,0.25);",
-        "  opacity:0.75; transition:opacity .2s;",
-        "}",
-        ".badge:hover { opacity:1; }",
-
-        // Status dot
-        ".dot {",
-        "  width:6px; height:6px; border-radius:50%;",
-        "  background:#4ade80;",
-        "  animation:pulse 2s ease-in-out infinite;",
-        "}",
-        "@keyframes pulse {",
-        "  0%,100% { opacity:1; }",
-        "  50%     { opacity:0.4; }",
-        "}",
-
-        // HITL buttons
-        ".btns { display:none; gap:3px; margin-left:3px; }",
-        ".badge:hover .btns { display:flex; }",
-        ".btn {",
-        "  border:1px solid rgba(255,255,255,0.15);",
-        "  background:rgba(255,255,255,0.06);",
-        "  color:#e2e8f0; padding:1px 6px; border-radius:3px;",
-        "  font-size:10px; cursor:pointer;",
-        "  pointer-events:auto;",
-        "}",
-        ".btn:hover { background:rgba(255,255,255,0.15); }",
-        ".btn.stop { border-color:rgba(239,68,68,0.3); }",
-        ".btn.stop:hover { background:rgba(239,68,68,0.25); }",
-      ].join("\n");
-
-      const glow = document.createElement("div");
-      glow.className = "glow";
-
-      const badge = document.createElement("div");
-      badge.className = "badge";
-
-      const dot = document.createElement("span");
-      dot.className = "dot";
-      const lbl = document.createElement("span");
-      lbl.textContent = "QwenPaw";
-
-      const btns = document.createElement("div");
-      btns.className = "btns";
-
-      const pauseBtn = document.createElement("button");
-      pauseBtn.className = "btn";
-      pauseBtn.textContent = "Pause";
-      let isPaused = false;
-      pauseBtn.addEventListener("click", (e) => {
-        e.stopPropagation();
-        isPaused = !isPaused;
-        pauseBtn.textContent = isPaused ? "Resume" : "Pause";
-        try { chrome.runtime.sendMessage({ type: isPaused ? "HITL_PAUSE" : "HITL_RESUME" }); } catch {}
+  // 1) Tab Group (browser tab bar level)
+  if (!tabGroupMap.has(tabId)) {
+    try {
+      const gid = await chrome.tabs.group({ tabIds: [tabId] });
+      await chrome.tabGroups.update(gid, {
+        color: "orange",
+        title: "QwenPaw",
+        collapsed: false,
       });
+      tabGroupMap.set(tabId, gid);
+      console.log("[QwenPaw] grouped tab", tabId);
+    } catch (e) {
+      console.error("[QwenPaw] group failed:", e.message);
+    }
+  }
 
-      const stopBtn = document.createElement("button");
-      stopBtn.className = "btn stop";
-      stopBtn.textContent = "Stop";
-      stopBtn.addEventListener("click", (e) => {
-        e.stopPropagation();
-        try { chrome.runtime.sendMessage({ type: "HITL_STOP" }); } catch {}
-        host.remove();
-      });
-
-      btns.append(pauseBtn, stopBtn);
-      badge.append(dot, lbl, btns);
-      shadow.append(css, glow, badge);
-      document.documentElement.appendChild(host);
-    },
-  }).catch(() => {});
+  // 2) In-page gradient orange border (page level)
+  const info = managedTabs.get(tabId);
+  if (info?.debuggerAttached) {
+    sendCDP(tabId, "Runtime.evaluate", {
+      expression: GRADIENT_BORDER_JS,
+      returnByValue: true,
+    }).then((r) => {
+      console.log("[QwenPaw] border on tab", tabId, ":", r?.result?.value);
+    }).catch(() => {
+      // CDP failed, try chrome.scripting fallback
+      chrome.scripting.executeScript({
+        target: { tabId },
+        func: () => {
+          if (document.getElementById("__qp_glow__")) return;
+          var el = document.createElement("div");
+          el.id = "__qp_glow__";
+          el.style.cssText = "position:fixed;inset:0;z-index:2147483647;pointer-events:none;border:3px solid transparent;border-image:linear-gradient(135deg,#f97316,#fb923c,#fdba74,#f97316) 1;";
+          document.documentElement.appendChild(el);
+        },
+      }).catch(() => {});
+    });
+  }
 }
 
-function restoreTabAppearance(tabId) {
-  chrome.scripting.executeScript({
-    target: { tabId },
-    func: () => {
-      // Remove title prefix
-      if (document.title.startsWith("[QwenPaw] ")) {
-        document.title = document.title.slice("[QwenPaw] ".length);
-      }
-      // Remove custom favicon
-      const fav = document.querySelector("link#__qwenpaw_favicon__");
-      if (fav) fav.remove();
-      // Remove visual overlay
-      const host = document.getElementById("__qwenpaw_takeover_host__");
-      if (host) host.remove();
-    },
-  }).catch(() => {});
+async function restoreTabAppearance(tabId) {
+  // Remove tab group
+  const gid = tabGroupMap.get(tabId);
+  if (gid != null) {
+    try { await chrome.tabs.ungroup(tabId); } catch {}
+    tabGroupMap.delete(tabId);
+  }
+  // Remove in-page border
+  const info = managedTabs.get(tabId);
+  if (info?.debuggerAttached) {
+    sendCDP(tabId, "Runtime.evaluate", {
+      expression: REMOVE_BORDER_JS,
+      returnByValue: true,
+    }).catch(() => {});
+  }
 }
 
 function injectBanner(tabId) {
@@ -637,7 +560,6 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
     }
   }
   if (managedTabs.has(tabId) && changeInfo.status === "complete") {
-    injectBanner(tabId);
     markTabAsTakeover(tabId);
   }
 });
