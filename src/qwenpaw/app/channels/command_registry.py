@@ -59,7 +59,7 @@ class CommandRegistry:
         # Register default control commands
         self._register_defaults()
 
-        logger.info("CommandRegistry initialized")
+        logger.debug("CommandRegistry initialized")
 
     def _register_defaults(self) -> None:
         """Register default control commands."""
@@ -133,7 +133,7 @@ class CommandRegistry:
         prefix_lower = command_prefix.lower()
         self._command_to_level[prefix_lower] = level
 
-        logger.info(
+        logger.debug(
             f"Registered command: {command_prefix} → level={level}",
         )
 
@@ -275,7 +275,7 @@ class CommandRegistry:
             )
             return False
         del self._command_to_level[key]
-        logger.info(f"Unregistered command from priority registry: {key}")
+        logger.debug(f"Unregistered command from priority registry: {key}")
         return True
 
     def is_registered(self, command_prefix: str) -> bool:

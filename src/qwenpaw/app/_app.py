@@ -114,7 +114,7 @@ _emit_desktop_startup_timing_stdout("stdlib_imports_loaded")
 from fastapi import FastAPI, HTTPException  # noqa: E402
 from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
 from fastapi.staticfiles import StaticFiles  # noqa: E402
-from fastapi.responses import FileResponse, ORJSONResponse  # noqa: E402
+from fastapi.responses import FileResponse  # noqa: E402
 
 _emit_desktop_startup_timing_stdout("web_framework_imports_loaded")
 
@@ -860,7 +860,6 @@ app = FastAPI(
     docs_url="/docs" if DOCS_ENABLED else None,
     redoc_url="/redoc" if DOCS_ENABLED else None,
     openapi_url="/openapi.json" if DOCS_ENABLED else None,
-    default_response_class=ORJSONResponse,
 )
 
 # Add agent context middleware for agent-scoped routes

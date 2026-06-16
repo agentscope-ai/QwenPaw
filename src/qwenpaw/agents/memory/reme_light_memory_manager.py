@@ -37,6 +37,9 @@ logger = logging.getLogger(__name__)
 
 _REME_STORE_VERSION = "v1"
 _EXPECTED_REME_VERSION = "0.3.1.10"
+_REME_VERSION_OK: bool | None = None
+_REME_INSTALLED_VERSION: str | None = None
+_REME_VERSION_WARNING_EMITTED = False
 # Maximum number of tokens from query splitting
 MAX_QUERY_TOKENS = 50
 
@@ -174,29 +177,44 @@ class ReMeLightMemoryManager(BaseMemoryManager):
     def _check_reme_version() -> bool:
         """Return ``False`` (and warn) when the installed reme-ai version
         does not match the expected version."""
+        global _REME_INSTALLED_VERSION, _REME_VERSION_OK
+        if _REME_VERSION_OK is not None:
+            return _REME_VERSION_OK
+
         try:
-            installed = importlib.metadata.version("reme-ai")
+            _REME_INSTALLED_VERSION = importlib.metadata.version("reme-ai")
         except importlib.metadata.PackageNotFoundError:
+            _REME_VERSION_OK = True
             return True
-        if installed != _EXPECTED_REME_VERSION:
-            logger.warning(
-                f"reme-ai version mismatch: installed={installed}, "
-                f"expected={_EXPECTED_REME_VERSION}. "
-                f"Run `pip install reme-ai=={_EXPECTED_REME_VERSION}`"
-                " to align.",
-            )
+        _REME_VERSION_OK = _REME_INSTALLED_VERSION == _EXPECTED_REME_VERSION
+        if not _REME_VERSION_OK:
+            ReMeLightMemoryManager._warn_reme_version_mismatch_once()
             return False
         return True
 
+    @staticmethod
+    def _warn_reme_version_mismatch_once() -> None:
+        """Emit the ReMe version mismatch warning once per process."""
+        global _REME_VERSION_WARNING_EMITTED
+        if _REME_VERSION_WARNING_EMITTED:
+            return
+        _REME_VERSION_WARNING_EMITTED = True
+        installed = (
+            f"installed={_REME_INSTALLED_VERSION}, "
+            if _REME_INSTALLED_VERSION
+            else ""
+        )
+        logger.warning(
+            f"reme-ai version mismatch: {installed}"
+            f"expected={_EXPECTED_REME_VERSION}. "
+            f"Run `pip install reme-ai=={_EXPECTED_REME_VERSION}`"
+            " to align.",
+        )
+
     def _warn_if_version_mismatch(self) -> None:
-        """Warn once per call if the cached version check failed."""
+        """Warn once per process if the cached version check failed."""
         if not self._reme_version_ok:
-            logger.warning(
-                "reme-ai version mismatch, "
-                f"expected={_EXPECTED_REME_VERSION}. "
-                f"Run `pip install reme-ai=={_EXPECTED_REME_VERSION}`"
-                " to align.",
-            )
+            self._warn_reme_version_mismatch_once()
 
     def get_embedding_config(self) -> dict:
         """Return embedding config: config > env var > default."""
