@@ -119,22 +119,26 @@ export function createTaskGraphAppend(host: HostBundle) {
       anchorMessageId: string | null;
     } => {
       const planById = new Map(plans.map((item) => [item.id, item]));
-      const findLastGraphMatch = (
-        graphIds: string[],
-      ): StoredPlanSnapshot | null => {
-        for (let index = graphIds.length - 1; index >= 0; index -= 1) {
-          const match = planById.get(graphIds[index]);
-          if (match) return match;
-        }
-        return null;
-      };
-
-      const explicitGraphMatch = findLastGraphMatch(responseIds.explicitGraphIds);
-      if (explicitGraphMatch) {
+      const matchingGraphIds = [
+        ...new Set(
+          responseIds.explicitGraphIds.filter((graphId) =>
+            planById.has(graphId),
+          ),
+        ),
+      ];
+      if (matchingGraphIds.length === 1) {
+        const explicitGraphMatch = planById.get(matchingGraphIds[0]);
         return {
-          plan: explicitGraphMatch,
+          plan: explicitGraphMatch ?? null,
           reason: "graph-id",
-          anchorMessageId: explicitGraphMatch.anchor_message_id ?? null,
+          anchorMessageId: explicitGraphMatch?.anchor_message_id ?? null,
+        };
+      }
+      if (matchingGraphIds.length > 1) {
+        return {
+          plan: null,
+          reason: "multiple-graph-ids",
+          anchorMessageId: null,
         };
       }
 
