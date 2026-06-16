@@ -64,8 +64,7 @@ const requiredWiring = [
     'console/src/extension/rule_integrity/hooks/useRuleIntegrity.ts',
     'console/src/extension/rule_integrity/hooks/useRuleIntegrityWatch.ts',
     'console/src/extension/rule_integrity/components/RuleIntegrityPassiveCard.tsx',
-    'console/src/extension/rule_integrity/components/GlobalRuleIntegrityRepairBanner.tsx',
-    'console/src/layouts/MainLayout/index.tsx',
+    'console/src/pages/Settings/Security/useToolGuard.ts',
     'console/src/pages/Settings/Security/useSecurityPage.ts',
     'console/src/pages/Settings/Security/components/IntegrityProtectionSection.tsx',
 ];
@@ -87,14 +86,7 @@ assert.ok(routesBody.includes('repair_tool_guard_rules_integrity'), 'extension r
 assert.ok(routesBody.includes('check_integrity_rule_entry'), 'extension routes must expose passive check endpoint');
 
 const toolGuardHook = read('console/src/pages/Settings/Security/useToolGuard.ts');
-assert.ok(!toolGuardHook.includes('useRuleIntegrity'), 'useToolGuard must not duplicate global rule integrity watch');
-
-const mainLayoutBody = read('console/src/layouts/MainLayout/index.tsx');
-assert.ok(mainLayoutBody.includes('GlobalRuleIntegrityRepairBanner'), 'MainLayout must mount global rule integrity banner');
-assert.ok(mainLayoutBody.includes('<GlobalRuleIntegrityRepairBanner'), 'MainLayout must render global rule integrity banner element');
-
-const securityPageBody = read('console/src/pages/Settings/Security/index.tsx');
-assert.ok(!securityPageBody.includes('RuleIntegrityRepairBanner'), 'Security page must not mount duplicate repair banner');
+assert.ok(toolGuardHook.includes('useRuleIntegrity'), 'useToolGuard must compose rule integrity hook');
 
 const integritySection = read('console/src/pages/Settings/Security/components/IntegrityProtectionSection.tsx');
 assert.ok(integritySection.includes('RuleIntegrityPassiveCard'), 'IntegrityProtectionSection must compose rule integrity card');

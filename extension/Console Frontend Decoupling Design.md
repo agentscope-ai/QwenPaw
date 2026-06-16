@@ -48,8 +48,7 @@ console/src/extension/
     ├── hooks/useRuleIntegrity.ts
     └── components/
         ├── RuleIntegrityPassiveCard.tsx
-        ├── RuleIntegrityRepairBanner.tsx
-        └── GlobalRuleIntegrityRepairBanner.tsx
+        └── RuleIntegrityRepairBanner.tsx
 ```
 
 Path alias: `@extension/*` → `console/src/extension/*` (Vite + `tsconfig.app.json`).
@@ -68,8 +67,7 @@ Path alias: `@extension/*` → `console/src/extension/*` (Vite + `tsconfig.app.j
 | Host file | Role |
 |-----------|------|
 | `layouts/MainLayout` | Renders `FileBaselineDriftAlertNotifier` from `@extension/file_baseline` |
-| `layouts/MainLayout/index.tsx` | Global `GlobalRuleIntegrityRepairBanner` below Header |
-| `pages/Settings/Security/index.tsx` | Tabs; imports `HealthCheckSection` from extension |
+| `pages/Settings/Security/index.tsx` | Tabs; `RuleIntegrityRepairBanner`; imports `HealthCheckSection` from extension |
 | `pages/Settings/Security/components/IntegrityProtectionSection.tsx` | Composes persona panel + `RuleIntegrityPassiveCard` from extension (no source trust UI) |
 | `pages/Settings/Security/components/HealthCheckSection.tsx` | Re-exports `@extension/health_check` |
 | `api/modules/security.ts` | Tool Guard / File Guard / etc.; persona + health methods delegate to extension clients |

@@ -62,7 +62,6 @@ def test_lockdown_active_for_tampered_status(monkeypatch: pytest.MonkeyPatch) ->
     projection = enforcement.get_enforcement_projection()
     assert projection["rules_disabled"] is True
     assert projection["auto_repair_in_progress"] is False
-    assert projection["tamper_banner_cycle_active"] is True
 
 
 def test_timeout_retry_projection(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -129,24 +128,3 @@ def test_auto_repair_completed_projection(monkeypatch: pytest.MonkeyPatch) -> No
 
     assert projection["rules_disabled"] is False
     assert projection["auto_repair_completed"] is True
-    assert projection["tamper_banner_cycle_active"] is True
-
-
-def test_tamper_banner_cycle_inactive_when_healthy(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(
-        enforcement,
-        "get_last_rule_integrity_status",
-        lambda: RuleIntegrityResult(
-            ok=True,
-            status="ok",
-            message="ok",
-            checked_at="now",
-            findings=[],
-        ),
-    )
-
-    projection = enforcement.get_enforcement_projection()
-
-    assert projection["tamper_banner_cycle_active"] is False

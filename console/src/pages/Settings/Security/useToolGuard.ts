@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import api from "../../../api";
+import { useRuleIntegrity } from "@extension/rule_integrity";
 import type {
   ToolGuardConfig,
   ToolGuardRule,
@@ -20,6 +21,10 @@ export function useToolGuard() {
   const [shellEvasionChecks, setShellEvasionChecks] = useState<
     Record<string, boolean>
   >({});
+  const {
+    rulesIntegrity,
+    fetchRulesIntegrity,
+  } = useRuleIntegrity({ pollIntervalMs: 60_000 });
   const [enabled, setEnabled] = useState(true);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -39,6 +44,7 @@ export function useToolGuard() {
       setDisabledRules(new Set(cfg.disabled_rules ?? []));
       setAutoDenyRules(new Set(cfg.auto_denied_rules ?? []));
       setShellEvasionChecks(cfg.shell_evasion_checks ?? {});
+      await fetchRulesIntegrity();
     } catch (err) {
       const msg =
         err instanceof Error ? err.message : "Failed to load security config";
@@ -47,7 +53,7 @@ export function useToolGuard() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [fetchRulesIntegrity]);
 
   useEffect(() => {
     fetchAll();
@@ -159,6 +165,7 @@ export function useToolGuard() {
     setEnabled,
     mergedRules,
     shellEvasionChecks,
+    rulesIntegrity,
     toggleShellEvasionCheck,
     loading,
     error,

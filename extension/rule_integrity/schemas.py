@@ -29,7 +29,6 @@ class ToolGuardRuleIntegrityResponse(BaseModel):
     auto_repair_timeout_retry: int = 0
     auto_repair_abandoned: bool = False
     auto_repair_timeout_max: int = 5
-    tamper_banner_cycle_active: bool = False
 
 
 class ToolGuardRuleIntegrityRepairResponse(BaseModel):

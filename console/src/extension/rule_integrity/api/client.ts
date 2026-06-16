@@ -21,7 +21,6 @@ export interface ToolGuardRulesIntegrity {
   auto_repair_timeout_retry?: number;
   auto_repair_abandoned?: boolean;
   auto_repair_timeout_max?: number;
-  tamper_banner_cycle_active?: boolean;
 }
 
 export interface ToolGuardRulesIntegrityRepair {

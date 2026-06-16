@@ -3,7 +3,7 @@
 > **As-built 实现（与当前代码对齐，2026-06）**
 >
 > 运行时实现已迁至 `extension/rule_integrity/`（verify/repair/routes/startup）及 Console：
-> - `console/src/extension/rule_integrity/` — `GlobalRuleIntegrityRepairBanner`（MainLayout 顶栏全局横幅）、`RuleIntegrityPassiveCard`（Integrity Check Tab 内手动「检查」按钮 + findings 表格）、`useRuleIntegrity`
+> - `console/src/extension/rule_integrity/` — `RuleIntegrityRepairBanner`（Security 页顶，5s 轮询）、`RuleIntegrityPassiveCard`（Integrity Check Tab 内手动「检查」按钮 + findings 表格）、`useRuleIntegrity`
 > - 验收：`extension/rule_integrity/tests/test_integration_entry.py::test_rule_integrity_entry_visible`
 > - 总交付设计见 `extension/Intergrity  Protection Design.md`
 >
@@ -642,8 +642,8 @@ fail_closed + auto_repair
 2. 更新最近一次完整性状态。
 3. **不加载**被篡改的内置 YAML 规则（内置规则集视为禁用）。
 4. **阻断所有工具调用**，直至完整性恢复。
-5. 前端**全局顶栏**（MainLayout，`GlobalRuleIntegrityRepairBanner`）显示红色告警：「安全配置文件被篡改，所有规则已被禁用，正在修复中」。
-6. 后端后台任务自动从可信源修复；修复成功后显示绿色「已自动修复完成」横幅（短暂），随后界面恢复正常。**同一篡改周期内用户必须先看到红色横幅再看到绿色**（即使进入安全页时修复已完成，也先红至少 5 秒再绿）；后端通过 `tamper_banner_cycle_active` 标记该周期。
+5. 前端安全页显示红色告警：「安全配置文件被篡改，所有规则已被禁用，正在修复中」。
+6. 后端后台任务自动从可信源修复；修复成功后显示绿色「已自动修复完成」横幅（短暂），随后界面恢复正常。
 7. 若从 GitHub 拉取修复内容时发生**连接超时**（`httpx.TimeoutException`），前端红色横幅切换为「连接超时，正在重试修复第 x/5 次」（x 为当前已连续超时次数，1–5）；同一 lockdown 周期内连续 5 次超时后**暂时放弃自动修复**（`auto_repair_abandoned=true`），横幅显示已放弃；工具仍保持封禁。**放弃后**仍可通过 **300s watchdog** 或 **POST rules-integrity/repair** 手动 API 再次触发修复（重置放弃状态并重新走 5 次超时重试）。
 8. `status=unknown`（尚未完成首次校验）不阻断工具。
 9. 自定义 `rules_dir`（仅测试/代码注入）不在保护范围内。
