@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 # pylint: disable=redefined-outer-name
 # -*- coding: utf-8 -*-
 """Integration tests for provider switching and retry/rate-limit
@@ -11,7 +12,6 @@ Drives the mock LLM with custom HTTP status codes to exercise:
 """
 from __future__ import annotations
 
-import json
 import threading
 import time
 from http.server import HTTPServer
@@ -103,7 +103,10 @@ def _agent_spec(name):
 
 def _create_job(app_server, spec):
     resp = app_server.api_request(
-        "POST", "/api/cron/jobs", json=spec, timeout=_HTTP_TIMEOUT,
+        "POST",
+        "/api/cron/jobs",
+        json=spec,
+        timeout=_HTTP_TIMEOUT,
     )
     assert resp.status_code == 200, app_server.logs_tail()
     return resp.json()["id"]
@@ -112,7 +115,9 @@ def _create_job(app_server, spec):
 def _delete_job(app_server, job_id):
     try:
         app_server.api_request(
-            "DELETE", f"/api/cron/jobs/{job_id}", timeout=_HTTP_TIMEOUT,
+            "DELETE",
+            f"/api/cron/jobs/{job_id}",
+            timeout=_HTTP_TIMEOUT,
         )
     except Exception:
         pass
@@ -134,7 +139,9 @@ def _poll_history(app_server, job_id, deadline):
 
 
 def _register_provider_with_id(
-    app_server, provider_id: str, base_url: str,
+    app_server,
+    provider_id: str,
+    base_url: str,
 ):
     """Register and activate a mock provider under a custom id."""
     app_server.api_request(
@@ -220,7 +227,9 @@ def test_rate_limit_429_then_recover(app_server, mock_llm) -> None:
             timeout=_HTTP_TIMEOUT,
         )
         records = _poll_history(
-            app_server, job_id, time.time() + 60.0,
+            app_server,
+            job_id,
+            time.time() + 60.0,
         )
         assert records, app_server.logs_tail()
         assert (
@@ -290,7 +299,9 @@ def test_persistent_5xx_eventually_fails(app_server, mock_llm) -> None:
             timeout=_HTTP_TIMEOUT,
         )
         records = _poll_history(
-            app_server, job_id, time.time() + 60.0,
+            app_server,
+            job_id,
+            time.time() + 60.0,
         )
         assert records, app_server.logs_tail()
         # Either failure recorded explicitly, or success with error
@@ -390,7 +401,9 @@ def test_running_config_retry_knobs_roundtrip(app_server) -> None:
 @pytest.mark.integration
 @pytest.mark.p1
 def test_zz_active_model_switch_between_two_mock_providers(
-    app_server, mock_llm, second_mock_llm,
+    app_server,
+    mock_llm,
+    second_mock_llm,
 ) -> None:
     """Test purpose:
     - Verify PUT /api/models/active can switch the global active model
@@ -460,9 +473,7 @@ def test_zz_active_model_switch_between_two_mock_providers(
             params={"scope": "global"},
             timeout=_HTTP_TIMEOUT,
         )
-        active_back = (
-            (get_resp_back.json() or {}).get("active_llm") or {}
-        )
+        active_back = (get_resp_back.json() or {}).get("active_llm") or {}
         assert (
             active_back.get("provider_id") == pid_a
         ), f"switch back to A failed: {active_back}"
