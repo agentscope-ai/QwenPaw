@@ -8,7 +8,6 @@ import asyncio
 import html
 import logging
 import re
-import time
 import uuid
 from pathlib import Path
 from typing import Any, Dict, Optional, Union
@@ -284,6 +283,7 @@ class TelegramChannel(BaseChannel):
     """Telegram channel: Bot API polling; session_id = telegram:{chat_id}."""
 
     channel = "telegram"
+    _STREAM_DELTA_MIN_INTERVAL_S = _STREAM_EDIT_INTERVAL_S
     uses_manager_queue = True
 
     def __init__(
@@ -901,7 +901,6 @@ class TelegramChannel(BaseChannel):
         if state is None:
             state = {
                 "message_ids": {},
-                "last_edit_ts": {},
             }
             send_meta["_tg_stream"] = state
         return state
@@ -1029,7 +1028,6 @@ class TelegramChannel(BaseChannel):
         )
         if msg_id:
             state["message_ids"][stream_type] = msg_id
-            state["last_edit_ts"][stream_type] = time.monotonic()
 
     async def on_streaming_delta(
         self,
@@ -1040,14 +1038,10 @@ class TelegramChannel(BaseChannel):
         stream_type: str,
         accumulated_text: str = "",
     ) -> None:
-        """Throttled plain-text edit to show incremental progress."""
+        """Plain-text edit to show incremental progress."""
         state = self._get_stream_state(send_meta)
         msg_id = state["message_ids"].get(stream_type)
         if not msg_id:
-            return
-        now = time.monotonic()
-        last_ts = state["last_edit_ts"].get(stream_type, 0.0)
-        if now - last_ts < _STREAM_EDIT_INTERVAL_S:
             return
         chat_id = send_meta.get("chat_id") or to_handle
         if not chat_id:
@@ -1061,14 +1055,12 @@ class TelegramChannel(BaseChannel):
             display_text = (
                 "..." + display_text[-(TELEGRAM_MAX_MESSAGE_LENGTH - 4) :]
             )
-        success = await self._edit_stream_message(
+        await self._edit_stream_message(
             chat_id,
             msg_id,
             display_text,
             use_html=False,
         )
-        if success:
-            state["last_edit_ts"][stream_type] = now
 
     async def on_streaming_end(
         self,
@@ -1086,7 +1078,6 @@ class TelegramChannel(BaseChannel):
         """
         state = self._get_stream_state(send_meta)
         msg_id = state["message_ids"].pop(stream_type, None)
-        state["last_edit_ts"].pop(stream_type, None)
         chat_id = send_meta.get("chat_id") or to_handle
         if not chat_id:
             return

@@ -67,7 +67,6 @@ from ..base import (
 from .constants import (
     AI_CARD_PROCESSING_TEXT,
     AI_CARD_RECOVERY_FINAL_TEXT,
-    AI_CARD_STREAM_MIN_INTERVAL_SECONDS,
     AI_CARD_TOKEN_PREEMPTIVE_REFRESH_SECONDS,
     DINGTALK_TOKEN_TTL_SECONDS,
 )
@@ -117,6 +116,7 @@ class DingTalkChannel(BaseChannel):
     """
 
     channel = "dingtalk"
+    _STREAM_DELTA_MIN_INTERVAL_S = 0.3
 
     _NON_SERIALIZABLE_META_KEYS = ()
 
@@ -3058,12 +3058,6 @@ class DingTalkChannel(BaseChannel):
         now_ms = int(time.time() * 1000)
         if not finalize:
             if content == (card.last_streamed_content or "").strip():
-                return False
-            if (
-                card.last_updated
-                and (now_ms - card.last_updated)
-                < AI_CARD_STREAM_MIN_INTERVAL_SECONDS * 1000
-            ):
                 return False
 
         if (
