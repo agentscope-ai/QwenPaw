@@ -60,7 +60,7 @@ const ToolCardShell: React.FC<ToolCardShellProps> = ({
         )}
         <span className={styles.toolCallLabel} title={title}>
           {title}
-          {isLoading && t("tool.loading")}
+          {isLoading && ` ${t("tool.loading")}`}
         </span>
         {!isLoading && badges}
         {inlineResult && (

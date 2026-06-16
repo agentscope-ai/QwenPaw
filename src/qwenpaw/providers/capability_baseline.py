@@ -555,6 +555,21 @@ class ExpectedCapabilityRegistry:
             )
 
         # ---------------------------------------------------------------
+        # 7b. Kimi Coding Plan
+        #     https://platform.moonshot.cn/docs/intro
+        # ---------------------------------------------------------------
+        self._register(
+            ExpectedCapability(
+                provider_id="kimi-codingplan",
+                model_id="kimi-for-coding",
+                expected_image=False,
+                expected_video=False,
+                doc_url=_kimi_doc,
+                note="Kimi for Coding is text-only",
+            ),
+        )
+
+        # ---------------------------------------------------------------
         # 8. DeepSeek
         #    https://api-docs.deepseek.com/
         # ---------------------------------------------------------------
