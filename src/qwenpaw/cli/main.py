@@ -35,11 +35,6 @@ def _record(label: str, elapsed: float) -> None:
 
 # Timed imports below: order and placement are intentional (E402/C0413).
 _t = time.perf_counter()
-from ..config.utils import read_last_api  # noqa: E402
-
-_record("..config.utils", time.perf_counter() - _t)
-
-_t = time.perf_counter()
 from ..__version__ import __version__  # noqa: E402
 
 _record("..__version__", time.perf_counter() - _t)
@@ -127,6 +122,11 @@ class LazyGroup(click.Group):
             ".uninstall_cmd",
         ),
         "desktop": ("qwenpaw.cli.desktop_cmd", "desktop_cmd", ".desktop_cmd"),
+        "tauri-backend": (
+            "qwenpaw.cli.tauri_backend_cmd",
+            "tauri_backend_cmd",
+            ".tauri_backend_cmd",
+        ),
         "update": ("qwenpaw.cli.update_cmd", "update_cmd", ".update_cmd"),
         "shutdown": (
             "qwenpaw.cli.shutdown_cmd",
@@ -156,7 +156,17 @@ class LazyGroup(click.Group):
 @click.pass_context
 def cli(ctx: click.Context, host: str | None, port: int | None) -> None:
     """QwenPaw CLI."""
+    ctx.ensure_object(dict)
+    if ctx.invoked_subcommand == "tauri-backend":
+        ctx.obj["host"] = host or "127.0.0.1"
+        ctx.obj["port"] = port or 8088
+        return
+
     # default from last run if not provided
+    _t = time.perf_counter()
+    from ..config.utils import read_last_api
+
+    _record("..config.utils", time.perf_counter() - _t)
     last = read_last_api()
     if host is None or port is None:
         if last:
@@ -167,6 +177,5 @@ def cli(ctx: click.Context, host: str | None, port: int | None) -> None:
     host = host or "127.0.0.1"
     port = port or 8088
 
-    ctx.ensure_object(dict)
     ctx.obj["host"] = host
     ctx.obj["port"] = port

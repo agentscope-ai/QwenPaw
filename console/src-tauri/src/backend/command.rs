@@ -15,18 +15,18 @@ pub(super) fn create(app: &tauri::AppHandle) -> Result<Command, String> {
     let source_path = repo_root.join("src");
     let command = if command_exists("uv") {
         log::info!(
-            "[backend] dev command: uv run python -m qwenpaw.tauri.entry cwd={}",
+            "[backend] dev command: uv run python -m qwenpaw tauri-backend cwd={}",
             repo_root.display(),
         );
         app.shell()
             .command("uv")
-            .args(["run", "python", "-m", "qwenpaw.tauri.entry"])
+            .args(["run", "python", "-m", "qwenpaw", "tauri-backend"])
             .current_dir(repo_root)
             .env("PYTHONPATH", source_path.display().to_string())
     } else {
         let (python, prefix_args) = python_command(&repo_root);
         let mut args = prefix_args;
-        args.extend(["-m", "qwenpaw.tauri.entry"]);
+        args.extend(["-m", "qwenpaw", "tauri-backend"]);
         log::info!(
             "[backend] dev command: {} {} cwd={}",
             python,
@@ -48,14 +48,14 @@ pub(super) fn create(app: &tauri::AppHandle) -> Result<Command, String> {
     let python = packaged_backend_python(app)?;
     let backend_dir = python_env_root(&python)?;
     log::info!(
-        "[backend] packaged command: {} -u -m qwenpaw.tauri.entry cwd={}",
+        "[backend] packaged command: {} -u -m qwenpaw tauri-backend cwd={}",
         python.display(),
         backend_dir.display(),
     );
     let command = app
         .shell()
         .command(python)
-        .args(["-u", "-m", "qwenpaw.tauri.entry"])
+        .args(["-u", "-m", "qwenpaw", "tauri-backend"])
         .current_dir(&backend_dir)
         .env("PYTHONNOUSERSITE", "1")
         .env(path_env_key(), path_with_backend_env(&backend_dir)?);

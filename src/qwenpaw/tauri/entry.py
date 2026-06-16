@@ -225,7 +225,8 @@ def _socket_port(sock: socket.socket) -> int:
     return int(address[1])
 
 
-def main() -> None:
+def main(log_level: str | None = None) -> None:
+    mp.freeze_support()
     _emit_startup_timing("main_started")
     _ensure_utf8_stdio()
     _emit_startup_timing("stdio_configured")
@@ -235,6 +236,8 @@ def main() -> None:
     from qwenpaw.constant import LOG_LEVEL_ENV, WORKING_DIR
 
     _emit_startup_timing("constants_imported")
+    effective_log_level = log_level or os.environ.get(LOG_LEVEL_ENV, "info")
+    os.environ[LOG_LEVEL_ENV] = effective_log_level
     install_sidecar_logging(WORKING_DIR / "desktop.log")
     _emit_startup_timing("sidecar_logging_installed")
     _install_certifi_env()
@@ -254,7 +257,7 @@ def main() -> None:
         )
         _emit_startup_timing("initialization_finished")
 
-    _run_backend_server(os.environ.get(LOG_LEVEL_ENV, "info"))
+    _run_backend_server(effective_log_level)
 
 
 if __name__ == "__main__":
