@@ -8,13 +8,13 @@ Cases:
     - CODE-003 P1  test_open_existing_directory
     - CODE-004 P1  test_chat_in_coding_mode_with_file_reference  (requires_llm)
     - CODE-005 P1  test_file_tree_open_and_edit_tab
-    - CODE-006 P2  test_lsp_and_ast_search_tools_available
-    - CODE-007 P2  test_switch_project
 
 Coding Mode is an opt-in IDE-style workspace. Most cases drive backend
 APIs to set up state deterministically and then assert the UI renders
 the expected pieces — the project-select modal's auto-open path is too
-state-dependent for reliable e2e (see CODE-002 docstring).
+state-dependent for reliable e2e (see CODE-002 docstring). Pure-API
+checks (tool registration, project switching, etc.) belong in
+``tests/integration/``.
 """
 from __future__ import annotations
 
@@ -363,113 +363,3 @@ class TestFileTreeOpenTab:
             logger.info(f"Test {test_name} passed")
         finally:
             coding_page.api_set_coding_mode(api_context, False)
-
-
-# ============================================================================
-# CODE-006: lsp / ast_search auto-registered when project bound
-# ============================================================================
-
-@pytest.mark.integration
-@pytest.mark.p2
-@pytest.mark.coding
-class TestCodingTools:
-    """
-    CODE-006: When Coding Mode is active and bound to a project, the
-    backend should expose ``lsp`` and ``ast_search`` in /api/tools.
-    Either tool may be unavailable on a given developer machine
-    (missing language server / ast-grep CLI), so we accept "at least
-    one of the two" as a soft pass.
-    """
-
-    @pytest.mark.test_id("CODE-006")
-    @pytest.mark.xfail(
-        reason=(
-            "lsp/ast_search require pylsp or ast-grep to be installed; "
-            "machines without them will not register these tools."
-        ),
-        strict=False,
-    )
-    def test_lsp_and_ast_search_tools_available(
-        self,
-        coding_page: CodingPage,
-        api_context,
-        request: pytest.FixtureRequest,
-    ) -> None:
-        test_name = request.node.name
-        project_name = f"e2e-coding-tools-{int(time.time())}"
-
-        log_test_step("1. Provision project + enable Coding Mode")
-        created = coding_page.api_create_project(api_context, project_name)
-        coding_page.api_activate_project(api_context, created["path"])
-        coding_page.api_set_coding_mode(api_context, True)
-
-        try:
-            log_test_step("2. Poll /api/tools until coding tools appear")
-            coding_tools = {"lsp", "ast_search"}
-            deadline = time.time() + 30
-            seen: set = set()
-            while time.time() < deadline:
-                names = set(coding_page.api_list_tools(api_context))
-                seen = names & coding_tools
-                if seen:
-                    break
-                time.sleep(1)
-            assert seen, (
-                "Expected at least one of {lsp, ast_search} in /api/tools "
-                "after entering Coding Mode; got nothing within 30s. "
-                "If your machine lacks both LSP servers and ast-grep, "
-                "consider installing one or marking this test xfail."
-            )
-            logger.info(
-                f"Coding tools registered: {sorted(seen)}"
-            )
-
-            log_test_result(test_name, True, 0)
-            logger.info(f"Test {test_name} passed")
-        finally:
-            coding_page.api_set_coding_mode(api_context, False)
-
-
-# ============================================================================
-# CODE-007: Switch active project
-# ============================================================================
-
-@pytest.mark.integration
-@pytest.mark.p2
-@pytest.mark.coding
-class TestSwitchProject:
-    """
-    CODE-007: Bind the agent to project A, then switch to project B
-    and confirm the active path follows.
-    """
-
-    @pytest.mark.test_id("CODE-007")
-    def test_switch_project(
-        self,
-        coding_page: CodingPage,
-        api_context,
-        request: pytest.FixtureRequest,
-    ) -> None:
-        test_name = request.node.name
-        ts = int(time.time())
-        name_a = f"e2e-coding-A-{ts}"
-        name_b = f"e2e-coding-B-{ts}"
-
-        log_test_step("1. Create project A and bind")
-        proj_a = coding_page.api_create_project(api_context, name_a)
-        coding_page.api_activate_project(api_context, proj_a["path"])
-        active = coding_page.api_get_coding_project(api_context).get("path")
-        assert active == proj_a["path"], (
-            f"Expected active=A {proj_a['path']}, got {active}"
-        )
-
-        log_test_step("2. Create project B and switch")
-        proj_b = coding_page.api_create_project(api_context, name_b)
-        coding_page.api_activate_project(api_context, proj_b["path"])
-        active = coding_page.api_get_coding_project(api_context).get("path")
-        assert active == proj_b["path"], (
-            f"Expected active=B {proj_b['path']}, got {active}"
-        )
-
-        log_test_result(test_name, True, 0)
-        logger.info(f"Test {test_name} passed")

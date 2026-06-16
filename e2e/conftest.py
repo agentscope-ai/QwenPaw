@@ -92,25 +92,8 @@ plugin_page = pytest.fixture(scope="function", name="plugin_page")(
 memory_page = pytest.fixture(scope="function", name="memory_page")(
     _make_page_fixture("pages.memory_page", "MemoryPage")
 )
-magic_commands_page = pytest.fixture(
-    scope="function", name="magic_commands_page",
-)(
-    _make_page_fixture(
-        "pages.magic_commands_page", "MagicCommandsPage",
-    )
-)
-multi_agent_collab_page = pytest.fixture(
-    scope="function", name="multi_agent_collab_page",
-)(
-    _make_page_fixture(
-        "pages.multi_agent_collab_page", "MultiAgentCollabPage",
-    )
-)
 inbox_page = pytest.fixture(scope="function", name="inbox_page")(
     _make_page_fixture("pages.inbox_page", "InboxPage")
-)
-mission_page = pytest.fixture(scope="function", name="mission_page")(
-    _make_page_fixture("pages.mission_page", "MissionPage")
 )
 
 

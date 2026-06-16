@@ -166,14 +166,6 @@ class CodingPage(BasePage):
         except Exception as exc:  # pragma: no cover — defensive
             logger.warning("Could not install init script: %s", exc)
 
-    def force_default_agent(self) -> None:
-        """Backwards-compatible no-op wrapper kept for direct callers.
-
-        New code should rely on :meth:`open_chat` which installs the
-        init-script automatically.
-        """
-        self._install_default_agent_init_script()
-
     def prime_experimental_confirmed(self) -> None:
         """Pre-set the localStorage flag so the experimental modal is skipped.
 
@@ -296,33 +288,6 @@ class CodingPage(BasePage):
         self.click_exit_toggle()
         self.page.wait_for_url("**/chat", timeout=timeout)
 
-    def create_empty_project_and_enter(
-        self,
-        name: str,
-        timeout_ms: Optional[int] = None,
-    ) -> None:
-        """Create a brand-new empty project from the toggle modal and enter.
-
-        Steps:
-            1. Prime localStorage to skip experimental warning.
-            2. Click toggle.
-            3. Wait for project modal, switch to 'New Project' tab.
-            4. Fill name + click Create Project.
-            5. Wait for /coding URL.
-        """
-        timeout = timeout_ms or self.timeout
-
-        if self.is_in_coding_mode():
-            self.exit_coding_mode(timeout_ms=timeout)
-
-        self.prime_experimental_confirmed()
-        self.click_enter_toggle()
-        self.wait_for_project_modal()
-        self.open_new_project_tab()
-        self.fill_new_project_name(name)
-        self.click_create_project()
-        self.page.wait_for_url("**/coding", timeout=timeout)
-
     # ========== Assertions ==========
 
     def verify_ide_layout_visible(self) -> bool:
@@ -395,21 +360,6 @@ class CodingPage(BasePage):
             f"Coding project read failed [{resp.status}]: {resp.text()}"
         )
         return resp.json()
-
-    def api_list_tools(self, api_context) -> list:
-        """GET /api/tools — return list of tool names available to the agent."""
-        resp = api_context.get(
-            "/api/tools",
-            headers=self._agent_headers(),
-        )
-        assert resp.ok, f"Tools list failed [{resp.status}]: {resp.text()}"
-        body = resp.json()
-        if isinstance(body, list):
-            return [t.get("name") for t in body if isinstance(t, dict)]
-        # Defensive: some envs wrap results in {tools: [...]}.
-        if isinstance(body, dict) and isinstance(body.get("tools"), list):
-            return [t.get("name") for t in body["tools"] if isinstance(t, dict)]
-        return []
 
     def api_save_code_file(
         self,

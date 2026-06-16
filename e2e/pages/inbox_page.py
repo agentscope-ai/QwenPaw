@@ -218,35 +218,6 @@ class InboxPage(BasePage):
         body = resp.json()
         return body.get("events", []) if isinstance(body, dict) else []
 
-    def api_mark_read(
-        self,
-        api_context,
-        event_ids: Optional[List[str]] = None,
-        all_unread: bool = False,
-    ) -> dict:
-        body = {"event_ids": event_ids or [], "all": all_unread}
-        resp = api_context.post(
-            "/api/console/inbox/read",
-            data=body,
-            headers=self._agent_headers(),
-        )
-        assert resp.ok, (
-            f"Mark read failed [{resp.status}]: {resp.text()}"
-        )
-        return resp.json()
-
-    def api_delete_event(self, api_context, event_id: str):
-        return api_context.delete(
-            f"/api/console/inbox/events/{event_id}",
-            headers=self._agent_headers(),
-        )
-
-    def api_get_trace(self, api_context, run_id: str):
-        return api_context.get(
-            f"/api/console/inbox/traces/{run_id}",
-            headers=self._agent_headers(),
-        )
-
     # ========== UI helpers ==========
 
     _init_script_installed = False

@@ -116,41 +116,19 @@ class MemoryPage(BasePage):
     def click_memory_tab(self) -> None:
         self.page.locator(self.MEMORY_TAB).first.click(timeout=self.timeout)
 
-    # ========== API helpers ==========
+    # ========== API helpers (UI test setup only) ==========
+    #
+    # Pure API contract tests for /api/workspace/memory live in
+    # ``tests/integration/``; this page object only exposes the helper
+    # used to seed memory state for UI-driven cases.
 
     def _agent_headers(self) -> dict:
         return {"X-Agent-Id": self.AGENT_ID_DEFAULT}
 
-    def api_list_daily_memory(self, api_context) -> list:
-        """GET /api/workspace/memory."""
-        resp = api_context.get(
-            "/api/workspace/memory",
-            headers=self._agent_headers(),
-        )
-        assert resp.ok, (
-            f"List memory failed [{resp.status}]: {resp.text()}"
-        )
-        body = resp.json()
-        if isinstance(body, list):
-            return body
-        return body.get("files", []) if isinstance(body, dict) else []
-
-    def api_read_daily_memory(self, api_context, name: str) -> str:
-        """GET /api/workspace/memory/{name}."""
-        resp = api_context.get(
-            f"/api/workspace/memory/{name}",
-            headers=self._agent_headers(),
-        )
-        assert resp.ok, (
-            f"Read memory failed [{resp.status}]: {resp.text()}"
-        )
-        body = resp.json()
-        return body.get("content", "")
-
     def api_write_daily_memory(
         self, api_context, name: str, content: str,
     ) -> dict:
-        """PUT /api/workspace/memory/{name}."""
+        """PUT /api/workspace/memory/{name} — used as test setup."""
         resp = api_context.put(
             f"/api/workspace/memory/{name}",
             data={"content": content},
@@ -158,26 +136,5 @@ class MemoryPage(BasePage):
         )
         assert resp.ok, (
             f"Write memory failed [{resp.status}]: {resp.text()}"
-        )
-        return resp.json()
-
-    def api_get_running_config(self, api_context) -> dict:
-        resp = api_context.get(
-            "/api/workspace/running-config",
-            headers=self._agent_headers(),
-        )
-        assert resp.ok, (
-            f"Get running-config failed [{resp.status}]: {resp.text()}"
-        )
-        return resp.json()
-
-    def api_put_running_config(self, api_context, payload: dict) -> dict:
-        resp = api_context.put(
-            "/api/workspace/running-config",
-            data=payload,
-            headers=self._agent_headers(),
-        )
-        assert resp.ok, (
-            f"PUT running-config failed [{resp.status}]: {resp.text()}"
         )
         return resp.json()
