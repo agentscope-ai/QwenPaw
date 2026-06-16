@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import time
 
-# Keep this before heavier imports so startup timing includes module import cost.
+# Keep imports early for startup timing
 _STARTUP_STARTED_AT = time.perf_counter()
 _STARTUP_LAST_AT = _STARTUP_STARTED_AT
 

@@ -9,7 +9,7 @@ import os
 import sys
 import time
 
-# Keep this before heavier imports so startup timing includes module import cost.
+# Keep imports early for startup timing
 _APP_IMPORT_STARTED_AT = time.perf_counter()
 _APP_STARTUP_LAST_AT = _APP_IMPORT_STARTED_AT
 
@@ -59,16 +59,10 @@ from agentscope_runtime.engine.app import AgentApp  # noqa: E402
 from agentscope_runtime.engine.schemas.exception import (  # noqa: E402
     AppBaseException,
 )
-from fastapi import FastAPI, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, ORJSONResponse
-from fastapi.staticfiles import StaticFiles
 
 _emit_desktop_startup_timing_stdout("agentscope_runtime_imports_loaded")
 
-from ..config import (
-    load_config,
-)  # noqa: E402  # pylint: disable=no-name-in-module
+from ..config import load_config  # noqa: E402
 from ..config.utils import get_config_path  # noqa: E402
 from ..constant import (  # noqa: E402
     DOCS_ENABLED,
@@ -94,10 +88,10 @@ from .auth import AuthMiddleware, auto_register_from_env  # noqa: E402
 
 _emit_desktop_startup_timing_stdout("auth_imports_loaded")
 
-from .routers import (
+from .routers import (  # noqa: E402
     router as api_router,
     create_agent_scoped_router,
-)  # noqa: E402
+)
 from .routers.agent_scoped import AgentContextMiddleware  # noqa: E402
 from .routers.approval import router as approval_router  # noqa: E402
 from .routers.coding_mode import router as coding_mode_router  # noqa: E402
