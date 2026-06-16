@@ -26,6 +26,8 @@ interface EligibleProvider {
   base_url?: string;
   models: ProviderInfo["models"];
   is_free_tier?: boolean;
+  is_custom?: boolean;
+  is_local?: boolean;
   supports_oauth?: boolean;
   oauth_connected?: boolean;
   has_api_key?: boolean;
@@ -147,6 +149,8 @@ export default function ModelSelector() {
       base_url: p.base_url,
       models: [...(p.models ?? []), ...(p.extra_models ?? [])],
       is_free_tier: p.is_free_tier,
+      is_custom: p.is_custom,
+      is_local: p.is_local,
       supports_oauth: p.supports_oauth,
       oauth_connected: p.oauth_connected,
       has_api_key: !!p.api_key,
@@ -163,11 +167,14 @@ export default function ModelSelector() {
       if (freeModels.length > 0 || (p.is_free_tier && p.models.length === 0)) {
         freeMap.set(p.id, { ...p, models: freeModels });
       }
-      // PRO: show paid models when API key is configured, or when
-      // the provider doesn't require an API key (e.g. ollama, lmstudio)
+      // PRO: show paid models when API key is configured, provider
+      // doesn't require a key, or provider is user-created / local
       if (
         proModels.length > 0 &&
-        (p.has_api_key || p.require_api_key === false)
+        (p.has_api_key ||
+          p.require_api_key === false ||
+          p.is_custom ||
+          p.is_local)
       ) {
         proMap.set(p.id, { ...p, models: proModels });
       }
