@@ -34,7 +34,7 @@ element_path: console/src/extension
 ## As-built Notes
 
 - Deep scan: API/client supports `deep=true`; `HealthCheckSection` UI uses `deep=false` only.
-- Rule integrity: `RuleIntegrityRepairBanner` on Security page top (5s poll) + `RuleIntegrityPassiveCard` in Integrity Check tab.
+- Rule integrity: `GlobalRuleIntegrityRepairBanner` on MainLayout below Header (SSE + 60s poll fallback) + `RuleIntegrityPassiveCard` in Integrity Check tab.
 - Health Check: sessionStorage key `qwenpaw.healthCheck.lastScan.v1`; carousel interval 1800ms.
 
 ## Delivery test contracts (file baseline)

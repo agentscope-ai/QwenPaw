@@ -28,6 +28,7 @@ def result_to_response(status: RuleIntegrityResult) -> ToolGuardRuleIntegrityRes
         auto_repair_timeout_retry=int(projection["auto_repair_timeout_retry"]),
         auto_repair_abandoned=bool(projection["auto_repair_abandoned"]),
         auto_repair_timeout_max=int(projection["auto_repair_timeout_max"]),
+        tamper_banner_cycle_active=bool(projection["tamper_banner_cycle_active"]),
     )
 
 

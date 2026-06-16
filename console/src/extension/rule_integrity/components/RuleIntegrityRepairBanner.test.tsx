@@ -25,6 +25,7 @@ const tamperedState: ToolGuardRulesIntegrity = {
   findings: [],
   rules_disabled: true,
   auto_repair_in_progress: true,
+  tamper_banner_cycle_active: true,
 };
 
 const repairedState: ToolGuardRulesIntegrity = {
@@ -34,6 +35,7 @@ const repairedState: ToolGuardRulesIntegrity = {
   findings: [],
   rules_disabled: false,
   auto_repair_completed: true,
+  tamper_banner_cycle_active: true,
 };
 
 describe("RuleIntegrityRepairBanner", () => {
@@ -46,9 +48,11 @@ describe("RuleIntegrityRepairBanner", () => {
     expect(screen.getByText(RED_TEXT)).toBeInTheDocument();
   });
 
-  it("shows green success banner after auto-repair when no prior red session", () => {
+  it("shows red first when repair completed within tamper banner cycle", () => {
+    vi.useFakeTimers();
     renderBanner(repairedState);
-    expect(screen.getByText(GREEN_TEXT)).toBeInTheDocument();
+    expect(screen.getByText(RED_TEXT)).toBeInTheDocument();
+    expect(screen.queryByText(GREEN_TEXT)).not.toBeInTheDocument();
   });
 
   it("shows timeout retry banner when retry count is present", () => {
@@ -105,5 +109,13 @@ describe("RuleIntegrityRepairBanner", () => {
     });
     expect(screen.getByText(GREEN_TEXT)).toBeInTheDocument();
     expect(screen.queryByText(RED_TEXT)).not.toBeInTheDocument();
+  });
+
+  it("shows green immediately when repair completed outside tamper banner cycle", () => {
+    renderBanner({
+      ...repairedState,
+      tamper_banner_cycle_active: false,
+    });
+    expect(screen.getByText(GREEN_TEXT)).toBeInTheDocument();
   });
 });

@@ -82,6 +82,22 @@ def tick_auto_repair_display() -> None:
         _auto_repair_completed_until = None
 
 
+def tamper_banner_cycle_active() -> bool:
+    """True while the Security tamper/repair banner cycle should be visible."""
+
+    lockdown = rule_integrity_lockdown_active()
+    completed = (
+        _auto_repair_completed_until is not None
+        and time.monotonic() < _auto_repair_completed_until
+    )
+    return (
+        lockdown
+        or _auto_repair_in_progress
+        or _auto_repair_abandoned
+        or (completed and not lockdown)
+    )
+
+
 def get_enforcement_projection() -> dict[str, Any]:
     tick_auto_repair_display()
     lockdown = rule_integrity_lockdown_active()
@@ -89,6 +105,7 @@ def get_enforcement_projection() -> dict[str, Any]:
         _auto_repair_completed_until is not None
         and time.monotonic() < _auto_repair_completed_until
     )
+    banner_cycle = tamper_banner_cycle_active()
     return {
         "rules_disabled": lockdown,
         "auto_repair_in_progress": _auto_repair_in_progress,
@@ -96,6 +113,7 @@ def get_enforcement_projection() -> dict[str, Any]:
         "auto_repair_timeout_retry": _auto_repair_timeout_retry,
         "auto_repair_abandoned": _auto_repair_abandoned,
         "auto_repair_timeout_max": MAX_CONSECUTIVE_TIMEOUT_RETRIES,
+        "tamper_banner_cycle_active": banner_cycle,
     }
 
 
