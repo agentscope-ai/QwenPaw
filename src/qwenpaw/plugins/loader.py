@@ -148,7 +148,7 @@ class PluginLoader:
         self,
         source_path: Path,
         plugin_id: str,
-    ) -> None:
+    ) -> bool:
         """Check and install missing dependencies for a plugin.
 
         Inspects ``requirements.txt`` in the plugin directory; if any
@@ -158,11 +158,14 @@ class PluginLoader:
         Args:
             source_path: Plugin directory containing requirements.txt
             plugin_id: Plugin identifier (for log messages)
+
+        Returns:
+            True if dependencies are satisfied, False if installation failed
         """
         requirements_file = source_path / "requirements.txt"
         missing_deps = self._check_dependencies_satisfied(requirements_file)
         if not missing_deps:
-            return
+            return True
         logger.info(
             "Plugin '%s' has %d unsatisfied dependency(ies): %s. "
             "Installing...",
@@ -170,18 +173,29 @@ class PluginLoader:
             len(missing_deps),
             ", ".join(missing_deps),
         )
-        await asyncio.to_thread(
-            self._install_requirements,
-            requirements_file,
-            plugin_id,
-        )
+        try:
+            await asyncio.to_thread(
+                self._install_requirements,
+                requirements_file,
+                plugin_id,
+            )
+            return True
+        except Exception as e:
+            logger.warning(
+                "Dependency installation failed for '%s': %s. "
+                "Plugin will be skipped for now.",
+                plugin_id,
+                e,
+            )
+            return False
 
+    # pylint: disable=too-many-statements
     async def load_plugin(
         self,
         manifest: PluginManifest,
         source_path: Path,
         config: Optional[Dict] = None,
-    ) -> PluginRecord:
+    ) -> Optional[PluginRecord]:
         """Load a single plugin.
 
         Args:
@@ -190,7 +204,7 @@ class PluginLoader:
             config: Optional plugin configuration
 
         Returns:
-            PluginRecord instance
+            PluginRecord instance, or None if dependency installation failed
 
         Raises:
             FileNotFoundError: If entry point not found
@@ -203,8 +217,18 @@ class PluginLoader:
             logger.warning(f"Plugin '{plugin_id}' already loaded")
             return self._loaded_plugins[plugin_id]
 
-        # Ensure plugin dependencies are installed before loading
-        await self._ensure_dependencies_installed(source_path, plugin_id)
+        # Check and install dependencies; skip plugin if installation fails
+        deps_satisfied = await self._ensure_dependencies_installed(
+            source_path,
+            plugin_id,
+        )
+        if not deps_satisfied:
+            logger.warning(
+                "Skipping plugin '%s' due to dependency "
+                "installation failure",
+                plugin_id,
+            )
+            return None
 
         # Load backend module (if declared and exists)
         backend_entry = manifest.entry.backend
@@ -335,7 +359,11 @@ class PluginLoader:
         self,
         configs: Optional[Dict[str, Dict]] = None,
     ) -> Dict[str, PluginRecord]:
-        """Discover and load all plugins.
+        """Discover and load all plugins in parallel.
+
+        All plugins are loaded concurrently so that dependency installation
+        for one plugin does not block the loading of others. Failed plugins
+        are logged and skipped without affecting the rest.
 
         Args:
             configs: Optional dictionary of plugin_id -> config
@@ -345,13 +373,24 @@ class PluginLoader:
         """
         discovered = self.discover_plugins()
 
-        for manifest, plugin_dir in discovered:
+        async def _load_one(
+            manifest: PluginManifest,
+            plugin_dir: Path,
+        ) -> None:
             config = configs.get(manifest.id) if configs else None
-
             try:
                 await self.load_plugin(manifest, plugin_dir, config)
             except Exception as e:
                 logger.error(f"Failed to load plugin '{manifest.id}': {e}")
+
+        # Load all plugins in parallel
+        await asyncio.gather(
+            *(
+                _load_one(manifest, plugin_dir)
+                for manifest, plugin_dir in discovered
+            ),
+            return_exceptions=True,
+        )
 
         return self._loaded_plugins
 
