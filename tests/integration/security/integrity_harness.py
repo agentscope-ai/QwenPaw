@@ -114,7 +114,7 @@ class FileBaselineDriftObservation:
 @dataclass(frozen=True)
 class AgentToolWatchDedupeObservation:
     single_pending_alert: bool
-    single_inbox_emit: bool
+    no_inbox_emit: bool
     single_sse_emit: bool
     failure_reasons: tuple[str, ...]
 
@@ -122,7 +122,7 @@ class AgentToolWatchDedupeObservation:
         return all(
             (
                 self.single_pending_alert,
-                self.single_inbox_emit,
+                self.no_inbox_emit,
                 self.single_sse_emit,
                 not self.failure_reasons,
             ),
@@ -665,14 +665,14 @@ class IntegrityProtectionHarness:
         failure_reasons: list[str] = []
         if pending_count != 1:
             failure_reasons.append(f"expected_one_pending_alert got={pending_count}")
-        if inbox_count != 1:
-            failure_reasons.append(f"expected_one_inbox_emit got={inbox_count}")
+        if inbox_count != 0:
+            failure_reasons.append(f"expected_no_inbox_emit got={inbox_count}")
         if sse_count != 1:
             failure_reasons.append(f"expected_one_sse_emit got={sse_count}")
 
         return AgentToolWatchDedupeObservation(
             single_pending_alert=pending_count == 1,
-            single_inbox_emit=inbox_count == 1,
+            no_inbox_emit=inbox_count == 0,
             single_sse_emit=sse_count == 1,
             failure_reasons=tuple(failure_reasons),
         )

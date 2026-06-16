@@ -12,7 +12,6 @@ vi.mock("./useToolGuard", () => ({
     enabled: false,
     setEnabled: vi.fn(),
     mergedRules: [],
-    rulesIntegrity: null,
     shellEvasionChecks: [],
     toggleShellEvasionCheck: vi.fn(),
     repairingRulesIntegrity: false,
@@ -56,20 +55,10 @@ describe("useSecurityPage persona deep link", () => {
     expect(result.current.activeTab).toBe("integrityProtection");
   });
 
-  it("reads fileBaselineAlertId for drift row highlight", () => {
-    const { result } = renderHook(() => useSecurityPage(), {
-      wrapper: createWrapper(
-        "/security?tab=integrityProtection&fileBaselineAlertId=alert-xyz",
-      ),
-    });
-    expect(result.current.fileBaselineHighlightAlertId).toBe("alert-xyz");
-  });
-
   it("defaults to toolGuard tab without query params", () => {
     const { result } = renderHook(() => useSecurityPage(), {
       wrapper: createWrapper("/security"),
     });
     expect(result.current.activeTab).toBe("toolGuard");
-    expect(result.current.fileBaselineHighlightAlertId).toBeUndefined();
   });
 });

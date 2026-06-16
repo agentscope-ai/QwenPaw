@@ -9,11 +9,19 @@ export interface ToolGuardRuleIntegrityFinding {
 }
 
 export interface ToolGuardRulesIntegrity {
+  type?: "rule_integrity_status" | "connected";
   ok: boolean;
   status: string;
   message: string;
   checked_at?: string | null;
   findings: ToolGuardRuleIntegrityFinding[];
+  rules_disabled?: boolean;
+  auto_repair_in_progress?: boolean;
+  auto_repair_completed?: boolean;
+  auto_repair_timeout_retry?: number;
+  auto_repair_abandoned?: boolean;
+  auto_repair_timeout_max?: number;
+  tamper_banner_cycle_active?: boolean;
 }
 
 export interface ToolGuardRulesIntegrityRepair {

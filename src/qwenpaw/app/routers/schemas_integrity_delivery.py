@@ -23,6 +23,8 @@ __all__ = [
     "FileBaselineProtectionAlertsResponse",
     "FileBaselineProtectionSettingsResponse",
     "FileBaselineProtectionSettingsUpdateRequest",
+    "FileBaselineWorkspaceBrowseEntry",
+    "FileBaselineWorkspaceBrowseResponse",
     "ToolGuardRuleIntegrityFindingResponse",
     "ToolGuardRuleIntegrityRepairResponse",
     "ToolGuardRuleIntegrityResponse",
@@ -102,3 +104,19 @@ class FileBaselineProtectionActionResponse(BaseModel):
     message: Optional[str] = None
     alert_id: Optional[str] = None
     action: Optional[str] = None
+
+
+class FileBaselineWorkspaceBrowseEntry(BaseModel):
+    name: str
+    type: str
+    rel_path: str
+    size: Optional[int] = None
+
+
+class FileBaselineWorkspaceBrowseResponse(BaseModel):
+    agent_id: str
+    workspace_label: str
+    current_path: str
+    parent_path: str
+    default_path: str
+    entries: List[FileBaselineWorkspaceBrowseEntry] = Field(default_factory=list)

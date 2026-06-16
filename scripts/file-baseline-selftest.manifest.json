@@ -54,6 +54,10 @@
         {
           "module": "tests/unit/extension/test_file_baseline_os_readonly.py",
           "tests": []
+        },
+        {
+          "module": "tests/unit/extension/test_file_baseline_workspace_browse.py",
+          "tests": []
         }
       ]
     },
@@ -63,14 +67,17 @@
       "cwd": "console",
       "targets": [
         "src/extension/file_baseline/api/client.test.ts",
-        "src/extension/file_baseline/lib/alertActions.test.ts",
-        "src/extension/file_baseline/lib/driftAlertItems.test.ts",
         "src/extension/file_baseline/lib/fileBaselineWriteApproval.test.ts",
         "src/extension/file_baseline/lib/navigation.test.ts",
         "src/extension/file_baseline/hooks/useFileBaselineDriftWatch.test.ts",
         "src/pages/Settings/Security/components/IntegrityProtectionSection.test.tsx",
         "src/pages/Settings/Security/useSecurityPage.fileBaseline.test.tsx",
-        "src/pages/Inbox/hooks/useInboxData.fileBaseline.test.ts"
+        "src/pages/Inbox/hooks/useInboxData.fileBaseline.test.ts",
+        "src/extension/file_baseline/lib/alertActions.test.ts",
+        "src/extension/file_baseline/components/FileBaselineDriftAlertNotifier/notifierUi.contract.test.ts",
+        "src/extension/file_baseline/hostIntegration.contract.test.ts",
+        "src/extension/file_baseline/lib/operatorConsoleApproval.test.ts",
+        "src/extension/file_baseline/components/WorkspaceProtectableFilePickerModal.test.tsx"
       ]
     }
   },
@@ -97,6 +104,7 @@
     { "id": "FB-S34", "layer": "backend", "target": "test_python_detects_open_read_plus" },
     { "id": "FB-S35", "layer": "backend", "target": "test_shell_detects_attrib_delete_and_fsutil" },
     { "id": "FB-S36", "layer": "backend", "target": "TestExecuteShellCommand::test_file_baseline_guard_failure_blocks_shell" },
+    { "id": "FB-S37", "layer": "backend", "target": "test_save_workspace_skill_skips_disk_write_when_guard_committed" },
     { "id": "PB-S31", "layer": "backend", "target": "test_agent_tool_no_watch_double_emit" },
     { "id": "PB-S40", "layer": "backend", "target": "test_operator_editor_save_requires_approval" },
     { "id": "PB-S42", "layer": "backend", "target": "test_file_baseline_drift_alert_restore_accept" },
@@ -105,7 +113,10 @@
     { "id": "PB-S50", "layer": "backend", "target": "test_file_baseline_watch_triggers_check_on_modify" },
     { "id": "PB-S01", "layer": "frontend", "target": "IntegrityProtectionSection.test.tsx" },
     { "id": "FB-S18", "layer": "frontend", "target": "IntegrityProtectionSection.test.tsx" },
-    { "id": "FB-SUI-NOTIFIER", "layer": "frontend", "target": "alertActions.test.ts" },
+    { "id": "FB-SUI-NOTIFIER", "layer": "frontend", "target": "notifierUi.contract.test.ts" },
+    { "id": "FB-SUI-HOST", "layer": "frontend", "target": "hostIntegration.contract.test.ts" },
+    { "id": "FB-SUI-OPERATOR-APPROVAL", "layer": "frontend", "target": "operatorConsoleApproval.test.ts" },
+    { "id": "FB-SUI-PICKER", "layer": "frontend", "target": "WorkspaceProtectableFilePickerModal.test.tsx" },
     { "id": "FB-SUI-INBOX", "layer": "frontend", "target": "useInboxData.fileBaseline.test.ts" }
   ]
 }

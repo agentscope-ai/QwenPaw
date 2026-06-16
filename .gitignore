@@ -11,6 +11,7 @@ node_modules/
 sessions_mount_dir/
 
 # testing
+tests/fixtures/skills/
 # Persona watch ad-hoc debug workspaces in repo root (use tempfile/pytest tmp_path instead)
 .tmp_persona_watch_test*/
 .tmp_argo_run.log
@@ -60,6 +61,10 @@ __pycache__/
 !extension/skill_sign/sign_tool/examples/**/*.zip
 !extension/skill_sign/sign_tool/examples/**/*.sig
 config.json
+
+# Local audit state reset helpers (dev-only; generated/copied per machine)
+extension/reset-audit-state.ps1
+extension/reset-audit-state.sh
 
 # Skill sign tool — never commit private keys
 extension/skill_sign/sign_tool/keys/*

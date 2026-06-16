@@ -6,6 +6,8 @@ import Sidebar from "../Sidebar";
 import Header from "../Header";
 import ConsolePollService from "../../components/ConsolePollService";
 import FileBaselineDriftAlertNotifier from "@extension/file_baseline/components/FileBaselineDriftAlertNotifier";
+import GlobalOperatorApprovalOverlay from "@extension/file_baseline/components/GlobalOperatorApprovalOverlay";
+import { GlobalRuleIntegrityRepairBanner } from "@extension/rule_integrity";
 import { ChunkErrorBoundary } from "../../components/ChunkErrorBoundary";
 import { lazyImportWithRetry } from "../../utils/lazyWithRetry";
 import { usePlugins } from "../../plugins/PluginContext";
@@ -127,11 +129,13 @@ export default function MainLayout() {
   return (
     <Layout className={styles.mainLayout}>
       <Header />
+      <GlobalRuleIntegrityRepairBanner />
       <Layout>
         <Sidebar selectedKey={selectedKey} />
         <Content className="page-container">
           <ConsolePollService />
           <FileBaselineDriftAlertNotifier />
+          <GlobalOperatorApprovalOverlay />
           <div className="page-content">
             <ChunkErrorBoundary resetKey={currentPath}>
               <Suspense

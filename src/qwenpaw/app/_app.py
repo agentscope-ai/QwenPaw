@@ -350,6 +350,16 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
         f"(agents loading in background)",
     )
 
+    try:
+        from ..security.extension_host import run_rule_integrity_startup_check
+
+        await run_rule_integrity_startup_check()
+    except Exception:
+        logger.warning(
+            "Rule integrity startup check failed during server bootstrap",
+            exc_info=True,
+        )
+
     # ================================================================
     # Phase 2: Background heavy initialization
     # Agents, plugins, and services start in a background task so the
@@ -381,8 +391,12 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
             )
             await asyncio.sleep(background_delay)
 
-            from ..security.extension_host import run_startup_scan_if_enabled
+            from ..security.extension_host import (
+                run_rule_integrity_startup_check,
+                run_startup_scan_if_enabled,
+            )
 
+            await run_rule_integrity_startup_check()
             await run_startup_scan_if_enabled()
 
             # Start all configured agents (truly parallel now)
@@ -534,14 +548,14 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
                 exc_info=True,
             )
 
-    async def _periodic_rule_integrity_check():
-        from ..security.rule_integrity_bridge import periodic_rule_integrity_check
+    async def _rule_integrity_runtime():
+        from ..security.rule_integrity_bridge import run_rule_integrity_runtime
 
-        await periodic_rule_integrity_check()
+        await run_rule_integrity_runtime()
 
     _bg_task = asyncio.create_task(_background_startup())
     _rule_integrity_task = asyncio.create_task(
-        _periodic_rule_integrity_check(),
+        _rule_integrity_runtime(),
     )
 
     async def _cancel_lifespan_task(

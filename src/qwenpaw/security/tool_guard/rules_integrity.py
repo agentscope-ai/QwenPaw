@@ -19,6 +19,7 @@ from qwenpaw.security.rule_integrity_bridge import (
     _sha256_normalized_content,
     get_last_rule_integrity_status,
     repair_default_builtin_rule_file,
+    rule_integrity_lockdown_active,
     verify_builtin_rule_files,
     verify_default_builtin_rule_files,
 )
@@ -36,6 +37,7 @@ __all__ = [
     "_sha256_normalized_content",
     "get_last_rule_integrity_status",
     "repair_default_builtin_rule_file",
+    "rule_integrity_lockdown_active",
     "verify_builtin_rule_files",
     "verify_default_builtin_rule_files",
 ]

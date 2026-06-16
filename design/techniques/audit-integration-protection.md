@@ -53,6 +53,19 @@
 
 当前实现已经形成一条完整保护链：关键事件先落边缘审计链，再由哈希链和检查点保障连续性；一旦发现异常，系统进入 `UNTRUSTED` 并在真实执行边界阻断高风险操作；随后再把关键事件投影到云侧和运营界面，形成独立可观测点。
 
+## 本地开发：重置审计连续性状态
+
+当 `inbox_traces/*.json` 与 `audit_chain_checkpoint.json` 不一致（例如只删了 checkpoint、或 trace 被手工改动）时，`lock_mode_required()` 会进入 `UNTRUSTED`，所有工具（含 `read_file`）在真实执行边界被阻断。
+
+本地开发可运行 **`extension/reset-audit-state.ps1`**（Windows）或 **`extension/reset-audit-state.sh`**（Unix），在 **停止 QwenPaw 进程后** 清除：
+
+- `<WORKING_DIR>/audit_chain_checkpoint.json`
+- `<WORKING_DIR>/inbox_traces/*.json`
+
+可选 `-IncludeSecurityCenter` 同时清空 Security Center 本地 store / data 目录。脚本**不会**改动 `workspaces/`、`config.json` 或 `integrity-protection/file-baseline/`。
+
+WORKING_DIR 解析顺序：`QWENPAW_WORKING_DIR` / `COPAW_WORKING_DIR` → 存在则 `~/.copaw` → 否则 `~/.qwenpaw`。
+
 ## 结论
 
 QwenPaw 当前实现中的审计日志完整性保护，本质上是“本地链式证据 + 检查点锚定 + `UNTRUSTED` 阻断 + 云侧独立镜像 + 运营外显”的组合。它已经具备发现篡改、阻断高风险继续执行，并把异常同步暴露给云侧和运营面的闭环能力。

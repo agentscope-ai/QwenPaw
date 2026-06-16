@@ -1,11 +1,12 @@
 import { useMemo, useState } from "react";
-import { Button, Input, Switch, Tooltip } from "@agentscope-ai/design";
+import { Button, Switch, Tooltip } from "@agentscope-ai/design";
 import { useTranslation } from "react-i18next";
 import {
   FILE_BASELINE_PRESET_PATHS,
   FILE_BASELINE_PRESET_PATH_SET,
 } from "../constants/pathCandidates";
 import { useFileBaselineProtectionContext } from "./FileBaselineProtectionSection";
+import { WorkspaceProtectableFilePickerModal } from "./WorkspaceProtectableFilePickerModal";
 import styles from "./FileBaselineProtectionFileList.module.less";
 
 function FileBaselinePathRow({
@@ -62,7 +63,7 @@ export function FileBaselineProtectionFileList() {
     pathsSaving,
     toggleProtectedPath,
   } = useFileBaselineProtectionContext();
-  const [customPath, setCustomPath] = useState("");
+  const [pickerOpen, setPickerOpen] = useState(false);
   const [pendingPath, setPendingPath] = useState<string | null>(null);
 
   const protectedSet = useMemo(() => new Set(protectedPaths), [protectedPaths]);
@@ -77,15 +78,6 @@ export function FileBaselineProtectionFileList() {
     void toggleProtectedPath(path, next).finally(() => {
       setPendingPath(null);
     });
-  };
-
-  const handleAddCustom = () => {
-    const normalized = customPath.replace(/\\/g, "/").replace(/^\/+/, "").trim();
-    if (!normalized) {
-      return;
-    }
-    setCustomPath("");
-    handleToggle(normalized, true);
   };
 
   return (
@@ -135,23 +127,24 @@ export function FileBaselineProtectionFileList() {
           </div>
         )}
         <div className={styles.customAddRow}>
-          <Input
-            size="small"
-            className={styles.customInput}
-            value={customPath}
-            placeholder={t("security.integrityProtection.protectedPathCustomPlaceholder")}
-            onChange={(event) => setCustomPath(event.target.value)}
-            onPressEnter={handleAddCustom}
-          />
           <Button
             size="small"
             loading={pathsSaving}
-            onClick={handleAddCustom}
+            onClick={() => setPickerOpen(true)}
           >
-            {t("security.integrityProtection.addProtectedPathCustom")}
+            {t("security.integrityProtection.pickWorkspaceFile")}
           </Button>
         </div>
       </div>
+
+      <WorkspaceProtectableFilePickerModal
+        open={pickerOpen}
+        protectedPaths={protectedPaths}
+        onClose={() => setPickerOpen(false)}
+        onAdd={async (relPath) => {
+          await toggleProtectedPath(relPath, true);
+        }}
+      />
     </div>
   );
 }

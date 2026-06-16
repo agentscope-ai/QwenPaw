@@ -19,6 +19,18 @@
           "tests": []
         },
         {
+          "module": "extension/rule_integrity/tests/test_enforcement.py",
+          "tests": []
+        },
+        {
+          "module": "extension/rule_integrity/tests/test_runtime.py",
+          "tests": []
+        },
+        {
+          "module": "extension/rule_integrity/tests/test_auto_repair.py",
+          "tests": []
+        },
+        {
           "module": "extension/rule_integrity/tests/test_integration_entry.py",
           "tests": []
         }
@@ -30,7 +42,9 @@
       "cwd": "console",
       "targets": [
         "src/pages/Settings/Security/components/IntegrityProtectionSection.test.tsx",
-        "src/extension/rule_integrity/api/client.test.ts"
+        "src/extension/rule_integrity/api/client.test.ts",
+        "src/extension/rule_integrity/components/RuleIntegrityRepairBanner.test.tsx",
+        "src/extension/rule_integrity/hostIntegration.contract.test.ts"
       ]
     }
   },

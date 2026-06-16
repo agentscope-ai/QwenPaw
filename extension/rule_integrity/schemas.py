@@ -23,6 +23,13 @@ class ToolGuardRuleIntegrityResponse(BaseModel):
     findings: List[ToolGuardRuleIntegrityFindingResponse] = Field(
         default_factory=list,
     )
+    rules_disabled: bool = False
+    auto_repair_in_progress: bool = False
+    auto_repair_completed: bool = False
+    auto_repair_timeout_retry: int = 0
+    auto_repair_abandoned: bool = False
+    auto_repair_timeout_max: int = 5
+    tamper_banner_cycle_active: bool = False
 
 
 class ToolGuardRuleIntegrityRepairResponse(BaseModel):

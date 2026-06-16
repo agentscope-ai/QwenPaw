@@ -34,7 +34,21 @@ element_path: console/src/extension
 ## As-built Notes
 
 - Deep scan: API/client supports `deep=true`; `HealthCheckSection` UI uses `deep=false` only.
-- Rule integrity: `RuleIntegrityRepairBanner` on Security page top (5s poll) + `RuleIntegrityPassiveCard` in Integrity Check tab.
+- Rule integrity: `GlobalRuleIntegrityRepairBanner` on MainLayout below Header (SSE + 60s poll fallback) + `RuleIntegrityPassiveCard` in Integrity Check tab.
 - Health Check: sessionStorage key `qwenpaw.healthCheck.lastScan.v1`; carousel interval 1800ms.
+
+## Delivery test contracts (file baseline)
+
+These are **regression guards** — not product behavior. They fail when host wiring or the drift notifier UI is removed accidentally:
+
+| Guard | Location |
+|-------|----------|
+| Extension files + bridge routes exist | `extension/selftest/file-baseline-wiring.test.js` |
+| `MainLayout` mounts `FileBaselineDriftAlertNotifier` | wiring test + `hostIntegration.contract.test.ts` |
+| Public `index.ts` exports notifier + alert actions | wiring test + `hostIntegration.contract.test.ts` |
+| Notifier Restore/Accept UI contract | `FileBaselineDriftAlertNotifier/notifierUi.contract.test.ts` |
+| Full slice net | `python extension/run-integrity-delivery-selftest.py --delivery file-baseline` |
+
+Scenario IDs: `FB-SUI-NOTIFIER` (notifier UI), `FB-SUI-HOST` (host/public surface).
 
 See also: `extension/Console Frontend Decoupling Design.md`, `console/ARCHITECTURE.md`

@@ -7,8 +7,6 @@ import {
 } from "./FileBaselineProtectionSection";
 
 export interface IntegrityProtectionFrameProps {
-  highlightAlertId?: string;
-  onAlertCountChange?: (count: number) => void;
   children: (ctx: {
     settings: IntegrityProtectionSettings | null;
     setSettings: (settings: IntegrityProtectionSettings) => void;
@@ -27,12 +25,12 @@ function IntegrityCheckPersonaLoader({
     setSettings: (settings: IntegrityProtectionSettings) => void;
   }) => ReactNode;
 }) {
-  const { loadFileBaselineData } = useFileBaselineProtectionContext();
+  const { loadFileBaselineSettings } = useFileBaselineProtectionContext();
 
   useEffect(() => {
     Promise.all([
       api.getIntegrityProtectionSettings().then(setSettings),
-      loadFileBaselineData(),
+      loadFileBaselineSettings(),
     ]).catch(() => {
       setSettings({
         file_baseline_enabled: false,
@@ -42,14 +40,12 @@ function IntegrityCheckPersonaLoader({
         menus: ["Tool Guard", "File Guard", "Integrity Check", "Health Check"],
       });
     });
-  }, [loadFileBaselineData, setSettings]);
+  }, [loadFileBaselineSettings, setSettings]);
 
   return <>{children({ settings, setSettings })}</>;
 }
 
 export function IntegrityProtectionFrame({
-  highlightAlertId,
-  onAlertCountChange,
   children,
 }: IntegrityProtectionFrameProps) {
   const [settings, setSettings] = useState<IntegrityProtectionSettings | null>(
@@ -57,11 +53,7 @@ export function IntegrityProtectionFrame({
   );
 
   return (
-    <FileBaselineProtectionProvider
-      highlightAlertId={highlightAlertId}
-      onAlertCountChange={onAlertCountChange}
-      onIntegritySettingsSync={setSettings}
-    >
+    <FileBaselineProtectionProvider onIntegritySettingsSync={setSettings}>
       <IntegrityCheckPersonaLoader settings={settings} setSettings={setSettings}>
         {children}
       </IntegrityCheckPersonaLoader>

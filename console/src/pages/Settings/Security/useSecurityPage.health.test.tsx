@@ -12,7 +12,6 @@ vi.mock("./useToolGuard", () => ({
     enabled: false,
     setEnabled: vi.fn(),
     mergedRules: [],
-    rulesIntegrity: null,
     shellEvasionChecks: [],
     toggleShellEvasionCheck: vi.fn(),
     repairingRulesIntegrity: false,

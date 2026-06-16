@@ -45,6 +45,7 @@ class RuleIntegrityRepairResult:
     source_url: str
     backup_path: str | None
     integrity: RuleIntegrityResult
+    connection_timeout: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         data = asdict(self)

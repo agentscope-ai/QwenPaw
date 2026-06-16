@@ -21,6 +21,8 @@ RECOVERY_API_URL = (
 RECOVERY_USER_AGENT = "QwenPaw-rule-integrity-repair/1.0"
 RECOVERY_ATTEMPTS_PER_SOURCE = 2
 MAX_RECOVERY_FILE_BYTES = 1024 * 1024
+MAX_CONSECUTIVE_TIMEOUT_RETRIES = 5
+REPAIR_TIMEOUT_RETRY_DELAY_SECONDS = 1.0
 
 # Public key for the official built-in tool-rule manifest signature.
 _PUBLIC_KEY_HEX = (

@@ -8,11 +8,6 @@ import {
   DEFAULT_AGENT_ID,
   getAgentDisplayName,
 } from "../../../utils/agentDisplayName";
-import {
-  getFileBaselineDriftBody,
-  getFileBaselineDriftTitle,
-  getFileBaselineProtectionChannelName,
-} from "@extension/file_baseline/lib/driftDisplay";
 import type { HarvestInstance, InboxSummary, PushMessage } from "../types";
 import {
   INBOX_CHANGED_EVENT,
@@ -22,11 +17,7 @@ import {
 const PUSH_POLLING_INTERVAL_MS = 6000;
 
 /** Inbox events shown under Messages tab (must stay aligned with Sidebar unread API). */
-export const INBOX_MESSAGE_SOURCE_TYPES = [
-  "cron",
-  "heartbeat",
-  "file_baseline_protection",
-] as const;
+export const INBOX_MESSAGE_SOURCE_TYPES = ["cron", "heartbeat"] as const;
 
 const MOCK_HARVESTS: HarvestInstance[] = [];
 
@@ -57,15 +48,8 @@ const getHeartbeatSummary = (status?: string): string => {
 const mapEventToPushMessage = (
   event: InboxEvent,
   resolveAgentName: (agentId: string) => string,
-  t: TFunction,
+  _t: TFunction,
 ): PushMessage => {
-  const personaPath =
-    typeof event.payload?.path === "string" ? event.payload.path : "";
-  const personaProvenance =
-    typeof event.payload?.provenance === "string"
-      ? event.payload.provenance
-      : undefined;
-
   return {
     id: event.id,
     channelType:
@@ -79,19 +63,12 @@ const mapEventToPushMessage = (
         ? "Heartbeat"
         : event.source_type === "cron"
           ? "Cron"
-          : event.source_type === "file_baseline_protection"
-            ? getFileBaselineProtectionChannelName(t)
-            : "System",
-    title:
-      event.source_type === "file_baseline_protection"
-        ? getFileBaselineDriftTitle(t, personaProvenance)
-        : event.title,
+          : "System",
+    title: event.title,
     content:
       event.source_type === "heartbeat"
         ? getHeartbeatSummary(event.status)
-        : event.source_type === "file_baseline_protection"
-          ? getFileBaselineDriftBody(t, personaPath || event.title)
-          : stripExecutionTimeText(event.body),
+        : stripExecutionTimeText(event.body),
     sender: {
       userId: event.agent_id || "default",
       username: resolveAgentName(event.agent_id || DEFAULT_AGENT_ID),

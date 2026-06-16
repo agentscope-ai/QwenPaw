@@ -54,6 +54,8 @@ from file_baseline.host_bridge import (  # noqa: E402
 
     try_guarded_shell_command,
 
+    browse_workspace_protectable_files,
+
 )
 
 
@@ -89,6 +91,8 @@ __all__ = [
     "GuardedWriteOutcome",
 
     "GuardedCommandOutcome",
+
+    "browse_workspace_protectable_files",
 
 ]
 
