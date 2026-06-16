@@ -43,6 +43,12 @@ export interface ProviderInfo {
   oauth_connected?: boolean;
   /** Whether this provider offers a free tier. */
   is_free_tier?: boolean;
+  /** Group key for same-brand providers (e.g. "aliyun"). */
+  provider_group?: string;
+  /** Display name for the provider group (e.g. "Aliyun"). */
+  provider_group_name?: string;
+  /** Variant within a group (e.g. "coding_plan_cn"). */
+  provider_variant?: string;
   /** Provider-specific metadata (e.g. base_url_options for region selection). */
   meta?: Record<string, unknown>;
 }
