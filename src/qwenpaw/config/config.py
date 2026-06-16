@@ -637,6 +637,20 @@ class ReMeLightMemoryConfig(BaseModel):
 
     model_config = ConfigDict(extra="ignore")
 
+    memory_store_backend: str = Field(
+        default="auto",
+        description="Memory store backend. 'auto' = detect from env/system; "
+        "'local' = force local (avoids chromadb SIGSEGV on macOS); "
+        "'chroma' = force chromadb.",
+    )
+
+    vector_enabled: bool | None = Field(
+        default=None,
+        description="Override for vector search. None = auto-detect from "
+        "embedding config; True = force enable; False = force disable. "
+        "Set to False to bypass chromadb Rust bindings on macOS.",
+    )
+
     summarize_when_compact: bool = Field(
         default=True,
         description="Whether to enable memory summarization during compaction",
