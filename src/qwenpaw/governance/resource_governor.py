@@ -194,6 +194,15 @@ class ResourceGovernor:
             workspace_dir=ws,
             mounts=mounts,
             deny_paths=list(DEFAULT_SANDBOX_DENY_PATHS),
+            # NOTE: network_allow=["*"] grants full network access inside
+            # the sandbox. This is intentional for now because:
+            #   1. Many common commands need network (pip, git, npm, curl).
+            #   2. Landlock network restriction requires ABI v4 (kernel 6.7+),
+            #      which is not yet widely available in production.
+            #   3. macOS Seatbelt can deny network but lacks domain-level
+            #      filtering, making blanket denial too disruptive.
+            # TODO: revisit default when Landlock ABI v4 is mainstream;
+            #       consider making this configurable in policy.yaml.
             network_allow=["*"],
             timeout_seconds=60,
             env_vars={k: "" for k in self.policy.env_blacklist},

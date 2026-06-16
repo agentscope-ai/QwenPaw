@@ -355,12 +355,16 @@ def _generate_sandbox_script(
                         else:
                             path_rules.append((full_path, _FS_READ_ACCESS))
                 except OSError:
-                    logger.warning(
+                    # Fail-closed: do NOT fall back to granting "/".
+                    # Granting root would make deny_paths ineffective
+                    # (Landlock cannot revoke child access after parent grant).
+                    # Only system paths (already added above) remain readable.
+                    logger.error(
                         "LinuxSandbox: failed to enumerate HOME %s; "
-                        "falling back to granting root",
+                        "HOME will NOT be readable (fail-closed to "
+                        "preserve deny_paths integrity).",
                         home,
                     )
-                    path_rules.append(("/", _FS_READ_ACCESS | _FS_EXEC_ACCESS))
         else:
             # No deny_paths: safe to grant everything
             path_rules.append(("/", _FS_READ_ACCESS | _FS_EXEC_ACCESS))

@@ -10,13 +10,17 @@ Storage: single-file SQLite (~/.qwenpaw/audit.db), global singleton.
 from __future__ import annotations
 
 import json
+import logging
 import sqlite3
+import threading
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import List, Optional, Tuple
 
 from ..constant import WORKING_DIR
+
+_logger = logging.getLogger(__name__)
 
 from .policy import GovernanceDecision, ToolCallSpec
 
@@ -85,6 +89,15 @@ class AuditLog:
 
     Shared by multiple ResourceGovernor instances; each assert_and_audit
     call invokes record() which writes to the database immediately.
+
+    .. note:: Threading & async
+
+        All SQLite operations are synchronous and protected by a
+        ``threading.Lock``.  When called from an async context
+        (e.g. ``check_permissions``), the event-loop thread is briefly
+        blocked for the INSERT + commit (~sub-ms with WAL mode).
+        TODO: migrate to ``aiosqlite`` or ``asyncio.to_thread()`` for
+        true non-blocking audit writes.
     """
 
     MAX_RECORDS = 100_000       # Threshold to trigger auto-cleanup
@@ -119,6 +132,7 @@ class AuditLog:
         obj._conn.executescript(_SCHEMA)
         obj._conn.commit()
         obj._insert_count = 0
+        obj._lock = threading.Lock()
         return obj
 
     @staticmethod
@@ -133,8 +147,17 @@ class AuditLog:
                 break
 
     def close(self) -> None:
-        """Close the database connection and reset the singleton."""
+        """Close the database connection and reset the singleton.
+
+        Runs VACUUM before closing to reclaim space from any prior
+        auto-purge DELETE operations (VACUUM is intentionally NOT run
+        inside ``_auto_purge`` to avoid blocking the event loop).
+        """
         if self._conn:
+            try:
+                self._conn.execute("VACUUM")
+            except sqlite3.Error:
+                pass
             self._conn.close()
             self._conn = None
         AuditLog._instance = None
@@ -148,30 +171,31 @@ class AuditLog:
             tc_spec: ToolCallSpec instance
             decision: GovernanceDecision instance (action + reason)
         """
-        self._conn.execute(
-            "INSERT INTO audit_events "
-            "(ts, workspace_dir, agent_id, session_id, tool_name, target, decision, reason, extra) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (
-                _now_unix_ms(),
-                workspace_dir,
-                tc_spec.agent_id,
-                tc_spec.session_id,
-                tc_spec.tool_name,
-                tc_spec.target,
-                str(decision.action.value),
-                decision.reason,
-                "{}",
-            ),
-        )
-        self._conn.commit()
+        with self._lock:
+            self._conn.execute(
+                "INSERT INTO audit_events "
+                "(ts, workspace_dir, agent_id, session_id, tool_name, target, decision, reason, extra) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    _now_unix_ms(),
+                    workspace_dir,
+                    tc_spec.agent_id,
+                    tc_spec.session_id,
+                    tc_spec.tool_name,
+                    tc_spec.target,
+                    str(decision.action.value),
+                    decision.reason,
+                    "{}",
+                ),
+            )
+            self._conn.commit()
 
-        # Auto-cleanup check
-        self._insert_count += 1
-        if self._insert_count >= self._CHECK_INTERVAL:
-            self._insert_count = 0
-            if self.count >= self.MAX_RECORDS:
-                self._auto_purge()
+            # Auto-cleanup check
+            self._insert_count += 1
+            if self._insert_count >= self._CHECK_INTERVAL:
+                self._insert_count = 0
+                if self.count >= self.MAX_RECORDS:
+                    self._auto_purge()
 
     def query(
         self,
@@ -260,7 +284,11 @@ class AuditLog:
         ).fetchone()[0]
 
     def _auto_purge(self) -> None:
-        """Delete the oldest PURGE_COUNT records and VACUUM."""
+        """Delete the oldest PURGE_COUNT records (caller holds ``_lock``).
+
+        VACUUM is intentionally deferred to ``close()`` to avoid blocking
+        the event loop for seconds on a large database.
+        """
         # ``OFFSET PURGE_COUNT - 1`` returns the rowid of the PURGE_COUNT-th
         # oldest row; ``DELETE ... WHERE rowid <= ?`` then removes exactly
         # PURGE_COUNT rows. Using ``OFFSET PURGE_COUNT`` would have left an
@@ -274,4 +302,7 @@ class AuditLog:
                 "DELETE FROM audit_events WHERE rowid <= ?", (row["rowid"],)
             )
             self._conn.commit()
-            self._conn.execute("VACUUM")
+            _logger.info(
+                "AuditLog: auto-purged %d oldest records (VACUUM deferred to close).",
+                self.PURGE_COUNT,
+            )

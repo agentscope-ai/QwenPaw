@@ -32,6 +32,14 @@ class PolicyGuardedTool:
     Dynamically inherits from FunctionTool, implementing:
     - check_permissions: calls governor.assert_and_audit() for policy decision
     - __call__: overrides to handle sandbox execution + violation retry
+
+    .. warning:: Known limitation — dynamic anonymous class
+
+        ``__new__`` creates a fresh class via ``type(...)`` on every call,
+        so ``isinstance(tool, PolicyGuardedTool)`` always returns False.
+        This is the same pattern used by ``GuardedFunctionTool`` and
+        ``DriverCapabilityTool``.  A unified refactor (metaclass or mixin)
+        is tracked as a follow-up task.
     """
 
     def __new__(cls, *args: Any, **kwargs: Any) -> Any:
