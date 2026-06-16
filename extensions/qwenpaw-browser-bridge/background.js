@@ -394,29 +394,144 @@ function ensureManaged(tabId) {
   }
 }
 
-// ---- Tab appearance (title prefix + favicon) ----
+// ---- Tab appearance (border glow + corner badge + title + favicon) ----
 function markTabAsTakeover(tabId) {
   chrome.scripting.executeScript({
     target: { tabId },
     func: () => {
+      const ID = "__qwenpaw_takeover_host__";
+      if (document.getElementById(ID)) return;
+
+      // --- Title prefix ---
       if (!document.title.startsWith("[QwenPaw] ")) {
         document.title = "[QwenPaw] " + document.title;
       }
-      let link = document.querySelector("link#__qwenpaw_favicon__");
-      if (!link) {
-        link = document.createElement("link");
-        link.id = "__qwenpaw_favicon__";
-        link.rel = "icon";
-        link.type = "image/svg+xml";
-        document.head.appendChild(link);
+
+      // --- Custom favicon ---
+      let fav = document.querySelector("link#__qwenpaw_favicon__");
+      if (!fav) {
+        fav = document.createElement("link");
+        fav.id = "__qwenpaw_favicon__";
+        fav.rel = "icon";
+        fav.type = "image/svg+xml";
+        document.head.appendChild(fav);
       }
-      link.href = "data:image/svg+xml," + encodeURIComponent(
+      fav.href = "data:image/svg+xml," + encodeURIComponent(
         '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">'
         + '<circle cx="32" cy="32" r="30" fill="%236366f1"/>'
         + '<text x="32" y="44" text-anchor="middle" font-size="32" '
         + 'font-weight="bold" fill="white" font-family="sans-serif">P</text>'
         + '</svg>'
       );
+
+      // --- Visual overlay (Shadow DOM isolates styles) ---
+      const host = document.createElement("div");
+      host.id = ID;
+      host.style.cssText = [
+        "all:initial", "position:fixed", "top:0", "left:0",
+        "width:0", "height:0", "z-index:2147483647",
+        "pointer-events:none",
+      ].join(";");
+
+      const shadow = host.attachShadow({ mode: "closed" });
+      const css = document.createElement("style");
+      css.textContent = [
+        ":host { all: initial; }",
+
+        // Glowing border
+        ".glow {",
+        "  position:fixed; top:0; left:0; right:0; bottom:0;",
+        "  pointer-events:none;",
+        "  border: 2px solid rgba(99,102,241,0.5);",
+        "  box-shadow: inset 0 0 24px rgba(99,102,241,0.06);",
+        "  animation: breathe 3s ease-in-out infinite;",
+        "}",
+        "@keyframes breathe {",
+        "  0%,100% { border-color:rgba(99,102,241,0.5); }",
+        "  50%    { border-color:rgba(99,102,241,0.2); }",
+        "}",
+
+        // Corner badge
+        ".badge {",
+        "  position:fixed; top:8px; right:8px;",
+        "  display:flex; align-items:center; gap:5px;",
+        "  padding:4px 10px 4px 8px;",
+        "  background:rgba(15,23,42,0.85);",
+        "  backdrop-filter:blur(10px);",
+        "  border:1px solid rgba(99,102,241,0.3);",
+        "  border-radius:16px;",
+        "  font:500 11px/1 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;",
+        "  color:#e2e8f0;",
+        "  pointer-events:auto; cursor:default; user-select:none;",
+        "  box-shadow:0 2px 12px rgba(0,0,0,0.25);",
+        "  opacity:0.75; transition:opacity .2s;",
+        "}",
+        ".badge:hover { opacity:1; }",
+
+        // Status dot
+        ".dot {",
+        "  width:6px; height:6px; border-radius:50%;",
+        "  background:#4ade80;",
+        "  animation:pulse 2s ease-in-out infinite;",
+        "}",
+        "@keyframes pulse {",
+        "  0%,100% { opacity:1; }",
+        "  50%     { opacity:0.4; }",
+        "}",
+
+        // HITL buttons
+        ".btns { display:none; gap:3px; margin-left:3px; }",
+        ".badge:hover .btns { display:flex; }",
+        ".btn {",
+        "  border:1px solid rgba(255,255,255,0.15);",
+        "  background:rgba(255,255,255,0.06);",
+        "  color:#e2e8f0; padding:1px 6px; border-radius:3px;",
+        "  font-size:10px; cursor:pointer;",
+        "  pointer-events:auto;",
+        "}",
+        ".btn:hover { background:rgba(255,255,255,0.15); }",
+        ".btn.stop { border-color:rgba(239,68,68,0.3); }",
+        ".btn.stop:hover { background:rgba(239,68,68,0.25); }",
+      ].join("\n");
+
+      const glow = document.createElement("div");
+      glow.className = "glow";
+
+      const badge = document.createElement("div");
+      badge.className = "badge";
+
+      const dot = document.createElement("span");
+      dot.className = "dot";
+      const lbl = document.createElement("span");
+      lbl.textContent = "QwenPaw";
+
+      const btns = document.createElement("div");
+      btns.className = "btns";
+
+      const pauseBtn = document.createElement("button");
+      pauseBtn.className = "btn";
+      pauseBtn.textContent = "Pause";
+      let isPaused = false;
+      pauseBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        isPaused = !isPaused;
+        pauseBtn.textContent = isPaused ? "Resume" : "Pause";
+        try { chrome.runtime.sendMessage({ type: isPaused ? "HITL_PAUSE" : "HITL_RESUME" }); } catch {}
+      });
+
+      const stopBtn = document.createElement("button");
+      stopBtn.className = "btn stop";
+      stopBtn.textContent = "Stop";
+      stopBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        try { chrome.runtime.sendMessage({ type: "HITL_STOP" }); } catch {}
+        host.remove();
+      });
+
+      btns.append(pauseBtn, stopBtn);
+      badge.append(dot, lbl, btns);
+      shadow.append(css, glow, badge);
+      document.documentElement.appendChild(host);
     },
   }).catch(() => {});
 }
@@ -425,11 +540,16 @@ function restoreTabAppearance(tabId) {
   chrome.scripting.executeScript({
     target: { tabId },
     func: () => {
+      // Remove title prefix
       if (document.title.startsWith("[QwenPaw] ")) {
         document.title = document.title.slice("[QwenPaw] ".length);
       }
-      const link = document.querySelector("link#__qwenpaw_favicon__");
-      if (link) link.remove();
+      // Remove custom favicon
+      const fav = document.querySelector("link#__qwenpaw_favicon__");
+      if (fav) fav.remove();
+      // Remove visual overlay
+      const host = document.getElementById("__qwenpaw_takeover_host__");
+      if (host) host.remove();
     },
   }).catch(() => {});
 }

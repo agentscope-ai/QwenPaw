@@ -4361,7 +4361,11 @@ async def _dispatch_takeover(  # noqa: C901  # pylint: disable=R0911
         )
         tab_id = tab_result.get("tabId")
         if tab_id:
-            bridge.managed_tabs[tab_id] = True
+            bridge.register_tab(
+                tab_id,
+                tab_result.get("title", ""),
+                tab_result.get("url", ""),
+            )
         return _tool_response(
             json.dumps(
                 {

@@ -37,7 +37,7 @@ def get_bridge(
     return _bridges.get(workspace_id)
 
 
-class BrowserTakeoverBridge:
+class BrowserTakeoverBridge:  # pylint: disable=R0904
     """WebSocket bridge for Chrome Extension takeover."""
 
     def __init__(self, workspace_id: str) -> None:
@@ -412,6 +412,18 @@ class BrowserTakeoverBridge:
     def managed_tabs(self) -> dict[int, dict]:
         """Currently managed tab metadata."""
         return dict(self._managed_tabs)
+
+    def register_tab(
+        self,
+        tab_id: int,
+        title: str = "",
+        url: str = "",
+    ) -> None:
+        """Register a tab as managed."""
+        self._managed_tabs[tab_id] = {
+            "title": title,
+            "url": url,
+        }
 
     @property
     def workspace_id(self) -> str:
