@@ -895,6 +895,7 @@
     "saveSuccess": "Сессия успешно сохранена",
     "saveFailed": "Не удалось сохранить сессию",
     "batchDeleteButton": "Массовое удаление",
+    "filterTitle": "Фильтр по названию",
     "filterUserId": "Фильтр по ID пользователя",
     "filterChannel": "Фильтр по каналу",
     "allChannels": "Все каналы",

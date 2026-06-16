@@ -1102,6 +1102,7 @@
     "saveSuccess": "Session saved successfully",
     "saveFailed": "Falhou to Salvar session",
     "batchDeleteButton": "Batch Excluir",
+    "filterTitle": "Filtrar por Título",
     "filterUserId": "Filtrar by Usuario ID",
     "filterChannel": "Filtrar by Channel",
     "allChannels": "Todos Canais",

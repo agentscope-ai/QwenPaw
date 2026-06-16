@@ -1040,6 +1040,7 @@
     "saveSuccess": "会话保存成功",
     "saveFailed": "会话保存失败",
     "batchDeleteButton": "批量删除",
+    "filterTitle": "按标题筛选",
     "filterUserId": "按用户ID筛选",
     "filterChannel": "按频道筛选",
     "allChannels": "全部频道",

@@ -895,6 +895,7 @@
     "saveSuccess": "セッションを保存しました",
     "saveFailed": "セッションの保存に失敗しました",
     "batchDeleteButton": "一括削除",
+    "filterTitle": "タイトルで絞り込み",
     "filterUserId": "ユーザーIDで絞り込み",
     "filterChannel": "チャンネルで絞り込み",
     "allChannels": "すべてのチャンネル",
