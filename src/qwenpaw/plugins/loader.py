@@ -100,6 +100,26 @@ class PluginLoader:
         self.registry = PluginRegistry()
         self._loaded_plugins: Dict[str, PluginRecord] = {}
 
+    def _is_bundled_plugin(self, source_path: Path) -> bool:
+        """Check if a plugin is bundled with the application.
+
+        Bundled plugins are shipped with the app and should have their
+        dependencies pre-installed, so we skip dependency installation.
+
+        Args:
+            source_path: Path to plugin directory
+
+        Returns:
+            True if plugin is bundled, False otherwise
+        """
+        # Check if plugin is under any plugin_dir that contains
+        # "bundle" in path
+        source_str = str(source_path).lower()
+        has_bundle = "bundle" in source_str
+        if has_bundle:
+            return True
+        return any("bundle" in str(d).lower() for d in self.plugin_dirs)
+
     def discover_plugins(self) -> List[Tuple[PluginManifest, Path]]:
         """Discover all plugins in plugin directories.
 
@@ -251,6 +271,8 @@ class PluginLoader:
             plugin_id,
         )
 
+    # pylint: disable=too-many-statements
+    # pylint: disable=too-many-branches
     async def load_plugin(
         self,
         manifest: PluginManifest,
@@ -278,8 +300,22 @@ class PluginLoader:
             logger.warning(f"Plugin '{plugin_id}' already loaded")
             return self._loaded_plugins[plugin_id]
 
-        # Ensure plugin dependencies are installed before loading
-        await self._ensure_dependencies_installed(source_path, plugin_id)
+        # Check and install dependencies; skip plugin if installation fails
+        # For bundled plugins (shipped with the app), skip dependency
+        # installation as they should already be pre-installed.
+        is_bundled = self._is_bundled_plugin(source_path)
+        if not is_bundled:
+            try:
+                await self._ensure_dependencies_installed(
+                    source_path,
+                    plugin_id,
+                )
+            except Exception as e:
+                logger.warning(
+                    f"Skipping plugin '{plugin_id}' due to dependency "
+                    f"installation failure: {e}",
+                )
+                return None
 
         # Load backend module (if declared and exists)
         backend_entry = manifest.entry.backend
