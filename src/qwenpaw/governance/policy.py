@@ -9,6 +9,7 @@
 """
 from __future__ import annotations
 import copy
+import re
 from dataclasses import dataclass, field
 from enum import Enum
 from fnmatch import fnmatch
@@ -206,6 +207,10 @@ DEFAULT_BUILTIN_RULES: List[GovernanceRule] = [
         reason="PyPI API token file",
     ),
     # ── High-risk commands (hard wall, never allowed) ──
+    # NOTE: These glob patterns are best-effort fast-path checks.
+    # The authoritative shell danger detection is in
+    # ``_check_shell_danger_keywords()`` below, which uses regex to
+    # catch command variants that fnmatch cannot match.
     GovernanceRule(
         match="Bash(rm * -rf *//*)",
         action=GovernanceAction.DENY,
@@ -217,6 +222,55 @@ DEFAULT_BUILTIN_RULES: List[GovernanceRule] = [
         reason="Privilege escalation prohibited",
     ),
 ]
+
+
+# ---------------------------------------------------------------------------
+# Shell danger keyword patterns (supplement to glob-based deny rules)
+# ---------------------------------------------------------------------------
+
+_SHELL_DANGER_PATTERNS: list[tuple[re.Pattern[str], str]] = [
+    # rm with recursive flag targeting root-ish paths (/, /*, /etc, ...)
+    # Catches: rm -rf /, rm -r -f /*, rm    -rf  /, rm / -rf, etc.
+    (re.compile(
+        r'\brm\b(?=[^;|&]*\s+-[a-zA-Z]*[rR])[^;|&]*\s+/(?:\s|$|\*)'
+    ), "Recursive deletion targeting root filesystem"),
+    # sudo in any position: start of command, after pipe/semicolon,
+    # subshell, absolute path, env prefix, xargs, etc.
+    (re.compile(
+        r'(?:^|[;&|`]|\$\()\s*(?:/usr/s?bin/|/bin/)?sudo\b'
+        r'|\bxargs\s+.*\bsudo\b'
+        r'|\bcommand\s+sudo\b'
+        r'|\benv\s+.*\bsudo\b',
+    ), "Privilege escalation (sudo)"),
+    # Fork bomb patterns
+    (re.compile(
+        r':\(\)\s*\{\s*:\|:\s*&\s*\}',
+    ), "Fork bomb"),
+    # Direct disk write
+    (re.compile(
+        r'>\s*/dev/[sh]d[a-z]|\bdd\b[^;|&]*\bof\s*=\s*/dev/',
+    ), "Direct disk device write"),
+    # mkfs (filesystem formatting)
+    (re.compile(
+        r'\bmkfs\b',
+    ), "Filesystem formatting"),
+]
+
+
+def _check_shell_danger_keywords(command: str) -> Optional[str]:
+    """Check a shell command for dangerous patterns via regex.
+
+    Returns the deny reason if a danger pattern matches, else ``None``.
+    This supplements the glob-based builtin deny rules to catch command
+    variants that ``fnmatch`` cannot match (e.g. flag reordering,
+    extra whitespace, absolute path to sudo, piped sudo, etc.).
+    """
+    # Normalize whitespace for more reliable matching
+    normalized = ' '.join(command.split())
+    for pattern, reason in _SHELL_DANGER_PATTERNS:
+        if pattern.search(normalized):
+            return reason
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -382,6 +436,18 @@ class GovernancePolicy:
             )
         if tool_type == "internal":
             return GovernanceDecision(action=GovernanceAction.ALLOW, reason="")
+
+        # ── Step 0.5: Shell danger keyword detection ──
+        # Regex-based check that catches command variants missed by
+        # the fnmatch-based builtin deny rules (flag reordering,
+        # absolute paths to sudo, piped commands, etc.).
+        if tool_type == "shell" and tc_spec.target:
+            danger_reason = _check_shell_danger_keywords(tc_spec.target)
+            if danger_reason:
+                return GovernanceDecision(
+                    action=GovernanceAction.DENY,
+                    reason=danger_reason,
+                )
 
         # ── Step 1: builtin_rules ──
         for rule in self.builtin_rules:
