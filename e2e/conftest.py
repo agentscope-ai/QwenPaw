@@ -92,6 +92,13 @@ plugin_page = pytest.fixture(scope="function", name="plugin_page")(
 memory_page = pytest.fixture(scope="function", name="memory_page")(
     _make_page_fixture("pages.memory_page", "MemoryPage")
 )
+magic_commands_page = pytest.fixture(
+    scope="function", name="magic_commands_page",
+)(
+    _make_page_fixture(
+        "pages.magic_commands_page", "MagicCommandsPage",
+    )
+)
 
 
 # ========== Business / Data Fixtures ==========
