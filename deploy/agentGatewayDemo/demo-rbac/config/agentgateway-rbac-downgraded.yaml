@@ -1,21 +1,11 @@
-# AgentGateway RBAC 演示 — 阶段 A：换岗前（按 jwt.sub 授权）
+# AgentGateway RBAC 演示 — 阶段 B：网关策略降权（换岗后）
 #
-# employeeQwenpaw 已发放 Token（演示期间不收回、不重签）。
-# 阶段 A 网关策略：该主体可访问全部 5 个工具。
-# 换岗降权：.\demo-rbac\scripts\downgrade-employee.ps1 → 阶段 B 配置。
+# employeeQwenpaw 的 JWT 仍含 roles: ["manager"]（Token 未收回、未重签），
+# 但网关按 jwt.sub 强制只允许论坛读/发帖。
+# managerQwenpaw 仍为完整管理员。
 #
-# 目录结构（DeployRoot，可整体复制到其他 Windows 机器）:
-#   DeployRoot/
-#     agentgateway.exe
-#     demo-rbac/
-#       config/agentgateway-rbac.yaml
-#       jwt/pub-key
-#       ...
-#
-# 启动（在 DeployRoot 下）:
-#   .\demo-rbac\scripts\start-all.ps1
-#
-# JWKS 路径相对 DeployRoot（agentgateway 运行时的工作目录）。
+# 切换：.\demo-rbac\scripts\downgrade-employee.ps1
+# 恢复：.\demo-rbac\scripts\restore-employee-admin.ps1
 
 frontendPolicies:
   accessLog:
@@ -45,12 +35,9 @@ binds:
                   # 无 Token（游客）：仅论坛读
                   - '!has(jwt.sub) && mcp.tool.name == "list_posts"'
 
-                  # 阶段 A — 换岗前：employeeQwenpaw 管理员权限（按主体，Token 不重签）
+                  # 已降权员工 employeeQwenpaw：仅论坛读 + 发帖（忽略 JWT 中 manager 角色）
                   - 'jwt.sub == "employeeQwenpaw" && mcp.tool.name == "list_posts"'
                   - 'jwt.sub == "employeeQwenpaw" && mcp.tool.name == "create_post"'
-                  - 'jwt.sub == "employeeQwenpaw" && mcp.tool.name == "delete_post"'
-                  - 'jwt.sub == "employeeQwenpaw" && mcp.tool.name == "get_employee"'
-                  - 'jwt.sub == "employeeQwenpaw" && mcp.tool.name == "update_employee"'
 
                   # 在岗管理员 managerQwenpaw：全部工具
                   - 'jwt.sub == "managerQwenpaw" && mcp.tool.name == "list_posts"'

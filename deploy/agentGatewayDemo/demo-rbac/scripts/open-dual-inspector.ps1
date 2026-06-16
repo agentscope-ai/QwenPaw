@@ -22,11 +22,12 @@ $RightBrowserUrl = "http://localhost:${RightClientPort}/?MCP_PROXY_PORT=${RightS
 $InspectorLogEmployee = Join-DemoPath "logs\inspector-employee.log"
 $InspectorLogManager = Join-DemoPath "logs\inspector-manager.log"
 
-Write-Host "=== Dual MCP Inspector Demo (3-tier RBAC) ===" -ForegroundColor Green
+Write-Host "=== Dual MCP Inspector — Role Downgrade Demo ===" -ForegroundColor Green
 Write-Host ""
-Write-Host "Tier 1 - No token        : forum read only"
-Write-Host "Tier 2 - Employee token  : forum read + create post"
-Write-Host "Tier 3 - Manager token   : all tools (HR + forum)"
+Write-Host "Left  - employeeQwenpaw token (same before/after downgrade)"
+Write-Host "Right - managerQwenpaw token (always full admin)"
+Write-Host ""
+Write-Host "Phase A: employee sees 5 tools | Phase B after downgrade-employee.ps1: 2 tools"
 Write-Host ""
 Write-Host "Inspector UI (browser tabs will open):" -ForegroundColor Yellow
 Write-Host "  Employee: $LeftBrowserUrl"
