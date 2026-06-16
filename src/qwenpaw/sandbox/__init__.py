@@ -10,7 +10,9 @@
 生命周期：per-tool-call（用完即销毁）。
 
 Usage:
-    from qwenpaw.sandbox import create_sandbox, SandboxConfig, SandboxMode, MountSpec
+    from qwenpaw.sandbox import (
+        create_sandbox, SandboxConfig, SandboxMode, MountSpec,
+    )
 
     config = SandboxConfig(
         mode=SandboxMode.SEATBELT,
@@ -21,6 +23,7 @@ Usage:
         result = await sandbox.execute("echo hello")
         print(result.stdout)
 """
+
 from .config import (
     ExecutionResult,
     MountSpec,

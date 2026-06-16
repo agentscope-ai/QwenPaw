@@ -3,10 +3,12 @@
 
 Storage: single-file SQLite (~/.qwenpaw/audit.db), global singleton.
 - record() writes immediately, no in-memory buffer
-- query() supports filtering by workspace / agent / tool / decision / time range, with pagination
+- query() supports filtering by workspace / agent / tool / decision /
+  time range, with pagination
 - purge() deletes expired records and VACUUMs to reclaim space
 - Auto-cleanup: when total records reach 100k, deletes the oldest 10k
 """
+
 from __future__ import annotations
 
 import json
@@ -20,9 +22,9 @@ from typing import List, Optional, Tuple
 
 from ..constant import WORKING_DIR
 
-_logger = logging.getLogger(__name__)
-
 from .policy import GovernanceDecision, ToolCallSpec
+
+_logger = logging.getLogger(__name__)
 
 # ``ts`` is stored as INTEGER (milliseconds since epoch, UTC) so that
 # ``WHERE ts >= ? / <= ?`` performs strict numeric comparison instead of
@@ -58,14 +60,15 @@ class AuditEvent:
     Records 5W: who (agent_id), what (tool_name + target),
     when (ts), outcome (decision), why (reason).
     """
-    ts: int                          # Milliseconds since epoch, UTC
+
+    ts: int  # Milliseconds since epoch, UTC
     workspace_dir: str
     agent_id: str
     session_id: str
     tool_name: str
     target: str
-    decision: str                    # "allow" | "deny" | "ask" | "sandbox_fallback"
-    reason: str = ""                 # Additional explanation (e.g. violation cause)
+    decision: str  # "allow" | "deny" | "ask" | "sandbox_fallback"
+    reason: str = ""  # Additional explanation (e.g. violation cause)
     extra: dict = field(default_factory=dict)
 
 
@@ -100,11 +103,15 @@ class AuditLog:
         true non-blocking audit writes.
     """
 
-    MAX_RECORDS = 100_000       # Threshold to trigger auto-cleanup
-    PURGE_COUNT = 10_000        # Number of records to delete per cleanup
-    _CHECK_INTERVAL = 1_000     # Check if cleanup is needed every N records
+    MAX_RECORDS = 100_000  # Threshold to trigger auto-cleanup
+    PURGE_COUNT = 10_000  # Number of records to delete per cleanup
+    _CHECK_INTERVAL = 1_000
 
     _instance: Optional[AuditLog] = None
+    _db_path: Path
+    _conn: sqlite3.Connection
+    _insert_count: int
+    _lock: threading.Lock
 
     @classmethod
     def get_instance(cls) -> AuditLog:
@@ -121,7 +128,8 @@ class AuditLog:
         obj._db_path = db_path
         obj._db_path.parent.mkdir(parents=True, exist_ok=True)
         obj._conn = sqlite3.connect(
-            str(obj._db_path), check_same_thread=False
+            str(obj._db_path),
+            check_same_thread=False,
         )
         obj._conn.row_factory = sqlite3.Row
         obj._conn.execute("PRAGMA journal_mode=WAL")
@@ -162,8 +170,12 @@ class AuditLog:
             self._conn = None
         AuditLog._instance = None
 
-    def record(self, workspace_dir: str, tc_spec: ToolCallSpec,
-               decision: GovernanceDecision) -> None:
+    def record(
+        self,
+        workspace_dir: str,
+        tc_spec: ToolCallSpec,
+        decision: GovernanceDecision,
+    ) -> None:
         """Record a policy decision, writing to SQLite immediately.
 
         Args:
@@ -174,7 +186,8 @@ class AuditLog:
         with self._lock:
             self._conn.execute(
                 "INSERT INTO audit_events "
-                "(ts, workspace_dir, agent_id, session_id, tool_name, target, decision, reason, extra) "
+                "(ts, workspace_dir, agent_id, session_id, "
+                "tool_name, target, decision, reason, extra) "
                 "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     _now_unix_ms(),
@@ -252,14 +265,18 @@ class AuditLog:
         total = self._conn.execute(count_sql, params).fetchone()[0]
 
         # Paginated query
-        data_sql = f"SELECT * FROM audit_events{where} ORDER BY ts DESC LIMIT ? OFFSET ?"
+        data_sql = (
+            f"SELECT * FROM audit_events{where} "
+            "ORDER BY ts DESC LIMIT ? OFFSET ?"
+        )
         data_params = params + [limit, offset]
         rows = self._conn.execute(data_sql, data_params).fetchall()
 
         return [_event_from_row(r) for r in rows], total
 
     def purge(self, before: int) -> int:
-        """Delete records before the specified time and VACUUM to reclaim space.
+        """Delete records before the specified time and VACUUM to
+        reclaim space.
 
         Args:
             before: Cutoff time (unix ms, UTC), exclusive
@@ -268,7 +285,8 @@ class AuditLog:
             Number of deleted records
         """
         cursor = self._conn.execute(
-            "DELETE FROM audit_events WHERE ts < ?", (before,)
+            "DELETE FROM audit_events WHERE ts < ?",
+            (before,),
         )
         self._conn.commit()
         deleted = cursor.rowcount
@@ -280,7 +298,7 @@ class AuditLog:
     def count(self) -> int:
         """Total number of records."""
         return self._conn.execute(
-            "SELECT COUNT(*) FROM audit_events"
+            "SELECT COUNT(*) FROM audit_events",
         ).fetchone()[0]
 
     def _auto_purge(self) -> None:
@@ -294,15 +312,18 @@ class AuditLog:
         # PURGE_COUNT rows. Using ``OFFSET PURGE_COUNT`` would have left an
         # off-by-one bug (deleting PURGE_COUNT + 1 rows).
         row = self._conn.execute(
-            "SELECT rowid FROM audit_events ORDER BY rowid ASC LIMIT 1 OFFSET ?",
+            "SELECT rowid FROM audit_events "
+            "ORDER BY rowid ASC LIMIT 1 OFFSET ?",
             (self.PURGE_COUNT - 1,),
         ).fetchone()
         if row:
             self._conn.execute(
-                "DELETE FROM audit_events WHERE rowid <= ?", (row["rowid"],)
+                "DELETE FROM audit_events WHERE rowid <= ?",
+                (row["rowid"],),
             )
             self._conn.commit()
             _logger.info(
-                "AuditLog: auto-purged %d oldest records (VACUUM deferred to close).",
+                "AuditLog: auto-purged %d oldest records "
+                "(VACUUM deferred to close).",
                 self.PURGE_COUNT,
             )

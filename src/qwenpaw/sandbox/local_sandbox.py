@@ -6,7 +6,9 @@ Only two modes are implemented:
   - NONE: passthrough, no isolation (trusted scenarios)
 
 Usage:
-    from qwenpaw.sandbox import create_sandbox, SandboxConfig, SandboxMode, MountSpec
+    from qwenpaw.sandbox import (
+        create_sandbox, SandboxConfig, SandboxMode, MountSpec,
+    )
 
     config = SandboxConfig(
         mode=SandboxMode.SEATBELT,
@@ -19,6 +21,7 @@ Usage:
     print(result.stdout)
     await sandbox.stop()
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -27,9 +30,13 @@ import os
 import signal
 import time
 from abc import ABC, abstractmethod
-from typing import Optional
+from typing import Any, Optional
 
-from .config import ExecutionResult, MountSpec, PortRule, SandboxConfig, SandboxMode
+from .config import (
+    ExecutionResult,
+    SandboxConfig,
+    SandboxMode,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -51,7 +58,11 @@ class LocalSandbox(ABC):
         return self._config
 
     @abstractmethod
-    async def execute(self, cmd: str, cwd: Optional[str] = None) -> ExecutionResult:
+    async def execute(
+        self,
+        cmd: str,
+        cwd: Optional[str] = None,
+    ) -> ExecutionResult:
         """Execute a command inside the sandbox."""
 
     async def stop(self) -> None:
@@ -102,14 +113,17 @@ class MacOSSandbox(LocalSandbox):
         # can break the profile grammar.
         if "\n" in path or "\r" in path:
             raise ValueError(
-                f"Seatbelt path contains newlines (possible injection): {path!r}"
+                "Seatbelt path contains newlines "
+                f"(possible injection): {path!r}",
             )
         # Escape backslash first (order matters), then double-quote.
         path = path.replace("\\", "\\\\")
         path = path.replace('"', '\\"')
         return path
 
-    def _compile_seatbelt_profile(self) -> str:
+    def _compile_seatbelt_profile(  # pylint: disable=too-many-branches,too-many-statements
+        self,
+    ) -> str:
         """Build the Seatbelt .sb policy string."""
         config = self._config
         _san = self._sanitize_seatbelt_path  # shorthand
@@ -150,76 +164,86 @@ class MacOSSandbox(LocalSandbox):
             '  (sysctl-name-prefix "machdep.cpu.")',
             ")",
         ]
-    
+
         # Network
         lines.append("")
         lines.append("; Network")
         if config.network_allow and ("*" in config.network_allow):
             lines.append(
-                "; WARNING: Domain-level filtering not implemented"
+                "; WARNING: Domain-level filtering not implemented",
             )
             domains = [d for d in config.network_allow if d != "*"]
             if domains:
                 lines.append(
-                    "; The following domains are in allowedDomains but not enforced:"
+                    "; The following domains are in allowedDomains "
+                    "but not enforced:",
                 )
                 for d in domains:
                     lines.append(f";   - {d}")
             lines.append("; All network access is allowed")
             lines.append("(allow network*)")
         elif config.network_allow:
-            lines.append("; Partial network (domain filtering not enforceable)")
+            lines.append(
+                "; Partial network (domain filtering not enforceable)",
+            )
             lines.append("(allow network*)")
         else:
             lines.append("(deny network*)")
-    
+
         # File read paths
         lines.append("")
         lines.append("; File read")
         if config.allow_read_all:
-            # deny-list mode: allow reading everything, then deny specific paths
+            # deny-list mode: allow reading everything, then deny
+            # specific paths
             lines.append("(allow file-read*)")
         else:
             # allow-list mode: only allow reading declared mounts
             for mount in config.mounts:
-                lines.append(f"(allow file-read*")
+                lines.append("(allow file-read*")
                 lines.append(f'  (subpath "{_san(mount.path)}")')
-    
+
         # Deny sensitive paths (read + write)
         if config.deny_paths:
             lines.append("")
             lines.append("; Denied sensitive paths")
             for p in config.deny_paths:
                 expanded = _san(os.path.expanduser(p))
-                lines.append(f"(deny file-read*")
+                lines.append("(deny file-read*")
                 lines.append(f'  (subpath "{expanded}")')
-                lines.append(f"(deny file-write*")
+                lines.append("(deny file-write*")
                 lines.append(f'  (subpath "{expanded}")')
-    
+
         # File write paths (whitelist)
         lines.append("")
         lines.append("; File write")
         # Always allow /dev/null, /dev/zero, /dev/tty, /tmp
-        write_always = ["/dev/null", "/dev/zero", "/dev/tty", "/tmp", "/private/tmp"]
+        write_always = [
+            "/dev/null",
+            "/dev/zero",
+            "/dev/tty",
+            "/tmp",
+            "/private/tmp",
+        ]
         for p in write_always:
-            lines.append(f"(allow file-write*")
+            lines.append("(allow file-write*")
             lines.append(f'  (subpath "{p}"))')
-    
+
         # Workspace and explicit mounts
         for mount in config.mounts:
             if mount.writable:
-                lines.append(f"(allow file-write*")
+                lines.append("(allow file-write*")
                 lines.append(f'  (subpath "{_san(mount.path)}")')
-    
+
         # Executable control
         non_exec_mounts = [m for m in config.mounts if not m.executable]
         if non_exec_mounts:
             lines.append("")
             lines.append("; Deny execution in specific paths")
             for mount in non_exec_mounts:
-                lines.append(f"(deny process-exec*")
+                lines.append("(deny process-exec*")
                 lines.append(f'  (subpath "{_san(mount.path)}")')
-    
+
         # Platform hints: extra seatbelt rules
         # WARNING: seatbelt_extra_rules is an ADMIN-ONLY escape hatch.
         # Content is embedded verbatim — it MUST NOT come from user input
@@ -229,12 +253,14 @@ class MacOSSandbox(LocalSandbox):
             if "\n" in str(extra_rules):
                 logger.warning(
                     "MacOSSandbox: seatbelt_extra_rules contains newlines; "
-                    "verify this is from a trusted admin source."
+                    "verify this is from a trusted admin source.",
                 )
             lines.append("")
-            lines.append("; Platform hints: extra rules (admin-only, verbatim)")
+            lines.append(
+                "; Platform hints: extra rules (admin-only, verbatim)",
+            )
             lines.append(str(extra_rules))
-    
+
         # Log warnings for unsupported features on macOS
         if config.max_processes is not None:
             logger.warning(
@@ -253,10 +279,14 @@ class MacOSSandbox(LocalSandbox):
                 "MacOSSandbox: network_ports (port-level filtering) is not "
                 "supported by Seatbelt; ignoring.",
             )
-    
+
         return "\n".join(lines)
 
-    async def execute(self, cmd: str, cwd: Optional[str] = None) -> ExecutionResult:
+    async def execute(
+        self,
+        cmd: str,
+        cwd: Optional[str] = None,
+    ) -> ExecutionResult:
         """Execute via ``sandbox-exec -p '<profile>' /bin/bash -c '<cmd>'``."""
         profile = self._compile_seatbelt_profile()
         cwd = cwd or self._config.workspace_dir
@@ -274,7 +304,12 @@ class MacOSSandbox(LocalSandbox):
         start = time.monotonic()
         try:
             self._process = await asyncio.create_subprocess_exec(
-                "sandbox-exec", "-p", profile, shell, "-c", cmd,
+                "sandbox-exec",
+                "-p",
+                profile,
+                shell,
+                "-c",
+                cmd,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 cwd=cwd,
@@ -332,9 +367,16 @@ class MacOSSandbox(LocalSandbox):
 
 
 class NoneSandbox(LocalSandbox):
-    """No isolation, executes directly. Used for trusted scenarios or resource tools."""
+    """No isolation, executes directly.
 
-    async def execute(self, cmd: str, cwd: Optional[str] = None) -> ExecutionResult:
+    Used for trusted scenarios or resource tools.
+    """
+
+    async def execute(
+        self,
+        cmd: str,
+        cwd: Optional[str] = None,
+    ) -> ExecutionResult:
         cwd = cwd or self._config.workspace_dir
         shell = os.environ.get("SHELL", "/bin/bash")
         if not os.path.exists(shell):
@@ -348,7 +390,9 @@ class NoneSandbox(LocalSandbox):
         start = time.monotonic()
         try:
             self._process = await asyncio.create_subprocess_exec(
-                shell, "-c", cmd,
+                shell,
+                "-c",
+                cmd,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 cwd=cwd,
@@ -392,7 +436,7 @@ class NoneSandbox(LocalSandbox):
 # ═══════════════════════════════════════════════════════════════════════════════
 
 
-def create_sandbox(config: SandboxConfig) -> LocalSandbox:
+def create_sandbox(config: SandboxConfig) -> Any:
     """Create a sandbox instance based on ``config.mode``.
 
     Supported modes:
@@ -409,9 +453,11 @@ def create_sandbox(config: SandboxConfig) -> LocalSandbox:
         return NoneSandbox(config)
     elif config.mode == SandboxMode.LANDLOCK:
         from .linux_sandbox import LinuxSandbox
+
         return LinuxSandbox(config)
     elif config.mode == SandboxMode.WSL2:
         from .windows_sandbox import WindowsSandbox
+
         return WindowsSandbox(config)
     else:
         raise ValueError(f"Unknown sandbox mode: {config.mode}")

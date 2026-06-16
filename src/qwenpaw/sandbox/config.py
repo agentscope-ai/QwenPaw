@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """Sandbox configuration and result types."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -12,8 +13,8 @@ class SandboxMode(str, Enum):
 
     SEATBELT = "seatbelt"  # macOS sandbox-exec
     LANDLOCK = "landlock"  # Linux (future)
-    WSL2 = "wsl2"          # Windows (future)
-    NONE = "none"          # 不隔离，直接执行
+    WSL2 = "wsl2"  # Windows (future)
+    NONE = "none"  # 不隔离，直接执行
 
 
 @dataclass
@@ -109,7 +110,9 @@ class SandboxCapability:
     landlock_abi_version: int = 0  # Linux 专属：Landlock ABI 版本（0=不支持）
 
 
-def _probe_linux_landlock() -> SandboxCapability:
+def _probe_linux_landlock() -> (
+    SandboxCapability
+):  # pylint: disable=too-many-return-statements
     """探测 Linux Landlock 支持情况。
 
     检测步骤：
@@ -118,7 +121,6 @@ def _probe_linux_landlock() -> SandboxCapability:
         3. 尝试 landlock_create_ruleset syscall 探测 ABI 版本
     """
     import os
-    import struct
     import ctypes
     import ctypes.util
 
@@ -143,7 +145,7 @@ def _probe_linux_landlock() -> SandboxCapability:
 
     # Step 2: 检查 LSM 列表
     try:
-        with open("/sys/kernel/security/lsm", "r") as f:
+        with open("/sys/kernel/security/lsm", "r", encoding="utf-8") as f:
             lsm_list = f.read().strip()
         if "landlock" not in lsm_list:
             return SandboxCapability(
@@ -158,11 +160,16 @@ def _probe_linux_landlock() -> SandboxCapability:
             reason="Cannot read /sys/kernel/security/lsm",
         )
 
-    # Step 3: 探测 ABI 版本 via landlock_create_ruleset(NULL, 0, LANDLOCK_CREATE_RULESET_VERSION)
+    # Step 3: 探测 ABI 版本 via landlock_create_ruleset(
+    #     NULL, 0, LANDLOCK_CREATE_RULESET_VERSION)
     try:
-        libc = ctypes.CDLL(ctypes.util.find_library("c") or "libc.so.6", use_errno=True)
+        libc = ctypes.CDLL(
+            ctypes.util.find_library("c") or "libc.so.6",
+            use_errno=True,
+        )
         # syscall numbers for x86_64
         import platform
+
         arch = platform.machine()
         if arch == "x86_64":
             SYS_landlock_create_ruleset = 444
@@ -173,19 +180,28 @@ def _probe_linux_landlock() -> SandboxCapability:
             return SandboxCapability(
                 supported=True,
                 mode=SandboxMode.LANDLOCK,
-                reason=f"Kernel {major}.{minor}, Landlock in LSM (ABI version unknown, arch={arch})",
+                reason=(
+                    f"Kernel {major}.{minor}, Landlock in LSM "
+                    f"(ABI version unknown, arch={arch})"
+                ),
                 landlock_abi_version=1,
             )
 
         LANDLOCK_CREATE_RULESET_VERSION = 1 << 0  # flags bit
 
-        # landlock_create_ruleset(NULL, 0, LANDLOCK_CREATE_RULESET_VERSION) returns ABI version
+        # landlock_create_ruleset(NULL, 0, LANDLOCK_CREATE_RULESET_VERSION)
+        # returns ABI version
         libc.syscall.restype = ctypes.c_long
-        libc.syscall.argtypes = [ctypes.c_long, ctypes.c_void_p, ctypes.c_size_t, ctypes.c_uint32]
+        libc.syscall.argtypes = [
+            ctypes.c_long,
+            ctypes.c_void_p,
+            ctypes.c_size_t,
+            ctypes.c_uint32,
+        ]
         abi_version = libc.syscall(
             SYS_landlock_create_ruleset,
             None,  # attr = NULL
-            0,     # size = 0
+            0,  # size = 0
             LANDLOCK_CREATE_RULESET_VERSION,
         )
 
@@ -194,7 +210,10 @@ def _probe_linux_landlock() -> SandboxCapability:
             return SandboxCapability(
                 supported=False,
                 mode=SandboxMode.NONE,
-                reason=f"landlock_create_ruleset syscall failed, errno={errno}",
+                reason=(
+                    f"landlock_create_ruleset syscall failed, "
+                    f"errno={errno}"
+                ),
             )
 
         return SandboxCapability(
@@ -300,7 +319,10 @@ def probe_sandbox_support() -> SandboxCapability:
         return SandboxCapability(
             supported=False,
             mode=SandboxMode.NONE,
-            reason="Windows sandbox temporarily disabled until WSL2 path is ready",
+            reason=(
+                "Windows sandbox temporarily disabled until "
+                "WSL2 path is ready"
+            ),
         )
     else:
         return SandboxCapability(

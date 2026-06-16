@@ -20,17 +20,17 @@ Requirements:
     - A WSL2 distro with kernel >= 5.13 (Ubuntu 22.04+ recommended)
     - python3 installed inside the WSL2 distro
 """
+
 from __future__ import annotations
 
 import asyncio
 import logging
-import os
 import re
 import shutil
 import time
 from typing import List, Optional, Tuple
 
-from .config import ExecutionResult, MountSpec, SandboxConfig, SandboxMode
+from .config import ExecutionResult, SandboxConfig
 
 logger = logging.getLogger(__name__)
 
@@ -101,8 +101,12 @@ def probe_wsl2_availability() -> Tuple[bool, str, str]:
     try:
         result = subprocess.run(
             ["wsl", "--status"],
-            capture_output=True, text=True, timeout=10,
-            encoding="utf-8", errors="replace",
+            capture_output=True,
+            text=True,
+            timeout=10,
+            encoding="utf-8",
+            errors="replace",
+            check=False,
         )
         # On some systems --status might not be available; continue anyway
     except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as e:
@@ -112,8 +116,12 @@ def probe_wsl2_availability() -> Tuple[bool, str, str]:
     try:
         result = subprocess.run(
             ["wsl", "--list", "--verbose"],
-            capture_output=True, text=True, timeout=10,
-            encoding="utf-16-le", errors="replace",
+            capture_output=True,
+            text=True,
+            timeout=10,
+            encoding="utf-16-le",
+            errors="replace",
+            check=False,
         )
         output = result.stdout
         # Parse output: NAME   STATE   VERSION
@@ -141,7 +149,10 @@ def check_wsl_python3(distro: str) -> bool:
     try:
         result = subprocess.run(
             ["wsl", "-d", distro, "--", "which", "python3"],
-            capture_output=True, text=True, timeout=10,
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
         )
         return result.returncode == 0
     except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
@@ -158,15 +169,22 @@ def check_wsl_landlock(distro: str) -> Tuple[bool, int]:
 
     check_script = (
         "import ctypes, ctypes.util, os, struct; "
-        "libc = ctypes.CDLL(ctypes.util.find_library('c') or 'libc.so.6', use_errno=True); "
+        "libc = ctypes.CDLL("
+        "ctypes.util.find_library('c') or 'libc.so.6', "
+        "use_errno=True); "
         "libc.syscall.restype = ctypes.c_long; "
-        "abi = libc.syscall(ctypes.c_long(444), None, ctypes.c_size_t(0), ctypes.c_uint32(1)); "
+        "abi = libc.syscall("
+        "ctypes.c_long(444), None, ctypes.c_size_t(0), "
+        "ctypes.c_uint32(1)); "
         "print(abi)"
     )
     try:
         result = subprocess.run(
             ["wsl", "-d", distro, "--", "python3", "-c", check_script],
-            capture_output=True, text=True, timeout=15,
+            capture_output=True,
+            text=True,
+            timeout=15,
+            check=False,
         )
         if result.returncode == 0:
             abi = int(result.stdout.strip())
@@ -183,7 +201,7 @@ def check_wsl_landlock(distro: str) -> Tuple[bool, int]:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 # Reuse constants from linux_sandbox
-_FS_READ_ACCESS = 0x0c  # READ_FILE | READ_DIR
+_FS_READ_ACCESS = 0x0C  # READ_FILE | READ_DIR
 _FS_WRITE_ACCESS = 0x1FE2  # All write-related bits
 _FS_EXEC_ACCESS = 0x01  # EXECUTE
 _FS_ALL_ACCESS_V1 = _FS_READ_ACCESS | _FS_WRITE_ACCESS | _FS_EXEC_ACCESS
@@ -200,22 +218,23 @@ def _get_all_fs_access_wsl(abi_version: int) -> int:
     """Get all filesystem access rights for given ABI version."""
     access = _FS_ALL_ACCESS_V1
     if abi_version >= 2:
-        access |= (1 << 13)  # REFER
+        access |= 1 << 13  # REFER
     if abi_version >= 3:
-        access |= (1 << 14)  # TRUNCATE
+        access |= 1 << 14  # TRUNCATE
     return access
 
 
-def _generate_wsl_sandbox_script(
+def _generate_wsl_sandbox_script(  # pylint: disable=too-many-branches
     config: SandboxConfig,
     cmd: str,
     wsl_cwd: str,
     abi_version: int,
     wsl_home: str = "/root",
 ) -> str:
-    """Generate a Python Landlock enforcement script for execution inside WSL2.
+    """Generate a Python Landlock enforcement script for WSL2 execution.
 
-    Similar to linux_sandbox._generate_sandbox_script but operates on WSL paths.
+    Similar to linux_sandbox._generate_sandbox_script but operates on
+    WSL paths.
     """
     handled_fs = _get_all_fs_access_wsl(abi_version)
 
@@ -224,30 +243,47 @@ def _generate_wsl_sandbox_script(
 
     # System paths (always readable inside WSL)
     system_read_paths = [
-        "/usr", "/lib", "/lib64", "/etc", "/proc", "/sys",
-        "/dev", "/run", "/bin", "/sbin",
+        "/usr",
+        "/lib",
+        "/lib64",
+        "/etc",
+        "/proc",
+        "/sys",
+        "/dev",
+        "/run",
+        "/bin",
+        "/sbin",
     ]
     for sp in system_read_paths:
         path_rules.append((sp, _FS_READ_ACCESS | _FS_EXEC_ACCESS))
 
     # /tmp always writable
-    path_rules.append(("/tmp", _FS_READ_ACCESS | _FS_WRITE_ACCESS | _FS_EXEC_ACCESS))
+    path_rules.append(
+        ("/tmp", _FS_READ_ACCESS | _FS_WRITE_ACCESS | _FS_EXEC_ACCESS),
+    )
 
     # /mnt (for access to Windows drives through WSL)
     # This allows reading mounted Windows drives
     if config.allow_read_all:
         # Build deny set in WSL path space
         deny_wsl_paths = set()
-        for dp in (config.deny_paths or []):
+        for dp in config.deny_paths or []:
             # deny_paths can be Windows paths or ~ paths
             if dp.startswith("~"):
                 # Map to WSL home
-                deny_wsl_paths.add(wsl_home + "/" + dp[2:] if dp.startswith("~/") else wsl_home)
+                deny_wsl_paths.add(
+                    (
+                        wsl_home + "/" + dp[2:]
+                        if dp.startswith("~/")
+                        else wsl_home
+                    ),
+                )
             else:
                 deny_wsl_paths.add(win_to_wsl_path(dp))
 
         if deny_wsl_paths:
-            # Selective grant: grant /mnt paths excluding deny, grant home excluding deny
+            # Selective grant: grant /mnt paths excluding deny,
+            # grant home excluding deny
             # Grant /mnt for Windows drive access
             path_rules.append(("/mnt", _FS_READ_ACCESS | _FS_EXEC_ACCESS))
 
@@ -262,7 +298,9 @@ def _generate_wsl_sandbox_script(
 
     # Workspace mount (writable)
     wsl_workspace = win_to_wsl_path(config.workspace_dir)
-    path_rules.append((wsl_workspace, _FS_READ_ACCESS | _FS_WRITE_ACCESS | _FS_EXEC_ACCESS))
+    path_rules.append(
+        (wsl_workspace, _FS_READ_ACCESS | _FS_WRITE_ACCESS | _FS_EXEC_ACCESS),
+    )
 
     # Extra mounts from config
     for mount in config.mounts:
@@ -276,9 +314,11 @@ def _generate_wsl_sandbox_script(
 
     # Build deny set for filtering
     deny_wsl_set = set()
-    for dp in (config.deny_paths or []):
+    for dp in config.deny_paths or []:
         if dp.startswith("~"):
-            deny_wsl_set.add(wsl_home + "/" + dp[2:] if dp.startswith("~/") else wsl_home)
+            deny_wsl_set.add(
+                wsl_home + "/" + dp[2:] if dp.startswith("~/") else wsl_home,
+            )
         else:
             deny_wsl_set.add(win_to_wsl_path(dp))
 
@@ -286,19 +326,32 @@ def _generate_wsl_sandbox_script(
     script_lines = [
         "import ctypes, ctypes.util, os, struct, sys",
         "",
-        "libc = ctypes.CDLL(ctypes.util.find_library('c') or 'libc.so.6', use_errno=True)",
+        (
+            "libc = ctypes.CDLL("
+            "ctypes.util.find_library('c') or 'libc.so.6', "
+            "use_errno=True)"
+        ),
         "libc.syscall.restype = ctypes.c_long",
         "",
         "# prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0)",
         "libc.prctl.restype = ctypes.c_int",
-        "libc.prctl.argtypes = [ctypes.c_int, ctypes.c_ulong, ctypes.c_ulong, ctypes.c_ulong, ctypes.c_ulong]",
-        f"assert libc.prctl({PR_SET_NO_NEW_PRIVS}, 1, 0, 0, 0) == 0, 'prctl failed'",
+        (
+            "libc.prctl.argtypes = [ctypes.c_int, ctypes.c_ulong, "
+            "ctypes.c_ulong, ctypes.c_ulong, ctypes.c_ulong]"
+        ),
+        (
+            f"assert libc.prctl({PR_SET_NO_NEW_PRIVS}, 1, 0, 0, 0) "
+            f"== 0, 'prctl failed'"
+        ),
         "",
         f"# Create ruleset (handled_fs=0x{handled_fs:x})",
         f"attr = struct.pack('Q', 0x{handled_fs:x})",
         "attr_buf = ctypes.create_string_buffer(attr)",
-        f"fd = libc.syscall(ctypes.c_long({SYS_LANDLOCK_CREATE_RULESET}), "
-        "ctypes.cast(attr_buf, ctypes.c_void_p), ctypes.c_size_t(len(attr)), ctypes.c_uint32(0))",
+        (
+            f"fd = libc.syscall(ctypes.c_long({SYS_LANDLOCK_CREATE_RULESET}), "
+            "ctypes.cast(attr_buf, ctypes.c_void_p), "
+            "ctypes.c_size_t(len(attr)), ctypes.c_uint32(0))"
+        ),
         "assert fd >= 0, f'create_ruleset failed: {ctypes.get_errno()}'",
         "",
         "O_PATH = 0o10000000",
@@ -311,8 +364,12 @@ def _generate_wsl_sandbox_script(
         "    try:",
         "        a = struct.pack('Qi', access, pfd)",
         "        ab = ctypes.create_string_buffer(a)",
-        f"        libc.syscall(ctypes.c_long({SYS_LANDLOCK_ADD_RULE}), ctypes.c_int(fd), "
-        f"ctypes.c_int({LANDLOCK_RULE_PATH_BENEATH}), ctypes.cast(ab, ctypes.c_void_p), ctypes.c_uint32(0))",
+        (
+            f"        libc.syscall(ctypes.c_long({SYS_LANDLOCK_ADD_RULE}), "
+            f"ctypes.c_int(fd), "
+            f"ctypes.c_int({LANDLOCK_RULE_PATH_BENEATH}), "
+            f"ctypes.cast(ab, ctypes.c_void_p), ctypes.c_uint32(0))"
+        ),
         "    finally:",
         "        os.close(pfd)",
         "",
@@ -329,7 +386,9 @@ def _generate_wsl_sandbox_script(
             script_lines.append(f"add_path({path!r}, 0x{access:x})")
 
     # If we have deny_paths under WSL home, enumerate home subdirs dynamically
-    home_deny_paths = [dp for dp in deny_wsl_set if dp.startswith(wsl_home + "/")]
+    home_deny_paths = [
+        dp for dp in deny_wsl_set if dp.startswith(wsl_home + "/")
+    ]
     if home_deny_paths and config.allow_read_all:
         script_lines += [
             "",
@@ -357,9 +416,9 @@ def _generate_wsl_sandbox_script(
     # Apply env_vars (e.g. mask blacklisted env keys with empty string)
     if config.env_vars:
         env_vars_repr = repr(list(config.env_vars.items()))
-        script_lines.append(f"# Apply env_vars (override / mask)")
+        script_lines.append("# Apply env_vars (override / mask)")
         script_lines.append(f"for _k, _v in {env_vars_repr}:")
-        script_lines.append(f"    os.environ[_k] = _v")
+        script_lines.append("    os.environ[_k] = _v")
         script_lines.append("")
 
     script_lines += [
@@ -416,7 +475,13 @@ class WindowsSandbox:
         # Detect WSL home directory
         try:
             proc = await asyncio.create_subprocess_exec(
-                "wsl", "-d", self._distro, "--", "sh", "-c", "echo $HOME",
+                "wsl",
+                "-d",
+                self._distro,
+                "--",
+                "sh",
+                "-c",
+                "echo $HOME",
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
@@ -431,12 +496,22 @@ class WindowsSandbox:
         try:
             check_cmd = (
                 "import ctypes,ctypes.util;"
-                "libc=ctypes.CDLL(ctypes.util.find_library('c') or 'libc.so.6',use_errno=True);"
+                "libc=ctypes.CDLL("
+                "ctypes.util.find_library('c') or 'libc.so.6',"
+                "use_errno=True);"
                 "libc.syscall.restype=ctypes.c_long;"
-                "print(libc.syscall(ctypes.c_long(444),None,ctypes.c_size_t(0),ctypes.c_uint32(1)))"
+                "print(libc.syscall("
+                "ctypes.c_long(444),None,ctypes.c_size_t(0),"
+                "ctypes.c_uint32(1)))"
             )
             proc = await asyncio.create_subprocess_exec(
-                "wsl", "-d", self._distro, "--", "python3", "-c", check_cmd,
+                "wsl",
+                "-d",
+                self._distro,
+                "--",
+                "python3",
+                "-c",
+                check_cmd,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
@@ -447,7 +522,11 @@ class WindowsSandbox:
         except (asyncio.TimeoutError, OSError, ValueError):
             pass
 
-    async def execute(self, cmd: str, cwd: Optional[str] = None) -> ExecutionResult:
+    async def execute(
+        self,
+        cmd: str,
+        cwd: Optional[str] = None,
+    ) -> ExecutionResult:
         """Execute a command inside WSL2 with Landlock isolation.
 
         Steps:
@@ -468,22 +547,32 @@ class WindowsSandbox:
 
         # Generate the enforcement script
         script = _generate_wsl_sandbox_script(
-            self._config, cmd, wsl_cwd, self._abi_version, self._wsl_home,
+            self._config,
+            cmd,
+            wsl_cwd,
+            self._abi_version,
+            self._wsl_home,
         )
 
         # Write script to a temp location accessible from WSL
         # Use /tmp inside WSL (write via wsl command)
-        import tempfile
         import hashlib
 
-        script_name = f"landlock_wsl_{hashlib.md5(cmd.encode()).hexdigest()[:8]}.py"
+        script_name = (
+            f"landlock_wsl_{hashlib.md5(cmd.encode()).hexdigest()[:8]}.py"
+        )
         wsl_script_path = f"/tmp/{script_name}"
 
         try:
             # Write script into WSL's /tmp via stdin
             write_proc = await asyncio.create_subprocess_exec(
-                "wsl", "-d", self._distro, "--",
-                "sh", "-c", f"cat > {wsl_script_path} && chmod +x {wsl_script_path}",
+                "wsl",
+                "-d",
+                self._distro,
+                "--",
+                "sh",
+                "-c",
+                f"cat > {wsl_script_path} && chmod +x {wsl_script_path}",
                 stdin=asyncio.subprocess.PIPE,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
@@ -504,8 +593,12 @@ class WindowsSandbox:
 
             # Execute the script inside WSL
             self._process = await asyncio.create_subprocess_exec(
-                "wsl", "-d", self._distro, "--",
-                "python3", wsl_script_path,
+                "wsl",
+                "-d",
+                self._distro,
+                "--",
+                "python3",
+                wsl_script_path,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
@@ -557,7 +650,13 @@ class WindowsSandbox:
             # Clean up script inside WSL
             try:
                 cleanup = await asyncio.create_subprocess_exec(
-                    "wsl", "-d", self._distro, "--", "rm", "-f", wsl_script_path,
+                    "wsl",
+                    "-d",
+                    self._distro,
+                    "--",
+                    "rm",
+                    "-f",
+                    wsl_script_path,
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
                 )
