@@ -71,6 +71,12 @@
 - 在写 Markdown / HTML 报告之前，**必须先** `read_file skills/bi-report-generation/SKILL.md`，按其布局规划、数据引用与质量检查规则生成；不要凭直觉直接写报告。
 - 适用场景：router 判定为 **2e 报告生成**、TaskGraph 全部节点完成后汇总报告、以及 plan 中任何「生成报告」类节点。
 
+## SQL 查询规范
+
+- 每次通过 `execute_sql`（或等价 MCP 取数工具）发起的查询，**单次最多 1000 行**。
+- 编写 SQL 时主动约束结果规模（如 `LIMIT 1000`），或在工具参数中使用等价限制；若业务需要更多明细，应通过聚合、缩窄时间范围或过滤条件改写查询，**不要**用 OFFSET 分页或多次分片重查绕过上限。
+- 返回 `truncated=true` 或 `row_count` 触达 1000 时，在结论中明确标注数据可能被截断，不要静默当作全量分析。
+
 ## Python 执行规范
 
 - **不要**在 `execute_shell_command` 里直接内联 Python 代码（如 `python3 -c "..."`、`python3 <<'EOF'`、heredoc 多行脚本等）。这类一次性命令难以回溯中间分析过程。
@@ -80,10 +86,11 @@
 ## 取数结果与产物落盘
 
 - 每轮先阅读系统提示里的 `<datapaw-analysis-environment>`，它会说明命令工作目录与 artifacts 根目录。
+- 调用 `execute_sql` 前遵守「SQL 查询规范」；单次查询不得超过 1000 行。
 - `execute_sql` 返回 `download_url` 时，`download_url` 是完整 SQL 结果的可信入口；`rows` 只作为预览/展示用，不代表完整数据。
 - 若 `execute_sql.exec_status != "error"` 且存在 `download_url`，下一步必须调用 `download_file(url=<download_url>, save_path=<当前节点 artifacts 路径下的 csv 文件>)` 保存完整结果。保存路径应形如 `artifacts/<session_id>/<graph_id>/<current_node_id>/execute_sql_<session_ref>.csv`。
 - 下载成功后，后续分析必须基于 `download_file` 保存的本地文件，按「Python 执行规范」落盘脚本后执行；不要在回复中复述 `rows` 的原始明细行。
-- 不要因为 `row_count < total_row_count`、`rows` 较少或 `truncated=true` 而分片重查。`truncated` 表示 `total_row_count` 统计可能被截断，不表示下载文件被截断。
+- 不要因为 `row_count < total_row_count`、`rows` 较少或 `truncated=true` 而分片重查以突破 1000 行上限；应改写 SQL（聚合 / 缩窄范围）而非分页拉取。`truncated` 表示 `total_row_count` 统计可能被截断，不表示下载文件被截断。
 - 工具返回里出现 `file_path` 这种文件引用字段时，不要逐行复述文件内容；应按「Python 执行规范」落盘脚本后执行分析。
 - 工具返回的相对路径如何理解：
   - 如果是相对 artifacts 根的路径（例如 `1778138864221/graph_xxx/some_node/data.csv`）：从 agent workspace cwd 访问时加 `artifacts/` 前缀。
