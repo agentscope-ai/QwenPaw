@@ -23,25 +23,25 @@
   <img src="https://gw.alicdn.com/imgextra/i1/O1CN01sens5C1TuwioeGexL_!!6000000002443-55-tps-771-132.svg" alt="QwenPaw Logo" width="120">
 </p>
 
-<p align="center"><b>Làm việc vì bạn, phát triển cùng bạn.</b></p>
+<p align="center"><b>Phục vụ bạn, đồng hành cùng bạn.</b></p>
 
 </div>
 
-Trợ lý AI cá nhân của bạn — cài đặt dễ dàng, triển khai tại chỗ hoặc trên đám mây, kết nối đa kênh, mở rộng linh hoạt.
+Trợ lý AI cá nhân của bạn — cài đặt dễ dàng, triển khai cục bộ hoặc trên đám mây, kết nối đa kênh, mở rộng linh hoạt.
 
 > **Năng lực cốt lõi:**
 >
-> **Trong tầm kiểm soát của bạn** — Bộ nhớ và cá nhân hóa hoàn toàn do bạn kiểm soát. Triển khai tại chỗ (dữ liệu ở lại máy bạn) hoặc trên đám mây (máy chủ bạn chọn). Không có bên thứ ba lưu trữ, không tải dữ liệu lên.
+> **Trong tầm kiểm soát của bạn** — Bộ nhớ và cá nhân hóa hoàn toàn do bạn kiểm soát. Triển khai cục bộ (dữ liệu ở lại máy bạn) hoặc trên đám mây (máy chủ bạn chọn). Không qua bên thứ ba lưu trữ, không tải dữ liệu lên.
 >
-> **Mở rộng kỹ năng (Skills)** — Tích hợp sẵn lập lịch, xử lý PDF/Office, tổng hợp tin tức, v.v.; kỹ năng tùy chỉnh tự động tải, không bị khóa. Skills quyết định QwenPaw có thể làm gì.
+> **Mở rộng qua Skills** — Tích hợp sẵn lập lịch, xử lý PDF/Office, tổng hợp tin tức, v.v.; Skills tùy chỉnh tự động tải, không bị ràng buộc. Skills quyết định QwenPaw có thể làm gì.
 >
-> **Cộng tác đa tác nhân** — Tạo nhiều tác nhân độc lập, mỗi tác nhân có vai trò riêng; bật kỹ năng cộng tác để các tác nhân giao tiếp với nhau cùng giải quyết tác vụ phức tạp.
+> **Hợp tác đa tác nhân** — Tạo nhiều tác nhân độc lập, mỗi tác nhân có vai trò riêng; bật Skills hợp tác để các tác nhân giao tiếp với nhau cùng giải quyết tác vụ phức tạp.
 >
-> **Bảo mật đa lớp** — Bảo vệ công cụ, kiểm soát truy cập tệp, quét bảo mật kỹ năng đảm bảo vận hành an toàn.
+> **Bảo mật đa lớp** — Bảo vệ công cụ (Tool Guard), kiểm soát truy cập tệp (File Access Guard), quét bảo mật Skills đảm bảo vận hành an toàn.
 >
 > **Mọi kênh kết nối** — DingTalk, Feishu, WeChat, Discord, Telegram, và nhiều hơn nữa. Một QwenPaw, kết nối theo nhu cầu.
 >
-> **Trí nhớ tiến hóa & chủ động** — Tác nhân học hỏi từ tương tác, suy ngẫm kinh nghiệm, và chủ động phục vụ bạn. Càng dùng càng thông minh.
+> **Bộ nhớ tiến hóa & chủ động** — Tác nhân học hỏi từ tương tác, suy ngẫm kinh nghiệm, và chủ động phục vụ bạn. Càng dùng càng thông minh.
 >
 > <details>
 > <summary><b>Bạn có thể làm gì với QwenPaw</b></summary>
@@ -61,7 +61,7 @@ Trợ lý AI cá nhân của bạn — cài đặt dễ dàng, triển khai tạ
 
 ## Tin tức
 
-- [2026-06-11] **AgentScope Platform ra mắt** — Triển khai QwenPaw miễn phí, chia sẻ plugin, và chợ Skill. [Dùng thử ngay →](https://platform.agentscope.io/)
+- [2026-06-11] **AgentScope Platform ra mắt** — Triển khai QwenPaw miễn phí, chia sẻ plugin và Chợ Skills. [Dùng thử ngay →](https://platform.agentscope.io/)
 
 - [2026-06-10] **v1.1.11 — OAuth Mô hình Miễn phí & Chợ Plugin** | Mô hình miễn phí không cấu hình với xác thực OAuth một chạm; Chợ Plugin tích hợp AgentScope Platform.
 
@@ -71,11 +71,11 @@ Trợ lý AI cá nhân của bạn — cài đặt dễ dàng, triển khai tạ
   | **Chợ Plugin** | Thẻ Chợ Plugin mới tích hợp với AgentScope Platform. |
   | **Danh sách trắng Công cụ MCP** | Danh sách trắng công cụ MCP theo từng máy chủ với giao diện bật/tắt trên frontend. |
 
-  Ngoài ra: tạo kỹ năng tự tiến hóa, tối ưu khởi động backend, chia sẻ nhóm Feishu, xác thực mã QR QQ. [Ghi chú phát hành v1.1.11 →](https://qwenpaw.agentscope.io/release-notes#v1.1.11)
+  Ngoài ra: tạo Skill tự tiến hóa, tối ưu khởi động backend, chia sẻ nhóm Feishu, xác thực mã QR QQ. [Ghi chú phát hành v1.1.11 →](https://qwenpaw.agentscope.io/release-notes#v1.1.11)
 
 - [2026-06-01] **v1.1.10** — Sinh tác nhân con (Spawn Subagent), Mở thư mục, kênh Tencent Yuanbao. [Ghi chú phát hành v1.1.10 →](https://qwenpaw.agentscope.io/release-notes#v1.1.10)
 
-- [2026-05-27] **v1.1.9** — Chế độ Coding (Web IDE ba bảng), ứng dụng desktop Tauri, kiểm soát truy cập hợp nhất. [Ghi chú phát hành v1.1.9 →](https://qwenpaw.agentscope.io/release-notes#v1.1.9)
+- [2026-05-27] **v1.1.9** — Chế độ Coding (Web IDE ba khung), ứng dụng desktop Tauri, kiểm soát truy cập hợp nhất. [Ghi chú phát hành v1.1.9 →](https://qwenpaw.agentscope.io/release-notes#v1.1.9)
 
 - [2026-05-19] **v1.1.8** — Phân phối plugin chính thức, QwenPaw Pet, thẻ streaming cho DingTalk / Feishu / Telegram. [Ghi chú phát hành v1.1.8 →](https://qwenpaw.agentscope.io/release-notes#v1.1.8)
 
@@ -242,7 +242,7 @@ docker run -p 127.0.0.1:8088:8088 \
 
 Cũng có sẵn trên Alibaba Cloud Container Registry (ACR) cho người dùng tại Trung Quốc: `agentscope-registry.ap-southeast-1.cr.aliyuncs.com/agentscope/qwenpaw` (cùng tag).
 
-Sau đó mở **http://127.0.0.1:8088/** để truy cập Console. Cấu hình, bộ nhớ và kỹ năng được lưu trong volume `qwenpaw-data`; cài đặt nhà cung cấp mô hình và API key được lưu trong volume `qwenpaw-secrets`; các bản sao lưu được lưu trong volume `qwenpaw-backups`. Để truyền API key (ví dụ: `DASHSCOPE_API_KEY`), thêm `-e VAR=value` hoặc `--env-file .env` vào lệnh `docker run`.
+Sau đó mở **http://127.0.0.1:8088/** để truy cập Console. Cấu hình, bộ nhớ và Skills được lưu trong volume `qwenpaw-data`; cài đặt nhà cung cấp mô hình và API key được lưu trong volume `qwenpaw-secrets`; các bản sao lưu được lưu trong volume `qwenpaw-backups`. Để truyền API key (ví dụ: `DASHSCOPE_API_KEY`), thêm `-e VAR=value` hoặc `--env-file .env` vào lệnh `docker run`.
 
 > **Kết nối với Ollama hoặc các dịch vụ khác trên máy chủ**
 >
@@ -306,7 +306,7 @@ Tải ứng dụng desktop từ [GitHub Releases](https://github.com/agentscope-
 - ✅ **Không cấu hình**: Tải về và nhấp đúp để chạy, không cần cài Python hay cấu hình biến môi trường
 - ✅ **Đa nền tảng**: Hỗ trợ Windows 10+ và macOS 14+
 - ✅ **Giao diện trực quan**: Tự động mở giao diện trình duyệt, không cần nhập địa chỉ thủ công
-- ⚠️ **Giai đoạn Beta**: Các tính năng đang được liên tục cải thiện, hoan nghênh phản hồi
+- ⚠️ **Giai đoạn Beta**: Các tính năng đang được liên tục cải thiện, rất mong nhận phản hồi
 
 #### Lần đầu khởi động
 
@@ -337,8 +337,8 @@ Nếu bạn sử dụng **API LLM đám mây** (ví dụ: Qianwen, Gemini, OpenA
 
 **Cách cấu hình:**
 
-1. **Console (khuyên dùng)** — Sau khi chạy `qwenpaw app`, mở **http://127.0.0.1:8088/** → **Settings** → **Models**. Chọn nhà cung cấp, nhập **API Key**, và kích hoạt nhà cung cấp và mô hình đó.
-2. **`qwenpaw init`** — Khi bạn chạy `qwenpaw init`, nó sẽ hướng dẫn bạn cấu hình nhà cung cấp LLM và API key. Làm theo lời nhắc để chọn nhà cung cấp và nhập key của bạn.
+1. **Console (khuyên dùng)** — Sau khi chạy `qwenpaw app`, mở **http://127.0.0.1:8088/** → **Settings** → **Models**. Chọn nhà cung cấp dịch vụ, nhập **API Key**, và kích hoạt model tương ứng.
+2. **`qwenpaw init`** — Khi chạy `qwenpaw init`, bạn sẽ được hướng dẫn cấu hình nhà cung cấp LLM và API key. Làm theo lời nhắc để chọn nhà cung cấp và nhập key.
 3. **Biến môi trường** — Với DashScope bạn có thể đặt `DASHSCOPE_API_KEY` trong shell hoặc trong tệp `.env` trong thư mục làm việc.
 
 Các công cụ cần key bổ sung (ví dụ: `TAVILY_API_KEY` cho tìm kiếm web) có thể được đặt trong Console **Settings → Environment variables**, xem [Config](https://qwenpaw.agentscope.io/docs/config) để biết chi tiết.
@@ -366,7 +366,7 @@ QwenPaw có thể chạy LLM hoàn toàn trên máy của bạn — không cần
 | [Console](https://qwenpaw.agentscope.io/docs/console)                 | Giao diện Web: chat và cấu hình tác nhân              |
 | [Mô hình](https://qwenpaw.agentscope.io/docs/models)                  | Cấu hình nhà cung cấp đám mây, cục bộ và tùy chỉnh   |
 | [Kênh](https://qwenpaw.agentscope.io/docs/channels)                   | DingTalk, Feishu, QQ, Discord, iMessage, và hơn nữa  |
-| [Kỹ năng](https://qwenpaw.agentscope.io/docs/skills)                  | Mở rộng và tùy chỉnh khả năng                         |
+| [Skills](https://qwenpaw.agentscope.io/docs/skills)                  | Mở rộng và tùy chỉnh khả năng                         |
 | [Plugin](https://qwenpaw.agentscope.io/docs/plugins)                  | Hệ thống plugin                                       |
 | [MCP](https://qwenpaw.agentscope.io/docs/mcp)                         | Quản lý máy khách MCP                                 |
 | [Bộ nhớ](https://qwenpaw.agentscope.io/docs/memory)                   | Bộ nhớ dài hạn                                        |
@@ -374,9 +374,9 @@ QwenPaw có thể chạy LLM hoàn toàn trên máy của bạn — không cần
 | [Ngữ cảnh](https://qwenpaw.agentscope.io/docs/context)               | Cơ chế quản lý ngữ cảnh                               |
 | [Lệnh ma thuật](https://qwenpaw.agentscope.io/docs/commands)         | Điều khiển trạng thái hội thoại mà không cần đợi AI   |
 | [Nhịp tim](https://qwenpaw.agentscope.io/docs/heartbeat)             | Kiểm tra định kỳ và tóm tắt                           |
-| [Đa tác nhân](https://qwenpaw.agentscope.io/docs/multi-agent)        | Tạo nhiều tác nhân và bật cộng tác                    |
+| [Đa tác nhân](https://qwenpaw.agentscope.io/docs/multi-agent)        | Tạo nhiều tác nhân và kích hoạt hợp tác                    |
 | [Cấu hình & thư mục làm việc](https://qwenpaw.agentscope.io/docs/config) | Thư mục làm việc và tệp cấu hình                      |
-| [CLI](https://qwenpaw.agentscope.io/docs/cli)                        | Init, cron jobs, kỹ năng, dọn dẹp                    |
+| [CLI](https://qwenpaw.agentscope.io/docs/cli)                        | Init, cron jobs, Skills, dọn dẹp                    |
 | [FAQ](https://qwenpaw.agentscope.io/docs/faq)                        | Câu hỏi thường gặp và khắc phục sự cố                 |
 
 Tài liệu đầy đủ trong repo này: [website/public/docs/](website/public/docs/).
@@ -389,7 +389,7 @@ QwenPaw bao gồm cơ chế bảo mật đa lớp để bảo vệ dữ liệu v
 
 - **Bảo vệ công cụ** — Tự động chặn các lệnh shell nguy hiểm (ví dụ: `rm -rf /`, fork bomb, reverse shell, v.v.)
 - **Bảo vệ truy cập tệp** — Hạn chế tác nhân truy cập các đường dẫn nhạy cảm (ví dụ: `~/.ssh`, tệp khóa, thư mục hệ thống, v.v.)
-- **Quét bảo mật kỹ năng** — Tự động quét trước khi cài đặt kỹ năng, phát hiện các rủi ro như prompt injection, command injection, khóa cứng, đánh cắp dữ liệu, v.v.
+- **Quét bảo mật Skills** — Tự động quét trước khi cài đặt Skills, phát hiện các rủi ro như prompt injection, command injection, khóa nhúng cứng (hardcoded keys), rò rỉ dữ liệu (data exfiltration), v.v.
 - **Triển khai cục bộ** — Tất cả dữ liệu và bộ nhớ được lưu trữ cục bộ, không tải lên bên thứ ba (khi sử dụng API LLM đám mây, nội dung hội thoại được gửi đến nhà cung cấp API tương ứng)
 - **Xác thực Web** — Bảo vệ đăng nhập tùy chọn cho Console. Tắt theo mặc định; đặt `QWENPAW_AUTH_ENABLED=true` để bật. Xem [Xác thực Web](https://qwenpaw.agentscope.io/docs/security#Web-Authentication) để biết chi tiết.
 
@@ -417,8 +417,8 @@ Star QwenPaw trên GitHub để nhận thông báo ngay lập tức về các b�
 
 | Lĩnh vực                   | Mục                                                                                        | Trạng thái          |
 | -------------------------- | ------------------------------------------------------------------------------------------ | ------------------- |
-| **Mở rộng ngang**          | Thêm kênh, mô hình, kỹ năng, MCP — **hoan nghênh đóng góp từ cộng đồng**                   | Đang tìm người đóng góp |
-| **Mở rộng tính năng hiện có** | Tối ưu hiển thị, gợi ý tải xuống, tương thích đường dẫn Windows — **hoan nghênh đóng góp** | Đang tìm người đóng góp |
+| **Mở rộng ngang**          | Thêm kênh, mô hình, Skills, MCP — **hoan nghênh đóng góp từ cộng đồng**                   | Đang kêu gọi đóng góp |
+| **Mở rộng tính năng hiện có** | Tối ưu hiển thị, gợi ý tải xuống, tương thích đường dẫn Windows — **hoan nghênh đóng góp** | Đang kêu gọi đóng góp |
 | **Trải nghiệm máy khách**  | Cải thiện cài đặt, cập nhật và đóng gói                                                     | Đang thực hiện      |
 | **Mô hình**                | Chuyển đổi đa mô hình                                                                       | Đang thực hiện      |
 |                            | OAuth                                                                                       | Đã lên kế hoạch     |
@@ -437,7 +437,7 @@ Star QwenPaw trên GitHub để nhận thông báo ngay lập tức về các b�
 | **Ứng dụng QwenPaw**      | QwenPaw Creator                                                                             | Đang thực hiện      |
 |                            | QwenPaw Insight                                                                             | Đang thực hiện      |
 
-_Trạng thái:_ **Đang thực hiện** — đang tích cực phát triển; **Đã lên kế hoạch** — đã xếp hàng hoặc đang thiết kế, cũng hoan nghênh đóng góp; **Đang tìm người đóng góp** — chúng tôi khuyến khích đóng góp từ cộng đồng.
+_Trạng thái:_ **Đang thực hiện** — đang tích cực phát triển; **Đã lên kế hoạch** — đã xếp hàng hoặc đang thiết kế, cũng hoan nghênh đóng góp; **Đang kêu gọi đóng góp** — chúng tôi khuyến khích đóng góp từ cộng đồng.
 
 ## Cài đặt từ mã nguồn
 
@@ -466,9 +466,9 @@ pip install -e .
 
 ## Đóng góp
 
-QwenPaw phát triển thông qua cộng tác mở, và chúng tôi hoan nghênh mọi hình thức đóng góp! Xem [Lộ trình phát triển](#lộ-trình-phát-triển) ở trên (đặc biệt là các mục được đánh dấu **Đang tìm người đóng góp**) để tìm lĩnh vực bạn quan tâm, và đọc [CONTRIBUTING](https://github.com/agentscope-ai/QwenPaw/blob/main/CONTRIBUTING.md) để bắt đầu. Chúng tôi đặc biệt hoan nghênh:
+QwenPaw phát triển thông qua hợp tác mở, và chúng tôi hoan nghênh mọi hình thức đóng góp! Xem [Lộ trình phát triển](#lộ-trình-phát-triển) ở trên (đặc biệt là các mục được đánh dấu **Đang kêu gọi đóng góp**) để tìm lĩnh vực bạn quan tâm, và đọc [CONTRIBUTING](https://github.com/agentscope-ai/QwenPaw/blob/main/CONTRIBUTING.md) để bắt đầu. Chúng tôi đặc biệt hoan nghênh:
 
-- **Mở rộng ngang** — kênh mới, nhà cung cấp mô hình, kỹ năng, MCP.
+- **Mở rộng ngang** — kênh mới, nhà cung cấp mô hình, Skills, MCP.
 - **Mở rộng & hoàn thiện tính năng hiện có** — cải thiện hiển thị và tương tác, gợi ý tải xuống, tương thích đường dẫn Windows, v.v.
 
 Tham gia [GitHub Discussions](https://github.com/agentscope-ai/QwenPaw/discussions) để thảo luận ý tưởng hoặc nhận nhiệm vụ.
@@ -484,7 +484,7 @@ Chúng tôi hy vọng nó không phải là một công cụ lạnh lẽo, mà l
 
 ## Được xây dựng bởi
 
-[Đội ngũ AgentScope](https://github.com/agentscope-ai) · [AgentScope](https://github.com/agentscope-ai/agentscope) · [AgentScope Runtime](https://github.com/agentscope-ai/agentscope-runtime) · [ReMe](https://github.com/agentscope-ai/ReMe)
+[Nhóm AgentScope](https://github.com/agentscope-ai) · [AgentScope](https://github.com/agentscope-ai/agentscope) · [AgentScope Runtime](https://github.com/agentscope-ai/agentscope-runtime) · [ReMe](https://github.com/agentscope-ai/ReMe)
 
 ---
 
@@ -496,9 +496,9 @@ Chúng tôi hy vọng nó không phải là một công cụ lạnh lẽo, mà l
 
 ---
 
-## Đo lường từ xa
+## Telemetry
 
-QwenPaw thu thập dữ liệu sử dụng **ẩn danh** trong quá trình `qwenpaw init` để giúp chúng tôi hiểu cơ sở người dùng và ưu tiên cải tiến. Dữ liệu được gửi **mỗi phiên bản một lần** — khi bạn nâng cấp QwenPaw, dữ liệu từ xa được thu thập lại để chúng tôi có thể theo dõi mức độ áp dụng phiên bản.
+QwenPaw thu thập dữ liệu sử dụng **ẩn danh** trong quá trình `qwenpaw init` để giúp chúng tôi hiểu cơ sở người dùng và ưu tiên cải tiến. Dữ liệu được gửi **mỗi phiên bản một lần** — khi bạn nâng cấp QwenPaw, telemetry được thu thập lại để chúng tôi có thể theo dõi mức độ áp dụng phiên bản.
 
 **Những gì chúng tôi thu thập:**
 
@@ -511,7 +511,7 @@ QwenPaw thu thập dữ liệu sử dụng **ẩn danh** trong quá trình `qwen
 
 **Những gì chúng tôi KHÔNG thu thập:** Không có dữ liệu cá nhân, không có tệp, không có thông tin đăng nhập, không có địa chỉ IP, không có thông tin nhận dạng.
 
-Khi chạy `qwenpaw init` ở chế độ tương tác, bạn sẽ được hỏi có đồng ý tham gia hay không. Nếu bạn chọn `--defaults`, dữ liệu từ xa được chấp nhận tự động. Lời nhắc xuất hiện một lần mỗi phiên bản và không bao giờ ảnh hưởng đến chức năng của QwenPaw.
+Khi chạy `qwenpaw init` ở chế độ tương tác, bạn sẽ được hỏi có đồng ý tham gia hay không. Nếu bạn chọn `--defaults`, telemetry sẽ tự động được chấp nhận. Lời nhắc xuất hiện một lần mỗi phiên bản và không bao giờ ảnh hưởng đến chức năng của QwenPaw.
 
 ---
 
