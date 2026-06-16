@@ -26,7 +26,8 @@ description / expected_outcome / deps). Runtime fields are rejected.
 """
 from __future__ import annotations
 
-from typing import List, Optional
+import asyncio
+from typing import AsyncIterator, List, Optional
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request
 from fastapi.responses import FileResponse, Response, StreamingResponse
@@ -45,6 +46,7 @@ from .tasks_utils import (
     get_workspace_for_agent,
     load_pn_for_request,
     persist_pn,
+    resolve_request_api_origin,
     safe_filename,
     serve_artifact_file,
     serve_resource_file,
@@ -276,6 +278,34 @@ async def get_sop(
 # GET /api/tasks/{session_id}/dag/events — stream active graph snapshots
 # ---------------------------------------------------------------------------
 
+DAG_SSE_HEARTBEAT_SECONDS = 30.0
+
+
+async def _iter_dag_sse_events(
+    *,
+    request: Request,
+    session_id: str,
+    dag_store: DAGStore,
+    queue: asyncio.Queue,
+) -> AsyncIterator[str]:
+    try:
+        snapshot = await dag_store.read(session_id)
+        if snapshot is not None:
+            yield format_sse(snapshot)
+        while True:
+            if await request.is_disconnected():
+                break
+            try:
+                snapshot = await asyncio.wait_for(
+                    queue.get(),
+                    timeout=DAG_SSE_HEARTBEAT_SECONDS,
+                )
+                yield format_sse(snapshot)
+            except asyncio.TimeoutError:
+                yield ": heartbeat\n\n"
+    finally:
+        DAGBroadcaster.unsubscribe(session_id, queue)
+
 
 @router.get("/{session_id}/dag/events")
 async def stream_dag_events(
@@ -291,23 +321,19 @@ async def stream_dag_events(
     dag_store = DAGStore.from_session(session, user_id=user_id)
     queue = DAGBroadcaster.subscribe(session_id)
 
-    async def gen():
-        try:
-            snapshot = await dag_store.read(session_id)
-            if snapshot is not None:
-                yield format_sse(snapshot)
-            while True:
-                if await request.is_disconnected():
-                    break
-                snapshot = await queue.get()
-                yield format_sse(snapshot)
-        finally:
-            DAGBroadcaster.unsubscribe(session_id, queue)
-
     return StreamingResponse(
-        gen(),
+        _iter_dag_sse_events(
+            request=request,
+            session_id=session_id,
+            dag_store=dag_store,
+            queue=queue,
+        ),
         media_type="text/event-stream",
-        headers={"Cache-Control": "no-cache"},
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
     )
 
 
@@ -641,6 +667,7 @@ async def preview_file(
         request,
         agent_id,
     )
+    api_origin = resolve_request_api_origin(request)
     return serve_artifact_file(
         workspace,
         session_id,
@@ -650,6 +677,7 @@ async def preview_file(
         disposition="inline",
         rewrite_html=True,
         user_id=user_id,
+        api_origin=api_origin,
     )
 
 
@@ -664,21 +692,20 @@ async def resource_file(
     request: Request,
     path: str = Query(..., min_length=1),
     user_id: str = Query(default="default"),
+    agent_id: str = Query(default=""),
 ) -> FileResponse:
     """Proxy any file under the artifacts root (no whitelist check)."""
     del user_id  # kept for parity with preview URLs and auth-aware hosts
-    _, agent_id = await get_session_for_agent(
-        request,
-        getattr(request.state, "agent_id", None),
-    )
+    resolved_agent = agent_id or getattr(request.state, "agent_id", None)
+    _, resolved_agent = await get_session_for_agent(request, resolved_agent)
     workspace = await get_workspace_for_agent(
         request,
-        agent_id,
+        resolved_agent,
     )
     return serve_resource_file(
         workspace,
         session_id,
-        agent_id,
+        resolved_agent,
         path,
     )
 
@@ -718,6 +745,7 @@ async def download_file(
         request,
         agent_id,
     )
+    api_origin = resolve_request_api_origin(request)
     return serve_artifact_file(
         workspace,
         session_id,
@@ -727,4 +755,5 @@ async def download_file(
         disposition="attachment",
         rewrite_html=True,
         user_id=user_id,
+        api_origin=api_origin,
     )

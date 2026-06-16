@@ -65,6 +65,44 @@ def _report_artifact():
     )
 
 
+def test_build_resource_url_absolute() -> None:
+    from plugin_datapaw.core.routers.tasks_utils import build_resource_url
+
+    url = build_resource_url(
+        "s1",
+        CSV_PATH,
+        user_id="default",
+        agent_id="datapaw",
+        api_origin="http://127.0.0.1:8088",
+    )
+
+    assert url == (
+        "http://127.0.0.1:8088/api/tasks/s1/files/resource"
+        f"?path={quote(CSV_PATH, safe='')}"
+        "&user_id=default&agent_id=datapaw"
+    )
+
+
+def test_rewrite_html_resource_links_absolute() -> None:
+    from plugin_datapaw.core.routers.tasks_utils import rewrite_html_resource_links
+
+    rewritten = rewrite_html_resource_links(
+        SAMPLE_HTML,
+        html_path=REPORT_PATH,
+        session_id="s1",
+        user_id="default",
+        agent_id="datapaw",
+        api_origin="http://testserver",
+    )
+
+    csv_url = (
+        "http://testserver/api/tasks/s1/files/resource"
+        f"?path={quote(CSV_PATH, safe='')}"
+        "&amp;user_id=default&amp;agent_id=datapaw"
+    )
+    assert csv_url in rewritten
+
+
 def test_rewrite_html_resource_links_unit() -> None:
     from plugin_datapaw.core.routers.tasks_utils import rewrite_html_resource_links
 
@@ -107,17 +145,21 @@ def test_serve_artifact_file_preview_rewrites(tmp_path) -> None:
         disposition="inline",
         rewrite_html=True,
         user_id="default",
+        api_origin="http://testserver",
     )
 
     body = response.body.decode("utf-8")
     assert (
-        f"/api/tasks/s1/files/resource?path={quote(CSV_PATH, safe='')}"
+        "http://testserver/api/tasks/s1/files/resource"
+        f"?path={quote(CSV_PATH, safe='')}"
         in body
     )
     assert (
-        f"/api/tasks/s1/files/resource?path={quote(CSS_PATH, safe='')}"
+        "http://testserver/api/tasks/s1/files/resource"
+        f"?path={quote(CSS_PATH, safe='')}"
         in body
     )
+    assert "&amp;agent_id=datapaw" in body
 
 
 def test_serve_artifact_file_download_rewrites(tmp_path) -> None:
@@ -134,10 +176,15 @@ def test_serve_artifact_file_download_rewrites(tmp_path) -> None:
         disposition="attachment",
         rewrite_html=True,
         user_id="default",
+        api_origin="http://testserver",
     )
 
     body = response.body.decode("utf-8")
-    assert f"/api/tasks/s1/files/resource?path={quote(CSV_PATH, safe='')}" in body
+    assert (
+        "http://testserver/api/tasks/s1/files/resource"
+        f"?path={quote(CSV_PATH, safe='')}"
+        in body
+    )
     assert "Content-Disposition" in response.headers
     assert "attachment" in response.headers["Content-Disposition"]
 
@@ -175,3 +222,31 @@ def test_serve_resource_file_rejects_paths_outside_artifact_root(tmp_path) -> No
         )
 
     assert exc_info.value.status_code == 400
+
+
+def test_resolve_request_api_origin_uses_forwarded_headers() -> None:
+    from starlette.requests import Request
+
+    from plugin_datapaw.core.routers.tasks_utils import resolve_request_api_origin
+
+    scope = {
+        "type": "http",
+        "method": "GET",
+        "path": "/api/tasks/s1/files/preview",
+        "headers": [
+            (b"x-forwarded-proto", b"https"),
+            (b"x-forwarded-host", b"pre-datapaw-cloud.alibaba-inc.com"),
+            (b"host", b"10.0.0.1:8088"),
+        ],
+        "query_string": b"",
+        "server": ("10.0.0.1", 8088),
+        "client": ("127.0.0.1", 12345),
+        "scheme": "http",
+        "http_version": "1.1",
+    }
+    request = Request(scope)
+
+    assert (
+        resolve_request_api_origin(request)
+        == "https://pre-datapaw-cloud.alibaba-inc.com"
+    )

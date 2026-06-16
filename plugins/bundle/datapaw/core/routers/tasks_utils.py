@@ -58,12 +58,27 @@ def get_multi_agent_manager(request: Request):
     return manager
 
 
+def resolve_request_api_origin(request: Request) -> str:
+    """Return the public API origin (scheme + host) for the current request."""
+    proto = request.headers.get("x-forwarded-proto", request.url.scheme)
+    host = request.headers.get(
+        "x-forwarded-host",
+        request.headers.get("host", request.url.netloc),
+    )
+    return f"{proto}://{host}".rstrip("/")
+
+
 async def get_session_for_agent(request: Request, agent_id: Optional[str]):
     """Return the ``SafeJSONSession`` for a specific agent."""
     manager = get_multi_agent_manager(request)
 
     if not agent_id:
-        agent_id = request.headers.get("X-Agent-Id") or "default"
+        agent_id = (
+            getattr(request.state, "agent_id", None)
+            or request.headers.get("X-Agent-Id")
+            or request.query_params.get("agent_id")
+            or "datapaw"
+        )
 
     workspace = await manager.get_agent(agent_id)
     runner = getattr(workspace, "runner", None)
@@ -79,7 +94,12 @@ async def get_workspace_for_agent(request: Request, agent_id: Optional[str]):
     """Return the workspace for an agent (used for running-state check)."""
     manager = get_multi_agent_manager(request)
     if not agent_id:
-        agent_id = request.headers.get("X-Agent-Id") or "default"
+        agent_id = (
+            getattr(request.state, "agent_id", None)
+            or request.headers.get("X-Agent-Id")
+            or request.query_params.get("agent_id")
+            or "datapaw"
+        )
     return await manager.get_agent(agent_id)
 
 
@@ -183,19 +203,24 @@ def build_resource_url(
     path: str,
     *,
     user_id: str = "",
+    agent_id: str = "",
     fragment: str = "",
+    api_origin: str = "",
 ) -> str:
     """Build a resource-proxy URL scoped to session + artifact path."""
     encoded_session = quote(session_id, safe="")
     encoded_path = quote(path, safe="")
     user_part = f"&user_id={quote(user_id, safe='')}" if user_id else ""
+    agent_part = f"&agent_id={quote(agent_id, safe='')}" if agent_id else ""
     fragment_part = (
         f"#{quote(fragment, safe='/?:@!$&()*+,;=')}" if fragment else ""
     )
-    return (
+    relative = (
         f"/api/tasks/{encoded_session}/files/resource"
-        f"?path={encoded_path}{user_part}{fragment_part}"
+        f"?path={encoded_path}{user_part}{agent_part}{fragment_part}"
     )
+    origin = api_origin.rstrip("/") if api_origin else ""
+    return f"{origin}{relative}" if origin else relative
 
 
 def extract_artifacts(pn: dict) -> List[ArtifactItem]:
@@ -311,6 +336,8 @@ def rewrite_css_urls(
     html_path: str,
     session_id: str,
     user_id: str,
+    agent_id: str = "",
+    api_origin: str = "",
 ) -> str:
     def replace(match: re.Match[str]) -> str:
         quote_char = match.group(1)
@@ -323,7 +350,9 @@ def rewrite_css_urls(
             session_id,
             resource_path,
             user_id=user_id,
+            agent_id=agent_id,
             fragment=fragment,
+            api_origin=api_origin,
         )
         return f"url({quote_char}{rewritten}{quote_char})"
 
@@ -336,6 +365,8 @@ def rewrite_srcset(
     html_path: str,
     session_id: str,
     user_id: str,
+    agent_id: str = "",
+    api_origin: str = "",
 ) -> str:
     rewritten_parts: list[str] = []
     for candidate in srcset.split(","):
@@ -352,7 +383,9 @@ def rewrite_srcset(
             session_id,
             resource_path,
             user_id=user_id,
+            agent_id=agent_id,
             fragment=fragment,
+            api_origin=api_origin,
         )
         if len(parts) == 2:
             rewritten = f"{rewritten} {parts[1]}"
@@ -363,11 +396,21 @@ def rewrite_srcset(
 class HTMLResourceRewriter(HTMLParser):
     """Rewrite relative resource URLs in HTML to session resource API URLs."""
 
-    def __init__(self, *, html_path: str, session_id: str, user_id: str) -> None:
+    def __init__(
+        self,
+        *,
+        html_path: str,
+        session_id: str,
+        user_id: str,
+        agent_id: str = "",
+        api_origin: str = "",
+    ) -> None:
         super().__init__(convert_charrefs=False)
         self.html_path = html_path
         self.session_id = session_id
         self.user_id = user_id
+        self.agent_id = agent_id
+        self.api_origin = api_origin
         self.parts: list[str] = []
         self._style_depth = 0
 
@@ -380,7 +423,9 @@ class HTMLResourceRewriter(HTMLParser):
             self.session_id,
             resource_path,
             user_id=self.user_id,
+            agent_id=self.agent_id,
             fragment=fragment,
+            api_origin=self.api_origin,
         )
 
     def _rewrite_attrs(
@@ -401,6 +446,8 @@ class HTMLResourceRewriter(HTMLParser):
                     html_path=self.html_path,
                     session_id=self.session_id,
                     user_id=self.user_id,
+                    agent_id=self.agent_id,
+                    api_origin=self.api_origin,
                 )
             elif lower_name == "style":
                 value = rewrite_css_urls(
@@ -408,6 +455,8 @@ class HTMLResourceRewriter(HTMLParser):
                     html_path=self.html_path,
                     session_id=self.session_id,
                     user_id=self.user_id,
+                    agent_id=self.agent_id,
+                    api_origin=self.api_origin,
                 )
             rewritten.append((name, value))
         return rewritten
@@ -455,6 +504,8 @@ class HTMLResourceRewriter(HTMLParser):
                 html_path=self.html_path,
                 session_id=self.session_id,
                 user_id=self.user_id,
+                agent_id=self.agent_id,
+                api_origin=self.api_origin,
             )
         self.parts.append(data)
 
@@ -483,11 +534,15 @@ def rewrite_html_resource_links(
     html_path: str,
     session_id: str,
     user_id: str,
+    agent_id: str = "",
+    api_origin: str = "",
 ) -> str:
     parser = HTMLResourceRewriter(
         html_path=html_path,
         session_id=session_id,
         user_id=user_id,
+        agent_id=agent_id,
+        api_origin=api_origin,
     )
     parser.feed(html)
     parser.close()
@@ -512,6 +567,7 @@ def serve_artifact_file(
     disposition: Literal["inline", "attachment"],
     rewrite_html: bool = False,
     user_id: str = "",
+    api_origin: str = "",
 ) -> Response:
     """Validate against artifact whitelist + mount boundary, then serve."""
     matched: Optional[ArtifactItem] = next(
@@ -553,6 +609,8 @@ def serve_artifact_file(
                 html_path=matched.path,
                 session_id=session_id,
                 user_id=user_id,
+                agent_id=agent_id,
+                api_origin=api_origin,
             ),
             media_type="text/html; charset=utf-8",
             headers={"Content-Disposition": content_disposition},
