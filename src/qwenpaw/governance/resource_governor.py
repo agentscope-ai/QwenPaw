@@ -5,6 +5,7 @@ Core responsibilities: policy evaluation, audit recording, dynamic rule addition
 sandbox config compilation.
 """
 from __future__ import annotations
+import hashlib
 import logging
 from pathlib import Path
 from typing import Optional
@@ -39,8 +40,18 @@ class ResourceGovernor:
 
     def __init__(self, workspace_dir: str):
         self.workspace_dir = Path(workspace_dir)
-        # Policy is stored outside the workspace to prevent agent tampering
-        self._policy_dir = WORKING_DIR / "governance" / self.workspace_dir.name
+        # Policy is stored outside the workspace to prevent agent tampering.
+        # Use ``<basename>_<hash>`` so two workspaces with the same basename
+        # but different absolute paths (e.g. ``/Users/a/project`` vs
+        # ``/Users/b/project``) do not share the same policy directory.
+        ws_resolved = str(self.workspace_dir.resolve())
+        ws_hash = hashlib.sha256(
+            ws_resolved.encode("utf-8")
+        ).hexdigest()[:12]
+        self._policy_dir = (
+            WORKING_DIR / "governance"
+            / f"{self.workspace_dir.name}_{ws_hash}"
+        )
         self._policy: Optional[GovernancePolicy] = None
         self._sandbox_available: bool = False
         self._sandbox_capability: Optional[SandboxCapability] = None

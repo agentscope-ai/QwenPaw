@@ -497,12 +497,17 @@ def _generate_sandbox_script(
         "",
     ]
 
-    # Apply env_vars (e.g. mask blacklisted env keys with empty string)
+    # Apply env_vars: value == "" means **unset** (pop), not "set to empty",
+    # so the env blacklist actually removes the key (some libraries probe
+    # `key in os.environ` to detect presence).
     if config.env_vars:
         env_vars_repr = repr(list(config.env_vars.items()))
-        script_lines.append(f"# Apply env_vars (override / mask)")
+        script_lines.append("# Apply env_vars (override / unset)")
         script_lines.append(f"for _k, _v in {env_vars_repr}:")
-        script_lines.append(f"    os.environ[_k] = _v")
+        script_lines.append("    if _v == '':")
+        script_lines.append("        os.environ.pop(_k, None)")
+        script_lines.append("    else:")
+        script_lines.append("        os.environ[_k] = _v")
         script_lines.append("")
 
     script_lines += [
@@ -581,13 +586,20 @@ class LinuxSandbox:
             self._config, cmd, cwd, self._abi_version,
         )
 
-        # Write script to a temp file (in /tmp which is always accessible)
+        # Write script to a temp file (in /tmp which is always accessible).
+        # Defensive structure:
+        #   - mkstemp returns a fd; we hand it to os.fdopen() in a `with`
+        #     so the fd is closed even if the write itself raises.
+        #   - The outer try/finally ALWAYS unlinks the temp file, including
+        #     when os.write / os.chmod / subprocess setup raise. This
+        #     prevents leaking files that contain the full sandbox policy
+        #     and the command to be executed.
         script_fd, script_path = tempfile.mkstemp(
             prefix="landlock_", suffix=".py", dir="/tmp",
         )
         try:
-            os.write(script_fd, script.encode("utf-8"))
-            os.close(script_fd)
+            with os.fdopen(script_fd, "wb") as _f:
+                _f.write(script.encode("utf-8"))
             os.chmod(script_path, 0o755)
 
             # Find python3
@@ -640,7 +652,11 @@ class LinuxSandbox:
                     duration_ms=duration_ms,
                 )
             except Exception as e:
+                # Always tear down the subprocess on any error path so we
+                # do not leak grandchild processes (the script execs the
+                # actual command, so an orphaned child can survive us).
                 duration_ms = int((time.monotonic() - start) * 1000)
+                await self.stop()
                 return ExecutionResult(
                     exit_code=-1,
                     stdout="",
@@ -648,7 +664,8 @@ class LinuxSandbox:
                     duration_ms=duration_ms,
                 )
         finally:
-            # Clean up the script file
+            # Clean up the script file. Reached on EVERY path, including
+            # exceptions raised by os.fdopen / os.write / os.chmod above.
             try:
                 os.unlink(script_path)
             except OSError:

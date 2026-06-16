@@ -79,8 +79,28 @@ class SandboxConfig:
     # --- 执行控制 ---
     timeout_seconds: int = 30
     env_vars: Dict[str, str] = field(default_factory=dict)
+    """环境变量覆盖表。
+
+    所有后端的统一语义：
+        - ``value != ""`` → 在子进程环境中将 ``key`` 设为 ``value``。
+        - ``value == ""`` → 视为 **unset**，从子进程环境里 ``pop(key)``。
+          这是为了支持 governor 用 ``env_vars={k: ""}`` 实现敏感变量黑名单：
+          某些库会用 ``key in os.environ`` 判断存在性，单纯把值置空仍可能
+          被误判为「已设置」，必须真正移除。
+    """
+
     env_mode: str = "inject"
-    """'inject' = 追加到当前环境, 'allowlist' = 只传递声明的变量。"""
+    """'inject' = 追加到当前环境, 'allowlist' = 只传递声明的变量。
+
+    .. warning:: ``allowlist`` 模式当前 **未实现**。所有后端目前一律按
+        ``inject`` 行为处理。
+
+    .. todo:: 实现 ``allowlist`` 模式或彻底移除该字段。实现要点：
+        - local/linux/windows 三个后端在 ``allowlist`` 模式下应清空继承环境，
+          仅注入 ``env_vars`` 中显式声明的变量；
+        - 注意保留 sandbox 自身需要的最小变量（如 ``PATH``、``HOME``、
+          ``LANG``），否则子进程多数命令会失败。
+    """
 
     # --- 平台透传 (escape hatch) ---
     platform_hints: Dict[str, Any] = field(default_factory=dict)

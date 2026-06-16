@@ -266,10 +266,18 @@ class MacOSSandbox(LocalSandbox):
         if not os.path.exists(shell):
             shell = "/bin/bash"
 
-        # Build subprocess env: inherit + apply env_vars (overrides)
+        # Build subprocess env: inherit + apply env_vars overrides.
+        # Semantics: value == "" means **unset** (pop), not "set to empty".
+        # This matters because some libraries probe `key in os.environ` to
+        # detect presence; setting an empty string still leaves the key in
+        # the environment and would defeat the env blacklist.
         env = dict(os.environ)
         if self._config.env_vars:
-            env.update(self._config.env_vars)
+            for _k, _v in self._config.env_vars.items():
+                if _v == "":
+                    env.pop(_k, None)
+                else:
+                    env[_k] = _v
 
         start = time.monotonic()
         try:
@@ -317,7 +325,10 @@ class MacOSSandbox(LocalSandbox):
                 duration_ms=duration_ms,
             )
         except Exception as e:
+            # Always tear down the subprocess on any error path so we do
+            # not leak the spawned child (sandbox-exec / shell).
             duration_ms = int((time.monotonic() - start) * 1000)
+            await self.stop()
             return ExecutionResult(
                 exit_code=-1,
                 stdout="",
@@ -340,10 +351,18 @@ class NoneSandbox(LocalSandbox):
         if not os.path.exists(shell):
             shell = "/bin/bash"
 
-        # Build subprocess env: inherit + apply env_vars (overrides)
+        # Build subprocess env: inherit + apply env_vars overrides.
+        # Semantics: value == "" means **unset** (pop), not "set to empty".
+        # This matters because some libraries probe `key in os.environ` to
+        # detect presence; setting an empty string still leaves the key in
+        # the environment and would defeat the env blacklist.
         env = dict(os.environ)
         if self._config.env_vars:
-            env.update(self._config.env_vars)
+            for _k, _v in self._config.env_vars.items():
+                if _v == "":
+                    env.pop(_k, None)
+                else:
+                    env[_k] = _v
 
         start = time.monotonic()
         try:
@@ -378,7 +397,10 @@ class NoneSandbox(LocalSandbox):
                 duration_ms=duration_ms,
             )
         except Exception as e:
+            # Always tear down the subprocess on any error path so we do
+            # not leak the spawned child (sandbox-exec / shell).
             duration_ms = int((time.monotonic() - start) * 1000)
+            await self.stop()
             return ExecutionResult(
                 exit_code=-1,
                 stdout="",

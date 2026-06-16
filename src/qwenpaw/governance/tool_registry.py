@@ -88,8 +88,13 @@ def _create_default_registry() -> ToolRegistry:
     registry.register("Write",              "file", "file_path")
     registry.register("Edit",               "file", "file_path")
     registry.register("Append",             "file", "file_path")
-    registry.register("Grep",               "file", "pattern")
-    registry.register("Glob",               "file", "pattern")
+    # NOTE: Grep/Glob's ``pattern`` parameter is a regex / glob pattern
+    # (e.g. "TODO" or "**/*.py"), NOT a filesystem path. Path-based
+    # governance rules cannot match against it. We therefore use the
+    # ``path`` parameter (the search root, defaults to WORKING_DIR) as
+    # the governance target so file-path rules actually apply.
+    registry.register("Grep",               "file", "path")
+    registry.register("Glob",               "file", "path")
     registry.register("SendFileToUser",     "file", "file_path")
     registry.register("ViewImage",          "file", "file_path")
     registry.register("ViewVideo",          "file", "file_path")

@@ -354,12 +354,17 @@ def _generate_wsl_sandbox_script(
         "",
     ]
 
-    # Apply env_vars (e.g. mask blacklisted env keys with empty string)
+    # Apply env_vars: value == "" means **unset** (pop), not "set to empty",
+    # so the env blacklist actually removes the key (some libraries probe
+    # `key in os.environ` to detect presence).
     if config.env_vars:
         env_vars_repr = repr(list(config.env_vars.items()))
-        script_lines.append(f"# Apply env_vars (override / mask)")
+        script_lines.append("# Apply env_vars (override / unset)")
         script_lines.append(f"for _k, _v in {env_vars_repr}:")
-        script_lines.append(f"    os.environ[_k] = _v")
+        script_lines.append("    if _v == '':")
+        script_lines.append("        os.environ.pop(_k, None)")
+        script_lines.append("    else:")
+        script_lines.append("        os.environ[_k] = _v")
         script_lines.append("")
 
     script_lines += [

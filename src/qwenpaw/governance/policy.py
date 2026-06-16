@@ -9,6 +9,7 @@
 """
 from __future__ import annotations
 import copy
+import logging
 import re
 from dataclasses import dataclass, field
 from enum import Enum
@@ -20,6 +21,8 @@ import yaml
 
 from .tool_registry import ToolRegistry, DEFAULT_REGISTRY
 from ..sandbox import SandboxConfig
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Core types
@@ -121,9 +124,14 @@ class GovernanceRule:
         # grantee check
         if self.grantee != "*" and self.grantee != tc_spec.agent_id:
             return False
-        # session-level rule: bound to a specific chat session
-        if self.duration == "session" and self.session_id and tc_spec.session_id:
-            if self.session_id != tc_spec.session_id:
+        # session-level rule: bound to a specific chat session.
+        # Fail-closed: if the rule is session-scoped, the request MUST carry
+        # the same session_id. A missing tc_spec.session_id means we cannot
+        # prove the request belongs to the bound session, so we refuse to
+        # match (do NOT silently fall through, which would let any unscoped
+        # request match a session rule).
+        if self.duration == "session" and self.session_id:
+            if not tc_spec.session_id or self.session_id != tc_spec.session_id:
                 return False
         # parse "ToolName(pattern)"
         rule_tool, rule_pattern = _parse_match(self.match)
@@ -577,13 +585,15 @@ def load_governance_policy(policy_dir: str, workspace_dir: str) -> GovernancePol
     YAML format:
         version: "1.0"
         audit_level: "all"
-        builtin_rules:
-          - match: "*(.env*)"
-            action: ask
-            reason: "Env file may contain secrets/credentials"
         user_rules:
           - match: "Read(WORKSPACE_DIR/*)"
             action: allow
+
+    Note:
+        ``builtin_rules`` are always sourced from code (``DEFAULT_BUILTIN_RULES``)
+        and intentionally ignored if present in YAML. This prevents a tampered
+        or accidentally edited policy file from weakening built-in protections
+        (e.g. removing the ASK rule for ``.env`` / ``.ssh``).
     """
     path = Path(policy_dir) / "policy.yaml"
     if not path.exists():
@@ -601,8 +611,21 @@ def load_governance_policy(policy_dir: str, workspace_dir: str) -> GovernancePol
     version = data.get("version", "1.0")
     audit_level = data.get("audit_level", "all")
 
-    # ── builtin_rules + user_rules ──
-    builtin_rules = _parse_rules(data.get("builtin_rules", []))
+    # ── builtin_rules: ALWAYS sourced from code (not from YAML) ──
+    # Rationale: builtin_rules encode system-level protections (e.g. ASK on
+    # ``.env`` / ``.ssh``). Honoring a YAML override here would let a tampered
+    # or accidentally truncated policy file silently weaken those protections.
+    # Any ``builtin_rules`` key in YAML is intentionally ignored.
+    if "builtin_rules" in data:
+        logger.warning(
+            "load_governance_policy: ignoring 'builtin_rules' in %s; "
+            "builtin rules are managed in code and cannot be overridden "
+            "via YAML.",
+            path,
+        )
+    builtin_rules = copy.deepcopy(DEFAULT_BUILTIN_RULES)
+
+    # ── user_rules ──
     user_rules = _parse_rules(data.get("user_rules", []))
 
     # ── env_blacklist ──
@@ -611,8 +634,6 @@ def load_governance_policy(policy_dir: str, workspace_dir: str) -> GovernancePol
         env_blacklist = []
 
     # ── Cold start: fill in missing default rules ──
-    if not builtin_rules:
-        builtin_rules = copy.deepcopy(DEFAULT_BUILTIN_RULES)
     if not user_rules:
         user_rules = copy.deepcopy(DEFAULT_USER_RULES)
     if not env_blacklist:
@@ -641,13 +662,17 @@ def save_governance_policy(policy: GovernancePolicy, policy_dir: str,
         policy_dir: directory to write policy.yaml
         workspace_dir: workspace path, used to restore actual paths back to
                        WORKSPACE_DIR placeholders (keeps yaml portable)
+
+    Note:
+        ``builtin_rules`` are NOT written to YAML — they live in code
+        (``DEFAULT_BUILTIN_RULES``). This keeps the policy file minimal and
+        prevents it from becoming a tamper surface for system-level
+        protections (load also ignores any ``builtin_rules`` key on disk).
     """
-    builtin_rules = list(policy.builtin_rules)
     user_rules = list(policy.user_rules)
 
     # ── Restore actual paths to WORKSPACE_DIR placeholders ──
     if workspace_dir:
-        _unresolve_workspace_dir(builtin_rules, workspace_dir)
         _unresolve_workspace_dir(user_rules, workspace_dir)
 
     path = Path(policy_dir) / "policy.yaml"
@@ -655,9 +680,6 @@ def save_governance_policy(policy: GovernancePolicy, policy_dir: str,
         "version": policy.version,
         "audit_level": policy.audit_level,
         "env_blacklist": list(policy.env_blacklist),
-        "builtin_rules": [
-            _rule_to_dict(r) for r in builtin_rules
-        ],
         "user_rules": [
             _rule_to_dict(r) for r in user_rules
         ],
