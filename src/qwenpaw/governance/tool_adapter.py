@@ -1,8 +1,10 @@
 # -*- coding: utf-8 -*-
+# pylint: disable=protected-access
 """PolicyGuardedTool — Governance policy-checked tool wrapper.
 
-Replaces the existing GuardedFunctionTool. Each tool call goes through two layers:
-1. check_permissions: pre-execution decision — ToolCallSpec → governor.assert_and_audit()
+Replaces the existing GuardedFunctionTool. Each tool call goes through
+two layers:
+1. check_permissions: pre-execution decision
 2. __call__: actual execution — handles sandbox violation retry loop
 """
 
@@ -13,45 +15,18 @@ import os
 import uuid
 from typing import Any, Optional
 
-logger = logging.getLogger(__name__)
+from agentscope.message import TextBlock
+from agentscope.tool import ToolChunk
 
 from .policy import (
     GovernanceRule,
     GovernanceAction,
-    GovernanceDecision,
     ToolCallSpec,
 )
+from .resource_governor import ResourceGovernor
 from .tool_registry import DEFAULT_REGISTRY
 
-from agentscope.message import TextBlock
-from agentscope.tool import ToolChunk
-
-from .resource_governor import ResourceGovernor
-
-# ---------------------------------------------------------------------------
-# Inline-import policy
-# ---------------------------------------------------------------------------
-# Several helpers below import ``agentscope.tool``, ``agentscope.permission``,
-# ``agentscope.message`` and a few ``qwenpaw.*`` modules *inside* function
-# bodies instead of at module top-level.  This is intentional:
-#
-#   1. ``PolicyGuardedTool.__new__`` synthesises an anonymous subclass of
-#      ``FunctionTool`` at instantiation time (see the class docstring).
-#      Importing ``FunctionTool`` at top-level pulls in the whole agentscope
-#      tool subsystem, which transitively imports ``qwenpaw.governance`` and
-#      causes a circular import during package initialisation.
-#   2. ``_ask_user_approval`` reaches into ``qwenpaw.app.approvals`` and
-#      ``qwenpaw.security.tool_guard.*``; those packages depend on the
-#      governance module, so importing them at the top would also create a
-#      cycle.
-#
-# .. todo::
-#     Once the governance / agentscope / tool_guard layering is refactored
-#     so that ``qwenpaw.governance`` no longer sits *below* its consumers,
-#     promote these inline imports back to module level and drop this note.
-#     Tracked together with the ``PolicyGuardedTool.__new__`` /
-#     ``GuardedFunctionTool`` / ``DriverCapabilityTool`` unification
-#     follow-up referenced in the class docstring.
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # PolicyGuardedTool
@@ -154,17 +129,25 @@ async def _policy_tool_check_permissions(
     self._qp_last_input_data = input_data
     target = DEFAULT_REGISTRY.extract_target(tool_name, input_data)
 
-    # Resolve relative paths to absolute so workspace ALLOW rules
-    # (e.g. "Read(/home/user/project/**)") match even when the LLM
-    # passes a relative path like "src/main.py".
+    # Resolve file-tool targets to absolute paths so workspace ALLOW
+    # rules (e.g. "Read(/home/user/project/**)") match even when the
+    # LLM passes a relative path like "src/main.py".  Empty targets
+    # (e.g. Grep/Glob with no explicit path) default to workspace root.
     tool_type = DEFAULT_REGISTRY.get_type(tool_name)
-    if tool_type == "file" and target and not os.path.isabs(target):
+    if tool_type == "file":
         ws_dir = getattr(governor, "workspace_dir", None)
-        if ws_dir:
-            target = os.path.normpath(os.path.join(ws_dir, target))
+        if not target:
+            if ws_dir:
+                target = str(ws_dir)
+        elif not os.path.isabs(target):
+            if ws_dir:
+                target = os.path.normpath(os.path.join(ws_dir, target))
 
     agent_id = getattr(self, "_qp_request_context", {}).get("agent_id", "")
-    session_id = getattr(self, "_qp_request_context", {}).get("session_id", "")
+    session_id = getattr(self, "_qp_request_context", {}).get(
+        "session_id",
+        "",
+    )
 
     tc_spec = ToolCallSpec(
         tool_name=tool_name,
@@ -224,9 +207,10 @@ async def _policy_tool_call(
     *args: Any,
     **kwargs: Any,
 ) -> Any:
-    """Override FunctionTool.__call__ to handle sandbox execution + violation retry.
+    """Override FunctionTool.__call__ for sandbox execution + retry.
 
-    If sandbox execution triggers a violation (ToolChunk state=DENIED), request user approval.
+    If sandbox execution triggers a violation (ToolChunk state=DENIED),
+    request user approval.
     If the user approves, retry without sandbox.
     """
     sandbox_mode = getattr(self, "_qp_sandbox_mode", False)
@@ -282,7 +266,7 @@ async def _policy_tool_call(
                     type="text",
                     text=f"Sandbox violation: {violation_msg}\n"
                     f"Command was blocked by sandbox security policy.",
-                )
+                ),
             ],
         )
 
@@ -295,7 +279,7 @@ async def _policy_tool_call(
     agent_id = request_context.get("agent_id", "")
     session_id = request_context.get("session_id", "")
 
-    from agentscope.permission import PermissionBehavior, PermissionDecision
+    from agentscope.permission import PermissionBehavior
 
     governance_reason = getattr(
         getattr(self, "_qp_policy_decision", None),
@@ -335,7 +319,7 @@ async def _policy_tool_call(
                     text=f"Sandbox violation: {violation_msg}\n"
                     f"Command was blocked and user denied approval.\n\n"
                     f"{_NO_RETRY_INSTRUCTION}",
-                )
+                ),
             ],
         )
 
@@ -492,7 +476,8 @@ async def _ask_user_approval(
     summary = format_findings_summary(guard_result)
     if decision == ApprovalDecision.APPROVED:
         # ── Distinguish builtin ask vs user ask ──
-        # builtin ask → no rule recorded (asks every time, protecting high-risk resources)
+        # builtin ask → no rule recorded (asks every time, protecting
+        # high-risk resources)
         # user ask   → record generalized rule (skip asking next time)
         if not governor.is_builtin_ask(tc_spec):
             try:
@@ -503,10 +488,11 @@ async def _ask_user_approval(
                 # ``generalize_rule_match`` in ``policy.py``) to avoid the
                 # security risks of broad wildcard rules.
                 generalized = generalize_rule_match(tool_name, target)
-                rule_tool, rule_pattern = generalized.split("(", 1)
+                _, rule_pattern = generalized.split("(", 1)
                 rule_pattern = rule_pattern.rstrip(")")
 
-                # Empty pattern guard (§8.1): tools with empty target don't write rules
+                # Empty pattern guard (§8.1): tools with empty target
+                # don't write rules
                 if rule_pattern:
                     rule = GovernanceRule(
                         match=generalized,

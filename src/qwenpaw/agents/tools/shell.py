@@ -457,7 +457,10 @@ async def execute_shell_command(
 
     if sandbox_config is not None:
         result = await _execute_in_sandbox(
-            cmd, sandbox_config, timeout, str(working_dir),
+            cmd,
+            sandbox_config,
+            timeout,
+            str(working_dir),
         )
         # Sandbox violation: command tried to access something not permitted
         if result.sandbox_violation:
@@ -468,13 +471,15 @@ async def execute_shell_command(
                     TextBlock(
                         type="text",
                         text=f"Sandbox violation: {result.sandbox_violation}\n"
-                             f"Command was blocked by sandbox security policy.",
+                        f"Command was blocked by sandbox security policy.",
                     ),
                 ],
                 metadata={"sandbox_violation": result.sandbox_violation},
             )
         if result.exit_code == 0:
-            response_text = result.stdout or "Command executed successfully (no output)."
+            response_text = (
+                result.stdout or "Command executed successfully (no output)."
+            )
             if result.stderr:
                 response_text += f"\n[stderr]\n{result.stderr}"
         else:
@@ -495,13 +500,10 @@ async def execute_shell_command(
             ],
         )
 
-    # NOTE: this code path runs for every shell command on platforms
-    # where the sandbox is unavailable (e.g. Windows). Logged at DEBUG
-    # so it doesn't flood production logs and doesn't make the
-    # "un-sandboxed" execution path obvious to log readers.
     import logging as _logging
-    _logging.getLogger(__name__).debug(
-        "[sandbox] SKIP: sandbox_config is None, executing directly"
+
+    _logging.getLogger(__name__).info(
+        "[sandbox] SKIP: sandbox_config is None, executing directly",
     )
 
     try:

@@ -1,11 +1,11 @@
 # -*- coding: utf-8 -*-
+# pylint: disable=unused-argument,protected-access,unused-variable
 """Unit tests for Windows WSL2 sandbox."""
+
 from __future__ import annotations
 
 import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
-
-import pytest
 
 from qwenpaw.sandbox import MountSpec, SandboxConfig, SandboxMode
 from qwenpaw.sandbox.windows_sandbox import (
@@ -16,7 +16,6 @@ from qwenpaw.sandbox.windows_sandbox import (
     wsl_to_win_path,
 )
 
-
 # ============================================================================
 # Path translation tests
 # ============================================================================
@@ -26,7 +25,10 @@ class TestPathTranslation:
     """Test Windows ↔ WSL path conversion."""
 
     def test_win_to_wsl_c_drive(self):
-        assert win_to_wsl_path("C:\\Users\\foo\\project") == "/mnt/c/Users/foo/project"
+        assert (
+            win_to_wsl_path("C:\\Users\\foo\\project")
+            == "/mnt/c/Users/foo/project"
+        )
 
     def test_win_to_wsl_d_drive(self):
         assert win_to_wsl_path("D:\\data\\files") == "/mnt/d/data/files"
@@ -78,7 +80,11 @@ class TestProbeWSL2:
         # Second call: --list --verbose (no WSL2 distros)
         mock_run.side_effect = [
             MagicMock(returncode=0, stdout="", stderr=""),
-            MagicMock(returncode=0, stdout="NAME   STATE   VERSION\n", stderr=""),
+            MagicMock(
+                returncode=0,
+                stdout="NAME   STATE   VERSION\n",
+                stderr="",
+            ),
         ]
         available, distro, reason = probe_wsl2_availability()
         assert available is False
@@ -91,7 +97,10 @@ class TestProbeWSL2:
             MagicMock(returncode=0, stdout="", stderr=""),
             MagicMock(
                 returncode=0,
-                stdout="  NAME            STATE           VERSION\n* Ubuntu-22.04    Running         2\n",
+                stdout=(
+                    "  NAME            STATE           VERSION\n"
+                    "* Ubuntu-22.04    Running         2\n"
+                ),
                 stderr="",
             ),
         ]
@@ -115,7 +124,11 @@ class TestWSLScriptGeneration:
             mounts=[MountSpec(path="C:\\Users\\foo\\project", writable=True)],
         )
         script = _generate_wsl_sandbox_script(
-            config, "echo hello", "/mnt/c/Users/foo/project", 1, "/home/foo",
+            config,
+            "echo hello",
+            "/mnt/c/Users/foo/project",
+            1,
+            "/home/foo",
         )
         assert "add_path" in script
         assert "/mnt/c/Users/foo/project" in script
@@ -131,11 +144,15 @@ class TestWSLScriptGeneration:
             deny_paths=["~/.ssh", "~/.aws"],
         )
         script = _generate_wsl_sandbox_script(
-            config, "ls", "/mnt/c/Users/foo/project", 1, "/home/foo",
+            config,
+            "ls",
+            "/mnt/c/Users/foo/project",
+            1,
+            "/home/foo",
         )
         # deny_paths should NOT appear as static add_path calls
         # but should appear in dynamic enumeration exclusion
-        assert "/home/foo/.ssh" not in script.split("_deny_set")[0]
+        assert "/home/foo/.ssh" not in script.split("_deny_set", maxsplit=1)[0]
         assert "_deny_set" in script  # Dynamic home enumeration
 
     def test_no_deny_paths(self):
@@ -147,7 +164,11 @@ class TestWSLScriptGeneration:
             deny_paths=[],
         )
         script = _generate_wsl_sandbox_script(
-            config, "ls", "/mnt/c/Users/foo/project", 1, "/home/foo",
+            config,
+            "ls",
+            "/mnt/c/Users/foo/project",
+            1,
+            "/home/foo",
         )
         # Should grant /mnt and home without dynamic enumeration
         assert "/mnt" in script
@@ -183,7 +204,9 @@ class TestWindowsSandboxExecution:
         mock_write_proc.returncode = 0
 
         mock_exec_proc = AsyncMock()
-        mock_exec_proc.communicate = AsyncMock(return_value=(b"hello world\n", b""))
+        mock_exec_proc.communicate = AsyncMock(
+            return_value=(b"hello world\n", b""),
+        )
         mock_exec_proc.returncode = 0
 
         mock_cleanup_proc = AsyncMock()
@@ -200,7 +223,10 @@ class TestWindowsSandboxExecution:
             else:
                 return mock_cleanup_proc
 
-        with patch("asyncio.create_subprocess_exec", side_effect=mock_create_subprocess):
+        with patch(
+            "asyncio.create_subprocess_exec",
+            side_effect=mock_create_subprocess,
+        ):
             result = asyncio.run(sandbox.execute("echo hello world"))
 
         assert result.exit_code == 0
@@ -219,7 +245,10 @@ class TestWindowsSandboxExecution:
 
         mock_exec_proc = AsyncMock()
         mock_exec_proc.communicate = AsyncMock(
-            return_value=(b"", b"cat: /home/foo/.ssh/id_rsa: Permission denied\n")
+            return_value=(
+                b"",
+                b"cat: /home/foo/.ssh/id_rsa: Permission denied\n",
+            ),
         )
         mock_exec_proc.returncode = 1
 
@@ -237,7 +266,10 @@ class TestWindowsSandboxExecution:
             else:
                 return mock_cleanup_proc
 
-        with patch("asyncio.create_subprocess_exec", side_effect=mock_create_subprocess):
+        with patch(
+            "asyncio.create_subprocess_exec",
+            side_effect=mock_create_subprocess,
+        ):
             result = asyncio.run(sandbox.execute("cat ~/.ssh/id_rsa"))
 
         assert result.exit_code == 1
@@ -256,7 +288,9 @@ class TestWindowsSandboxExecution:
         mock_write_proc.returncode = 0
 
         mock_exec_proc = AsyncMock()
-        mock_exec_proc.communicate = AsyncMock(side_effect=asyncio.TimeoutError())
+        mock_exec_proc.communicate = AsyncMock(
+            side_effect=asyncio.TimeoutError(),
+        )
         mock_exec_proc.returncode = None
         mock_exec_proc.kill = MagicMock()
 
@@ -269,7 +303,10 @@ class TestWindowsSandboxExecution:
             else:
                 return mock_exec_proc
 
-        with patch("asyncio.create_subprocess_exec", side_effect=mock_create_subprocess):
+        with patch(
+            "asyncio.create_subprocess_exec",
+            side_effect=mock_create_subprocess,
+        ):
             result = asyncio.run(sandbox.execute("sleep 100"))
 
         assert result.timed_out is True
@@ -301,7 +338,7 @@ class TestFactoryWSL2:
 
 
 class TestConfigProbeWindows:
-    """Test that probe_sandbox_support disables Windows sandbox at probe time."""
+    """Test probe_sandbox_support disables Windows sandbox at probe time."""
 
     @patch("sys.platform", "win32")
     @patch("qwenpaw.sandbox.config._probe_windows_wsl2")

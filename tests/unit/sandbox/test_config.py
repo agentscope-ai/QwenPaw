@@ -1,8 +1,9 @@
 # -*- coding: utf-8 -*-
+# pylint: disable=protected-access
 """Unit tests for sandbox config and seatbelt profile generation."""
+
 from __future__ import annotations
 
-import logging
 from unittest.mock import patch
 
 from qwenpaw.sandbox import (
@@ -12,7 +13,6 @@ from qwenpaw.sandbox import (
     SandboxMode,
 )
 from qwenpaw.sandbox.local_sandbox import MacOSSandbox
-
 
 # ============================================================================
 # Task 5.1: test_sandbox_config_defaults
@@ -64,26 +64,26 @@ class TestSeatbeltProfile:
     """Test that _compile_seatbelt_profile correctly uses new config fields."""
 
     def _make_sandbox(self, **kwargs) -> MacOSSandbox:
-        defaults = dict(
-            mode=SandboxMode.SEATBELT,
-            workspace_dir="/tmp/test_ws",
-            mounts=[MountSpec(path="/tmp/test_ws", writable=True)],
-        )
+        defaults = {
+            "mode": SandboxMode.SEATBELT,
+            "workspace_dir": "/tmp/test_ws",
+            "mounts": [MountSpec(path="/tmp/test_ws", writable=True)],
+        }
         defaults.update(kwargs)
         config = SandboxConfig(**defaults)
         return MacOSSandbox(config)
 
     def test_deny_paths_in_seatbelt_profile(self):
         sandbox = self._make_sandbox(
-            deny_paths=["/Users/test/.ssh", "/Users/test/.gnupg"]
+            deny_paths=["/Users/test/.ssh", "/Users/test/.gnupg"],
         )
         profile = sandbox._compile_seatbelt_profile()
 
-        assert '(deny file-read*' in profile
+        assert "(deny file-read*" in profile
         assert '(subpath "/Users/test/.ssh")' in profile
         assert '(subpath "/Users/test/.gnupg")' in profile
         # deny_paths should also block writes
-        assert '(deny file-write*' in profile
+        assert "(deny file-write*" in profile
 
     def test_allow_read_all_true(self):
         sandbox = self._make_sandbox(allow_read_all=True)
@@ -121,7 +121,9 @@ class TestSeatbeltProfile:
                 if line.startswith(";") and "File write" in line:
                     break
 
-        assert not blanket_read, "allow_read_all=False should not have blanket (allow file-read*)"
+        assert (
+            not blanket_read
+        ), "allow_read_all=False should not have blanket (allow file-read*)"
         assert '(subpath "/tmp/test_ws")' in profile
         assert '(subpath "/opt/data")' in profile
 
@@ -129,7 +131,11 @@ class TestSeatbeltProfile:
         sandbox = self._make_sandbox(
             mounts=[
                 MountSpec(path="/tmp/test_ws", writable=True, executable=True),
-                MountSpec(path="/tmp/untrusted", writable=True, executable=False),
+                MountSpec(
+                    path="/tmp/untrusted",
+                    writable=True,
+                    executable=False,
+                ),
             ],
         )
         profile = sandbox._compile_seatbelt_profile()
@@ -137,16 +143,20 @@ class TestSeatbeltProfile:
         assert "(deny process-exec*" in profile
         assert '(subpath "/tmp/untrusted")' in profile
         # Should NOT deny exec for /tmp/test_ws
-        # Check that deny process-exec is paired with /tmp/untrusted not /tmp/test_ws
+        # Check that deny process-exec is paired with /tmp/untrusted
+        # not /tmp/test_ws
         deny_exec_idx = profile.find("(deny process-exec*")
         assert deny_exec_idx > 0
         after_deny = profile[deny_exec_idx:]
         assert "/tmp/untrusted" in after_deny
 
     def test_platform_hints_seatbelt_extra_rules(self):
-        extra = '(allow iokit-open (iokit-user-client-class "AGXDeviceUserClient"))'
+        extra = (
+            "(allow iokit-open "
+            '(iokit-user-client-class "AGXDeviceUserClient"))'
+        )
         sandbox = self._make_sandbox(
-            platform_hints={"seatbelt_extra_rules": extra}
+            platform_hints={"seatbelt_extra_rules": extra},
         )
         profile = sandbox._compile_seatbelt_profile()
 
@@ -175,7 +185,7 @@ class TestUnsupportedFeaturesLogging:
                 workspace_dir="/tmp/ws",
                 mounts=[MountSpec(path="/tmp/ws", writable=True)],
                 max_processes=10,
-            )
+            ),
         )
         with patch("qwenpaw.sandbox.local_sandbox.logger") as mock_logger:
             sandbox._compile_seatbelt_profile()
@@ -192,7 +202,7 @@ class TestUnsupportedFeaturesLogging:
                 workspace_dir="/tmp/ws",
                 mounts=[MountSpec(path="/tmp/ws", writable=True)],
                 max_memory_mb=512,
-            )
+            ),
         )
         with patch("qwenpaw.sandbox.local_sandbox.logger") as mock_logger:
             sandbox._compile_seatbelt_profile()
@@ -209,7 +219,7 @@ class TestUnsupportedFeaturesLogging:
                 workspace_dir="/tmp/ws",
                 mounts=[MountSpec(path="/tmp/ws", writable=True)],
                 network_ports=[PortRule(port=443)],
-            )
+            ),
         )
         with patch("qwenpaw.sandbox.local_sandbox.logger") as mock_logger:
             sandbox._compile_seatbelt_profile()
@@ -225,7 +235,7 @@ class TestUnsupportedFeaturesLogging:
                 mode=SandboxMode.SEATBELT,
                 workspace_dir="/tmp/ws",
                 mounts=[MountSpec(path="/tmp/ws", writable=True)],
-            )
+            ),
         )
         with patch("qwenpaw.sandbox.local_sandbox.logger") as mock_logger:
             sandbox._compile_seatbelt_profile()

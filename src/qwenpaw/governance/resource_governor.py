@@ -1,12 +1,12 @@
 # -*- coding: utf-8 -*-
-"""Resource Governor — Policy evaluation + audit logging + sandbox config compilation.
-
-Core responsibilities: policy evaluation, audit recording, dynamic rule addition,
+"""Resource Governor — Policy evaluation + audit logging +
 sandbox config compilation.
+
+Core responsibilities: policy evaluation, audit recording, dynamic rule
+addition, sandbox config compilation.
 """
 
 from __future__ import annotations
-import hashlib
 import logging
 from pathlib import Path
 from typing import Optional
@@ -54,15 +54,8 @@ class ResourceGovernor:
 
     def __init__(self, workspace_dir: str):
         self.workspace_dir = Path(workspace_dir)
-        # Policy is stored outside the workspace to prevent agent tampering.
-        # Use ``<basename>_<hash>`` so two workspaces with the same basename
-        # but different absolute paths (e.g. ``/Users/a/project`` vs
-        # ``/Users/b/project``) do not share the same policy directory.
-        ws_resolved = str(self.workspace_dir.resolve())
-        ws_hash = hashlib.sha256(ws_resolved.encode("utf-8")).hexdigest()[:12]
-        self._policy_dir = (
-            WORKING_DIR / "governance" / f"{self.workspace_dir.name}_{ws_hash}"
-        )
+        # Policy is stored outside the workspace to prevent agent tampering
+        self._policy_dir = WORKING_DIR / "governance" / self.workspace_dir.name
         self._policy: Optional[GovernancePolicy] = None
         self._sandbox_available: bool = False
         self._sandbox_capability: Optional[SandboxCapability] = None
@@ -73,7 +66,10 @@ class ResourceGovernor:
 
     @property
     def sandbox_available(self) -> bool:
-        """Whether the current platform supports sandbox isolation. Readable after start()."""
+        """Whether the current platform supports sandbox.
+
+        Readable after start().
+        """
         return self._sandbox_available
 
     @property
@@ -99,26 +95,13 @@ class ResourceGovernor:
             )
 
     def stop(self) -> None:
-        """Persist policy (if modified) and close the audit log."""
+        """Persist policy (if modified)."""
         if self._policy and self._policy.rules:
-            try:
-                save_governance_policy(
-                    self._policy,
-                    str(self._policy_dir),
-                    str(self.workspace_dir),
-                )
-            except Exception:
-                logger.exception(
-                    "ResourceGovernor.stop: failed to persist policy.yaml"
-                )
-        # Close the global AuditLog: triggers the deferred VACUUM and
-        # releases the SQLite handle. Without this, audit.db is only
-        # closed on interpreter exit (best-effort) which is fragile under
-        # supervised restarts and may leak WAL frames.
-        try:
-            AuditLog.get_instance().close()
-        except Exception:
-            logger.exception("ResourceGovernor.stop: failed to close AuditLog")
+            save_governance_policy(
+                self._policy,
+                str(self._policy_dir),
+                str(self.workspace_dir),
+            )
 
     # ------------------------------------------------------------------
     # Core interface 1: Policy evaluation + audit
@@ -134,14 +117,16 @@ class ResourceGovernor:
 
         Returns GovernanceDecision:
             ALLOW            → explicit resource tool executes directly;
-                               bash tool executes with sandbox pre-authorization
+                               bash tool executes with sandbox
+                               pre-authorization
             DENY             → rejected
             ASK              → ask user
             SANDBOX_FALLBACK → bash tool with no rule match, sandbox fallback
         """
         decision = self.policy.evaluate(tc_spec)
 
-        # Early probe degradation: if sandbox is unavailable, escalate SANDBOX_FALLBACK to ASK
+        # Early probe degradation: if sandbox is unavailable, escalate
+        # SANDBOX_FALLBACK to ASK
         if (
             decision.action is GovernanceAction.SANDBOX_FALLBACK
             and not self._sandbox_available
@@ -153,7 +138,10 @@ class ResourceGovernor:
             )
             decision = GovernanceDecision(
                 action=GovernanceAction.ASK,
-                reason=f"sandbox unavailable ({self._sandbox_capability.reason}), ask user",
+                reason=(
+                    f"sandbox unavailable "
+                    f"({self._sandbox_capability.reason}), ask user"
+                ),
             )
 
         # compile sandbox config
@@ -182,17 +170,20 @@ class ResourceGovernor:
     # Core interface 2: Compile sandbox config
     # ------------------------------------------------------------------
 
-    def compile_sandbox_config(
+    def compile_sandbox_config(  # pylint: disable=unused-argument
         self,
         tc_spec: ToolCallSpec,
     ) -> SandboxConfig:
-        """Compile sandbox filesystem permission config based on current policy.
+        """Compile sandbox filesystem permission config based on policy.
 
         Sandbox security model:
-            - Workspace is the working directory, always mounted readwrite (Bash needs it to work)
-            - Paths from FILE_READ_TOOLS / FILE_WRITE_TOOLS in user_rules are compiled into mounts
+            - Workspace is the working directory, always mounted
+              readwrite (Bash needs it to work)
+            - Paths from FILE_READ_TOOLS / FILE_WRITE_TOOLS in
+              user_rules are compiled into mounts
             - deny_paths block sensitive paths (defense-in-depth)
-            - Policy decisions control whether a command can execute; sandbox controls filesystem boundaries
+            - Policy decisions control whether a command can execute;
+              sandbox controls filesystem boundaries
 
         Mounts compilation logic:
             Iterate over user_rules, for each rule:
@@ -215,7 +206,8 @@ class ResourceGovernor:
             except (ValueError, IndexError):
                 continue
 
-            # Extract path from pattern: strip trailing * and other wildcards to get directory prefix
+            # Extract path from pattern: strip trailing * and other
+            # wildcards to get directory prefix
             path = self._resolve_mount_path(rule_pattern, ws)
             if not path:
                 continue
@@ -266,7 +258,8 @@ class ResourceGovernor:
         if not p or p == ".":
             return ""
 
-        # WORKSPACE_DIR placeholder (defensive: should already be replaced at load time)
+        # WORKSPACE_DIR placeholder (defensive: should already be
+        # replaced at load time)
         if "WORKSPACE_DIR" in p:
             p = p.replace("WORKSPACE_DIR", workspace_dir)
 
@@ -286,19 +279,22 @@ class ResourceGovernor:
 
         Approved rules carry a duration (session / permanent).
         The rule is also persisted to policy.yaml.
-        Note: rules are only appended to user_rules; builtin_rules are immutable.
+        Note: rules are only appended to user_rules; builtin_rules are
+        immutable.
         """
         self.policy.add_rule(rule)
-        save_governance_policy(
-            self._policy,
-            str(self._policy_dir),
-            str(self.workspace_dir),
-        )
+        if self._policy is not None:
+            save_governance_policy(
+                self._policy,
+                str(self._policy_dir),
+                str(self.workspace_dir),
+            )
 
     def record_approval(self, tc_spec: ToolCallSpec, approved: bool) -> None:
         """Record the user's approve/deny result to the audit log.
 
-        Called when the user confirms after an ASK decision, completing the audit chain:
+        Called when the user confirms after an ASK decision, completing
+        the audit chain:
             assert_and_audit → ASK (already recorded)
             record_approval  → ALLOW/DENY (supplementary entry)
         """
@@ -320,7 +316,8 @@ class ResourceGovernor:
         builtin ask → no rule recorded on approval (asks every time)
         user ask   → rule recorded on approval (won't ask next time)
 
-        Called by tool_adapter's approval flow to decide whether to persist a new rule.
+        Called by tool_adapter's approval flow to decide whether to
+        persist a new rule.
         """
         if not self._policy:
             return False

@@ -1,12 +1,10 @@
 # -*- coding: utf-8 -*-
+# pylint: disable=unused-argument
 """Unit tests for Linux Landlock sandbox and probe_sandbox_support."""
+
 from __future__ import annotations
 
-import os
-import struct
 from unittest.mock import MagicMock, mock_open, patch
-
-import pytest
 
 from qwenpaw.sandbox import (
     MountSpec,
@@ -21,14 +19,13 @@ from qwenpaw.sandbox.config import (
     detect_platform_mode,
 )
 
-
 # ============================================================================
 # probe_sandbox_support() — platform routing
 # ============================================================================
 
 
 class TestProbeSandboxSupport:
-    """Test probe_sandbox_support() returns correct results for each platform."""
+    """Test probe_sandbox_support() for each platform."""
 
     @patch("sys.platform", "darwin")
     @patch("shutil.which", return_value="/usr/bin/sandbox-exec")
@@ -50,8 +47,9 @@ class TestProbeSandboxSupport:
     @patch("sys.platform", "win32")
     @patch("qwenpaw.sandbox.config._probe_windows_wsl2")
     def test_windows_disabled_returns_none(self, mock_probe):
-        # Windows sandbox is currently disabled at probe time. ``probe_sandbox_support``
-        # should return ``mode=NONE`` directly without calling ``_probe_windows_wsl2``.
+        # Windows sandbox is currently disabled at probe time.
+        # ``probe_sandbox_support`` should return ``mode=NONE`` directly
+        # without calling ``_probe_windows_wsl2``.
         result = probe_sandbox_support()
         assert result.supported is False
         assert result.mode == SandboxMode.NONE
@@ -106,7 +104,10 @@ class TestProbeLinuxLandlock:
         assert "Cannot read" in result.reason
 
     @patch("platform.machine", return_value="x86_64")
-    @patch("builtins.open", mock_open(read_data="lockdown,capability,landlock,yama,apparmor"))
+    @patch(
+        "builtins.open",
+        mock_open(read_data="lockdown,capability,landlock,yama,apparmor"),
+    )
     @patch("os.uname")
     def test_landlock_supported_abi_v4(self, mock_uname, mock_machine):
         mock_uname.return_value = MagicMock(release="6.7.0-generic")
@@ -115,8 +116,13 @@ class TestProbeLinuxLandlock:
         mock_libc = MagicMock()
         mock_libc.syscall.return_value = 4  # ABI v4
 
-        with patch("ctypes.CDLL", return_value=mock_libc), \
-             patch("ctypes.util.find_library", return_value="libc.so.6"):
+        with (
+            patch("ctypes.CDLL", return_value=mock_libc),
+            patch(
+                "ctypes.util.find_library",
+                return_value="libc.so.6",
+            ),
+        ):
             result = _probe_linux_landlock()
 
         assert result.supported is True
@@ -133,9 +139,14 @@ class TestProbeLinuxLandlock:
         mock_libc = MagicMock()
         mock_libc.syscall.return_value = -1  # failure
 
-        with patch("ctypes.CDLL", return_value=mock_libc), \
-             patch("ctypes.util.find_library", return_value="libc.so.6"), \
-             patch("ctypes.get_errno", return_value=38):
+        with (
+            patch("ctypes.CDLL", return_value=mock_libc),
+            patch(
+                "ctypes.util.find_library",
+                return_value="libc.so.6",
+            ),
+            patch("ctypes.get_errno", return_value=38),
+        ):
             result = _probe_linux_landlock()
 
         assert result.supported is False
@@ -174,7 +185,9 @@ class TestDetectPlatformMode:
     @patch("qwenpaw.sandbox.config.probe_sandbox_support")
     def test_returns_probe_mode(self, mock_probe):
         mock_probe.return_value = SandboxCapability(
-            supported=True, mode=SandboxMode.LANDLOCK, reason="ok",
+            supported=True,
+            mode=SandboxMode.LANDLOCK,
+            reason="ok",
             landlock_abi_version=3,
         )
         assert detect_platform_mode() == SandboxMode.LANDLOCK
@@ -182,7 +195,9 @@ class TestDetectPlatformMode:
     @patch("qwenpaw.sandbox.config.probe_sandbox_support")
     def test_returns_none_when_unsupported(self, mock_probe):
         mock_probe.return_value = SandboxCapability(
-            supported=False, mode=SandboxMode.NONE, reason="too old",
+            supported=False,
+            mode=SandboxMode.NONE,
+            reason="too old",
         )
         assert detect_platform_mode() == SandboxMode.NONE
 
@@ -203,7 +218,12 @@ class TestLinuxSandboxRuleCompilation:
             workspace_dir="/home/user/project",
             mounts=[MountSpec(path="/home/user/project", writable=True)],
         )
-        script = _generate_sandbox_script(config, "echo hello", "/home/user/project", 1)
+        script = _generate_sandbox_script(
+            config,
+            "echo hello",
+            "/home/user/project",
+            1,
+        )
 
         # Should contain the workspace path with write access
         assert "/home/user/project" in script
@@ -226,7 +246,12 @@ class TestLinuxSandboxRuleCompilation:
             ],
         )
         with patch("os.path.exists", return_value=True):
-            script = _generate_sandbox_script(config, "ls", "/home/user/project", 1)
+            script = _generate_sandbox_script(
+                config,
+                "ls",
+                "/home/user/project",
+                1,
+            )
 
         # /opt/data should be in the script with read-only access
         assert "/opt/data" in script
@@ -241,11 +266,20 @@ class TestLinuxSandboxRuleCompilation:
             allow_read_all=False,
             deny_paths=["/home/user/.ssh"],
         )
-        script = _generate_sandbox_script(config, "ls", "/home/user/project", 1)
+        script = _generate_sandbox_script(
+            config,
+            "ls",
+            "/home/user/project",
+            1,
+        )
 
         # deny_paths should NOT appear as an add_path call
         # (the path should not be granted access)
-        lines_with_ssh = [l for l in script.split("\n") if ".ssh" in l and "add_path" in l]
+        lines_with_ssh = [
+            line
+            for line in script.split("\n")
+            if ".ssh" in line and "add_path" in line
+        ]
         assert len(lines_with_ssh) == 0
 
     def test_executable_false(self):
@@ -258,18 +292,34 @@ class TestLinuxSandboxRuleCompilation:
             mode=SandboxMode.LANDLOCK,
             workspace_dir="/home/user/project",
             mounts=[
-                MountSpec(path="/home/user/project", writable=True, executable=True),
-                MountSpec(path="/tmp/untrusted", writable=True, executable=False),
+                MountSpec(
+                    path="/home/user/project",
+                    writable=True,
+                    executable=True,
+                ),
+                MountSpec(
+                    path="/tmp/untrusted",
+                    writable=True,
+                    executable=False,
+                ),
             ],
         )
-        script = _generate_sandbox_script(config, "ls", "/home/user/project", 1)
+        script = _generate_sandbox_script(
+            config,
+            "ls",
+            "/home/user/project",
+            1,
+        )
 
         # /tmp/untrusted should NOT have EXEC access bit
         # Find the line with /tmp/untrusted
         for line in script.split("\n"):
             if "/tmp/untrusted" in line and "add_path" in line:
                 # The hex access mask should NOT include EXEC (0x1)
-                assert f"0x{_FS_EXEC_ACCESS:x}" not in line or "0x1" not in line.split(",")[1]
+                assert (
+                    f"0x{_FS_EXEC_ACCESS:x}" not in line
+                    or "0x1" not in line.split(",")[1]
+                )
                 break
 
 
@@ -279,12 +329,13 @@ class TestLinuxSandboxRuleCompilation:
 
 
 class TestGovernanceSandboxUnavailable:
-    """Test that ResourceGovernor escalates SANDBOX_FALLBACK to ASK when sandbox unavailable."""
+    """Test SANDBOX_FALLBACK escalates to ASK when sandbox unavailable."""
 
     def test_sandbox_fallback_becomes_ask(self):
         """When sandbox is unavailable, SANDBOX_FALLBACK should become ASK."""
         cap = SandboxCapability(
-            supported=False, mode=SandboxMode.NONE,
+            supported=False,
+            mode=SandboxMode.NONE,
             reason="Kernel 5.10 < 5.13, Landlock unavailable",
         )
 
@@ -293,12 +344,22 @@ class TestGovernanceSandboxUnavailable:
         governor = ResourceGovernor(workspace_dir="/tmp/test_ws")
 
         # Mock policy loading to avoid filesystem operations
-        with patch("qwenpaw.governance.resource_governor.load_governance_policy") as mock_load, \
-             patch("pathlib.Path.mkdir"), \
-             patch("qwenpaw.sandbox.config.probe_sandbox_support", return_value=cap):
+        with (
+            patch(
+                "qwenpaw.governance.resource_governor.load_governance_policy",
+            ) as mock_load,
+            patch("pathlib.Path.mkdir"),
+            patch(
+                "qwenpaw.governance.resource_governor.probe_sandbox_support",
+                return_value=cap,
+            ),
+        ):
             mock_policy = MagicMock()
             mock_load.return_value = mock_policy
             governor.start()
 
         assert governor.sandbox_available is False
-        assert governor.sandbox_capability.reason == "Kernel 5.10 < 5.13, Landlock unavailable"
+        assert (
+            governor.sandbox_capability.reason
+            == "Kernel 5.10 < 5.13, Landlock unavailable"
+        )

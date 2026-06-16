@@ -93,6 +93,7 @@ class QwenPawAgent(CodingModeMixin, Agent):
             for tool_fn in memory_tools:
                 if self._governor:
                     from ..governance import PolicyGuardedTool
+
                     basic_group.tools.append(
                         PolicyGuardedTool(
                             tool_fn,
