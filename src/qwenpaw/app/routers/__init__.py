@@ -7,6 +7,37 @@ import time
 
 from fastapi import APIRouter
 
+from .access_control import router as access_control_router
+from .agent_stats import router as agent_stats_router
+from .agents import router as agents_router
+from .auth import router as auth_router
+from .backup import router as backup_router
+from .coding_project import router as coding_project_router
+from .config import router as config_router
+from .console import router as console_router
+from .envs import router as envs_router
+from .files import router as files_router
+from .fork import router as fork_router
+from .frontend_plugin import router as frontend_plugin_router
+from .git import router as git_router
+from .local_models import router as local_models_router
+from .market import router as market_router
+from .mcp import router as mcp_router
+from .mcp_oauth import router as mcp_oauth_router
+from .messages import router as messages_router
+from .plan import router as plan_router
+from .plugins import router as plugins_router
+from .provider_oauth import router as provider_oauth_router
+from .providers import router as providers_router
+from .settings import router as settings_router
+from .skills import router as skills_router
+from .skills_stream import router as skills_stream_router
+from .token_usage import router as token_usage_router
+from .tools import router as tools_router
+from .workspace import router as workspace_router
+from ..crons.api import router as cron_router
+from ..runner.api import router as runner_router
+
 _ROUTER_IMPORT_STARTED_AT = time.perf_counter()
 _ROUTER_IMPORT_LAST_AT = _ROUTER_IMPORT_STARTED_AT
 
@@ -31,66 +62,7 @@ def _emit_router_import_timing(phase: str) -> None:
     )
 
 
-from .agents import router as agents_router
-_emit_router_import_timing("agents_router_imported")
-from .config import router as config_router
-_emit_router_import_timing("config_router_imported")
-from .local_models import router as local_models_router
-_emit_router_import_timing("local_models_router_imported")
-from .providers import router as providers_router
-_emit_router_import_timing("providers_router_imported")
-from .market import router as market_router
-_emit_router_import_timing("market_router_imported")
-from .skills import router as skills_router
-_emit_router_import_timing("skills_router_imported")
-from .skills_stream import router as skills_stream_router
-_emit_router_import_timing("skills_stream_router_imported")
-from .workspace import router as workspace_router
-_emit_router_import_timing("workspace_router_imported")
-from .envs import router as envs_router
-_emit_router_import_timing("envs_router_imported")
-from .mcp import router as mcp_router
-_emit_router_import_timing("mcp_router_imported")
-from .mcp_oauth import router as mcp_oauth_router
-_emit_router_import_timing("mcp_oauth_router_imported")
-from .tools import router as tools_router
-_emit_router_import_timing("tools_router_imported")
-from ..crons.api import router as cron_router
-_emit_router_import_timing("cron_router_imported")
-from ..runner.api import router as runner_router
-_emit_router_import_timing("runner_router_imported")
-from .console import router as console_router
-_emit_router_import_timing("console_router_imported")
-from .token_usage import router as token_usage_router
-_emit_router_import_timing("token_usage_router_imported")
-from .agent_stats import router as agent_stats_router
-_emit_router_import_timing("agent_stats_router_imported")
-from .auth import router as auth_router
-_emit_router_import_timing("auth_router_imported")
-from .messages import router as messages_router
-_emit_router_import_timing("messages_router_imported")
-from .files import router as files_router
-_emit_router_import_timing("files_router_imported")
-from .settings import router as settings_router
-_emit_router_import_timing("settings_router_imported")
-from .plugins import router as plugins_router
-_emit_router_import_timing("plugins_router_imported")
-from .frontend_plugin import router as frontend_plugin_router
-_emit_router_import_timing("frontend_plugin_router_imported")
-from .backup import router as backup_router
-_emit_router_import_timing("backup_router_imported")
-from .plan import router as plan_router
-_emit_router_import_timing("plan_router_imported")
-from .fork import router as fork_router
-_emit_router_import_timing("fork_router_imported")
-from .git import router as git_router
-_emit_router_import_timing("git_router_imported")
-from .coding_project import router as coding_project_router
-_emit_router_import_timing("coding_project_router_imported")
-from .access_control import router as access_control_router
-_emit_router_import_timing("access_control_router_imported")
-from .provider_oauth import router as provider_oauth_router
-_emit_router_import_timing("provider_oauth_router_imported")
+_emit_router_import_timing("all_routers_imported")
 
 router = APIRouter()
 _emit_router_import_timing("router_created")

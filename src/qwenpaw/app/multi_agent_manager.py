@@ -535,7 +535,8 @@ class MultiAgentManager:
         workspace initialization. Callers can provide preferred_agent_id and a
         concurrency limit to make desktop startup less bursty without changing
         the lazy-loading contract. post_preferred_delay_seconds gives the
-        active/preferred agent a quiet window before non-preferred agents start.
+        active/preferred agent a quiet window before non-preferred agents
+        start.
 
         Returns:
             dict[str, bool]: Mapping of agent_id to success status
@@ -570,6 +571,7 @@ class MultiAgentManager:
 
         async def start_single_agent(agent_id: str) -> tuple[str, bool]:
             """Start a single agent with error handling."""
+
             def notify_agent_started(success: bool) -> None:
                 if agent_started_callback is None:
                     return

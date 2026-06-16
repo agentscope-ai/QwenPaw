@@ -38,7 +38,7 @@ def test_get_channel_registry_loads_only_requested_builtin(monkeypatch):
         "heavy_mod": SimpleNamespace(HeavyChannel=_HeavyFakeChannel),
     }
 
-    def import_module(name: str, package: str | None = None):
+    def import_module(name: str, _package: str | None = None):
         imported_modules.append(name)
         return modules[name]
 
@@ -50,9 +50,17 @@ def test_get_channel_registry_loads_only_requested_builtin(monkeypatch):
             "heavy": ("heavy_mod", "HeavyChannel"),
         },
     )
-    monkeypatch.setattr(registry, "_REQUIRED_CHANNEL_KEYS", frozenset({"console"}))
+    monkeypatch.setattr(
+        registry,
+        "_REQUIRED_CHANNEL_KEYS",
+        frozenset({"console"}),
+    )
     monkeypatch.setattr(registry.importlib, "import_module", import_module)
-    monkeypatch.setattr(registry, "_discover_custom_channels", lambda keys=None: {})
+    monkeypatch.setattr(
+        registry,
+        "_discover_custom_channels",
+        lambda keys=None: {},
+    )
     registry.clear_builtin_channel_cache()
 
     result = registry.get_channel_registry(["console"])
@@ -93,14 +101,20 @@ def test_channel_manager_from_config_requests_enabled_channels(monkeypatch):
         ),
     )
 
-    monkeypatch.setattr(manager, "get_available_channels", get_available_channels)
+    monkeypatch.setattr(
+        manager,
+        "get_available_channels",
+        get_available_channels,
+    )
     monkeypatch.setattr(manager, "get_channel_registry", get_channel_registry)
 
     channel_manager = manager.ChannelManager.from_config(
-        config,
         process=lambda request: None,
+        config=config,
     )
 
     assert requested_available_keys == [("console",)]
     assert requested_registry_keys == [("console",)]
-    assert [channel.channel for channel in channel_manager.channels] == ["console"]
+    assert [channel.channel for channel in channel_manager.channels] == [
+        "console",
+    ]
