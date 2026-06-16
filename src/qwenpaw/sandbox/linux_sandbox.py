@@ -277,7 +277,7 @@ def _prctl_set_no_new_privs(libc) -> None:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 
-def _generate_sandbox_script(  # pylint: disable=too-many-branches,too-many-statements
+def _generate_sandbox_script(  # noqa: E501  pylint: disable=too-many-branches,too-many-statements
     config: SandboxConfig,
     cmd: str,
     cwd: str,

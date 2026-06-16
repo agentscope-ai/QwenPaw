@@ -121,7 +121,7 @@ class MacOSSandbox(LocalSandbox):
         path = path.replace('"', '\\"')
         return path
 
-    def _compile_seatbelt_profile(  # pylint: disable=too-many-branches,too-many-statements
+    def _compile_seatbelt_profile(  # noqa: E501  pylint: disable=too-many-branches,too-many-statements
         self,
     ) -> str:
         """Build the Seatbelt .sb policy string."""
