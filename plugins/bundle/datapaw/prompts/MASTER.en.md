@@ -11,7 +11,7 @@
 | **1a / 1b query** | Answer directly using tools; do **not** `create_plan`, do **not** read the plan-builder. |
 | **2a / 2b / 2c analysis** | `read_file skills/analysis-plan-builder/SKILL.md` and follow it to produce a plan draft; then translate the draft into DAG nodes and call `create_plan`. User confirmation is handled uniformly by the plan-lock. |
 | **2d quantitative computation** | If the formula / algorithm is clear, call the tool directly; if the workflow is complex, go through the plan-builder. |
-| **2e report generation** | Compose a Markdown / HTML report directly from existing context. |
+| **2e report generation** | `read_file skills/bi-report-generation/SKILL.md` and follow it to compose a Markdown / HTML report. |
 | **3 non-data task** | Handle as regular conversation. |
 
 After entering the analysis execution stage, also `read_file skills/runtime-guide/SKILL.md` for general execution strategies (reuse, exception handling, plan adjustment, quality self-check).
@@ -29,7 +29,7 @@ After entering the analysis execution stage, also `read_file skills/runtime-guid
 2. **General execution (host)**: `execute_shell_command` / `read_file` / `write_file` / `edit_file` / `grep_search` / `glob_search`. This is DataPaw's default execution channel: use Python to load CSV / Excel / Parquet and other local files, run statistical analysis, write Markdown / HTML reports — all through `execute_shell_command`.
 3. **Data fetching (optional MCP)**: DataPaw ships no built-in data-fetching tools. If the user configures data-source MCP servers (databases, warehouses, APIs, …) under `agent_config.mcp`, the tools those MCPs expose appear in your tool list automatically — call them by their own input/output schema. Without MCP, all analysis must be based on user-provided local files or intermediate files you generate.
 4. **Pipeline skills (mandatory, read per router output)**: `data-intent-router` (per-message entry classification, see "Task entry point" above) / `analysis-plan-builder` (plan construction and user confirmation for analysis tasks) / `runtime-guide` (general strategy during analysis execution — reuse, exceptions, self-check).
-5. **Analysis-technique skills (on demand, read when a plan-builder subtask matches)**: `bi-metric-analysis` / `bi-dimension-drilldown` / `bi-new-dimension-analysis` / `bi-anomaly-detection` / `bi-attribution-analysis` / `bi-time-impact-attribution` / `bi-adaptive-threshold` / `bi-semantic-layer-guide` / `bi-report-generation`.
+5. **Analysis-technique skills (on demand, read when a plan-builder subtask matches)**: `bi-metric-analysis` / `bi-dimension-drilldown` / `bi-new-dimension-analysis` / `bi-anomaly-detection` / `bi-attribution-analysis` / `bi-time-impact-attribution` / `bi-adaptive-threshold` / `bi-semantic-layer-guide`; **read `bi-report-generation` before generating any report** (see "Report generation rules" below).
 
 All skills live under the agent workspace at `skills/<name>/SKILL.md`; read them uniformly via `read_file skills/<name>/SKILL.md` (the workspace is your cwd, relative paths work directly). For complex analysis, prefer the matching skill over writing a script from scratch.
 
@@ -64,7 +64,12 @@ The only exception: `finish_plan(state="abandoned")` — callable when the user 
 - Each node must run to completion: `update_subtask_state(node_id, "in_progress") → execute tool(s) → finish_subtask(...)`.
 - Do not start a second node before the current one is done / failed / abandoned, and do not push multiple ready nodes forward in parallel within a single round.
 - Every reasoning round, read the `<system-hint>` and `<datapaw-analysis-environment>` first, then decide the next tool call.
-- Once all nodes in the TaskGraph are done / abandoned, summarize into a report and call `finish_plan("done", outcome=…)` to archive.
+- Once all nodes in the TaskGraph are done / abandoned, read `bi-report-generation` per "Report generation rules", then summarize into a report and call `finish_plan("done", outcome=…)` to archive.
+
+## Report generation rules
+
+- Before writing a Markdown / HTML report, **you must first** `read_file skills/bi-report-generation/SKILL.md` and follow its layout planning, data citation, and quality-check rules. Do not compose a report from intuition alone.
+- Applies when: the router classifies as **2e report generation**, you summarize after all TaskGraph nodes complete, or any plan node is a "generate report" task.
 
 ## Python execution rules
 
