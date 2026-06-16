@@ -39,18 +39,22 @@ _EXPECTED_REME_VERSION = "0.3.1.10"
 MAX_QUERY_TOKENS = 50
 
 
-def _detect_memory_manager_backend() -> str:
+def _detect_memory_manager_backend(config_override: str = "auto") -> str:
     """Detect the memory store backend from environment variables.
 
-    Resolves ``MEMORY_STORE_BACKEND`` with the following priority:
-    - ``local``: always used on Windows
-    - ``chroma``: used when ``chromadb`` is importable (non-Windows)
-    - falls back to ``local`` when ``chromadb`` is unavailable
+    Resolves with the following priority:
+    1. ``config_override`` (from ReMeLightMemoryConfig) if not ``"auto"``
+    2. ``MEMORY_STORE_BACKEND`` env var if not ``"auto"``
+    3. Auto-detect: ``local`` on Windows, ``chroma`` if chromadb importable
 
     Returns:
-        Backend name string: ``"local"``, ``"chroma"``, or any explicitly
-        configured value.
+        Backend name string: ``"local"`` or ``"chroma"``.
     """
+    # ponytail: config_override is the safest escape hatch for chromadb
+    # SIGSEGV on macOS — checked first so users never touch native code.
+    if config_override != "auto":
+        return config_override
+
     backend_env = EnvVarLoader.get_str("MEMORY_STORE_BACKEND", "auto")
     if backend_env != "auto":
         return backend_env
@@ -93,14 +97,21 @@ class ReMeLightMemoryManager(BaseMemoryManager):
             f"agent_id={agent_id}, working_dir={working_dir}",
         )
 
-        memory_manager_backend = _detect_memory_manager_backend()
+        agent_config = load_agent_config(self.agent_id)
+        reme_cfg = agent_config.running.reme_light_memory_config
+
+        memory_manager_backend = _detect_memory_manager_backend(
+            config_override=reme_cfg.memory_store_backend,
+        )
 
         from reme.reme_light import ReMeLight
 
         emb_config = self.get_embedding_config()
-        vector_enabled = bool(emb_config["base_url"]) and bool(
-            emb_config["model_name"],
-        )
+        vector_enabled = reme_cfg.vector_enabled
+        if vector_enabled is None:
+            vector_enabled = bool(emb_config["base_url"]) and bool(
+                emb_config["model_name"],
+            )
 
         log_cfg = {
             **emb_config,
@@ -112,8 +123,6 @@ class ReMeLightMemoryManager(BaseMemoryManager):
 
         fts_enabled = EnvVarLoader.get_bool("FTS_ENABLED", True)
 
-        agent_config = load_agent_config(self.agent_id)
-        reme_cfg = agent_config.running.reme_light_memory_config
         rebuild_on_start = reme_cfg.rebuild_memory_index_on_start
 
         store_name = "memory"
