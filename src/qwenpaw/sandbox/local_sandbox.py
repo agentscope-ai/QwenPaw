@@ -86,9 +86,33 @@ class MacOSSandbox(LocalSandbox):
       - Sensitive paths such as ~/.ssh are explicitly denied
     """
 
+    @staticmethod
+    def _sanitize_seatbelt_path(path: str) -> str:
+        """Sanitize a filesystem path for safe embedding in a Seatbelt profile.
+
+        Prevents Seatbelt rule injection by escaping characters that could
+        break out of the S-expression string literal (double-quote,
+        backslash, newlines, and parentheses).
+
+        Raises:
+            ValueError: if the path contains control characters other than
+                common whitespace (tab).
+        """
+        # Reject newlines — no valid filesystem path contains them and they
+        # can break the profile grammar.
+        if "\n" in path or "\r" in path:
+            raise ValueError(
+                f"Seatbelt path contains newlines (possible injection): {path!r}"
+            )
+        # Escape backslash first (order matters), then double-quote.
+        path = path.replace("\\", "\\\\")
+        path = path.replace('"', '\\"')
+        return path
+
     def _compile_seatbelt_profile(self) -> str:
         """Build the Seatbelt .sb policy string."""
         config = self._config
+        _san = self._sanitize_seatbelt_path  # shorthand
         lines = [
             "(version 1)",
             "",
@@ -159,18 +183,18 @@ class MacOSSandbox(LocalSandbox):
             # allow-list mode: only allow reading declared mounts
             for mount in config.mounts:
                 lines.append(f"(allow file-read*")
-                lines.append(f'  (subpath "{mount.path}"))')
+                lines.append(f'  (subpath "{_san(mount.path)}")')
     
         # Deny sensitive paths (read + write)
         if config.deny_paths:
             lines.append("")
             lines.append("; Denied sensitive paths")
             for p in config.deny_paths:
-                expanded = os.path.expanduser(p)
+                expanded = _san(os.path.expanduser(p))
                 lines.append(f"(deny file-read*")
-                lines.append(f'  (subpath "{expanded}"))')
+                lines.append(f'  (subpath "{expanded}")')
                 lines.append(f"(deny file-write*")
-                lines.append(f'  (subpath "{expanded}"))')
+                lines.append(f'  (subpath "{expanded}")')
     
         # File write paths (whitelist)
         lines.append("")
@@ -185,7 +209,7 @@ class MacOSSandbox(LocalSandbox):
         for mount in config.mounts:
             if mount.writable:
                 lines.append(f"(allow file-write*")
-                lines.append(f'  (subpath "{mount.path}"))')
+                lines.append(f'  (subpath "{_san(mount.path)}")')
     
         # Executable control
         non_exec_mounts = [m for m in config.mounts if not m.executable]
@@ -194,14 +218,22 @@ class MacOSSandbox(LocalSandbox):
             lines.append("; Deny execution in specific paths")
             for mount in non_exec_mounts:
                 lines.append(f"(deny process-exec*")
-                lines.append(f'  (subpath "{mount.path}"))')
+                lines.append(f'  (subpath "{_san(mount.path)}")')
     
         # Platform hints: extra seatbelt rules
+        # WARNING: seatbelt_extra_rules is an ADMIN-ONLY escape hatch.
+        # Content is embedded verbatim — it MUST NOT come from user input
+        # or untrusted approval flows.
         extra_rules = config.platform_hints.get("seatbelt_extra_rules")
         if extra_rules:
+            if "\n" in str(extra_rules):
+                logger.warning(
+                    "MacOSSandbox: seatbelt_extra_rules contains newlines; "
+                    "verify this is from a trusted admin source."
+                )
             lines.append("")
-            lines.append("; Platform hints: extra rules")
-            lines.append(extra_rules)
+            lines.append("; Platform hints: extra rules (admin-only, verbatim)")
+            lines.append(str(extra_rules))
     
         # Log warnings for unsupported features on macOS
         if config.max_processes is not None:
