@@ -30,6 +30,7 @@ from .agent_management import (
     spawn_subagent,
 )
 from .delegate_external_agent import delegate_external_agent
+from .code_index import code_search, symbol_context, code_trace
 
 # Registered via react_agent's hardcoded tool_functions; kept out of
 # __all__ so it's always enabled, not gated on agent config.
@@ -62,4 +63,7 @@ __all__ = [
     "check_agent_task",
     "spawn_subagent",
     "run_tool_batch",
+    "code_search",
+    "symbol_context",
+    "code_trace",
 ]

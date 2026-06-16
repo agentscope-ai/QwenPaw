@@ -1115,6 +1115,16 @@ class CodingModeConfig(BaseModel):
             "None means use the default workspace_dir."
         ),
     )
+    ponytail_level: str = Field(
+        default="ultra",
+        description=(
+            "Ponytail strictness level for coding: "
+            "'ultra' (no abstraction not required, no new deps), "
+            "'full' (light abstractions allowed if justified), "
+            "'lite' (YAGNI hints only), "
+            "'off' (disabled)"
+        ),
+    )
 
 
 class AgentProfileConfig(BaseModel):
@@ -1179,7 +1189,12 @@ class AgentProfileConfig(BaseModel):
         ),
     )
     system_prompt_files: List[str] = Field(
-        default_factory=lambda: ["AGENTS.md", "SOUL.md", "PROFILE.md"],
+        default_factory=lambda: [
+            "AGENTS.md",
+            "SOUL.md",
+            "PROFILE.md",
+            "PONYTAIL.md",
+        ],
         description="System prompt markdown files",
     )
     tools: Optional["ToolsConfig"] = Field(
@@ -1568,6 +1583,34 @@ def _default_builtin_tools() -> Dict[str, BuiltinToolConfig]:
                 "Spawn an ephemeral sub-task within the current " "workspace"
             ),
             icon="🔀",
+        ),
+        # ── Code index tools (Coding Mode) ────────────────────────
+        "code_search": BuiltinToolConfig(
+            name="code_search",
+            enabled=False,
+            description=(
+                "Search code index for symbols by name. "
+                "Enable in Coding Mode to find defs fast."
+            ),
+            icon="🔬",
+        ),
+        "symbol_context": BuiltinToolConfig(
+            name="symbol_context",
+            enabled=False,
+            description=(
+                "Show definitions and callers for a symbol. "
+                "Enable in Coding Mode before editing code."
+            ),
+            icon="🎯",
+        ),
+        "code_trace": BuiltinToolConfig(
+            name="code_trace",
+            enabled=False,
+            description=(
+                "Trace function call chains up/down. "
+                "Enable in Coding Mode for impact analysis."
+            ),
+            icon="🕸️",
         ),
     }
 

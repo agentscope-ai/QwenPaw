@@ -17,6 +17,7 @@ from ..constant import WORKING_DIR
 from .tools import ast_tool
 from .tools._lsp_servers import detect_available_lsp_languages
 from .tools.lsp_tool import make_lsp_tool
+from .tools import code_index as code_index_tool
 
 if TYPE_CHECKING:
     from agentscope.tool import Toolkit
@@ -274,3 +275,25 @@ class CodingModeMixin:
                 )
         except Exception as exc:  # pylint: disable=broad-except
             logger.warning(f"Failed to register ast_search tool: {exc}")
+
+        # ── code_index tools (stdlib-based, always available) ─────
+        # Set project root so the indexer knows where to scan
+        code_index_tool.set_project_root(str(project_dir))
+        for tool_fn in (
+            code_index_tool.code_search,
+            code_index_tool.symbol_context,
+            code_index_tool.code_trace,
+        ):
+            try:
+                toolkit.register_tool_function(
+                    tool_fn,
+                    namesake_strategy=namesake_strategy,
+                    async_execution=True,
+                )
+                logger.info("Registered Coding Mode %s", tool_fn.__name__)
+            except Exception as exc:  # pylint: disable=broad-except
+                logger.warning(
+                    "Failed to register %s: %s",
+                    tool_fn.__name__,
+                    exc,
+                )
