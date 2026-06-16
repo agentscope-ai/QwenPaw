@@ -16,6 +16,7 @@ import copy
 import json as _json
 import logging
 import os
+import re
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -56,6 +57,29 @@ _YELLOW = "\033[33m" if _USE_COLOR else ""
 _RED = "\033[31m" if _USE_COLOR else ""
 _BOLD = "\033[1m" if _USE_COLOR else ""
 _RESET = "\033[0m" if _USE_COLOR else ""
+
+# ponytail: OSC 8 hyperlinks for terminals that support them
+#   ceiling=none — this is a rendering shortcut, no deeper feature planned
+#   upgrade=replace with a proper render pipeline if QwenPaw ever gets a TUI
+_USE_HYPERLINKS = _USE_COLOR and (
+    os.environ.get("WT_SESSION")
+    or os.environ.get("TERM_PROGRAM") in ("iTerm.app", "vscode", "WezTerm")
+    or os.environ.get("KITTY_WINDOW_ID")
+    or os.environ.get("ALACRITTY_LOG")
+)
+_URL_RE = re.compile(r"(https?://[^\s<>\"'()]+)")
+# OSC 8 close tag
+_OSC8_CLOSE = "\033]8;;\033\\"
+
+
+def _hyperlink(text: str) -> str:
+    """Wrap URLs in OSC 8 hyperlinks if terminal is hover-capable."""
+    if not _USE_HYPERLINKS:
+        return text
+    return _URL_RE.sub(
+        lambda m: f"\033]8;;{m.group(1)}\033\\{m.group(1)}{_OSC8_CLOSE}",
+        text,
+    )
 
 
 def _ts() -> str:
@@ -450,14 +474,13 @@ class ConsoleChannel(BaseChannel):
     # ── pretty-print helpers ────────────────────────────────────────
 
     def _safe_print(self, text: str) -> None:
-        """Safely print text, handling Windows encoding and pipe issues.
-
-        On Windows, print() can raise OSError [Errno 22] when output is
-        piped or contains unsupported characters. This wrapper handles
-        such cases gracefully.
-        """
+        """Print with OSC 8 hyperlinks on hover-capable terminals."""
+        # ponytail: all links go through one regex transform; no duplication
+        #   ceiling=hyperlink protocol only; no deeper TUI engine here
+        #   upgrade=awaiting a real render pipeline if we ever get a TUI
+        rendered = _hyperlink(text) if _USE_HYPERLINKS else text
         try:
-            print(text)
+            print(rendered)
         except OSError as e:
             if e.errno == 22:
                 logger.warning(
@@ -466,7 +489,7 @@ class ConsoleChannel(BaseChannel):
                 )
                 try:
                     sys.stdout.buffer.write(
-                        text.encode("utf-8", errors="replace"),
+                        (rendered or "").encode("utf-8", errors="replace"),
                     )
                     sys.stdout.buffer.write(b"\n")
                     sys.stdout.buffer.flush()
