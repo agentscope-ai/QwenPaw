@@ -12,7 +12,7 @@ import sys
 import threading
 import uuid
 from pathlib import Path
-from typing import Any, Optional, Tuple
+from typing import Any, Iterable, Optional, Tuple
 
 from json_repair import repair_json
 
@@ -351,7 +351,9 @@ def get_system_default_browser() -> Tuple[Optional[str], Optional[str]]:
     return (None, None)
 
 
-def get_available_channels() -> Tuple[str, ...]:
+def get_available_channels(
+    candidate_keys: Iterable[str] | None = None,
+) -> Tuple[str, ...]:
     """Return channel keys enabled for this run (built-in + entry point
     qwenpaw.channels), filtered by QWENPAW_ENABLED_CHANNELS or
     QWENPAW_DISABLED_CHANNELS when set.
@@ -361,15 +363,19 @@ def get_available_channels() -> Tuple[str, ...]:
     * If both are set, QWENPAW_ENABLED_CHANNELS takes precedence.
     * If neither is set, all discovered channels are returned.
     """
-    from ..app.channels.registry import get_channel_registry
+    if candidate_keys is None:
+        from ..app.channels.registry import get_channel_registry
 
-    registry = get_channel_registry()
-    all_keys = tuple(registry.keys())
+        registry = get_channel_registry()
+        all_keys = tuple(registry.keys())
+    else:
+        all_keys = tuple(dict.fromkeys(key for key in candidate_keys if key))
 
     raw_enabled = EnvVarLoader.get_str("QWENPAW_ENABLED_CHANNELS", "").strip()
     if raw_enabled:
         enabled = {ch.strip() for ch in raw_enabled.split(",") if ch.strip()}
-        return tuple(k for k in all_keys if k in enabled) or all_keys
+        filtered = tuple(k for k in all_keys if k in enabled)
+        return filtered if candidate_keys is not None else filtered or all_keys
 
     raw_disabled = EnvVarLoader.get_str(
         "QWENPAW_DISABLED_CHANNELS",
@@ -377,7 +383,8 @@ def get_available_channels() -> Tuple[str, ...]:
     ).strip()
     if raw_disabled:
         disabled = {ch.strip() for ch in raw_disabled.split(",") if ch.strip()}
-        return tuple(k for k in all_keys if k not in disabled) or all_keys
+        filtered = tuple(k for k in all_keys if k not in disabled)
+        return filtered if candidate_keys is not None else filtered or all_keys
 
     return all_keys
 

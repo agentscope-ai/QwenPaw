@@ -7,6 +7,7 @@ import importlib
 import logging
 import sys
 import threading
+from collections.abc import Iterable
 from typing import TYPE_CHECKING
 
 from ...constant import CUSTOM_CHANNELS_DIR
@@ -40,17 +41,31 @@ _BUILTIN_SPECS: dict[str, tuple[str, str]] = {
 # Required channels must load; failures are raised, not skipped.
 _REQUIRED_CHANNEL_KEYS: frozenset[str] = frozenset({"console"})
 
-_BUILTIN_CHANNEL_CACHE: dict[str, type[BaseChannel]] | None = None
+_BUILTIN_CHANNEL_CACHE: dict[str, type[BaseChannel]] = {}
+_BUILTIN_CHANNEL_CACHE_COMPLETE = False
 _BUILTIN_CHANNEL_CACHE_LOCK = threading.Lock()
 
 
-def _load_builtin_channels() -> dict[str, type[BaseChannel]]:
+def _normalize_requested_keys(
+    keys: Iterable[str] | None,
+) -> tuple[str, ...] | None:
+    if keys is None:
+        return None
+    return tuple(dict.fromkeys(key for key in keys if key))
+
+
+def _load_builtin_channels(
+    keys: Iterable[str] | None = None,
+) -> dict[str, type[BaseChannel]]:
     """Load built-in channels safely.
 
     A single optional dependency failure should not break CLI startup.
     """
+    requested = set(_normalize_requested_keys(keys) or _BUILTIN_SPECS.keys())
     out: dict[str, type[BaseChannel]] = {}
     for key, (module_name, class_name) in _BUILTIN_SPECS.items():
+        if key not in requested:
+            continue
         try:
             mod = importlib.import_module(module_name, package=__package__)
             cls = getattr(mod, class_name)
@@ -80,24 +95,54 @@ def _load_builtin_channels() -> dict[str, type[BaseChannel]]:
     return out
 
 
-def _get_cached_builtin_channels() -> dict[str, type[BaseChannel]]:
-    """Return cached built-in channels (loaded once per process)."""
-    global _BUILTIN_CHANNEL_CACHE
+def _get_cached_builtin_channels(
+    keys: Iterable[str] | None = None,
+) -> dict[str, type[BaseChannel]]:
+    """Return cached built-in channels, optionally loading selected keys."""
+    global _BUILTIN_CHANNEL_CACHE_COMPLETE
+    requested = _normalize_requested_keys(keys)
     with _BUILTIN_CHANNEL_CACHE_LOCK:
-        if _BUILTIN_CHANNEL_CACHE is None:
-            _BUILTIN_CHANNEL_CACHE = _load_builtin_channels()
-        return dict(_BUILTIN_CHANNEL_CACHE)
+        if requested is None:
+            if not _BUILTIN_CHANNEL_CACHE_COMPLETE:
+                missing = [
+                    key
+                    for key in _BUILTIN_SPECS
+                    if key not in _BUILTIN_CHANNEL_CACHE
+                ]
+                _BUILTIN_CHANNEL_CACHE.update(
+                    _load_builtin_channels(missing),
+                )
+                _BUILTIN_CHANNEL_CACHE_COMPLETE = True
+            return dict(_BUILTIN_CHANNEL_CACHE)
+
+        missing = [
+            key
+            for key in requested
+            if key in _BUILTIN_SPECS and key not in _BUILTIN_CHANNEL_CACHE
+        ]
+        if missing:
+            _BUILTIN_CHANNEL_CACHE.update(_load_builtin_channels(missing))
+
+        return {
+            key: _BUILTIN_CHANNEL_CACHE[key]
+            for key in _BUILTIN_SPECS
+            if key in requested and key in _BUILTIN_CHANNEL_CACHE
+        }
 
 
 def clear_builtin_channel_cache() -> None:
     """Reset built-in channel cache. Primarily for tests."""
-    global _BUILTIN_CHANNEL_CACHE
+    global _BUILTIN_CHANNEL_CACHE_COMPLETE
     with _BUILTIN_CHANNEL_CACHE_LOCK:
-        _BUILTIN_CHANNEL_CACHE = None
+        _BUILTIN_CHANNEL_CACHE.clear()
+        _BUILTIN_CHANNEL_CACHE_COMPLETE = False
 
 
-def _discover_custom_channels() -> dict[str, type[BaseChannel]]:
+def _discover_custom_channels(
+    keys: Iterable[str] | None = None,
+) -> dict[str, type[BaseChannel]]:
     """Load channel classes from CUSTOM_CHANNELS_DIR."""
+    requested = set(_normalize_requested_keys(keys) or ())
     out: dict[str, type[BaseChannel]] = {}
     if not CUSTOM_CHANNELS_DIR.is_dir():
         return out
@@ -125,7 +170,7 @@ def _discover_custom_channels() -> dict[str, type[BaseChannel]]:
                 and obj is not BaseChannel
             ):
                 key = getattr(obj, "channel", None)
-                if key:
+                if key and (not requested or key in requested):
                     out[key] = obj
                     logger.debug("custom channel registered: %s", key)
     return out
@@ -189,8 +234,14 @@ def register_custom_channel_routes(app) -> None:
             logger.exception("Failed to load custom channel routes: %s", name)
 
 
-def get_channel_registry() -> dict[str, type[BaseChannel]]:
+def get_channel_registry(
+    keys: Iterable[str] | None = None,
+) -> dict[str, type[BaseChannel]]:
     """Built-in channel classes + custom channels from custom_channels/."""
-    out = _get_cached_builtin_channels()
-    out.update(_discover_custom_channels())
+    requested = _normalize_requested_keys(keys)
+    out = _get_cached_builtin_channels(requested)
+    if requested is None or any(
+        key not in BUILTIN_CHANNEL_KEYS for key in requested
+    ):
+        out.update(_discover_custom_channels(requested))
     return out

@@ -7,7 +7,7 @@ including lazy loading, lifecycle management, and hot reloading.
 import asyncio
 import logging
 import time
-from typing import Dict, Set
+from typing import Callable, Dict, Set
 
 from agentscope_runtime.engine.schemas.exception import (
     ConfigurationException,
@@ -516,15 +516,26 @@ class MultiAgentManager:
             logger.error(f"Failed to preload agent {agent_id}: {e}")
             return False
 
-    async def start_all_configured_agents(self) -> dict[str, bool]:
+    async def start_all_configured_agents(
+        self,
+        *,
+        preferred_agent_id: str | None = None,
+        max_concurrency: int | None = None,
+        batch_delay_seconds: float = 0.0,
+        post_preferred_delay_seconds: float = 0.0,
+        agent_started_callback: Callable[[str, bool], None] | None = None,
+    ) -> dict[str, bool]:
         """Start all enabled agents defined in configuration concurrently.
 
         Only agents with enabled=True will be started.
         Disabled agents are skipped to save resources.
 
-        Agents are started truly in parallel: get_agent() only holds the
-        manager lock briefly for dict checks, releasing it during the slow
-        workspace initialization.
+        By default agents are started truly in parallel: get_agent() only holds
+        the manager lock briefly for dict checks, releasing it during the slow
+        workspace initialization. Callers can provide preferred_agent_id and a
+        concurrency limit to make desktop startup less bursty without changing
+        the lazy-loading contract. post_preferred_delay_seconds gives the
+        active/preferred agent a quiet window before non-preferred agents start.
 
         Returns:
             dict[str, bool]: Mapping of agent_id to success status
@@ -542,32 +553,98 @@ class MultiAgentManager:
             logger.warning("No enabled agents configured in config")
             return {}
 
+        ordered_agent_ids = list(agent_ids)
+        if preferred_agent_id in enabled_agents:
+            ordered_agent_ids.remove(preferred_agent_id)
+            ordered_agent_ids.insert(0, preferred_agent_id)
+
         total_agents = len(config.agents.profiles)
         disabled_count = total_agents - len(agent_ids)
         logger.debug(
             f"Starting {len(agent_ids)} enabled agent(s) "
-            f"({disabled_count} disabled)",
+            f"({disabled_count} disabled); preferred={preferred_agent_id!r}, "
+            f"max_concurrency={max_concurrency}, "
+            f"batch_delay={batch_delay_seconds:.2f}s, "
+            f"post_preferred_delay={post_preferred_delay_seconds:.2f}s",
         )
 
         async def start_single_agent(agent_id: str) -> tuple[str, bool]:
             """Start a single agent with error handling."""
+            def notify_agent_started(success: bool) -> None:
+                if agent_started_callback is None:
+                    return
+                try:
+                    agent_started_callback(agent_id, success)
+                except Exception:
+                    logger.debug(
+                        "Agent startup callback failed for %s",
+                        agent_id,
+                        exc_info=True,
+                    )
+
             try:
                 logger.debug(f"Starting agent: {agent_id}")
                 await self.get_agent(agent_id)
                 logger.debug(f"Agent started successfully: {agent_id}")
+                notify_agent_started(True)
                 return (agent_id, True)
             except Exception as e:
                 logger.error(
                     f"Failed to start agent {agent_id}: {e}. "
                     f"Continuing with other agents...",
                 )
+                notify_agent_started(False)
                 return (agent_id, False)
 
-        # Truly parallel: get_agent releases lock during workspace startup
-        results = await asyncio.gather(
-            *[start_single_agent(agent_id) for agent_id in agent_ids],
-            return_exceptions=False,
-        )
+        if (
+            preferred_agent_id is None
+            and max_concurrency is None
+            and batch_delay_seconds <= 0
+            and post_preferred_delay_seconds <= 0
+        ):
+            # Existing behavior: fully parallel background startup.
+            results = await asyncio.gather(
+                *[start_single_agent(agent_id) for agent_id in agent_ids],
+                return_exceptions=False,
+            )
+        else:
+            results = []
+
+            remaining_agent_ids = ordered_agent_ids
+            if (
+                ordered_agent_ids
+                and preferred_agent_id
+                and ordered_agent_ids[0] == preferred_agent_id
+            ):
+                results.append(await start_single_agent(preferred_agent_id))
+                remaining_agent_ids = ordered_agent_ids[1:]
+                if remaining_agent_ids:
+                    delay_seconds = (
+                        post_preferred_delay_seconds
+                        if post_preferred_delay_seconds > 0
+                        else batch_delay_seconds
+                    )
+                    if delay_seconds > 0:
+                        await asyncio.sleep(delay_seconds)
+
+            if remaining_agent_ids:
+                batch_size = max_concurrency or len(remaining_agent_ids)
+                batch_size = max(1, batch_size)
+
+                for index in range(0, len(remaining_agent_ids), batch_size):
+                    if index > 0 and batch_delay_seconds > 0:
+                        await asyncio.sleep(batch_delay_seconds)
+
+                    batch = remaining_agent_ids[index : index + batch_size]
+                    results.extend(
+                        await asyncio.gather(
+                            *[
+                                start_single_agent(agent_id)
+                                for agent_id in batch
+                            ],
+                            return_exceptions=False,
+                        ),
+                    )
 
         # Build result mapping
         result_map = dict(results)

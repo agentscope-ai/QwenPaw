@@ -22,6 +22,69 @@ def _desktop_startup_timing_enabled() -> bool:
     return os.environ.get("QWENPAW_DESKTOP_APP") == "1"
 
 
+def _warn_invalid_startup_env(message: str, *args: object) -> None:
+    active_logger = globals().get("logger")
+    if active_logger is not None:
+        active_logger.warning(message, *args)
+
+
+def _env_float(name: str, default: float) -> float:
+    value = os.environ.get(name)
+    if value is None:
+        return default
+    try:
+        return max(0.0, float(value))
+    except ValueError:
+        _warn_invalid_startup_env(
+            "Invalid %s=%r; using %.2f",
+            name,
+            value,
+            default,
+        )
+        return default
+
+
+def _env_int(name: str, default: int | None) -> int | None:
+    value = os.environ.get(name)
+    if value is None:
+        return default
+    try:
+        parsed = int(value)
+    except ValueError:
+        _warn_invalid_startup_env(
+            "Invalid %s=%r; using %r",
+            name,
+            value,
+            default,
+        )
+        return default
+    return max(1, parsed) if parsed > 0 else None
+
+
+def _desktop_background_grace_seconds() -> float:
+    default = 2.0 if _desktop_startup_timing_enabled() else 0.0
+    return _env_float(
+        "QWENPAW_DESKTOP_BACKGROUND_GRACE_SECONDS",
+        default,
+    )
+
+
+def _desktop_background_agent_concurrency() -> int | None:
+    default = 2 if _desktop_startup_timing_enabled() else None
+    return _env_int(
+        "QWENPAW_DESKTOP_BACKGROUND_AGENT_CONCURRENCY",
+        default,
+    )
+
+
+def _desktop_background_agent_batch_delay() -> float:
+    default = 0.25 if _desktop_startup_timing_enabled() else 0.0
+    return _env_float(
+        "QWENPAW_DESKTOP_BACKGROUND_AGENT_BATCH_DELAY_SECONDS",
+        default,
+    )
+
+
 def _emit_desktop_startup_timing_stdout(
     phase: str,
     **details: object,
@@ -92,16 +155,37 @@ from .routers import (  # noqa: E402
     router as api_router,
     create_agent_scoped_router,
 )
+
+_emit_desktop_startup_timing_stdout("api_router_imported")
+
 from .routers.agent_scoped import AgentContextMiddleware  # noqa: E402
+
+_emit_desktop_startup_timing_stdout("agent_scoped_router_imported")
+
 from .routers.approval import router as approval_router  # noqa: E402
+
+_emit_desktop_startup_timing_stdout("approval_router_imported")
+
 from .routers.coding_mode import router as coding_mode_router  # noqa: E402
+
+_emit_desktop_startup_timing_stdout("coding_mode_router_imported")
+
 from .routers.voice import voice_router  # noqa: E402
 
 _emit_desktop_startup_timing_stdout("router_imports_loaded")
 
 from ..envs import load_envs_into_environ  # noqa: E402
+
+_emit_desktop_startup_timing_stdout("envs_imported")
+
 from ..providers.provider_manager import ProviderManager  # noqa: E402
+
+_emit_desktop_startup_timing_stdout("provider_manager_imported")
+
 from ..local_models.manager import LocalModelManager  # noqa: E402
+
+_emit_desktop_startup_timing_stdout("local_model_manager_imported")
+
 from .multi_agent_manager import MultiAgentManager  # noqa: E402
 
 _emit_desktop_startup_timing_stdout("manager_imports_loaded")
@@ -421,6 +505,18 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
     async def _background_startup():  # pylint: disable=too-many-statements
         _emit_desktop_startup_timing("background_startup_started")
         try:
+            startup_config = load_config(get_config_path())
+            active_agent_id = startup_config.agents.active_agent or "default"
+            grace_seconds = _desktop_background_grace_seconds()
+            if grace_seconds > 0:
+                _emit_desktop_startup_timing(
+                    "non_active_agent_startup_grace_configured",
+                    agent_id=active_agent_id,
+                    grace_seconds=grace_seconds,
+                )
+            agent_concurrency = _desktop_background_agent_concurrency()
+            agent_batch_delay = _desktop_background_agent_batch_delay()
+
             # ---- Parallel: agents + plugins + local model resume ----
             # These are independent and together dominate startup time.
 
@@ -458,8 +554,17 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
                 loader = PluginLoader(plugin_dirs)
                 loader.registry.set_plugin_http_app(app)
 
-                cfg = load_config(get_config_path())
-                plugin_cfgs = cfg.plugins if hasattr(cfg, "plugins") else {}
+                # Expose the loader early so API endpoints can
+                # function while discovery/load continues.
+                app.state.plugin_loader = loader
+                app.state.plugin_registry = loader.registry
+                app.state.plugin_loader_ready = False
+
+                plugin_cfgs = (
+                    startup_config.plugins
+                    if hasattr(startup_config, "plugins")
+                    else {}
+                )
                 logger.debug(
                     f"Loading plugins with " f"{len(plugin_cfgs)} config(s)",
                 )
@@ -469,9 +574,48 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
                 logger.debug(f"Loaded {len(loaded)} plugin(s)")
                 return loader
 
+            async def _start_agents():
+                try:
+                    active_agent_timing_emitted = False
+
+                    def _emit_agent_started_timing(
+                        agent_id: str,
+                        success: bool,
+                    ) -> None:
+                        nonlocal active_agent_timing_emitted
+                        if (
+                            active_agent_timing_emitted
+                            or agent_id != active_agent_id
+                        ):
+                            return
+                        active_agent_timing_emitted = True
+                        _emit_desktop_startup_timing(
+                            "active_agent_startup_finished",
+                            agent_id=agent_id,
+                            success=success,
+                        )
+
+                    _emit_desktop_startup_timing(
+                        "active_agent_startup_started",
+                        agent_id=active_agent_id,
+                    )
+                    await multi_agent_manager.start_all_configured_agents(
+                        preferred_agent_id=active_agent_id,
+                        max_concurrency=agent_concurrency,
+                        batch_delay_seconds=agent_batch_delay,
+                        post_preferred_delay_seconds=grace_seconds,
+                        agent_started_callback=_emit_agent_started_timing,
+                    )
+                except Exception:
+                    logger.error(
+                        "Agent initialization failed; continuing with "
+                        "plugin system and remaining startup tasks",
+                        exc_info=True,
+                    )
+
             plugin_loader, _ = await asyncio.gather(
                 _load_plugins(),
-                multi_agent_manager.start_all_configured_agents(),
+                _start_agents(),
             )
 
             provider_manager.start_local_model_resume(local_model_manager)

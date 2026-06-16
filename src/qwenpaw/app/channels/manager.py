@@ -36,6 +36,45 @@ OnLastDispatch = Optional[Callable[[str, str, str], None]]
 _CHANNEL_QUEUE_MAXSIZE = 1000
 
 
+def _get_channel_config(channels_config: Any, key: str, extra: dict) -> Any:
+    if isinstance(channels_config, dict):
+        return channels_config.get(key)
+    channel_config = getattr(channels_config, key, None)
+    if channel_config is None and key in extra:
+        channel_config = extra[key]
+    return channel_config
+
+
+def _channel_enabled(channel_config: Any) -> bool:
+    if channel_config is None:
+        return False
+    if isinstance(channel_config, dict):
+        return bool(channel_config.get("enabled", False))
+    return bool(getattr(channel_config, "enabled", False))
+
+
+def _configured_enabled_channel_keys(channels_config: Any) -> tuple[str, ...]:
+    if channels_config is None:
+        return ()
+
+    extra = getattr(channels_config, "__pydantic_extra__", None) or {}
+    keys: list[str] = []
+    if isinstance(channels_config, dict):
+        keys.extend(channels_config.keys())
+    elif hasattr(channels_config, "model_dump"):
+        keys.extend(channels_config.model_dump().keys())
+    else:
+        keys.extend(vars(channels_config).keys())
+    keys.extend(key for key in extra if key not in keys)
+
+    enabled_keys = []
+    for key in keys:
+        channel_config = _get_channel_config(channels_config, key, extra)
+        if _channel_enabled(channel_config):
+            enabled_keys.append(key)
+    return tuple(dict.fromkeys(enabled_keys))
+
+
 async def _process_batch(ch: BaseChannel, batch: List[Any]) -> None:
     """Merge if needed and process one payload (native or request)."""
     if ch.channel == "dingtalk" and batch and ch._is_native_payload(batch[0]):
@@ -128,18 +167,17 @@ class ChannelManager:
             on_last_dispatch: Callback for dispatch events
             workspace_dir: Agent workspace directory for channel state files
         """
-        available = get_available_channels()
         ch = config.channels
+        candidate_keys = _configured_enabled_channel_keys(ch)
+        available = get_available_channels(candidate_keys)
         show_tool_details = getattr(config, "show_tool_details", True)
         extra = getattr(ch, "__pydantic_extra__", None) or {}
 
         channels: list[BaseChannel] = []
-        for key, ch_cls in get_channel_registry().items():
+        for key, ch_cls in get_channel_registry(available).items():
             if key not in available:
                 continue
-            ch_cfg = getattr(ch, key, None)
-            if ch_cfg is None and key in extra:
-                ch_cfg = extra[key]
+            ch_cfg = _get_channel_config(ch, key, extra)
             if ch_cfg is None:
                 continue
             if isinstance(ch_cfg, dict):
@@ -153,11 +191,7 @@ class ChannelManager:
             # Check if channel is enabled
             # Handle both Pydantic objects (built-in)
             # and dicts (customchannels)
-            if isinstance(ch_cfg, dict):
-                enabled = ch_cfg.get("enabled", False)
-            else:
-                enabled = getattr(ch_cfg, "enabled", False)
-            if not enabled:
+            if not _channel_enabled(ch_cfg):
                 continue
 
             # Handle both Pydantic objects (built-in)
