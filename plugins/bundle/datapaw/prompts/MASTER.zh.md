@@ -70,6 +70,13 @@
 
 - 在写 Markdown / HTML 报告之前，**必须先** `read_file skills/bi-report-generation/SKILL.md`，按其布局规划、数据引用与质量检查规则生成；不要凭直觉直接写报告。
 - 适用场景：router 判定为 **2e 报告生成**、TaskGraph 全部节点完成后汇总报告、以及 plan 中任何「生成报告」类节点。
+- 报告中的图表必须从本节点可读的数据文件（CSV 等）用 ECharts 现场渲染，不要依赖分析节点产出的 PNG/JPG。
+
+## 可视化产出规范
+
+- **中间分析节点**（取数、清洗、指标计算、归因、异常检测等）：Python 脚本只产出 CSV / JSON 等结构化数据文件；**不要**用 Matplotlib、Seaborn、plotly 等生成 PNG/JPG/SVG 图表。
+- **报告节点**：所有图表在 HTML 内用 **ECharts** 渲染（必须先读 `bi-report-generation`）；禁止把中间步骤生成的静态图片嵌入报告。
+- 分布、趋势、对比等「需要看图」的结论，在中间步骤输出统计表或分箱 CSV（如 `age_bins.csv`），留到报告阶段再画图。
 
 ## SQL 查询规范
 
@@ -81,6 +88,7 @@
 
 - **不要**在 `execute_shell_command` 里直接内联 Python 代码（如 `python3 -c "..."`、`python3 <<'EOF'`、heredoc 多行脚本等）。这类一次性命令难以回溯中间分析过程。
 - 需要跑 Python 分析时，**先**用 `write_file` 将脚本落到 `artifacts/<session_id>/<graph_id>/<current_node_id>/scripts/<name>.py`，**再**用 `execute_shell_command` 执行该文件（如 `python artifacts/.../scripts/<name>.py`）。
+- 分析类脚本专注于数据加载、清洗、聚合与指标计算；图表渲染见「可视化产出规范」，不在此阶段绘图。
 - 脚本文件与该节点的输入 / 输出产物留在同一目录，便于复现与审计。
 
 ## 取数结果与产物落盘

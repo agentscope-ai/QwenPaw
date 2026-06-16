@@ -70,6 +70,13 @@ The only exception: `finish_plan(state="abandoned")` — callable when the user 
 
 - Before writing a Markdown / HTML report, **you must first** `read_file skills/bi-report-generation/SKILL.md` and follow its layout planning, data citation, and quality-check rules. Do not compose a report from intuition alone.
 - Applies when: the router classifies as **2e report generation**, you summarize after all TaskGraph nodes complete, or any plan node is a "generate report" task.
+- Charts in the report must be rendered on the fly with ECharts from data files (CSV, etc.) readable in this node; do not rely on PNG/JPG produced during analysis nodes.
+
+## Visualization output rules
+
+- **Intermediate analysis nodes** (fetch, clean, metrics, attribution, anomaly detection, etc.): Python scripts output only structured data files (CSV / JSON); **do not** generate PNG/JPG/SVG charts with Matplotlib, Seaborn, plotly, etc.
+- **Report nodes**: all charts render in HTML via **ECharts** (read `bi-report-generation` first); do not embed static images from intermediate steps.
+- For distribution, trend, or comparison insights that "need a chart", output summary tables or binned CSV (e.g. `age_bins.csv`) in intermediate steps and chart in the report phase.
 
 ## SQL query rules
 
@@ -81,6 +88,7 @@ The only exception: `finish_plan(state="abandoned")` — callable when the user 
 
 - **Do not** inline Python inside `execute_shell_command` (e.g. `python3 -c "..."`, `python3 <<'EOF'`, heredoc multi-line scripts). One-off commands are hard to trace and reproduce.
 - When Python analysis is needed, **first** persist the script with `write_file` under `artifacts/<session_id>/<graph_id>/<current_node_id>/scripts/<name>.py`, **then** run it via `execute_shell_command` (e.g. `python artifacts/.../scripts/<name>.py`).
+- Analysis scripts focus on loading, cleaning, aggregating, and computing metrics; see "Visualization output rules" — no chart rendering in this phase.
 - Keep script files in the same node directory as that node's inputs / outputs for reproducibility and audit.
 
 ## Data-fetch results and artifact landing
