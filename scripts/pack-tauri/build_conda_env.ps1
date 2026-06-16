@@ -20,10 +20,14 @@ if (-not $OutputDir) {
 }
 
 $Archive = Join-Path $Dist "qwenpaw-env.zip"
-$Unpacked = Join-Path $Dist "tauri-win-unpacked"
 $PackDir = Join-Path $RepoRoot "scripts\pack"
 $BuildCommon = Join-Path $PackDir "build_common.py"
 $ReusePackedEnv = $env:QWENPAW_REUSE_PACKED_ENV -eq "1"
+$CompileAllMode = if ($env:QWENPAW_TAURI_COMPILEALL) {
+  $env:QWENPAW_TAURI_COMPILEALL.ToLowerInvariant()
+} else {
+  "0"
+}
 
 $CondaUnpackAffectedPackages = @(
   "huggingface_hub",
@@ -132,15 +136,72 @@ function Write-QwenPawCliWrapper {
 "@ | Set-Content -Path $qwenpawCmd -Encoding ASCII
 }
 
-function Copy-ToTauriResource {
+function Clear-OutputDir {
+  param([string]$Dest)
+
+  $destFull = ([System.IO.Path]::GetFullPath($Dest)).TrimEnd([char[]]@("\", "/"))
+  if (-not $destFull -or $destFull -eq [System.IO.Path]::GetPathRoot($destFull).TrimEnd([char[]]@("\", "/"))) {
+    throw "Unsafe Tauri backend output directory: $Dest"
+  }
+  New-Item -ItemType Directory -Force -Path $Dest | Out-Null
+  Get-ChildItem -LiteralPath $Dest -Force | Remove-Item -Recurse -Force
+}
+
+function Move-EnvRootToOutputDir {
   param(
     [string]$EnvRoot,
     [string]$Dest
   )
 
-  New-Item -ItemType Directory -Force -Path $Dest | Out-Null
-  Get-ChildItem -LiteralPath $Dest -Force | Remove-Item -Recurse -Force
-  Copy-Item -Recurse -Force (Join-Path $EnvRoot "*") $Dest
+  $envRootFull = ([System.IO.Path]::GetFullPath($EnvRoot)).TrimEnd([char[]]@("\", "/"))
+  $destFull = ([System.IO.Path]::GetFullPath($Dest)).TrimEnd([char[]]@("\", "/"))
+  if ($envRootFull -ieq $destFull) {
+    return $destFull
+  }
+
+  $flattenDir = Join-Path (Split-Path -Parent $destFull) ("qwenpaw-backend-flatten-" + [System.Guid]::NewGuid().ToString("N"))
+  New-Item -ItemType Directory -Force -Path $flattenDir | Out-Null
+  try {
+    Get-ChildItem -LiteralPath $envRootFull -Force | Move-Item -Destination $flattenDir -Force
+    Get-ChildItem -LiteralPath $destFull -Force | Remove-Item -Recurse -Force
+    Get-ChildItem -LiteralPath $flattenDir -Force | Move-Item -Destination $destFull -Force
+  } finally {
+    if (Test-Path $flattenDir) {
+      Remove-Item -LiteralPath $flattenDir -Recurse -Force
+    }
+  }
+  return $destFull
+}
+
+function Invoke-OptionalCompileAll {
+  param([string]$EnvRoot)
+
+  $pythonExe = Join-Path $EnvRoot "python.exe"
+  if (@("1", "true", "yes", "full") -contains $CompileAllMode) {
+    Write-Host "== Pre-compiling Python bytecode =="
+    & $pythonExe -m compileall -q -j 0 $EnvRoot
+    if ($LASTEXITCODE -ne 0) {
+      Write-Host "[tauri-conda] WARN: bytecode compilation had errors" -ForegroundColor Yellow
+    }
+    return
+  }
+
+  if ($CompileAllMode -eq "qwenpaw") {
+    $packageDir = Join-Path $EnvRoot "Lib\site-packages\qwenpaw"
+    if (Test-Path $packageDir) {
+      Write-Host "== Pre-compiling QwenPaw Python bytecode =="
+      & $pythonExe -m compileall -q $packageDir
+      if ($LASTEXITCODE -ne 0) {
+        Write-Host "[tauri-conda] WARN: QwenPaw bytecode compilation had errors" -ForegroundColor Yellow
+      }
+    } else {
+      Write-Host "[tauri-conda] WARN: QwenPaw package not found for bytecode compilation: $packageDir" -ForegroundColor Yellow
+    }
+    return
+  }
+
+  Write-Host "== Skipping Python bytecode pre-compilation =="
+  Write-Host "[tauri-conda] Set QWENPAW_TAURI_COMPILEALL=full to enable full compileall."
 }
 
 function Ensure-PackedArchive {
@@ -187,27 +248,16 @@ if (-not (Test-Path $BuildCommon)) {
 
 Ensure-PackedArchive -Version $version
 
-Write-Host "== Unpacking env =="
-if (Test-Path $Unpacked) {
-  Remove-Item -LiteralPath $Unpacked -Recurse -Force
-}
-Expand-Archive -Path $Archive -DestinationPath $Unpacked -Force
-$envRoot = Resolve-EnvRoot -Root $Unpacked
+Write-Host "== Unpacking env to Tauri resource directory =="
+Clear-OutputDir -Dest $OutputDir
+Expand-Archive -Path $Archive -DestinationPath $OutputDir -Force
+$envRoot = Resolve-EnvRoot -Root $OutputDir
+$envRoot = Move-EnvRootToOutputDir -EnvRoot $envRoot -Dest $OutputDir
 Write-Host "[tauri-conda] Env root: $envRoot"
 
 Invoke-CondaUnpackRepair -EnvRoot $envRoot
-
-Write-Host "== Pre-compiling Python bytecode =="
-$pythonExe = Join-Path $envRoot "python.exe"
-& $pythonExe -m compileall -q -j 0 $envRoot
-if ($LASTEXITCODE -ne 0) {
-  Write-Host "[tauri-conda] WARN: bytecode compilation had errors" -ForegroundColor Yellow
-}
-
+Invoke-OptionalCompileAll -EnvRoot $envRoot
 Write-QwenPawCliWrapper -EnvRoot $envRoot
-
-Write-Host "== Copying to Tauri resource directory =="
-Copy-ToTauriResource -EnvRoot $envRoot -Dest $OutputDir
 
 if (-not (Test-Path (Join-Path $OutputDir "python.exe"))) {
   throw "python.exe not found in Tauri backend resource: $OutputDir"

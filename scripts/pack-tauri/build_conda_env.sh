@@ -16,10 +16,12 @@ if [[ "$OUTPUT_DIR" != /* ]]; then
 fi
 
 ARCHIVE="${DIST}/qwenpaw-env.tar.gz"
-UNPACKED="${DIST}/tauri-macos-unpacked"
 PACK_DIR="${REPO_ROOT}/scripts/pack"
 BUILD_COMMON="${PACK_DIR}/build_common.py"
 REUSE_PACKED_ENV="${QWENPAW_REUSE_PACKED_ENV:-0}"
+COMPILEALL_MODE="$(
+  printf '%s' "${QWENPAW_TAURI_COMPILEALL:-0}" | tr '[:upper:]' '[:lower:]'
+)"
 VERSION="$(
   sed -n 's/^__version__[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' \
     src/qwenpaw/__version__.py
@@ -69,6 +71,69 @@ resolve_env_root() {
   exit 1
 }
 
+prepare_output_dir() {
+  if [[ -z "$OUTPUT_DIR" || "$OUTPUT_DIR" == "/" ]]; then
+    echo "ERROR: unsafe Tauri backend output directory: $OUTPUT_DIR" >&2
+    exit 1
+  fi
+  mkdir -p "$OUTPUT_DIR"
+  find "$OUTPUT_DIR" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+}
+
+canonical_dir() {
+  (cd "$1" && pwd -P)
+}
+
+move_env_root_to_output_dir() {
+  local env_root="$1"
+  local dest="$2"
+  local env_root_real
+  local dest_real
+  local flatten_dir
+
+  env_root_real="$(canonical_dir "$env_root")"
+  dest_real="$(canonical_dir "$dest")"
+  if [[ "$env_root_real" == "$dest_real" ]]; then
+    printf '%s\n' "$dest_real"
+    return
+  fi
+
+  flatten_dir="$(mktemp -d "${dest_real}.flatten.XXXXXX")"
+  find "$env_root_real" -mindepth 1 -maxdepth 1 -exec mv {} "$flatten_dir/" \;
+  find "$dest_real" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+  find "$flatten_dir" -mindepth 1 -maxdepth 1 -exec mv {} "$dest_real/" \;
+  rmdir "$flatten_dir"
+  printf '%s\n' "$dest_real"
+}
+
+invoke_optional_compileall() {
+  local env_root="$1"
+  local python_exe="${env_root}/bin/python"
+
+  case "$COMPILEALL_MODE" in
+    1|true|yes|full)
+      echo "== Pre-compiling Python bytecode =="
+      "$python_exe" -m compileall -q -j 0 "$env_root" || \
+        echo "WARN: bytecode compilation had errors" >&2
+      ;;
+    qwenpaw)
+      local package_dir
+      package_dir="$(find "${env_root}/lib" -path '*/site-packages/qwenpaw' -type d -print -quit 2>/dev/null || true)"
+      if [[ -n "$package_dir" ]]; then
+        echo "== Pre-compiling QwenPaw Python bytecode =="
+        "$python_exe" -m compileall -q "$package_dir" || \
+          echo "WARN: QwenPaw bytecode compilation had errors" >&2
+      else
+        echo "WARN: QwenPaw package not found for bytecode compilation" >&2
+      fi
+      ;;
+    *)
+      echo "== Skipping Python bytecode pre-compilation =="
+      echo "Set QWENPAW_TAURI_COMPILEALL=full to enable full compileall."
+      ;;
+  esac
+}
+
 echo "========================================="
 echo "QwenPaw Tauri Backend - conda-pack"
 echo "========================================="
@@ -91,11 +156,11 @@ command -v python >/dev/null 2>&1 || {
 
 ensure_packed_archive
 
-echo "== Unpacking env =="
-rm -rf "$UNPACKED"
-mkdir -p "$UNPACKED"
-tar -xzf "$ARCHIVE" -C "$UNPACKED"
-ENV_ROOT="$(resolve_env_root "$UNPACKED")"
+echo "== Unpacking env to Tauri resource directory =="
+prepare_output_dir
+tar -xzf "$ARCHIVE" -C "$OUTPUT_DIR"
+ENV_ROOT="$(resolve_env_root "$OUTPUT_DIR")"
+ENV_ROOT="$(move_env_root_to_output_dir "$ENV_ROOT" "$OUTPUT_DIR")"
 echo "Env root: ${ENV_ROOT}"
 
 if [[ -x "${ENV_ROOT}/bin/conda-unpack" ]]; then
@@ -105,14 +170,7 @@ else
   echo "WARN: conda-unpack not found at ${ENV_ROOT}/bin/conda-unpack" >&2
 fi
 
-echo "== Pre-compiling Python bytecode =="
-"${ENV_ROOT}/bin/python" -m compileall -q -j 0 "$ENV_ROOT" || \
-  echo "WARN: bytecode compilation had errors" >&2
-
-echo "== Copying to Tauri resource directory =="
-mkdir -p "$OUTPUT_DIR"
-find "$OUTPUT_DIR" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
-cp -R "${ENV_ROOT}/." "$OUTPUT_DIR/"
+invoke_optional_compileall "$ENV_ROOT"
 chmod +x "${OUTPUT_DIR}/bin/python"
 [[ -x "${OUTPUT_DIR}/bin/qwenpaw" ]] && chmod +x "${OUTPUT_DIR}/bin/qwenpaw"
 
