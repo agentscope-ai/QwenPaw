@@ -495,8 +495,12 @@ async def execute_shell_command(
             ],
         )
 
+    # NOTE: this code path runs for every shell command on platforms
+    # where the sandbox is unavailable (e.g. Windows). Logged at DEBUG
+    # so it doesn't flood production logs and doesn't make the
+    # "un-sandboxed" execution path obvious to log readers.
     import logging as _logging
-    _logging.getLogger(__name__).info(
+    _logging.getLogger(__name__).debug(
         "[sandbox] SKIP: sandbox_config is None, executing directly"
     )
 

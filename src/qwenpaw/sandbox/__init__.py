@@ -1,13 +1,13 @@
 # -*- coding: utf-8 -*-
-"""Sandbox — 轻量级本地执行隔离。
+"""Sandbox — lightweight local execution isolation.
 
-支持模式：
-  - SEATBELT: macOS sandbox-exec 内核隔离
-  - LANDLOCK: Linux Landlock LSM 内核隔离 (5.13+)
-  - WSL2: Windows WSL2 委托执行 + Landlock 隔离
-  - NONE: 不隔离，直接执行
+Supported modes:
+  - SEATBELT: macOS sandbox-exec kernel isolation
+  - LANDLOCK: Linux Landlock LSM kernel isolation (5.13+)
+  - WSL2:     Windows WSL2 delegated execution + Landlock isolation
+  - NONE:     no isolation, direct execution
 
-生命周期：per-tool-call（用完即销毁）。
+Lifecycle: per-tool-call (created and destroyed for each invocation).
 
 Usage:
     from qwenpaw.sandbox import create_sandbox, SandboxConfig, SandboxMode, MountSpec
@@ -21,6 +21,7 @@ Usage:
         result = await sandbox.execute("echo hello")
         print(result.stdout)
 """
+
 from .config import (
     ExecutionResult,
     MountSpec,

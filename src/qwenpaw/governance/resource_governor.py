@@ -4,6 +4,7 @@
 Core responsibilities: policy evaluation, audit recording, dynamic rule addition,
 sandbox config compilation.
 """
+
 from __future__ import annotations
 import hashlib
 import logging
@@ -11,15 +12,28 @@ from pathlib import Path
 from typing import Optional
 
 from .policy import (
-    GovernancePolicy, GovernanceRule, GovernanceAction, GovernanceDecision, ToolCallSpec,
-    DEFAULT_SANDBOX_DENY_PATHS, FILE_READ_TOOLS, FILE_WRITE_TOOLS,
-    load_governance_policy, save_governance_policy,
+    GovernancePolicy,
+    GovernanceRule,
+    GovernanceAction,
+    GovernanceDecision,
+    ToolCallSpec,
+    DEFAULT_SANDBOX_DENY_PATHS,
+    FILE_READ_TOOLS,
+    FILE_WRITE_TOOLS,
+    load_governance_policy,
+    save_governance_policy,
     _parse_match,
 )
 from .audit import AuditLog
 from ..constant import WORKING_DIR
 
-from ..sandbox import SandboxCapability, SandboxConfig, MountSpec, probe_sandbox_support, detect_platform_mode
+from ..sandbox import (
+    SandboxCapability,
+    SandboxConfig,
+    MountSpec,
+    probe_sandbox_support,
+    detect_platform_mode,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -45,12 +59,9 @@ class ResourceGovernor:
         # but different absolute paths (e.g. ``/Users/a/project`` vs
         # ``/Users/b/project``) do not share the same policy directory.
         ws_resolved = str(self.workspace_dir.resolve())
-        ws_hash = hashlib.sha256(
-            ws_resolved.encode("utf-8")
-        ).hexdigest()[:12]
+        ws_hash = hashlib.sha256(ws_resolved.encode("utf-8")).hexdigest()[:12]
         self._policy_dir = (
-            WORKING_DIR / "governance"
-            / f"{self.workspace_dir.name}_{ws_hash}"
+            WORKING_DIR / "governance" / f"{self.workspace_dir.name}_{ws_hash}"
         )
         self._policy: Optional[GovernancePolicy] = None
         self._sandbox_available: bool = False
@@ -74,7 +85,8 @@ class ResourceGovernor:
         """Load policy and probe sandbox capabilities."""
         self._policy_dir.mkdir(parents=True, exist_ok=True)
         self._policy = load_governance_policy(
-            str(self._policy_dir), str(self.workspace_dir),
+            str(self._policy_dir),
+            str(self.workspace_dir),
         )
 
         self._sandbox_capability = probe_sandbox_support()
@@ -87,11 +99,26 @@ class ResourceGovernor:
             )
 
     def stop(self) -> None:
-        """Persist policy (if modified)."""
+        """Persist policy (if modified) and close the audit log."""
         if self._policy and self._policy.rules:
-            save_governance_policy(
-                self._policy, str(self._policy_dir), str(self.workspace_dir),
-            )
+            try:
+                save_governance_policy(
+                    self._policy,
+                    str(self._policy_dir),
+                    str(self.workspace_dir),
+                )
+            except Exception:
+                logger.exception(
+                    "ResourceGovernor.stop: failed to persist policy.yaml"
+                )
+        # Close the global AuditLog: triggers the deferred VACUUM and
+        # releases the SQLite handle. Without this, audit.db is only
+        # closed on interpreter exit (best-effort) which is fragile under
+        # supervised restarts and may leak WAL frames.
+        try:
+            AuditLog.get_instance().close()
+        except Exception:
+            logger.exception("ResourceGovernor.stop: failed to close AuditLog")
 
     # ------------------------------------------------------------------
     # Core interface 1: Policy evaluation + audit
@@ -115,7 +142,10 @@ class ResourceGovernor:
         decision = self.policy.evaluate(tc_spec)
 
         # Early probe degradation: if sandbox is unavailable, escalate SANDBOX_FALLBACK to ASK
-        if decision.action is GovernanceAction.SANDBOX_FALLBACK and not self._sandbox_available:
+        if (
+            decision.action is GovernanceAction.SANDBOX_FALLBACK
+            and not self._sandbox_available
+        ):
             logger.info(
                 "ResourceGovernor: sandbox unavailable, escalating "
                 "SANDBOX_FALLBACK to ASK for tool '%s'",
@@ -131,7 +161,9 @@ class ResourceGovernor:
             decision.sandbox_config = self.compile_sandbox_config(tc_spec)
         # Audit record
         AuditLog.get_instance().record(
-            str(self.workspace_dir), tc_spec, decision,
+            str(self.workspace_dir),
+            tc_spec,
+            decision,
         )
         # Observability: log every governance decision so operators can
         # trace policy evaluation results without querying audit.db.
@@ -139,8 +171,10 @@ class ResourceGovernor:
         target_repr = (tc_spec.target or "")[:120]
         logger.info(
             "governance decision: tool=%s target=%r action=%s reason=%s",
-            tc_spec.tool_name, target_repr,
-            decision.action.value, decision.reason,
+            tc_spec.tool_name,
+            target_repr,
+            decision.action.value,
+            decision.reason,
         )
         return decision
 
@@ -149,7 +183,8 @@ class ResourceGovernor:
     # ------------------------------------------------------------------
 
     def compile_sandbox_config(
-        self, tc_spec: ToolCallSpec,
+        self,
+        tc_spec: ToolCallSpec,
     ) -> SandboxConfig:
         """Compile sandbox filesystem permission config based on current policy.
 
@@ -193,10 +228,7 @@ class ResourceGovernor:
                 # readwrite mount
                 mount_map[path] = True
 
-        mounts = [
-            MountSpec(path=p, writable=w)
-            for p, w in mount_map.items()
-        ]
+        mounts = [MountSpec(path=p, writable=w) for p, w in mount_map.items()]
         # Workspace is always readwrite
         mounts.insert(0, MountSpec(path=ws, writable=True))
 
@@ -258,7 +290,9 @@ class ResourceGovernor:
         """
         self.policy.add_rule(rule)
         save_governance_policy(
-            self._policy, str(self._policy_dir), str(self.workspace_dir),
+            self._policy,
+            str(self._policy_dir),
+            str(self.workspace_dir),
         )
 
     def record_approval(self, tc_spec: ToolCallSpec, approved: bool) -> None:
@@ -269,11 +303,15 @@ class ResourceGovernor:
             record_approval  → ALLOW/DENY (supplementary entry)
         """
         decision = GovernanceDecision(
-            action=GovernanceAction.ALLOW if approved else GovernanceAction.DENY,
+            action=(
+                GovernanceAction.ALLOW if approved else GovernanceAction.DENY
+            ),
             reason="User Approve" if approved else "User Deny",
         )
         AuditLog.get_instance().record(
-            str(self.workspace_dir), tc_spec, decision,
+            str(self.workspace_dir),
+            tc_spec,
+            decision,
         )
 
     def is_builtin_ask(self, tc_spec: ToolCallSpec) -> bool:

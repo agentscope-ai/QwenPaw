@@ -7,6 +7,7 @@ Storage: single-file SQLite (~/.qwenpaw/audit.db), global singleton.
 - purge() deletes expired records and VACUUMs to reclaim space
 - Auto-cleanup: when total records reach 100k, deletes the oldest 10k
 """
+
 from __future__ import annotations
 
 import json
@@ -58,14 +59,16 @@ class AuditEvent:
     Records 5W: who (agent_id), what (tool_name + target),
     when (ts), outcome (decision), why (reason).
     """
-    ts: int                          # Milliseconds since epoch, UTC
+
+    ts: int  # Milliseconds since epoch, UTC
     workspace_dir: str
     agent_id: str
     session_id: str
     tool_name: str
     target: str
-    decision: str                    # "allow" | "deny" | "ask" | "sandbox_fallback"
-    reason: str = ""                 # Additional explanation (e.g. violation cause)
+    decision: str  # "allow" | "deny" | "ask" | "sandbox_fallback"
+    # Additional explanation (e.g. violation cause)
+    reason: str = ""
     extra: dict = field(default_factory=dict)
 
 
@@ -100,9 +103,9 @@ class AuditLog:
         true non-blocking audit writes.
     """
 
-    MAX_RECORDS = 100_000       # Threshold to trigger auto-cleanup
-    PURGE_COUNT = 10_000        # Number of records to delete per cleanup
-    _CHECK_INTERVAL = 1_000     # Check if cleanup is needed every N records
+    MAX_RECORDS = 100_000  # Threshold to trigger auto-cleanup
+    PURGE_COUNT = 10_000  # Number of records to delete per cleanup
+    _CHECK_INTERVAL = 1_000  # Check if cleanup is needed every N records
 
     _instance: Optional[AuditLog] = None
 
@@ -120,9 +123,7 @@ class AuditLog:
         obj = object.__new__(cls)
         obj._db_path = db_path
         obj._db_path.parent.mkdir(parents=True, exist_ok=True)
-        obj._conn = sqlite3.connect(
-            str(obj._db_path), check_same_thread=False
-        )
+        obj._conn = sqlite3.connect(str(obj._db_path), check_same_thread=False)
         obj._conn.row_factory = sqlite3.Row
         obj._conn.execute("PRAGMA journal_mode=WAL")
         # Drop legacy schema where ``ts`` was TEXT (ISO 8601). Audit data
@@ -156,46 +157,75 @@ class AuditLog:
         if self._conn:
             try:
                 self._conn.execute("VACUUM")
-            except sqlite3.Error:
-                pass
-            self._conn.close()
+            except sqlite3.Error as e:
+                _logger.warning("AuditLog.close: VACUUM failed: %s", e)
+            try:
+                self._conn.close()
+            except sqlite3.Error as e:
+                _logger.warning(
+                    "AuditLog.close: connection close failed: %s", e
+                )
             self._conn = None
         AuditLog._instance = None
 
-    def record(self, workspace_dir: str, tc_spec: ToolCallSpec,
-               decision: GovernanceDecision) -> None:
+    def record(
+        self,
+        workspace_dir: str,
+        tc_spec: ToolCallSpec,
+        decision: GovernanceDecision,
+    ) -> None:
         """Record a policy decision, writing to SQLite immediately.
 
         Args:
             workspace_dir: Workspace path this event belongs to
             tc_spec: ToolCallSpec instance
             decision: GovernanceDecision instance (action + reason)
-        """
-        with self._lock:
-            self._conn.execute(
-                "INSERT INTO audit_events "
-                "(ts, workspace_dir, agent_id, session_id, tool_name, target, decision, reason, extra) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (
-                    _now_unix_ms(),
-                    workspace_dir,
-                    tc_spec.agent_id,
-                    tc_spec.session_id,
-                    tc_spec.tool_name,
-                    tc_spec.target,
-                    str(decision.action.value),
-                    decision.reason,
-                    "{}",
-                ),
-            )
-            self._conn.commit()
 
-            # Auto-cleanup check
-            self._insert_count += 1
-            if self._insert_count >= self._CHECK_INTERVAL:
-                self._insert_count = 0
-                if self.count >= self.MAX_RECORDS:
-                    self._auto_purge()
+        Errors are caught and logged: an audit-write failure must NOT
+        propagate into ``assert_and_audit`` and disrupt the policy
+        decision returned to the caller.
+
+        TODO: honor ``GovernancePolicy.audit_level`` here.  The field
+        is currently declared (``"all"`` / ``"none"`` / ...) and
+        persisted in policy.yaml but ignored — every decision is
+        always written.  Once the level enum is finalised, gate the
+        INSERT on it (e.g. skip ALLOW events when level == "deny_only").
+        """
+        try:
+            with self._lock:
+                self._conn.execute(
+                    "INSERT INTO audit_events "
+                    "(ts, workspace_dir, agent_id, session_id, "
+                    "tool_name, target, decision, reason, extra) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        _now_unix_ms(),
+                        workspace_dir,
+                        tc_spec.agent_id,
+                        tc_spec.session_id,
+                        tc_spec.tool_name,
+                        tc_spec.target,
+                        str(decision.action.value),
+                        decision.reason,
+                        "{}",
+                    ),
+                )
+                self._conn.commit()
+
+                # Auto-cleanup check
+                self._insert_count += 1
+                if self._insert_count >= self._CHECK_INTERVAL:
+                    self._insert_count = 0
+                    if self.count >= self.MAX_RECORDS:
+                        self._auto_purge()
+        except sqlite3.Error as e:
+            _logger.error(
+                "AuditLog.record: SQLite error (tool=%s, target=%r): %s",
+                tc_spec.tool_name,
+                (tc_spec.target or "")[:120],
+                e,
+                exc_info=True,
+            )
 
     def query(
         self,
@@ -221,7 +251,10 @@ class AuditLog:
             offset: Offset (for pagination)
 
         Returns:
-            (events, total) — event list and total count of matching records
+            (events, total) — event list and total count of matching
+            records. Returns ``([], 0)`` if a SQLite error occurs so
+            callers (e.g. the Console UI) get a safe empty page rather
+            than an unhandled exception.
         """
         clauses: list[str] = []
         params: list = []
@@ -247,34 +280,46 @@ class AuditLog:
 
         where = " WHERE " + " AND ".join(clauses) if clauses else ""
 
-        # Total count
-        count_sql = f"SELECT COUNT(*) FROM audit_events{where}"
-        total = self._conn.execute(count_sql, params).fetchone()[0]
+        try:
+            # Total count
+            count_sql = f"SELECT COUNT(*) FROM audit_events{where}"
+            total = self._conn.execute(count_sql, params).fetchone()[0]
 
-        # Paginated query
-        data_sql = f"SELECT * FROM audit_events{where} ORDER BY ts DESC LIMIT ? OFFSET ?"
-        data_params = params + [limit, offset]
-        rows = self._conn.execute(data_sql, data_params).fetchall()
+            # Paginated query
+            data_sql = (
+                f"SELECT * FROM audit_events{where} "
+                "ORDER BY ts DESC LIMIT ? OFFSET ?"
+            )
+            data_params = params + [limit, offset]
+            rows = self._conn.execute(data_sql, data_params).fetchall()
 
-        return [_event_from_row(r) for r in rows], total
+            return [_event_from_row(r) for r in rows], total
+        except sqlite3.Error as e:
+            _logger.error("AuditLog.query: SQLite error: %s", e, exc_info=True)
+            return [], 0
 
     def purge(self, before: int) -> int:
-        """Delete records before the specified time and VACUUM to reclaim space.
+        """Delete records before the specified time and VACUUM to
+        reclaim space.
 
         Args:
             before: Cutoff time (unix ms, UTC), exclusive
 
         Returns:
-            Number of deleted records
+            Number of deleted records, or ``0`` on SQLite error.
         """
-        cursor = self._conn.execute(
-            "DELETE FROM audit_events WHERE ts < ?", (before,)
-        )
-        self._conn.commit()
-        deleted = cursor.rowcount
-        if deleted > 0:
-            self._conn.execute("VACUUM")
-        return deleted
+        try:
+            cursor = self._conn.execute(
+                "DELETE FROM audit_events WHERE ts < ?", (before,)
+            )
+            self._conn.commit()
+            deleted = cursor.rowcount
+            if deleted > 0:
+                self._conn.execute("VACUUM")
+            return deleted
+        except sqlite3.Error as e:
+            _logger.error("AuditLog.purge: SQLite error: %s", e, exc_info=True)
+            return 0
 
     @property
     def count(self) -> int:

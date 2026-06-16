@@ -7,6 +7,7 @@
 - Evaluation flow: ToolRegistry type check → builtin_rules → user_rules → global fallback
 - Rule generalization: smart generalization on approve (first token + *), high-risk commands stay exact
 """
+
 from __future__ import annotations
 import copy
 import logging
@@ -27,6 +28,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Core types
 # ---------------------------------------------------------------------------
+
 
 class GovernanceAction(str, Enum):
     ALLOW = "allow"
@@ -53,8 +55,9 @@ class ToolCallSpec:
         session_id: Current session ID
     """
 
-    def __init__(self, tool_name: str, target: str,
-                 agent_id: str, session_id: str) -> None:
+    def __init__(
+        self, tool_name: str, target: str, agent_id: str, session_id: str
+    ) -> None:
         self.tool_name = tool_name
         self.target = target
         self.agent_id = agent_id
@@ -86,16 +89,18 @@ class GovernanceRule:
             deny  → reject (no sandbox)
             ask   → ask user, execute in sandbox after approval
     """
-    match: str                              # "ToolName(pattern)"
+
+    match: str  # "ToolName(pattern)"
     action: GovernanceAction = GovernanceAction.DENY
-    reason: str = ""                        # Rule description
-    grantee: str = "*"                      # Authorized subject
-    duration: str = "permanent"             # "session" | "permanent"
-    session_id: Optional[str] = None        # Chat session ID
+    reason: str = ""  # Rule description
+    grantee: str = "*"  # Authorized subject
+    duration: str = "permanent"  # "session" | "permanent"
+    session_id: Optional[str] = None  # Chat session ID
 
     def _globmatch(self, pattern: str, target: str) -> bool:
         """wcmatch globmatch with directory self-match support."""
         from wcmatch import glob
+
         flags = glob.GLOBSTAR | glob.BRACE | glob.NEGATE | glob.SPLIT
         if glob.globmatch(target, pattern, flags=flags):
             return True
@@ -105,8 +110,9 @@ class GovernanceRule:
                 return True
         return False
 
-    def matches_tool_call(self, tc_spec: ToolCallSpec,
-                          tool_type: str = "") -> bool:
+    def matches_tool_call(
+        self, tc_spec: ToolCallSpec, tool_type: str = ""
+    ) -> bool:
         """Determine whether this rule matches the given tool call.
 
         Matching logic:
@@ -239,29 +245,44 @@ DEFAULT_BUILTIN_RULES: List[GovernanceRule] = [
 _SHELL_DANGER_PATTERNS: list[tuple[re.Pattern[str], str]] = [
     # rm with recursive flag targeting root-ish paths (/, /*, /etc, ...)
     # Catches: rm -rf /, rm -r -f /*, rm    -rf  /, rm / -rf, etc.
-    (re.compile(
-        r'\brm\b(?=[^;|&]*\s+-[a-zA-Z]*[rR])[^;|&]*\s+/(?:\s|$|\*)'
-    ), "Recursive deletion targeting root filesystem"),
+    (
+        re.compile(
+            r"\brm\b(?=[^;|&]*\s+-[a-zA-Z]*[rR])[^;|&]*\s+/(?:\s|$|\*)"
+        ),
+        "Recursive deletion targeting root filesystem",
+    ),
     # sudo in any position: start of command, after pipe/semicolon,
     # subshell, absolute path, env prefix, xargs, etc.
-    (re.compile(
-        r'(?:^|[;&|`]|\$\()\s*(?:/usr/s?bin/|/bin/)?sudo\b'
-        r'|\bxargs\s+.*\bsudo\b'
-        r'|\bcommand\s+sudo\b'
-        r'|\benv\s+.*\bsudo\b',
-    ), "Privilege escalation (sudo)"),
+    (
+        re.compile(
+            r"(?:^|[;&|`]|\$\()\s*(?:/usr/s?bin/|/bin/)?sudo\b"
+            r"|\bxargs\s+.*\bsudo\b"
+            r"|\bcommand\s+sudo\b"
+            r"|\benv\s+.*\bsudo\b",
+        ),
+        "Privilege escalation (sudo)",
+    ),
     # Fork bomb patterns
-    (re.compile(
-        r':\(\)\s*\{\s*:\|:\s*&\s*\}',
-    ), "Fork bomb"),
+    (
+        re.compile(
+            r":\(\)\s*\{\s*:\|:\s*&\s*\}",
+        ),
+        "Fork bomb",
+    ),
     # Direct disk write
-    (re.compile(
-        r'>\s*/dev/[sh]d[a-z]|\bdd\b[^;|&]*\bof\s*=\s*/dev/',
-    ), "Direct disk device write"),
+    (
+        re.compile(
+            r">\s*/dev/[sh]d[a-z]|\bdd\b[^;|&]*\bof\s*=\s*/dev/",
+        ),
+        "Direct disk device write",
+    ),
     # mkfs (filesystem formatting)
-    (re.compile(
-        r'\bmkfs\b',
-    ), "Filesystem formatting"),
+    (
+        re.compile(
+            r"\bmkfs\b",
+        ),
+        "Filesystem formatting",
+    ),
 ]
 
 
@@ -274,7 +295,7 @@ def _check_shell_danger_keywords(command: str) -> Optional[str]:
     extra whitespace, absolute path to sudo, piped sudo, etc.).
     """
     # Normalize whitespace for more reliable matching
-    normalized = ' '.join(command.split())
+    normalized = " ".join(command.split())
     for pattern, reason in _SHELL_DANGER_PATTERNS:
         if pattern.search(normalized):
             return reason
@@ -330,12 +351,14 @@ DEFAULT_SANDBOX_DENY_PATHS: List[str] = [
     # pip / PyPI API tokens
     "~/.pypirc",
     # Other common sensitive configs
-    "~/.config/gh",   # GitHub CLI
+    "~/.config/gh",  # GitHub CLI
     "~/.config/nix",  # Nix config
-    "~/.netrc",       # generic login credentials
+    "~/.netrc",  # generic login credentials
 ]
 
-FILE_READ_TOOLS: frozenset[str] = frozenset({"Read", "ViewImage", "ViewVideo", "SendFileToUser"})
+FILE_READ_TOOLS: frozenset[str] = frozenset(
+    {"Read", "ViewImage", "ViewVideo", "SendFileToUser"}
+)
 FILE_WRITE_TOOLS: frozenset[str] = frozenset({"Write", "Edit", "Append"})
 
 
@@ -345,42 +368,85 @@ FILE_WRITE_TOOLS: frozenset[str] = frozenset({"Write", "Edit", "Append"})
 
 DEFAULT_USER_RULES: List[GovernanceRule] = [
     # ── Internal tools (no side effects, always allowed) ──
-    GovernanceRule(match="GetCurrentTime(*)", action=GovernanceAction.ALLOW,
-               reason="Read-only system tool"),
-    GovernanceRule(match="GetTokenUsage(*)", action=GovernanceAction.ALLOW,
-               reason="Read-only usage query"),
-    GovernanceRule(match="ListAgents(*)", action=GovernanceAction.ALLOW,
-               reason="Read-only agent list"),
-    GovernanceRule(match="ChatWithAgent(*)", action=GovernanceAction.ALLOW,
-               reason="Inter-agent messaging"),
-    GovernanceRule(match="SubmitToAgent(*)", action=GovernanceAction.ALLOW,
-               reason="Inter-agent task submission"),
-    GovernanceRule(match="CheckAgentTask(*)", action=GovernanceAction.ALLOW,
-               reason="Read-only task status query"),
-    GovernanceRule(match="DelegateExternalAgent(*)", action=GovernanceAction.ALLOW,
-               reason="Inter-agent delegation"),
+    GovernanceRule(
+        match="GetCurrentTime(*)",
+        action=GovernanceAction.ALLOW,
+        reason="Read-only system tool",
+    ),
+    GovernanceRule(
+        match="GetTokenUsage(*)",
+        action=GovernanceAction.ALLOW,
+        reason="Read-only usage query",
+    ),
+    GovernanceRule(
+        match="ListAgents(*)",
+        action=GovernanceAction.ALLOW,
+        reason="Read-only agent list",
+    ),
+    GovernanceRule(
+        match="ChatWithAgent(*)",
+        action=GovernanceAction.ALLOW,
+        reason="Inter-agent messaging",
+    ),
+    GovernanceRule(
+        match="SubmitToAgent(*)",
+        action=GovernanceAction.ALLOW,
+        reason="Inter-agent task submission",
+    ),
+    GovernanceRule(
+        match="CheckAgentTask(*)",
+        action=GovernanceAction.ALLOW,
+        reason="Read-only task status query",
+    ),
+    GovernanceRule(
+        match="DelegateExternalAgent(*)",
+        action=GovernanceAction.ALLOW,
+        reason="Inter-agent delegation",
+    ),
     # ── File tools (operations within WORKSPACE_DIR, always allowed) ──
-    GovernanceRule(match="Read(WORKSPACE_DIR/**)", action=GovernanceAction.ALLOW,
-               reason="File read within workspace"),
-    GovernanceRule(match="Write(WORKSPACE_DIR/**)", action=GovernanceAction.ALLOW,
-               reason="File write within workspace"),
-    GovernanceRule(match="Edit(WORKSPACE_DIR/**)", action=GovernanceAction.ALLOW,
-               reason="File edit within workspace"),
-    GovernanceRule(match="Append(WORKSPACE_DIR/**)", action=GovernanceAction.ALLOW,
-               reason="File append within workspace"),
-    GovernanceRule(match="Grep(WORKSPACE_DIR/**)", action=GovernanceAction.ALLOW,
-               reason="Content search within workspace"),
-    GovernanceRule(match="Glob(WORKSPACE_DIR/**)", action=GovernanceAction.ALLOW,
-               reason="File listing within workspace"),
+    GovernanceRule(
+        match="Read(WORKSPACE_DIR/**)",
+        action=GovernanceAction.ALLOW,
+        reason="File read within workspace",
+    ),
+    GovernanceRule(
+        match="Write(WORKSPACE_DIR/**)",
+        action=GovernanceAction.ALLOW,
+        reason="File write within workspace",
+    ),
+    GovernanceRule(
+        match="Edit(WORKSPACE_DIR/**)",
+        action=GovernanceAction.ALLOW,
+        reason="File edit within workspace",
+    ),
+    GovernanceRule(
+        match="Append(WORKSPACE_DIR/**)",
+        action=GovernanceAction.ALLOW,
+        reason="File append within workspace",
+    ),
+    GovernanceRule(
+        match="Grep(WORKSPACE_DIR/**)",
+        action=GovernanceAction.ALLOW,
+        reason="Content search within workspace",
+    ),
+    GovernanceRule(
+        match="Glob(WORKSPACE_DIR/**)",
+        action=GovernanceAction.ALLOW,
+        reason="File listing within workspace",
+    ),
     # ── Browser (treat as always allowed for now) ──
-    GovernanceRule(match="Browser(**)", action=GovernanceAction.ALLOW,
-               reason="Allow all browser access"),
+    GovernanceRule(
+        match="Browser(**)",
+        action=GovernanceAction.ALLOW,
+        reason="Allow all browser access",
+    ),
 ]
 
 
 # ---------------------------------------------------------------------------
 # GovernancePolicy
 # ---------------------------------------------------------------------------
+
 
 @dataclass
 class GovernancePolicy:
@@ -394,15 +460,18 @@ class GovernancePolicy:
     Lifecycle:
         load → evaluate (hot path) → add_rule (user approve) → save
     """
+
     version: str = "1.0"
     builtin_rules: List[GovernanceRule] = field(default_factory=list)
     user_rules: List[GovernanceRule] = field(default_factory=list)
     env_blacklist: List[str] = field(default_factory=list)
-    audit_level: str = "all"       # "all" | "write_only" | "none"
+    audit_level: str = "all"  # "all" | "write_only" | "none"
 
     # Internal reference to registry (defaults to module-level DEFAULT_REGISTRY)
     _registry: ToolRegistry = field(
-        default=None, repr=False, compare=False,
+        default=None,
+        repr=False,
+        compare=False,
     )
 
     def __post_init__(self) -> None:
@@ -423,7 +492,8 @@ class GovernancePolicy:
         return list(self.builtin_rules) + list(self.user_rules)
 
     def evaluate(
-        self, tc_spec: ToolCallSpec,
+        self,
+        tc_spec: ToolCallSpec,
     ) -> GovernanceDecision:
         """Evaluate policy decision for a tool call.
 
@@ -460,7 +530,8 @@ class GovernancePolicy:
         # ── Step 1: builtin_rules ──
         for rule in self.builtin_rules:
             if rule.matches_tool_call(
-                tc_spec, tool_type=tool_type,
+                tc_spec,
+                tool_type=tool_type,
             ):
                 return GovernanceDecision(
                     action=GovernanceAction(rule.action.value),
@@ -470,7 +541,8 @@ class GovernancePolicy:
         # ── Step 2: user_rules ──
         for rule in self.user_rules:
             if rule.matches_tool_call(
-                tc_spec, tool_type=tool_type,
+                tc_spec,
+                tool_type=tool_type,
             ):
                 return GovernanceDecision(
                     action=GovernanceAction(rule.action.value),
@@ -483,7 +555,9 @@ class GovernancePolicy:
                 action=GovernanceAction.SANDBOX_FALLBACK,
                 reason="sandbox fallback",
             )
-        return GovernanceDecision(action=GovernanceAction.ASK, reason="No rule hit")
+        return GovernanceDecision(
+            action=GovernanceAction.ASK, reason="No rule hit"
+        )
 
     def evaluate_source(self, tc_spec: ToolCallSpec) -> str:
         """Determine which rule source a tool call matches.
@@ -496,12 +570,14 @@ class GovernancePolicy:
         tool_type = self._registry.get_type(tc_spec.tool_name)
         for rule in self.builtin_rules:
             if rule.matches_tool_call(
-                tc_spec, tool_type=tool_type,
+                tc_spec,
+                tool_type=tool_type,
             ):
                 return "builtin"
         for rule in self.user_rules:
             if rule.matches_tool_call(
-                tc_spec, tool_type=tool_type,
+                tc_spec,
+                tool_type=tool_type,
             ):
                 return "user"
         return "fallback"
@@ -517,8 +593,34 @@ class GovernancePolicy:
         (first-match-wins evaluation). This ensures a newly added DENY
         can override an earlier ALLOW (e.g. Browser(**) → ALLOW).
 
-        Note: builtin_rules are read-only and cannot be modified via this method.
+        Deduplication:
+            If an existing user_rule has the same ``match`` / ``action`` /
+            ``grantee`` / ``duration`` / ``session_id`` tuple, it is
+            removed first so the new rule still ends up at the head
+            (refreshing its priority) without growing the list. This
+            avoids unbounded growth from repeated identical approvals.
+
+        Note: builtin_rules are read-only and cannot be modified via
+            this method.
+
+        TODO: enforce a hard cap (e.g. 1024 user rules) and an LRU /
+            TTL eviction policy so long-running workspaces do not pay
+            an ever-growing linear scan in ``evaluate``. The current
+            dedup is a best-effort stop-gap.
         """
+        # Drop any prior rule with the same identity so we don't keep
+        # accumulating duplicates on repeated approvals.
+        self.user_rules = [
+            r
+            for r in self.user_rules
+            if not (
+                r.match == rule.match
+                and r.action == rule.action
+                and r.grantee == rule.grantee
+                and r.duration == rule.duration
+                and r.session_id == rule.session_id
+            )
+        ]
         self.user_rules.insert(0, rule)
 
     def remove_rule(self, index: int) -> None:
@@ -533,6 +635,7 @@ class GovernancePolicy:
 # ---------------------------------------------------------------------------
 # Rule generalization
 # ---------------------------------------------------------------------------
+
 
 def generalize_rule_match(tool_name: str, target: str) -> str:
     """Construct a match string from an approved rule.
@@ -554,6 +657,7 @@ def generalize_rule_match(tool_name: str, target: str) -> str:
 # Helper functions
 # ---------------------------------------------------------------------------
 
+
 def _parse_match(match_str: str) -> tuple[str, str]:
     """Parse "ToolName(pattern)" → (tool_name, pattern).
 
@@ -567,7 +671,7 @@ def _parse_match(match_str: str) -> tuple[str, str]:
     paren = match_str.index("(")
     close = match_str.rindex(")")
     tool_name = match_str[:paren]
-    pattern = match_str[paren + 1:close]
+    pattern = match_str[paren + 1 : close]
     return tool_name, pattern
 
 
@@ -575,7 +679,10 @@ def _parse_match(match_str: str) -> tuple[str, str]:
 # Load / persist
 # ---------------------------------------------------------------------------
 
-def load_governance_policy(policy_dir: str, workspace_dir: str) -> GovernancePolicy:
+
+def load_governance_policy(
+    policy_dir: str, workspace_dir: str
+) -> GovernancePolicy:
     """Load from policy_dir/policy.yaml; return default policy if missing.
 
     Args:
@@ -653,8 +760,9 @@ def load_governance_policy(policy_dir: str, workspace_dir: str) -> GovernancePol
     )
 
 
-def save_governance_policy(policy: GovernancePolicy, policy_dir: str,
-                           workspace_dir: str = "") -> None:
+def save_governance_policy(
+    policy: GovernancePolicy, policy_dir: str, workspace_dir: str = ""
+) -> None:
     """Write policy.yaml.
 
     Args:
@@ -680,23 +788,28 @@ def save_governance_policy(policy: GovernancePolicy, policy_dir: str,
         "version": policy.version,
         "audit_level": policy.audit_level,
         "env_blacklist": list(policy.env_blacklist),
-        "user_rules": [
-            _rule_to_dict(r) for r in user_rules
-        ],
+        "user_rules": [_rule_to_dict(r) for r in user_rules],
     }
 
     with open(path, "w", encoding="utf-8") as f:
-        yaml.dump(data, f, default_flow_style=False,
-                  allow_unicode=True, sort_keys=False)
+        yaml.dump(
+            data,
+            f,
+            default_flow_style=False,
+            allow_unicode=True,
+            sort_keys=False,
+        )
 
 
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
 
+
 def _create_default_policy(workspace_dir: str = "") -> GovernancePolicy:
     """Create a policy with full default rules (cold start)."""
     import copy
+
     builtin_rules = copy.deepcopy(DEFAULT_BUILTIN_RULES)
     user_rules = copy.deepcopy(DEFAULT_USER_RULES)
     if workspace_dir:
@@ -724,7 +837,9 @@ def _unresolve_workspace_dir(rules: List[GovernanceRule], workspace_dir: str):
             rule.match = rule.match.replace(workspace_dir, "WORKSPACE_DIR")
 
 
-def _parse_rules(items: Optional[list[dict[str, Any]]]) -> List[GovernanceRule]:
+def _parse_rules(
+    items: Optional[list[dict[str, Any]]],
+) -> List[GovernanceRule]:
     """Parse a list of GovernanceRule from YAML list."""
     if not items:
         return []
@@ -737,14 +852,16 @@ def _parse_rules(items: Optional[list[dict[str, Any]]]) -> List[GovernanceRule]:
             action = GovernanceAction(action_str)
         except ValueError:
             action = GovernanceAction.DENY
-        rules.append(GovernanceRule(
-            match=item["match"],
-            action=action,
-            reason=item.get("reason", ""),
-            grantee=item.get("grantee", "*"),
-            duration=item.get("duration", "permanent"),
-            session_id=item.get("session_id"),
-        ))
+        rules.append(
+            GovernanceRule(
+                match=item["match"],
+                action=action,
+                reason=item.get("reason", ""),
+                grantee=item.get("grantee", "*"),
+                duration=item.get("duration", "permanent"),
+                session_id=item.get("session_id"),
+            )
+        )
     return rules
 
 

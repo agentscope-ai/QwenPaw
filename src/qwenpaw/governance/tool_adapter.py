@@ -5,6 +5,7 @@ Replaces the existing GuardedFunctionTool. Each tool call goes through two layer
 1. check_permissions: pre-execution decision — ToolCallSpec → governor.assert_and_audit()
 2. __call__: actual execution — handles sandbox violation retry loop
 """
+
 from __future__ import annotations
 
 import logging
@@ -14,7 +15,12 @@ from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
 
-from .policy import GovernanceRule, GovernanceAction, GovernanceDecision, ToolCallSpec
+from .policy import (
+    GovernanceRule,
+    GovernanceAction,
+    GovernanceDecision,
+    ToolCallSpec,
+)
 from .tool_registry import DEFAULT_REGISTRY
 
 from agentscope.message import TextBlock
@@ -23,8 +29,34 @@ from agentscope.tool import ToolChunk
 from .resource_governor import ResourceGovernor
 
 # ---------------------------------------------------------------------------
+# Inline-import policy
+# ---------------------------------------------------------------------------
+# Several helpers below import ``agentscope.tool``, ``agentscope.permission``,
+# ``agentscope.message`` and a few ``qwenpaw.*`` modules *inside* function
+# bodies instead of at module top-level.  This is intentional:
+#
+#   1. ``PolicyGuardedTool.__new__`` synthesises an anonymous subclass of
+#      ``FunctionTool`` at instantiation time (see the class docstring).
+#      Importing ``FunctionTool`` at top-level pulls in the whole agentscope
+#      tool subsystem, which transitively imports ``qwenpaw.governance`` and
+#      causes a circular import during package initialisation.
+#   2. ``_ask_user_approval`` reaches into ``qwenpaw.app.approvals`` and
+#      ``qwenpaw.security.tool_guard.*``; those packages depend on the
+#      governance module, so importing them at the top would also create a
+#      cycle.
+#
+# .. todo::
+#     Once the governance / agentscope / tool_guard layering is refactored
+#     so that ``qwenpaw.governance`` no longer sits *below* its consumers,
+#     promote these inline imports back to module level and drop this note.
+#     Tracked together with the ``PolicyGuardedTool.__new__`` /
+#     ``GuardedFunctionTool`` / ``DriverCapabilityTool`` unification
+#     follow-up referenced in the class docstring.
+
+# ---------------------------------------------------------------------------
 # PolicyGuardedTool
 # ---------------------------------------------------------------------------
+
 
 class PolicyGuardedTool:
     """Governance policy-checked tool wrapper.
@@ -75,7 +107,7 @@ def _policy_tool_init(
     self._qp_governor = governor
     self._qp_request_context = request_context or {}
     self._qp_policy_decision = None  # Pre-evaluation result
-    self._qp_sandbox_mode = False    # Whether to execute in sandbox
+    self._qp_sandbox_mode = False  # Whether to execute in sandbox
 
 
 async def _policy_tool_check_permissions(
@@ -132,10 +164,7 @@ async def _policy_tool_check_permissions(
             target = os.path.normpath(os.path.join(ws_dir, target))
 
     agent_id = getattr(self, "_qp_request_context", {}).get("agent_id", "")
-    session_id = getattr(self, "_qp_request_context", {}).get(
-        "session_id", ""
-    )
-
+    session_id = getattr(self, "_qp_request_context", {}).get("session_id", "")
 
     tc_spec = ToolCallSpec(
         tool_name=tool_name,
@@ -213,7 +242,10 @@ async def _policy_tool_call(
     result = await FunctionTool.__call__(self, *args, **kwargs)
 
     # Check if sandbox violation was returned (state=DENIED)
-    if not (isinstance(result, ToolChunk) and result.state == ToolResultState.DENIED):
+    if not (
+        isinstance(result, ToolChunk)
+        and result.state == ToolResultState.DENIED
+    ):
         return result
 
     # Extract violation message from metadata or content
@@ -222,14 +254,19 @@ async def _policy_tool_call(
         violation_msg = result.metadata.get("sandbox_violation", "")
     if not violation_msg:
         # Fallback: extract from content text
-        for block in (result.content or []):
+        for block in result.content or []:
             if hasattr(block, "text") and "Sandbox violation:" in block.text:
-                violation_msg = block.text.split("Sandbox violation:", 1)[1].split("\n")[0].strip()
+                violation_msg = (
+                    block.text.split("Sandbox violation:", 1)[1]
+                    .split("\n")[0]
+                    .strip()
+                )
                 break
 
     logger.info(
         "PolicyGuardedTool: sandbox violation for '%s': %s",
-        getattr(self, "name", "Unknown"), violation_msg,
+        getattr(self, "name", "Unknown"),
+        violation_msg,
     )
 
     governor = getattr(self, "_qp_governor", None)
@@ -240,11 +277,13 @@ async def _policy_tool_call(
         return ToolChunk(
             is_last=True,
             state=ToolResultState.DENIED,
-            content=[TextBlock(
-                type="text",
-                text=f"Sandbox violation: {violation_msg}\n"
-                     f"Command was blocked by sandbox security policy.",
-            )],
+            content=[
+                TextBlock(
+                    type="text",
+                    text=f"Sandbox violation: {violation_msg}\n"
+                    f"Command was blocked by sandbox security policy.",
+                )
+            ],
         )
 
     # Trigger approval flow
@@ -257,8 +296,11 @@ async def _policy_tool_call(
     session_id = request_context.get("session_id", "")
 
     from agentscope.permission import PermissionBehavior, PermissionDecision
+
     governance_reason = getattr(
-        getattr(self, "_qp_policy_decision", None), "reason", None,
+        getattr(self, "_qp_policy_decision", None),
+        "reason",
+        None,
     )
     decision = await _ask_user_approval(
         governor=governor,
@@ -287,18 +329,21 @@ async def _policy_tool_call(
         return ToolChunk(
             is_last=True,
             state=ToolResultState.DENIED,
-            content=[TextBlock(
-                type="text",
-                text=f"Sandbox violation: {violation_msg}\n"
-                     f"Command was blocked and user denied approval.\n\n"
-                     f"{_NO_RETRY_INSTRUCTION}",
-            )],
+            content=[
+                TextBlock(
+                    type="text",
+                    text=f"Sandbox violation: {violation_msg}\n"
+                    f"Command was blocked and user denied approval.\n\n"
+                    f"{_NO_RETRY_INSTRUCTION}",
+                )
+            ],
         )
 
 
 # ---------------------------------------------------------------------------
 # ASK path: reuse ApprovalService
 # ---------------------------------------------------------------------------
+
 
 async def _ask_user_approval(
     governor: ResourceGovernor,
@@ -344,8 +389,7 @@ async def _ask_user_approval(
                 rule_id="policy_ask",
                 category=GuardThreatCategory.RESOURCE_ABUSE,
                 severity=(
-                    GuardSeverity.HIGH if violation_msg
-                    else GuardSeverity.INFO
+                    GuardSeverity.HIGH if violation_msg else GuardSeverity.INFO
                 ),
                 title=(
                     "Sandbox Violation — Approve Unsandboxed Execution?"
@@ -357,7 +401,8 @@ async def _ask_user_approval(
                     f"requires user approval per governance policy."
                     + (
                         f"\n\nGovernance reason: {governance_reason}"
-                        if governance_reason else ""
+                        if governance_reason
+                        else ""
                     )
                     + (
                         f"\n\n\u26a0\ufe0f Sandbox violation: {violation_msg}"
@@ -365,7 +410,8 @@ async def _ask_user_approval(
                         f"re-executed WITHOUT sandbox isolation (full host "
                         f"access).** The kernel-level filesystem restrictions "
                         f"that blocked it will no longer apply."
-                        if violation_msg else ""
+                        if violation_msg
+                        else ""
                     )
                 ),
                 tool_name=tool_name,
@@ -376,10 +422,17 @@ async def _ask_user_approval(
                     else "Approve or deny this tool call"
                 ),
                 guardian="governance_policy",
-                metadata={"target": target, **({
-                    "sandbox_violation": violation_msg,
-                    "escalation": "sandbox_to_host",
-                } if violation_msg else {})},
+                metadata={
+                    "target": target,
+                    **(
+                        {
+                            "sandbox_violation": violation_msg,
+                            "escalation": "sandbox_to_host",
+                        }
+                        if violation_msg
+                        else {}
+                    ),
+                },
             ),
         ],
         guardians_used=["governance_policy"],
@@ -472,7 +525,8 @@ async def _ask_user_approval(
                     logger.debug(
                         "PolicyGuardedTool: empty pattern, skipping rule "
                         "for tool=%s target=%s",
-                        tool_name, target,
+                        tool_name,
+                        target,
                     )
             except Exception:
                 logger.debug(

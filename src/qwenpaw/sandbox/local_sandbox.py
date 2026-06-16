@@ -19,17 +19,25 @@ Usage:
     print(result.stdout)
     await sandbox.stop()
 """
+
 from __future__ import annotations
 
 import asyncio
 import logging
 import os
+import re
 import signal
 import time
 from abc import ABC, abstractmethod
 from typing import Optional
 
-from .config import ExecutionResult, MountSpec, PortRule, SandboxConfig, SandboxMode
+from .config import (
+    ExecutionResult,
+    MountSpec,
+    PortRule,
+    SandboxConfig,
+    SandboxMode,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +45,27 @@ logger = logging.getLogger(__name__)
 # ═══════════════════════════════════════════════════════════════════════════════
 # Abstract base
 # ═══════════════════════════════════════════════════════════════════════════════
+
+
+# Seatbelt violation patterns. Substring matching against generic words
+# like ``"deny"`` or ``"sandbox"`` is far too lossy — application logs
+# routinely contain those tokens and would be mis-flagged as sandbox
+# violations. Match the actual diagnostic shapes emitted by
+# ``sandbox-exec`` / the Seatbelt kernel:
+#   - ``deny(1) file-read-data ...``  / ``deny(1) network-outbound ...``
+#   - ``Sandbox: <bin>(<pid>) deny(1) ...``
+#   - ``sandbox-exec: <error message>``
+#   - ``Operation not permitted`` (full phrase, case-insensitive)
+# TODO: this remains a heuristic. A robust solution would be to read
+#   structured violation events via Endpoint Security or an audit log
+#   stream rather than scraping stderr.
+_SEATBELT_VIOLATION_RE = re.compile(
+    r"\bdeny\(\d+\)"  # `deny(1)`, `deny(2)` ...
+    r"|^Sandbox:\s"  # macOS kernel violation line prefix
+    r"|^sandbox-exec:\s"  # sandbox-exec error prefix
+    r"|\bOperation not permitted\b",
+    re.IGNORECASE | re.MULTILINE,
+)
 
 
 class LocalSandbox(ABC):
@@ -51,7 +80,9 @@ class LocalSandbox(ABC):
         return self._config
 
     @abstractmethod
-    async def execute(self, cmd: str, cwd: Optional[str] = None) -> ExecutionResult:
+    async def execute(
+        self, cmd: str, cwd: Optional[str] = None
+    ) -> ExecutionResult:
         """Execute a command inside the sandbox."""
 
     async def stop(self) -> None:
@@ -150,14 +181,12 @@ class MacOSSandbox(LocalSandbox):
             '  (sysctl-name-prefix "machdep.cpu.")',
             ")",
         ]
-    
+
         # Network
         lines.append("")
         lines.append("; Network")
         if config.network_allow and ("*" in config.network_allow):
-            lines.append(
-                "; WARNING: Domain-level filtering not implemented"
-            )
+            lines.append("; WARNING: Domain-level filtering not implemented")
             domains = [d for d in config.network_allow if d != "*"]
             if domains:
                 lines.append(
@@ -168,11 +197,13 @@ class MacOSSandbox(LocalSandbox):
             lines.append("; All network access is allowed")
             lines.append("(allow network*)")
         elif config.network_allow:
-            lines.append("; Partial network (domain filtering not enforceable)")
+            lines.append(
+                "; Partial network (domain filtering not enforceable)"
+            )
             lines.append("(allow network*)")
         else:
             lines.append("(deny network*)")
-    
+
         # File read paths
         lines.append("")
         lines.append("; File read")
@@ -184,7 +215,7 @@ class MacOSSandbox(LocalSandbox):
             for mount in config.mounts:
                 lines.append(f"(allow file-read*")
                 lines.append(f'  (subpath "{_san(mount.path)}")')
-    
+
         # Deny sensitive paths (read + write)
         if config.deny_paths:
             lines.append("")
@@ -195,22 +226,28 @@ class MacOSSandbox(LocalSandbox):
                 lines.append(f'  (subpath "{expanded}")')
                 lines.append(f"(deny file-write*")
                 lines.append(f'  (subpath "{expanded}")')
-    
+
         # File write paths (whitelist)
         lines.append("")
         lines.append("; File write")
         # Always allow /dev/null, /dev/zero, /dev/tty, /tmp
-        write_always = ["/dev/null", "/dev/zero", "/dev/tty", "/tmp", "/private/tmp"]
+        write_always = [
+            "/dev/null",
+            "/dev/zero",
+            "/dev/tty",
+            "/tmp",
+            "/private/tmp",
+        ]
         for p in write_always:
             lines.append(f"(allow file-write*")
             lines.append(f'  (subpath "{p}"))')
-    
+
         # Workspace and explicit mounts
         for mount in config.mounts:
             if mount.writable:
                 lines.append(f"(allow file-write*")
                 lines.append(f'  (subpath "{_san(mount.path)}")')
-    
+
         # Executable control
         non_exec_mounts = [m for m in config.mounts if not m.executable]
         if non_exec_mounts:
@@ -219,7 +256,7 @@ class MacOSSandbox(LocalSandbox):
             for mount in non_exec_mounts:
                 lines.append(f"(deny process-exec*")
                 lines.append(f'  (subpath "{_san(mount.path)}")')
-    
+
         # Platform hints: extra seatbelt rules
         # WARNING: seatbelt_extra_rules is an ADMIN-ONLY escape hatch.
         # Content is embedded verbatim — it MUST NOT come from user input
@@ -232,9 +269,11 @@ class MacOSSandbox(LocalSandbox):
                     "verify this is from a trusted admin source."
                 )
             lines.append("")
-            lines.append("; Platform hints: extra rules (admin-only, verbatim)")
+            lines.append(
+                "; Platform hints: extra rules (admin-only, verbatim)"
+            )
             lines.append(str(extra_rules))
-    
+
         # Log warnings for unsupported features on macOS
         if config.max_processes is not None:
             logger.warning(
@@ -253,10 +292,12 @@ class MacOSSandbox(LocalSandbox):
                 "MacOSSandbox: network_ports (port-level filtering) is not "
                 "supported by Seatbelt; ignoring.",
             )
-    
+
         return "\n".join(lines)
 
-    async def execute(self, cmd: str, cwd: Optional[str] = None) -> ExecutionResult:
+    async def execute(
+        self, cmd: str, cwd: Optional[str] = None
+    ) -> ExecutionResult:
         """Execute via ``sandbox-exec -p '<profile>' /bin/bash -c '<cmd>'``."""
         profile = self._compile_seatbelt_profile()
         cwd = cwd or self._config.workspace_dir
@@ -282,7 +323,12 @@ class MacOSSandbox(LocalSandbox):
         start = time.monotonic()
         try:
             self._process = await asyncio.create_subprocess_exec(
-                "sandbox-exec", "-p", profile, shell, "-c", cmd,
+                "sandbox-exec",
+                "-p",
+                profile,
+                shell,
+                "-c",
+                cmd,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 cwd=cwd,
@@ -297,12 +343,14 @@ class MacOSSandbox(LocalSandbox):
             stdout = stdout_bytes.decode("utf-8", errors="replace")
             stderr = stderr_bytes.decode("utf-8", errors="replace")
 
-            # Detect sandbox violation from stderr
+            # Detect sandbox violation from stderr.
+            # Use precise regex against Seatbelt's actual diagnostic
+            # shapes so legitimate application output containing
+            # tokens like "deny" or "sandbox" is not mis-flagged.
             violation = None
-            if self._process.returncode != 0 and (
-                "deny" in stderr.lower()
-                or "sandbox" in stderr.lower()
-                or "operation not permitted" in stderr.lower()
+            if (
+                self._process.returncode != 0
+                and _SEATBELT_VIOLATION_RE.search(stderr)
             ):
                 violation = stderr.strip()
 
@@ -345,7 +393,9 @@ class MacOSSandbox(LocalSandbox):
 class NoneSandbox(LocalSandbox):
     """No isolation, executes directly. Used for trusted scenarios or resource tools."""
 
-    async def execute(self, cmd: str, cwd: Optional[str] = None) -> ExecutionResult:
+    async def execute(
+        self, cmd: str, cwd: Optional[str] = None
+    ) -> ExecutionResult:
         cwd = cwd or self._config.workspace_dir
         shell = os.environ.get("SHELL", "/bin/bash")
         if not os.path.exists(shell):
@@ -367,7 +417,9 @@ class NoneSandbox(LocalSandbox):
         start = time.monotonic()
         try:
             self._process = await asyncio.create_subprocess_exec(
-                shell, "-c", cmd,
+                shell,
+                "-c",
+                cmd,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 cwd=cwd,
@@ -421,19 +473,44 @@ def create_sandbox(config: SandboxConfig) -> LocalSandbox:
       - SEATBELT → MacOSSandbox
       - LANDLOCK → LinuxSandbox
       - NONE     → NoneSandbox
-      - WSL2     → WindowsSandbox (currently disabled at probe time;
-                   Re-enable in ``probe_sandbox_support`` when the
-                   Windows sandbox path is production-ready.)
+      - WSL2     → WindowsSandbox
+
+    Capability gating:
+        Modes that require platform support (SEATBELT/LANDLOCK/WSL2)
+        are validated against ``probe_sandbox_support()`` before
+        construction.  This prevents callers from bypassing the probe
+        by hand-crafting a ``SandboxConfig(mode=...)`` on a platform
+        where the underlying mechanism is unavailable (e.g. selecting
+        WSL2 on a host where ``probe_sandbox_support`` returned
+        ``supported=False``).  Use ``SandboxMode.NONE`` explicitly when
+        no isolation is desired.
     """
+    # Validate platform support for non-NONE modes.
+    if config.mode != SandboxMode.NONE:
+        from .config import probe_sandbox_support
+
+        cap = probe_sandbox_support()
+        if not cap.supported or cap.mode != config.mode:
+            raise RuntimeError(
+                f"create_sandbox: requested mode {config.mode.value!r} "
+                f"is not supported on this platform "
+                f"(probe: supported={cap.supported}, "
+                f"mode={cap.mode.value!r}, reason={cap.reason!r}). "
+                "Use SandboxMode.NONE if you intentionally want no "
+                "isolation."
+            )
+
     if config.mode == SandboxMode.SEATBELT:
         return MacOSSandbox(config)
     elif config.mode == SandboxMode.NONE:
         return NoneSandbox(config)
     elif config.mode == SandboxMode.LANDLOCK:
         from .linux_sandbox import LinuxSandbox
+
         return LinuxSandbox(config)
     elif config.mode == SandboxMode.WSL2:
         from .windows_sandbox import WindowsSandbox
+
         return WindowsSandbox(config)
     else:
         raise ValueError(f"Unknown sandbox mode: {config.mode}")
