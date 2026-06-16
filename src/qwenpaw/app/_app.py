@@ -59,10 +59,16 @@ from agentscope_runtime.engine.app import AgentApp  # noqa: E402
 from agentscope_runtime.engine.schemas.exception import (  # noqa: E402
     AppBaseException,
 )
+from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse, ORJSONResponse
+from fastapi.staticfiles import StaticFiles
 
 _emit_desktop_startup_timing_stdout("agentscope_runtime_imports_loaded")
 
-from ..config import load_config  # noqa: E402  # pylint: disable=no-name-in-module
+from ..config import (
+    load_config,
+)  # noqa: E402  # pylint: disable=no-name-in-module
 from ..config.utils import get_config_path  # noqa: E402
 from ..constant import (  # noqa: E402
     DOCS_ENABLED,
@@ -88,7 +94,10 @@ from .auth import AuthMiddleware, auto_register_from_env  # noqa: E402
 
 _emit_desktop_startup_timing_stdout("auth_imports_loaded")
 
-from .routers import router as api_router, create_agent_scoped_router  # noqa: E402
+from .routers import (
+    router as api_router,
+    create_agent_scoped_router,
+)  # noqa: E402
 from .routers.agent_scoped import AgentContextMiddleware  # noqa: E402
 from .routers.approval import router as approval_router  # noqa: E402
 from .routers.coding_mode import router as coding_mode_router  # noqa: E402
@@ -427,6 +436,31 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
                 from ..config.utils import get_plugins_dir
 
                 plugin_dirs = [get_plugins_dir()]
+
+                # In conda-packed / PyInstaller environments, also scan
+                # the bundled plugins shipped with the application.
+                if getattr(sys, "frozen", False) or hasattr(sys, "_MEIPASS"):
+                    bundled_plugins = (
+                        Path(sys.executable).parent
+                        / "qwenpaw"
+                        / "plugins"
+                        / "bundle"
+                    )
+                    if not bundled_plugins.exists():
+                        # Fallback for PyInstaller onedir layout
+                        meipass = getattr(sys, "_MEIPASS", None)
+                        bundled_plugins = (
+                            Path(meipass) / "qwenpaw" / "plugins" / "bundle"
+                            if meipass
+                            else None
+                        )
+                    if bundled_plugins and bundled_plugins.exists():
+                        plugin_dirs.append(bundled_plugins)
+                        logger.debug(
+                            f"Added bundled plugins directory: "
+                            f"{bundled_plugins}",
+                        )
+
                 loader = PluginLoader(plugin_dirs)
                 loader.registry.set_plugin_http_app(app)
 

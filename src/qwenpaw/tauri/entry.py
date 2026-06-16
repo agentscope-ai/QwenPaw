@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 # pylint: disable=wrong-import-position,wrong-import-order
 """Tauri sidecar entry point for starting the Python backend."""
+
 from __future__ import annotations
 
 import time
@@ -154,6 +155,7 @@ def _run_backend_server(log_level: str) -> None:
         setup_logger,
     )
     from qwenpaw.utils.port import get_stable_port, write_port_file
+
     _emit_startup_timing("backend_dependencies_imported")
 
     host = "127.0.0.1"
