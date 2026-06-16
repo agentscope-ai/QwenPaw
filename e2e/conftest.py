@@ -106,6 +106,9 @@ multi_agent_collab_page = pytest.fixture(
         "pages.multi_agent_collab_page", "MultiAgentCollabPage",
     )
 )
+inbox_page = pytest.fixture(scope="function", name="inbox_page")(
+    _make_page_fixture("pages.inbox_page", "InboxPage")
+)
 
 
 # ========== Business / Data Fixtures ==========
