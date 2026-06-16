@@ -43,7 +43,7 @@ For `file_path` fields returned by general tools, during reasoning:
 1. **Do not classify "simple vs complex" yourself** — that is `data-intent-router`'s job. The router's classification tells you which skill to read next, whether to `create_plan`, and whether user confirmation is needed.
 2. When a TaskGraph node fails during execution:
    - Transient failure → `update_subtask_state(node_id, "todo")` to re-run.
-   - Parameters need adjustment → `revise_current_plan(node_id, "revise", …)` to modify the description.
+   - Parameters need adjustment → `revise_current_plan(changes=[{node_id, action: "revise", node: …}])` to modify the description (pass multiple changes in one call when needed).
    - Unrecoverable → `update_subtask_state(node_id, "abandoned")` and decide whether to `finish_plan("abandoned", …)`.
 
 ## Semantic disambiguation principles

@@ -755,7 +755,7 @@ class QwenPawAgent(CodingModeMixin, ToolGuardMixin, ReActAgent):
             "revise_current_plan",
         },
     )
-    _PLAN_JSON_KEYS = ("subtask", "subtasks")
+    _PLAN_JSON_KEYS = ("subtask", "subtasks", "changes")
 
     @staticmethod
     def _fix_stringified_json_args(tool_call) -> None:
@@ -780,6 +780,13 @@ class QwenPawAgent(CodingModeMixin, ToolGuardMixin, ReActAgent):
                             val[i] = _json.loads(item)
                         except (ValueError, TypeError):
                             pass
+                    elif isinstance(item, dict) and key == "changes":
+                        node_val = item.get("node")
+                        if isinstance(node_val, str):
+                            try:
+                                item["node"] = _json.loads(node_val)
+                            except (ValueError, TypeError):
+                                pass
 
     async def _acting(self, tool_call) -> dict | None:
         """Check plan tool gate before delegating to ToolGuardMixin."""

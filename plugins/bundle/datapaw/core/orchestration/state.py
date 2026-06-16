@@ -53,7 +53,7 @@ from .artifact import ArtifactItem
 from .dag_store import DAGStore
 from .events import TaskEvent, TaskEventType
 from .hint import DataPawPlanToHint
-from .task_graph import FileRef, TaskGraph, TaskNode
+from .task_graph import FileRef, PlanNodeChange, TaskGraph, TaskNode
 
 FilesInput = Optional[
     List[FileRef] | List[Dict[str, str]] | Dict[str, str] | str
@@ -644,74 +644,56 @@ class RuntimeStateManager(PlanNotebook):
     # pylint: disable-next=too-many-return-statements
     async def revise_current_plan(  # type: ignore[override]
         self,
-        node_id: str,
-        action: Literal["add", "revise", "delete"],
-        node: Optional[TaskNode] = None,
+        changes: List[PlanNodeChange],
     ) -> ToolResponse:
-        """Add / revise / delete a node in the active graph.
+        """Apply one or more node mutations to the active graph.
 
-        For 'revise', the node will be overwritten, marked STALE, and
-        STALE will propagate to all downstream nodes.
-        For 'add', a new node is inserted (no STALE impact).
-        For 'delete', the node is removed and also pruned from other
-        nodes' deps lists.
+        Pass all intended add / revise / delete operations in a single
+        ``changes`` list. The batch is applied atomically: if any change
+        is invalid, nothing is modified.
+
+        For ``revise``, the node is overwritten, marked STALE, and
+        STALE propagates to all downstream nodes.
+        For ``add``, a new node is inserted (no STALE impact).
+        For ``delete``, the node is removed and pruned from deps lists.
 
         Args:
-            node_id: Target node_id (for 'add': the new node's id
-                will override this if mismatched).
-            action: 'add' / 'revise' / 'delete'.
-            node: Required for 'add' and 'revise'; the new TaskNode.
+            changes: List of PlanNodeChange objects. Each entry must have
+                node_id, action ('add' / 'revise' / 'delete'), and node
+                (required for add/revise).
         """
         if self.current_plan is None:
             return _text("No active task graph.")
 
-        if action in ("add", "revise") and node is None:
-            return _text(
-                f"action='{action}' requires a 'node' argument.",
-            )
+        if not changes:
+            return _text("changes must not be empty.")
 
-        if node is not None and not isinstance(node, TaskNode):
-            node = TaskNode.model_validate(node)
+        normalized: List[PlanNodeChange] = []
+        for change in changes:
+            if not isinstance(change, PlanNodeChange):
+                change = PlanNodeChange.model_validate(change)
+            normalized.append(change)
 
-        if action == "delete":
-            removed = self.current_plan.remove_node(node_id)
-            if removed is None:
-                return _text(f"Node '{node_id}' not found.")
-            await self._notify_graph_change(TaskEventType.GRAPH_UPDATED)
-            return _text(f"Node '{node_id}' deleted.")
+        try:
+            result = self.current_plan.apply_plan_changes(normalized)
+        except ValueError as exc:
+            return _text(str(exc))
 
-        if action == "add":
-            if node is None:  # defensive (already validated above)
-                return _text("Missing 'node' for action 'add'.")
-            node.node_id = node.node_id or node_id
-            if node.node_id in self.current_plan.nodes:
-                return _text(
-                    f"Cannot add: node '{node.node_id}' already exists.",
-                )
-            self.current_plan.add_node(node)
-            await self._notify_graph_change(TaskEventType.GRAPH_UPDATED)
-            return _text(f"Node '{node.node_id}' added.")
-
-        # revise: keep the original node_id and force STALE so downstream
-        # cascade triggers regardless of what the LLM passed in.
-        if node_id not in self.current_plan.nodes:
-            return _text(f"Node '{node_id}' not found.")
-        assert node is not None
-        node.node_id = node_id
-        if node.state not in ("todo", "stale", "abandoned"):
-            node.state = "stale"
-        elif node.state == "todo":
-            node.state = "stale"
-        self.current_plan.replace_node(node_id, node)
-        stale_ids = self.current_plan.mark_downstream_stale(node_id)
-
-        # Treat revise as a plan mutation: same confirm flow as create_plan.
         self._plan_just_mutated = True
         await self._notify_graph_change(TaskEventType.GRAPH_UPDATED)
-        return _text(
-            f"Node '{node_id}' revised and marked STALE. "
-            f"Downstream nodes also marked STALE: {stale_ids}",
-        )
+
+        parts = [f"Applied {len(normalized)} change(s)."]
+        if result.added:
+            parts.append(f"Added: {result.added}.")
+        if result.revised:
+            parts.append(f"Revised: {result.revised}.")
+        if result.deleted:
+            parts.append(f"Deleted: {result.deleted}.")
+        if result.stale_propagated:
+            parts.append(
+                f"Downstream marked STALE: {result.stale_propagated}.",
+            )
+        return _text(" ".join(parts))
 
     async def finish_plan(  # type: ignore[override]
         self,
