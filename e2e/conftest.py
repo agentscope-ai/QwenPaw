@@ -99,6 +99,13 @@ magic_commands_page = pytest.fixture(
         "pages.magic_commands_page", "MagicCommandsPage",
     )
 )
+multi_agent_collab_page = pytest.fixture(
+    scope="function", name="multi_agent_collab_page",
+)(
+    _make_page_fixture(
+        "pages.multi_agent_collab_page", "MultiAgentCollabPage",
+    )
+)
 
 
 # ========== Business / Data Fixtures ==========
