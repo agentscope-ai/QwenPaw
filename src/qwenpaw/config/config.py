@@ -2022,7 +2022,7 @@ def load_agent_config(  # pylint: disable=too-many-branches,too-many-statements
         if agent_id in _agent_config_cache:
             cached_config, cached_mtime = _agent_config_cache[agent_id]
             if cached_mtime == current_mtime:
-                return cached_config
+                return cached_config.model_copy(deep=True)
 
         # Need to reload config from disk
         with open(agent_config_path, "r", encoding="utf-8") as f:
@@ -2099,7 +2099,7 @@ def load_agent_config(  # pylint: disable=too-many-branches,too-many-statements
         # Cache the config with its mtime
         _agent_config_cache[agent_id] = (agent_config, current_mtime)
 
-        return agent_config
+        return agent_config.model_copy(deep=True)
 
 
 def save_agent_config(
