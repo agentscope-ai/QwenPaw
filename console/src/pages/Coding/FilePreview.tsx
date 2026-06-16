@@ -11,6 +11,8 @@
 import { useEffect, useMemo, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
+import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
 import { workspaceApi } from "../../api/modules/workspace";
 import { buildAuthHeaders } from "../../api/authHeaders";
 import styles from "./FilePreview.module.less";
@@ -142,10 +144,47 @@ function PdfPreview({ filePath }: { filePath: string }) {
   );
 }
 
+const markdownComponents = {
+  code({
+    className,
+    children,
+    ...rest
+  }: React.ComponentPropsWithoutRef<"code"> & { inline?: boolean }) {
+    const match = /language-(\w+)/.exec(className || "");
+    const codeText = String(children).replace(/\n$/, "");
+    if (match) {
+      return (
+        <SyntaxHighlighter
+          language={match[1]}
+          style={oneDark}
+          customStyle={{
+            margin: 0,
+            borderRadius: "6px",
+            fontSize: "13px",
+            lineHeight: "1.6",
+          }}
+        >
+          {codeText}
+        </SyntaxHighlighter>
+      );
+    }
+    return (
+      <code className={className} {...rest}>
+        {children}
+      </code>
+    );
+  },
+};
+
 function MarkdownPreview({ content }: { content: string }) {
   return (
     <div className={styles.markdownWrap}>
-      <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        components={markdownComponents}
+      >
+        {content}
+      </ReactMarkdown>
     </div>
   );
 }

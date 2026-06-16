@@ -32,6 +32,7 @@
     "@monaco-editor/react": "^4.7.0",
     "@tauri-apps/api": "^2.10.1",
     "@tauri-apps/plugin-dialog": "^2.7.1",
+    "@types/react-syntax-highlighter": "^15.5.13",
     "@types/react-window": "^1.8.8",
     "@vvo/tzdb": "^6.198.0",
     "ahooks": "^3.9.6",
@@ -49,6 +50,7 @@
     "react-markdown": "^10.1.0",
     "react-resizable-panels": "^4.11.1",
     "react-router-dom": "^7.13.0",
+    "react-syntax-highlighter": "^16.1.1",
     "react-window": "^1.8.10",
     "remark-gfm": "^4.0.1",
     "zustand": "^5.0.3"
