@@ -1,7 +1,7 @@
 export { IntegrityProtectionFrame } from "./components/IntegrityProtectionFrame";
 export { default as FileBaselineDriftAlertNotifier } from "./components/FileBaselineDriftAlertNotifier";
+export { default as GlobalOperatorApprovalOverlay } from "./components/GlobalOperatorApprovalOverlay";
 export {
-  FileBaselineProtectionAlertsCard,
   FileBaselineProtectionFileList,
   FileBaselineProtectionProtectedPaths,
   FileBaselineProtectionProvider,

@@ -161,6 +161,9 @@ class ToolGuardMixin:
                 preflight_sensitive_action_recovery,
                 write_lockdown_record,
             )
+            from qwenpaw.security.rule_integrity_bridge import (
+                rule_integrity_lockdown_active,
+            )
 
             tool_input = tool_call.get("input", {}) if isinstance(tool_call, dict) else {}
             prompt_text = str(
@@ -170,6 +173,17 @@ class ToolGuardMixin:
                 or tool_input.get("raw_input")
                 or ""
             )
+
+            if rule_integrity_lockdown_active():
+                return await self._acting_auto_denied(
+                    tool_call,
+                    tool_name,
+                    self._create_rule_integrity_lockdown_guard_result(
+                        tool_name,
+                        tool_input,
+                    ),
+                )
+
             recovery_gate = await preflight_sensitive_action_recovery(
                 session_id=str(ctx.get("session_id") or ""),
                 user_id=str(ctx.get("user_id") or ""),
@@ -409,6 +423,42 @@ class ToolGuardMixin:
             params=tool_input,
             findings=[finding],
             guardians_used=["audit_lock_mode"],
+        )
+
+    def _create_rule_integrity_lockdown_guard_result(
+        self,
+        tool_name: str,
+        tool_input: dict[str, Any],
+    ) -> ToolGuardResult:
+        """Create HIGH-severity guard result for built-in rule integrity lockdown."""
+        finding = GuardFinding(
+            id=str(_uuid.uuid4())[:8],
+            rule_id="rule_integrity_lockdown",
+            category=GuardThreatCategory.RESOURCE_ABUSE,
+            severity=GuardSeverity.HIGH,
+            title="Built-in security rules disabled",
+            description=(
+                "Tool execution is blocked because built-in security rule "
+                "integrity verification failed. Rules are being auto-repaired."
+            ),
+            tool_name=tool_name,
+            param_name=None,
+            matched_value=None,
+            matched_pattern=None,
+            snippet=None,
+            remediation="Wait for automatic rule integrity repair to complete",
+            guardian="rule_integrity_lockdown",
+            metadata={
+                "boundary_action": "auto_deny",
+                "rules_disabled": True,
+            },
+        )
+
+        return ToolGuardResult(
+            tool_name=tool_name,
+            params=tool_input,
+            findings=[finding],
+            guardians_used=["rule_integrity_lockdown"],
         )
 
     async def _execute_guard_action(

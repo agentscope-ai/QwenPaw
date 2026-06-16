@@ -25,7 +25,6 @@ import { PackageOpen, Bell } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { useTranslation } from "react-i18next";
-import { useNavigate } from "react-router-dom";
 import { PageHeader } from "@/components/PageHeader";
 import { ApprovalCard as GlobalApprovalCard } from "../../components/ApprovalCard/ApprovalCard";
 import { useApprovalContext } from "../../contexts/ApprovalContext";
@@ -33,7 +32,6 @@ import { commandsApi } from "../../api/modules/commands";
 import { chatApi } from "../../api/modules/chat";
 import sessionApi from "../Chat/sessionApi";
 import { PushMessageCard } from "./components";
-import { resolveFileBaselineDriftNavigation } from "@extension/file_baseline/lib/navigation";
 import { useInboxData } from "./hooks/useInboxData";
 import { useTraceViewer } from "./hooks/useTraceViewer";
 import { useAgentStore } from "../../stores/agentStore";
@@ -71,7 +69,6 @@ const renderMarkdownText = (text: string, className: string) => (
 
 export default function InboxPage() {
   const { t } = useTranslation();
-  const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState<TabKey>(resolveInitialTab);
   const [markAllReading, setMarkAllReading] = useState(false);
   const [selectedAgentFilter, setSelectedAgentFilter] = useState<
@@ -219,14 +216,6 @@ export default function InboxPage() {
     const found = pushMessages.find((item) => item.id === messageId);
     if (!found) {
       message.warning(t("inbox.messageNotFound"));
-      return;
-    }
-    const eventType = found.metadata?.eventType;
-    const payload = found.metadata?.payload;
-    const deepLink = resolveFileBaselineDriftNavigation(eventType, payload);
-    if (deepLink) {
-      void markMessageAsRead(messageId);
-      navigate(deepLink);
       return;
     }
     openMessageDetail(found);

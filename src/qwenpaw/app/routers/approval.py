@@ -15,6 +15,7 @@ from ...security.audit_foundation import (
     preflight_sensitive_action_recovery,
     write_lockdown_record,
 )
+from ...security.rule_integrity_bridge import rule_integrity_lockdown_active
 from ...security.tool_guard.approval import ApprovalDecision
 
 logger = logging.getLogger(__name__)
@@ -106,6 +107,31 @@ async def post_approval_approve(
         tool_name=pending.tool_name or "",
         prompt_text=prompt_text,
     ) if pending.tool_name else {}
+
+    if pending.tool_name and rule_integrity_lockdown_active():
+        await svc.resolve_request(
+            body.request_id,
+            ApprovalDecision.DENIED,
+        )
+        logger.warning(
+            "Approval blocked by rule integrity lockdown: request_id=%s session=%s tool=%s",
+            body.request_id[:16],
+            pending.session_id,
+            pending.tool_name,
+        )
+        return JSONResponse(
+            status_code=423,
+            content={
+                "success": False,
+                "message": (
+                    "Built-in security configuration integrity check failed; "
+                    "all rules are disabled while auto-repair is in progress."
+                ),
+                "tool_name": pending.tool_name,
+                "request_id": body.request_id,
+                "rules_disabled": True,
+            },
+        )
 
     if pending.tool_name and (lock_mode_required() or recovery_gate.get("recovery_required") is True):
         await write_lockdown_record(

@@ -19,7 +19,6 @@ import styles from "./index.module.less";
 
 function SecurityPage() {
   const { t } = useTranslation();
-  const [fileBaselineAlertCount, setFileBaselineAlertCount] = useState(0);
   const [healthAttentionCount, setHealthAttentionCount] = useState(0);
 
   const {
@@ -35,8 +34,6 @@ function SecurityPage() {
     handleReset,
     mergedRules,
     rulesIntegrity,
-    repairingRulesIntegrity,
-    handleRepairRulesIntegrity,
     builtinRules,
     customRules,
     toggleRule,
@@ -60,7 +57,6 @@ function SecurityPage() {
     loading,
     error,
     fetchAll,
-    fileBaselineHighlightAlertId,
   } = useSecurityPage();
 
   // Loading state
@@ -95,11 +91,7 @@ function SecurityPage() {
         current={t("security.security")}
       />
 
-      <RuleIntegrityRepairBanner
-        rulesIntegrity={rulesIntegrity}
-        repairing={repairingRulesIntegrity}
-        onRepair={handleRepairRulesIntegrity}
-      />
+      <RuleIntegrityRepairBanner rulesIntegrity={rulesIntegrity} />
 
       <div className={styles.content}>
         <Tabs
@@ -156,13 +148,6 @@ function SecurityPage() {
               label: (
                 <span className={styles.tabLabel}>
                   {t("security.integrityProtection.tabs.integrityProtection")}
-                  {fileBaselineAlertCount > 0 ? (
-                    <Badge
-                      count={fileBaselineAlertCount}
-                      size="small"
-                      style={{ marginLeft: 8 }}
-                    />
-                  ) : null}
                 </span>
               ),
               children: (
@@ -170,10 +155,7 @@ function SecurityPage() {
                   <p className={styles.tabDescription}>
                     {t("security.integrityProtection.description")}
                   </p>
-                  <IntegrityProtectionSection
-                    onAlertCountChange={setFileBaselineAlertCount}
-                    highlightAlertId={fileBaselineHighlightAlertId}
-                  />
+                  <IntegrityProtectionSection />
                 </div>
               ),
             },

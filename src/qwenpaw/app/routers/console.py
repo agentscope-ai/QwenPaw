@@ -29,6 +29,7 @@ from ...security.audit_foundation import (
     write_restored_model_access_record,
     write_security_rejection_record,
 )
+from ...security.rule_integrity_bridge import rule_integrity_lockdown_active
 from ...utils.logging import LOG_FILE_PATH
 from ..agent_context import get_agent_for_request
 from ..approvals import get_approval_service
@@ -301,6 +302,19 @@ async def _maybe_handle_security_scenario(
         tool_name=tool_name,
         prompt_text=prompt_text,
     ) if tool_name else {}
+
+    if tool_name and rule_integrity_lockdown_active():
+        return _single_event_response(
+            status_code=423,
+            payload={
+                "message": (
+                    "Built-in security configuration integrity check failed; "
+                    "all rules are disabled while auto-repair is in progress."
+                ),
+                "rules_disabled": True,
+                "tool_name": tool_name,
+            },
+        )
 
     if tool_name and (lock_mode_required() or recovery_gate.get("recovery_required") is True):
         payload = await write_lockdown_record(

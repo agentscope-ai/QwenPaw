@@ -554,3 +554,40 @@ async def test_acting_blocks_execution_when_audit_lock_mode_is_active():
     assert result is None
     assert agent.acting_called is False
     mock_lockdown.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_acting_blocks_execution_when_rule_integrity_lockdown_is_active():
+    from qwenpaw.agents.tool_guard_mixin import ToolGuardMixin
+
+    class _GuardedAgent(ToolGuardMixin, _FakeActingBase):
+        pass
+
+    agent = _GuardedAgent()
+    agent._request_context = {
+        "session_id": "rule-integrity-session",
+        "user_id": "security_operator",
+        "channel": "local_console",
+        "agent_id": "security_agent",
+    }
+    agent._agent_config = {"approval_level": "AUTO"}
+    agent._language = "en"
+    agent.name = "TestAgent"
+    agent.memory = MagicMock()
+    agent.memory.add = AsyncMock()
+    agent.print = AsyncMock()
+
+    tool_call = {
+        "id": "tc-rule-integrity-1",
+        "name": "read_file",
+        "input": {"file_path": "/tmp/example.txt"},
+    }
+
+    with patch(
+        "qwenpaw.security.rule_integrity_bridge.rule_integrity_lockdown_active",
+        return_value=True,
+    ):
+        result = await agent._acting(tool_call)
+
+    assert result is None
+    assert agent.acting_called is False

@@ -234,6 +234,7 @@ class SkillService:
         target_name: str | None = None,
         config: dict[str, Any] | None = None,
         overwrite: bool = False,
+        skip_skill_md_write: bool = False,
     ) -> dict[str, Any]:
         """Edit-in-place or rename-save a workspace skill."""
         validate_skill_content(content)
@@ -253,6 +254,7 @@ class SkillService:
                 content=content,
                 config=config,
                 old_entry=old_entry,
+                skip_skill_md_write=skip_skill_md_write,
             )
 
         skill_root = get_workspace_skills_dir(self.workspace_dir)
@@ -290,6 +292,7 @@ class SkillService:
         content: str,
         config: dict[str, Any] | None,
         old_entry: dict[str, Any],
+        skip_skill_md_write: bool = False,
     ) -> dict[str, Any]:
         new_config = (
             config if config is not None else old_entry.get("config") or {}
@@ -314,18 +317,21 @@ class SkillService:
             }
 
         if content_changed:
-            with staged_skill_dir(skill_name) as staged_dir:
-                if skill_dir.exists():
-                    copy_skill_dir(skill_dir, staged_dir)
-                (staged_dir / "SKILL.md").write_text(
+            if skip_skill_md_write:
+                scan_skill_dir_or_raise(skill_dir, skill_name)
+            else:
+                with staged_skill_dir(skill_name) as staged_dir:
+                    if skill_dir.exists():
+                        copy_skill_dir(skill_dir, staged_dir)
+                    (staged_dir / "SKILL.md").write_text(
+                        content,
+                        encoding="utf-8",
+                    )
+                    scan_skill_dir_or_raise(staged_dir, skill_name)
+                (skill_dir / "SKILL.md").write_text(
                     content,
                     encoding="utf-8",
                 )
-                scan_skill_dir_or_raise(staged_dir, skill_name)
-            (skill_dir / "SKILL.md").write_text(
-                content,
-                encoding="utf-8",
-            )
         source = (
             "customized"
             if content_changed

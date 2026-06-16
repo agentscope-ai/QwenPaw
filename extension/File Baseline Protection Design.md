@@ -123,7 +123,7 @@
 | SSE `file_baseline_drift` | `file_baseline_drift` |
 | SSE `file_baseline_alert_resolved` | `file_baseline_alert_resolved` |
 | SSE `file_baseline_updated` | `file_baseline_updated` |
-| Inbox `source_type: file_baseline_protection` | `file_baseline_protection` |
+| Inbox `source_type: file_baseline_protection` | **已移除**（2026-06）：漂移不再写入 Inbox；Console 不再展示「待处理基线漂移告警」表格或全局 notifier |
 | Write proposal / approval `fileBaselineWrite` | `fileBaselineWrite`（Console ApprovalCard） |
 
 ### 3.6 测试标识
@@ -196,8 +196,8 @@ Console **不提供**「一键保护全部 Skill / 三件套」；仅提供：
 
 | 入口 | 行为 |
 |------|------|
-| **从预设添加** | 下拉：SOUL.md、AGENTS.md、PROFILE.md、HEARTBEAT.md、自定义路径（**不含** agent.json，见 §6） |
-| **选择 Skill** | 列出 workspace `skills/*/SKILL.md`，勾选后加入列表 |
+| **从预设添加** | 下拉：SOUL.md、AGENTS.md、PROFILE.md、HEARTBEAT.md（**不含** agent.json，见 §6） |
+| **从工作区选择文件** | 「从工作区选择文件」按钮打开 Modal 文件浏览器；**默认目录 `skills/`**；选中文件后以 workspace 相对路径写入 `protected_targets`（v1 精确文件路径，不支持手填/glob） |
 | **移除** | 从 `protected_targets` 删除；停止 watch/check 该 path |
 
 约束：
@@ -226,7 +226,7 @@ Tab key: `integrityProtection`（i18n: `security.integrityProtection.tabs.integr
 │   ├── 说明文案
 │   ├── 受保护文件列表（对齐工作区「核心文件」样式）
 │   │   └── 预设路径各行：名称 + 描述 + 路径 + Switch（使能/去使能）
-│   └── 自定义路径区：已有路径 Switch 列表 + 输入框添加
+│   └── 自定义路径区：已有路径 Switch 列表 + **「从工作区选择文件」**（默认 `skills/`，In-app 文件浏览器）
 └── 区块 B — 内置规则完整性
 ```
 
@@ -250,6 +250,8 @@ Tab key: `integrityProtection`（i18n: `security.integrityProtection.tabs.integr
 - **目的**：同一 Windows 用户下的 Agent 子进程（`python -c`、`copy` 等）**物理上无法落盘**，即便 shell preflight 静态漏检
 - **不**试图阻止机器管理员 / 外部编辑器（Notepad++ 管理员）；外部改动仍由 watch / startup scan 以 `external_watch` 检测
 - **唯一写通道**：`commit_approved_write`（Agent `write_file`/`edit_file` 审批后、Console Save 审批后）与 **已审批** shell/python 执行前，对目标路径 **短暂 `attrib -R` → 写入 → 再 `+R`**
+- **Console 技能编辑器**：`PUT /skills/save` 在落盘 `skills/<name>/SKILL.md` 前与「工作区核心文件 / Coding Mode 保存」相同，走 `try_guarded_operator_file_write`；审批通过后由 `commit_approved_write` 写入，路由侧跳过重复 `write_text`，映射 `denied`/`timeout`/`conflict` 为 403/408/409（禁止裸 `PermissionError` → 500）
+- **Console 全局审批 Modal（FB-SUI-OPERATOR-APPROVAL）**：`MainLayout` 挂载 `GlobalOperatorApprovalOverlay`；`ConsolePollService` 写入的 `operator_console_save` / `persona-console:*` 待审批在任意页面（技能、工作区、Coding Mode 等）弹出 Modal；Agent Chat session 审批仍仅 Chat / Inbox 展示，避免重复
 - Restore / soul-guardian maintenance 写入同理走 `temporary_writable` 上下文
 - `enabled=false` 时对所有曾受保护路径 **`attrib -R` 恢复**，避免文件长期带只读属性
 - shell preflight 扩展：`python -c` / `python script.py` 复用 Python 写检测（只为**写**弹审批；读仍 direct）
@@ -298,6 +300,7 @@ Tab key: `integrityProtection`（i18n: `security.integrityProtection.tabs.integr
 | FB-S34 | `open("SOUL.md", "r+")` / `Path.open("rb+")` 可写模式 → preflight 命中；纯读仍不命中 | P0 |
 | FB-S35 | `attrib -R SOUL.md`、`del SOUL.md`、`os.remove/unlink/truncate` 等破坏性操作 → preflight 命中审批 | P0 |
 | FB-S36 | File Baseline shell guard 异常 → 返回 Error，shell 不得裸跑 | P0 |
+| FB-S37 | Console 技能 `PUT /skills/save` 对 protected `SKILL.md` 走 operator guard；审批后跳过重复 write | P0 |
 
 **不推荐保护 agent.json：**
 - 运行时会在每次 Console 会话 dispatch 时更新 `agent.json` 的 `last_dispatch` 等 bookkeeping 字段

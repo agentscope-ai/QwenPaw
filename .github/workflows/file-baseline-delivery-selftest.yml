@@ -1,0 +1,67 @@
+name: File Baseline Delivery Self-Test
+
+on:
+  push:
+    branches: [main, master, dev, develop]
+    paths:
+      - 'console/**'
+      - 'extension/file_baseline/**'
+      - 'extension/selftest/file-baseline-wiring.test.js'
+      - 'extension/run-integrity-delivery-selftest.py'
+      - 'extension/integrity-delivery-selftest.manifest.json'
+      - 'scripts/file-baseline-selftest.manifest.json'
+      - 'src/qwenpaw/security/file_baseline_bridge.py'
+      - 'src/qwenpaw/app/routers/file_baseline_routes.py'
+      - 'tests/integration/security/test_integrity_protection.py'
+      - 'tests/unit/extension/test_file_baseline_*.py'
+      - 'tests/integration/security/integrity_harness.py'
+      - '.github/workflows/file-baseline-delivery-selftest.yml'
+  pull_request:
+    branches: [main, master, dev, develop]
+    paths:
+      - 'console/**'
+      - 'extension/file_baseline/**'
+      - 'extension/selftest/file-baseline-wiring.test.js'
+      - 'extension/run-integrity-delivery-selftest.py'
+      - 'extension/integrity-delivery-selftest.manifest.json'
+      - 'scripts/file-baseline-selftest.manifest.json'
+      - 'src/qwenpaw/security/file_baseline_bridge.py'
+      - 'src/qwenpaw/app/routers/file_baseline_routes.py'
+      - 'tests/integration/security/test_integrity_protection.py'
+      - 'tests/unit/extension/test_file_baseline_*.py'
+      - 'tests/integration/security/integrity_harness.py'
+      - '.github/workflows/file-baseline-delivery-selftest.yml'
+
+jobs:
+  file-baseline-delivery:
+    name: file-baseline delivery net
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: console/package-lock.json
+
+      - name: Install console dependencies
+        working-directory: console
+        run: npm ci
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev,full]"
+
+      - name: Run file-baseline integrity delivery self-test
+        env:
+          NODE_OPTIONS: --max-old-space-size=4096
+        run: python extension/run-integrity-delivery-selftest.py --delivery file-baseline

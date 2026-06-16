@@ -59,6 +59,7 @@ from ...agents.skill_system.store import (
     read_skill_from_dir,
     read_skill_manifest,
     read_skill_pool_manifest,
+    safe_skill_dir,
     suggest_conflict_name,
 )
 from ...security.skill_scanner import SkillScanError
@@ -113,6 +114,59 @@ def _scan_error_response(exc: SkillScanError) -> JSONResponse:
         status_code=422,
         content=_scan_error_payload(exc),
     )
+
+
+def _workspace_skill_md_path(workspace_dir: Path, skill_name: str) -> Path:
+    skill_dir = safe_skill_dir(get_workspace_skills_dir(workspace_dir), skill_name)
+    return skill_dir / "SKILL.md"
+
+
+def _raise_for_operator_guard_outcome(outcome: Any) -> None:
+    if outcome.status in {"direct", "committed", "unchanged"}:
+        return
+    if outcome.status == "denied":
+        raise HTTPException(status_code=403, detail=outcome.message) from None
+    if outcome.status == "timeout":
+        raise HTTPException(status_code=408, detail=outcome.message) from None
+    if outcome.status == "conflict":
+        raise HTTPException(status_code=409, detail=outcome.message) from None
+    raise HTTPException(
+        status_code=500,
+        detail=outcome.message or "Protected skill save failed",
+    ) from None
+
+
+async def _guard_workspace_skill_md_write(
+    *,
+    workspace_dir: Path,
+    skill_name: str,
+    content: str,
+    agent_id: str,
+) -> str:
+    """Proposal → approval → commit for protected ``skills/<name>/SKILL.md``."""
+    from ...security.file_baseline_bridge import try_guarded_operator_file_write
+
+    md_path = _workspace_skill_md_path(workspace_dir, skill_name)
+    outcome = await try_guarded_operator_file_write(
+        absolute_path=str(md_path),
+        content=content,
+        agent_id=agent_id,
+    )
+    _raise_for_operator_guard_outcome(outcome)
+    return outcome.status
+
+
+def _raise_for_protected_write_os_error(exc: BaseException) -> None:
+    errno = getattr(exc, "errno", None)
+    if isinstance(exc, PermissionError) or errno in {1, 13}:
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                "Cannot write protected skill file; approve the Console save "
+                "or disable file baseline protection for this path."
+            ),
+        ) from exc
+    raise exc
 
 
 class SkillSpec(SkillInfo):
@@ -1421,16 +1475,30 @@ async def save_workspace_skill(
 
     workspace = await get_agent_for_request(request)
     workspace_dir = Path(workspace.workspace_dir)
+    source_name = body.source_name or body.name
+    final_name = body.name if body.source_name else source_name
     try:
+        guard_status = await _guard_workspace_skill_md_write(
+            workspace_dir=workspace_dir,
+            skill_name=final_name,
+            content=body.content,
+            agent_id=workspace.agent_id,
+        )
+        skip_skill_md_write = guard_status in {"committed", "unchanged"}
         result = SkillService(workspace_dir).save_skill(
-            skill_name=body.source_name or body.name,
+            skill_name=source_name,
             content=body.content,
             target_name=body.name if body.source_name else None,
             config=body.config,
             overwrite=body.overwrite,
+            skip_skill_md_write=skip_skill_md_write,
         )
     except SkillScanError as exc:
         return _scan_error_response(exc)
+    except HTTPException:
+        raise
+    except (PermissionError, OSError) as exc:
+        _raise_for_protected_write_os_error(exc)
     except (ValueError, AppBaseException) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     if not result.get("success"):

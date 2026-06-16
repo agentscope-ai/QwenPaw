@@ -151,7 +151,7 @@ def _log_failure(result: RuleIntegrityResult) -> None:
     _last_logged_failure = fingerprint
     logger.error(
         "Built-in tool guard rule integrity check failed: status=%s "
-        "message=%s findings=%s action=warn_only_loaded_anyway",
+        "message=%s findings=%s action=fail_closed",
         result.status,
         result.message,
         [f.to_dict() for f in result.findings],

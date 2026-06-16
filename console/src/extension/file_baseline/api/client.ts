@@ -46,6 +46,22 @@ export interface FileBaselineProtectionSettingsUpdateBody {
   confirmation_phrase?: string;
 }
 
+export interface FileBaselineWorkspaceBrowseEntry {
+  name: string;
+  type: "dir" | "file";
+  rel_path: string;
+  size?: number;
+}
+
+export interface FileBaselineWorkspaceBrowseResponse {
+  agent_id: string;
+  workspace_label: string;
+  current_path: string;
+  parent_path: string;
+  default_path: string;
+  entries: FileBaselineWorkspaceBrowseEntry[];
+}
+
 export const fileBaselineApi = {
   getFileBaselineProtectionSettings: () =>
     request<FileBaselineProtectionSettings>(
@@ -92,4 +108,9 @@ export const fileBaselineApi = {
 
   getFileBaselineProtectionWatchUrl: () =>
     getApiUrl("/config/security/file-baseline/watch"),
+
+  browseWorkspaceProtectableFiles: (path = "skills") =>
+    request<FileBaselineWorkspaceBrowseResponse>(
+      `/config/security/file-baseline/browse?path=${encodeURIComponent(path)}`,
+    ),
 };

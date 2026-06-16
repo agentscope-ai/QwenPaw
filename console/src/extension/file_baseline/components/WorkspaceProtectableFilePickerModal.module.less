@@ -1,0 +1,92 @@
+.meta {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 12px;
+  font-size: 12px;
+  color: #666;
+}
+
+.metaPath {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.list {
+  min-height: 220px;
+  max-height: 320px;
+  overflow: auto;
+  border: 1px solid #e8e8e8;
+  border-radius: 8px;
+  background: #fafafa;
+}
+
+.entry {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 10px 12px;
+  border: none;
+  border-bottom: 1px solid #eee;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  font-size: 13px;
+
+  &:hover {
+    background: #f0f0f0;
+  }
+
+  &:last-child {
+    border-bottom: none;
+  }
+}
+
+.entrySelected {
+  background: #e6f4ff;
+
+  &:hover {
+    background: #e6f4ff;
+  }
+}
+
+.entryIcon {
+  flex-shrink: 0;
+  color: #888;
+}
+
+.entryName {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.entryChevron {
+  flex-shrink: 0;
+  color: #bbb;
+}
+
+.empty {
+  margin: 0;
+  padding: 24px 12px;
+  text-align: center;
+  font-size: 12px;
+  color: #999;
+}
+
+.selectionPreview {
+  margin-top: 12px;
+  font-size: 12px;
+  color: #666;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  word-break: break-all;
+}

@@ -20,10 +20,13 @@ from rule_integrity.host_bridge import (  # noqa: E402
     RuleIntegrityFinding,
     RuleIntegrityRepairResult,
     RuleIntegrityResult,
+    get_enforcement_projection,
     get_last_rule_integrity_status,
     get_router,
     repair_default_builtin_rule_file,
+    rule_integrity_lockdown_active,
     run_passive_check,
+    stream_rule_integrity_events,
     sha256_normalized_content,
     verify_builtin_rule_files,
     verify_default_builtin_rule_files,
@@ -33,7 +36,11 @@ from rule_integrity.schemas import (  # noqa: E402
     ToolGuardRuleIntegrityRepairResponse,
     ToolGuardRuleIntegrityResponse,
 )
-from rule_integrity.startup import periodic_rule_integrity_check  # noqa: E402
+from rule_integrity.startup import (  # noqa: E402
+    periodic_rule_integrity_check,
+    run_rule_integrity_runtime,
+    run_rule_integrity_startup_check,
+)
 
 # Backward-compatible alias used by release tooling and frozen tests.
 _sha256_normalized_content = sha256_normalized_content
@@ -60,11 +67,16 @@ __all__ = [
     "ToolGuardRuleIntegrityResponse",
     "_sha256_normalized_content",
     "get_last_rule_integrity_status",
+    "get_enforcement_projection",
     "get_router",
     "get_rule_integrity_router",
     "periodic_rule_integrity_check",
+    "run_rule_integrity_runtime",
+    "run_rule_integrity_startup_check",
     "repair_default_builtin_rule_file",
+    "rule_integrity_lockdown_active",
     "run_passive_check",
+    "stream_rule_integrity_events",
     "sha256_normalized_content",
     "verify_builtin_rule_files",
     "verify_default_builtin_rule_files",

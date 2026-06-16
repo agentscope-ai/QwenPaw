@@ -4,14 +4,18 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
+from pathlib import Path
 
 from ...security.extension_host import get_file_baseline_service, stream_file_baseline_events
+from ...security.file_baseline_bridge import browse_workspace_protectable_files
+from ..agent_context import get_agent_for_request
 from .schemas_integrity_delivery import (
     FileBaselineProtectionActionRequest,
     FileBaselineProtectionActionResponse,
     FileBaselineProtectionAlertsResponse,
     FileBaselineProtectionSettingsResponse,
     FileBaselineProtectionSettingsUpdateRequest,
+    FileBaselineWorkspaceBrowseResponse,
 )
 
 router = APIRouter(tags=["config"])
@@ -50,6 +54,29 @@ async def update_file_baseline_protection_settings(
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
     return FileBaselineProtectionSettingsResponse(**payload)
+
+
+@router.get(
+    "/security/file-baseline/browse",
+    response_model=FileBaselineWorkspaceBrowseResponse,
+    summary="Browse agent workspace files for protected path picker",
+)
+async def browse_file_baseline_workspace_files(
+    request: Request,
+    path: str = "skills",
+) -> FileBaselineWorkspaceBrowseResponse:
+    workspace = await get_agent_for_request(request)
+    try:
+        payload = browse_workspace_protectable_files(
+            workspace_dir=Path(workspace.workspace_dir),
+            agent_id=workspace.agent_id,
+            relative_path=path,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return FileBaselineWorkspaceBrowseResponse(**payload)
 
 
 @router.get(

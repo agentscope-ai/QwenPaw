@@ -33,15 +33,13 @@ from .command_guard import (
 from .command_guard import (
     try_guarded_shell_command as _try_guarded_shell_command,
 )
-from .operator_write import try_guarded_operator_file_write as _try_guarded_operator_file_write
+from .operator_write import (
+    try_guarded_operator_file_write as _try_guarded_operator_file_write,
+)
+from .workspace_browse import browse_workspace_protectable_files
 
 
 def _wire_emitter(service: FileBaselineService) -> None:
-    from qwenpaw.app.console_push_store import append as push_append
-    from qwenpaw.app.inbox_store import append_event
-
-    service.emitter.inbox_append = append_event
-    service.emitter.push_append = push_append
     service.emitter.sse_publish = service.sse_hub.publish
 
 
@@ -221,4 +219,5 @@ __all__ = [
     "try_guarded_python_code",
     "GuardedWriteOutcome",
     "GuardedCommandOutcome",
+    "browse_workspace_protectable_files",
 ]

@@ -23,10 +23,8 @@ export function useToolGuard() {
   >({});
   const {
     rulesIntegrity,
-    repairingRulesIntegrity,
     fetchRulesIntegrity,
-    repairRulesIntegrity,
-  } = useRuleIntegrity({ pollIntervalMs: 5000 });
+  } = useRuleIntegrity({ pollIntervalMs: 60_000 });
   const [enabled, setEnabled] = useState(true);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -168,8 +166,6 @@ export function useToolGuard() {
     mergedRules,
     shellEvasionChecks,
     rulesIntegrity,
-    repairingRulesIntegrity,
-    repairRulesIntegrity,
     toggleShellEvasionCheck,
     loading,
     error,

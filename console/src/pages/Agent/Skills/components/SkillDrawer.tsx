@@ -69,7 +69,7 @@ interface SkillDrawerProps {
   form: FormInstance<SkillDrawerFormValues>;
   availableTags?: string[];
   onClose: () => void;
-  onSubmit: (values: SkillSpec) => void;
+  onSubmit: (values: SkillSpec) => void | Promise<void>;
   onContentChange?: (content: string) => void;
 }
 
@@ -86,6 +86,7 @@ export function SkillDrawer({
   const [showMarkdown, setShowMarkdown] = useState(true);
   const [contentValue, setContentValue] = useState("");
   const [optimizing, setOptimizing] = useState(false);
+  const [saving, setSaving] = useState(false);
   const abortControllerRef = useRef<AbortController | null>(null);
   const [configText, setConfigText] = useState("{}");
   const [configError, setConfigError] = useState("");
@@ -168,13 +169,18 @@ export function SkillDrawer({
         return;
       }
     }
-    onSubmit({
-      ...editingSkill,
-      ...values,
-      content: contentValue || values.content,
-      source: editingSkill?.source || "",
-      config: parsedConfig,
-    });
+    setSaving(true);
+    try {
+      await onSubmit({
+        ...editingSkill,
+        ...values,
+        content: contentValue || values.content,
+        source: editingSkill?.source || "",
+        config: parsedConfig,
+      });
+    } finally {
+      setSaving(false);
+    }
   };
 
   const handleContentChange = (content: string) => {
@@ -264,7 +270,7 @@ export function SkillDrawer({
       </div>
       <div style={{ display: "flex", gap: 8 }}>
         <Button onClick={onClose}>{t("common.cancel")}</Button>
-        <Button type="primary" onClick={() => form.submit()}>
+        <Button type="primary" onClick={() => form.submit()} loading={saving}>
           {t("skills.create")}
         </Button>
       </div>
@@ -272,7 +278,7 @@ export function SkillDrawer({
   ) : (
     <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
       <Button onClick={onClose}>{t("common.cancel")}</Button>
-      <Button type="primary" onClick={() => form.submit()}>
+      <Button type="primary" onClick={() => form.submit()} loading={saving}>
         {t("common.save")}
       </Button>
     </div>
