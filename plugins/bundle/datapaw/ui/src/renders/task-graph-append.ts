@@ -8,10 +8,27 @@ import type { HostBundle } from "../types";
 
 let lastRenderLogKey = "";
 const EMPTY_PLANS: StoredPlanSnapshot[] = [];
-const GRAPH_ID_PATTERN = /\bgraph_[A-Za-z0-9_-]+\b/g;
 
-function sampleIds(ids: Set<string>): string[] {
+type ResponseIds = {
+  graphIds: Set<string>;
+  explicitGraphIds: string[];
+};
+
+function createResponseIds(): ResponseIds {
+  return {
+    graphIds: new Set<string>(),
+    explicitGraphIds: [],
+  };
+}
+
+function sampleIds(ids: Iterable<string>): string[] {
   return [...ids].slice(0, 8);
+}
+
+function addGraphId(ids: ResponseIds, id: string): void {
+  if (!id) return;
+  ids.graphIds.add(id);
+  ids.explicitGraphIds.push(id);
 }
 
 function logTaskGraphDebug(
@@ -47,9 +64,9 @@ function getResponseId(data: unknown): string | null {
 
 function collectResponseIds(
   data: unknown,
-  ids = { messageIds: new Set<string>(), graphIds: new Set<string>() },
+  ids = createResponseIds(),
   seen = new WeakSet<object>(),
-): { messageIds: Set<string>; graphIds: Set<string> } {
+): ResponseIds {
   if (!data || typeof data !== "object") return ids;
   if (seen.has(data)) return ids;
   seen.add(data);
@@ -58,23 +75,19 @@ function collectResponseIds(
     return ids;
   }
   const record = data as Record<string, unknown>;
+  if (record.code === "task_graph") return ids;
 
-  for (const key of ["id", "msg_id", "message_id", "response_id", "run_id"]) {
-    const value = record[key];
-    if (typeof value === "string" && value) ids.messageIds.add(value);
-  }
   const graphId = record.graph_id;
   if (typeof graphId === "string" && graphId) {
-    ids.graphIds.add(graphId);
+    addGraphId(ids, graphId);
+  }
+  const metadataGraphId = (record.metadata as { graph_id?: unknown } | undefined)
+    ?.graph_id;
+  if (typeof metadataGraphId === "string" && metadataGraphId) {
+    addGraphId(ids, metadataGraphId);
   }
 
   for (const value of Object.values(record)) {
-    if (typeof value === "string") {
-      for (const match of value.matchAll(GRAPH_ID_PATTERN)) {
-        ids.graphIds.add(match[0]);
-      }
-      continue;
-    }
     collectResponseIds(value, ids, seen);
   }
 
@@ -97,7 +110,6 @@ export function createTaskGraphAppend(host: HostBundle) {
       () => EMPTY_PLANS,
     );
     const responseIds = collectResponseIds(ctx.data);
-    const responseMessageIds = responseIds.messageIds;
     const responseGraphIds = responseIds.graphIds;
 
     const responseId = getResponseId(ctx.data);
@@ -105,21 +117,24 @@ export function createTaskGraphAppend(host: HostBundle) {
       plan: StoredPlanSnapshot | null;
       reason: string;
       anchorMessageId: string | null;
-      isAnchoredResponse: boolean;
     } => {
-      const anchored = plans.find((candidate) => {
-        const anchor = candidate.anchor_message_id;
-        return Boolean(
-          (anchor && responseMessageIds.has(anchor)) ||
-            responseGraphIds.has(candidate.id),
-        );
-      });
-      if (anchored) {
+      const planById = new Map(plans.map((item) => [item.id, item]));
+      const findLastGraphMatch = (
+        graphIds: string[],
+      ): StoredPlanSnapshot | null => {
+        for (let index = graphIds.length - 1; index >= 0; index -= 1) {
+          const match = planById.get(graphIds[index]);
+          if (match) return match;
+        }
+        return null;
+      };
+
+      const explicitGraphMatch = findLastGraphMatch(responseIds.explicitGraphIds);
+      if (explicitGraphMatch) {
         return {
-          plan: anchored,
-          reason: responseGraphIds.has(anchored.id) ? "graph-id" : "anchor",
-          anchorMessageId: anchored.anchor_message_id ?? null,
-          isAnchoredResponse: true,
+          plan: explicitGraphMatch,
+          reason: "graph-id",
+          anchorMessageId: explicitGraphMatch.anchor_message_id ?? null,
         };
       }
 
@@ -127,7 +142,6 @@ export function createTaskGraphAppend(host: HostBundle) {
         plan: null,
         reason: "none",
         anchorMessageId: null,
-        isAnchoredResponse: false,
       };
     };
 
@@ -162,18 +176,14 @@ export function createTaskGraphAppend(host: HostBundle) {
           state: item.state,
           current: Boolean(item.__datapawCurrent),
           anchorMessageId: item.anchor_message_id ?? null,
-          anchorInResponse: item.anchor_message_id
-            ? responseMessageIds.has(item.anchor_message_id)
-            : false,
           graphInResponse: responseGraphIds.has(item.id),
         })),
         hasPlan: Boolean(plan),
         planId: plan?.id ?? null,
         planState: plan?.state ?? null,
         anchorMessageId: selected.anchorMessageId,
-        responseMessageIdCount: responseMessageIds.size,
-        responseMessageIdSample: sampleIds(responseMessageIds),
         responseGraphIds: sampleIds(responseGraphIds),
+        explicitGraphIds: sampleIds(responseIds.explicitGraphIds),
         selectedReason: selected.reason,
         willRenderGraph: Boolean(graph),
       });

@@ -94,6 +94,17 @@ export function setCurrentPlan(
   const normalizedSessionId = normalizeSessionId(sessionId);
   if (!normalizedSessionId) return;
   if (!next) {
+    const sessionPlans = plansBySession.get(normalizedSessionId);
+    if (sessionPlans) {
+      for (const [planId, storedPlan] of sessionPlans) {
+        if (storedPlan.__datapawCurrent) {
+          sessionPlans.set(planId, {
+            ...storedPlan,
+            __datapawCurrent: false,
+          });
+        }
+      }
+    }
     currentPlanIdBySession.delete(normalizedSessionId);
     notifyPlanListeners();
     return;
