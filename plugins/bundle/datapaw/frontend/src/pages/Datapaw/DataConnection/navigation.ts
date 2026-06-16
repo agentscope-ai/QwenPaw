@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
+import { isDatapawPluginContext } from "@/api/authHeaders";
 
-/** List route base — works in host plugin shell (no React Router). */
+/** List route base — host chat lives at `/chat/:id`, plugin pages at `/plugin/datapaw/…`. */
 export function getDataConnectionRouteBase(): string {
-  return window.location.pathname.startsWith("/plugin/datapaw/")
+  return isDatapawPluginContext()
     ? "/plugin/datapaw/datapaw/data-connection"
     : "/datapaw/data-connection";
 }
