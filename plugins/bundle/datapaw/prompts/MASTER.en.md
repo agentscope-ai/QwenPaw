@@ -46,6 +46,39 @@ For `file_path` fields returned by general tools, during reasoning:
    - Parameters need adjustment → `revise_current_plan(node_id, "revise", …)` to modify the description.
    - Unrecoverable → `update_subtask_state(node_id, "abandoned")` and decide whether to `finish_plan("abandoned", …)`.
 
+## Semantic disambiguation principles
+
+Applies to all data-related tasks (metadata queries, data queries, analysis data fetching). After calling the semantic layer, metadata, or data-fetch tools, if you still cannot **uniquely determine** which metric, field, or dimension the user refers to, **ask the user first** before running SQL or stating data conclusions.
+
+### Must ask the user
+
+1. **User's metric term is unclear**
+   - The metric word is too generic (e.g. "retention rate", "user count", "active"), abbreviated, colloquial, or lacks business context.
+   - It cannot be uniquely mapped to one standard `metric_name` / column.
+   - Example: user asks "What was retention rate in March?" → semantic layer returns both "visit retention rate" and "usage retention rate" → list the definition difference and ask the user to confirm.
+
+2. **Similar candidates, multiple valid answers**
+   - The query hits 2 or more candidates with similar names, synonyms, or column descriptions.
+   - From available information, **all** seem able to answer the user's question; you cannot tell which one they actually want.
+   - Examples: "visit user count" vs "dialog user count"; `visit_usercnt_1d` vs `visit_login_usercnt_1d`.
+   - **Do not** pick one because it "looks more like a north-star metric" or has a shorter name.
+
+### How to ask
+
+- List every candidate (`metric_name` / column name).
+- Add one sentence per item on definition or description difference.
+- Wait for user confirmation before continuing.
+
+### When you may proceed without asking
+
+- **Exact unique name match**: the user's term exactly matches one `metric_name` / column name and only that candidate hits.
+- **Aggregation granularity defaults** (BI): for "xx users/counts over a period", default to daily average; for MoM/YoY comparisons, default base series to daily average — follow skill defaults and state that in the reply.
+- **Data table source**: when multiple tables qualify, follow the skill's table-selection priority without interrupting the user.
+
+### Priority
+
+The must-ask rules in this section **override** conflicting auto-selection strategies in later skills (e.g. "when multiple metrics match, prefer the north-star metric"). Exception: exact unique name match.
+
 ## Mandatory wait after plan creation
 
 After calling `create_plan` or `revise_current_plan`, **stop immediately and wait for user confirmation**:
