@@ -287,7 +287,15 @@ def _repair_empty_tool_inputs(
                 # If input is empty but raw_input has content, try to parse
                 if not input_field and raw_input and raw_input != "{}":
                     try:
-                        parsed = json.loads(raw_input)
+                        # Use raw_decode instead of json.loads to tolerate
+                        # trailing extra content that some models (e.g.
+                        # DeepSeek-V4-Flash) append after the closing brace of
+                        # a no-parameter tool call.  raw_decode parses the
+                        # first valid JSON value and ignores the rest,
+                        # so "{}garbage" silently yields {} instead of
+                        # raising "Extra data".
+                        _decoder = json.JSONDecoder()
+                        parsed, _ = _decoder.raw_decode(raw_input.strip())
                         if isinstance(parsed, dict) and parsed:
                             # Success! Update the input field
                             block["input"] = parsed
@@ -299,7 +307,7 @@ def _repair_empty_tool_inputs(
                                 block.get("name"),
                                 list(parsed.keys()),
                             )
-                    except (json.JSONDecodeError, TypeError) as e:
+                    except (json.JSONDecodeError, ValueError, TypeError) as e:
                         logger.warning(
                             "Failed to repair tool_use input from raw_input: "
                             "id=%s, name=%s, error=%s",
