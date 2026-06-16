@@ -8,6 +8,7 @@ Replaces the existing GuardedFunctionTool. Each tool call goes through two layer
 from __future__ import annotations
 
 import logging
+import os
 import uuid
 from typing import Any, Optional
 
@@ -112,6 +113,15 @@ async def _policy_tool_check_permissions(
     # Store input_data for potential violation handling in __call__
     self._qp_last_input_data = input_data
     target = DEFAULT_REGISTRY.extract_target(tool_name, input_data)
+
+    # Resolve relative paths to absolute so workspace ALLOW rules
+    # (e.g. "Read(/home/user/project/**)") match even when the LLM
+    # passes a relative path like "src/main.py".
+    tool_type = DEFAULT_REGISTRY.get_type(tool_name)
+    if tool_type == "file" and target and not os.path.isabs(target):
+        ws_dir = getattr(governor, "workspace_dir", None)
+        if ws_dir:
+            target = os.path.normpath(os.path.join(ws_dir, target))
 
     agent_id = getattr(self, "_qp_request_context", {}).get("agent_id", "")
     session_id = getattr(self, "_qp_request_context", {}).get(
