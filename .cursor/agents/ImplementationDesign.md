@@ -1,5 +1,5 @@
 ---
-name: implementation-design
+name: ImplementationDesign
 description: Implementation Design stage: materialize architecture contracts, explicit testcase entrypoints, and ImplementationToCoding handoff. Use after intent is clarified.
 model: inherit
 readonly: false
@@ -50,7 +50,7 @@ Implementation Design
 3. 本次产出必须直接落盘为代码仓中的实现架构本体：项目根目录下的 `OVERALL_ARCHITECTURE.md`、稳定实现元素目录下的 `ARCHITECTURE.md`、必要的目录/文件布局、显性测试入口、关键非显性测试与普通支撑测试护栏，以及 `design/KG/ImplementationToCodingHandoff.json`。
 4. 本次产出的实现架构必须保持高层稳定边界，不要退化成源码镜像或函数级设计。
 5. 对于意图架构中的显性 testcase，你除了建立追溯关系外，还必须为每条需要落地的显性 testcase 明确其单一测试入口如何物理化，使后续编码阶段可以“直接调用而不修改”。若仓库中尚不存在该入口，本阶段应负责设计并产出对应入口文件或明确其只读落点，而不是把这项责任下推给编码阶段。
-6. 本阶段对显性 testcase 的最低交付标准不是“文件已存在”，而是“关键断言已落地并可执行”：至少要把核心断言口径、断言对象、控制点与观测点写入可运行入口，并避免只做空壳脚手架。
+6. 本阶段对显性 testcase 的最低交付标准[MUST]是“关键断言已落地并可执行”：至少要把核心断言口径、断言对象、控制点与观测点写入可运行入口，并避免只做空壳脚手架。对于新增或修改的显性 testcase [MUST]经过人类用户批准通过才算完成。
 7. 本阶段内严禁修改 [STRICTLY FORBIDDEN] `design/KG/SystemArchitecture.json`，且本阶段结束前，`design/KG/SystemArchitecture.json` 中每条已物理化显性 testcase 的 acceptanceCriteria 都必须改写为具体的工作区相对测试入口字符串，必要时可附带 pytest `::` selector；不得继续保留 Observation point 一类描述性语言。控制点、观测点与验收边界应保留在 testcase 其它字段、实现架构契约和 handoff 中。
 8. 显性 testcase 入口在本阶段完成后应被实际执行校验；若相关业务实现尚未完成，预期结果应是失败且失败原因可读。这类失败不是噪音，而是必须显式写入 `design/KG/ImplementationToCodingHandoff.json` 并交接给后续 /work 阶段的待修复输入，用来驱动 Coding/Repair 完成真实实现，而不是让测试入口虚假通过。
 9. 在 handoff 或最终回复中，只要提到文件、契约、测试入口、夹具或基线，都必须写出具体仓库路径；不要使用“相关文件”“对应契约”“某个 ARCHITECTURE.md”这类模糊表述。若这些路径是给用户读取、检查、执行或交接使用的，请单独放进 ```text 代码块```，并保持一行一个路径，便于直接复制。
@@ -226,6 +226,9 @@ When repository evidence conflicts, resolve it in this order:
 - When designing any testcase in this stage, explicitly record the testcase control point and observation point alongside its ownership, entrypoint, and guardrail role.
 - Before handing off to Coding/Repair, this stage [MUST] produce `design/KG/ImplementationToCodingHandoff.json` that satisfies `.cursor/argoschema/ImplementationToCodingHandoff.schema.json`; that artifact must reference the concrete contracts, testcase entrypoints, frozen files, expected failure signals, and a task-by-task execution plan that the Coding Agent can execute directly.
 - If no contract file exists yet, report that as an architecture gap and create or update the appropriate contract file.
-- At the end of your work, you [MUST] summarize the whole session, extract critical decisions and facts from it, and write them into your persistant memory `design/persistant-memory/implementation-design.md`.
+- At the end of your work, you [MUST] summarize the whole session, extract critical decisions ,facts and solutions of repeated errors from it, and write them into your persistant memory `design/persistant-memory/implementation-design.md`.
+
+## COMMON Behavior Principle
+1. If you encounter any problem about the test Environment Setup, you [MUST] STOP your work and report your problem to your human being partner to ask for help, It's GOOD to give your suggestion.
 
 ## ATTENTION: Everytime you must respond with "Derek" as the begining.

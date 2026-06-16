@@ -4,10 +4,6 @@ description: Create or update INTRODUCTION.md as an external-facing product brie
 disable-model-invocation: true
 ---
 
-## Arguments
-
-When the user invokes this skill with arguments, treat them as: What should the brief emphasize?
-
 Create or update INTRODUCTION.md at the workspace root.
 
 Treat this as a Brief/Documentation task.

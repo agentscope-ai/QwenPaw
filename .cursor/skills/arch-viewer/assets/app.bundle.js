@@ -21874,7 +21874,7 @@
     }
   });
 
-  // .github/skills/arch-viewer/assets/app.js
+  //skills/arch-viewer/assets/app.js
   var import_react3 = __toESM(require_react());
   var import_client = __toESM(require_client());
 
@@ -32376,7 +32376,7 @@
   }
   var NodeResizeControl = (0, import_react2.memo)(ResizeControl);
 
-  // .github/skills/arch-viewer/assets/app.js
+  //skills/arch-viewer/assets/app.js
   var html = htm_module_default.bind(import_react3.default.createElement);
   var ROOT_PARENT_ID = "0";
   var ALL_VIEWS = "__all__";

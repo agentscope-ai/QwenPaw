@@ -4,10 +4,6 @@ description: "Open the SystemArchitecture.json knowledge graph in a schema-drive
 disable-model-invocation: true
 ---
 
-## Arguments
-
-When the user invokes this skill with arguments, treat them as: (optional) port number, default 7432
-
 # Architecture Knowledge Graph Viewer
 
 Opens `design/KG/SystemArchitecture.json` in a local schema-driven web viewer.

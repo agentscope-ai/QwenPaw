@@ -4,10 +4,6 @@ description: 在会话过程中，当 coding agent 的行为偏离预期时，�
 disable-model-invocation: true
 ---
 
-## Arguments
-
-When the user invokes this skill with arguments, treat them as: 本次偏航现象、期望行为、相关回合或文件
-
 # Distill Agent Rules
 
 把这个 SKILL 当作一次会话偏航后的治理工作流，而不是情绪化复盘。

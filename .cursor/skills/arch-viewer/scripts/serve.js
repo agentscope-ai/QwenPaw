@@ -1,6 +1,6 @@
 /**
  * Architecture Viewer - Local HTTP server
- * Run from workspace root: node .cursor/skills/arch-viewer/scripts/serve.js
+ * Run from workspace root: node /skills/arch-viewer/scripts/serve.js
  */
 
 const http = require('http');
@@ -11,8 +11,8 @@ const { execSync } = require('child_process');
 
 const PORT = process.env.ARCH_VIEWER_PORT ? parseInt(process.env.ARCH_VIEWER_PORT) : 7432;
 
-// Auto-detect workspace root: walk up from __dirname looking for .github directory
-// serve.js lives at <root>/.cursor/skills/arch-viewer/scripts/serve.js
+// Auto-detect workspace root: walk up from __dirname looking for directory
+// serve.js lives at <root>/skills/arch-viewer/scripts/serve.js
 function findRoot() {
   if (process.env.ARCH_VIEWER_ROOT) return process.env.ARCH_VIEWER_ROOT;
   let dir = __dirname;
@@ -22,7 +22,7 @@ function findRoot() {
     if (parent === dir) break;
     dir = parent;
     if (fs.existsSync(path.join(dir, '.cursor', 'argoschema'))) return dir;
-    if (fs.existsSync(path.join(dir, 'package.json')) && fs.existsSync(path.join(dir, '.github'))) return dir;
+    if (fs.existsSync(path.join(dir, 'package.json')) && fs.existsSync(path.join(dir, '.cursor'))) return dir;
   }
   return process.cwd();
 }

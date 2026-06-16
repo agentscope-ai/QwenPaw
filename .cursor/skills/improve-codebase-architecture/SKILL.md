@@ -4,10 +4,6 @@ description: 在不引入功能需求的前提下，先为意图设计阶段梳�
 disable-model-invocation: true
 ---
 
-## Arguments
-
-When the user invokes this skill with arguments, treat them as: 需要审视的架构区域、模块或当前摩擦点
-
 # Improve Codebase Architecture
 
 把这个 SKILL 当作 Intent Design 阶段的前置探索步骤，而不是新的主流程或新的真相来源。
