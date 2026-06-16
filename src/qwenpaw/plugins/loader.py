@@ -100,7 +100,19 @@ class PluginLoader:
         self.registry = PluginRegistry()
         self._loaded_plugins: Dict[str, PluginRecord] = {}
 
-    def _is_bundled_plugin(self, source_path: Path) -> bool:
+    # Known bundled plugin IDs — these ship with the app and should
+    # have their dependencies pre-installed, so we skip dependency
+    # installation even if the plugin has been copied to the user
+    # plugins directory.
+    _BUNDLED_PLUGIN_IDS: frozenset[str] = frozenset(
+        {"qwenpaw-pet", "cloudpaw"},
+    )
+
+    def _is_bundled_plugin(
+        self,
+        source_path: Path,
+        plugin_id: Optional[str] = None,
+    ) -> bool:
         """Check if a plugin is bundled with the application.
 
         Bundled plugins are shipped with the app and should have their
@@ -108,10 +120,16 @@ class PluginLoader:
 
         Args:
             source_path: Path to plugin directory
+            plugin_id: Plugin identifier (optional, for ID-based check)
 
         Returns:
             True if plugin is bundled, False otherwise
         """
+        # Check by plugin ID first (works even after copying)
+        if plugin_id and plugin_id in self._BUNDLED_PLUGIN_IDS:
+            return True
+
+        # Check by path (works for original bundled location)
         # Check if plugin is under any plugin_dir that contains
         # "bundle" in path
         source_str = str(source_path).lower()
@@ -303,7 +321,7 @@ class PluginLoader:
         # Check and install dependencies; skip plugin if installation fails
         # For bundled plugins (shipped with the app), skip dependency
         # installation as they should already be pre-installed.
-        is_bundled = self._is_bundled_plugin(source_path)
+        is_bundled = self._is_bundled_plugin(source_path, plugin_id)
         if not is_bundled:
             try:
                 await self._ensure_dependencies_installed(
