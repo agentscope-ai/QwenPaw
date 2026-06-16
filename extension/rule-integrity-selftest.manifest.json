@@ -43,7 +43,8 @@
       "targets": [
         "src/pages/Settings/Security/components/IntegrityProtectionSection.test.tsx",
         "src/extension/rule_integrity/api/client.test.ts",
-        "src/extension/rule_integrity/components/RuleIntegrityRepairBanner.test.tsx"
+        "src/extension/rule_integrity/components/RuleIntegrityRepairBanner.test.tsx",
+        "src/extension/rule_integrity/hostIntegration.contract.test.ts"
       ]
     }
   },

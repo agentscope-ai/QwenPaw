@@ -70,6 +70,7 @@ class RuleIntegrityRuntime:
             payload.get("auto_repair_completed"),
             payload.get("auto_repair_timeout_retry"),
             payload.get("auto_repair_abandoned"),
+            payload.get("tamper_banner_cycle_active"),
         )
 
     async def publish_status_if_changed(self, source: str) -> bool:

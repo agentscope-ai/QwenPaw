@@ -14,7 +14,6 @@ import {
   HealthCheckSection,
 } from "./components";
 import { PageHeader } from "@/components/PageHeader";
-import { RuleIntegrityRepairBanner } from "@extension/rule_integrity";
 import styles from "./index.module.less";
 
 function SecurityPage() {
@@ -33,7 +32,6 @@ function SecurityPage() {
     handleSave,
     handleReset,
     mergedRules,
-    rulesIntegrity,
     builtinRules,
     customRules,
     toggleRule,
@@ -90,8 +88,6 @@ function SecurityPage() {
         parent={t("security.parent")}
         current={t("security.security")}
       />
-
-      <RuleIntegrityRepairBanner rulesIntegrity={rulesIntegrity} />
 
       <div className={styles.content}>
         <Tabs
