@@ -2547,7 +2547,8 @@ class DingTalkChannel(BaseChannel):
                     if ws is not None:
                         try:
                             await asyncio.wait_for(
-                                ws.close(), timeout=15,
+                                ws.close(),
+                                timeout=15,
                             )
                         except (asyncio.TimeoutError, Exception):
                             pass
