@@ -2,7 +2,7 @@ import { useTranslation } from "react-i18next";
 import { fetchDataSources, type DataSourceRecord } from "../lib/data-sources";
 import { resolveBackendSessionId } from "../lib/session-id";
 import type { HostBundle } from "../types";
-import { navigateDataConnectionAdd } from "./navigation";
+import { navigateDataConnection } from "./navigation";
 import {
   resolveSelectedDataSourceId,
   writeSelectedDataSourceId,
@@ -157,7 +157,7 @@ export function createDataSourceSelector(host: HostBundle) {
 
     const handleAddSource = useCallback(() => {
       setOpen(false);
-      navigateDataConnectionAdd();
+      navigateDataConnection();
     }, []);
 
     const content = React.createElement(
