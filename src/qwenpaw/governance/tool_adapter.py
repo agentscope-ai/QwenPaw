@@ -89,10 +89,20 @@ async def _policy_tool_check_permissions(
 
     governor = getattr(self, "_qp_governor", None)
     if governor is None:
-        # ResourceGovernor not initialized → bypass
+        # Fail-closed: if governance layer failed to initialize, deny all
+        # tool calls rather than silently allowing unguarded execution.
+        logger.error(
+            "PolicyGuardedTool: governor is None for tool '%s' — "
+            "governance layer not initialized; denying (fail-closed).",
+            getattr(self, "name", "Unknown"),
+        )
         return PermissionDecision(
-            behavior=PermissionBehavior.ALLOW,
-            message="PolicyGuardedTool: governor not started — bypass.",
+            behavior=PermissionBehavior.DENY,
+            message=(
+                "Governance layer unavailable (governor not initialized). "
+                "All tool calls are denied until governance is restored. "
+                "Please check server logs for initialization errors."
+            ),
         )
 
     tool_name = DEFAULT_REGISTRY.python_to_policy_name(

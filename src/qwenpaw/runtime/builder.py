@@ -301,9 +301,9 @@ class AgentBuilder:
             _logger.info("Governance started: dir=%s", workspace_dir)
             return governor
         except Exception:
-            _logger.warning(
+            _logger.error(
                 "Failed to start governance; falling back to "
-                "GuardedFunctionTool",
+                "GuardedFunctionTool (governance layer DISABLED)",
                 exc_info=True,
             )
             return None
