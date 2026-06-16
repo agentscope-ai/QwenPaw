@@ -169,7 +169,7 @@ async def generate_and_update_title(
         timeout = title_cfg.timeout_seconds
 
         try:
-            model, _ = create_model_and_formatter(
+            model, formatter = create_model_and_formatter(
                 agent_id=workspace.agent_id,
             )
         except (ValueError, AppBaseException) as exc:
@@ -181,10 +181,13 @@ async def generate_and_update_title(
             )
             return
 
-        messages = [
-            {"role": "system", "content": TITLE_PROMPT},
-            {"role": "user", "content": message},
+        from agentscope.message import Msg
+
+        msgs = [
+            Msg(name="system", content=TITLE_PROMPT, role="system"),
+            Msg(name="user", content=message, role="user"),
         ]
+        messages = await formatter.format(msgs)
 
         raw_title = await asyncio.wait_for(
             _consume_model_response(model, messages),

@@ -20,18 +20,17 @@ from ...agents.model_factory import create_model_and_formatter
 logger = logging.getLogger(__name__)
 
 
-def get_model():
-    """Get the active chat model instance.
+def get_model_and_formatter():
+    """Get the active chat model and formatter instances.
 
     Returns:
-        Chat model instance or None if not configured
+        Tuple of (model, formatter) or (None, None) if not configured
     """
     try:
-        model, _ = create_model_and_formatter()
-        return model
+        return create_model_and_formatter()
     except (ValueError, AppBaseException) as e:
         logger.warning("Failed to get model: %s", e)
-        return None
+        return None, None
 
 
 # System prompts for different languages
@@ -180,7 +179,7 @@ async def ai_optimize_skill_stream(request: AIOptimizeSkillRequest):
 
     async def generate():
         try:
-            model = get_model()
+            model, formatter = get_model_and_formatter()
             if not model:
                 error_msg = json.dumps(
                     {
@@ -193,15 +192,18 @@ async def ai_optimize_skill_stream(request: AIOptimizeSkillRequest):
                 yield f"data: {error_msg}\n\n"
                 return
 
+            from agentscope.message import Msg
+
             system_prompt = SYSTEM_PROMPTS.get(
                 request.language,
                 SYSTEM_PROMPTS["en"],
             )
 
-            messages = [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": request.content},
+            msgs = [
+                Msg(name="system", content=system_prompt, role="system"),
+                Msg(name="user", content=request.content, role="user"),
             ]
+            messages = await formatter.format(msgs)
 
             response = await model(messages)
             accumulated = ""
