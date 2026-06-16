@@ -5,6 +5,7 @@ from .agent_context import AgentContext
 from .as_msg_handler import AsMsgHandler
 from .as_msg_stat import AsBlockStat, AsMsgStat
 from .base_context_manager import BaseContextManager
+from .headroom_context_manager import HeadroomContextManager
 from .light_context_manager import LightContextManager
 
 __all__ = [
@@ -13,5 +14,6 @@ __all__ = [
     "AsMsgHandler",
     "AsMsgStat",
     "BaseContextManager",
+    "HeadroomContextManager",
     "LightContextManager",
 ]
