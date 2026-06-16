@@ -35,7 +35,7 @@ All skills live under the agent workspace at `skills/<name>/SKILL.md`; read them
 
 For `file_path` fields returned by general tools, during reasoning:
 - **Do not** echo large raw data rows in your reasoning or reply (wastes tokens and risks misreading).
-- Use `execute_shell_command` with Python to load, clean, aggregate, and analyze.
+- Use `execute_shell_command` to run persisted Python scripts for loading, cleaning, aggregating, and analyzing (see "Python execution rules" below).
 - If the file lives outside the artifacts root, probe with `read_file` / `glob_search`; intermediate products you want to preserve should land under `artifacts/<session_id>/<graph_id>/<current_node_id>/`.
 
 ## Decision principles
@@ -66,10 +66,16 @@ The only exception: `finish_plan(state="abandoned")` — callable when the user 
 - Every reasoning round, read the `<system-hint>` and `<datapaw-analysis-environment>` first, then decide the next tool call.
 - Once all nodes in the TaskGraph are done / abandoned, summarize into a report and call `finish_plan("done", outcome=…)` to archive.
 
+## Python execution rules
+
+- **Do not** inline Python inside `execute_shell_command` (e.g. `python3 -c "..."`, `python3 <<'EOF'`, heredoc multi-line scripts). One-off commands are hard to trace and reproduce.
+- When Python analysis is needed, **first** persist the script with `write_file` under `artifacts/<session_id>/<graph_id>/<current_node_id>/scripts/<name>.py`, **then** run it via `execute_shell_command` (e.g. `python artifacts/.../scripts/<name>.py`).
+- Keep script files in the same node directory as that node's inputs / outputs for reproducibility and audit.
+
 ## Data-fetch results and artifact landing
 
 - Each round, first read `<datapaw-analysis-environment>` in the system prompt — it describes the command working directory and the artifacts root.
-- When tool returns include a `file_path`-style file reference, do not echo file contents line by line; use `execute_shell_command` to load, clean, aggregate, and analyze.
+- When tool returns include a `file_path`-style file reference, do not echo file contents line by line; follow "Python execution rules" to persist a script first, then analyze.
 - How to interpret relative paths returned by tools:
   - If the path is relative to the artifacts root (e.g. `1778138864221/graph_xxx/some_node/data.csv`): prefix it with `artifacts/` when accessing from the agent workspace cwd.
   - If it's a host absolute path: use the absolute path directly (do not also prepend `artifacts/`).

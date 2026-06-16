@@ -35,7 +35,7 @@
 
 通用工具返回的 `file_path` 字段在 reasoning 里：
 - **不要**在思考或回复中复述大段原始数据行（避免浪费 token 与误读）。
-- 用 `execute_shell_command` 跑 Python 加载、清洗、聚合与分析。
+- 用 `execute_shell_command` 执行已落盘的 Python 脚本，完成加载、清洗、聚合与分析（见下文「Python 执行规范」）。
 - 如果文件在 artifacts 根之外，用 `read_file` / `glob_search` 探查；要长期保留的中间产物，统一落到 `artifacts/<session_id>/<graph_id>/<current_node_id>/`。
 
 ## 决策原则
@@ -66,14 +66,20 @@
 - 每一轮推理都要先读 `<system-hint>` 与 `<datapaw-analysis-environment>`，再决策下一步工具。
 - TaskGraph 全部 done/abandoned 后，汇总成报告并调用 `finish_plan("done", outcome=…)` 归档。
 
+## Python 执行规范
+
+- **不要**在 `execute_shell_command` 里直接内联 Python 代码（如 `python3 -c "..."`、`python3 <<'EOF'`、heredoc 多行脚本等）。这类一次性命令难以回溯中间分析过程。
+- 需要跑 Python 分析时，**先**用 `write_file` 将脚本落到 `artifacts/<session_id>/<graph_id>/<current_node_id>/scripts/<name>.py`，**再**用 `execute_shell_command` 执行该文件（如 `python artifacts/.../scripts/<name>.py`）。
+- 脚本文件与该节点的输入 / 输出产物留在同一目录，便于复现与审计。
+
 ## 取数结果与产物落盘
 
 - 每轮先阅读系统提示里的 `<datapaw-analysis-environment>`，它会说明命令工作目录与 artifacts 根目录。
 - `execute_sql` 返回 `download_url` 时，`download_url` 是完整 SQL 结果的可信入口；`rows` 只作为预览/展示用，不代表完整数据。
 - 若 `execute_sql.exec_status != "error"` 且存在 `download_url`，下一步必须调用 `download_file(url=<download_url>, save_path=<当前节点 artifacts 路径下的 csv 文件>)` 保存完整结果。保存路径应形如 `artifacts/<session_id>/<graph_id>/<current_node_id>/execute_sql_<session_ref>.csv`。
-- 下载成功后，后续分析必须基于 `download_file` 保存的本地文件，用 `execute_shell_command` / Python 加载、清洗、聚合与分析；不要在回复中复述 `rows` 的原始明细行。
+- 下载成功后，后续分析必须基于 `download_file` 保存的本地文件，按「Python 执行规范」落盘脚本后执行；不要在回复中复述 `rows` 的原始明细行。
 - 不要因为 `row_count < total_row_count`、`rows` 较少或 `truncated=true` 而分片重查。`truncated` 表示 `total_row_count` 统计可能被截断，不表示下载文件被截断。
-- 工具返回里出现 `file_path` 这种文件引用字段时，不要逐行复述文件内容；应该用 `execute_shell_command` 加载、清洗、聚合与分析。
+- 工具返回里出现 `file_path` 这种文件引用字段时，不要逐行复述文件内容；应按「Python 执行规范」落盘脚本后执行分析。
 - 工具返回的相对路径如何理解：
   - 如果是相对 artifacts 根的路径（例如 `1778138864221/graph_xxx/some_node/data.csv`）：从 agent workspace cwd 访问时加 `artifacts/` 前缀。
   - 如果是 host 绝对路径：直接用绝对路径访问（不要再拼 `artifacts/`）。
