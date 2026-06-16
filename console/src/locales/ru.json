@@ -1118,6 +1118,8 @@
     "builtin": "Встроенный",
     "freeTierGroup": "Бесплатный уровень",
     "paidGroup": "Платные",
+    "localCustomGroup": "Локальные и пользовательские",
+    "endpointCount": "{{count}} конечных точек",
     "connect": "OAuth",
     "saveApiKey": "Сохранить",
     "addProvider": "Добавить провайдера",

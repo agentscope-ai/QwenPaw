@@ -1,5 +1,4 @@
 import React from "react";
-import { Card, Button } from "@agentscope-ai/design";
 import type { ProviderInfo } from "../../../../../api/types";
 import { useTranslation } from "react-i18next";
 import styles from "../../index.module.less";
@@ -18,50 +17,35 @@ export const LocalProviderCard = React.memo(function LocalProviderCard({
 
   const totalCount = provider.models.length + provider.extra_models.length;
   const statusReady = totalCount > 0;
-  const statusLabel = statusReady
-    ? t("models.available")
-    : t("models.unavailable");
 
   return (
-    <Card hoverable className={styles.providerCard}>
-      {/* Card Header with Icon and Status */}
-      <div className={styles.cardHeaderRow}>
-        <ProviderIcon providerId={provider.id} size={32} />
-        <div className={styles.cardStatusHeader}>
-          <span
-            className={styles.statusDot}
-            style={{
-              backgroundColor: statusReady ? "#52c41a" : "#d9d9d9",
-              boxShadow: statusReady
-                ? "0 0 0 2px rgba(82, 196, 26, 0.2)"
-                : "none",
-            }}
-          />
-          <span
-            className={`${styles.statusText} ${
-              statusReady ? styles.enabled : styles.disabled
-            }`}
-          >
-            {statusLabel}
-          </span>
-        </div>
-      </div>
-
-      {/* Title Row */}
-      <div className={styles.cardTitleRow}>
-        <span className={styles.cardName}>{provider.name}</span>
+    <div className={styles.groupCardGlass}>
+      {/* Header - same layout as GroupCard */}
+      <div className={styles.groupCardHeader}>
+        <ProviderIcon providerId={provider.id} size={36} />
+        <span className={styles.groupCardName}>{provider.name}</span>
         <span className={styles.localTag}>{t("models.local")}</span>
+        {statusReady && (
+          <div className={styles.groupCardLiveBadge}>
+            <span className={styles.groupCardPulse} />
+            {totalCount} Live
+          </div>
+        )}
       </div>
 
-      {/* Info Section */}
-      <div className={styles.cardInfo}>
-        <div className={styles.infoRow}>
-          <span className={styles.infoLabel}>{t("models.localType")}:</span>
-          <span className={styles.infoValue}>{t("models.localEmbedded")}</span>
+      {/* Content */}
+      <div className={styles.groupCardContent}>
+        <div className={styles.groupCardField}>
+          <span className={styles.groupCardFieldLabel}>
+            {t("models.localType")}
+          </span>
+          <div className={styles.groupCardMono}>
+            {t("models.localEmbedded")}
+          </div>
         </div>
-        <div className={styles.infoRow}>
-          <span className={styles.infoLabel}>{t("models.model")}:</span>
-          <span className={styles.infoValue}>
+        <div className={styles.groupCardField}>
+          <span className={styles.groupCardFieldLabel}>Models</span>
+          <span className={styles.groupCardFieldValue}>
             {totalCount > 0
               ? t("models.modelsCount", { count: totalCount })
               : t("models.localDownloadFirst")}
@@ -69,19 +53,15 @@ export const LocalProviderCard = React.memo(function LocalProviderCard({
         </div>
       </div>
 
-      <div className={styles.cardActions}>
-        <Button
-          type="default"
-          size="small"
-          onClick={(e) => {
-            e.stopPropagation();
-            onOpenModels(provider);
-          }}
-          className={styles.actionBtn}
+      {/* Actions */}
+      <div className={styles.groupCardActions}>
+        <button
+          className={styles.groupCardActBtn}
+          onClick={() => onOpenModels(provider)}
         >
           {t("models.models")}
-        </Button>
+        </button>
       </div>
-    </Card>
+    </div>
   );
 });
