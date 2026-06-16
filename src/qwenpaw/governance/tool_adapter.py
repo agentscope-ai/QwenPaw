@@ -315,8 +315,15 @@ async def _ask_user_approval(
                 id=uuid.uuid4().hex[:8],
                 rule_id="policy_ask",
                 category=GuardThreatCategory.RESOURCE_ABUSE,
-                severity=GuardSeverity.INFO,
-                title="Policy Approval Required",
+                severity=(
+                    GuardSeverity.HIGH if violation_msg
+                    else GuardSeverity.INFO
+                ),
+                title=(
+                    "Sandbox Violation — Approve Unsandboxed Execution?"
+                    if violation_msg
+                    else "Policy Approval Required"
+                ),
                 description=(
                     f"Tool '{tool_name}' with target '{target}' "
                     f"requires user approval per governance policy."
@@ -325,14 +332,26 @@ async def _ask_user_approval(
                         if governance_reason else ""
                     )
                     + (
-                        f"\n\nSandbox violation: {violation_msg}"
+                        f"\n\n\u26a0\ufe0f Sandbox violation: {violation_msg}"
+                        f"\n\n**If you approve, this command will be "
+                        f"re-executed WITHOUT sandbox isolation (full host "
+                        f"access).** The kernel-level filesystem restrictions "
+                        f"that blocked it will no longer apply."
                         if violation_msg else ""
                     )
                 ),
                 tool_name=tool_name,
-                remediation="Approve or deny this tool call",
+                remediation=(
+                    "Approve to re-run without sandbox (full host access), "
+                    "or deny to block the command."
+                    if violation_msg
+                    else "Approve or deny this tool call"
+                ),
                 guardian="governance_policy",
-                metadata={"target": target, **({"sandbox_violation": violation_msg} if violation_msg else {})},
+                metadata={"target": target, **({
+                    "sandbox_violation": violation_msg,
+                    "escalation": "sandbox_to_host",
+                } if violation_msg else {})},
             ),
         ],
         guardians_used=["governance_policy"],
