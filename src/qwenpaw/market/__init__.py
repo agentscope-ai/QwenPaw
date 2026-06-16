@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from .categories import list_categories
 from .providers.base import MARKET_SEARCH_TIMEOUT_S
 from .schema import MarketResult, MarketSearchError, ProviderInfo
 from .service import list_providers, search_market
@@ -13,6 +14,7 @@ __all__ = [
     "MarketResult",
     "MarketSearchError",
     "ProviderInfo",
+    "list_categories",
     "list_providers",
     "search_market",
 ]

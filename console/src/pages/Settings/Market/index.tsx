@@ -1,5 +1,6 @@
-import { memo, useCallback, useMemo, useRef, useState } from "react";
-import { Button, Tooltip } from "@agentscope-ai/design";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Button, Input, Tooltip } from "@agentscope-ai/design";
+import { Check } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useAgentStore } from "../../../stores/agentStore";
 import { PageHeader } from "@/components/PageHeader";
@@ -52,7 +53,7 @@ const InstallQueuePanel = memo(function InstallQueuePanel({
   );
 });
 
-/** Memoized provider chip list */
+/** Multi-select provider chips (first filter layer) */
 const ProviderChips = memo(function ProviderChips({
   providers,
   selectedKeys,
@@ -102,6 +103,7 @@ const ProviderChips = memo(function ProviderChips({
               aria-pressed={active}
               aria-disabled={!p.available}
             >
+              {active && <Check size={12} strokeWidth={3} />}
               {p.label}
             </span>
           </Tooltip>
@@ -110,6 +112,76 @@ const ProviderChips = memo(function ProviderChips({
     </div>
   );
 });
+
+/**
+ * Single-select category tabs (second filter layer).
+ * The leading "All" tab clears the filter.
+ */
+const CategoryTabs = memo(function CategoryTabs({
+  categories,
+  active,
+  onSelect,
+}: {
+  categories: { id: string; label: string }[];
+  active: string;
+  onSelect: (id: string) => void;
+}) {
+  const { t } = useTranslation();
+  const tabs = [{ id: "", label: t("market.categoryAll") }, ...categories];
+  return (
+    <div className={styles.categoryTabs}>
+      {tabs.map((c) => {
+        const isActive = active === c.id;
+        const klass = [
+          styles.categoryTab,
+          isActive ? styles.categoryTabActive : "",
+        ]
+          .filter(Boolean)
+          .join(" ");
+        return (
+          <span
+            key={c.id || "__all__"}
+            className={klass}
+            onClick={() => onSelect(c.id)}
+            role="button"
+            tabIndex={0}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                onSelect(c.id);
+              }
+            }}
+            aria-pressed={isActive}
+          >
+            {c.label}
+          </span>
+        );
+      })}
+    </div>
+  );
+});
+
+function LoadMoreSentinel({ onVisible }: { onVisible: () => void }) {
+  const { t } = useTranslation();
+  const nodeRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    const node = nodeRef.current;
+    if (!node) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((e) => e.isIntersecting)) onVisible();
+      },
+      { rootMargin: "200px" },
+    );
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [onVisible]);
+  return (
+    <div ref={nodeRef} className={styles.sentinel}>
+      {t("common.loading")}
+    </div>
+  );
+}
 
 function MarketPage() {
   const { t } = useTranslation();
@@ -177,35 +249,66 @@ function MarketPage() {
     [t],
   );
 
+  const browseHintLabel = useMemo(() => {
+    if (market.query.trim() || market.category) return "";
+    return market.providers
+      .filter(
+        (p) =>
+          p.available &&
+          !p.supports_browse &&
+          market.selectedProviderKeys.has(p.key),
+      )
+      .map((p) => p.label)
+      .join(", ");
+  }, [
+    market.query,
+    market.category,
+    market.providers,
+    market.selectedProviderKeys,
+  ]);
+
   return (
     <div className={styles.marketPage}>
       <PageHeader items={headerItems} />
       <div className={styles.content}>
-        <div className={styles.toolbar}>
-          <div className={styles.searchContainer}>
-            <input
-              className={styles.searchInput}
-              placeholder={t("market.searchPlaceholder")}
-              value={market.query}
-              onChange={(e) => market.setQuery(e.target.value)}
-              type="search"
-              aria-label={t("market.searchPlaceholder")}
-            />
-            <Button
-              type="primary"
-              className={styles.searchButton}
-              loading={market.loading && market.results.length === 0}
-            >
-              {t("common.search")}
-            </Button>
-          </div>
-        </div>
-
         <ProviderChips
           providers={market.providers}
           selectedKeys={market.selectedProviderKeys}
           onToggle={market.toggleProvider}
         />
+
+        <div className={styles.toolbar}>
+          {market.query.trim() ? (
+            <div className={styles.searchHint}>
+              {!market.loading &&
+                !market.globalError &&
+                t("market.searchResult", {
+                  keyword: market.query.trim(),
+                  count: market.totalCount,
+                })}
+            </div>
+          ) : (
+            <CategoryTabs
+              categories={market.categories}
+              active={market.category}
+              onSelect={market.setCategory}
+            />
+          )}
+          <Input.Search
+            className={styles.searchInput}
+            placeholder={t("market.searchPlaceholder")}
+            allowClear
+            value={market.query}
+            onChange={(e) => market.setQuery(e.target.value)}
+            aria-label={t("market.searchPlaceholder")}
+          />
+        </div>
+
+        {browseHintLabel && (
+          <div className={styles.browseHint}>
+            {t("market.browseHint", { providers: browseHintLabel })}
+          </div>
+        )}
 
         {market.globalError && (
           <div className={styles.errorRow}>{market.globalError}</div>
@@ -229,10 +332,8 @@ function MarketPage() {
               {t("market.retry")}
             </Button>
           </EmptyState>
-        ) : market.results.length === 0 && market.query.trim() ? (
-          <EmptyState text={t("market.noResults")} />
         ) : market.results.length === 0 ? (
-          <EmptyState text={t("market.startTyping")} />
+          <EmptyState text={t("market.noResults")} />
         ) : (
           <>
             <div className={styles.resultsGrid}>
@@ -248,10 +349,15 @@ function MarketPage() {
               ))}
             </div>
             <div className={styles.loadMoreRow}>
-              {market.hasMore ? (
+              {market.hasMore && market.autoLoadBlocked ? (
                 <Button onClick={market.loadMore} loading={market.loading}>
                   {t("market.loadMore")}
                 </Button>
+              ) : market.hasMore ? (
+                <LoadMoreSentinel
+                  key={market.results.length}
+                  onVisible={market.autoLoadMore}
+                />
               ) : (
                 <span className={styles.noMoreText}>
                   {t("market.noMoreResults")}

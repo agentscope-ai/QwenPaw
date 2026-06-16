@@ -1,10 +1,8 @@
 # -*- coding: utf-8 -*-
-"""ModelScope market provider.
+"""QwenPaw plaza market provider.
 
-Public OpenAPI (no auth required for GET) via hub's shared async client:
+Public OpenAPI (no auth required for GET) via hub's shared async client.
 
-    GET https://www.modelscope.cn/openapi/v1/skills
-        ?search=&page_number=&page_size=
 
 """
 
@@ -19,16 +17,15 @@ from ..schema import MarketResult
 from .base import MARKET_SEARCH_TIMEOUT_S
 
 
-_BASE_URL = "https://www.modelscope.cn"
+_BASE_URL = "https://platform.agentscope.io"
 _SEARCH_PATH = "/openapi/v1/skills"
-# Upstream hard limit: `page_size > 100` returns HTTP 400 with message
-# "page_size should be between 1 and 100". Keep in sync with upstream.
+# Upstream hard limit: page_size must be 1..100 (400 otherwise).
 _MAX_PAGE_SIZE = 100
 
 
-class ModelScopeProvider:
-    key = "modelscope"
-    label = "ModelScope"
+class QwenPawProvider:
+    key = "qwenpaw"
+    label = "QwenPaw"
     supports_browse = True
 
     def available(self) -> tuple[bool, str | None]:
@@ -53,7 +50,7 @@ class ModelScopeProvider:
             params["search"] = needle
         cat = (category or "").strip()
         if cat:
-            params["filter.category"] = cat
+            params["category"] = cat
         try:
             body = await http_json_get(
                 url,
@@ -62,7 +59,7 @@ class ModelScopeProvider:
             )
         except httpx.HTTPStatusError as e:
             raise RuntimeError(
-                f"ModelScope search returned HTTP {e.response.status_code}",
+                f"QwenPaw search returned HTTP {e.response.status_code}",
             ) from e
         if not isinstance(body, dict) or not body.get("success", True):
             message = (
@@ -70,7 +67,7 @@ class ModelScopeProvider:
                 if isinstance(body, dict)
                 else "non-JSON response"
             )
-            raise RuntimeError(f"ModelScope search failed: {message}")
+            raise RuntimeError(f"QwenPaw search failed: {message}")
 
         data = body.get("data") if isinstance(body, dict) else None
         items: list[dict[str, object]] = []
@@ -104,14 +101,11 @@ def _to_market_result(
     description = _localized(item, "description", lang) or _opt_str(
         item.get("description"),
     )
-    developer = _str(item.get("developer"))
-    owner = _str(item.get("owner"))
-    if not developer and skill_id.startswith("@") and "/" in skill_id:
-        developer = skill_id.split("/", 1)[0].lstrip("@")
-    elif not developer:
-        developer = owner
+    developer = _str(item.get("developer")) or _str(item.get("owner"))
+    # Use the stable `id` (@owner/name), not details_url's UUID — the
+    # install resolver must parse owner/name back out of source_url.
     quoted_id = urllib.parse.quote(skill_id, safe="@/")
-    source_url = f"https://modelscope.cn/skills/{quoted_id}"
+    source_url = f"{_BASE_URL}/skills/{quoted_id}"
     stats: dict[str, str | int] = {}
     downloads = _opt_int(item.get("downloads"))
     if downloads is not None:
@@ -125,7 +119,7 @@ def _to_market_result(
     if category:
         stats["category"] = category
     return MarketResult(
-        source="modelscope",
+        source="qwenpaw",
         slug=skill_id,
         name=display_name,
         description=description,
@@ -142,11 +136,7 @@ def _localized(
     field: str,
     lang: str,
 ) -> str | None:
-    """Pick `locales[lang][field]`, falling back to the other locale.
-
-    Upstream returns `{en: {...}, zh: {...}}` for description and
-    category. Trying the requested lang first.
-    """
+    """Pick `locales[lang][field]`, falling back to the other locale."""
     locales = item.get("locales")
     if not isinstance(locales, dict):
         return None
@@ -182,4 +172,4 @@ def _opt_int(value: object) -> int | None:
     return None
 
 
-provider = ModelScopeProvider()
+provider = QwenPawProvider()

@@ -363,6 +363,70 @@ def _execute_subprocess_sync(
                     pass
 
 
+_DANGER_NAMES = {"python", "pythonw", "cmd", "powershell", "pwsh", "conhost"}
+
+# Prefix that ensures kill/taskkill is at command start or after a separator
+# (&&, ;, |).  Prevents false positives like echo "do not kill python".
+_KILL_PREFIX = r"(?:^|[;&|]\s*)\s*"
+
+# Matches PID-based kills: taskkill /PID 123, kill -9 123, kill 123.
+# Uses greedy .* to capture the last number (PID), not intermediate flags like -9.
+# \b ensures "kill" is matched as a whole word (e.g. "skill" won't trigger).
+_KILL_PID_RE = re.compile(
+    rf"{_KILL_PREFIX}(?:taskkill|kill|stop-process)\b.*(?:/PID|-p|-pid|\b)\s*(\d+)",
+    re.IGNORECASE,
+)
+
+# Matches dangerous process names as /IM targets or bare kill targets.
+# \b word boundaries prevent false positives (e.g. "command" → "cmd",
+# "skill" → "kill", "pythonic" → "python").
+_DANGER_NAME_RE = re.compile(
+    rf"{_KILL_PREFIX}(?:taskkill|kill|stop-process)\b.*?\b({'|'.join(_DANGER_NAMES)})(?:\.exe)?\b",
+    re.IGNORECASE,
+)
+
+# Shell variables that reference the current/parent PID.
+_SHELL_PID_VARS = {"$$", "$ppid", "$pid"}
+
+
+def _is_dangerous_self_kill(cmd: str) -> bool:
+    """Return True if *cmd* would kill the current process or its parent.
+
+    Uses token-based regex matching to avoid false positives from
+    substring matching (e.g. ``echo "do not kill python"`` is safe).
+
+    Blocks three patterns:
+    1. ``taskkill /IM <dangerous_name>`` — kills by image name.
+    2. ``kill <pid>`` / ``taskkill /PID <pid>`` targeting our PID or parent.
+    3. Shell variable self-kill: ``kill -9 $$``, ``kill $PPID``.
+    """
+    lower = cmd.lower()
+
+    # Rule 1: Block killing by dangerous process names
+    if _DANGER_NAME_RE.search(lower):
+        return True
+
+    # Rule 2: Block shell variable self-kill ($$ = current PID, $PPID = parent)
+    if "kill" in lower or "stop-process" in lower:
+        if any(var in lower for var in _SHELL_PID_VARS):
+            return True
+
+    # Rule 3: Block targeted PID kill matching current or parent PID
+    m = _KILL_PID_RE.search(lower)
+    if m:
+        try:
+            target_pid = int(m.group(1))
+            protected_pids = {os.getpid()}
+            if hasattr(os, "getppid"):
+                protected_pids.add(os.getppid())
+            if target_pid in protected_pids:
+                return True
+        except ValueError:
+            pass
+
+    return False
+
+
 # pylint: disable=too-many-branches, too-many-statements
 async def execute_shell_command(
     command: str,
@@ -397,6 +461,22 @@ async def execute_shell_command(
     """
 
     cmd = _collapse_embedded_newlines((command or "").strip())
+
+    # Guard against self-kill: block taskkill / kill commands that target
+    # the current process tree.  LLMs may generate these accidentally
+    # (e.g. "taskkill /F /IM python.exe") which would terminate QwenPaw.
+    if _is_dangerous_self_kill(cmd):
+        return ToolResponse(
+            content=[
+                TextBlock(
+                    type="text",
+                    text=(
+                        "Blocked: this command would self-kill the current "
+                        "process and is not allowed."
+                    ),
+                ),
+            ],
+        )
 
     if isinstance(timeout, str):
         try:
