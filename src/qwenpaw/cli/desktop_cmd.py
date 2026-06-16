@@ -219,11 +219,6 @@ def desktop_cmd(
                 stderr_thread.start()
             logger.info("Waiting for HTTP ready...")
             if _wait_for_http(host, port):
-                # Persist the actual port so inter-agent tools
-                # (chat_with_agent) can reach this backend instance.
-                from ..config.utils import write_last_api
-
-                write_last_api(host, port)
                 logger.info("HTTP ready, creating webview window...")
                 api = WebViewAPI()
                 webview.create_window(
