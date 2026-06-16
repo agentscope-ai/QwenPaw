@@ -27,7 +27,9 @@ router = APIRouter(prefix="/plugins", tags=["plugins"])
 # ── Helpers ──────────────────────────────────────────────────────────────
 
 
-def _list_plugins_from_disk() -> list[dict]:
+def _list_plugins_from_disk(
+    loaded_records: Optional[dict] = None,
+) -> list[dict]:
     """Read plugin manifests directly from the plugins directory on disk.
 
     Used as a fallback when the plugin loader has not finished
@@ -41,6 +43,7 @@ def _list_plugins_from_disk() -> list[dict]:
     if not plugins_dir.exists():
         return []
 
+    loaded_records = loaded_records or {}
     result: list[dict] = []
     for item in sorted(plugins_dir.iterdir()):
         if not item.is_dir():
@@ -59,22 +62,30 @@ def _list_plugins_from_disk() -> list[dict]:
         frontend_entry = manifest.get("entry", {}).get("frontend")
 
         from ...plugins.architecture import PluginManifest
+        from ...plugins.dependencies import dependency_state, is_tauri_backend
 
         disk_manifest = PluginManifest.from_dict(manifest)
+        record = loaded_records.get(plugin_id)
+        loaded = record is not None
 
-        result.append(
-            {
-                "id": plugin_id,
-                "name": manifest.get("name", plugin_id),
-                "version": manifest.get("version", "0.0.0"),
-                "description": manifest.get("description", ""),
-                "author": manifest.get("author", ""),
-                "enabled": True,
-                "loaded": False,
-                "plugin_type": disk_manifest.plugin_type,
-                "frontend_entry": frontend_entry,
-            },
-        )
+        info = {
+            "id": plugin_id,
+            "name": manifest.get("name", plugin_id),
+            "version": manifest.get("version", "0.0.0"),
+            "description": manifest.get("description", ""),
+            "author": manifest.get("author", ""),
+            "enabled": record.enabled if loaded else True,
+            "loaded": loaded,
+            "plugin_type": disk_manifest.plugin_type,
+            "frontend_entry": frontend_entry,
+            "load_status": "loaded" if loaded else "unloaded",
+            "repairable": False,
+            "repair_reason": None,
+        }
+        if not loaded and is_tauri_backend():
+            state = dependency_state(item, plugin_id)
+            info.update(state.api_fields(loaded=False))
+        result.append(info)
     return result
 
 
@@ -458,24 +469,7 @@ async def list_plugins(request: Request):
         )
         return _list_plugins_from_disk()
 
-    result = []
-    for _plugin_id, record in loader.get_all_loaded_plugins().items():
-        manifest = record.manifest
-        result.append(
-            {
-                "id": manifest.id,
-                "name": manifest.name,
-                "version": manifest.version,
-                "description": manifest.description,
-                "author": manifest.author,
-                "enabled": record.enabled,
-                "loaded": True,
-                "plugin_type": manifest.plugin_type,
-                "frontend_entry": manifest.entry.frontend,
-            },
-        )
-
-    return result
+    return _list_plugins_from_disk(loader.get_all_loaded_plugins())
 
 
 @router.get(
@@ -728,6 +722,83 @@ async def upload_plugin(
     }
 
 
+@router.post(
+    "/{plugin_id}/repair",
+    summary="Repair plugin dependencies",
+    description=(
+        "Prepare dependencies for an installed plugin and hot-load it. "
+        "Used by Tauri Desktop when dependencies were installed by a "
+        "different runtime or are missing for the current one."
+    ),
+)
+async def repair_plugin(plugin_id: str, request: Request):
+    """Repair dependencies for an installed plugin and load it."""
+    loader = getattr(request.app.state, "plugin_loader", None)
+    if loader is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Plugin loader is not ready yet.",
+        )
+
+    existing = loader.get_loaded_plugin(plugin_id)
+    if existing is not None:
+        return {
+            "id": existing.manifest.id,
+            "name": existing.manifest.name,
+            "version": existing.manifest.version,
+            "description": existing.manifest.description,
+            "author": existing.manifest.author,
+            "loaded": True,
+            "message": (
+                f"Plugin '{existing.manifest.name}' is already loaded."
+            ),
+        }
+
+    from ...config.utils import get_plugins_dir
+
+    plugins_dir = get_plugins_dir().resolve()
+    plugin_dir = (plugins_dir / plugin_id).resolve()
+    if not plugin_dir.is_dir() or not plugin_dir.is_relative_to(plugins_dir):
+        raise HTTPException(
+            status_code=404,
+            detail=f"Plugin '{plugin_id}' not found.",
+        )
+    manifest_path = plugin_dir / "plugin.json"
+    if not manifest_path.exists():
+        raise HTTPException(
+            status_code=404,
+            detail=f"Plugin '{plugin_id}' not found.",
+        )
+
+    try:
+        await loader.repair_plugin_dependencies(plugin_id, plugin_dir)
+        manifest = loader._load_manifest(manifest_path)  # noqa: SLF001
+        record = await loader.load_plugin(manifest, plugin_dir)
+    except (FileNotFoundError, RuntimeError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.error(
+            f"Plugin repair failed for '{plugin_id}': {exc}",
+            exc_info=True,
+        )
+        raise HTTPException(
+            status_code=500,
+            detail=f"Plugin repair failed: {exc}",
+        ) from exc
+
+    await _post_load_setup(request, record.manifest.id)
+
+    return {
+        "id": record.manifest.id,
+        "name": record.manifest.name,
+        "version": record.manifest.version,
+        "description": record.manifest.description,
+        "author": record.manifest.author,
+        "loaded": True,
+        "message": f"Plugin '{record.manifest.name}' repaired successfully.",
+    }
+
+
 @router.delete(
     "/{plugin_id}",
     summary="Uninstall a plugin",
@@ -748,10 +819,42 @@ async def uninstall_plugin(plugin_id: str, request: Request):
 
     record = loader.get_loaded_plugin(plugin_id)
     if record is None:
-        raise HTTPException(
-            status_code=404,
-            detail=f"Plugin '{plugin_id}' is not loaded.",
-        )
+        from ...config.utils import get_plugins_dir
+        from ...plugins.dependencies import remove_plugin_dependency_store
+
+        plugins_dir = get_plugins_dir().resolve()
+        plugin_dir = (plugins_dir / plugin_id).resolve()
+        if not plugin_dir.is_dir() or not plugin_dir.is_relative_to(
+            plugins_dir,
+        ):
+            raise HTTPException(
+                status_code=404,
+                detail=f"Plugin '{plugin_id}' is not loaded.",
+            )
+        meta: dict = {}
+        manifest_path = plugin_dir / "plugin.json"
+        if manifest_path.exists():
+            try:
+                raw_manifest = json.loads(
+                    manifest_path.read_text(encoding="utf-8"),
+                )
+                raw_meta = raw_manifest.get("meta", {})
+                if isinstance(raw_meta, dict):
+                    meta = raw_meta
+            except Exception as exc:
+                logger.warning(
+                    "Failed to read manifest before uninstalling '%s': %s",
+                    plugin_id,
+                    exc,
+                )
+        shutil.rmtree(plugin_dir)
+        remove_plugin_dependency_store(plugin_id)
+        _remove_plugin_tools_from_agents(plugin_id, meta)
+        _schedule_all_agents_reload(request)
+        return {
+            "id": plugin_id,
+            "message": f"Plugin '{plugin_id}' uninstalled successfully.",
+        }
 
     meta: dict = record.manifest.meta or {}
 
@@ -807,6 +910,9 @@ async def get_plugin_status(plugin_id: str, request: Request):
                 "loaded": True,
                 "enabled": record.enabled,
                 "version": record.manifest.version,
+                "load_status": "loaded",
+                "repairable": False,
+                "repair_reason": None,
             }
 
     # Check disk even if loader is not ready or plugin is not loaded
@@ -814,7 +920,13 @@ async def get_plugin_status(plugin_id: str, request: Request):
 
     plugin_dir = get_plugins_dir() / plugin_id
     if plugin_dir.is_dir() and (plugin_dir / "plugin.json").exists():
-        return {"id": plugin_id, "loaded": False, "enabled": False}
+        payload = {"id": plugin_id, "loaded": False, "enabled": False}
+        from ...plugins.dependencies import dependency_state, is_tauri_backend
+
+        if is_tauri_backend():
+            state = dependency_state(plugin_dir, plugin_id)
+            payload.update(state.api_fields(loaded=False))
+        return payload
 
     raise HTTPException(
         status_code=404,

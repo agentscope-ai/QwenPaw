@@ -2,9 +2,8 @@
 
 use serde::Deserialize;
 use tauri::Manager;
-use tauri_plugin_shell::process::{CommandEvent, TerminatedPayload};
 
-use super::BackendState;
+use super::{process::BackendEvent, BackendState};
 
 const MAX_CAPTURED_STDERR_CHARS: usize = 4000;
 const STDERR_TRUNCATION_MARKER: &str = "\n[...stderr truncated...]\n";
@@ -19,14 +18,14 @@ struct BackendReadyPayload {
 pub(super) fn watch(
     app: tauri::AppHandle,
     generation: u64,
-    mut rx: tauri::async_runtime::Receiver<CommandEvent>,
+    mut rx: tauri::async_runtime::Receiver<BackendEvent>,
 ) {
     tauri::async_runtime::spawn(async move {
         let mut last_stderr = String::new();
         log::info!("[backend] watching process generation={generation}");
         while let Some(event) = rx.recv().await {
             match event {
-                CommandEvent::Stdout(line) => {
+                BackendEvent::Stdout(line) => {
                     let text = String::from_utf8_lossy(&line);
                     log::info!("[backend:{generation}] stdout: {}", text.trim_end());
                     if let Some(port) = ready_port_from_stdout(&text) {
@@ -35,23 +34,22 @@ pub(super) fn watch(
                             .set_port_if_current(generation, port);
                     }
                 }
-                CommandEvent::Stderr(line) => {
+                BackendEvent::Stderr(line) => {
                     record_stderr(generation, &mut last_stderr, &line);
                 }
-                CommandEvent::Error(message) => {
+                BackendEvent::Error(message) => {
                     log::error!("[backend:{generation}] process event error: {message}");
                     app.state::<BackendState>().set_error_if_current(
                         generation,
                         format!("backend process error: {message}"),
                     );
                 }
-                CommandEvent::Terminated(payload) => {
-                    let message = termination_message(payload, &last_stderr);
+                BackendEvent::Terminated { code, signal } => {
+                    let message = termination_message(code, signal, &last_stderr);
                     log::warn!("[backend:{generation}] {message}");
                     app.state::<BackendState>()
                         .set_error_if_current(generation, message);
                 }
-                _ => {}
             }
         }
 
@@ -102,8 +100,8 @@ fn last_chars(text: &str, count: usize) -> String {
     chars.into_iter().collect()
 }
 
-fn termination_message(payload: TerminatedPayload, last_stderr: &str) -> String {
-    let mut message = match (payload.code, payload.signal) {
+fn termination_message(code: Option<i32>, signal: Option<i32>, last_stderr: &str) -> String {
+    let mut message = match (code, signal) {
         (Some(code), _) => format!("backend process exited unexpectedly with code {code}"),
         (_, Some(signal)) => format!("backend process exited unexpectedly by signal {signal}"),
         _ => "backend process exited unexpectedly".to_string(),

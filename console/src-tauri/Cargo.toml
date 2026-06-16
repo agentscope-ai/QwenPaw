@@ -21,8 +21,19 @@ serde = { version = "1.0", features = ["derive"] }
 log = "0.4"
 futures-util = "0.3"
 reqwest = { version = "0.12", default-features = false, features = ["stream"] }
+shared_child = "1.1.1"
 tauri = { version = "2.10.3", features = [] }
 tauri-plugin-log = "2"
 tauri-plugin-shell = "2"
 tauri-plugin-dialog = "2"
 tokio = { version = "1", features = ["fs", "io-util"] }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_Storage_FileSystem",
+    "Win32_System_Pipes",
+    "Win32_System_Threading",
+    "Win32_UI_WindowsAndMessaging",
+] }

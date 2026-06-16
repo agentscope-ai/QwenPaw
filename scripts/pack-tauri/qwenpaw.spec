@@ -179,7 +179,11 @@ backend_exe = EXE(
     strip=False,
     # UPX triggers antivirus false positives and can corrupt binaries.
     upx=False,
-    console=False,
+    # Windows Tauri launches this console-subsystem backend with a hidden
+    # console so plugin subprocesses can inherit it instead of flashing their
+    # own tasklist/cmd/pip windows. macOS/Linux do not have this console-window
+    # model, so keep their backend windowless as before.
+    console=sys.platform.startswith("win"),
     disable_windowed_traceback=True,
     argv_emulation=False,
     target_arch=None,

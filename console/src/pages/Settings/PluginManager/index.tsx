@@ -13,14 +13,23 @@ import styles from "./index.module.less";
 export default function PluginManagerPage() {
   const { t } = useTranslation();
 
-  const { plugins, loading, refresh, uninstallingId, handleUninstall } =
-    usePluginManager();
+  const {
+    plugins,
+    loading,
+    refresh,
+    uninstallingId,
+    repairingId,
+    handleUninstall,
+    handleRepair,
+  } = usePluginManager();
 
   const installModal = useInstallModal(refresh);
 
   const columns = usePluginColumns({
     uninstallingId,
+    repairingId,
     onUninstall: handleUninstall,
+    onRepair: handleRepair,
   });
 
   const tabItems = [

@@ -375,15 +375,34 @@ def _spawn_desktop_background_impl() -> tuple[bool, str | None]:
         listen_url = f"http://{display_host}:{port}"
         pet_rt.write_bridge_url(listen_url)
 
-        cmd: list[str] = [
-            sys.executable,
-            "-m",
-            "qwenpaw_pet_desktop.app",
-            "--host",
-            host,
-            "--port",
-            str(port),
-        ]
+        runtime_python = os.environ.get("QWENPAW_RUNTIME_PYTHON")
+        if os.environ.get("QWENPAW_TAURI_BACKEND"):
+            cmd = [
+                sys.executable,
+                "--run-module",
+                "qwenpaw_pet_desktop.app",
+                "--",
+            ]
+        elif runtime_python:
+            cmd = [
+                runtime_python,
+                "-m",
+                "qwenpaw_pet_desktop.app",
+            ]
+        else:
+            cmd = [
+                sys.executable,
+                "-m",
+                "qwenpaw_pet_desktop.app",
+            ]
+        cmd.extend(
+            [
+                "--host",
+                host,
+                "--port",
+                str(port),
+            ],
+        )
         scale = os.environ.get("QWENPAW_PET_DESKTOP_SCALE")
         if scale:
             cmd.extend(["--scale", str(scale)])
@@ -397,12 +416,19 @@ def _spawn_desktop_background_impl() -> tuple[bool, str | None]:
         # qwenpaw_pet_desktop.app`` can find the package.
         env = os.environ.copy()
         plugin_dir = str(Path(__file__).resolve().parent)
+        pp_parts = [plugin_dir]
+        try:
+            from qwenpaw.plugins.dependencies import dependency_env_key
+
+            deps_path = env.get(dependency_env_key("qwenpaw-pet"))
+            if deps_path:
+                pp_parts.append(deps_path)
+        except Exception:
+            pass
         existing_pp = env.get("PYTHONPATH", "")
-        env["PYTHONPATH"] = (
-            plugin_dir + os.pathsep + existing_pp
-            if existing_pp
-            else plugin_dir
-        )
+        if existing_pp:
+            pp_parts.append(existing_pp)
+        env["PYTHONPATH"] = os.pathsep.join(pp_parts)
         # ``Popen`` duplicates the log FD into the child's stdout/stderr,
         # so the parent's handle is safe to close as soon as the spawn
         # returns. Using ``with`` here both fixes the FD leak and lets

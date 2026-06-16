@@ -1,6 +1,12 @@
 import { useTranslation } from "react-i18next";
 import { Tag, Tooltip, Button, Space, Typography } from "antd";
-import { Package, Trash2, CheckCircle, XCircle } from "lucide-react";
+import {
+  Package,
+  Trash2,
+  CheckCircle,
+  XCircle,
+  Wrench,
+} from "lucide-react";
 import type { PluginType, PluginInfo } from "@/api/modules/plugin";
 import { PluginTypeTag } from "../components/PluginTypeTag";
 
@@ -8,12 +14,16 @@ const { Text } = Typography;
 
 interface UsePluginColumnsOptions {
   uninstallingId: string | null;
+  repairingId: string | null;
   onUninstall: (record: PluginInfo) => void;
+  onRepair: (record: PluginInfo) => void;
 }
 
 export function usePluginColumns({
   uninstallingId,
+  repairingId,
   onUninstall,
+  onRepair,
 }: UsePluginColumnsOptions) {
   const { t } = useTranslation();
 
@@ -66,12 +76,31 @@ export function usePluginColumns({
       ),
     },
     {
-      title: "Status",
-      dataIndex: "loaded",
+      title: t("pluginManager.status"),
+      dataIndex: "load_status",
       key: "loaded",
-      width: 110,
-      render: (loaded: boolean) =>
-        loaded ? (
+      width: 150,
+      render: (_: unknown, record: PluginInfo) => {
+        const status =
+          record.load_status ?? (record.loaded ? "loaded" : "unloaded");
+        if (status === "needs_repair") {
+          return (
+            <Tooltip title={t("pluginManager.repairHint")}>
+              <Tag
+                icon={<Wrench size={12} />}
+                color="warning"
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 4,
+                }}
+              >
+                {t("pluginManager.statusNeedsRepair")}
+              </Tag>
+            </Tooltip>
+          );
+        }
+        return record.loaded ? (
           <Tag
             icon={<CheckCircle size={12} />}
             color="success"
@@ -87,23 +116,37 @@ export function usePluginColumns({
           >
             {t("pluginManager.statusUnloaded")}
           </Tag>
-        ),
+        );
+      },
     },
     {
       title: "",
       key: "actions",
-      width: 100,
+      width: 120,
       render: (_: unknown, record: PluginInfo) => (
-        <Tooltip title={t("pluginManager.uninstall")}>
-          <Button
-            type="text"
-            danger
-            size="small"
-            icon={<Trash2 size={14} />}
-            loading={uninstallingId === record.id}
-            onClick={() => onUninstall(record)}
-          />
-        </Tooltip>
+        <Space size={4}>
+          {record.repairable && record.load_status === "needs_repair" && (
+            <Tooltip title={t("pluginManager.repair")}>
+              <Button
+                type="text"
+                size="small"
+                icon={<Wrench size={14} />}
+                loading={repairingId === record.id}
+                onClick={() => onRepair(record)}
+              />
+            </Tooltip>
+          )}
+          <Tooltip title={t("pluginManager.uninstall")}>
+            <Button
+              type="text"
+              danger
+              size="small"
+              icon={<Trash2 size={14} />}
+              loading={uninstallingId === record.id}
+              onClick={() => onUninstall(record)}
+            />
+          </Tooltip>
+        </Space>
       ),
     },
   ];

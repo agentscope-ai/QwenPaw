@@ -10,6 +10,13 @@ export type PluginType =
   | "frontend"
   | "general";
 
+export type PluginLoadStatus =
+  | "loaded"
+  | "unloaded"
+  | "needs_repair"
+  | "repair_failed"
+  | "ready";
+
 /**
  * A single plugin record returned by `GET /api/plugins`.
  */
@@ -26,6 +33,11 @@ export interface PluginInfo {
   plugin_type: PluginType;
   /** Frontend JS entry-point path (if any). */
   frontend_entry?: string;
+  load_status?: PluginLoadStatus;
+  repairable?: boolean;
+  repair_reason?: string | null;
+  runtime_id?: string;
+  requirements_hash?: string | null;
 }
 
 export interface InstallPluginResult {
@@ -43,6 +55,9 @@ export interface PluginStatus {
   loaded: boolean;
   enabled: boolean;
   version?: string;
+  load_status?: PluginLoadStatus;
+  repairable?: boolean;
+  repair_reason?: string | null;
 }
 
 /** Entry from ``GET /api/plugins/catalog`` (official CDN manifest). */
@@ -159,6 +174,25 @@ export async function uninstallPlugin(pluginId: string): Promise<void> {
     const body = await response.json().catch(() => ({}));
     throw new Error(body.detail ?? `Uninstall failed (${response.status})`);
   }
+}
+
+/**
+ * Repair a plugin's runtime dependencies and hot-load it.
+ */
+export async function repairPlugin(
+  pluginId: string,
+): Promise<InstallPluginResult> {
+  const response = await fetch(getApiUrl(`/plugins/${pluginId}/repair`), {
+    method: "POST",
+    headers: buildAuthHeaders(),
+  });
+
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({}));
+    throw new Error(body.detail ?? `Repair failed (${response.status})`);
+  }
+
+  return response.json();
 }
 
 /**

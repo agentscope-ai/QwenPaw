@@ -98,8 +98,18 @@ FunctionEnd
   Pop $1
 !macroend
 
+!macro QWENPAW_CLEAN_BACKEND_RESOURCE
+  ; This directory is owned by the installer. Remove it before writing the new
+  ; version so files dropped by older backend layouts cannot survive upgrades.
+  IfFileExists "$INSTDIR\binaries\qwenpaw-backend\*.*" 0 qwenpaw_backend_clean_done
+    DetailPrint "Removing old QwenPaw backend runtime files..."
+    RMDir /r "$INSTDIR\binaries\qwenpaw-backend"
+  qwenpaw_backend_clean_done:
+!macroend
+
 !macro NSIS_HOOK_PREINSTALL
   !insertmacro QWENPAW_STOP_BACKEND_SIDECAR
+  !insertmacro QWENPAW_CLEAN_BACKEND_RESOURCE
 !macroend
 
 !macro NSIS_HOOK_POSTINSTALL

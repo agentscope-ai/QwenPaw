@@ -6,11 +6,17 @@ use std::process::{Command as StdCommand, Stdio};
 
 #[cfg(not(debug_assertions))]
 use tauri::Manager;
-use tauri_plugin_shell::{process::Command, ShellExt};
+
+use super::process::BackendCommand;
+
+#[cfg(not(debug_assertions))]
+const RUNTIME_PYTHON_ENV: &str = "QWENPAW_RUNTIME_PYTHON";
+#[cfg(not(debug_assertions))]
+const RUNTIME_UV_ENV: &str = "QWENPAW_RUNTIME_UV";
 
 /// Builds the command used to start the Python backend sidecar.
 #[cfg(debug_assertions)]
-pub(super) fn create(app: &tauri::AppHandle) -> Result<Command, String> {
+pub(super) fn create(_app: &tauri::AppHandle) -> Result<BackendCommand, String> {
     let repo_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
     let source_path = repo_root.join("src");
     let command = if command_exists("uv") {
@@ -18,8 +24,7 @@ pub(super) fn create(app: &tauri::AppHandle) -> Result<Command, String> {
             "[backend] dev command: uv run python -m qwenpaw.tauri.entry cwd={}",
             repo_root.display(),
         );
-        app.shell()
-            .command("uv")
+        BackendCommand::new("uv")
             .args(["run", "python", "-m", "qwenpaw.tauri.entry"])
             .current_dir(repo_root)
             .env("PYTHONPATH", source_path.display().to_string())
@@ -33,8 +38,7 @@ pub(super) fn create(app: &tauri::AppHandle) -> Result<Command, String> {
             args.join(" "),
             repo_root.display(),
         );
-        app.shell()
-            .command(python)
+        BackendCommand::new(python)
             .args(args)
             .current_dir(repo_root)
             .env("PYTHONPATH", source_path.display().to_string())
@@ -44,7 +48,7 @@ pub(super) fn create(app: &tauri::AppHandle) -> Result<Command, String> {
 
 /// Builds the command used to start the packaged Python backend sidecar.
 #[cfg(not(debug_assertions))]
-pub(super) fn create(app: &tauri::AppHandle) -> Result<Command, String> {
+pub(super) fn create(app: &tauri::AppHandle) -> Result<BackendCommand, String> {
     let backend = packaged_backend_executable(app)?;
     let backend_dir = backend
         .parent()
@@ -55,11 +59,34 @@ pub(super) fn create(app: &tauri::AppHandle) -> Result<Command, String> {
         backend.display(),
         backend_dir.display(),
     );
-    Ok(app
-        .shell()
-        .command(backend)
+    let mut command = BackendCommand::new(backend.as_os_str())
         .current_dir(&backend_dir)
-        .env(path_env_key(), path_with_backend_dir(&backend_dir)?))
+        .env(path_env_key(), path_with_backend_dir(&backend_dir)?);
+
+    if let Some(runtime_python) = packaged_runtime_python(&backend_dir) {
+        log::info!(
+            "[backend] packaged runtime Python: {}",
+            runtime_python.display(),
+        );
+        command = command.env(RUNTIME_PYTHON_ENV, runtime_python.display().to_string());
+    } else {
+        log::warn!(
+            "[backend] packaged runtime Python not found under {}",
+            backend_dir.join("python-runtime").display(),
+        );
+    }
+
+    if let Some(runtime_uv) = packaged_runtime_uv(&backend_dir) {
+        log::info!("[backend] packaged runtime uv: {}", runtime_uv.display());
+        command = command.env(RUNTIME_UV_ENV, runtime_uv.display().to_string());
+    } else {
+        log::warn!(
+            "[backend] packaged runtime uv not found under {}",
+            backend_dir.join("python-runtime").display(),
+        );
+    }
+
+    Ok(command)
 }
 
 #[cfg(not(debug_assertions))]
@@ -98,6 +125,29 @@ fn path_with_backend_dir(backend_dir: &Path) -> Result<String, String> {
         .map_err(|err| format!("failed to join backend PATH entries: {err}"))?
         .into_string()
         .map_err(|_| "backend PATH contains non-Unicode data".to_string())
+}
+
+#[cfg(not(debug_assertions))]
+fn packaged_runtime_python(backend_dir: &Path) -> Option<PathBuf> {
+    let runtime_dir = backend_dir.join("python-runtime");
+    let candidates = if cfg!(windows) {
+        vec![runtime_dir.join("python.exe")]
+    } else {
+        vec![
+            runtime_dir.join("bin").join("python"),
+            runtime_dir.join("bin").join("python3"),
+            runtime_dir.join("bin").join("python3.10"),
+            runtime_dir.join("python"),
+        ]
+    };
+    candidates.into_iter().find(|path| path.is_file())
+}
+
+#[cfg(not(debug_assertions))]
+fn packaged_runtime_uv(backend_dir: &Path) -> Option<PathBuf> {
+    let executable_name = if cfg!(windows) { "uv.exe" } else { "uv" };
+    let path = backend_dir.join("python-runtime").join(executable_name);
+    path.is_file().then_some(path)
 }
 
 #[cfg(all(not(debug_assertions), windows))]

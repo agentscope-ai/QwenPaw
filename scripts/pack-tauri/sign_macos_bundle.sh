@@ -46,6 +46,34 @@ is_inside_framework() {
     [[ "$1" == *".framework/"* ]]
 }
 
+is_python_framework_main_executable() {
+    local path="$1"
+    local dir
+
+    if [[ "$(basename "${path}")" != "Python" ]]; then
+        return 1
+    fi
+
+    dir="$(dirname "${path}")"
+    [[ -f "${dir}/Resources/Info.plist" ]]
+}
+
+find_python_framework_version_dirs() {
+    local python_path
+    local dir
+
+    while IFS= read -r python_path; do
+        if is_inside_framework "${python_path}"; then
+            continue
+        fi
+
+        dir="$(dirname "${python_path}")"
+        if [[ -f "${dir}/Resources/Info.plist" ]] && is_macho "${python_path}"; then
+            printf '%s\n' "${dir}"
+        fi
+    done < <(find "${TARGET}" -type f -name "Python" | sort -r)
+}
+
 codesign_file() {
     local path="$1"
     local args=()
@@ -78,14 +106,17 @@ while IFS= read -r -d '' path; do
     if is_inside_framework "${path}"; then
         continue
     fi
+    if is_python_framework_main_executable "${path}"; then
+        continue
+    fi
     if is_macho "${path}"; then
         codesign_file "${path}"
         signed_files=$((signed_files + 1))
     fi
 done < <(find "${TARGET}" -type f -print0)
 
-# Framework directories carry their own bundle signature. Sign them after the
-# contained Mach-O files, then sign the app bundle last.
+# Bundle containers carry their own resource seal. Sign nested code first,
+# then sign containers from the inside out, and sign the outer app last.
 signed_frameworks=0
 while IFS= read -r framework; do
     if [[ -n "${framework}" ]]; then
@@ -94,17 +125,39 @@ while IFS= read -r framework; do
     fi
 done < <(find "${TARGET}" -type d -name "*.framework" | sort -r)
 
+signed_apps=0
+while IFS= read -r app_bundle; do
+    if [[ -n "${app_bundle}" && "${app_bundle}" != "${TARGET}" ]]; then
+        codesign_bundle "${app_bundle}"
+        signed_apps=$((signed_apps + 1))
+    fi
+done < <(find "${TARGET}" -type d -name "*.app" | sort -r)
+
+# The CPython framework version directory is copied as python-runtime on macOS.
+# Its directory name no longer ends in .framework, but Resources/Info.plist and
+# the Python executable still make it a signed bundle container.
+signed_python_bundles=0
+while IFS= read -r python_bundle; do
+    if [[ -n "${python_bundle}" ]]; then
+        codesign_bundle "${python_bundle}"
+        signed_python_bundles=$((signed_python_bundles + 1))
+    fi
+done < <(find_python_framework_version_dirs)
+
 if [[ "${TARGET}" == *.app ]]; then
     codesign_bundle "${TARGET}"
 fi
 
-echo "Signed ${signed_files} Mach-O files and ${signed_frameworks} frameworks"
+echo "Signed ${signed_files} Mach-O files, ${signed_frameworks} frameworks, ${signed_apps} apps, and ${signed_python_bundles} Python bundles"
 
 if [[ "${TARGET}" == *.app ]]; then
     codesign --verify --deep --strict --verbose=2 "${TARGET}"
 else
     while IFS= read -r -d '' path; do
         if is_inside_framework "${path}"; then
+            continue
+        fi
+        if is_python_framework_main_executable "${path}"; then
             continue
         fi
         if is_macho "${path}"; then
@@ -116,4 +169,14 @@ else
             codesign --verify --verbose=2 "${framework}"
         fi
     done < <(find "${TARGET}" -type d -name "*.framework" | sort -r)
+    while IFS= read -r app_bundle; do
+        if [[ -n "${app_bundle}" && "${app_bundle}" != "${TARGET}" ]]; then
+            codesign --verify --verbose=2 "${app_bundle}"
+        fi
+    done < <(find "${TARGET}" -type d -name "*.app" | sort -r)
+    while IFS= read -r python_bundle; do
+        if [[ -n "${python_bundle}" ]]; then
+            codesign --verify --verbose=2 "${python_bundle}"
+        fi
+    done < <(find_python_framework_version_dirs)
 fi

@@ -7,6 +7,7 @@ import json
 import logging
 import multiprocessing as mp
 import os
+import runpy
 import socket
 import sys
 
@@ -16,6 +17,7 @@ from qwenpaw.tauri.env import (
     DESKTOP_APP_ENV,
     DESKTOP_CORS_ORIGINS_ENV,
     DESKTOP_READY_PREFIX,
+    TAURI_BACKEND_ENV,
     ensure_desktop_cors_origins,
 )
 from qwenpaw.tauri.sidecar_logging import install_sidecar_logging
@@ -77,11 +79,26 @@ def _install_certifi_env() -> None:
 
 def _install_desktop_runtime() -> None:
     os.environ.setdefault(DESKTOP_APP_ENV, "1")
+    os.environ.setdefault(TAURI_BACKEND_ENV, "1")
     # Must run before importing the FastAPI app: it applies CORS middleware
     # from qwenpaw.constant.CORS_ORIGINS at import time.
     _ensure_qwenpaw_app_not_loaded()
     ensure_desktop_cors_origins()
     _sync_loaded_qwenpaw_constant_cors_origins()
+
+
+def _run_runtime_module(args: Sequence[str]) -> int:
+    """Run a Python module inside the frozen Tauri runtime."""
+    if not args:
+        print("--run-module requires a module name", file=sys.stderr)
+        return 2
+    module = args[0]
+    module_args = list(args[1:])
+    if module_args and module_args[0] == "--":
+        module_args = module_args[1:]
+    sys.argv = [module, *module_args]
+    runpy.run_module(module, run_name="__main__", alter_sys=True)
+    return 0
 
 
 def _run_click_command(
@@ -186,6 +203,10 @@ def _socket_port(sock: socket.socket) -> int:
 
 def main() -> None:
     _ensure_utf8_stdio()
+
+    if len(sys.argv) > 1 and sys.argv[1] == "--run-module":
+        raise SystemExit(_run_runtime_module(sys.argv[2:]))
+
     _install_desktop_runtime()
 
     from qwenpaw.constant import LOG_LEVEL_ENV, WORKING_DIR

@@ -7,10 +7,12 @@ use std::sync::{
 
 use tauri::Manager;
 use tauri_plugin_log::{Target, TargetKind};
-use tauri_plugin_shell::process::CommandChild;
 
 mod command;
 mod events;
+mod process;
+
+use process::BackendChild;
 
 /// Shared sidecar process state managed by Tauri.
 #[derive(Default)]
@@ -21,7 +23,7 @@ pub(crate) struct BackendState {
 
 #[derive(Default)]
 struct BackendInner {
-    child: Option<CommandChild>,
+    child: Option<BackendChild>,
     port: Option<u16>,
     error: Option<String>,
 }
@@ -160,19 +162,25 @@ fn start(app: &tauri::AppHandle) {
             state.set_error(message);
             return;
         }
-    }
-    .env("PYTHONUTF8", "1")
-    .env("PYTHONIOENCODING", "utf-8")
-    .env("PYTHONUNBUFFERED", "1")
-    .env("PYTHONFAULTHANDLER", "1")
-    .env("QWENPAW_DESKTOP_APP", "1");
+    };
 
-    log::info!("[backend] starting generation={generation}");
+    let command = command
+        .env("PYTHONUTF8", "1")
+        .env("PYTHONIOENCODING", "utf-8")
+        .env("PYTHONUNBUFFERED", "1")
+        .env("PYTHONFAULTHANDLER", "1")
+        .env("QWENPAW_DESKTOP_APP", "1")
+        .env("QWENPAW_TAURI_BACKEND", "1");
 
-    let (rx, child) = match command.spawn() {
+    log::info!(
+        "[backend] starting generation={generation} command={}",
+        command.program_display(),
+    );
+
+    let (rx, child) = match process::spawn(command) {
         Ok(child) => child,
         Err(err) => {
-            state.set_error(format!("failed to spawn backend: {err}"));
+            state.set_error(err);
             return;
         }
     };

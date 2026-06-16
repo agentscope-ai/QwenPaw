@@ -38,7 +38,11 @@ async def list_frontend_plugins(request: Request):
     loader = getattr(request.app.state, "plugin_loader", None)
 
     if loader is None:
-        return _list_plugins_from_disk()
+        return [
+            plugin
+            for plugin in _list_plugins_from_disk()
+            if plugin.get("load_status") != "needs_repair"
+        ]
 
     result = []
     for _plugin_id, record in loader.get_all_loaded_plugins().items():

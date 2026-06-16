@@ -19,7 +19,16 @@ from packaging.requirements import Requirement
 
 from .architecture import PluginManifest, PluginRecord
 from .api import PluginApi
+from .dependencies import (
+    PluginDependencyState,
+    activate_dependency_path,
+    dependency_state,
+    install_dependencies,
+    is_tauri_backend,
+    remove_plugin_dependency_store,
+)
 from .registry import PluginRegistry
+from ..utils.command_runner import windows_hidden_subprocess_kwargs
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +45,7 @@ class PluginLoader:
         self.plugin_dirs = [Path(d) for d in plugin_dirs]
         self.registry = PluginRegistry()
         self._loaded_plugins: Dict[str, PluginRecord] = {}
+        self._skipped_plugins: Dict[str, PluginDependencyState] = {}
 
     def discover_plugins(self) -> List[Tuple[PluginManifest, Path]]:
         """Discover all plugins in plugin directories.
@@ -203,8 +213,22 @@ class PluginLoader:
             logger.warning(f"Plugin '{plugin_id}' already loaded")
             return self._loaded_plugins[plugin_id]
 
-        # Ensure plugin dependencies are installed before loading
-        await self._ensure_dependencies_installed(source_path, plugin_id)
+        # Ensure plugin dependencies are available before loading.  The
+        # regular Desktop runtime owns a real Python env, so it may install at
+        # load time as before.  Tauri/PyInstaller must never run pip during
+        # startup; dependencies are prepared by the install/repair flow.
+        if is_tauri_backend():
+            state = dependency_state(source_path, plugin_id)
+            if not state.ready:
+                self._skipped_plugins[plugin_id] = state
+                raise RuntimeError(
+                    f"Plugin '{plugin_id}' dependencies need repair "
+                    "for the current desktop runtime",
+                )
+            activate_dependency_path(state)
+            self._skipped_plugins.pop(plugin_id, None)
+        else:
+            await self._ensure_dependencies_installed(source_path, plugin_id)
 
         # Load backend module (if declared and exists)
         backend_entry = manifest.entry.backend
@@ -355,6 +379,33 @@ class PluginLoader:
 
         return self._loaded_plugins
 
+    def get_skipped_plugin_states(self) -> Dict[str, PluginDependencyState]:
+        """Return plugins intentionally skipped during Tauri startup."""
+        return self._skipped_plugins.copy()
+
+    def get_plugin_dependency_state(
+        self,
+        plugin_id: str,
+        source_path: Path,
+    ) -> PluginDependencyState:
+        """Return dependency readiness for ``plugin_id`` in this runtime."""
+        return dependency_state(source_path, plugin_id)
+
+    async def repair_plugin_dependencies(
+        self,
+        plugin_id: str,
+        source_path: Path,
+    ) -> PluginDependencyState:
+        """Install plugin dependencies into the Tauri dependency store."""
+        state = await asyncio.to_thread(
+            install_dependencies,
+            Path(source_path).resolve(),
+            plugin_id,
+            self._run_subprocess_with_streaming_log,
+        )
+        self._skipped_plugins.pop(plugin_id, None)
+        return state
+
     @staticmethod
     def _find_uv() -> Optional[str]:
         """Return the path to the ``uv`` binary, or ``None`` if not found.
@@ -406,6 +457,7 @@ class PluginLoader:
             stderr=subprocess.STDOUT,
             text=True,
             bufsize=1,
+            **windows_hidden_subprocess_kwargs(),
         ) as proc:
 
             def _read_output() -> None:
@@ -614,11 +666,14 @@ class PluginLoader:
         # Install Python dependencies (off the event loop)
         requirements_file = target_dir / "requirements.txt"
         if requirements_file.exists():
-            await asyncio.to_thread(
-                self._install_requirements,
-                requirements_file,
-                plugin_id,
-            )
+            if is_tauri_backend():
+                await self.repair_plugin_dependencies(plugin_id, target_dir)
+            else:
+                await asyncio.to_thread(
+                    self._install_requirements,
+                    requirements_file,
+                    plugin_id,
+                )
 
         # Re-read manifest from the installed location so that
         # source_path in the record points to the correct directory
@@ -707,6 +762,7 @@ class PluginLoader:
 
         # Remove from the loaded-plugins dict
         del self._loaded_plugins[plugin_id]
+        self._skipped_plugins.pop(plugin_id, None)
 
         # Remove tools that this plugin registered in agents.tools
         self._cleanup_plugin_tools(plugin_id, record)
@@ -719,6 +775,7 @@ class PluginLoader:
                 logger.info(
                     f"Deleted plugin files at {source_path}",
                 )
+            remove_plugin_dependency_store(plugin_id)
 
         logger.info(f"Unloaded plugin '{plugin_id}'")
 
