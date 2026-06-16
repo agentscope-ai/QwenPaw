@@ -7,7 +7,8 @@ Network restrictions require Landlock ABI v4 (kernel 6.7+).
 Architecture:
     - Parent process compiles Landlock rules from SandboxConfig
     - Forks a child process that applies Landlock restrictions before exec
-    - Child: prctl(PR_SET_NO_NEW_PRIVS) → create_ruleset → add_rules → restrict_self → exec
+    - Child: prctl(PR_SET_NO_NEW_PRIVS) → create_ruleset → add_rules
+      → restrict_self → exec
 
 Reference:
     https://docs.kernel.org/userspace-api/landlock.html
@@ -25,15 +26,11 @@ import struct
 import sys
 import tempfile
 import time
-from pathlib import Path
 from typing import List, Optional, Tuple
 
 from .config import (
     ExecutionResult,
-    MountSpec,
-    PortRule,
     SandboxConfig,
-    SandboxMode,
 )
 
 logger = logging.getLogger(__name__)
@@ -168,7 +165,10 @@ def _landlock_create_ruleset(
 
 
 def _landlock_add_path_rule(
-    libc, ruleset_fd: int, path: str, access: int
+    libc,
+    ruleset_fd: int,
+    path: str,
+    access: int,
 ) -> None:
     """Add a path-beneath rule to the ruleset.
 
@@ -181,7 +181,9 @@ def _landlock_add_path_rule(
     O_PATH = 0o10000000  # 010000000 octal
     path_fd = os.open(path, O_PATH | os.O_CLOEXEC)
     try:
-        # struct landlock_path_beneath_attr { u64 allowed_access; s32 parent_fd; }
+        # struct landlock_path_beneath_attr {
+        #     u64 allowed_access; s32 parent_fd;
+        # }
         # Pack as u64 + i32 + 4 bytes padding (struct alignment)
         attr = struct.pack("Qi", access, path_fd)
         attr_buf = ctypes.create_string_buffer(attr)
@@ -195,7 +197,9 @@ def _landlock_add_path_rule(
         if ret < 0:
             errno = ctypes.get_errno()
             logger.warning(
-                "landlock_add_rule(path=%s) failed: errno=%d", path, errno
+                "landlock_add_rule(path=%s) failed: errno=%d",
+                path,
+                errno,
             )
     finally:
         os.close(path_fd)
@@ -227,7 +231,9 @@ def _landlock_add_net_port_rule(
     if ret < 0:
         errno = ctypes.get_errno()
         logger.warning(
-            "landlock_add_rule(net_port=%d) failed: errno=%d", port, errno
+            "landlock_add_rule(net_port=%d) failed: errno=%d",
+            port,
+            errno,
         )
 
 
@@ -261,7 +267,8 @@ def _prctl_set_no_new_privs(libc) -> None:
     if ret != 0:
         errno = ctypes.get_errno()
         raise OSError(
-            errno, f"prctl(PR_SET_NO_NEW_PRIVS) failed: errno={errno}"
+            errno,
+            f"prctl(PR_SET_NO_NEW_PRIVS) failed: errno={errno}",
         )
 
 
@@ -270,7 +277,7 @@ def _prctl_set_no_new_privs(libc) -> None:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 
-def _generate_sandbox_script(
+def _generate_sandbox_script(  # noqa: E501  pylint: disable=too-many-branches,too-many-statements
     config: SandboxConfig,
     cmd: str,
     cwd: str,
@@ -311,7 +318,7 @@ def _generate_sandbox_script(
     # /tmp always writable (many tools need it)
     if os.path.exists("/tmp"):
         path_rules.append(
-            ("/tmp", _FS_READ_ACCESS | _FS_WRITE_ACCESS | _FS_EXEC_ACCESS)
+            ("/tmp", _FS_READ_ACCESS | _FS_WRITE_ACCESS | _FS_EXEC_ACCESS),
         )
 
     # Mounts from config
@@ -330,11 +337,13 @@ def _generate_sandbox_script(
         path_rules.append((mount.path, access))
 
     # allow_read_all mode:
-    # On Linux Landlock (whitelist model), granting "/" would make deny_paths ineffective
-    # because there's no way to revoke access for subdirectories once parent is granted.
-    # Strategy: grant system paths (done above) + enumerate HOME subdirs individually,
-    # SKIPPING deny_paths entries to achieve effective read-deny.
-    if config.allow_read_all:
+    # On Linux Landlock (whitelist model), granting "/" would make
+    # deny_paths ineffective because there's no way to revoke access for
+    # subdirectories once parent is granted.
+    # Strategy: grant system paths (done above) + enumerate HOME subdirs
+    # individually, SKIPPING deny_paths entries to achieve effective
+    # read-deny.
+    if config.allow_read_all:  # pylint: disable=too-many-nested-blocks
         deny_expanded = set()
         for dp in config.deny_paths or []:
             deny_expanded.add(os.path.expanduser(dp))
@@ -358,8 +367,9 @@ def _generate_sandbox_script(
                 # If this path IS home's parent (e.g. /home), handle specially
                 if home.startswith(sp + "/") or sp == home:
                     continue  # Will handle home separately below
-                # If any deny_path is under this path, skip it (shouldn't happen
-                # since deny_paths are all under ~, but just in case)
+                # If any deny_path is under this path, skip it
+                # (shouldn't happen since deny_paths are all under ~,
+                # but just in case)
                 if any(dp.startswith(sp + "/") for dp in deny_expanded):
                     continue
                 path_rules.append((sp, _FS_READ_ACCESS | _FS_EXEC_ACCESS))
@@ -383,11 +393,12 @@ def _generate_sandbox_script(
                                 try:
                                     for sub_entry in os.listdir(full_path):
                                         sub_path = os.path.join(
-                                            full_path, sub_entry
+                                            full_path,
+                                            sub_entry,
                                         )
                                         if sub_path not in deny_expanded:
                                             path_rules.append(
-                                                (sub_path, _FS_READ_ACCESS)
+                                                (sub_path, _FS_READ_ACCESS),
                                             )
                                 except OSError:
                                     pass
@@ -408,8 +419,8 @@ def _generate_sandbox_script(
             # No deny_paths: safe to grant everything
             path_rules.append(("/", _FS_READ_ACCESS | _FS_EXEC_ACCESS))
     elif not config.allow_read_all:
-        # Strict mode: only system paths + workspace (from mounts above) are readable.
-        # No HOME enumeration — truly whitelist-only.
+        # Strict mode: only system paths + workspace (from mounts above)
+        # are readable. No HOME enumeration — truly whitelist-only.
         pass
 
     # Network rules (ABI v4+)
@@ -430,7 +441,7 @@ def _generate_sandbox_script(
             handled_net = 0
             logger.warning(
                 "LinuxSandbox: domain-level network filtering not supported "
-                "by Landlock. Allowing all network access."
+                "by Landlock. Allowing all network access.",
             )
 
         # Port-level rules
@@ -447,12 +458,14 @@ def _generate_sandbox_script(
     # Log unsupported features
     if config.max_processes is not None:
         logger.warning(
-            "LinuxSandbox: max_processes=%d requires cgroups, not implemented; ignoring.",
+            "LinuxSandbox: max_processes=%d requires cgroups, "
+            "not implemented; ignoring.",
             config.max_processes,
         )
     if config.max_memory_mb is not None:
         logger.warning(
-            "LinuxSandbox: max_memory_mb=%d requires cgroups, not implemented; ignoring.",
+            "LinuxSandbox: max_memory_mb=%d requires cgroups, "
+            "not implemented; ignoring.",
             config.max_memory_mb,
         )
 
@@ -460,28 +473,44 @@ def _generate_sandbox_script(
     script_lines = [
         "import ctypes, ctypes.util, os, struct, sys",
         "",
-        "libc = ctypes.CDLL(ctypes.util.find_library('c') or 'libc.so.6', use_errno=True)",
+        (
+            "libc = ctypes.CDLL("
+            "ctypes.util.find_library('c') or 'libc.so.6', "
+            "use_errno=True)"
+        ),
         "libc.syscall.restype = ctypes.c_long",
         "",
         "# prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0)",
         "libc.prctl.restype = ctypes.c_int",
-        "libc.prctl.argtypes = [ctypes.c_int, ctypes.c_ulong, ctypes.c_ulong, ctypes.c_ulong, ctypes.c_ulong]",
-        f"assert libc.prctl({PR_SET_NO_NEW_PRIVS}, 1, 0, 0, 0) == 0, 'prctl failed'",
+        (
+            "libc.prctl.argtypes = [ctypes.c_int, ctypes.c_ulong, "
+            "ctypes.c_ulong, ctypes.c_ulong, ctypes.c_ulong]"
+        ),
+        (
+            f"assert libc.prctl({PR_SET_NO_NEW_PRIVS}, 1, 0, 0, 0) "
+            f"== 0, 'prctl failed'"
+        ),
         "",
-        f"# Create ruleset (handled_fs=0x{handled_fs:x}, handled_net=0x{handled_net:x})",
+        (
+            f"# Create ruleset (handled_fs=0x{handled_fs:x}, "
+            f"handled_net=0x{handled_net:x})"
+        ),
     ]
 
     if handled_net:
         script_lines.append(
-            f"attr = struct.pack('QQ', 0x{handled_fs:x}, 0x{handled_net:x})"
+            f"attr = struct.pack('QQ', 0x{handled_fs:x}, 0x{handled_net:x})",
         )
     else:
         script_lines.append(f"attr = struct.pack('Q', 0x{handled_fs:x})")
 
     script_lines += [
         "attr_buf = ctypes.create_string_buffer(attr)",
-        f"fd = libc.syscall(ctypes.c_long({SYS_LANDLOCK_CREATE_RULESET}), "
-        "ctypes.cast(attr_buf, ctypes.c_void_p), ctypes.c_size_t(len(attr)), ctypes.c_uint32(0))",
+        (
+            f"fd = libc.syscall(ctypes.c_long({SYS_LANDLOCK_CREATE_RULESET}), "
+            "ctypes.cast(attr_buf, ctypes.c_void_p), "
+            "ctypes.c_size_t(len(attr)), ctypes.c_uint32(0))"
+        ),
         "assert fd >= 0, f'create_ruleset failed: {{ctypes.get_errno()}}'",
         "",
         "O_PATH = 0o10000000",
@@ -495,8 +524,12 @@ def _generate_sandbox_script(
         "    try:",
         "        a = struct.pack('Qi', access, pfd)",
         "        ab = ctypes.create_string_buffer(a)",
-        f"        libc.syscall(ctypes.c_long({SYS_LANDLOCK_ADD_RULE}), ctypes.c_int(fd), "
-        f"ctypes.c_int({LANDLOCK_RULE_PATH_BENEATH}), ctypes.cast(ab, ctypes.c_void_p), ctypes.c_uint32(0))",
+        (
+            f"        libc.syscall(ctypes.c_long({SYS_LANDLOCK_ADD_RULE}), "
+            f"ctypes.c_int(fd), "
+            f"ctypes.c_int({LANDLOCK_RULE_PATH_BENEATH}), "
+            f"ctypes.cast(ab, ctypes.c_void_p), ctypes.c_uint32(0))"
+        ),
         "    finally:",
         "        os.close(pfd)",
         "",
@@ -522,8 +555,12 @@ def _generate_sandbox_script(
             "def add_net_port(port, access):",
             "    a = struct.pack('QQ', access, port)",
             "    ab = ctypes.create_string_buffer(a)",
-            f"    libc.syscall(ctypes.c_long({SYS_LANDLOCK_ADD_RULE}), ctypes.c_int(fd), "
-            f"ctypes.c_int({LANDLOCK_RULE_NET_PORT}), ctypes.cast(ab, ctypes.c_void_p), ctypes.c_uint32(0))",
+            (
+                f"    libc.syscall(ctypes.c_long({SYS_LANDLOCK_ADD_RULE}), "
+                f"ctypes.c_int(fd), "
+                f"ctypes.c_int({LANDLOCK_RULE_NET_PORT}), "
+                f"ctypes.cast(ab, ctypes.c_void_p), ctypes.c_uint32(0))"
+            ),
             "",
         ]
         for port, access in net_port_rules:
@@ -540,17 +577,12 @@ def _generate_sandbox_script(
         "",
     ]
 
-    # Apply env_vars: value == "" means **unset** (pop), not "set to empty",
-    # so the env blacklist actually removes the key (some libraries probe
-    # `key in os.environ` to detect presence).
+    # Apply env_vars (e.g. mask blacklisted env keys with empty string)
     if config.env_vars:
         env_vars_repr = repr(list(config.env_vars.items()))
-        script_lines.append("# Apply env_vars (override / unset)")
+        script_lines.append("# Apply env_vars (override / mask)")
         script_lines.append(f"for _k, _v in {env_vars_repr}:")
-        script_lines.append("    if _v == '':")
-        script_lines.append("        os.environ.pop(_k, None)")
-        script_lines.append("    else:")
-        script_lines.append("        os.environ[_k] = _v")
+        script_lines.append("    os.environ[_k] = _v")
         script_lines.append("")
 
     script_lines += [
@@ -580,14 +612,6 @@ class LinuxSandbox:
       - config.mounts paths with declared permissions
       - allow_read_all=True → "/" readable
       - network controlled via ABI v4 (if available)
-
-    .. todo::
-        This class should inherit from :class:`LocalSandbox` to share the
-        common async lifecycle implementation (``stop``, ``__aenter__``,
-        ``__aexit__``, capability gating).  Today ``create_sandbox()`` is
-        annotated as returning ``LocalSandbox`` but actually returns this
-        unrelated type, which makes the abstraction leaky.  Refactor as
-        part of a follow-up sandbox abstraction-layer cleanup.
     """
 
     def __init__(self, config: SandboxConfig):
@@ -622,7 +646,9 @@ class LinuxSandbox:
             return 1
 
     async def execute(
-        self, cmd: str, cwd: Optional[str] = None
+        self,
+        cmd: str,
+        cwd: Optional[str] = None,
     ) -> ExecutionResult:
         """Execute a command inside the Landlock sandbox.
 
@@ -645,22 +671,15 @@ class LinuxSandbox:
             self._abi_version,
         )
 
-        # Write script to a temp file (in /tmp which is always accessible).
-        # Defensive structure:
-        #   - mkstemp returns a fd; we hand it to os.fdopen() in a `with`
-        #     so the fd is closed even if the write itself raises.
-        #   - The outer try/finally ALWAYS unlinks the temp file, including
-        #     when os.write / os.chmod / subprocess setup raise. This
-        #     prevents leaking files that contain the full sandbox policy
-        #     and the command to be executed.
+        # Write script to a temp file (in /tmp which is always accessible)
         script_fd, script_path = tempfile.mkstemp(
             prefix="landlock_",
             suffix=".py",
             dir="/tmp",
         )
         try:
-            with os.fdopen(script_fd, "wb") as _f:
-                _f.write(script.encode("utf-8"))
+            os.write(script_fd, script.encode("utf-8"))
+            os.close(script_fd)
             os.chmod(script_path, 0o755)
 
             # Find python3
@@ -714,11 +733,7 @@ class LinuxSandbox:
                     duration_ms=duration_ms,
                 )
             except Exception as e:
-                # Always tear down the subprocess on any error path so we
-                # do not leak grandchild processes (the script execs the
-                # actual command, so an orphaned child can survive us).
                 duration_ms = int((time.monotonic() - start) * 1000)
-                await self.stop()
                 return ExecutionResult(
                     exit_code=-1,
                     stdout="",
@@ -726,8 +741,7 @@ class LinuxSandbox:
                     duration_ms=duration_ms,
                 )
         finally:
-            # Clean up the script file. Reached on EVERY path, including
-            # exceptions raised by os.fdopen / os.write / os.chmod above.
+            # Clean up the script file
             try:
                 os.unlink(script_path)
             except OSError:

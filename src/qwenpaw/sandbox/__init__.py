@@ -10,7 +10,9 @@ Supported modes:
 Lifecycle: per-tool-call (created and destroyed for each invocation).
 
 Usage:
-    from qwenpaw.sandbox import create_sandbox, SandboxConfig, SandboxMode, MountSpec
+    from qwenpaw.sandbox import (
+        create_sandbox, SandboxConfig, SandboxMode, MountSpec,
+    )
 
     config = SandboxConfig(
         mode=SandboxMode.SEATBELT,

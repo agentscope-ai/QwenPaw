@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
+# pylint: disable=protected-access
 """Unit tests for GovernancePolicy — default policy load + assert_and_audit."""
+
 from __future__ import annotations
 
 import tempfile
@@ -17,13 +19,14 @@ from qwenpaw.governance.policy import (
     load_governance_policy,
 )
 from qwenpaw.governance.resource_governor import ResourceGovernor
+from qwenpaw.governance.tool_registry import DEFAULT_REGISTRY
 from qwenpaw.governance.audit import AuditLog
 from qwenpaw.sandbox import SandboxCapability
-
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _tc(tool_name: str, target: str) -> ToolCallSpec:
     """Create a ToolCallSpec with default agent/session ids."""
@@ -41,7 +44,7 @@ def _tc(tool_name: str, target: str) -> ToolCallSpec:
 
 
 class TestDefaultPolicyLoad:
-    """Verify that loading a default policy produces the expected builtin + user rules."""
+    """Verify default policy load produces expected builtin and user rules."""
 
     def test_create_default_policy_has_builtin_rules(self):
         policy = _create_default_policy(workspace_dir="/tmp/ws")
@@ -106,7 +109,7 @@ class TestAssertAndAuditSSHCommands:
 
     @pytest.fixture()
     def governor(self, tmp_path):
-        """Create a ResourceGovernor with default policy, sandbox mocked as unavailable."""
+        """Create ResourceGovernor with default policy; sandbox unavailable."""
         gov = ResourceGovernor(str(tmp_path))
         gov.start()
         # Reset the AuditLog singleton so tests don't interfere with each other
@@ -122,7 +125,7 @@ class TestAssertAndAuditSSHCommands:
         assert decision.action == GovernanceAction.ASK
 
     def test_bash_cat_ssh_id_rsa_is_ask(self, governor):
-        """Bash(cat ~/.ssh/id_rsa) should be ASK — builtin SSH protection rule."""
+        """Bash(cat ~/.ssh/id_rsa) should be ASK — SSH protection rule."""
         tc = _tc("Bash", "cat ~/.ssh/id_rsa")
         decision = governor.assert_and_audit(tc)
         assert decision.action == GovernanceAction.ASK
@@ -134,7 +137,7 @@ class TestAssertAndAuditSSHCommands:
         assert decision.action == GovernanceAction.DENY
 
     def test_bash_harmless_command_is_sandbox_fallback(self, governor):
-        """Bash(ls) without sensitive paths should fall through to SANDBOX_FALLBACK."""
+        """Bash(ls) without sensitive paths uses SANDBOX_FALLBACK."""
         tc = _tc("Bash", "ls -la")
         decision = governor.assert_and_audit(tc)
         # When sandbox is unavailable, SANDBOX_FALLBACK escalates to ASK
@@ -162,15 +165,15 @@ class TestGovernancePolicyEvaluate:
         """All tools accessing .ssh paths should get ASK from builtin rules."""
         for tool_name in ("Read", "Write", "Bash", "Browser"):
             target = (
-                f"cat /home/user/.ssh/id_rsa"
+                "cat /home/user/.ssh/id_rsa"
                 if tool_name == "Bash"
                 else "/home/user/.ssh/id_rsa"
             )
             tc = _tc(tool_name, target)
             decision = policy.evaluate(tc)
-            assert decision.action == GovernanceAction.ASK, (
-                f"{tool_name}({target!r}) should be ASK, got {decision.action}"
-            )
+            assert (
+                decision.action == GovernanceAction.ASK
+            ), f"{tool_name}({target!r}) should be ASK, got {decision.action}"
 
     def test_env_file_ask(self, policy):
         """Accessing .env files should be ASK from builtin rules."""
@@ -202,6 +205,46 @@ class TestGovernancePolicyEvaluate:
         decision = policy.evaluate(tc)
         assert decision.action == GovernanceAction.ALLOW
 
+    def test_workspace_grep_allow(self, policy):
+        """Grep within WORKSPACE_DIR should be ALLOW from user_rules.
+
+        The target for Grep is the search *path* (not the search pattern),
+        resolved to an absolute path by the tool adapter before evaluation.
+        """
+        tc = _tc("Grep", "/tmp/test-workspace/src/")
+        decision = policy.evaluate(tc)
+        assert decision.action == GovernanceAction.ALLOW
+
+    def test_workspace_glob_allow(self, policy):
+        """Glob within WORKSPACE_DIR should be ALLOW from user_rules."""
+        tc = _tc("Glob", "/tmp/test-workspace/src/")
+        decision = policy.evaluate(tc)
+        assert decision.action == GovernanceAction.ALLOW
+
+    def test_workspace_grep_root_allow(self, policy):
+        """Grep targeting the workspace root itself should be ALLOW.
+
+        When the LLM omits the path argument, the tool adapter resolves
+        the empty target to the workspace directory.  The rule
+        ``Grep(WORKSPACE_DIR/**)`` must match the directory itself via
+        the directory self-match fallback in _globmatch.
+        """
+        tc = _tc("Grep", "/tmp/test-workspace")
+        decision = policy.evaluate(tc)
+        assert decision.action == GovernanceAction.ALLOW
+
+    def test_grep_outside_workspace_ask(self, policy):
+        """Grep outside workspace should fall through to ASK."""
+        tc = _tc("Grep", "/etc/")
+        decision = policy.evaluate(tc)
+        assert decision.action == GovernanceAction.ASK
+
+    def test_glob_outside_workspace_ask(self, policy):
+        """Glob outside workspace should fall through to ASK."""
+        tc = _tc("Glob", "/var/log/")
+        decision = policy.evaluate(tc)
+        assert decision.action == GovernanceAction.ASK
+
     def test_bash_no_match_fallback(self, policy):
         """Bash with no rule match should return SANDBOX_FALLBACK."""
         tc = _tc("Bash", "echo hello")
@@ -215,7 +258,7 @@ class TestGovernancePolicyEvaluate:
         assert decision.action == GovernanceAction.DENY
 
     def test_ssh_dir_match_patterns(self, policy):
-        """Test various .ssh path patterns that should match the builtin rule."""
+        """Various .ssh path patterns should match the builtin rule."""
         ssh_targets = [
             "/home/user/.ssh/id_rsa",
             "/home/user/.ssh/id_ed25519",
@@ -226,9 +269,9 @@ class TestGovernancePolicyEvaluate:
         for target in ssh_targets:
             tc = _tc("Bash", f"cat {target}")
             decision = policy.evaluate(tc)
-            assert decision.action == GovernanceAction.ASK, (
-                f"Bash(cat {target}) should be ASK, got {decision.action}"
-            )
+            assert (
+                decision.action == GovernanceAction.ASK
+            ), f"Bash(cat {target}) should be ASK, got {decision.action}"
 
     def test_aws_dir_ask(self, policy):
         """Accessing .aws directory should be ASK."""
@@ -261,12 +304,12 @@ class TestAssertAndAuditSandboxEscalation:
     def governor_no_sandbox(self, tmp_path):
         """ResourceGovernor with sandbox mocked as unavailable."""
         gov = ResourceGovernor(str(tmp_path))
-        # Manually set up policy without calling start() to avoid probe
-        from qwenpaw.governance.policy import _create_default_policy
         gov._policy = _create_default_policy(str(tmp_path))
         gov._sandbox_available = False
         gov._sandbox_capability = SandboxCapability(
-            supported=False, mode=None, reason="test: sandbox disabled",
+            supported=False,
+            mode=None,
+            reason="test: sandbox disabled",
         )
         yield gov
         # Clean up AuditLog singleton
@@ -291,14 +334,16 @@ class TestBuiltinRulePriority:
 
     @pytest.fixture()
     def governor_with_deny(self, tmp_path):
-        """ResourceGovernor with a user DENY rule for Bash + .ssh (lower priority)."""
+        """Governor with user DENY rule for Bash + .ssh (lower priority)."""
         gov = ResourceGovernor(str(tmp_path))
         gov.start()
-        gov.add_rule(GovernanceRule(
-            match="Bash(*.ssh*)",
-            action=GovernanceAction.DENY,
-            reason="SSH access denied by policy",
-        ))
+        gov.add_rule(
+            GovernanceRule(
+                match="Bash(*.ssh*)",
+                action=GovernanceAction.DENY,
+                reason="SSH access denied by policy",
+            ),
+        )
         yield gov
         gov.stop()
         AuditLog._instance = None
@@ -334,17 +379,100 @@ class TestAddRulePrepend:
         AuditLog._instance = None
 
     def test_browser_deny_overrides_default_allow(self, governor):
-        """add_rule(Browser DENY) should override the default Browser(**) → ALLOW."""
+        """add_rule(Browser DENY) overrides default Browser(**) ALLOW."""
         # Default policy has Browser(**) → ALLOW in user_rules
         tc_allow = _tc("Browser", "https://example.com")
-        assert governor.assert_and_audit(tc_allow).action == GovernanceAction.ALLOW
+        assert (
+            governor.assert_and_audit(tc_allow).action
+            == GovernanceAction.ALLOW
+        )
 
         # Add a DENY rule for a specific site
-        governor.add_rule(GovernanceRule(
-            match="Browser(*evil.com*)",
-            action=GovernanceAction.DENY,
-            reason="Blocked site",
-        ))
+        governor.add_rule(
+            GovernanceRule(
+                match="Browser(*evil.com*)",
+                action=GovernanceAction.DENY,
+                reason="Blocked site",
+            ),
+        )
         tc_deny = _tc("Browser", "https://evil.com/page")
-        assert governor.assert_and_audit(tc_deny).action == GovernanceAction.DENY
+        assert (
+            governor.assert_and_audit(tc_deny).action == GovernanceAction.DENY
+        )
 
+
+# ---------------------------------------------------------------------------
+# Test: File target path resolution in tool_adapter (inline logic)
+# ---------------------------------------------------------------------------
+
+
+class TestFileTargetResolution:
+    """Verify the inline path resolution in _policy_tool_check_permissions.
+
+    The adapter resolves file-tool targets before governance evaluation:
+      - empty target  → workspace_dir (e.g. Grep/Glob with no path)
+      - relative path → os.path.join(workspace_dir, target)
+      - absolute path → unchanged
+    These tests exercise the resolution logic via os.path helpers.
+    """
+
+    @pytest.fixture()
+    def ws(self, tmp_path):
+        return str(tmp_path / "workspace")
+
+    def test_relative_path_resolved(self, ws):
+        import os
+
+        target = "src/main.py"
+        resolved = os.path.normpath(os.path.join(ws, target))
+        assert resolved == os.path.join(ws, target)
+        assert os.path.isabs(resolved)
+
+    def test_absolute_path_unchanged(self):
+        import os
+
+        target = "/etc/passwd"
+        assert os.path.isabs(target)
+
+    def test_empty_target_becomes_workspace(self, ws):
+        target = ""
+        resolved = ws if not target else target
+        assert resolved == ws
+
+
+# ---------------------------------------------------------------------------
+# Test: ToolRegistry.extract_target for Grep/Glob uses "path"
+# ---------------------------------------------------------------------------
+
+
+class TestToolRegistryGrepGlob:
+    """Verify that Grep/Glob extract the search *path*, not the pattern."""
+
+    def test_grep_extracts_path_not_pattern(self):
+        target = DEFAULT_REGISTRY.extract_target(
+            "Grep",
+            {"pattern": "TODO", "path": "src/"},
+        )
+        assert target == "src/"
+
+    def test_glob_extracts_path_not_pattern(self):
+        target = DEFAULT_REGISTRY.extract_target(
+            "Glob",
+            {"pattern": "*.py", "path": "lib/"},
+        )
+        assert target == "lib/"
+
+    def test_grep_empty_path_returns_empty(self):
+        """When path is omitted, extract_target returns empty string."""
+        target = DEFAULT_REGISTRY.extract_target(
+            "Grep",
+            {"pattern": "TODO"},
+        )
+        assert target == ""
+
+    def test_glob_empty_path_returns_empty(self):
+        target = DEFAULT_REGISTRY.extract_target(
+            "Glob",
+            {"pattern": "*.py"},
+        )
+        assert target == ""

@@ -25,13 +25,12 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
 import re
 import shutil
 import time
 from typing import List, Optional, Tuple
 
-from .config import ExecutionResult, MountSpec, SandboxConfig, SandboxMode
+from .config import ExecutionResult, SandboxConfig
 
 logger = logging.getLogger(__name__)
 
@@ -107,6 +106,7 @@ def probe_wsl2_availability() -> Tuple[bool, str, str]:
             timeout=10,
             encoding="utf-8",
             errors="replace",
+            check=False,
         )
         # On some systems --status might not be available; continue anyway
     except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as e:
@@ -121,6 +121,7 @@ def probe_wsl2_availability() -> Tuple[bool, str, str]:
             timeout=10,
             encoding="utf-16-le",
             errors="replace",
+            check=False,
         )
         output = result.stdout
         # Parse output: NAME   STATE   VERSION
@@ -151,6 +152,7 @@ def check_wsl_python3(distro: str) -> bool:
             capture_output=True,
             text=True,
             timeout=10,
+            check=False,
         )
         return result.returncode == 0
     except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
@@ -167,9 +169,13 @@ def check_wsl_landlock(distro: str) -> Tuple[bool, int]:
 
     check_script = (
         "import ctypes, ctypes.util, os, struct; "
-        "libc = ctypes.CDLL(ctypes.util.find_library('c') or 'libc.so.6', use_errno=True); "
+        "libc = ctypes.CDLL("
+        "ctypes.util.find_library('c') or 'libc.so.6', "
+        "use_errno=True); "
         "libc.syscall.restype = ctypes.c_long; "
-        "abi = libc.syscall(ctypes.c_long(444), None, ctypes.c_size_t(0), ctypes.c_uint32(1)); "
+        "abi = libc.syscall("
+        "ctypes.c_long(444), None, ctypes.c_size_t(0), "
+        "ctypes.c_uint32(1)); "
         "print(abi)"
     )
     try:
@@ -178,6 +184,7 @@ def check_wsl_landlock(distro: str) -> Tuple[bool, int]:
             capture_output=True,
             text=True,
             timeout=15,
+            check=False,
         )
         if result.returncode == 0:
             abi = int(result.stdout.strip())
@@ -217,16 +224,17 @@ def _get_all_fs_access_wsl(abi_version: int) -> int:
     return access
 
 
-def _generate_wsl_sandbox_script(
+def _generate_wsl_sandbox_script(  # pylint: disable=too-many-branches
     config: SandboxConfig,
     cmd: str,
     wsl_cwd: str,
     abi_version: int,
     wsl_home: str = "/root",
 ) -> str:
-    """Generate a Python Landlock enforcement script for execution inside WSL2.
+    """Generate a Python Landlock enforcement script for WSL2 execution.
 
-    Similar to linux_sandbox._generate_sandbox_script but operates on WSL paths.
+    Similar to linux_sandbox._generate_sandbox_script but operates on
+    WSL paths.
     """
     handled_fs = _get_all_fs_access_wsl(abi_version)
 
@@ -251,7 +259,7 @@ def _generate_wsl_sandbox_script(
 
     # /tmp always writable
     path_rules.append(
-        ("/tmp", _FS_READ_ACCESS | _FS_WRITE_ACCESS | _FS_EXEC_ACCESS)
+        ("/tmp", _FS_READ_ACCESS | _FS_WRITE_ACCESS | _FS_EXEC_ACCESS),
     )
 
     # /mnt (for access to Windows drives through WSL)
@@ -264,15 +272,18 @@ def _generate_wsl_sandbox_script(
             if dp.startswith("~"):
                 # Map to WSL home
                 deny_wsl_paths.add(
-                    wsl_home + "/" + dp[2:]
-                    if dp.startswith("~/")
-                    else wsl_home
+                    (
+                        wsl_home + "/" + dp[2:]
+                        if dp.startswith("~/")
+                        else wsl_home
+                    ),
                 )
             else:
                 deny_wsl_paths.add(win_to_wsl_path(dp))
 
         if deny_wsl_paths:
-            # Selective grant: grant /mnt paths excluding deny, grant home excluding deny
+            # Selective grant: grant /mnt paths excluding deny,
+            # grant home excluding deny
             # Grant /mnt for Windows drive access
             path_rules.append(("/mnt", _FS_READ_ACCESS | _FS_EXEC_ACCESS))
 
@@ -288,7 +299,7 @@ def _generate_wsl_sandbox_script(
     # Workspace mount (writable)
     wsl_workspace = win_to_wsl_path(config.workspace_dir)
     path_rules.append(
-        (wsl_workspace, _FS_READ_ACCESS | _FS_WRITE_ACCESS | _FS_EXEC_ACCESS)
+        (wsl_workspace, _FS_READ_ACCESS | _FS_WRITE_ACCESS | _FS_EXEC_ACCESS),
     )
 
     # Extra mounts from config
@@ -306,7 +317,7 @@ def _generate_wsl_sandbox_script(
     for dp in config.deny_paths or []:
         if dp.startswith("~"):
             deny_wsl_set.add(
-                wsl_home + "/" + dp[2:] if dp.startswith("~/") else wsl_home
+                wsl_home + "/" + dp[2:] if dp.startswith("~/") else wsl_home,
             )
         else:
             deny_wsl_set.add(win_to_wsl_path(dp))
@@ -315,19 +326,32 @@ def _generate_wsl_sandbox_script(
     script_lines = [
         "import ctypes, ctypes.util, os, struct, sys",
         "",
-        "libc = ctypes.CDLL(ctypes.util.find_library('c') or 'libc.so.6', use_errno=True)",
+        (
+            "libc = ctypes.CDLL("
+            "ctypes.util.find_library('c') or 'libc.so.6', "
+            "use_errno=True)"
+        ),
         "libc.syscall.restype = ctypes.c_long",
         "",
         "# prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0)",
         "libc.prctl.restype = ctypes.c_int",
-        "libc.prctl.argtypes = [ctypes.c_int, ctypes.c_ulong, ctypes.c_ulong, ctypes.c_ulong, ctypes.c_ulong]",
-        f"assert libc.prctl({PR_SET_NO_NEW_PRIVS}, 1, 0, 0, 0) == 0, 'prctl failed'",
+        (
+            "libc.prctl.argtypes = [ctypes.c_int, ctypes.c_ulong, "
+            "ctypes.c_ulong, ctypes.c_ulong, ctypes.c_ulong]"
+        ),
+        (
+            f"assert libc.prctl({PR_SET_NO_NEW_PRIVS}, 1, 0, 0, 0) "
+            f"== 0, 'prctl failed'"
+        ),
         "",
         f"# Create ruleset (handled_fs=0x{handled_fs:x})",
         f"attr = struct.pack('Q', 0x{handled_fs:x})",
         "attr_buf = ctypes.create_string_buffer(attr)",
-        f"fd = libc.syscall(ctypes.c_long({SYS_LANDLOCK_CREATE_RULESET}), "
-        "ctypes.cast(attr_buf, ctypes.c_void_p), ctypes.c_size_t(len(attr)), ctypes.c_uint32(0))",
+        (
+            f"fd = libc.syscall(ctypes.c_long({SYS_LANDLOCK_CREATE_RULESET}), "
+            "ctypes.cast(attr_buf, ctypes.c_void_p), "
+            "ctypes.c_size_t(len(attr)), ctypes.c_uint32(0))"
+        ),
         "assert fd >= 0, f'create_ruleset failed: {ctypes.get_errno()}'",
         "",
         "O_PATH = 0o10000000",
@@ -340,8 +364,12 @@ def _generate_wsl_sandbox_script(
         "    try:",
         "        a = struct.pack('Qi', access, pfd)",
         "        ab = ctypes.create_string_buffer(a)",
-        f"        libc.syscall(ctypes.c_long({SYS_LANDLOCK_ADD_RULE}), ctypes.c_int(fd), "
-        f"ctypes.c_int({LANDLOCK_RULE_PATH_BENEATH}), ctypes.cast(ab, ctypes.c_void_p), ctypes.c_uint32(0))",
+        (
+            f"        libc.syscall(ctypes.c_long({SYS_LANDLOCK_ADD_RULE}), "
+            f"ctypes.c_int(fd), "
+            f"ctypes.c_int({LANDLOCK_RULE_PATH_BENEATH}), "
+            f"ctypes.cast(ab, ctypes.c_void_p), ctypes.c_uint32(0))"
+        ),
         "    finally:",
         "        os.close(pfd)",
         "",
@@ -385,17 +413,12 @@ def _generate_wsl_sandbox_script(
         "",
     ]
 
-    # Apply env_vars: value == "" means **unset** (pop), not "set to empty",
-    # so the env blacklist actually removes the key (some libraries probe
-    # `key in os.environ` to detect presence).
+    # Apply env_vars (e.g. mask blacklisted env keys with empty string)
     if config.env_vars:
         env_vars_repr = repr(list(config.env_vars.items()))
-        script_lines.append("# Apply env_vars (override / unset)")
+        script_lines.append("# Apply env_vars (override / mask)")
         script_lines.append(f"for _k, _v in {env_vars_repr}:")
-        script_lines.append("    if _v == '':")
-        script_lines.append("        os.environ.pop(_k, None)")
-        script_lines.append("    else:")
-        script_lines.append("        os.environ[_k] = _v")
+        script_lines.append("    os.environ[_k] = _v")
         script_lines.append("")
 
     script_lines += [
@@ -419,14 +442,6 @@ class WindowsSandbox:
     provides kernel-level filesystem isolation.
 
     Lifecycle: per-tool-call (create, execute, stop/discard).
-
-    .. todo::
-        This class should inherit from :class:`LocalSandbox` to share the
-        common async lifecycle implementation (``stop``, ``__aenter__``,
-        ``__aexit__``, capability gating).  Today ``create_sandbox()`` is
-        annotated as returning ``LocalSandbox`` but actually returns this
-        unrelated type, which makes the abstraction leaky.  Refactor as
-        part of a follow-up sandbox abstraction-layer cleanup.
     """
 
     def __init__(self, config: SandboxConfig, distro: str = ""):
@@ -481,9 +496,13 @@ class WindowsSandbox:
         try:
             check_cmd = (
                 "import ctypes,ctypes.util;"
-                "libc=ctypes.CDLL(ctypes.util.find_library('c') or 'libc.so.6',use_errno=True);"
+                "libc=ctypes.CDLL("
+                "ctypes.util.find_library('c') or 'libc.so.6',"
+                "use_errno=True);"
                 "libc.syscall.restype=ctypes.c_long;"
-                "print(libc.syscall(ctypes.c_long(444),None,ctypes.c_size_t(0),ctypes.c_uint32(1)))"
+                "print(libc.syscall("
+                "ctypes.c_long(444),None,ctypes.c_size_t(0),"
+                "ctypes.c_uint32(1)))"
             )
             proc = await asyncio.create_subprocess_exec(
                 "wsl",
@@ -504,7 +523,9 @@ class WindowsSandbox:
             pass
 
     async def execute(
-        self, cmd: str, cwd: Optional[str] = None
+        self,
+        cmd: str,
+        cwd: Optional[str] = None,
     ) -> ExecutionResult:
         """Execute a command inside WSL2 with Landlock isolation.
 
@@ -535,7 +556,6 @@ class WindowsSandbox:
 
         # Write script to a temp location accessible from WSL
         # Use /tmp inside WSL (write via wsl command)
-        import tempfile
         import hashlib
 
         script_name = (
