@@ -5,7 +5,7 @@
  * bordered block with a copy button in the header.
  * - Markdown content → rendered via Markdown component
  * - JSON content → pretty-printed and rendered with syntax highlighting
- * - Plain text → rendered with syntax highlighting (auto-detect)
+ * - Plain text → rendered with syntax highlighting
  */
 
 import React, { useCallback, useMemo, useRef, useState } from "react";
@@ -41,6 +41,7 @@ function tryParseJson(text: string): unknown | null {
 const highlighterStyle = {
   margin: 0,
   borderRadius: 0,
+  padding: "10px 12px",
   fontSize: "12px",
   lineHeight: "1.6",
   maxHeight: "300px",
@@ -85,6 +86,7 @@ const DefaultBlock: React.FC<DefaultBlockProps> = ({
           language="json"
           style={oneDark}
           customStyle={highlighterStyle}
+          wrapLongLines
         >
           {JSON.stringify(parsedJson, null, 2)}
         </SyntaxHighlighter>
@@ -95,6 +97,7 @@ const DefaultBlock: React.FC<DefaultBlockProps> = ({
         language="text"
         style={oneDark}
         customStyle={highlighterStyle}
+        wrapLongLines
       >
         {content}
       </SyntaxHighlighter>

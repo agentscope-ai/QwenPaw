@@ -41,11 +41,11 @@ function CodeWithMermaid({
     }
   }
 
-  if (block && lang) {
-    const codeText = extractText(children);
+  if (block) {
+    const codeText = extractText(children).replace(/\n$/, "");
     return (
       <SyntaxHighlighter
-        language={lang}
+        language={lang || "text"}
         style={oneDark}
         customStyle={{
           margin: 0,

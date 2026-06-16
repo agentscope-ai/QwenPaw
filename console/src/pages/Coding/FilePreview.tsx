@@ -145,12 +145,11 @@ function PdfPreview({ filePath }: { filePath: string }) {
 }
 
 const markdownComponents = {
-  code({
-    className,
-    children,
-    ...rest
-  }: React.ComponentPropsWithoutRef<"code"> & { inline?: boolean }) {
-    const match = /language-(\w+)/.exec(className || "");
+  pre({ children }: { children?: React.ReactNode }) {
+    return <>{children}</>;
+  },
+  code({ node: _node, inline: _inline, className, children, ...rest }: any) {
+    const match = /language-([\w-]+)/.exec(className || "");
     const codeText = String(children).replace(/\n$/, "");
     if (match) {
       return (
