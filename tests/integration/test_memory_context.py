@@ -13,136 +13,34 @@ Existing CRUD roundtrip coverage (not duplicated here):
 """
 from __future__ import annotations
 
-import json as _json
 import threading
 import time
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from http.server import HTTPServer
 from pathlib import Path
 
 import pytest
 
 from helpers import (
+    MOCK_LLM_PROVIDER_ID,
+    MockLLMHandler,
     clean_inbox,
     create_agent,
     delete_agent_quietly,
+    register_mock_provider,
     scoped,
     toggle_agent,
+    unregister_mock_provider,
 )
 
 _HTTP_TIMEOUT = 15.0
-_MOCK_LLM_RESPONSE = "Mock heartbeat response from integration test."
-
-
-# ================================================================== #
-#  Mock LLM infrastructure
-# ================================================================== #
-
-
-class _MockLLMHandler(BaseHTTPRequestHandler):
-    """Minimal OpenAI-compatible streaming server."""
-
-    def do_POST(self):  # noqa: N802
-        if "/chat/completions" in self.path:
-            self._stream_completion()
-        else:
-            self.send_error(404)
-
-    def do_GET(self):  # noqa: N802
-        if "/models" in self.path:
-            self._list_models()
-        else:
-            self.send_error(404)
-
-    def _stream_completion(self):
-        length = int(self.headers.get("Content-Length", 0))
-        if length:
-            self.rfile.read(length)
-
-        if getattr(self.server, "force_error", False):
-            self.send_response(422)
-            self.send_header("Content-Type", "application/json")
-            self.end_headers()
-            err = {
-                "error": {
-                    "message": "forced",
-                    "type": "invalid_request_error",
-                },
-            }
-            self.wfile.write(_json.dumps(err).encode())
-            return
-
-        self.send_response(200)
-        self.send_header("Content-Type", "text/event-stream")
-        self.send_header("Cache-Control", "no-cache")
-        self.end_headers()
-
-        chunk_content = _json.dumps(
-            {
-                "id": "chatcmpl-mock",
-                "object": "chat.completion.chunk",
-                "created": 1700000000,
-                "model": "mock-model",
-                "choices": [
-                    {
-                        "index": 0,
-                        "delta": {
-                            "role": "assistant",
-                            "content": _MOCK_LLM_RESPONSE,
-                        },
-                        "finish_reason": None,
-                    },
-                ],
-                "usage": None,
-            },
-        )
-        self.wfile.write(f"data: {chunk_content}\n\n".encode())
-        self.wfile.flush()
-
-        chunk_final = _json.dumps(
-            {
-                "id": "chatcmpl-mock",
-                "object": "chat.completion.chunk",
-                "created": 1700000000,
-                "model": "mock-model",
-                "choices": [
-                    {
-                        "index": 0,
-                        "delta": {},
-                        "finish_reason": "stop",
-                    },
-                ],
-                "usage": {
-                    "prompt_tokens": 10,
-                    "completion_tokens": 5,
-                    "total_tokens": 15,
-                },
-            },
-        )
-        self.wfile.write(f"data: {chunk_final}\n\n".encode())
-        self.wfile.flush()
-
-        self.wfile.write(b"data: [DONE]\n\n")
-        self.wfile.flush()
-
-    def _list_models(self):
-        self.send_response(200)
-        self.send_header("Content-Type", "application/json")
-        self.end_headers()
-        self.wfile.write(
-            _json.dumps(
-                {"data": [{"id": "mock-model", "object": "model"}]},
-            ).encode(),
-        )
-
-    def log_message(self, fmt, *args):
-        pass
 
 
 @pytest.fixture(scope="module")
 def mock_llm():
     """Start a module-scoped mock OpenAI server, yield (server, url)."""
-    srv = HTTPServer(("127.0.0.1", 0), _MockLLMHandler)
+    srv = HTTPServer(("127.0.0.1", 0), MockLLMHandler)
     srv.force_error = False
+    srv.force_tool_call = False
     port = srv.server_address[1]
     t = threading.Thread(target=srv.serve_forever, daemon=True)
     t.start()
@@ -583,54 +481,11 @@ def test_running_config_extra_fields_ignored(
 
 
 def _register_mock_provider(app_server, mock_llm_url):
-    """Register + activate mock LLM provider. Returns provider id."""
-    provider_id = "integ-mock-llm"
-    app_server.api_request(
-        "POST",
-        "/api/models/custom-providers",
-        json={
-            "id": provider_id,
-            "name": "Integration Mock",
-            "default_base_url": mock_llm_url,
-            "chat_model": "OpenAIChatModel",
-            "models": [
-                {"id": "mock-model", "name": "Mock Model"},
-            ],
-        },
-        timeout=_HTTP_TIMEOUT,
-    )
-    app_server.api_request(
-        "PUT",
-        f"/api/models/{provider_id}/config",
-        json={
-            "api_key": "test-key-mock",
-            "base_url": mock_llm_url,
-        },
-        timeout=_HTTP_TIMEOUT,
-    )
-    app_server.api_request(
-        "PUT",
-        "/api/models/active",
-        json={
-            "provider_id": provider_id,
-            "model": "mock-model",
-            "scope": "global",
-        },
-        timeout=_HTTP_TIMEOUT,
-    )
-    return provider_id
+    return register_mock_provider(app_server, mock_llm_url)
 
 
 def _unregister_mock_provider(app_server, provider_id):
-    """Best-effort cleanup of mock provider."""
-    try:
-        app_server.api_request(
-            "DELETE",
-            f"/api/models/custom-providers/{provider_id}",
-            timeout=_HTTP_TIMEOUT,
-        )
-    except Exception:
-        pass
+    unregister_mock_provider(app_server, provider_id)
 
 
 def _poll_inbox_heartbeat(
@@ -961,3 +816,142 @@ def test_heartbeat_inbox_delete_cleans_trace(
         assert trace_resp.status_code == 404
     finally:
         _teardown_heartbeat(app_server, ctx)
+
+
+@pytest.mark.integration
+@pytest.mark.p1
+def test_heartbeat_resilient_to_llm_error(
+    app_server,
+    mock_llm,  # pylint: disable=redefined-outer-name
+) -> None:
+    """Test purpose:
+    - Verify that a heartbeat run against a failing LLM (422) does
+      not crash and still creates a heartbeat_result inbox event.
+      Runner.stream_query() swallows LLM errors internally, so the
+      heartbeat completes normally even when the LLM returns errors.
+
+    Test flow:
+    1. Set mock LLM to force 422 errors.
+    2. Setup heartbeat with mock provider.
+    3. POST heartbeat/run.
+    4. Poll inbox for heartbeat_result event.
+    5. Assert the event was created (heartbeat did not crash).
+    6. Restore mock LLM to normal.
+
+    API endpoints:
+    - POST /api/agents/{agentId}/config/heartbeat/run
+    - GET /api/console/inbox/events
+    """
+    srv, mock_url = mock_llm
+    srv.force_error = False
+    ctx = _setup_heartbeat(app_server, mock_url)
+    srv.force_error = True
+    try:
+        run_resp = app_server.api_request(
+            "POST",
+            scoped("default", "/config/heartbeat/run"),
+            timeout=_HTTP_TIMEOUT,
+        )
+        assert run_resp.status_code == 200
+
+        events = _poll_inbox_heartbeat(
+            app_server,
+            time.time() + 30.0,
+            event_type="heartbeat_result",
+        )
+        assert len(events) >= 1, (
+            "Heartbeat should complete even with LLM errors: "
+            f"{app_server.logs_tail()}"
+        )
+
+        event = events[0]
+        assert event["source_type"] == "heartbeat"
+        assert event["event_type"] == "heartbeat_result"
+    finally:
+        srv.force_error = False
+        _teardown_heartbeat(app_server, ctx)
+
+
+@pytest.mark.integration
+@pytest.mark.p2
+def test_heartbeat_auto_schedule_fires(
+    app_server,
+    mock_llm,  # pylint: disable=redefined-outer-name
+) -> None:
+    """Test purpose:
+    - Verify that a heartbeat configured with every=60s fires
+      automatically via the scheduler without a manual POST run.
+
+    Test flow:
+    1. Setup heartbeat with every=60s.
+    2. Wait ~70s for the scheduler to fire.
+    3. Poll inbox for heartbeat_result event.
+    4. Assert event was created by the scheduler.
+
+    API endpoints:
+    - PUT /api/agents/{agentId}/config/heartbeat
+    - GET /api/console/inbox/events
+    """
+    srv, mock_url = mock_llm
+    srv.force_error = False
+    working_dir = app_server.working_dir
+    clean_inbox(working_dir)
+    unregister_mock_provider(
+        app_server,
+        MOCK_LLM_PROVIDER_ID,
+    )
+
+    provider_id = register_mock_provider(app_server, mock_url)
+
+    hb_before = app_server.api_request(
+        "GET",
+        scoped("default", "/config/heartbeat"),
+        timeout=_HTTP_TIMEOUT,
+    ).json()
+
+    ws_dir = Path(working_dir) / "workspaces" / "default"
+    hb_file = ws_dir / "HEARTBEAT.md"
+    ws_dir.mkdir(parents=True, exist_ok=True)
+    hb_original = hb_file.read_text("utf-8") if hb_file.exists() else None
+    hb_file.write_text(
+        "Auto-schedule heartbeat test query",
+        encoding="utf-8",
+    )
+
+    app_server.api_request(
+        "PUT",
+        scoped("default", "/config/heartbeat"),
+        json={
+            "enabled": True,
+            "target": "inbox",
+            "every": "60s",
+        },
+        timeout=_HTTP_TIMEOUT,
+    )
+
+    try:
+        events = _poll_inbox_heartbeat(
+            app_server,
+            time.time() + 80.0,
+            event_type="heartbeat_result",
+        )
+        assert len(events) >= 1, (
+            "No auto-scheduled heartbeat event after 80s: "
+            f"{app_server.logs_tail()}"
+        )
+        event = events[0]
+        assert event["source_type"] == "heartbeat"
+        assert event["event_type"] == "heartbeat_result"
+    finally:
+        clean_inbox(working_dir)
+        if hb_original is not None:
+            hb_file.write_text(hb_original, encoding="utf-8")
+        elif hb_file.exists():
+            hb_file.unlink()
+        app_server.api_request(
+            "PUT",
+            scoped("default", "/config/heartbeat"),
+            json=hb_before,
+            timeout=_HTTP_TIMEOUT,
+        )
+        unregister_mock_provider(app_server, provider_id)
