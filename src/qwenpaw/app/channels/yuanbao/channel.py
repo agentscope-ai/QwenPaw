@@ -12,11 +12,12 @@ import asyncio
 import json
 import logging
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 import aiohttp
 
 from agentscope_runtime.engine.schemas.agent_schemas import (
+    AudioContent,
     ContentType,
     FileContent,
     ImageContent,
@@ -39,6 +40,7 @@ from .codec import (
     CMD_TYPE_PUSH,
     CMD_TYPE_RESPONSE,
     build_auth_bind_msg,
+    build_heartbeat_msg,
     build_ping_msg,
     build_push_ack,
     build_send_c2c_msg,
@@ -53,6 +55,9 @@ from .constants import (
     AUTH_ALREADY_CODE,
     AUTH_FAILED_CODES,
     DEFAULT_API_DOMAIN,
+    HEARTBEAT_FINISH,
+    HEARTBEAT_RUNNING,
+    TYPING_KEEPALIVE_INTERVAL,
     DEFAULT_WS_URL,
     HEARTBEAT_INTERVAL,
     HEARTBEAT_TIMEOUT_THRESHOLD,
@@ -71,7 +76,34 @@ from .media import (
 )
 from .utils import download_media
 
+if TYPE_CHECKING:
+    from agentscope_runtime.engine.schemas.agent_schemas import AgentRequest
+
 logger = logging.getLogger(__name__)
+
+
+# File extensions treated as audio.  Files with these suffixes are wrapped
+# as ``AudioContent`` so they flow through the unified ASR pipeline; all
+# other suffixes fall back to ``FileContent``.
+_AUDIO_EXTS = frozenset(
+    {
+        ".mp3",
+        ".wav",
+        ".m4a",
+        ".ogg",
+        ".opus",
+        ".silk",
+        ".amr",
+        ".aac",
+        ".flac",
+    },
+)
+
+# Yuanbao ``cloud_custom_data.quote.type`` -> human-readable kind label.
+# 1 = text (desc carries text content)
+# 2 = image (desc empty)
+# 3 = file or audio (desc carries filename; routed by suffix below)
+_QUOTE_TYPE_LABEL = {1: "message", 2: "image", 3: "file"}
 
 
 def _short_id(raw_id: str) -> str:
@@ -118,6 +150,7 @@ class YuanbaoChannel(BaseChannel):
         require_mention: bool = True,
         access_control_dm: bool = False,
         access_control_group: bool = False,
+        accept_bot_messages: bool = False,
     ):
         super().__init__(
             process,
@@ -134,6 +167,7 @@ class YuanbaoChannel(BaseChannel):
             access_control_group=access_control_group,
         )
 
+        self.accept_bot_messages = accept_bot_messages
         self.enabled = enabled
         self.app_id = app_id
         self.app_secret = app_secret
@@ -185,9 +219,46 @@ class YuanbaoChannel(BaseChannel):
         # Track reconnect task to prevent GC
         self._reconnect_task: Optional[asyncio.Task] = None
 
+        # Typing indicator keepalive tasks: session_id → Task
+        self._typing_tasks: Dict[str, asyncio.Task] = {}
+
     # ------------------------------------------------------------------
     # Factory
     # ------------------------------------------------------------------
+
+    @classmethod
+    def from_env(
+        cls,
+        process: ProcessHandler,
+        on_reply_sent: OnReplySent = None,
+    ) -> "YuanbaoChannel":
+        import os
+
+        allow_from_env = os.getenv("YUANBAO_ALLOW_FROM", "")
+        allow_from = (
+            [s.strip() for s in allow_from_env.split(",") if s.strip()]
+            if allow_from_env
+            else []
+        )
+        return cls(
+            process=process,
+            enabled=os.getenv("YUANBAO_CHANNEL_ENABLED", "1") == "1",
+            app_id=os.getenv("YUANBAO_APP_ID", ""),
+            app_secret=os.getenv("YUANBAO_APP_SECRET", ""),
+            api_domain=os.getenv("YUANBAO_API_DOMAIN", DEFAULT_API_DOMAIN),
+            bot_prefix=os.getenv("YUANBAO_BOT_PREFIX", ""),
+            on_reply_sent=on_reply_sent,
+            dm_policy=os.getenv("YUANBAO_DM_POLICY", "open"),
+            group_policy=os.getenv("YUANBAO_GROUP_POLICY", "open"),
+            allow_from=allow_from,
+            deny_message=os.getenv("YUANBAO_DENY_MESSAGE", ""),
+            require_mention=os.getenv("YUANBAO_REQUIRE_MENTION", "1") == "1",
+            accept_bot_messages=os.getenv(
+                "YUANBAO_ACCEPT_BOT_MESSAGES",
+                "0",
+            )
+            == "1",
+        )
 
     @classmethod
     def from_config(
@@ -228,6 +299,9 @@ class YuanbaoChannel(BaseChannel):
                 access_control_group=bool(
                     config.get("access_control_group", False),
                 ),
+                accept_bot_messages=bool(
+                    config.get("accept_bot_messages", False),
+                ),
             )
 
         return cls(
@@ -253,6 +327,9 @@ class YuanbaoChannel(BaseChannel):
             ),
             access_control_group=bool(
                 getattr(config, "access_control_group", False),
+            ),
+            accept_bot_messages=bool(
+                getattr(config, "accept_bot_messages", False),
             ),
         )
 
@@ -709,7 +786,12 @@ class YuanbaoChannel(BaseChannel):
 
     @staticmethod
     def _normalize_inbound(data: dict) -> dict:
-        """Normalize inbound JSON — ensure msg_content is always a dict."""
+        """Normalize inbound JSON.
+
+        Ensures ``msg_content`` is always a dict and parses the
+        ``cloud_custom_data`` JSON string into a dict (used for quoted
+        message extraction downstream).
+        """
         msg_body = []
         for elem in data.get("msg_body", []):
             content = elem.get("msg_content", {})
@@ -727,8 +809,18 @@ class YuanbaoChannel(BaseChannel):
                 },
             )
 
+        ccd = data.get("cloud_custom_data", "")
+        if isinstance(ccd, str):
+            try:
+                ccd = json.loads(ccd) if ccd else {}
+            except (ValueError, TypeError):
+                ccd = {}
+        if not isinstance(ccd, dict):
+            ccd = {}
+
         normalized = dict(data)
         normalized["msg_body"] = msg_body
+        normalized["cloud_custom_data"] = ccd
         return normalized
 
     async def _handle_auth_failure(self) -> None:
@@ -774,6 +866,7 @@ class YuanbaoChannel(BaseChannel):
     # Inbound message handling
     # ------------------------------------------------------------------
 
+    # pylint: disable=too-many-branches
     async def _handle_chat_message(
         self,
         inbound: Dict[str, Any],
@@ -801,8 +894,10 @@ class YuanbaoChannel(BaseChannel):
         chat_type = "group" if is_group else "c2c"
         group_code = inbound.get("group_code", "") if is_group else ""
 
-        # Ignore messages from self
-        if raw_sender_id == self._bot_id:
+        # Filter bot messages unless accept_bot_messages is enabled.
+        # Yuanbao does not push the bot's own messages back, so there is
+        # no need to filter by self._bot_id here.
+        if not self.accept_bot_messages and self._is_bot_message(inbound):
             return
 
         # Parse content from msg_body
@@ -812,6 +907,37 @@ class YuanbaoChannel(BaseChannel):
         )
         if not content_parts:
             return
+
+        # Inject quoted-message prefix from cloud_custom_data.quote, if any.
+        # Yuanbao only provides desc/sender_* in quote payloads (no url/key,
+        # no API to fetch original), so we surface a textual placeholder
+        # so the model knows the kind/filename it is replying to.
+        #
+        # Aligns with wecom / dingtalk: prepend the placeholder to the first
+        # TextContent so quote + user input stay as one logical text block.
+        # Falls back to a standalone TextContent only when the message has
+        # no text part at all (e.g. quoting then sending only an image).
+        quote = (inbound.get("cloud_custom_data") or {}).get("quote")
+        if isinstance(quote, dict):
+            prefix = self._build_quoted_prefix(quote)
+            if prefix:
+                for i, part in enumerate(content_parts):
+                    if isinstance(part, TextContent):
+                        content_parts[i] = TextContent(
+                            type=ContentType.TEXT,
+                            text=f"{prefix}\n{part.text}",
+                        )
+                        break
+                else:
+                    content_parts.insert(
+                        0,
+                        TextContent(type=ContentType.TEXT, text=prefix),
+                    )
+                logger.info(
+                    "yuanbao quoted: type=%s desc_len=%s",
+                    quote.get("type"),
+                    len(quote.get("desc") or ""),
+                )
 
         # Build meta early so _check_group_mention can inspect it
         meta: Dict[str, Any] = {
@@ -896,12 +1022,51 @@ class YuanbaoChannel(BaseChannel):
             pass
         return False
 
-    async def _parse_msg_body(  # pylint: disable=too-many-branches,too-many-statements,unused-argument  # noqa: E501
+    def _is_bot_message(self, inbound: dict) -> bool:
+        """Return True if the inbound message was sent by a bot.
+
+        Two signals are used in combination:
+        1. ``from_account`` starts with ``bot_`` — the platform uses this
+           prefix for all custom bot accounts.
+        2. Any ``TIMTextElem`` carries a ``data`` field whose JSON payload
+           has ``elem_type == 1013`` — the platform attaches this structured
+           copy exclusively to bot-originated text messages.
+        """
+        if inbound.get("from_account", "").startswith("bot_"):
+            return True
+        for elem in inbound.get("msg_body", []):
+            if elem.get("msg_type") != "TIMTextElem":
+                continue
+            data_str = elem.get("msg_content", {}).get("data", "")
+            if not data_str:
+                continue
+            try:
+                parsed = json.loads(data_str)
+                if parsed.get("elem_type") == 1013:
+                    return True
+            except (ValueError, TypeError):
+                pass
+        return False
+
+    # pylint: disable=unused-argument,too-many-branches
+    async def _parse_msg_body(
         self,
         msg_body: List[dict],
         is_group: bool = False,
     ) -> tuple:
-        """Parse msg_body elements into content parts."""
+        """Parse msg_body elements into content parts.
+
+        Yuanbao only emits four element kinds in practice:
+          * ``TIMCustomElem`` (elem_type=1002) -- @mention tag
+          * ``TIMTextElem`` -- plain text
+          * ``TIMImageElem`` -- image with multi-resolution url array
+          * ``TIMFileElem`` -- generic file (incl. audio uploaded as file)
+
+        Audio is routed to :class:`AudioContent` based on the file-name
+        suffix so it joins the unified ASR pipeline.  Video / voice elem
+        types historically supported by TIM are not pushed by Yuanbao;
+        an ``unhandled msg_type`` warning is emitted as a safety net.
+        """
         parts: List[Any] = []
         bot_mentioned = False
 
@@ -919,127 +1084,130 @@ class YuanbaoChannel(BaseChannel):
 
             if msg_type == "TIMTextElem":
                 text = content.get("text", "").strip()
+                if text and self._bot_id:
+                    text = text.replace(f"@{self._bot_id}", "").strip()
                 if text:
-                    if self._bot_id:
-                        text = text.replace(
-                            f"@{self._bot_id}",
-                            "",
-                        ).strip()
-                    if text:
-                        parts.append(
-                            TextContent(
-                                type=ContentType.TEXT,
-                                text=text,
-                            ),
-                        )
+                    parts.append(
+                        TextContent(type=ContentType.TEXT, text=text),
+                    )
 
             elif msg_type == "TIMImageElem":
                 image_url = ""
-                for img_info in content.get(
-                    "image_info_array",
-                    [],
-                ):
+                for img_info in content.get("image_info_array", []):
                     if img_info.get("url"):
                         image_url = img_info["url"]
                         break
                 if not image_url:
                     image_url = content.get("url", "")
                 if image_url:
-                    resolved_url = await self._resolve_media_url(image_url)
-                    local_path = await download_media(
-                        resolved_url,
-                        self._media_dir,
+                    part = await self._download_and_wrap(
+                        image_url,
                         filename="image.jpg",
+                        kind="image",
                     )
-                    if local_path:
-                        file_uri = Path(local_path).resolve().as_uri()
-                        parts.append(
-                            ImageContent(
-                                type=ContentType.IMAGE,
-                                image_url=file_uri,
-                            ),
-                        )
-                    else:
-                        parts.append(
-                            ImageContent(
-                                type=ContentType.IMAGE,
-                                image_url=image_url,
-                            ),
-                        )
+                    if part is not None:
+                        parts.append(part)
 
             elif msg_type == "TIMFileElem":
                 file_url = content.get("url", "")
-                filename = content.get("file_name", "file")
+                filename = content.get("file_name", "file") or "file"
                 if file_url:
-                    resolved_url = await self._resolve_media_url(file_url)
-                    local_path = await download_media(
-                        resolved_url,
-                        self._media_dir,
+                    kind = self._classify_file(filename)
+                    part = await self._download_and_wrap(
+                        file_url,
                         filename=filename,
+                        kind=kind,
                     )
-                    if local_path:
-                        file_uri = Path(local_path).resolve().as_uri()
-                        parts.append(
-                            FileContent(
-                                type=ContentType.FILE,
-                                file_url=file_uri,
-                                filename=filename,
-                            ),
-                        )
-                    else:
-                        parts.append(
-                            FileContent(
-                                type=ContentType.FILE,
-                                file_url=file_url,
-                                filename=filename,
-                            ),
-                        )
+                    if part is not None:
+                        parts.append(part)
 
-            elif msg_type == "TIMVideoFileElem":
-                video_url = content.get("videoUrl", "") or content.get(
-                    "url",
-                    "",
+            else:
+                logger.warning(
+                    "yuanbao: unhandled msg_type=%s",
+                    msg_type,
                 )
-                video_name = (
-                    content.get("videoName", "video.mp4") or "video.mp4"
-                )
-                if video_url:
-                    resolved_url = await self._resolve_media_url(video_url)
-                    local_path = await download_media(
-                        resolved_url,
-                        self._media_dir,
-                        filename=video_name,
-                    )
-                    if local_path:
-                        file_uri = Path(local_path).resolve().as_uri()
-                        parts.append(
-                            FileContent(
-                                type=ContentType.FILE,
-                                file_url=file_uri,
-                                filename=video_name,
-                            ),
-                        )
-
-            elif msg_type == "TIMSoundElem":
-                sound_url = content.get("url", "")
-                if sound_url:
-                    resolved_url = await self._resolve_media_url(sound_url)
-                    local_path = await download_media(
-                        resolved_url,
-                        self._media_dir,
-                        filename="voice.wav",
-                    )
-                    if local_path:
-                        file_uri = Path(local_path).resolve().as_uri()
-                        parts.append(
-                            FileContent(
-                                type=ContentType.FILE,
-                                file_url=file_uri,
-                                filename="voice.wav",
-                            ),
-                        )
 
         return parts, bot_mentioned
+
+    @staticmethod
+    def _classify_file(filename: str) -> str:
+        """Classify a TIMFileElem payload as ``audio`` or ``file``.
+
+        Returns ``audio`` when the filename suffix is in :data:`_AUDIO_EXTS`,
+        otherwise ``file``.
+        """
+        if Path(filename).suffix.lower() in _AUDIO_EXTS:
+            return "audio"
+        return "file"
+
+    async def _download_and_wrap(
+        self,
+        url: str,
+        *,
+        filename: str,
+        kind: str,
+    ) -> Any | None:
+        """Resolve + download a media URL and wrap into a Content part.
+
+        On failure, returns a :class:`TextContent` placeholder such as
+        ``[image: download failed]`` so the model is still informed and
+        no expired CDN URL leaks downstream.
+        """
+        resolved_url = await self._resolve_media_url(url)
+        local_path = await download_media(
+            resolved_url,
+            self._media_dir,
+            filename=filename,
+        )
+        if not local_path:
+            return TextContent(
+                type=ContentType.TEXT,
+                text=f"[{kind}: download failed]",
+            )
+        file_uri = Path(local_path).resolve().as_uri()
+        if kind == "image":
+            return ImageContent(
+                type=ContentType.IMAGE,
+                image_url=file_uri,
+            )
+        if kind == "audio":
+            return AudioContent(
+                type=ContentType.AUDIO,
+                data=file_uri,
+            )
+        return FileContent(
+            type=ContentType.FILE,
+            file_url=file_uri,
+            filename=filename,
+        )
+
+    @staticmethod
+    def _build_quoted_prefix(quote: dict) -> Optional[str]:
+        """Render an inline placeholder for ``cloud_custom_data.quote``.
+
+        Yuanbao only includes ``id`` / ``desc`` / ``sender_*`` in quote
+        payloads (no url/key, no API to fetch the original message), so
+        this returns a plain bracketed text the model can read.
+
+        The placeholder tells the model:
+          * the **kind** of the quoted item (message / image / file / audio)
+          * the **filename** when the upstream provides one (type=3)
+        so the model can match it against earlier turns in history.
+        """
+        if not isinstance(quote, dict):
+            return None
+        qtype_raw = quote.get("type")
+        qtype = qtype_raw if isinstance(qtype_raw, int) else 0
+        desc = (quote.get("desc") or "").strip()
+        label = _QUOTE_TYPE_LABEL.get(qtype, "message")
+        # type=3 carries a filename in desc; use the same suffix set as
+        # _classify_file so wording stays consistent with non-quoted
+        # messages the model has already seen.
+        if qtype == 3 and desc and Path(desc).suffix.lower() in _AUDIO_EXTS:
+            label = "audio"
+        if desc:
+            return f"[quoted {label}: {desc}]"
+        return f"[quoted {label}]"
 
     def _prune_seen_ids(self) -> None:
         sorted_ids = sorted(
@@ -1095,6 +1263,106 @@ class YuanbaoChannel(BaseChannel):
                 path,
                 exc_info=True,
             )
+
+    # ------------------------------------------------------------------
+    # Typing indicator (heartbeat-based "Bot is typing…")
+    # ------------------------------------------------------------------
+
+    async def _send_typing_heartbeat(
+        self,
+        session_id: str,
+        heartbeat: int,
+    ) -> None:
+        """Send a single typing heartbeat for the given session."""
+        if not self._ws or not self._connected:
+            return
+
+        session_info = self._session_map.get(session_id, {})
+        if not session_info:
+            return
+
+        chat_type = session_info.get("chat_type", "c2c")
+        raw_sender_id = session_info.get("sender_id", "")
+        group_code = session_info.get("group_code", "")
+
+        result = build_heartbeat_msg(
+            from_account=self._bot_id,
+            to_account=raw_sender_id,
+            heartbeat=heartbeat,
+            group_code=group_code if chat_type == "group" else None,
+        )
+        if result is None:
+            return
+
+        raw, _msg_id = result
+        try:
+            await self._ws.send_bytes(raw)
+        except Exception as exc:
+            logger.debug("yuanbao: typing heartbeat send failed: %s", exc)
+
+    async def _typing_keepalive_loop(self, session_id: str) -> None:
+        """Periodically send HEARTBEAT_RUNNING until cancelled."""
+        try:
+            while True:
+                await self._send_typing_heartbeat(
+                    session_id,
+                    HEARTBEAT_RUNNING,
+                )
+                await asyncio.sleep(TYPING_KEEPALIVE_INTERVAL)
+        except asyncio.CancelledError:
+            pass
+
+    def _start_typing(self, session_id: str) -> None:
+        """Start typing indicator for a session (idempotent)."""
+        existing = self._typing_tasks.get(session_id)
+        if existing and not existing.done():
+            return
+        self._typing_tasks[session_id] = asyncio.create_task(
+            self._typing_keepalive_loop(session_id),
+        )
+
+    async def _stop_typing(self, session_id: str) -> None:
+        """Cancel typing keepalive and send HEARTBEAT_FINISH."""
+        task = self._typing_tasks.pop(session_id, None)
+        if task and not task.done():
+            task.cancel()
+            try:
+                await task
+            except (asyncio.CancelledError, Exception):
+                pass
+            await self._send_typing_heartbeat(session_id, HEARTBEAT_FINISH)
+
+    async def _before_consume_process(self, request: "AgentRequest") -> None:
+        """Start typing indicator before the agent processes the request."""
+        meta = getattr(request, "channel_meta", None) or {}
+        session_id = meta.get("session_id", "")
+        if not session_id:
+            return
+        self._start_typing(session_id)
+
+    async def _on_process_completed(
+        self,
+        request: "AgentRequest",
+        to_handle: str,
+        send_meta: Dict[str, Any],
+    ) -> None:
+        """Stop typing indicator after all processing is done."""
+        session_id = (getattr(request, "channel_meta", None) or {}).get(
+            "session_id",
+        ) or to_handle
+        await self._stop_typing(session_id)
+
+    async def _on_consume_error(
+        self,
+        request: Any,
+        to_handle: str,
+        err_text: str,
+    ) -> None:
+        """Stop typing indicator on error, then send error message."""
+        meta = getattr(request, "channel_meta", None) or {}
+        session_id = meta.get("session_id") or to_handle
+        await self._stop_typing(session_id)
+        await super()._on_consume_error(request, to_handle, err_text)
 
     # ------------------------------------------------------------------
     # Outgoing: send text / media
@@ -1455,6 +1723,12 @@ class YuanbaoChannel(BaseChannel):
         logger.info("yuanbao: stopping channel...")
         self._stopping = True
         self._connected = False
+
+        # Cancel all typing indicator tasks
+        for typing_task in self._typing_tasks.values():
+            if typing_task and not typing_task.done():
+                typing_task.cancel()
+        self._typing_tasks.clear()
 
         for task in (
             self._heartbeat_task,

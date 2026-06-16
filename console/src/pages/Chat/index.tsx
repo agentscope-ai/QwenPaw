@@ -28,12 +28,26 @@ import { useChatAnywhereInput } from "@agentscope-ai/chat";
 import styles from "./index.module.less";
 import { IconButton } from "@agentscope-ai/design";
 import ChatActionGroup from "./components/ChatActionGroup";
+import TurnUsageAction from "./components/TurnUsageAction";
+import { wrapChatResponseUsageStream } from "./turnUsage";
 import ChatHeaderTitle from "./components/ChatHeaderTitle";
 import ChatSessionInitializer from "./components/ChatSessionInitializer";
 import { ApprovalCard } from "../../components/ApprovalCard/ApprovalCard";
 import { commandsApi } from "../../api/modules/commands";
 import { useApprovalContext } from "../../contexts/ApprovalContext";
 import { planApi } from "../../api/modules/plan";
+import {
+  useChatScalarSnapshot,
+  useChatListSnapshot,
+} from "../../plugins/registry/useChatExtensions";
+import { PluginSlotBoundary } from "../../plugins/registry/PluginSlotBoundary";
+import {
+  resolveLocalized,
+  type WelcomeRenderProps,
+} from "../../plugins/registry/types";
+import { ChatScalar, ChatList } from "../../plugins/registry/slotKeys";
+import { HostRequestCard, HostResponseCard } from "./HostBubbles";
+import { withGenericFallback } from "../../components/Chat/ToolCards/adapters/v1Adapter";
 
 interface ApprovalMessageData {
   requestId: string;
@@ -66,6 +80,12 @@ import {
   type CopyableResponse,
   type RuntimeLoadingBridgeApi,
 } from "./utils";
+import {
+  getSessionIdFromPath,
+  buildBasePath,
+  buildSessionPath,
+  type SessionRouteMode,
+} from "../../utils/sessionRoute";
 import { openExternalLink } from "../../utils/openExternalLink";
 import { getLastEditorCopy } from "../Coding/lastEditorCopy";
 import { useUploadLimitStore } from "../../stores/uploadLimitStore";
@@ -151,6 +171,7 @@ function renderSuggestionLabel(command: string, description?: string) {
 
 const DEFAULT_USER_ID = "default";
 const DEFAULT_CHANNEL = "console";
+const WIDE_MODE_STORAGE_KEY = "qwenpaw_chat_wide_mode";
 
 function isSkillAvailableInConsole(skill: SkillSpec): boolean {
   if (!skill.enabled) return false;
@@ -221,6 +242,12 @@ function useIMEComposition(isChatActive: () => boolean) {
   }, [isChatActive]);
 
   return isComposingRef;
+}
+
+function sortByOrder<T extends { item: { order?: number } }>(arr: T[]): T[] {
+  return arr
+    .slice()
+    .sort((a, b) => (a.item.order ?? 100) - (b.item.order ?? 100));
 }
 
 /** Fetch and track multimodal capabilities for the active model. */
@@ -682,26 +709,67 @@ const timestampStyle: React.CSSProperties = {
 };
 
 export default function ChatPage() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const navigate = useNavigate();
   const location = useLocation();
   const { isDark } = useTheme();
   const { codingMode, initialized } = useCodingMode();
+  const codingModeRef = useRef(codingMode);
+  codingModeRef.current = codingMode;
 
-  // Redirect to /coding when coding mode is active
-  useEffect(() => {
-    if (initialized && codingMode) {
-      navigate("/coding", { replace: true });
+  // Wide mode toggle: expand chat content to full available width
+  const [isWideMode, setIsWideMode] = useState(() => {
+    try {
+      return localStorage.getItem(WIDE_MODE_STORAGE_KEY) === "true";
+    } catch {
+      return false;
     }
-  }, [initialized, codingMode, navigate]);
+  });
+  const toggleWideMode = useCallback(() => {
+    setIsWideMode((prev) => {
+      const next = !prev;
+      try {
+        if (next) {
+          localStorage.setItem(WIDE_MODE_STORAGE_KEY, "true");
+        } else {
+          localStorage.removeItem(WIDE_MODE_STORAGE_KEY);
+        }
+      } catch {
+        // storage unavailable
+      }
+      return next;
+    });
+  }, []);
 
-  const chatId = useMemo(() => {
-    const match = location.pathname.match(/^\/chat\/(.+)$/);
-    return match?.[1];
-  }, [location.pathname]);
+  // Redirect to /coding when coding mode is active, preserving sessionId.
+  useEffect(() => {
+    if (initialized && codingMode && !location.pathname.startsWith("/coding")) {
+      // Issue #5142: Carry over the current chatId so the session survives
+      // the redirect from /chat/<id> to /coding/<id>.
+      const currentChatId = getSessionIdFromPath(location.pathname);
+      navigate(buildSessionPath("coding", currentChatId), {
+        replace: true,
+      });
+    }
+  }, [initialized, codingMode, navigate, location.pathname]);
+
+  const chatId = useMemo(
+    () => getSessionIdFromPath(location.pathname),
+    [location.pathname],
+  );
   const [showModelPrompt, setShowModelPrompt] = useState(false);
+  const [rateLimitAlternatives, setRateLimitAlternatives] = useState<
+    Array<{
+      provider_id: string;
+      provider_name: string;
+      model_id: string;
+      model_name: string;
+    }>
+  >([]);
   const { selectedAgent } = useAgentStore();
   const { toolRenderConfig } = usePlugins();
+  const extScalar = useChatScalarSnapshot();
+  const extLists = useChatListSnapshot();
   const [refreshKey, setRefreshKey] = useState(0);
   const runtimeLoadingBridgeRef = useRef<RuntimeLoadingBridgeApi | null>(null);
   const { message } = useAppMessage();
@@ -751,8 +819,12 @@ export default function ChatPage() {
   }, [selectedAgent]);
 
   const isChatActiveRef = useRef(false);
+  // Issue #5142: In Coding mode the Chat component is embedded under /coding/*,
+  // so session callbacks must also fire on /coding paths.
   isChatActiveRef.current =
-    location.pathname === "/" || location.pathname.startsWith("/chat");
+    location.pathname === "/" ||
+    location.pathname.startsWith("/chat") ||
+    location.pathname.startsWith("/coding");
 
   const isChatActive = useCallback(() => isChatActiveRef.current, []);
 
@@ -1019,12 +1091,18 @@ export default function ChatPage() {
   // Register session API event callbacks for URL synchronization
 
   useEffect(() => {
-    sessionApi.onSessionIdResolved = (realId) => {
+    const getCurrentRouteMode = (): SessionRouteMode =>
+      codingModeRef.current ? "coding" : "chat";
+
+    const buildCurrentSessionPath = (sessionId: string) =>
+      buildSessionPath(getCurrentRouteMode(), sessionId);
+
+    const buildCurrentBasePath = () => buildBasePath(getCurrentRouteMode());
+
+    sessionApi.onSessionIdResolved = (_tempId, realId) => {
       if (!isChatActiveRef.current) return;
-      // Update URL when realId is resolved, regardless of current chatId
-      // (chatId may be undefined if URL was cleared in onSessionCreated)
       lastSessionIdRef.current = realId;
-      navigateRef.current(`/chat/${realId}`, { replace: true });
+      navigateRef.current(buildCurrentSessionPath(realId), { replace: true });
     };
 
     sessionApi.onSessionRemoved = (removedId) => {
@@ -1036,7 +1114,7 @@ export default function ChatPage() {
       );
       if (chatIdRef.current === removedId || currentRealId === removedId) {
         lastSessionIdRef.current = null;
-        navigateRef.current("/chat", { replace: true });
+        navigateRef.current(buildCurrentBasePath(), { replace: true });
       }
     };
 
@@ -1081,7 +1159,9 @@ export default function ChatPage() {
       if (targetId !== lastSessionIdRef.current) {
         lastSessionIdRef.current = targetId;
         sessionApi.lastNavigatedChatId = targetId;
-        navigateRef.current(`/chat/${targetId}`, { replace: true });
+        navigateRef.current(buildCurrentSessionPath(targetId), {
+          replace: true,
+        });
       }
     };
 
@@ -1089,7 +1169,7 @@ export default function ChatPage() {
       if (!isChatActiveRef.current) return;
       // Clear URL when creating new session, wait for realId resolution to update
       lastSessionIdRef.current = null;
-      navigateRef.current("/chat", { replace: true });
+      navigateRef.current(buildCurrentBasePath(), { replace: true });
     };
 
     return () => {
@@ -1118,7 +1198,9 @@ export default function ChatPage() {
       // Restore last chat ID for the agent we're switching to
       const restored = getLastChatId(selectedAgent);
       if (restored) {
-        navigateRef.current(`/chat/${restored}`, { replace: true });
+        navigateRef.current(buildSessionPath("chat", restored), {
+          replace: true,
+        });
         sessionApi.preferredChatId = restored;
       } else {
         navigateRef.current("/chat", { replace: true });
@@ -1184,7 +1266,7 @@ export default function ChatPage() {
             ]
           : lastInput;
 
-      const requestBody = {
+      let requestBody: Record<string, unknown> = {
         input: rewrittenInput,
         session_id: window.currentSessionId || session?.session_id || "",
         user_id: window.currentUserId || session?.user_id || DEFAULT_USER_ID,
@@ -1193,10 +1275,23 @@ export default function ChatPage() {
         ...biz_params,
       };
 
+      for (const entry of sortByOrder(
+        extLists[ChatList.requestPayloadTransforms],
+      )) {
+        const next = entry.item.transform({
+          payload: requestBody,
+          sessionId: String(requestBody.session_id || ""),
+          selectedAgent,
+        });
+        if (next && typeof next === "object") {
+          requestBody = next;
+        }
+      }
+
       const backendChatId =
-        sessionApi.getRealIdForSession(requestBody.session_id) ??
+        sessionApi.getRealIdForSession(String(requestBody.session_id || "")) ??
         chatIdRef.current ??
-        requestBody.session_id;
+        String(requestBody.session_id || "");
       if (backendChatId) {
         const userText = rewrittenInput
           .filter((m: any) => m.role === "user")
@@ -1215,9 +1310,9 @@ export default function ChatPage() {
         signal: data.signal,
       });
 
-      return response;
+      return wrapChatResponseUsageStream(response, chatRef);
     },
-    [selectedAgent],
+    [extLists, selectedAgent],
   );
 
   const handleFileUpload = useCallback(
@@ -1305,8 +1400,6 @@ export default function ChatPage() {
         value: skill.name,
         description: "",
       }));
-    const senderSuggestions = [...commandSuggestions, ...skillSuggestions];
-
     const handleBeforeSubmit = async () => {
       if (isComposingRef.current) return false;
       localStorage.removeItem(getDraftStorageKey(selectedAgent));
@@ -1314,14 +1407,195 @@ export default function ChatPage() {
       return true;
     };
 
+    // ── Resolve plugin extension snapshots ────────────────────────────────
+    const locale = i18n.language;
+    const extGreeting = resolveLocalized(
+      extScalar[ChatScalar.welcomeGreeting]?.value,
+      locale,
+    );
+    const extDescription = resolveLocalized(
+      extScalar[ChatScalar.welcomeDescription]?.value,
+      locale,
+    );
+    const extAvatar = resolveLocalized(
+      extScalar[ChatScalar.welcomeAvatar]?.value,
+      locale,
+    );
+    const extNick = resolveLocalized(
+      extScalar[ChatScalar.welcomeNick]?.value,
+      locale,
+    );
+    const extPrompts = resolveLocalized(
+      extScalar[ChatScalar.welcomePrompts]?.value,
+      locale,
+    );
+    const extLeftTitle = resolveLocalized(
+      extScalar[ChatScalar.headerLeftTitle]?.value,
+      locale,
+    );
+    const extLeftLogo = resolveLocalized(
+      extScalar[ChatScalar.headerLeftLogo]?.value,
+      locale,
+    );
+    const extColorPrimary = extScalar[ChatScalar.themeColorPrimary]?.value;
+    const extPlaceholder = resolveLocalized(
+      extScalar[ChatScalar.senderPlaceholder]?.value,
+      locale,
+    );
+    const extDisclaimer = resolveLocalized(
+      extScalar[ChatScalar.senderDisclaimer]?.value,
+      locale,
+    );
+
+    // Whole-section render overrides (plugin can fully replace welcome / leftHeader)
+    const extWelcomeRenderEntry = extScalar[ChatScalar.welcomeRender];
+    const extWelcomeRender = extWelcomeRenderEntry?.value;
+    const extLeftHeaderRenderEntry =
+      extScalar[ChatScalar.headerLeftHeaderRender];
+    const extLeftHeaderRender = extLeftHeaderRenderEntry?.value;
+
+    const wrappedWelcomeRender = extWelcomeRender
+      ? (props: WelcomeRenderProps) => (
+          <PluginSlotBoundary
+            slot={ChatScalar.welcomeRender}
+            pluginId={extWelcomeRenderEntry!.pluginId}
+          >
+            {extWelcomeRender(props)}
+          </PluginSlotBoundary>
+        )
+      : undefined;
+
+    const pluginRightHeader = sortByOrder(extLists[ChatList.rightHeader]).map(
+      (e) => (
+        <PluginSlotBoundary
+          key={e.item.id}
+          slot={ChatList.rightHeader}
+          pluginId={e.pluginId}
+        >
+          {e.item.node}
+        </PluginSlotBoundary>
+      ),
+    );
+    const pluginSenderPrefix = sortByOrder(extLists[ChatList.senderPrefix]).map(
+      (e) => (
+        <PluginSlotBoundary
+          key={e.item.id}
+          slot={ChatList.senderPrefix}
+          pluginId={e.pluginId}
+        >
+          {e.item.node}
+        </PluginSlotBoundary>
+      ),
+    );
+    const pluginSuggestions = extLists[ChatList.senderSuggestions].flatMap(
+      (e) => {
+        const resolved = resolveLocalized(e.item.items, locale) ?? [];
+        return resolved.map((s) => ({ label: s.label, value: s.value }));
+      },
+    );
+
+    const wrapActionSpec = (
+      pluginId: string,
+      slot: string,
+      spec: { id: string; icon?: any; render?: any; onClick?: any },
+    ) => ({
+      icon: spec.icon,
+      render: spec.render
+        ? (ctx: { data: unknown }) => (
+            <PluginSlotBoundary slot={slot} pluginId={pluginId}>
+              {spec.render!(ctx)}
+            </PluginSlotBoundary>
+          )
+        : undefined,
+      onClick: spec.onClick
+        ? (ctx: { data: unknown }) => {
+            try {
+              spec.onClick!(ctx);
+            } catch (err) {
+              console.error(
+                `[plugin:${pluginId}] action ${spec.id} onClick threw:`,
+                err,
+              );
+            }
+          }
+        : undefined,
+    });
+
+    const pluginActions = extLists[ChatList.actions].map((e) =>
+      wrapActionSpec(e.pluginId, ChatList.actions, e.item.item),
+    );
+    const pluginRequestActions = extLists[ChatList.requestActions].map((e) =>
+      wrapActionSpec(e.pluginId, ChatList.requestActions, e.item.item),
+    );
+
+    const wrapToolFC = (
+      pluginId: string,
+      toolName: string,
+      FC: React.FC<any>,
+    ) => {
+      const Wrapped: React.FC<any> = (props) => (
+        <PluginSlotBoundary
+          slot={`customToolRender:${toolName}`}
+          pluginId={pluginId}
+        >
+          <FC {...props} />
+        </PluginSlotBoundary>
+      );
+      return Wrapped;
+    };
+    const pluginToolRenderers: Record<string, React.FC<any>> = {};
+    for (const e of extLists[ChatList.customToolRender]) {
+      pluginToolRenderers[e.item.toolName] = wrapToolFC(
+        e.pluginId,
+        e.item.toolName,
+        e.item.render,
+      );
+    }
+    const mergedToolRenderers: Record<string, React.FC<any>> = {
+      ...toolRenderConfig,
+      ...pluginToolRenderers,
+    };
+
+    const pluginCards: Record<string, React.FC<any>> = {};
+    for (const e of extLists[ChatList.cards]) {
+      pluginCards[e.item.cardName] = wrapToolFC(
+        e.pluginId,
+        e.item.cardName,
+        e.item.render,
+      );
+    }
+
+    const baseSuggestions = [...commandSuggestions, ...skillSuggestions].map(
+      (item) => ({
+        label: renderSuggestionLabel(item.command, item.description),
+        value: item.value,
+      }),
+    );
+
+    // leftHeader: whole-section render wins, otherwise partial merge {logo, title}.
+    const mergedLeftHeader: any =
+      extLeftHeaderRender !== undefined ? (
+        <PluginSlotBoundary
+          slot={ChatScalar.headerLeftHeaderRender}
+          pluginId={extLeftHeaderRenderEntry!.pluginId}
+        >
+          {extLeftHeaderRender}
+        </PluginSlotBoundary>
+      ) : (
+        {
+          ...defaultConfig.theme.leftHeader,
+          ...(extLeftTitle !== undefined ? { title: extLeftTitle } : {}),
+          ...(extLeftLogo !== undefined ? { logo: extLeftLogo } : {}),
+        }
+      );
+
     return {
       ...i18nConfig,
       theme: {
         ...defaultConfig.theme,
         darkMode: isDark,
-        leftHeader: {
-          ...defaultConfig.theme.leftHeader,
-        },
+        ...(extColorPrimary ? { colorPrimary: extColorPrimary } : {}),
+        leftHeader: mergedLeftHeader,
         rightHeader: (
           <>
             <ChatSessionInitializer />
@@ -1329,25 +1603,43 @@ export default function ChatPage() {
             <ChatHeaderTitle />
             <span style={{ flex: 1 }} />
             <ModelSelector />
-            <ChatActionGroup planEnabled={planEnabled} />
+            <ChatActionGroup
+              planEnabled={planEnabled}
+              isWideMode={isWideMode}
+              onToggleWideMode={toggleWideMode}
+            />
+            {pluginRightHeader}
           </>
         ),
       },
       welcome: {
         ...i18nConfig.welcome,
-        nick: "QwenPaw",
-        avatar: "/qwenpaw.png",
+        nick: extNick ?? "QwenPaw",
+        avatar: extAvatar ?? "/qwenpaw.png",
+        ...(extGreeting !== undefined ? { greeting: extGreeting } : {}),
+        ...(extDescription !== undefined
+          ? { description: extDescription }
+          : {}),
+        ...(extPrompts !== undefined ? { prompts: extPrompts } : {}),
+        // SDK uses `render` if present and ignores the other fields.
+        ...(wrappedWelcomeRender ? { render: wrappedWelcomeRender } : {}),
       },
       sender: {
         ...(i18nConfig as any)?.sender,
         beforeSubmit: handleBeforeSubmit,
         allowSpeech: whisperChecked && !whisperEnabled,
-        prefix: whisperEnabled ? (
-          <WhisperSpeechButton
-            ref={whisperSpeechRef}
-            onTranscription={handleWhisperTranscription}
-          />
-        ) : undefined,
+        prefix:
+          whisperEnabled || pluginSenderPrefix.length > 0 ? (
+            <>
+              {whisperEnabled ? (
+                <WhisperSpeechButton
+                  ref={whisperSpeechRef}
+                  onTranscription={handleWhisperTranscription}
+                />
+              ) : null}
+              {pluginSenderPrefix}
+            </>
+          ) : undefined,
         attachments: {
           multiple: true,
           trigger: function (props: any) {
@@ -1375,11 +1667,9 @@ export default function ChatPage() {
           },
           customRequest: handleFileUpload,
         },
-        placeholder: t("chat.inputPlaceholder"),
-        suggestions: senderSuggestions.map((item) => ({
-          label: renderSuggestionLabel(item.command, item.description),
-          value: item.value,
-        })),
+        placeholder: extPlaceholder ?? t("chat.inputPlaceholder"),
+        ...(extDisclaimer !== undefined ? { disclaimer: extDisclaimer } : {}),
+        suggestions: [...baseSuggestions, ...pluginSuggestions],
       },
       session: {
         multiple: true,
@@ -1391,6 +1681,18 @@ export default function ChatPage() {
         fetch: customFetch,
         responseParser: (chunk: string) => {
           const payload = JSON.parse(chunk) as Record<string, unknown>;
+
+          if (payload.type === "turn_usage") {
+            return null;
+          }
+
+          if (payload.type === "rate_limited") {
+            const alts =
+              (payload.alternatives as typeof rateLimitAlternatives) || [];
+            setRateLimitAlternatives(alts);
+            message.warning(t("chat.rateLimitHit"));
+            return null;
+          }
 
           if (payloadRequestsHistoryClear(payload)) {
             pendingClearHistoryRef.current = true;
@@ -1420,23 +1722,40 @@ export default function ChatPage() {
             ...buildAuthHeaders(),
           };
 
-          return fetch(getApiUrl("/console/chat"), {
+          const sessionId = window.currentSessionId || data.session_id;
+          const response = await fetch(getApiUrl("/console/chat"), {
             method: "POST",
             headers,
             body: JSON.stringify({
               reconnect: true,
-              session_id: window.currentSessionId || data.session_id,
+              session_id: sessionId,
               user_id: window.currentUserId || DEFAULT_USER_ID,
               channel: window.currentChannel || DEFAULT_CHANNEL,
             }),
             signal: data.signal,
           });
+
+          return wrapChatResponseUsageStream(response, chatRef);
         },
       },
-      customToolRenderConfig:
-        Object.keys(toolRenderConfig).length > 0 ? toolRenderConfig : undefined,
+      customToolRenderConfig: withGenericFallback(mergedToolRenderers),
+      cards: {
+        // Host wrappers that delegate to vendor defaults when no plugin
+        // request/response render/prepend/append is registered — and
+        // compose plugin slots otherwise.
+        AgentScopeRuntimeRequestCard: HostRequestCard,
+        AgentScopeRuntimeResponseCard: HostResponseCard,
+        ...pluginCards,
+      },
       actions: {
         list: [
+          {
+            render: ({
+              data,
+            }: {
+              data: { data?: Record<string, unknown> };
+            }) => <TurnUsageAction data={data} />,
+          },
           {
             icon: (
               <span title={t("common.copy")}>
@@ -1460,6 +1779,7 @@ export default function ChatPage() {
               );
             },
           },
+          ...pluginActions,
         ],
         replace: true,
       },
@@ -1488,6 +1808,7 @@ export default function ChatPage() {
               }
             },
           },
+          ...pluginRequestActions,
         ],
       },
     } as unknown as IAgentScopeRuntimeWebUIOptions;
@@ -1496,9 +1817,12 @@ export default function ChatPage() {
     copyResponse,
     handleFileUpload,
     t,
+    i18n.language,
     isDark,
     multimodalCaps,
     toolRenderConfig,
+    extScalar,
+    extLists,
     scheduleHistoryClear,
     planEnabled,
     consoleSkills,
@@ -1507,6 +1831,8 @@ export default function ChatPage() {
     whisperChecked,
     whisperEnabled,
     handleWhisperTranscription,
+    isWideMode,
+    toggleWideMode,
   ]);
 
   return (
@@ -1518,13 +1844,63 @@ export default function ChatPage() {
         flexDirection: "column",
       }}
     >
-      <div className={styles.chatMessagesArea}>
+      <div
+        className={
+          isWideMode
+            ? `${styles.chatMessagesArea} ${styles.wideMode}`
+            : styles.chatMessagesArea
+        }
+      >
         <AgentScopeRuntimeWebUI
           ref={chatRef}
           key={refreshKey}
           options={options}
         />
       </div>
+
+      {/* Rate-limit guidance banner */}
+      {rateLimitAlternatives.length > 0 && (
+        <div className={styles.rateLimitBanner}>
+          <span className={styles.rateLimitText}>
+            {t("chat.rateLimitMessage")}
+          </span>
+          <div className={styles.rateLimitActions}>
+            {rateLimitAlternatives.slice(0, 3).map((alt) => (
+              <Button
+                key={`${alt.provider_id}/${alt.model_id}`}
+                size="small"
+                type="default"
+                onClick={async () => {
+                  try {
+                    await providerApi.setActiveLlm({
+                      provider_id: alt.provider_id,
+                      model: alt.model_id,
+                      scope: "agent",
+                      agent_id: selectedAgent,
+                    });
+                    window.dispatchEvent(new CustomEvent("model-switched"));
+                    message.success(
+                      t("chat.rateLimitSwitched", { model: alt.model_name }),
+                    );
+                    setRateLimitAlternatives([]);
+                  } catch {
+                    message.error(t("modelSelector.switchFailed"));
+                  }
+                }}
+              >
+                {alt.model_name}
+              </Button>
+            ))}
+            <Button
+              size="small"
+              type="link"
+              onClick={() => setRateLimitAlternatives([])}
+            >
+              {t("common.close")}
+            </Button>
+          </div>
+        </div>
+      )}
 
       {/* Render approval cards as overlays */}
       {Array.from(approvalRequests.values()).map((request) => (

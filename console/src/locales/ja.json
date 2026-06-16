@@ -320,6 +320,8 @@
     "broadcast": "ブロードキャスト",
     "broadcastHint": "スキルプールのスキルを全てまたは選択したワークスペースにブロードキャスト",
     "refreshHint": "ディスクからスキルプールを更新",
+    "deleteExternalConfirm": "外部スキルのファイル {{path}} をディスクから削除します。",
+    "deleteExternalBatchWarning": "選択した外部スキルはディスクから完全に削除されます。",
     "broadcastTitle": "{{name}} をブロードキャスト",
     "importBuiltin": "ビルトインを取り込む",
     "importBuiltinHint": "ソースからビルトインスキルをプールに取り込みます",
@@ -997,11 +999,29 @@
   "modelSelector": {
     "selectModel": "モデルを選択",
     "noConfiguredModels": "設定済みモデルがありません",
+    "noFreeModels": "利用可能な無料モデルがありません",
     "switchFailed": "モデルの切り替えに失敗しました",
     "searchModels": "モデルを検索...",
     "noModelsFound": "一致するモデルが見つかりません",
     "free": "無料",
-    "vision": "視覚"
+    "vision": "視覚",
+    "freeBannerText": "無料モデルには利用制限やサービス不安定の可能性があります。詳細はプロバイダーをご確認ください。",
+    "moreProviders": "その他の無料プロバイダー（API Key が必要）",
+    "proBannerText": "設定ページで構成済みのモデルのみ表示。",
+    "connectToUse": "{{provider}} に接続して無料モデルを利用",
+    "configureApiKey": "{{provider}} の API Key を設定して無料モデルを利用",
+    "configureApiKeyTitle": "設定ページへ移動",
+    "configureApiKeyConfirm": "モデル設定ページに移動して {{provider}} の API Key を設定します。続行しますか？",
+    "goToConfigure": "設定へ",
+    "noModelsDiscovered": "接続済み。モデル読み込み中...",
+    "oauthTitle": "{{provider}} に接続",
+    "oauthDescription": "{{provider}} への認証用に新しいブラウザウィンドウが開きます。APIキーは自動的に保存されます。",
+    "oauthContinue": "続行",
+    "oauthWaiting": "認証を待機中...",
+    "oauthWaitingDescription": "ブラウザウィンドウで認証を完了してください。",
+    "oauthConnected": "{{provider}} に正常に接続しました",
+    "oauthFailed": "認証に失敗しました。もう一度お試しください",
+    "viewMore": "もっと見る ({{count}})"
   },
   "models": {
     "llmConfiguration": "LLM設定",
@@ -1074,8 +1094,8 @@
     "selectModel": "モデルを選択",
     "llmModelUpdated": "LLMモデルを更新しました",
     "failedToSave": "保存に失敗しました",
-    "freeModelWarningTitle": "無料モデルのリスク警告",
-    "freeModelWarningMessage": "無料モデルを使用しています。安定性やプライバシー漏えいのリスクがある可能性があります。詳細は以下のリンクを参照してください。",
+    "freeModelWarningTitle": "無料モデルのご案内",
+    "freeModelWarningMessage": "無料モデルはサービスが不安定になる場合があります。詳細はプロバイダーの利用規約をご確認ください：",
     "freeModelWarningDontShowAgain": "今後は表示しない",
     "saved": "保存しました",
     "save": "保存",
@@ -1083,6 +1103,7 @@
     "loading": "読み込み中...",
     "retry": "再試行",
     "notSet": "未設定",
+    "notRequired": "不要",
     "available": "利用可能",
     "unavailable": "利用不可",
     "providerAvailable": "準備完了（モデルあり）",
@@ -1095,6 +1116,12 @@
     "actions": "操作",
     "custom": "カスタム",
     "builtin": "組み込み",
+    "freeTierGroup": "無料枠",
+    "paidGroup": "有料",
+    "localCustomGroup": "ローカル & カスタム",
+    "endpointCount": "{{count}} エンドポイント",
+    "connect": "OAuth",
+    "saveApiKey": "保存",
     "addProvider": "プロバイダーを追加",
     "addProviderTitle": "カスタムプロバイダーを追加",
     "providerIdLabel": "プロバイダーID",
@@ -1136,6 +1163,7 @@
     "removeModelConfirm": "{{provider}} からモデル \"{{name}}\" を削除しますか？",
     "modelRemoved": "モデル \"{{name}}\" を削除しました",
     "modelRemoveFailed": "モデルの削除に失敗しました",
+    "loadMore": "もっと読み込む ({{count}})",
     "modelsCount": "{{count}} モデル",
     "noModels": "モデルなし",
     "addModelFirst": "先にモデルを追加してください",
@@ -1577,6 +1605,8 @@
     "newChatTooltip": "新しいチャット",
     "searchTooltip": "すべてのチャットを検索",
     "chatHistoryTooltip": "チャット履歴",
+    "wideModeTooltip": "ワイドモード",
+    "normalModeTooltip": "標準モード",
     "allChats": "すべてのチャット",
     "createNewChat": "新しいチャットを作成",
     "pinDrawer": "固定",
@@ -1623,6 +1653,17 @@
       "imageOnlyAccept": "現在のモデルは画像ファイルのみ対応しています",
       "imageOnlyWarning": "現在のモデルは画像のみ対応しています。動画などの非画像ファイルは正しく処理されない場合があります"
     },
+    "rateLimitHit": "現在のモデルがレート制限されています。他の無料モデルに切り替えてみてください。",
+    "turnUsagePopover": {
+      "ariaLabel": "このターンのトークンとコンテキスト使用量を表示",
+      "turn": "このターン",
+      "turnEstimated": "このターン約",
+      "tok": "tok",
+      "inOut": "入力 {{inTok}} · 出力 {{outTok}}",
+      "contextLabel": "コンテキストウィンドウ："
+    },
+    "rateLimitMessage": "レート制限に達しました。他の無料モデルに切り替え：",
+    "rateLimitSwitched": "{{model}} に切り替えました",
     "speech": {
       "startRecording": "音声録音を開始 (Ctrl+Shift+M)",
       "stopRecording": "録音を停止 (Ctrl+Shift+M)",
@@ -1759,7 +1800,9 @@
       "duplicate": "このパスは既にリストに存在します",
       "saveSuccess": "ファイルガード設定を保存しました",
       "saveFailed": "ファイルガード設定の保存に失敗しました",
-      "loadFailed": "ファイルガード設定の読み込みに失敗しました"
+      "loadFailed": "ファイルガード設定の読み込みに失敗しました",
+      "allowPreviewOutsideWorkspace": "コンソールでワークスペース外ファイルのプレビューを許可",
+      "allowPreviewOutsideWorkspaceDesc": "コンソールでワークスペースディレクトリ外のファイルをプレビューできるようにします。機密ファイル保護は引き続き有効です。"
     },
     "allowNoAuthHosts": {
       "title": "認証不要ホスト",
@@ -2127,7 +2170,18 @@
     "kindBundle": "バンドル",
     "kindTool": "ツール",
     "filterByName": "名前で絞り込み",
-    "filterByKind": "タグで絞り込み"
+    "filterByKind": "タグで絞り込み",
+    "marketTitle": "Plugin Market",
+    "marketEmpty": "No plugins found in market",
+    "marketLoadFailed": "Failed to load plugin market",
+    "marketUnavailable": "Plugin Market is currently under maintenance, please try again later",
+    "marketAll": "All",
+    "marketSearch": "Search plugins...",
+    "marketCategory": "Filter by category",
+    "marketSearchResult": "Found {{count}} plugins matching \"{{keyword}}\"",
+    "marketDetails": "Details",
+    "marketDownloads": "Downloads",
+    "marketDeveloper": "Developer"
   },
   "plan": {
     "title": "プラン",
@@ -2257,9 +2311,12 @@
   },
   "market": {
     "searchPlaceholder": "プラットフォームを横断してスキルを検索",
+    "categoryAll": "すべて",
+    "searchResult": "「{{keyword}}」に一致するスキルが {{count}} 件見つかりました",
     "providerUnavailable": "ソースが利用できません",
     "noResults": "結果が見つかりません",
     "startTyping": "上の検索ボックスにキーワードを入力してスキルを探します",
+    "browseHint": "{{providers}} のスキルを閲覧するには、カテゴリを選択するかキーワードを入力してください",
     "noDescription": "説明はありません",
     "targetPool": "プール",
     "targetWorkspace": "ワークスペース",
@@ -2306,5 +2363,15 @@
     "timeout": "{{seconds}} 秒以内にバックエンドの起動に失敗しました。",
     "timeoutHint": "バックエンドの起動に失敗しました。再試行するか、アプリケーションのログを確認してください。",
     "retry": "再試行"
+  },
+  "preview": {
+    "error": {
+      "SENSITIVE_FILE_BLOCKED": "このファイルはファイルガードによりブロックされています（機密ファイル保護）。",
+      "OUTSIDE_WORKSPACE": "このファイルはワークスペースの範囲外です。設定 → セキュリティ → ファイルガード で「コンソールでワークスペース外ファイルのプレビューを許可」を有効にしてください。",
+      "FORBIDDEN": "アクセス拒否：このファイルをプレビューする権限がありません。",
+      "NOT_FOUND": "ファイルが見つかりません。移動または削除された可能性があります。",
+      "LOAD_FAILED": "ファイルプレビューの読み込みに失敗しました。",
+      "LOAD_FAILED_DETAIL": "ファイルプレビューの読み込みに失敗しました: {{detail}}"
+    }
   }
 }

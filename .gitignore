@@ -31,6 +31,7 @@ dist/
 .wheelshim/
 # Console frontend build (generated in Docker/CI, do not commit)
 console/.cursor/
+console/.wiki/
 src/qwenpaw/console/dist/
 src/qwenpaw/console/
 
@@ -124,15 +125,24 @@ src/.hypothesis/
 # Cursor IDE
 .cursor/
 
+# Codex IDE
+.codex/
+
 # Worktrees
 .worktrees/
 .qwenpaw/worktrees/
 
 # Local File
 /localfile/
+local-docs/
 
 # E2E test artifacts
 e2e/reports/
 e2e/data/
 e2e/.pytest_cache/
 e2e/__pycache__/
+
+# knowledge-base related
+graphify-out/
+local-docs/
+docs-site/

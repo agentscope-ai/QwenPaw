@@ -362,6 +362,20 @@ class DingTalkChannel(BaseChannel):
             return short_session_id_from_conversation_id(cid)
         return f"{self.channel}:{sender_id}"
 
+    def get_debounce_key(self, payload: Any) -> str:
+        """Queue routing key with sender isolation.
+
+        Appends sender_id to the base session key so that messages
+        from different users whose conversation_id share the same
+        suffix are routed to separate queues and never merged.
+        """
+        base_key = super().get_debounce_key(payload)
+        if isinstance(payload, dict):
+            sender_id = payload.get("sender_id") or ""
+            if sender_id:
+                return f"{base_key}:{sender_id}"
+        return base_key
+
     def build_agent_request_from_native(
         self,
         native_payload: Any,
@@ -1345,6 +1359,35 @@ class DingTalkChannel(BaseChannel):
             )
             return None
 
+    async def _generate_video_cover_media_id(self) -> Optional[str]:
+        """Generate and upload a placeholder cover image for video.
+
+        Creates a simple 640x360 dark solid color PNG using Pillow.
+        Returns the media_id of the uploaded cover image.
+        """
+        try:
+            from PIL import Image
+
+            import io
+
+            img = Image.new("RGB", (640, 360), color=(45, 45, 48))
+            buf = io.BytesIO()
+            img.save(buf, format="PNG")
+            png_data = buf.getvalue()
+
+            media_id = await self._upload_media(
+                png_data,
+                "image",
+                filename="video_cover.png",
+                content_type="image/png",
+            )
+            return media_id
+        except Exception:
+            logger.exception(
+                "dingtalk _generate_video_cover_media_id failed",
+            )
+            return None
+
     async def _fetch_bytes_from_url(self, url: str) -> Optional[bytes]:
         """Download binary content from URL. Returns None on failure.
 
@@ -1526,8 +1569,21 @@ class DingTalkChannel(BaseChannel):
                 return False
 
             if upload_type == "image":
-                # sendBySession supports image by picURL;
-                # but if we only have mediaId, send as file
+                # Use markdown with media_id for inline image preview
+                payload = {
+                    "msgtype": "markdown",
+                    "markdown": {
+                        "title": filename or "image",
+                        "text": f"![{filename or 'image'}]({media_id})",
+                    },
+                }
+                ok = await self._send_payload_via_session_webhook(
+                    session_webhook,
+                    payload,
+                )
+                if ok:
+                    return True
+                # Fallback to file card if markdown fails
                 payload = {
                     "msgtype": "file",
                     "file": {
@@ -1571,15 +1627,18 @@ class DingTalkChannel(BaseChannel):
                         "msgtype": "video",
                         "video": {
                             "videoMediaId": media_id,
+                            "videoType": ext or "mp4",
                             "duration": str(int(duration)),
                             "picMediaId": pic_media_id,
                         },
                     }
-                    return await self._send_payload_via_session_webhook(
+                    ok = await self._send_payload_via_session_webhook(
                         session_webhook,
                         payload,
                     )
-                # No picMediaId: send as file so user still gets the video
+                    if ok:
+                        return True
+                # No picMediaId or video send failed: send as file
                 payload = {
                     "msgtype": "file",
                     "file": {
@@ -1679,7 +1738,21 @@ class DingTalkChannel(BaseChannel):
 
         # ---------- send ----------
         if upload_type == "image":
-            # no public url -> safest is send as file (your current behavior)
+            # Use markdown with media_id for inline image preview
+            payload = {
+                "msgtype": "markdown",
+                "markdown": {
+                    "title": filename or "image",
+                    "text": f"![{filename or 'image'}]({media_id})",
+                },
+            }
+            ok = await self._send_payload_via_session_webhook(
+                session_webhook,
+                payload,
+            )
+            if ok:
+                return True
+            # Fallback to file card if markdown fails
             payload = {
                 "msgtype": "file",
                 "file": {
@@ -1714,6 +1787,11 @@ class DingTalkChannel(BaseChannel):
                 or getattr(part, "picMediaId", None)
                 or ""
             ).strip()
+            if not pic_media_id:
+                # Auto-generate placeholder cover image
+                pic_media_id = (
+                    await self._generate_video_cover_media_id()
+                ) or ""
             if pic_media_id:
                 duration = getattr(part, "duration", None)
                 if duration is None:
@@ -1722,15 +1800,18 @@ class DingTalkChannel(BaseChannel):
                     "msgtype": "video",
                     "video": {
                         "videoMediaId": media_id,
+                        "videoType": ext or "mp4",
                         "duration": str(int(duration)),
                         "picMediaId": pic_media_id,
                     },
                 }
-                return await self._send_payload_via_session_webhook(
+                ok = await self._send_payload_via_session_webhook(
                     session_webhook,
                     payload,
                 )
-            # No picMediaId: send as file so user still gets the video
+                if ok:
+                    return True
+            # Fallback to file card if video send fails or no cover
             payload = {
                 "msgtype": "file",
                 "file": {

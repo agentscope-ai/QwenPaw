@@ -23,6 +23,9 @@ _OVERFETCH_LIMIT = 500
 class ClawHubProvider:
     key = "clawhub"
     label = "ClawHub"
+    # Upstream only exposes /search; an empty query returns nothing, so
+    # there is no browse listing. The UI prompts the user to search.
+    supports_browse = False
 
     def available(self) -> tuple[bool, str | None]:
         return True, None

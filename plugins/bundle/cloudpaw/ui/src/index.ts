@@ -25,6 +25,7 @@ function buildPlugin() {
     Tooltip,
     Spin,
     message: antdMessage,
+    theme,
   } = antd;
   const { Text } = Typography;
   const { TextArea } = Input;
@@ -1209,7 +1210,7 @@ function buildPlugin() {
           React.createElement(
             "span",
             null,
-            agent.name || agent.alias || agent.url,
+            agent.alias || agent.name || agent.url,
           ),
         ),
         extra: agent.auth_type
@@ -1271,8 +1272,8 @@ function buildPlugin() {
   }
 
   function useCurrentAgentId(): string | null {
-    const ref = React.useRef<string | null>(getSelectedAgentId());
-    const [agentId, setAgentId] = useState<string | null>(ref.current);
+    const ref = React.useRef(getSelectedAgentId() as string | null);
+    const [agentId, setAgentId] = useState(ref.current as string | null);
     useEffect(() => {
       const check = () => {
         const current = getSelectedAgentId();
@@ -1292,15 +1293,49 @@ function buildPlugin() {
   }
 
   function A2APage() {
+    const { token } = theme.useToken();
     const currentAgentId = useCurrentAgentId();
-    const [agents, setAgents] = useState<any[]>([]);
+    const [agents, setAgents] = useState([] as any[]);
     const [loading, setLoading] = useState(true);
     const [drawerOpen, setDrawerOpen] = useState(false);
-    const [activeAgent, setActiveAgent] = useState<any>(null);
+    const [activeAgent, setActiveAgent] = useState(null as any);
     const [isCreateMode, setIsCreateMode] = useState(false);
     const [saving, setSaving] = useState(false);
     const [refreshing, setRefreshing] = useState(false);
+    const [editingAlias, setEditingAlias] = useState(false);
+    const [newAliasValue, setNewAliasValue] = useState("");
     const [form] = Form.useForm();
+
+    // Batch import state
+    const [importModalOpen, setImportModalOpen] = useState(false);
+    const [importing, setImporting] = useState(false);
+    const [hubAgents, setHubAgents] = useState([] as any[]);
+    const [selectedAgents, setSelectedAgents] = useState(
+      new Set() as Set<string>,
+    );
+    const [importResults, setImportResults] = useState(
+      [] as Array<{ name: string; success: boolean; error?: string }>,
+    );
+    const importAbortRef = React.useRef(null as AbortController | null);
+
+    // ── Alias validation ──────────────────────────────────────────────
+    // Alias must not contain whitespace (breaks /a2a shortcut parsing).
+    // All other characters (Chinese, uppercase, symbols) are allowed.
+    const validateAlias = (value: string): string | null => {
+      if (!value || !value.trim()) return null; // optional field
+      if (/\s/.test(value)) {
+        return "别名不能包含空格";
+      }
+      return null;
+    };
+
+    // Derived: which agents are already registered (by URL)
+    const importedUrls = useMemo(
+      () => new Set(agents.map((a: any) => a.url)),
+      [agents],
+    );
+    const importedUrlsRef = React.useRef(importedUrls);
+    importedUrlsRef.current = importedUrls;
 
     const fetchAgents = useCallback(async () => {
       setLoading(true);
@@ -1337,12 +1372,50 @@ function buildPlugin() {
       setDrawerOpen(true);
     }, []);
 
+    // ── Alias editing ─────────────────────────────────────────────────
+    const cancelEditAlias = useCallback(() => {
+      setEditingAlias(false);
+      setNewAliasValue("");
+    }, []);
+
+    const saveAlias = useCallback(async () => {
+      if (!activeAgent || !newAliasValue.trim()) return;
+      const aliasErr = validateAlias(newAliasValue);
+      if (aliasErr) {
+        antdMsg.error(aliasErr);
+        return;
+      }
+      const oldAlias = activeAgent.alias || activeAgent.url;
+      const trimmed = newAliasValue.trim();
+      if (trimmed === oldAlias) {
+        cancelEditAlias();
+        return;
+      }
+      try {
+        const updated = await a2aFetch(
+          `${API_BASE}?alias=${encodeURIComponent(oldAlias)}`,
+          {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ new_alias: trimmed }),
+          },
+        );
+        antdMsg.success("别名已修改");
+        setEditingAlias(false);
+        setActiveAgent(updated);
+        await fetchAgents();
+      } catch (e: any) {
+        antdMsg.error(e.message || "修改失败");
+      }
+    }, [activeAgent, newAliasValue, fetchAgents, cancelEditAlias]);
+
     const handleClose = useCallback(() => {
+      cancelEditAlias();
       setDrawerOpen(false);
       setActiveAgent(null);
       setIsCreateMode(false);
       form.resetFields();
-    }, [form]);
+    }, [cancelEditAlias, form]);
 
     const handleSubmit = useCallback(async () => {
       let values: any;
@@ -1377,18 +1450,19 @@ function buildPlugin() {
     const handleDelete = useCallback(async () => {
       if (!activeAgent) return;
       const alias = activeAgent.alias || activeAgent.url;
+      const displayName = activeAgent.name || alias;
       Modal.confirm({
-        title: `删除 ${alias}`,
-        content: "确定删除该远程 A2A Agent 吗？此操作不可撤销。",
+        title: `确认删除`,
+        content: `确定删除 A2A Agent「${displayName}」吗？此操作不可撤销。`,
         okText: "删除",
         cancelText: "取消",
         okButtonProps: { danger: true },
         async onOk() {
           try {
-            await a2aFetch(`${API_BASE}/${encodeURIComponent(alias)}`, {
+            await a2aFetch(`${API_BASE}?alias=${encodeURIComponent(alias)}`, {
               method: "DELETE",
             });
-            antdMsg.success("A2A Agent 已删除");
+            antdMsg.success(`已删除 A2A Agent「${displayName}」`);
             await fetchAgents();
             handleClose();
           } catch (e: any) {
@@ -1404,7 +1478,7 @@ function buildPlugin() {
       setRefreshing(true);
       try {
         const updated = await a2aFetch(
-          `${API_BASE}/${encodeURIComponent(alias)}/refresh`,
+          `${API_BASE}/refresh?alias=${encodeURIComponent(alias)}`,
           {
             method: "POST",
           },
@@ -1418,6 +1492,150 @@ function buildPlugin() {
         setRefreshing(false);
       }
     }, [activeAgent, fetchAgents]);
+
+    const startEditAlias = useCallback(() => {
+      if (!activeAgent) return;
+      setNewAliasValue(activeAgent.alias || "");
+      setEditingAlias(true);
+    }, [activeAgent]);
+
+    // ── Batch import handlers ─────────────────────────────────────────
+
+    const openImportModal = useCallback(() => {
+      setImportModalOpen(true);
+      setHubAgents([]);
+      setSelectedAgents(new Set());
+      setImportResults([]);
+      importAbortRef.current = null;
+      // Auto-fetch on open
+      void fetchHubAgents();
+    }, []);
+
+    const closeImportModal = useCallback(() => {
+      if (importing && importAbortRef.current) {
+        importAbortRef.current.abort();
+      }
+      setImportModalOpen(false);
+      setHubAgents([]);
+      setSelectedAgents(new Set());
+      setImportResults([]);
+      importAbortRef.current = null;
+    }, [importing]);
+
+    const fetchHubAgents = useCallback(async () => {
+      setImporting(true);
+      const controller = new AbortController();
+      importAbortRef.current = controller;
+      try {
+        const token = getApiToken?.();
+        const agentId = getSelectedAgentId();
+        const headers: Record<string, string> = {
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          ...(agentId ? { "X-Agent-Id": agentId } : {}),
+        };
+        const resp = await fetch(getApiUrl("/a2a/import"), {
+          method: "GET",
+          headers,
+          signal: controller.signal,
+        });
+        if (!resp.ok) {
+          const text = await resp.text().catch(() => "");
+          throw new Error(text || `HTTP ${resp.status}`);
+        }
+        const data = await resp.json();
+        const agents = data?.agents || [];
+        if (agents.length === 0) {
+          antdMsg.warning("未找到可用的 Agent");
+          return;
+        }
+        setHubAgents(agents);
+        // Auto-select only agents that haven't been imported yet
+        const currentImportedUrls = importedUrlsRef.current;
+        setSelectedAgents(
+          new Set(
+            agents
+              .filter((a: any) => !currentImportedUrls.has(a.url))
+              .map((a: any) => a.url),
+          ),
+        );
+      } catch (e: any) {
+        if (e?.name === "AbortError") return;
+        antdMsg.error(e.message || "获取 Agent 列表失败");
+      } finally {
+        setImporting(false);
+        importAbortRef.current = null;
+      }
+    }, []);
+
+    const toggleSelectAgent = useCallback((agentUrl: string) => {
+      setSelectedAgents((prev: Set<string>) => {
+        const next = new Set(prev);
+        if (next.has(agentUrl)) next.delete(agentUrl);
+        else next.add(agentUrl);
+        return next;
+      });
+    }, []);
+
+    const selectAllAgents = useCallback(() => {
+      setSelectedAgents(
+        new Set(
+          hubAgents
+            .filter((a: any) => !importedUrls.has(a.url))
+            .map((a: any) => a.url),
+        ),
+      );
+    }, [hubAgents, importedUrls]);
+
+    const deselectAllAgents = useCallback(() => {
+      setSelectedAgents(new Set());
+    }, []);
+
+    const handleConfirmImport = useCallback(async () => {
+      const toImport = hubAgents.filter(
+        (a: any) => selectedAgents.has(a.url) && !importedUrls.has(a.url),
+      );
+      if (toImport.length === 0) {
+        antdMsg.warning("请至少选择一个 Agent");
+        return;
+      }
+      setImporting(true);
+      setImportResults([]);
+      const results: Array<{
+        name: string;
+        success: boolean;
+        error?: string;
+      }> = [];
+      for (const agent of toImport) {
+        try {
+          await a2aFetch(API_BASE, {
+            method: "POST",
+            body: JSON.stringify({
+              url: agent.url,
+              alias: agent.name || undefined,
+              auth_type: agent.auth_type || "gateway",
+              auth_token: "",
+            }),
+          });
+          results.push({ name: agent.name || agent.url, success: true });
+        } catch (e: any) {
+          results.push({
+            name: agent.name || agent.url,
+            success: false,
+            error: e.message || "注册失败",
+          });
+        }
+        setImportResults([...results]);
+      }
+      await fetchAgents();
+      antdMsg.success(
+        `导入完成：成功 ${results.filter((r) => r.success).length} 个，失败 ${
+          results.filter((r) => !r.success).length
+        } 个`,
+      );
+      setImporting(false);
+      // Auto-close modal after 0.8s
+      setTimeout(() => closeImportModal(), 800);
+    }, [hubAgents, selectedAgents, fetchAgents, importedUrls]);
 
     const authTypeValue = Form.useWatch?.("auth_type", form) ?? "";
 
@@ -1438,8 +1656,21 @@ function buildPlugin() {
       ),
       React.createElement(
         Form.Item,
-        { name: "alias", label: "别名" },
-        React.createElement(Input, { placeholder: "输入别名（可选）" }),
+        {
+          name: "alias",
+          label: "别名",
+          rules: [
+            {
+              validator: (_rule: any, value: string) => {
+                const err = validateAlias(value);
+                return err ? Promise.reject(new Error(err)) : Promise.resolve();
+              },
+            },
+          ],
+        },
+        React.createElement(Input, {
+          placeholder: "输入别名（可选，仅小写字母、数字和连字符）",
+        }),
       ),
       React.createElement(
         Form.Item,
@@ -1504,7 +1735,48 @@ function buildPlugin() {
             React.createElement(
               Descriptions.Item,
               { label: "别名" },
-              activeAgent.alias || "-",
+              editingAlias
+                ? React.createElement(
+                    "div",
+                    {
+                      style: { display: "flex", alignItems: "center", gap: 6 },
+                    },
+                    React.createElement(Input, {
+                      value: newAliasValue,
+                      onChange: (e: any) => setNewAliasValue(e.target.value),
+                      onPressEnter: saveAlias,
+                      autoFocus: true,
+                      placeholder: "输入新别名",
+                      size: "small",
+                      style: { flex: 1 },
+                    }),
+                    React.createElement(
+                      Button,
+                      {
+                        type: "link",
+                        size: "small",
+                        onClick: saveAlias,
+                        disabled: !newAliasValue.trim(),
+                        style: { padding: 0 },
+                      },
+                      "保存",
+                    ),
+                  )
+                : React.createElement(
+                    "div",
+                    {
+                      style: { display: "flex", alignItems: "center", gap: 8 },
+                    },
+                    React.createElement("span", null, activeAgent.alias || "-"),
+                    React.createElement(
+                      "a",
+                      {
+                        style: { fontSize: 12 },
+                        onClick: startEditAlias,
+                      },
+                      "修改",
+                    ),
+                  ),
             ),
             React.createElement(
               Descriptions.Item,
@@ -1667,7 +1939,7 @@ function buildPlugin() {
         footer: isCreateMode
           ? React.createElement(
               Space,
-              { style: { float: "right" } },
+              { style: { display: "flex", justifyContent: "flex-end" } },
               React.createElement(Button, { onClick: handleClose }, "取消"),
               React.createElement(
                 Button,
@@ -1708,6 +1980,14 @@ function buildPlugin() {
           React.createElement(
             Button,
             {
+              icon: ApiOutlined ? React.createElement(ApiOutlined) : null,
+              onClick: openImportModal,
+            },
+            "从阿里云AgentHub导入",
+          ),
+          React.createElement(
+            Button,
+            {
               type: "primary",
               icon: PlusOutlined ? React.createElement(PlusOutlined) : null,
               onClick: handleCreateClick,
@@ -1742,7 +2022,9 @@ function buildPlugin() {
           React.createElement(Spin, { size: "large" }),
         )
       : agents.length === 0
-      ? React.createElement(Empty, { description: "暂无注册的远程 A2A Agent" })
+      ? React.createElement(Empty, {
+          description: "暂无注册的远程 A2A Agent",
+        })
       : React.createElement(
           "div",
           {
@@ -1761,18 +2043,315 @@ function buildPlugin() {
           ),
         );
 
+    // Import modal
+    const hasResults = importResults.length > 0;
+
+    const importModalEl = React.createElement(
+      Modal,
+      {
+        title: hasResults ? "导入结果" : "从阿里云AgentHub导入 Agent",
+        open: importModalOpen,
+        onCancel: closeImportModal,
+        closable: !importing || hasResults,
+        maskClosable: !importing || hasResults,
+        width: 800,
+        footer: hasResults
+          ? React.createElement(
+              Space,
+              { style: { display: "flex", justifyContent: "flex-end" } },
+              React.createElement(
+                Button,
+                { type: "primary", onClick: closeImportModal },
+                "关闭",
+              ),
+            )
+          : hubAgents.length > 0
+          ? React.createElement(
+              Space,
+              { style: { display: "flex", justifyContent: "flex-end" } },
+              React.createElement(
+                Button,
+                { onClick: closeImportModal },
+                "取消",
+              ),
+              React.createElement(
+                Button,
+                {
+                  type: "primary",
+                  loading: importing,
+                  disabled: selectedAgents.size === 0,
+                  onClick: handleConfirmImport,
+                },
+                `确认导入 (${selectedAgents.size}/${hubAgents.length})`,
+              ),
+            )
+          : null,
+      },
+      // Loading state
+      importing &&
+        hubAgents.length === 0 &&
+        React.createElement(
+          "div",
+          {
+            style: {
+              textAlign: "center",
+              padding: 40,
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              gap: 12,
+            },
+          },
+          React.createElement(Spin, { size: "large" }),
+          React.createElement(
+            "span",
+            { style: { fontSize: 13, color: token.colorTextTertiary } },
+            "正在从 AgentHub 获取 Agent 列表...",
+          ),
+        ),
+      // Agent selection list (hide after import completed)
+      !importing &&
+        !hasResults &&
+        hubAgents.length > 0 &&
+        React.createElement(
+          "div",
+          null,
+          // Header bar
+          React.createElement(
+            "div",
+            {
+              style: {
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                marginBottom: 8,
+                fontSize: 12,
+                color: token.colorTextTertiary,
+              },
+            },
+            React.createElement(
+              "span",
+              null,
+              `共 ${hubAgents.length} 个 Agent，已选 ${selectedAgents.size} 个`,
+            ),
+            React.createElement(
+              Space,
+              { size: 4 },
+              React.createElement(
+                Button,
+                {
+                  size: "small",
+                  type: "link",
+                  style: { padding: 0, height: "auto" },
+                  onClick: selectAllAgents,
+                },
+                "全选",
+              ),
+              React.createElement(
+                Button,
+                {
+                  size: "small",
+                  type: "link",
+                  style: { padding: 0, height: "auto" },
+                  onClick: deselectAllAgents,
+                },
+                "取消全选",
+              ),
+            ),
+          ),
+          // Agent list
+          React.createElement(
+            "div",
+            {
+              style: {
+                display: "flex",
+                flexDirection: "column",
+                gap: 8,
+                maxHeight: 420,
+                overflowY: "auto",
+              },
+            },
+            ...hubAgents.map((agent: any) => {
+              const isSelected = selectedAgents.has(agent.url);
+              return React.createElement(
+                "div",
+                {
+                  key: agent.url,
+                  style: {
+                    display: "flex",
+                    gap: 8,
+                    padding: 10,
+                    border: isSelected
+                      ? `1px solid ${token.colorInfo}`
+                      : `1px solid ${token.colorBorderSecondary}`,
+                    borderRadius: 6,
+                    cursor: importedUrls.has(agent.url) ? "default" : "pointer",
+                    background: importedUrls.has(agent.url)
+                      ? token.colorBgLayout
+                      : isSelected
+                      ? token.colorInfoBg
+                      : token.colorBgContainer,
+                    transition: "all 0.15s ease",
+                    opacity: importedUrls.has(agent.url) ? 0.7 : 1,
+                  },
+                  onClick: () => {
+                    if (!importedUrls.has(agent.url))
+                      toggleSelectAgent(agent.url);
+                  },
+                },
+                React.createElement(
+                  "div",
+                  { style: { flex: 1, minWidth: 0 } },
+                  React.createElement(
+                    "div",
+                    {
+                      style: {
+                        fontWeight: 500,
+                        fontSize: 13,
+                        marginBottom: 2,
+                      },
+                    },
+                    agent.name || agent.url,
+                  ),
+                  agent.description
+                    ? React.createElement(
+                        "div",
+                        {
+                          style: {
+                            fontSize: 11,
+                            color: token.colorTextTertiary,
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                            whiteSpace: "nowrap",
+                          },
+                        },
+                        agent.description,
+                      )
+                    : null,
+                  agent.skills?.length > 0
+                    ? React.createElement(
+                        "div",
+                        { style: { marginTop: 4 } },
+                        ...agent.skills.slice(0, 3).map((s: any, i: number) =>
+                          React.createElement(
+                            Tag,
+                            {
+                              key: i,
+                              color: token.colorInfoHover,
+                              style: {
+                                fontSize: 10,
+                                marginRight: 4,
+                                fontWeight: 500,
+                              },
+                            },
+                            s.name,
+                          ),
+                        ),
+                        agent.skills.length > 3
+                          ? React.createElement(
+                              Tag,
+                              { style: { fontSize: 10 } },
+                              `+${agent.skills.length - 3}`,
+                            )
+                          : null,
+                      )
+                    : null,
+                ),
+                importedUrls.has(agent.url)
+                  ? React.createElement(
+                      Tag,
+                      {
+                        color: token.colorSuccess,
+                        style: {
+                          fontWeight: 600,
+                          fontSize: 11,
+                          flexShrink: 0,
+                          padding: "2px 8px",
+                          lineHeight: "18px",
+                          height: 22,
+                          borderRadius: 4,
+                        },
+                      },
+                      "✓ 已导入",
+                    )
+                  : null,
+              );
+            }),
+          ),
+        ),
+      // Import results
+      hasResults &&
+        React.createElement(
+          "div",
+          {
+            style: {
+              maxHeight: 350,
+              overflowY: "auto",
+              display: "flex",
+              flexDirection: "column",
+              gap: 6,
+            },
+          },
+          ...importResults.map((r: any, idx: number) =>
+            React.createElement(
+              "div",
+              {
+                key: idx,
+                style: {
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
+                  padding: "6px 10px",
+                  borderRadius: 4,
+                  background: r.success
+                    ? token.colorInfoBg
+                    : token.colorErrorBg,
+                  border: r.success
+                    ? `1px solid ${token.colorInfo}`
+                    : `1px solid ${token.colorErrorBorder}`,
+                  fontSize: 12,
+                },
+              },
+              React.createElement(
+                "span",
+                {
+                  style: {
+                    color: r.success ? token.colorSuccess : token.colorError,
+                    fontSize: 14,
+                  },
+                },
+                r.success ? "✓" : "✗",
+              ),
+              React.createElement(
+                "span",
+                {
+                  style: {
+                    flex: 1,
+                    color: r.success ? token.colorText : token.colorError,
+                  },
+                },
+                r.name,
+                r.error ? ` - ${r.error}` : "",
+              ),
+            ),
+          ),
+        ),
+    );
+
     return React.createElement(
       "div",
       { style: { padding: 24 } },
       headerEl,
       bodyEl,
       drawerEl,
+      importModalEl,
     );
   }
 
   // ── a2a_call tool renderer ───────────────────────────────────────────
 
   function A2ACallRender({ data }: { data: any }) {
+    const { token } = theme.useToken();
     const scrollRef = React.useRef<HTMLDivElement>(null);
     const [collapsed, setCollapsed] = useState<Record<number, boolean>>({});
 
@@ -1830,6 +2409,7 @@ function buildPlugin() {
     const taskState = toolResult?.task_state || "";
     const errorText = toolResult?.error || "";
     const responseText = toolResult?.response_text || "";
+    const contextId = toolResult?.context_id || "";
 
     React.useEffect(() => {
       if (scrollRef.current) {
@@ -1906,6 +2486,31 @@ function buildPlugin() {
         tagLabel,
       ),
     );
+
+    const contextIdEl = contextId
+      ? React.createElement(
+          "div",
+          {
+            style: {
+              fontSize: 10,
+              fontFamily: "monospace",
+              maxWidth: "100%",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+              lineHeight: "16px",
+              padding: "2px 8px",
+              borderRadius: 4,
+              marginBottom: 6,
+              background: token.colorBgLayout,
+              color: token.colorTextSecondary,
+            },
+          },
+          `contextId: ${contextId}`,
+        )
+      : null;
+
+    const bodyContent = [headerEl, contextIdEl];
 
     const noStepsYet = steps.length === 0 && !rawErrorText && !errorText;
 
@@ -2175,7 +2780,11 @@ function buildPlugin() {
           margin: "4px 0",
         },
       },
-      React.createElement("div", { style: { marginBottom: 6 } }, headerEl),
+      React.createElement(
+        "div",
+        { style: { marginBottom: 6 } },
+        ...bodyContent,
+      ),
       loadingSpinner,
       stepsEl,
       legacyTextEl,
@@ -2467,6 +3076,20 @@ function ensureDefaultAgent() {
   const CLOUDPAW_MASTER_AGENT_ID = "cloud-orchestrator";
 
   if (localStorage.getItem(FIRST_INSTALL_KEY)) return;
+
+  // Guard: if the user already has an agent selection in localStorage,
+  // this is NOT a first install — the first-install key was likely lost
+  // due to WebView2 profile reset. Do NOT override the user's choice.
+  const existingLastUsed = localStorage.getItem(LAST_USED_KEY);
+  const existingStorage = localStorage.getItem(STORAGE_KEY);
+  if (existingLastUsed || existingStorage) {
+    // Re-persist the first-install flag so this check doesn't run again
+    localStorage.setItem(FIRST_INSTALL_KEY, "true");
+    console.info(
+      "[cloudpaw] Existing agent selection found — skipping first-install override",
+    );
+    return;
+  }
 
   localStorage.setItem(FIRST_INSTALL_KEY, "true");
 

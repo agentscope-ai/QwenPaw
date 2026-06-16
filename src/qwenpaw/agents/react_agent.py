@@ -8,6 +8,7 @@ with integrated tools, skills, and memory management.
 from __future__ import annotations
 
 import asyncio
+import inspect
 import logging
 import os
 from pathlib import Path
@@ -55,6 +56,7 @@ from .tools import (
     list_agents,
     materialize_skill,
     read_file,
+    run_tool_batch,
     send_file_to_user,
     set_user_timezone,
     view_image,
@@ -303,6 +305,7 @@ class QwenPawAgent(CodingModeMixin, ToolGuardMixin, ReActAgent):
             "submit_to_agent": submit_to_agent,
             "check_agent_task": check_agent_task,
             "spawn_subagent": spawn_subagent,
+            "run_tool_batch": run_tool_batch,
             # Register only when the `make-skill` skill is enabled.
             **(
                 {"materialize_skill": materialize_skill}
@@ -1423,9 +1426,11 @@ class QwenPawAgent(CodingModeMixin, ToolGuardMixin, ReActAgent):
             set_current_session_id,
             set_current_shell_command_timeout,
             set_current_shell_command_executable,
+            set_current_toolkit,
         )
 
         set_current_workspace_dir(self._workspace_dir)
+        set_current_toolkit(self.toolkit)
         set_current_session_id(
             self._request_context.get("session_id") or None,
         )
@@ -1484,3 +1489,13 @@ class QwenPawAgent(CodingModeMixin, ToolGuardMixin, ReActAgent):
                     "Exception occurred during interrupt cleanup",
                     exc_info=True,
                 )
+
+    async def _broadcast_to_subscribers(self, msg):
+        # agentscope hook wrapper may misidentify an
+        # async bound method as sync, returning an
+        # unawaited coroutine instead of a Msg.
+        if inspect.iscoroutine(msg):
+            msg = await msg
+        elif isinstance(msg, list):
+            msg = [(await m) if inspect.iscoroutine(m) else m for m in msg]
+        await super()._broadcast_to_subscribers(msg)

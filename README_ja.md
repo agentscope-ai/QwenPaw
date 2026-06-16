@@ -15,6 +15,7 @@
 [![Discord](https://img.shields.io/badge/Discord-Join_Us-blueviolet.svg?logo=discord)](https://discord.gg/eYMpfnkG8h)
 [![X](https://img.shields.io/badge/X-Follow_Us-black.svg?logo=x)](https://x.com/agentscope_ai)
 [![DingTalk](https://img.shields.io/badge/DingTalk-Join_Us-orange.svg)](https://qr.dingtalk.com/action/joingroup?code=v1,k1,OmDlBXpjW+I2vWjKDsjvI9dhcXjGZi3bQiojOq3dlDw=&_dt_no_comment=1&origin=11)
+[![AgentScope Platform](https://img.shields.io/badge/%E2%98%81_AgentScope_Platform-%F0%9F%90%BE_7%2F24_Online_%26_Free-FF6B2B.svg)](https://platform.agentscope.io/)
 
 [[ドキュメント](https://qwenpaw.agentscope.io/)] [[English](README.md)] [[中文](README_zh.md)] [[Русский](README_ru.md)]
 
@@ -58,17 +59,19 @@
 
 ## ニュース
 
-- [2026-06-01] **v1.1.10 — サブエージェント生成 & チャネル拡充** | エージェントがサブエージェントを生成可能に。Tencent Yuanbao チャネル追加。
+- [2026-06-11] **AgentScope プラットフォーム公開** — QwenPaw の無料デプロイ、プラグイン共有、Skill マーケットに対応。[今すぐ試す →](https://platform.agentscope.io/)
+
+- [2026-06-10] **v1.1.11 — 無料モデル OAuth & プラグインマーケット** | ゼロコンフィグ無料モデルのワンクリック OAuth 認証、AgentScope Platform 連携プラグインマーケット。
 
   | ハイライト | 内容 |
   |-----------|------|
-  | **Spawn Subagent** | 新しい `spawn_subagent` ツールで、ワークスペース内に一時的なサブエージェントを生成。 |
-  | **ディレクトリを開く** | Coding モードに「ディレクトリを開く」タブを追加。コピーなしでローカルプロジェクトを参照可能。 |
-  | **Feishu スレッド返信** | Feishu メッセージスレッド内での返信に対応。 |
-  | **Tencent Yuanbao チャネル** | Tencent Yuanbao ボットのチャネル統合を新規追加。 |
-  | **動的アップロード制限** | コンソールとチャネル全体でアップロードサイズ制限を動的に設定可能。 |
+  | **無料モデル OAuth** | ゼロコンフィグ無料モデル、ワンクリック OAuth 認証。 |
+  | **プラグインマーケット** | AgentScope Platform 連携の新しいプラグインマーケットタブ。 |
+  | **MCP ツールホワイトリスト** | サーバーごとの MCP ツールホワイトリスト、フロントエンドトグル UI 付き。 |
 
-  その他：OpenRouter アトリビューションヘッダー、デスクトップ版バンドル CLI、スキル更新の安定性修正。[v1.1.10 リリースノート →](https://qwenpaw.agentscope.io/release-notes#v1.1.10)
+  その他：自己進化スキル作成、バックエンド起動最適化、Feishu グループ共有、QQ QR コード認証。[v1.1.11 リリースノート →](https://qwenpaw.agentscope.io/release-notes#v1.1.11)
+
+- [2026-06-01] **v1.1.10** — サブエージェント生成、ディレクトリを開く、Tencent Yuanbao チャネル。[v1.1.10 リリースノート →](https://qwenpaw.agentscope.io/release-notes#v1.1.10)
 
 - [2026-05-27] **v1.1.9** — Coding モード（3 パネル Web IDE）、Tauri デスクトップアプリ、統合アクセス制御。[v1.1.9 リリースノート →](https://qwenpaw.agentscope.io/release-notes#v1.1.9)
 

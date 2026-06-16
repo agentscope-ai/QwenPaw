@@ -10,9 +10,7 @@ The plugin system supports the following extension capabilities:
 - **Hook Plugins**: Execute custom code during application startup/shutdown
 - **Command Plugins**: Register custom `/command` magic commands
 - **HTTP API Plugins**: Expose custom REST endpoints under `/api` via a FastAPI `APIRouter`
-- **Frontend Page Plugins**: Add custom pages to the sidebar
-- **Tool Renderer Plugins**: Customize how Agent tool-call results are displayed
-- **Behavior Extension Plugins**: Replace methods in frontend internal modules via the module registry
+- **Frontend Extension Plugins**: Browser-side JS plugins that share the host's React / Ant Design runtime and declaratively extend the UI via `window.QwenPaw.*` API — register sidebar menus, page routes, UI slots, chat customizations, and more without modifying host code
 
 ## Plugin Management
 
@@ -169,15 +167,54 @@ plugin = MyPlugin()
 
 ### Frontend Plugins
 
-#### Basic Structure
+Frontend plugins are JavaScript extensions that run in the browser. Unlike backend plugins that register capabilities via the Python `PluginApi`, frontend plugins declaratively extend the Console UI through the global `window.QwenPaw.*` API.
 
-Each frontend plugin requires at minimum:
+**Loading lifecycle:**
+
+1. Console starts up and mounts the Host SDK (React, antd, and other shared dependencies) and registration APIs (menu, route, slot, chat, and other namespaces) on `window.QwenPaw`
+2. Console fetches the enabled frontend plugin list from `/frontend_plugin`
+3. Downloads each plugin's JS bundle and executes it via Blob URL dynamic import
+4. Plugin code runs and calls `window.QwenPaw.*` to register menus, routes, chat customizations, and other UI extensions
+5. Registrations take effect immediately — menus appear in the sidebar, routes become navigable, chat areas show customized content
+
+Plugins don't need to declare which extension points they use; the system automatically tracks all registrations via `pluginId`. When a plugin is uninstalled or disabled, all registrations are cleaned up via `dispose()` or `chat.disposeAll(pluginId)`.
+
+**Design characteristics:**
+
+| Feature                      | Description                                                                                                                                              |
+| ---------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Shared runtime**           | React, ReactDOM, and Ant Design are provided by the host — plugins don't bundle them, avoiding version conflicts and bloat                               |
+| **Declarative registration** | Three core verbs: `set` (set / merge properties), `render` (replace rendering), `add` (append items)                                                     |
+| **pluginId isolation**       | Every registration method takes `pluginId` as the first argument — the system uses it to track origins, detect conflicts, and support per-plugin cleanup |
+| **Revocable**                | Every registration returns a `{ dispose() }` object — call it to undo the registration, enabling hot-reload and clean uninstall                          |
+| **Internationalization**     | Text fields support the `Localized<T>` type — pass a `(locale) => string` function to return different values per language                               |
+
+**Extension points at a glance:**
+
+| Namespace                         | Capability                                            | Typical use                                                     |
+| --------------------------------- | ----------------------------------------------------- | --------------------------------------------------------------- |
+| `host`                            | Shared dependencies, React Hooks, authenticated fetch | Access React / antd, read theme and locale, call backend APIs   |
+| `menu`                            | Sidebar menu items                                    | Add navigation entries                                          |
+| `route`                           | Page routes                                           | Register new pages, wrap existing pages                         |
+| `slot`                            | General UI slots                                      | Inject content into Header / Sidebar and other preset positions |
+| `chat.welcome`                    | Welcome screen                                        | Customize greeting, suggested prompts                           |
+| `chat.theme`                      | Chat theme color                                      | Change the primary color                                        |
+| `chat.leftHeader` / `rightHeader` | Chat header                                           | Set brand logo, add action buttons                              |
+| `chat.sender`                     | Input box                                             | Custom placeholder, input suggestions                           |
+| `chat.actions` / `requestActions` | Message action buttons                                | Add custom actions below messages                               |
+| `chat.requestPayload`             | Outgoing chat request payload                         | Add custom fields before the request is sent to the backend     |
+| `chat.request` / `response`       | Message bubbles                                       | Prepend/append content or fully replace rendering               |
+| `chat.toolRender`                 | Tool-call rendering                                   | Custom tool result display (e.g. weather card)                  |
+| `chat.card`                       | Custom cards                                          | Register new card types                                         |
+| `audit`                           | Audit & debugging                                     | View all extension registration records                         |
+
+#### Basic Structure
 
 ```
 my-plugin/
 ├── plugin.json      # Plugin manifest (required)
 ├── src/
-│   └── index.tsx    # Entry point (required)
+│   └── index.tsx    # Entry point, calls window.QwenPaw.* APIs
 ├── package.json     # Dependencies
 ├── tsconfig.json    # TypeScript config
 └── vite.config.ts   # Build config
@@ -198,26 +235,19 @@ my-plugin/
 
 #### src/index.tsx
 
+The plugin entry file executes on load and registers extensions via `window.QwenPaw.*` API:
+
 ```tsx
-const { React, antd } = (window as any).QwenPaw.host;
+const { React, antd } = window.QwenPaw.host;
+const pluginId = "my-plugin";
 
-class MyPlugin {
-  readonly id = "my-plugin";
-
-  setup(): void {
-    // Register sidebar pages
-    // (window as any).QwenPaw.registerRoutes?.(this.id, [...]);
-    // Register tool-call renderers
-    // (window as any).QwenPaw.registerToolRender?.(this.id, {...});
-    // Access and modify application internal modules
-    // const mod = (window as any).QwenPaw?.modules?.['xxxx'];
-  }
-}
-
-new MyPlugin().setup();
+// Call window.QwenPaw.* APIs to register menus, routes, chat customizations, etc.
+// See "Frontend Extension API" below for details
 ```
 
-#### package.json
+#### Build Toolchain
+
+**package.json**:
 
 ```json
 {
@@ -232,7 +262,7 @@ new MyPlugin().setup();
 }
 ```
 
-#### tsconfig.json
+**tsconfig.json**:
 
 ```json
 {
@@ -247,7 +277,7 @@ new MyPlugin().setup();
 }
 ```
 
-#### vite.config.ts
+**vite.config.ts**:
 
 ```ts
 import { defineConfig } from "vite";
@@ -266,6 +296,8 @@ export default defineConfig({
 });
 ```
 
+`jsxRuntime: "classic"` compiles JSX to `React.createElement`, using the host-provided `React`; `external` avoids bundling React, using the version already loaded by the application.
+
 #### Build and Install
 
 ```bash
@@ -274,23 +306,341 @@ cp -r . ~/.qwenpaw/plugins/my-plugin/
 qwenpaw app
 ```
 
-**Notes**: `window.QwenPaw.host` provides the following shared libraries — plugins do not need to bundle them:
+You can copy `console/src/plugins/types/qwenpaw.d.ts` into your plugin project as `qwenpaw-host.d.ts` for full type hints.
 
-| Name              | Type                       | Description                  |
-| ----------------- | -------------------------- | ---------------------------- |
-| `React`           | `typeof React`             | React runtime                |
-| `antd`            | `typeof antd`              | Ant Design component library |
-| `getApiUrl(path)` | `(path: string) => string` | Build a full API URL         |
-| `getApiToken()`   | `() => string`             | Get the current auth token   |
+## Frontend Extension API
 
-**Build notes**:
+Frontend plugins extend the Console UI through the `window.QwenPaw.*` API without modifying host code. All registration methods take `pluginId` as the first argument, and every registration returns a `{ dispose() }` object for revocation.
 
-- `jsxRuntime: "classic"` — Compiles JSX to `React.createElement`, using the host-provided `React`; no import needed in the plugin
-- `external: ["react", "react-dom"]` — Don't bundle React; use the version already loaded by the application
+### Host SDK — `window.QwenPaw.host`
 
-**`window.QwenPaw.modules`**: At startup, the application auto-registers all modules under `src/pages/` into this object. Plugins can access and replace internal exports by module.
+Shared dependencies — plugins do not need to bundle these libraries:
 
-> ⚠️ **Warning**: The module structure inside `modules` is not maintained as a public API and may change across versions. Always verify compatibility before use.
+```ts
+host.React                        // React library
+host.ReactDOM                     // ReactDOM library
+host.antd                         // Ant Design component library
+host.antdIcons                    // Ant Design icons library
+host.apiBaseUrl                   // API base URL
+host.getApiUrl(path: string)      // Build full API URL
+host.getApiToken(): string | null // Get current auth token
+```
+
+**React Hooks (use inside React components):**
+
+```ts
+const theme = window.QwenPaw.host.useTheme(); // "light" | "dark"
+const locale = window.QwenPaw.host.useLocale(); // "zh" | "en"
+const agent = window.QwenPaw.host.useSelectedAgent(); // { id: string }
+const session = window.QwenPaw.host.useCurrentSession(); // { id: string } | null
+```
+
+**Imperative getters (can be called anywhere):**
+
+```ts
+const agentId = window.QwenPaw.host.getSelectedAgentId();
+const sessionId = window.QwenPaw.host.getCurrentSessionId();
+```
+
+**Authenticated fetch (automatically injects Authorization and X-Agent-Id headers):**
+
+```ts
+const resp = await window.QwenPaw.host.fetch("/api/v1/my-endpoint", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({ query: "test" }),
+});
+const data = await resp.json();
+```
+
+### Sidebar Menu — `window.QwenPaw.menu`
+
+| Method     | Signature                                | Description                          |
+| ---------- | ---------------------------------------- | ------------------------------------ |
+| `add`      | `(pluginId, item \| item[]): Disposable` | Add menu items                       |
+| `replace`  | `(pluginId, targetId, item): Disposable` | Replace an existing menu item        |
+| `remove`   | `(targetId): void`                       | Remove a menu item                   |
+| `snapshot` | `(location?): MenuItem[]`                | Get a snapshot of current menu items |
+
+**MenuItem Parameters:**
+
+```ts
+{
+  id: string;                    // Globally unique, e.g. "my-plugin.foo"
+  label: string | (() => ReactNode);
+  icon?: ReactComponent | ReactNode;
+  route?: string;                // Route id to navigate to on click
+  parentId?: string;             // Parent group to attach to
+  location?: "primary.agentScoped" | "primary.settings" | "userMenu";
+  before?: string;               // Position before a specific id
+  after?: string;                // Position after a specific id
+  order?: number;                // Lower values appear first
+  visible?: () => boolean;       // Dynamic visibility control
+  isGroup?: boolean;             // Render as group header
+  divider?: boolean;             // Render as horizontal divider
+}
+```
+
+### Page Routes — `window.QwenPaw.route`
+
+| Method    | Signature                                     | Description                            |
+| --------- | --------------------------------------------- | -------------------------------------- |
+| `add`     | `(pluginId, route \| route[]): Disposable`    | Register new routes                    |
+| `replace` | `(pluginId, targetId, component): Disposable` | Replace an existing route's component  |
+| `wrap`    | `(pluginId, targetId, wrapper): Disposable`   | Wrap an existing route (onion pattern) |
+| `remove`  | `(targetId): void`                            | Remove a route                         |
+
+**Route parameters:**
+
+```ts
+{
+  id: string; // Globally unique, e.g. "my-plugin.home"
+  path: string; // URL path, supports react-router patterns
+  component: React.ComponentType; // Page component
+}
+```
+
+**Wrap example (add a top banner to an existing page):**
+
+```tsx
+window.QwenPaw.route.wrap("my-plugin", "core.chat", (Inner) => {
+  return () => (
+    <div>
+      <div style={{ background: "#fff3cd", padding: 8, textAlign: "center" }}>
+        Beta Feature
+      </div>
+      <Inner />
+    </div>
+  );
+});
+```
+
+### General UI Slots — `window.QwenPaw.slot`
+
+| Method     | Signature                                     | Description                                             |
+| ---------- | --------------------------------------------- | ------------------------------------------------------- |
+| `fill`     | `(pluginId, name, render, opts?): Disposable` | Append content to a slot (multiple can coexist)         |
+| `replace`  | `(pluginId, name, render, opts?): Disposable` | Replace slot content (latest wins, overrides all fills) |
+| `snapshot` | `(): SlotInfo[]`                              | Get all registered slot information                     |
+
+**Built-in Slots:**
+
+| Slot Name           | Type    | UI Location                               |
+| ------------------- | ------- | ----------------------------------------- |
+| `header.logo`       | replace | Top navbar, leftmost                      |
+| `header.left`       | fill    | Top navbar, left area (right of logo)     |
+| `header.right`      | fill    | Top navbar, right area (left of settings) |
+| `sider.top`         | fill    | Sidebar top (below agent selector)        |
+| `sider.bottom`      | fill    | Sidebar bottom (below menu)               |
+| `content.statusBar` | fill    | Main content area top                     |
+| `overlay.global`    | fill    | Global overlay                            |
+
+**Example:**
+
+```tsx
+// Replace Header Logo
+window.QwenPaw.slot.replace("my-plugin", "header.logo", (defaultLogo) => {
+  return <img src="https://example.com/logo.svg" style={{ height: 24 }} />;
+});
+```
+
+### Chat Welcome Screen — `chat.welcome`
+
+```tsx
+window.QwenPaw.chat.welcome.set("my-plugin", {
+  greeting: (locale) => (locale.startsWith("zh") ? "Hello!" : "Hello!"),
+  description: "I specialize in data analysis.",
+  avatar: "https://example.com/avatar.png",
+  nick: "My Bot",
+  prompts: [
+    { label: "Analyze data", value: "Please analyze the uploaded dataset" },
+    { label: "Create chart", value: "Create a bar chart from the data" },
+  ],
+});
+
+// Or fully replace the welcome screen
+window.QwenPaw.chat.welcome.render("my-plugin", (props) => {
+  return <div>Custom Welcome</div>;
+});
+```
+
+### Chat Theme — `chat.theme`
+
+```ts
+window.QwenPaw.chat.theme.set("my-plugin", {
+  colorPrimary: "#1890ff",
+});
+```
+
+### Chat Header — `chat.leftHeader` / `chat.rightHeader`
+
+```tsx
+// Set the left header title
+window.QwenPaw.chat.leftHeader.set("my-plugin", {
+  title: "My Brand",
+  logo: <img src="logo.svg" style={{ height: 20 }} />,
+});
+
+// Add a button to the right header
+window.QwenPaw.chat.rightHeader.add(
+  "my-plugin",
+  <button
+    onClick={() => alert("Plugin action!")}
+    style={{ border: "none", background: "none", cursor: "pointer" }}
+  >
+    My Button
+  </button>,
+  { id: "my-plugin.btn", order: 10 },
+);
+```
+
+### Input Box — `chat.sender`
+
+```ts
+// Custom placeholder
+window.QwenPaw.chat.sender.set("my-plugin", {
+  placeholder: "Ask me anything...",
+  disclaimer: "Responses may not be accurate.",
+});
+
+// Add input suggestions
+window.QwenPaw.chat.sender.addSuggestion("my-plugin", {
+  id: "my-plugin.suggestions",
+  items: [
+    { label: "/analyze", value: "analyze" },
+    { label: "/visualize", value: "visualize" },
+  ],
+});
+```
+
+### Message Action Buttons — `chat.actions` / `chat.requestActions`
+
+```tsx
+// Add action button below AI responses
+window.QwenPaw.chat.actions.add("my-plugin", {
+  id: "my-plugin.star",
+  icon: <span>⭐</span>,
+  onClick: ({ data }) => console.log("Starred:", data),
+});
+
+// Add action button below user messages
+window.QwenPaw.chat.requestActions.add("my-plugin", {
+  id: "my-plugin.edit",
+  icon: <span>✏️</span>,
+  onClick: ({ data }) => console.log("Edit:", data),
+});
+```
+
+### Request Payload Transform — `chat.requestPayload`
+
+Use `chat.requestPayload.add` to modify the outgoing chat request body before the Console sends it to the backend. Transforms run in ascending `order` and receive the current payload plus the resolved `sessionId` and `selectedAgent`.
+
+```ts
+window.QwenPaw.chat.requestPayload.add(
+  "my-plugin",
+  ({ payload, sessionId, selectedAgent }) => ({
+    ...payload,
+    request_context: {
+      session_id: sessionId,
+      agent_id: selectedAgent,
+      datasource_id: "ds-123",
+    },
+  }),
+  { id: "my-plugin.request-context", order: 10 },
+);
+```
+
+The transform may return a new object to replace the payload. Returning `undefined` leaves the payload unchanged. Use a globally unique `id` so the registration can be audited and disposed cleanly.
+
+### Message Bubble Customization — `chat.request` / `chat.response`
+
+```tsx
+// Set the default assistant response avatar and nickname
+// This currently reuses welcome.avatar / welcome.nick because the default ResponseCard reads those fields
+window.QwenPaw.chat.response.set("my-plugin", {
+  avatar: "https://example.com/bot-avatar.png",
+  nick: "My Bot",
+});
+
+// Prepend content before user messages
+window.QwenPaw.chat.request.prepend("my-plugin", ({ data }) => {
+  return <div style={{ fontSize: 10, color: "#999" }}>User</div>;
+});
+
+// Append an info bar below the latest AI response
+window.QwenPaw.chat.response.append("my-plugin", ({ data, isLast }) => {
+  if (!isLast) return null;
+  return (
+    <div
+      style={{
+        background: "#e3f2fd",
+        padding: "4px 8px",
+        borderRadius: 4,
+        fontSize: 12,
+      }}
+    >
+      Powered by My Plugin
+    </div>
+  );
+});
+
+// Fully replace user message rendering (call fallback() to keep defaults)
+window.QwenPaw.chat.request.render("my-plugin", ({ data, fallback }) => {
+  return (
+    <div style={{ border: "1px dashed #ccc", borderRadius: 8, padding: 4 }}>
+      {fallback()}
+    </div>
+  );
+});
+```
+
+### Tool-Call Rendering — `chat.toolRender`
+
+```tsx
+// Register a custom tool result renderer (props include result, sessionId, messageId)
+window.QwenPaw.chat.toolRender("my-plugin", "get_weather", ({ result }) => {
+  const data = typeof result === "string" ? JSON.parse(result) : result;
+  return (
+    <div style={{ padding: 12, border: "1px solid #e8e8e8", borderRadius: 8 }}>
+      {data.city}: {data.temperature}°C
+    </div>
+  );
+});
+```
+
+### Custom Cards — `chat.card`
+
+```ts
+window.QwenPaw.chat.card("my-plugin", "my-card", MyCardComponent);
+```
+
+### Audit & Debugging
+
+```ts
+// View extension registration records
+console.table(window.QwenPaw.audit.overrides());
+
+// Remove all Chat extension registrations for a plugin
+window.QwenPaw.chat.disposeAll("my-plugin");
+```
+
+### Internationalization
+
+All fields that support the `Localized<T>` type accept a function that returns different values per locale:
+
+```ts
+window.QwenPaw.chat.welcome.set("my-plugin", {
+  greeting: (locale) => (locale.startsWith("zh") ? "Hello!" : "Hello!"),
+});
+```
+
+### Common Errors
+
+| Error                             | Cause                                         | Solution                                                            |
+| --------------------------------- | --------------------------------------------- | ------------------------------------------------------------------- |
+| `e.item.render is not a function` | render/prepend/append received a non-function | Ensure you pass a React component or a function returning ReactNode |
+| `duplicate id`                    | Two `add` calls used the same id              | Use globally unique ids (recommended format: `pluginId.xxx`)        |
+| Hook called outside component     | `useTheme()` etc. used outside React context  | Use imperative APIs like `getSelectedAgentId()` instead             |
 
 ## Usage Examples
 
@@ -669,15 +1019,9 @@ qwenpaw app
 
 ### Example 4: Add a Custom Frontend Page
 
-Add a welcome page to the sidebar.
+Add a welcome page to the sidebar. Build toolchain files (`package.json`, `tsconfig.json`, `vite.config.ts`) follow the "Frontend Plugins > Build Toolchain" section above.
 
-#### 1. Create plugin directory
-
-```bash
-mkdir welcome-plugin && cd welcome-plugin
-```
-
-#### 2. Create plugin.json
+**plugin.json**:
 
 ```json
 {
@@ -691,92 +1035,42 @@ mkdir welcome-plugin && cd welcome-plugin
 }
 ```
 
-#### 3. Create src/index.tsx
+**src/index.tsx**:
 
 ```tsx
-const { React, antd } = (window as any).QwenPaw.host;
+const { React, antd } = window.QwenPaw.host;
 const { Typography, Card } = antd;
-const { Title, Paragraph } = Typography;
+const pluginId = "welcome-plugin";
 
-function WelcomePage() {
+const WelcomePage = () => {
+  const theme = window.QwenPaw.host.useTheme();
   return (
-    <Card style={{ maxWidth: 480, margin: "40px auto" }}>
-      <Title level={2}>Welcome to QwenPaw 👋</Title>
-      <Paragraph>Plugin system is working!</Paragraph>
+    <Card
+      style={{
+        maxWidth: 480,
+        margin: "40px auto",
+        background: theme === "dark" ? "#1f1f1f" : "#fff",
+      }}
+    >
+      <Typography.Title level={2}>Welcome to QwenPaw</Typography.Title>
+      <Typography.Paragraph>Plugin system is working!</Typography.Paragraph>
     </Card>
   );
-}
+};
 
-class WelcomePlugin {
-  readonly id = "welcome-plugin";
+window.QwenPaw.menu.add(pluginId, {
+  id: "welcome-plugin.home",
+  label: "Welcome",
+  icon: "spark-home-line",
+  route: "welcome-plugin.home",
+});
 
-  setup(): void {
-    (window as any).QwenPaw.registerRoutes?.(this.id, [
-      {
-        path: "/plugin/welcome-plugin/home",
-        component: WelcomePage,
-        label: "Welcome",
-        icon: "👋",
-        priority: 5,
-      },
-    ]);
-  }
-}
-
-new WelcomePlugin().setup();
-```
-
-#### 4. Create package.json
-
-```json
-{
-  "name": "welcome-plugin",
-  "version": "1.0.0",
-  "scripts": { "build": "vite build" },
-  "devDependencies": {
-    "vite": "^5.0.0",
-    "typescript": "^5.0.0",
-    "@vitejs/plugin-react": "^4.0.0"
-  }
-}
-```
-
-#### 5. Create tsconfig.json
-
-```json
-{
-  "compilerOptions": {
-    "target": "ES2020",
-    "module": "ESNext",
-    "moduleResolution": "bundler",
-    "jsx": "react",
-    "strict": false,
-    "skipLibCheck": true
-  },
-  "include": ["src"]
-}
-```
-
-#### 6. Create vite.config.ts
-
-```ts
-import { defineConfig } from "vite";
-import react from "@vitejs/plugin-react";
-
-export default defineConfig({
-  plugins: [react({ jsxRuntime: "classic" })],
-  build: {
-    lib: {
-      entry: "src/index.tsx",
-      formats: ["es"],
-      fileName: () => "index.js",
-    },
-    rollupOptions: { external: ["react", "react-dom"] },
-  },
+window.QwenPaw.route.add(pluginId, {
+  id: "welcome-plugin.home",
+  path: "/welcome-plugin/home",
+  component: WelcomePage,
 });
 ```
-
-#### 7. Build and install
 
 ```bash
 npm install && npm run build
@@ -786,153 +1080,56 @@ qwenpaw app
 
 ### Example 5: Custom Tool-Call Renderer
 
-Customize how Agent tool-call results are displayed.
+Customize how Agent tool-call results are displayed. Project structure follows Example 4, only `src/index.tsx` differs.
 
-#### 1. Create plugin directory
-
-```bash
-mkdir tool-render-plugin && cd tool-render-plugin
-```
-
-#### 2. Create plugin.json
-
-```json
-{
-  "id": "tool-render-plugin",
-  "name": "Tool Render Plugin",
-  "version": "1.0.0",
-  "type": "frontend",
-  "description": "Custom tool result renderer",
-  "author": "Your Name",
-  "entry": { "frontend": "dist/index.js" }
-}
-```
-
-#### 3. Create src/index.tsx
+**src/index.tsx**:
 
 ```tsx
-const { React, antd } = (window as any).QwenPaw.host;
+const { React, antd } = window.QwenPaw.host;
 const { Card, Descriptions } = antd;
+const pluginId = "tool-render-plugin";
 
-function WeatherToolCard({ result }) {
-  try {
-    const data = typeof result === "string" ? JSON.parse(result) : result;
-    return (
-      <Card
-        title="Weather Information"
-        size="small"
-        style={{ marginTop: 8, maxWidth: 400 }}
-      >
-        <Descriptions column={1} size="small">
-          <Descriptions.Item label="City">{data.city}</Descriptions.Item>
-          <Descriptions.Item label="Temperature">
-            {data.temperature}°C
-          </Descriptions.Item>
-          <Descriptions.Item label="Weather">{data.weather}</Descriptions.Item>
-          <Descriptions.Item label="Humidity">
-            {data.humidity}%
-          </Descriptions.Item>
-        </Descriptions>
-      </Card>
-    );
-  } catch (e) {
-    return <pre>{JSON.stringify(result, null, 2)}</pre>;
-  }
-}
-
-class ToolRenderPlugin {
-  readonly id = "tool-render-plugin";
-
-  setup(): void {
-    (window as any).QwenPaw.registerToolRender?.(this.id, {
-      get_weather: WeatherToolCard, // Tool name must match Agent's return
-    });
-  }
-}
-
-new ToolRenderPlugin().setup();
+window.QwenPaw.chat.toolRender(pluginId, "get_weather", ({ result }) => {
+  const data = typeof result === "string" ? JSON.parse(result) : result;
+  return (
+    <Card
+      title="Weather Info"
+      size="small"
+      style={{ marginTop: 8, maxWidth: 400 }}
+    >
+      <Descriptions column={1} size="small">
+        <Descriptions.Item label="City">{data.city}</Descriptions.Item>
+        <Descriptions.Item label="Temperature">
+          {data.temperature}°C
+        </Descriptions.Item>
+        <Descriptions.Item label="Weather">{data.weather}</Descriptions.Item>
+      </Descriptions>
+    </Card>
+  );
+});
 ```
 
-#### 4. Reuse other files
+### Example 6: Customize Chat Welcome
 
-Reuse `package.json`, `tsconfig.json`, `vite.config.ts` from Example 4, changing `name` to `tool-render-plugin`.
+Customize the chat page greeting, description, and suggested prompts. Project structure follows Example 4, only `src/index.tsx` differs.
 
-#### 5. Build and install
-
-```bash
-npm install && npm run build
-cp -r . ~/.qwenpaw/plugins/tool-render-plugin/
-qwenpaw app
-```
-
-### Example 6: Modify Component Behavior
-
-Customize the chat page greeting.
-
-#### 1. Create plugin directory
-
-```bash
-mkdir custom-greeting-plugin && cd custom-greeting-plugin
-```
-
-#### 2. Create plugin.json
-
-```json
-{
-  "id": "custom-greeting-plugin",
-  "name": "Custom Greeting",
-  "version": "1.0.0",
-  "type": "frontend",
-  "description": "Customize chat greeting",
-  "author": "Your Name",
-  "entry": { "frontend": "dist/index.js" }
-}
-```
-
-#### 3. Create src/index.tsx
+**src/index.tsx**:
 
 ```tsx
-class CustomGreetingPlugin {
-  readonly id = "custom-greeting-plugin";
+const pluginId = "custom-greeting-plugin";
 
-  setup(): void {
-    const mod = (window as any).QwenPaw?.modules?.[
-      "Chat/OptionsPanel/defaultConfig"
-    ];
-    if (!mod?.configProvider) {
-      console.warn("configProvider not found");
-      return;
-    }
-
-    // Replace chat greeting
-    mod.configProvider.getGreeting = () => "Hello! I'm customized QwenPaw 👋";
-
-    // Replace chat description
-    mod.configProvider.getDescription = () =>
-      "This is a customized chat assistant";
-
-    // Replace prompt list
-    mod.configProvider.getPrompts = (t: any) => [
-      { value: "Help me analyze this code" },
-      { value: "Write a unit test" },
-      { value: "Optimize this logic" },
-    ];
-  }
-}
-
-new CustomGreetingPlugin().setup();
-```
-
-#### 4. Reuse other files
-
-Reuse `package.json`, `tsconfig.json`, `vite.config.ts` from Example 4, changing `name` to `custom-greeting-plugin`.
-
-#### 5. Build and install
-
-```bash
-npm install && npm run build
-cp -r . ~/.qwenpaw/plugins/custom-greeting-plugin/
-qwenpaw app
+window.QwenPaw.chat.welcome.set(pluginId, {
+  greeting: (locale) =>
+    locale.startsWith("zh")
+      ? "Hello! I'm customized QwenPaw"
+      : "Hello! I'm customized QwenPaw",
+  description: "This is a customized chat assistant",
+  prompts: [
+    { label: "Analyze code", value: "Help me analyze this code" },
+    { label: "Unit test", value: "Write a unit test" },
+    { label: "Optimize", value: "Optimize this logic" },
+  ],
+});
 ```
 
 ### Example 7: Expose a FastAPI Endpoint

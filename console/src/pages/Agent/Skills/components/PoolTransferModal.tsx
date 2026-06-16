@@ -1,9 +1,11 @@
 import { useEffect, useState } from "react";
-import { Button, Modal, Tooltip } from "@agentscope-ai/design";
+import { Button, Modal, Select, Tooltip } from "@agentscope-ai/design";
 import { CheckOutlined } from "@ant-design/icons";
 import { useTranslation } from "react-i18next";
 import type { PoolSkillSpec, SkillSpec } from "../../../../api/types";
 import { isSkillBuiltin } from "@/utils/skill";
+import { useSkillFilter } from "../useSkillFilter";
+import { SkillFilterDropdown } from "./SkillFilterDropdown";
 import styles from "../index.module.less";
 
 interface PoolTransferModalProps {
@@ -26,13 +28,17 @@ export function PoolTransferModal({
   const { t } = useTranslation();
   const [workspaceSkillNames, setWorkspaceSkillNames] = useState<string[]>([]);
   const [poolSkillNames, setPoolSkillNames] = useState<string[]>([]);
+  const [filterOpen, setFilterOpen] = useState(false);
+  const { searchTags, setSearchTags, allTags, filteredSkills } =
+    useSkillFilter(poolSkills);
 
   useEffect(() => {
     if (mode !== null) {
       setWorkspaceSkillNames([]);
       setPoolSkillNames([]);
+      setSearchTags([]);
     }
-  }, [mode]);
+  }, [mode, setSearchTags]);
 
   const handleCancel = () => {
     onCancel();
@@ -51,7 +57,7 @@ export function PoolTransferModal({
   const setSelectedNames = isUpload
     ? setWorkspaceSkillNames
     : setPoolSkillNames;
-  const items = isUpload ? skills : poolSkills;
+  const items = isUpload ? skills : filteredSkills;
   const hasSelection = selectedNames.length > 0;
   const builtinNames = items
     .filter((item) => isSkillBuiltin(item.source))
@@ -115,6 +121,35 @@ export function PoolTransferModal({
             </Button>
           </div>
         </div>
+
+        {!isUpload && (
+          <Select
+            mode="multiple"
+            className={styles.tagSelect}
+            placeholder={t("skills.filterByTag")}
+            value={searchTags}
+            onChange={setSearchTags}
+            open={filterOpen}
+            onOpenChange={setFilterOpen}
+            allowClear
+            maxTagCount="responsive"
+            notFoundContent={<></>}
+            popupRender={() =>
+              allTags.length > 0 ? (
+                <SkillFilterDropdown
+                  allTags={allTags}
+                  searchTags={searchTags}
+                  setSearchTags={setSearchTags}
+                  styles={styles}
+                />
+              ) : (
+                <div className={styles.tagSelectEmpty}>
+                  {t("skills.noTags")}
+                </div>
+              )
+            }
+          />
+        )}
 
         <div className={`${styles.pickerGrid} ${styles.compactPickerGrid}`}>
           {items.map((skill) => {

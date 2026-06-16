@@ -6,8 +6,12 @@ import { useCodingMode, useProjectDir } from "../../stores/codingModeStore";
 import { useAgentStore } from "../../stores/agentStore";
 import { getApiUrl } from "../../api/config";
 import { buildAuthHeaders } from "../../api/authHeaders";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import ProjectSelectModal from "../ProjectSelectModal";
+import {
+  buildSessionPath,
+  getSessionIdFromPath,
+} from "../../utils/sessionRoute";
 import styles from "./index.module.less";
 
 const CONFIRMED_KEY = "qwenpaw-coding-mode-confirmed";
@@ -17,6 +21,7 @@ export default function CodingModeToggle() {
   const { codingMode, initialized, setCodingMode } = useCodingMode();
   const { selectedAgent } = useAgentStore();
   const navigate = useNavigate();
+  const location = useLocation();
   const { projectDir } = useProjectDir();
   const [loading, setLoading] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
@@ -36,13 +41,14 @@ export default function CodingModeToggle() {
         body: JSON.stringify({ enabled: true }),
       });
       setCodingMode(true);
-      navigate("/coding");
+      const currentSessionId = getSessionIdFromPath(location.pathname);
+      navigate(buildSessionPath("coding", currentSessionId));
     } catch {
       // Silently ignore
     } finally {
       setLoading(false);
     }
-  }, [loading, selectedAgent, setCodingMode, navigate]);
+  }, [loading, selectedAgent, setCodingMode, navigate, location.pathname]);
 
   const deactivate = useCallback(async () => {
     if (loading) return;
@@ -58,13 +64,14 @@ export default function CodingModeToggle() {
         body: JSON.stringify({ enabled: false }),
       });
       setCodingMode(false);
-      navigate("/chat");
+      const currentSessionId = getSessionIdFromPath(location.pathname);
+      navigate(buildSessionPath("chat", currentSessionId));
     } catch {
       // Silently ignore
     } finally {
       setLoading(false);
     }
-  }, [loading, selectedAgent, setCodingMode, navigate]);
+  }, [loading, selectedAgent, setCodingMode, navigate, location.pathname]);
 
   const toggle = useCallback(async () => {
     if (codingMode) {

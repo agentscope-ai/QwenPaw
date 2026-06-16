@@ -32,4 +32,3 @@ export const SparkRusLine = makeIcon("SparkRusLine");
 // Theme toggle icons
 export const SparkMoonLine = makeIcon("SparkMoonLine");
 export const SparkSunLine = makeIcon("SparkSunLine");
-export const SparkComputerLine = makeIcon("SparkComputerLine");

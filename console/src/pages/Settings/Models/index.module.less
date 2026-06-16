@@ -117,31 +117,147 @@
   letter-spacing: 0.02em;
 }
 
+.subSectionTitle {
+  font-size: 12px;
+  font-weight: 500;
+  color: #9ca3af;
+  margin: 16px 0 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.subSectionTitle::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: #e5e7eb;
+}
+
 /* ---- Provider Cards ---- */
 
 .providerCards {
-  display: flex;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(400px, 1fr));
   gap: 16px;
   margin-bottom: 16px;
-  flex-wrap: wrap;
-  align-items: stretch;
+}
+
+.configuredCount {
+  font-size: 12px;
+  font-weight: 400;
+  color: #10b981;
+  margin-left: 8px;
+}
+
+.availableHint {
+  font-size: 12px;
+  font-weight: 400;
+  color: #9ca3af;
+  margin-left: 8px;
+}
+
+.emptyConfigured {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 48px 24px;
+  border: 2px dashed #e5e7eb;
+  border-radius: 12px;
+  margin-bottom: 24px;
+  text-align: center;
+}
+.emptyConfigured p {
+  font-size: 14px;
+  color: #6b7280;
+  margin-bottom: 16px;
+}
+
+.availableGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 8px;
+}
+
+.availableItem {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border: 1px solid #f3f4f6;
+  border-radius: 8px;
+  background: #fafafa;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.availableItem:hover {
+  background: #fff;
+  border-color: #6366f1;
+  box-shadow: 0 2px 8px rgba(99, 102, 241, 0.1);
+}
+
+.availableItemName {
+  font-size: 13px;
+  font-weight: 500;
+  flex: 1;
+  color: #1a1a1a;
+}
+
+.availableItemAction {
+  font-size: 11px;
+  color: #6366f1;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.variantList {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.variantItem {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px;
+  border-radius: 8px;
+  background: #f8f9fa;
+  cursor: pointer;
+  transition: all 0.2s;
+
+  &:hover {
+    background: #eef2ff;
+    transform: translateX(4px);
+  }
+}
+
+.variantItemName {
+  font-size: 14px;
+  font-weight: 500;
+  color: #1f2937;
+  flex: 1;
 }
 
 .providerCard {
-  flex: 1 1 calc(33.333% - 16px);
-  min-width: 432px;
-  border-radius: 6px;
-  transition: all 0.2s ease-in-out;
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border-radius: 14px;
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  transition: all 0.2s;
   cursor: pointer;
   position: relative;
   overflow: visible;
-  background: #fff;
   display: flex;
   flex-direction: column;
-  border: 1px solid rgba(0, 0, 0, 0.04);
-  padding: 16px;
+  padding: 22px;
   padding-bottom: 64px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.04);
+  box-shadow: none;
+
+  &:hover {
+    border-color: rgba(99, 102, 241, 0.15);
+  }
 
   :global(.ant-card-body) {
     display: flex;
@@ -236,6 +352,18 @@
   background-color: rgba(255, 247, 230, 0.8);
   color: #ff7f16;
   border: 1px solid rgba(255, 127, 22, 0.2);
+}
+
+.freeTag {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  background: linear-gradient(135deg, #10b981, #059669);
+  color: #fff;
 }
 
 .localTag {
@@ -336,6 +464,14 @@
   font-style: italic;
 }
 
+.inlineKeyInput {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+}
+
 /* Card Actions */
 .cardActions {
   display: flex;
@@ -355,6 +491,216 @@
   height: 32px;
   font-size: 13px;
   border-radius: 6px;
+}
+
+/* ---- Provider Group Card (Glass + Segmented) ---- */
+
+.groupCardGlass {
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border-radius: 14px;
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  padding: 22px;
+  transition: all 0.2s;
+  cursor: default;
+
+  &:hover {
+    border-color: rgba(99, 102, 241, 0.15);
+  }
+}
+
+.groupCardHeader {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+.groupCardName {
+  font-size: 17px;
+  font-weight: 600;
+  flex: 1;
+  color: #1a1a1a;
+}
+
+.groupCardLiveBadge {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  color: #14b8a6;
+  font-weight: 500;
+}
+
+.groupCardPulse {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #14b8a6;
+  animation: groupPulse 2s infinite;
+}
+
+@keyframes groupPulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+
+  50% {
+    opacity: 0.4;
+  }
+}
+
+/* Segmented Control */
+.groupSegmented {
+  display: flex;
+  background: rgba(0, 0, 0, 0.04);
+  border-radius: 10px;
+  padding: 3px;
+  gap: 2px;
+  margin-bottom: 18px;
+  overflow-x: auto;
+}
+
+.groupSegBtn {
+  flex: 1;
+  padding: 7px 6px;
+  text-align: center;
+  font-size: 11px;
+  font-weight: 500;
+  color: #888;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s;
+  white-space: nowrap;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+
+  &:hover {
+    color: #555;
+  }
+}
+
+.groupSegBtnActive {
+  background: rgba(99, 102, 241, 0.12);
+  color: #6366f1;
+}
+
+.groupSegDot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.groupSegDotOn {
+  background: #14b8a6;
+}
+
+.groupSegDotOff {
+  background: #ef4444;
+}
+
+/* Content */
+.groupCardContent {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.groupCardField {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.groupCardFieldLabel {
+  font-size: 10px;
+  color: #888;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.groupCardFieldValue {
+  font-size: 13px;
+  color: #333;
+}
+
+.groupCardMono {
+  font-family: "SF Mono", "Fira Code", monospace;
+  font-size: 12px;
+  color: #666;
+  background: rgba(0, 0, 0, 0.03);
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 1px solid rgba(0, 0, 0, 0.04);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.groupCardChangeBtn {
+  font-size: 11px;
+  color: #6366f1;
+  cursor: pointer;
+  font-family:
+    "Inter",
+    -apple-system,
+    sans-serif;
+  flex-shrink: 0;
+  margin-left: 8px;
+
+  &:hover {
+    color: #4f46e5;
+  }
+}
+
+.groupCardKeyInput {
+  display: flex;
+  gap: 8px;
+}
+
+/* Actions */
+.groupCardActions {
+  display: flex;
+  gap: 8px;
+  padding-top: 14px;
+  border-top: 1px solid rgba(0, 0, 0, 0.04);
+}
+
+.groupCardActBtn {
+  padding: 7px 14px;
+  background: rgba(0, 0, 0, 0.03);
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  border-radius: 8px;
+  color: #666;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.15s;
+  font-family: inherit;
+
+  &:hover {
+    border-color: rgba(99, 102, 241, 0.3);
+    color: #6366f1;
+  }
+}
+
+.groupCardActBtnDanger {
+  color: #ef4444;
+  border-color: rgba(239, 68, 68, 0.2);
+
+  &:hover {
+    border-color: rgba(239, 68, 68, 0.5);
+    color: #dc2626;
+    background: rgba(239, 68, 68, 0.04);
+  }
 }
 
 /* ---- Modal Footer ---- */
@@ -500,6 +846,172 @@
 
 .jsonEditorTokenPunctuation {
   color: #6b7280;
+}
+
+/* ---- LLM Floating Pill ---- */
+
+.llmPill {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 14px;
+  border-radius: 20px;
+  cursor: pointer;
+  user-select: none;
+  transition:
+    box-shadow 0.2s,
+    background 0.2s;
+  margin: 0;
+  border: 1.5px solid transparent;
+}
+
+.llmPillOn {
+  background: linear-gradient(135deg, #ecfdf5, #d1fae5, #fff);
+  border-color: #6ee7b7;
+  box-shadow: 0 1px 6px rgba(16, 185, 129, 0.12);
+
+  &:hover {
+    box-shadow: 0 2px 10px rgba(16, 185, 129, 0.2);
+  }
+}
+
+.llmPillOff {
+  background: linear-gradient(135deg, #fef2f2, #fee2e2, #fff);
+  border-color: #fca5a5;
+  box-shadow: 0 1px 6px rgba(239, 68, 68, 0.12);
+
+  &:hover {
+    box-shadow: 0 2px 10px rgba(239, 68, 68, 0.2);
+  }
+}
+
+.llmPillDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #10b981;
+  flex-shrink: 0;
+}
+
+.llmPillDotOff {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #ef4444;
+  flex-shrink: 0;
+}
+
+.llmPillLabel {
+  font-size: 13px;
+  color: #6b7280;
+  white-space: nowrap;
+}
+
+.llmPillValue {
+  font-size: 13px;
+  font-weight: 600;
+  color: #1f2937;
+  white-space: nowrap;
+}
+
+.llmPillEdit {
+  font-size: 12px;
+  color: #6366f1;
+  font-weight: 500;
+  margin-left: 4px;
+  white-space: nowrap;
+}
+
+.defaultLlmBody {
+  padding: 16px 0 0;
+}
+
+.llmDescription {
+  font-size: 13px;
+  color: #9ca3af;
+  margin: 0 0 16px;
+  line-height: 1.5;
+}
+
+/* ---- Panel Section (grouped containers) ---- */
+
+.panelSection {
+  background: #fafbfc;
+  border: 1px solid #f3f4f6;
+  border-radius: 12px;
+  padding: 18px;
+  margin: 0 16px 16px;
+}
+
+.panelSectionDashed {
+  background: #fff;
+  border: 1px dashed #e5e7eb;
+  border-radius: 12px;
+  padding: 18px;
+  margin: 0 16px 16px;
+}
+
+.panelTitle {
+  font-size: 13px;
+  font-weight: 600;
+  color: #6b7280;
+  margin-bottom: 14px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.panelDotGreen {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #10b981;
+  flex-shrink: 0;
+}
+
+.panelDotGray {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #d1d5db;
+  flex-shrink: 0;
+}
+
+.panelCount {
+  font-size: 11px;
+  color: #10b981;
+  font-weight: 400;
+  margin-left: auto;
+}
+
+/* ---- Tab Navigation ---- */
+
+.tabsNav {
+  display: flex;
+  gap: 0;
+  border-bottom: 2px solid #f3f4f6;
+  margin: 0 16px 16px;
+}
+
+.tabItem {
+  padding: 10px 20px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #9ca3af;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -2px;
+  transition:
+    color 0.15s,
+    border-color 0.15s;
+  user-select: none;
+}
+.tabItem:hover {
+  color: #6b7280;
+}
+.tabItemActive {
+  color: #6366f1;
+  border-bottom-color: #6366f1;
 }
 
 /* ---- Model Slot Sections ---- */
@@ -988,6 +1500,20 @@
   font-size: 13px;
 }
 
+.modelListLoadMore {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 16px;
+  border-top: 1px solid #f0f0f0;
+}
+
+.modelListCount {
+  font-size: 12px;
+  color: #999;
+}
+
 .modelListItem {
   display: flex;
   align-items: center;
@@ -1290,6 +1816,13 @@
     color: rgba(255, 255, 255, 0.4);
   }
 
+  .subSectionTitle {
+    color: rgba(255, 255, 255, 0.35);
+  }
+  .subSectionTitle::after {
+    background: rgba(255, 255, 255, 0.08);
+  }
+
   .localModalTitle,
   .localSectionTitle,
   .localSummaryValue,
@@ -1378,9 +1911,13 @@
 
   /* Provider card */
   .providerCard {
-    background: #2a2a2a;
-    border-color: rgba(255, 255, 255, 0.08) !important;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3) !important;
+    background: rgba(30, 30, 30, 0.8);
+    border-color: rgba(255, 255, 255, 0.06);
+    box-shadow: none !important;
+
+    &:hover {
+      border-color: rgba(99, 102, 241, 0.2);
+    }
   }
 
   .cardName {
@@ -1397,6 +1934,54 @@
     background-color: rgba(255, 127, 22, 0.15);
     color: #ff9d4d;
     border-color: rgba(255, 127, 22, 0.25);
+  }
+
+  .freeTag {
+    background: linear-gradient(135deg, #10b981, #059669);
+    color: #fff;
+  }
+
+  .configuredCount {
+    color: #34d399;
+  }
+
+  .availableHint {
+    color: rgba(255, 255, 255, 0.4);
+  }
+
+  .emptyConfigured {
+    border-color: rgba(255, 255, 255, 0.1);
+  }
+  .emptyConfigured p {
+    color: rgba(255, 255, 255, 0.5);
+  }
+
+  .availableItem {
+    background: rgba(255, 255, 255, 0.04);
+    border-color: rgba(255, 255, 255, 0.06);
+  }
+  .availableItem:hover {
+    background: rgba(255, 255, 255, 0.08);
+    border-color: rgba(99, 102, 241, 0.4);
+  }
+
+  .availableItemName {
+    color: rgba(255, 255, 255, 0.85);
+  }
+
+  .availableItemAction {
+    color: #818cf8;
+  }
+
+  .variantItem {
+    background: rgba(255, 255, 255, 0.04);
+    &:hover {
+      background: rgba(99, 102, 241, 0.15);
+    }
+  }
+
+  .variantItemName {
+    color: rgba(255, 255, 255, 0.9);
   }
 
   .localTag {
@@ -1425,6 +2010,80 @@
     background: #2a2a2a;
   }
 
+  .groupCardGlass {
+    background: rgba(30, 30, 30, 0.8);
+    border-color: rgba(255, 255, 255, 0.06);
+
+    &:hover {
+      border-color: rgba(99, 102, 241, 0.2);
+    }
+  }
+
+  .groupCardName {
+    color: rgba(255, 255, 255, 0.9);
+  }
+
+  .groupSegmented {
+    background: rgba(255, 255, 255, 0.04);
+  }
+
+  .groupSegBtn {
+    color: #666;
+
+    &:hover {
+      color: #999;
+    }
+  }
+
+  .groupSegBtnActive {
+    background: rgba(99, 102, 241, 0.15);
+    color: #a5b4fc;
+  }
+
+  .groupSegDotOff {
+    background: #dc2626;
+  }
+
+  .groupCardFieldLabel {
+    color: #555;
+  }
+
+  .groupCardFieldValue {
+    color: rgba(255, 255, 255, 0.7);
+  }
+
+  .groupCardMono {
+    color: #888;
+    background: rgba(255, 255, 255, 0.03);
+    border-color: rgba(255, 255, 255, 0.05);
+  }
+
+  .groupCardActions {
+    border-top-color: rgba(255, 255, 255, 0.05);
+  }
+
+  .groupCardActBtn {
+    background: rgba(255, 255, 255, 0.04);
+    border-color: rgba(255, 255, 255, 0.06);
+    color: #888;
+
+    &:hover {
+      border-color: rgba(99, 102, 241, 0.3);
+      color: #a5b4fc;
+    }
+  }
+
+  .groupCardActBtnDanger {
+    color: #f87171;
+    border-color: rgba(248, 113, 113, 0.2);
+
+    &:hover {
+      border-color: rgba(248, 113, 113, 0.5);
+      color: #ef4444;
+      background: rgba(248, 113, 113, 0.08);
+    }
+  }
+
   .configBtn {
     color: rgba(255, 255, 255, 0.65) !important;
 
@@ -1435,6 +2094,81 @@
 
   .statusContainer .statusText.disabled {
     color: rgba(255, 255, 255, 0.3);
+  }
+
+  .llmPillOn {
+    background: linear-gradient(
+      135deg,
+      rgba(16, 185, 129, 0.1),
+      rgba(16, 185, 129, 0.05),
+      rgba(255, 255, 255, 0.03)
+    );
+    border-color: rgba(16, 185, 129, 0.4);
+    box-shadow: 0 1px 6px rgba(16, 185, 129, 0.15);
+
+    &:hover {
+      box-shadow: 0 2px 10px rgba(16, 185, 129, 0.25);
+    }
+  }
+  .llmPillOff {
+    background: linear-gradient(
+      135deg,
+      rgba(239, 68, 68, 0.1),
+      rgba(239, 68, 68, 0.05),
+      rgba(255, 255, 255, 0.03)
+    );
+    border-color: rgba(239, 68, 68, 0.4);
+    box-shadow: 0 1px 6px rgba(239, 68, 68, 0.15);
+
+    &:hover {
+      box-shadow: 0 2px 10px rgba(239, 68, 68, 0.25);
+    }
+  }
+  .llmPillLabel {
+    color: rgba(255, 255, 255, 0.5);
+  }
+  .llmPillValue {
+    color: rgba(255, 255, 255, 0.85);
+  }
+  .llmPillEdit {
+    color: #a5b4fc;
+  }
+  .llmDescription {
+    color: rgba(255, 255, 255, 0.45);
+  }
+  .panelSection {
+    background: rgba(255, 255, 255, 0.03);
+    border-color: rgba(255, 255, 255, 0.06);
+  }
+  .panelSectionDashed {
+    background: transparent;
+    border-color: rgba(255, 255, 255, 0.1);
+  }
+  .panelTitle {
+    color: rgba(255, 255, 255, 0.5);
+  }
+  .panelDotGreen {
+    background: #34d399;
+  }
+  .panelDotGray {
+    background: rgba(255, 255, 255, 0.2);
+  }
+  .panelCount {
+    color: #34d399;
+  }
+  .tabsNav {
+    border-bottom-color: rgba(255, 255, 255, 0.08);
+  }
+  .tabItem {
+    color: rgba(255, 255, 255, 0.4);
+
+    &:hover {
+      color: rgba(255, 255, 255, 0.6);
+    }
+  }
+  .tabItemActive {
+    color: #a5b4fc;
+    border-bottom-color: #a5b4fc;
   }
 
   /* Slot section (LLM 顶部选择区) */
@@ -1515,6 +2249,14 @@
     color: rgba(255, 255, 255, 0.3);
   }
 
+  .modelListLoadMore {
+    border-top-color: rgba(255, 255, 255, 0.08);
+  }
+
+  .modelListCount {
+    color: rgba(255, 255, 255, 0.35);
+  }
+
   .modelListItem {
     border-bottom-color: rgba(255, 255, 255, 0.06);
 
@@ -1559,11 +2301,11 @@
 
   /* Provider cards */
   .providerCard {
-    background: #2a2a2a;
+    background: rgba(30, 30, 30, 0.8);
+    border-color: rgba(255, 255, 255, 0.06);
 
-    &.normal {
-      border: 1px solid rgba(255, 255, 255, 0.08) !important;
-      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2) !important;
+    &:hover {
+      border-color: rgba(99, 102, 241, 0.2);
     }
   }
 

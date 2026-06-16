@@ -10,6 +10,7 @@ import api, {
   type Message,
 } from "../../../api";
 import { toDisplayUrl } from "../utils";
+import { extractTurnUsageFromOutputMessages } from "../turnUsage";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -218,6 +219,8 @@ const buildResponseCard = (
     content: normalizeOutputMessageContent(msg.content),
   }));
 
+  const turnUsage = extractTurnUsageFromOutputMessages(outputMessages);
+
   return {
     id: generateId(),
     role: ROLE_ASSISTANT,
@@ -233,7 +236,8 @@ const buildResponseCard = (
           sequence_number: maxSeq + 1,
           error: null,
           completed_at: lastTs || fallbackNow,
-          usage: null,
+          usage: turnUsage?.usage ?? null,
+          context_usage: turnUsage?.context_usage ?? null,
         },
       },
     ],
@@ -306,22 +310,37 @@ const resolveRealId = (
   sessionList: IAgentScopeRuntimeWebUISession[],
   tempSessionId: string,
 ): { list: IAgentScopeRuntimeWebUISession[]; realId: string | null } => {
-  // 1) Exact match: a session whose id already equals the temp timestamp
-  //    (e.g. after applyChatsToSessionList merged it).
-  let realSession = sessionList.find((s) => s.id === tempSessionId);
+  // 1) Local display entry already linked to a backend UUID.
+  const alreadyResolved = sessionList.find(
+    (s) => s.id === tempSessionId && (s as ExtendedSession).realId,
+  ) as ExtendedSession | undefined;
+  if (alreadyResolved?.realId) {
+    return { list: sessionList, realId: alreadyResolved.realId };
+  }
 
-  // 2) Fallback: match by sessionId, but only consider sessions that have
-  //    NOT yet been resolved (no realId) to avoid stealing another session's
-  //    backend UUID — same class of bug as #3843.
+  // 2) Backend chat from listChats (UUID id + matching session_id).
+  //    Skip the local placeholder whose id equals the timestamp — using that
+  //    id as realId causes GET /api/chats/{timestamp} → 404.
+  let realSession = sessionList.find(
+    (s) =>
+      (s as ExtendedSession).sessionId === tempSessionId &&
+      !(s as ExtendedSession).realId &&
+      s.id !== tempSessionId,
+  );
+
+  // 3) Fallback: only local placeholder exists (backend list not merged yet).
   if (!realSession) {
     realSession = sessionList.find(
-      (s) =>
-        (s as ExtendedSession).sessionId === tempSessionId &&
-        !(s as ExtendedSession).realId,
+      (s) => s.id === tempSessionId && !(s as ExtendedSession).realId,
     );
   }
 
   if (!realSession) return { list: sessionList, realId: null };
+
+  // Never treat a numeric local id as the backend UUID.
+  if (isLocalTimestamp(realSession.id)) {
+    return { list: sessionList, realId: null };
+  }
 
   const realUUID = realSession.id;
   (realSession as ExtendedSession).realId = realUUID;

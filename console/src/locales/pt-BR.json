@@ -520,6 +520,8 @@
     "broadcast": "Broadcast to Agentes",
     "broadcastHint": "Broadcast skills to selected agents",
     "refreshHint": "Refresh skill pool from disk",
+    "deleteExternalConfirm": "Exclui os arquivos da skill externa em {{path}} do disco.",
+    "deleteExternalBatchWarning": "As skills externas selecionadas serão excluídas permanentemente do disco.",
     "broadcastTitle": "Broadcast {{name}}",
     "importBuiltin": "Atualizar Integrado Skills",
     "importBuiltinHint": "Update built-in skills to the latest version",
@@ -1144,8 +1146,30 @@
   },
   "modelSelector": {
     "selectModel": "Selecionar Modelo",
-    "noConfiguredModels": "Nao configured Modelos",
-    "switchFailed": "Falhou to switch Modelo"
+    "noConfiguredModels": "Nenhum modelo configurado",
+    "noFreeModels": "Nenhum modelo gratuito disponível",
+    "switchFailed": "Falha ao trocar modelo",
+    "searchModels": "Buscar modelos...",
+    "noModelsFound": "Nenhum modelo encontrado",
+    "free": "Grátis",
+    "vision": "Visão",
+    "freeBannerText": "Modelos gratuitos podem ter limites de uso e instabilidade. Consulte o provedor para detalhes.",
+    "moreProviders": "Mais provedores gratuitos (requer API Key)",
+    "proBannerText": "Exibindo modelos configurados em Configurações.",
+    "connectToUse": "Conectar {{provider}} para modelos gratuitos",
+    "configureApiKey": "Configurar API Key do {{provider}} para modelos gratuitos",
+    "configureApiKeyTitle": "Ir para Configuração",
+    "configureApiKeyConfirm": "Você será redirecionado para a página de Modelos para configurar a API Key do {{provider}}. Continuar?",
+    "goToConfigure": "Ir para Configurar",
+    "noModelsDiscovered": "Conectado. Carregando modelos...",
+    "oauthTitle": "Conectar ao {{provider}}",
+    "oauthDescription": "Uma nova janela do navegador será aberta para autorizar o acesso ao {{provider}}. A chave API será salva automaticamente.",
+    "oauthContinue": "Continuar",
+    "oauthWaiting": "Aguardando autorização...",
+    "oauthWaitingDescription": "Por favor, conclua a autorização na janela do navegador.",
+    "oauthConnected": "Conectado ao {{provider}} com sucesso",
+    "oauthFailed": "Autorização falhou, tente novamente",
+    "viewMore": "Ver mais ({{count}})"
   },
   "tokenUsage": {
     "title": "Uso de Tokens",
@@ -1273,8 +1297,8 @@
     "selectModel": "Selecionar a Modelo",
     "llmModelUpdated": "LLM Modelo Atualizado",
     "failedToSave": "Falhou to Salvar",
-    "freeModelWarningTitle": "Free Modelo Risk Aviso",
-    "freeModelWarningMessage": "You are using a free model. It may have stability and privacy leakage risks. See the provider website for details:",
+    "freeModelWarningTitle": "Aviso sobre Modelo Gratuito",
+    "freeModelWarningMessage": "Modelos gratuitos podem ser instáveis. Consulte os termos de serviço do provedor:",
     "freeModelWarningDontShowAgain": "Do not show this again",
     "saved": "Saved",
     "save": "Salvar",
@@ -1282,6 +1306,7 @@
     "loading": "Carregando...",
     "retry": "Tentar novamente",
     "notSet": "Nao definido",
+    "notRequired": "Nao necessario",
     "available": "Available",
     "unavailable": "Unavailable",
     "providerAvailable": "Ready (with models)",
@@ -1294,6 +1319,12 @@
     "searchModelPlaceholder": "Pesquisar models...",
     "custom": "Personalizado",
     "builtin": "Integrado",
+    "freeTierGroup": "Gratuito",
+    "paidGroup": "Pago",
+    "localCustomGroup": "Local e Personalizado",
+    "endpointCount": "{{count}} endpoints",
+    "connect": "OAuth",
+    "saveApiKey": "Salvar",
     "addProvider": "Adicionar Provedor",
     "addProviderTitle": "Adicionar Personalizado Provedor",
     "providerIdLabel": "Provedor ID",
@@ -1335,6 +1366,7 @@
     "removeModelConfirm": "Remove model \"{{name}}\" from {{provider}}?",
     "modelRemoved": "Modelo \"{{name}}\" removed",
     "modelRemoveFailed": "Falhou to Remover Modelo",
+    "loadMore": "Carregar mais ({{count}})",
     "modelsCount": "{{count}} Modelos",
     "noModels": "Nao Modelos",
     "addModelFirst": "Please add a model first",
@@ -1780,6 +1812,8 @@
     "newChatTooltip": "Novo Chat",
     "searchTooltip": "Pesquisar Todos chats",
     "chatHistoryTooltip": "Chat history",
+    "wideModeTooltip": "Modo amplo",
+    "normalModeTooltip": "Modo normal",
     "allChats": "Todos Chats",
     "createNewChat": "Criar Novo Chat",
     "pinDrawer": "Fixar",
@@ -1826,6 +1860,17 @@
       "imageOnlyAccept": "Current model only supports image files",
       "imageOnlyWarning": "Current model only supports images, non-image files like videos may not be processed correctly"
     },
+    "rateLimitHit": "O modelo atual está com limite de taxa. Tente mudar para outro modelo gratuito.",
+    "turnUsagePopover": {
+      "ariaLabel": "Ver uso de tokens e contexto desta rodada",
+      "turn": "Esta rodada",
+      "turnEstimated": "Esta rodada ~",
+      "tok": "tok",
+      "inOut": "in {{inTok}} · out {{outTok}}",
+      "contextLabel": "Janela de contexto:"
+    },
+    "rateLimitMessage": "Limite de taxa atingido. Mude para outro modelo gratuito:",
+    "rateLimitSwitched": "Mudou para {{model}}",
     "speech": {
       "startRecording": "Iniciar gravação de voz (Ctrl+Shift+M)",
       "stopRecording": "Parar gravação (Ctrl+Shift+M)",
@@ -1992,7 +2037,9 @@
       "duplicate": "This path is already in the list",
       "saveSuccess": "File guard Configuracoes saved",
       "saveFailed": "Falha ao Salvar file guard Configuracoes",
-      "loadFailed": "Falha ao load file guard Configuracoes"
+      "loadFailed": "Falha ao load file guard Configuracoes",
+      "allowPreviewOutsideWorkspace": "Permitir Preview Fora do Workspace no Console",
+      "allowPreviewOutsideWorkspaceDesc": "Permite visualizar arquivos fora do diretório do workspace no console. A proteção de arquivos sensíveis continua ativa."
     },
     "allowNoAuthHosts": {
       "title": "Allow Nao Auth Hosts",
@@ -2162,7 +2209,18 @@
     "kindBundle": "Pacote",
     "kindTool": "Ferramenta",
     "filterByName": "Filtrar por nome",
-    "filterByKind": "Filtrar por tipo"
+    "filterByKind": "Filtrar por tipo",
+    "marketTitle": "Plugin Market",
+    "marketEmpty": "No plugins found in market",
+    "marketLoadFailed": "Failed to load plugin market",
+    "marketUnavailable": "Plugin Market is currently under maintenance, please try again later",
+    "marketAll": "All",
+    "marketSearch": "Search plugins...",
+    "marketCategory": "Filter by category",
+    "marketSearchResult": "Found {{count}} plugins matching \"{{keyword}}\"",
+    "marketDetails": "Details",
+    "marketDownloads": "Downloads",
+    "marketDeveloper": "Developer"
   },
   "plan": {
     "title": "Plan",
@@ -2292,9 +2350,12 @@
   },
   "market": {
     "searchPlaceholder": "Buscar habilidades em várias plataformas",
+    "categoryAll": "Todos",
+    "searchResult": "{{count}} habilidades encontradas para \"{{keyword}}\"",
     "providerUnavailable": "Provedor indisponível",
     "noResults": "Nenhum resultado",
     "startTyping": "Digite uma consulta acima para buscar no mercado",
+    "browseHint": "Escolha uma categoria ou digite uma palavra-chave para navegar pelos skills em {{providers}}",
     "noDescription": "Nenhuma descrição fornecida",
     "targetPool": "Pool",
     "targetWorkspace": "Workspace",
@@ -2341,5 +2402,15 @@
     "timeout": "O backend nao iniciou em {{seconds}} segundos.",
     "timeoutHint": "Falha ao iniciar o backend. Tente novamente ou verifique os logs do aplicativo.",
     "retry": "Tentar novamente"
+  },
+  "preview": {
+    "error": {
+      "SENSITIVE_FILE_BLOCKED": "Este arquivo está bloqueado pelo File Guard (proteção de arquivos sensíveis).",
+      "OUTSIDE_WORKSPACE": "Este arquivo está fora do escopo do workspace. Ative \"Permitir Preview Fora do Workspace no Console\" em Configurações → Segurança → File Guard.",
+      "FORBIDDEN": "Acesso negado: permissões insuficientes para visualizar este arquivo.",
+      "NOT_FOUND": "Arquivo não encontrado. Pode ter sido movido ou excluído.",
+      "LOAD_FAILED": "Falha ao carregar a visualização do arquivo.",
+      "LOAD_FAILED_DETAIL": "Falha ao carregar a visualização do arquivo: {{detail}}"
+    }
   }
 }

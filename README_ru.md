@@ -15,6 +15,7 @@
 [![Discord](https://img.shields.io/badge/Discord-Join_Us-blueviolet.svg?logo=discord)](https://discord.gg/eYMpfnkG8h)
 [![X](https://img.shields.io/badge/X-Follow_Us-black.svg?logo=x)](https://x.com/agentscope_ai)
 [![DingTalk](https://img.shields.io/badge/DingTalk-Join_Us-orange.svg)](https://qr.dingtalk.com/action/joingroup?code=v1,k1,OmDlBXpjW+I2vWjKDsjvI9dhcXjGZi3bQiojOq3dlDw=&_dt_no_comment=1&origin=11)
+[![AgentScope Platform](https://img.shields.io/badge/%E2%98%81_AgentScope_Platform-%F0%9F%90%BE_7%2F24_Online_%26_Free-FF6B2B.svg)](https://platform.agentscope.io/)
 
 [[Документация](https://qwenpaw.agentscope.io/)] [[English](README.md)] [[中文](README_zh.md)] [[日本語](README_ja.md)]
 
@@ -58,17 +59,19 @@
 
 ## Новости
 
-- [2026-06-01] **v1.1.10 — Порождение субагентов и новые каналы** | Агенты теперь могут порождать субагентов; добавлен канал Tencent Yuanbao.
+- [2026-06-11] **Запуск платформы AgentScope** — Бесплатный деплой QwenPaw, обмен плагинами и маркет Skill. [Попробовать →](https://platform.agentscope.io/)
+
+- [2026-06-10] **v1.1.11 — Бесплатные модели OAuth и Маркет плагинов** | Бесплатные модели без настройки с OAuth в один клик; Маркет плагинов с интеграцией AgentScope Platform.
 
   | Основное | Что нового |
   |----------|-----------|
-  | **Spawn Subagent** | Новый инструмент `spawn_subagent` для запуска временных субагентов в рабочей области. |
-  | **Открыть каталог** | В Coding Mode добавлена вкладка «Открыть каталог» для ссылки на локальные проекты без копирования. |
-  | **Ответы в тредах Feishu** | Агенты могут отвечать в тредах сообщений Feishu. |
-  | **Канал Tencent Yuanbao** | Новая интеграция с ботом Tencent Yuanbao. |
-  | **Динамический лимит загрузки** | Лимит размера загрузки теперь настраивается для консоли и каналов. |
+  | **Бесплатные модели OAuth** | Бесплатные модели без настройки с OAuth-аутентификацией в один клик. |
+  | **Маркет плагинов** | Новая вкладка Маркет плагинов с интеграцией AgentScope Platform. |
+  | **Белый список MCP** | Белый список инструментов MCP для каждого сервера с UI-переключателем. |
 
-  Также: заголовки атрибуции OpenRouter, встроенный CLI для десктопа, исправления стабильности обновления навыков. [v1.1.10 Release Notes →](https://qwenpaw.agentscope.io/release-notes#v1.1.10)
+  Также: самоэволюционирующее создание навыков, оптимизация запуска бэкенда, групповые сессии Feishu, QR-авторизация QQ. [v1.1.11 Release Notes →](https://qwenpaw.agentscope.io/release-notes#v1.1.11)
+
+- [2026-06-01] **v1.1.10** — Порождение субагентов, Открыть каталог, канал Tencent Yuanbao. [v1.1.10 Release Notes →](https://qwenpaw.agentscope.io/release-notes#v1.1.10)
 
 - [2026-05-27] **v1.1.9** — Режим Coding (трёхпанельная Web IDE), Tauri Desktop, единый контроль доступа. [v1.1.9 Release Notes →](https://qwenpaw.agentscope.io/release-notes#v1.1.9)
 

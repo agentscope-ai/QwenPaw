@@ -15,6 +15,7 @@
 [![Discord](https://img.shields.io/badge/Discord-Join_Us-blueviolet.svg?logo=discord)](https://discord.gg/eYMpfnkG8h)
 [![X](https://img.shields.io/badge/X-Follow_Us-black.svg?logo=x)](https://x.com/agentscope_ai)
 [![DingTalk](https://img.shields.io/badge/DingTalk-Join_Us-orange.svg)](https://qr.dingtalk.com/action/joingroup?code=v1,k1,OmDlBXpjW+I2vWjKDsjvI9dhcXjGZi3bQiojOq3dlDw=&_dt_no_comment=1&origin=11)
+[![AgentScope Platform](https://img.shields.io/badge/%E2%98%81_AgentScope_Platform-%F0%9F%90%BE_7%2F24_Online_%26_Free-FF6B2B.svg)](https://platform.agentscope.io/)
 
 [[Documentation](https://qwenpaw.agentscope.io/)] [[中文](README_zh.md)] [[日本語](README_ja.md)] [[Русский](README_ru.md)]
 
@@ -60,17 +61,19 @@ Your personal AI assistant — easy to install, deploy locally or in the cloud, 
 
 ## News
 
-- [2026-06-01] **v1.1.10 — Spawn Subagent & More Channels** | Agents can now spawn sub-agents; Tencent Yuanbao joins the channel family.
+- [2026-06-11] **AgentScope Platform is live** — Free QwenPaw deployment, plugin sharing, and Skill marketplace. [Try it now →](https://platform.agentscope.io/)
+
+- [2026-06-10] **v1.1.11 — Free Model OAuth & Plugin Market** | Zero-config free models with one-click OAuth; Plugin Market with AgentScope Platform integration.
 
   | Highlight | What's new |
   |-----------|------------|
-  | **Spawn Subagent** | New `spawn_subagent` tool for ephemeral in-workspace sub-agent execution. |
-  | **Open Directory** | Coding mode gains an "Open Directory" tab to reference local projects without copying. |
-  | **Feishu Thread Reply** | Agents can now reply within Feishu message threads. |
-  | **Tencent Yuanbao Channel** | New channel integration for Tencent Yuanbao bot. |
-  | **Dynamic Upload Limit** | Upload size limit is now configurable across console and channels. |
+  | **Free Model OAuth** | Zero-config free models with one-click OAuth authentication. |
+  | **Plugin Market** | New Plugin Market tab with AgentScope Platform integration. |
+  | **MCP Tool Whitelisting** | Per-server MCP tool whitelisting with frontend toggle UI. |
 
-  Also: OpenRouter attribution headers, bundled desktop CLI, skill update stability fixes. [v1.1.10 Release Notes →](https://qwenpaw.agentscope.io/release-notes#v1.1.10)
+  Also: self-evolving skill creation, backend startup optimization, Feishu group sharing, QQ QR code auth. [v1.1.11 Release Notes →](https://qwenpaw.agentscope.io/release-notes#v1.1.11)
+
+- [2026-06-01] **v1.1.10** — Spawn Subagent, Open Directory, Tencent Yuanbao channel. [v1.1.10 Release Notes →](https://qwenpaw.agentscope.io/release-notes#v1.1.10)
 
 - [2026-05-27] **v1.1.9** — Coding Mode (three-panel Web IDE), Tauri desktop app, unified access control. [v1.1.9 Release Notes →](https://qwenpaw.agentscope.io/release-notes#v1.1.9)
 

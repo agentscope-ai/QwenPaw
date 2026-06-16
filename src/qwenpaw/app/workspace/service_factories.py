@@ -25,8 +25,14 @@ async def create_mcp_service(ws: "Workspace", mcp):
     # pylint: disable=protected-access
     if ws._config.mcp:
         try:
-            await mcp.init_from_config(ws._config.mcp)
-            logger.debug(f"MCP initialized for agent: {ws.agent_id}")
+            if getattr(ws, "defer_mcp_startup", False):
+                mcp.init_from_config_background(ws._config.mcp)
+                logger.debug(
+                    f"MCP initialization deferred for agent: {ws.agent_id}",
+                )
+            else:
+                await mcp.init_from_config(ws._config.mcp)
+                logger.debug(f"MCP initialized for agent: {ws.agent_id}")
         except Exception as e:
             logger.warning(f"Failed to init MCP: {e}")
     ws._service_manager.services["runner"].set_mcp_manager(mcp)

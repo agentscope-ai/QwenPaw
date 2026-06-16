@@ -2,16 +2,21 @@
   font-size: 16px;
   font-weight: 500;
   line-height: 22px;
-  color: var(--colorText, rgba(0, 0, 0, 0.88));
+  color: var(--ant-color-text, rgba(0, 0, 0, 0.88));
   max-width: 240px;
+  min-width: 0;
+  flex-shrink: 1;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-/* Dark mode */
+.chatNameCoding {
+  max-width: 100px;
+}
+
 :global(.dark-mode) {
   .chatName {
-    color: rgba(255, 255, 255, 0.95);
+    color: rgba(255, 255, 255, 0.88);
   }
 }

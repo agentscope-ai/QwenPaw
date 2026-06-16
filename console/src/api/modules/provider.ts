@@ -189,4 +189,19 @@ export const providerApi = {
       method: "POST",
       body: JSON.stringify(body),
     }),
+
+  /* ---- Provider OAuth ---- */
+
+  startOAuth: (providerId: string) =>
+    request<{ authorize_url: string; state: string; flow_type: string }>(
+      `/providers/${encodeURIComponent(providerId)}/oauth/start`,
+      { method: "POST" },
+    ),
+
+  getOAuthStatus: (providerId: string, state: string) =>
+    request<{ status: string; error?: string }>(
+      `/providers/${encodeURIComponent(
+        providerId,
+      )}/oauth/status?state=${encodeURIComponent(state)}`,
+    ),
 };

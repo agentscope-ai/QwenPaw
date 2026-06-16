@@ -36,6 +36,8 @@ from acp.schema import (
     AgentCapabilities,
     AgentMessageChunk,
     AudioContentBlock,
+    AvailableCommand,
+    AvailableCommandsUpdate,
     ClientCapabilities,
     CloseSessionResponse,
     EmbeddedResourceContentBlock,
@@ -67,8 +69,30 @@ from ...__version__ import __version__
 from ...constant import WORKING_DIR
 from ...config.config import ModelSlotConfig
 from ...providers.provider_manager import ProviderManager
+from ...agents.command_handler import SYSTEM_COMMAND_DESCRIPTIONS
+from ...agents.mission.handler import MISSION_COMMAND_DESCRIPTIONS
 
 logger = logging.getLogger(__name__)
+
+# Control commands that have a dedicated ACP affordance and would be
+# redundant (or confusing) as typed slash commands over ACP:
+#   /model    → session/set_model
+#   /approval, /approve, /deny → session/request_permission round-trip
+#   /stop     → session/cancel notification
+# They are handled natively and so are not advertised for autocompletion.
+_ACP_REDUNDANT_COMMANDS = frozenset(
+    {"model", "approval", "approve", "deny", "stop"},
+)
+
+# ``_meta`` key set on an ``agent_message_chunk`` to mark it as an error,
+# so ACP clients can render it distinctly (e.g. the paw TUI shows it in its
+# error style). Clients that ignore ``_meta`` still display the text.
+ACP_ERROR_META_KEY = "qwenpaw.error"
+
+# ``_meta`` key on the new/load-session response carrying the resolved agent
+# id, so ACP clients can show which agent they're talking to (the protocol
+# has no standard field for it).
+ACP_AGENT_META_KEY = "qwenpaw.agent"
 
 
 PromptBlocks = list[
@@ -110,6 +134,7 @@ class _StreamTracker:
         self._prev_text: str = ""
         self._prev_thinking: str = ""
         self._seen_tool_ids: set[str] = set()
+        self._tool_inputs: dict[str, Any] = {}
 
     def delta_text(self, cumulative: str) -> str:
         """Return only the new portion of the text."""
@@ -134,6 +159,22 @@ class _StreamTracker:
         if tool_id in self._seen_tool_ids:
             return False
         self._seen_tool_ids.add(tool_id)
+        return True
+
+    def tool_input_changed(self, tool_id: str, raw_input: Any) -> bool:
+        """Return True when *raw_input* is non-empty and differs from the
+        last value recorded for *tool_id*, recording the new value.
+
+        Tool-call arguments stream in, so the first sighting of a call
+        often carries empty/partial input; this lets the caller emit an
+        ``update`` once the populated arguments arrive (the initial
+        ``start`` would otherwise pin an empty ``rawInput``).
+        """
+        if not raw_input:
+            return False
+        if self._tool_inputs.get(tool_id) == raw_input:
+            return False
+        self._tool_inputs[tool_id] = raw_input
         return True
 
 
@@ -169,13 +210,24 @@ def _msg_to_updates(  # pylint: disable=too-many-branches
             if not isinstance(tc, dict):
                 continue
             tc_id = str(tc.get("id") or uuid4().hex[:8])
+            inp = tc.get("input")
             if not tracker or tracker.is_new_tool_call(tc_id):
                 updates.append(
                     start_tool_call(
                         tc_id,
                         str(tc.get("name") or "tool"),
                         status="in_progress",
+                        raw_input=inp,
                     ),
+                )
+                if tracker:
+                    # Record what we sent so a later, fuller input is
+                    # recognised as a change (see tool_input_changed).
+                    tracker.tool_input_changed(tc_id, inp)
+            elif tracker and tracker.tool_input_changed(tc_id, inp):
+                # Arguments finished streaming after the start event.
+                updates.append(
+                    update_tool_call(tc_id, raw_input=inp),
                 )
         return updates
 
@@ -188,15 +240,7 @@ def _msg_to_updates(  # pylint: disable=too-many-branches
                 update_tool_call(
                     str(tr.get("id") or uuid4().hex[:8]),
                     status="completed",
-                    content=[
-                        tool_content(
-                            text_block(
-                                _extract_tool_output(
-                                    tr.get("output", ""),
-                                ),
-                            ),
-                        ),
-                    ],
+                    content=_tool_result_content(tr.get("output", "")),
                 ),
             )
         return updates
@@ -231,28 +275,30 @@ def _content_blocks_to_updates(
             _emit_text(block_data, tracker, updates)
         elif block_type == "tool_use":
             tc_id = str(block_data.get("id") or uuid4().hex[:8])
+            inp = block_data.get("input")
             if not tracker or tracker.is_new_tool_call(tc_id):
                 updates.append(
                     start_tool_call(
                         tc_id,
                         str(block_data.get("name") or "tool"),
                         status="in_progress",
+                        raw_input=inp,
                     ),
+                )
+                if tracker:
+                    tracker.tool_input_changed(tc_id, inp)
+            elif tracker and tracker.tool_input_changed(tc_id, inp):
+                updates.append(
+                    update_tool_call(tc_id, raw_input=inp),
                 )
         elif block_type == "tool_result":
             updates.append(
                 update_tool_call(
                     str(block_data.get("id") or uuid4().hex[:8]),
                     status="completed",
-                    content=[
-                        tool_content(
-                            text_block(
-                                _extract_tool_output(
-                                    block_data.get("output", ""),
-                                ),
-                            ),
-                        ),
-                    ],
+                    content=_tool_result_content(
+                        block_data.get("output", ""),
+                    ),
                 ),
             )
 
@@ -261,19 +307,102 @@ def _extract_tool_output(output: Any) -> str:
     """Extract plain text from a tool output value.
 
     The output may be a string, a list of content blocks, or another
-    structure — normalise everything to a flat string.
+    structure — normalise everything to a flat string. File/media blocks
+    (image/audio/video/file with a URL source, e.g. from
+    ``send_file_to_user``) are rendered as a readable ``filename`` line
+    rather than a raw dict repr; the URL itself travels as a separate
+    ``resource_link`` content block (see ``_tool_result_content``).
     """
     if isinstance(output, str):
         return output
     if isinstance(output, list):
         parts = []
         for item in output:
-            if isinstance(item, dict):
-                parts.append(item.get("text", str(item)))
-            else:
-                parts.append(str(item))
-        return "\n".join(parts)
+            # Works for both dict blocks and attribute-style block objects
+            # (e.g. agentscope ImageBlock/TextBlock from send_file_to_user).
+            text = (
+                item.get("text")
+                if isinstance(item, dict)
+                else getattr(item, "text", None)
+            )
+            if text:
+                parts.append(text)
+                continue
+            media = _media_block_url(item)
+            if media is not None:
+                _url, name, _mime = media
+                parts.append(f"📎 {name}")
+                continue
+            parts.append(str(item))
+        return "\n".join(p for p in parts if p)
     return str(output)
+
+
+def _media_block_url(
+    item: Any,
+) -> tuple[str, str, str | None] | None:
+    """Return ``(url, name, mime_type)`` for an image/audio/video/file block
+    that carries a URL source, else ``None``.
+
+    Handles both dict blocks (e.g. agentscope ``ImageBlock``/``FileBlock``)
+    and attribute-style objects.
+    """
+    if isinstance(item, dict):
+        btype = item.get("type")
+        source = item.get("source")
+        name = item.get("filename") or item.get("name")
+        mime = item.get("mime_type") or item.get("mimeType")
+    else:
+        btype = getattr(item, "type", None)
+        source = getattr(item, "source", None)
+        name = getattr(item, "filename", None) or getattr(item, "name", None)
+        mime = getattr(item, "mime_type", None)
+    if btype not in ("image", "audio", "video", "file"):
+        return None
+    if isinstance(source, dict):
+        url = source.get("url")
+    else:
+        url = getattr(source, "url", None)
+    if not url or not isinstance(url, str):
+        return None
+    if not name:
+        name = url.rstrip("/").rsplit("/", 1)[-1] or url
+    return url, name, mime
+
+
+def _tool_result_content(output: Any) -> list[Any]:
+    """Build the ACP tool-call ``content`` for a completed tool result.
+
+    Always includes the flattened text; additionally appends a
+    ``resource_link`` block for every **local** ``file://`` media block in
+    the output so ACP clients (e.g. the paw TUI) can offer a clickable link
+    to the file the agent sent via ``send_file_to_user``. Remote URLs
+    (http/https/...) are intentionally not turned into resource links — they
+    still appear as a readable ``📎`` line in the text — so clients are not
+    nudged into treating untrusted remote URLs as openable resources.
+    """
+    contents: list[Any] = [
+        tool_content(text_block(_extract_tool_output(output))),
+    ]
+    if isinstance(output, list):
+        for item in output:
+            media = _media_block_url(item)
+            if media is None:
+                continue
+            url, name, mime = media
+            if not url.startswith("file://"):
+                continue
+            contents.append(
+                tool_content(
+                    ResourceContentBlock(
+                        type="resource_link",
+                        uri=url,
+                        name=name,
+                        mime_type=mime,
+                    ),
+                ),
+            )
+    return contents
 
 
 def _normalise_block(block: Any) -> tuple[str, dict[str, Any]]:
@@ -282,7 +411,7 @@ def _normalise_block(block: Any) -> tuple[str, dict[str, Any]]:
         return block.get("type", "text"), block
     btype = getattr(block, "type", "text") or "text"
     data: dict[str, Any] = {}
-    for attr in ("text", "thinking", "id", "name", "output"):
+    for attr in ("text", "thinking", "id", "name", "output", "input"):
         val = getattr(block, attr, None)
         if val is not None:
             data[attr] = val
@@ -400,6 +529,7 @@ class QwenPawACPAgent(Agent):
         workspace = Workspace(
             agent_id=agent_id,
             workspace_dir=str(workspace_dir),
+            defer_mcp_startup=True,
         )
         await workspace.start()
 
@@ -484,9 +614,13 @@ class QwenPawACPAgent(Agent):
             session_id,
             cwd,
         )
+        # Advertise slash commands after the response is sent, so the
+        # client has learned this session_id first.
+        asyncio.create_task(self._advertise_commands(session_id))
         return NewSessionResponse(
             session_id=session_id,
             config_options=self._build_config_options(session_id),
+            field_meta=self._session_meta(),
         )
 
     async def load_session(  # pylint: disable=unused-argument
@@ -508,7 +642,8 @@ class QwenPawACPAgent(Agent):
             session_id,
             cwd,
         )
-        return LoadSessionResponse()
+        asyncio.create_task(self._advertise_commands(session_id))
+        return LoadSessionResponse(field_meta=self._session_meta())
 
     async def prompt(  # pylint: disable=too-many-locals,unused-argument
         self,
@@ -592,11 +727,14 @@ class QwenPawACPAgent(Agent):
                 # multi-step prompts (with tool calls) report usage
                 # per LLM call, matching QwenCode behaviour.
                 await self._emit_usage_if_available(session_id)
-        except Exception:
+        except Exception as exc:  # pylint: disable=broad-except
             logger.exception(
                 "ACP prompt error: session=%s",
                 session_id,
             )
+            # Surface the failure to the client instead of ending the turn
+            # silently, so ACP UIs (e.g. the paw TUI) can show it.
+            await self._report_prompt_error(session_id, exc)
         finally:
             self._cancel_events.pop(session_id, None)
 
@@ -781,6 +919,9 @@ class QwenPawACPAgent(Agent):
                 "inputTokens": raw.get("prompt_tokens", 0),
                 "outputTokens": raw.get("completion_tokens", 0),
                 "totalTokens": raw.get("total_tokens", 0),
+                # The model that produced this call, so clients can show it
+                # (the session is bound late, e.g. via a global fallback).
+                "model": raw.get("model_name") or "",
             },
         }
 
@@ -790,6 +931,96 @@ class QwenPawACPAgent(Agent):
         if info is not None:
             return info.get("mode", self.MODE_DEFAULT)
         return self.MODE_DEFAULT
+
+    def _session_meta(self) -> dict[str, Any] | None:
+        """``_meta`` for session responses: the resolved agent id.
+
+        Best-effort — returns ``None`` if the agent id can't be resolved,
+        so a session is never blocked on it.
+        """
+        try:
+            agent_id = self._resolve_agent_id()
+        except Exception:  # pylint: disable=broad-except
+            logger.exception("ACP: failed to resolve agent id for _meta")
+            return None
+        return {ACP_AGENT_META_KEY: agent_id} if agent_id else None
+
+    @staticmethod
+    def _build_available_commands() -> list[AvailableCommand]:
+        """Build the slash commands to advertise to the ACP client.
+
+        Combines the user-facing conversation commands with the registered
+        control commands, skipping those that have a dedicated ACP
+        affordance (see ``_ACP_REDUNDANT_COMMANDS``).
+        """
+        # Imported lazily to avoid a circular import: ``app.runner`` pulls in
+        # ``react_agent`` -> ``agents.tools``, which (via the ACP tool adapter)
+        # imports this module during ``agents.tools`` package init.
+        from ...app.runner.control_commands import iter_commands
+
+        commands = [
+            AvailableCommand(name=name, description=desc)
+            for name, desc in {
+                **SYSTEM_COMMAND_DESCRIPTIONS,
+                **MISSION_COMMAND_DESCRIPTIONS,
+            }.items()
+        ]
+        for handler in iter_commands():
+            name = handler.command_name.lstrip("/")
+            if not name or name in _ACP_REDUNDANT_COMMANDS:
+                continue
+            commands.append(
+                AvailableCommand(
+                    name=name,
+                    description=handler.description,
+                ),
+            )
+        return commands
+
+    async def _report_prompt_error(
+        self,
+        session_id: str,
+        exc: BaseException,
+    ) -> None:
+        """Send a prompt failure to the client as a visible message.
+
+        ACP has no dedicated error update, so the message is delivered as
+        an ``agent_message_chunk`` tagged via ``_meta`` (see
+        ``ACP_ERROR_META_KEY``). Clients can render it distinctly; those
+        that ignore ``_meta`` still show the text in the transcript.
+        """
+        try:
+            await self._conn.session_update(
+                session_id=session_id,
+                update=AgentMessageChunk(
+                    sessionUpdate="agent_message_chunk",
+                    content=text_block(f"Error: {exc}"),
+                    field_meta={ACP_ERROR_META_KEY: True},
+                ),
+            )
+        except Exception:  # pylint: disable=broad-except
+            logger.exception(
+                "ACP: failed to report prompt error to client (session=%s)",
+                session_id,
+            )
+
+    async def _advertise_commands(self, session_id: str) -> None:
+        """Send the ``available_commands_update`` for a session."""
+        try:
+            await self._conn.session_update(
+                session_id=session_id,
+                update=AvailableCommandsUpdate(
+                    sessionUpdate="available_commands_update",
+                    availableCommands=self._build_available_commands(),
+                ),
+            )
+        except Exception:  # pylint: disable=broad-except
+            # Advertising commands is best-effort; never fail a session
+            # because the notification could not be delivered.
+            logger.exception(
+                "ACP: failed to advertise available commands (session=%s)",
+                session_id,
+            )
 
     def _build_config_options(
         self,

@@ -48,16 +48,25 @@ class Workspace:
     All components use existing single-agent code without modification.
     """
 
-    def __init__(self, agent_id: str, workspace_dir: str):
+    def __init__(
+        self,
+        agent_id: str,
+        workspace_dir: str,
+        *,
+        defer_mcp_startup: bool = False,
+    ):
         """Initialize agent instance.
 
         Args:
             agent_id: Unique agent identifier
             workspace_dir: Path to agent's workspace directory
+            defer_mcp_startup: Start MCP clients in the background instead of
+                blocking workspace startup.
         """
         self.agent_id = agent_id
         self.workspace_dir = Path(workspace_dir).expanduser()
         self.workspace_dir.mkdir(parents=True, exist_ok=True)
+        self.defer_mcp_startup = defer_mcp_startup
 
         # Service manager (unified component management)
         self._service_manager = ServiceManager(self)
@@ -250,7 +259,10 @@ class Workspace:
             ),
         )
 
-        # Priority 30: Channel manager
+        # Channel manager: only needs the runner reference (P10).
+        # Runs concurrent with other P20 services so its heavy SDK
+        # imports overlap with memory_manager init (~1s each).
+        # start_all() fires channel connections in background.
         sm.register(
             ServiceDescriptor(
                 name="channel_manager",
@@ -258,8 +270,8 @@ class Workspace:
                 post_init=create_channel_service,
                 start_method="start_all",
                 stop_method="stop_all",
-                priority=30,
-                concurrent_init=False,
+                priority=20,
+                concurrent_init=True,
             ),
         )
 

@@ -1,71 +1,20 @@
+# Standalone E2E Integration Tests (manual dispatch only).
+# Nightly E2E runs are handled by full-tests-nightly.yml as part of the
+# four-tier coverage pipeline. Use this workflow for ad-hoc E2E runs
+# with a custom marker filter.
 name: E2E Integration Tests
 
 on:
-  # TODO: Temporarily disable schedule; waiting for backend startup script configuration
-  # schedule:
-  #   # Nightly at 2:30 AM UTC
-  #   - cron: '30 2 * * *'
   workflow_dispatch:
     inputs:
       test_marker:
-        description: 'Test marker filter (default: integration)'
+        description: 'Pytest marker filter (default: p0)'
         required: false
-        default: 'integration'
+        default: 'p0'
 
 jobs:
   e2e-integration:
-    name: Playwright Integration Tests
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    environment: staging
-
-    env:
-      QWENPAW_BASE_URL: http://localhost:8088
-      QWENPAW_HEADLESS: 'true'
-      QWENPAW_TIMEOUT: '60000'
-      QWENPAW_API_KEY: ${{ secrets.QWENPAW_API_KEY }}
-      QWENPAW_MODEL_KEY: ${{ secrets.QWENPAW_MODEL_KEY }}
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Start QwenPaw backend
-        run: |
-          # TODO: Replace with actual backend start command
-          # pip install -e .
-          # qwenpaw start &
-          # npx wait-on http://localhost:8088/api/version --timeout 60000
-          echo "Backend start command needs to be configured"
-          exit 1
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-
-      - name: Cache pip
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/pip
-          key: ${{ runner.os }}-pip-e2e-${{ hashFiles('e2e/requirements.txt') }}
-          restore-keys: |
-            ${{ runner.os }}-pip-e2e-
-
-      - name: Install E2E dependencies
-        working-directory: e2e
-        run: |
-          pip install -r requirements.txt
-          playwright install chromium --with-deps
-
-      - name: Run integration tests
-        working-directory: e2e
-        run: |
-          pytest tests/ -m "${{ github.event.inputs.test_marker || 'integration' }}" -v --tb=short --reruns=2 --reruns-delay=3
-
-      - name: Upload test artifacts
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: e2e-integration-report
-          path: e2e/reports/
-          retention-days: 7
+    uses: ./.github/workflows/_e2e-job.yml
+    with:
+      test_marker: ${{ github.event.inputs.test_marker || 'p0' }}
+    secrets: inherit

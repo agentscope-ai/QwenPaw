@@ -5,6 +5,8 @@ export interface MarketProviderInfo {
   label: string;
   available: boolean;
   reason: string | null;
+  /** False for search-only sources (e.g. ClawHub) with no browse listing. */
+  supports_browse: boolean;
 }
 
 export interface MarketResult {
@@ -40,10 +42,21 @@ export interface MarketSearchPayload {
   provider_pages: Record<string, number>;
   limit?: number;
   lang?: string;
+  category?: string;
+}
+
+export interface MarketCategory {
+  id: string;
+  label: string;
 }
 
 export const marketApi = {
   listMarketProviders: () => request<MarketProviderInfo[]>("/market/providers"),
+
+  listMarketCategories: (lang: string) =>
+    request<MarketCategory[]>(
+      `/market/categories?lang=${encodeURIComponent(lang)}`,
+    ),
 
   searchMarket: (payload: MarketSearchPayload) =>
     request<MarketSearchResponse>("/market/search", {
