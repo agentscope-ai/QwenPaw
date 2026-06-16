@@ -594,4 +594,4 @@ async def test_provider_group_in_get_info(isolated_secret_dir) -> None:
     info = await provider.get_info()
     assert info.provider_group == "aliyun"
     assert info.provider_group_name == "Aliyun"
-    assert info.provider_variant == "open_platform"
+    assert info.provider_variant == "dashscope"
