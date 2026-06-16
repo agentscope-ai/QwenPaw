@@ -59,8 +59,7 @@ export const ProviderGroupCard = React.memo(function ProviderGroupCard({
       setApiKeyInput("");
       onSaved();
     } catch (err) {
-      const msg =
-        err instanceof Error ? err.message : t("models.failedToSave");
+      const msg = err instanceof Error ? err.message : t("models.failedToSave");
       message.error(msg);
     } finally {
       setSaving(false);
@@ -71,14 +70,9 @@ export const ProviderGroupCard = React.memo(function ProviderGroupCard({
     <div className={styles.groupCardGlass}>
       {/* Header */}
       <div className={styles.groupCardHeader}>
-        <ProviderIcon
-          providerId={group.providers[0]?.id ?? ""}
-          size={36}
-        />
+        <ProviderIcon providerId={group.providers[0]?.id ?? ""} size={36} />
         <span className={styles.groupCardName}>{group.groupName}</span>
-        {hasFreeTier && (
-          <span className={styles.freeTag}>FREE</span>
-        )}
+        {hasFreeTier && <span className={styles.freeTag}>FREE</span>}
         {liveCount > 0 && (
           <div className={styles.groupCardLiveBadge}>
             <span className={styles.groupCardPulse} />
@@ -92,8 +86,7 @@ export const ProviderGroupCard = React.memo(function ProviderGroupCard({
         {group.providers.map((provider, idx) => {
           const configured = getIsConfigured(provider);
           const label =
-            VARIANT_LABELS[provider.provider_variant || ""] ||
-            provider.name;
+            VARIANT_LABELS[provider.provider_variant || ""] || provider.name;
           return (
             <div
               key={provider.id}
@@ -106,9 +99,7 @@ export const ProviderGroupCard = React.memo(function ProviderGroupCard({
               <span
                 className={[
                   styles.groupSegDot,
-                  configured
-                    ? styles.groupSegDotOn
-                    : styles.groupSegDotOff,
+                  configured ? styles.groupSegDotOn : styles.groupSegDotOff,
                 ].join(" ")}
               />
               {label}
@@ -207,10 +198,9 @@ export const ProviderGroupCard = React.memo(function ProviderGroupCard({
                   cancelText: t("models.cancel"),
                   onOk: async () => {
                     try {
-                      await providerApi.configureProvider(
-                        activeProvider.id,
-                        { api_key: "" },
-                      );
+                      await providerApi.configureProvider(activeProvider.id, {
+                        api_key: "",
+                      });
                       message.success(
                         t("models.providerDisabled", {
                           name: activeProvider.name,

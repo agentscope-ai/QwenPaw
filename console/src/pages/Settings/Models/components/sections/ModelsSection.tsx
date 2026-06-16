@@ -134,14 +134,10 @@ export const ModelsSection = React.memo(function ModelsSection({
 
   return (
     <div className={styles.defaultLlmBody}>
-      <p className={styles.llmDescription}>
-        {t("models.llmDescription")}
-      </p>
+      <p className={styles.llmDescription}>{t("models.llmDescription")}</p>
       <div className={styles.slotForm}>
         <div className={styles.slotField}>
-          <label className={styles.slotLabel}>
-            {t("models.provider")}
-          </label>
+          <label className={styles.slotLabel}>{t("models.provider")}</label>
           <Select
             style={{ width: "100%" }}
             placeholder={t("models.selectProvider")}
@@ -155,15 +151,11 @@ export const ModelsSection = React.memo(function ModelsSection({
         </div>
 
         <div className={styles.slotField}>
-          <label className={styles.slotLabel}>
-            {t("models.model")}
-          </label>
+          <label className={styles.slotLabel}>{t("models.model")}</label>
           <Select
             style={{ width: "100%" }}
             placeholder={
-              hasModels
-                ? t("models.selectModel")
-                : t("models.addModelFirst")
+              hasModels ? t("models.selectModel") : t("models.addModelFirst")
             }
             disabled={!hasModels}
             showSearch
@@ -177,17 +169,9 @@ export const ModelsSection = React.memo(function ModelsSection({
           />
         </div>
 
-        <div
-          className={[
-            styles.slotField,
-            styles.slotActionField,
-          ].join(" ")}
-        >
+        <div className={[styles.slotField, styles.slotActionField].join(" ")}>
           <label
-            className={[
-              styles.slotLabel,
-              styles.visuallyHiddenLabel,
-            ].join(" ")}
+            className={[styles.slotLabel, styles.visuallyHiddenLabel].join(" ")}
           >
             {t("models.actions")}
           </label>

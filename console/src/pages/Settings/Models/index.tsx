@@ -68,13 +68,10 @@ function ModelsPage() {
     void fetchAll(false);
   }, [fetchAll]);
 
-  const handleTabChange = useCallback(
-    (tab: "cloud" | "local") => {
-      setActiveTab(tab);
-      localStorage.setItem("models_tab", tab);
-    },
-    [],
-  );
+  const handleTabChange = useCallback((tab: "cloud" | "local") => {
+    setActiveTab(tab);
+    localStorage.setItem("models_tab", tab);
+  }, []);
 
   // Keep modal provider states in sync with the latest providers data
   useEffect(() => {
@@ -119,8 +116,7 @@ function ModelsPage() {
     const cloudAvail: ProviderInfo[] = [];
 
     const isReady = (p: ProviderInfo) => {
-      const hasModels =
-        p.models.length + p.extra_models.length > 0;
+      const hasModels = p.models.length + p.extra_models.length > 0;
       if (p.is_local) return hasModels;
       return getIsConfigured(p);
     };
@@ -194,15 +190,13 @@ function ModelsPage() {
       }
     }
     const cloudAvailGroups = [
-      ...Array.from(availGroupMap.entries()).map(
-        ([key, val]) => ({
-          key,
-          name: val.name,
-          hasFree: val.hasFree,
-          firstProvider: val.providers[0],
-          providers: val.providers,
-        }),
-      ),
+      ...Array.from(availGroupMap.entries()).map(([key, val]) => ({
+        key,
+        name: val.name,
+        hasFree: val.hasFree,
+        firstProvider: val.providers[0],
+        providers: val.providers,
+      })),
       ...availUngrouped.map((p) => ({
         key: p.id,
         name: p.name,
@@ -242,16 +236,14 @@ function ModelsPage() {
         }))
         .filter(
           (g) =>
-            g.providers.length > 0 ||
-            g.groupName.toLowerCase().includes(query),
+            g.providers.length > 0 || g.groupName.toLowerCase().includes(query),
         );
 
     return {
       localConfigured: localConf.filter(matchProvider),
       localAvailable: localAvail.filter(matchProvider),
       cloudConfiguredGrouped: filterGroups(cloudResult.grouped),
-      cloudConfiguredUngrouped:
-        cloudResult.ungrouped.filter(matchProvider),
+      cloudConfiguredUngrouped: cloudResult.ungrouped.filter(matchProvider),
       cloudAvailableGroups: cloudAvailGroups.filter(
         (g) =>
           g.name.toLowerCase().includes(query) ||
@@ -315,9 +307,8 @@ function ModelsPage() {
                       {t("models.defaultLlm")}:
                     </span>
                     <span className={styles.llmPillValue}>
-                      {activeModels?.active_llm?.provider_id ||
-                        "—"}{" "}
-                      / {activeModels?.active_llm?.model || "—"}
+                      {activeModels?.active_llm?.provider_id || "—"} /{" "}
+                      {activeModels?.active_llm?.model || "—"}
                     </span>
                     <span className={styles.llmPillEdit}>
                       {t("common.edit")}
@@ -415,9 +406,7 @@ function ModelsPage() {
                             onOpenModels={handleOpenModels}
                           />
                         ))}
-                        {renderProviderCards(
-                          cloudConfiguredUngrouped,
-                        )}
+                        {renderProviderCards(cloudConfiguredUngrouped)}
                       </div>
                     ) : (
                       <div className={styles.emptyConfigured}>
@@ -465,21 +454,13 @@ function ModelsPage() {
                               providerId={g.firstProvider.id}
                               size={24}
                             />
-                            <span
-                              className={styles.availableItemName}
-                            >
+                            <span className={styles.availableItemName}>
                               {g.name}
                             </span>
                             {g.hasFree && (
-                              <span className={styles.freeTag}>
-                                FREE
-                              </span>
+                              <span className={styles.freeTag}>FREE</span>
                             )}
-                            <span
-                              className={
-                                styles.availableItemAction
-                              }
-                            >
+                            <span className={styles.availableItemAction}>
                               {t("models.configureAction")}
                             </span>
                           </div>
@@ -517,24 +498,13 @@ function ModelsPage() {
                           <div
                             key={provider.id}
                             className={styles.availableItem}
-                            onClick={() =>
-                              handleOpenConfig(provider)
-                            }
+                            onClick={() => handleOpenConfig(provider)}
                           >
-                            <ProviderIcon
-                              providerId={provider.id}
-                              size={24}
-                            />
-                            <span
-                              className={styles.availableItemName}
-                            >
+                            <ProviderIcon providerId={provider.id} size={24} />
+                            <span className={styles.availableItemName}>
                               {provider.name}
                             </span>
-                            <span
-                              className={
-                                styles.availableItemAction
-                              }
-                            >
+                            <span className={styles.availableItemAction}>
                               {t("models.configureAction")}
                             </span>
                           </div>
@@ -609,9 +579,7 @@ function ModelsPage() {
                     }}
                   >
                     <ProviderIcon providerId={p.id} size={24} />
-                    <span className={styles.variantItemName}>
-                      {p.name}
-                    </span>
+                    <span className={styles.variantItemName}>{p.name}</span>
                     {p.is_free_tier && (
                       <span className={styles.freeTag}>FREE</span>
                     )}
