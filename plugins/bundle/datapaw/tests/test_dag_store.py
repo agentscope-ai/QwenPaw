@@ -83,9 +83,9 @@ def test_runtime_state_notify_writes_dag_store(tmp_path):
 
 def test_tasks_persist_pn_writes_dag_store(tmp_path):
     from plugin_datapaw.core.orchestration.dag_store import DAGStore
-    from plugin_datapaw.core.routers.tasks import _PnContext, _persist_pn
+    from plugin_datapaw.core.routers.tasks_utils import PnContext, persist_pn
 
-    ctx = _PnContext(
+    ctx = PnContext(
         session=object(),
         session_id="s1",
         user_id="u1",
@@ -93,7 +93,7 @@ def test_tasks_persist_pn_writes_dag_store(tmp_path):
         pn={"current_plan": {"id": "g1"}},
     )
 
-    asyncio.run(_persist_pn(ctx))
+    asyncio.run(persist_pn(ctx))
 
     assert asyncio.run(ctx.dag_store.read("s1")) == {
         "current_plan": {"id": "g1"},

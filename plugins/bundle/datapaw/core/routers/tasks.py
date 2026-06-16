@@ -13,6 +13,7 @@ Read endpoints:
 - ``GET  /{session_id}/files`` — list cumulative artifacts (filter by ids).
 - ``GET  /{session_id}/files/preview`` — inline preview via ``?path=``.
 - ``GET  /{session_id}/files/download`` — download one file via ``?path=``.
+- ``GET  /{session_id}/files/resource`` — proxy any file under artifacts root.
 
 Write endpoints (only run while no agent is active, else 409):
 
@@ -25,211 +26,36 @@ description / expected_outcome / deps). Runtime fields are rejected.
 """
 from __future__ import annotations
 
-import logging
-import re
-from pathlib import Path
-from typing import Any, List, Literal, NamedTuple, Optional
-from urllib.parse import quote, urlsplit
+import asyncio
+from typing import AsyncIterator, List, Optional
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request
 from fastapi.responses import FileResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field
 
-from ..path_context import PathContext, shared_artifacts_root
-from ..orchestration.artifact import ArtifactItem
 from ..orchestration.dag_store import DAGBroadcaster, DAGStore, format_sse
 from ..orchestration.task_graph import Sop, TaskGraph
-
-logger = logging.getLogger(__name__)
+from .tasks_utils import (
+    PnContext,
+    archive_current_plan_to_pn,
+    build_file_urls,
+    check_not_running,
+    ensure_plan_notebook_keys,
+    extract_artifacts,
+    get_session_for_agent,
+    get_workspace_for_agent,
+    load_pn_for_request,
+    persist_pn,
+    resolve_request_api_origin,
+    safe_filename,
+    serve_artifact_file,
+    serve_resource_file,
+)
 
 # Prefix is applied at mount time by host's ``api.register_http_router``
 # (host prepends ``/api`` automatically), so this router carries no prefix
 # of its own. See plugin.py for the registration call.
 router = APIRouter(tags=["datapaw-tasks"])
-
-
-# ---------------------------------------------------------------------------
-# Shared dependencies
-# ---------------------------------------------------------------------------
-
-
-def _get_multi_agent_manager(request: Request):
-    manager = getattr(request.app.state, "multi_agent_manager", None)
-    if manager is None:
-        raise HTTPException(
-            status_code=500,
-            detail="MultiAgentManager not initialized",
-        )
-    return manager
-
-
-async def _get_session_for_agent(request: Request, agent_id: Optional[str]):
-    """Return the ``SafeJSONSession`` for a specific agent."""
-    manager = _get_multi_agent_manager(request)
-
-    if not agent_id:
-        agent_id = request.headers.get("X-Agent-Id") or "default"
-
-    workspace = await manager.get_agent(agent_id)
-    runner = getattr(workspace, "runner", None)
-    if runner is None or getattr(runner, "session", None) is None:
-        raise HTTPException(
-            status_code=503,
-            detail=(f"Agent '{agent_id}' runner/session not ready"),
-        )
-    return runner.session, agent_id
-
-
-async def _get_workspace_for_agent(request: Request, agent_id: Optional[str]):
-    """Return the workspace for an agent (used for running-state check)."""
-    manager = _get_multi_agent_manager(request)
-    if not agent_id:
-        agent_id = request.headers.get("X-Agent-Id") or "default"
-    return await manager.get_agent(agent_id)
-
-
-async def _check_not_running(
-    workspace: Any,
-    session_id: str,
-) -> None:
-    """Raise 409 if an agent is actively running for this session.
-
-    Without this guard, PUT / PATCH writes race against the agent's
-    ``DAGStore`` writes and the runner's final persistence.
-    """
-    chat_manager = getattr(workspace, "chat_manager", None)
-    task_tracker = getattr(workspace, "task_tracker", None)
-    if chat_manager is None or task_tracker is None:
-        return
-
-    chat_id = await chat_manager.get_chat_id_by_session(
-        session_id,
-        channel="console",
-    )
-    if chat_id is not None:
-        status = await task_tracker.get_status(chat_id)
-        if status == "running":
-            raise HTTPException(
-                status_code=409,
-                detail=(
-                    "Agent is running for this session. "
-                    "Stop it via POST /console/chat/stop before editing tasks."
-                ),
-            )
-
-
-def _archive_current_plan_to_pn(pn: dict, reason: str) -> Optional[str]:
-    """Archive ``pn["current_plan"]`` into ``pn["storage"]["plans"]``.
-
-    Returns the archived graph id (or ``None``). This is the dict-level
-    equivalent of ``RuntimeStateManager._archive_current_plan``: unfinished
-    graphs are marked ``abandoned`` before archiving; ``current_plan`` is
-    expected to be overwritten by the caller. ``artifacts`` are not cleared
-    (session-level append-only file index).
-    """
-    existing = pn.get("current_plan")
-    if not isinstance(existing, dict):
-        return None
-    try:
-        old = TaskGraph.model_validate(existing)
-    except Exception:  # pylint: disable=broad-except
-        return None
-    if old.state not in ("done", "abandoned"):
-        old.finish(
-            "abandoned",
-            reason,
-        )
-    pn.setdefault("storage", {}).setdefault("plans", {})[
-        old.id
-    ] = old.model_dump(mode="json")
-    return old.id
-
-
-def _ensure_plan_notebook_keys(pn: dict) -> None:
-    """Make sure the DAG runtime block has the expected top-level keys."""
-    pn.setdefault("storage", {"plans": {}})
-    pn.setdefault("artifacts", [])
-    pn.setdefault("_pending_edits", [])
-    pn.setdefault("current_plan", None)
-
-
-class _PnContext(NamedTuple):
-    """Bundle returned by :func:`acquire_pn` for PUT-style handlers.
-
-    Carries the session handle, the loaded DAG runtime dict, and the routing
-    parameters needed to persist the mutated dict back via :func:`_persist_pn`.
-    """
-
-    session: Any  # SafeJSONSession-like
-    session_id: str
-    user_id: str
-    dag_store: DAGStore
-    pn: dict
-
-
-async def acquire_pn(
-    session_id: str,
-    request: Request,
-    user_id: str = Query(default="default"),
-) -> _PnContext:
-    """FastAPI dependency: fetch + lock-check + load DAG runtime state.
-
-    Used by write-side handlers (``put_sop`` / ``put_dag``) to centralize the
-    session → ``DAGStore`` plumbing and the ``_check_not_running`` gate. Raises
-    ``503`` if the session is not ready, ``409`` if an agent is actively
-    running for this session.
-    """
-    workspace = await _get_workspace_for_agent(
-        request,
-        getattr(request.state, "agent_id", None),
-    )
-    await _check_not_running(workspace, session_id)
-
-    runner = getattr(workspace, "runner", None)
-    session = getattr(runner, "session", None)
-    if session is None:
-        raise HTTPException(status_code=503, detail="Session not ready")
-
-    dag_store = DAGStore.from_session(session, user_id=user_id)
-    pn = await dag_store.read(session_id)
-    if not isinstance(pn, dict):
-        pn = {}
-    _ensure_plan_notebook_keys(pn)
-    return _PnContext(
-        session=session,
-        session_id=session_id,
-        user_id=user_id,
-        dag_store=dag_store,
-        pn=pn,
-    )
-
-
-async def _persist_pn(ctx: _PnContext) -> None:
-    """Write the possibly mutated runtime-state dict to the DAG store."""
-    await ctx.dag_store.write(ctx.session_id, ctx.pn)
-
-
-async def _load_pn_for_request(
-    session: Any,
-    session_id: str,
-    *,
-    user_id: str,
-) -> dict:
-    """Load DataPaw DAG runtime state through ``DAGStore``."""
-    dag_store = DAGStore.from_session(session, user_id=user_id)
-    pn = await dag_store.read(session_id)
-    return pn if isinstance(pn, dict) else {}
-
-
-def _safe_filename(name: str) -> str:
-    """Convert ``graph.name`` to an HTTP-header-safe filename (ASCII).
-
-    HTTP ``Content-Disposition`` headers only allow latin-1; non-ASCII
-    characters are replaced with ``"_"`` to avoid UnicodeEncodeError.
-    """
-    safe = re.sub(r"[^A-Za-z0-9\-_.]", "_", name)[:120]
-    safe = re.sub(r"_+", "_", safe).strip("_")
-    return safe or "sop"
 
 
 # ---------------------------------------------------------------------------
@@ -316,278 +142,39 @@ class FilesResponse(BaseModel):
     files: List[FileEntry] = Field(default_factory=list)
 
 
-def _build_file_urls(
+# ---------------------------------------------------------------------------
+# Shared dependencies
+# ---------------------------------------------------------------------------
+
+
+async def acquire_pn(
     session_id: str,
-    path: str,
-    *,
-    user_id: str = "",
-) -> tuple[str, str]:
-    """Build preview / download URLs scoped to session + artifact path."""
-    encoded_session = quote(session_id, safe="")
-    encoded_path = quote(path, safe="")
-    user_part = f"&user_id={quote(user_id, safe='')}" if user_id else ""
-    base = f"/api/tasks/{encoded_session}/files"
-    return (
-        f"{base}/preview?path={encoded_path}{user_part}",
-        f"{base}/download?path={encoded_path}{user_part}",
+    request: Request,
+    user_id: str = Query(default="default"),
+) -> PnContext:
+    """FastAPI dependency: fetch + lock-check + load DAG runtime state."""
+    workspace = await get_workspace_for_agent(
+        request,
+        getattr(request.state, "agent_id", None),
     )
+    await check_not_running(workspace, session_id)
 
-
-def _extract_artifacts(pn: dict) -> List[ArtifactItem]:
-    """Parse the artifacts list from a DAG runtime dict; skip malformed."""
-    raw = pn.get("artifacts") if isinstance(pn, dict) else None
-    if not isinstance(raw, list):
-        return []
-    items: List[ArtifactItem] = []
-    for entry in raw:
-        if not isinstance(entry, dict):
-            continue
-        try:
-            items.append(ArtifactItem.model_validate(entry))
-        except Exception:  # pylint: disable=broad-except
-            logger.warning(
-                "tasks router: skip malformed artifact entry %r",
-                entry,
-                exc_info=True,
-            )
-    return items
-
-
-def _get_workspace_dir(
-    workspace: Any,
-    agent_config: Any | None = None,
-) -> Path:
-    """Infer the agent workspace dir from workspace / runner / config."""
     runner = getattr(workspace, "runner", None)
-    raw = (
-        getattr(runner, "workspace_dir", None)
-        or getattr(workspace, "workspace_dir", None)
-        or getattr(agent_config, "workspace_dir", None)
-    )
-    return Path(raw).expanduser().resolve() if raw else Path.cwd().resolve()
+    session = getattr(runner, "session", None)
+    if session is None:
+        raise HTTPException(status_code=503, detail="Session not ready")
 
-
-def _build_artifact_path_context(
-    workspace: Any,
-    session_id: str,
-    agent_id: str,
-) -> PathContext:
-    """Build an artifact path context for the current workspace / agent.
-
-    ``session_id`` is currently unused (kept for a possible future split
-    by session). Resolution is delegated to ``shared_artifacts_root``: with
-    a sandbox config the ``mount_root`` is passed as override; otherwise
-    falls through to ``default_artifacts_root``.
-    """
-    del session_id
-    agent_config: Any | None = None
-
-    try:
-        from qwenpaw.config.config import load_agent_config
-
-        agent_config = load_agent_config(agent_id)
-    except Exception:  # pylint: disable=broad-except
-        logger.warning(
-            "tasks router: failed to load agent config for %r; "
-            "falling back to workspace_dir lookup on workspace object",
-            agent_id,
-            exc_info=True,
-        )
-
-    workspace_dir = _get_workspace_dir(workspace, agent_config)
-    base_dir = shared_artifacts_root(
-        agent_id=agent_id,
-        workspace_dir=workspace_dir,
-        mount_override=None,
-    )
-    return PathContext(mount_dir=base_dir)
-
-
-def _resolve_artifact_host_path(
-    workspace: Any,
-    session_id: str,
-    agent_id: str,
-    path: str,
-) -> Path:
-    """Resolve a sandbox-relative path to a host absolute path.
-
-    Caller is responsible for whitelisting against ``artifacts``. This
-    function only rebuilds the context, resolves the path, and enforces
-    the mount-dir boundary.
-    """
-    context = _build_artifact_path_context(workspace, session_id, agent_id)
-    host_path = context.resolve_artifact_path(path)
-    resolved = host_path.resolve()
-    if not context.contains(resolved):
-        raise HTTPException(
-            status_code=400,
-            detail="Resolved artifact path escapes the agent workspace.",
-        )
-    return resolved
-
-
-# ---------------------------------------------------------------------------
-# HTML artifact link-rewrite helpers
-# ---------------------------------------------------------------------------
-
-_HTML_REWRITE_ATTRS: tuple[tuple[str, str], ...] = (
-    ("a", "href"),
-    ("link", "href"),
-    ("img", "src"),
-    ("script", "src"),
-    ("iframe", "src"),
-    ("source", "src"),
-    ("video", "src"),
-    ("audio", "src"),
-    ("embed", "src"),
-    ("object", "data"),
-)
-
-_SKIP_SCHEMES: tuple[str, ...] = (
-    "http://",
-    "https://",
-    "file://",
-    "data:",
-    "mailto:",
-    "tel:",
-    "javascript:",
-    "blob:",
-    "about:",
-)
-
-
-def _is_html_artifact(item: ArtifactItem) -> bool:
-    """Return True iff the artifact looks like HTML (mime_type / ext)."""
-    mt = (item.mime_type or "").lower()
-    if mt.startswith("text/html"):
-        return True
-    return Path(item.path).suffix.lower() in {".html", ".htm"}
-
-
-def _is_external_or_anchor(value: str) -> bool:
-    """Return True for external URLs, anchors, or anything we should skip."""
-    v = value.strip()
-    if not v or v.startswith("#"):
-        return True
-    low = v.lower()
-    if any(low.startswith(s) for s in _SKIP_SCHEMES):
-        return True
-    return bool(urlsplit(v).scheme)
-
-
-def _rewrite_html_artifact_links(
-    html_bytes: bytes,
-    *,
-    context: PathContext,
-) -> bytes:
-    """Rewrite relative-path attributes in HTML to host ``file://`` URIs.
-
-    Rules:
-    - Only the attributes listed in ``_HTML_REWRITE_ATTRS`` are touched.
-    - Skip external URLs (any scheme in ``_SKIP_SCHEMES``) and anchors.
-    - Resolved path must stay within ``context.mount_dir`` (out-of-bounds
-      paths keep the original value).
-    - Target file must exist; missing files keep the original value.
-    - Any failure is swallowed and leaves the original value intact.
-    """
-    from bs4 import BeautifulSoup  # lazy import
-
-    try:
-        text = html_bytes.decode("utf-8")
-    except UnicodeDecodeError:
-        text = html_bytes.decode("utf-8", errors="replace")
-
-    soup = BeautifulSoup(text, "html.parser")
-    for tag_name, attr in _HTML_REWRITE_ATTRS:
-        for tag in soup.find_all(tag_name):
-            value = tag.get(attr)
-            if not isinstance(value, str) or _is_external_or_anchor(value):
-                continue
-            try:
-                resolved = context.resolve_artifact_path(value).resolve()
-            except Exception:  # pylint: disable=broad-except
-                continue
-            if not context.contains(resolved):
-                continue
-            if not resolved.exists():
-                continue
-            tag[attr] = resolved.as_uri()
-
-    return str(soup).encode("utf-8")
-
-
-def _serve_artifact_file(
-    workspace: Any,
-    session_id: str,
-    agent_id: str,
-    artifacts: List[ArtifactItem],
-    path: str,
-    *,
-    disposition: Literal["inline", "attachment"],
-) -> Response:
-    """Validate against artifact whitelist + mount boundary, then serve."""
-    matched: Optional[ArtifactItem] = next(
-        (item for item in artifacts if item.path == path),
-        None,
-    )
-    if matched is None:
-        raise HTTPException(
-            status_code=404,
-            detail=(
-                f"Artifact path {path!r} is not registered in this session."
-            ),
-        )
-
-    host_path = _resolve_artifact_host_path(
-        workspace,
-        session_id,
-        agent_id,
-        matched.path,
-    )
-    if not host_path.is_file():
-        raise HTTPException(
-            status_code=404,
-            detail=(f"Artifact file is missing on disk: {matched.path}"),
-        )
-
-    if not _is_html_artifact(matched):
-        return FileResponse(
-            path=host_path,
-            media_type=matched.mime_type or "application/octet-stream",
-            filename=matched.name,
-            content_disposition_type=disposition,
-        )
-
-    # HTML branch: rewrite relative paths to absolute file:// URIs.
-    try:
-        context = _build_artifact_path_context(workspace, session_id, agent_id)
-        rewritten = _rewrite_html_artifact_links(
-            host_path.read_bytes(),
-            context=context,
-        )
-    except Exception:  # pylint: disable=broad-except
-        logger.warning(
-            "tasks router: failed to rewrite html artifact links for %r",
-            matched.path,
-            exc_info=True,
-        )
-        return FileResponse(
-            path=host_path,
-            media_type=matched.mime_type or "text/html",
-            filename=matched.name,
-            content_disposition_type=disposition,
-        )
-
-    safe_name = _safe_filename(matched.name)
-    encoded_name = quote(matched.name)
-    content_disposition = (
-        f'{disposition}; filename="{safe_name}"; '
-        f"filename*=UTF-8''{encoded_name}"
-    )
-    return Response(
-        content=rewritten,
-        media_type="text/html; charset=utf-8",
-        headers={"Content-Disposition": content_disposition},
+    dag_store = DAGStore.from_session(session, user_id=user_id)
+    pn = await dag_store.read(session_id)
+    if not isinstance(pn, dict):
+        pn = {}
+    ensure_plan_notebook_keys(pn)
+    return PnContext(
+        session=session,
+        session_id=session_id,
+        user_id=user_id,
+        dag_store=dag_store,
+        pn=pn,
     )
 
 
@@ -603,11 +190,11 @@ async def get_tasks(
     user_id: str = Query(default="default"),
 ) -> GetTasksResponse:
     """Active-graph overview + historical-graph index + artifact summary."""
-    session, _ = await _get_session_for_agent(
+    session, _ = await get_session_for_agent(
         request,
         request.state.agent_id if hasattr(request.state, "agent_id") else None,
     )
-    pn = await _load_pn_for_request(
+    pn = await load_pn_for_request(
         session,
         session_id,
         user_id=user_id,
@@ -652,16 +239,12 @@ async def get_sop(
     request: Request,
     user_id: str = Query(default="default"),
 ) -> Response:
-    """Download the active graph's SOP YAML (minimal contract).
-
-    - No active graph → 409.
-    - ``application/x-yaml`` with a Content-Disposition filename.
-    """
-    session, _ = await _get_session_for_agent(
+    """Download the active graph's SOP YAML (minimal contract)."""
+    session, _ = await get_session_for_agent(
         request,
         getattr(request.state, "agent_id", None),
     )
-    pn = await _load_pn_for_request(
+    pn = await load_pn_for_request(
         session,
         session_id,
         user_id=user_id,
@@ -681,7 +264,7 @@ async def get_sop(
         ) from exc
 
     yaml_content = graph.to_sop_yaml()
-    filename = f"{_safe_filename(graph.name)}.sop.yaml"
+    filename = f"{safe_filename(graph.name)}.sop.yaml"
     return Response(
         content=yaml_content,
         media_type="application/x-yaml; charset=utf-8",
@@ -695,6 +278,34 @@ async def get_sop(
 # GET /api/tasks/{session_id}/dag/events — stream active graph snapshots
 # ---------------------------------------------------------------------------
 
+DAG_SSE_HEARTBEAT_SECONDS = 30.0
+
+
+async def _iter_dag_sse_events(
+    *,
+    request: Request,
+    session_id: str,
+    dag_store: DAGStore,
+    queue: asyncio.Queue,
+) -> AsyncIterator[str]:
+    try:
+        snapshot = await dag_store.read(session_id)
+        if snapshot is not None:
+            yield format_sse(snapshot)
+        while True:
+            if await request.is_disconnected():
+                break
+            try:
+                snapshot = await asyncio.wait_for(
+                    queue.get(),
+                    timeout=DAG_SSE_HEARTBEAT_SECONDS,
+                )
+                yield format_sse(snapshot)
+            except asyncio.TimeoutError:
+                yield ": heartbeat\n\n"
+    finally:
+        DAGBroadcaster.unsubscribe(session_id, queue)
+
 
 @router.get("/{session_id}/dag/events")
 async def stream_dag_events(
@@ -703,30 +314,26 @@ async def stream_dag_events(
     user_id: str = Query(default="default"),
 ) -> StreamingResponse:
     """Stream DataPaw DAG snapshots over an independent SSE connection."""
-    session, _ = await _get_session_for_agent(
+    session, _ = await get_session_for_agent(
         request,
         getattr(request.state, "agent_id", None),
     )
     dag_store = DAGStore.from_session(session, user_id=user_id)
     queue = DAGBroadcaster.subscribe(session_id)
 
-    async def gen():
-        try:
-            snapshot = await dag_store.read(session_id)
-            if snapshot is not None:
-                yield format_sse(snapshot)
-            while True:
-                if await request.is_disconnected():
-                    break
-                snapshot = await queue.get()
-                yield format_sse(snapshot)
-        finally:
-            DAGBroadcaster.unsubscribe(session_id, queue)
-
     return StreamingResponse(
-        gen(),
+        _iter_dag_sse_events(
+            request=request,
+            session_id=session_id,
+            dag_store=dag_store,
+            queue=queue,
+        ),
         media_type="text/event-stream",
-        headers={"Cache-Control": "no-cache"},
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
     )
 
 
@@ -743,11 +350,11 @@ async def get_dag(
     include_trace: bool = Query(default=True),
 ) -> Response:
     """Download the active graph's DAG YAML (structure + runtime fields)."""
-    session, _ = await _get_session_for_agent(
+    session, _ = await get_session_for_agent(
         request,
         getattr(request.state, "agent_id", None),
     )
-    pn = await _load_pn_for_request(
+    pn = await load_pn_for_request(
         session,
         session_id,
         user_id=user_id,
@@ -767,7 +374,7 @@ async def get_dag(
         ) from exc
 
     yaml_content = graph.to_dag_yaml(include_trace=include_trace)
-    filename = f"{_safe_filename(graph.name)}.dag.yaml"
+    filename = f"{safe_filename(graph.name)}.dag.yaml"
     return Response(
         content=yaml_content,
         media_type="application/x-yaml; charset=utf-8",
@@ -790,11 +397,11 @@ async def get_historical_plan(
     user_id: str = Query(default="default"),
 ) -> dict:
     """Return the full TaskGraph (nodes / outcome) of a historical graph."""
-    session, _ = await _get_session_for_agent(
+    session, _ = await get_session_for_agent(
         request,
         getattr(request.state, "agent_id", None),
     )
-    pn = await _load_pn_for_request(
+    pn = await load_pn_for_request(
         session,
         session_id,
         user_id=user_id,
@@ -820,16 +427,12 @@ async def get_historical_sop(
     request: Request,
     user_id: str = Query(default="default"),
 ) -> Response:
-    """Download a historical graph's SOP YAML (minimal contract).
-
-    - Plan not found → 404.
-    - ``application/x-yaml`` with a Content-Disposition filename.
-    """
-    session, _ = await _get_session_for_agent(
+    """Download a historical graph's SOP YAML (minimal contract)."""
+    session, _ = await get_session_for_agent(
         request,
         getattr(request.state, "agent_id", None),
     )
-    pn = await _load_pn_for_request(
+    pn = await load_pn_for_request(
         session,
         session_id,
         user_id=user_id,
@@ -849,7 +452,7 @@ async def get_historical_sop(
         ) from exc
 
     yaml_content = graph.to_sop_yaml()
-    filename = f"{_safe_filename(graph.name)}.sop.yaml"
+    filename = f"{safe_filename(graph.name)}.sop.yaml"
     return Response(
         content=yaml_content,
         media_type="application/x-yaml; charset=utf-8",
@@ -867,22 +470,9 @@ async def get_historical_sop(
 @router.put("/{session_id}/sop", response_model=Ok)
 async def put_sop(
     body: SOPUploadBody = Body(...),
-    ctx: _PnContext = Depends(acquire_pn),
+    ctx: PnContext = Depends(acquire_pn),
 ) -> Ok:
-    """Upload an SOP YAML and rebuild the graph (overwrite semantics).
-
-    Steps:
-    1. ``Sop.from_yaml(body.yaml)`` parses strictly (no runtime fields +
-       DAG validation).
-    2. If a ``current_plan`` exists, archive it (mark abandoned if unfinished).
-    3. Install the new ``current_plan`` (all nodes start ``todo``).
-    4. Append ``_pending_edits: [{type: "sop_replaced", ...}]`` with a
-       per-node summary.
-    5. Persist the entire block back to the session.
-
-    Stop any running agent first — :func:`acquire_pn` returns 409 if one
-    is active.
-    """
+    """Upload an SOP YAML and rebuild the graph (overwrite semantics)."""
     try:
         sop = Sop.from_yaml(body.yaml)
         graph = TaskGraph.from_sop(sop)
@@ -897,7 +487,7 @@ async def put_sop(
             detail=f"Failed to parse SOP: {exc}",
         ) from exc
 
-    replaced_id = _archive_current_plan_to_pn(
+    replaced_id = archive_current_plan_to_pn(
         ctx.pn,
         reason=f"Replaced by SOP '{graph.name}'.",
     )
@@ -923,7 +513,7 @@ async def put_sop(
         },
     )
 
-    await _persist_pn(ctx)
+    await persist_pn(ctx)
 
     return Ok(
         detail=f"SOP '{graph.name}' loaded as the active task graph.",
@@ -939,7 +529,7 @@ async def put_sop(
 @router.put("/{session_id}/dag", response_model=Ok)
 async def put_dag(
     body: DAGUploadBody = Body(...),
-    ctx: _PnContext = Depends(acquire_pn),
+    ctx: PnContext = Depends(acquire_pn),
 ) -> Ok:
     """Upload a DAG patch and merge into the current graph (no archive)."""
     current = ctx.pn.get("current_plan")
@@ -975,7 +565,7 @@ async def put_dag(
         },
     )
 
-    await _persist_pn(ctx)
+    await persist_pn(ctx)
 
     return Ok(
         detail=f"DAG '{existing.name}' merged into the active task graph.",
@@ -1002,21 +592,17 @@ async def list_files(
         description="Filter by node_id; omitted returns all.",
     ),
 ) -> FilesResponse:
-    """List every file-artifact registered via ``finish_subtask``.
-
-    Backed by ``RuntimeStateManager.artifacts`` — an append-only list, so
-    file records survive across graph archives.
-    """
-    session, _ = await _get_session_for_agent(
+    """List every file-artifact registered via ``finish_subtask``."""
+    session, _ = await get_session_for_agent(
         request,
         getattr(request.state, "agent_id", None),
     )
-    pn = await _load_pn_for_request(
+    pn = await load_pn_for_request(
         session,
         session_id,
         user_id=user_id,
     )
-    artifacts = _extract_artifacts(pn)
+    artifacts = extract_artifacts(pn)
 
     entries: List[FileEntry] = []
     for item in artifacts:
@@ -1024,7 +610,7 @@ async def list_files(
             continue
         if node_id and item.node_id != node_id:
             continue
-        preview_url, download_url = _build_file_urls(
+        preview_url, download_url = build_file_urls(
             session_id,
             item.path,
             user_id=user_id,
@@ -1064,30 +650,63 @@ async def preview_file(
         ),
     ),
     user_id: str = Query(default="default"),
-) -> FileResponse:
+) -> Response:
     """Inline-preview a file-artifact registered in this session."""
-    session, agent_id = await _get_session_for_agent(
+    session, agent_id = await get_session_for_agent(
         request,
         getattr(request.state, "agent_id", None),
     )
-    pn = await _load_pn_for_request(
+    pn = await load_pn_for_request(
         session,
         session_id,
         user_id=user_id,
     )
-    artifacts = _extract_artifacts(pn)
+    artifacts = extract_artifacts(pn)
 
-    workspace = await _get_workspace_for_agent(
+    workspace = await get_workspace_for_agent(
         request,
         agent_id,
     )
-    return _serve_artifact_file(
+    api_origin = resolve_request_api_origin(request)
+    return serve_artifact_file(
         workspace,
         session_id,
         agent_id,
         artifacts,
         path,
         disposition="inline",
+        rewrite_html=True,
+        user_id=user_id,
+        api_origin=api_origin,
+    )
+
+
+# ---------------------------------------------------------------------------
+# GET /api/tasks/{session_id}/files/resource?path=... — artifact resource proxy
+# ---------------------------------------------------------------------------
+
+
+@router.get("/{session_id}/files/resource")
+async def resource_file(
+    session_id: str,
+    request: Request,
+    path: str = Query(..., min_length=1),
+    user_id: str = Query(default="default"),
+    agent_id: str = Query(default=""),
+) -> FileResponse:
+    """Proxy any file under the artifacts root (no whitelist check)."""
+    del user_id  # kept for parity with preview URLs and auth-aware hosts
+    resolved_agent = agent_id or getattr(request.state, "agent_id", None)
+    _, resolved_agent = await get_session_for_agent(request, resolved_agent)
+    workspace = await get_workspace_for_agent(
+        request,
+        resolved_agent,
+    )
+    return serve_resource_file(
+        workspace,
+        session_id,
+        resolved_agent,
+        path,
     )
 
 
@@ -1109,28 +728,32 @@ async def download_file(
         ),
     ),
     user_id: str = Query(default="default"),
-) -> FileResponse:
+) -> Response:
     """Download a file-artifact registered in this session."""
-    session, agent_id = await _get_session_for_agent(
+    session, agent_id = await get_session_for_agent(
         request,
         getattr(request.state, "agent_id", None),
     )
-    pn = await _load_pn_for_request(
+    pn = await load_pn_for_request(
         session,
         session_id,
         user_id=user_id,
     )
-    artifacts = _extract_artifacts(pn)
+    artifacts = extract_artifacts(pn)
 
-    workspace = await _get_workspace_for_agent(
+    workspace = await get_workspace_for_agent(
         request,
         agent_id,
     )
-    return _serve_artifact_file(
+    api_origin = resolve_request_api_origin(request)
+    return serve_artifact_file(
         workspace,
         session_id,
         agent_id,
         artifacts,
         path,
         disposition="attachment",
+        rewrite_html=True,
+        user_id=user_id,
+        api_origin=api_origin,
     )
