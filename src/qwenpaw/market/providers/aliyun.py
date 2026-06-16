@@ -165,6 +165,7 @@ def _string_query(body: dict[str, Any]) -> dict[str, str]:
 class AliyunProvider:
     key = "aliyun"
     label = "Aliyun"
+    supports_browse = True
 
     def available(self) -> tuple[bool, str | None]:
         missing = [k for k in _CRED_ENV_KEYS if not os.environ.get(k)]

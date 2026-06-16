@@ -1603,6 +1603,8 @@
     "newChatTooltip": "新しいチャット",
     "searchTooltip": "すべてのチャットを検索",
     "chatHistoryTooltip": "チャット履歴",
+    "wideModeTooltip": "ワイドモード",
+    "normalModeTooltip": "標準モード",
     "allChats": "すべてのチャット",
     "createNewChat": "新しいチャットを作成",
     "pinDrawer": "固定",
@@ -1650,6 +1652,14 @@
       "imageOnlyWarning": "現在のモデルは画像のみ対応しています。動画などの非画像ファイルは正しく処理されない場合があります"
     },
     "rateLimitHit": "現在のモデルがレート制限されています。他の無料モデルに切り替えてみてください。",
+    "turnUsagePopover": {
+      "ariaLabel": "このターンのトークンとコンテキスト使用量を表示",
+      "turn": "このターン",
+      "turnEstimated": "このターン約",
+      "tok": "tok",
+      "inOut": "入力 {{inTok}} · 出力 {{outTok}}",
+      "contextLabel": "コンテキストウィンドウ："
+    },
     "rateLimitMessage": "レート制限に達しました。他の無料モデルに切り替え：",
     "rateLimitSwitched": "{{model}} に切り替えました",
     "speech": {
@@ -2299,9 +2309,12 @@
   },
   "market": {
     "searchPlaceholder": "プラットフォームを横断してスキルを検索",
+    "categoryAll": "すべて",
+    "searchResult": "「{{keyword}}」に一致するスキルが {{count}} 件見つかりました",
     "providerUnavailable": "ソースが利用できません",
     "noResults": "結果が見つかりません",
     "startTyping": "上の検索ボックスにキーワードを入力してスキルを探します",
+    "browseHint": "{{providers}} のスキルを閲覧するには、カテゴリを選択するかキーワードを入力してください",
     "noDescription": "説明はありません",
     "targetPool": "プール",
     "targetWorkspace": "ワークスペース",

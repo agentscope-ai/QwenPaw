@@ -40,6 +40,7 @@ InstallOrigin = Literal[
     "skills-sh",
     "github",
     "lobehub",
+    "qwenpaw",
     "modelscope",
     "aliyun",
     "skillsmp",
@@ -1015,6 +1016,34 @@ def _extract_modelscope_skill_spec(
     return owner, skill_name, version_hint
 
 
+def _extract_qwenpaw_skill_spec(
+    url: str,
+) -> tuple[str, str, str] | None:
+    """Parse a QwenPaw plaza skill URL into (owner, skill_name, version)."""
+    parsed = urlparse(url)
+    host = (parsed.netloc or "").lower()
+    if host != "platform.agentscope.io":
+        return None
+    parts = [unquote(p) for p in parsed.path.split("/") if p]
+    if len(parts) < 3 or parts[0] != "skills":
+        return None
+
+    # Owner kept verbatim (incl. any leading `@`); the archive endpoint
+    # accepts both `@agentscope` and `agentscope`.
+    owner = parts[1].strip()
+    skill_name = parts[2].strip()
+    if not owner or not skill_name:
+        return None
+
+    version_hint = ""
+    if len(parts) >= 6 and parts[3] == "archive" and parts[4] == "zip":
+        archive_name = parts[5].strip()
+        if archive_name.endswith(".zip"):
+            archive_name = archive_name[: -len(".zip")]
+        version_hint = archive_name
+    return owner, skill_name, version_hint
+
+
 def _extract_aliyun_skill_spec(url: str) -> str | None:
     """Parse an Aliyun AgentExplorer skill URL and return the skill id.
 
@@ -1659,6 +1688,42 @@ def _modelscope_archive_to_bundle(
     return {"name": name, "files": files}
 
 
+async def _fetch_bundle_from_qwenpaw_url(
+    bundle_url: str,
+    requested_version: str,
+) -> tuple[Any, str]:
+    spec = _extract_qwenpaw_skill_spec(bundle_url)
+    if spec is None:
+        raise ConfigurationException(
+            config_key="skills_hub.bundle_url",
+            message="Invalid QwenPaw URL format. Use URL like "
+            "https://platform.agentscope.io/skills/@owner/skill-name",
+        )
+    owner, skill_name, version_hint = spec
+    branch = requested_version.strip() or version_hint or "master"
+    archive_url = (
+        "https://platform.agentscope.io/skills/"
+        f"{quote(owner, safe='@')}/{quote(skill_name, safe='')}"
+        f"/archive/zip/{quote(branch, safe='')}"
+    )
+    try:
+        payload = await _http_bytes_get(
+            archive_url,
+            max_bytes=SKILL_PACKAGE_MAX_BYTES,
+        )
+    except httpx.HTTPStatusError as e:
+        raise SkillsError(
+            message=(
+                "QwenPaw archive download failed: "
+                f"{_format_http_error_body(e)}."
+            ),
+        ) from e
+    return (
+        _modelscope_archive_to_bundle(payload, fallback_name=skill_name),
+        bundle_url,
+    )
+
+
 async def _fetch_bundle_from_modelscope_url(
     bundle_url: str,
     requested_version: str,
@@ -1970,6 +2035,11 @@ PROVIDERS: list[tuple[InstallOrigin, _ProviderMatcher, _ProviderFetcher]] = [
     ("skills-sh", _extract_skills_sh_spec, _fetch_bundle_from_skills_sh_url),
     ("github", _extract_github_spec, _fetch_bundle_from_github_url),
     ("lobehub", _extract_lobehub_identifier, _fetch_bundle_from_lobehub_url),
+    (
+        "qwenpaw",
+        _extract_qwenpaw_skill_spec,
+        _fetch_bundle_from_qwenpaw_url,
+    ),
     (
         "modelscope",
         _extract_modelscope_skill_spec,
