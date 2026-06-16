@@ -81,8 +81,9 @@ class DefaultGraphToHint:
         "- If the tool result is incomplete or absent, re-execute the node.\n"
         "- If the user has asked for a change to this node's parameters, "
         "call `revise_current_plan(changes=[{{node_id: '{node_id}', "
-        "action: 'revise', node: ...}}])` which marks it STALE and "
-        "propagates STALE to all downstream nodes."
+        "action: 'revise', node: {{..., deps: [direct_upstream_ids]}}}}])` "
+        "which marks it STALE and propagates STALE to all downstream nodes. "
+        "`deps` lists direct upstream node_ids only (not transitive ancestors)."
     )
 
     in_progress_continuing_hint: str = (
@@ -114,7 +115,7 @@ class DefaultGraphToHint:
         "'todo')`.\n"
         "- Revise the node (e.g. different SQL, different threshold): "
         "`revise_current_plan(changes=[{{node_id, action: 'revise', "
-        "node: ...}}])`.\n"
+        "node: {{..., deps: [...]}}}}])`.\n"
         "- Abandon the node if it can't be salvaged: `update_subtask_state("
         "node_id, 'abandoned')`."
     )

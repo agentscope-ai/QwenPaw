@@ -652,15 +652,19 @@ class RuntimeStateManager(PlanNotebook):
         ``changes`` list. The batch is applied atomically: if any change
         is invalid, nothing is modified.
 
-        For ``revise``, the node is overwritten, marked STALE, and
-        STALE propagates to all downstream nodes.
-        For ``add``, a new node is inserted (no STALE impact).
+        For ``revise``, the node is **fully replaced** (not a patch): include
+        an explicit ``deps`` list of **direct** upstream node_ids (leaf nodes
+        use ``[]``; do not list transitive ancestors). The node is marked
+        STALE and STALE propagates to all downstream nodes. Unknown deps or
+        cycles cause the entire batch to be rejected.
+        For ``add``, a new node is inserted (no STALE impact); ``node.deps``
+        must reference existing nodes or nodes added in the same batch.
         For ``delete``, the node is removed and pruned from deps lists.
 
         Args:
             changes: List of PlanNodeChange objects. Each entry must have
                 node_id, action ('add' / 'revise' / 'delete'), and node
-                (required for add/revise).
+                (required for add/revise, including deps for add/revise).
         """
         if self.current_plan is None:
             return _text("No active task graph.")
