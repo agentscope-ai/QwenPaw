@@ -76,6 +76,8 @@ NodeStatus = Literal[
     "abandoned",
 ]
 
+PlanChangeAction = Literal["add", "revise", "delete"]
+
 
 class TaskNode(SubTask):
     """DAG execution unit; extends ``SubTask``."""
@@ -633,6 +635,28 @@ class Dag(BaseModel):
         }
 
 
+class PlanNodeChange(BaseModel):
+    """Single node mutation for ``revise_current_plan``."""
+
+    node_id: str = Field(description="Target node_id.")
+    action: PlanChangeAction = Field(
+        description="'add' / 'revise' / 'delete'.",
+    )
+    node: Optional[TaskNode] = Field(
+        default=None,
+        description="Required for 'add' and 'revise'.",
+    )
+
+
+class ApplyPlanChangesResult(BaseModel):
+    """Result returned by ``TaskGraph.apply_plan_changes``."""
+
+    added: List[str] = Field(default_factory=list)
+    revised: List[str] = Field(default_factory=list)
+    deleted: List[str] = Field(default_factory=list)
+    stale_propagated: List[str] = Field(default_factory=list)
+
+
 class DagDiff(BaseModel):
     """Merge diff returned by ``TaskGraph.apply_dag``."""
 
@@ -768,6 +792,108 @@ class TaskGraph(Plan):
             if node.state == "stale" and prev != "stale":
                 stale_ids.append(nid)
         return stale_ids
+
+    @staticmethod
+    def _force_revise_stale(node: TaskNode) -> None:
+        """Force STALE on a revised node (matches single-node tool logic)."""
+        if node.state not in ("todo", "stale", "abandoned"):
+            node.state = "stale"
+        elif node.state == "todo":
+            node.state = "stale"
+
+    def apply_plan_changes(
+        self,
+        changes: List[PlanNodeChange],
+    ) -> ApplyPlanChangesResult:
+        """Atomically apply a batch of plan node mutations."""
+        if not changes:
+            raise ValueError("changes must not be empty.")
+
+        seen_ids: set[str] = set()
+        for change in changes:
+            if change.node_id in seen_ids:
+                raise ValueError(
+                    f"Duplicate node_id in changes: {change.node_id!r}.",
+                )
+            seen_ids.add(change.node_id)
+
+        deletes = [c for c in changes if c.action == "delete"]
+        adds = [c for c in changes if c.action == "add"]
+        revises = [c for c in changes if c.action == "revise"]
+
+        for change in changes:
+            if change.action in ("add", "revise") and change.node is None:
+                raise ValueError(
+                    f"action='{change.action}' requires a 'node' argument.",
+                )
+
+        simulated_ids = set(self.nodes.keys())
+        for change in deletes:
+            if change.node_id not in simulated_ids:
+                raise ValueError(f"Node '{change.node_id}' not found.")
+            simulated_ids.discard(change.node_id)
+
+        for change in revises:
+            if change.node_id not in simulated_ids:
+                raise ValueError(f"Node '{change.node_id}' not found.")
+
+        pending_adds = list(adds)
+        while pending_adds:
+            progress = False
+            for change in list(pending_adds):
+                node = change.node
+                assert node is not None
+                nid = node.node_id or change.node_id
+                if nid in simulated_ids:
+                    raise ValueError(
+                        f"Cannot add: node '{nid}' already exists.",
+                    )
+                if all(dep in simulated_ids for dep in node.deps):
+                    simulated_ids.add(nid)
+                    pending_adds.remove(change)
+                    progress = True
+            if not progress:
+                raise ValueError(
+                    "Cannot resolve add dependencies; check deps reference "
+                    "existing nodes or nodes added in the same batch.",
+                )
+
+        result = ApplyPlanChangesResult()
+
+        for change in deletes:
+            self.remove_node(change.node_id)
+            result.deleted.append(change.node_id)
+
+        for change in adds:
+            node = change.node
+            assert node is not None
+            if not isinstance(node, TaskNode):
+                node = TaskNode.model_validate(node)
+            node.node_id = node.node_id or change.node_id
+            self.add_node(node)
+            result.added.append(node.node_id)
+
+        revised_ids: List[str] = []
+        for change in revises:
+            node = change.node
+            assert node is not None
+            if not isinstance(node, TaskNode):
+                node = TaskNode.model_validate(node)
+            node_id = change.node_id
+            node.node_id = node_id
+            self._force_revise_stale(node)
+            self.replace_node(node_id, node)
+            result.revised.append(node_id)
+            revised_ids.append(node_id)
+
+        stale_seen: set[str] = set()
+        for node_id in revised_ids:
+            for stale_id in self.mark_downstream_stale(node_id):
+                if stale_id not in stale_seen:
+                    stale_seen.add(stale_id)
+                    result.stale_propagated.append(stale_id)
+
+        return result
 
     # --- State refresh ------------------------------------------------------
 

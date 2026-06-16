@@ -43,7 +43,7 @@
 1. **不要自己判定"简单 vs 复杂"**——这件事交给 `data-intent-router` 做。Router 的分类输出直接告诉你下一步该读哪个 skill、要不要 `create_plan`、是否需要与用户确认。
 2. TaskGraph 执行过程中如遇失败：
    - 偶发失败 → `update_subtask_state(node_id, "todo")` 重跑。
-   - 参数需要调整 → `revise_current_plan(node_id, "revise", …)` 修改描述。
+   - 参数需要调整 → `revise_current_plan(changes=[{node_id, action: "revise", node: …}])` 修改描述（可一次传入多条变更）。
    - 不可恢复 → `update_subtask_state(node_id, "abandoned")` 并决定是否 `finish_plan("abandoned", …)`。
 
 ## 语义消歧原则

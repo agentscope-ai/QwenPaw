@@ -80,8 +80,9 @@ class DefaultGraphToHint:
         "`finish_subtask({node_id}, ...)` immediately to record it.\n"
         "- If the tool result is incomplete or absent, re-execute the node.\n"
         "- If the user has asked for a change to this node's parameters, "
-        "call `revise_current_plan({node_id}, 'revise', ...)` which will "
-        "mark it STALE and propagate STALE to all downstream nodes."
+        "call `revise_current_plan(changes=[{{node_id: '{node_id}', "
+        "action: 'revise', node: ...}}])` which marks it STALE and "
+        "propagates STALE to all downstream nodes."
     )
 
     in_progress_continuing_hint: str = (
@@ -112,7 +113,8 @@ class DefaultGraphToHint:
         "- Retry by resetting to todo: `update_subtask_state(node_id, "
         "'todo')`.\n"
         "- Revise the node (e.g. different SQL, different threshold): "
-        "`revise_current_plan(node_id, 'revise', ...)`.\n"
+        "`revise_current_plan(changes=[{{node_id, action: 'revise', "
+        "node: ...}}])`.\n"
         "- Abandon the node if it can't be salvaged: `update_subtask_state("
         "node_id, 'abandoned')`."
     )
