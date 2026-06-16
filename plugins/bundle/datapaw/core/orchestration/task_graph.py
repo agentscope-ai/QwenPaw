@@ -314,6 +314,51 @@ def _check_deps_and_topology(
         )
 
 
+def _validate_graph_topology(nodes: Dict[str, "TaskNode"]) -> None:
+    """Validate deps and acyclic topology for plan-change simulation."""
+    if not nodes:
+        return
+
+    node_ids = set(nodes.keys())
+    for nid, node in nodes.items():
+        if nid in node.deps:
+            raise ValueError(
+                f"Invalid dependency: node '{nid}' cannot list itself in deps.",
+            )
+        unknown_deps = set(node.deps) - node_ids
+        if unknown_deps:
+            raise ValueError(
+                f"Invalid dependency: node '{nid}' references unknown deps "
+                f"{sorted(unknown_deps)}. Every dep must be an existing "
+                f"node_id in the graph after this batch is applied.",
+            )
+
+    in_degree: Dict[str, int] = {nid: 0 for nid in node_ids}
+    adjacency: Dict[str, List[str]] = {nid: [] for nid in node_ids}
+    for nid, node in nodes.items():
+        for dep in node.deps:
+            adjacency[dep].append(nid)
+            in_degree[nid] += 1
+
+    queue = [nid for nid, deg in in_degree.items() if deg == 0]
+    visited_count = 0
+    while queue:
+        cur = queue.pop(0)
+        visited_count += 1
+        for downstream in adjacency.get(cur, []):
+            in_degree[downstream] -= 1
+            if in_degree[downstream] == 0:
+                queue.append(downstream)
+
+    if visited_count != len(nodes):
+        cyclic_nodes = sorted(nid for nid, deg in in_degree.items() if deg > 0)
+        raise ValueError(
+            "Invalid topology: task graph would contain a cycle after "
+            "applying these changes. Check deps for circular references. "
+            f"Nodes involved: {cyclic_nodes}.",
+        )
+
+
 def _validate_sop_dict(  # pylint: disable=too-many-branches
     data: dict,
 ) -> List[Dict[str, Any]]:
@@ -801,6 +846,61 @@ class TaskGraph(Plan):
         elif node.state == "todo":
             node.state = "stale"
 
+    @staticmethod
+    def _clone_task_node(node: TaskNode) -> TaskNode:
+        return TaskNode.model_validate(node.model_dump())
+
+    def _simulate_plan_changes(
+        self,
+        changes: List[PlanNodeChange],
+    ) -> Dict[str, TaskNode]:
+        """Simulate delete→add→revise without mutating ``self.nodes``."""
+        simulated: Dict[str, TaskNode] = {
+            nid: self._clone_task_node(node)
+            for nid, node in self.nodes.items()
+        }
+
+        for change in changes:
+            if change.action != "delete":
+                continue
+            node_id = change.node_id
+            simulated.pop(node_id, None)
+            for other in simulated.values():
+                if node_id in other.deps:
+                    other.deps = [d for d in other.deps if d != node_id]
+
+        for change in changes:
+            if change.action != "add":
+                continue
+            node = change.node
+            assert node is not None
+            if not isinstance(node, TaskNode):
+                node = TaskNode.model_validate(node)
+            clone = self._clone_task_node(node)
+            clone.node_id = clone.node_id or change.node_id
+            simulated[clone.node_id] = clone
+
+        for change in changes:
+            if change.action != "revise":
+                continue
+            node = change.node
+            assert node is not None
+            if not isinstance(node, TaskNode):
+                node = TaskNode.model_validate(node)
+            clone = self._clone_task_node(node)
+            clone.node_id = change.node_id
+            simulated[change.node_id] = clone
+
+        return simulated
+
+    @staticmethod
+    def _check_self_dependency(node_id: str, deps: List[str]) -> None:
+        if node_id in deps:
+            raise ValueError(
+                f"Invalid dependency: node '{node_id}' cannot list itself "
+                f"in deps.",
+            )
+
     def apply_plan_changes(
         self,
         changes: List[PlanNodeChange],
@@ -827,6 +927,18 @@ class TaskGraph(Plan):
                     f"action='{change.action}' requires a 'node' argument.",
                 )
 
+        for change in adds + revises:
+            node = change.node
+            assert node is not None
+            if not isinstance(node, TaskNode):
+                node = TaskNode.model_validate(node)
+            nid = (
+                change.node_id
+                if change.action == "revise"
+                else (node.node_id or change.node_id)
+            )
+            self._check_self_dependency(nid, list(node.deps))
+
         simulated_ids = set(self.nodes.keys())
         for change in deletes:
             if change.node_id not in simulated_ids:
@@ -837,26 +949,19 @@ class TaskGraph(Plan):
             if change.node_id not in simulated_ids:
                 raise ValueError(f"Node '{change.node_id}' not found.")
 
-        pending_adds = list(adds)
-        while pending_adds:
-            progress = False
-            for change in list(pending_adds):
-                node = change.node
-                assert node is not None
-                nid = node.node_id or change.node_id
-                if nid in simulated_ids:
-                    raise ValueError(
-                        f"Cannot add: node '{nid}' already exists.",
-                    )
-                if all(dep in simulated_ids for dep in node.deps):
-                    simulated_ids.add(nid)
-                    pending_adds.remove(change)
-                    progress = True
-            if not progress:
+        for change in adds:
+            node = change.node
+            assert node is not None
+            if not isinstance(node, TaskNode):
+                node = TaskNode.model_validate(node)
+            nid = node.node_id or change.node_id
+            if nid in simulated_ids:
                 raise ValueError(
-                    "Cannot resolve add dependencies; check deps reference "
-                    "existing nodes or nodes added in the same batch.",
+                    f"Cannot add: node '{nid}' already exists.",
                 )
+
+        simulated = self._simulate_plan_changes(changes)
+        _validate_graph_topology(simulated)
 
         result = ApplyPlanChangesResult()
 

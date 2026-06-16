@@ -233,3 +233,180 @@ def test_revise_current_plan_tool_sets_plan_mutated_once():
     assert notify_count == 1
     assert "Applied 2 change(s)" in response.content[0]["text"]
     assert "n3" not in state.current_plan.nodes
+
+
+def test_apply_plan_changes_rejects_unknown_dep_with_reason():
+    graph = _linear_graph()
+    before = graph.model_dump(mode="json")
+
+    try:
+        graph.apply_plan_changes(
+            [
+                PlanNodeChange(
+                    node_id="n2",
+                    action="revise",
+                    node=TaskNode(
+                        node_id="n2",
+                        name="N2",
+                        description="d2",
+                        expected_outcome="o2",
+                        deps=["n9"],
+                    ),
+                ),
+            ],
+        )
+    except ValueError as exc:
+        msg = str(exc)
+        assert "Invalid dependency" in msg
+        assert "unknown deps" in msg
+        assert "n9" in msg
+    else:
+        raise AssertionError("expected ValueError")
+
+    assert graph.model_dump(mode="json") == before
+
+
+def test_apply_plan_changes_rejects_self_dependency():
+    graph = _linear_graph()
+
+    try:
+        graph.apply_plan_changes(
+            [
+                PlanNodeChange(
+                    node_id="n2",
+                    action="revise",
+                    node=TaskNode(
+                        node_id="n2",
+                        name="N2",
+                        description="d2",
+                        expected_outcome="o2",
+                        deps=["n2"],
+                    ),
+                ),
+            ],
+        )
+    except ValueError as exc:
+        assert "cannot list itself in deps" in str(exc)
+    else:
+        raise AssertionError("expected ValueError")
+
+
+def test_apply_plan_changes_rejects_cycle_with_reason():
+    graph = _linear_graph()
+    before = graph.model_dump(mode="json")
+
+    try:
+        graph.apply_plan_changes(
+            [
+                PlanNodeChange(
+                    node_id="n1",
+                    action="revise",
+                    node=TaskNode(
+                        node_id="n1",
+                        name="N1",
+                        description="d1",
+                        expected_outcome="o1",
+                        deps=["n3"],
+                    ),
+                ),
+            ],
+        )
+    except ValueError as exc:
+        msg = str(exc)
+        assert "Invalid topology" in msg
+        assert "cycle" in msg.lower()
+    else:
+        raise AssertionError("expected ValueError")
+
+    assert graph.model_dump(mode="json") == before
+
+
+def test_apply_plan_changes_rejects_mutual_add_cycle():
+    graph = TaskGraph(
+        name="Graph",
+        description="desc",
+        expected_outcome="outcome",
+        nodes={},
+    )
+
+    try:
+        graph.apply_plan_changes(
+            [
+                PlanNodeChange(
+                    node_id="a",
+                    action="add",
+                    node=TaskNode(
+                        node_id="a",
+                        name="A",
+                        description="d",
+                        expected_outcome="o",
+                        deps=["b"],
+                    ),
+                ),
+                PlanNodeChange(
+                    node_id="b",
+                    action="add",
+                    node=TaskNode(
+                        node_id="b",
+                        name="B",
+                        description="d",
+                        expected_outcome="o",
+                        deps=["a"],
+                    ),
+                ),
+            ],
+        )
+    except ValueError as exc:
+        assert "cycle" in str(exc).lower()
+    else:
+        raise AssertionError("expected ValueError")
+
+
+def test_apply_plan_changes_revise_deps_success():
+    graph = _linear_graph()
+    result = graph.apply_plan_changes(
+        [
+            PlanNodeChange(
+                node_id="n3",
+                action="revise",
+                node=TaskNode(
+                    node_id="n3",
+                    name="N3",
+                    description="d3",
+                    expected_outcome="o3",
+                    deps=["n1"],
+                ),
+            ),
+        ],
+    )
+
+    assert result.revised == ["n3"]
+    assert graph.nodes["n3"].deps == ["n1"]
+    assert graph.nodes["n3"].state == "stale"
+
+
+def test_revise_current_plan_tool_returns_topology_error():
+    state = RuntimeStateManager()
+    state.current_plan = _linear_graph()
+
+    response = asyncio.run(
+        state.revise_current_plan(
+            [
+                PlanNodeChange(
+                    node_id="n2",
+                    action="revise",
+                    node=TaskNode(
+                        node_id="n2",
+                        name="N2",
+                        description="d2",
+                        expected_outcome="o2",
+                        deps=["missing"],
+                    ),
+                ),
+            ],
+        ),
+    )
+
+    text = response.content[0]["text"]
+    assert "Invalid dependency" in text
+    assert "unknown deps" in text
