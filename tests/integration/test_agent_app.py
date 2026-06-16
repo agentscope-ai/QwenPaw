@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+# pylint: disable=redefined-outer-name
+# -*- coding: utf-8 -*-
 """Integration tests for AgentApp routes (Sprint 3.1-B).
 
 The AgentApp (from agentscope_runtime) is mounted under ``/api/agent``
@@ -57,7 +59,9 @@ def test_agent_app_health(app_server) -> None:
     - GET /api/agent/health
     """
     resp = app_server.api_request(
-        "GET", "/api/agent/health", timeout=_HTTP_TIMEOUT,
+        "GET",
+        "/api/agent/health",
+        timeout=_HTTP_TIMEOUT,
     )
     assert resp.status_code == 200, app_server.logs_tail()
     body = resp.json()
@@ -85,7 +89,9 @@ def test_agent_app_root_info(app_server) -> None:
     - GET /api/agent/
     """
     resp = app_server.api_request(
-        "GET", "/api/agent/", timeout=_HTTP_TIMEOUT,
+        "GET",
+        "/api/agent/",
+        timeout=_HTTP_TIMEOUT,
     )
     assert resp.status_code == 200, app_server.logs_tail()
     body = resp.json()
@@ -204,9 +210,11 @@ def test_agent_app_admin_status(app_server) -> None:
     )
     # admin/status may be 200 or 401/403 depending on auth config; accept
     # any 2xx and verify the payload is shaped like a status dict.
-    assert resp.status_code in {200, 401, 403}, (
-        f"unexpected status: {resp.status_code} {resp.text}"
-    )
+    assert resp.status_code in {
+        200,
+        401,
+        403,
+    }, f"unexpected status: {resp.status_code} {resp.text}"
     if resp.status_code == 200:
         body = resp.json()
         assert isinstance(body, dict), body

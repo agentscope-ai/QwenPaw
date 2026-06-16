@@ -392,7 +392,9 @@ class MockLLMHandler(BaseHTTPRequestHandler):
         self.end_headers()
 
         tool_name = getattr(
-            self.server, "tool_call_name", "get_current_time",
+            self.server,
+            "tool_call_name",
+            "get_current_time",
         )
         tool_args = getattr(self.server, "tool_call_arguments", "{}")
 

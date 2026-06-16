@@ -72,7 +72,9 @@ def _notification(method: str, params: dict[str, Any]) -> dict[str, Any]:
 
 
 def _request(
-    request_id: int, method: str, params: dict[str, Any],
+    request_id: int,
+    method: str,
+    params: dict[str, Any],
 ) -> dict[str, Any]:
     return {
         "jsonrpc": "2.0",
@@ -89,7 +91,8 @@ _PERMISSION_REQUEST_ID = 9001
 class _Runner:
     def __init__(self) -> None:
         self.reply_text = os.environ.get(
-            "ACP_MOCK_REPLY_TEXT", "mock reply",
+            "ACP_MOCK_REPLY_TEXT",
+            "mock reply",
         )
         self.request_permission = (
             os.environ.get("ACP_MOCK_REQUEST_PERMISSION") == "1"
@@ -112,7 +115,6 @@ class _Runner:
     async def handle(self, msg: dict[str, Any]) -> None:
         method = msg.get("method")
         msg_id = msg.get("id")
-        params = msg.get("params") or {}
 
         # Response from host to a request we made (permission).
         if method is None and msg_id is not None:
@@ -157,9 +159,7 @@ class _Runner:
 
     async def _handle_prompt(self, msg_id: Any) -> None:
         if self.request_permission:
-            self._permission_future = (
-                asyncio.get_event_loop().create_future()
-            )
+            self._permission_future = asyncio.get_event_loop().create_future()
             _emit(
                 _request(
                     _PERMISSION_REQUEST_ID,

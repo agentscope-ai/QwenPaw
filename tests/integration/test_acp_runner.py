@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+# pylint: disable=redefined-outer-name
+# -*- coding: utf-8 -*-
 """Integration tests for ACP runner interoperability (Sprint 3.1-A).
 
 Drive the full chain:
@@ -35,9 +37,7 @@ from helpers import (
 _HTTP_TIMEOUT = 15.0
 _NEVER_FIRE_SCHEDULE = "0 0 1 1 *"
 _MOCK_RUNNER_NAME = "mock_runner"
-_MOCK_RUNNER_PATH = (
-    Path(__file__).parent / "fixtures" / "acp_mock_runner.py"
-)
+_MOCK_RUNNER_PATH = Path(__file__).parent / "fixtures" / "acp_mock_runner.py"
 
 
 # ------------------------------------------------------------------ #
@@ -130,7 +130,10 @@ def _agent_spec(name, *, save_inbox=True):
 
 def _create_job(app_server, spec):
     resp = app_server.api_request(
-        "POST", "/api/cron/jobs", json=spec, timeout=_HTTP_TIMEOUT,
+        "POST",
+        "/api/cron/jobs",
+        json=spec,
+        timeout=_HTTP_TIMEOUT,
     )
     assert resp.status_code == 200, app_server.logs_tail()
     return resp.json()["id"]
@@ -139,7 +142,9 @@ def _create_job(app_server, spec):
 def _delete_job(app_server, job_id):
     try:
         app_server.api_request(
-            "DELETE", f"/api/cron/jobs/{job_id}", timeout=_HTTP_TIMEOUT,
+            "DELETE",
+            f"/api/cron/jobs/{job_id}",
+            timeout=_HTTP_TIMEOUT,
         )
     except Exception:
         pass
@@ -168,7 +173,8 @@ def _poll_history(app_server, job_id, deadline, *, min_count=1):
 @pytest.mark.integration
 @pytest.mark.p1
 def test_acp_list_runners_includes_mock_runner(
-    app_server, mock_llm,
+    app_server,
+    mock_llm,
 ) -> None:
     """Test purpose:
     - Verify the full LLM → tool → ACP chain: mock LLM emits a tool_call
@@ -221,7 +227,9 @@ def test_acp_list_runners_includes_mock_runner(
         assert run_resp.status_code == 200, app_server.logs_tail()
 
         records = _poll_history(
-            app_server, job_id, time.time() + 30.0,
+            app_server,
+            job_id,
+            time.time() + 30.0,
         )
         assert (
             len(records) >= 1
@@ -393,7 +401,9 @@ def test_acp_close_after_start(app_server, mock_llm) -> None:
             timeout=_HTTP_TIMEOUT,
         )
         records = _poll_history(
-            app_server, job_start, time.time() + 60.0,
+            app_server,
+            job_start,
+            time.time() + 60.0,
         )
         assert (
             len(records) >= 1 and records[0]["status"] == "success"
@@ -404,9 +414,7 @@ def test_acp_close_after_start(app_server, mock_llm) -> None:
             {"action": "close", "runner": _MOCK_RUNNER_NAME},
         )
         spec_close = _agent_spec("acp_close_lifecycle_close")
-        spec_close["dispatch"]["target"] = spec_start["dispatch"][
-            "target"
-        ]
+        spec_close["dispatch"]["target"] = spec_start["dispatch"]["target"]
         job_close = _create_job(app_server, spec_close)
         try:
             app_server.api_request(
@@ -415,11 +423,12 @@ def test_acp_close_after_start(app_server, mock_llm) -> None:
                 timeout=_HTTP_TIMEOUT,
             )
             records2 = _poll_history(
-                app_server, job_close, time.time() + 30.0,
+                app_server,
+                job_close,
+                time.time() + 30.0,
             )
             assert (
-                len(records2) >= 1
-                and records2[0]["status"] == "success"
+                len(records2) >= 1 and records2[0]["status"] == "success"
             ), f"close failed: {app_server.logs_tail()}"
         finally:
             _delete_job(app_server, job_close)
@@ -437,7 +446,8 @@ def test_acp_close_after_start(app_server, mock_llm) -> None:
 @pytest.mark.integration
 @pytest.mark.p1
 def test_acp_initialize_failure_records_error(
-    app_server, mock_llm,
+    app_server,
+    mock_llm,
 ) -> None:
     """Test purpose:
     - Verify that when the mock runner refuses initialize, the
