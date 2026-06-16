@@ -580,7 +580,7 @@ class BaseChannel(ABC):
 
     _STREAMABLE_TYPES = {"reasoning", "message"}
     _STREAM_DELTA_MIN_INTERVAL_S: float = 0.0
-    _STREAM_FLUSH_TIMEOUT_S: float = 10.0
+    _STREAM_FLUSH_TIMEOUT_S: float = 5.0
 
     def _resolve_stream_type(self, event: Any) -> str:
         """Map event.type to a stream_type string.
@@ -711,8 +711,7 @@ class BaseChannel(ABC):
             elapsed = now - flush_meta.get("last_ts", 0.0)
             if elapsed > self._STREAM_FLUSH_TIMEOUT_S:
                 task.cancel()
-            else:
-                return True
+            return True
 
         # Guard 2: minimum interval not elapsed
         if self._STREAM_DELTA_MIN_INTERVAL_S > 0:
@@ -1424,7 +1423,12 @@ class BaseChannel(ABC):
                 accumulated_text=accumulated_text,
             )
         except Exception:
-            logger.debug("streaming delta exception", exc_info=True)
+            logger.warning("streaming delta failed", exc_info=True)
+            flush_meta = self._get_stream_flush_meta(
+                send_meta,
+                stream_type,
+            )
+            flush_meta["last_ts"] = 0.0
 
     async def on_streaming_start(
         self,
