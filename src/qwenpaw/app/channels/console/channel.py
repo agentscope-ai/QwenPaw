@@ -46,7 +46,6 @@ from ..base import (
 )
 from ..utils import file_url_to_local_path
 
-
 logger = logging.getLogger(__name__)
 
 # ANSI colour helpers (degrade gracefully if not a tty)
@@ -262,10 +261,12 @@ class ConsoleChannel(BaseChannel):
             elif content_type == ContentType.FILE:
                 url = getattr(part, "file_url", None)
                 if url:
+                    filename = (
+                        getattr(part, "filename", None) or Path(url).name
+                    )
                     return FileContent(
                         type=ContentType.FILE,
-                        filename=getattr(part, "filename", None)
-                        or Path(url).name,
+                        filename=filename,
                         file_url=url,
                     )
             elif content_type == ContentType.TEXT:
