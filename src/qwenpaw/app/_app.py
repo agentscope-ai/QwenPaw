@@ -42,6 +42,7 @@ from .routers.agent_scoped import AgentContextMiddleware
 from .routers.approval import router as approval_router
 from .routers.coding_mode import router as coding_mode_router
 from .routers.voice import voice_router
+from .routers.browser_bridge import browser_bridge_router
 from ..envs import load_envs_into_environ
 from ..providers.provider_manager import ProviderManager
 from ..local_models.manager import LocalModelManager
@@ -716,6 +717,12 @@ app.include_router(
 # Voice channel: Twilio-facing endpoints at root level (not under /api/).
 # POST /voice/incoming, WS /voice/ws, POST /voice/status-callback
 app.include_router(voice_router, tags=["voice"])
+
+# Browser bridge: WS /ws/browser + GET /browser-bridge/info
+app.include_router(
+    browser_bridge_router,
+    tags=["browser-bridge"],
+)
 
 # Custom channel routes (before SPA catch-all to ensure route priority)
 register_custom_channel_routes(app)

@@ -85,6 +85,25 @@ class ToolConfigUpdate(BaseModel):
     )
 
 
+_BUILTIN_CONFIG_FIELDS: dict[str, list[dict[str, Any]]] = {
+    "browser_use": [
+        {
+            "name": "default_mode",
+            "label": "Default Mode",
+            "type": "select",
+            "options": ["headless", "headed", "takeover"],
+            "default": "headless",
+            "help": (
+                "headless: invisible browser; "
+                "headed: visible browser; "
+                "takeover: control your existing Chrome "
+                "via the QwenPaw Browser Bridge extension"
+            ),
+        },
+    ],
+}
+
+
 def _build_tool_info(tool_config: Any, tool_name: str) -> ToolInfo:
     """Build a complete ToolInfo from a tool config, including plugin metadata.
 
@@ -146,11 +165,31 @@ def _build_tool_info(tool_config: Any, tool_name: str) -> ToolInfo:
                         masked_config[field["name"]] = "***"
             tool_info.config_values = masked_config
 
+    _inject_builtin_config_fields(tool_info, tool_config)
+
     return tool_info
 
 
+def _inject_builtin_config_fields(
+    tool_info: ToolInfo,
+    tool_config: Any,
+) -> None:
+    """Add built-in config fields if defined."""
+    builtin_fields = _BUILTIN_CONFIG_FIELDS.get(
+        tool_config.name,
+    )
+    if builtin_fields and not tool_info.config_fields:
+        tool_info.requires_config = True
+        tool_info.config_fields = [
+            ToolConfigField(**f) for f in builtin_fields
+        ]
+        tool_info.config_values = (
+            dict(tool_config.config) if tool_config.config else {}
+        )
+
+
 @router.get("", response_model=List[ToolInfo])
-async def list_tools(
+async def list_tools(  # pylint: disable=R0915
     request: Request,
 ) -> List[ToolInfo]:
     """List all built-in tools and enabled status for active agent.
@@ -258,6 +297,11 @@ async def list_tools(
                         if masked_config[field["name"]]:
                             masked_config[field["name"]] = "***"
                 tool_info.config_values = masked_config
+
+        _inject_builtin_config_fields(
+            tool_info,
+            tool_config,
+        )
 
         tools_list.append(tool_info)
 
@@ -379,6 +423,20 @@ async def get_tool_config(
     # Get tool config for this agent
     config = registry.get_tool_config(tool_name, workspace.agent_id) or {}
 
+    if not config and tool_name in _BUILTIN_CONFIG_FIELDS:
+        from ...config.config import load_agent_config
+
+        agent_config = load_agent_config(
+            workspace.agent_id,
+        )
+        if (
+            agent_config.tools
+            and tool_name in agent_config.tools.builtin_tools
+        ):
+            config = dict(
+                agent_config.tools.builtin_tools[tool_name].config,
+            )
+
     # Mask sensitive fields
     plugin_id = registry.get_plugin_id_for_tool(tool_name)
     if plugin_id:
@@ -488,12 +546,39 @@ async def update_tool_config(
 
     # Save tool config for this agent
     try:
-        registry.set_tool_config(tool_name, workspace.agent_id, config_to_save)
+        if plugin_id:
+            registry.set_tool_config(
+                tool_name,
+                workspace.agent_id,
+                config_to_save,
+            )
+        elif tool_name in _BUILTIN_CONFIG_FIELDS:
+            from ...config.config import (
+                load_agent_config,
+                save_agent_config,
+            )
+
+            agent_config = load_agent_config(
+                workspace.agent_id,
+            )
+            if (
+                agent_config.tools
+                and tool_name in agent_config.tools.builtin_tools
+            ):
+                tc = agent_config.tools.builtin_tools[tool_name]
+                tc.config.update(config_to_save)
+                save_agent_config(
+                    workspace.agent_id,
+                    agent_config,
+                )
 
         # Hot reload config to apply changes without full restart
         schedule_agent_reload(request, workspace.agent_id)
 
-        return {"status": "success", "message": "Configuration updated"}
+        return {
+            "status": "success",
+            "message": "Configuration updated",
+        }
     except Exception as e:
         raise HTTPException(
             status_code=500,

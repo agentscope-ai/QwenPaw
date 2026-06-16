@@ -1468,7 +1468,10 @@ def _default_builtin_tools() -> Dict[str, BuiltinToolConfig]:
         "browser_use": BuiltinToolConfig(
             name="browser_use",
             enabled=True,
-            description="Browser automation and web interaction",
+            description=(
+                "Browser automation and web interaction"
+                " (supports takeover mode via Chrome Extension)"
+            ),
             icon="🌐",
         ),
         "desktop_screenshot": BuiltinToolConfig(

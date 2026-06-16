@@ -4315,6 +4315,390 @@ def _workspace_dir_key(workspace_dir: str | Path) -> str:
         return str(path.absolute())
 
 
+async def _dispatch_takeover(  # noqa: C901  # pylint: disable=R0911
+    action: str,
+    state: dict[str, Any],
+    url: str,
+    page_id: str,
+    ref: str,
+    text: str,
+    key: str,
+    full_page: bool,
+    page_x: int,
+    page_y: int,
+    button: str,
+    double_click: bool,
+) -> ToolResponse:
+    """Dispatch actions through Chrome Extension bridge."""
+    from .browser_bridge import get_or_create_bridge
+
+    ws_id = state.get("workspace_id", "default")
+    bridge = get_or_create_bridge(ws_id)
+
+    if action == "start":
+        if not bridge.is_connected:
+            ok = await bridge.wait_for_connection(
+                timeout=60,
+            )
+            if not ok:
+                return _tool_response(
+                    json.dumps(
+                        {
+                            "ok": False,
+                            "error": (
+                                "Extension did not connect "
+                                "within 60s. Install and "
+                                "enable the QwenPaw Browser "
+                                "Bridge extension."
+                            ),
+                        },
+                        ensure_ascii=False,
+                    ),
+                )
+        tab_result = await bridge.send_command(
+            "tab.create",
+            {"url": url or "about:blank"},
+        )
+        tab_id = tab_result.get("tabId")
+        if tab_id:
+            bridge.managed_tabs[tab_id] = True
+        return _tool_response(
+            json.dumps(
+                {
+                    "ok": True,
+                    "status": "connected",
+                    "tab": tab_result,
+                },
+                ensure_ascii=False,
+            ),
+        )
+
+    if action == "stop":
+        await bridge.stop()
+        return _tool_response(
+            json.dumps(
+                {"ok": True, "status": "stopped"},
+                ensure_ascii=False,
+            ),
+        )
+
+    if not bridge.is_connected:
+        return _tool_response(
+            json.dumps(
+                {
+                    "ok": False,
+                    "error": (
+                        "Extension not connected. Use "
+                        "action=start mode=takeover first."
+                    ),
+                },
+                ensure_ascii=False,
+            ),
+        )
+
+    if action == "discover_tabs":
+        tabs = await bridge.discover_tabs()
+        return _tool_response(
+            json.dumps(
+                {"ok": True, "tabs": tabs},
+                ensure_ascii=False,
+                indent=2,
+            ),
+        )
+
+    if action == "claim_tab":
+        tab_id = _parse_tab_id(page_id)
+        if tab_id is None:
+            return _tool_response(
+                json.dumps(
+                    {
+                        "ok": False,
+                        "error": (
+                            "page_id must be a tab ID "
+                            "(integer or 'chrome_N')"
+                        ),
+                    },
+                    ensure_ascii=False,
+                ),
+            )
+        result = await bridge.claim_tab(tab_id)
+        return _tool_response(
+            json.dumps(
+                {"ok": True, **result},
+                ensure_ascii=False,
+            ),
+        )
+
+    if action == "release_tab":
+        tab_id = _parse_tab_id(page_id)
+        if tab_id is None:
+            return _tool_response(
+                json.dumps(
+                    {
+                        "ok": False,
+                        "error": (
+                            "page_id must be a tab ID "
+                            "(integer or 'chrome_N')"
+                        ),
+                    },
+                    ensure_ascii=False,
+                ),
+            )
+        result = await bridge.release_tab(tab_id)
+        return _tool_response(
+            json.dumps(
+                {"ok": True, **result},
+                ensure_ascii=False,
+            ),
+        )
+
+    tab_id = _get_active_tab_id(bridge, page_id)
+    if tab_id is None:
+        return _tool_response(
+            json.dumps(
+                {
+                    "ok": False,
+                    "error": (
+                        "No active managed tab. Use " "claim_tab first."
+                    ),
+                },
+                ensure_ascii=False,
+            ),
+        )
+
+    if action == "open":
+        result = await bridge.navigate(tab_id, url)
+        return _tool_response(
+            json.dumps(
+                {"ok": True, **result},
+                ensure_ascii=False,
+            ),
+        )
+
+    if action == "navigate":
+        result = await bridge.navigate(tab_id, url)
+        return _tool_response(
+            json.dumps(
+                {"ok": True, **result},
+                ensure_ascii=False,
+            ),
+        )
+
+    if action == "snapshot":
+        result = await bridge.get_accessibility_tree(
+            tab_id,
+        )
+        return _tool_response(
+            json.dumps(
+                {"ok": True, **result},
+                ensure_ascii=False,
+                indent=2,
+            ),
+        )
+
+    if action in ("screenshot", "take_screenshot"):
+        result = await bridge.take_screenshot(
+            tab_id,
+            full_page=full_page,
+        )
+        return _tool_response(
+            json.dumps(
+                {"ok": True, **result},
+                ensure_ascii=False,
+            ),
+        )
+
+    if action == "click":
+        if ref:
+            node_id = _ref_to_node_id(ref)
+            if node_id is not None:
+                result = await bridge.click_node(
+                    tab_id,
+                    node_id,
+                )
+            else:
+                return _tool_response(
+                    json.dumps(
+                        {
+                            "ok": False,
+                            "error": (f"Invalid ref: {ref}"),
+                        },
+                        ensure_ascii=False,
+                    ),
+                )
+        elif page_x >= 0 and page_y >= 0:
+            click_count = 2 if double_click else 1
+            result = await bridge.click(
+                tab_id,
+                page_x,
+                page_y,
+                button=button,
+                click_count=click_count,
+            )
+        else:
+            return _tool_response(
+                json.dumps(
+                    {
+                        "ok": False,
+                        "error": ("click requires ref or " "page_x+page_y"),
+                    },
+                    ensure_ascii=False,
+                ),
+            )
+        return _tool_response(
+            json.dumps(
+                {"ok": True, **result},
+                ensure_ascii=False,
+            ),
+        )
+
+    if action == "type":
+        result = await bridge.type_text(tab_id, text)
+        return _tool_response(
+            json.dumps(
+                {"ok": True, **result},
+                ensure_ascii=False,
+            ),
+        )
+
+    if action == "press_key":
+        result = await bridge.press_key(tab_id, key)
+        return _tool_response(
+            json.dumps(
+                {"ok": True, **result},
+                ensure_ascii=False,
+            ),
+        )
+
+    if action == "navigate_back":
+        result = await bridge.evaluate(
+            tab_id,
+            "history.back()",
+        )
+        return _tool_response(
+            json.dumps(
+                {"ok": True, **result},
+                ensure_ascii=False,
+            ),
+        )
+
+    if action in ("eval", "evaluate"):
+        result = await bridge.evaluate(tab_id, text)
+        return _tool_response(
+            json.dumps(
+                {"ok": True, **result},
+                ensure_ascii=False,
+            ),
+        )
+
+    return _tool_response(
+        json.dumps(
+            {
+                "ok": False,
+                "error": (
+                    f"Action '{action}' is not supported " f"in takeover mode"
+                ),
+            },
+            ensure_ascii=False,
+        ),
+    )
+
+
+def _parse_tab_id(page_id: str) -> int | None:
+    """Parse a tab ID from page_id string.
+
+    Accepts 'chrome_42', '42', or plain int strings.
+    """
+    page_id = (page_id or "").strip()
+    if page_id.startswith("chrome_"):
+        page_id = page_id[7:]
+    try:
+        return int(page_id)
+    except (ValueError, TypeError):
+        return None
+
+
+def _get_active_tab_id(
+    bridge: Any,
+    page_id: str,
+) -> int | None:
+    """Get the active managed tab ID."""
+    parsed = _parse_tab_id(page_id)
+    if parsed is not None:
+        return parsed
+    tabs = bridge.managed_tabs
+    if tabs:
+        return next(iter(tabs))
+    return None
+
+
+def _ref_to_node_id(ref: str) -> int | None:
+    """Extract backend node ID from ref string.
+
+    Refs like 'e42' map to backendNodeId 42.
+    """
+    ref = (ref or "").strip()
+    if ref.startswith("e"):
+        try:
+            return int(ref[1:])
+        except (ValueError, TypeError):
+            return None
+    try:
+        return int(ref)
+    except (ValueError, TypeError):
+        return None
+
+
+def _resolve_mode(
+    mode: str,
+    headed: bool,
+    config_default: str = "",
+) -> str:
+    """Resolve the effective browser mode.
+
+    Priority:
+      user config > headed flag > headless.
+    User config (set via /tools page) always wins.
+    """
+    cfg = (config_default or "").strip().lower()
+    if cfg in ("headless", "headed", "takeover"):
+        return cfg
+    mode = (mode or "").strip().lower()
+    if mode in ("headless", "headed", "takeover"):
+        return mode
+    if headed:
+        return "headed"
+    return "headless"
+
+
+def _get_tool_config_default_mode() -> str:
+    """Read default_mode from agent's browser_use config.
+
+    Uses workspace_dir context var -> dir name as agent_id.
+    """
+    try:
+        from ...config.context import (
+            get_current_workspace_dir as _get_ws_dir,
+        )
+        from ...config.config import load_agent_config
+
+        cwd = _get_ws_dir()
+        if not cwd:
+            return ""
+        agent_id = cwd.name
+        cfg = load_agent_config(agent_id)
+        if not cfg.tools:
+            return ""
+        bt = cfg.tools.builtin_tools.get(
+            "browser_use",
+        )
+        if not bt:
+            return ""
+        return bt.config.get("default_mode", "")
+    except Exception:
+        return ""
+
+
 async def browser_use(  # pylint: disable=R0911,R0912
     action: str,
     url: str = "",
@@ -4386,6 +4770,7 @@ async def browser_use(  # pylint: disable=R0911,R0912
             run_code, drag, hover, select_option, tabs, wait_for, pdf, close,
             cookies_get, cookies_set, cookies_clear, connect_cdp,
             list_cdp_targets, clear_browser_cache,
+            discover_tabs, claim_tab, release_tab,
             batch. batch executes multiple sub-actions sequentially from
             actions_json; supported sub-actions: navigate, click, type,
             press_key, evaluate, eval, snapshot, screenshot, wait_for, hover,
@@ -4398,6 +4783,16 @@ async def browser_use(  # pylint: disable=R0911,R0912
             - stop: stop/disconnect the whole browser session and clear browser state.
             - tabs with tab_action=close: close a tab by index; similar to close but
               selected by tab list position instead of page_id.
+            Takeover mode actions (when default_mode=takeover in config):
+            - start: connects to the Chrome Extension and automatically
+              creates a new tab (pass url to open a page immediately).
+              The new tab is claimed and ready for use right away.
+            - discover_tabs: list all open Chrome tabs (returns tabId list).
+            - claim_tab: attach to an existing user tab by page_id
+              (e.g. "chrome_42"). Shows a control banner on that tab.
+            - release_tab: detach from a claimed tab, remove banner.
+            After start or claim_tab, use snapshot/click/type/navigate
+            as usual on the managed tab.
         url (str):
             URL to open. Required for action=open or navigate. For
             cookies_get, optional URL or JSON array of URLs to filter
@@ -4579,6 +4974,28 @@ async def browser_use(  # pylint: disable=R0911,R0912
                 ensure_ascii=False,
                 indent=2,
             ),
+        )
+
+    resolved_mode = _resolve_mode(
+        "",
+        headed,
+        _get_tool_config_default_mode(),
+    )
+
+    if resolved_mode == "takeover":
+        return await _dispatch_takeover(
+            action,
+            state,
+            url,
+            page_id,
+            ref,
+            text,
+            key,
+            full_page,
+            page_x,
+            page_y,
+            button,
+            double_click,
         )
 
     page_id = (page_id or "default").strip() or "default"

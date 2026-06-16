@@ -2591,7 +2591,13 @@
       "pdf": "导出PDF {{path}}",
       "pdfDefault": "导出PDF",
       "install": "安装",
-      "batch": "批量操作"
+      "batch": "批量操作",
+      "startTakeover": "启动接管模式",
+      "discoverTabs": "发现标签页",
+      "claimTab": "接管标签页 {{tabId}}",
+      "claimTabDefault": "接管标签页",
+      "releaseTab": "释放标签页 {{tabId}}",
+      "releaseTabDefault": "释放标签页"
     },
     "lineBadge": {
       "lines": "{{count}}行",

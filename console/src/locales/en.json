@@ -2582,7 +2582,13 @@
       "pdf": "Export PDF {{path}}",
       "pdfDefault": "Export PDF",
       "install": "Install",
-      "batch": "Batch"
+      "batch": "Batch",
+      "startTakeover": "Start takeover mode",
+      "discoverTabs": "Discover tabs",
+      "claimTab": "Claim tab {{tabId}}",
+      "claimTabDefault": "Claim tab",
+      "releaseTab": "Release tab {{tabId}}",
+      "releaseTabDefault": "Release tab"
     },
     "lineBadge": {
       "lines": "{{count}} lines",

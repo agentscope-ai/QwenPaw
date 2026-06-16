@@ -120,12 +120,24 @@ function getBrowserTitle(
     const filename = (params.filename || "") as string;
     const tabAction = (params.tab_action || "") as string;
 
+    const pageId = (params.page_id || "") as string;
+
     const detail = (() => {
       switch (action) {
         case "start":
           return params.headed
             ? t("tool.browserAction.startHeaded")
             : t("tool.browserAction.start");
+        case "discover_tabs":
+          return t("tool.browserAction.discoverTabs");
+        case "claim_tab":
+          return pageId
+            ? t("tool.browserAction.claimTab", { tabId: pageId })
+            : t("tool.browserAction.claimTabDefault");
+        case "release_tab":
+          return pageId
+            ? t("tool.browserAction.releaseTab", { tabId: pageId })
+            : t("tool.browserAction.releaseTabDefault");
         case "stop":
           return t("tool.browserAction.stop");
         case "open":
