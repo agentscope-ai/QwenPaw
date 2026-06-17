@@ -21,7 +21,6 @@ interface MediaInfo {
   type: MediaType;
 }
 
-
 function classifyMediaType(ext: string): MediaType {
   if (["png", "jpg", "jpeg", "gif", "bmp", "webp", "svg"].includes(ext)) {
     return "image";
@@ -62,7 +61,10 @@ function collectRawBlocks(value: unknown, acc: unknown[] = []): unknown[] {
 
   if (typeof value === "string") {
     const trimmed = value.trim();
-    if ((trimmed.startsWith("[") && trimmed.endsWith("]")) || (trimmed.startsWith("{") && trimmed.endsWith("}"))) {
+    if (
+      (trimmed.startsWith("[") && trimmed.endsWith("]")) ||
+      (trimmed.startsWith("{") && trimmed.endsWith("}"))
+    ) {
       try {
         const parsed = JSON.parse(trimmed);
         collectRawBlocks(parsed, acc);
@@ -91,7 +93,8 @@ function collectRawBlocks(value: unknown, acc: unknown[] = []): unknown[] {
     recordType === "image" ||
     recordType === "audio" ||
     recordType === "video" ||
-    ((recordType === "tool_result" || recordType === "tool_use") && hasFileLikeSource)
+    ((recordType === "tool_result" || recordType === "tool_use") &&
+      hasFileLikeSource)
   ) {
     acc.push(record);
   }
@@ -102,7 +105,25 @@ function collectRawBlocks(value: unknown, acc: unknown[] = []): unknown[] {
     }
   }
 
-  for (const nestedKey of ["content", "contents", "result", "results", "data", "payload", "artifact", "artifacts", "attachments", "files", "items", "message", "messages", "output", "outputs", "value", "source"]) {
+  for (const nestedKey of [
+    "content",
+    "contents",
+    "result",
+    "results",
+    "data",
+    "payload",
+    "artifact",
+    "artifacts",
+    "attachments",
+    "files",
+    "items",
+    "message",
+    "messages",
+    "output",
+    "outputs",
+    "value",
+    "source",
+  ]) {
     if (nestedKey in record) {
       collectRawBlocks(record[nestedKey], acc);
     }
@@ -131,7 +152,10 @@ function collectTextBlocks(value: unknown, acc: string[] = []): string[] {
 
   if (typeof value === "string") {
     const trimmed = value.trim();
-    if ((trimmed.startsWith("[") && trimmed.endsWith("]")) || (trimmed.startsWith("{") && trimmed.endsWith("}"))) {
+    if (
+      (trimmed.startsWith("[") && trimmed.endsWith("]")) ||
+      (trimmed.startsWith("{") && trimmed.endsWith("}"))
+    ) {
       try {
         const parsed = JSON.parse(trimmed);
         collectTextBlocks(parsed, acc);
@@ -156,7 +180,23 @@ function collectTextBlocks(value: unknown, acc: string[] = []): string[] {
     }
   }
 
-  for (const nestedKey of ["content", "contents", "result", "results", "data", "payload", "artifact", "artifacts", "attachments", "items", "message", "messages", "output", "outputs", "value"]) {
+  for (const nestedKey of [
+    "content",
+    "contents",
+    "result",
+    "results",
+    "data",
+    "payload",
+    "artifact",
+    "artifacts",
+    "attachments",
+    "items",
+    "message",
+    "messages",
+    "output",
+    "outputs",
+    "value",
+  ]) {
     if (nestedKey in record) {
       collectTextBlocks(record[nestedKey], acc);
     }
@@ -200,7 +240,9 @@ function extractMediaFromBlocks(result: unknown): MediaInfo[] {
       shortFileName(rawUrl);
     const ext = getFileExtFromPath(rawUrl);
     const type =
-      mediaTypeRaw === "image" || mediaTypeRaw === "video" || mediaTypeRaw === "audio"
+      mediaTypeRaw === "image" ||
+      mediaTypeRaw === "video" ||
+      mediaTypeRaw === "audio"
         ? mediaTypeRaw
         : classifyMediaType(ext);
     const url = toDisplayUrl(rawUrl);
@@ -222,7 +264,10 @@ function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-function stripPreviewedMediaJson(outputText: string, mediaItems: MediaInfo[]): string {
+function stripPreviewedMediaJson(
+  outputText: string,
+  mediaItems: MediaInfo[],
+): string {
   let next = outputText;
 
   for (const media of mediaItems) {
@@ -230,7 +275,9 @@ function stripPreviewedMediaJson(outputText: string, mediaItems: MediaInfo[]): s
     const escapedUrl = escapeRegExp(media.url);
     const patterns = [
       new RegExp(
-        `\\{[\\s\\S]*?\"type\"\\s*:\\s*\"${escapeRegExp(media.type)}\"[\\s\\S]*?(?:\"filename\"|\"file_name\"|\"name\"|\"title\")\\s*:\\s*\"${escapedName}\"[\\s\\S]*?(?:\"url\"|\"uri\"|\"path\"|\"file_path\"|\"data\")\\s*:\\s*\"${escapedUrl}\"[\\s\\S]*?\\}`,
+        `\\{[\\s\\S]*?\"type\"\\s*:\\s*\"${escapeRegExp(
+          media.type,
+        )}\"[\\s\\S]*?(?:\"filename\"|\"file_name\"|\"name\"|\"title\")\\s*:\\s*\"${escapedName}\"[\\s\\S]*?(?:\"url\"|\"uri\"|\"path\"|\"file_path\"|\"data\")\\s*:\\s*\"${escapedUrl}\"[\\s\\S]*?\\}`,
         "g",
       ),
       new RegExp(
@@ -271,7 +318,6 @@ function getOutputText(result: unknown, mediaItems: MediaInfo[]): string {
     : rawOutputText;
 }
 
-
 export interface RunToolBatchCardProps {
   content: ToolCallContent;
   isStreaming?: boolean;
@@ -289,9 +335,7 @@ const RunToolBatchCard: React.FC<RunToolBatchCardProps> = ({
   const outputText = getOutputText(content.result, mediaItems);
   const shouldShowOutput = Boolean(outputText.trim());
   const outputBlockProps: Partial<DefaultBlockProps> =
-    outputText.length > LARGE_OUTPUT_THRESHOLD
-      ? { copyTitle: outputText }
-      : {};
+    outputText.length > LARGE_OUTPUT_THRESHOLD ? { copyTitle: outputText } : {};
 
   const title = t("tool.runToolBatch", { workflow: workflowLabel });
   const inlineResult =

@@ -9,6 +9,7 @@ import json
 import logging
 import operator
 import re
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -42,6 +43,7 @@ _SIMPLE_ASSIGN_PATTERN = re.compile(
 )
 _VAR_NAME_PATTERN = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 _COMPARE_PATTERN = re.compile(r"^(.*?)\s*(==|!=|<=|>=|<|>)\s*(.*?)$")
+_Number = int | float
 _COMPARE_OPERATORS = {
     "==": operator.eq,
     "!=": operator.ne,
@@ -50,14 +52,20 @@ _COMPARE_OPERATORS = {
     "<=": operator.le,
     ">=": operator.ge,
 }
-_ARITHMETIC_BIN_OPERATORS = {
+_ARITHMETIC_BIN_OPERATORS: dict[
+    type[ast.operator],
+    Callable[[_Number, _Number], _Number],
+] = {
     ast.Add: operator.add,
     ast.Sub: operator.sub,
     ast.Mult: operator.mul,
     ast.Div: operator.truediv,
     ast.Mod: operator.mod,
 }
-_ARITHMETIC_UNARY_OPERATORS = {
+_ARITHMETIC_UNARY_OPERATORS: dict[
+    type[ast.unaryop],
+    Callable[[_Number], _Number],
+] = {
     ast.UAdd: operator.pos,
     ast.USub: operator.neg,
 }
@@ -292,7 +300,9 @@ def _build_label_map(actions: list[dict[str, Any]]) -> dict[str, int]:
     for index, step in enumerate(actions):
         if not isinstance(step, dict):
             continue
-        tool_name = str(step.get("tool_name") or step.get("tool") or "").strip()
+        tool_name = str(
+            step.get("tool_name") or step.get("tool") or "",
+        ).strip()
         if tool_name != "label":
             continue
         arguments = step.get("arguments") or step.get("args") or {}
@@ -365,7 +375,10 @@ def _evaluate_condition(
     text = condition.strip()
     match = _COMPARE_PATTERN.match(text)
     if not match:
-        return _coerce_bool(_resolve_token(text, results, variables), condition)
+        return _coerce_bool(
+            _resolve_token(text, results, variables),
+            condition,
+        )
 
     left = _resolve_token(match.group(1), results, variables)
     right = _resolve_token(match.group(3), results, variables)
@@ -398,15 +411,15 @@ def _evaluate_arithmetic_expr(
                 return node.value
             raise ValueError("only numeric literals are supported")
         if isinstance(node, ast.BinOp):
-            op_func = _ARITHMETIC_BIN_OPERATORS.get(type(node.op))
-            if op_func is None:
+            bin_op_func = _ARITHMETIC_BIN_OPERATORS.get(type(node.op))
+            if bin_op_func is None:
                 raise ValueError("unsupported arithmetic operator")
-            return op_func(_eval_node(node.left), _eval_node(node.right))
+            return bin_op_func(_eval_node(node.left), _eval_node(node.right))
         if isinstance(node, ast.UnaryOp):
-            op_func = _ARITHMETIC_UNARY_OPERATORS.get(type(node.op))
-            if op_func is None:
+            unary_op_func = _ARITHMETIC_UNARY_OPERATORS.get(type(node.op))
+            if unary_op_func is None:
                 raise ValueError("unsupported arithmetic operator")
-            return op_func(_eval_node(node.operand))
+            return unary_op_func(_eval_node(node.operand))
         raise ValueError("unsupported arithmetic expression")
 
     try:
@@ -415,7 +428,9 @@ def _evaluate_arithmetic_expr(
     except ZeroDivisionError as exc:
         raise ValueError("division by zero in set_var expression") from exc
     except (SyntaxError, ValueError) as exc:
-        raise ValueError("set_var requires a valid numeric expression") from exc
+        raise ValueError(
+            "set_var requires a valid numeric expression",
+        ) from exc
 
 
 def _evaluate_set_var_expr(
@@ -646,10 +661,7 @@ async def _run_steps(  # pylint: disable=too-many-branches,too-many-statements
             results.append(
                 _step_error(
                     pc,
-                    (
-                        "Exceeded maximum execution steps "
-                        f"({maxstep})"
-                    ),
+                    ("Exceeded maximum execution steps " f"({maxstep})"),
                 ),
             )
             break
@@ -744,10 +756,14 @@ async def _run_steps(  # pylint: disable=too-many-branches,too-many-statements
                 break
             condition = arguments.get("condition")
             try:
-                should_jump = True if condition in (None, "") else _evaluate_condition(
-                    str(condition),
-                    results,
-                    variables,
+                should_jump = (
+                    True
+                    if condition in (None, "")
+                    else _evaluate_condition(
+                        str(condition),
+                        results,
+                        variables,
+                    )
                 )
             except ValueError as exc:
                 if await _append_error_and_should_stop(
@@ -906,6 +922,92 @@ def _build_batch_response(
     return ToolResponse(content=content)
 
 
+def _prepare_batch_inputs(
+    actions: list[dict[str, Any]] | str | None,
+    file_path: str,
+    args: dict[str, Any] | str | None,
+    maxstep: int,
+) -> tuple[list[dict[str, Any]], int]:
+    if file_path and actions:
+        raise ValueError("Provide either 'actions' or 'file_path', not both")
+
+    resolved_args = _coerce_batch_args(args)
+    resolved_actions = _coerce_batch_actions(actions)
+    if file_path:
+        resolved_actions = _load_actions_from_file(file_path, resolved_args)
+
+    return (
+        _validate_batch_actions(resolved_actions),
+        _validate_maxstep(maxstep),
+    )
+
+
+def _coerce_batch_args(
+    args: dict[str, Any] | str | None,
+) -> dict[str, Any] | None:
+    if isinstance(args, str):
+        try:
+            resolved_args = json.loads(args)
+        except (json.JSONDecodeError, TypeError):
+            raise ValueError("args must be an object or JSON string") from None
+    else:
+        resolved_args = args
+
+    if resolved_args is not None and not isinstance(resolved_args, dict):
+        raise ValueError("args must be an object")
+    return resolved_args
+
+
+def _coerce_batch_actions(
+    actions: list[dict[str, Any]] | str | None,
+) -> Any:
+    if not isinstance(actions, str):
+        return actions
+
+    try:
+        return json.loads(actions)
+    except (json.JSONDecodeError, TypeError):
+        return actions
+
+
+def _load_actions_from_file(
+    file_path: str,
+    args: dict[str, Any] | None,
+) -> list[dict[str, Any]]:
+    actions = _load_batch_file(file_path)
+    if not args:
+        return actions
+
+    return _resolve_args(actions, args)
+
+
+def _validate_batch_actions(actions: Any) -> list[dict[str, Any]]:
+    if not isinstance(actions, list) or not actions:
+        raise ValueError(
+            "actions must be a non-empty list, or provide "
+            "file_path to load from a JSON file",
+        )
+
+    if len(actions) > MAX_BATCH_STEPS:
+        raise ValueError(
+            f"Too many steps ({len(actions)}). "
+            f"Maximum allowed is {MAX_BATCH_STEPS}.",
+        )
+
+    return actions
+
+
+def _validate_maxstep(maxstep: int) -> int:
+    try:
+        resolved_maxstep = int(maxstep)
+    except (TypeError, ValueError):
+        raise ValueError("maxstep must be a positive integer") from None
+    if resolved_maxstep <= 0:
+        raise ValueError("maxstep must be a positive integer")
+
+    return resolved_maxstep
+
+
 # --- Main entry point -----------------------------------------------------
 
 
@@ -933,7 +1035,8 @@ async def run_tool_batch(  # pylint: disable=too-many-return-statements
         - ``label`` (str, required): Target label name.
         - ``condition`` (str, optional): Simple condition expression.
           If omitted or empty, jump unconditionally. Supported forms include
-          ``true``, ``false``, ``1>2``, ``i<5``, ``${vars.i}<${steps.0.value}``.
+          ``true``, ``false``, ``1>2``, ``i<5``,
+          ``${vars.i}<${steps.0.value}``.
 
       - ``set_var``
         - ``expr`` (str, required): Simple assignment expression used
@@ -980,82 +1083,15 @@ async def run_tool_batch(  # pylint: disable=too-many-return-statements
         all content blocks collected from each step's ToolResponse
         (ImageBlock, FileBlock, VideoBlock, etc.).
     """
-    # --- Resolve actions source ---
-    if file_path and actions:
-        return _json_tool_response(
-            {
-                "ok": False,
-                "error": "Provide either 'actions' or 'file_path', not both",
-            },
-        )
-
-    # Coerce args from JSON string if the model serialised it as text.
-    if isinstance(args, str):
-        try:
-            args = json.loads(args)
-        except (json.JSONDecodeError, TypeError):
-            return _json_tool_response(
-                {
-                    "ok": False,
-                    "error": "args must be an object or JSON string",
-                },
-            )
-    if args is not None and not isinstance(args, dict):
-        return _json_tool_response(
-            {"ok": False, "error": "args must be an object"},
-        )
-
-    # Coerce actions from JSON string if needed.
-    if isinstance(actions, str):
-        try:
-            actions = json.loads(actions)
-        except (json.JSONDecodeError, TypeError):
-            pass
-
-    if file_path:
-        try:
-            actions = _load_batch_file(file_path)
-        except ValueError as exc:
-            return _json_tool_response({"ok": False, "error": str(exc)})
-        # Substitute $args placeholders if provided.
-        if args:
-            try:
-                actions = _resolve_args(actions, args)
-            except ValueError as exc:
-                return _json_tool_response({"ok": False, "error": str(exc)})
-
-    if not isinstance(actions, list) or not actions:
-        return _json_tool_response(
-            {
-                "ok": False,
-                "error": (
-                    "actions must be a non-empty list, or provide "
-                    "file_path to load from a JSON file"
-                ),
-            },
-        )
-
-    if len(actions) > MAX_BATCH_STEPS:
-        return _json_tool_response(
-            {
-                "ok": False,
-                "error": (
-                    f"Too many steps ({len(actions)}). "
-                    f"Maximum allowed is {MAX_BATCH_STEPS}."
-                ),
-            },
-        )
-
     try:
-        maxstep = int(maxstep)
-    except (TypeError, ValueError):
-        return _json_tool_response(
-            {"ok": False, "error": "maxstep must be a positive integer"},
+        actions, maxstep = _prepare_batch_inputs(
+            actions,
+            file_path,
+            args,
+            maxstep,
         )
-    if maxstep <= 0:
-        return _json_tool_response(
-            {"ok": False, "error": "maxstep must be a positive integer"},
-        )
+    except ValueError as exc:
+        return _json_tool_response({"ok": False, "error": str(exc)})
 
     # --- Execute ---
     results, all_content_blocks, last_text_block = await _run_steps(
