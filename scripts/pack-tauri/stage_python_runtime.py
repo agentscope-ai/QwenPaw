@@ -127,7 +127,14 @@ def main() -> None:
         archive = tmp.name
     try:
         with tarfile.open(archive, "r:gz") as tar:
-            tar.extractall(dest, filter="data")
+            # ``filter="data"`` is only available on newer CPython patch
+            # releases (3.12+, backported to 3.10.12/3.11.4). Fall back to a
+            # plain extract on older interpreters; the archive comes from the
+            # trusted python-build-standalone release.
+            try:
+                tar.extractall(dest, filter="data")
+            except TypeError:
+                tar.extractall(dest)
     finally:
         os.unlink(archive)
 
