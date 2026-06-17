@@ -401,7 +401,8 @@
     "switchFailed": "Chuyển agent thất bại",
     "avatar": "Ảnh đại diện",
     "uploadAvatar": "Tải ảnh đại diện",
-    "previewAvatar": "Xem trước"
+    "previewAvatar": "Xem trước",
+    "uploadAvatarFailed": "Tải ảnh đại diện thất bại"
   },
   "environments": {
     "parent": "Cài đặt",

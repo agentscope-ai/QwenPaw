@@ -89,7 +89,7 @@ export default function AgentsPage() {
     installedSkillsRef.current = skills;
   }, []);
 
-  const handleSubmit = async () => {
+  const handleSubmit = async (): Promise<string | undefined> => {
     try {
       const values = await form.validateFields();
       const workspaceRaw = values.workspace_dir;
@@ -107,6 +107,8 @@ export default function AgentsPage() {
 
       const { active_model_provider, active_model_model, ...rest } = values;
       const payload = { ...rest, workspace_dir, active_model };
+
+      let agentId: string | undefined;
 
       if (editingAgent) {
         const previousInstalledSkills = installedSkillsRef.current;
@@ -129,6 +131,7 @@ export default function AgentsPage() {
         ];
         invalidateSkillCache({ agentId: editingAgent.id });
         message.success(t("agent.updateSuccess"));
+        agentId = editingAgent.id;
       } else {
         const result = await agentsApi.createAgent({
           ...payload,
@@ -136,16 +139,19 @@ export default function AgentsPage() {
           skill_names: selectedSkills,
         });
         message.success(`${t("agent.createSuccess")} (ID: ${result.id})`);
+        agentId = result.id;
       }
 
       setModalVisible(false);
       await loadAgents();
+      return agentId;
     } catch (error: any) {
       console.error("Failed to save agent:", error);
       if (editingAgent) {
         invalidateSkillCache({ agentId: editingAgent.id });
       }
       message.error(error.message || t("agent.saveFailed"));
+      return undefined;
     }
   };
 

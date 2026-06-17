@@ -385,7 +385,8 @@
     "modelColumn": "Modelo",
     "avatar": "Avatar",
     "uploadAvatar": "Enviar Avatar",
-    "previewAvatar": "Visualizar"
+    "previewAvatar": "Visualizar",
+    "uploadAvatarFailed": "Falha ao enviar avatar"
   },
   "skills": {
     "title": "Skills",

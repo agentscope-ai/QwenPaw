@@ -27,6 +27,7 @@ import { providerApi } from "@/api/modules/provider";
 import { agentsApi } from "@/api/modules/agents";
 import { getApiUrl } from "@/api/config";
 import { useTheme } from "@/contexts/ThemeContext";
+import { useAppMessage } from "@/hooks/useAppMessage";
 import { providerIcon } from "../../Models/components/providerIcon";
 import styles from "../index.module.less";
 
@@ -45,7 +46,7 @@ interface AgentModalProps {
   selectedSkills: string[];
   onSelectedSkillsChange: (skills: string[]) => void;
   onInstalledSkillsLoaded: (skills: string[]) => void;
-  onSave: () => Promise<void>;
+  onSave: () => Promise<string | undefined>;
   onCancel: () => void;
 }
 
@@ -61,6 +62,7 @@ export function AgentModal({
 }: AgentModalProps) {
   const { t } = useTranslation();
   const { isDark } = useTheme();
+  const { message } = useAppMessage();
   const [poolSkills, setPoolSkills] = useState<PoolSkillSpec[]>([]);
   const [installedSkills, setInstalledSkills] = useState<string[]>([]);
   const [loadingSkills, setLoadingSkills] = useState(false);
@@ -69,6 +71,7 @@ export function AgentModal({
   const [avatarUrl, setAvatarUrl] = useState<string>("");
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const [localAvatarUrl, setLocalAvatarUrl] = useState<string | null>(null);
+  const [pendingAvatarFile, setPendingAvatarFile] = useState<File | null>(null);
 
   const selectedProviderId = Form.useWatch("active_model_provider", form);
   const selectedModelId = Form.useWatch("active_model_model", form);
@@ -116,6 +119,7 @@ export function AgentModal({
       setAvatarUrl("");
     }
     setLocalAvatarUrl(null);
+    setPendingAvatarFile(null);
 
     setLoadingProviders(true);
     providerApi
@@ -154,7 +158,8 @@ export function AgentModal({
 
   const handleUploadAvatar = async (file: File) => {
     if (!editingAgent) {
-      // For new agents, use local preview with object URL
+      // For new agents, store file for upload after creation
+      setPendingAvatarFile(file);
       const localUrl = URL.createObjectURL(file);
       setLocalAvatarUrl(localUrl);
       setAvatarUrl(localUrl);
@@ -165,12 +170,27 @@ export function AgentModal({
     try {
       const result = await agentsApi.uploadAvatar(editingAgent.id, file);
       setAvatarUrl(getApiUrl(result.avatar_url));
-      return false; // Prevent default upload behavior
+      return false;
     } catch (error) {
       console.error("Failed to upload avatar:", error);
+      message.error(t("agent.uploadAvatarFailed"));
       return false;
     } finally {
       setUploadingAvatar(false);
+    }
+  };
+
+  const handleSave = async () => {
+    const newAgentId = await onSave();
+
+    // Upload pending avatar after new agent is created
+    if (!editingAgent && pendingAvatarFile && newAgentId) {
+      try {
+        await agentsApi.uploadAvatar(newAgentId, pendingAvatarFile);
+      } catch (error) {
+        console.error("Failed to upload avatar for new agent:", error);
+        message.error(t("agent.uploadAvatarFailed"));
+      }
     }
   };
 
@@ -227,7 +247,7 @@ export function AgentModal({
           : t("agent.createTitle")
       }
       open={open}
-      onOk={onSave}
+      onOk={handleSave}
       onCancel={onCancel}
       width={640}
       okText={t("common.save")}

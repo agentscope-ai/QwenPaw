@@ -467,7 +467,8 @@
     "modelColumn": "Model",
     "avatar": "Avatar",
     "uploadAvatar": "Upload Avatar",
-    "previewAvatar": "Preview"
+    "previewAvatar": "Preview",
+    "uploadAvatarFailed": "Failed to upload avatar"
   },
   "skills": {
     "title": "Skills",

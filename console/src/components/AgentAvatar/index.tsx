@@ -10,6 +10,7 @@ interface AgentAvatarProps {
 /**
  * Renders an agent avatar image or a fallback robot icon.
  * Automatically wraps avatar_url with the API prefix.
+ * Adds cache-busting timestamp to prevent stale images.
  */
 export function AgentAvatar({
   avatarUrl,
@@ -17,9 +18,10 @@ export function AgentAvatar({
   opacity = 1,
 }: AgentAvatarProps) {
   if (avatarUrl) {
+    const cacheBustUrl = `${getApiUrl(avatarUrl)}?t=${Date.now()}`;
     return (
       <img
-        src={getApiUrl(avatarUrl)}
+        src={cacheBustUrl}
         alt=""
         style={{
           width: size,

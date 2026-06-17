@@ -58,6 +58,24 @@ AVATAR_EXTENSION_TO_MEDIA_TYPE = {
 }
 AVATAR_SEARCH_EXTENSIONS = [".png", ".jpg", ".gif", ".webp"]
 AVATAR_MAX_SIZE = 2 * 1024 * 1024  # 2MB
+AVATAR_READ_CHUNK_SIZE = 8192
+
+
+def _validate_avatar_magic_bytes(content: bytes) -> bool:
+    """Validate image file content by checking magic bytes."""
+    if content[:8] == b"\x89PNG\r\n\x1a\n":
+        return True
+    if content[:3] == b"\xff\xd8\xff":
+        return True
+    if content[:6] in (b"GIF87a", b"GIF89a"):
+        return True
+    if (
+        content[:4] == b"RIFF"
+        and len(content) >= 12
+        and content[8:12] == b"WEBP"
+    ):
+        return True
+    return False
 
 
 class AgentSummary(BaseModel):
@@ -617,18 +635,45 @@ async def upload_agent_avatar(
             f"Allowed: PNG, JPG, GIF, WEBP",
         )
 
-    content = await file.read()
-    if len(content) > AVATAR_MAX_SIZE:
+    # Read in chunks to prevent memory exhaustion from oversized uploads
+    chunks: list[bytes] = []
+    total_size = 0
+    while chunk := await file.read(AVATAR_READ_CHUNK_SIZE):
+        total_size += len(chunk)
+        if total_size > AVATAR_MAX_SIZE:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"File too large (>{AVATAR_MAX_SIZE} bytes). "
+                    f"Max: 2MB"
+                ),
+            )
+        chunks.append(chunk)
+    content = b"".join(chunks)
+
+    # Verify actual file content via magic bytes, not just Content-Type
+    if not _validate_avatar_magic_bytes(content):
         raise HTTPException(
             status_code=400,
-            detail=f"File too large ({len(content)} bytes). Max: 2MB",
+            detail=(
+                "Invalid file content: not a valid "
+                "PNG, JPG, GIF, or WEBP image"
+            ),
         )
 
     agent_ref = config.agents.profiles[agentId]
     avatars_dir = Path(agent_ref.workspace_dir) / "avatars"
     avatars_dir.mkdir(parents=True, exist_ok=True)
 
-    extension = AVATAR_CONTENT_TYPE_TO_EXTENSION.get(file.content_type, ".png")
+    # Remove old avatar files to prevent stale file served by GET
+    for ext in AVATAR_SEARCH_EXTENSIONS:
+        old_path = avatars_dir / f"avatar{ext}"
+        if old_path.exists():
+            old_path.unlink()
+
+    extension = AVATAR_CONTENT_TYPE_TO_EXTENSION.get(
+        file.content_type, ".png"
+    )
     avatar_path = avatars_dir / f"avatar{extension}"
 
     with open(avatar_path, "wb") as avatar_file:
@@ -672,7 +717,10 @@ async def get_agent_avatar(
                     extension,
                     "image/png",
                 ),
-                headers={"Cache-Control": "public, max-age=3600"},
+                headers={
+                    "Cache-Control": "public, max-age=3600",
+                    "X-Content-Type-Options": "nosniff",
+                },
             )
 
     raise HTTPException(status_code=404, detail="Avatar not found")

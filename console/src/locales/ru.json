@@ -161,7 +161,8 @@
     "addSkillsToAgent": "Добавить навыки",
     "avatar": "Аватар",
     "uploadAvatar": "Загрузить аватар",
-    "previewAvatar": "Просмотр"
+    "previewAvatar": "Просмотр",
+    "uploadAvatarFailed": "Не удалось загрузить аватар"
   },
   "workspace": {
     "title": "Файлы",

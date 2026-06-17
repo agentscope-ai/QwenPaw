@@ -270,7 +270,8 @@
     "modelColumn": "模型",
     "avatar": "头像",
     "uploadAvatar": "上传头像",
-    "previewAvatar": "预览"
+    "previewAvatar": "预览",
+    "uploadAvatarFailed": "头像上传失败"
   },
   "acp": {
     "title": "ACP",

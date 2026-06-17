@@ -302,7 +302,8 @@
     "modelColumn": "Model",
     "avatar": "Avatar",
     "uploadAvatar": "Unggah Avatar",
-    "previewAvatar": "Pratinjau"
+    "previewAvatar": "Pratinjau",
+    "uploadAvatarFailed": "Gagal mengunggah avatar"
   },
   "skills": {
     "title": "Skill",
