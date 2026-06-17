@@ -6,6 +6,7 @@ install time, so every helper becomes a no-op when Langfuse is unavailable.
 """
 from __future__ import annotations
 
+import importlib
 import importlib.util
 import logging
 import os
@@ -41,9 +42,12 @@ def is_langfuse_enabled() -> bool:
     if not os.environ.get("LANGFUSE_SECRET_KEY") or not _langfuse_available():
         return False
     try:
-        import langfuse.openai  # noqa: F401  # type: ignore[import]
+        importlib.import_module("langfuse.openai")
     except Exception:
-        logger.debug("Failed to register Langfuse OpenAI tracing", exc_info=True)
+        logger.debug(
+            "Failed to register Langfuse OpenAI tracing",
+            exc_info=True,
+        )
         return False
     return True
 
@@ -184,7 +188,9 @@ async def tool_span(
         yield None
         return
 
-    client = (client_factory or _langfuse_client)() if ctx is not None else None
+    client = (
+        (client_factory or _langfuse_client)() if ctx is not None else None
+    )
     observation = None
 
     try:

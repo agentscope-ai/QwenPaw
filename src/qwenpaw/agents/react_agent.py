@@ -272,9 +272,11 @@ class QwenPawAgent(CodingModeMixin, ToolGuardMixin, ReActAgent):
                     "delegate_external_agent",
                 }
                 async_execution_tools = {
-                    name: builtin_tools.get(name).async_execution
-                    if name in builtin_tools
-                    else False
+                    name: (
+                        builtin_tools.get(name).async_execution
+                        if name in builtin_tools
+                        else False
+                    )
                     for name in async_capable_tool_names
                 }
         except Exception as e:
@@ -840,9 +842,10 @@ class QwenPawAgent(CodingModeMixin, ToolGuardMixin, ReActAgent):
                 "create_plan",
                 "revise_current_plan",
             }:
-                # Force the next post-plan reasoning pass to be text-only. This
-                # prevents models from emitting other tools in the same turn run
-                # before the user has confirmed the plan or modified it.
+                # Force the next post-plan reasoning pass to be text-only.
+                # This prevents models from emitting other tools in the same
+                # turn run before the user has confirmed the plan or modified
+                # it.
                 # pylint: disable=protected-access
                 nb._plan_text_only_after_mutation = True
 

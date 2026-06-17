@@ -931,7 +931,10 @@ class AgentRunner(Runner):
                         ):
                             yield msg, last
                 else:
-                    async for msg, last in _stream_printing_messages_interruptible(
+                    async for (
+                        msg,
+                        last,
+                    ) in _stream_printing_messages_interruptible(
                         agents=[agent],
                         coroutine_task=agent(msgs),
                     ):
@@ -955,11 +958,14 @@ class AgentRunner(Runner):
             )
             if cancelled_count > 0:
                 logger.info(
-                    "Auto-denied %d pending approval(s) for root session %s",
+                    "Auto-denied %d pending approval(s) for root "
+                    "session %s",
                     cancelled_count,
-                    root_session_id[:8]
-                    if len(root_session_id) >= 8
-                    else root_session_id,
+                    (
+                        root_session_id[:8]
+                        if len(root_session_id) >= 8
+                        else root_session_id
+                    ),
                 )
 
             if agent is not None:

@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 import pytest
 
 from qwenpaw.observability import langfuse as lf
@@ -78,7 +79,7 @@ async def test_agent_trace_scope_creates_root_span_and_restores_context():
     assert client.started[0]["name"] == "agent.react_loop"
     assert client.started[0]["trace_context"] == {"trace_id": "trace-1"}
     assert kwargs["parent_observation_id"] == "obs-1"
-    assert lf.current_generation_kwargs("qwen-max") == {}
+    assert not lf.current_generation_kwargs("qwen-max")
 
 
 async def test_tool_span_records_input_output_and_error_status():
