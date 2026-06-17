@@ -2,6 +2,9 @@
 """QwenPaw runtime — agent lifecycle, streaming, and tool guard."""
 
 from .runtime import Runtime
-from .tool_guard import GuardedFunctionTool
 
-__all__ = ["GuardedFunctionTool", "Runtime"]
+# GuardedFunctionTool is deprecated; use governance.PolicyGuardedTool instead.
+# Kept for backward compatibility of existing imports.
+from .tool_guard import GuardedFunctionTool  # noqa: F401 (deprecated)
+
+__all__ = ["Runtime"]

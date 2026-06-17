@@ -17,7 +17,6 @@ import logging
 from pathlib import Path
 
 from ...constant import WORKING_DIR
-from ...runtime import GuardedFunctionTool
 from ...agents.tools import ast_tool
 from ...agents.tools._lsp_servers import detect_available_lsp_languages
 from ...agents.tools.lsp_tool import make_lsp_tool
@@ -199,13 +198,16 @@ class CodingModeMixin:
 
     def _collect_coding_mode_tools(
         self,
-        agent_id: str | None = None,
+        agent_id: str | None = None,  # pylint: disable=unused-argument
         request_context: dict[str, str] | None = None,
     ) -> list:
         """Collect Coding Mode tool instances (`lsp`, `ast_search`)."""
         if not self._coding_mode_enabled():
             return []
 
+        from ...governance import PolicyGuardedTool
+
+        governor = getattr(self, "_governor", None)
         project_dir = Path(
             self._get_coding_project_dir()
             or str(getattr(self, "_workspace_dir", "") or WORKING_DIR),
@@ -216,9 +218,9 @@ class CodingModeMixin:
             available = detect_available_lsp_languages(project_dir)
             if available:
                 result.append(
-                    GuardedFunctionTool(
+                    PolicyGuardedTool(
                         make_lsp_tool(available),
-                        agent_id=agent_id,
+                        governor=governor,
                         request_context=request_context,
                     ),
                 )
@@ -238,9 +240,9 @@ class CodingModeMixin:
         try:
             if ast_tool.is_ast_grep_available():
                 result.append(
-                    GuardedFunctionTool(
+                    PolicyGuardedTool(
                         ast_tool.ast_search,
-                        agent_id=agent_id,
+                        governor=governor,
                         request_context=request_context,
                     ),
                 )
@@ -258,14 +260,17 @@ class CodingModeMixin:
 def collect_coding_tools(
     agent_config: object,
     workspace_dir: object,
-    agent_id: str | None = None,
+    agent_id: str | None = None,  # pylint: disable=unused-argument
     request_context: dict[str, str] | None = None,
+    governor: object | None = None,
 ) -> list:
     """Collect Coding Mode tools without requiring a mixin instance.
 
     Standalone replacement for the ``CodingModeMixin.__new__()`` hack
     that ``AgentBuilder`` previously used.
     """
+    from ...governance import PolicyGuardedTool
+
     cm = getattr(agent_config, "coding_mode", None)
     if cm is None or not getattr(cm, "enabled", False):
         return []
@@ -279,9 +284,9 @@ def collect_coding_tools(
         available = detect_available_lsp_languages(project_dir)
         if available:
             result.append(
-                GuardedFunctionTool(
+                PolicyGuardedTool(
                     make_lsp_tool(available),
-                    agent_id=agent_id,
+                    governor=governor,
                     request_context=request_context,
                 ),
             )
@@ -295,9 +300,9 @@ def collect_coding_tools(
     try:
         if ast_tool.is_ast_grep_available():
             result.append(
-                GuardedFunctionTool(
+                PolicyGuardedTool(
                     ast_tool.ast_search,
-                    agent_id=agent_id,
+                    governor=governor,
                     request_context=request_context,
                 ),
             )

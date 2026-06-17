@@ -46,7 +46,7 @@ class QwenPawLocalWorkspace(AgentScopeLocalWorkspace):
         self,
         *,
         agent_config: Any = None,
-        agent_id: str | None = None,
+        agent_id: str | None = None,  # pylint: disable=unused-argument
         request_context: dict[str, str] | None = None,
         active_modes: tuple[str, ...] | set[str] = (),
         active_skills: tuple[str, ...] | set[str] = (),
@@ -61,7 +61,6 @@ class QwenPawLocalWorkspace(AgentScopeLocalWorkspace):
         filtering.
         """
         from ...governance import PolicyGuardedTool
-        from ...runtime.tool_guard import GuardedFunctionTool
 
         if agent_config is not None:
             allowed, denied = self._resolve_config_gates(agent_config)
@@ -76,19 +75,10 @@ class QwenPawLocalWorkspace(AgentScopeLocalWorkspace):
             denied=denied,
         )
 
-        if self._governor:
-            return [
-                PolicyGuardedTool(
-                    d.func,
-                    governor=self._governor,
-                    request_context=request_context,
-                )
-                for d in descs
-            ]
         return [
-            GuardedFunctionTool(
+            PolicyGuardedTool(
                 d.func,
-                agent_id=agent_id,
+                governor=self._governor,
                 request_context=request_context,
             )
             for d in descs

@@ -28,6 +28,39 @@ from .tool_registry import DEFAULT_REGISTRY
 
 logger = logging.getLogger(__name__)
 
+_NO_RETRY_INSTRUCTION = (
+    "\n\n\u26a0\ufe0f **System instruction**: this denial is final"
+    " for the current request. Do not retry this tool with similar"
+    " parameters. Reply to the user explaining why the action could"
+    " not be completed and, if appropriate, ask them how they want"
+    " to proceed."
+)
+
+
+def _is_execution_level_off() -> bool:
+    """Check if execution_level is 'off' (dev mode pass-through).
+
+    Reads directly from policy.yaml (without needing a governor) to
+    support the case where governor initialization failed but the user
+    explicitly configured execution_level=off for development.
+    """
+    try:
+        from pathlib import Path
+
+        import yaml
+
+        from ..constant import WORKING_DIR
+
+        policy_path = Path(WORKING_DIR) / ".qwenpaw" / "policy.yaml"
+        if not policy_path.exists():
+            return False
+        with open(policy_path, "r", encoding="utf-8") as f:
+            data = yaml.safe_load(f)
+        return isinstance(data, dict) and data.get("execution_level") == "off"
+    except Exception:
+        return False
+
+
 # ---------------------------------------------------------------------------
 # PolicyGuardedTool
 # ---------------------------------------------------------------------------
@@ -85,6 +118,7 @@ def _policy_tool_init(
     self._qp_sandbox_mode = False  # Whether to execute in sandbox
 
 
+# pylint: disable=too-many-return-statements
 async def _policy_tool_check_permissions(
     self: Any,
     input_data: dict[str, Any] | None = None,
@@ -105,6 +139,13 @@ async def _policy_tool_check_permissions(
 
     governor = getattr(self, "_qp_governor", None)
     if governor is None:
+        # Check if execution_level is "off" (dev mode) — allow pass-through
+        if _is_execution_level_off():
+            return PermissionDecision(
+                behavior=PermissionBehavior.ALLOW,
+                message="governance: execution_level=off (dev mode), "
+                "governor unavailable — pass-through.",
+            )
         # Fail-closed: if governance layer failed to initialize, deny all
         # tool calls rather than silently allowing unguarded execution.
         logger.error(
@@ -193,6 +234,8 @@ async def _policy_tool_check_permissions(
             agent_id=agent_id,
             session_id=session_id,
             request_context=getattr(self, "_qp_request_context", {}) or {},
+            policy_findings=decision.findings,
+            governance_reason=decision.reason,
         )
     else:
         # Unknown decision → deny as safe default
@@ -340,6 +383,7 @@ async def _ask_user_approval(
     *,
     violation_msg: str | None = None,
     governance_reason: str | None = None,
+    policy_findings: list[Any] | None = None,
 ) -> Any:
     """Request user approval, blocking until a reply is received."""
     from agentscope.permission import PermissionBehavior, PermissionDecision
@@ -363,64 +407,103 @@ async def _ask_user_approval(
     root_session_id = str(ctx.get("root_session_id") or session_id)
     root_agent_id = str(ctx.get("root_agent_id") or agent_id or "unknown")
 
-    # Construct a synthetic ToolGuardResult for ApprovalService
-    guard_result = ToolGuardResult(
-        tool_name=tool_name,
-        params=input_data,
-        findings=[
-            GuardFinding(
-                id=uuid.uuid4().hex[:8],
-                rule_id="policy_ask",
-                category=GuardThreatCategory.RESOURCE_ABUSE,
-                severity=(
-                    GuardSeverity.HIGH if violation_msg else GuardSeverity.INFO
-                ),
-                title=(
-                    "Sandbox Violation — Approve Unsandboxed Execution?"
-                    if violation_msg
-                    else "Policy Approval Required"
-                ),
-                description=(
-                    f"Tool '{tool_name}' with target '{target}' "
-                    f"requires user approval per governance policy."
-                    + (
-                        f"\n\nGovernance reason: {governance_reason}"
-                        if governance_reason
-                        else ""
-                    )
-                    + (
-                        f"\n\n\u26a0\ufe0f Sandbox violation: {violation_msg}"
-                        f"\n\n**If you approve, this command will be "
-                        f"re-executed WITHOUT sandbox isolation (full host "
-                        f"access).** The kernel-level filesystem restrictions "
-                        f"that blocked it will no longer apply."
-                        if violation_msg
-                        else ""
-                    )
-                ),
-                tool_name=tool_name,
-                remediation=(
-                    "Approve to re-run without sandbox (full host access), "
-                    "or deny to block the command."
-                    if violation_msg
-                    else "Approve or deny this tool call"
-                ),
-                guardian="governance_policy",
-                metadata={
-                    "target": target,
-                    **(
-                        {
-                            "sandbox_violation": violation_msg,
-                            "escalation": "sandbox_to_host",
-                        }
-                        if violation_msg
-                        else {}
+    # Construct a ToolGuardResult for ApprovalService.
+    # If deep-scan findings were attached by policy.evaluate(),
+    # convert them into GuardFindings for the approval card.
+    if policy_findings:
+        converted_findings = []
+        for pf in policy_findings:
+            # pf is a governance.detectors.GuardFinding (dataclass)
+            converted_findings.append(
+                GuardFinding(
+                    id=getattr(pf, "id", uuid.uuid4().hex[:8]),
+                    rule_id=getattr(pf, "rule_id", "policy_deep_scan"),
+                    category=GuardThreatCategory(
+                        getattr(pf, "category", "resource_abuse"),
                     ),
-                },
-            ),
-        ],
-        guardians_used=["governance_policy"],
-    )
+                    severity=GuardSeverity(
+                        getattr(pf, "severity", "INFO"),
+                    ),
+                    title=getattr(pf, "title", "Policy Approval Required"),
+                    description=getattr(pf, "description", ""),
+                    tool_name=tool_name,
+                    param_name=getattr(pf, "param_name", None),
+                    matched_value=getattr(pf, "matched_value", None),
+                    matched_pattern=getattr(pf, "matched_pattern", None),
+                    snippet=getattr(pf, "snippet", None),
+                    remediation=getattr(pf, "remediation", None),
+                    guardian=getattr(pf, "detector", "governance_policy"),
+                    metadata=getattr(pf, "metadata", {}),
+                ),
+            )
+        guard_result = ToolGuardResult(
+            tool_name=tool_name,
+            params=input_data,
+            findings=converted_findings,
+            guardians_used=["governance_policy"],
+        )
+    else:
+        guard_result = ToolGuardResult(
+            tool_name=tool_name,
+            params=input_data,
+            findings=[
+                GuardFinding(
+                    id=uuid.uuid4().hex[:8],
+                    rule_id="policy_ask",
+                    category=GuardThreatCategory.RESOURCE_ABUSE,
+                    severity=(
+                        GuardSeverity.HIGH
+                        if violation_msg
+                        else GuardSeverity.INFO
+                    ),
+                    title=(
+                        "Sandbox Violation — Approve Unsandboxed Execution?"
+                        if violation_msg
+                        else "Policy Approval Required"
+                    ),
+                    description=(
+                        f"Tool '{tool_name}' with target '{target}' "
+                        f"requires user approval per governance policy."
+                        + (
+                            f"\n\nGovernance reason: {governance_reason}"
+                            if governance_reason
+                            else ""
+                        )
+                        + (
+                            f"\n\n\u26a0\ufe0f Sandbox violation: "
+                            f"{violation_msg}"
+                            f"\n\n**If you approve, this command will be "
+                            f"re-executed WITHOUT sandbox isolation (full "
+                            f"host access).** The kernel-level filesystem "
+                            f"restrictions that blocked it will no longer "
+                            f"apply."
+                            if violation_msg
+                            else ""
+                        )
+                    ),
+                    tool_name=tool_name,
+                    remediation=(
+                        "Approve to re-run without sandbox (full host "
+                        "access), or deny to block the command."
+                        if violation_msg
+                        else "Approve or deny this tool call"
+                    ),
+                    guardian="governance_policy",
+                    metadata={
+                        "target": target,
+                        **(
+                            {
+                                "sandbox_violation": violation_msg,
+                                "escalation": "sandbox_to_host",
+                            }
+                            if violation_msg
+                            else {}
+                        ),
+                    },
+                ),
+            ],
+            guardians_used=["governance_policy"],
+        )
 
     svc = get_approval_service()
     tool_call_id = str(ctx.get("tool_call_id") or "")
@@ -536,11 +619,3 @@ async def _ask_user_approval(
         behavior=PermissionBehavior.DENY,
         message=denial_msg + _NO_RETRY_INSTRUCTION,
     )
-
-
-_NO_RETRY_INSTRUCTION = (
-    "\n\n⚠️ **System instruction**: this denial is final for the current "
-    "request. Do not retry this tool with similar parameters. Reply to "
-    "the user explaining why the action could not be completed and, if "
-    "appropriate, ask them how they want to proceed."
-)
