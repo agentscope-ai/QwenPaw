@@ -23,18 +23,55 @@ from qwenpaw.tauri.sidecar_logging import install_sidecar_logging
 logger = logging.getLogger(__name__)
 
 
-def _argv_looks_like_package_manager() -> bool:
-    """Detect being invoked as if this binary were a Python interpreter.
+def _is_frozen_desktop() -> bool:
+    return bool(getattr(sys, "frozen", False)) or (
+        os.environ.get(DESKTOP_APP_ENV) == "1"
+    )
 
-    The frozen backend is sometimes mistakenly used as ``sys.executable`` to
-    run ``-m pip``; since it ignores such argv and just starts another server,
-    that path recursively re-launches the backend (issue #5209). Reject it.
+
+def _looks_like_python_invocation(args: Sequence[str]) -> bool:
+    """True if *args* look like a Python interpreter command line.
+
+    The packaged backend is launched with no positional arguments, so any
+    Python-style argv means a plugin spawned ``sys.executable <args>`` treating
+    this binary as an interpreter (e.g. ``-m pkg``, ``script.py``, ``-c ...``).
     """
-    args = sys.argv[1:]
     if not args:
         return False
-    flat = set(args)
-    return "-m" in flat or "pip" in flat or "--target" in flat
+    first = args[0]
+    if first in ("-m", "-c", "-"):
+        return True
+    if first.endswith(".py"):
+        return True
+    # Single-dash interpreter flags (-u, -E, -S, -I, -X ...), but not --options.
+    return len(first) >= 2 and first[0] == "-" and first[1] != "-"
+
+
+def _reexec_as_bundled_python(args: Sequence[str]) -> None:
+    """Re-run a mis-routed interpreter invocation via the bundled CPython.
+
+    In the frozen desktop build ``sys.executable`` is this backend binary, not
+    Python; a plugin spawning ``sys.executable <args>`` would otherwise start
+    another backend and crash-loop the app (issue #5209). Re-exec the bundled
+    standalone CPython with the same arguments so the intended program runs,
+    with plugin-installed deps (``QWENPAW_PLUGIN_SITE``) importable.
+    """
+    python = (os.environ.get("QWENPAW_DESKTOP_PY_RUNTIME") or "").strip()
+    if not python or not os.path.isfile(python):
+        print(
+            "qwenpaw-backend is the desktop backend, not a Python interpreter, "
+            "and no bundled runtime is available to run: "
+            f"{list(args)}",
+            file=sys.stderr,
+        )
+        raise SystemExit(2)
+    site_dir = (os.environ.get("QWENPAW_PLUGIN_SITE") or "").strip()
+    if site_dir:
+        existing = os.environ.get("PYTHONPATH", "")
+        os.environ["PYTHONPATH"] = (
+            site_dir + os.pathsep + existing if existing else site_dir
+        )
+    os.execv(python, [python, *args])
 
 
 def _install_windows_no_window_guard() -> None:
@@ -42,12 +79,7 @@ def _install_windows_no_window_guard() -> None:
     processes — including third-party plugins that shell out to commands
     like ``tasklist`` without passing ``CREATE_NO_WINDOW`` themselves.
     """
-    if os.name != "nt":
-        return
-    if not (
-        getattr(sys, "frozen", False)
-        or os.environ.get(DESKTOP_APP_ENV) == "1"
-    ):
+    if os.name != "nt" or not _is_frozen_desktop():
         return
     import subprocess
 
@@ -235,14 +267,9 @@ def _socket_port(sock: socket.socket) -> int:
 
 
 def main() -> None:
-    if _argv_looks_like_package_manager():
-        print(
-            "qwenpaw-backend is the desktop backend, not a Python "
-            "interpreter; refusing package-manager arguments: "
-            f"{sys.argv[1:]}",
-            file=sys.stderr,
-        )
-        raise SystemExit(2)
+    if _is_frozen_desktop() and _looks_like_python_invocation(sys.argv[1:]):
+        _reexec_as_bundled_python(sys.argv[1:])
+        return
     _ensure_utf8_stdio()
     _install_windows_no_window_guard()
     _install_desktop_runtime()
