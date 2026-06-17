@@ -150,6 +150,12 @@ button {
   }
 }
 
+@media (prefers-reduced-motion: reduce) {
+  [style*="qwenpaw-channels-marquee"] {
+    animation-play-state: paused !important;
+  }
+}
+
 @keyframes qwenpaw-dash-move-right {
   0% {
     background-position: 0 0;
