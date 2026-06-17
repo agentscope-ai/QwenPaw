@@ -561,7 +561,7 @@ async def put_dag(
             "removed": diff.removed,
             "modified": diff.modified,
             "state_overridden": diff.state_overridden,
-            "stale_propagated": diff.stale_propagated,
+            "downstream_reset": diff.downstream_reset,
         },
     )
 

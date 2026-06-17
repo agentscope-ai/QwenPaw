@@ -654,10 +654,10 @@ class RuntimeStateManager(PlanNotebook):
 
         For ``revise``, the node is **fully replaced** (not a patch): include
         an explicit ``deps`` list of **direct** upstream node_ids (leaf nodes
-        use ``[]``; do not list transitive ancestors). The node is marked
-        STALE and STALE propagates to all downstream nodes. Unknown deps or
-        cycles cause the entire batch to be rejected.
-        For ``add``, a new node is inserted (no STALE impact); ``node.deps``
+        use ``[]``; do not list transitive ancestors). The node is reset to
+        todo and downstream nodes reset to todo. Unknown deps or cycles cause
+        the entire batch to be rejected.
+        For ``add``, a new node is inserted (no downstream reset); ``node.deps``
         must reference existing nodes or nodes added in the same batch.
         For ``delete``, the node is removed and pruned from deps lists.
 
@@ -693,9 +693,9 @@ class RuntimeStateManager(PlanNotebook):
             parts.append(f"Revised: {result.revised}.")
         if result.deleted:
             parts.append(f"Deleted: {result.deleted}.")
-        if result.stale_propagated:
+        if result.downstream_reset:
             parts.append(
-                f"Downstream marked STALE: {result.stale_propagated}.",
+                f"Downstream reset to todo: {result.downstream_reset}.",
             )
         return _text(" ".join(parts))
 

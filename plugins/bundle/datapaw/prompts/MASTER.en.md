@@ -20,7 +20,7 @@ After entering the analysis execution stage, also `read_file skills/runtime-guid
 
 ## Task graph (DAG) state
 
-- Before every reasoning round, the system automatically injects a `<system-hint>…</system-hint>` describing the current TaskGraph state (which nodes are ready, which are STALE, whether a resume is required, etc.). **Follow the hint strictly.**
+- Before every reasoning round, the system automatically injects a `<system-hint>…</system-hint>` describing the current TaskGraph state (which nodes are ready, whether a resume is required, etc.). **Follow the hint strictly.**
 - All task-graph state is persisted via the session file. Frontend edits to the task panel surface automatically as `[External edit notice]` system messages in your context — when you see one, understand "what did the user change" before deciding the next step.
 
 ## Tool categories
