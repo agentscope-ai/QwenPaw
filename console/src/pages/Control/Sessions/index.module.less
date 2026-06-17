@@ -90,6 +90,59 @@
   gap: 8px;
 }
 
+.columnOrderList {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.columnOrderItem {
+  display: grid;
+  grid-template-columns: 32px 24px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  min-height: 40px;
+  padding: 6px 8px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.02);
+  cursor: grab;
+  user-select: none;
+  touch-action: none;
+}
+
+.columnOrderItem:active {
+  cursor: grabbing;
+}
+
+.columnOrderItemDragging {
+  opacity: 0.72;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.16);
+}
+
+.columnOrderIndex {
+  color: rgba(0, 0, 0, 0.45);
+  font-size: 12px;
+  text-align: center;
+}
+
+.columnOrderDragIcon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(0, 0, 0, 0.35);
+  font-size: 16px;
+}
+
+.columnOrderLabel {
+  min-width: 0;
+  overflow: hidden;
+  color: rgba(0, 0, 0, 0.88);
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* ─── Dark mode ─────────────────────────────────────────────────────────────── */
 :global(.dark-mode) {
   .sessionsPage {
@@ -127,6 +180,28 @@
   .selectedRow:hover > td {
     background-color: rgba(97, 92, 237, 0.2) !important;
   }
+
+  .columnOrderItem {
+    border-color: rgba(255, 255, 255, 0.12);
+    background: rgba(255, 255, 255, 0.04);
+  }
+
+  .columnOrderItemDragging {
+    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.35);
+  }
+
+  .columnOrderIndex {
+    color: rgba(255, 255, 255, 0.35);
+  }
+
+  .columnOrderDragIcon {
+    color: rgba(255, 255, 255, 0.35);
+  }
+
+  .columnOrderLabel {
+    color: rgba(255, 255, 255, 0.85);
+  }
+
   :global(.sessions-filter-input) {
     :global(.qwenpaw-input),
     :global(.ant-input) {

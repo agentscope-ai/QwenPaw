@@ -1,16 +1,37 @@
 import { Button, Tag } from "@agentscope-ai/design";
-import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
 import type { ColumnsType } from "antd/es/table";
 import { formatTime, type Session } from "./constants";
 import { CHANNEL_COLORS } from "../../../../constants/channel";
 import styles from "../index.module.less";
 
+export type SessionColumnKey =
+  | "id"
+  | "name"
+  | "session_id"
+  | "user_id"
+  | "channel"
+  | "created_at"
+  | "updated_at"
+  | "action";
+
+export const DEFAULT_SESSION_COLUMN_ORDER: SessionColumnKey[] = [
+  "id",
+  "name",
+  "session_id",
+  "user_id",
+  "channel",
+  "created_at",
+  "updated_at",
+  "action",
+];
+
 interface ColumnHandlers {
   onEdit: (session: Session) => void;
   onDelete: (sessionId: string) => void;
   onView: (session: Session) => void;
   t: TFunction;
+  columnOrder?: SessionColumnKey[];
 }
 
 /** Normalize ISO string to UTC for consistent sorting across mixed timezone formats. */
@@ -24,35 +45,33 @@ const toUTCTime = (ts: string | null | undefined): number => {
 export const createColumns = (
   handlers: ColumnHandlers,
 ): ColumnsType<Session> => {
-  const { t } = useTranslation();
-
-  return [
-    {
-      title: "ID",
+  const columnsByKey: Record<SessionColumnKey, ColumnsType<Session>[number]> = {
+    id: {
+      title: handlers.t("sessions.columns.id"),
       dataIndex: "id",
       key: "id",
       width: 250,
     },
-    {
-      title: "Name",
+    name: {
+      title: handlers.t("sessions.columns.name"),
       dataIndex: "name",
       key: "name",
       width: 200,
     },
-    {
-      title: "SessionID",
+    session_id: {
+      title: handlers.t("sessions.columns.sessionId"),
       dataIndex: "session_id",
       key: "session_id",
       width: 180,
     },
-    {
-      title: "UserID",
+    user_id: {
+      title: handlers.t("sessions.columns.userId"),
       dataIndex: "user_id",
       key: "user_id",
       width: 150,
     },
-    {
-      title: "Channel",
+    channel: {
+      title: handlers.t("sessions.columns.channel"),
       dataIndex: "channel",
       key: "channel",
       width: 120,
@@ -60,8 +79,8 @@ export const createColumns = (
         <Tag color={CHANNEL_COLORS[channel] || "default"}>{channel}</Tag>
       ),
     },
-    {
-      title: "CreatedAt",
+    created_at: {
+      title: handlers.t("sessions.columns.createdAt"),
       dataIndex: "created_at",
       key: "created_at",
       width: 180,
@@ -69,8 +88,8 @@ export const createColumns = (
       sorter: (a: Session, b: Session) =>
         toUTCTime(a.created_at) - toUTCTime(b.created_at),
     },
-    {
-      title: "UpdatedAt",
+    updated_at: {
+      title: handlers.t("sessions.columns.updatedAt"),
       dataIndex: "updated_at",
       key: "updated_at",
       width: 180,
@@ -79,8 +98,8 @@ export const createColumns = (
         toUTCTime(a.updated_at) - toUTCTime(b.updated_at),
       defaultSortOrder: "descend",
     },
-    {
-      title: "Action",
+    action: {
+      title: handlers.t("sessions.columns.action"),
       key: "action",
       width: 180,
       fixed: "right",
@@ -91,7 +110,7 @@ export const createColumns = (
             size="small"
             onClick={() => handlers.onEdit(record)}
           >
-            {t("common.edit")}
+            {handlers.t("common.edit")}
           </Button>
           <Button
             type="link"
@@ -99,7 +118,7 @@ export const createColumns = (
             style={{ color: "#52c41a" }}
             onClick={() => handlers.onView(record)}
           >
-            {t("common.view")}
+            {handlers.t("common.view")}
           </Button>
           <Button
             type="link"
@@ -107,10 +126,16 @@ export const createColumns = (
             danger
             onClick={() => handlers.onDelete(record.id)}
           >
-            {t("common.delete")}
+            {handlers.t("common.delete")}
           </Button>
         </div>
       ),
     },
-  ];
+  };
+
+  const order = handlers.columnOrder?.length
+    ? handlers.columnOrder
+    : DEFAULT_SESSION_COLUMN_ORDER;
+
+  return order.map((key) => columnsByKey[key]).filter(Boolean);
 };

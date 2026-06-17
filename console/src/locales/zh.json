@@ -1057,6 +1057,17 @@
     "batchDeleteButton": "批量删除",
     "filterUserId": "按用户ID筛选",
     "filterChannel": "按频道筛选",
+    "columnOrder": "表头顺序",
+    "columns": {
+      "id": "ID",
+      "name": "名称",
+      "sessionId": "SessionID",
+      "userId": "UserID",
+      "channel": "频道",
+      "createdAt": "创建时间",
+      "updatedAt": "更新时间",
+      "action": "操作"
+    },
     "allChannels": "全部频道",
     "totalItems": "共 {{count}} 项",
     "selectedItems": "已选 {{count}} 项",

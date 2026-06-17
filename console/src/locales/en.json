@@ -1208,6 +1208,17 @@
     "batchDeleteButton": "Batch Delete",
     "filterUserId": "Filter by User ID",
     "filterChannel": "Filter by Channel",
+    "columnOrder": "Column Order",
+    "columns": {
+      "id": "ID",
+      "name": "Name",
+      "sessionId": "SessionID",
+      "userId": "UserID",
+      "channel": "Channel",
+      "createdAt": "CreatedAt",
+      "updatedAt": "UpdatedAt",
+      "action": "Action"
+    },
     "allChannels": "All Channels",
     "totalItems": "Total {{count}} items",
     "selectedItems": "Selected {{count}} items",
