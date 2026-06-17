@@ -59,6 +59,6 @@ function Restart-AgentGateway {
         -WorkingDirectory $Script:DeployRoot `
         -LogFile $gatewayLog
 
-    Merge-DemoServiceProcesses -NewProcesses @($proc) -DeployRoot $Script:DeployRoot
+    Save-DemoServicesState -Processes (@($remaining) + @($proc)) -DeployRoot $Script:DeployRoot
     return $proc
 }

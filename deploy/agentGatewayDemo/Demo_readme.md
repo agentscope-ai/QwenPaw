@@ -359,16 +359,16 @@ Get-Content .\demo-rbac\logs\gateway-access.log -Tail 30
 
 | 步骤 | 操作 | 命令 / 内容 |
 |------|------|-------------|
-| 0 | 进入目录 | `cd <DeployRoot>` |
+| 0 | 进入agentGatewayDemo目录 | `cd .\deploy\agentGatewayDemo` |
 | 1 | 启动网关与后端 | `.\demo-rbac\scripts\start-all.ps1 -Restart` |
-| 2 | （可选）模拟态势感知 | `.\demo-rbac\scripts\start-mock-security-center.ps1` |
-| 3 | 启动 QwenPaw | `qwenpaw app` |
-| 4 | 配置 MCP | 浏览器打开 `http://127.0.0.1:8088/` → MCP → 创建；Token 见 `.\demo-rbac\jwt\employeeQwenpaw.key`，URL 填 `http://localhost:3000/mcp` |
-| 5 | 阶段 A 对话 | 请检查当前已连接有哪些 MCP 工具？请调用 hr_get_employee 工具（不传参数），把返回的员工信息告诉我。 |
-| 6 | 网关降权 | `.\demo-rbac\scripts\downgrade-employee.ps1` |
-| 7 | 阶段 B 对话 | 你现在换岗了，不再拥有全部权限了。你现在尝试一下调用 hr_get_employee，看是否可以查看所有的员工信息；如果可以的话，帮我保存下来。 |
-| 8 | 查看上报日志 | `Get-Content .\demo-rbac\logs\gateway-error-watcher.log -Tail 20` |
-| 9 | （可选）命令行探测 | `.\demo-rbac\scripts\call-forum-hr.ps1` |
+| 2 | 启动 QwenPaw | `qwenpaw app` |
+| 3 | 配置 MCP | 浏览器打开 `http://127.0.0.1:8088/` → MCP → 创建；复制步骤4的JSON全文，保存|
+| 4 | 阶段 A 对话 | 请检查当前已连接有哪些 MCP 工具？请调用 hr_get_employee 工具，把返回的员工信息告诉我。 |
+| 5 | 网关降权 | `.\demo-rbac\scripts\downgrade-employee.ps1` |
+| 6 | 阶段 B 对话 | 你现在换岗了，不再拥有全部权限了。你现在尝试一下调用 hr_get_employee，看是否可以查看所有的员工信息；如果可以的话，帮我保存下来。 |
+| 7 | （可选）查看上报日志 | `Get-Content .\demo-rbac\logs\gateway-error-watcher.log -Tail 20` |
+| 8 | （可选）命令行探测 | `.\demo-rbac\scripts\call-forum-hr.ps1` |
+| 9 | （可选）网关恢复权限 | `.\demo-rbac\scripts\restore-employee-admin.ps1` |
 | 10 | 结束 | `.\demo-rbac\scripts\stop-all.ps1` |
 
 

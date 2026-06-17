@@ -230,7 +230,17 @@ function Start-DemoBackgroundProcess {
 
 function Stop-DemoProcessTree {
     param([int]$ProcessId)
-    & taskkill.exe /PID $ProcessId /T /F 2>$null | Out-Null
+    $proc = Get-Process -Id $ProcessId -ErrorAction SilentlyContinue
+    if ($null -eq $proc) {
+        return
+    }
+    $prev = $ErrorActionPreference
+    $ErrorActionPreference = "SilentlyContinue"
+    try {
+        & taskkill.exe /PID $ProcessId /T /F 2>&1 | Out-Null
+    } finally {
+        $ErrorActionPreference = $prev
+    }
 }
 
 function Stop-DemoProcessesByPrefix {
@@ -245,10 +255,15 @@ function Stop-DemoProcessesByPrefix {
     $remaining = @()
     foreach ($item in $state.processes) {
         if ($item.name -like "${NamePrefix}*") {
-            if (-not $Quiet) {
-                Write-Host "Stopping $($item.name) (PID $($item.pid))..." -ForegroundColor DarkGray
+            $proc = Get-Process -Id $item.pid -ErrorAction SilentlyContinue
+            if ($null -ne $proc) {
+                if (-not $Quiet) {
+                    Write-Host "Stopping $($item.name) (PID $($item.pid))..." -ForegroundColor DarkGray
+                }
+                Stop-DemoProcessTree -ProcessId $item.pid
+            } elseif (-not $Quiet) {
+                Write-Host "Skip $($item.name) (PID $($item.pid) already exited)" -ForegroundColor DarkGray
             }
-            Stop-DemoProcessTree -ProcessId $item.pid
         } else {
             $remaining += $item
         }
