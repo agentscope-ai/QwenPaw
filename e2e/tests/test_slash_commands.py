@@ -1,0 +1,360 @@
+# -*- coding: utf-8 -*-
+"""Slash command e2e cases.
+
+These cases drive QwenPaw's slash commands purely through the chat
+input box (textarea + send button). The assertion path is the AI
+bubble's rendered text — the same DOM elements a real user sees.
+
+Why we don't use ``ChatPage.send_message_and_wait`` here:
+its "round started" gate waits for the send button to transition
+``enabled → disabled → enabled``. Slash command responses come back
+fast enough that this transition is missed, the gate times out, and
+the whole helper returns failure even though the bubble has already
+rendered. We instead poll bubble counts directly.
+"""
+from __future__ import annotations
+
+import logging
+import time
+
+import pytest
+
+from pages.chat_page import ChatPage
+
+logger = logging.getLogger(__name__)
+
+
+SEND_BTN = "button.qwenpaw-sender-actions-btn.qwenpaw-btn-primary"
+AI_BUBBLE = ".qwenpaw-bubble.qwenpaw-bubble-start"
+USER_BUBBLE = ".qwenpaw-bubble.qwenpaw-bubble-end"
+
+
+def _wait_settle(page, max_s: int = 25) -> None:
+    """Block until the AI bubble count + .first text are stable for ~2s."""
+    deadline = time.time() + max_s
+    last_count = page.locator(AI_BUBBLE).count()
+    last_text = ""
+    stable_since = 0.0
+    while time.time() < deadline:
+        cur = page.locator(AI_BUBBLE).count()
+        try:
+            text = (
+                page.locator(AI_BUBBLE).first.inner_text(timeout=1500)
+                if cur
+                else ""
+            )
+        except Exception:
+            text = ""
+        if cur == last_count and text == last_text and text:
+            if stable_since == 0.0:
+                stable_since = time.time()
+            elif time.time() - stable_since >= 2.0:
+                return
+        else:
+            last_count = cur
+            last_text = text
+            stable_since = 0.0
+        time.sleep(0.4)
+
+
+def _ensure_active_session(page) -> None:
+    """Click the welcome quick-action when on a fresh chat with no history.
+
+    A bubble-empty chat needs at least one message to bind a session;
+    otherwise ``send`` becomes a no-op. We click the visible
+    "Let's start a new journey!" quick-action, which both fills the
+    input and auto-submits, and then wait for the welcome AI reply
+    to settle.
+    """
+    has_bubbles = (
+        page.locator(AI_BUBBLE).count() > 0
+        or page.locator(USER_BUBBLE).count() > 0
+    )
+    if has_bubbles:
+        return  # session already has activity
+
+    journey = page.locator(
+        'div:has-text("Let\'s start a new journey!")'
+    ).first
+    if journey.count() == 0 or not journey.is_visible():
+        return  # neither welcome nor an active session — give up gracefully
+
+    journey.click()
+    # Wait for first user bubble (proves the message was actually sent).
+    deadline = time.time() + 15
+    while time.time() < deadline:
+        if page.locator(USER_BUBBLE).count() > 0:
+            break
+        time.sleep(0.3)
+    _wait_settle(page)
+
+
+def _send_slash(chat_page: ChatPage, command: str, timeout: int = 30000) -> str:
+    """Type ``command`` into the chat input and return the new AI bubble text.
+
+    Bypasses ``send_message_and_wait`` because that helper's button-state
+    gate is incompatible with slash commands (responses are too fast).
+
+    Quirks worked around here:
+    - On a freshly opened chat the SSE / session bootstrap takes ~1-2s.
+      Sending too early swallows the message silently. We wait 2s.
+    - Typing ``/`` opens a slash-command autocomplete popup that captures
+      Enter for selection. We dismiss it with Escape before sending and
+      re-fill if the popup blanked the textarea.
+    - We always prefer clicking the send button over pressing Enter; the
+      button never goes through the autocomplete focus trap.
+    - The chat panel renders **newest bubble at index 0** (top), not at
+      ``.last``. We therefore read ``.first`` to get the just-arrived
+      reply.
+    """
+    page = chat_page.page
+
+    # 1. Let the page bootstrap (SSE / session ready).
+    page.wait_for_timeout(2000)
+    _ensure_active_session(page)
+    ai_before = page.locator(AI_BUBBLE).count()
+
+    inp = page.locator("textarea").first
+    assert inp.count() > 0, "chat textarea not found"
+    inp.click()
+    page.wait_for_timeout(200)
+    inp.fill("")
+    page.wait_for_timeout(150)
+    inp.fill(command)
+    page.wait_for_timeout(400)
+
+    # 2. Dismiss the autocomplete popup that pops up on `/`.
+    page.keyboard.press("Escape")
+    page.wait_for_timeout(200)
+    # 3. Re-fill if Escape blanked the textarea.
+    if inp.input_value() != command:
+        inp.click()
+        page.wait_for_timeout(150)
+        inp.fill(command)
+        page.wait_for_timeout(300)
+
+    # 4. Always click the send button (never Enter) so we don't hit the
+    #    autocomplete's keyboard trap.
+    send = page.locator(SEND_BTN).first
+    assert send.count() > 0, "send button not found"
+    # Some renders need an extra beat for the button to enable after fill.
+    for _ in range(10):
+        if send.is_visible() and send.is_enabled():
+            break
+        page.wait_for_timeout(200)
+    send.click()
+
+    deadline = time.time() + timeout / 1000
+    while time.time() < deadline:
+        if page.locator(AI_BUBBLE).count() > ai_before:
+            break
+        time.sleep(0.2)
+    else:
+        slug = command.lstrip("/").replace(" ", "_").replace("-", "_")
+        page.screenshot(path=f"/tmp/qpe-slash-{slug}.png")
+        pytest.fail(
+            f"no AI bubble within {timeout}ms after sending {command!r} "
+            f"(input value at fail: {inp.input_value()!r})"
+        )
+
+    # Wait for content to settle: stop polling once .first innerText is
+    # non-empty and stable for ~1s. The chat list renders newest-on-top,
+    # so the slash command's reply is at ``.first`` — not ``.last``.
+    last_text = ""
+    stable_since = 0.0
+    settle_deadline = time.time() + 20
+    while time.time() < settle_deadline:
+        try:
+            text = page.locator(AI_BUBBLE).first.inner_text(timeout=2000)
+        except Exception:
+            text = ""
+        if text and text == last_text:
+            if stable_since == 0.0:
+                stable_since = time.time()
+            elif time.time() - stable_since >= 1.0:
+                break
+        else:
+            last_text = text
+            stable_since = 0.0
+        time.sleep(0.3)
+    return last_text
+
+
+def _assert_any(text: str, *needles: str) -> None:
+    assert any(n in text for n in needles), (
+        f"expected any of {needles!r} in bubble, got: {text!r}"
+    )
+
+
+@pytest.mark.slash_commands
+@pytest.mark.p0
+@pytest.mark.test_id("SLASH-001")
+def test_slash_skills_lists_or_reports_empty(clean_chat_page: ChatPage):
+    """``/skills`` returns either an enabled-skill list or the empty notice."""
+    chat = clean_chat_page.open()
+    text = _send_slash(chat, "/skills")
+    _assert_any(
+        text,
+        "No skills are currently enabled",
+        "Use `/<skill_name>",
+        "skill",
+    )
+
+
+@pytest.mark.slash_commands
+@pytest.mark.p0
+@pytest.mark.test_id("SLASH-002")
+def test_slash_model_shows_current_or_empty(clean_chat_page: ChatPage):
+    """``/model`` reports either the active model or 'No Active Model'."""
+    chat = clean_chat_page.open()
+    text = _send_slash(chat, "/model")
+    _assert_any(text, "Current Model", "No Active Model", "Provider")
+
+
+@pytest.mark.slash_commands
+@pytest.mark.p1
+@pytest.mark.test_id("SLASH-003")
+def test_slash_model_help(clean_chat_page: ChatPage):
+    """``/model -h`` shows the help block."""
+    chat = clean_chat_page.open()
+    text = _send_slash(chat, "/model -h")
+    _assert_any(text, "Model Management", "Available Commands", "/model")
+
+
+@pytest.mark.slash_commands
+@pytest.mark.p1
+@pytest.mark.test_id("SLASH-004")
+def test_slash_history_renders(clean_chat_page: ChatPage):
+    """``/history`` returns the conversation summary (even if short)."""
+    chat = clean_chat_page.open()
+    text = _send_slash(chat, "/history")
+    # The handler always responds with something — either history text
+    # or an indicator block. Just assert we got a non-trivial bubble.
+    assert len(text.strip()) >= 5, f"unexpectedly short history bubble: {text!r}"
+
+
+@pytest.mark.slash_commands
+@pytest.mark.p1
+@pytest.mark.test_id("SLASH-005")
+def test_slash_proactive_status(clean_chat_page: ChatPage):
+    """``/proactive`` (no args) toggles or reports proactive mode."""
+    chat = clean_chat_page.open()
+    text = _send_slash(chat, "/proactive off")
+    _assert_any(
+        text,
+        "Proactive",
+        "proactive",
+        "主动",
+        "No more proactive messages",
+    )
+
+
+@pytest.mark.slash_commands
+@pytest.mark.p1
+@pytest.mark.test_id("SLASH-006")
+def test_slash_plan_status(clean_chat_page: ChatPage):
+    """Bare ``/plan`` shows plan-mode status (enabled or disabled hint)."""
+    chat = clean_chat_page.open()
+    text = _send_slash(chat, "/plan")
+    _assert_any(text, "Plan", "plan", "Settings")
+
+
+@pytest.mark.slash_commands
+@pytest.mark.p2
+@pytest.mark.test_id("SLASH-007")
+def test_slash_dump_history_writes_file(clean_chat_page: ChatPage):
+    """``/dump_history`` reports a target file path."""
+    chat = clean_chat_page.open()
+    text = _send_slash(chat, "/dump_history")
+    _assert_any(text, "Dumped", "messages", "history", "File")
+
+
+@pytest.mark.slash_commands
+@pytest.mark.p2
+@pytest.mark.test_id("SLASH-008")
+def test_slash_clear_resets_history(clean_chat_page: ChatPage):
+    """``/clear`` purges the on-screen history list.
+
+    The backend returns a "History Cleared!" system message *and* sets
+    ``metadata.clear_history=True`` which makes the frontend clear the
+    bubble list. So we don't poll for a *new* bubble — we poll for the
+    bubble count to drop below where it was just before the click.
+    """
+    chat = clean_chat_page.open()
+    page = chat.page
+    page.wait_for_timeout(2000)
+    _ensure_active_session(page)
+
+    ai_before = page.locator(AI_BUBBLE).count()
+    inp = page.locator("textarea").first
+    inp.click()
+    inp.fill("")
+    page.wait_for_timeout(150)
+    inp.fill("/clear")
+    page.wait_for_timeout(400)
+    page.keyboard.press("Escape")
+    page.wait_for_timeout(150)
+    if inp.input_value() != "/clear":
+        inp.fill("/clear")
+        page.wait_for_timeout(200)
+
+    send = page.locator(SEND_BTN).first
+    for _ in range(10):
+        if send.is_visible() and send.is_enabled():
+            break
+        page.wait_for_timeout(200)
+    send.click()
+
+    deadline = time.time() + 25
+    while time.time() < deadline:
+        if page.locator(AI_BUBBLE).count() < ai_before:
+            return
+        time.sleep(0.3)
+    pytest.fail(
+        f"AI bubble count did not drop below {ai_before} within 25s; "
+        f"current={page.locator(AI_BUBBLE).count()}"
+    )
+
+
+@pytest.mark.slash_commands
+@pytest.mark.p2
+@pytest.mark.test_id("SLASH-009")
+def test_slash_unknown_does_not_crash(clean_chat_page: ChatPage):
+    """Typing an unrecognized slash command must not break the UI.
+
+    The backend either routes the input to the LLM (slow) or rejects
+    it; either way the chat must keep rendering. We don't assert on a
+    bubble — we assert the textarea remains usable and the sidebar
+    keeps rendering after the click.
+    """
+    chat = clean_chat_page.open()
+    page = chat.page
+    page.wait_for_timeout(2000)
+    _ensure_active_session(page)
+
+    inp = page.locator("textarea").first
+    inp.click()
+    inp.fill("/notarealcommand_e2e_probe")
+    page.wait_for_timeout(400)
+    page.keyboard.press("Escape")
+    page.wait_for_timeout(150)
+    if inp.input_value() != "/notarealcommand_e2e_probe":
+        inp.fill("/notarealcommand_e2e_probe")
+        page.wait_for_timeout(200)
+
+    send = page.locator(SEND_BTN).first
+    for _ in range(10):
+        if send.is_visible() and send.is_enabled():
+            break
+        page.wait_for_timeout(200)
+    send.click()
+
+    page.wait_for_timeout(3000)
+
+    # UI smoke after probe: input box and sidebar still render.
+    assert page.locator("textarea").first.count() > 0, (
+        "textarea disappeared after unknown command — UI crashed"
+    )
+    assert page.locator('text=/Chat|Sessions|Channels/').first.count() > 0, (
+        "sidebar disappeared after unknown command — UI crashed"
+    )
