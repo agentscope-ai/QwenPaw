@@ -26,67 +26,25 @@ logger = logging.getLogger(__name__)
 
 SEND_BTN = "button.qwenpaw-sender-actions-btn.qwenpaw-btn-primary"
 AI_BUBBLE = ".qwenpaw-bubble.qwenpaw-bubble-start"
-USER_BUBBLE = ".qwenpaw-bubble.qwenpaw-bubble-end"
 
 
-def _wait_settle(page, max_s: int = 25) -> None:
-    """Block until the AI bubble count + .first text are stable for ~2s."""
-    deadline = time.time() + max_s
-    last_count = page.locator(AI_BUBBLE).count()
-    last_text = ""
-    stable_since = 0.0
-    while time.time() < deadline:
-        cur = page.locator(AI_BUBBLE).count()
-        try:
-            text = (
-                page.locator(AI_BUBBLE).first.inner_text(timeout=1500)
-                if cur
-                else ""
-            )
-        except Exception:
-            text = ""
-        if cur == last_count and text == last_text and text:
-            if stable_since == 0.0:
-                stable_since = time.time()
-            elif time.time() - stable_since >= 2.0:
-                return
-        else:
-            last_count = cur
-            last_text = text
-            stable_since = 0.0
-        time.sleep(0.4)
+def _wait_session_ready(page) -> None:
+    """Wait until the frontend has an active session (URL contains /chat/<id>).
 
-
-def _ensure_active_session(page) -> None:
-    """Click the welcome quick-action when on a fresh chat with no history.
-
-    A bubble-empty chat needs at least one message to bind a session;
-    otherwise ``send`` becomes a no-op. We click the visible
-    "Let's start a new journey!" quick-action, which both fills the
-    input and auto-submits, and then wait for the welcome AI reply
-    to settle.
+    The frontend auto-creates a session after page load, but this may
+    take a moment. Without a bound session, clicking send is a no-op.
+    Falls back to clicking "Create New Chat" if the URL doesn't resolve.
     """
-    has_bubbles = (
-        page.locator(AI_BUBBLE).count() > 0
-        or page.locator(USER_BUBBLE).count() > 0
-    )
-    if has_bubbles:
-        return  # session already has activity
-
-    journey = page.locator(
-        'div:has-text("Let\'s start a new journey!")'
-    ).first
-    if journey.count() == 0 or not journey.is_visible():
-        return  # neither welcome nor an active session — give up gracefully
-
-    journey.click()
-    # Wait for first user bubble (proves the message was actually sent).
-    deadline = time.time() + 15
+    deadline = time.time() + 10
     while time.time() < deadline:
-        if page.locator(USER_BUBBLE).count() > 0:
-            break
+        if "/chat/" in page.url and not page.url.endswith("/chat/"):
+            return
         time.sleep(0.3)
-    _wait_settle(page)
+    # Fallback: click "Create New Chat" button if visible
+    create_btn = page.get_by_role("button", name="Create New Chat")
+    if create_btn.count() > 0 and create_btn.is_visible():
+        create_btn.click()
+        page.wait_for_timeout(2000)
 
 
 def _send_slash(chat_page: ChatPage, command: str, timeout: int = 30000) -> str:
@@ -98,11 +56,12 @@ def _send_slash(chat_page: ChatPage, command: str, timeout: int = 30000) -> str:
     Quirks worked around here:
     - On a freshly opened chat the SSE / session bootstrap takes ~1-2s.
       Sending too early swallows the message silently. We wait 2s.
-    - Typing ``/`` opens a slash-command autocomplete popup that captures
-      Enter for selection. We dismiss it with Escape before sending and
-      re-fill if the popup blanked the textarea.
-    - We always prefer clicking the send button over pressing Enter; the
-      button never goes through the autocomplete focus trap.
+    - Slash commands are control commands that don't invoke the LLM,
+      so they work as the first message in a new session — no need to
+      create a session separately.
+    - We always click the send button (never press Enter) because the
+      ``/``-triggered autocomplete popup captures Enter for selection.
+      Button clicks bypass the popup entirely.
     - The chat panel renders **newest bubble at index 0** (top), not at
       ``.last``. We therefore read ``.first`` to get the just-arrived
       reply.
@@ -111,7 +70,8 @@ def _send_slash(chat_page: ChatPage, command: str, timeout: int = 30000) -> str:
 
     # 1. Let the page bootstrap (SSE / session ready).
     page.wait_for_timeout(2000)
-    _ensure_active_session(page)
+    _wait_session_ready(page)
+
     ai_before = page.locator(AI_BUBBLE).count()
 
     inp = page.locator("textarea").first
@@ -123,18 +83,9 @@ def _send_slash(chat_page: ChatPage, command: str, timeout: int = 30000) -> str:
     inp.fill(command)
     page.wait_for_timeout(400)
 
-    # 2. Dismiss the autocomplete popup that pops up on `/`.
-    page.keyboard.press("Escape")
-    page.wait_for_timeout(200)
-    # 3. Re-fill if Escape blanked the textarea.
-    if inp.input_value() != command:
-        inp.click()
-        page.wait_for_timeout(150)
-        inp.fill(command)
-        page.wait_for_timeout(300)
-
-    # 4. Always click the send button (never Enter) so we don't hit the
-    #    autocomplete's keyboard trap.
+    # 2. Always click the send button (never Enter) so we don't hit the
+    #    autocomplete's keyboard trap. No need to dismiss the popup with
+    #    Escape — button clicks bypass it entirely.
     send = page.locator(SEND_BTN).first
     assert send.count() > 0, "send button not found"
     # Some renders need an extra beat for the button to enable after fill.
@@ -283,7 +234,7 @@ def test_slash_clear_resets_history(clean_chat_page: ChatPage):
     chat = clean_chat_page.open()
     page = chat.page
     page.wait_for_timeout(2000)
-    _ensure_active_session(page)
+    _wait_session_ready(page)
 
     ai_before = page.locator(AI_BUBBLE).count()
     inp = page.locator("textarea").first
@@ -292,11 +243,6 @@ def test_slash_clear_resets_history(clean_chat_page: ChatPage):
     page.wait_for_timeout(150)
     inp.fill("/clear")
     page.wait_for_timeout(400)
-    page.keyboard.press("Escape")
-    page.wait_for_timeout(150)
-    if inp.input_value() != "/clear":
-        inp.fill("/clear")
-        page.wait_for_timeout(200)
 
     send = page.locator(SEND_BTN).first
     for _ in range(10):
@@ -330,17 +276,12 @@ def test_slash_unknown_does_not_crash(clean_chat_page: ChatPage):
     chat = clean_chat_page.open()
     page = chat.page
     page.wait_for_timeout(2000)
-    _ensure_active_session(page)
+    _wait_session_ready(page)
 
     inp = page.locator("textarea").first
     inp.click()
     inp.fill("/notarealcommand_e2e_probe")
     page.wait_for_timeout(400)
-    page.keyboard.press("Escape")
-    page.wait_for_timeout(150)
-    if inp.input_value() != "/notarealcommand_e2e_probe":
-        inp.fill("/notarealcommand_e2e_probe")
-        page.wait_for_timeout(200)
 
     send = page.locator(SEND_BTN).first
     for _ in range(10):
