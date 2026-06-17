@@ -7,8 +7,9 @@ Provides RESTful API for managing multiple agent instances.
 import json
 import logging
 from pathlib import Path
-from fastapi import APIRouter, Body, HTTPException, Request
+from fastapi import APIRouter, Body, HTTPException, Request, UploadFile, File
 from fastapi import Path as PathParam
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, field_validator
 
 from agentscope_runtime.engine.schemas.exception import (
@@ -37,6 +38,27 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/agents", tags=["agents"])
 
+AVATAR_ALLOWED_CONTENT_TYPES = {
+    "image/png",
+    "image/jpeg",
+    "image/gif",
+    "image/webp",
+}
+AVATAR_CONTENT_TYPE_TO_EXTENSION = {
+    "image/png": ".png",
+    "image/jpeg": ".jpg",
+    "image/gif": ".gif",
+    "image/webp": ".webp",
+}
+AVATAR_EXTENSION_TO_MEDIA_TYPE = {
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".gif": "image/gif",
+    ".webp": "image/webp",
+}
+AVATAR_SEARCH_EXTENSIONS = [".png", ".jpg", ".gif", ".webp"]
+AVATAR_MAX_SIZE = 2 * 1024 * 1024  # 2MB
+
 
 class AgentSummary(BaseModel):
     """Agent summary information."""
@@ -44,6 +66,7 @@ class AgentSummary(BaseModel):
     id: str
     name: str
     description: str
+    avatar_url: str = ""
     workspace_dir: str
     enabled: bool
     active_model: ModelSlotConfig | None = None
@@ -186,6 +209,7 @@ async def list_agents() -> AgentListResponse:
                     id=agent_id,
                     name=agent_config.name,
                     description=description,
+                    avatar_url=agent_config.avatar_url or "",
                     workspace_dir=agent_ref.workspace_dir,
                     enabled=getattr(agent_ref, "enabled", True),
                     active_model=active_model,
@@ -197,6 +221,7 @@ async def list_agents() -> AgentListResponse:
                     id=agent_id,
                     name=agent_id.title(),
                     description="",
+                    avatar_url="",
                     workspace_dir=agent_ref.workspace_dir,
                     enabled=getattr(agent_ref, "enabled", True),
                 ),
@@ -563,6 +588,94 @@ def _install_initial_skills(
                 workspace_dir,
                 e,
             )
+
+
+@router.post(
+    "/{agentId}/avatar",
+    summary="Upload agent avatar",
+    description=(
+        "Upload an avatar image for the agent " "(max 2MB, PNG/JPG/GIF/WEBP)"
+    ),
+)
+async def upload_agent_avatar(
+    agentId: str = PathParam(...),
+    file: UploadFile = File(...),
+) -> dict:
+    """Upload an avatar image for an agent."""
+    config = load_config()
+
+    if agentId not in config.agents.profiles:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Agent '{agentId}' not found",
+        )
+
+    if file.content_type not in AVATAR_ALLOWED_CONTENT_TYPES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported file type: {file.content_type}. "
+            f"Allowed: PNG, JPG, GIF, WEBP",
+        )
+
+    content = await file.read()
+    if len(content) > AVATAR_MAX_SIZE:
+        raise HTTPException(
+            status_code=400,
+            detail=f"File too large ({len(content)} bytes). Max: 2MB",
+        )
+
+    agent_ref = config.agents.profiles[agentId]
+    avatars_dir = Path(agent_ref.workspace_dir) / "avatars"
+    avatars_dir.mkdir(parents=True, exist_ok=True)
+
+    extension = AVATAR_CONTENT_TYPE_TO_EXTENSION.get(file.content_type, ".png")
+    avatar_path = avatars_dir / f"avatar{extension}"
+
+    with open(avatar_path, "wb") as avatar_file:
+        avatar_file.write(content)
+
+    agent_config = load_agent_config(agentId)
+    agent_config.avatar_url = f"/agents/{agentId}/avatar"
+    save_agent_config(agentId, agent_config)
+
+    logger.info(f"Uploaded avatar for agent: {agentId}")
+
+    return {"success": True, "avatar_url": agent_config.avatar_url}
+
+
+@router.get(
+    "/{agentId}/avatar",
+    summary="Get agent avatar",
+    description="Get the avatar image for an agent",
+)
+async def get_agent_avatar(
+    agentId: str = PathParam(...),
+) -> FileResponse:
+    """Get the avatar image for an agent."""
+    config = load_config()
+
+    if agentId not in config.agents.profiles:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Agent '{agentId}' not found",
+        )
+
+    agent_ref = config.agents.profiles[agentId]
+    avatars_dir = Path(agent_ref.workspace_dir) / "avatars"
+
+    for extension in AVATAR_SEARCH_EXTENSIONS:
+        avatar_path = avatars_dir / f"avatar{extension}"
+        if avatar_path.exists():
+            return FileResponse(
+                path=str(avatar_path),
+                media_type=AVATAR_EXTENSION_TO_MEDIA_TYPE.get(
+                    extension,
+                    "image/png",
+                ),
+                headers={"Cache-Control": "public, max-age=3600"},
+            )
+
+    raise HTTPException(status_code=404, detail="Avatar not found")
 
 
 def _initialize_agent_workspace(

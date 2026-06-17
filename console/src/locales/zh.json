@@ -267,7 +267,10 @@
     "modelHelp": "为此智能体指定特定的 LLM 模型。留空则使用全局默认模型。",
     "modelPlaceholder": "使用全局默认",
     "noConfiguredModels": "暂无已配置的模型",
-    "modelColumn": "模型"
+    "modelColumn": "模型",
+    "avatar": "头像",
+    "uploadAvatar": "上传头像",
+    "previewAvatar": "预览"
   },
   "acp": {
     "title": "ACP",

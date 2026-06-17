@@ -464,7 +464,10 @@
     "modelHelp": "Assign a specific LLM model to this agent. Leave empty to use the global default.",
     "modelPlaceholder": "Use global default",
     "noConfiguredModels": "No configured models",
-    "modelColumn": "Model"
+    "modelColumn": "Model",
+    "avatar": "Avatar",
+    "uploadAvatar": "Upload Avatar",
+    "previewAvatar": "Preview"
   },
   "skills": {
     "title": "Skills",
@@ -1438,7 +1441,7 @@
     "goConfigureBtn": "Configure a Provider",
     "availableGroup": "Available Providers",
     "clickToConfigure": "Click to configure",
-    "configureAction": "Configure \u2192",
+    "configureAction": "Configure →",
     "endpointCount": "{{count}} endpoints",
     "connect": "OAuth",
     "saveApiKey": "Save",

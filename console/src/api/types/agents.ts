@@ -6,6 +6,7 @@ export interface AgentSummary {
   id: string;
   name: string;
   description: string;
+  avatar_url: string;
   workspace_dir: string;
   enabled: boolean;
   active_model?: ModelSlotConfig | null;
@@ -24,6 +25,7 @@ export interface AgentProfileConfig {
   id: string;
   name: string;
   description?: string;
+  avatar_url?: string;
   workspace_dir?: string;
   approval_level?: string;
   active_model?: ModelSlotConfig | null;

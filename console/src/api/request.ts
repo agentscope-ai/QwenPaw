@@ -43,6 +43,7 @@ function buildHeaders(method?: string, extra?: HeadersInit): Headers {
   // Only add Content-Type for methods that typically have a body
   if (method && ["POST", "PUT", "PATCH"].includes(method.toUpperCase())) {
     // Don't override if caller explicitly set Content-Type
+    // Also skip for FormData — the browser sets the correct multipart boundary
     if (!headers.has("Content-Type")) {
       headers.set("Content-Type", "application/json");
     }
@@ -63,7 +64,13 @@ export async function request<T = unknown>(
 ): Promise<T> {
   const url = getApiUrl(path);
   const method = options.method || "GET";
+  const isFormData = options.body instanceof FormData;
   const headers = buildHeaders(method, options.headers);
+
+  // Let the browser set the correct multipart boundary for FormData
+  if (isFormData) {
+    headers.delete("Content-Type");
+  }
 
   const response = await fetch(url, {
     ...options,

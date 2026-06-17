@@ -158,7 +158,10 @@
     "selectBuiltin": "組み込み",
     "selectNone": "クリア",
     "noPoolSkills": "プールに利用可能なスキルがありません",
-    "addSkillsToAgent": "スキルを追加"
+    "addSkillsToAgent": "スキルを追加",
+    "avatar": "アバター",
+    "uploadAvatar": "アバターをアップロード",
+    "previewAvatar": "プレビュー"
   },
   "workspace": {
     "title": "ファイル",

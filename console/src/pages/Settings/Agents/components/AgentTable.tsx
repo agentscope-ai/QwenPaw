@@ -13,13 +13,14 @@ import {
   SortableContext,
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
-import { EditOutlined, DeleteOutlined, RobotOutlined } from "@ant-design/icons";
+import { EditOutlined, DeleteOutlined } from "@ant-design/icons";
 import { EyeOff, Eye } from "lucide-react";
 import type { AgentSummary } from "../../../../api/types/agents";
 import { useTheme } from "../../../../contexts/ThemeContext";
 import { getAgentDisplayName } from "../../../../utils/agentDisplayName";
 import { SortableAgentRow, DragHandle } from "./SortableAgentRow";
 import { providerIcon } from "../../Models/components/providerIcon";
+import { AgentAvatar } from "../../../../components/AgentAvatar";
 import styles from "../index.module.less";
 
 interface AgentTableProps {
@@ -89,11 +90,10 @@ export function AgentTable({
       width: 300,
       render: (_text: string, record: AgentSummary) => (
         <Space>
-          <RobotOutlined
-            style={{
-              fontSize: 16,
-              opacity: record.enabled ? 1 : 0.5,
-            }}
+          <AgentAvatar
+            avatarUrl={record.avatar_url}
+            size={24}
+            opacity={record.enabled ? 1 : 0.5}
           />
           <span style={{ opacity: record.enabled ? 1 : 0.5 }}>
             {getAgentDisplayName(record, t)}

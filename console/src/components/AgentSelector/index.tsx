@@ -1,9 +1,10 @@
 import { Select, Tag, Tooltip } from "antd";
 import { useEffect, useState } from "react";
-import { Bot, CheckCircle, EyeOff, ChevronRight } from "lucide-react";
+import { CheckCircle, EyeOff, ChevronRight } from "lucide-react";
 import { SparkDownLine, SparkUpLine } from "@agentscope-ai/icons";
 import { useAgentStore } from "../../stores/agentStore";
 import { agentsApi } from "../../api/modules/agents";
+import { AgentAvatar } from "../AgentAvatar";
 import { useTranslation } from "react-i18next";
 import { getAgentDisplayName } from "../../utils/agentDisplayName";
 import { useNavigate } from "react-router-dom";
@@ -96,7 +97,7 @@ export default function AgentSelector({
         overlayInnerStyle={{ background: "rgba(0,0,0,0.75)", color: "#fff" }}
       >
         <div className={styles.agentSelectorCollapsed}>
-          <Bot size={18} strokeWidth={2} />
+          <AgentAvatar avatarUrl={currentAgentInfo?.avatar_url} size={24} />
         </div>
       </Tooltip>
     );
@@ -149,7 +150,7 @@ export default function AgentSelector({
             disabled={!agent.enabled}
             label={
               <div className={styles.selectedAgentLabel}>
-                <Bot size={14} strokeWidth={2} />
+                <AgentAvatar avatarUrl={agent.avatar_url} size={18} />
                 <span>{getAgentDisplayName(agent, t)}</span>
                 {!agent.enabled && <EyeOff size={12} strokeWidth={2} />}
               </div>
@@ -161,7 +162,7 @@ export default function AgentSelector({
             >
               <div className={styles.agentOptionHeader}>
                 <div className={styles.agentOptionIcon}>
-                  <Bot size={16} strokeWidth={2} />
+                  <AgentAvatar avatarUrl={agent.avatar_url} size={30} />
                 </div>
                 <div className={styles.agentOptionContent}>
                   <div className={styles.agentOptionName}>

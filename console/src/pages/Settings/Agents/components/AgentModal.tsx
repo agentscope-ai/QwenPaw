@@ -9,8 +9,14 @@ import {
   Typography,
   Empty,
   Spin,
+  Upload,
+  Image,
 } from "antd";
-import { CheckOutlined } from "@ant-design/icons";
+import {
+  CheckOutlined,
+  UploadOutlined,
+  RobotOutlined,
+} from "@ant-design/icons";
 import { useTranslation } from "react-i18next";
 import type { AgentSummary } from "@/api/types/agents";
 import type { ProviderInfo } from "@/api/types/provider";
@@ -18,6 +24,9 @@ import { getAgentDisplayName } from "@/utils/agentDisplayName";
 import type { PoolSkillSpec } from "@/api/types/skill";
 import { skillApi } from "@/api/modules/skill";
 import { providerApi } from "@/api/modules/provider";
+import { agentsApi } from "@/api/modules/agents";
+import { getApiUrl } from "@/api/config";
+import { useTheme } from "@/contexts/ThemeContext";
 import { providerIcon } from "../../Models/components/providerIcon";
 import styles from "../index.module.less";
 
@@ -51,11 +60,15 @@ export function AgentModal({
   onCancel,
 }: AgentModalProps) {
   const { t } = useTranslation();
+  const { isDark } = useTheme();
   const [poolSkills, setPoolSkills] = useState<PoolSkillSpec[]>([]);
   const [installedSkills, setInstalledSkills] = useState<string[]>([]);
   const [loadingSkills, setLoadingSkills] = useState(false);
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
   const [loadingProviders, setLoadingProviders] = useState(false);
+  const [avatarUrl, setAvatarUrl] = useState<string>("");
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
+  const [localAvatarUrl, setLocalAvatarUrl] = useState<string | null>(null);
 
   const selectedProviderId = Form.useWatch("active_model_provider", form);
   const selectedModelId = Form.useWatch("active_model_model", form);
@@ -84,8 +97,25 @@ export function AgentModal({
     return provider?.models ?? [];
   }, [selectedProviderId, eligibleProviders]);
 
+  // Revoke local object URL on unmount or when replaced
+  useEffect(() => {
+    return () => {
+      if (localAvatarUrl) {
+        URL.revokeObjectURL(localAvatarUrl);
+      }
+    };
+  }, [localAvatarUrl]);
+
   useEffect(() => {
     if (!open) return;
+
+    // Load existing avatar if editing
+    if (editingAgent?.avatar_url) {
+      setAvatarUrl(getApiUrl(editingAgent.avatar_url));
+    } else {
+      setAvatarUrl("");
+    }
+    setLocalAvatarUrl(null);
 
     setLoadingProviders(true);
     providerApi
@@ -121,6 +151,28 @@ export function AgentModal({
       })
       .finally(() => setLoadingSkills(false));
   }, [editingAgent, onInstalledSkillsLoaded, onSelectedSkillsChange, open]);
+
+  const handleUploadAvatar = async (file: File) => {
+    if (!editingAgent) {
+      // For new agents, use local preview with object URL
+      const localUrl = URL.createObjectURL(file);
+      setLocalAvatarUrl(localUrl);
+      setAvatarUrl(localUrl);
+      return false;
+    }
+
+    setUploadingAvatar(true);
+    try {
+      const result = await agentsApi.uploadAvatar(editingAgent.id, file);
+      setAvatarUrl(getApiUrl(result.avatar_url));
+      return false; // Prevent default upload behavior
+    } catch (error) {
+      console.error("Failed to upload avatar:", error);
+      return false;
+    } finally {
+      setUploadingAvatar(false);
+    }
+  };
 
   const handleProviderChange = (providerId: string) => {
     form.setFieldsValue({
@@ -194,6 +246,50 @@ export function AgentModal({
             <Input disabled />
           </Form.Item>
         )}
+        <Form.Item label={t("agent.avatar")}>
+          <Space>
+            {avatarUrl ? (
+              <Image
+                src={avatarUrl}
+                width={64}
+                height={64}
+                style={{ objectFit: "cover", borderRadius: "50%" }}
+                wrapperStyle={{
+                  borderRadius: "50%",
+                  overflow: "hidden",
+                  flexShrink: 0,
+                }}
+                preview={{ mask: t("agent.previewAvatar") }}
+              />
+            ) : (
+              <div
+                style={{
+                  width: 64,
+                  height: 64,
+                  borderRadius: "50%",
+                  background: isDark
+                    ? "rgba(255,255,255,0.08)"
+                    : "rgba(0,0,0,0.04)",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+                <RobotOutlined style={{ fontSize: 28, opacity: 0.45 }} />
+              </div>
+            )}
+            <Upload
+              accept="image/png,image/jpeg,image/gif,image/webp"
+              showUploadList={false}
+              beforeUpload={handleUploadAvatar}
+              disabled={uploadingAvatar}
+            >
+              <Button icon={<UploadOutlined />} loading={uploadingAvatar}>
+                {t("agent.uploadAvatar")}
+              </Button>
+            </Upload>
+          </Space>
+        </Form.Item>
         {!editingAgent && (
           <Form.Item
             name="id"

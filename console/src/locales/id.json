@@ -299,7 +299,10 @@
     "modelHelp": "Tetapkan model LLM khusus untuk agen ini. Kosongkan untuk memakai default global.",
     "modelPlaceholder": "Gunakan default global",
     "noConfiguredModels": "Tidak ada model yang dikonfigurasi",
-    "modelColumn": "Model"
+    "modelColumn": "Model",
+    "avatar": "Avatar",
+    "uploadAvatar": "Unggah Avatar",
+    "previewAvatar": "Pratinjau"
   },
   "skills": {
     "title": "Skill",

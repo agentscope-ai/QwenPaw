@@ -382,7 +382,10 @@
     "modelHelp": "Assign a specific LLM model to this agent. Leave empty to use the global default.",
     "modelPlaceholder": "Use global Padrao",
     "noConfiguredModels": "Nao configured Modelos",
-    "modelColumn": "Modelo"
+    "modelColumn": "Modelo",
+    "avatar": "Avatar",
+    "uploadAvatar": "Enviar Avatar",
+    "previewAvatar": "Visualizar"
   },
   "skills": {
     "title": "Skills",

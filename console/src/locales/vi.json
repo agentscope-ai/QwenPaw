@@ -398,7 +398,10 @@
     "defaultDisplayName": "Agent mặc định",
     "currentWorkspace": "Agent hiện tại",
     "switchSuccess": "Đã chuyển agent thành công",
-    "switchFailed": "Chuyển agent thất bại"
+    "switchFailed": "Chuyển agent thất bại",
+    "avatar": "Ảnh đại diện",
+    "uploadAvatar": "Tải ảnh đại diện",
+    "previewAvatar": "Xem trước"
   },
   "environments": {
     "parent": "Cài đặt",

@@ -1,4 +1,5 @@
 import { request } from "../request";
+import { getApiUrl } from "../config";
 import type {
   AgentListResponse,
   AgentProfileConfig,
@@ -52,4 +53,20 @@ export const agentsApi = {
         body: JSON.stringify({ enabled }),
       },
     ),
+
+  // Upload agent avatar
+  uploadAvatar: (agentId: string, file: File) => {
+    const formData = new FormData();
+    formData.append("file", file);
+    return request<{ success: boolean; avatar_url: string }>(
+      `/agents/${agentId}/avatar`,
+      {
+        method: "POST",
+        body: formData,
+      },
+    );
+  },
+
+  // Get agent avatar URL (full URL with API prefix)
+  getAvatarUrl: (agentId: string) => getApiUrl(`/agents/${agentId}/avatar`),
 };

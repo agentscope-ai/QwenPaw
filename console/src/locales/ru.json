@@ -158,7 +158,10 @@
     "selectBuiltin": "Встроенные",
     "selectNone": "Очистить",
     "noPoolSkills": "В пуле нет доступных навыков",
-    "addSkillsToAgent": "Добавить навыки"
+    "addSkillsToAgent": "Добавить навыки",
+    "avatar": "Аватар",
+    "uploadAvatar": "Загрузить аватар",
+    "previewAvatar": "Просмотр"
   },
   "workspace": {
     "title": "Файлы",
