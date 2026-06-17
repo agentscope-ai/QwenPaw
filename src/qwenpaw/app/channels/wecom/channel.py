@@ -129,6 +129,7 @@ class WecomChannel(BaseChannel):
     """
 
     channel = "wecom"
+    _STREAM_DELTA_MIN_INTERVAL_S = 0.15
 
     def __init__(
         self,

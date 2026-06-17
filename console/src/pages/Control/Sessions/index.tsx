@@ -35,6 +35,7 @@ function SessionsPage() {
   // Filter states
   const [filterUserId, setFilterUserId] = useState<string>("");
   const [filterChannel, setFilterChannel] = useState<string>("");
+  const [filterTitle, setFilterTitle] = useState<string>("");
   const [availableChannels, setAvailableChannels] = useState<string[]>([]);
 
   const { message } = useAppMessage();
@@ -68,8 +69,15 @@ function SessionsPage() {
       );
     }
 
+    if (filterTitle) {
+      filtered = filtered.filter((session: Session) => {
+        const name = session.name || "";
+        return name.toLowerCase().includes(filterTitle.toLowerCase());
+      });
+    }
+
     setFilteredSessions(filtered);
-  }, [sessions, filterUserId, filterChannel]);
+  }, [sessions, filterUserId, filterChannel, filterTitle]);
 
   const handleEdit = (session: Session) => {
     setEditingSession(session);
@@ -164,9 +172,11 @@ function SessionsPage() {
             <FilterBar
               filterUserId={filterUserId}
               filterChannel={filterChannel}
+              filterTitle={filterTitle}
               uniqueChannels={availableChannels}
               onUserIdChange={setFilterUserId}
               onChannelChange={setFilterChannel}
+              onTitleChange={setFilterTitle}
             />
             {selectedRowKeys.length > 0 && (
               <Button type="primary" danger onClick={handleBatchDelete}>

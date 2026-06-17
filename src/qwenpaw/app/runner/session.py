@@ -20,6 +20,7 @@ import aiofiles
 from agentscope.session import SessionBase
 from agentscope_runtime.engine.schemas.exception import ConfigurationException
 from ...exceptions import AgentStateError
+from ...utils.json_utils import safe_json_loads as _safe_json_loads
 
 logger = logging.getLogger(__name__)
 
@@ -54,45 +55,6 @@ def _atomic_write_json(path: str, payload: dict) -> None:
                 os.remove(tmp_path)
             except OSError:
                 pass
-
-
-def _safe_json_loads(content: str, filepath: str = "") -> dict:
-    """Parse JSON with corruption recovery.
-
-    Attempts standard ``json.loads`` first.  If that fails due to
-    trailing garbage (a common symptom of concurrent-write race
-    conditions), falls back to ``raw_decode`` to extract the first
-    valid JSON object.  If the file is completely unparseable, returns
-    an empty dict and logs a warning so callers never crash.
-
-    Args:
-        content: Raw file content.
-        filepath: Used only for log messages.
-
-    Returns:
-        Parsed dict, or ``{}`` when the content is beyond recovery.
-    """
-    try:
-        return json.loads(content)
-    except json.JSONDecodeError:
-        pass
-
-    # Try to extract the first valid JSON object.
-    try:
-        result, _ = json.JSONDecoder().raw_decode(content)
-        logger.warning(
-            "Session file %s had corrupted JSON. "
-            "Recovered first valid object via raw_decode.",
-            filepath,
-        )
-        return result
-    except json.JSONDecodeError:
-        logger.warning(
-            "Session file %s is completely corrupted and could not "
-            "be recovered. Returning empty dict.",
-            filepath,
-        )
-        return {}
 
 
 # Characters forbidden in Windows filenames
@@ -275,8 +237,20 @@ class SafeJSONSession(SessionBase):
             Full path to the session file. If channel is provided,
             uses channels/{channel}/ subdirectory structure.
         """
+        if not session_id:
+            logger.error(
+                "session_id is None or empty, cannot construct save path",
+            )
+            raise ValueError("session_id must not be None or empty")
+
         safe_sid = sanitize_filename(session_id)
         safe_uid = sanitize_filename(user_id) if user_id else ""
+
+        # Guard against user_id == session_id (e.g. when upstream falls back
+        # to session_id as user_id).  Duplicating the same token doubles the
+        # filename length and can exceed Windows MAX_PATH (260 chars).
+        if safe_uid and safe_uid == safe_sid:
+            safe_uid = ""
 
         if safe_uid:
             filename = f"{safe_uid}_{safe_sid}.json"

@@ -69,6 +69,21 @@
     "backups": "Backups",
     "pluginManager": "Plugin Manager"
   },
+  "sidebar": {
+    "newVersion": "New version available: v{{version}}, click to upgrade",
+    "updateModal": {
+      "title": "New version available: v{{version}}",
+      "viewReleases": "View Releases",
+      "close": "Close"
+    },
+    "settings": {
+      "language": "Language",
+      "theme": "Theme",
+      "mode": "Mode"
+    },
+    "simpleMode": "Simple Mode",
+    "fullMode": "Full Mode"
+  },
   "debug": {
     "title": "Debug",
     "desc": "View the backend daemon log file to help diagnose issues. Logs refresh automatically while this page is open.",
@@ -1191,6 +1206,7 @@
     "saveSuccess": "Session saved successfully",
     "saveFailed": "Failed to save session",
     "batchDeleteButton": "Batch Delete",
+    "filterTitle": "Filter by Title",
     "filterUserId": "Filter by User ID",
     "filterChannel": "Filter by Channel",
     "allChannels": "All Channels",
@@ -1325,6 +1341,7 @@
     "providersDescription": "Configure API keys and endpoints for each provider.",
     "llmTitle": "Models",
     "defaultLlm": "Default LLM",
+    "notConfiguredYet": "Not configured",
     "llmDescription": "Set the global default LLM model from an authorized provider. You can choose a specific model for each Agent in the Chat page.",
     "configureProvider": "Configure {{name}}",
     "baseURL": "Base URL",
@@ -1414,6 +1431,16 @@
     "builtin": "Built-in",
     "freeTierGroup": "Free Tier",
     "paidGroup": "Paid",
+    "localCustomGroup": "Local & Custom",
+    "cloudGroup": "Cloud Providers",
+    "configuredGroup": "Configured",
+    "configuredOnline": "providers online",
+    "noConfigured": "No providers configured yet. Select one below to get started.",
+    "goConfigureBtn": "Configure a Provider",
+    "availableGroup": "Available Providers",
+    "clickToConfigure": "Click to configure",
+    "configureAction": "Configure \u2192",
+    "endpointCount": "{{count}} endpoints",
     "connect": "OAuth",
     "saveApiKey": "Save",
     "addProvider": "Add Provider",
@@ -1433,6 +1460,12 @@
     "deleteProviderConfirm": "Delete custom provider \"{{name}}\" and all its models? This cannot be undone.",
     "providerDeleted": "Provider \"{{name}}\" deleted",
     "providerDeleteFailed": "Failed to delete provider",
+    "disableProvider": "Disable Provider",
+    "disableProviderConfirm": "Clear API key for \"{{name}}\"? The provider will become unconfigured.",
+    "disableBtn": "Disable",
+    "changeApiKey": "Change",
+    "selectVariant": "Select {{name}} Variant",
+    "providerDisabled": "Provider \"{{name}}\" disabled",
     "manageModels": "Models",
     "models": "Models",
     "manageModelsTitle": "{{provider}} — Model Management",
@@ -1918,19 +1951,13 @@
     "light": "Light",
     "system": "System"
   },
-  "sidebar": {
-    "newVersion": "New version available: v{{version}}, click to upgrade",
-    "updateModal": {
-      "title": "New version available: v{{version}}",
-      "viewReleases": "View Releases",
-      "close": "Close"
-    }
-  },
   "chat": {
     "modelSelectTooltip": "Select model",
     "newChatTooltip": "New chat",
     "searchTooltip": "Search all chats",
     "chatHistoryTooltip": "Chat history",
+    "wideModeTooltip": "Wide mode",
+    "normalModeTooltip": "Normal mode",
     "allChats": "All Chats",
     "createNewChat": "Create New Chat",
     "pinDrawer": "Pin",
@@ -1943,6 +1970,7 @@
     "prompt1": "Let's start a new journey!",
     "prompt2": "Can you tell me what skills you have?",
     "inputPlaceholder": "\"↑↓\" for message navigation · \"/\" for quick commands (\"/approve\" or \"/deny\" during approvals)",
+    "emptyOutputError": "The assistant returned an empty response.",
     "commands": {
       "clear": {
         "description": "Clear the conversation context"
@@ -1978,6 +2006,14 @@
       "imageOnlyWarning": "Current model only supports images, non-image files like videos may not be processed correctly"
     },
     "rateLimitHit": "The current model is rate-limited. Try switching to another free model.",
+    "turnUsagePopover": {
+      "ariaLabel": "View turn token and context usage",
+      "turn": "This turn",
+      "turnEstimated": "This turn ~",
+      "tok": "tok",
+      "inOut": "in {{inTok}} · out {{outTok}}",
+      "contextLabel": "Context window:"
+    },
     "rateLimitMessage": "Rate limit reached. Switch to another free model:",
     "rateLimitSwitched": "Switched to {{model}}",
     "speech": {
@@ -2008,7 +2044,38 @@
       "pin": "Pin",
       "unpin": "Unpin",
       "delete": "Delete"
-    }
+    },
+    "queue": {
+      "title": "Message Queue",
+      "paused": "Paused",
+      "sendFailed": "Send failed",
+      "resume": "Resume queue",
+      "pause": "Pause queue",
+      "clear": "Clear queue",
+      "dragSort": "Drag to reorder",
+      "edit": "Edit",
+      "retry": "Retry",
+      "skip": "Skip",
+      "interruptAndSend": "Interrupt & send",
+      "delete": "Delete",
+      "file": "File",
+      "noChatWarning": "Please send a message first to create a conversation before using the queue",
+      "queueFull": "Queue is full (max {{max}} items), please send or remove some messages first",
+      "otherTabOwner": "This conversation is being sent from another tab. This tab can only add inputs to the queue; all send operations are handled by the other tab."
+    },
+    "group": {
+      "pinned": "Pinned",
+      "today": "Today",
+      "week": "Within 7 days",
+      "month": "Within 30 days",
+      "older": "Earlier"
+    },
+    "sessionPanel": {
+      "searchConversations": "Search conversations…",
+      "noConversations": "No conversations yet",
+      "loadingConversations": "Loading…"
+    },
+    "conversationHistory": "Conversation History"
   },
   "security": {
     "parent": "Settings",
@@ -2404,9 +2471,12 @@
   },
   "market": {
     "searchPlaceholder": "Search skills across platforms",
+    "categoryAll": "All",
+    "searchResult": "Found {{count}} skills matching \"{{keyword}}\"",
     "providerUnavailable": "Provider unavailable",
     "noResults": "No results",
     "startTyping": "Type a query above to search the market",
+    "browseHint": "Pick a category or enter a keyword to browse skills in {{providers}}",
     "noDescription": "No description provided",
     "targetPool": "Pool",
     "targetWorkspace": "Workspace",

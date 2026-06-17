@@ -259,6 +259,11 @@
     background: #1e1e1e;
   }
 
+  // Sticky bottom bar background (dark mode)
+  .collapseToggleContainer {
+    background: #1a1a1a;
+  }
+
   // Chat button (dark mode)
   .stickyChatButton {
     color: rgba(255, 255, 255, 0.75);
@@ -388,6 +393,8 @@
 /* Collapse Toggle Button */
 .collapseToggleContainer {
   flex-shrink: 0;
+  position: sticky;
+  bottom: 0;
   z-index: 10;
   width: calc(100% + 32px);
   margin: 0 -16px;
@@ -395,6 +402,8 @@
   display: flex;
   align-items: center;
   justify-content: flex-end;
+  gap: 4px;
+  background: #f9f8f4; // match sider background so scrolled content is hidden
 }
 
 .collapseToggle {
@@ -406,6 +415,184 @@
     background: rgba(0, 0, 0, 0.06) !important;
     color: #ff7f16 !important;
   }
+}
+
+.modeToggleActive {
+  color: #ff7f16 !important;
+  background: rgba(255, 127, 22, 0.08);
+}
+
+// ─── Simple mode: flat nav + session list ─────────────────────────────────────
+
+.simpleNewChat {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  height: 38px;
+  padding: 0 12px;
+  margin: 4px 0;
+  border: none;
+  border-radius: 8px;
+  background: rgba(255, 127, 22, 0.08);
+  color: #ff7f16;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.2s;
+
+  &:hover {
+    background: rgba(255, 127, 22, 0.14);
+  }
+}
+
+.simpleNavItems {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-top: 4px;
+}
+
+.simpleNavItem {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  height: 36px;
+  padding: 0 12px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: rgba(0, 0, 0, 0.75);
+  font-size: 14px;
+  cursor: pointer;
+  transition:
+    background 0.15s,
+    color 0.15s;
+  text-align: left;
+
+  &:hover {
+    background: rgba(0, 0, 0, 0.06);
+    color: rgba(0, 0, 0, 0.88);
+  }
+}
+
+.simpleNavItemActive {
+  background: rgba(43, 18, 0, 0.08);
+  color: rgba(0, 0, 0, 0.88);
+}
+
+// Session list container
+.simpleSessionList {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  margin-top: 8px;
+}
+
+.simpleSessionHeader {
+  font-size: 12px;
+  font-weight: 500;
+  color: rgba(26, 23, 22, 0.35);
+  padding: 4px 12px 6px;
+  flex-shrink: 0;
+}
+
+.simpleSessionScroll {
+  flex: 1;
+  overflow-y: auto;
+  scrollbar-width: thin;
+
+  &::-webkit-scrollbar {
+    width: 4px;
+  }
+
+  &::-webkit-scrollbar-thumb {
+    background: rgba(0, 0, 0, 0.12);
+    border-radius: 2px;
+  }
+}
+
+.simpleSessionItem {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 34px;
+  padding: 0 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.15s;
+  position: relative;
+
+  &:hover {
+    background: rgba(0, 0, 0, 0.06);
+
+    .simpleSessionActions {
+      opacity: 1;
+      pointer-events: auto;
+    }
+  }
+}
+
+.simpleSessionItemActive {
+  background: rgba(43, 18, 0, 0.08);
+}
+
+.simpleSessionItemDisabled {
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+.simpleSessionName {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  line-height: 20px;
+  color: rgba(0, 0, 0, 0.75);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.simpleSessionTime {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: rgba(26, 23, 22, 0.35);
+}
+
+.simpleSessionActions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s;
+}
+
+.simpleSessionActionBtn {
+  width: 22px !important;
+  height: 22px !important;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(0, 0, 0, 0.45);
+
+  &:hover {
+    color: rgba(0, 0, 0, 0.88);
+    background: rgba(0, 0, 0, 0.06);
+  }
+}
+
+.simpleSessionActionBtnActive {
+  color: #ff7f16 !important;
+}
+
+.simpleSessionLoading {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 24px 0;
 }
 
 /* Collapsed nav (icon-only group list) */
@@ -710,6 +897,11 @@
     }
   }
 
+  .modeToggleActive {
+    color: #ff7f16 !important;
+    background: rgba(255, 127, 22, 0.12);
+  }
+
   .collapsedNavItem {
     color: rgba(255, 255, 255, 0.5);
 
@@ -736,5 +928,238 @@
 
   .copyBtnDefault {
     color: rgba(255, 255, 255, 0.3);
+  }
+}
+
+// ─── Simple mode: flat nav + session list ─────────────────────────────────────
+
+.simpleNewChat {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  height: 38px;
+  padding: 0 12px;
+  margin: 4px 0;
+  border: none;
+  border-radius: 8px;
+  background: rgba(255, 127, 22, 0.08);
+  color: #ff7f16;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.2s;
+
+  &:hover {
+    background: rgba(255, 127, 22, 0.14);
+  }
+}
+
+.simpleNavItems {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-top: 4px;
+}
+
+.simpleNavItem {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  height: 36px;
+  padding: 0 12px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: rgba(0, 0, 0, 0.75);
+  font-size: 14px;
+  cursor: pointer;
+  transition:
+    background 0.15s,
+    color 0.15s;
+  text-align: left;
+
+  &:hover {
+    background: rgba(0, 0, 0, 0.06);
+    color: rgba(0, 0, 0, 0.88);
+  }
+}
+
+.simpleNavItemActive {
+  background: rgba(43, 18, 0, 0.08);
+  color: rgba(0, 0, 0, 0.88);
+}
+
+// Session list container
+.simpleSessionList {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  margin-top: 8px;
+}
+
+.simpleSessionHeader {
+  font-size: 12px;
+  font-weight: 500;
+  color: rgba(26, 23, 22, 0.35);
+  padding: 4px 12px 6px;
+  flex-shrink: 0;
+}
+
+.simpleSessionScroll {
+  flex: 1;
+  overflow-y: auto;
+  scrollbar-width: thin;
+
+  &::-webkit-scrollbar {
+    width: 4px;
+  }
+
+  &::-webkit-scrollbar-thumb {
+    background: rgba(0, 0, 0, 0.12);
+    border-radius: 2px;
+  }
+}
+
+.simpleSessionItem {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 34px;
+  padding: 0 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.15s;
+  position: relative;
+
+  &:hover {
+    background: rgba(0, 0, 0, 0.06);
+
+    .simpleSessionActions {
+      opacity: 1;
+      pointer-events: auto;
+    }
+  }
+}
+
+.simpleSessionItemActive {
+  background: rgba(43, 18, 0, 0.08);
+}
+
+.simpleSessionItemDisabled {
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+.simpleSessionName {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  line-height: 20px;
+  color: rgba(0, 0, 0, 0.75);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.simpleSessionTime {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: rgba(26, 23, 22, 0.35);
+}
+
+.simpleSessionActions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s;
+}
+
+.simpleSessionActionBtn {
+  width: 22px !important;
+  height: 22px !important;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(0, 0, 0, 0.45);
+
+  &:hover {
+    color: rgba(0, 0, 0, 0.88);
+    background: rgba(0, 0, 0, 0.06);
+  }
+}
+
+.simpleSessionActionBtnActive {
+  color: #ff7f16 !important;
+}
+
+.simpleSessionLoading {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 24px 0;
+}
+
+// ─── Simple mode dark overrides ───────────────────────────────────────────────
+
+.siderSimple {
+  :global(.dark-mode) & {
+    .simpleNewChat {
+      background: rgba(255, 127, 22, 0.12);
+      color: #ff7f16;
+
+      &:hover {
+        background: rgba(255, 127, 22, 0.2);
+      }
+    }
+
+    .simpleNavItem {
+      color: rgba(255, 255, 255, 0.75);
+
+      &:hover {
+        background: rgba(255, 255, 255, 0.08);
+        color: rgba(255, 255, 255, 0.95);
+      }
+    }
+
+    .simpleNavItemActive {
+      background: rgba(255, 127, 22, 0.5);
+      color: #ff7f16;
+    }
+
+    .simpleSessionHeader {
+      color: rgba(255, 255, 255, 0.35);
+    }
+
+    .simpleSessionItem {
+      &:hover {
+        background: rgba(255, 255, 255, 0.08);
+      }
+    }
+
+    .simpleSessionItemActive {
+      background: rgba(255, 255, 255, 0.08);
+    }
+
+    .simpleSessionName {
+      color: rgba(255, 255, 255, 0.75);
+    }
+
+    .simpleSessionTime {
+      color: rgba(255, 255, 255, 0.35);
+    }
+
+    .simpleSessionActionBtn {
+      color: rgba(255, 255, 255, 0.45);
+
+      &:hover {
+        color: rgba(255, 255, 255, 0.88);
+        background: rgba(255, 255, 255, 0.08);
+      }
+    }
   }
 }

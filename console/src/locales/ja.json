@@ -895,6 +895,7 @@
     "saveSuccess": "セッションを保存しました",
     "saveFailed": "セッションの保存に失敗しました",
     "batchDeleteButton": "一括削除",
+    "filterTitle": "タイトルで絞り込み",
     "filterUserId": "ユーザーIDで絞り込み",
     "filterChannel": "チャンネルで絞り込み",
     "allChannels": "すべてのチャンネル",
@@ -1118,6 +1119,8 @@
     "builtin": "組み込み",
     "freeTierGroup": "無料枠",
     "paidGroup": "有料",
+    "localCustomGroup": "ローカル & カスタム",
+    "endpointCount": "{{count}} エンドポイント",
     "connect": "OAuth",
     "saveApiKey": "保存",
     "addProvider": "プロバイダーを追加",
@@ -1596,13 +1599,22 @@
       "title": "新しいバージョンが利用可能です: v{{version}}",
       "viewReleases": "リリースを見る",
       "close": "閉じる"
-    }
+    },
+    "settings": {
+      "language": "言語",
+      "theme": "テーマ",
+      "mode": "モード"
+    },
+    "simpleMode": "シンプルモード",
+    "fullMode": "フルモード"
   },
   "chat": {
     "modelSelectTooltip": "モデルを選択",
     "newChatTooltip": "新しいチャット",
     "searchTooltip": "すべてのチャットを検索",
     "chatHistoryTooltip": "チャット履歴",
+    "wideModeTooltip": "ワイドモード",
+    "normalModeTooltip": "標準モード",
     "allChats": "すべてのチャット",
     "createNewChat": "新しいチャットを作成",
     "pinDrawer": "固定",
@@ -1615,6 +1627,7 @@
     "prompt1": "新しい旅を始めましょう！",
     "prompt2": "あなたのスキルを教えてください。",
     "inputPlaceholder": "\"↑↓\"でメッセージ移動 · \"/\"でクイックコマンド（承認時は\"/approve\"または\"/deny\"）",
+    "emptyOutputError": "アシスタントが空のレスポンスを返しました。",
     "commands": {
       "clear": {
         "description": "会話のコンテキストをクリア"
@@ -1650,6 +1663,14 @@
       "imageOnlyWarning": "現在のモデルは画像のみ対応しています。動画などの非画像ファイルは正しく処理されない場合があります"
     },
     "rateLimitHit": "現在のモデルがレート制限されています。他の無料モデルに切り替えてみてください。",
+    "turnUsagePopover": {
+      "ariaLabel": "このターンのトークンとコンテキスト使用量を表示",
+      "turn": "このターン",
+      "turnEstimated": "このターン約",
+      "tok": "tok",
+      "inOut": "入力 {{inTok}} · 出力 {{outTok}}",
+      "contextLabel": "コンテキストウィンドウ："
+    },
     "rateLimitMessage": "レート制限に達しました。他の無料モデルに切り替え：",
     "rateLimitSwitched": "{{model}} に切り替えました",
     "speech": {
@@ -1680,7 +1701,38 @@
       "pin": "ピン留め",
       "unpin": "ピン留め解除",
       "delete": "削除"
-    }
+    },
+    "queue": {
+      "title": "メッセージキュー",
+      "paused": "一時停止中",
+      "sendFailed": "送信失敗",
+      "resume": "キューを再開",
+      "pause": "キューを一時停止",
+      "clear": "キューをクリア",
+      "dragSort": "ドラッグで並べ替え",
+      "edit": "編集",
+      "retry": "再試行",
+      "skip": "スキップ",
+      "interruptAndSend": "中断して送信",
+      "delete": "削除",
+      "file": "ファイル",
+      "noChatWarning": "キューを使用する前に、まずメッセージを送信して会話を作成してください",
+      "queueFull": "キューが満杯です（最大 {{max}} 件）。メッセージを送信または削除してください",
+      "otherTabOwner": "この会話は別のタブから送信中です。このタブでは入力をキューに追加することのみ可能です。"
+    },
+    "group": {
+      "pinned": "ピン留め",
+      "today": "今日",
+      "week": "7日以内",
+      "month": "30日以内",
+      "older": "それ以前"
+    },
+    "sessionPanel": {
+      "searchConversations": "会話を検索…",
+      "noConversations": "会話なし",
+      "loadingConversations": "読み込み中…"
+    },
+    "conversationHistory": "会話履歴"
   },
   "security": {
     "parent": "設定",
@@ -2299,9 +2351,12 @@
   },
   "market": {
     "searchPlaceholder": "プラットフォームを横断してスキルを検索",
+    "categoryAll": "すべて",
+    "searchResult": "「{{keyword}}」に一致するスキルが {{count}} 件見つかりました",
     "providerUnavailable": "ソースが利用できません",
     "noResults": "結果が見つかりません",
     "startTyping": "上の検索ボックスにキーワードを入力してスキルを探します",
+    "browseHint": "{{providers}} のスキルを閲覧するには、カテゴリを選択するかキーワードを入力してください",
     "noDescription": "説明はありません",
     "targetPool": "プール",
     "targetWorkspace": "ワークスペース",

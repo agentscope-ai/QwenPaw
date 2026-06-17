@@ -22,7 +22,11 @@ import time
 from pathlib import Path
 from typing import Any
 
-from ...utils.command_runner import CommandExecutionError, run_command_async
+from ...utils.command_runner import (
+    CommandExecutionError,
+    run_command_async,
+)
+from ...utils.json_utils import safe_json_loads
 
 logger = logging.getLogger(__name__)
 
@@ -156,7 +160,10 @@ def read_loop_config(loop_dir: Path) -> dict[str, Any]:
     p = loop_dir / "loop_config.json"
     if not p.exists():
         return {}
-    return json.loads(p.read_text(encoding="utf-8"))
+    return safe_json_loads(
+        p.read_text(encoding="utf-8"),
+        str(p),
+    )
 
 
 def write_task_md(loop_dir: Path, task_text: str) -> Path:
@@ -193,7 +200,10 @@ def read_prd(loop_dir: Path) -> dict[str, Any]:
     p = loop_dir / "prd.json"
     if not p.exists():
         return {}
-    return json.loads(p.read_text(encoding="utf-8"))
+    return safe_json_loads(
+        p.read_text(encoding="utf-8"),
+        str(p),
+    )
 
 
 def get_all_passed(prd: dict[str, Any]) -> bool:

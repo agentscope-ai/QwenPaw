@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import time
 from abc import ABC
 from typing import (
     Optional,
@@ -578,6 +579,8 @@ class BaseChannel(ABC):
             )
 
     _STREAMABLE_TYPES = {"reasoning", "message"}
+    _STREAM_DELTA_MIN_INTERVAL_S: float = 0.0
+    _STREAM_FLUSH_TIMEOUT_S: float = 5.0
 
     def _resolve_stream_type(self, event: Any) -> str:
         """Map event.type to a stream_type string.
@@ -685,9 +688,11 @@ class BaseChannel(ABC):
             content_msg_id,
             "",
         )
-        if not stream_type or stream_type not in self._STREAMABLE_TYPES:
-            return False
-        if stream_type not in streaming_buffers:
+        if (
+            not stream_type
+            or stream_type not in self._STREAMABLE_TYPES
+            or stream_type not in streaming_buffers
+        ):
             return False
         if stream_type == "reasoning" and self._filter_thinking:
             return True
@@ -695,13 +700,38 @@ class BaseChannel(ABC):
         streaming_buffers[stream_type] = (
             streaming_buffers.get(stream_type, "") + delta_text
         )
-        await self.on_streaming_delta(
-            request,
-            to_handle,
-            event,
-            send_meta,
-            stream_type,
-            accumulated_text=streaming_buffers[stream_type],
+
+        # --- Non-blocking flush with in-flight guard ---
+        flush_meta = self._get_stream_flush_meta(send_meta, stream_type)
+        now = time.monotonic()
+
+        # Guard 1: previous flush still in-flight
+        task = flush_meta.get("task")
+        if task and not task.done():
+            elapsed = now - flush_meta.get("last_ts", 0.0)
+            if elapsed > self._STREAM_FLUSH_TIMEOUT_S:
+                task.cancel()
+            return True
+
+        # Guard 2: minimum interval not elapsed
+        if self._STREAM_DELTA_MIN_INTERVAL_S > 0:
+            if (
+                now - flush_meta.get("last_ts", 0.0)
+                < self._STREAM_DELTA_MIN_INTERVAL_S
+            ):
+                return True
+
+        # Fire-and-forget flush
+        flush_meta["last_ts"] = now
+        flush_meta["task"] = asyncio.create_task(
+            self._safe_streaming_delta(
+                request,
+                to_handle,
+                event,
+                send_meta,
+                stream_type,
+                streaming_buffers[stream_type],
+            ),
         )
         return True
 
@@ -724,6 +754,31 @@ class BaseChannel(ABC):
             if stream_type == "reasoning" and self._filter_thinking:
                 streaming_buffers.pop(stream_type, None)
                 return True
+
+            # Await pending flush to ensure ordering before finalize
+            flush_meta = self._get_stream_flush_meta(
+                send_meta,
+                stream_type,
+            )
+            task = flush_meta.get("task")
+            if task and not task.done():
+                try:
+                    await asyncio.wait_for(
+                        task,
+                        timeout=self._STREAM_FLUSH_TIMEOUT_S,
+                    )
+                except (
+                    asyncio.TimeoutError,
+                    asyncio.CancelledError,
+                    Exception,
+                ):
+                    task.cancel()
+            # Clean up flush state
+            send_meta.get("_stream_flush", {}).pop(
+                stream_type,
+                None,
+            )
+
             accumulated = streaming_buffers.pop(stream_type, "")
             await self.on_streaming_end(
                 request,
@@ -1331,6 +1386,49 @@ class BaseChannel(ABC):
     # ------------------------------------------------------------------
     # Streaming hooks — override in subclasses
     # ------------------------------------------------------------------
+
+    def _get_stream_flush_meta(
+        self,
+        send_meta: Dict[str, Any],
+        stream_type: str,
+    ) -> Dict[str, Any]:
+        """Return per-stream_type flush state dict from *send_meta*."""
+        key = "_stream_flush"
+        if key not in send_meta:
+            send_meta[key] = {}
+        if stream_type not in send_meta[key]:
+            send_meta[key][stream_type] = {
+                "task": None,
+                "last_ts": 0.0,
+            }
+        return send_meta[key][stream_type]
+
+    async def _safe_streaming_delta(
+        self,
+        request: "AgentRequest",
+        to_handle: str,
+        event: Any,
+        send_meta: Dict[str, Any],
+        stream_type: str,
+        accumulated_text: str,
+    ) -> None:
+        """Wrapper that invokes on_streaming_delta and catches errors."""
+        try:
+            await self.on_streaming_delta(
+                request,
+                to_handle,
+                event,
+                send_meta,
+                stream_type,
+                accumulated_text=accumulated_text,
+            )
+        except Exception:
+            logger.warning("streaming delta failed", exc_info=True)
+            flush_meta = self._get_stream_flush_meta(
+                send_meta,
+                stream_type,
+            )
+            flush_meta["last_ts"] = 0.0
 
     async def on_streaming_start(
         self,

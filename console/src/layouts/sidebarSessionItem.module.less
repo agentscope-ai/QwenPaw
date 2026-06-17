@@ -1,0 +1,211 @@
+@keyframes sidebarStatusBreathe {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.4;
+  }
+}
+
+/* ── Item ─────────────────────────────────────────────────────────────── */
+
+.item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.15s;
+  margin-bottom: 2px;
+  min-width: 0;
+
+  &:hover {
+    background: var(--color-fill-tertiary, rgba(43, 18, 0, 0.05));
+
+    /* Show ... button */
+    .moreBtn {
+      opacity: 1;
+      pointer-events: auto;
+    }
+
+    /* Hide status slot on hover — ... replaces it */
+    .statusSlot {
+      opacity: 0;
+    }
+  }
+
+  &.active {
+    background: var(--color-fill-secondary, rgba(43, 18, 0, 0.08));
+
+    .name {
+      font-weight: 500;
+      color: var(--colorText, rgba(26, 23, 22, 0.88));
+    }
+
+    &:hover {
+      background: var(--color-fill-secondary, rgba(43, 18, 0, 0.1));
+    }
+  }
+
+  /* Show ... also when dropdown is open */
+  &.dropdownOpen {
+    .moreBtn {
+      opacity: 1;
+      pointer-events: auto;
+    }
+
+    .statusSlot {
+      opacity: 0;
+    }
+  }
+
+  &.disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+    pointer-events: none;
+  }
+}
+
+/* ── Name ─────────────────────────────────────────────────────────────── */
+
+.name {
+  flex: 1;
+  min-width: 0;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 20px;
+  color: var(--colorText, rgba(26, 23, 22, 0.88));
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ── Channel icon ─────────────────────────────────────────────────────── */
+
+.channelTag {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  opacity: 0.55;
+}
+
+/* ── Status slot (leftmost) ─────────────────────────────────────────── */
+
+.statusSlot {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  transition: opacity 0.15s;
+}
+
+/* ── Pin indicator ────────────────────────────────────────────────────── */
+
+.pinIcon {
+  display: inline-flex;
+  align-items: center;
+  font-size: 10px;
+  color: var(--colorTextQuaternary, rgba(26, 23, 22, 0.25));
+  pointer-events: none;
+}
+
+/* ── Running dot ─────────────────────────────────────────────────────── */
+
+.runningDot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #52c41a;
+  animation: sidebarStatusBreathe 1.5s ease-in-out infinite;
+  pointer-events: none;
+}
+
+/* ── Idle dot ─────────────────────────────────────────────────────────── */
+
+.idleDot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--colorTextQuaternary, rgba(26, 23, 22, 0.25));
+  pointer-events: none;
+}
+
+/* ── Ellipsis (more) button ──────────────────────────────────────────── */
+
+.moreBtn {
+  position: absolute;
+  top: 50%;
+  right: 6px;
+  transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 4px;
+  font-size: 14px;
+  color: var(--colorTextTertiary, rgba(26, 23, 22, 0.45));
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transition: all 0.15s;
+
+  &:hover {
+    background: var(--color-fill-secondary, rgba(43, 18, 0, 0.08));
+    color: var(--colorText, rgba(26, 23, 22, 0.88));
+  }
+}
+
+/* ── Rename input ────────────────────────────────────────────────────── */
+
+.renameInput {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+}
+
+/* ── Dark mode ───────────────────────────────────────────────────────── */
+
+:global(.dark-mode) {
+  .item {
+    &:hover {
+      background: rgba(255, 255, 255, 0.06);
+    }
+
+    &.active {
+      background: rgba(255, 255, 255, 0.1);
+
+      .name {
+        color: rgba(255, 255, 255, 0.95);
+      }
+
+      &:hover {
+        background: rgba(255, 255, 255, 0.12);
+      }
+    }
+  }
+
+  .name {
+    color: rgba(255, 255, 255, 0.95);
+  }
+
+  .pinIcon {
+    color: rgba(255, 255, 255, 0.25);
+  }
+
+  .moreBtn {
+    color: rgba(255, 255, 255, 0.45);
+
+    &:hover {
+      background: rgba(255, 255, 255, 0.1);
+      color: rgba(255, 255, 255, 0.88);
+    }
+  }
+}

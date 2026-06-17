@@ -22,14 +22,14 @@ from agentscope.model import ChatModelBase, OpenAIChatModel
 try:
     from agentscope.formatter import AnthropicChatFormatter
     from agentscope.model import AnthropicChatModel
-except ImportError:  # pragma: no cover - compatibility fallback
+except ImportError:
     AnthropicChatFormatter = None
     AnthropicChatModel = None
 
 try:
     from agentscope.formatter import GeminiChatFormatter
     from agentscope.model import GeminiChatModel
-except ImportError:  # pragma: no cover - compatibility fallback
+except ImportError:
     GeminiChatFormatter = None
     GeminiChatModel = None
 

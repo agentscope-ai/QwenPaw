@@ -20,6 +20,7 @@ class MarketProvider(Protocol):
 
     key: str
     label: str
+    supports_browse: bool
 
     def available(self) -> tuple[bool, str | None]:
         """Return (is_available, reason_if_not).

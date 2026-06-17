@@ -39,6 +39,18 @@
     }
   }
 
+  /* Wide mode: widen bubble list and sender while keeping spacing */
+  &.wideMode :global {
+    .qwenpaw-bubble-list {
+      max-width: calc(100% - 48px) !important;
+    }
+
+    .qwenpaw-sender,
+    [class*="sender-content"] {
+      max-width: calc(100% - 48px) !important;
+    }
+  }
+
   /* Custom scrollbar */
   &::-webkit-scrollbar {
     width: 8px;

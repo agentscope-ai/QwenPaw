@@ -173,6 +173,18 @@ class ProviderInfo(BaseModel):
         default=False,
         description="Whether this provider offers a free tier",
     )
+    provider_group: str = Field(
+        default="",
+        description="Group key for same-brand providers",
+    )
+    provider_group_name: str = Field(
+        default="",
+        description="Display name for the provider group",
+    )
+    provider_variant: str = Field(
+        default="",
+        description="Variant identifier within a group",
+    )
     meta: Dict[str, Any] = Field(
         default_factory=dict,
         description="Additional metadata for the provider "
@@ -445,5 +457,8 @@ class Provider(ProviderInfo, ABC):
                 meta.get("supports_oauth") and self.api_key,
             ),
             is_free_tier=meta.get("is_free_tier", False),
+            provider_group=self.provider_group,
+            provider_group_name=self.provider_group_name,
+            provider_variant=self.provider_variant,
             meta=meta,
         )

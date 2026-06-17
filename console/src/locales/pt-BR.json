@@ -1102,6 +1102,7 @@
     "saveSuccess": "Session saved successfully",
     "saveFailed": "Falhou to Salvar session",
     "batchDeleteButton": "Batch Excluir",
+    "filterTitle": "Filtrar por Título",
     "filterUserId": "Filtrar by Usuario ID",
     "filterChannel": "Filtrar by Channel",
     "allChannels": "Todos Canais",
@@ -1321,6 +1322,8 @@
     "builtin": "Integrado",
     "freeTierGroup": "Gratuito",
     "paidGroup": "Pago",
+    "localCustomGroup": "Local e Personalizado",
+    "endpointCount": "{{count}} endpoints",
     "connect": "OAuth",
     "saveApiKey": "Salvar",
     "addProvider": "Adicionar Provedor",
@@ -1803,13 +1806,22 @@
       "title": "Novo Versao available: v{{version}}",
       "viewReleases": "Visualizar Releases",
       "close": "Fechar"
-    }
+    },
+    "settings": {
+      "language": "Idioma",
+      "theme": "Tema",
+      "mode": "Modo"
+    },
+    "simpleMode": "Modo simples",
+    "fullMode": "Modo completo"
   },
   "chat": {
     "modelSelectTooltip": "Selecionar Modelo",
     "newChatTooltip": "Novo Chat",
     "searchTooltip": "Pesquisar Todos chats",
     "chatHistoryTooltip": "Chat history",
+    "wideModeTooltip": "Modo amplo",
+    "normalModeTooltip": "Modo normal",
     "allChats": "Todos Chats",
     "createNewChat": "Criar Novo Chat",
     "pinDrawer": "Fixar",
@@ -1822,6 +1834,7 @@
     "prompt1": "Let's start a new journey!",
     "prompt2": "Can you tell me what skills you have?",
     "inputPlaceholder": "\"↑↓\" for message navigation · \"/\" for quick commands (\"/approve\" or \"/deny\" during approvals)",
+    "emptyOutputError": "O assistente retornou uma resposta vazia.",
     "commands": {
       "clear": {
         "description": "Limpar the conversation context"
@@ -1857,6 +1870,14 @@
       "imageOnlyWarning": "Current model only supports images, non-image files like videos may not be processed correctly"
     },
     "rateLimitHit": "O modelo atual está com limite de taxa. Tente mudar para outro modelo gratuito.",
+    "turnUsagePopover": {
+      "ariaLabel": "Ver uso de tokens e contexto desta rodada",
+      "turn": "Esta rodada",
+      "turnEstimated": "Esta rodada ~",
+      "tok": "tok",
+      "inOut": "in {{inTok}} · out {{outTok}}",
+      "contextLabel": "Janela de contexto:"
+    },
     "rateLimitMessage": "Limite de taxa atingido. Mude para outro modelo gratuito:",
     "rateLimitSwitched": "Mudou para {{model}}",
     "speech": {
@@ -1887,7 +1908,38 @@
       "pin": "Pin",
       "unpin": "Unpin",
       "delete": "Excluir"
-    }
+    },
+    "queue": {
+      "title": "Fila de mensagens",
+      "paused": "Pausado",
+      "sendFailed": "Falha no envio",
+      "resume": "Retomar fila",
+      "pause": "Pausar fila",
+      "clear": "Limpar fila",
+      "dragSort": "Arraste para reordenar",
+      "edit": "Editar",
+      "retry": "Tentar novamente",
+      "skip": "Pular",
+      "interruptAndSend": "Interromper e enviar",
+      "delete": "Excluir",
+      "file": "Arquivo",
+      "noChatWarning": "Envie uma mensagem primeiro para criar uma conversa antes de usar a fila",
+      "queueFull": "Fila cheia (m\u00e1x. {{max}} itens). Envie ou remova algumas mensagens primeiro",
+      "otherTabOwner": "Esta conversa est\u00e1 sendo enviada de outra aba. Nesta aba, voc\u00ea s\u00f3 pode adicionar entradas \u00e0 fila."
+    },
+    "group": {
+      "pinned": "Fixados",
+      "today": "Hoje",
+      "week": "Últimos 7 dias",
+      "month": "Últimos 30 dias",
+      "older": "Anteriores"
+    },
+    "sessionPanel": {
+      "searchConversations": "Pesquisar…",
+      "noConversations": "Sem conversas",
+      "loadingConversations": "Carregando…"
+    },
+    "conversationHistory": "Histórico de conversas"
   },
   "security": {
     "parent": "Configuracoes",
@@ -2338,9 +2390,12 @@
   },
   "market": {
     "searchPlaceholder": "Buscar habilidades em várias plataformas",
+    "categoryAll": "Todos",
+    "searchResult": "{{count}} habilidades encontradas para \"{{keyword}}\"",
     "providerUnavailable": "Provedor indisponível",
     "noResults": "Nenhum resultado",
     "startTyping": "Digite uma consulta acima para buscar no mercado",
+    "browseHint": "Escolha uma categoria ou digite uma palavra-chave para navegar pelos skills em {{providers}}",
     "noDescription": "Nenhuma descrição fornecida",
     "targetPool": "Pool",
     "targetWorkspace": "Workspace",
