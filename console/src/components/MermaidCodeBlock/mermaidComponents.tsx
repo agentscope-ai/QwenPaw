@@ -1,5 +1,7 @@
 import type { ReactNode } from "react";
 import type { ComponentProps } from "@ant-design/x-markdown";
+import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
+import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
 import { MermaidCodeBlock } from "./MermaidCodeBlock";
 
 /**
@@ -20,7 +22,8 @@ function extractText(children: ReactNode): string {
 
 /**
  * Custom code component for XMarkdown that renders mermaid code blocks
- * as interactive diagrams, while leaving other code blocks as default.
+ * as interactive diagrams, other code blocks with syntax highlighting,
+ * and inline code as default.
  */
 function CodeWithMermaid({
   children,
@@ -36,6 +39,24 @@ function CodeWithMermaid({
     if (chartSource.trim()) {
       return <MermaidCodeBlock chart={chartSource} />;
     }
+  }
+
+  if (block) {
+    const codeText = extractText(children).replace(/\n$/, "");
+    return (
+      <SyntaxHighlighter
+        language={lang || "text"}
+        style={oneDark}
+        customStyle={{
+          margin: 0,
+          borderRadius: "6px",
+          fontSize: "13px",
+          lineHeight: "1.6",
+        }}
+      >
+        {codeText}
+      </SyntaxHighlighter>
+    );
   }
 
   return (
