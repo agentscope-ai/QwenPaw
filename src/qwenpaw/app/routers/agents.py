@@ -644,8 +644,7 @@ async def upload_agent_avatar(
             raise HTTPException(
                 status_code=400,
                 detail=(
-                    f"File too large (>{AVATAR_MAX_SIZE} bytes). "
-                    f"Max: 2MB"
+                    f"File too large (>{AVATAR_MAX_SIZE} bytes). " f"Max: 2MB"
                 ),
             )
         chunks.append(chunk)
@@ -672,7 +671,8 @@ async def upload_agent_avatar(
             old_path.unlink()
 
     extension = AVATAR_CONTENT_TYPE_TO_EXTENSION.get(
-        file.content_type, ".png"
+        file.content_type,
+        ".png",
     )
     avatar_path = avatars_dir / f"avatar{extension}"
 
