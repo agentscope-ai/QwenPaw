@@ -2,7 +2,7 @@
 """Builds the per-turn ``<system-hint>`` string from the current TaskGraph.
 
 Replaces AgentScope's ``DefaultPlanToHint`` with DAG-aware variants for
-ready / in-progress / stale / failed nodes. Called by
+ready / in-progress / failed nodes. Called by
 ``RuntimeStateManager.get_current_hint()`` before each ``_reasoning`` turn.
 
 ``DataPawPlanToHint`` extends ``DefaultGraphToHint`` with awareness of
@@ -53,7 +53,7 @@ class DefaultGraphToHint:
     ready_nodes_hint: str = (
         "The current task graph:\n"
         "```\n{graph}\n```\n"
-        "Ready nodes (deps satisfied, status todo/stale): "
+        "Ready nodes (deps satisfied, status todo): "
         "{ready_ids}\n"
         "- Even if multiple ready nodes are listed, execute exactly ONE "
         "node at a time.\n"
@@ -82,7 +82,7 @@ class DefaultGraphToHint:
         "- If the user has asked for a change to this node's parameters, "
         "call `revise_current_plan(changes=[{{node_id: '{node_id}', "
         "action: 'revise', node: {{..., deps: [direct_upstream_ids]}}}}])` "
-        "which marks it STALE and propagates STALE to all downstream nodes. "
+        "which resets it and all downstream nodes to todo. "
         "`deps` lists direct upstream node_ids only (not transitive ancestors)."
     )
 
@@ -93,17 +93,6 @@ class DefaultGraphToHint:
         "- If you've achieved the node's goal, call "
         "`finish_subtask({node_id}, reasoning, summary, files=...)` now.\n"
         "- Otherwise continue executing tools toward that goal."
-    )
-
-    stale_hint: str = (
-        "The current task graph:\n"
-        "```\n{graph}\n```\n"
-        "Node(s) {stale_ids} are in STALE state — their description or "
-        "upstream data has changed since last execution. Re-run them:\n"
-        "- Pick one stale node, call `update_subtask_state(node_id, "
-        "'in_progress')` and execute it.\n"
-        "- STALE nodes are scheduled identically to TODO nodes; treat "
-        "them as fresh ready nodes."
     )
 
     failed_hint: str = (
@@ -135,7 +124,7 @@ class DefaultGraphToHint:
         graph: "TaskGraph | None",
     ) -> Optional[str]:
         """Dispatch by graph state, in priority order:
-        empty → in_progress → failed → stale → all_done → at_beginning → ready.
+        empty → in_progress → failed → all_done → at_beginning → ready.
         """
         if graph is None:
             return self._wrap(self.no_graph)
@@ -174,15 +163,6 @@ class DefaultGraphToHint:
                 self.failed_hint.format(
                     graph=graph_md,
                     failed_ids=[n.node_id for n in failed],
-                ),
-            )
-
-        stale = [n for n in nodes if n.state == "stale"]
-        if stale:
-            return self._wrap(
-                self.stale_hint.format(
-                    graph=graph_md,
-                    stale_ids=[n.node_id for n in stale],
                 ),
             )
 
