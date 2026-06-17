@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useDeferredValue } from "react";
 import { useNavigate } from "react-router-dom";
 import { Card, Form, Modal, Table, Button } from "@agentscope-ai/design";
 import { useAppMessage } from "../../../hooks/useAppMessage";
@@ -38,6 +38,10 @@ function SessionsPage() {
   const [filterTitle, setFilterTitle] = useState<string>("");
   const [availableChannels, setAvailableChannels] = useState<string[]>([]);
 
+  // ponytail: defer re-filtering until idle to avoid per-keystroke lag
+  //   ceiling: if list is 10k+ sessions, consider virtualisation + backend search
+  const deferredTitle = useDeferredValue(filterTitle);
+
   const { message } = useAppMessage();
 
   useEffect(() => {
@@ -69,15 +73,15 @@ function SessionsPage() {
       );
     }
 
-    if (filterTitle) {
+    if (deferredTitle) {
       filtered = filtered.filter((session: Session) => {
         const name = session.name || "";
-        return name.toLowerCase().includes(filterTitle.toLowerCase());
+        return name.toLowerCase().includes(deferredTitle.toLowerCase());
       });
     }
 
     setFilteredSessions(filtered);
-  }, [sessions, filterUserId, filterChannel, filterTitle]);
+  }, [sessions, filterUserId, filterChannel, deferredTitle]);
 
   const handleEdit = (session: Session) => {
     setEditingSession(session);
