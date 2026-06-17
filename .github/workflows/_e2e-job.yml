@@ -90,6 +90,14 @@ jobs:
                    "$QWENPAW_E2E_DIR/secret" \
                    "$QWENPAW_E2E_DIR/backups"
 
+          # Export working dirs so subsequent steps (notably the pytest
+          # step) can write seed files into the same paths the backend
+          # is reading from. Without this, pytest's os.getenv lookup
+          # falls back to ~/.qwenpaw and seeds land in the wrong place.
+          echo "QWENPAW_WORKING_DIR=$QWENPAW_E2E_DIR/working" >> "$GITHUB_ENV"
+          echo "QWENPAW_SECRET_DIR=$QWENPAW_E2E_DIR/secret" >> "$GITHUB_ENV"
+          echo "QWENPAW_BACKUP_DIR=$QWENPAW_E2E_DIR/backups" >> "$GITHUB_ENV"
+
           QWENPAW_WORKING_DIR="$QWENPAW_E2E_DIR/working" \
           QWENPAW_SECRET_DIR="$QWENPAW_E2E_DIR/secret" \
           QWENPAW_BACKUP_DIR="$QWENPAW_E2E_DIR/backups" \
