@@ -11,11 +11,58 @@ injects all dependencies into the agent constructor.
 from __future__ import annotations
 
 import logging
-from typing import Any, Iterable
+from typing import Any, Iterable, Optional
+
+from pydantic import BaseModel, Field
 
 from .tool_guard import GuardedFunctionTool
 
 _logger = logging.getLogger(__name__)
+
+
+class _CompactionSummarySchema(BaseModel):
+    """Schema guiding context-compaction summaries."""
+
+    task_overview: Optional[str] = Field(
+        default="",
+        description=(
+            "The user's core request and success criteria.\n"
+            "Any clarifications or constraints they specified"
+        ),
+    )
+    current_state: Optional[str] = Field(
+        default="",
+        description=(
+            "What has been completed so far.\n"
+            "File created, modified, or analyzed (with paths if relevant).\n"
+            "Key outputs or artifacts produced."
+        ),
+    )
+    important_discoveries: Optional[str] = Field(
+        default="",
+        description=(
+            "Technical constraints or requirements uncovered.\n"
+            "Decisions made and their rationale.\n"
+            "Errors encountered and how they were resolved.\n"
+            "What approaches were tried that didn't work (and why)"
+        ),
+    )
+    next_steps: Optional[str] = Field(
+        default="",
+        description=(
+            "Specific actions needed to complete the task.\n"
+            "Any blockers or open questions to resolve.\n"
+            "Priority order if multiple steps remain"
+        ),
+    )
+    context_to_preserve: Optional[str] = Field(
+        default="",
+        description=(
+            "User preferences or style requirements.\n"
+            "Domain-specific details that aren't obvious.\n"
+            "Any promises made to the user"
+        ),
+    )
 
 
 class AgentBuilder:
@@ -450,15 +497,20 @@ class AgentBuilder:
         """Map QwenPaw's ``ContextCompactConfig`` to AS ``ContextConfig``."""
         from agentscope.agent import ContextConfig
 
+        # Relaxed summary schema (optional fields, no maxLength caps) so
+        # compaction never aborts the turn on an over-long/missing field.
+        summary_schema = _CompactionSummarySchema.model_json_schema()
+
         try:
             lcc = agent_config.running.light_context_config
             ccc = lcc.context_compact_config
             return ContextConfig(
                 trigger_ratio=ccc.compact_threshold_ratio,
                 reserve_ratio=ccc.reserve_threshold_ratio,
+                summary_schema=summary_schema,
             )
         except Exception:
-            return ContextConfig()
+            return ContextConfig(summary_schema=summary_schema)
 
     @staticmethod
     def _build_offloader(ctx: Any, agent_config: Any) -> Any:
