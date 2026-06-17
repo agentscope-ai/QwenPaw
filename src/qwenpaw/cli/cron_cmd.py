@@ -763,12 +763,14 @@ def update_job(
         # --- build schedule dict from CLI overrides ---
         ext_schedule = spec.get("schedule", {})
         cli_schedule_type = schedule_type or ext_schedule.get("type", "cron")
-        # Normalise scheduled type: the model uses 'once' or 'scheduled'
-        # but CLI exposes 'scheduled'; map for internal use.
-        if cli_schedule_type == "scheduled":
-            int_schedule_type = "once"
+        # Normalise schedule type: the model uses 'once' or 'scheduled'
+        # but CLI exposes 'scheduled'.  Map both 'scheduled' and the
+        # existing 'once' so that downstream helpers receive a value
+        # they understand.
+        if cli_schedule_type in ("scheduled", "once"):
+            cli_schedule_type_norm = "scheduled"
         else:
-            int_schedule_type = cli_schedule_type
+            cli_schedule_type_norm = cli_schedule_type
 
         # Use existing timezone if not overridden
         tz = timezone or ext_schedule.get("timezone", "UTC")
@@ -794,17 +796,6 @@ def update_job(
             repeat_count
             if repeat_count is not None
             else ext_schedule.get("repeat_count")
-        )
-
-        schedule = _build_schedule_from_cli(
-            schedule_type=cli_schedule_type,
-            cron=cli_cron if int_schedule_type == "cron" else "",
-            run_at=cli_run_at if int_schedule_type == "once" else None,
-            timezone=tz,
-            repeat_every_days=cli_repeat_days,
-            repeat_end_type=cli_repeat_end,
-            repeat_until=cli_repeat_until,
-            repeat_count=cli_repeat_count,
         )
 
         # --- resolve other fields with CLI-override semantics ---
@@ -833,17 +824,18 @@ def update_job(
         t_channel = channel or ext_dispatch.get("channel", DEFAULT_CHANNEL)
         t_user = target_user or ext_target.get("user_id", "")
         t_session = target_session or ext_target.get("session_id", "")
-        t_text = (
-            text
-            if text is not None
-            else spec.get("text", spec.get("request", {}).get("input", [{}])[0].get("content", [{}])[0].get("text", "")
-               if spec.get("task_type") == "agent"
-               else spec.get("text", ""))
-        )
+        t_text = text
+        if t_text is None and spec.get("task_type") == "agent":
+            try:
+                t_text = spec["request"]["input"][0]["content"][0]["text"]
+            except (KeyError, IndexError, TypeError):
+                t_text = None
+        if t_text is None:
+            t_text = spec.get("text")
 
         payload = _build_spec_from_cli(
             task_type=t_type,
-            schedule_type=cli_schedule_type,
+            schedule_type=cli_schedule_type_norm,
             name=t_name,
             cron=cli_cron,
             run_at=cli_run_at,
@@ -862,6 +854,16 @@ def update_job(
             share_session=t_share,
             timeout_seconds=t_timeout,
         )
+
+        # Preserve existing meta — _build_spec_from_cli always sets
+        # meta to {} so we must merge back any custom metadata that
+        # was attached to the job (both top-level and dispatch-level).
+        existing_meta = spec.get("meta")
+        if existing_meta:
+            payload["meta"] = existing_meta
+        existing_dispatch_meta = spec.get("dispatch", {}).get("meta")
+        if existing_dispatch_meta:
+            payload["dispatch"]["meta"] = existing_dispatch_meta
 
     payload["id"] = job_id
 
