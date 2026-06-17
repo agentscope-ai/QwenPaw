@@ -1,5 +1,19 @@
 [
   {
+    "id": "P0017",
+    "title": "RBAC demo post",
+    "content": "Same token before/after gateway downgrade demo.",
+    "author": "employeeQwenpaw",
+    "created_at": "2026-06-17T11:56:26"
+  },
+  {
+    "id": "P0016",
+    "title": "RBAC demo post",
+    "content": "Same token before/after gateway downgrade demo.",
+    "author": "employeeQwenpaw",
+    "created_at": "2026-06-17T11:56:18"
+  },
+  {
     "id": "P0015",
     "title": "RBAC demo post",
     "content": "Author token can create posts.",

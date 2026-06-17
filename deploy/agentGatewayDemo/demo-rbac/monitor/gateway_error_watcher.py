@@ -121,7 +121,7 @@ def build_summary(parsed: dict[str, Any], event_type_id: str) -> str:
 
 def build_payload(parsed: dict[str, Any], source_file: str) -> dict[str, Any]:
     fields = parsed.get("fields") or {}
-    return {
+    payload = {
         "gateway": fields.get("gateway"),
         "listener": fields.get("listener"),
         "route": fields.get("route"),
@@ -140,6 +140,7 @@ def build_payload(parsed: dict[str, Any], source_file: str) -> dict[str, Any]:
         "sourceFile": source_file,
         "rawLogLine": parsed.get("raw"),
     }
+    return {key: value for key, value in payload.items() if value is not None}
 
 
 def make_event_id(parsed: dict[str, Any]) -> str:
@@ -147,6 +148,17 @@ def make_event_id(parsed: dict[str, Any]) -> str:
     digest = hashlib.sha256(raw.encode("utf-8")).hexdigest()[:12]
     ts = (parsed.get("timestamp") or datetime.now(timezone.utc).isoformat()).replace(":", "")
     return f"agw-{ts}-{digest}"
+
+
+def format_request_error(exc: requests.RequestException) -> str:
+    parts = [str(exc)]
+    response = getattr(exc, "response", None)
+    if response is not None:
+        parts.append(f"status={response.status_code}")
+        body = (response.text or "").strip()
+        if body:
+            parts.append(f"body={body}")
+    return " | ".join(parts)
 
 
 def normalize_occurred_at(parsed: dict[str, Any]) -> str:
@@ -260,9 +272,10 @@ class LogTailWatcher:
             )
         except requests.RequestException as exc:
             self.logger.error(
-                "failed to send eventId=%s: %s",
+                "failed to send eventId=%s type=%s: %s",
                 event["eventId"],
-                exc,
+                event_type_id,
+                format_request_error(exc),
             )
 
     def run_once(self) -> None:
