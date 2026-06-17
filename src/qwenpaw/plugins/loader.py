@@ -162,7 +162,7 @@ class PluginLoader:
         * ``importlib.metadata`` — authoritative for deps installed via
           ``pip install --target`` (they keep a proper ``.dist-info``) and the
           only way to honour version specifiers. It is keyed by *distribution*
-          name, so import-name/dist-name mismatches (e.g. ``pillow`` -> ``PIL``)
+          name, so import-name/dist-name mismatches (``pillow`` -> ``PIL``)
           never cause false negatives.
         * ``find_spec`` import probe — covers deps already bundled into the
           frozen desktop build, whose ``.dist-info`` is often stripped, so they

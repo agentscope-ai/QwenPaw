@@ -43,12 +43,12 @@ def _looks_like_python_invocation(args: Sequence[str]) -> bool:
         return True
     if first.endswith(".py"):
         return True
-    # Single-dash interpreter flags (-u, -E, -S, -I, -X ...), but not --options.
+    # Single-dash interpreter flags (-u, -E, -X ...), but not --options.
     return len(first) >= 2 and first[0] == "-" and first[1] != "-"
 
 
 def _bundled_python() -> str:
-    """Absolute path to the bundled standalone CPython, or ``""`` if missing."""
+    """Path to the bundled standalone CPython, or ``""`` if missing."""
     python = (os.environ.get("QWENPAW_DESKTOP_PY_RUNTIME") or "").strip()
     if python and os.path.isfile(python):
         return python
@@ -106,8 +106,8 @@ def _reexec_as_bundled_python(args: Sequence[str]) -> None:
     python = _bundled_python()
     if not python:
         print(
-            "qwenpaw-backend is the desktop backend, not a Python interpreter, "
-            "and no bundled runtime is available to run: "
+            "qwenpaw-backend is the desktop backend, not a Python "
+            "interpreter, and no bundled runtime is available to run: "
             f"{list(args)}",
             file=sys.stderr,
         )
@@ -148,7 +148,7 @@ def _install_subprocess_guard() -> None:
     create_new_console = 0x00000010
     original_init = subprocess.Popen.__init__
 
-    def _init(self, args=None, *rest, **kwargs):  # type: ignore[no-untyped-def]
+    def _init(self, args=None, *rest, **kwargs):  # type: ignore
         redirected = _redirect_backend_python_cmd(args)
         if redirected is not None:
             args = redirected
@@ -165,7 +165,7 @@ def _install_subprocess_guard() -> None:
         return original_init(self, args, *rest, **kwargs)
 
     subprocess.Popen.__init__ = _init  # type: ignore[method-assign]
-    subprocess.Popen._qwenpaw_guarded = True  # type: ignore[attr-defined]
+    setattr(subprocess.Popen, "_qwenpaw_guarded", True)
 
 
 def _ensure_qwenpaw_app_not_loaded() -> None:

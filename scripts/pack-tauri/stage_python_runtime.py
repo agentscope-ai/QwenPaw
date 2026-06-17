@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """Stage a standalone CPython runtime for the Tauri desktop bundle.
 
 The Tauri backend is a PyInstaller-frozen executable, so ``sys.executable`` is
@@ -70,14 +71,14 @@ def _find_asset_url(xy: str, triple: str) -> str:
     data = json.loads(_http_get(RELEASES_API).decode("utf-8"))
     pattern = re.compile(
         rf"^cpython-{re.escape(xy)}\.\d+\+\d+-{re.escape(triple)}"
-        r"-install_only\.tar\.gz$"
+        r"-install_only\.tar\.gz$",
     )
     for asset in data.get("assets", []):
         if pattern.match(asset.get("name", "")):
             return asset["browser_download_url"]
     raise SystemExit(
         f"no python-build-standalone install_only asset for "
-        f"Python {xy} / {triple} in the latest release"
+        f"Python {xy} / {triple} in the latest release",
     )
 
 
