@@ -218,6 +218,7 @@ def build_agent_chat_request(
     final_text = ensure_agent_identity_prefix(text, caller_agent_id)
     request_payload = {
         "session_id": final_session_id,
+        "user_id": caller_agent_id,
         "input": [
             {
                 "role": "user",

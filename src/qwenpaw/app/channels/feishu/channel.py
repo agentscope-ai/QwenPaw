@@ -203,6 +203,7 @@ class FeishuChannel(BaseChannel):
     """
 
     channel = "feishu"
+    _STREAM_DELTA_MIN_INTERVAL_S = FEISHU_STREAM_MIN_INTERVAL_S
 
     def __init__(
         self,
@@ -2300,7 +2301,6 @@ class FeishuChannel(BaseChannel):
             state["cards"][stream_type] = {
                 "card_id": card_info["card_id"],
                 "message_id": card_info["message_id"],
-                "last_update_ts": time.monotonic(),
                 "sequence": 0,
             }
 
@@ -2313,16 +2313,12 @@ class FeishuChannel(BaseChannel):
         stream_type: str,
         accumulated_text: str = "",
     ) -> None:
-        """Stream-update the card with incremental text (throttled)."""
+        """Stream-update the card with incremental text."""
         state = send_meta.get("_fs_stream")
         if not state:
             return
         card_state = state["cards"].get(stream_type)
         if not card_state:
-            return
-
-        now = time.monotonic()
-        if now - card_state["last_update_ts"] < FEISHU_STREAM_MIN_INTERVAL_S:
             return
 
         display_text = self._build_stream_display_text(
@@ -2332,13 +2328,11 @@ class FeishuChannel(BaseChannel):
         )
 
         card_state["sequence"] += 1
-        success = await self._update_streaming_text(
+        await self._update_streaming_text(
             card_state["card_id"],
             display_text,
             sequence=card_state["sequence"],
         )
-        if success:
-            card_state["last_update_ts"] = now
 
     async def on_streaming_end(
         self,

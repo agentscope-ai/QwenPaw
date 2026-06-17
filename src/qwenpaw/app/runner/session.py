@@ -237,8 +237,20 @@ class SafeJSONSession(SessionBase):
             Full path to the session file. If channel is provided,
             uses channels/{channel}/ subdirectory structure.
         """
+        if not session_id:
+            logger.error(
+                "session_id is None or empty, cannot construct save path",
+            )
+            raise ValueError("session_id must not be None or empty")
+
         safe_sid = sanitize_filename(session_id)
         safe_uid = sanitize_filename(user_id) if user_id else ""
+
+        # Guard against user_id == session_id (e.g. when upstream falls back
+        # to session_id as user_id).  Duplicating the same token doubles the
+        # filename length and can exceed Windows MAX_PATH (260 chars).
+        if safe_uid and safe_uid == safe_sid:
+            safe_uid = ""
 
         if safe_uid:
             filename = f"{safe_uid}_{safe_sid}.json"

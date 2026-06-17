@@ -1,0 +1,107 @@
+/* SidebarSettingsPanel — quick-access settings panel */
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 210px;
+  padding: 2px 0;
+}
+
+/* ── Section row ────────────────────────────────────────────────────────── */
+
+.row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.label {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  color: var(--colorTextQuaternary, rgba(0, 0, 0, 0.25));
+  user-select: none;
+}
+
+/* ── Options group ──────────────────────────────────────────────────────── */
+
+.options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+/* ── Individual option button ───────────────────────────────────────────── */
+
+.optBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 8px;
+  border: 1px solid var(--colorBorderSecondary, rgba(0, 0, 0, 0.06));
+  border-radius: 6px;
+  background: transparent;
+  color: var(--colorTextSecondary, rgba(0, 0, 0, 0.65));
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.15s;
+  white-space: nowrap;
+
+  &:hover {
+    background: var(--color-fill-tertiary, rgba(0, 0, 0, 0.04));
+    border-color: var(--colorBorder, rgba(0, 0, 0, 0.15));
+    color: var(--colorText, rgba(0, 0, 0, 0.88));
+  }
+
+  &Active {
+    background: var(--colorPrimaryBg, #fff7e6);
+    border-color: var(--colorPrimary, #ff9d4d);
+    color: var(--colorPrimary, #ff9d4d);
+
+    &:hover {
+      background: var(--colorPrimaryBg, #fff7e6);
+    }
+  }
+
+  /* Full-width block variant for mode toggle */
+  &Block {
+    width: 100%;
+    justify-content: flex-start;
+  }
+}
+
+.optLabel {
+  font-size: 13px;
+  line-height: 1;
+}
+
+/* ── Dark mode ──────────────────────────────────────────────────────────── */
+
+:global(.dark-mode) {
+  .label {
+    color: rgba(255, 255, 255, 0.2);
+  }
+
+  .optBtn {
+    border-color: rgba(255, 255, 255, 0.1);
+    color: rgba(255, 255, 255, 0.55);
+
+    &:hover {
+      background: rgba(255, 255, 255, 0.06);
+      border-color: rgba(255, 255, 255, 0.2);
+      color: rgba(255, 255, 255, 0.88);
+    }
+
+    &Active {
+      background: rgba(255, 127, 22, 0.12);
+      border-color: #ff7f16;
+      color: #ff7f16;
+
+      &:hover {
+        background: rgba(255, 127, 22, 0.18);
+      }
+    }
+  }
+}

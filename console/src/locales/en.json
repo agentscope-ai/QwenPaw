@@ -69,6 +69,21 @@
     "backups": "Backups",
     "pluginManager": "Plugin Manager"
   },
+  "sidebar": {
+    "newVersion": "New version available: v{{version}}, click to upgrade",
+    "updateModal": {
+      "title": "New version available: v{{version}}",
+      "viewReleases": "View Releases",
+      "close": "Close"
+    },
+    "settings": {
+      "language": "Language",
+      "theme": "Theme",
+      "mode": "Mode"
+    },
+    "simpleMode": "Simple Mode",
+    "fullMode": "Full Mode"
+  },
   "debug": {
     "title": "Debug",
     "desc": "View the backend daemon log file to help diagnose issues. Logs refresh automatically while this page is open.",
@@ -1191,6 +1206,7 @@
     "saveSuccess": "Session saved successfully",
     "saveFailed": "Failed to save session",
     "batchDeleteButton": "Batch Delete",
+    "filterTitle": "Filter by Title",
     "filterUserId": "Filter by User ID",
     "filterChannel": "Filter by Channel",
     "allChannels": "All Channels",
@@ -1935,14 +1951,6 @@
     "light": "Light",
     "system": "System"
   },
-  "sidebar": {
-    "newVersion": "New version available: v{{version}}, click to upgrade",
-    "updateModal": {
-      "title": "New version available: v{{version}}",
-      "viewReleases": "View Releases",
-      "close": "Close"
-    }
-  },
   "chat": {
     "modelSelectTooltip": "Select model",
     "newChatTooltip": "New chat",
@@ -1962,6 +1970,7 @@
     "prompt1": "Let's start a new journey!",
     "prompt2": "Can you tell me what skills you have?",
     "inputPlaceholder": "\"↑↓\" for message navigation · \"/\" for quick commands (\"/approve\" or \"/deny\" during approvals)",
+    "emptyOutputError": "The assistant returned an empty response.",
     "commands": {
       "clear": {
         "description": "Clear the conversation context"
@@ -2035,7 +2044,38 @@
       "pin": "Pin",
       "unpin": "Unpin",
       "delete": "Delete"
-    }
+    },
+    "queue": {
+      "title": "Message Queue",
+      "paused": "Paused",
+      "sendFailed": "Send failed",
+      "resume": "Resume queue",
+      "pause": "Pause queue",
+      "clear": "Clear queue",
+      "dragSort": "Drag to reorder",
+      "edit": "Edit",
+      "retry": "Retry",
+      "skip": "Skip",
+      "interruptAndSend": "Interrupt & send",
+      "delete": "Delete",
+      "file": "File",
+      "noChatWarning": "Please send a message first to create a conversation before using the queue",
+      "queueFull": "Queue is full (max {{max}} items), please send or remove some messages first",
+      "otherTabOwner": "This conversation is being sent from another tab. This tab can only add inputs to the queue; all send operations are handled by the other tab."
+    },
+    "group": {
+      "pinned": "Pinned",
+      "today": "Today",
+      "week": "Within 7 days",
+      "month": "Within 30 days",
+      "older": "Earlier"
+    },
+    "sessionPanel": {
+      "searchConversations": "Search conversations…",
+      "noConversations": "No conversations yet",
+      "loadingConversations": "Loading…"
+    },
+    "conversationHistory": "Conversation History"
   },
   "security": {
     "parent": "Settings",

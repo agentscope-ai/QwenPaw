@@ -1102,6 +1102,7 @@
     "saveSuccess": "Session saved successfully",
     "saveFailed": "Falhou to Salvar session",
     "batchDeleteButton": "Batch Excluir",
+    "filterTitle": "Filtrar por Título",
     "filterUserId": "Filtrar by Usuario ID",
     "filterChannel": "Filtrar by Channel",
     "allChannels": "Todos Canais",
@@ -1805,7 +1806,14 @@
       "title": "Novo Versao available: v{{version}}",
       "viewReleases": "Visualizar Releases",
       "close": "Fechar"
-    }
+    },
+    "settings": {
+      "language": "Idioma",
+      "theme": "Tema",
+      "mode": "Modo"
+    },
+    "simpleMode": "Modo simples",
+    "fullMode": "Modo completo"
   },
   "chat": {
     "modelSelectTooltip": "Selecionar Modelo",
@@ -1826,6 +1834,7 @@
     "prompt1": "Let's start a new journey!",
     "prompt2": "Can you tell me what skills you have?",
     "inputPlaceholder": "\"↑↓\" for message navigation · \"/\" for quick commands (\"/approve\" or \"/deny\" during approvals)",
+    "emptyOutputError": "O assistente retornou uma resposta vazia.",
     "commands": {
       "clear": {
         "description": "Limpar the conversation context"
@@ -1899,7 +1908,38 @@
       "pin": "Pin",
       "unpin": "Unpin",
       "delete": "Excluir"
-    }
+    },
+    "queue": {
+      "title": "Fila de mensagens",
+      "paused": "Pausado",
+      "sendFailed": "Falha no envio",
+      "resume": "Retomar fila",
+      "pause": "Pausar fila",
+      "clear": "Limpar fila",
+      "dragSort": "Arraste para reordenar",
+      "edit": "Editar",
+      "retry": "Tentar novamente",
+      "skip": "Pular",
+      "interruptAndSend": "Interromper e enviar",
+      "delete": "Excluir",
+      "file": "Arquivo",
+      "noChatWarning": "Envie uma mensagem primeiro para criar uma conversa antes de usar a fila",
+      "queueFull": "Fila cheia (m\u00e1x. {{max}} itens). Envie ou remova algumas mensagens primeiro",
+      "otherTabOwner": "Esta conversa est\u00e1 sendo enviada de outra aba. Nesta aba, voc\u00ea s\u00f3 pode adicionar entradas \u00e0 fila."
+    },
+    "group": {
+      "pinned": "Fixados",
+      "today": "Hoje",
+      "week": "Últimos 7 dias",
+      "month": "Últimos 30 dias",
+      "older": "Anteriores"
+    },
+    "sessionPanel": {
+      "searchConversations": "Pesquisar…",
+      "noConversations": "Sem conversas",
+      "loadingConversations": "Carregando…"
+    },
+    "conversationHistory": "Histórico de conversas"
   },
   "security": {
     "parent": "Configuracoes",

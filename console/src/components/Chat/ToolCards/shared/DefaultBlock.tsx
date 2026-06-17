@@ -4,13 +4,15 @@
  * Renders monospace text or auto-detected markdown/JSON content inside a
  * bordered block with a copy button in the header.
  * - Markdown content → rendered via Markdown component
- * - JSON content → pretty-printed and rendered as ```json code block
- * - Plain text → rendered as monospace <pre>
+ * - JSON content → pretty-printed and rendered with syntax highlighting
+ * - Plain text → rendered with syntax highlighting
  */
 
 import React, { useCallback, useMemo, useRef, useState } from "react";
 import { Markdown } from "@agentscope-ai/chat";
 import { CopyOutlined, CheckOutlined } from "@ant-design/icons";
+import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
+import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
 import { looksLikeMarkdown } from "./utils";
 import styles from "./toolCards.module.less";
 
@@ -36,70 +38,15 @@ function tryParseJson(text: string): unknown | null {
   return null;
 }
 
-/** Render JSON with inline syntax highlighting (keys, strings, numbers, booleans, null). */
-function highlightJson(obj: unknown, indent = 0): React.ReactNode[] {
-  const pad = "  ".repeat(indent);
-  const nodes: React.ReactNode[] = [];
-  let keyCounter = 0;
-
-  if (obj === null) {
-    nodes.push(
-      <span key="null" className={styles.jsonNull}>
-        null
-      </span>,
-    );
-  } else if (typeof obj === "boolean") {
-    nodes.push(
-      <span key="bool" className={styles.jsonNull}>
-        {String(obj)}
-      </span>,
-    );
-  } else if (typeof obj === "number") {
-    nodes.push(
-      <span key="num" className={styles.jsonNum}>
-        {String(obj)}
-      </span>,
-    );
-  } else if (typeof obj === "string") {
-    nodes.push(<span key="str" className={styles.jsonStr}>{`"${obj}"`}</span>);
-  } else if (Array.isArray(obj)) {
-    if (obj.length === 0) {
-      nodes.push("[]");
-    } else {
-      nodes.push("[\n");
-      obj.forEach((item, index) => {
-        nodes.push(`${pad}  `);
-        nodes.push(...highlightJson(item, indent + 1));
-        if (index < obj.length - 1) nodes.push(",");
-        nodes.push("\n");
-      });
-      nodes.push(`${pad}]`);
-    }
-  } else if (typeof obj === "object") {
-    const entries = Object.entries(obj as Record<string, unknown>);
-    if (entries.length === 0) {
-      nodes.push("{}");
-    } else {
-      nodes.push("{\n");
-      entries.forEach(([key, value], index) => {
-        keyCounter++;
-        nodes.push(`${pad}  `);
-        nodes.push(
-          <span
-            key={`k${keyCounter}`}
-            className={styles.jsonKey}
-          >{`"${key}"`}</span>,
-        );
-        nodes.push(": ");
-        nodes.push(...highlightJson(value, indent + 1));
-        if (index < entries.length - 1) nodes.push(",");
-        nodes.push("\n");
-      });
-      nodes.push(`${pad}}`);
-    }
-  }
-  return nodes;
-}
+const highlighterStyle = {
+  margin: 0,
+  borderRadius: 0,
+  padding: "10px 12px",
+  fontSize: "12px",
+  lineHeight: "1.6",
+  maxHeight: "300px",
+  overflowY: "auto" as const,
+};
 
 const DefaultBlock: React.FC<DefaultBlockProps> = ({
   title,
@@ -135,12 +82,26 @@ const DefaultBlock: React.FC<DefaultBlockProps> = ({
     }
     if (parsedJson !== null) {
       return (
-        <pre className={styles.defaultBlockContent}>
-          {highlightJson(parsedJson)}
-        </pre>
+        <SyntaxHighlighter
+          language="json"
+          style={oneDark}
+          customStyle={highlighterStyle}
+          wrapLongLines
+        >
+          {JSON.stringify(parsedJson, null, 2)}
+        </SyntaxHighlighter>
       );
     }
-    return <pre className={styles.defaultBlockContent}>{content}</pre>;
+    return (
+      <SyntaxHighlighter
+        language="text"
+        style={oneDark}
+        customStyle={highlighterStyle}
+        wrapLongLines
+      >
+        {content}
+      </SyntaxHighlighter>
+    );
   };
 
   return (
