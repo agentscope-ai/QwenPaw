@@ -1,10 +1,15 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { filesApi } from "@/api/modules/files";
 import { buildAuthHeaders } from "@/api/authHeaders";
-import { safeFormatJson, isPythonArtifactFile } from "./fileUtils";
+import {
+  inferArtifactMimeType,
+  resolveArtifactPreviewKind,
+  safeFormatJson,
+  type ArtifactPreviewKind,
+} from "./fileUtils";
 import {
   downloadArtifactFile,
   type ArtifactFileLike,
@@ -20,6 +25,16 @@ export interface ArtifactFilePreviewPanelProps {
   onBack: () => void;
 }
 
+function renderCodePreview(content: string) {
+  return (
+    <div className={styles.codePreview}>
+      <pre className={styles.filePreviewText}>
+        <code>{content}</code>
+      </pre>
+    </div>
+  );
+}
+
 export default function ArtifactFilePreviewPanel({
   file,
   sessionId,
@@ -30,12 +45,18 @@ export default function ArtifactFilePreviewPanel({
   const [previewContent, setPreviewContent] = useState("");
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState("");
+  const [previewKind, setPreviewKind] = useState<ArtifactPreviewKind>("text");
   const [imageBlobUrl, setImageBlobUrl] = useState("");
   const [htmlBlobUrl, setHtmlBlobUrl] = useState("");
   const [iframeHeight, setIframeHeight] = useState(500);
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const imageBlobUrlRef = useRef("");
   const htmlBlobUrlRef = useRef("");
+
+  const effectiveMime = useMemo(
+    () => inferArtifactMimeType(file.name, file.mime_type),
+    [file.mime_type, file.name],
+  );
 
   const revokeBlobUrls = useCallback(() => {
     if (imageBlobUrlRef.current) URL.revokeObjectURL(imageBlobUrlRef.current);
@@ -53,9 +74,13 @@ export default function ArtifactFilePreviewPanel({
       revokeBlobUrls();
       setIframeHeight(500);
 
-      const mimeType = target.mime_type || "";
+      const kind = resolveArtifactPreviewKind({
+        ...target,
+        mime_type: inferArtifactMimeType(target.name, target.mime_type),
+      });
+      setPreviewKind(kind);
 
-      if (mimeType.startsWith("image/")) {
+      if (kind === "image") {
         setPreviewLoading(true);
         try {
           const url = filesApi.resolveArtifactUrl(
@@ -81,7 +106,7 @@ export default function ArtifactFilePreviewPanel({
         return;
       }
 
-      if (mimeType === "text/html") {
+      if (kind === "html") {
         setPreviewLoading(true);
         try {
           const url = filesApi.resolveArtifactUrl(
@@ -100,30 +125,6 @@ export default function ArtifactFilePreviewPanel({
         } catch (e) {
           setPreviewError(
             e instanceof Error ? e.message : "Failed to load HTML",
-          );
-        } finally {
-          setPreviewLoading(false);
-        }
-        return;
-      }
-
-      if (
-        mimeType.startsWith("text/") ||
-        mimeType === "application/json" ||
-        isPythonArtifactFile(target)
-      ) {
-        setPreviewLoading(true);
-        try {
-          const content = await filesApi.fetchTextContent(
-            target.path,
-            sessionId,
-            userId,
-            target.preview_url,
-          );
-          setPreviewContent(content);
-        } catch (e) {
-          setPreviewError(
-            e instanceof Error ? e.message : t("taskGraph.previewError"),
           );
         } finally {
           setPreviewLoading(false);
@@ -207,6 +208,11 @@ export default function ArtifactFilePreviewPanel({
     );
   };
 
+  const hasPreviewContent =
+    !previewLoading &&
+    !previewError &&
+    (previewContent || imageBlobUrl || htmlBlobUrl);
+
   const renderPreviewContent = () => {
     if (previewLoading) {
       return (
@@ -219,9 +225,7 @@ export default function ArtifactFilePreviewPanel({
       return <div className={styles.previewError}>{previewError}</div>;
     }
 
-    const mimeType = file.mime_type || "";
-
-    if (mimeType.startsWith("image/")) {
+    if (previewKind === "image") {
       return (
         <div className={styles.imagePreview}>
           <img src={imageBlobUrl} alt={file.name} />
@@ -229,7 +233,7 @@ export default function ArtifactFilePreviewPanel({
       );
     }
 
-    if (mimeType === "text/html") {
+    if (previewKind === "html") {
       return (
         <div className={styles.htmlPreview}>
           <iframe
@@ -256,7 +260,7 @@ export default function ArtifactFilePreviewPanel({
       );
     }
 
-    if (mimeType === "text/markdown" || file.name.endsWith(".md")) {
+    if (previewKind === "markdown") {
       return (
         <div className={styles.markdownBody}>
           <ReactMarkdown remarkPlugins={[remarkGfm]}>
@@ -266,39 +270,20 @@ export default function ArtifactFilePreviewPanel({
       );
     }
 
-    if (mimeType === "text/csv" || file.name.endsWith(".csv")) {
+    if (previewKind === "csv") {
       return renderCsvTable(previewContent);
     }
 
-    if (mimeType === "application/json" || file.name.endsWith(".json")) {
-      const formatted = safeFormatJson(previewContent);
-      return (
-        <div className={styles.markdownBody}>
-          <pre>
-            <code>{formatted}</code>
-          </pre>
-        </div>
-      );
+    if (previewKind === "json") {
+      return renderCodePreview(safeFormatJson(previewContent));
     }
 
-    if (isPythonArtifactFile(file)) {
-      return (
-        <div className={styles.pythonPreview}>
-          <pre className={styles.filePreviewText}>
-            <code>{previewContent}</code>
-          </pre>
-        </div>
-      );
+    if (previewKind === "python" || previewKind === "text") {
+      return renderCodePreview(previewContent);
     }
 
-    if (mimeType.startsWith("text/") || previewContent) {
-      return (
-        <div className={styles.markdownBody}>
-          <pre>
-            <code>{previewContent}</code>
-          </pre>
-        </div>
-      );
+    if (previewContent) {
+      return renderCodePreview(previewContent);
     }
 
     return (
@@ -322,14 +307,20 @@ export default function ArtifactFilePreviewPanel({
         </button>
       </div>
       <div className={styles.filePreviewMeta}>
-        <span>{file.mime_type}</span>
+        <span>{effectiveMime || file.mime_type}</span>
         <span>
           {file.size_bytes
             ? `${(file.size_bytes / 1024).toFixed(1)} KB`
             : ""}
         </span>
       </div>
-      <div className={styles.filePreviewContent}>{renderPreviewContent()}</div>
+      <div
+        className={`${styles.filePreviewContent}${
+          hasPreviewContent ? ` ${styles.filePreviewContentActive}` : ""
+        }`}
+      >
+        {renderPreviewContent()}
+      </div>
     </div>
   );
 }

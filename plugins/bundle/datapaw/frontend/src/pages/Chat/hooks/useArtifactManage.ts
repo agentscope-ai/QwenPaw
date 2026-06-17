@@ -5,6 +5,7 @@ import {
   type TaskArtifact,
   type TasksSummaryResponse,
 } from "../../../api/modules/tasks";
+import { normalizeArtifactFile } from "../components/TaskGraphPanel/fileUtils";
 
 export interface ArtifactGraphGroup {
   graphId: string;
@@ -123,9 +124,10 @@ function enrichFilesWithNodeNames(
   }
 
   return files.map((file) => {
-    const nodeName = nodeNameByGraph.get(file.graph_id)?.get(file.node_id);
-    if (!nodeName) return file;
-    return { ...file, _nodeName: nodeName } as TaskArtifact & { _nodeName?: string };
+    const normalized = normalizeArtifactFile(file);
+    const nodeName = nodeNameByGraph.get(normalized.graph_id)?.get(normalized.node_id);
+    if (!nodeName) return normalized;
+    return { ...normalized, _nodeName: nodeName } as TaskArtifact & { _nodeName?: string };
   });
 }
 
