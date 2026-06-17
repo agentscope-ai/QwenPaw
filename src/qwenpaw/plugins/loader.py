@@ -151,13 +151,33 @@ class PluginLoader:
 
     @staticmethod
     def _is_requirement_satisfied(req: Requirement) -> bool:
-        """Return True if *req* is importable (and matches its version spec).
+        """Return True if *req* is already available.
 
-        Resolution is import-based (``find_spec``) rather than metadata-based
-        so that dependencies already bundled into the frozen desktop build —
-        whose ``dist-info`` is often absent — are not misreported as missing
-        and do not trigger a spurious install (issue #5209).
+        Two complementary probes are combined so neither environment causes a
+        spurious reinstall on every launch:
+
+        * ``importlib.metadata`` — authoritative for deps installed via
+          ``pip install --target`` (they keep a proper ``.dist-info``) and the
+          only way to honour version specifiers. It is keyed by *distribution*
+          name, so import-name/dist-name mismatches (e.g. ``pillow`` -> ``PIL``)
+          never cause false negatives.
+        * ``find_spec`` import probe — covers deps already bundled into the
+          frozen desktop build, whose ``.dist-info`` is often stripped, so they
+          are not misreported as missing (issue #5209).
         """
+        # 1) Metadata probe: reliable for --target installs and version checks.
+        try:
+            installed = _dist_version(req.name)
+        except PackageNotFoundError:
+            installed = None
+        if installed is not None:
+            if not req.specifier:
+                return True
+            try:
+                return req.specifier.contains(installed)
+            except Exception:
+                return True
+        # 2) Import probe: frozen-bundled deps that lack ``.dist-info``.
         dist = req.name.lower().replace("_", "-")
         import_name = _IMPORT_NAME_OVERRIDES.get(
             dist,
@@ -165,22 +185,9 @@ class PluginLoader:
         )
         top = import_name.split(".")[0]
         try:
-            if importlib.util.find_spec(top) is None:
-                return False
+            return importlib.util.find_spec(top) is not None
         except (ImportError, ValueError):
             return False
-        # Version check is best-effort: when metadata is unavailable (common
-        # in frozen builds) an importable package is treated as satisfied.
-        if req.specifier:
-            try:
-                installed = _dist_version(req.name)
-            except PackageNotFoundError:
-                return True
-            try:
-                return req.specifier.contains(installed)
-            except Exception:
-                return True
-        return True
 
     @staticmethod
     def _check_dependencies_satisfied(
