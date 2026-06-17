@@ -12,7 +12,6 @@ QWENPAW_DESKTOP_PORT environment variable.
 from __future__ import annotations
 
 import logging
-import os
 import secrets
 import socket
 import sys
@@ -125,16 +124,36 @@ def get_stable_port(
     """
     # Check for user-configured port via environment variable
     if QWENPAW_DESKTOP_PORT:
-        port = int(QWENPAW_DESKTOP_PORT)
-        if not 1024 <= port <= 65535:
-            raise ValueError(
-                f"QWENPAW_DESKTOP_PORT must be 1024-65535, got {port}",
+        try:
+            port = int(QWENPAW_DESKTOP_PORT)
+        except (TypeError, ValueError):
+            logger.warning(
+                "QWENPAW_DESKTOP_PORT=%r is not a valid "
+                "integer, falling back to auto-assign",
+                QWENPAW_DESKTOP_PORT,
             )
-        sock = try_bind_port(host, port)
-        if sock:
-            logger.info("Using QWENPAW_DESKTOP_PORT: %d", port)
-            return port, sock
-        raise OSError(f"QWENPAW_DESKTOP_PORT={port} is unavailable")
+            port = None
+        if port is not None:
+            if not 1024 <= port <= 65535:
+                logger.warning(
+                    "QWENPAW_DESKTOP_PORT=%d out of range "
+                    "1024-65535, falling back to auto-assign",
+                    port,
+                )
+            else:
+                sock = try_bind_port(host, port)
+                if sock:
+                    logger.info(
+                        "Using QWENPAW_DESKTOP_PORT: %d",
+                        port,
+                    )
+                    return port, sock
+                logger.warning(
+                    "QWENPAW_DESKTOP_PORT=%d is "
+                    "unavailable, falling back "
+                    "to auto-assign",
+                    port,
+                )
 
     last_port = read_last_port(port_file)
     reused_socket: socket.socket | None = None
