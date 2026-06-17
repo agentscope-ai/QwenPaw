@@ -400,7 +400,7 @@ class OpenAIChatModelCompat(OpenAIChatModel):
                 self.generate_kwargs["extra_body"] = extra_body
 
     async def __call__(self, *args: Any, **kwargs: Any) -> Any:
-        from qwenpaw.observability.langfuse import current_generation_kwargs
+        from ..observability.langfuse import current_generation_kwargs
 
         langfuse_kwargs = current_generation_kwargs(self.model_name)
         if langfuse_kwargs:
