@@ -412,6 +412,7 @@ class LightContextManager(BaseContextManager):
         max_input_length: int = 100000,
         compact_ratio: float = 0.5,
         add_thinking_block: bool = True,
+        compact_timeout: int = 120,
         **_kwargs,
     ) -> dict:
         """Compact messages into a condensed summary.
@@ -532,7 +533,7 @@ class LightContextManager(BaseContextManager):
                     content=user_message,
                 ),
             ),
-            timeout=120,
+            timeout=compact_timeout,
         )
 
         history_compact: str = compact_msg.get_text_content() or ""
@@ -584,6 +585,7 @@ class LightContextManager(BaseContextManager):
         max_input_length: int = 100000,
         compact_ratio: float = 0.5,
         add_thinking_block: bool = True,
+        compact_timeout: int = 120,
         **_kwargs,
     ) -> dict:
         """Safe wrapper for _compact_context with fallback on failure.
@@ -606,8 +608,23 @@ class LightContextManager(BaseContextManager):
                 max_input_length=max_input_length,
                 compact_ratio=compact_ratio,
                 add_thinking_block=add_thinking_block,
+                compact_timeout=compact_timeout,
                 **_kwargs,
             )
+        except asyncio.TimeoutError:
+            logger.warning(
+                "Context compaction timed out after %ss",
+                compact_timeout,
+            )
+            return {
+                "success": False,
+                "reason": f"timeout after {compact_timeout}s",
+                "user_message": "",
+                "history_compact": "",
+                "is_valid": False,
+                "before_tokens": 0,
+                "after_tokens": 0,
+            }
         except Exception as e:
             logger.exception("Context compaction failed: %s", e)
             return {
@@ -655,6 +672,7 @@ class LightContextManager(BaseContextManager):
             max_input_length=max_input_length,
             compact_ratio=ccc.compact_threshold_ratio,
             add_thinking_block=ccc.compact_with_thinking_block,
+            compact_timeout=ccc.compact_timeout,
         )
         return {
             "success": result.get("success", False),

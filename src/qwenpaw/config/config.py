@@ -720,6 +720,16 @@ class ContextCompactConfig(BaseModel):
         description="Whether to include thinking blocks when compacting",
     )
 
+    compact_timeout: int = Field(
+        default=120,
+        ge=30,
+        le=600,
+        description=(
+            "Timeout in seconds for the compaction LLM call. "
+            "If the model takes longer, compaction is aborted gracefully."
+        ),
+    )
+
 
 class ToolResultPruningConfig(BaseModel):
     """Tool result pruning configuration."""
