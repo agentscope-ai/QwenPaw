@@ -346,6 +346,15 @@ def test_acp_start_spawns_mock_runner(app_server, mock_llm) -> None:
         assert (
             records[0]["status"] == "success"
         ), f"start failed: {records[0]} | {app_server.logs_tail()}"
+        # The mock runner emits ``agent_message_chunk`` with the default
+        # text "mock reply" (ACP_MOCK_REPLY_TEXT). Assert it surfaces in
+        # the server logs — proves the JSON-RPC reply is wired back into
+        # the agent response path, not just that cron returned success.
+        logs = app_server.logs_tail(20000)
+        assert "mock reply" in logs, (
+            "ACP runner reply not surfaced to agent runtime:\n"
+            f"{logs[-3000:]}"
+        )
     finally:
         _delete_job(app_server, job_id)
         srv.force_tool_call = False
