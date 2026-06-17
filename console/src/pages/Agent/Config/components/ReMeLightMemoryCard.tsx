@@ -57,6 +57,7 @@ export function ReMeLightMemoryCard() {
         label={t("agentConfig.dreamCron")}
         name={["reme_light_memory_config", "dream_cron"]}
         tooltip={t("agentConfig.dreamCronTooltip")}
+        normalize={(value) => value ?? ""}
       >
         <Input placeholder={t("agentConfig.dreamCronPlaceholder")} />
       </Form.Item>
