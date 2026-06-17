@@ -93,8 +93,8 @@ class PlanPage(BasePage):
 
     @staticmethod
     def working_dir() -> Path:
-        working = os.getenv("QWENPAW_WORKING_DIR")
-        return Path(working) if working else Path.home() / ".qwenpaw"
+        from config.settings import config
+        return config.working_dir
 
     @classmethod
     def workspace_dir(cls) -> Path:

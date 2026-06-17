@@ -168,6 +168,30 @@ class Config:
     def api_url(self) -> str:
         return self.server.api_base_url
 
+    @property
+    def working_dir(self) -> Path:
+        """Backend working directory for seed data.
+
+        Page objects that write seed files (inbox events, plan session
+        state, etc.) MUST use this property so the path always matches
+        what the running backend reads.
+
+        Resolves ``QWENPAW_WORKING_DIR`` env var; falls back to
+        ``~/.qwenpaw`` with a visible warning so CI misconfigurations
+        are caught early.
+        """
+        explicit = os.getenv("QWENPAW_WORKING_DIR")
+        if explicit:
+            return Path(explicit).expanduser().resolve()
+        import warnings
+        warnings.warn(
+            "QWENPAW_WORKING_DIR is not set; seed data will be written "
+            "to ~/.qwenpaw which may not match the running backend. "
+            "Set the env var or use e2e/scripts/start_test_server.sh.",
+            stacklevel=2,
+        )
+        return Path.home() / ".qwenpaw"
+
 
 # Global configuration instance
 config = Config()

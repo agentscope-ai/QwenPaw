@@ -106,9 +106,15 @@ class InboxPage(BasePage):
 
     @staticmethod
     def working_dir() -> Path:
-        """Return the agent root working dir."""
-        working = os.getenv("QWENPAW_WORKING_DIR")
-        return Path(working) if working else Path.home() / ".qwenpaw"
+        """Return the agent root working dir.
+
+        Delegates to ``config.working_dir`` (single source of truth).
+        Page objects must not duplicate the env-var resolution logic;
+        if the resolution rules ever change, only ``config`` should
+        need updating.
+        """
+        from config.settings import config
+        return config.working_dir
 
     @classmethod
     def inbox_path(cls) -> Path:
