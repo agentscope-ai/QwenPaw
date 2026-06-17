@@ -47,17 +47,64 @@ def _looks_like_python_invocation(args: Sequence[str]) -> bool:
     return len(first) >= 2 and first[0] == "-" and first[1] != "-"
 
 
+def _bundled_python() -> str:
+    """Absolute path to the bundled standalone CPython, or ``""`` if missing."""
+    python = (os.environ.get("QWENPAW_DESKTOP_PY_RUNTIME") or "").strip()
+    if python and os.path.isfile(python):
+        return python
+    return ""
+
+
+def _child_env_with_plugin_site(env: "dict | None") -> "dict | None":
+    """Return *env* (or a copy of ``os.environ``) with the plugin site dir
+    prepended to ``PYTHONPATH`` so the bundled CPython can import plugin deps.
+    """
+    site_dir = (os.environ.get("QWENPAW_PLUGIN_SITE") or "").strip()
+    if not site_dir:
+        return env
+    base = dict(os.environ if env is None else env)
+    existing = base.get("PYTHONPATH", "")
+    base["PYTHONPATH"] = (
+        site_dir + os.pathsep + existing if existing else site_dir
+    )
+    return base
+
+
+def _redirect_backend_python_cmd(cmd: object) -> "list | None":
+    """If *cmd* runs this backend binary as a Python interpreter, return a
+    rewritten command targeting the bundled CPython; otherwise ``None``.
+
+    Plugins commonly spawn ``[sys.executable, "-m", pkg]`` to launch helper
+    processes. In the frozen desktop build ``sys.executable`` is the backend
+    binary, so that would start another backend and crash-loop the app
+    (issue #5209). Redirecting at spawn time keeps the caller's ``Popen.pid``
+    pointing at the real interpreter on every platform.
+    """
+    if not isinstance(cmd, (list, tuple)) or not cmd:
+        return None
+    exe = cmd[0]
+    if not isinstance(exe, str):
+        return None
+    if os.path.normcase(exe) != os.path.normcase(sys.executable):
+        return None
+    if not _looks_like_python_invocation([str(a) for a in cmd[1:]]):
+        return None
+    python = _bundled_python()
+    if not python:
+        return None
+    return [python, *cmd[1:]]
+
+
 def _reexec_as_bundled_python(args: Sequence[str]) -> None:
     """Re-run a mis-routed interpreter invocation via the bundled CPython.
 
-    In the frozen desktop build ``sys.executable`` is this backend binary, not
-    Python; a plugin spawning ``sys.executable <args>`` would otherwise start
-    another backend and crash-loop the app (issue #5209). Re-exec the bundled
-    standalone CPython with the same arguments so the intended program runs,
-    with plugin-installed deps (``QWENPAW_PLUGIN_SITE``) importable.
+    Deep fallback for spawn paths that bypass ``subprocess`` (``os.execv``,
+    shell strings, etc.) and reach this binary's ``main()`` with Python-style
+    argv. Re-exec the bundled standalone CPython with the same arguments, with
+    plugin-installed deps (``QWENPAW_PLUGIN_SITE``) importable.
     """
-    python = (os.environ.get("QWENPAW_DESKTOP_PY_RUNTIME") or "").strip()
-    if not python or not os.path.isfile(python):
+    python = _bundled_python()
+    if not python:
         print(
             "qwenpaw-backend is the desktop backend, not a Python interpreter, "
             "and no bundled runtime is available to run: "
@@ -74,35 +121,51 @@ def _reexec_as_bundled_python(args: Sequence[str]) -> None:
     os.execv(python, [python, *args])
 
 
-def _install_windows_no_window_guard() -> None:
-    """On the Windows desktop build, suppress console windows for child
-    processes — including third-party plugins that shell out to commands
-    like ``tasklist`` without passing ``CREATE_NO_WINDOW`` themselves.
+def _install_subprocess_guard() -> None:
+    """Harden child-process spawning in the frozen desktop build.
+
+    Two transparent fixes, applied without plugins having to cooperate:
+
+    * Redirect ``subprocess`` calls that run this backend binary as a Python
+      interpreter (``[sys.executable, "-m", ...]`` etc.) to the bundled
+      CPython. The spawned process *is* the real interpreter, so the caller's
+      ``Popen.pid`` stays accurate on every platform (issue #5209).
+      ``multiprocessing`` is unaffected: it spawns via ``_winapi`` /
+      ``posix_spawn`` rather than ``subprocess.Popen``.
+    * On Windows, suppress console windows for child processes that don't pass
+      ``CREATE_NO_WINDOW`` themselves (e.g. plugins shelling out to
+      ``tasklist``).
     """
-    if os.name != "nt" or not _is_frozen_desktop():
+    if not _is_frozen_desktop():
         return
     import subprocess
 
-    if getattr(subprocess.Popen, "_qwenpaw_no_window", False):
+    if getattr(subprocess.Popen, "_qwenpaw_guarded", False):
         return
 
+    is_windows = os.name == "nt"
     create_no_window = 0x08000000
     create_new_console = 0x00000010
     original_init = subprocess.Popen.__init__
 
-    def _init(self, *args, **kwargs):  # type: ignore[no-untyped-def]
-        flags = kwargs.get("creationflags", 0) or 0
-        # Respect callers that explicitly want a visible new console.
-        if not flags & create_new_console:
-            kwargs["creationflags"] = flags | create_no_window
-        startupinfo = kwargs.get("startupinfo") or subprocess.STARTUPINFO()
-        startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-        startupinfo.wShowWindow = 0  # SW_HIDE
-        kwargs["startupinfo"] = startupinfo
-        return original_init(self, *args, **kwargs)
+    def _init(self, args=None, *rest, **kwargs):  # type: ignore[no-untyped-def]
+        redirected = _redirect_backend_python_cmd(args)
+        if redirected is not None:
+            args = redirected
+            kwargs["env"] = _child_env_with_plugin_site(kwargs.get("env"))
+        if is_windows:
+            flags = kwargs.get("creationflags", 0) or 0
+            # Respect callers that explicitly want a visible new console.
+            if not flags & create_new_console:
+                kwargs["creationflags"] = flags | create_no_window
+            startupinfo = kwargs.get("startupinfo") or subprocess.STARTUPINFO()
+            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+            startupinfo.wShowWindow = 0  # SW_HIDE
+            kwargs["startupinfo"] = startupinfo
+        return original_init(self, args, *rest, **kwargs)
 
     subprocess.Popen.__init__ = _init  # type: ignore[method-assign]
-    subprocess.Popen._qwenpaw_no_window = True  # type: ignore[attr-defined]
+    subprocess.Popen._qwenpaw_guarded = True  # type: ignore[attr-defined]
 
 
 def _ensure_qwenpaw_app_not_loaded() -> None:
@@ -271,7 +334,7 @@ def main() -> None:
         _reexec_as_bundled_python(sys.argv[1:])
         return
     _ensure_utf8_stdio()
-    _install_windows_no_window_guard()
+    _install_subprocess_guard()
     _install_desktop_runtime()
 
     from qwenpaw.constant import LOG_LEVEL_ENV, WORKING_DIR

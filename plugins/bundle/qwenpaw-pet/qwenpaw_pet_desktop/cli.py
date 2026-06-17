@@ -59,7 +59,7 @@ def command_start(args: argparse.Namespace) -> int:
         "ab",
     )
     cmd = [
-        runtime.desktop_interpreter(),
+        sys.executable,
         "-m",
         "qwenpaw_pet_desktop.app",
         "--port",
@@ -71,15 +71,12 @@ def command_start(args: argparse.Namespace) -> int:
         cmd.extend(["--pet-dir", args.pet_dir])
     # Fire-and-forget detached daemon: a ``with`` block would wait on
     # exit, which is the opposite of what we want here.
-    env = os.environ.copy()
-    plugin_dir = Path(__file__).resolve().parent.parent
-    env["PYTHONPATH"] = runtime.child_pythonpath(plugin_dir)
     process = runtime.detached_popen(
         cmd,
         stdout=log_file,
         stderr=log_file,
         stdin=subprocess.DEVNULL,
-        env=env,
+        env=os.environ.copy(),
     )
     runtime.write_pid(process.pid)
     print(f"Started QwenPaw Pet Desktop (pid {process.pid})")
