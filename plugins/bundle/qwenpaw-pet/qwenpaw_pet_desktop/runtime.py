@@ -74,6 +74,41 @@ def bridge_url_path() -> Path:
     return runtime_dir() / "desktop-bridge.json"
 
 
+def desktop_interpreter() -> str:
+    """Python interpreter used to launch the pet desktop window.
+
+    In the frozen QwenPaw desktop build ``sys.executable`` is the backend
+    binary, not a Python interpreter; spawning it would re-launch the backend
+    and crash-loop the app (QwenPaw issue #5209). QwenPaw injects the path to
+    a bundled standalone CPython via ``QWENPAW_DESKTOP_PY_RUNTIME``; use it
+    when running frozen, otherwise fall back to ``sys.executable``.
+    """
+    if getattr(sys, "frozen", False):
+        runtime_py = (os.environ.get("QWENPAW_DESKTOP_PY_RUNTIME") or "").strip()
+        if runtime_py and Path(runtime_py).is_file():
+            return runtime_py
+    return sys.executable
+
+
+def child_pythonpath(plugin_dir: str | Path) -> str:
+    """Build ``PYTHONPATH`` for the spawned desktop child process.
+
+    Includes the embedded ``qwenpaw_pet_desktop`` package (``plugin_dir``)
+    and, under the frozen desktop build, QwenPaw's plugin dependency site dir
+    (``QWENPAW_PLUGIN_SITE`` — where fastapi/uvicorn/pillow/PySide6 were
+    installed via ``pip install --target``), followed by any existing
+    ``PYTHONPATH``.
+    """
+    parts = [str(plugin_dir)]
+    site_dir = (os.environ.get("QWENPAW_PLUGIN_SITE") or "").strip()
+    if site_dir and site_dir not in parts:
+        parts.append(site_dir)
+    existing = (os.environ.get("PYTHONPATH") or "").strip()
+    if existing:
+        parts.append(existing)
+    return os.pathsep.join(parts)
+
+
 def spawn_claim_path() -> Path:
     """Short-lived marker written by the plugin before spawning desktop."""
     return runtime_dir() / "desktop-spawn-claim.json"

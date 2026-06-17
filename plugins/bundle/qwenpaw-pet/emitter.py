@@ -376,7 +376,7 @@ def _spawn_desktop_background_impl() -> tuple[bool, str | None]:
         pet_rt.write_bridge_url(listen_url)
 
         cmd: list[str] = [
-            sys.executable,
+            pet_rt.desktop_interpreter(),
             "-m",
             "qwenpaw_pet_desktop.app",
             "--host",
@@ -393,16 +393,12 @@ def _spawn_desktop_background_impl() -> tuple[bool, str | None]:
         # subprocess does *not* inherit the parent's runtime sys.path
         # mutations (plugin.py adds the plugin dir to sys.path so the
         # embedded ``qwenpaw_pet_desktop`` package is importable here).
-        # Propagate that path via PYTHONPATH so ``python -m
-        # qwenpaw_pet_desktop.app`` can find the package.
+        # Propagate the plugin dir (the package) plus QwenPaw's plugin
+        # dependency site dir (third-party deps under the frozen build) via
+        # PYTHONPATH so ``python -m qwenpaw_pet_desktop.app`` resolves both.
         env = os.environ.copy()
         plugin_dir = str(Path(__file__).resolve().parent)
-        existing_pp = env.get("PYTHONPATH", "")
-        env["PYTHONPATH"] = (
-            plugin_dir + os.pathsep + existing_pp
-            if existing_pp
-            else plugin_dir
-        )
+        env["PYTHONPATH"] = pet_rt.child_pythonpath(plugin_dir)
         # ``Popen`` duplicates the log FD into the child's stdout/stderr,
         # so the parent's handle is safe to close as soon as the spawn
         # returns. Using ``with`` here both fixes the FD leak and lets

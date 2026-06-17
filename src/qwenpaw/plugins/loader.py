@@ -74,6 +74,9 @@ def _ensure_plugin_site_on_path() -> None:
         site_dir = str(_plugin_site_dir())
     except Exception:
         return
+    # Expose the dir so plugins that spawn the bundled Python (e.g. the pet
+    # desktop window) can put their installed deps on the child's PYTHONPATH.
+    os.environ["QWENPAW_PLUGIN_SITE"] = site_dir
     if site_dir in sys.path:
         return
     import site as _site
