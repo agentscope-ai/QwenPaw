@@ -446,6 +446,21 @@ DEFAULT_USER_RULES: List[GovernanceRule] = [
         action=GovernanceAction.ALLOW,
         reason="File listing within workspace",
     ),
+    GovernanceRule(
+        match="ViewImage(WORKSPACE_DIR/**)",
+        action=GovernanceAction.ALLOW,
+        reason="Image view within workspace",
+    ),
+    GovernanceRule(
+        match="ViewVideo(WORKSPACE_DIR/**)",
+        action=GovernanceAction.ALLOW,
+        reason="Video view within workspace",
+    ),
+    GovernanceRule(
+        match="SendFileToUser(WORKSPACE_DIR/**)",
+        action=GovernanceAction.ALLOW,
+        reason="File send within workspace",
+    ),
     # ── Browser (treat as always allowed for now) ──
     GovernanceRule(
         match="Browser(**)",

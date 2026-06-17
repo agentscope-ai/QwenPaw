@@ -11,7 +11,6 @@ two layers:
 from __future__ import annotations
 
 import logging
-import os
 import uuid
 from typing import Any, Optional
 
@@ -168,21 +167,13 @@ async def _policy_tool_check_permissions(
     input_data = input_data or {}
     # Store input_data for potential violation handling in __call__
     self._qp_last_input_data = input_data
-    target = DEFAULT_REGISTRY.extract_target(tool_name, input_data)
 
-    # Resolve file-tool targets to absolute paths so workspace ALLOW
-    # rules (e.g. "Read(/home/user/project/**)") match even when the
-    # LLM passes a relative path like "src/main.py".  Empty targets
-    # (e.g. Grep/Glob with no explicit path) default to workspace root.
-    tool_type = DEFAULT_REGISTRY.get_type(tool_name)
-    if tool_type == "file":
-        ws_dir = getattr(governor, "workspace_dir", None)
-        if not target:
-            if ws_dir:
-                target = str(ws_dir)
-        elif not os.path.isabs(target):
-            if ws_dir:
-                target = os.path.normpath(os.path.join(ws_dir, target))
+    ws_dir = str(governor.workspace_dir) if governor else ""
+    target = DEFAULT_REGISTRY.extract_target(
+        tool_name,
+        input_data,
+        workspace_dir=ws_dir,
+    )
 
     agent_id = getattr(self, "_qp_request_context", {}).get("agent_id", "")
     session_id = getattr(self, "_qp_request_context", {}).get(
@@ -318,7 +309,13 @@ async def _policy_tool_call(
         getattr(self, "name", "Unknown"),
     )
     input_data = getattr(self, "_qp_last_input_data", {}) or {}
-    target = DEFAULT_REGISTRY.extract_target(tool_name, input_data)
+    gov = getattr(self, "_qp_governor", None)
+    ws_dir = str(gov.workspace_dir) if gov else ""
+    target = DEFAULT_REGISTRY.extract_target(
+        tool_name,
+        input_data,
+        workspace_dir=ws_dir,
+    )
     agent_id = request_context.get("agent_id", "")
     session_id = request_context.get("session_id", "")
 

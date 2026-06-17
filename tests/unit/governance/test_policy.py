@@ -455,12 +455,12 @@ class TestToolRegistryGrepGlob:
         )
         assert target == "src/"
 
-    def test_glob_extracts_path_not_pattern(self):
+    def test_glob_extracts_path_plus_pattern(self):
         target = DEFAULT_REGISTRY.extract_target(
             "Glob",
             {"pattern": "*.py", "path": "lib/"},
         )
-        assert target == "lib/"
+        assert target == "lib/*.py"
 
     def test_grep_empty_path_returns_empty(self):
         """When path is omitted, extract_target returns empty string."""
@@ -470,9 +470,9 @@ class TestToolRegistryGrepGlob:
         )
         assert target == ""
 
-    def test_glob_empty_path_returns_empty(self):
+    def test_glob_empty_path_returns_pattern(self):
         target = DEFAULT_REGISTRY.extract_target(
             "Glob",
             {"pattern": "*.py"},
         )
-        assert target == ""
+        assert target == "*.py"
