@@ -130,20 +130,20 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "zh": (
             "用户修订了任务图「{name}」：\n"
             "- 新增节点：{added}\n"
-            "- 修改节点：{modified}（结构变更节点按需 STALE）\n"
+            "- 修改节点：{modified}（结构变更会重置下游为 todo）\n"
             "- 删除节点：{removed}\n"
             "- 用户显式改变状态：{overridden}\n"
-            "- 下游级联 STALE：{stale}\n"
+            "- 下游重置为 todo：{downstream_reset}\n"
             "- 已 done 节点保留进度，请勿重新执行。"
         ),
         "en": (
             "The user revised task graph '{name}':\n"
             "- added: {added}\n"
             "- modified: {modified} "
-            "(structural changes auto-STALE)\n"
+            "(structural changes reset downstream to todo)\n"
             "- removed: {removed}\n"
             "- explicit state overrides: {overridden}\n"
-            "- downstream STALE cascade: {stale}\n"
+            "- downstream reset to todo: {downstream_reset}\n"
             "- done nodes keep their progress; do not re-execute."
         ),
     },
@@ -151,9 +151,9 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "zh": "用户在任务面板修改了节点 `{nid}`：{changes}",
         "en": "User edited node `{nid}` in the task panel: {changes}",
     },
-    "edit.node_stale_warn": {
-        "zh": "  → 下游节点 {stale} 已被标记为 STALE，需要重跑。",
-        "en": "  → downstream nodes {stale} marked STALE; re-run required.",
+    "edit.node_downstream_reset_warn": {
+        "zh": "  → 下游节点 {downstream_reset} 已重置为 todo，需要重跑。",
+        "en": "  → downstream nodes {downstream_reset} reset to todo; re-run required.",
     },
     "edit.graph_replaced": {
         "zh": "当前活跃图被前端替换。请检查新的 current_plan 并按其执行。",

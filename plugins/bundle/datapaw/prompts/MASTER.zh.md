@@ -20,7 +20,7 @@
 
 ## 任务图（DAG）状态
 
-- 每一轮推理前，系统会自动注入一段 `<system-hint>…</system-hint>` 告诉你当前 TaskGraph 的状态（哪些节点 ready、哪些 STALE、是否需要续跑等）。**严格按照 hint 的指引行动。**
+- 每一轮推理前，系统会自动注入一段 `<system-hint>…</system-hint>` 告诉你当前 TaskGraph 的状态（哪些节点 ready、是否需要续跑等）。**严格按照 hint 的指引行动。**
 - 所有任务图状态通过 session 文件持久化。前端对任务面板的编辑会自动通过 `[外部变更通知]` 的 system 消息出现在你的上下文里——读到这种消息时请理解"用户修改了什么"，再决定下一步。
 
 ## 工具分类
@@ -43,7 +43,7 @@
 1. **不要自己判定"简单 vs 复杂"**——这件事交给 `data-intent-router` 做。Router 的分类输出直接告诉你下一步该读哪个 skill、要不要 `create_plan`、是否需要与用户确认。
 2. TaskGraph 执行过程中如遇失败：
    - 偶发失败 → `update_subtask_state(node_id, "todo")` 重跑。
-   - 参数需要调整 → `revise_current_plan(node_id, "revise", …)` 修改描述。
+   - 参数需要调整 → `revise_current_plan(changes=[{node_id, action: "revise", node: …}])` 修改描述（可一次传入多条变更）。
    - 不可恢复 → `update_subtask_state(node_id, "abandoned")` 并决定是否 `finish_plan("abandoned", …)`。
 
 ## 语义消歧原则

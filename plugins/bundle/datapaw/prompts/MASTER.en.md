@@ -20,7 +20,7 @@ After entering the analysis execution stage, also `read_file skills/runtime-guid
 
 ## Task graph (DAG) state
 
-- Before every reasoning round, the system automatically injects a `<system-hint>…</system-hint>` describing the current TaskGraph state (which nodes are ready, which are STALE, whether a resume is required, etc.). **Follow the hint strictly.**
+- Before every reasoning round, the system automatically injects a `<system-hint>…</system-hint>` describing the current TaskGraph state (which nodes are ready, whether a resume is required, etc.). **Follow the hint strictly.**
 - All task-graph state is persisted via the session file. Frontend edits to the task panel surface automatically as `[External edit notice]` system messages in your context — when you see one, understand "what did the user change" before deciding the next step.
 
 ## Tool categories
@@ -43,7 +43,7 @@ For `file_path` fields returned by general tools, during reasoning:
 1. **Do not classify "simple vs complex" yourself** — that is `data-intent-router`'s job. The router's classification tells you which skill to read next, whether to `create_plan`, and whether user confirmation is needed.
 2. When a TaskGraph node fails during execution:
    - Transient failure → `update_subtask_state(node_id, "todo")` to re-run.
-   - Parameters need adjustment → `revise_current_plan(node_id, "revise", …)` to modify the description.
+   - Parameters need adjustment → `revise_current_plan(changes=[{node_id, action: "revise", node: …}])` to modify the description (pass multiple changes in one call when needed).
    - Unrecoverable → `update_subtask_state(node_id, "abandoned")` and decide whether to `finish_plan("abandoned", …)`.
 
 ## Semantic disambiguation principles
