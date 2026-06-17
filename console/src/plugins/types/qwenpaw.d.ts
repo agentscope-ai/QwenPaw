@@ -99,6 +99,12 @@ export type ChatResponseSlotFn = (ctx: {
   isLast?: boolean;
 }) => React.ReactNode;
 
+export type ChatRequestPayloadTransform = (ctx: {
+  payload: Record<string, unknown>;
+  sessionId: string;
+  selectedAgent: string;
+}) => Record<string, unknown> | void;
+
 export interface QwenPawChatNamespace {
   welcome: {
     set(
@@ -159,6 +165,13 @@ export interface QwenPawChatNamespace {
   };
   actions: { add(pluginId: string, spec: ChatActionSpec): Disposable };
   requestActions: { add(pluginId: string, spec: ChatActionSpec): Disposable };
+  requestPayload: {
+    add(
+      pluginId: string,
+      fn: ChatRequestPayloadTransform,
+      opts?: { id?: string; order?: number },
+    ): Disposable;
+  };
   request: {
     /** Whole-bubble replacement for the user request card. */
     render(pluginId: string, fn: ChatRequestRenderFn): Disposable;
@@ -176,6 +189,18 @@ export interface QwenPawChatNamespace {
     ): Disposable;
   };
   response: {
+    /**
+     * Configure the default assistant identity shown by the response card.
+     * This intentionally reuses welcome.avatar/nick because the default
+     * ResponseCard reads those fields.
+     */
+    set(
+      pluginId: string,
+      partial: Partial<{
+        avatar: Localized<string | React.ReactNode>;
+        nick: Localized<string | React.ReactNode>;
+      }>,
+    ): Disposable;
     /** Whole-bubble replacement for the assistant response card. */
     render(pluginId: string, fn: ChatResponseRenderFn): Disposable;
     /** Insert a custom component above the AI bubble. */

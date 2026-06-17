@@ -2,6 +2,7 @@
 import json
 import logging
 import platform
+import re
 from datetime import datetime, timezone
 from typing import List, Optional, Union
 from urllib.parse import unquote, urlparse
@@ -328,6 +329,27 @@ def _build_media_message_from_block(
     return media_message
 
 
+# Matches the trailing <skill> block appended to a user message by
+# slash-command skill expansion (runner._maybe_inject_skill).
+_INJECTED_SKILL_BLOCK_RE = re.compile(
+    r"\s*<skill\b[^>]*>.*</skill>\s*$",
+    re.DOTALL,
+)
+
+
+def strip_injected_skill_block(text: str, role: str) -> str:
+    """Hide the system-injected <skill> block from display.
+
+    Slash-command skill expansion keeps the user's typed text at the
+    head of the message and appends the skill body in a trailing
+    <skill> block. The block is model-facing context; transcripts
+    should show only what the user typed.
+    """
+    if role != "user" or "<skill" not in text:
+        return text
+    return _INJECTED_SKILL_BLOCK_RE.sub("", text)
+
+
 # pylint: disable=too-many-branches,too-many-statements, too-many-nested-blocks
 def agentscope_msg_to_message(
     messages: Union[Msg, List[Msg]],
@@ -385,7 +407,7 @@ def agentscope_msg_to_message(
             text_content = TextContent(
                 delta=False,
                 index=None,
-                text=msg.content,
+                text=strip_injected_skill_block(msg.content, role),
             )
             message.add_content(new_content=text_content)
             results.append(message)
@@ -414,7 +436,10 @@ def agentscope_msg_to_message(
                 text_content = TextContent(
                     delta=False,
                     index=None,
-                    text=block.get("text", ""),
+                    text=strip_injected_skill_block(
+                        block.get("text", ""),
+                        role,
+                    ),
                 )
                 current_message.add_content(new_content=text_content)
 

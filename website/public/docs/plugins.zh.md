@@ -202,6 +202,7 @@ plugin = MyPlugin()
 | `chat.leftHeader` / `rightHeader` | 聊天头部                        | 设置品牌 Logo、添加操作按钮                     |
 | `chat.sender`                     | 输入框                          | 自定义 placeholder、输入建议                    |
 | `chat.actions` / `requestActions` | 消息操作按钮                    | 在消息下方添加自定义操作                        |
+| `chat.requestPayload`             | 外发聊天请求体                  | 请求发送到后端前追加或改写自定义字段            |
 | `chat.request` / `response`       | 消息气泡                        | 在消息前后追加内容或完全替换渲染                |
 | `chat.toolRender`                 | 工具调用渲染                    | 自定义工具结果展示（如天气卡片）                |
 | `chat.card`                       | 自定义卡片                      | 注册新的卡片类型                                |
@@ -530,9 +531,37 @@ window.QwenPaw.chat.requestActions.add("my-plugin", {
 });
 ```
 
+### 请求体转换 — `chat.requestPayload`
+
+使用 `chat.requestPayload.add` 可以在 Console 将聊天请求发送到后端前改写 `requestBody`。多个转换函数会按 `order` 从小到大执行，入参包含当前 `payload`、解析后的 `sessionId` 和 `selectedAgent`。
+
+```ts
+window.QwenPaw.chat.requestPayload.add(
+  "my-plugin",
+  ({ payload, sessionId, selectedAgent }) => ({
+    ...payload,
+    request_context: {
+      session_id: sessionId,
+      agent_id: selectedAgent,
+      datasource_id: "ds-123",
+    },
+  }),
+  { id: "my-plugin.request-context", order: 10 },
+);
+```
+
+转换函数返回新对象时会替换当前请求体；返回 `undefined` 时保持请求体不变。建议使用全局唯一的 `id`，方便审计和卸载时清理。
+
 ### 消息气泡自定义 — `chat.request` / `chat.response`
 
 ```tsx
+// 设置默认 AI 回复的头像和昵称
+// 当前会复用 welcome.avatar / welcome.nick，因为默认 ResponseCard 读取这两个字段
+window.QwenPaw.chat.response.set("my-plugin", {
+  avatar: "https://example.com/bot-avatar.png",
+  nick: "My Bot",
+});
+
 // 在用户消息前方追加内容
 window.QwenPaw.chat.request.prepend("my-plugin", ({ data }) => {
   return <div style={{ fontSize: 10, color: "#999" }}>User</div>;

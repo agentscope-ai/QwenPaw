@@ -202,6 +202,7 @@ Plugins don't need to declare which extension points they use; the system automa
 | `chat.leftHeader` / `rightHeader` | Chat header                                           | Set brand logo, add action buttons                              |
 | `chat.sender`                     | Input box                                             | Custom placeholder, input suggestions                           |
 | `chat.actions` / `requestActions` | Message action buttons                                | Add custom actions below messages                               |
+| `chat.requestPayload`             | Outgoing chat request payload                         | Add custom fields before the request is sent to the backend     |
 | `chat.request` / `response`       | Message bubbles                                       | Prepend/append content or fully replace rendering               |
 | `chat.toolRender`                 | Tool-call rendering                                   | Custom tool result display (e.g. weather card)                  |
 | `chat.card`                       | Custom cards                                          | Register new card types                                         |
@@ -530,9 +531,37 @@ window.QwenPaw.chat.requestActions.add("my-plugin", {
 });
 ```
 
+### Request Payload Transform — `chat.requestPayload`
+
+Use `chat.requestPayload.add` to modify the outgoing chat request body before the Console sends it to the backend. Transforms run in ascending `order` and receive the current payload plus the resolved `sessionId` and `selectedAgent`.
+
+```ts
+window.QwenPaw.chat.requestPayload.add(
+  "my-plugin",
+  ({ payload, sessionId, selectedAgent }) => ({
+    ...payload,
+    request_context: {
+      session_id: sessionId,
+      agent_id: selectedAgent,
+      datasource_id: "ds-123",
+    },
+  }),
+  { id: "my-plugin.request-context", order: 10 },
+);
+```
+
+The transform may return a new object to replace the payload. Returning `undefined` leaves the payload unchanged. Use a globally unique `id` so the registration can be audited and disposed cleanly.
+
 ### Message Bubble Customization — `chat.request` / `chat.response`
 
 ```tsx
+// Set the default assistant response avatar and nickname
+// This currently reuses welcome.avatar / welcome.nick because the default ResponseCard reads those fields
+window.QwenPaw.chat.response.set("my-plugin", {
+  avatar: "https://example.com/bot-avatar.png",
+  nick: "My Bot",
+});
+
 // Prepend content before user messages
 window.QwenPaw.chat.request.prepend("my-plugin", ({ data }) => {
   return <div style={{ fontSize: 10, color: "#999" }}>User</div>;
