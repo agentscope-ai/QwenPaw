@@ -49,7 +49,10 @@ class PortRule:
 
 @dataclass
 class SandboxConfig:
-    """Complete sandbox constraint configuration. Allowlist model: unlisted = deny."""
+    """Complete sandbox constraint configuration.
+
+    Allowlist model: unlisted = deny.
+    """
 
     mode: SandboxMode
     workspace_dir: str
@@ -117,7 +120,9 @@ class SandboxCapability:
     supported: bool
     mode: SandboxMode
     reason: str  # Human-readable reason
-    landlock_abi_version: int = 0  # Linux only: Landlock ABI version (0=unsupported)
+    landlock_abi_version: int = (
+        0  # Linux only: Landlock ABI version (0=unsupported)
+    )
 
 
 def _probe_linux_landlock() -> (
