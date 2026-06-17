@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useDeferredValue } from "react";
 import { useNavigate } from "react-router-dom";
 import { Card, Form, Modal, Table, Button } from "@agentscope-ai/design";
 import { useAppMessage } from "../../../hooks/useAppMessage";
@@ -35,7 +35,12 @@ function SessionsPage() {
   // Filter states
   const [filterUserId, setFilterUserId] = useState<string>("");
   const [filterChannel, setFilterChannel] = useState<string>("");
+  const [filterTitle, setFilterTitle] = useState<string>("");
   const [availableChannels, setAvailableChannels] = useState<string[]>([]);
+
+  // ponytail: defer re-filtering until idle to avoid per-keystroke lag
+  //   ceiling: if list is 10k+ sessions, consider virtualisation + backend search
+  const deferredTitle = useDeferredValue(filterTitle);
 
   const { message } = useAppMessage();
 
@@ -68,8 +73,15 @@ function SessionsPage() {
       );
     }
 
+    if (deferredTitle) {
+      filtered = filtered.filter((session: Session) => {
+        const name = session.name || "";
+        return name.toLowerCase().includes(deferredTitle.toLowerCase());
+      });
+    }
+
     setFilteredSessions(filtered);
-  }, [sessions, filterUserId, filterChannel]);
+  }, [sessions, filterUserId, filterChannel, deferredTitle]);
 
   const handleEdit = (session: Session) => {
     setEditingSession(session);
@@ -164,9 +176,11 @@ function SessionsPage() {
             <FilterBar
               filterUserId={filterUserId}
               filterChannel={filterChannel}
+              filterTitle={filterTitle}
               uniqueChannels={availableChannels}
               onUserIdChange={setFilterUserId}
               onChannelChange={setFilterChannel}
+              onTitleChange={setFilterTitle}
             />
             {selectedRowKeys.length > 0 && (
               <Button type="primary" danger onClick={handleBatchDelete}>

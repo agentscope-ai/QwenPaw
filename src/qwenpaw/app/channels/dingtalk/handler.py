@@ -488,7 +488,7 @@ class DingTalkChannelHandler(dingtalk_stream.ChatbotHandler):
                 )
                 or getattr(incoming_message, "senderId", None)
                 or "",
-                "sender_nick": getattr(
+                "user_name": getattr(
                     incoming_message,
                     "sender_nick",
                     None,

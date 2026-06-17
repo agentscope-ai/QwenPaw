@@ -56,3 +56,10 @@ MEDIA_MAX_BYTES = 20 * 1024 * 1024
 
 # Session ID suffix length (last N chars of raw account id)
 SESSION_ID_SUFFIX_LEN = 8
+
+# Typing indicator heartbeat values (EnumHeartbeat in biz.proto)
+HEARTBEAT_RUNNING = 1  # Bot is processing / typing
+HEARTBEAT_FINISH = 2  # Bot finished processing
+
+# Interval (seconds) between typing heartbeat keepalive pings
+TYPING_KEEPALIVE_INTERVAL = 3

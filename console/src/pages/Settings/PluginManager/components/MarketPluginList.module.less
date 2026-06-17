@@ -1,0 +1,58 @@
+.toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.toolbarRight {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.categoryTabs {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  min-width: 0;
+  overflow-x: auto;
+}
+
+.categoryTab {
+  position: relative;
+  padding: 6px 0;
+  font-size: 14px;
+  color: var(--ant-color-text-secondary);
+  cursor: pointer;
+  transition: color 0.2s;
+  white-space: nowrap;
+
+  &:hover {
+    color: var(--ant-color-text);
+  }
+}
+
+.categoryTabActive {
+  color: var(--ant-color-text);
+  font-weight: 500;
+
+  &::after {
+    content: "";
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 2px;
+    background: var(--ant-color-primary, #1890ff);
+    border-radius: 1px;
+  }
+}
+
+.searchHint {
+  font-size: 13px;
+  color: var(--ant-color-text-secondary);
+  white-space: nowrap;
+}

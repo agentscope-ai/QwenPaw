@@ -1,4 +1,10 @@
-import { useState, useEffect, useMemo, useCallback } from "react";
+import {
+  useState,
+  useEffect,
+  useMemo,
+  useCallback,
+  useDeferredValue,
+} from "react";
 import {
   Button,
   Form,
@@ -372,6 +378,8 @@ export function RemoteModelManageModal({
   const [loadingFilters, setLoadingFilters] = useState(false);
 
   const [loadingDiscoveredModels, setLoadingDiscoveredModels] = useState(false);
+  const PAGE_SIZE = 30;
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
 
   // For custom providers ALL models are deletable.
   // For built-in providers only extra_models are deletable.
@@ -530,6 +538,7 @@ export function RemoteModelManageModal({
     setAdding(false);
     setConfigOpenModelId(null);
     setModelSearchQuery("");
+    setVisibleCount(PAGE_SIZE);
     form.resetFields();
     onClose();
   };
@@ -675,17 +684,23 @@ export function RemoteModelManageModal({
     form.resetFields();
   }, [adding, form, isOpenRouter]);
 
+  const deferredSearchQuery = useDeferredValue(modelSearchQuery);
+
+  useEffect(() => {
+    setVisibleCount(PAGE_SIZE);
+  }, [deferredSearchQuery]);
+
   const filteredModels = useMemo(() => {
     const all_models = [
       ...(provider.extra_models ?? []),
       ...(provider.models ?? []),
     ];
-    const q = modelSearchQuery.trim().toLowerCase();
+    const q = deferredSearchQuery.trim().toLowerCase();
     if (!q) return all_models;
     return all_models.filter(
       (m) => m.name.toLowerCase().includes(q) || m.id.toLowerCase().includes(q),
     );
-  }, [provider.models, provider.extra_models, modelSearchQuery]);
+  }, [provider.models, provider.extra_models, deferredSearchQuery]);
 
   const colors = tagColors(isDark);
 
@@ -711,131 +726,157 @@ export function RemoteModelManageModal({
         {filteredModels.length === 0 ? (
           <div className={styles.modelListEmpty}>{t("models.noModels")}</div>
         ) : (
-          filteredModels.map((m) => {
-            const isDeletable = provider.is_custom || extraModelIds.has(m.id);
-            const isConfigOpen = configOpenModelId === m.id;
-            return (
-              <div key={m.id}>
-                <div className={styles.modelListItem}>
-                  <div className={styles.modelListItemInfo}>
-                    <span className={styles.modelListItemName}>{m.name}</span>
-                    <span className={styles.modelListItemId}>{m.id}</span>
-                  </div>
-                  <div className={styles.modelListItemActions}>
-                    <CapabilityTags model={m} isDark={isDark} />
-                    {m.is_free && (
+          <>
+            {filteredModels.slice(0, visibleCount).map((m) => {
+              const isDeletable = provider.is_custom || extraModelIds.has(m.id);
+              const isConfigOpen = configOpenModelId === m.id;
+              return (
+                <div key={m.id}>
+                  <div className={styles.modelListItem}>
+                    <div className={styles.modelListItemInfo}>
+                      <span className={styles.modelListItemName}>{m.name}</span>
+                      <span className={styles.modelListItemId}>{m.id}</span>
+                    </div>
+                    <div className={styles.modelListItemActions}>
+                      <CapabilityTags model={m} isDark={isDark} />
+                      {m.is_free && (
+                        <Tag
+                          style={{
+                            fontSize: 11,
+                            marginRight: 4,
+                            ...colors.free,
+                          }}
+                        >
+                          <GiftOutlined
+                            style={{ fontSize: 10, marginRight: 3 }}
+                          />
+                          {t("models.free")}
+                        </Tag>
+                      )}
                       <Tag
                         style={{
                           fontSize: 11,
                           marginRight: 4,
-                          ...colors.free,
+                          ...(isDeletable ? colors.userAdded : colors.builtin),
                         }}
                       >
-                        <GiftOutlined
-                          style={{ fontSize: 10, marginRight: 3 }}
-                        />
-                        {t("models.free")}
+                        {isDeletable ? (
+                          <UserOutlined
+                            style={{ fontSize: 10, marginRight: 3 }}
+                          />
+                        ) : (
+                          <DatabaseOutlined
+                            style={{ fontSize: 10, marginRight: 3 }}
+                          />
+                        )}
+                        {t(isDeletable ? "models.userAdded" : "models.builtin")}
                       </Tag>
-                    )}
-                    <Tag
-                      style={{
-                        fontSize: 11,
-                        marginRight: 4,
-                        ...(isDeletable ? colors.userAdded : colors.builtin),
-                      }}
-                    >
-                      {isDeletable ? (
-                        <UserOutlined
-                          style={{ fontSize: 10, marginRight: 3 }}
-                        />
-                      ) : (
-                        <DatabaseOutlined
-                          style={{ fontSize: 10, marginRight: 3 }}
-                        />
+                      <span
+                        style={{
+                          display: "inline-block",
+                          width: 1,
+                          height: 16,
+                          background: isDark
+                            ? "rgba(255,255,255,0.15)"
+                            : "#e5e7eb",
+                          margin: "0 8px",
+                          flexShrink: 0,
+                        }}
+                      />
+                      {m.probe_source !== "documentation" && (
+                        <Tooltip
+                          title={t("models.probeMultimodal", "测试多模态")}
+                        >
+                          <Button
+                            type="text"
+                            size="small"
+                            icon={<ExperimentOutlined />}
+                            onClick={() => handleProbeMultimodal(m.id)}
+                            loading={probingModelId === m.id}
+                            style={darkBtnStyle}
+                          />
+                        </Tooltip>
                       )}
-                      {t(isDeletable ? "models.userAdded" : "models.builtin")}
-                    </Tag>
-                    <span
-                      style={{
-                        display: "inline-block",
-                        width: 1,
-                        height: 16,
-                        background: isDark
-                          ? "rgba(255,255,255,0.15)"
-                          : "#e5e7eb",
-                        margin: "0 8px",
-                        flexShrink: 0,
-                      }}
-                    />
-                    {m.probe_source !== "documentation" && (
-                      <Tooltip
-                        title={t("models.probeMultimodal", "测试多模态")}
-                      >
+                      <Tooltip title={t("models.testConnection")}>
                         <Button
                           type="text"
                           size="small"
-                          icon={<ExperimentOutlined />}
-                          onClick={() => handleProbeMultimodal(m.id)}
-                          loading={probingModelId === m.id}
+                          icon={<ApiOutlined />}
+                          onClick={() => handleTestModel(m.id)}
+                          loading={testingModelId === m.id}
                           style={darkBtnStyle}
                         />
                       </Tooltip>
-                    )}
-                    <Tooltip title={t("models.testConnection")}>
-                      <Button
-                        type="text"
-                        size="small"
-                        icon={<ApiOutlined />}
-                        onClick={() => handleTestModel(m.id)}
-                        loading={testingModelId === m.id}
-                        style={darkBtnStyle}
-                      />
-                    </Tooltip>
-                    <Tooltip title={t("models.modelConfigLabel", "模型配置")}>
-                      <Button
-                        type="text"
-                        size="small"
-                        icon={
-                          isConfigOpen ? <DownOutlined /> : <SettingOutlined />
-                        }
-                        onClick={() =>
-                          setConfigOpenModelId(isConfigOpen ? null : m.id)
-                        }
-                        style={darkBtnStyle}
-                      />
-                    </Tooltip>
-                    {isDeletable && (
-                      <Button
-                        type="text"
-                        size="small"
-                        danger
-                        icon={<DeleteOutlined />}
-                        onClick={() => handleRemoveModel(m.id, m.name)}
-                      />
-                    )}
+                      <Tooltip title={t("models.modelConfigLabel", "模型配置")}>
+                        <Button
+                          type="text"
+                          size="small"
+                          icon={
+                            isConfigOpen ? (
+                              <DownOutlined />
+                            ) : (
+                              <SettingOutlined />
+                            )
+                          }
+                          onClick={() =>
+                            setConfigOpenModelId(isConfigOpen ? null : m.id)
+                          }
+                          style={darkBtnStyle}
+                        />
+                      </Tooltip>
+                      {isDeletable && (
+                        <Button
+                          type="text"
+                          size="small"
+                          danger
+                          icon={<DeleteOutlined />}
+                          onClick={() => handleRemoveModel(m.id, m.name)}
+                        />
+                      )}
+                    </div>
                   </div>
+                  {isConfigOpen && (
+                    <div
+                      style={{
+                        padding: "0 16px 12px",
+                        borderBottom: isDark
+                          ? "1px solid rgba(255,255,255,0.06)"
+                          : "1px solid #f5f5f5",
+                      }}
+                    >
+                      <ModelConfigEditor
+                        providerId={provider.id}
+                        model={m}
+                        onSaved={onSaved}
+                        onClose={() => setConfigOpenModelId(null)}
+                        isDark={isDark}
+                      />
+                    </div>
+                  )}
                 </div>
-                {isConfigOpen && (
-                  <div
-                    style={{
-                      padding: "0 16px 12px",
-                      borderBottom: isDark
-                        ? "1px solid rgba(255,255,255,0.06)"
-                        : "1px solid #f5f5f5",
-                    }}
-                  >
-                    <ModelConfigEditor
-                      providerId={provider.id}
-                      model={m}
-                      onSaved={onSaved}
-                      onClose={() => setConfigOpenModelId(null)}
-                      isDark={isDark}
-                    />
-                  </div>
-                )}
+              );
+            })}
+            {filteredModels.length > visibleCount && (
+              <div className={styles.modelListLoadMore}>
+                <Button
+                  type="link"
+                  size="small"
+                  onClick={() => setVisibleCount((c) => c + PAGE_SIZE)}
+                >
+                  {t("models.loadMore", {
+                    count: Math.min(
+                      PAGE_SIZE,
+                      filteredModels.length - visibleCount,
+                    ),
+                    total: filteredModels.length,
+                  })}
+                </Button>
+                <span className={styles.modelListCount}>
+                  {visibleCount} / {filteredModels.length}
+                </span>
               </div>
-            );
-          })
+            )}
+          </>
         )}
       </div>
 

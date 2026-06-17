@@ -1,19 +1,21 @@
 name: Full Tests Nightly
 
-# Nightly sweep of the entire test suite (unit + contract + integration)
-# with combined coverage. tests.yml runs the PR (p0) and pre-merge
-# (p0+p1) integration tiers gated by event name; this workflow exercises
-# the full integration suite (all markers including p2) and re-runs unit
-# / contract on every supported platform/python combo to catch nightly
-# drift, then renders per-tier and combined coverage numbers.
+# Nightly sweep of the entire test suite (unit + contract + integration +
+# E2E Playwright) with combined four-tier coverage.
+#
+# tests.yml runs the PR (p0) and pre-merge (p0+p1) integration tiers
+# gated by event name; this workflow exercises the full integration suite
+# (all markers including p2), the full E2E Playwright suite against a
+# live backend, and re-runs unit / contract on every supported
+# platform/python combo to catch nightly drift.
 #
 # Independent of tests.yml so it can run unattended without going through
 # the manual maintainer-approval gate that protects PR/push CI.
 #
 # Coverage data files (.coverage.unit / .coverage.contract /
-# .coverage.integration plus their cobertura xml) are produced on a
-# single matrix entry (ubuntu-latest + python 3.10, historically the
-# fastest combination) per test class and consumed by coverage-report,
+# .coverage.integration / .coverage.e2e plus their cobertura xml) are
+# produced on a single matrix entry (ubuntu-latest + python 3.13 for
+# lower tracer overhead) per test class and consumed by coverage-report,
 # which only combines and renders — it does not run pytest itself.
 
 on:
@@ -79,11 +81,11 @@ jobs:
         env:
           COVERAGE_FILE: .coverage.unit
         run: |
-          # Coverage is collected only on the ubuntu/py3.10 entry so the
+          # Coverage is collected only on the ubuntu/py3.13 entry so the
           # data file can be uploaded for coverage-report. Other matrix
           # entries only verify cross-platform compatibility.
           if [ "${{ matrix.os }}" = "ubuntu-latest" ] && \
-             [ "${{ matrix.python-version }}" = "3.10" ]; then
+             [ "${{ matrix.python-version }}" = "3.13" ]; then
             pytest tests/unit -v \
               --cov=src/qwenpaw \
               --cov-report=xml:coverage.unit.xml \
@@ -95,7 +97,7 @@ jobs:
       - name: Upload unit coverage data
         if: |
           matrix.os == 'ubuntu-latest' &&
-          matrix.python-version == '3.10'
+          matrix.python-version == '3.13'
         uses: actions/upload-artifact@v4
         with:
           name: coverage-data-unit
@@ -162,7 +164,7 @@ jobs:
         run: |
           # Same conditional-coverage pattern as unit-tests.
           if [ "${{ matrix.os }}" = "ubuntu-latest" ] && \
-             [ "${{ matrix.python-version }}" = "3.10" ]; then
+             [ "${{ matrix.python-version }}" = "3.13" ]; then
             pytest tests/contract -v \
               --cov=src/qwenpaw \
               --cov-report=xml:coverage.contract.xml \
@@ -174,7 +176,7 @@ jobs:
       - name: Upload contract coverage data
         if: |
           matrix.os == 'ubuntu-latest' &&
-          matrix.python-version == '3.10'
+          matrix.python-version == '3.13'
         uses: actions/upload-artifact@v4
         with:
           name: coverage-data-contract
@@ -237,15 +239,15 @@ jobs:
       - name: Run integration suite (full sweep)
         shell: bash
         env:
-          # Subprocess coverage on the ubuntu/py3.10 entry only. conftest.py
+          # Subprocess coverage on the ubuntu/py3.13 entry only. conftest.py
           # treats empty / missing as off, so the other matrix entries do
           # not pay the tracer overhead.
-          QWENPAW_INTEGRATION_COVERAGE: ${{ (matrix.os == 'ubuntu-latest' && matrix.python-version == '3.10') && '1' || '' }}
+          QWENPAW_INTEGRATION_COVERAGE: ${{ (matrix.os == 'ubuntu-latest' && matrix.python-version == '3.13') && '1' || '' }}
         run: |
           # Nightly always runs the full -m integration sweep (p0 + p1 +
           # p2), unlike tests.yml which gates by GITHUB_EVENT_NAME.
           if [ "${{ matrix.os }}" = "ubuntu-latest" ] && \
-             [ "${{ matrix.python-version }}" = "3.10" ]; then
+             [ "${{ matrix.python-version }}" = "3.13" ]; then
             # Subprocess coverage entry. Parent process must not carry
             # --cov, hence --no-cov here.
             pytest tests/integration -v --no-cov -m integration
@@ -262,7 +264,7 @@ jobs:
       - name: Upload integration coverage data
         if: |
           matrix.os == 'ubuntu-latest' &&
-          matrix.python-version == '3.10'
+          matrix.python-version == '3.13'
         uses: actions/upload-artifact@v4
         with:
           name: coverage-data-integration
@@ -273,9 +275,15 @@ jobs:
           retention-days: 1
           include-hidden-files: true
 
+  e2e-tests:
+    uses: ./.github/workflows/_e2e-job.yml
+    with:
+      test_marker: 'integration'
+    secrets: inherit
+
   coverage-report:
     name: Coverage Report
-    needs: [unit-tests, contract-tests, integrated-tests]
+    needs: [unit-tests, contract-tests, integrated-tests, e2e-tests]
     if: always()
     continue-on-error: true
     runs-on: ubuntu-latest
@@ -313,10 +321,15 @@ jobs:
       - name: Combine all coverage data
         shell: bash
         run: |
-          coverage combine \
-            .coverage.unit .coverage.contract .coverage.integration
-          # Tolerate fail-under (exit 2): combined number is what matters
-          # and reflected in the summary regardless.
+          COMBINE_ARGS=""
+          for f in .coverage.unit .coverage.contract .coverage.integration .coverage.e2e; do
+            [ -f "$f" ] && COMBINE_ARGS="$COMBINE_ARGS $f"
+          done
+          if [ -z "$COMBINE_ARGS" ]; then
+            echo "No coverage data files found"
+            exit 0
+          fi
+          coverage combine $COMBINE_ARGS
           coverage xml -o coverage.combined.xml || [ "$?" -eq 2 ]
           coverage html -d htmlcov-combined || [ "$?" -eq 2 ]
           echo "Combined coverage report:"
@@ -338,10 +351,12 @@ jobs:
           UNIT=$(get_pct coverage.unit.xml)
           CONTRACT=$(get_pct coverage.contract.xml)
           INTEGRATION=$(get_pct coverage.integration.xml)
+          E2E=$(get_pct coverage.e2e.xml)
           COMBINED=$(get_pct coverage.combined.xml)
           echo "UNIT=${UNIT:-n/a}"
           echo "CONTRACT=${CONTRACT:-n/a}"
           echo "INTEGRATION=${INTEGRATION:-n/a}"
+          echo "E2E=${E2E:-n/a}"
           echo "COMBINED=${COMBINED:-n/a}"
 
           {
@@ -352,12 +367,14 @@ jobs:
             echo "| Unit        | ${UNIT:-n/a}% |"
             echo "| Contract    | ${CONTRACT:-n/a}% |"
             echo "| Integration | ${INTEGRATION:-n/a}% |"
+            echo "| E2E         | ${E2E:-n/a}% |"
             echo "| **Combined** | **${COMBINED:-n/a}%** |"
             echo ""
-            echo "> Combined = \`coverage combine\` of unit + contract + integration (subprocess mode)."
+            echo "> Combined = \`coverage combine\` of unit + contract + integration + E2E."
             echo "> Integration ran the full \`-m integration\` sweep (p0 + p1 + p2)."
-            echo "> HTML reports under workflow artifact \`coverage-reports\` (\`htmlcov-combined\` / \`htmlcov-integration\`)."
-            echo "> Coverage is collected only on the ubuntu/py3.10 matrix entry; other matrix entries verify cross-platform compatibility without the tracer overhead."
+            echo "> E2E ran the full Playwright suite against a live backend."
+            echo "> HTML reports under workflow artifact \`coverage-reports\` (\`htmlcov-combined\` / \`htmlcov-integration\` / \`htmlcov-e2e\`)."
+            echo "> Coverage is collected only on the ubuntu/py3.13 matrix entry; other matrix entries verify cross-platform compatibility without the tracer overhead."
           } > coverage_summary.md
 
           cat coverage_summary.md >> "$GITHUB_STEP_SUMMARY"
@@ -371,14 +388,16 @@ jobs:
             coverage.unit.xml
             coverage.contract.xml
             coverage.integration.xml
+            coverage.e2e.xml
             coverage.combined.xml
             htmlcov-combined/
             htmlcov-integration/
+            htmlcov-e2e/
           retention-days: 14
 
   test-summary:
     name: Test Summary
-    needs: [unit-tests, contract-tests, integrated-tests, coverage-report]
+    needs: [unit-tests, contract-tests, integrated-tests, e2e-tests, coverage-report]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -388,10 +407,12 @@ jobs:
           echo "Unit tests: ${{ needs.unit-tests.result }}"
           echo "Contract tests: ${{ needs.contract-tests.result }}"
           echo "Integrated tests: ${{ needs.integrated-tests.result }}"
+          echo "E2E tests: ${{ needs.e2e-tests.result }}"
 
           if [ "${{ needs.unit-tests.result }}" = "failure" ] || \
              [ "${{ needs.contract-tests.result }}" = "failure" ] || \
-             [ "${{ needs.integrated-tests.result }}" = "failure" ]; then
+             [ "${{ needs.integrated-tests.result }}" = "failure" ] || \
+             [ "${{ needs.e2e-tests.result }}" = "failure" ]; then
             echo "❌ Some tests failed"
             exit 1
           else

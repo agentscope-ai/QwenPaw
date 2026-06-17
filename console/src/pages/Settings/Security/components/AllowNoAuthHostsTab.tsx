@@ -112,7 +112,7 @@ export function AllowNoAuthHostsTab({ onSave }: AllowNoAuthHostsTabProps = {}) {
       dataIndex: "host",
       key: "host",
       render: (host: string) => (
-        <Space>
+        <Space className={styles.hostRow}>
           <Shield size={16} style={{ color: "#52c41a" }} />
           <code style={{ fontSize: "13px" }}>{host}</code>
           {isDefaultHost(host) && (

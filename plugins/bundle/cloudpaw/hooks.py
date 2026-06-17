@@ -2,6 +2,7 @@
 # pylint: disable=protected-access
 """Monkey-patch hooks for tools, prompts, and mission mode."""
 
+import json
 import logging
 import os
 import shutil
@@ -14,7 +15,9 @@ from .constants import (
     PLUGIN_DIR,
 )
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("qwenpaw").getChild(
+    __name__.replace("plugin_cloudpaw.", ""),
+)
 
 
 # ---------------------------------------------------------------------------
@@ -389,6 +392,38 @@ def setup_tool_and_prompt_hooks() -> (  # pylint: disable=too-many-statements
     _original_create_toolkit = QwenPawAgent._create_toolkit
     _original_build_sys_prompt = QwenPawAgent._build_sys_prompt
 
+    def _build_a2a_agent_section() -> str:
+        """Build a compact list of registered A2A agent aliases.
+
+        Reads only from local config — no HTTP requests.
+        The LLM should call a2a_list() for name/description/skills details.
+        """
+        try:
+            from .tools.a2a_config_helper import load_a2a_agents
+        except ImportError:
+            return ""
+
+        agents_cfg = load_a2a_agents()
+        if not agents_cfg:
+            return ""
+
+        aliases = ", ".join(sorted(agents_cfg.keys()))
+        return (
+            "\n### 已注册的远程 A2A Agent\n\n"
+            f"可用别名：{aliases}\n\n"
+            "调用远程 Agent 前，先调用 `a2a_list()` 查看各 Agent "
+            "的名称、描述和技能列表，再选择合适的 Agent。\n"
+            '使用 `a2a_call(agent_alias="...", message="...")` 调用。'
+        )
+
+    def _render_base_supplement() -> str:
+        """Load and render base supplement with A2A agents injected."""
+        supplement = _load_prompt_file("base_supplement.md")
+        if not supplement:
+            return ""
+        a2a_section = _build_a2a_agent_section()
+        return supplement.replace("{a2a_agents_section}", a2a_section)
+
     def _patched_create_toolkit(self, *args, **kwargs):
         namesake_strategy = kwargs.get("namesake_strategy", "skip")
         toolkit = _original_create_toolkit(
@@ -404,10 +439,10 @@ def setup_tool_and_prompt_hooks() -> (  # pylint: disable=too-many-statements
         )
 
         try:
-            from tools.proposal_choice import (
+            from .tools.proposal_choice import (
                 proposal_choice as _proposal_choice_fn,
             )
-            from tools.manage_prd import (
+            from .tools.manage_prd import (
                 manage_prd as _manage_prd_fn,
             )
 
@@ -440,8 +475,8 @@ def setup_tool_and_prompt_hooks() -> (  # pylint: disable=too-many-statements
         # A2A tools: register for orchestration agent
         if agent_id == BUILTIN_ORCHESTRATION_AGENT_ID:
             try:
-                from tools.a2a_list import a2a_list as _a2a_list_fn
-                from tools.a2a_call import a2a_call as _a2a_call_fn
+                from .tools.a2a_list import a2a_list as _a2a_list_fn
+                from .tools.a2a_call import a2a_call as _a2a_call_fn
 
                 try:
                     toolkit.register_tool_function(
@@ -487,7 +522,7 @@ def setup_tool_and_prompt_hooks() -> (  # pylint: disable=too-many-statements
                 return sys_prompt
 
         if agent_id == BUILTIN_ORCHESTRATION_AGENT_ID:
-            sys_prompt += "\n\n" + _CLOUDPAW_BASE_SUPPLEMENT
+            sys_prompt += "\n\n" + _render_base_supplement()
 
         return sys_prompt
 
@@ -581,8 +616,6 @@ def _try_rewrite_a2a_query(  # pylint: disable=too-many-return-statements
     unknown alias, bad syntax), in which case the control-command path will
     handle it and show an appropriate error or listing.
     """
-    import json as _json
-
     rest = query[len("/a2a") :].strip()
     if not rest:
         return None
@@ -600,9 +633,9 @@ def _try_rewrite_a2a_query(  # pylint: disable=too-many-return-statements
         return None
 
     try:
-        data = _json.loads(config_path.read_text(encoding="utf-8"))
+        data = json.loads(config_path.read_text(encoding="utf-8"))
         agents_cfg = data.get("agents", {})
-    except (_json.JSONDecodeError, OSError):
+    except (json.JSONDecodeError, OSError):
         return None
 
     if agent_name not in agents_cfg:

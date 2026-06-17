@@ -6,6 +6,7 @@ import {
   Input,
   Empty,
   Tag,
+  Switch,
 } from "@agentscope-ai/design";
 import { Spin } from "antd";
 import type { MCPClientInfo, MCPToolInfo } from "../../../../api/types";
@@ -19,6 +20,7 @@ import {
 } from "@ant-design/icons";
 import { ShieldCheck, ShieldAlert, ShieldX, KeyRound } from "lucide-react";
 import api from "../../../../api";
+import { useAppMessage } from "../../../../hooks/useAppMessage";
 import { MCPOAuthSection } from "./MCPOAuthSection";
 import styles from "../index.module.less";
 
@@ -51,6 +53,7 @@ export const MCPClientCard = React.memo(function MCPClientCard({
   onRefresh,
 }: MCPClientCardProps) {
   const { t } = useTranslation();
+  const { message } = useAppMessage();
   const { isDark } = useTheme();
   const [isHovered, setIsHovered] = useState(false);
   const [jsonModalOpen, setJsonModalOpen] = useState(false);
@@ -59,6 +62,8 @@ export const MCPClientCard = React.memo(function MCPClientCard({
   const [tools, setTools] = useState<MCPToolInfo[]>([]);
   const [toolsLoading, setToolsLoading] = useState(false);
   const [toolsError, setToolsError] = useState<string | null>(null);
+  const [toolsSaving, setToolsSaving] = useState(false);
+  const [toolToggles, setToolToggles] = useState<Record<string, boolean>>({});
   const [editedJson, setEditedJson] = useState("");
   const [isEditing, setIsEditing] = useState(false);
   const [oauthModalOpen, setOauthModalOpen] = useState(false);
@@ -127,9 +132,15 @@ export const MCPClientCard = React.memo(function MCPClientCard({
       setToolsLoading(true);
       setToolsError(null);
       setTools([]);
+      setToolToggles({});
       try {
         const data = await api.listMCPTools(client.key);
         setTools(data);
+        const toggles: Record<string, boolean> = {};
+        data.forEach((tool) => {
+          toggles[tool.name] = tool.enabled;
+        });
+        setToolToggles(toggles);
       } catch (err: any) {
         const msg = err?.message || "";
         if (msg.includes("connecting") || msg.includes("not ready")) {
@@ -143,6 +154,36 @@ export const MCPClientCard = React.memo(function MCPClientCard({
     },
     [client.key, t],
   );
+
+  const handleToolToggle = useCallback((toolName: string, checked: boolean) => {
+    setToolToggles((prev) => ({ ...prev, [toolName]: checked }));
+  }, []);
+
+  const handleSaveToolWhitelist = useCallback(async () => {
+    setToolsSaving(true);
+    try {
+      const allEnabled = Object.values(toolToggles).every((v) => v);
+      const enabledTools = allEnabled
+        ? null
+        : Object.entries(toolToggles)
+            .filter(([, enabled]) => enabled)
+            .map(([name]) => name);
+      const data = await api.updateMCPToolWhitelist(client.key, enabledTools);
+      setTools(data);
+      const toggles: Record<string, boolean> = {};
+      data.forEach((tool) => {
+        toggles[tool.name] = tool.enabled;
+      });
+      setToolToggles(toggles);
+      onRefresh?.();
+    } catch (err: any) {
+      message.error(
+        err?.message || t("mcp.toolsSaveError", "Failed to save tool settings"),
+      );
+    } finally {
+      setToolsSaving(false);
+    }
+  }, [client.key, toolToggles, onRefresh, message, t]);
 
   const clientJson = JSON.stringify(client, null, 2);
 
@@ -303,9 +344,21 @@ export const MCPClientCard = React.memo(function MCPClientCard({
         onCancel={() => setToolsModalOpen(false)}
         footer={
           <div style={{ textAlign: "right" }}>
-            <Button onClick={() => setToolsModalOpen(false)}>
+            <Button
+              onClick={() => setToolsModalOpen(false)}
+              style={{ marginRight: 8 }}
+            >
               {t("common.close")}
             </Button>
+            {tools.length > 0 && (
+              <Button
+                type="primary"
+                onClick={handleSaveToolWhitelist}
+                loading={toolsSaving}
+              >
+                {t("common.save")}
+              </Button>
+            )}
           </div>
         }
         width={700}
@@ -323,7 +376,20 @@ export const MCPClientCard = React.memo(function MCPClientCard({
             {tools.map((tool) => (
               <div key={tool.name} className={styles.toolItem}>
                 <div className={styles.toolHeader}>
-                  <Tag color="blue">{tool.name}</Tag>
+                  <Switch
+                    size="small"
+                    checked={toolToggles[tool.name] ?? tool.enabled}
+                    onChange={(checked) => handleToolToggle(tool.name, checked)}
+                  />
+                  <Tag
+                    color={
+                      toolToggles[tool.name] ?? tool.enabled
+                        ? "blue"
+                        : "default"
+                    }
+                  >
+                    {tool.name}
+                  </Tag>
                 </div>
                 {tool.description && (
                   <p className={styles.toolDescription}>{tool.description}</p>

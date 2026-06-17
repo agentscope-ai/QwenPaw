@@ -35,6 +35,7 @@ logger = logging.getLogger(__name__)
 # ============================================================================
 
 @pytest.mark.integration
+@pytest.mark.requires_llm
 @pytest.mark.p0
 @pytest.mark.chat_core
 class TestNewChatAndBasicQA:
@@ -109,6 +110,7 @@ class TestNewChatAndBasicQA:
 # ============================================================================
 
 @pytest.mark.integration
+@pytest.mark.requires_llm
 @pytest.mark.p0
 @pytest.mark.chat_context
 class TestMultiTurnConversation:
@@ -172,6 +174,7 @@ class TestMultiTurnConversation:
 # ============================================================================
 
 @pytest.mark.integration
+@pytest.mark.requires_llm
 @pytest.mark.p0
 @pytest.mark.chat_file
 class TestFileUploadAndQA:
@@ -236,6 +239,7 @@ class TestFileUploadAndQA:
 # ============================================================================
 
 @pytest.mark.integration
+@pytest.mark.requires_llm
 @pytest.mark.p0
 @pytest.mark.chat_session
 class TestSessionManagement:
@@ -334,6 +338,7 @@ class TestSessionManagement:
 # ============================================================================
 
 @pytest.mark.integration
+@pytest.mark.requires_llm
 @pytest.mark.p1
 @pytest.mark.chat_advanced
 class TestAdvancedFeatures:
@@ -431,6 +436,7 @@ class TestAdvancedFeatures:
 # ============================================================================
 
 @pytest.mark.integration
+@pytest.mark.requires_llm
 @pytest.mark.p2
 @pytest.mark.chat_validation
 class TestInputValidationAndEdgeCases:
@@ -506,6 +512,7 @@ def hello():
 # ============================================================================
 
 @pytest.mark.integration
+@pytest.mark.requires_llm
 @pytest.mark.p1
 @pytest.mark.chat_core
 class TestChatMessageSearch:

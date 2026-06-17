@@ -22,6 +22,7 @@ import {
 } from "./constants";
 import { useTheme } from "../contexts/ThemeContext";
 import { useState, useEffect } from "react";
+import { Slot } from "../plugins/registry/Slot";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import {
@@ -160,11 +161,19 @@ export default function Header() {
     <>
       <AntHeader className={styles.header}>
         <div className={styles.logoWrapper}>
-          <img
-            src={isDark ? "/logo-dark.svg" : "/logo-light.svg"}
-            alt="QwenPaw"
-            className={styles.logoImg}
-          />
+          {/*
+            Slot lets a plugin replace the brand logo (e.g. a per-agent
+            branding override). When no plugin registers a replacement —
+            or when the registered render returns null — the host default
+            <img> below paints.
+          */}
+          <Slot name="header.logo" kind="replace">
+            <img
+              src={isDark ? "/logo-dark.svg" : "/logo-light.svg"}
+              alt="QwenPaw"
+              className={styles.logoImg}
+            />
+          </Slot>
           <div className={styles.logoDivider} />
           {version && (
             <Badge
@@ -185,7 +194,9 @@ export default function Header() {
             </Badge>
           )}
         </div>
+        <Slot name="header.left" kind="fill" />
         <Space size="middle">
+          <Slot name="header.right" kind="fill" />
           <Dropdown
             menu={{
               items: [

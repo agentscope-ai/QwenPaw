@@ -25,7 +25,9 @@ from .gateway_adapter import (
 )
 from .gateway_token import GatewayTokenProvider
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("qwenpaw").getChild(
+    __name__.replace("plugin_cloudpaw.", ""),
+)
 
 _CARD_CACHE_TTL = 3600  # 1 hour
 _DEFAULT_TIMEOUT = 60.0

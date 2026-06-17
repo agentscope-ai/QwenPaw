@@ -24,7 +24,61 @@ const buttonLike = ({
 export const IconButton = buttonLike;
 export const Dropdown = passThrough;
 export const Button = buttonLike;
-export const Input = (props: Record<string, unknown>) =>
-  React.createElement("input", props as any);
+export const Input = Object.assign(
+  (props: Record<string, unknown>) =>
+    React.createElement("input", props as any),
+  {
+    TextArea: (props: Record<string, unknown>) =>
+      React.createElement("textarea", props as any),
+    Search: (props: Record<string, unknown>) =>
+      React.createElement("input", { ...props, type: "search" } as any),
+    Password: (props: Record<string, unknown>) =>
+      React.createElement("input", { ...props, type: "password" } as any),
+    Group: passThrough,
+  },
+);
 
-export default { IconButton, Dropdown, Button, Input };
+export const Switch = ({
+  checked,
+  onChange,
+  ...props
+}: Record<string, unknown>) =>
+  React.createElement("input", {
+    type: "checkbox",
+    role: "switch",
+    checked,
+    onChange: (e: React.ChangeEvent<HTMLInputElement>) =>
+      (onChange as ((v: boolean) => void) | undefined)?.(e.target.checked),
+    ...props,
+  });
+
+export const Modal = Object.assign(passThrough, {
+  confirm: () => {},
+  info: () => {},
+  warning: () => {},
+  error: () => {},
+});
+
+export const Tag = passThrough;
+export const Tooltip = passThrough;
+export const Form = Object.assign(passThrough, {
+  Item: passThrough,
+  useForm: () => [{}],
+});
+export const InputNumber = (props: Record<string, unknown>) =>
+  React.createElement("input", { type: "number", ...props } as any);
+export const Spin = passThrough;
+
+export default {
+  IconButton,
+  Dropdown,
+  Button,
+  Input,
+  Switch,
+  Modal,
+  Tag,
+  Tooltip,
+  Form,
+  InputNumber,
+  Spin,
+};

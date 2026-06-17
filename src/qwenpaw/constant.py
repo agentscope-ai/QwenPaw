@@ -110,6 +110,9 @@ SECRET_DIR = (
     .resolve()
 )
 
+# Env key for overriding the OS keychain account used for the master key.
+KEYRING_ACCOUNT_ENV = "QWENPAW_KEYRING_ACCOUNT"
+
 PROJECT_NAME = "QwenPaw"
 
 # Subdirectory name inside each agent's workspace that holds cloned / imported

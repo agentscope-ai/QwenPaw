@@ -128,6 +128,12 @@ def main() -> int:
                 "-n",
                 env_name,
                 f"python={args.python}",
+                # OpenSSL 3.5.7 has a regression (upstream commit 738688d76206
+                # reworking asn1_d2i_read_bio) that breaks
+                # ssl.SSLContext.load_verify_locations(cadata=<DER>), which
+                # _load_windows_store_certs relies on. aiohttp then fails at
+                # import time and the desktop backend never starts. See #5086.
+                "openssl<3.5.7",
                 "pip",
                 "-y",
             ],

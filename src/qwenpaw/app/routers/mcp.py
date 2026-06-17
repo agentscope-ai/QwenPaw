@@ -61,6 +61,11 @@ class MCPClientInfo(BaseModel):
         default="",
         description="Working directory for stdio MCP command",
     )
+    tools: Optional[List[str]] = Field(
+        default=None,
+        description="Tool whitelist. Only listed tools will be loaded. "
+        "None means load all tools.",
+    )
     oauth_status: Optional[MCPClientOAuthStatus] = Field(
         default=None,
         description="OAuth token status (None if OAuth not configured)",
@@ -104,6 +109,11 @@ class MCPClientCreateRequest(BaseModel):
         default="",
         description="Working directory for stdio MCP command",
     )
+    tools: Optional[List[str]] = Field(
+        default=None,
+        description="Tool whitelist. Only listed tools will be loaded. "
+        "None means load all tools.",
+    )
 
 
 class MCPClientUpdateRequest(BaseModel):
@@ -142,6 +152,11 @@ class MCPClientUpdateRequest(BaseModel):
     cwd: Optional[str] = Field(
         None,
         description="Working directory for stdio MCP command",
+    )
+    tools: Optional[List[str]] = Field(
+        None,
+        description="Tool whitelist (omit field to leave unchanged). "
+        "Use PUT /mcp/tools/{key} to set or clear the whitelist.",
     )
 
 
@@ -237,6 +252,7 @@ def _build_client_info(key: str, client: MCPClientConfig) -> MCPClientInfo:
         args=client.args,
         env=masked_env,
         cwd=client.cwd,
+        tools=client.tools,
         oauth_status=_build_oauth_status(client),
     )
 
@@ -261,6 +277,10 @@ class MCPToolInfo(BaseModel):
 
     name: str = Field(..., description="Tool name")
     description: str = Field(default="", description="Tool description")
+    enabled: bool = Field(
+        default=True,
+        description="Whether this tool is enabled (passes the whitelist)",
+    )
     input_schema: Dict[str, Any] = Field(
         default_factory=dict,
         description="JSON Schema for the tool's input parameters",
@@ -308,7 +328,7 @@ async def list_mcp_tools(
         )
 
     try:
-        tools = await client.list_tools()
+        tools = await client.list_all_tools()
     except Exception as e:
         logger.warning(
             f"Failed to list tools for MCP client '{client_key}': {e}",
@@ -318,10 +338,94 @@ async def list_mcp_tools(
             detail=f"Failed to query tools from MCP server: {e}",
         ) from e
 
+    whitelist = client_config.tools
+    whitelist_set = set(whitelist) if whitelist is not None else None
+
     return [
         MCPToolInfo(
             name=t.name,
             description=getattr(t, "description", "") or "",
+            enabled=whitelist_set is None or t.name in whitelist_set,
+            input_schema=getattr(t, "inputSchema", {}) or {},
+        )
+        for t in tools
+    ]
+
+
+class MCPToolWhitelistRequest(BaseModel):
+    """Request body for updating tool whitelist."""
+
+    tools: Optional[List[str]] = Field(
+        default=None,
+        description="List of tool names to enable. "
+        "None means enable all tools (remove whitelist).",
+    )
+
+
+@router.put(
+    "/tools/{client_key:path}",
+    response_model=List[MCPToolInfo],
+    summary="Update tool whitelist for an MCP client",
+)
+async def update_mcp_tool_whitelist(
+    request: Request,
+    client_key: str = Path(...),
+    body: MCPToolWhitelistRequest = Body(...),
+) -> List[MCPToolInfo]:
+    """Update which tools are enabled for an MCP client.
+
+    Pass a list of tool names to enable only those tools (whitelist),
+    or None to remove the whitelist and enable all tools.
+    Returns the updated tool list with enabled status.
+    """
+    from ..agent_context import get_agent_for_request
+    from ...config.config import save_agent_config
+
+    agent = await get_agent_for_request(request)
+
+    mcp_config = agent.config.mcp
+    if mcp_config is None or client_key not in (mcp_config.clients or {}):
+        raise HTTPException(404, detail=f"MCP client '{client_key}' not found")
+
+    client_config = mcp_config.clients[client_key]
+    client_config.tools = body.tools
+    save_agent_config(agent.agent_id, agent.config)
+
+    # Hot-patch the running client's whitelist without a full reconnect.
+    # The config watcher will also detect this change and call
+    # _hot_patch_whitelist ~2s later — that's intentionally idempotent.
+    # We patch here for immediate effect.
+    mcp_manager = agent.mcp_manager
+    if mcp_manager is None:
+        raise HTTPException(
+            503,
+            detail="Tool whitelist saved, but MCP manager is not ready. "
+            "Changes will take effect once the server connects.",
+        )
+
+    client = await mcp_manager.get_client(client_key)
+    if client is None or not getattr(client, "is_connected", False):
+        raise HTTPException(
+            503,
+            detail="Tool whitelist saved, but MCP server is not connected. "
+            "Changes will take effect once the server reconnects.",
+        )
+
+    new_whitelist = set(body.tools) if body.tools is not None else None
+    # pylint: disable=protected-access
+    client._tool_whitelist = new_whitelist
+    client._cached_tools = None
+
+    try:
+        tools = await client.list_all_tools()
+    except Exception:
+        return []
+
+    return [
+        MCPToolInfo(
+            name=t.name,
+            description=getattr(t, "description", "") or "",
+            enabled=new_whitelist is None or t.name in new_whitelist,
             input_schema=getattr(t, "inputSchema", {}) or {},
         )
         for t in tools
@@ -391,6 +495,7 @@ async def create_mcp_client(
         args=client.args,
         env=client.env,
         cwd=client.cwd,
+        tools=client.tools,
     )
 
     # Add to agent's config and save

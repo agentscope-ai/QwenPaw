@@ -1,0 +1,342 @@
+# Auto-create a Release Duty issue for every published release
+# (pre-release, stable, and post-release).
+# Each platform gets its own assignee from an independent rotation list.
+# Rotation is sequential: index = (number of releases published BEFORE
+# this one) % list length. Stateless — derived from the GitHub Releases API.
+# Supports manual dispatch for testing or re-triggering a missed duty issue.
+
+name: Release Duty Issue
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to create duty issue for (e.g. v1.1.11)"
+        required: true
+        type: string
+      release_type:
+        description: "Override release type (leave empty to auto-detect from tag)"
+        required: false
+        type: choice
+        options:
+          - ""
+          - beta
+          - alpha
+          - rc
+          - dev
+          - post
+          - stable
+
+permissions:
+  issues: write
+  contents: read
+
+jobs:
+  create-duty-issue:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Install dependencies
+        run: pip install pyyaml requests
+
+      - name: Classify release type and compute assignees
+        id: meta
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          CURRENT_TAG: >-
+            ${{ github.event_name == 'workflow_dispatch'
+                && github.event.inputs.tag
+                || github.event.release.tag_name }}
+          TYPE_OVERRIDE: ${{ github.event.inputs.release_type || '' }}
+        run: |
+          python - << 'EOF'
+          import os
+          import re
+          import json
+          import yaml
+          import requests
+
+          token = os.environ["GH_TOKEN"]
+          repo = os.environ["REPO"]
+          current_tag = os.environ["CURRENT_TAG"]
+          type_override = os.environ.get("TYPE_OVERRIDE", "").strip()
+
+          # ── Classify release type ────────────────────────────────────────
+          if type_override:
+              release_type = type_override
+          else:
+              tag_lower = current_tag.lower()
+              if re.search(r"beta", tag_lower):
+                  release_type = "beta"
+              elif re.search(r"alpha", tag_lower):
+                  release_type = "alpha"
+              elif re.search(r"rc", tag_lower):
+                  release_type = "rc"
+              elif re.search(r"dev", tag_lower):
+                  release_type = "dev"
+              elif re.search(r"\.post\d*$", tag_lower):
+                  release_type = "post"
+              else:
+                  release_type = "stable"
+
+          print(f"Tag: {current_tag}, Release type: {release_type}")
+
+          # ── Count releases published BEFORE this one (rotation index) ───
+          headers = {"Authorization": f"Bearer {token}"}
+          url = f"https://api.github.com/repos/{repo}/releases"
+          all_releases = []
+          page = 1
+          while True:
+              r = requests.get(
+                  url,
+                  headers=headers,
+                  params={"per_page": 100, "page": page},
+              )
+              r.raise_for_status()
+              batch = r.json()
+              if not batch:
+                  break
+              all_releases.extend(batch)
+              page += 1
+
+          previous = [
+              rel for rel in all_releases
+              if rel["tag_name"] != current_tag
+          ]
+          idx = len(previous)
+          print(f"Previous releases: {idx}, rotation index: {idx}")
+
+          # ── Pick assignees from roster ───────────────────────────────────
+          roster_path = ".github/release-duty-roster.yml"
+          with open(roster_path) as f:
+              roster = yaml.safe_load(f)
+
+          result = {}
+          for platform in ("pypi", "docker", "macos", "windows"):
+              rotation = roster.get(platform, {}).get("rotation", [])
+              if rotation:
+                  slot = idx % len(rotation)
+                  github_user = rotation[slot]
+                  result[platform] = {"github": github_user}
+                  print(f"{platform}: slot={slot}, assignee={github_user}")
+              else:
+                  result[platform] = {"github": ""}
+                  print(f"{platform}: no rotation configured")
+
+          # ── Write outputs ────────────────────────────────────────────────
+          out_path = os.environ["GITHUB_OUTPUT"]
+          with open(out_path, "a") as f:
+              f.write(f"assignees={json.dumps(result)}\n")
+              f.write(f"release_type={release_type}\n")
+          EOF
+
+      - name: Compute deadline (4h from now)
+        id: due
+        run: |
+          due=$(date -u -d '+4 hours' '+%Y-%m-%d %H:%M UTC' 2>/dev/null || \
+                date -u -v+4H '+%Y-%m-%d %H:%M UTC')
+          echo "due=${due}" >> "$GITHUB_OUTPUT"
+
+      - name: Create Duty Issue
+        uses: actions/github-script@v7
+        env:
+          ASSIGNEES_JSON: ${{ steps.meta.outputs.assignees }}
+          RELEASE_TYPE: ${{ steps.meta.outputs.release_type }}
+          DUE_TIME: ${{ steps.due.outputs.due }}
+          INPUT_TAG: >-
+            ${{ github.event_name == 'workflow_dispatch'
+                && github.event.inputs.tag
+                || '' }}
+        with:
+          script: |
+            const isManual = context.eventName === 'workflow_dispatch';
+            let tag, releaseUrl;
+
+            if (isManual) {
+              tag = process.env.INPUT_TAG.trim();
+              // Try to fetch the release URL from the API
+              try {
+                const { data: rel } = await github.rest.repos.getReleaseByTag({
+                  owner: context.repo.owner,
+                  repo:  context.repo.repo,
+                  tag,
+                });
+                releaseUrl = rel.html_url;
+              } catch (_) {
+                releaseUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}/releases/tag/${tag}`;
+              }
+            } else {
+              tag        = context.payload.release.tag_name;
+              releaseUrl = context.payload.release.html_url;
+            }
+
+            const version     = tag.replace(/^v/, '');
+            const dueTime     = process.env.DUE_TIME;
+            const assignees   = JSON.parse(process.env.ASSIGNEES_JSON);
+            const releaseType = process.env.RELEASE_TYPE;
+
+            // Human-readable badge for title / label
+            const typeBadge = {
+              beta:   'Beta',
+              alpha:  'Alpha',
+              rc:     'RC',
+              dev:    'Dev',
+              post:   'Post',
+              stable: 'Stable',
+            }[releaseType] || releaseType;
+
+            const mention = (platform) => {
+              const gh = assignees[platform]?.github;
+              return gh ? `@${gh}` : '_TBD_';
+            };
+
+            const body = `## Release Info
+
+            - **Version:** ${tag}
+            - **Type:** ${typeBadge}
+            - **Release page:** ${releaseUrl}
+            - **Deadline:** ${dueTime} (4 hours after publish)
+
+            ## Pass Criteria
+
+            A platform **passes** only when all four checkpoints are green:
+
+            | Checkpoint | What to verify |
+            |------------|---------------|
+            | Install | Follow docs, exits without error |
+            | Launch | Service / app opens, UI is reachable |
+            | Configure model | Enter API key, select model, save succeeds |
+            | Basic chat | Send a message, receive a non-error reply |
+
+            **Any checkpoint fails → comment with repro steps → label \`installation-bug\` → ping maintainer.**
+
+            ---
+
+            ## PyPI — ${mention('pypi')}
+
+            \`\`\`bash
+            python -m venv /tmp/qwenpaw-test && source /tmp/qwenpaw-test/bin/activate
+            pip install qwenpaw==${version}
+            qwenpaw
+            \`\`\`
+
+            - [ ] Install succeeds (\`pip install\` exits cleanly)
+            - [ ] Launch succeeds (\`qwenpaw\` starts, browser UI reachable)
+            - [ ] Model configured (API key + model saved without error)
+            - [ ] Basic chat works (message sent, normal reply received)
+
+            **Environment:** OS: &nbsp; / Python: &nbsp; / Notes:
+
+            ---
+
+            ## Docker — ${mention('docker')}
+
+            \`\`\`bash
+            docker run --rm -p 7860:7860 agentscope/qwenpaw:${tag}
+            \`\`\`
+
+            - [ ] Image pulled successfully
+            - [ ] Container starts, \`http://localhost:7860\` reachable
+            - [ ] Model configured (API key + model saved without error)
+            - [ ] Basic chat works (message sent, normal reply received)
+
+            **Environment:** OS: &nbsp; / Docker: &nbsp; / Arch (amd64/arm64): &nbsp; / Notes:
+
+            ---
+
+            ## macOS Desktop — ${mention('macos')}
+
+            1. Go to the [Release page](${releaseUrl})
+            2. Download \`QwenPaw-${version}-macOS.zip\`
+            3. Unzip, drag \`QwenPaw.app\` to Applications, launch
+
+            - [ ] Download and unzip succeed
+            - [ ] App launches without crash
+            - [ ] Model configured (API key + model saved without error)
+            - [ ] Basic chat works (message sent, normal reply received)
+
+            **Environment:** macOS version: &nbsp; / Chip (Apple Silicon / Intel): &nbsp; / Notes:
+
+            ---
+
+            ## Windows Desktop — ${mention('windows')}
+
+            1. Go to the [Release page](${releaseUrl})
+            2. Download \`QwenPaw-Setup-${version}.exe\`
+            3. Run the installer, follow the wizard, launch QwenPaw
+
+            - [ ] Installer runs without error
+            - [ ] App launches without crash
+            - [ ] Model configured (API key + model saved without error)
+            - [ ] Basic chat works (message sent, normal reply received)
+
+            **Environment:** Windows version: &nbsp; / Notes:
+
+            ---
+
+            ## Summary
+
+            | Platform | Result | Assignee |
+            |----------|--------|----------|
+            | PyPI | ⬜ PENDING | ${mention('pypi')} |
+            | Docker | ⬜ PENDING | ${mention('docker')} |
+            | macOS Desktop | ⬜ PENDING | ${mention('macos')} |
+            | Windows Desktop | ⬜ PENDING | ${mention('windows')} |
+
+            **All PASS** → close this issue with label \`verified\`. Release proceeds normally.
+
+            **Any FAIL** → comment with repro steps + logs, add label \`installation-bug\`, ping maintainer to decide whether to block the release announcement.
+            `;
+
+            // Create issue first (without assignees to avoid 422 on
+            // repos where roster members aren't collaborators)
+            const { data: issue } = await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo:  context.repo.repo,
+              title: `[Release Duty] QwenPaw ${tag} (${typeBadge}) — Installation Verification`,
+              body:  body,
+              labels: ['release-duty', releaseType === 'stable' || releaseType === 'post'
+                ? 'stable'
+                : 'pre-release'],
+            });
+            console.log(
+              `Created duty issue #${issue.number}: ${issue.html_url}`
+            );
+
+            // Try to assign platform owners; log warning if any aren't
+            // collaborators (the @mentions in the body still notify them)
+            const assigneeSet = [...new Set(
+              Object.values(assignees).map(a => a.github).filter(Boolean)
+            )];
+            if (assigneeSet.length > 0) {
+              try {
+                await github.rest.issues.addAssignees({
+                  owner:      context.repo.owner,
+                  repo:       context.repo.repo,
+                  issue_number: issue.number,
+                  assignees:  assigneeSet,
+                });
+                console.log(`Assigned: ${assigneeSet.join(', ')}`);
+              } catch (err) {
+                core.warning(
+                  `Could not assign ${assigneeSet.join(', ')}: ${err.message}. ` +
+                  `They are still @mentioned in the issue body.`
+                );
+              }
+            }
+
+            core.summary.addRaw(
+              `Created [Release Duty Issue #${issue.number}](${issue.html_url})`
+            );
+            await core.summary.write();

@@ -284,6 +284,48 @@ class AppServer:
         return response
 
 
+@pytest.fixture(scope="session", autouse=True)
+def channel_callback_server():
+    """Start a lightweight HTTP server for custom channel outbound.
+
+    Sets ``TEST_CHANNEL_CALLBACK_URL`` in ``os.environ`` so every
+    ``app_server`` subprocess inherits it. Tests that need to
+    inspect recorded payloads request this fixture by name.
+    """
+    from http.server import BaseHTTPRequestHandler, HTTPServer
+    import json as _json  # pylint: disable=reimported
+
+    class _Handler(BaseHTTPRequestHandler):
+        def do_POST(self):  # noqa: N802
+            length = int(self.headers.get("Content-Length", 0))
+            body = self.rfile.read(length) if length else b""
+            try:
+                payload = _json.loads(body)
+            except (ValueError, UnicodeDecodeError):
+                payload = {
+                    "raw": body.decode("utf-8", errors="replace"),
+                }
+            self.server.recorded.append(payload)
+            self.send_response(200)
+            self.end_headers()
+            self.wfile.write(b'{"ok":true}')
+
+        def log_message(self, fmt, *args):
+            pass
+
+    srv = HTTPServer(("127.0.0.1", 0), _Handler)
+    srv.recorded = []
+    port = srv.server_address[1]
+    t = threading.Thread(target=srv.serve_forever, daemon=True)
+    t.start()
+    os.environ[
+        "TEST_CHANNEL_CALLBACK_URL"
+    ] = f"http://127.0.0.1:{port}/callback"
+    yield srv
+    os.environ.pop("TEST_CHANNEL_CALLBACK_URL", None)
+    srv.shutdown()
+
+
 @pytest.fixture(scope="module")
 def app_server(  # pylint: disable=too-many-statements,too-many-branches
     tmp_path_factory: pytest.TempPathFactory,
@@ -306,6 +348,14 @@ def app_server(  # pylint: disable=too-many-statements,too-many-branches
     secret_dir.mkdir(parents=True, exist_ok=True)
     backups_dir.mkdir(parents=True, exist_ok=True)
 
+    custom_channels_src = Path(__file__).parent / "_custom_channels"
+    if custom_channels_src.is_dir():
+        custom_channels_dst = working_dir / "custom_channels"
+        custom_channels_dst.mkdir(parents=True, exist_ok=True)
+        for src_file in custom_channels_src.iterdir():
+            if src_file.suffix == ".py":
+                shutil.copy2(src_file, custom_channels_dst / src_file.name)
+
     env = os.environ.copy()
     for key in _SENSITIVE_ENV_VARS:
         env.pop(key, None)
@@ -314,6 +364,10 @@ def app_server(  # pylint: disable=too-many-statements,too-many-branches
     env["QWENPAW_SECRET_DIR"] = str(secret_dir)
     env["QWENPAW_BACKUP_DIR"] = str(backups_dir)
     env["QWENPAW_AUTH_ENABLED"] = "false"
+    env["QWENPAW_UPLOAD_MAX_SIZE_MB"] = "10"
+    callback_url = os.environ.get("TEST_CHANNEL_CALLBACK_URL")
+    if callback_url:
+        env["TEST_CHANNEL_CALLBACK_URL"] = callback_url
     env["NO_PROXY"] = "*"
     env["PYTHONUNBUFFERED"] = "1"
     # Force UTF-8 stdio in the subprocess so non-ASCII log lines (e.g.
@@ -369,10 +423,10 @@ def app_server(  # pylint: disable=too-many-statements,too-many-branches
         )
         log_thread.start()
 
-        # 15s default lets cold-start endpoints (ACP getter, heartbeat)
-        # finish without hiding real deadlocks; 30s in coverage mode
-        # for tracer overhead.
-        http_timeout = 30.0 if _integration_coverage_requested() else 15.0
+        # 30s lets cold-start endpoints (ACP getter, heartbeat) and
+        # agent creation (workspace init) finish on slower runners
+        # (Windows CI ~50% slower) without hiding real deadlocks.
+        http_timeout = 30.0
         client = httpx.Client(timeout=http_timeout, trust_env=False)
 
         try:

@@ -39,6 +39,18 @@
     }
   }
 
+  /* Wide mode: widen bubble list and sender while keeping spacing */
+  &.wideMode :global {
+    .qwenpaw-bubble-list {
+      max-width: calc(100% - 48px) !important;
+    }
+
+    .qwenpaw-sender,
+    [class*="sender-content"] {
+      max-width: calc(100% - 48px) !important;
+    }
+  }
+
   /* Custom scrollbar */
   &::-webkit-scrollbar {
     width: 8px;
@@ -82,15 +94,28 @@
   align-items: flex-start;
   gap: 12px;
   min-width: 0;
-  width: 100%;
+  width: min(520px, calc(100vw - 48px));
+  max-width: 100%;
   line-height: 1.4;
+}
+
+.suggestionLabelCompact {
+  width: auto;
 }
 
 .suggestionCommand {
   flex: 0 0 88px;
+  min-width: 0;
   color: #ff7f16;
   font-weight: 600;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.suggestionLabelCompact .suggestionCommand {
+  flex-basis: auto;
+  max-width: min(320px, calc(100vw - 96px));
 }
 
 .suggestionDescription {
@@ -101,6 +126,19 @@
   overflow: hidden;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
+}
+
+:global {
+  .qwenpaw-suggestion .qwenpaw-cascader-menu,
+  .qwenpaw-suggestion .ant-cascader-menu,
+  .ant-cascader-dropdown.qwenpaw-suggestion .qwenpaw-cascader-menu,
+  .ant-cascader-dropdown.qwenpaw-suggestion .ant-cascader-menu {
+    height: auto !important;
+    max-height: 210px;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-width: thin;
+  }
 }
 
 :global(.dark-mode) {
@@ -156,5 +194,42 @@
   .chatDisabledOverlay :global(textarea),
   .chatDisabledOverlay :global(input[type="text"]) {
     background-color: #2a2a2a !important;
+  }
+}
+
+/* ---- Rate-limit guidance banner ---- */
+.rateLimitBanner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  background: rgba(250, 173, 20, 0.08);
+  border-top: 1px solid rgba(250, 173, 20, 0.2);
+  flex-shrink: 0;
+  flex-wrap: wrap;
+}
+
+.rateLimitText {
+  font-size: 13px;
+  color: #d48806;
+  flex: 1;
+  min-width: 120px;
+}
+
+.rateLimitActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+:global(.dark-mode) {
+  .rateLimitBanner {
+    background: rgba(250, 173, 20, 0.06);
+    border-top-color: rgba(250, 173, 20, 0.15);
+  }
+
+  .rateLimitText {
+    color: #ffc53d;
   }
 }

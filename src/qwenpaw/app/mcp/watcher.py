@@ -255,7 +255,10 @@ class MCPConfigWatcher:
 
         # Client enabled: check if config changed
         if old_cfg != new_cfg:
-            await self._reload_single_client(key, new_cfg)
+            if self._only_tools_changed(old_cfg, new_cfg):
+                await self._hot_patch_whitelist(key, new_cfg)
+            else:
+                await self._reload_single_client(key, new_cfg)
 
     async def _reload_single_client(self, key: str, new_cfg) -> None:
         """Reload a single client with retry tracking."""
@@ -314,6 +317,31 @@ class MCPConfigWatcher:
                 f"client '{key}' "
                 f"(attempt {new_count}/{self._max_retries})",
             )
+
+    @staticmethod
+    def _only_tools_changed(old_cfg, new_cfg) -> bool:
+        """Return True if only the ``tools`` field differs between configs."""
+        old_dump = old_cfg.model_dump(mode="json")
+        new_dump = new_cfg.model_dump(mode="json")
+        old_dump.pop("tools", None)
+        new_dump.pop("tools", None)
+        return old_dump == new_dump
+
+    async def _hot_patch_whitelist(self, key: str, new_cfg) -> None:
+        """Update running client's tool whitelist without reconnecting."""
+        client = await self._mcp_manager.get_client(key)
+        if client is None:
+            return
+        new_whitelist = (
+            set(new_cfg.tools) if new_cfg.tools is not None else None
+        )
+        # pylint: disable=protected-access
+        client._tool_whitelist = new_whitelist
+        client._cached_tools = None
+        logger.debug(
+            "MCPConfigWatcher: hot-patched tool whitelist for '%s'",
+            key,
+        )
 
     async def _handle_client_removal(self, key: str) -> None:
         """Handle removal of a client from config."""

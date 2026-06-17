@@ -47,6 +47,9 @@ def test_global_heartbeat_put_get_roundtrip(app_server) -> None:
         assert get_after.status_code == 200, app_server.logs_tail()
         after = get_after.json()
         assert after.get("enabled") == updated["enabled"]
+        for k, v in before.items():
+            if k != "enabled":
+                assert after.get(k) == v, f"side-effect on {k}"
     finally:
         restore_resp = app_server.api_request(
             "PUT",
@@ -192,7 +195,11 @@ def test_agent_scoped_heartbeat_put_get_roundtrip(app_server) -> None:
 
         get_after = app_server.api_request("GET", endpoint)
         assert get_after.status_code == 200, app_server.logs_tail()
-        assert get_after.json().get("enabled") == updated["enabled"]
+        after = get_after.json()
+        assert after.get("enabled") == updated["enabled"]
+        for k, v in baseline.items():
+            if k != "enabled":
+                assert after.get(k) == v, f"side-effect on {k}"
     finally:
         if isinstance(baseline, dict):
             restore = app_server.api_request("PUT", endpoint, json=baseline)

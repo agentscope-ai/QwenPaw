@@ -15,10 +15,12 @@ from .registry import (
     resolve_effective_skills,
 )
 from .store import (
+    get_skill_pool_dirs,
     get_skill_pool_dir,
     get_workspace_skills_dir,
     read_skill_manifest,
     read_skill_pool_manifest,
+    resolve_pool_skill_dir,
 )
 from .workspace_service import SkillService
 
@@ -30,11 +32,13 @@ __all__ = [
     "apply_skill_config_env_overrides",
     "ensure_skill_pool_initialized",
     "ensure_skills_initialized",
+    "get_skill_pool_dirs",
     "get_skill_pool_dir",
     "get_workspace_skills_dir",
     "read_skill_manifest",
     "read_skill_pool_manifest",
     "reconcile_pool_manifest",
+    "resolve_pool_skill_dir",
     "reconcile_workspace_manifest",
     "resolve_effective_skills",
 ]

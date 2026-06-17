@@ -8,6 +8,7 @@ with integrated tools, skills, and memory management.
 from __future__ import annotations
 
 import asyncio
+import inspect
 import logging
 import os
 from pathlib import Path
@@ -55,6 +56,7 @@ from .tools import (
     list_agents,
     materialize_skill,
     read_file,
+    run_tool_batch,
     send_file_to_user,
     set_user_timezone,
     view_image,
@@ -270,9 +272,11 @@ class QwenPawAgent(CodingModeMixin, ToolGuardMixin, ReActAgent):
                     "delegate_external_agent",
                 }
                 async_execution_tools = {
-                    name: builtin_tools.get(name).async_execution
-                    if name in builtin_tools
-                    else False
+                    name: (
+                        builtin_tools.get(name).async_execution
+                        if name in builtin_tools
+                        else False
+                    )
                     for name in async_capable_tool_names
                 }
         except Exception as e:
@@ -303,6 +307,7 @@ class QwenPawAgent(CodingModeMixin, ToolGuardMixin, ReActAgent):
             "submit_to_agent": submit_to_agent,
             "check_agent_task": check_agent_task,
             "spawn_subagent": spawn_subagent,
+            "run_tool_batch": run_tool_batch,
             # Register only when the `make-skill` skill is enabled.
             **(
                 {"materialize_skill": materialize_skill}
@@ -468,15 +473,17 @@ class QwenPawAgent(CodingModeMixin, ToolGuardMixin, ReActAgent):
         )
         logger.debug("System prompt:\n%s...", sys_prompt[:100])
 
-        # Inject multimodal capability awareness
-        multimodal_hint = build_multimodal_hint()
-        if multimodal_hint:
-            sys_prompt = sys_prompt + "\n\n" + multimodal_hint
+        from .prompt_builder import PromptBuilder
+        from ..plugins.registry import PluginRegistry
 
-        if self._env_context is not None:
-            sys_prompt = sys_prompt + "\n\n" + self._env_context
-
-        return sys_prompt
+        builder = PromptBuilder(PluginRegistry())
+        return builder.build(
+            agent=self,
+            agent_id=agent_id,
+            workspace=sys_prompt,
+            multimodal=build_multimodal_hint() or "",
+            env_context=self._env_context or "",
+        )
 
     def _register_hooks(self) -> None:
         """Register pre-reasoning and pre-acting hooks."""
@@ -779,58 +786,70 @@ class QwenPawAgent(CodingModeMixin, ToolGuardMixin, ReActAgent):
     async def _acting(self, tool_call) -> dict | None:
         """Check plan tool gate before delegating to ToolGuardMixin."""
         from ..plan.hints import check_plan_tool_gate
+        from ..observability.langfuse import tool_span
 
         tool_name = str(tool_call.get("name", ""))
 
-        if tool_name in self._PLAN_TOOLS_WITH_JSON_ARGS:
-            self._fix_stringified_json_args(tool_call)
+        async with tool_span(
+            name=tool_name or "unknown",
+            input=tool_call.get("input"),
+            metadata={"tool_call_id": tool_call.get("id")},
+        ) as langfuse_span:
+            if tool_name in self._PLAN_TOOLS_WITH_JSON_ARGS:
+                self._fix_stringified_json_args(tool_call)
 
-        nb = getattr(self, "plan_notebook", None)
+            nb = getattr(self, "plan_notebook", None)
 
-        # Pre-lock BEFORE executing create_plan / revise_current_plan so that
-        # parallel tool calls (asyncio.gather) cannot slip an execution
-        # tool past the gate before the lock is set.
-        # pylint: disable=protected-access
-        if nb is not None and tool_name in {
-            "create_plan",
-            "revise_current_plan",
-        }:
-            nb._plan_awaiting_user_confirm = True
-
-        if nb is not None:
-            err = check_plan_tool_gate(nb, tool_name)
-            if err:
-                from agentscope.message import ToolResultBlock
-
-                tool_res_msg = Msg(
-                    "system",
-                    [
-                        ToolResultBlock(
-                            type="tool_result",
-                            id=tool_call["id"],
-                            name=tool_name,
-                            output=[{"type": "text", "text": err}],
-                        ),
-                    ],
-                    "system",
-                )
-                await self.print(tool_res_msg, True)
-                await self.memory.add(tool_res_msg)
-                return None
-
-        result = await super()._acting(tool_call)
-
-        if nb is not None and tool_name in {
-            "create_plan",
-            "revise_current_plan",
-        }:
-            # Force the next post-plan reasoning pass to be text-only.  This
-            # prevents models from emitting other tools in the same turn
-            # run before the user has confirmed the plan or modified it.
+            # Pre-lock BEFORE executing create_plan / revise_current_plan so
+            # that parallel tool calls (asyncio.gather) cannot slip an
+            # execution tool past the gate before the lock is set.
             # pylint: disable=protected-access
-            nb._plan_text_only_after_mutation = True
+            if nb is not None and tool_name in {
+                "create_plan",
+                "revise_current_plan",
+            }:
+                nb._plan_awaiting_user_confirm = True
 
-        return result
+            if nb is not None:
+                err = check_plan_tool_gate(nb, tool_name)
+                if err:
+                    from agentscope.message import ToolResultBlock
+
+                    tool_res_msg = Msg(
+                        "system",
+                        [
+                            ToolResultBlock(
+                                type="tool_result",
+                                id=tool_call["id"],
+                                name=tool_name,
+                                output=[{"type": "text", "text": err}],
+                            ),
+                        ],
+                        "system",
+                    )
+                    await self.print(tool_res_msg, True)
+                    await self.memory.add(tool_res_msg)
+                    if langfuse_span is not None:
+                        langfuse_span.update(output={"blocked": err})
+                    return None
+
+            result = await super()._acting(tool_call)
+
+            if langfuse_span is not None:
+                langfuse_span.update(output=result)
+
+            if nb is not None and tool_name in {
+                "create_plan",
+                "revise_current_plan",
+            }:
+                # Force the next post-plan reasoning pass to be text-only.
+                # This prevents models from emitting other tools in the same
+                # turn run before the user has confirmed the plan or modified
+                # it.
+                # pylint: disable=protected-access
+                nb._plan_text_only_after_mutation = True
+
+            return result
 
     _AUTO_CONTINUE_MAX_EXTRA = 2
     _AUTO_CONTINUE_TAIL_CHARS = 600
@@ -1421,9 +1440,11 @@ class QwenPawAgent(CodingModeMixin, ToolGuardMixin, ReActAgent):
             set_current_session_id,
             set_current_shell_command_timeout,
             set_current_shell_command_executable,
+            set_current_toolkit,
         )
 
         set_current_workspace_dir(self._workspace_dir)
+        set_current_toolkit(self.toolkit)
         set_current_session_id(
             self._request_context.get("session_id") or None,
         )
@@ -1482,3 +1503,13 @@ class QwenPawAgent(CodingModeMixin, ToolGuardMixin, ReActAgent):
                     "Exception occurred during interrupt cleanup",
                     exc_info=True,
                 )
+
+    async def _broadcast_to_subscribers(self, msg):
+        # agentscope hook wrapper may misidentify an
+        # async bound method as sync, returning an
+        # unawaited coroutine instead of a Msg.
+        if inspect.iscoroutine(msg):
+            msg = await msg
+        elif isinstance(msg, list):
+            msg = [(await m) if inspect.iscoroutine(m) else m for m in msg]
+        await super()._broadcast_to_subscribers(msg)

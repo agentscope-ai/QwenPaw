@@ -27,11 +27,13 @@ export interface ToolGuardConfig {
 export interface FileGuardResponse {
   enabled: boolean;
   paths: string[];
+  allow_preview_outside_workspace: boolean;
 }
 
 export interface FileGuardUpdateBody {
   enabled?: boolean;
   paths?: string[];
+  allow_preview_outside_workspace?: boolean;
 }
 
 // ── Skill Scanner types ────────────────────────────────────────────

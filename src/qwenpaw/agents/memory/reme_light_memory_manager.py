@@ -1,13 +1,16 @@
 # -*- coding: utf-8 -*-
 """ReMeLight-backed memory manager for agents."""
+import asyncio
 import importlib.metadata
 import json
 import logging
 import platform
 import shutil
+import sys
 import uuid
 from datetime import datetime
 from pathlib import Path
+from typing import Any, Optional
 
 from agentscope.agent import ReActAgent
 from agentscope.message import Msg, TextBlock, ToolResultBlock, ToolUseBlock
@@ -33,7 +36,7 @@ from ...constant import EnvVarLoader
 logger = logging.getLogger(__name__)
 
 _REME_STORE_VERSION = "v1"
-_EXPECTED_REME_VERSION = "0.3.1.8"
+_EXPECTED_REME_VERSION = "0.3.1.10"
 # Maximum number of tokens from query splitting
 MAX_QUERY_TOKENS = 50
 
@@ -106,7 +109,8 @@ class ReMeLightMemoryManager(BaseMemoryManager):
             "api_key": self._mask_key(emb_config["api_key"]),
         }
         logger.info(
-            f"Embedding config: {log_cfg}, vector_enabled={vector_enabled}",
+            f"Embedding config: {log_cfg}, "
+            f"vector_enabled={vector_enabled}",
         )
 
         fts_enabled = EnvVarLoader.get_bool("FTS_ENABLED", True)
@@ -123,6 +127,17 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         )
 
         recursive_file_watcher = reme_cfg.recursive_file_watcher
+
+        self._memory_backend = memory_manager_backend
+        self._reme_init_kwargs = {
+            "working_dir": working_dir,
+            "emb_config": emb_config,
+            "store_name": store_name,
+            "vector_enabled": vector_enabled,
+            "fts_enabled": fts_enabled,
+            "effective_rebuild": effective_rebuild,
+            "recursive_file_watcher": recursive_file_watcher,
+        }
 
         self._reme = ReMeLight(
             working_dir=working_dir,
@@ -242,14 +257,103 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         return True
 
     # ------------------------------------------------------------------
+    # chromadb runtime probe
+    # ------------------------------------------------------------------
+
+    _CHROMADB_PROBE_SCRIPT = (
+        "import chromadb; "
+        "c = chromadb.EphemeralClient(); "
+        "c.get_or_create_collection('_probe')"
+    )
+    _CHROMADB_PROBE_TIMEOUT = 15
+
+    @staticmethod
+    async def _probe_chromadb_runtime() -> bool:
+        """Spawn a subprocess to verify chromadb Rust bindings.
+
+        Returns ``True`` when the probe succeeds, ``False`` on
+        crash (SIGSEGV), timeout, or any other failure.
+        """
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                sys.executable,
+                "-c",
+                ReMeLightMemoryManager._CHROMADB_PROBE_SCRIPT,
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            _, stderr = await asyncio.wait_for(
+                proc.communicate(),
+                timeout=(ReMeLightMemoryManager._CHROMADB_PROBE_TIMEOUT),
+            )
+            if proc.returncode != 0:
+                logger.warning(
+                    f"chromadb runtime probe failed "
+                    f"(rc={proc.returncode}): "
+                    f"{stderr.decode(errors='replace').strip()}",
+                )
+            return proc.returncode == 0
+        except asyncio.TimeoutError:
+            logger.warning(
+                "chromadb runtime probe timed out",
+            )
+            try:
+                proc.kill()  # type: ignore[possibly-undefined]
+            except ProcessLookupError:
+                pass
+            return False
+        except Exception as exc:
+            logger.warning(
+                f"chromadb runtime probe error: {exc}",
+            )
+            return False
+
+    def _rebuild_reme_with_local(self) -> None:
+        """Recreate ``self._reme`` with the local backend."""
+        from reme.reme_light import ReMeLight  # noqa: PLC0415
+
+        kw = self._reme_init_kwargs
+        self._memory_backend = "local"
+        self._reme = ReMeLight(
+            working_dir=kw["working_dir"],
+            default_embedding_model_config=kw["emb_config"],
+            default_file_store_config={
+                "backend": "local",
+                "store_name": kw["store_name"],
+                "vector_enabled": kw["vector_enabled"],
+                "fts_enabled": kw["fts_enabled"],
+            },
+            default_file_watcher_config={
+                "rebuild_index_on_start": (kw["effective_rebuild"]),
+                "recursive": kw["recursive_file_watcher"],
+            },
+        )
+
+    # ------------------------------------------------------------------
     # BaseMemoryManager interface
     # ------------------------------------------------------------------
 
     async def start(self):
-        """Start the ReMeLight lifecycle."""
+        """Start the ReMeLight lifecycle.
+
+        When the detected backend is ``chroma``, an async
+        subprocess probe verifies that the Rust native bindings
+        work at runtime.  If the probe fails (e.g. SIGSEGV on
+        macOS), the manager silently downgrades to the ``local``
+        backend so the agent can still start.
+        """
         self._warn_if_version_mismatch()
         if self._reme is None:
             return None
+
+        if self._memory_backend == "chroma":
+            if not await self._probe_chromadb_runtime():
+                logger.warning(
+                    "chromadb Rust bindings unusable, "
+                    "downgrading to local backend",
+                )
+                self._rebuild_reme_with_local()
+
         return await self._reme.start()
 
     async def close(self) -> bool:
@@ -591,15 +695,67 @@ class ReMeLightMemoryManager(BaseMemoryManager):
             if recent_messages:
                 self.add_summarize_task(messages=recent_messages)
 
-    async def dream(self, **kwargs) -> None:
-        """Run one dream-based memory optimization pass."""
+    async def dream(
+        self,
+        *,
+        runner: Any = None,
+        channel_manager: Any = None,
+        agent_id: Optional[str] = None,
+        workspace_dir: Optional[Path] = None,
+        **kwargs,
+    ) -> None:
+        """
+        Run one dream-based memory optimization pass.
+
+        Args:
+            runner: Agent runner instance (typically supplied by the cron
+                callback). Reserved here to mirror ``run_heartbeat_once``'s
+                signature.
+            channel_manager: Optional channel manager. Reserved for future
+                use (e.g. dispatching an optimization summary); accepted
+                here to mirror ``run_heartbeat_once``'s signature.
+            agent_id: Agent ID for loading config. Falls back to
+                ``self.agent_id`` when omitted.
+            workspace_dir: Workspace directory used to locate MEMORY.md
+                and write backups. Required — raises ``ValueError`` when
+                omitted (so a misconfigured cron fails loudly instead of
+                writing to the process CWD).
+        """
+        del runner, channel_manager, kwargs  # mirror run_heartbeat_once
         logger.info("running dream-based memory optimization")
 
-        agent_config = load_agent_config(self.agent_id)
-        light_ctx = agent_config.running.light_context_config
-        chat_model, formatter = create_model_and_formatter(self.agent_id)
+        # Use agent_id if provided, otherwise fall back to instance default
+        if not agent_id:
+            agent_id = self.agent_id
 
-        set_current_workspace_dir(Path(self.working_dir))
+        agent_config = load_agent_config(agent_id)
+        light_ctx = agent_config.running.light_context_config
+        chat_model, formatter = create_model_and_formatter(agent_id)
+
+        # Refuse to run when neither is available — running with
+        # an empty path would silently target the process CWD.
+        if not workspace_dir:
+            raise ValueError(
+                "dream requires a workspace_dir",
+            )
+        workspace_path = Path(workspace_dir)
+
+        # Build a dedicated toolkit for the dream agent so it stays
+        # isolated from self.summary_toolkit (which the summarize path
+        # shares). Decoupling avoids any future tool change on either
+        # side accidentally affecting the other.
+        from qwenpaw.agents.tools import (  # noqa: PLC0415
+            read_file,
+            write_file,
+            edit_file,
+        )
+
+        dream_toolkit = Toolkit()
+        dream_toolkit.register_tool_function(read_file)
+        dream_toolkit.register_tool_function(write_file)
+        dream_toolkit.register_tool_function(edit_file)
+
+        set_current_workspace_dir(workspace_path)
         pruning_cfg = light_ctx.tool_result_pruning_config
         recent_max_bytes = pruning_cfg.pruning_recent_msg_max_bytes
         set_current_recent_max_bytes(recent_max_bytes)
@@ -615,10 +771,10 @@ class ReMeLightMemoryManager(BaseMemoryManager):
             logger.debug("dream optimization skipped: empty query")
             return
 
-        backup_path = Path(self.working_dir).absolute() / "backup"
+        backup_path = workspace_path.absolute() / "backup"
         backup_path.mkdir(parents=True, exist_ok=True)
 
-        memory_file = Path(self.working_dir) / "MEMORY.md"
+        memory_file = workspace_path / "MEMORY.md"
         if memory_file.exists():
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             backup_filename = f"memory_backup_{timestamp}.md"
@@ -636,7 +792,7 @@ class ReMeLightMemoryManager(BaseMemoryManager):
             model=chat_model,
             sys_prompt="You are a Dream Memory Organizer specialized"
             " in optimizing long-term memory files.",
-            toolkit=self.summary_toolkit,
+            toolkit=dream_toolkit,
             formatter=formatter,
         )
         dream_agent.set_console_output_enabled(False)

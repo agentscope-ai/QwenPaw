@@ -1,3 +1,7 @@
 
 # test coverage
 coverage/
+
+# ai related
+.wiki/
+graphify-out/

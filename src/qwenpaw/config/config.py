@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 from pathlib import Path
 from typing import Optional, Union, Dict, List, Literal, Any, Set
@@ -32,6 +33,8 @@ from ..constant import (
     LLM_RATE_LIMIT_PAUSE,
     WORKING_DIR,
 )
+
+logger = logging.getLogger(__name__)
 
 
 # ============================================================================
@@ -243,6 +246,8 @@ class FeishuConfig(BaseChannelConfig):
     domain: 'feishu' for China, 'lark' for international.
     streaming_enabled: enable CardKit streaming card updates for real-time
     typewriter-style text output.
+    share_session_in_group: if True, all group members share one session;
+    if False (default), each member gets an independent session.
     """
 
     app_id: str = ""
@@ -252,6 +257,7 @@ class FeishuConfig(BaseChannelConfig):
     media_dir: Optional[str] = None
     domain: Literal["feishu", "lark"] = "feishu"
     streaming_enabled: bool = False
+    share_session_in_group: bool = False
 
 
 class QQConfig(BaseChannelConfig):
@@ -420,6 +426,7 @@ class YuanbaoConfig(BaseChannelConfig):
     app_secret: str = ""
     api_domain: str = "bot.yuanbao.tencent.com"
     media_dir: Optional[str] = None
+    accept_bot_messages: bool = False
 
 
 class WeChatConfig(BaseChannelConfig):
@@ -1300,6 +1307,11 @@ class MCPClientConfig(BaseModel):
     args: List[str] = Field(default_factory=list)
     env: Dict[str, str] = Field(default_factory=dict)
     cwd: str = ""
+    tools: Optional[List[str]] = Field(
+        default=None,
+        description="Tool whitelist. Only listed tools will be loaded. "
+        "None means load all tools from the server.",
+    )
     oauth: Optional[MCPOAuthConfig] = None
 
     @model_validator(mode="before")
@@ -1722,6 +1734,7 @@ class FileGuardConfig(BaseModel):
 
     enabled: bool = True
     sensitive_files: List[str] = Field(default_factory=list)
+    allow_preview_outside_workspace: bool = True
 
 
 class SkillScannerWhitelistEntry(BaseModel):
@@ -1804,6 +1817,13 @@ class Config(BaseModel):
         default_factory=dict,
         description="Plugin configurations. Key is plugin_id, "
         "value is plugin-specific config dict.",
+    )
+    skill_paths: List[str] = Field(
+        default_factory=list,
+        description="Additional read-only skill pool roots, scanned after "
+        "the primary skill_pool in order. Paths support ~ expansion. "
+        "Skills found here are read-only (no edit/create); they can be "
+        "listed, downloaded to a workspace, and deleted.",
     )
 
 
@@ -2161,6 +2181,19 @@ def migrate_legacy_config_to_multi_agent() -> bool:
     default_workspace = Path(f"{WORKING_DIR}/workspaces/default").expanduser()
     default_workspace.mkdir(parents=True, exist_ok=True)
 
+    # Inherit the global active model so the new agent.json has a valid
+    # active_model pointer from the start (fixes #4937).
+    try:
+        from ..providers import ProviderManager
+
+        global_active_model = ProviderManager.get_instance().get_active_model()
+    except Exception:
+        global_active_model = None
+        logger.info(
+            "Could not resolve global active model during migration; "
+            "agent will be created without active_model.",
+        )
+
     # Create default agent configuration from legacy settings
     default_agent_config = AgentProfileConfig(
         id="default",
@@ -2191,6 +2224,7 @@ def migrate_legacy_config_to_multi_agent() -> bool:
         ),
         tools=config.tools if config.tools else None,
         security=config.security if config.security else None,
+        active_model=global_active_model,
     )
 
     # Save default agent configuration to workspace
@@ -2297,4 +2331,10 @@ def get_model_max_input_length(
                     return model_info.max_input_length
         except Exception:
             pass
+    logger.debug(
+        "Could not resolve max_input_length for agent '%s' "
+        "(active_model=%s), falling back to 128K default.",
+        getattr(agent_config, "id", "?"),
+        agent_config.active_model,
+    )
     return 128 * 1024

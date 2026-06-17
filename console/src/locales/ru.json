@@ -320,6 +320,8 @@
     "broadcast": "Трансляция",
     "broadcastHint": "Транслировать навыки пула во все или выбранные рабочие пространства",
     "refreshHint": "Обновить пул навыков с диска",
+    "deleteExternalConfirm": "Файлы внешнего навыка в {{path}} будут удалены с диска.",
+    "deleteExternalBatchWarning": "Выбранные внешние навыки будут безвозвратно удалены с диска.",
     "broadcastTitle": "Транслировать {{name}}",
     "importBuiltin": "Импорт встроенных",
     "importBuiltinHint": "Импортировать встроенные навыки из исходников в пул",
@@ -783,6 +785,13 @@
     "dingtalkAuthSuccess": "Бот DingTalk создан. Client ID и Client Secret заполнены автоматически.",
     "dingtalkQrcodeFailed": "Не удалось получить QR-код DingTalk. Попробуйте ещё раз.",
     "dingtalkQrcodeExpired": "QR-код истёк. Получите новый.",
+    "qqSetupGuide": "Отсканируйте QR-код с помощью QQ, чтобы авторизовать бота. После сканирования APP ID и Client Secret будут автоматически получены и введены в поле.",
+    "qqScanAuth": "Отсканируйте штрихкод, чтобы авторизовать бота",
+    "qqGetQrcode": "Получить QR-код QQ",
+    "qqScanHint": "Отсканируйте QR-код выше с помощью QQ. После завершения авторизации APP ID и Client Secret будут автоматически введены в поле.",
+    "qqAuthSuccess": "Авторизация бота QQ прошла успешно, APP ID и Client Secret уже введены в поле.",
+    "qqQrcodeFailed": "Не удалось получить QR-код QQ. Попробуйте позже.",
+    "qqQrcodeExpired": "Срок действия QR-кода истек. Пожалуйста, получите новый.",
     "atSenderOnReply": "@ отправителя при ответе",
     "atSenderOnReplyTooltip": "При включении бот будет упоминать отправителя в первом сообщении ответа в групповых чатах. Примечание: в режиме карточек @упоминание работает только для внутренних сотрудников организации.",
     "wecomCancelled": "Авторизация отменена",
@@ -820,8 +829,8 @@
     "wechatQrcodeFailed": "Не удалось получить QR-код, попробуйте снова",
     "wechatLoginSuccess": "Вход через WeChat выполнен, токен заполнен",
     "wechatQrcodeExpired": "QR-код истёк, получите новый",
-    "onebotShareSessionInGroup": "Общий сеанс в группе",
-    "onebotShareSessionInGroupTooltip": "Если включено, все участники группы используют один сеанс разговора. Если выключено, у каждого участника свой сеанс.",
+    "shareSessionInGroup": "Общий контекст в группе",
+    "shareSessionInGroupTooltip": "Если включено, все участники группы используют общий контекст разговора. Если выключено, у каждого участника независимый контекст.",
     "accessControlEnabled": "Контроль доступа",
     "accessControlEnabledTooltip": "При включении только пользователи из белого списка могут взаимодействовать с ботом. Неизвестным пользователям отображается их ID и они добавляются в список ожидания.",
     "accessControlDm": "Контроль доступа в ЛС",
@@ -839,6 +848,7 @@
     "addUser": "Добавить",
     "addUserPlaceholder": "Введите ID пользователя",
     "userId": "ID пользователя",
+    "username": "Имя пользователя",
     "channel": "Канал",
     "firstMessage": "Первое сообщение",
     "time": "Время",
@@ -856,6 +866,7 @@
     "dismissSuccess": "Отклонено",
     "operationFailed": "Операция не удалась",
     "remark": "Примечание",
+    "usernamePlaceholder": "Введите имя пользователя (необязательно)",
     "remarkPlaceholder": "Введите примечание (необязательно)",
     "filterByChannel": "Фильтр по каналу",
     "selectToOperate": "Выберите элементы для операции",
@@ -884,6 +895,7 @@
     "saveSuccess": "Сессия успешно сохранена",
     "saveFailed": "Не удалось сохранить сессию",
     "batchDeleteButton": "Массовое удаление",
+    "filterTitle": "Фильтр по названию",
     "filterUserId": "Фильтр по ID пользователя",
     "filterChannel": "Фильтр по каналу",
     "allChannels": "Все каналы",
@@ -988,11 +1000,29 @@
   "modelSelector": {
     "selectModel": "Выбрать модель",
     "noConfiguredModels": "Нет настроенных моделей",
+    "noFreeModels": "Нет доступных бесплатных моделей",
     "switchFailed": "Не удалось переключить модель",
     "searchModels": "Поиск моделей...",
     "noModelsFound": "Подходящие модели не найдены",
     "free": "Бесплатно",
-    "vision": "Видение"
+    "vision": "Видение",
+    "freeBannerText": "Бесплатные модели могут иметь лимиты использования и работать нестабильно. Подробности уточняйте у провайдера.",
+    "moreProviders": "Больше бесплатных провайдеров (нужен API Key)",
+    "proBannerText": "Показаны модели, настроенные в разделе Настройки.",
+    "connectToUse": "Подключить {{provider}} для бесплатных моделей",
+    "configureApiKey": "Настроить API Key {{provider}} для бесплатных моделей",
+    "configureApiKeyTitle": "Перейти к настройке",
+    "configureApiKeyConfirm": "Вы будете перенаправлены на страницу моделей для настройки API Key {{provider}}. Продолжить?",
+    "goToConfigure": "Перейти",
+    "noModelsDiscovered": "Подключено. Загрузка моделей...",
+    "oauthTitle": "Подключиться к {{provider}}",
+    "oauthDescription": "Откроется новое окно браузера для авторизации доступа к {{provider}}. API-ключ будет сохранён автоматически.",
+    "oauthContinue": "Продолжить",
+    "oauthWaiting": "Ожидание авторизации...",
+    "oauthWaitingDescription": "Пожалуйста, завершите авторизацию в окне браузера.",
+    "oauthConnected": "Успешно подключено к {{provider}}",
+    "oauthFailed": "Авторизация не удалась, попробуйте снова",
+    "viewMore": "Показать ещё ({{count}})"
   },
   "models": {
     "llmConfiguration": "Конфигурация LLM",
@@ -1065,8 +1095,8 @@
     "selectModel": "Выберите модель",
     "llmModelUpdated": "LLM-модель обновлена",
     "failedToSave": "Не удалось сохранить",
-    "freeModelWarningTitle": "Предупреждение о рисках бесплатной модели",
-    "freeModelWarningMessage": "Вы используете бесплатную модель. Возможны риски нестабильной работы и утечки конфиденциальных данных. Подробности смотрите по ссылке ниже:",
+    "freeModelWarningTitle": "Уведомление о бесплатной модели",
+    "freeModelWarningMessage": "Бесплатные модели могут работать нестабильно. Подробности смотрите в условиях провайдера:",
     "freeModelWarningDontShowAgain": "Больше не показывать",
     "saved": "Сохранено",
     "save": "Сохранить",
@@ -1074,6 +1104,7 @@
     "loading": "Загрузка...",
     "retry": "Повторить",
     "notSet": "Не задано",
+    "notRequired": "Не требуется",
     "available": "Доступно",
     "unavailable": "Недоступно",
     "providerAvailable": "Готово (есть модели)",
@@ -1086,6 +1117,12 @@
     "actions": "Действия",
     "custom": "Пользовательский",
     "builtin": "Встроенный",
+    "freeTierGroup": "Бесплатный уровень",
+    "paidGroup": "Платные",
+    "localCustomGroup": "Локальные и пользовательские",
+    "endpointCount": "{{count}} конечных точек",
+    "connect": "OAuth",
+    "saveApiKey": "Сохранить",
     "addProvider": "Добавить провайдера",
     "addProviderTitle": "Добавить пользовательского провайдера",
     "providerIdLabel": "ID провайдера",
@@ -1127,6 +1164,7 @@
     "removeModelConfirm": "Удалить модель «{{name}}» из {{provider}}?",
     "modelRemoved": "Модель «{{name}}» удалена",
     "modelRemoveFailed": "Не удалось удалить модель",
+    "loadMore": "Загрузить ещё ({{count}})",
     "modelsCount": "{{count}} моделей",
     "noModels": "Нет моделей",
     "addModelFirst": "Сначала добавьте модель",
@@ -1576,13 +1614,22 @@
       "title": "Доступна новая версия: v{{version}}",
       "viewReleases": "Открыть релизы",
       "close": "Закрыть"
-    }
+    },
+    "settings": {
+      "language": "Язык",
+      "theme": "Тема",
+      "mode": "Режим"
+    },
+    "simpleMode": "Простой режим",
+    "fullMode": "Полный режим"
   },
   "chat": {
     "modelSelectTooltip": "Выбор модели",
     "newChatTooltip": "Новый чат",
     "searchTooltip": "Поиск во всех чатах",
     "chatHistoryTooltip": "История чатов",
+    "wideModeTooltip": "Широкий режим",
+    "normalModeTooltip": "Обычный режим",
     "allChats": "Все чаты",
     "createNewChat": "Создать новый чат",
     "pinDrawer": "Закрепить",
@@ -1595,6 +1642,7 @@
     "prompt1": "Давайте начнём новое путешествие!",
     "prompt2": "Расскажи мне, какими навыками ты обладаешь?",
     "inputPlaceholder": "\"↑↓\" для навигации по сообщениям · \"/\" для быстрых команд (\"/approve\" или \"/deny\" во время подтверждения)",
+    "emptyOutputError": "Ассистент вернул пустой ответ.",
     "commands": {
       "clear": {
         "description": "Очистить контекст диалога"
@@ -1629,6 +1677,17 @@
       "imageOnlyAccept": "Текущая модель поддерживает только файлы изображений",
       "imageOnlyWarning": "Текущая модель поддерживает только изображения, видео и другие файлы могут быть обработаны некорректно"
     },
+    "rateLimitHit": "Текущая модель ограничена. Попробуйте переключиться на другую бесплатную модель.",
+    "turnUsagePopover": {
+      "ariaLabel": "Показать использование токенов и контекста за ход",
+      "turn": "Этот ход",
+      "turnEstimated": "Этот ход ~",
+      "tok": "tok",
+      "inOut": "in {{inTok}} · out {{outTok}}",
+      "contextLabel": "Окно контекста:"
+    },
+    "rateLimitMessage": "Достигнут лимит запросов. Переключитесь на другую бесплатную модель:",
+    "rateLimitSwitched": "Переключено на {{model}}",
     "speech": {
       "startRecording": "Начать запись голоса (Ctrl+Shift+M)",
       "stopRecording": "Остановить запись (Ctrl+Shift+M)",
@@ -1657,7 +1716,38 @@
       "pin": "Закрепить",
       "unpin": "Открепить",
       "delete": "Удалить"
-    }
+    },
+    "queue": {
+      "title": "Очередь сообщений",
+      "paused": "Приостановлено",
+      "sendFailed": "Ошибка отправки",
+      "resume": "Возобновить очередь",
+      "pause": "Приостановить очередь",
+      "clear": "Очистить очередь",
+      "dragSort": "Перетащите для сортировки",
+      "edit": "Редактировать",
+      "retry": "Повторить",
+      "skip": "Пропустить",
+      "interruptAndSend": "Прервать и отправить",
+      "delete": "Удалить",
+      "file": "Файл",
+      "noChatWarning": "Сначала отправьте сообщение, чтобы создать диалог, прежде чем использовать очередь",
+      "queueFull": "Очередь полна (макс. {{max}} записей). Отправьте или удалите некоторые сообщения",
+      "otherTabOwner": "Этот диалог отправляется из другой вкладки. В этой вкладке можно только добавлять ввод в очередь."
+    },
+    "group": {
+      "pinned": "Закреплённые",
+      "today": "Сегодня",
+      "week": "За 7 дней",
+      "month": "За 30 дней",
+      "older": "Ранее"
+    },
+    "sessionPanel": {
+      "searchConversations": "Поиск…",
+      "noConversations": "Нет диалогов",
+      "loadingConversations": "Загрузка…"
+    },
+    "conversationHistory": "История диалогов"
   },
   "security": {
     "parent": "Настройки",
@@ -1765,7 +1855,9 @@
       "duplicate": "Этот путь уже есть в списке",
       "saveSuccess": "Настройки защиты файлов сохранены",
       "saveFailed": "Не удалось сохранить настройки защиты файлов",
-      "loadFailed": "Не удалось загрузить настройки защиты файлов"
+      "loadFailed": "Не удалось загрузить настройки защиты файлов",
+      "allowPreviewOutsideWorkspace": "Разрешить предпросмотр файлов вне рабочего пространства",
+      "allowPreviewOutsideWorkspaceDesc": "Разрешить предпросмотр файлов за пределами рабочей директории в консоли. Защита конфиденциальных файлов остаётся активной."
     },
     "allowNoAuthHosts": {
       "title": "Хосты без аутентификации",
@@ -2133,7 +2225,18 @@
     "kindBundle": "Пакет",
     "kindTool": "Инструмент",
     "filterByName": "Фильтр по имени",
-    "filterByKind": "Фильтр по типу"
+    "filterByKind": "Фильтр по типу",
+    "marketTitle": "Plugin Market",
+    "marketEmpty": "No plugins found in market",
+    "marketLoadFailed": "Failed to load plugin market",
+    "marketUnavailable": "Plugin Market is currently under maintenance, please try again later",
+    "marketAll": "All",
+    "marketSearch": "Search plugins...",
+    "marketCategory": "Filter by category",
+    "marketSearchResult": "Found {{count}} plugins matching \"{{keyword}}\"",
+    "marketDetails": "Details",
+    "marketDownloads": "Downloads",
+    "marketDeveloper": "Developer"
   },
   "plan": {
     "title": "План",
@@ -2263,9 +2366,12 @@
   },
   "market": {
     "searchPlaceholder": "Поиск навыков по платформам",
+    "categoryAll": "Все",
+    "searchResult": "Найдено навыков по запросу \"{{keyword}}\": {{count}}",
     "providerUnavailable": "Источник недоступен",
     "noResults": "Ничего не найдено",
     "startTyping": "Введите запрос выше, чтобы найти навык в маркете",
+    "browseHint": "Выберите категорию или введите ключевое слово, чтобы просмотреть навыки в {{providers}}",
     "noDescription": "Описание отсутствует",
     "targetPool": "Пул",
     "targetWorkspace": "Рабочее пространство",
@@ -2312,5 +2418,15 @@
     "timeout": "Не удалось запустить сервер за {{seconds}} секунд.",
     "timeoutHint": "Не удалось запустить бэкенд. Повторите попытку или проверьте журналы приложения.",
     "retry": "Повторить"
+  },
+  "preview": {
+    "error": {
+      "SENSITIVE_FILE_BLOCKED": "Этот файл заблокирован защитой файлов (защита конфиденциальных файлов).",
+      "OUTSIDE_WORKSPACE": "Этот файл находится за пределами рабочего пространства. Включите «Разрешить предпросмотр файлов вне рабочего пространства» в Настройки → Безопасность → Защита файлов.",
+      "FORBIDDEN": "Доступ запрещён: недостаточно прав для предпросмотра этого файла.",
+      "NOT_FOUND": "Файл не найден. Возможно, он был перемещён или удалён.",
+      "LOAD_FAILED": "Не удалось загрузить предпросмотр файла.",
+      "LOAD_FAILED_DETAIL": "Не удалось загрузить предпросмотр файла: {{detail}}"
+    }
   }
 }
