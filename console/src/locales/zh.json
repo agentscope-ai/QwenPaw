@@ -3074,6 +3074,10 @@
     "materializeSkillDefault": "创建 技能",
     "shell": "执行 {{command}}",
     "shellDefault": "执行 命令",
+    "runToolBatch": "运行工作流 {{workflow}}",
+    "runToolBatchRunning": "正在运行预存工作流",
+    "runToolBatchProgress": "共 {{count}} 步",
+    "runToolBatchStepCount": "总步骤数：{{count}}",
     "formatTable": {
       "file": "文件",
       "lineNumber": "行号",

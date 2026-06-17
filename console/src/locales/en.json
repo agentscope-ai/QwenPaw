@@ -3055,6 +3055,10 @@
     "materializeSkillDefault": "Create skill",
     "shell": "Run {{command}}",
     "shellDefault": "Run command",
+    "runToolBatch": "Run workflow {{workflow}}",
+    "runToolBatchRunning": "Running saved workflow",
+    "runToolBatchProgress": "{{count}} steps",
+    "runToolBatchStepCount": "Total steps: {{count}}",
     "formatTable": {
       "file": "File",
       "lineNumber": "Line",

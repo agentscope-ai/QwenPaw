@@ -1,11 +1,13 @@
 # -*- coding: utf-8 -*-
-"""Run a batch of tool calls sequentially with step-result references."""
+"""Run a batch of tool calls with action-result references and control flow."""
 
 from __future__ import annotations
 
 import asyncio
+import ast
 import json
 import logging
+import operator
 import re
 from pathlib import Path
 from typing import Any
@@ -19,17 +21,49 @@ logger = logging.getLogger(__name__)
 
 # Maximum number of steps allowed in a single batch.
 MAX_BATCH_STEPS = 50
+DEFAULT_MAX_EXECUTION_STEPS = 500
 
 # --- Step-reference patterns -----------------------------------------------
 # Only the brace-delimited form ${steps.N.path} is recognised.  This avoids
 # ambiguity when $-prefixed text appears inside shell commands or other
-# mixed-content strings.
+# mixed-content strings.  N is the action index; in loops, it resolves to that
+# action's latest execution result.
 
 _STEP_REF_PATTERN = re.compile(
     r"^\$\{steps\.(\d+)(?:\.([A-Za-z0-9_.-]+))?\}$",
 )
 _STEP_REF_INLINE_PATTERN = re.compile(
     r"\$\{steps\.(\d+)(?:\.([A-Za-z0-9_.-]+))?\}",
+)
+_VAR_REF_PATTERN = re.compile(r"^\$\{vars\.([A-Za-z0-9_.-]+)\}$")
+_VAR_REF_INLINE_PATTERN = re.compile(r"\$\{vars\.([A-Za-z0-9_.-]+)\}")
+_SIMPLE_ASSIGN_PATTERN = re.compile(
+    r"^([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.+?)\s*$",
+)
+_VAR_NAME_PATTERN = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+_COMPARE_PATTERN = re.compile(r"^(.*?)\s*(==|!=|<=|>=|<|>)\s*(.*?)$")
+_COMPARE_OPERATORS = {
+    "==": operator.eq,
+    "!=": operator.ne,
+    "<": operator.lt,
+    ">": operator.gt,
+    "<=": operator.le,
+    ">=": operator.ge,
+}
+_ARITHMETIC_BIN_OPERATORS = {
+    ast.Add: operator.add,
+    ast.Sub: operator.sub,
+    ast.Mult: operator.mul,
+    ast.Div: operator.truediv,
+    ast.Mod: operator.mod,
+}
+_ARITHMETIC_UNARY_OPERATORS = {
+    ast.UAdd: operator.pos,
+    ast.USub: operator.neg,
+}
+_ARITHMETIC_TRIGGER_PATTERN = re.compile(r"[+\-*/%()]")
+_ARITHMETIC_EXPR_CHARS_PATTERN = re.compile(
+    r"^[A-Za-z_][A-Za-z0-9_]*$|^[A-Za-z0-9_\s.+\-*/%()]+$",
 )
 
 
@@ -129,25 +163,27 @@ def _response_payload(response: ToolResponse) -> dict[str, Any]:
 def resolve_step_refs(
     value: Any,
     results: list[dict[str, Any]],
+    variables: dict[str, Any] | None = None,
 ) -> Any:
-    """Recursively resolve ``$steps.<index>.<path>`` references."""
+    """Recursively resolve ``${steps...}`` and ``${vars...}`` references."""
     if isinstance(value, dict):
         return {
-            key: resolve_step_refs(item, results)
+            key: resolve_step_refs(item, results, variables)
             for key, item in value.items()
         }
     if isinstance(value, list):
-        return [resolve_step_refs(item, results) for item in value]
+        return [resolve_step_refs(item, results, variables) for item in value]
     if isinstance(value, str):
-        return _resolve_step_ref_string(value, results)
+        return _resolve_ref_string(value, results, variables or {})
     return value
 
 
-def _resolve_step_ref_string(
+def _resolve_ref_string(
     value: str,
     results: list[dict[str, Any]],
+    variables: dict[str, Any],
 ) -> Any:
-    """Resolve ``${steps}`` placeholders in a single string value."""
+    """Resolve ``${steps...}`` and ``${vars...}`` placeholders in a string."""
     # Exact match – return the raw resolved value (preserves type).
     match = _STEP_REF_PATTERN.match(value)
     if match:
@@ -158,24 +194,25 @@ def _resolve_step_ref_string(
             value,
         )
 
-    # Inline match – substitute into the surrounding string.
-    def _replace(match_obj: re.Match[str]) -> str:
+    var_match = _VAR_REF_PATTERN.match(value)
+    if var_match:
+        return _lookup_var(var_match.group(1), variables, value)
+
+    def _replace_step(match_obj: re.Match[str]) -> str:
         resolved = _lookup_step_ref(
             match_obj.group(1),
             match_obj.group(2),
             results,
             value,
         )
-        return (
-            resolved
-            if isinstance(resolved, str)
-            else json.dumps(
-                resolved,
-                ensure_ascii=False,
-            )
-        )
+        return _stringify_resolved_value(resolved)
 
-    return _STEP_REF_INLINE_PATTERN.sub(_replace, value)
+    def _replace_var(match_obj: re.Match[str]) -> str:
+        resolved = _lookup_var(match_obj.group(1), variables, value)
+        return _stringify_resolved_value(resolved)
+
+    value = _STEP_REF_INLINE_PATTERN.sub(_replace_step, value)
+    return _VAR_REF_INLINE_PATTERN.sub(_replace_var, value)
 
 
 def _lookup_step_ref(
@@ -184,11 +221,18 @@ def _lookup_step_ref(
     results: list[dict[str, Any]],
     original: str,
 ) -> Any:
-    """Look up one step-result reference."""
+    """Look up the latest result for one action-index reference."""
     step_index = int(step_index_text)
-    if step_index >= len(results):
-        raise ValueError(f"Step reference out of range: {original}")
-    current: Any = results[step_index]
+    current: Any = next(
+        (
+            result
+            for result in reversed(results)
+            if result.get("step") == step_index
+        ),
+        None,
+    )
+    if current is None:
+        raise ValueError(f"Step reference has no result: {original}")
     if not path:
         return current
     for part in path.split("."):
@@ -214,6 +258,193 @@ def _lookup_step_ref(
                 f"Cannot resolve step reference: {original}",
             )
     return current
+
+
+def _stringify_resolved_value(resolved: Any) -> str:
+    """Convert a resolved placeholder value into inline string form."""
+    return (
+        resolved
+        if isinstance(resolved, str)
+        else json.dumps(
+            resolved,
+            ensure_ascii=False,
+        )
+    )
+
+
+def _lookup_var(
+    path: str,
+    variables: dict[str, Any],
+    original: str,
+) -> Any:
+    """Look up one runtime variable reference."""
+    current: Any = variables
+    for part in path.split("."):
+        if not isinstance(current, dict) or part not in current:
+            raise ValueError(f"Missing var reference: {original}")
+        current = current[part]
+    return current
+
+
+def _build_label_map(actions: list[dict[str, Any]]) -> dict[str, int]:
+    """Collect label targets and validate duplicates."""
+    labels: dict[str, int] = {}
+    for index, step in enumerate(actions):
+        if not isinstance(step, dict):
+            continue
+        tool_name = str(step.get("tool_name") or step.get("tool") or "").strip()
+        if tool_name != "label":
+            continue
+        arguments = step.get("arguments") or step.get("args") or {}
+        if not isinstance(arguments, dict):
+            raise ValueError("arguments must be an object")
+        name = str(arguments.get("name") or "").strip()
+        if not name:
+            raise ValueError("label step requires arguments.name")
+        if name in labels:
+            raise ValueError(f"Duplicate label: {name}")
+        labels[name] = index
+    return labels
+
+
+def _parse_scalar(value: Any) -> Any:
+    """Parse simple bool/int string values while preserving other values."""
+    if not isinstance(value, str):
+        return value
+    text = value.strip()
+    lower = text.lower()
+    if lower == "true":
+        return True
+    if lower == "false":
+        return False
+    if re.fullmatch(r"-?\d+", text):
+        return int(text)
+    return text
+
+
+def _resolve_token(
+    token: str,
+    results: list[dict[str, Any]],
+    variables: dict[str, Any],
+    *,
+    missing_var_default: Any = None,
+) -> Any:
+    """Resolve one expression token from vars, steps, or scalar literals."""
+    stripped = token.strip()
+    if not stripped:
+        raise ValueError("expression is invalid")
+    if _VAR_NAME_PATTERN.fullmatch(stripped):
+        if stripped in variables:
+            return variables[stripped]
+        parsed = _parse_scalar(stripped)
+        if parsed != stripped:
+            return parsed
+        if missing_var_default is not None:
+            return missing_var_default
+        return stripped
+    resolved = _resolve_ref_string(stripped, results, variables)
+    return _parse_scalar(resolved)
+
+
+def _coerce_bool(value: Any, original: str) -> bool:
+    """Convert one resolved condition value into a boolean."""
+    value = _parse_scalar(value)
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, int):
+        return bool(value)
+    raise ValueError(f"Unsupported condition: {original}")
+
+
+def _evaluate_condition(
+    condition: str,
+    results: list[dict[str, Any]],
+    variables: dict[str, Any],
+) -> bool:
+    """Evaluate a simple goto condition without eval/exec."""
+    text = condition.strip()
+    match = _COMPARE_PATTERN.match(text)
+    if not match:
+        return _coerce_bool(_resolve_token(text, results, variables), condition)
+
+    left = _resolve_token(match.group(1), results, variables)
+    right = _resolve_token(match.group(3), results, variables)
+    try:
+        return _COMPARE_OPERATORS[match.group(2)](left, right)
+    except TypeError as exc:
+        raise ValueError(f"Unsupported condition: {condition}") from exc
+
+
+def _evaluate_arithmetic_expr(
+    expr: str,
+    variables: dict[str, Any],
+) -> int | float:
+    """Evaluate a restricted numeric expression without eval/exec."""
+
+    def _eval_node(node: ast.AST) -> int | float:
+        if isinstance(node, ast.Expression):
+            return _eval_node(node.body)
+        if isinstance(node, ast.Name):
+            if node.id not in variables:
+                raise ValueError("unknown variable in arithmetic")
+            value = variables[node.id]
+            if isinstance(value, bool) or not isinstance(value, int | float):
+                raise ValueError("arithmetic variables must be numeric")
+            return value
+        if isinstance(node, ast.Constant):
+            if isinstance(node.value, bool):
+                raise ValueError("boolean is not supported in arithmetic")
+            if isinstance(node.value, int | float):
+                return node.value
+            raise ValueError("only numeric literals are supported")
+        if isinstance(node, ast.BinOp):
+            op_func = _ARITHMETIC_BIN_OPERATORS.get(type(node.op))
+            if op_func is None:
+                raise ValueError("unsupported arithmetic operator")
+            return op_func(_eval_node(node.left), _eval_node(node.right))
+        if isinstance(node, ast.UnaryOp):
+            op_func = _ARITHMETIC_UNARY_OPERATORS.get(type(node.op))
+            if op_func is None:
+                raise ValueError("unsupported arithmetic operator")
+            return op_func(_eval_node(node.operand))
+        raise ValueError("unsupported arithmetic expression")
+
+    try:
+        tree = ast.parse(expr, mode="eval")
+        return _eval_node(tree)
+    except ZeroDivisionError as exc:
+        raise ValueError("division by zero in set_var expression") from exc
+    except (SyntaxError, ValueError) as exc:
+        raise ValueError("set_var requires a valid numeric expression") from exc
+
+
+def _evaluate_set_var_expr(
+    expr: str,
+    results: list[dict[str, Any]],
+    variables: dict[str, Any],
+) -> tuple[str, Any]:
+    """Evaluate a simple set_var assignment expression."""
+    match = _SIMPLE_ASSIGN_PATTERN.match(expr or "")
+    if not match:
+        raise ValueError("set_var requires a simple assignment expression")
+
+    name = match.group(1)
+    rhs = match.group(2).strip()
+    resolved = _resolve_ref_string(rhs, results, variables)
+    if not isinstance(resolved, str):
+        return name, resolved
+
+    resolved = resolved.strip()
+    parsed = _parse_scalar(resolved)
+    if not isinstance(parsed, str):
+        return name, parsed
+    if _STEP_REF_PATTERN.match(rhs) or _VAR_REF_PATTERN.match(rhs):
+        return name, resolved
+    if not _ARITHMETIC_TRIGGER_PATTERN.search(resolved):
+        return name, _resolve_token(resolved, results, variables)
+    if not _ARITHMETIC_EXPR_CHARS_PATTERN.fullmatch(resolved):
+        return name, resolved
+    return name, _evaluate_arithmetic_expr(resolved, variables)
 
 
 # --- Batch file loading & $args resolution --------------------------------
@@ -326,9 +557,13 @@ async def _call_tool(
         )
 
     tool_call = {"name": tool_name, "input": arguments}
+    tool_stream = None
     try:
         response: ToolResponse | None = None
-        async for chunk in await toolkit.call_tool_function(tool_call):
+        tool_stream = await toolkit.call_tool_function(tool_call)
+        async for chunk in tool_stream:
+            if getattr(chunk, "is_interrupted", False):
+                raise asyncio.CancelledError()
             response = chunk
         if response is None:
             return _json_tool_response(
@@ -338,100 +573,267 @@ async def _call_tool(
                 },
             )
         return response
+    except asyncio.CancelledError:
+        if tool_stream is not None:
+            await tool_stream.aclose()
+        raise
     except Exception as exc:  # pylint: disable=broad-except
         return _json_tool_response(
             {"ok": False, "error": f"{type(exc).__name__}: {exc}"},
         )
 
 
+async def _wait_after_step(step: dict[str, Any]) -> None:
+    """Apply an action's optional post-step wait."""
+    wait = float(step.get("wait") or 0)
+    if wait > 0:
+        await asyncio.sleep(wait)
+
+
+def _step_error(
+    step: int | None,
+    error: str,
+    tool_name: str | None = None,
+) -> dict[str, Any]:
+    """Build a standard per-step error result."""
+    result: dict[str, Any] = {"ok": False, "error": error}
+    if step is not None:
+        result["step"] = step
+    if tool_name:
+        result["tool_name"] = tool_name
+    return result
+
+
+async def _append_error_and_should_stop(
+    results: list[dict[str, Any]],
+    error: dict[str, Any],
+    step: dict[str, Any],
+    stop: bool,
+) -> bool:
+    """Append an error and return whether execution should stop."""
+    results.append(error)
+    if stop:
+        return True
+    await _wait_after_step(step)
+    return False
+
+
 # --- Step execution loop --------------------------------------------------
 
 
-async def _run_steps(  # pylint: disable=too-many-branches
+async def _run_steps(  # pylint: disable=too-many-branches,too-many-statements
     actions: list[dict[str, Any]],
     stop_on_error: bool = True,
-) -> tuple[list[dict[str, Any]], list[Any]]:
-    """Execute a list of actions sequentially.
-
-    Returns ``(results, all_content_blocks)`` — the per-step result
-    dicts and the accumulated raw content blocks from every step.
-    """
+    maxstep: int = DEFAULT_MAX_EXECUTION_STEPS,
+) -> tuple[list[dict[str, Any]], list[Any], list[Any] | None]:
+    """Execute a list of actions with simple control flow support."""
     results: list[dict[str, Any]] = []
     all_content_blocks: list[Any] = []
+    last_text_block: Any | None = None
+    variables: dict[str, Any] = {}
 
-    for index, step in enumerate(actions):
-        # --- Validate step structure (always fatal) ---
-        if not isinstance(step, dict):
+    try:
+        label_map = _build_label_map(actions)
+    except ValueError as exc:
+        return [{"ok": False, "error": str(exc)}], [], None
+
+    pc = 0
+    execution_count = 0
+
+    while pc < len(actions):
+        execution_count += 1
+        if execution_count > maxstep:
             results.append(
-                {
-                    "step": index,
-                    "ok": False,
-                    "error": "step must be an object",
-                },
+                _step_error(
+                    pc,
+                    (
+                        "Exceeded maximum execution steps "
+                        f"({maxstep})"
+                    ),
+                ),
             )
             break
+
+        index = pc
+        step = actions[index]
+
+        if not isinstance(step, dict):
+            results.append(_step_error(index, "step must be an object"))
+            break
+
+        last_text_block = None
 
         tool_name = str(
             step.get("tool_name") or step.get("tool") or "",
         ).strip()
         if not tool_name:
-            results.append(
-                {
-                    "step": index,
-                    "ok": False,
-                    "error": "step must include tool_name",
-                },
-            )
+            results.append(_step_error(index, "step must include tool_name"))
             break
 
-        # Prevent recursive batch calls.
         if tool_name == "run_tool_batch":
             results.append(
-                {
-                    "step": index,
-                    "tool_name": tool_name,
-                    "ok": False,
-                    "error": "Recursive run_tool_batch is not allowed",
-                },
+                _step_error(
+                    index,
+                    "Recursive run_tool_batch is not allowed",
+                    tool_name,
+                ),
             )
             break
 
         arguments = step.get("arguments") or step.get("args") or {}
         if not isinstance(arguments, dict):
             results.append(
-                {
-                    "step": index,
-                    "tool_name": tool_name,
-                    "ok": False,
-                    "error": "arguments must be an object",
-                },
+                _step_error(index, "arguments must be an object", tool_name),
             )
             break
 
         step_stop = step.get("stop_on_error", stop_on_error)
 
-        # --- Resolve $steps references ---
-        try:
-            arguments = resolve_step_refs(arguments, results)
-        except ValueError as exc:
+        if tool_name != "set_var":
+            try:
+                arguments = resolve_step_refs(arguments, results, variables)
+            except ValueError as exc:
+                if await _append_error_and_should_stop(
+                    results,
+                    _step_error(index, str(exc), tool_name),
+                    step,
+                    step_stop,
+                ):
+                    break
+                pc += 1
+                continue
+
+        if tool_name == "label":
+            name = str(arguments.get("name") or "").strip()
+            if not name:
+                results.append(
+                    _step_error(
+                        index,
+                        "label step requires arguments.name",
+                        tool_name,
+                    ),
+                )
+                break
             results.append(
                 {
                     "step": index,
                     "tool_name": tool_name,
-                    "ok": False,
-                    "error": str(exc),
+                    "ok": True,
+                    "label": name,
                 },
             )
-            if step_stop:
-                break
+            await _wait_after_step(step)
+            pc += 1
             continue
 
-        # --- Execute ---
+        if tool_name == "goto":
+            label = str(arguments.get("label") or "").strip()
+            if not label:
+                results.append(
+                    _step_error(
+                        index,
+                        "goto step requires arguments.label",
+                        tool_name,
+                    ),
+                )
+                break
+            if label not in label_map:
+                results.append(
+                    _step_error(index, f"Unknown label: {label}", tool_name),
+                )
+                break
+            condition = arguments.get("condition")
+            try:
+                should_jump = True if condition in (None, "") else _evaluate_condition(
+                    str(condition),
+                    results,
+                    variables,
+                )
+            except ValueError as exc:
+                if await _append_error_and_should_stop(
+                    results,
+                    _step_error(index, str(exc), tool_name),
+                    step,
+                    step_stop,
+                ):
+                    break
+                pc += 1
+                continue
+            results.append(
+                {
+                    "step": index,
+                    "tool_name": tool_name,
+                    "ok": True,
+                    "label": label,
+                    "jumped": should_jump,
+                },
+            )
+            await _wait_after_step(step)
+            pc = label_map[label] if should_jump else pc + 1
+            continue
+
+        if tool_name == "set_var":
+            expr = str(arguments.get("expr") or "").strip()
+            if not expr:
+                results.append(
+                    _step_error(
+                        index,
+                        "set_var step requires arguments.expr",
+                        tool_name,
+                    ),
+                )
+                break
+            try:
+                var_name, var_value = _evaluate_set_var_expr(
+                    expr,
+                    results,
+                    variables,
+                )
+            except ValueError as exc:
+                if await _append_error_and_should_stop(
+                    results,
+                    _step_error(index, str(exc), tool_name),
+                    step,
+                    step_stop,
+                ):
+                    break
+                pc += 1
+                continue
+            variables[var_name] = var_value
+            results.append(
+                {
+                    "step": index,
+                    "tool_name": tool_name,
+                    "ok": True,
+                    "name": var_name,
+                    "value": var_value,
+                },
+            )
+            await _wait_after_step(step)
+            pc += 1
+            continue
+
         response = await _call_tool(tool_name, arguments)
+        if getattr(response, "is_interrupted", False):
+            raise asyncio.CancelledError()
         result = _response_payload(response)
 
         step_content = result.pop("_raw_blocks", [])
-        all_content_blocks.extend(step_content)
+        non_text_blocks: list[Any] = []
+        current_text_block: Any | None = None
+        for block in step_content:
+            block_type = (
+                block.get("type", "")
+                if isinstance(block, dict)
+                else getattr(block, "type", "")
+            )
+            if block_type == "text" and current_text_block is None:
+                current_text_block = block
+            else:
+                non_text_blocks.append(block)
+
+        last_text_block = current_text_block
+        all_content_blocks.extend(non_text_blocks)
 
         results.append(
             {"step": index, "tool_name": tool_name, **result},
@@ -440,12 +842,11 @@ async def _run_steps(  # pylint: disable=too-many-branches
         if not result.get("ok", True) and step_stop:
             break
 
-        # Optional wait between steps.
-        wait = float(step.get("wait") or 0)
-        if wait > 0:
-            await asyncio.sleep(wait)
+        await _wait_after_step(step)
 
-    return results, all_content_blocks
+        pc += 1
+
+    return results, all_content_blocks, last_text_block
 
 
 def _build_batch_response(
@@ -454,18 +855,22 @@ def _build_batch_response(
     all_content_blocks: list[Any],
     *,
     last_only: bool = False,
+    last_text_block: Any | None = None,
 ) -> ToolResponse:
     """Build the final ToolResponse for a batch run."""
     completed = sum(1 for r in results if r.get("ok", False))
-    all_ok = completed == len(actions)
+    failed = next((r for r in results if not r.get("ok", False)), None)
+    all_ok = failed is None and completed == len(results)
 
     if last_only and results:
         payload = {
             "ok": all_ok,
             "total": len(actions),
             "completed": completed,
-            "result": results[-1],
+            "last_step_result": results[-1],
         }
+        if "text" not in results[-1]:
+            payload["last_text"] = None
     else:
         payload = {
             "ok": all_ok,
@@ -474,11 +879,31 @@ def _build_batch_response(
             "results": results,
         }
 
+    if failed and "error" in failed:
+        payload["error"] = failed["error"]
+
     summary = TextBlock(
         type="text",
         text=json.dumps(payload, ensure_ascii=False),
     )
-    return ToolResponse(content=[summary, *all_content_blocks])
+    if not last_only:
+        return ToolResponse(content=[summary, *all_content_blocks])
+
+    content: list[Any] = [summary]
+    last_step_text = (
+        results[-1].get("text")
+        if results and isinstance(results[-1].get("text"), str)
+        else None
+    )
+    last_block_text = (
+        last_text_block.get("text")
+        if isinstance(last_text_block, dict)
+        else getattr(last_text_block, "text", None)
+    )
+    if last_text_block is not None and last_block_text != last_step_text:
+        content.append(last_text_block)
+    content.extend(all_content_blocks)
+    return ToolResponse(content=content)
 
 
 # --- Main entry point -----------------------------------------------------
@@ -490,6 +915,7 @@ async def run_tool_batch(  # pylint: disable=too-many-return-statements
     args: dict[str, Any] | None = None,
     stop_on_error: bool = True,
     last_only: bool = False,
+    maxstep: int = DEFAULT_MAX_EXECUTION_STEPS,
 ) -> ToolResponse:
     """Execute a batch of tool calls from a JSON file.
 
@@ -498,15 +924,35 @@ async def run_tool_batch(  # pylint: disable=too-many-return-statements
     array). Each action object contains:
 
     - ``tool_name`` (str): Name of a registered tool function.
+      ``run_tool_batch`` also supports these built-in control-flow tools:
+
+      - ``label``
+        - ``name`` (str, required): Label name used as a jump target.
+
+      - ``goto``
+        - ``label`` (str, required): Target label name.
+        - ``condition`` (str, optional): Simple condition expression.
+          If omitted or empty, jump unconditionally. Supported forms include
+          ``true``, ``false``, ``1>2``, ``i<5``, ``${vars.i}<${steps.0.value}``.
+
+      - ``set_var``
+        - ``expr`` (str, required): Simple assignment expression used
+          to update runtime variables. The right-hand side is intended
+          for scalar values and restricted arithmetic expressions only,
+          such as ``i=0``, ``i=i+1``, ``i=${vars.i}+1``,
+          ``i=(${vars.i}+1)*2``. It is not a general string-templating
+          assignment language.
+
     - ``arguments`` (dict): Keyword arguments for the tool.
     - ``stop_on_error`` (bool, optional): Override per-step.
     - ``wait`` (float, optional): Seconds to sleep after this step.
 
     Use ``${args.<name>}`` placeholders in argument values for parts
     that vary at runtime. Use ``${steps.<index>.<path>}`` to reference
-    earlier steps' output. The brace-delimited syntax is required so
-    that placeholders are unambiguous inside mixed-content strings
-    (e.g. shell commands).
+    earlier steps' output. Use ``${vars.<name>}`` to reference runtime
+    variables created by ``set_var``. The brace-delimited syntax is
+    required so that placeholders are unambiguous inside mixed-content
+    strings (e.g. shell commands).
 
     Example::
 
@@ -520,8 +966,14 @@ async def run_tool_batch(  # pylint: disable=too-many-return-statements
         args: Values to substitute ``${args.<name>}`` placeholders
             in the batch file.
         stop_on_error: Default stop-on-error behaviour for all steps.
-        last_only: If true, only return the last step's result instead
-            of all steps. Useful when only the final output matters.
+        last_only: If true, return a compact summary with ``ok`` and
+            ``last_step_result``, plus non-duplicated last text content
+            and all non-text blocks. Use this when the workflow is
+            stable to reduce token usage while preserving success/failure
+            status.
+        maxstep: Maximum number of executed steps after control-flow
+            jumps are applied. This prevents infinite loops. Defaults to
+            500.
 
     Returns:
         ToolResponse containing a JSON summary TextBlock followed by
@@ -594,11 +1046,27 @@ async def run_tool_batch(  # pylint: disable=too-many-return-statements
             },
         )
 
+    try:
+        maxstep = int(maxstep)
+    except (TypeError, ValueError):
+        return _json_tool_response(
+            {"ok": False, "error": "maxstep must be a positive integer"},
+        )
+    if maxstep <= 0:
+        return _json_tool_response(
+            {"ok": False, "error": "maxstep must be a positive integer"},
+        )
+
     # --- Execute ---
-    results, all_content_blocks = await _run_steps(actions, stop_on_error)
+    results, all_content_blocks, last_text_block = await _run_steps(
+        actions,
+        stop_on_error,
+        maxstep=maxstep,
+    )
     return _build_batch_response(
         actions,
         results,
         all_content_blocks,
         last_only=last_only,
+        last_text_block=last_text_block,
     )
