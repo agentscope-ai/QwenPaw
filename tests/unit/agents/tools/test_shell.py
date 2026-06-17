@@ -23,6 +23,7 @@ from qwenpaw.agents.tools.shell import (
     _collapse_newlines_outside_quotes,
     _extract_powershell_command,
     _is_cmd,
+    _is_dangerous_self_kill,
     _is_powershell,
     _read_temp_file,
     _sanitize_win_cmd,
@@ -274,6 +275,87 @@ class TestSmartDecode:
         data = b"\xff\xfe"  # BOM for UTF-16-LE, invalid UTF-8
         result = smart_decode(data)
         assert isinstance(result, str)
+
+
+# ---------------------------------------------------------------------------
+# _is_dangerous_self_kill
+# ---------------------------------------------------------------------------
+
+
+class TestIsDangerousSelfKill:
+    """Tests for _is_dangerous_self_kill."""
+
+    def test_taskkill_by_image_name_python(self):
+        assert _is_dangerous_self_kill("taskkill /F /IM python.exe")
+
+    def test_taskkill_by_image_name_pythonw(self):
+        assert _is_dangerous_self_kill("taskkill /F /IM pythonw.exe")
+
+    def test_taskkill_by_image_name_cmd(self):
+        assert _is_dangerous_self_kill("taskkill /F /IM cmd.exe")
+
+    def test_taskkill_by_image_name_powershell(self):
+        assert _is_dangerous_self_kill("taskkill /F /IM powershell.exe")
+
+    def test_taskkill_by_image_name_pwsh(self):
+        assert _is_dangerous_self_kill("taskkill /F /IM pwsh.exe")
+
+    def test_taskkill_by_image_name_conhost(self):
+        assert _is_dangerous_self_kill("taskkill /F /IM conhost.exe")
+
+    def test_taskkill_by_image_name_without_exe(self):
+        assert _is_dangerous_self_kill("taskkill /F /IM python")
+
+    def test_taskkill_by_pid_self(self):
+        import os
+
+        assert _is_dangerous_self_kill(f"taskkill /F /PID {os.getpid()}")
+
+    def test_taskkill_by_pid_parent(self):
+        import os
+
+        if hasattr(os, "getppid"):
+            assert _is_dangerous_self_kill(f"taskkill /F /PID {os.getppid()}")
+
+    def test_taskkill_by_pid_other_is_safe(self):
+        assert not _is_dangerous_self_kill("taskkill /F /PID 99999")
+
+    def test_kill_unix_pid_self(self):
+        import os
+
+        assert _is_dangerous_self_kill(f"kill -9 {os.getpid()}")
+
+    def test_kill_unix_pid_other_is_safe(self):
+        assert not _is_dangerous_self_kill("kill -9 99999")
+
+    def test_kill_shell_var_dollar_dollar(self):
+        assert _is_dangerous_self_kill("kill -9 $$")
+
+    def test_kill_shell_var_ppid(self):
+        assert _is_dangerous_self_kill("kill $PPID")
+
+    def test_kill_shell_var_pid(self):
+        assert _is_dangerous_self_kill("kill $PID")
+
+    def test_false_positive_command_contains_cmd(self):
+        """'command' contains 'cmd' but should not be blocked."""
+        assert not _is_dangerous_self_kill("echo 'run a command'")
+
+    def test_false_positive_echo_kill_python(self):
+        """echo with 'kill python' in text should not be blocked."""
+        assert not _is_dangerous_self_kill(
+            'echo "do not kill python"',
+        )
+
+    def test_false_positive_cat_file(self):
+        """Reading a file named kill_list_python.txt should not be blocked."""
+        assert not _is_dangerous_self_kill("cat kill_list_python.txt")
+
+    def test_safe_command(self):
+        assert not _is_dangerous_self_kill("echo hello")
+
+    def test_stop_process_by_name(self):
+        assert _is_dangerous_self_kill("Stop-Process -Name python")
 
 
 # ---------------------------------------------------------------------------

@@ -1,0 +1,148 @@
+/* SidebarSessionList — compact session list embedded in simple-mode sidebar */
+
+.sessionList {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* Search bar area */
+.newChatBtn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: calc(100% - 16px);
+  margin: 6px 8px 4px;
+  padding: 7px 12px;
+  border: none;
+  border-radius: 8px;
+  background: #ff7f16;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.15s;
+
+  &:hover {
+    opacity: 0.85;
+  }
+}
+
+.searchContainer {
+  flex-shrink: 0;
+  padding: 4px 8px 6px;
+}
+
+.searchInput {
+  border-radius: 6px;
+  font-size: 12px;
+}
+
+/* Scrollable session area */
+.scroll {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+  padding: 0 4px 8px;
+
+  /* Thin visible scrollbar */
+  scrollbar-width: thin;
+  scrollbar-color: rgba(0, 0, 0, 0.12) transparent;
+
+  &::-webkit-scrollbar {
+    width: 4px;
+  }
+
+  &::-webkit-scrollbar-thumb {
+    background: rgba(0, 0, 0, 0.12);
+    border-radius: 2px;
+  }
+}
+
+/* Date group container */
+.group {
+  margin-bottom: 4px;
+}
+
+/* Date group label */
+.groupLabel {
+  padding: 6px 10px 2px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: var(--colorTextQuaternary, rgba(0, 0, 0, 0.25));
+  user-select: none;
+}
+
+/* Loading / empty state */
+.loadingState,
+.emptyState {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px 12px;
+  font-size: 12px;
+  color: var(--colorTextTertiary, rgba(0, 0, 0, 0.45));
+}
+
+/* Dark mode */
+:global(.dark-mode) {
+  .scroll {
+    scrollbar-color: rgba(255, 255, 255, 0.15) transparent;
+
+    &::-webkit-scrollbar-thumb {
+      background: rgba(255, 255, 255, 0.15);
+    }
+  }
+
+  .groupLabel {
+    color: rgba(255, 255, 255, 0.2);
+  }
+
+  .loadingState,
+  .emptyState {
+    color: rgba(255, 255, 255, 0.35);
+  }
+
+  .searchInput {
+    background: rgba(255, 255, 255, 0.06);
+    border-color: rgba(255, 255, 255, 0.1);
+  }
+}
+
+/* ── Collapsible history header ─────────────────────────────────────────── */
+
+.historyHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 4px 12px 4px 10px;
+  margin: 2px 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  color: var(--colorTextTertiary, rgba(0, 0, 0, 0.45));
+  transition: color 0.15s;
+
+  &:hover {
+    color: var(--colorText, rgba(0, 0, 0, 0.88));
+  }
+}
+
+.historyLabel {
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.1px;
+  user-select: none;
+}
+
+.historyChevron {
+  display: inline-flex;
+  align-items: center;
+  transition: transform 0.2s ease;
+  flex-shrink: 0;
+}

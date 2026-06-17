@@ -265,16 +265,40 @@ class AgentRunner(Runner):
                 ],
             )
 
-        # /<name> <input> → rewrite user message with skill body.
+        # /<name> <input> → append the skill body to the user message as
+        # a trailing <skill> block. The typed command stays verbatim at
+        # the head; everything injected lives inside the block.
+        original_text = AgentRunner._extract_text_content(msgs[-1])
         merged = (
-            f"Use the [{display_name}] skill in "
-            f"`{skill_dir}` to fulfill "
-            f"user's task: {user_input}\n\n"
-            f"{post.content}"
+            f"{original_text}\n\n"
+            f'<skill name="{display_name}" dir="{skill_dir}">\n'
+            f"This block was injected because the user invoked the "
+            f"[{display_name}] skill above. It is the full content of "
+            f"the skill's SKILL.md — do not re-read that file. Follow "
+            f"these instructions to fulfill the user's task: "
+            f"{user_input}\n"
+            f"Relative paths inside the skill (e.g. `scripts/`) resolve "
+            f"against the skill directory.\n\n"
+            f"{post.content.strip()}\n"
+            f"</skill>"
         )
         AgentRunner._rewrite_last_message_text(msgs, merged)
         logger.info("Skill invocation: %s", name)
         return None
+
+    @staticmethod
+    def _extract_text_content(msg) -> str:
+        """Return the concatenated text of a Msg's content."""
+        content = getattr(msg, "content", None)
+        if isinstance(content, str):
+            return content
+        if isinstance(content, list):
+            return "\n".join(
+                block.get("text") or ""
+                for block in content
+                if isinstance(block, dict) and block.get("type") == "text"
+            )
+        return ""
 
     @staticmethod
     def _rewrite_last_message_text(

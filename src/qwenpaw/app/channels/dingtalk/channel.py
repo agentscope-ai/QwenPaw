@@ -67,7 +67,6 @@ from ..base import (
 from .constants import (
     AI_CARD_PROCESSING_TEXT,
     AI_CARD_RECOVERY_FINAL_TEXT,
-    AI_CARD_STREAM_MIN_INTERVAL_SECONDS,
     AI_CARD_TOKEN_PREEMPTIVE_REFRESH_SECONDS,
     DINGTALK_TOKEN_TTL_SECONDS,
 )
@@ -117,6 +116,7 @@ class DingTalkChannel(BaseChannel):
     """
 
     channel = "dingtalk"
+    _STREAM_DELTA_MIN_INTERVAL_S = 0.3
 
     _NON_SERIALIZABLE_META_KEYS = ()
 
@@ -2490,6 +2490,12 @@ class DingTalkChannel(BaseChannel):
         Drive DingTalkStreamClient.start() and stop when _stop_event is set.
         Closes client.websocket and cancels tasks to avoid "Task was destroyed
         but it is pending" on process exit.
+
+        Includes a liveness watchdog that detects system sleep/wake by
+        comparing wall-clock time elapsed vs expected interval.  On macOS,
+        asyncio timers freeze during sleep, so the SDK's built-in keepalive
+        may fail to detect a stale connection.  The watchdog forces a
+        reconnect when a time jump is detected.
         """
         client = self._client
         if not client:
@@ -2508,7 +2514,47 @@ class DingTalkChannel(BaseChannel):
                 main_task.cancel()
                 await asyncio.sleep(0.1)
 
+        async def liveness_watchdog() -> None:
+            """Detect system sleep/wake via wall-clock time jump.
+
+            If asyncio.sleep(30) actually takes >90s of real time, the
+            system likely just woke from sleep.  Force-close the websocket
+            so the SDK's while-True reconnect loop can trigger.
+
+            Does NOT break after detection — keeps monitoring so repeated
+            sleep/wake cycles are also covered (SDK reconnects internally
+            via its while-True loop without exiting main_task).
+            """
+            check_interval = 30
+            jump_threshold = 90  # 3x interval → definite sleep/wake
+            last_wall = time.time()
+            while not self._stop_event.is_set():
+                await asyncio.sleep(check_interval)
+                if self._stop_event.is_set():
+                    break
+                now = time.time()
+                elapsed = now - last_wall
+                last_wall = now
+                if elapsed > jump_threshold:
+                    logger.warning(
+                        "dingtalk: liveness watchdog detected "
+                        "wake-from-sleep (elapsed=%.0fs, "
+                        "expected~%ds); forcing reconnect...",
+                        elapsed,
+                        check_interval,
+                    )
+                    ws = client.websocket
+                    if ws is not None:
+                        try:
+                            await asyncio.wait_for(
+                                ws.close(),
+                                timeout=15,
+                            )
+                        except (asyncio.TimeoutError, Exception):
+                            pass
+
         watcher_task = asyncio.create_task(stop_watcher())
+        watchdog_task = asyncio.create_task(liveness_watchdog())
         try:
             await main_task
         except asyncio.CancelledError:
@@ -2516,8 +2562,13 @@ class DingTalkChannel(BaseChannel):
         except Exception:
             logger.exception("dingtalk stream start() failed")
         watcher_task.cancel()
+        watchdog_task.cancel()
         try:
             await watcher_task
+        except asyncio.CancelledError:
+            pass
+        try:
+            await watchdog_task
         except asyncio.CancelledError:
             pass
         # Cancel remaining tasks (e.g. background_task) so loop exits cleanly
@@ -3058,12 +3109,6 @@ class DingTalkChannel(BaseChannel):
         now_ms = int(time.time() * 1000)
         if not finalize:
             if content == (card.last_streamed_content or "").strip():
-                return False
-            if (
-                card.last_updated
-                and (now_ms - card.last_updated)
-                < AI_CARD_STREAM_MIN_INTERVAL_SECONDS * 1000
-            ):
                 return False
 
         if (

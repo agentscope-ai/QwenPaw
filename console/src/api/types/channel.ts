@@ -159,6 +159,7 @@ export interface YuanbaoConfig extends BaseChannelConfig {
   app_secret: string;
   api_domain: string;
   media_dir?: string;
+  accept_bot_messages?: boolean;
 }
 
 export interface OneBotConfig extends BaseChannelConfig {

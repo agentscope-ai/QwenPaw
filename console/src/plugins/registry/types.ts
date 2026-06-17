@@ -223,9 +223,21 @@ export type ChatResponseSlotFn = (ctx: {
   isLast?: boolean;
 }) => React.ReactNode;
 
+export type ChatRequestPayloadTransform = (ctx: {
+  payload: Record<string, unknown>;
+  sessionId: string;
+  selectedAgent: string;
+}) => Record<string, unknown> | void;
+
 export interface ChatSlotItem<F> {
   id: string;
   render: F;
+  order?: number;
+}
+
+export interface ChatRequestPayloadTransformItem {
+  id: string;
+  transform: ChatRequestPayloadTransform;
   order?: number;
 }
 

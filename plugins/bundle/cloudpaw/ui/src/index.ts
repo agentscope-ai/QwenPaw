@@ -3077,6 +3077,20 @@ function ensureDefaultAgent() {
 
   if (localStorage.getItem(FIRST_INSTALL_KEY)) return;
 
+  // Guard: if the user already has an agent selection in localStorage,
+  // this is NOT a first install — the first-install key was likely lost
+  // due to WebView2 profile reset. Do NOT override the user's choice.
+  const existingLastUsed = localStorage.getItem(LAST_USED_KEY);
+  const existingStorage = localStorage.getItem(STORAGE_KEY);
+  if (existingLastUsed || existingStorage) {
+    // Re-persist the first-install flag so this check doesn't run again
+    localStorage.setItem(FIRST_INSTALL_KEY, "true");
+    console.info(
+      "[cloudpaw] Existing agent selection found — skipping first-install override",
+    );
+    return;
+  }
+
   localStorage.setItem(FIRST_INSTALL_KEY, "true");
 
   function writeAgentToStorage() {
