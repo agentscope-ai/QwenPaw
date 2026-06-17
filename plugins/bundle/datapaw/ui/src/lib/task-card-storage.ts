@@ -115,10 +115,36 @@ export function loadTaskCardPlans(sessionId: string): StoredTaskCardPlan[] {
 export function loadTaskCardPlan(sessionId: string): PlanSnapshot | null {
   if (!sessionId) return null;
   try {
-    return latestStoredPlan(parseStoredPlans(localStorage.getItem(storageKey(sessionId))))
-      ?.plan ?? null;
+    return (
+      parseStoredPlans(localStorage.getItem(storageKey(sessionId))).find(
+        (item) => item.current,
+      )?.plan ?? null
+    );
   } catch {
     return null;
+  }
+}
+
+export function clearTaskCardCurrentForSession(sessionId: string): void {
+  if (!sessionId) return;
+  try {
+    const existing = parseStoredPlans(localStorage.getItem(storageKey(sessionId)));
+    if (!existing.length) return;
+    const plans = sortStoredPlans(
+      existing.map((item) => ({ ...item, current: false })),
+    );
+    const latest = latestStoredPlan(plans);
+    localStorage.setItem(
+      storageKey(sessionId),
+      JSON.stringify({
+        version: 2,
+        plan: latest?.current ? latest.plan : null,
+        plans,
+        updatedAt: Date.now(),
+      }),
+    );
+  } catch {
+    /* quota / private mode */
   }
 }
 

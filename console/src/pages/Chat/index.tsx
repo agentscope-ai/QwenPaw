@@ -28,6 +28,8 @@ import { useChatAnywhereInput } from "@agentscope-ai/chat";
 import styles from "./index.module.less";
 import { IconButton } from "@agentscope-ai/design";
 import ChatActionGroup from "./components/ChatActionGroup";
+import TurnUsageAction from "./components/TurnUsageAction";
+import { wrapChatResponseUsageStream } from "./turnUsage";
 import ChatHeaderTitle from "./components/ChatHeaderTitle";
 import ChatSessionInitializer from "./components/ChatSessionInitializer";
 import { ApprovalCard } from "../../components/ApprovalCard/ApprovalCard";
@@ -169,6 +171,7 @@ function renderSuggestionLabel(command: string, description?: string) {
 
 const DEFAULT_USER_ID = "default";
 const DEFAULT_CHANNEL = "console";
+const WIDE_MODE_STORAGE_KEY = "qwenpaw_chat_wide_mode";
 
 function isSkillAvailableInConsole(skill: SkillSpec): boolean {
   if (!skill.enabled) return false;
@@ -714,6 +717,30 @@ export default function ChatPage() {
   const codingModeRef = useRef(codingMode);
   codingModeRef.current = codingMode;
 
+  // Wide mode toggle: expand chat content to full available width
+  const [isWideMode, setIsWideMode] = useState(() => {
+    try {
+      return localStorage.getItem(WIDE_MODE_STORAGE_KEY) === "true";
+    } catch {
+      return false;
+    }
+  });
+  const toggleWideMode = useCallback(() => {
+    setIsWideMode((prev) => {
+      const next = !prev;
+      try {
+        if (next) {
+          localStorage.setItem(WIDE_MODE_STORAGE_KEY, "true");
+        } else {
+          localStorage.removeItem(WIDE_MODE_STORAGE_KEY);
+        }
+      } catch {
+        // storage unavailable
+      }
+      return next;
+    });
+  }, []);
+
   // Redirect to /coding when coding mode is active, preserving sessionId.
   useEffect(() => {
     if (initialized && codingMode && !location.pathname.startsWith("/coding")) {
@@ -1081,10 +1108,8 @@ export default function ChatPage() {
 
     const buildCurrentBasePath = () => buildBasePath(getCurrentRouteMode());
 
-    sessionApi.onSessionIdResolved = (realId) => {
+    sessionApi.onSessionIdResolved = (_tempId, realId) => {
       if (!isChatActiveRef.current) return;
-      // Update URL when realId is resolved, regardless of current chatId
-      // (chatId may be undefined if URL was cleared in onSessionCreated)
       lastSessionIdRef.current = realId;
       navigateRef.current(buildCurrentSessionPath(realId), { replace: true });
     };
@@ -1294,7 +1319,7 @@ export default function ChatPage() {
         signal: data.signal,
       });
 
-      return response;
+      return wrapChatResponseUsageStream(response, chatRef);
     },
     [extLists, selectedAgent],
   );
@@ -1587,7 +1612,11 @@ export default function ChatPage() {
             <ChatHeaderTitle />
             <span style={{ flex: 1 }} />
             <ModelSelector />
-            <ChatActionGroup planEnabled={planEnabled} />
+            <ChatActionGroup
+              planEnabled={planEnabled}
+              isWideMode={isWideMode}
+              onToggleWideMode={toggleWideMode}
+            />
             {pluginRightHeader}
           </>
         ),
@@ -1662,6 +1691,10 @@ export default function ChatPage() {
         responseParser: (chunk: string) => {
           const payload = JSON.parse(chunk) as Record<string, unknown>;
 
+          if (payload.type === "turn_usage") {
+            return null;
+          }
+
           if (payload.type === "rate_limited") {
             const alts =
               (payload.alternatives as typeof rateLimitAlternatives) || [];
@@ -1698,17 +1731,20 @@ export default function ChatPage() {
             ...buildAuthHeaders(),
           };
 
-          return fetch(getApiUrl("/console/chat"), {
+          const sessionId = window.currentSessionId || data.session_id;
+          const response = await fetch(getApiUrl("/console/chat"), {
             method: "POST",
             headers,
             body: JSON.stringify({
               reconnect: true,
-              session_id: window.currentSessionId || data.session_id,
+              session_id: sessionId,
               user_id: window.currentUserId || DEFAULT_USER_ID,
               channel: window.currentChannel || DEFAULT_CHANNEL,
             }),
             signal: data.signal,
           });
+
+          return wrapChatResponseUsageStream(response, chatRef);
         },
       },
       customToolRenderConfig: withGenericFallback(mergedToolRenderers),
@@ -1722,6 +1758,13 @@ export default function ChatPage() {
       },
       actions: {
         list: [
+          {
+            render: ({
+              data,
+            }: {
+              data: { data?: Record<string, unknown> };
+            }) => <TurnUsageAction data={data} />,
+          },
           {
             icon: (
               <span title={t("common.copy")}>
@@ -1797,6 +1840,8 @@ export default function ChatPage() {
     whisperChecked,
     whisperEnabled,
     handleWhisperTranscription,
+    isWideMode,
+    toggleWideMode,
   ]);
 
   return (
@@ -1808,7 +1853,13 @@ export default function ChatPage() {
         flexDirection: "column",
       }}
     >
-      <div className={styles.chatMessagesArea}>
+      <div
+        className={
+          isWideMode
+            ? `${styles.chatMessagesArea} ${styles.wideMode}`
+            : styles.chatMessagesArea
+        }
+      >
         <AgentScopeRuntimeWebUI
           ref={chatRef}
           key={refreshKey}

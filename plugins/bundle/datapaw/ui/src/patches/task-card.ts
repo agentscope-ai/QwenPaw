@@ -22,7 +22,7 @@ import { isDatapawAgentSelected } from "../lib/agent";
 import {
   TASK_GRAPH_MESSAGE_ID,
   buildTaskCardMessage,
-  loadTaskCardPlan,
+  clearTaskCardCurrentForSession,
   loadTaskCardPlans,
   saveTaskCardForSession,
   removeTaskCardForSession,
@@ -366,16 +366,25 @@ async function fetchAndApplyTaskPlan(sessionId: string): Promise<boolean> {
       })),
     });
     if (!plans.length) continue;
-    const retainedCurrentPlanId =
-      summary?.current_plan?.id ?? activePlanId ?? plans[plans.length - 1]?.id;
+    const retainedCurrentPlanId = summary?.current_plan?.id ?? null;
     logTaskGraphDebug("apply-task-plans", {
       requestedSessionId: sessionId,
       sourceSessionId: candidateSessionId,
       retainedCurrentPlanId,
       planIds: plans.map((plan) => plan.id),
     });
+    if (!retainedCurrentPlanId) {
+      activePlanId = null;
+      setCurrentPlan(null, candidateSessionId);
+      const storageSessionIds = new Set(
+        [candidateSessionId, sessionId].filter(Boolean) as string[],
+      );
+      for (const storageSessionId of storageSessionIds) {
+        clearTaskCardCurrentForSession(storageSessionId);
+      }
+    }
     for (const plan of plans) {
-      if (retainedCurrentPlanId === plan.id) {
+      if (retainedCurrentPlanId && retainedCurrentPlanId === plan.id) {
         applyCurrentPlan(plan, sessionId, candidateSessionId);
       } else {
         applyHistoricalPlan(plan, sessionId, candidateSessionId);
@@ -474,15 +483,14 @@ async function syncTaskPlanForCurrentSession(sessionId: string): Promise<void> {
 
     const cachedPlans = loadTaskCardPlans(sessionId);
     if (cachedPlans.length) {
-      const currentCached =
-        cachedPlans.find((item) => item.current)?.plan ?? loadTaskCardPlan(sessionId);
+      const currentCached = cachedPlans.find((item) => item.current)?.plan ?? null;
       logTaskGraphDebug("sync-session-plan-cache-hit", {
         sessionId,
         planIds: cachedPlans.map((item) => item.plan.id),
         currentPlanId: currentCached?.id ?? null,
       });
       for (const item of cachedPlans) {
-        if (item.plan.id === currentCached?.id) {
+        if (currentCached && item.plan.id === currentCached.id) {
           applyCurrentPlan(item.plan, sessionId);
         } else {
           applyHistoricalPlan(item.plan, sessionId);

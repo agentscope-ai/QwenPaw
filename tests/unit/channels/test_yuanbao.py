@@ -786,6 +786,44 @@ class TestNormalizeInbound:
         result = YuanbaoChannel._normalize_inbound(data)
         assert result["msg_body"][0]["msg_content"] == {"text": "plain text"}
 
+    def test_parses_cloud_custom_data_quote(self):
+        from qwenpaw.app.channels.yuanbao.channel import YuanbaoChannel
+
+        raw = {
+            "msg_body": [],
+            "cloud_custom_data": (
+                '{"quote":{"id":"abc","seq":1,"type":1,"desc":"hi"}}'
+            ),
+        }
+        out = YuanbaoChannel._normalize_inbound(raw)
+        ccd = out["cloud_custom_data"]
+        assert isinstance(ccd, dict)
+        quote = ccd.get("quote")
+        assert isinstance(quote, dict)
+        assert quote.get("desc") == "hi"
+
+    def test_cloud_custom_data_empty_string_becomes_empty_dict(self):
+        from qwenpaw.app.channels.yuanbao.channel import YuanbaoChannel
+
+        out = YuanbaoChannel._normalize_inbound(
+            {"msg_body": [], "cloud_custom_data": ""},
+        )
+        assert not out["cloud_custom_data"]
+
+    def test_cloud_custom_data_invalid_json_becomes_empty_dict(self):
+        from qwenpaw.app.channels.yuanbao.channel import YuanbaoChannel
+
+        out = YuanbaoChannel._normalize_inbound(
+            {"msg_body": [], "cloud_custom_data": "{not json"},
+        )
+        assert not out["cloud_custom_data"]
+
+    def test_cloud_custom_data_missing_field_becomes_empty_dict(self):
+        from qwenpaw.app.channels.yuanbao.channel import YuanbaoChannel
+
+        out = YuanbaoChannel._normalize_inbound({"msg_body": []})
+        assert out["cloud_custom_data"] == {}
+
 
 @pytest.mark.asyncio
 class TestParseMsgBody:
@@ -855,8 +893,9 @@ class TestParseMsgBody:
         assert mentioned is False
         assert len(parts) == 1
 
-    async def test_parse_image_elem(self, connected_channel):
+    async def test_parse_image_elem(self, connected_channel, tmp_path):
         """TIMImageElem should download and return ImageContent."""
+        connected_channel._media_dir = tmp_path
         msg_body = [
             {
                 "msg_type": "TIMImageElem",
@@ -868,10 +907,16 @@ class TestParseMsgBody:
                 },
             },
         ]
+
+        async def fake_download(url, media_dir, filename=""):
+            target = media_dir / filename
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(b"\x00")
+            return str(target)
+
         with patch(
             "qwenpaw.app.channels.yuanbao.channel.download_media",
-            new_callable=AsyncMock,
-            return_value=None,
+            side_effect=fake_download,
         ), patch.object(
             connected_channel,
             "_resolve_media_url",
@@ -881,12 +926,170 @@ class TestParseMsgBody:
             parts, _ = await connected_channel._parse_msg_body(msg_body)
 
         assert len(parts) == 1
-        assert parts[0].image_url == "https://example.com/img.jpg"
+        assert parts[0].image_url.startswith("file://")
+        assert parts[0].image_url.endswith("image.jpg")
 
     async def test_parse_empty_body(self, connected_channel):
         parts, mentioned = await connected_channel._parse_msg_body([])
         assert parts == []
         assert mentioned is False
+
+    async def test_parse_file_elem_audio_routed_to_audio_content(
+        self,
+        connected_channel,
+        tmp_path,
+    ):
+        """TIMFileElem with audio suffix should yield AudioContent."""
+        from agentscope_runtime.engine.schemas.agent_schemas import (
+            AudioContent,
+        )
+
+        connected_channel._media_dir = tmp_path
+
+        async def fake_download(url, media_dir, filename=""):
+            target = media_dir / filename
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(b"\x00")
+            return str(target)
+
+        with patch(
+            "qwenpaw.app.channels.yuanbao.channel.download_media",
+            side_effect=fake_download,
+        ):
+            connected_channel._resolve_media_url = AsyncMock(
+                side_effect=lambda u: u,
+            )
+            parts, _ = await connected_channel._parse_msg_body(
+                [
+                    {
+                        "msg_type": "TIMFileElem",
+                        "msg_content": {
+                            "url": "https://cdn.example.com/x",
+                            "file_name": "test_副本.mp3",
+                        },
+                    },
+                ],
+            )
+
+        assert len(parts) == 1
+        assert isinstance(parts[0], AudioContent)
+
+    async def test_parse_file_elem_doc_routed_to_file_content(
+        self,
+        connected_channel,
+        tmp_path,
+    ):
+        """TIMFileElem with non-audio suffix should yield FileContent."""
+        from agentscope_runtime.engine.schemas.agent_schemas import (
+            FileContent,
+        )
+
+        connected_channel._media_dir = tmp_path
+
+        async def fake_download(url, media_dir, filename=""):
+            target = media_dir / filename
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(b"text")
+            return str(target)
+
+        with patch(
+            "qwenpaw.app.channels.yuanbao.channel.download_media",
+            side_effect=fake_download,
+        ):
+            connected_channel._resolve_media_url = AsyncMock(
+                side_effect=lambda u: u,
+            )
+            parts, _ = await connected_channel._parse_msg_body(
+                [
+                    {
+                        "msg_type": "TIMFileElem",
+                        "msg_content": {
+                            "url": "https://cdn.example.com/x",
+                            "file_name": "陈灵威.txt",
+                        },
+                    },
+                ],
+            )
+
+        assert len(parts) == 1
+        assert isinstance(parts[0], FileContent)
+        assert parts[0].filename == "陈灵威.txt"
+
+    async def test_parse_file_elem_without_filename_uses_fallback(
+        self,
+        connected_channel,
+        tmp_path,
+    ):
+        """Missing ``file_name`` should fall back to literal ``file``."""
+        from agentscope_runtime.engine.schemas.agent_schemas import (
+            FileContent,
+        )
+
+        connected_channel._media_dir = tmp_path
+
+        async def fake_download(url, media_dir, filename=""):
+            target = media_dir / (filename or "file")
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(b"x")
+            return str(target)
+
+        with patch(
+            "qwenpaw.app.channels.yuanbao.channel.download_media",
+            side_effect=fake_download,
+        ):
+            connected_channel._resolve_media_url = AsyncMock(
+                side_effect=lambda u: u,
+            )
+            parts, _ = await connected_channel._parse_msg_body(
+                [
+                    {
+                        "msg_type": "TIMFileElem",
+                        "msg_content": {
+                            "url": "https://cdn.example.com/x",
+                        },
+                    },
+                ],
+            )
+
+        assert len(parts) == 1
+        assert isinstance(parts[0], FileContent)
+        assert parts[0].filename == "file"
+
+    async def test_parse_image_elem_download_failure_emits_placeholder(
+        self,
+        connected_channel,
+        tmp_path,
+    ):
+        """Failed download should surface a TextContent placeholder."""
+        from agentscope_runtime.engine.schemas.agent_schemas import (
+            TextContent,
+        )
+
+        connected_channel._media_dir = tmp_path
+
+        with patch(
+            "qwenpaw.app.channels.yuanbao.channel.download_media",
+            new=AsyncMock(return_value=None),
+        ):
+            connected_channel._resolve_media_url = AsyncMock(
+                side_effect=lambda u: u,
+            )
+            parts, _ = await connected_channel._parse_msg_body(
+                [
+                    {
+                        "msg_type": "TIMImageElem",
+                        "msg_content": {
+                            "image_info_array": [
+                                {"url": "https://cdn/example.jpg"},
+                            ],
+                        },
+                    },
+                ],
+            )
+
+        assert len(parts) == 1
+        assert isinstance(parts[0], TextContent)
+        assert parts[0].text == "[image: download failed]"
 
 
 @pytest.mark.asyncio
@@ -909,13 +1112,13 @@ class TestHandleChatMessage:
         await connected_channel._handle_chat_message(inbound)
         assert connected_channel._enqueue.call_count == 1
 
-    async def test_ignores_self_message(self, connected_channel):
-        """Messages from bot itself should be ignored."""
+    async def test_bot_account_filtered_by_default(self, connected_channel):
+        """Bot accounts (bot_ prefix) should be ignored by default."""
         connected_channel._enqueue = MagicMock()
-        connected_channel._bot_id = "test_bot_id"
+        connected_channel.accept_bot_messages = False
         inbound = {
             "callback_command": "C2C.CallbackAfterSendMsg",
-            "from_account": "test_bot_id",
+            "from_account": "bot_test_bot_id",
             "sender_nickname": "Bot",
             "msg_id": "msg_self",
             "msg_body": [
@@ -1024,6 +1227,94 @@ class TestHandleChatMessage:
         session_file = tmp_path / "yuanbao_sessions.json"
         assert session_file.exists()
 
+    async def test_bot_message_filtered_by_default(self, connected_channel):
+        """Bot messages should be dropped when accept_bot_messages is False."""
+        import json
+
+        connected_channel._enqueue = MagicMock()
+        connected_channel.accept_bot_messages = False
+        inbound = {
+            "callback_command": "Group.CallbackAfterSendMsg",
+            "from_account": "szUvRH8s4ekettawNjDREmAG4W7h",
+            "sender_nickname": "元宝",
+            "group_code": "293831858",
+            "msg_id": "msg_bot_1",
+            "msg_body": [
+                {
+                    "msg_type": "TIMTextElem",
+                    "msg_content": {
+                        "text": "在呢～",
+                        "data": json.dumps(
+                            {
+                                "elem_type": 1013,
+                                "text": "在呢～",
+                                "user_id": "",
+                                "content": "",
+                            },
+                        ),
+                    },
+                },
+            ],
+        }
+        await connected_channel._handle_chat_message(inbound)
+        connected_channel._enqueue.assert_not_called()
+
+    async def test_bot_message_accepted_when_enabled(self, connected_channel):
+        """Bot messages pass through when accept_bot_messages is True."""
+        import json
+
+        connected_channel._enqueue = MagicMock()
+        connected_channel.accept_bot_messages = True
+        connected_channel.require_mention = False
+        inbound = {
+            "callback_command": "Group.CallbackAfterSendMsg",
+            "from_account": "szUvRH8s4ekettawNjDREmAG4W7h",
+            "sender_nickname": "元宝",
+            "group_code": "293831858",
+            "msg_id": "msg_bot_2",
+            "msg_body": [
+                {
+                    "msg_type": "TIMTextElem",
+                    "msg_content": {
+                        "text": "在呢～",
+                        "data": json.dumps(
+                            {
+                                "elem_type": 1013,
+                                "text": "在呢～",
+                                "user_id": "",
+                                "content": "",
+                            },
+                        ),
+                    },
+                },
+            ],
+        }
+        await connected_channel._handle_chat_message(inbound)
+        connected_channel._enqueue.assert_called_once()
+
+    async def test_custom_bot_filtered_by_from_account_prefix(
+        self,
+        connected_channel,
+    ):
+        """Custom bots with bot_ prefixed from_account should be filtered."""
+        connected_channel._enqueue = MagicMock()
+        connected_channel.accept_bot_messages = False
+        inbound = {
+            "callback_command": "Group.CallbackAfterSendMsg",
+            "from_account": "bot_3c71636ecdf9455783ab22d3bfa21fd2",
+            "sender_nickname": "灰的Bot3",
+            "group_code": "293831858",
+            "msg_id": "msg_custom_bot_1",
+            "msg_body": [
+                {
+                    "msg_type": "TIMTextElem",
+                    "msg_content": {"text": "收到！"},
+                },
+            ],
+        }
+        await connected_channel._handle_chat_message(inbound)
+        connected_channel._enqueue.assert_not_called()
+
 
 # =============================================================================
 # P2: Cleanup Tests
@@ -1048,3 +1339,307 @@ class TestCleanup:
         connected_channel._media_session = None
         await connected_channel._cleanup_session()
         assert connected_channel._media_session is None
+
+
+# =============================================================================
+# P1: Filename / Extension Preservation (utils.py)
+# =============================================================================
+
+
+class TestResolveExtension:
+    """``_resolve_extension`` should prefer the original filename suffix."""
+
+    def test_filename_suffix_takes_priority_over_octet_stream(self):
+        from qwenpaw.app.channels.yuanbao.utils import _resolve_extension
+
+        # CDN often returns application/octet-stream; the real .txt must
+        # not be silently rewritten to .bin.
+        assert (
+            _resolve_extension(
+                "application/octet-stream",
+                "陈灵威.txt",
+            )
+            == ".txt"
+        )
+
+    def test_filename_suffix_takes_priority_over_audio_mpeg(self):
+        from qwenpaw.app.channels.yuanbao.utils import _resolve_extension
+
+        # audio/mpeg may guess to .mpga depending on mime db; .mp3 must win.
+        assert _resolve_extension("audio/mpeg", "test_副本.mp3") == ".mp3"
+
+    def test_falls_back_to_content_type_when_no_filename_suffix(self):
+        from qwenpaw.app.channels.yuanbao.utils import _resolve_extension
+
+        ext = _resolve_extension("image/jpeg", "noext")
+        assert ext in (".jpg", ".jpeg", ".jpe")
+
+    def test_falls_back_to_bin_when_nothing_known(self):
+        from qwenpaw.app.channels.yuanbao.utils import _resolve_extension
+
+        assert _resolve_extension("", "") == ".bin"
+
+
+class TestBuildSafeFilename:
+    """``_build_safe_filename`` should preserve the original name."""
+
+    def test_preserves_cjk_when_no_conflict(self, tmp_path):
+        from qwenpaw.app.channels.yuanbao.utils import _build_safe_filename
+
+        assert _build_safe_filename("陈灵威.txt", ".txt", tmp_path) == "陈灵威.txt"
+
+    def test_strips_whitespace_keeps_parens(self, tmp_path):
+        from qwenpaw.app.channels.yuanbao.utils import _build_safe_filename
+
+        assert (
+            _build_safe_filename("test 副本(1).mp3", ".mp3", tmp_path)
+            == "test副本(1).mp3"
+        )
+
+    def test_appends_uid_only_on_conflict(self, tmp_path):
+        from qwenpaw.app.channels.yuanbao.utils import _build_safe_filename
+
+        existing = tmp_path / "陈灵威.txt"
+        existing.write_text("seed")
+        result = _build_safe_filename("陈灵威.txt", ".txt", tmp_path)
+        assert result.startswith("陈灵威_")
+        assert result.endswith(".txt")
+        assert result != "陈灵威.txt"
+
+    def test_blank_filename_uses_yuanbao_prefix(self, tmp_path):
+        from qwenpaw.app.channels.yuanbao.utils import _build_safe_filename
+
+        result = _build_safe_filename("", ".bin", tmp_path)
+        assert result.startswith("yuanbao_")
+        assert result.endswith(".bin")
+
+    def test_all_whitespace_falls_back_to_file(self, tmp_path):
+        from qwenpaw.app.channels.yuanbao.utils import _build_safe_filename
+
+        # "  " (only whitespace) -> stripped to empty -> "file"
+        assert _build_safe_filename("   .txt", ".txt", tmp_path) == "file.txt"
+
+
+# =============================================================================
+# P1: Quote Prefix Helpers (channel.py)
+# =============================================================================
+
+
+class TestClassifyFile:
+    """``_classify_file`` routes audio extensions to AudioContent."""
+
+    def test_audio_extensions(self):
+        from qwenpaw.app.channels.yuanbao.channel import YuanbaoChannel
+
+        for name in (
+            "test_副本.mp3",
+            "voice.WAV",
+            "a.m4a",
+            "x.opus",
+            "y.silk",
+        ):
+            assert YuanbaoChannel._classify_file(name) == "audio"
+
+    def test_non_audio_extensions(self):
+        from qwenpaw.app.channels.yuanbao.channel import YuanbaoChannel
+
+        for name in ("陈灵威.txt", "doc.pdf", "img.png", "noext"):
+            assert YuanbaoChannel._classify_file(name) == "file"
+
+
+class TestBuildQuotedPrefix:
+    """``_build_quoted_prefix`` covers the 5 yuanbao quote scenarios."""
+
+    def test_text_quote(self):
+        from qwenpaw.app.channels.yuanbao.channel import YuanbaoChannel
+
+        assert (
+            YuanbaoChannel._build_quoted_prefix(
+                {"type": 1, "desc": "你好呀"},
+            )
+            == "[quoted message: 你好呀]"
+        )
+
+    def test_image_quote_empty_desc(self):
+        from qwenpaw.app.channels.yuanbao.channel import YuanbaoChannel
+
+        assert (
+            YuanbaoChannel._build_quoted_prefix({"type": 2, "desc": ""})
+            == "[quoted image]"
+        )
+
+    def test_file_quote_with_filename(self):
+        from qwenpaw.app.channels.yuanbao.channel import YuanbaoChannel
+
+        assert (
+            YuanbaoChannel._build_quoted_prefix(
+                {"type": 3, "desc": "陈灵威.txt"},
+            )
+            == "[quoted file: 陈灵威.txt]"
+        )
+
+    def test_audio_quote_routed_by_suffix(self):
+        from qwenpaw.app.channels.yuanbao.channel import YuanbaoChannel
+
+        assert (
+            YuanbaoChannel._build_quoted_prefix(
+                {"type": 3, "desc": "test_副本.mp3"},
+            )
+            == "[quoted audio: test_副本.mp3]"
+        )
+
+    def test_file_type_with_empty_desc(self):
+        from qwenpaw.app.channels.yuanbao.channel import YuanbaoChannel
+
+        assert (
+            YuanbaoChannel._build_quoted_prefix({"type": 3, "desc": ""})
+            == "[quoted file]"
+        )
+
+    def test_unknown_type_falls_back_to_message(self):
+        from qwenpaw.app.channels.yuanbao.channel import YuanbaoChannel
+
+        assert (
+            YuanbaoChannel._build_quoted_prefix({"type": 99, "desc": ""})
+            == "[quoted message]"
+        )
+
+    def test_non_dict_returns_none(self):
+        from qwenpaw.app.channels.yuanbao.channel import YuanbaoChannel
+
+        assert YuanbaoChannel._build_quoted_prefix(None) is None
+        assert YuanbaoChannel._build_quoted_prefix("oops") is None
+
+
+@pytest.mark.asyncio
+class TestHandleChatMessageQuoteInjection:
+    """End-to-end check that quoted prefix lands at content_parts[0]."""
+
+    async def test_quote_prefix_prepended_for_text_quote(
+        self,
+        connected_channel,
+    ):
+        captured: list = []
+        connected_channel._enqueue = captured.append
+        connected_channel._bot_id = "bot_xxx"
+
+        inbound = {
+            "callback_command": "C2C.CallbackAfterSendMsg",
+            "msg_id": "msg_with_quote",
+            "from_account": "user_account",
+            "sender_nickname": "灰",
+            "msg_body": [
+                {
+                    "msg_type": "TIMTextElem",
+                    "msg_content": {"text": "11"},
+                },
+            ],
+            "cloud_custom_data": {"quote": {"type": 1, "desc": "你好呀"}},
+        }
+        await connected_channel._handle_chat_message(inbound)
+
+        assert len(captured) == 1
+        parts = captured[0]["content_parts"]
+        # quote prefix is merged into the same TextContent as user input,
+        # mirroring wecom / dingtalk behavior.
+        assert len(parts) == 1
+        assert parts[0].text == "[quoted message: 你好呀]\n11"
+
+    async def test_quote_prefix_prepended_for_audio_quote(
+        self,
+        connected_channel,
+    ):
+        captured: list = []
+        connected_channel._enqueue = captured.append
+
+        inbound = {
+            "callback_command": "C2C.CallbackAfterSendMsg",
+            "msg_id": "msg_audio_quote",
+            "from_account": "user_account",
+            "sender_nickname": "灰",
+            "msg_body": [
+                {
+                    "msg_type": "TIMTextElem",
+                    "msg_content": {"text": "11"},
+                },
+            ],
+            "cloud_custom_data": {
+                "quote": {"type": 3, "desc": "test_副本.mp3"},
+            },
+        }
+        await connected_channel._handle_chat_message(inbound)
+
+        parts = captured[0]["content_parts"]
+        assert len(parts) == 1
+        assert parts[0].text == "[quoted audio: test_副本.mp3]\n11"
+
+    async def test_quote_prefix_falls_back_when_no_text_part(
+        self,
+        connected_channel,
+        tmp_path,
+    ):
+        """Image-only msg + quote: prefix becomes standalone TextContent."""
+        captured: list = []
+        connected_channel._enqueue = captured.append
+        connected_channel._media_dir = tmp_path
+
+        async def fake_download(url, media_dir, filename=""):
+            target = media_dir / (filename or "image.jpg")
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(b"x")
+            return str(target)
+
+        with patch(
+            "qwenpaw.app.channels.yuanbao.channel.download_media",
+            side_effect=fake_download,
+        ):
+            inbound = {
+                "callback_command": "C2C.CallbackAfterSendMsg",
+                "msg_id": "msg_img_quote",
+                "from_account": "user_account",
+                "sender_nickname": "灰",
+                "msg_body": [
+                    {
+                        "msg_type": "TIMImageElem",
+                        "msg_content": {
+                            "image_info_array": [
+                                {"url": "https://cdn.example.com/x.jpg"},
+                            ],
+                        },
+                    },
+                ],
+                "cloud_custom_data": {
+                    "quote": {"type": 1, "desc": "hi"},
+                },
+            }
+            await connected_channel._handle_chat_message(inbound)
+
+        parts = captured[0]["content_parts"]
+        # No TextContent in original parts -> prefix becomes standalone
+        # at index 0; image part follows.
+        assert len(parts) == 2
+        assert parts[0].text == "[quoted message: hi]"
+        assert parts[1].image_url.startswith("file://")
+
+    async def test_no_quote_no_prefix(self, connected_channel):
+        captured: list = []
+        connected_channel._enqueue = captured.append
+
+        inbound = {
+            "callback_command": "C2C.CallbackAfterSendMsg",
+            "msg_id": "msg_plain",
+            "from_account": "user_account",
+            "sender_nickname": "灰",
+            "msg_body": [
+                {
+                    "msg_type": "TIMTextElem",
+                    "msg_content": {"text": "hello"},
+                },
+            ],
+            "cloud_custom_data": {},
+        }
+        await connected_channel._handle_chat_message(inbound)
+
+        parts = captured[0]["content_parts"]
+        assert len(parts) == 1
+        assert parts[0].text == "hello"

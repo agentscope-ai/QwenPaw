@@ -29,6 +29,7 @@ _MAX_PAGE_SIZE = 100
 class ModelScopeProvider:
     key = "modelscope"
     label = "ModelScope"
+    supports_browse = True
 
     def available(self) -> tuple[bool, str | None]:
         return True, None
@@ -39,6 +40,7 @@ class ModelScopeProvider:
         limit: int,
         page: int,
         lang: str = "en",
+        category: str | None = None,
     ) -> tuple[list[MarketResult], bool, int | None]:
         url = f"{_BASE_URL}{_SEARCH_PATH}"
         page_size = max(1, min(int(limit), _MAX_PAGE_SIZE))
@@ -49,6 +51,9 @@ class ModelScopeProvider:
         needle = query.strip()
         if needle:
             params["search"] = needle
+        cat = (category or "").strip()
+        if cat:
+            params["filter.category"] = cat
         try:
             body = await http_json_get(
                 url,

@@ -19,90 +19,117 @@
   gap: 12px;
 }
 
-/* ─── Toolbar / Search ───────────────────────────────────────────────────── */
-.toolbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.searchContainer {
-  display: flex;
-  align-items: stretch;
-  flex: 1;
-  max-width: 600px;
-}
-
-.searchInput {
-  flex: 1;
-  min-width: 0;
-  height: 36px;
-  padding: 0 12px;
-  border: 1px solid var(--color-border-secondary, #d9d9d9);
-  border-right: none;
-  border-radius: 6px 0 0 6px;
-  font-size: 14px;
-  color: rgba(20, 20, 19, 0.88);
-  background: var(--color-bg-base, #ffffff);
-  outline: none;
-  transition: border-color 0.2s;
-
-  &::placeholder {
-    color: rgba(20, 20, 19, 0.25);
-  }
-
-  &:focus {
-    border-color: #ff7f16;
-  }
-}
-
-.searchButton {
-  border-radius: 0 6px 6px 0 !important;
-  height: 36px;
-  flex-shrink: 0;
-}
-
-/* ─── Provider chips (filter row) ────────────────────────────────────────── */
+/* ─── Provider chips (first layer, multi-select) ─────────────────────────── */
 .providerChips {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: 8px;
   align-items: center;
 }
 
 .chip {
   display: inline-flex;
   align-items: center;
-  padding: 2px 10px;
-  font-size: 12px;
-  border-radius: 4px;
-  background: rgba(0, 0, 0, 0.04);
-  color: rgba(0, 0, 0, 0.65);
+  gap: 4px;
+  padding: 3px 12px;
+  font-size: 13px;
+  border-radius: 999px;
+  border: 1px solid var(--ant-color-border, #d9d9d9);
+  color: var(--ant-color-text-secondary, rgba(0, 0, 0, 0.65));
   cursor: pointer;
   user-select: none;
   transition: all 0.2s;
 
   &:hover {
-    background: rgba(22, 119, 255, 0.08);
-    color: #1677ff;
+    color: var(--ant-color-primary, #1677ff);
+    border-color: var(--ant-color-primary, #1677ff);
   }
 }
 
 .chipActive {
-  background: rgba(22, 119, 255, 0.12);
-  color: #1677ff;
+  color: var(--ant-color-primary, #1677ff);
+  border-color: var(--ant-color-primary, #1677ff);
+  background: var(--ant-color-primary-bg, rgba(22, 119, 255, 0.08));
   font-weight: 500;
 }
 
 .chipDisabled {
-  opacity: 0.5;
+  opacity: 0.45;
   cursor: not-allowed;
 
   &:hover {
-    background: rgba(0, 0, 0, 0.04);
-    color: rgba(0, 0, 0, 0.65);
+    color: var(--ant-color-text-secondary, rgba(0, 0, 0, 0.65));
+    border-color: var(--ant-color-border, #d9d9d9);
   }
+}
+
+/* ─── Toolbar (second layer: category tabs + search) ─────────────────────── */
+.toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.searchInput {
+  width: 260px;
+  flex-shrink: 0;
+}
+
+.categoryTabs {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  min-width: 0;
+  overflow-x: auto;
+}
+
+.categoryTab {
+  position: relative;
+  padding: 6px 0;
+  font-size: 14px;
+  color: var(--ant-color-text-secondary);
+  cursor: pointer;
+  transition: color 0.2s;
+  white-space: nowrap;
+
+  &:hover {
+    color: var(--ant-color-text);
+  }
+}
+
+.categoryTabActive {
+  color: var(--ant-color-text);
+  font-weight: 500;
+
+  &::after {
+    content: "";
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 2px;
+    background: var(--ant-color-primary, #1890ff);
+    border-radius: 1px;
+  }
+}
+
+.searchHint {
+  font-size: 13px;
+  color: var(--ant-color-text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ─── Browse hint (search-only sources) ──────────────────────────────────── */
+.browseHint {
+  padding: 8px 12px;
+  border-radius: 6px;
+  background: rgba(22, 119, 255, 0.06);
+  border: 1px solid rgba(22, 119, 255, 0.16);
+  color: #1668dc;
+  font-size: 13px;
 }
 
 /* ─── Error row ──────────────────────────────────────────────────────────── */
@@ -132,6 +159,16 @@
 }
 
 .noMoreText {
+  color: rgba(20, 20, 19, 0.45);
+  font-size: 13px;
+}
+
+.sentinel {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 32px;
   color: rgba(20, 20, 19, 0.45);
   font-size: 13px;
 }
@@ -171,40 +208,49 @@
 
 /* ─── Dark mode ──────────────────────────────────────────────────────────── */
 :global(.dark-mode) {
-  .searchInput {
-    background: #2a2a2a;
-    border-color: rgba(255, 255, 255, 0.15);
-    color: rgba(255, 255, 255, 0.88);
-
-    &::placeholder {
-      color: rgba(255, 255, 255, 0.25);
-    }
-
-    &:focus {
-      border-color: #ff7f16;
-    }
-  }
-
   .chip {
-    background: rgba(255, 255, 255, 0.08);
+    border-color: rgba(255, 255, 255, 0.18);
     color: rgba(255, 255, 255, 0.65);
 
     &:hover {
-      background: rgba(22, 119, 255, 0.15);
       color: #4da3ff;
+      border-color: #4da3ff;
     }
   }
 
   .chipActive {
-    background: rgba(22, 119, 255, 0.2);
     color: #4da3ff;
+    border-color: #4da3ff;
+    background: rgba(22, 119, 255, 0.16);
   }
 
   .chipDisabled {
     &:hover {
-      background: rgba(255, 255, 255, 0.08);
       color: rgba(255, 255, 255, 0.65);
+      border-color: rgba(255, 255, 255, 0.18);
     }
+  }
+
+  .categoryTab {
+    color: rgba(255, 255, 255, 0.65);
+
+    &:hover {
+      color: rgba(255, 255, 255, 0.88);
+    }
+  }
+
+  .categoryTabActive {
+    color: rgba(255, 255, 255, 0.88);
+  }
+
+  .searchHint {
+    color: rgba(255, 255, 255, 0.65);
+  }
+
+  .browseHint {
+    background: rgba(22, 119, 255, 0.12);
+    border-color: rgba(22, 119, 255, 0.28);
+    color: #6cb2ff;
   }
 
   .errorRow {
@@ -214,6 +260,10 @@
   }
 
   .noMoreText {
+    color: rgba(255, 255, 255, 0.45);
+  }
+
+  .sentinel {
     color: rgba(255, 255, 255, 0.45);
   }
 

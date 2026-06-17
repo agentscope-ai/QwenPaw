@@ -166,7 +166,7 @@ def format_pending_edits(edits: list[dict], lang: str = "zh") -> str:
             removed = edit.get("removed") or []
             modified = edit.get("modified") or []
             overridden = edit.get("state_overridden") or []
-            stale = edit.get("stale_propagated") or []
+            downstream_reset = edit.get("downstream_reset") or []
             lines.append(
                 tr(
                     "edit.dag_merged",
@@ -176,7 +176,7 @@ def format_pending_edits(edits: list[dict], lang: str = "zh") -> str:
                     modified=modified,
                     removed=removed,
                     overridden=overridden,
-                    stale=stale,
+                    downstream_reset=downstream_reset,
                 ),
             )
         elif etype == "node_edited":
@@ -186,10 +186,14 @@ def format_pending_edits(edits: list[dict], lang: str = "zh") -> str:
             lines.append(
                 tr("edit.node_edited", lang, nid=node_id, changes=changes),
             )
-            stale = edit.get("stale_propagated") or []
-            if stale:
+            downstream_reset = edit.get("downstream_reset") or []
+            if downstream_reset:
                 lines.append(
-                    tr("edit.node_stale_warn", lang, stale=stale),
+                    tr(
+                        "edit.node_downstream_reset_warn",
+                        lang,
+                        downstream_reset=downstream_reset,
+                    ),
                 )
         elif etype == "graph_replaced":
             # Legacy rendering for old session files.

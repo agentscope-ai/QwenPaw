@@ -5,6 +5,7 @@ import {
   SparkNewChatFill,
   SparkSearchLine,
 } from "@agentscope-ai/icons";
+import { ExpandAltOutlined, CompressOutlined } from "@ant-design/icons";
 import { useChatAnywhereSessions } from "@agentscope-ai/chat";
 import { useTranslation } from "react-i18next";
 import { Flex, Tooltip } from "antd";
@@ -32,10 +33,14 @@ const PINNED_STORAGE_KEY = "qwenpaw_history_drawer_pinned";
 
 interface ChatActionGroupProps {
   planEnabled?: boolean;
+  isWideMode?: boolean;
+  onToggleWideMode?: () => void;
 }
 
 const ChatActionGroup: React.FC<ChatActionGroupProps> = ({
   planEnabled = false,
+  isWideMode = false,
+  onToggleWideMode,
 }) => {
   const { t } = useTranslation();
 
@@ -99,6 +104,20 @@ const ChatActionGroup: React.FC<ChatActionGroupProps> = ({
           onClick={() => setHistoryOpen(true)}
         />
       </Tooltip>
+      {onToggleWideMode && (
+        <Tooltip
+          title={
+            isWideMode ? t("chat.normalModeTooltip") : t("chat.wideModeTooltip")
+          }
+          mouseEnterDelay={0.5}
+        >
+          <IconButton
+            bordered={false}
+            icon={isWideMode ? <CompressOutlined /> : <ExpandAltOutlined />}
+            onClick={onToggleWideMode}
+          />
+        </Tooltip>
+      )}
       <ChatSessionDrawer
         open={historyOpen}
         onClose={() => setHistoryOpen(false)}

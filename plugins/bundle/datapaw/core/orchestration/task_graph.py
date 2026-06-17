@@ -3,9 +3,9 @@
 
 Extends AgentScope's ``SubTask`` / ``Plan`` with:
 - DAG dependencies (``TaskNode.deps``)
-- Two extra states (``failed``, ``stale``)
+- One extra state (``failed``)
 - File outputs (``NodeOutput.files``)
-- STALE cascade propagation (``TaskGraph.mark_downstream_stale``)
+- Downstream reset propagation (``TaskGraph.mark_downstream_todo``)
 - YAML round-trip (``TaskGraph.to_yaml`` / ``from_yaml``)
 - Trigger-message tracking (``TaskGraph.anchor_message_id``)
 
@@ -66,15 +66,16 @@ class NodeOutput(BaseModel):
 # TaskNode
 # ---------------------------------------------------------------------------
 
-# TaskNode states: parent ``SubTask`` 4-state set plus ``failed`` / ``stale``.
+# TaskNode states: parent ``SubTask`` 4-state set plus ``failed``.
 NodeStatus = Literal[
     "todo",
     "in_progress",
     "done",
     "failed",
-    "stale",
     "abandoned",
 ]
+
+PlanChangeAction = Literal["add", "revise", "delete"]
 
 
 class TaskNode(SubTask):
@@ -83,7 +84,7 @@ class TaskNode(SubTask):
     state: NodeStatus = Field(
         default="todo",
         description=(
-            "Node state (todo/in_progress/done/failed/stale/abandoned)."
+            "Node state (todo/in_progress/done/failed/abandoned)."
         ),
     )
 
@@ -159,10 +160,11 @@ class TaskNode(SubTask):
         self.error = error
         self.finished_at = _get_timestamp()
 
-    def mark_stale(self) -> None:
-        # Terminal states (done / abandoned) never become stale.
+    def mark_reset_todo(self) -> None:
+        # Terminal states (done / abandoned) are not reset.
         if self.state in ("todo", "in_progress", "failed"):
-            self.state = "stale"
+            self.state = "todo"
+            self.error = None
 
     def to_markdown(self, detailed: bool = False) -> str:
         status_map = {
@@ -170,7 +172,6 @@ class TaskNode(SubTask):
             "in_progress": "- [ ] [WIP]",
             "done": "- [x] ",
             "failed": "- [!] [FAILED]",
-            "stale": "- [ ] [STALE]",
             "abandoned": "- [ ] [Abandoned]",
         }
         prefix = status_map.get(self.state, "- [ ] ")
@@ -261,7 +262,7 @@ _DAG_NODE_RUNTIME_IGNORED: frozenset = frozenset(
     },
 )
 _DAG_NODE_ALLOWED: frozenset = frozenset(set(_SOP_NODE_FIELDS) | {"state"})
-_DAG_USER_STATES: frozenset = frozenset({"todo", "stale", "abandoned"})
+_DAG_USER_STATES: frozenset = frozenset({"todo", "abandoned"})
 _DAG_BACKEND_STATES: frozenset = frozenset({"done", "in_progress", "failed"})
 
 
@@ -309,6 +310,51 @@ def _check_deps_and_topology(
         raise ValueError(
             f"{cycle_label} contains a cycle."
             " Check 'deps' for circular references.",
+        )
+
+
+def _validate_graph_topology(nodes: Dict[str, "TaskNode"]) -> None:
+    """Validate deps and acyclic topology for plan-change simulation."""
+    if not nodes:
+        return
+
+    node_ids = set(nodes.keys())
+    for nid, node in nodes.items():
+        if nid in node.deps:
+            raise ValueError(
+                f"Invalid dependency: node '{nid}' cannot list itself in deps.",
+            )
+        unknown_deps = set(node.deps) - node_ids
+        if unknown_deps:
+            raise ValueError(
+                f"Invalid dependency: node '{nid}' references unknown deps "
+                f"{sorted(unknown_deps)}. Every dep must be an existing "
+                f"node_id in the graph after this batch is applied.",
+            )
+
+    in_degree: Dict[str, int] = {nid: 0 for nid in node_ids}
+    adjacency: Dict[str, List[str]] = {nid: [] for nid in node_ids}
+    for nid, node in nodes.items():
+        for dep in node.deps:
+            adjacency[dep].append(nid)
+            in_degree[nid] += 1
+
+    queue = [nid for nid, deg in in_degree.items() if deg == 0]
+    visited_count = 0
+    while queue:
+        cur = queue.pop(0)
+        visited_count += 1
+        for downstream in adjacency.get(cur, []):
+            in_degree[downstream] -= 1
+            if in_degree[downstream] == 0:
+                queue.append(downstream)
+
+    if visited_count != len(nodes):
+        cyclic_nodes = sorted(nid for nid, deg in in_degree.items() if deg > 0)
+        raise ValueError(
+            "Invalid topology: task graph would contain a cycle after "
+            "applying these changes. Check deps for circular references. "
+            f"Nodes involved: {cyclic_nodes}.",
         )
 
 
@@ -382,7 +428,7 @@ def _validate_dag_dict(  # pylint: disable=too-many-branches
     """Validate a DAG patch dict; returns processed node list.
 
     Same shape as SOP, plus an optional per-node ``state`` restricted to
-    user-owned values (todo / stale / abandoned). Runtime fields that come
+    user-owned values (todo / abandoned). Runtime fields that come
     back via ``GET /dag`` round-trip are silently dropped; unknown fields
     still fail.
     """
@@ -564,7 +610,7 @@ class Sop(BaseModel):
 class DagNode(SopNode):
     """DAG patch node: SOP fields plus a user-overridable ``state``."""
 
-    state: Optional[Literal["todo", "stale", "abandoned"]] = None
+    state: Optional[Literal["todo", "abandoned"]] = None
 
 
 class Dag(BaseModel):
@@ -633,6 +679,28 @@ class Dag(BaseModel):
         }
 
 
+class PlanNodeChange(BaseModel):
+    """Single node mutation for ``revise_current_plan``."""
+
+    node_id: str = Field(description="Target node_id.")
+    action: PlanChangeAction = Field(
+        description="'add' / 'revise' / 'delete'.",
+    )
+    node: Optional[TaskNode] = Field(
+        default=None,
+        description="Required for 'add' and 'revise'.",
+    )
+
+
+class ApplyPlanChangesResult(BaseModel):
+    """Result returned by ``TaskGraph.apply_plan_changes``."""
+
+    added: List[str] = Field(default_factory=list)
+    revised: List[str] = Field(default_factory=list)
+    deleted: List[str] = Field(default_factory=list)
+    downstream_reset: List[str] = Field(default_factory=list)
+
+
 class DagDiff(BaseModel):
     """Merge diff returned by ``TaskGraph.apply_dag``."""
 
@@ -640,7 +708,7 @@ class DagDiff(BaseModel):
     removed: List[str] = Field(default_factory=list)
     modified: List[str] = Field(default_factory=list)
     state_overridden: List[str] = Field(default_factory=list)
-    stale_propagated: List[str] = Field(default_factory=list)
+    downstream_reset: List[str] = Field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
@@ -722,10 +790,10 @@ class TaskGraph(Plan):
     # --- DAG scheduling -----------------------------------------------------
 
     def get_ready_nodes(self) -> List[TaskNode]:
-        """Nodes in state ``todo``/``stale`` whose deps are all ``done``."""
+        """Nodes in state ``todo`` whose deps are all ``done``."""
         ready: List[TaskNode] = []
         for node in self.nodes.values():
-            if node.state not in ("todo", "stale"):
+            if node.state != "todo":
                 continue
             if all(
                 self.nodes.get(dep) is not None
@@ -757,17 +825,186 @@ class TaskGraph(Plan):
         visit(node_id)
         return downstream
 
-    def mark_downstream_stale(self, node_id: str) -> List[str]:
-        """Mark every downstream node STALE; returns the IDs newly marked."""
+    def mark_downstream_todo(self, node_id: str) -> List[str]:
+        """Reset every downstream node to todo; returns newly reset IDs."""
         downstream = self._find_downstream_nodes(node_id)
-        stale_ids: List[str] = []
+        reset_ids: List[str] = []
         for nid in downstream:
             node = self.nodes[nid]
             prev = node.state
-            node.mark_stale()
-            if node.state == "stale" and prev != "stale":
-                stale_ids.append(nid)
-        return stale_ids
+            node.mark_reset_todo()
+            if node.state == "todo" and prev != "todo":
+                reset_ids.append(nid)
+        return reset_ids
+
+    @staticmethod
+    def _force_revise_todo(node: TaskNode) -> None:
+        """Reset a revised node to todo (matches single-node tool logic)."""
+        if node.state not in ("todo", "abandoned"):
+            node.state = "todo"
+            node.error = None
+
+    @staticmethod
+    def _clone_task_node(node: TaskNode) -> TaskNode:
+        return TaskNode.model_validate(node.model_dump())
+
+    def _simulate_plan_changes(
+        self,
+        changes: List[PlanNodeChange],
+    ) -> Dict[str, TaskNode]:
+        """Simulate delete→add→revise without mutating ``self.nodes``."""
+        simulated: Dict[str, TaskNode] = {
+            nid: self._clone_task_node(node)
+            for nid, node in self.nodes.items()
+        }
+
+        for change in changes:
+            if change.action != "delete":
+                continue
+            node_id = change.node_id
+            simulated.pop(node_id, None)
+            for other in simulated.values():
+                if node_id in other.deps:
+                    other.deps = [d for d in other.deps if d != node_id]
+
+        for change in changes:
+            if change.action != "add":
+                continue
+            node = change.node
+            assert node is not None
+            if not isinstance(node, TaskNode):
+                node = TaskNode.model_validate(node)
+            clone = self._clone_task_node(node)
+            clone.node_id = change.node_id
+            simulated[clone.node_id] = clone
+
+        for change in changes:
+            if change.action != "revise":
+                continue
+            node = change.node
+            assert node is not None
+            if not isinstance(node, TaskNode):
+                node = TaskNode.model_validate(node)
+            clone = self._clone_task_node(node)
+            clone.node_id = change.node_id
+            simulated[change.node_id] = clone
+
+        return simulated
+
+    @staticmethod
+    def _check_self_dependency(node_id: str, deps: List[str]) -> None:
+        if node_id in deps:
+            raise ValueError(
+                f"Invalid dependency: node '{node_id}' cannot list itself "
+                f"in deps.",
+            )
+
+    @staticmethod
+    def _check_add_node_id(change: PlanNodeChange, node: TaskNode) -> None:
+        """Ensure add uses ``change.node_id`` as the authoritative slot id."""
+        if "node_id" in node.model_fields_set and node.node_id != change.node_id:
+            raise ValueError(
+                f"add node_id mismatch: change.node_id={change.node_id!r} "
+                f"vs node.node_id={node.node_id!r}.",
+            )
+
+    def apply_plan_changes(
+        self,
+        changes: List[PlanNodeChange],
+    ) -> ApplyPlanChangesResult:
+        """Atomically apply a batch of plan node mutations."""
+        if not changes:
+            raise ValueError("changes must not be empty.")
+
+        seen_ids: set[str] = set()
+        for change in changes:
+            if change.node_id in seen_ids:
+                raise ValueError(
+                    f"Duplicate node_id in changes: {change.node_id!r}.",
+                )
+            seen_ids.add(change.node_id)
+
+        deletes = [c for c in changes if c.action == "delete"]
+        adds = [c for c in changes if c.action == "add"]
+        revises = [c for c in changes if c.action == "revise"]
+
+        for change in changes:
+            if change.action in ("add", "revise") and change.node is None:
+                raise ValueError(
+                    f"action='{change.action}' requires a 'node' argument.",
+                )
+
+        for change in adds + revises:
+            node = change.node
+            assert node is not None
+            if not isinstance(node, TaskNode):
+                node = TaskNode.model_validate(node)
+            if change.action == "add":
+                self._check_add_node_id(change, node)
+                nid = change.node_id
+            else:
+                nid = change.node_id
+            self._check_self_dependency(nid, list(node.deps))
+
+        simulated_ids = set(self.nodes.keys())
+        for change in deletes:
+            if change.node_id not in simulated_ids:
+                raise ValueError(f"Node '{change.node_id}' not found.")
+            simulated_ids.discard(change.node_id)
+
+        for change in revises:
+            if change.node_id not in simulated_ids:
+                raise ValueError(f"Node '{change.node_id}' not found.")
+
+        for change in adds:
+            node = change.node
+            assert node is not None
+            if not isinstance(node, TaskNode):
+                node = TaskNode.model_validate(node)
+            if change.node_id in simulated_ids:
+                raise ValueError(
+                    f"Cannot add: node '{change.node_id}' already exists.",
+                )
+
+        simulated = self._simulate_plan_changes(changes)
+        _validate_graph_topology(simulated)
+
+        result = ApplyPlanChangesResult()
+
+        for change in deletes:
+            self.remove_node(change.node_id)
+            result.deleted.append(change.node_id)
+
+        for change in adds:
+            node = change.node
+            assert node is not None
+            if not isinstance(node, TaskNode):
+                node = TaskNode.model_validate(node)
+            node.node_id = change.node_id
+            self.add_node(node)
+            result.added.append(node.node_id)
+
+        revised_ids: List[str] = []
+        for change in revises:
+            node = change.node
+            assert node is not None
+            if not isinstance(node, TaskNode):
+                node = TaskNode.model_validate(node)
+            node_id = change.node_id
+            node.node_id = node_id
+            self._force_revise_todo(node)
+            self.replace_node(node_id, node)
+            result.revised.append(node_id)
+            revised_ids.append(node_id)
+
+        reset_seen: set[str] = set()
+        for node_id in revised_ids:
+            for reset_id in self.mark_downstream_todo(node_id):
+                if reset_id not in reset_seen:
+                    reset_seen.add(reset_id)
+                    result.downstream_reset.append(reset_id)
+
+        return result
 
     # --- State refresh ------------------------------------------------------
 
@@ -926,7 +1163,7 @@ class TaskGraph(Plan):
         """Merge a ``Dag`` patch into this graph by ``node_id``.
 
         Structural fields are user-mutable; per-node ``state`` may only be
-        set to one of ``todo`` / ``stale`` / ``abandoned``. The backend-owned
+        set to one of ``todo`` / ``abandoned``. The backend-owned
         states (done / in_progress / failed) remain under runtime control.
         """
         if isinstance(dag, Dag):
@@ -1000,11 +1237,11 @@ class TaskGraph(Plan):
                 if old != new:
                     setattr(node, field, new)
                     changed = True
-            # ``name`` is display-only and does not trigger STALE.
+            # ``name`` is display-only and does not trigger downstream reset.
             node.name = patch_node.name
             if changed:
                 prev = node.state
-                node.mark_stale()
+                node.mark_reset_todo()
                 diff.modified.append(nid)
                 if node.state != prev or prev in ("done", "abandoned"):
                     source_ids.add(nid)
@@ -1020,21 +1257,22 @@ class TaskGraph(Plan):
 
         self._rebuild_subtasks()
 
-        stale_seen: set[str] = set()
+        reset_seen: set[str] = set()
         for nid in sorted(source_ids):
             if nid in force_downstream_ids:
-                stale_ids = []
-                for stale_id in self._find_downstream_nodes(nid):
-                    stale_node = self.nodes[stale_id]
-                    if stale_node.state != "abandoned":
-                        stale_node.state = "stale"
-                        stale_ids.append(stale_id)
+                reset_ids = []
+                for reset_id in self._find_downstream_nodes(nid):
+                    reset_node = self.nodes[reset_id]
+                    if reset_node.state != "abandoned":
+                        reset_node.state = "todo"
+                        reset_node.error = None
+                        reset_ids.append(reset_id)
             else:
-                stale_ids = self.mark_downstream_stale(nid)
-            for stale_id in stale_ids:
-                if stale_id not in stale_seen:
-                    stale_seen.add(stale_id)
-                    diff.stale_propagated.append(stale_id)
+                reset_ids = self.mark_downstream_todo(nid)
+            for reset_id in reset_ids:
+                if reset_id not in reset_seen:
+                    reset_seen.add(reset_id)
+                    diff.downstream_reset.append(reset_id)
 
         self._rebuild_subtasks()
         return diff

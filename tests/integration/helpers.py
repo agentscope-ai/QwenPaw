@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import shutil
 import time
+from http.server import BaseHTTPRequestHandler
 from pathlib import Path
 from typing import Any
 
@@ -227,3 +228,306 @@ def make_event(
         "read": read,
         "created_at": (created_at if created_at is not None else time.time()),
     }
+
+
+# ------------------------------------------------------------------ #
+# Mock LLM server
+# ------------------------------------------------------------------ #
+
+MOCK_LLM_RESPONSE = "Mock heartbeat response from integration test."
+MOCK_LLM_PROVIDER_ID = "integ-mock-llm"
+_HTTP_TIMEOUT = 15.0
+
+
+class MockLLMHandler(BaseHTTPRequestHandler):
+    """OpenAI-compatible streaming server with tool_call support.
+
+    Behaviour matrix (checked in order):
+      1. ``server.force_error`` is True  → 422
+      2. Request has ``tools`` AND no ``role=tool`` message
+         → stream a tool_call for ``get_current_time``
+      3. Request has a ``role=tool`` message (round 2)
+         → stream text summarising the tool result
+      4. Otherwise → stream ``MOCK_LLM_RESPONSE``
+    """
+
+    def do_POST(self):  # noqa: N802
+        if "/chat/completions" in self.path:
+            self._stream_completion()
+        else:
+            self.send_error(404)
+
+    def do_GET(self):  # noqa: N802
+        if "/models" in self.path:
+            self._list_models()
+        else:
+            self.send_error(404)
+
+    # -- internals ---------------------------------------------------
+
+    def _read_body(self) -> dict:
+        length = int(self.headers.get("Content-Length", 0))
+        raw = self.rfile.read(length) if length else b"{}"
+        try:
+            return json.loads(raw)
+        except (ValueError, UnicodeDecodeError):
+            return {}
+
+    def _stream_completion(self):
+        body = self._read_body()
+
+        delay = getattr(self.server, "response_delay", 0)
+        if delay:
+            time.sleep(delay)
+
+        if getattr(self.server, "force_error", False):
+            self._respond_error()
+            return
+
+        messages = body.get("messages", [])
+        tools = body.get("tools", [])
+        has_tool_result = any(m.get("role") == "tool" for m in messages)
+        force_tc = getattr(self.server, "force_tool_call", False)
+
+        if force_tc and tools and not has_tool_result:
+            self._stream_tool_call()
+        elif has_tool_result:
+            tool_content = ""
+            for m in messages:
+                if m.get("role") == "tool":
+                    tool_content = str(m.get("content", ""))
+            text = (
+                f"The current time is {tool_content}."
+                if tool_content
+                else MOCK_LLM_RESPONSE
+            )
+            self._stream_text(text)
+        else:
+            self._stream_text(MOCK_LLM_RESPONSE)
+
+    def _respond_error(self):
+        self.send_response(422)
+        self.send_header("Content-Type", "application/json")
+        self.end_headers()
+        err = {
+            "error": {
+                "message": "forced",
+                "type": "invalid_request_error",
+            },
+        }
+        self.wfile.write(json.dumps(err).encode())
+
+    def _stream_text(self, text: str):
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream")
+        self.send_header("Cache-Control", "no-cache")
+        self.end_headers()
+
+        chunk = json.dumps(
+            {
+                "id": "chatcmpl-mock",
+                "object": "chat.completion.chunk",
+                "created": 1700000000,
+                "model": "mock-model",
+                "choices": [
+                    {
+                        "index": 0,
+                        "delta": {
+                            "role": "assistant",
+                            "content": text,
+                        },
+                        "finish_reason": None,
+                    },
+                ],
+                "usage": None,
+            },
+        )
+        self.wfile.write(f"data: {chunk}\n\n".encode())
+        self.wfile.flush()
+
+        final = json.dumps(
+            {
+                "id": "chatcmpl-mock",
+                "object": "chat.completion.chunk",
+                "created": 1700000000,
+                "model": "mock-model",
+                "choices": [
+                    {
+                        "index": 0,
+                        "delta": {},
+                        "finish_reason": "stop",
+                    },
+                ],
+                "usage": {
+                    "prompt_tokens": 10,
+                    "completion_tokens": 5,
+                    "total_tokens": 15,
+                },
+            },
+        )
+        self.wfile.write(f"data: {final}\n\n".encode())
+        self.wfile.flush()
+        self.wfile.write(b"data: [DONE]\n\n")
+        self.wfile.flush()
+
+    def _stream_tool_call(self):
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream")
+        self.send_header("Cache-Control", "no-cache")
+        self.end_headers()
+
+        chunk1 = json.dumps(
+            {
+                "id": "chatcmpl-mock-tc",
+                "object": "chat.completion.chunk",
+                "created": 1700000000,
+                "model": "mock-model",
+                "choices": [
+                    {
+                        "index": 0,
+                        "delta": {
+                            "role": "assistant",
+                            "content": None,
+                            "tool_calls": [
+                                {
+                                    "index": 0,
+                                    "id": "call_mock_tc",
+                                    "type": "function",
+                                    "function": {
+                                        "name": ("get_current_time"),
+                                        "arguments": "",
+                                    },
+                                },
+                            ],
+                        },
+                        "finish_reason": None,
+                    },
+                ],
+            },
+        )
+        self.wfile.write(f"data: {chunk1}\n\n".encode())
+        self.wfile.flush()
+
+        chunk2 = json.dumps(
+            {
+                "id": "chatcmpl-mock-tc",
+                "object": "chat.completion.chunk",
+                "created": 1700000000,
+                "model": "mock-model",
+                "choices": [
+                    {
+                        "index": 0,
+                        "delta": {
+                            "tool_calls": [
+                                {
+                                    "index": 0,
+                                    "function": {
+                                        "arguments": "{}",
+                                    },
+                                },
+                            ],
+                        },
+                        "finish_reason": None,
+                    },
+                ],
+            },
+        )
+        self.wfile.write(f"data: {chunk2}\n\n".encode())
+        self.wfile.flush()
+
+        chunk3 = json.dumps(
+            {
+                "id": "chatcmpl-mock-tc",
+                "object": "chat.completion.chunk",
+                "created": 1700000000,
+                "model": "mock-model",
+                "choices": [
+                    {
+                        "index": 0,
+                        "delta": {},
+                        "finish_reason": "tool_calls",
+                    },
+                ],
+                "usage": {
+                    "prompt_tokens": 15,
+                    "completion_tokens": 10,
+                    "total_tokens": 25,
+                },
+            },
+        )
+        self.wfile.write(f"data: {chunk3}\n\n".encode())
+        self.wfile.flush()
+        self.wfile.write(b"data: [DONE]\n\n")
+        self.wfile.flush()
+
+    def _list_models(self):
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.end_headers()
+        self.wfile.write(
+            json.dumps(
+                {
+                    "data": [
+                        {"id": "mock-model", "object": "model"},
+                    ],
+                },
+            ).encode(),
+        )
+
+    def log_message(self, fmt, *args):
+        pass
+
+
+# ------------------------------------------------------------------ #
+# Mock LLM provider helpers
+# ------------------------------------------------------------------ #
+
+
+def register_mock_provider(app_server, mock_url: str) -> str:
+    """Register + activate mock LLM provider. Returns provider id."""
+    app_server.api_request(
+        "POST",
+        "/api/models/custom-providers",
+        json={
+            "id": MOCK_LLM_PROVIDER_ID,
+            "name": "Integration Mock",
+            "default_base_url": mock_url,
+            "chat_model": "OpenAIChatModel",
+            "models": [
+                {"id": "mock-model", "name": "Mock Model"},
+            ],
+        },
+        timeout=_HTTP_TIMEOUT,
+    )
+    app_server.api_request(
+        "PUT",
+        f"/api/models/{MOCK_LLM_PROVIDER_ID}/config",
+        json={
+            "api_key": "test-key-mock",
+            "base_url": mock_url,
+        },
+        timeout=_HTTP_TIMEOUT,
+    )
+    app_server.api_request(
+        "PUT",
+        "/api/models/active",
+        json={
+            "provider_id": MOCK_LLM_PROVIDER_ID,
+            "model": "mock-model",
+            "scope": "global",
+        },
+        timeout=_HTTP_TIMEOUT,
+    )
+    return MOCK_LLM_PROVIDER_ID
+
+
+def unregister_mock_provider(app_server, provider_id: str):
+    """Best-effort cleanup of mock provider."""
+    try:
+        app_server.api_request(
+            "DELETE",
+            f"/api/models/custom-providers/{provider_id}",
+            timeout=_HTTP_TIMEOUT,
+        )
+    except Exception:
+        pass

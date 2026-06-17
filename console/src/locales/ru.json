@@ -1118,6 +1118,8 @@
     "builtin": "Встроенный",
     "freeTierGroup": "Бесплатный уровень",
     "paidGroup": "Платные",
+    "localCustomGroup": "Локальные и пользовательские",
+    "endpointCount": "{{count}} конечных точек",
     "connect": "OAuth",
     "saveApiKey": "Сохранить",
     "addProvider": "Добавить провайдера",
@@ -1618,6 +1620,8 @@
     "newChatTooltip": "Новый чат",
     "searchTooltip": "Поиск во всех чатах",
     "chatHistoryTooltip": "История чатов",
+    "wideModeTooltip": "Широкий режим",
+    "normalModeTooltip": "Обычный режим",
     "allChats": "Все чаты",
     "createNewChat": "Создать новый чат",
     "pinDrawer": "Закрепить",
@@ -1665,6 +1669,14 @@
       "imageOnlyWarning": "Текущая модель поддерживает только изображения, видео и другие файлы могут быть обработаны некорректно"
     },
     "rateLimitHit": "Текущая модель ограничена. Попробуйте переключиться на другую бесплатную модель.",
+    "turnUsagePopover": {
+      "ariaLabel": "Показать использование токенов и контекста за ход",
+      "turn": "Этот ход",
+      "turnEstimated": "Этот ход ~",
+      "tok": "tok",
+      "inOut": "in {{inTok}} · out {{outTok}}",
+      "contextLabel": "Окно контекста:"
+    },
     "rateLimitMessage": "Достигнут лимит запросов. Переключитесь на другую бесплатную модель:",
     "rateLimitSwitched": "Переключено на {{model}}",
     "speech": {
@@ -2314,9 +2326,12 @@
   },
   "market": {
     "searchPlaceholder": "Поиск навыков по платформам",
+    "categoryAll": "Все",
+    "searchResult": "Найдено навыков по запросу \"{{keyword}}\": {{count}}",
     "providerUnavailable": "Источник недоступен",
     "noResults": "Ничего не найдено",
     "startTyping": "Введите запрос выше, чтобы найти навык в маркете",
+    "browseHint": "Выберите категорию или введите ключевое слово, чтобы просмотреть навыки в {{providers}}",
     "noDescription": "Описание отсутствует",
     "targetPool": "Пул",
     "targetWorkspace": "Рабочее пространство",

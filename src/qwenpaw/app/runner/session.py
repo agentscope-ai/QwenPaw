@@ -20,6 +20,7 @@ import aiofiles
 from agentscope.session import SessionBase
 from agentscope_runtime.engine.schemas.exception import ConfigurationException
 from ...exceptions import AgentStateError
+from ...utils.json_utils import safe_json_loads as _safe_json_loads
 
 logger = logging.getLogger(__name__)
 
@@ -54,45 +55,6 @@ def _atomic_write_json(path: str, payload: dict) -> None:
                 os.remove(tmp_path)
             except OSError:
                 pass
-
-
-def _safe_json_loads(content: str, filepath: str = "") -> dict:
-    """Parse JSON with corruption recovery.
-
-    Attempts standard ``json.loads`` first.  If that fails due to
-    trailing garbage (a common symptom of concurrent-write race
-    conditions), falls back to ``raw_decode`` to extract the first
-    valid JSON object.  If the file is completely unparseable, returns
-    an empty dict and logs a warning so callers never crash.
-
-    Args:
-        content: Raw file content.
-        filepath: Used only for log messages.
-
-    Returns:
-        Parsed dict, or ``{}`` when the content is beyond recovery.
-    """
-    try:
-        return json.loads(content)
-    except json.JSONDecodeError:
-        pass
-
-    # Try to extract the first valid JSON object.
-    try:
-        result, _ = json.JSONDecoder().raw_decode(content)
-        logger.warning(
-            "Session file %s had corrupted JSON. "
-            "Recovered first valid object via raw_decode.",
-            filepath,
-        )
-        return result
-    except json.JSONDecodeError:
-        logger.warning(
-            "Session file %s is completely corrupted and could not "
-            "be recovered. Returning empty dict.",
-            filepath,
-        )
-        return {}
 
 
 # Characters forbidden in Windows filenames

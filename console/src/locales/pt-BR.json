@@ -1321,6 +1321,8 @@
     "builtin": "Integrado",
     "freeTierGroup": "Gratuito",
     "paidGroup": "Pago",
+    "localCustomGroup": "Local e Personalizado",
+    "endpointCount": "{{count}} endpoints",
     "connect": "OAuth",
     "saveApiKey": "Salvar",
     "addProvider": "Adicionar Provedor",
@@ -1810,6 +1812,8 @@
     "newChatTooltip": "Novo Chat",
     "searchTooltip": "Pesquisar Todos chats",
     "chatHistoryTooltip": "Chat history",
+    "wideModeTooltip": "Modo amplo",
+    "normalModeTooltip": "Modo normal",
     "allChats": "Todos Chats",
     "createNewChat": "Criar Novo Chat",
     "pinDrawer": "Fixar",
@@ -1857,6 +1861,14 @@
       "imageOnlyWarning": "Current model only supports images, non-image files like videos may not be processed correctly"
     },
     "rateLimitHit": "O modelo atual está com limite de taxa. Tente mudar para outro modelo gratuito.",
+    "turnUsagePopover": {
+      "ariaLabel": "Ver uso de tokens e contexto desta rodada",
+      "turn": "Esta rodada",
+      "turnEstimated": "Esta rodada ~",
+      "tok": "tok",
+      "inOut": "in {{inTok}} · out {{outTok}}",
+      "contextLabel": "Janela de contexto:"
+    },
     "rateLimitMessage": "Limite de taxa atingido. Mude para outro modelo gratuito:",
     "rateLimitSwitched": "Mudou para {{model}}",
     "speech": {
@@ -2338,9 +2350,12 @@
   },
   "market": {
     "searchPlaceholder": "Buscar habilidades em várias plataformas",
+    "categoryAll": "Todos",
+    "searchResult": "{{count}} habilidades encontradas para \"{{keyword}}\"",
     "providerUnavailable": "Provedor indisponível",
     "noResults": "Nenhum resultado",
     "startTyping": "Digite uma consulta acima para buscar no mercado",
+    "browseHint": "Escolha uma categoria ou digite uma palavra-chave para navegar pelos skills em {{providers}}",
     "noDescription": "Nenhuma descrição fornecida",
     "targetPool": "Pool",
     "targetWorkspace": "Workspace",

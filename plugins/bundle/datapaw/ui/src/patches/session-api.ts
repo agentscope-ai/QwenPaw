@@ -95,11 +95,9 @@ function getTaskGraphPlanId(message: Record<string, unknown>): string | null {
 }
 
 function outputMatchesPlan(
-  item: { id?: string; metadata?: { graph_id?: string } | null; graph_id?: string },
-  anchorMessageId?: string | null,
+  item: { metadata?: { graph_id?: string } | null; graph_id?: string },
   planId?: string | null,
 ): boolean {
-  if (anchorMessageId && item.id === anchorMessageId) return true;
   if (!planId) return false;
   return item.metadata?.graph_id === planId || item.graph_id === planId;
 }
@@ -109,40 +107,32 @@ function findAssistantResponseIndex(
   anchorMessageId?: string | null,
   planId?: string | null,
 ): number {
-  if (anchorMessageId || planId) {
-    const anchoredIndex = messages.findIndex((message) => {
-      const cards = message.cards as
-        | Array<{
-            code?: string;
-            data?: {
-              output?: Array<{
-                id?: string;
-                metadata?: { graph_id?: string } | null;
-                graph_id?: string;
-              }>;
-            };
-          }>
-        | undefined;
+  void anchorMessageId;
+  if (!planId) return -1;
+  return messages.findIndex((message) => {
+    const cards = message.cards as
+      | Array<{
+          code?: string;
+          data?: {
+            output?: Array<{
+              metadata?: { graph_id?: string } | null;
+              graph_id?: string;
+            }>;
+          };
+        }>
+      | undefined;
 
-      return (
-        message.role === "assistant" &&
-        cards?.some((card) =>
-          card.code === "AgentScopeRuntimeResponseCard"
-            ? card.data?.output?.some((item) =>
-                outputMatchesPlan(item, anchorMessageId, planId),
-              )
-            : false,
-        )
-      );
-    });
-    if (anchoredIndex >= 0) return anchoredIndex;
-  }
-
-  for (let i = messages.length - 1; i >= 0; i -= 1) {
-    if (messages[i].role === "assistant") return i;
-  }
-
-  return -1;
+    return (
+      message.role === "assistant" &&
+      cards?.some((card) =>
+        card.code === "AgentScopeRuntimeResponseCard"
+          ? card.data?.output?.some((item) =>
+              outputMatchesPlan(item, planId),
+            )
+          : false,
+      )
+    );
+  });
 }
 
 function mergePersistentMessages(

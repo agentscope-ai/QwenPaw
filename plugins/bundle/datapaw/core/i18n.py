@@ -130,20 +130,20 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "zh": (
             "用户修订了任务图「{name}」：\n"
             "- 新增节点：{added}\n"
-            "- 修改节点：{modified}（结构变更节点按需 STALE）\n"
+            "- 修改节点：{modified}（结构变更会重置下游为 todo）\n"
             "- 删除节点：{removed}\n"
             "- 用户显式改变状态：{overridden}\n"
-            "- 下游级联 STALE：{stale}\n"
+            "- 下游重置为 todo：{downstream_reset}\n"
             "- 已 done 节点保留进度，请勿重新执行。"
         ),
         "en": (
             "The user revised task graph '{name}':\n"
             "- added: {added}\n"
             "- modified: {modified} "
-            "(structural changes auto-STALE)\n"
+            "(structural changes reset downstream to todo)\n"
             "- removed: {removed}\n"
             "- explicit state overrides: {overridden}\n"
-            "- downstream STALE cascade: {stale}\n"
+            "- downstream reset to todo: {downstream_reset}\n"
             "- done nodes keep their progress; do not re-execute."
         ),
     },
@@ -151,9 +151,9 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "zh": "用户在任务面板修改了节点 `{nid}`：{changes}",
         "en": "User edited node `{nid}` in the task panel: {changes}",
     },
-    "edit.node_stale_warn": {
-        "zh": "  → 下游节点 {stale} 已被标记为 STALE，需要重跑。",
-        "en": "  → downstream nodes {stale} marked STALE; re-run required.",
+    "edit.node_downstream_reset_warn": {
+        "zh": "  → 下游节点 {downstream_reset} 已重置为 todo，需要重跑。",
+        "en": "  → downstream nodes {downstream_reset} reset to todo; re-run required.",
     },
     "edit.graph_replaced": {
         "zh": "当前活跃图被前端替换。请检查新的 current_plan 并按其执行。",
@@ -202,35 +202,23 @@ _MESSAGES: dict[str, dict[str, str]] = {
         "zh": (
             "<datapaw-analysis-environment>\n"
             "当前 DataPaw 分析环境：host workspace。\n"
-            "- 使用 host 提供的 `execute_shell_command` 执行命令；"
-            "工作目录是 agent workspace。\n"
-            "- 数据文件和产物存储在 `{root}`；引用时使用 "
-            "`artifacts/<session_id>/<graph_id>/<node_id>/...`。\n"
-            "- Python 脚本可来自 workspace、skills 目录或临时生成文件；"
-            "不要假设脚本必须位于 `artifacts/` 下。\n"
-            "- Matplotlib/Seaborn 绘图时，不要假设宿主机存在某一平台字体；"
-            "如需中文字体，请先探测当前 Python 环境可用字体，再设置 "
-            "`font.sans-serif`。\n"
-            "- 记录 `finish_subtask(files=...)` 时，文件路径仍使用相对 "
-            "artifacts 根的路径，例如 `session/graph/node/chart.png`。\n"
+            "- 命令通过 `execute_shell_command` 执行；工作目录是 agent workspace。\n"
+            "- 本机 artifacts 根目录：`{root}`\n"
+            "- 引用产物时使用 `artifacts/<session_id>/<graph_id>/<node_id>/...`；"
+            "`finish_subtask(files=...)` 的 path 使用相对 artifacts 根的路径"
+            "（不带 `artifacts/` 前缀）。\n"
             "</datapaw-analysis-environment>"
         ),
         "en": (
             "<datapaw-analysis-environment>\n"
             "Current DataPaw analysis environment: host workspace.\n"
-            "- Run commands via the host-provided `execute_shell_command`; "
+            "- Run commands via `execute_shell_command`; "
             "the working directory is the agent workspace.\n"
-            "- Data files and artifacts live under `{root}`; reference them "
-            "as `artifacts/<session_id>/<graph_id>/<node_id>/...`.\n"
-            "- Python scripts may come from the workspace, the skills "
-            "directory, or temporary generated files; do not assume "
-            "they must live under `artifacts/`.\n"
-            "- When plotting with Matplotlib/Seaborn, do not assume a "
-            "specific platform font; probe available fonts in the "
-            "current Python environment before setting `font.sans-serif`.\n"
-            "- When recording `finish_subtask(files=...)`, keep paths "
-            "relative to the artifacts root, e.g. "
-            "`session/graph/node/chart.png`.\n"
+            "- Artifacts root on this host: `{root}`\n"
+            "- Reference artifacts as "
+            "`artifacts/<session_id>/<graph_id>/<node_id>/...`; "
+            "for `finish_subtask(files=...)`, use paths relative to the "
+            "artifacts root (no `artifacts/` prefix).\n"
             "</datapaw-analysis-environment>"
         ),
     },
