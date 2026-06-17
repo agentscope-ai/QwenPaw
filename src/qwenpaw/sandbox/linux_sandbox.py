@@ -671,15 +671,22 @@ class LinuxSandbox:
             self._abi_version,
         )
 
-        # Write script to a temp file (in /tmp which is always accessible)
+        # Write script to a temp file (in /tmp which is always accessible).
+        # Defensive structure:
+        #   - mkstemp returns a fd; we hand it to os.fdopen() in a `with`
+        #     so the fd is closed even if the write itself raises.
+        #   - The outer try/finally ALWAYS unlinks the temp file, including
+        #     when os.write / os.chmod / subprocess setup raise. This
+        #     prevents leaking files that contain the full sandbox policy
+        #     and the command to be executed.
         script_fd, script_path = tempfile.mkstemp(
             prefix="landlock_",
             suffix=".py",
             dir="/tmp",
         )
         try:
-            os.write(script_fd, script.encode("utf-8"))
-            os.close(script_fd)
+            with os.fdopen(script_fd, "wb") as _f:
+                _f.write(script.encode("utf-8"))
             os.chmod(script_path, 0o755)
 
             # Find python3

@@ -502,7 +502,7 @@ async def execute_shell_command(
 
     import logging as _logging
 
-    _logging.getLogger(__name__).info(
+    _logging.getLogger(__name__).debug(
         "[sandbox] SKIP: sandbox_config is None, executing directly",
     )
 

@@ -27,6 +27,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import re
 import signal
 import time
 from abc import ABC, abstractmethod
@@ -44,6 +45,27 @@ logger = logging.getLogger(__name__)
 # ═══════════════════════════════════════════════════════════════════════════════
 # Abstract base
 # ═══════════════════════════════════════════════════════════════════════════════
+
+
+# Seatbelt violation patterns. Substring matching against generic words
+# like ``"deny"`` or ``"sandbox"`` is far too lossy — application logs
+# routinely contain those tokens and would be mis-flagged as sandbox
+# violations. Match the actual diagnostic shapes emitted by
+# ``sandbox-exec`` / the Seatbelt kernel:
+#   - ``deny(1) file-read-data ...``  / ``deny(1) network-outbound ...``
+#   - ``Sandbox: <bin>(<pid>) deny(1) ...``
+#   - ``sandbox-exec: <error message>``
+#   - ``Operation not permitted`` (full phrase, case-insensitive)
+# TODO: this remains a heuristic. A robust solution would be to read
+#   structured violation events via Endpoint Security or an audit log
+#   stream rather than scraping stderr.
+_SEATBELT_VIOLATION_RE = re.compile(
+    r"\bdeny\(\d+\)"  # `deny(1)`, `deny(2)` ...
+    r"|^Sandbox:\s"  # macOS kernel violation line prefix
+    r"|^sandbox-exec:\s"  # sandbox-exec error prefix
+    r"|\bOperation not permitted\b",
+    re.IGNORECASE | re.MULTILINE,
+)
 
 
 class LocalSandbox(ABC):
@@ -324,12 +346,14 @@ class MacOSSandbox(LocalSandbox):
             stdout = stdout_bytes.decode("utf-8", errors="replace")
             stderr = stderr_bytes.decode("utf-8", errors="replace")
 
-            # Detect sandbox violation from stderr
+            # Detect sandbox violation from stderr.
+            # Use precise regex against Seatbelt's actual diagnostic
+            # shapes so legitimate application output containing
+            # tokens like "deny" or "sandbox" is not mis-flagged.
             violation = None
-            if self._process.returncode != 0 and (
-                "deny" in stderr.lower()
-                or "sandbox" in stderr.lower()
-                or "operation not permitted" in stderr.lower()
+            if (
+                self._process.returncode != 0
+                and _SEATBELT_VIOLATION_RE.search(stderr)
             ):
                 violation = stderr.strip()
 

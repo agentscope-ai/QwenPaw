@@ -13,6 +13,7 @@
 
 from __future__ import annotations
 import copy
+import logging
 import re
 from dataclasses import dataclass, field
 from enum import Enum
@@ -21,6 +22,8 @@ from pathlib import Path
 from typing import Any, List, Optional
 
 import yaml
+
+logger = logging.getLogger(__name__)
 
 from .tool_registry import ToolRegistry, DEFAULT_REGISTRY
 from ..sandbox import SandboxConfig
@@ -138,13 +141,17 @@ class GovernanceRule:
         # grantee check
         if self.grantee not in ("*", tc_spec.agent_id):
             return False
-        # session-level rule: bound to a specific chat session
-        if (
-            self.duration == "session"
-            and self.session_id
-            and tc_spec.session_id
-        ):
-            if self.session_id != tc_spec.session_id:
+        # session-level rule: bound to a specific chat session.
+        # Fail-closed: if the rule is session-scoped, the request MUST carry
+        # the same session_id. A missing tc_spec.session_id means we cannot
+        # prove the request belongs to the bound session, so we refuse to
+        # match (do NOT silently fall through, which would let any unscoped
+        # request match a session rule).
+        if self.duration == "session" and self.session_id:
+            if (
+                not tc_spec.session_id
+                or self.session_id != tc_spec.session_id
+            ):
                 return False
         # parse "ToolName(pattern)"
         rule_tool, rule_pattern = _parse_match(self.match)
@@ -603,9 +610,34 @@ class GovernancePolicy:
         (first-match-wins evaluation). This ensures a newly added DENY
         can override an earlier ALLOW (e.g. Browser(**) → ALLOW).
 
+        Deduplication:
+            If an existing user_rule has the same ``match`` / ``action`` /
+            ``grantee`` / ``duration`` / ``session_id`` tuple, it is
+            removed first so the new rule still ends up at the head
+            (refreshing its priority) without growing the list. This
+            avoids unbounded growth from repeated identical approvals.
+
         Note: builtin_rules are read-only and cannot be modified via
-        this method.
+            this method.
+
+        TODO: enforce a hard cap (e.g. 1024 user rules) and an LRU /
+            TTL eviction policy so long-running workspaces do not pay
+            an ever-growing linear scan in ``evaluate``. The current
+            dedup is a best-effort stop-gap.
         """
+        # Drop any prior rule with the same identity so we don't keep
+        # accumulating duplicates on repeated approvals.
+        self.user_rules = [
+            r
+            for r in self.user_rules
+            if not (
+                r.match == rule.match
+                and r.action == rule.action
+                and r.grantee == rule.grantee
+                and r.duration == rule.duration
+                and r.session_id == rule.session_id
+            )
+        ]
         self.user_rules.insert(0, rule)
 
     def remove_rule(self, index: int) -> None:
@@ -703,8 +735,22 @@ def load_governance_policy(
     version = data.get("version", "1.0")
     audit_level = data.get("audit_level", "all")
 
-    # ── builtin_rules + user_rules ──
-    builtin_rules = _parse_rules(data.get("builtin_rules", []))
+    # ── builtin_rules: ALWAYS sourced from code (not from YAML) ──
+    # Rationale: builtin_rules encode system-level protections (e.g. ASK on
+    # ``.env`` / ``.ssh``). Honoring a YAML override here would let a
+    # tampered or accidentally truncated policy file silently weaken those
+    # protections. Any ``builtin_rules`` key in YAML is intentionally
+    # ignored.
+    if "builtin_rules" in data:
+        logger.warning(
+            "load_governance_policy: ignoring 'builtin_rules' in %s; "
+            "builtin rules are managed in code and cannot be overridden "
+            "via YAML.",
+            path,
+        )
+    builtin_rules = copy.deepcopy(DEFAULT_BUILTIN_RULES)
+
+    # ── user_rules ──
     user_rules = _parse_rules(data.get("user_rules", []))
 
     # ── env_blacklist ──
@@ -713,8 +759,6 @@ def load_governance_policy(
         env_blacklist = []
 
     # ── Cold start: fill in missing default rules ──
-    if not builtin_rules:
-        builtin_rules = copy.deepcopy(DEFAULT_BUILTIN_RULES)
     if not user_rules:
         user_rules = copy.deepcopy(DEFAULT_USER_RULES)
     if not env_blacklist:
@@ -756,11 +800,13 @@ def save_governance_policy(
         _unresolve_workspace_dir(user_rules, workspace_dir)
 
     path = Path(policy_dir) / "policy.yaml"
+    # NOTE: builtin_rules are NOT written to YAML. They are always loaded
+    # from DEFAULT_BUILTIN_RULES in code. This prevents a tampered policy
+    # file from weakening system-level protections.
     data = {
         "version": policy.version,
         "audit_level": policy.audit_level,
         "env_blacklist": list(policy.env_blacklist),
-        "builtin_rules": [_rule_to_dict(r) for r in builtin_rules],
         "user_rules": [_rule_to_dict(r) for r in user_rules],
     }
 

@@ -7,6 +7,7 @@ addition, sandbox config compilation.
 """
 
 from __future__ import annotations
+import hashlib
 import logging
 from pathlib import Path
 from typing import Optional
@@ -54,8 +55,18 @@ class ResourceGovernor:
 
     def __init__(self, workspace_dir: str):
         self.workspace_dir = Path(workspace_dir)
-        # Policy is stored outside the workspace to prevent agent tampering
-        self._policy_dir = WORKING_DIR / "governance" / self.workspace_dir.name
+        # Policy is stored outside the workspace to prevent agent tampering.
+        # Use ``<basename>_<hash>`` so two workspaces with the same basename
+        # but different absolute paths (e.g. ``/Users/a/project`` vs
+        # ``/Users/b/project``) do not share the same policy directory.
+        ws_resolved = str(self.workspace_dir.resolve())
+        ws_hash = hashlib.sha256(
+            ws_resolved.encode("utf-8")
+        ).hexdigest()[:12]
+        self._policy_dir = (
+            WORKING_DIR / "governance"
+            / f"{self.workspace_dir.name}_{ws_hash}"
+        )
         self._policy: Optional[GovernancePolicy] = None
         self._sandbox_available: bool = False
         self._sandbox_capability: Optional[SandboxCapability] = None
@@ -95,12 +106,28 @@ class ResourceGovernor:
             )
 
     def stop(self) -> None:
-        """Persist policy (if modified)."""
+        """Persist policy (if modified) and close the audit log."""
         if self._policy and self._policy.rules:
-            save_governance_policy(
-                self._policy,
-                str(self._policy_dir),
-                str(self.workspace_dir),
+            try:
+                save_governance_policy(
+                    self._policy,
+                    str(self._policy_dir),
+                    str(self.workspace_dir),
+                )
+            except Exception:
+                logger.exception(
+                    "ResourceGovernor.stop: failed to persist "
+                    "policy.yaml"
+                )
+        # Close the global AuditLog: triggers the deferred VACUUM and
+        # releases the SQLite handle. Without this, audit.db is only
+        # closed on interpreter exit (best-effort) which is fragile
+        # under supervised restarts and may leak WAL frames.
+        try:
+            AuditLog.get_instance().close()
+        except Exception:
+            logger.exception(
+                "ResourceGovernor.stop: failed to close AuditLog"
             )
 
     # ------------------------------------------------------------------

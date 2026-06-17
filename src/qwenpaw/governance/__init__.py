@@ -8,15 +8,17 @@ Public surface:
         SANDBOX_FALLBACK)
     GovernanceDecision — Decision result with action + reason +
         sandbox_config
+    ToolCallSpec      — Describes one tool invocation for policy evaluation
 """
 
 from .resource_governor import ResourceGovernor
-from .policy import GovernanceAction, GovernanceDecision
+from .policy import GovernanceAction, GovernanceDecision, ToolCallSpec
 from .tool_adapter import PolicyGuardedTool
 
 __all__ = [
     "ResourceGovernor",
     "GovernanceAction",
     "GovernanceDecision",
+    "ToolCallSpec",
     "PolicyGuardedTool",
 ]
