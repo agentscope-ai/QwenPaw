@@ -155,6 +155,14 @@ class DispatchSpec(BaseModel):
             "Only the final result is delivered after completion."
         ),
     )
+    silent_no_result: bool = Field(
+        default=False,
+        description=(
+            "If True with silent mode, suppress the final send_text delivery. "
+            "Anomaly alerts are still delivered if the agent output "
+            "contains the [ALERT] marker."
+        ),
+    )
     meta: Dict[str, Any] = Field(default_factory=dict)
 
 

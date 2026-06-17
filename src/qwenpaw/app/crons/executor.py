@@ -137,16 +137,25 @@ class CronExecutor:
         )
 
         silent = job.dispatch.silent
+        silent_no_result = getattr(job.dispatch, "silent_no_result", False)
         final_text: str | None = None
+        has_alert: bool = False
 
         async def _run() -> None:
-            nonlocal delivery_error, final_text
+            nonlocal delivery_error, final_text, has_alert
             async for event in self._runner.stream_query(req):
                 # In silent mode, skip real-time push to main session.
                 if silent:
-                    # Still capture the final text for delivery after loop.
-                    if event.get("type") == "final":
-                        final_text = event.get("text") or ""
+                    # Accumulate text from text-type events.
+                    text = (
+                        getattr(event, "text", None)
+                        or (event.get("text") if isinstance(event, dict) else None)
+                        or ""
+                    )
+                    if text:
+                        final_text = text
+                        if "[ALERT]" in text:
+                            has_alert = True
                     continue
                 try:
                     await self._channel_manager.send_event(
@@ -173,7 +182,19 @@ class CronExecutor:
                 timeout=job.runtime.timeout_seconds,
             )
             # In silent mode, deliver the final result as a single message.
+            # silent_no_result: skip delivery unless output contains [ALERT].
             if silent and final_text:
+                logger.info(
+                    "cron silent check: job_id=%s silent_no_result=%s "
+                    "has_alert=%s final_text=%r",
+                    job.id,
+                    silent_no_result,
+                    has_alert,
+                    final_text[:200],
+                )
+            if silent and final_text and (
+                not silent_no_result or has_alert
+            ):
                 try:
                     await self._channel_manager.send_text(
                         channel=target_channel,
