@@ -23,10 +23,10 @@ from typing import Any, List, Optional
 
 import yaml
 
-logger = logging.getLogger(__name__)
-
 from .tool_registry import ToolRegistry, DEFAULT_REGISTRY
 from ..sandbox import SandboxConfig
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Core types
@@ -148,10 +148,7 @@ class GovernanceRule:
         # match (do NOT silently fall through, which would let any unscoped
         # request match a session rule).
         if self.duration == "session" and self.session_id:
-            if (
-                not tc_spec.session_id
-                or self.session_id != tc_spec.session_id
-            ):
+            if not tc_spec.session_id or self.session_id != tc_spec.session_id:
                 return False
         # parse "ToolName(pattern)"
         rule_tool, rule_pattern = _parse_match(self.match)

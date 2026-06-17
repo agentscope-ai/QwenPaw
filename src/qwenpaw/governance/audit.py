@@ -297,7 +297,9 @@ class AuditLog:
             return [_event_from_row(r) for r in rows], total
         except sqlite3.Error as e:
             _logger.error(
-                "AuditLog.query: SQLite error: %s", e, exc_info=True
+                "AuditLog.query: SQLite error: %s",
+                e,
+                exc_info=True,
             )
             return [], 0
 
@@ -323,7 +325,9 @@ class AuditLog:
             return deleted
         except sqlite3.Error as e:
             _logger.error(
-                "AuditLog.purge: SQLite error: %s", e, exc_info=True
+                "AuditLog.purge: SQLite error: %s",
+                e,
+                exc_info=True,
             )
             return 0
 

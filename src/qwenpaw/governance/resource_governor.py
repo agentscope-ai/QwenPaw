@@ -61,11 +61,10 @@ class ResourceGovernor:
         # ``/Users/b/project``) do not share the same policy directory.
         ws_resolved = str(self.workspace_dir.resolve())
         ws_hash = hashlib.sha256(
-            ws_resolved.encode("utf-8")
+            ws_resolved.encode("utf-8"),
         ).hexdigest()[:12]
         self._policy_dir = (
-            WORKING_DIR / "governance"
-            / f"{self.workspace_dir.name}_{ws_hash}"
+            WORKING_DIR / "governance" / f"{self.workspace_dir.name}_{ws_hash}"
         )
         self._policy: Optional[GovernancePolicy] = None
         self._sandbox_available: bool = False
@@ -116,8 +115,7 @@ class ResourceGovernor:
                 )
             except Exception:
                 logger.exception(
-                    "ResourceGovernor.stop: failed to persist "
-                    "policy.yaml"
+                    "ResourceGovernor.stop: failed to persist policy.yaml",
                 )
         # Close the global AuditLog: triggers the deferred VACUUM and
         # releases the SQLite handle. Without this, audit.db is only
@@ -127,7 +125,7 @@ class ResourceGovernor:
             AuditLog.get_instance().close()
         except Exception:
             logger.exception(
-                "ResourceGovernor.stop: failed to close AuditLog"
+                "ResourceGovernor.stop: failed to close AuditLog",
             )
 
     # ------------------------------------------------------------------

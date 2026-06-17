@@ -657,9 +657,9 @@ class LinuxSandbox:
             2. Run it as a subprocess
             3. Capture stdout/stderr and detect violations
         """
-        cwd = cwd or self._config.workspace_dir
-        if not os.path.isdir(cwd):
-            cwd = self._config.workspace_dir
+        cwd_resolved: str = cwd or self._config.workspace_dir
+        if not os.path.isdir(cwd_resolved):
+            cwd_resolved = self._config.workspace_dir
 
         start = time.monotonic()
 
@@ -667,7 +667,7 @@ class LinuxSandbox:
         script = _generate_sandbox_script(
             self._config,
             cmd,
-            cwd,
+            cwd_resolved,
             self._abi_version,
         )
 
@@ -700,7 +700,7 @@ class LinuxSandbox:
                     script_path,
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
-                    cwd=cwd,
+                    cwd=cwd_resolved,
                     start_new_session=True,
                 )
                 stdout_bytes, stderr_bytes = await asyncio.wait_for(
