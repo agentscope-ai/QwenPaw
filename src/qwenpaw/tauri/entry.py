@@ -23,6 +23,56 @@ from qwenpaw.tauri.sidecar_logging import install_sidecar_logging
 logger = logging.getLogger(__name__)
 
 
+def _argv_looks_like_package_manager() -> bool:
+    """Detect being invoked as if this binary were a Python interpreter.
+
+    The frozen backend is sometimes mistakenly used as ``sys.executable`` to
+    run ``-m pip``; since it ignores such argv and just starts another server,
+    that path recursively re-launches the backend (issue #5209). Reject it.
+    """
+    args = sys.argv[1:]
+    if not args:
+        return False
+    flat = set(args)
+    return "-m" in flat or "pip" in flat or "--target" in flat
+
+
+def _install_windows_no_window_guard() -> None:
+    """On the Windows desktop build, suppress console windows for child
+    processes — including third-party plugins that shell out to commands
+    like ``tasklist`` without passing ``CREATE_NO_WINDOW`` themselves.
+    """
+    if os.name != "nt":
+        return
+    if not (
+        getattr(sys, "frozen", False)
+        or os.environ.get(DESKTOP_APP_ENV) == "1"
+    ):
+        return
+    import subprocess
+
+    if getattr(subprocess.Popen, "_qwenpaw_no_window", False):
+        return
+
+    create_no_window = 0x08000000
+    create_new_console = 0x00000010
+    original_init = subprocess.Popen.__init__
+
+    def _init(self, *args, **kwargs):  # type: ignore[no-untyped-def]
+        flags = kwargs.get("creationflags", 0) or 0
+        # Respect callers that explicitly want a visible new console.
+        if not flags & create_new_console:
+            kwargs["creationflags"] = flags | create_no_window
+        startupinfo = kwargs.get("startupinfo") or subprocess.STARTUPINFO()
+        startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+        startupinfo.wShowWindow = 0  # SW_HIDE
+        kwargs["startupinfo"] = startupinfo
+        return original_init(self, *args, **kwargs)
+
+    subprocess.Popen.__init__ = _init  # type: ignore[method-assign]
+    subprocess.Popen._qwenpaw_no_window = True  # type: ignore[attr-defined]
+
+
 def _ensure_qwenpaw_app_not_loaded() -> None:
     if "qwenpaw.app._app" in sys.modules:
         raise RuntimeError(
@@ -185,7 +235,16 @@ def _socket_port(sock: socket.socket) -> int:
 
 
 def main() -> None:
+    if _argv_looks_like_package_manager():
+        print(
+            "qwenpaw-backend is the desktop backend, not a Python "
+            "interpreter; refusing package-manager arguments: "
+            f"{sys.argv[1:]}",
+            file=sys.stderr,
+        )
+        raise SystemExit(2)
     _ensure_utf8_stdio()
+    _install_windows_no_window_guard()
     _install_desktop_runtime()
 
     from qwenpaw.constant import LOG_LEVEL_ENV, WORKING_DIR
