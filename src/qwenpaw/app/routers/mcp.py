@@ -304,8 +304,9 @@ async def list_mcp_tools(
     from ..agent_context import get_agent_for_request
 
     agent = await get_agent_for_request(request)
+    cfg = agent.config  # ponytail: cache to avoid reload on each access
 
-    mcp_config = agent.config.mcp
+    mcp_config = cfg.mcp
     if mcp_config is None or client_key not in (mcp_config.clients or {}):
         raise HTTPException(404, detail=f"MCP client '{client_key}' not found")
 
@@ -382,14 +383,15 @@ async def update_mcp_tool_whitelist(
     from ...config.config import save_agent_config
 
     agent = await get_agent_for_request(request)
+    cfg = agent.config  # ponytail: cache to avoid reload on each access
 
-    mcp_config = agent.config.mcp
+    mcp_config = cfg.mcp
     if mcp_config is None or client_key not in (mcp_config.clients or {}):
         raise HTTPException(404, detail=f"MCP client '{client_key}' not found")
 
     client_config = mcp_config.clients[client_key]
     client_config.tools = body.tools
-    save_agent_config(agent.agent_id, agent.config)
+    save_agent_config(agent.agent_id, cfg)
 
     # Hot-patch the running client's whitelist without a full reconnect.
     # The config watcher will also detect this change and call
@@ -470,13 +472,14 @@ async def create_mcp_client(
     _validate_client_key(client_key)
 
     agent = await get_agent_for_request(request)
+    cfg = agent.config  # ponytail: cache to avoid reload on each access
 
     # Initialize mcp config if not exists
-    if agent.config.mcp is None:
-        agent.config.mcp = MCPConfig(clients={})
+    if cfg.mcp is None:
+        cfg.mcp = MCPConfig(clients={})
 
     # Check if client already exists
-    if client_key in agent.config.mcp.clients:
+    if client_key in cfg.mcp.clients:
         raise HTTPException(
             400,
             detail=f"MCP client '{client_key}' already exists. Use PUT to "
@@ -499,8 +502,8 @@ async def create_mcp_client(
     )
 
     # Add to agent's config and save
-    agent.config.mcp.clients[client_key] = new_client
-    save_agent_config(agent.agent_id, agent.config)
+    cfg.mcp.clients[client_key] = new_client
+    save_agent_config(agent.agent_id, cfg)
 
     # Hot reload config (async, non-blocking)
     schedule_agent_reload(request, agent.agent_id)
@@ -522,15 +525,16 @@ async def toggle_mcp_client(
     from ...config.config import save_agent_config
 
     agent = await get_agent_for_request(request)
+    cfg = agent.config  # ponytail: cache to avoid reload on each access
 
-    if agent.config.mcp is None or client_key not in agent.config.mcp.clients:
+    if cfg.mcp is None or client_key not in cfg.mcp.clients:
         raise HTTPException(404, detail=f"MCP client '{client_key}' not found")
 
-    client = agent.config.mcp.clients[client_key]
+    client = cfg.mcp.clients[client_key]
 
     # Toggle enabled status
     client.enabled = not client.enabled
-    save_agent_config(agent.agent_id, agent.config)
+    save_agent_config(agent.agent_id, cfg)
 
     # Hot reload config (async, non-blocking)
     schedule_agent_reload(request, agent.agent_id)
@@ -582,11 +586,12 @@ async def update_mcp_client(
     from ...config.config import save_agent_config
 
     agent = await get_agent_for_request(request)
+    cfg = agent.config  # ponytail: cache to avoid reload on each access
 
-    if agent.config.mcp is None or client_key not in agent.config.mcp.clients:
+    if cfg.mcp is None or client_key not in cfg.mcp.clients:
         raise HTTPException(404, detail=f"MCP client '{client_key}' not found")
 
-    existing = agent.config.mcp.clients[client_key]
+    existing = cfg.mcp.clients[client_key]
 
     # Update fields if provided
     update_data = updates.model_dump(exclude_unset=True)
@@ -607,10 +612,10 @@ async def update_mcp_client(
     merged_data = existing.model_dump(mode="json")
     merged_data.update(update_data)
     updated_client = MCPClientConfig.model_validate(merged_data)
-    agent.config.mcp.clients[client_key] = updated_client
+    cfg.mcp.clients[client_key] = updated_client
 
     # Save updated config
-    save_agent_config(agent.agent_id, agent.config)
+    save_agent_config(agent.agent_id, cfg)
 
     # Hot reload config (async, non-blocking)
     schedule_agent_reload(request, agent.agent_id)
@@ -632,13 +637,14 @@ async def delete_mcp_client(
     from ...config.config import save_agent_config
 
     agent = await get_agent_for_request(request)
+    cfg = agent.config  # ponytail: cache to avoid reload on each access
 
-    if agent.config.mcp is None or client_key not in agent.config.mcp.clients:
+    if cfg.mcp is None or client_key not in cfg.mcp.clients:
         raise HTTPException(404, detail=f"MCP client '{client_key}' not found")
 
     # Remove client
-    del agent.config.mcp.clients[client_key]
-    save_agent_config(agent.agent_id, agent.config)
+    del cfg.mcp.clients[client_key]
+    save_agent_config(agent.agent_id, cfg)
 
     # Hot reload config (async, non-blocking)
     schedule_agent_reload(request, agent.agent_id)

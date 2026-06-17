@@ -144,8 +144,9 @@ async def put_channels(
     from ...config.config import save_agent_config
 
     agent = await get_agent_for_request(request)
-    agent.config.channels = channels_config
-    save_agent_config(agent.agent_id, agent.config)
+    cfg = agent.config  # ponytail: cache to avoid reload on each access
+    cfg.channels = channels_config
+    save_agent_config(agent.agent_id, cfg)
 
     # Hot reload config (async, non-blocking)
     schedule_agent_reload(request, agent.agent_id)
@@ -369,10 +370,11 @@ async def put_channel(
         )
 
     agent = await get_agent_for_request(request)
+    cfg = agent.config  # ponytail: cache to avoid reload on each access
 
     # Initialize channels if not exists
-    if agent.config.channels is None:
-        agent.config.channels = ChannelConfig()
+    if cfg.channels is None:
+        cfg.channels = ChannelConfig()
 
     config_class = _CHANNEL_CONFIG_CLASS_MAP.get(channel_name)
     if config_class is not None:
@@ -382,8 +384,8 @@ async def put_channel(
         channel_config = single_channel_config
 
     # Set channel config in agent's config
-    setattr(agent.config.channels, channel_name, channel_config)
-    save_agent_config(agent.agent_id, agent.config)
+    setattr(cfg.channels, channel_name, channel_config)
+    save_agent_config(agent.agent_id, cfg)
 
     # Hot reload config (async, non-blocking)
     schedule_agent_reload(request, agent.agent_id)
@@ -423,10 +425,11 @@ async def put_acp_config(
     from ...config.config import save_agent_config
 
     agent = await get_agent_for_request(request)
-    agent.config.acp = acp_config
-    save_agent_config(agent.agent_id, agent.config)
+    cfg = agent.config  # ponytail: cache to avoid reload on each access
+    cfg.acp = acp_config
+    save_agent_config(agent.agent_id, cfg)
     schedule_agent_reload(request, agent.agent_id)
-    return agent.config.acp
+    return cfg.acp
 
 
 @router.get(
@@ -489,8 +492,9 @@ async def put_acp_agent_config(
         )
 
     agent = await get_agent_for_request(request)
-    if agent.config.acp is None:
-        agent.config.acp = ACPConfig()
+    cfg = agent.config  # ponytail: cache to avoid reload on each access
+    if cfg.acp is None:
+        cfg.acp = ACPConfig()
 
     agent_name = agent_name.strip()
     if not agent_name:
@@ -499,10 +503,10 @@ async def put_acp_agent_config(
             detail="ACP agent name cannot be empty",
         )
 
-    agent.config.acp.agents[agent_name] = acp_agent_config
-    save_agent_config(agent.agent_id, agent.config)
+    cfg.acp.agents[agent_name] = acp_agent_config
+    save_agent_config(agent.agent_id, cfg)
     schedule_agent_reload(request, agent.agent_id)
-    return agent.config.acp.agents[agent_name]
+    return cfg.acp.agents[agent_name]
 
 
 @router.get(
@@ -537,14 +541,15 @@ async def put_heartbeat(
     from ...config.config import save_agent_config
 
     agent = await get_agent_for_request(request)
+    cfg = agent.config  # ponytail: cache to avoid reload on each access
     hb = HeartbeatConfig(
         enabled=body.enabled,
         every=body.every,
         target=body.target,
         active_hours=body.active_hours,
     )
-    agent.config.heartbeat = hb
-    save_agent_config(agent.agent_id, agent.config)
+    cfg.heartbeat = hb
+    save_agent_config(agent.agent_id, cfg)
 
     # Reschedule heartbeat (async, non-blocking)
     import asyncio
