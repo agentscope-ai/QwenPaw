@@ -57,6 +57,7 @@ class ToolCallSpec:
         target: Tool's target argument, e.g. "src/main.py", "git push"
         agent_id: Agent ID that initiated the call
         session_id: Current session ID
+        raw_params: Raw tool call arguments dict
     """
 
     def __init__(
@@ -65,11 +66,13 @@ class ToolCallSpec:
         target: str,
         agent_id: str,
         session_id: str,
+        raw_params: dict[str, Any] | None = None,
     ) -> None:
         self.tool_name = tool_name
         self.target = target
         self.agent_id = agent_id
         self.session_id = session_id
+        self.raw_params = raw_params or {}
 
 
 @dataclass

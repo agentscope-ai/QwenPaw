@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""AuditLog — Audit records for each assert_and_audit call.
+"""AuditLog — Audit records for each assert_policy + audit call.
 
 Storage: single-file SQLite (~/.qwenpaw/audit.db), global singleton.
 - record() writes immediately, no in-memory buffer
@@ -90,8 +90,9 @@ def _event_from_row(row: sqlite3.Row) -> AuditEvent:
 class AuditLog:
     """Append-only audit log, SQLite-backed, global singleton.
 
-    Shared by multiple ResourceGovernor instances; each assert_and_audit
-    call invokes record() which writes to the database immediately.
+    Shared by multiple ResourceGovernor instances; each audit()
+    call (typically after assert_policy()) invokes record() which writes
+    to the database immediately.
 
     .. note:: Threading & async
 
@@ -183,7 +184,7 @@ class AuditLog:
             tc_spec: ToolCallSpec instance
             decision: GovernanceDecision instance (action + reason)
         Errors are caught and logged: an audit-write failure must NOT
-        propagate into ``assert_and_audit`` and disrupt the policy
+        propagate into ``assert_policy`` and disrupt the policy
         decision returned to the caller.
 
         TODO: honor ``GovernancePolicy.audit_level`` here.  The field

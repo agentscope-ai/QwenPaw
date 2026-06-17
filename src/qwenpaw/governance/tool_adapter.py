@@ -2,8 +2,7 @@
 # pylint: disable=protected-access
 """PolicyGuardedTool — Governance policy-checked tool wrapper.
 
-Replaces the existing GuardedFunctionTool. Each tool call goes through
-two layers:
+Replaces the GuardedFunctionTool. Each tool call goes through two layers:
 1. check_permissions: pre-execution decision
 2. __call__: actual execution — handles sandbox violation retry loop
 """
@@ -18,7 +17,7 @@ from agentscope.message import TextBlock
 from agentscope.tool import ToolChunk
 
 from .policy import (
-    GovernanceRule,
+    GovernanceDecision,
     GovernanceAction,
     ToolCallSpec,
 )
@@ -69,7 +68,7 @@ class PolicyGuardedTool:
     """Governance policy-checked tool wrapper.
 
     Dynamically inherits from FunctionTool, implementing:
-    - check_permissions: calls governor.assert_and_audit() for policy decision
+    - check_permissions: calls assert_policy() + audit() for policy decision
     - __call__: overrides to handle sandbox execution + violation retry
 
     .. warning:: Known limitation — dynamic anonymous class
@@ -90,6 +89,7 @@ class PolicyGuardedTool:
                 (FunctionTool,),
                 {
                     "__init__": _policy_tool_init,
+                    "_build_tc_spec": _build_tc_spec,
                     "check_permissions": _policy_tool_check_permissions,
                     "__call__": _policy_tool_call,
                     "__doc__": cls.__doc__,
@@ -110,11 +110,32 @@ def _policy_tool_init(
     from agentscope.tool import FunctionTool
 
     FunctionTool.__init__(self, func, **kwargs)
-    # pylint: disable=protected-access
     self._qp_governor = governor
     self._qp_request_context = request_context or {}
     self._qp_policy_decision = None  # Pre-evaluation result
     self._qp_sandbox_mode = False  # Whether to execute in sandbox
+    self._qp_raw_params = {}  # Set per-call by check_permissions
+
+
+def _build_tc_spec(self: Any) -> ToolCallSpec:
+    """Build ToolCallSpec from instance fields + dynamic target."""
+    governor = self._qp_governor
+    params = getattr(self, "_qp_raw_params", {})
+    tool_name = DEFAULT_REGISTRY.python_to_policy_name(
+        getattr(self, "name", "Unknown"),
+    )
+    request_ctx = getattr(self, "_qp_request_context", {}) or {}
+    return ToolCallSpec(
+        tool_name=tool_name,
+        target=DEFAULT_REGISTRY.extract_target(
+            tool_name,
+            params,
+            workspace_dir=str(governor.workspace_dir) if governor else "",
+        ),
+        agent_id=request_ctx.get("agent_id", ""),
+        session_id=request_ctx.get("session_id", ""),
+        raw_params=params,
+    )
 
 
 # pylint: disable=too-many-return-statements
@@ -129,8 +150,9 @@ async def _policy_tool_check_permissions(
 
     Flow:
         1. Construct ToolCallSpec(tool_name, target, agent_id, session_id)
-        2. governor.assert_and_audit(tool_call) → GovernanceDecision
-        3. Map to PermissionDecision
+        2. governor.assert_policy(tool_call) → GovernanceDecision
+        3. governor.audit(tool_call, decision)
+        4. Map to PermissionDecision
     """
     from agentscope.permission import PermissionBehavior, PermissionDecision
 
@@ -161,37 +183,16 @@ async def _policy_tool_check_permissions(
             ),
         )
 
-    tool_name = DEFAULT_REGISTRY.python_to_policy_name(
-        getattr(self, "name", "Unknown"),
-    )
-    input_data = input_data or {}
-    # Store input_data for potential violation handling in __call__
-    self._qp_last_input_data = input_data
+    self._qp_raw_params = input_data or {}
 
-    ws_dir = str(governor.workspace_dir) if governor else ""
-    target = DEFAULT_REGISTRY.extract_target(
-        tool_name,
-        input_data,
-        workspace_dir=ws_dir,
-    )
+    tc_spec = self._build_tc_spec()
 
-    agent_id = getattr(self, "_qp_request_context", {}).get("agent_id", "")
-    session_id = getattr(self, "_qp_request_context", {}).get(
-        "session_id",
-        "",
-    )
+    decision = governor.assert_policy(tc_spec)
+    governor.audit(tc_spec, decision)
 
-    tc_spec = ToolCallSpec(
-        tool_name=tool_name,
-        target=target,
-        agent_id=agent_id,
-        session_id=session_id,
-    )
-
-    decision = governor.assert_and_audit(tc_spec)
-
-    # Cache the decision for __call__ to use
+    # Cache the decision + tc_spec for __call__ to use
     self._qp_policy_decision = decision
+    self._qp_tc_spec = tc_spec
     self._qp_sandbox_mode = False
 
     if decision.action is GovernanceAction.ALLOW:
@@ -202,8 +203,7 @@ async def _policy_tool_check_permissions(
     elif decision.action is GovernanceAction.DENY:
         return PermissionDecision(
             behavior=PermissionBehavior.DENY,
-            message=f"Tool '{tool_name}' is denied by governance policy "
-            f"(target: {target}).",
+            message=f"governance: '{tc_spec.tool_name}' is denied by policy",
         )
     elif decision.action is GovernanceAction.SANDBOX_FALLBACK:
         # Bash tool with no rule match → allow execution in sandbox
@@ -219,11 +219,7 @@ async def _policy_tool_check_permissions(
 
         return await _ask_user_approval(
             governor=governor,
-            tool_name=tool_name,
-            target=target,
-            input_data=input_data,
-            agent_id=agent_id,
-            session_id=session_id,
+            tc_spec=tc_spec,
             request_context=getattr(self, "_qp_request_context", {}) or {},
             policy_findings=decision.findings,
             governance_reason=decision.reason,
@@ -304,35 +300,35 @@ async def _policy_tool_call(
             ],
         )
 
-    # Trigger approval flow
-    tool_name = DEFAULT_REGISTRY.python_to_policy_name(
-        getattr(self, "name", "Unknown"),
-    )
-    input_data = getattr(self, "_qp_last_input_data", {}) or {}
-    gov = getattr(self, "_qp_governor", None)
-    ws_dir = str(gov.workspace_dir) if gov else ""
-    target = DEFAULT_REGISTRY.extract_target(
-        tool_name,
-        input_data,
-        workspace_dir=ws_dir,
-    )
-    agent_id = request_context.get("agent_id", "")
-    session_id = request_context.get("session_id", "")
-
-    from agentscope.permission import PermissionBehavior
+    # Trigger approval flow — reuse tc_spec from check_permissions
+    tc_spec = getattr(self, "_qp_tc_spec", None)
+    if tc_spec is None:
+        # Fallback: reconstruct if check_permissions didn't run
+        self._qp_raw_params = {}
+        tc_spec = self._build_tc_spec()
 
     governance_reason = getattr(
         getattr(self, "_qp_policy_decision", None),
         "reason",
         None,
     )
+
+    # Record the ASK escalation (sandbox violation → ask user)
+    governor.audit(
+        tc_spec,
+        GovernanceDecision(
+            action=GovernanceAction.ASK,
+            reason=f"sandbox violation: {violation_msg}"
+            if violation_msg
+            else "sandbox violation, ask user",
+        ),
+    )
+
+    from agentscope.permission import PermissionBehavior
+
     decision = await _ask_user_approval(
         governor=governor,
-        tool_name=tool_name,
-        target=target,
-        input_data=input_data,
-        agent_id=agent_id,
-        session_id=session_id,
+        tc_spec=tc_spec,
         request_context=request_context,
         violation_msg=violation_msg or None,
         governance_reason=governance_reason,
@@ -371,11 +367,7 @@ async def _policy_tool_call(
 
 async def _ask_user_approval(
     governor: ResourceGovernor,
-    tool_name: str,
-    target: str,
-    input_data: dict[str, Any],
-    agent_id: str,
-    session_id: str,
+    tc_spec: ToolCallSpec,
     request_context: dict[str, str],
     *,
     violation_msg: str | None = None,
@@ -397,6 +389,12 @@ async def _ask_user_approval(
         GuardThreatCategory,
         ToolGuardResult,
     )
+
+    tool_name = tc_spec.tool_name
+    target = tc_spec.target
+    agent_id = tc_spec.agent_id
+    session_id = tc_spec.session_id
+    params = tc_spec.raw_params
 
     ctx = request_context or {}
     user_id = str(ctx.get("user_id") or "")
@@ -435,14 +433,14 @@ async def _ask_user_approval(
             )
         guard_result = ToolGuardResult(
             tool_name=tool_name,
-            params=input_data,
+            params=params,
             findings=converted_findings,
             guardians_used=["governance_policy"],
         )
     else:
         guard_result = ToolGuardResult(
             tool_name=tool_name,
-            params=input_data,
+            params=params,
             findings=[
                 GuardFinding(
                     id=uuid.uuid4().hex[:8],
@@ -521,7 +519,7 @@ async def _ask_user_approval(
             "tool_call": {
                 "id": tool_call_id,
                 "name": tool_name,
-                "input": dict(input_data or {}),
+                "input": dict(params or {}),
             },
         },
     )
@@ -549,56 +547,17 @@ async def _ask_user_approval(
         decision = ApprovalDecision.DENIED
 
     # Record user approve/deny result to audit log
-    tc_spec = ToolCallSpec(tool_name, target, agent_id, session_id)
     approved = decision == ApprovalDecision.APPROVED
-    governor.record_approval(tc_spec, approved)
+    approval_decision = GovernanceDecision(
+        action=GovernanceAction.ALLOW if approved else GovernanceAction.DENY,
+        reason="User Approve" if approved else "User Deny",
+    )
+    governor.audit(tc_spec, approval_decision)
 
     summary = format_findings_summary(guard_result)
     if decision == ApprovalDecision.APPROVED:
-        # ── Distinguish builtin ask vs user ask ──
-        # builtin ask → no rule recorded (asks every time, protecting
-        # high-risk resources)
-        # user ask   → record generalized rule (skip asking next time)
-        if not governor.is_builtin_ask(tc_spec):
-            try:
-                from .policy import generalize_rule_match
-
-                # Rule generalization (§8.2): currently records the exact
-                # ``Tool(target)`` match without wildcards (see
-                # ``generalize_rule_match`` in ``policy.py``) to avoid the
-                # security risks of broad wildcard rules.
-                generalized = generalize_rule_match(tool_name, target)
-                _, rule_pattern = generalized.split("(", 1)
-                rule_pattern = rule_pattern.rstrip(")")
-
-                # Empty pattern guard (§8.1): tools with empty target
-                # don't write rules
-                if rule_pattern:
-                    rule = GovernanceRule(
-                        match=generalized,
-                        action=GovernanceAction.ALLOW,
-                        reason="user approved",
-                        grantee=agent_id or "*",
-                        duration="session",
-                        session_id=session_id,
-                    )
-                    governor.add_rule(rule)
-                    logger.info(
-                        "PolicyGuardedTool: added approved rule: %s",
-                        rule.match,
-                    )
-                else:
-                    logger.debug(
-                        "PolicyGuardedTool: empty pattern, skipping rule "
-                        "for tool=%s target=%s",
-                        tool_name,
-                        target,
-                    )
-            except Exception:
-                logger.debug(
-                    "PolicyGuardedTool: failed to persist approved rule",
-                    exc_info=True,
-                )
+        # ── Record approved rule (skip for builtin ask) ──
+        governor.add_approved_rule(tc_spec)
         return PermissionDecision(
             behavior=PermissionBehavior.ALLOW,
             message=f"Approved by user.\n{summary}",

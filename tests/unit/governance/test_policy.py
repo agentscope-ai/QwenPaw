@@ -1,11 +1,12 @@
 # -*- coding: utf-8 -*-
 # pylint: disable=protected-access
-"""Unit tests for GovernancePolicy — default policy load + assert_and_audit."""
+"""UT for GovernancePolicy — default policy load + assert_policy/audit."""
 
 from __future__ import annotations
 
 import tempfile
 from pathlib import Path
+import shutil
 
 import pytest
 
@@ -70,11 +71,11 @@ class TestDefaultPolicyLoad:
 
 
 # ---------------------------------------------------------------------------
-# Test: assert_and_audit with SSH-related Bash commands
+# Test: assert_policy with SSH-related Bash commands
 # ---------------------------------------------------------------------------
 
 
-class TestAssertAndAuditSSHCommands:
+class TestAssertPolicySSHCommands:
     """Test that Bash commands touching ~/.ssh are properly denied/asked.
 
     The builtin rule `*(**/.ssh/**)` applies to all tools with action=ASK.
@@ -89,7 +90,7 @@ class TestAssertAndAuditSSHCommands:
     The user specifically asked for DENY. To get DENY for these Bash commands,
     we need to verify the builtin rule fires and returns ASK, which is the
     governance decision that effectively blocks execution unless the user
-    explicitly approves. In the context of assert_and_audit, ASK = blocked
+    explicitly approves. In the context of assert_policy, ASK = blocked
     by default (the caller must check the decision).
 
     However, the user explicitly said "要被deny" (should be denied).
@@ -117,29 +118,35 @@ class TestAssertAndAuditSSHCommands:
         gov.stop()
         # Clean up AuditLog singleton
         AuditLog._instance = None
+        # Remove the policy directory created by governor
+        shutil.rmtree(gov._policy_dir, ignore_errors=True)
 
     def test_bash_ls_ssh_is_ask(self, governor):
         """Bash(ls -lh ~/.ssh) should be ASK — builtin SSH protection rule."""
         tc = _tc("Bash", "ls -lh ~/.ssh")
-        decision = governor.assert_and_audit(tc)
+        decision = governor.assert_policy(tc)
+        governor.audit(tc, decision)
         assert decision.action == GovernanceAction.ASK
 
     def test_bash_cat_ssh_id_rsa_is_ask(self, governor):
         """Bash(cat ~/.ssh/id_rsa) should be ASK — SSH protection rule."""
         tc = _tc("Bash", "cat ~/.ssh/id_rsa")
-        decision = governor.assert_and_audit(tc)
+        decision = governor.assert_policy(tc)
+        governor.audit(tc, decision)
         assert decision.action == GovernanceAction.ASK
 
     def test_bash_sudo_is_deny(self, governor):
         """Bash(sudo ...) should be DENY — builtin hard wall."""
         tc = _tc("Bash", "sudo rm -rf /")
-        decision = governor.assert_and_audit(tc)
+        decision = governor.assert_policy(tc)
+        governor.audit(tc, decision)
         assert decision.action == GovernanceAction.DENY
 
     def test_bash_harmless_command_is_sandbox_fallback(self, governor):
         """Bash(ls) without sensitive paths uses SANDBOX_FALLBACK."""
         tc = _tc("Bash", "ls -la")
-        decision = governor.assert_and_audit(tc)
+        decision = governor.assert_policy(tc)
+        governor.audit(tc, decision)
         # When sandbox is unavailable, SANDBOX_FALLBACK escalates to ASK
         # So we just check it's not DENY or the SSH-related ASK
         assert decision.action in (
@@ -293,11 +300,11 @@ class TestGovernancePolicyEvaluate:
 
 
 # ---------------------------------------------------------------------------
-# Test: ResourceGovernor assert_and_audit with sandbox fallback escalation
+# Test: ResourceGovernor assert_policy with sandbox fallback escalation
 # ---------------------------------------------------------------------------
 
 
-class TestAssertAndAuditSandboxEscalation:
+class TestAssertPolicySandboxEscalation:
     """When sandbox is unavailable, SANDBOX_FALLBACK should escalate to ASK."""
 
     @pytest.fixture()
@@ -314,12 +321,14 @@ class TestAssertAndAuditSandboxEscalation:
         yield gov
         # Clean up AuditLog singleton
         AuditLog._instance = None
+        shutil.rmtree(gov._policy_dir, ignore_errors=True)
 
     def test_bash_echo_escalates_to_ask(self, governor_no_sandbox):
         """Bash(echo hello) — no rule match → SANDBOX_FALLBACK, but sandbox
         unavailable → escalate to ASK."""
         tc = _tc("Bash", "echo hello")
-        decision = governor_no_sandbox.assert_and_audit(tc)
+        decision = governor_no_sandbox.assert_policy(tc)
+        governor_no_sandbox.audit(tc, decision)
         assert decision.action == GovernanceAction.ASK
 
 
@@ -347,17 +356,20 @@ class TestBuiltinRulePriority:
         yield gov
         gov.stop()
         AuditLog._instance = None
+        shutil.rmtree(gov._policy_dir, ignore_errors=True)
 
     def test_bash_ls_ssh_builtin_ask_wins(self, governor_with_deny):
         """Builtin ASK fires before user DENY — builtin has higher priority."""
         tc = _tc("Bash", "ls -lh ~/.ssh")
-        decision = governor_with_deny.assert_and_audit(tc)
+        decision = governor_with_deny.assert_policy(tc)
+        governor_with_deny.audit(tc, decision)
         assert decision.action == GovernanceAction.ASK
 
     def test_bash_cat_ssh_id_rsa_builtin_ask_wins(self, governor_with_deny):
         """Builtin ASK fires before user DENY — builtin has higher priority."""
         tc = _tc("Bash", "cat ~/.ssh/id_rsa")
-        decision = governor_with_deny.assert_and_audit(tc)
+        decision = governor_with_deny.assert_policy(tc)
+        governor_with_deny.audit(tc, decision)
         assert decision.action == GovernanceAction.ASK
 
 
@@ -378,13 +390,14 @@ class TestAddRulePrepend:
         gov.stop()
         AuditLog._instance = None
 
+        shutil.rmtree(gov._policy_dir, ignore_errors=True)
+
     def test_browser_deny_overrides_default_allow(self, governor):
         """add_rule(Browser DENY) overrides default Browser(**) ALLOW."""
         # Default policy has Browser(**) → ALLOW in user_rules
         tc_allow = _tc("Browser", "https://example.com")
         assert (
-            governor.assert_and_audit(tc_allow).action
-            == GovernanceAction.ALLOW
+            governor.assert_policy(tc_allow).action == GovernanceAction.ALLOW
         )
 
         # Add a DENY rule for a specific site
@@ -396,9 +409,7 @@ class TestAddRulePrepend:
             ),
         )
         tc_deny = _tc("Browser", "https://evil.com/page")
-        assert (
-            governor.assert_and_audit(tc_deny).action == GovernanceAction.DENY
-        )
+        assert governor.assert_policy(tc_deny).action == GovernanceAction.DENY
 
 
 # ---------------------------------------------------------------------------
