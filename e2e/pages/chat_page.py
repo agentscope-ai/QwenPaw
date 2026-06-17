@@ -690,6 +690,14 @@ class ChatPage(BasePage):
             pass
         self.wait(300)
 
+        # Idempotency: if session items are already visible, the panel
+        # is open — skip the toggle click to avoid closing it.
+        existing = self.page.locator(self.SESSION_ITEM).first
+        if existing.count() > 0 and existing.is_visible():
+            logger.info("[open_session_list] panel already open, skipping toggle")
+            self.step_shot("session_list_opened")
+            return self
+
         # Fallback: if the button is not found in a short time (maybe the sidebar is hidden by an abnormal state), try reloading the page
         session_btn_locator = self.page.locator(self.SESSION_LIST_BTN).first
         try:
@@ -730,11 +738,32 @@ class ChatPage(BasePage):
         return self
 
     def close_session_list(self) -> "ChatPage":
-        """Close the session list."""
+        """Close the session list.
+
+        The panel may be rendered as an antd Drawer (``.qwenpaw-drawer``)
+        or as an embedded panel (``[class*=historyPanel]``). The close
+        button is the **last** button inside ``[class*=headerRight]``
+        (the first is pin/unpin). If neither selector matches, fall back
+        to clicking the session-list toggle button which toggles the
+        panel closed.
+        """
         logger.info("Closing session list")
-        close_btn = self.page.locator('.qwenpaw-drawer ' + self.DRAWER_CLOSE)
-        if close_btn.count() > 0:
-            close_btn.first.click()
+        for container in (
+            '.qwenpaw-drawer',
+            '[class*="historyPanel"]',
+            '[class*="embeddedPanel"]',
+        ):
+            close_btn = self.page.locator(
+                f'{container} {self.DRAWER_CLOSE}'
+            )
+            if close_btn.count() > 0:
+                close_btn.last.click()
+                self.wait(500)
+                return self
+        # Fallback: toggle the session-list button to close the panel.
+        toggle = self.page.locator(self.SESSION_LIST_BTN).first
+        if toggle.count() > 0 and toggle.is_visible():
+            toggle.click()
             self.wait(500)
         return self
 
