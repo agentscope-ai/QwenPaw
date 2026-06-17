@@ -37,6 +37,9 @@ element_path: tests/architecture
 - path: security-event-ingestion-contract-boundaries.test.js
   kind: critical-non-explicit-test
   role: verifies Security Event Ingestion V1 explicit entrypoints, config artifact, deploy/api contract, deploy/web contract, protected harness, and ImplementationToCoding expected-failure state remain aligned
+- path: security-event-observation-panel-contract-boundaries.test.js
+  kind: critical-non-explicit-test
+  role: verifies Security Event Observation Panel V1 explicit entrypoints, default latest 24h no-range behavior, failed-reception backend receivedAt range source, deploy/api read-model contract, deploy/web route contract, protected harness, and ImplementationToCoding expected-failure state remain aligned
 
 ### Test Guardrails
 #### critical_non_explicit_tests
@@ -163,4 +166,28 @@ element_path: tests/architecture
     - ../../tests/integration/security/security_event_harness.py
     - ../../tests/e2e/security_center/test_security_event_inbox.py
   rationale: keep the six Security Event Ingestion V1 acceptance baselines executable, business-readable, and expected-failing until Coding/Repair implements the production API/Web behavior
+  frozen_by_stage: implementationdesign
+- test_id: security-event-observation-panel-contract-boundaries
+  critical_kind: explicit-entrypoint-correctness
+  test_path: security-event-observation-panel-contract-boundaries.test.js
+  execution_entry: security-event-observation-panel-contract-boundaries.test.js
+  guards_elements:
+    - ../../design/KG/SystemArchitecture.json
+    - ../../design/KG/ImplementationToCodingHandoff.json
+    - ../../OVERALL_ARCHITECTURE.md
+    - ../../deploy/ARCHITECTURE.md
+    - ../../deploy/api/ARCHITECTURE.md
+    - ../../deploy/web/ARCHITECTURE.md
+    - ../../tests/ARCHITECTURE.md
+    - ../../tests/integration/security/security_event_harness.py
+    - ../../tests/e2e/security_center/ARCHITECTURE.md
+    - ../../tests/e2e/security_center/test_security_event_observation_panel.py
+  protected_baselines:
+    - ARCHITECTURE.md
+    - ../../deploy/api/ARCHITECTURE.md
+    - ../../deploy/web/ARCHITECTURE.md
+    - ../../tests/integration/security/security_event_harness.py
+    - ../../tests/e2e/security_center/ARCHITECTURE.md
+    - ../../tests/e2e/security_center/test_security_event_observation_panel.py
+  rationale: keep the six Security Event Observation Panel V1 acceptance baselines executable, business-readable, and expected-failing until Coding/Repair implements the production read model and Web panel, including default latest 24h and failed-reception backend receivedAt time-range semantics
   frozen_by_stage: implementationdesign

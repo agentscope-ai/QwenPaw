@@ -14,6 +14,7 @@ element_path: tests/integration/security
 - Keep testcase bodies business-readable and GIVEN/WHEN/THEN-shaped by routing live app-subprocess HTTP, logs, and working-directory inspection through local harness abstractions instead of raw plumbing in the testcase body.
 - Freeze runtime-inspection expectations for `sec-e2e-024`, `sec-e2e-025`, `sec-e2e-027`, `sec-e2e-028`, and `sec-e2e-021`: tool-boundary context spying, direct physical ledger inspection, local hash-chain verification, second committed non-tail audit-record tamper detection with readable `UNTRUSTED` state, lease-expiry-driven `UNTRUSTED` downgrade plus reconnect gating, normal-offline reconnect CLEAR projection, durable rejected-event evidence with trace-bound nonce semantics, and pre-execution evidence ordering.
 - Freeze Security Event Ingestion V1 explicit API/data entrypoints: legal event durable acceptance, invalid config/schema/payload rejection, undefined payload field preservation, sourceSystem plus eventId idempotency, and bounded failed reception records.
+- Freeze the protected Security Event harness vocabulary used by Security Event Observation Panel V1 Web e2e entrypoints for posture summary, alert scope, alert ordering, failed reception raw evidence, alert-to-raw focus, and time-range consistency.
 - Constrain the explicit security slice to run against the real `app_server` fixture rather than repository source inspection or in-memory-only doubles.
 
 ### Out Of Scope
@@ -29,7 +30,7 @@ element_path: tests/integration/security
   role: single explicit security entrypoint file for audit-foundation scenario baselines
 - path: security_event_harness.py
   kind: protected-explicit-test-fixture
-  role: business-readable harness abstraction that drives real Security Center API/Web subprocesses and reports Security Event Ingestion V1 gaps with business categories
+  role: business-readable harness abstraction that drives real Security Center API/Web subprocesses and reports Security Event Ingestion V1 and Observation Panel V1 gaps with business categories
 - path: test_security_event_ingestion.py
   kind: explicit-testcase-entry
   role: single explicit security event ingestion API/data entrypoint file for V1 acceptance baselines
@@ -96,6 +97,12 @@ element_path: tests/integration/security
   control_point: submit illegal source/type/schema/payload cases, create an accepted idempotency baseline, submit conflicting same-key content, use the test-only `X-QwenPaw-Test-Persistence-Failure` failure-injection seam, and submit an oversized illegal payload
   observation_point: accepted event list stays clean except for the intentional idempotency baseline, illegal/idempotency-conflict/persistence-error/oversized-invalid branches each have queryable bounded failure records, persistence failure returns failure instead of success, and oversized invalid payload handling avoids unbounded storage/display
 
+### Protected Harness For Observation Panel Web Entrypoints
+- testcase_file: ../../e2e/security_center/test_security_event_observation_panel.py
+  harness_path: security_event_harness.py
+  control_point: each Web e2e entrypoint seeds accepted and failed Security Event V1 records through the protected harness, opens `/security-event-observation` without range for the default case, switches quick ranges, or focuses an alert by sourceSystem plus eventId
+  observation_point: the harness reports `Security_Event_Observation_Panel_Gap` with explicit checks for default latest 24h equivalence to `range=24h`, summary statistics, HIGH/MEDIUM alert scope, alert ordering, raw reception evidence, alert-to-raw focus, and 1h/24h/7d range consistency where accepted events are ranged by occurredAt and failed receptions are ranged by backend receivedAt
+
 ### Protected Fixtures
 - harness.py
 - security_event_harness.py
@@ -109,5 +116,6 @@ element_path: tests/integration/security
 - sec-e2e-028 is now frozen around a separate normal-offline branch. It must not be satisfied by weakening sec-e2e-027: before lease expiry and without tamper, missing sequence, clone, replay, or hash divergence, no gap validation is required and backend/web must remain CLEAR.
 - When the shared real-environment bootstrap itself is incomplete, the explicit entrypoint must still fail inside the testcase body with a readable runtime bootstrap blocker rather than disappearing behind fixture setup noise.
 - Security Event Ingestion V1 entrypoints are expected to fail in the current repository state with business categories such as `Security_Event_Ingestion_API_Missing`, because `deploy/api` has not yet implemented `POST /security-center/v1/events` or the event list/detail/failure-record routes.
+- Security Event Observation Panel V1 entrypoints are expected to fail in the current repository state with `Security_Event_Observation_Panel_Gap` and route-specific missing API/Web signals, because `deploy/api` has not yet implemented `GET /security-center/v1/operator/event-observation-panel` and `deploy/web` has not yet implemented `/security-event-observation`.
 - `X-QwenPaw-Test-Persistence-Failure` is a protected test-environment failure-injection seam only. Coding/Repair may use it to prove persistence-failure behavior in the explicit entrypoint, but must not expose it as public production V1 API semantics.
-- Coding/Repair may implement production routes, stores, and Web rendering behind `security_event_harness.py`, but must not rewrite `test_security_event_ingestion.py` or the harness business vocabulary to make absent implementation pass.
+- Coding/Repair may implement production routes, stores, and Web rendering behind `security_event_harness.py`, but must not rewrite `test_security_event_ingestion.py`, `../../e2e/security_center/test_security_event_observation_panel.py`, or the harness business vocabulary to make absent implementation pass.

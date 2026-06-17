@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 import httpx
@@ -54,6 +55,7 @@ class InvalidSecurityEventScenario:
     business_label: str
     submission: SecurityEventSubmission
     expected_failure_reason: str
+    backend_received_at: str | None = None
 
 
 @dataclass(frozen=True)
@@ -87,15 +89,23 @@ class SecurityEventObservation:
 class SecurityEventIngestionHarness:
     """Business-readable harness for the Security Event Ingestion V1 contract."""
 
-    def __init__(self, *, api_base_url: str | None, web_base_url: str | None) -> None:
+    def __init__(
+        self,
+        *,
+        api_base_url: str | None,
+        web_base_url: str | None,
+        data_dir: Path | None = None,
+    ) -> None:
         self.api_base_url = (api_base_url or "").rstrip("/")
         self.web_base_url = (web_base_url or "").rstrip("/")
+        self.data_dir = data_dir
 
     @classmethod
     def for_app_server(cls, app_server: Any) -> "SecurityEventIngestionHarness":
         return cls(
             api_base_url=getattr(app_server, "security_center_api_url", None),
             web_base_url=getattr(app_server, "security_center_web_url", None),
+            data_dir=getattr(app_server, "security_center_data_dir", None),
         )
 
     def accept_legal_event_after_persistence(
@@ -472,6 +482,284 @@ class SecurityEventIngestionHarness:
             ],
         )
 
+    def observation_panel_summarizes_current_event_posture(
+        self,
+        accepted_events: tuple[SecurityEventSubmission, ...],
+    ) -> SecurityEventObservation:
+        self._reset_security_event_records()
+        submit_responses = [self._submit_event(event) for event in accepted_events]
+        panel_page = self._web_page("/security-event-observation")
+        default_panel = self._observation_panel(None)
+        twenty_four_hour_panel = self._observation_panel("24h")
+        summary = default_panel.payload.get("summary", {}) if default_panel.ok else {}
+
+        return self._observation(
+            category="Security_Event_Observation_Panel_Gap",
+            control_point=(
+                "Submit five accepted security events inside the latest 24h range "
+                "across multiple sources, event types, and severities, then open the "
+                "Security Event Observation Panel without an explicit range."
+            ),
+            observation_point=(
+                "The default panel range is latest 24h; its summary counts only "
+                "accepted legal events, reports exactly two HIGH events, and shows "
+                "sourceSystem plus eventTypeId distributions that match the submitted "
+                "accepted events."
+            ),
+            checks={
+                "seed_events_accepted": all(response.status_code == 200 for response in submit_responses),
+                "web_observation_panel_route_exists": panel_page.status_code == 200
+                and "observation" in panel_page.text.lower(),
+                "default_panel_api_exists": default_panel.ok,
+                "twenty_four_hour_panel_api_exists": twenty_four_hour_panel.ok,
+                "default_range_is_latest_24h": default_panel.ok
+                and twenty_four_hour_panel.ok
+                and self._panel_signature(default_panel)
+                == self._panel_signature(twenty_four_hour_panel),
+                "total_accepted_count_is_5": summary.get("totalAcceptedEvents") == 5,
+                "high_accepted_count_is_2": summary.get("highAcceptedEvents") == 2,
+                "source_distribution_matches_business_events": summary.get("sourceSystemDistribution")
+                == {"endpoint_edr": 3, "cloud_siem": 2},
+                "event_type_distribution_matches_business_events": summary.get("eventTypeIdDistribution")
+                == {"malware_detected": 3, "correlation_rule_match": 2},
+            },
+            responses=[*submit_responses, panel_page, default_panel, twenty_four_hour_panel],
+        )
+
+    def observation_panel_filters_alerts_by_severity(
+        self,
+        accepted_events: tuple[SecurityEventSubmission, ...],
+    ) -> SecurityEventObservation:
+        self._reset_security_event_records()
+        submit_responses = [self._submit_event(event) for event in accepted_events]
+        panel_page = self._web_page("/security-event-observation")
+        panel = self._observation_panel("24h")
+        alerts = panel.payload.get("alerts", []) if panel.ok else []
+        raw_records = panel.payload.get("rawRecords", []) if panel.ok else []
+        alert_event_ids = {str(alert.get("eventId")) for alert in alerts if isinstance(alert, dict)}
+        raw_event_ids = {str(record.get("eventId")) for record in raw_records if isinstance(record, dict)}
+
+        return self._observation(
+            category="Security_Event_Observation_Panel_Gap",
+            control_point=(
+                "Submit one DEBUG, one LOW, one MEDIUM, and one HIGH accepted event, "
+                "then open the observation panel."
+            ),
+            observation_point=(
+                "Only MEDIUM and HIGH accepted events appear in the alert list, while "
+                "all four successful receptions remain visible as raw records."
+            ),
+            checks={
+                "seed_events_accepted": all(response.status_code == 200 for response in submit_responses),
+                "web_observation_panel_route_exists": panel_page.status_code == 200
+                and "observation" in panel_page.text.lower(),
+                "panel_api_exists": panel.ok,
+                "alerts_include_only_high_and_medium": {
+                    str(alert.get("severity")) for alert in alerts if isinstance(alert, dict)
+                }
+                == {"HIGH", "MEDIUM"},
+                "low_and_debug_are_not_alerts": "panel-low-001" not in alert_event_ids
+                and "panel-debug-001" not in alert_event_ids,
+                "all_successful_receptions_are_raw_records": {
+                    "panel-debug-001",
+                    "panel-low-001",
+                    "panel-medium-001",
+                    "panel-high-001",
+                }.issubset(raw_event_ids),
+            },
+            responses=[*submit_responses, panel_page, panel],
+        )
+
+    def observation_panel_sorts_alerts_by_severity_and_occurred_at(
+        self,
+        accepted_events: tuple[SecurityEventSubmission, ...],
+    ) -> SecurityEventObservation:
+        self._reset_security_event_records()
+        submit_responses = [self._submit_event(event) for event in accepted_events]
+        panel_page = self._web_page("/security-event-observation")
+        panel = self._observation_panel("24h")
+        alerts = panel.payload.get("alerts", []) if panel.ok else []
+        alert_order = [str(alert.get("eventId")) for alert in alerts if isinstance(alert, dict)]
+
+        return self._observation(
+            category="Security_Event_Observation_Panel_Gap",
+            control_point=(
+                "Submit interleaved HIGH and MEDIUM accepted events with distinct "
+                "occurredAt timestamps, then open the observation panel alert list."
+            ),
+            observation_point=(
+                "The alert list orders all HIGH alerts before MEDIUM alerts and orders "
+                "alerts with the same severity by occurredAt descending."
+            ),
+            checks={
+                "seed_events_accepted": all(response.status_code == 200 for response in submit_responses),
+                "web_observation_panel_route_exists": panel_page.status_code == 200
+                and "observation" in panel_page.text.lower(),
+                "panel_api_exists": panel.ok,
+                "alert_order_is_severity_then_occurred_desc": alert_order[:4]
+                == [
+                    "panel-order-high-newer",
+                    "panel-order-high-older",
+                    "panel-order-medium-newer",
+                    "panel-order-medium-older",
+                ],
+            },
+            responses=[*submit_responses, panel_page, panel],
+        )
+
+    def observation_panel_shows_failed_receptions_in_raw_records(
+        self,
+        invalid_scenarios: tuple[InvalidSecurityEventScenario, ...],
+    ) -> SecurityEventObservation:
+        self._reset_security_event_records()
+        submit_responses = [self._submit_event(scenario.submission) for scenario in invalid_scenarios]
+        self._apply_failed_reception_received_at_baseline(invalid_scenarios)
+        panel_page = self._web_page("/security-event-observation")
+        panel = self._observation_panel("24h")
+        summary = panel.payload.get("summary", {}) if panel.ok else {}
+        alerts = panel.payload.get("alerts", []) if panel.ok else []
+        raw_records = panel.payload.get("rawRecords", []) if panel.ok else []
+        raw_event_ids = {str(record.get("eventId")) for record in raw_records if isinstance(record, dict)}
+
+        return self._observation(
+            category="Security_Event_Observation_Panel_Gap",
+            control_point=(
+                "Submit invalid events for an illegal source, a missing required field, "
+                "and a payload type error, then open the panel raw reception list."
+            ),
+            observation_point=(
+                "Failed receptions do not increase legal-event summary counts and do "
+                "not appear as alerts, but raw records show failure reason plus bounded "
+                "raw-payload summary for each failed submission."
+            ),
+            checks={
+                "invalid_requests_rejected": all(response.status_code in {400, 409, 422} for response in submit_responses),
+                "web_observation_panel_route_exists": panel_page.status_code == 200
+                and "observation" in panel_page.text.lower(),
+                "panel_api_exists": panel.ok,
+                "failed_receptions_do_not_count_as_accepted_events": summary.get("totalAcceptedEvents") == 0,
+                "failed_receptions_do_not_create_alerts": alerts == [],
+                "failed_receptions_are_raw_records": {
+                    "panel-failed-illegal-source",
+                    "panel-failed-missing-summary",
+                    "panel-failed-payload-type",
+                }.issubset(raw_event_ids),
+                "failure_reason_and_bounded_payload_are_visible": all(
+                    bool(record.get("failureReason")) and len(str(record.get("rawPayloadSummary", ""))) <= _MAX_FAILURE_SUMMARY_CHARS
+                    for record in raw_records
+                    if str(record.get("eventId")) in raw_event_ids
+                ),
+            },
+            responses=[*submit_responses, panel_page, panel],
+        )
+
+    def observation_panel_links_alert_to_raw_record(
+        self,
+        accepted_event: SecurityEventSubmission,
+    ) -> SecurityEventObservation:
+        self._reset_security_event_records()
+        submit_response = self._submit_event(accepted_event)
+        panel_page = self._web_page("/security-event-observation")
+        focused_panel = self._observation_panel(
+            "24h",
+            focus_source_system=accepted_event.source_system,
+            focus_event_id=accepted_event.event_id,
+        )
+        focused_raw_record = focused_panel.payload.get("focusedRawRecord", {}) if focused_panel.ok else {}
+
+        return self._observation(
+            category="Security_Event_Observation_Panel_Gap",
+            control_point=(
+                "Submit one HIGH accepted event, open the observation panel, and select "
+                "that alert by sourceSystem plus eventId."
+            ),
+            observation_point=(
+                "The raw reception list focuses the matching raw record and exposes the "
+                "bounded raw-payload evidence for the selected alert."
+            ),
+            checks={
+                "seed_event_accepted": submit_response.status_code == 200,
+                "web_observation_panel_route_exists": panel_page.status_code == 200
+                and "observation" in panel_page.text.lower(),
+                "focused_panel_api_exists": focused_panel.ok,
+                "focused_raw_record_matches_alert_key": focused_raw_record.get("sourceSystem") == accepted_event.source_system
+                and focused_raw_record.get("eventId") == accepted_event.event_id,
+                "focused_raw_record_exposes_bounded_payload": bool(focused_raw_record.get("rawPayload"))
+                and len(str(focused_raw_record.get("rawPayload"))) <= _MAX_FAILURE_SUMMARY_CHARS,
+            },
+            responses=[submit_response, panel_page, focused_panel],
+        )
+
+    def observation_panel_applies_time_range_consistently(
+        self,
+        accepted_events: tuple[SecurityEventSubmission, ...],
+        invalid_scenarios: tuple[InvalidSecurityEventScenario, ...],
+    ) -> SecurityEventObservation:
+        self._reset_security_event_records()
+        accepted_responses = [self._submit_event(event) for event in accepted_events]
+        invalid_responses = [self._submit_event(scenario.submission) for scenario in invalid_scenarios]
+        self._apply_failed_reception_received_at_baseline(invalid_scenarios)
+        panel_page = self._web_page("/security-event-observation")
+        one_hour_panel = self._observation_panel("1h")
+        twenty_four_hour_panel = self._observation_panel("24h")
+        seven_day_panel = self._observation_panel("7d")
+
+        return self._observation(
+            category="Security_Event_Observation_Panel_Gap",
+            control_point=(
+                "Construct accepted events by occurredAt and failed receptions by "
+                "backend receivedAt inside latest 1h, inside latest 24h, inside "
+                "latest 7d, and outside latest 7d; then switch the panel across "
+                "1h, 24h, and 7d quick ranges."
+            ),
+            observation_point=(
+                "For every quick range, summary, alert list, and raw reception list "
+                "share the same time interpretation: accepted records use occurredAt, "
+                "failed receptions use backend receivedAt, and records outside the "
+                "selected range are excluded."
+            ),
+            checks={
+                "accepted_seed_events_accepted": all(response.status_code == 200 for response in accepted_responses),
+                "invalid_seed_events_rejected": all(response.status_code in {400, 409, 422} for response in invalid_responses),
+                "web_observation_panel_route_exists": panel_page.status_code == 200
+                and "observation" in panel_page.text.lower(),
+                "one_hour_panel_api_exists": one_hour_panel.ok,
+                "twenty_four_hour_panel_api_exists": twenty_four_hour_panel.ok,
+                "seven_day_panel_api_exists": seven_day_panel.ok,
+                "one_hour_summary_alerts_and_raw_records_match": self._panel_has_exact_records(
+                    one_hour_panel,
+                    expected_accepted={"panel-range-1h-high"},
+                    expected_failures={"panel-range-1h-failed"},
+                ),
+                "twenty_four_hour_summary_alerts_and_raw_records_match": self._panel_has_exact_records(
+                    twenty_four_hour_panel,
+                    expected_accepted={"panel-range-1h-high", "panel-range-24h-medium"},
+                    expected_failures={"panel-range-1h-failed", "panel-range-24h-failed"},
+                ),
+                "seven_day_summary_alerts_and_raw_records_match": self._panel_has_exact_records(
+                    seven_day_panel,
+                    expected_accepted={
+                        "panel-range-1h-high",
+                        "panel-range-24h-medium",
+                        "panel-range-7d-low",
+                    },
+                    expected_failures={
+                        "panel-range-1h-failed",
+                        "panel-range-24h-failed",
+                        "panel-range-7d-failed",
+                    },
+                ),
+            },
+            responses=[
+                *accepted_responses,
+                *invalid_responses,
+                panel_page,
+                one_hour_panel,
+                twenty_four_hour_panel,
+                seven_day_panel,
+            ],
+        )
+
     def _submit_event(
         self,
         submission: SecurityEventSubmission,
@@ -493,6 +781,77 @@ class SecurityEventIngestionHarness:
 
     def _failure_records(self) -> "_HarnessResponse":
         return self._request_json("GET", "/security-center/v1/operator/event-reception-failures")
+
+    def _reset_security_event_records(self) -> None:
+        if self.data_dir is None:
+            return
+        store_path = self.data_dir / "security-center-store.json"
+        if not store_path.exists():
+            return
+        try:
+            payload = json.loads(store_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return
+        if not isinstance(payload, dict):
+            return
+        payload["security_events"] = {}
+        payload["security_event_failures"] = []
+        store_path.write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True),
+            encoding="utf-8",
+        )
+
+    def _apply_failed_reception_received_at_baseline(
+        self,
+        scenarios: tuple[InvalidSecurityEventScenario, ...],
+    ) -> None:
+        timestamp_by_event_id = {
+            scenario.submission.event_id: scenario.backend_received_at
+            for scenario in scenarios
+            if scenario.backend_received_at
+        }
+        if not timestamp_by_event_id or self.data_dir is None:
+            return
+        store_path = self.data_dir / "security-center-store.json"
+        if not store_path.exists():
+            return
+        try:
+            payload = json.loads(store_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return
+        failure_records = payload.get("security_event_failures")
+        if not isinstance(failure_records, list):
+            return
+        for failure_record in failure_records:
+            if not isinstance(failure_record, dict):
+                continue
+            event_id = str(failure_record.get("eventId") or "")
+            if event_id in timestamp_by_event_id:
+                failure_record["receivedAt"] = timestamp_by_event_id[event_id]
+        store_path.write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True),
+            encoding="utf-8",
+        )
+
+    def _observation_panel(
+        self,
+        range_key: str | None,
+        *,
+        focus_source_system: str | None = None,
+        focus_event_id: str | None = None,
+    ) -> "_HarnessResponse":
+        query_params = []
+        if range_key:
+            query_params.append(f"range={range_key}")
+        if focus_source_system:
+            query_params.append(f"focusSourceSystem={focus_source_system}")
+        if focus_event_id:
+            query_params.append(f"focusEventId={focus_event_id}")
+        query = f"?{'&'.join(query_params)}" if query_params else ""
+        return self._request_json(
+            "GET",
+            f"/security-center/v1/operator/event-observation-panel{query}",
+        )
 
     def _request_json(
         self,
@@ -547,7 +906,12 @@ class SecurityEventIngestionHarness:
         failure_reasons = [name for name, ready in checks.items() if not ready]
         for response in responses:
             if response.status_code == 404:
-                failure_reasons.append(f"Security_Event_Ingestion_API_Missing:{response.path}")
+                if response.path.startswith("/security-center/v1/operator/event-observation-panel"):
+                    failure_reasons.append(f"Security_Event_Observation_Panel_API_Missing:{response.path}")
+                elif response.path == "/security-event-observation":
+                    failure_reasons.append(f"Security_Event_Observation_Panel_Web_Missing:{response.path}")
+                else:
+                    failure_reasons.append(f"Security_Event_Ingestion_API_Missing:{response.path}")
             elif response.status_code == 0:
                 failure_reasons.append(f"Security_Event_Ingestion_Endpoint_Unreachable:{response.path}")
         diagnostic = "\n".join(
@@ -605,6 +969,69 @@ class SecurityEventIngestionHarness:
             return False
         required = {"receivedAt", "occurredAt", "sourceSystem", "eventTypeId", "severity", "summary", "eventId"}
         return required.issubset(events[0].keys())
+
+    @staticmethod
+    def _panel_has_exact_records(
+        panel: "_HarnessResponse",
+        *,
+        expected_accepted: set[str],
+        expected_failures: set[str],
+    ) -> bool:
+        if not panel.ok:
+            return False
+        payload = panel.payload
+        raw_records = payload.get("rawRecords", [])
+        alerts = payload.get("alerts", [])
+        if not isinstance(raw_records, list) or not isinstance(alerts, list):
+            return False
+        accepted_raw_ids = {
+            str(record.get("eventId"))
+            for record in raw_records
+            if isinstance(record, dict) and record.get("recordKind") == "accepted"
+        }
+        failed_raw_ids = {
+            str(record.get("eventId"))
+            for record in raw_records
+            if isinstance(record, dict) and record.get("recordKind") == "failed"
+        }
+        alert_ids = {
+            str(alert.get("eventId"))
+            for alert in alerts
+            if isinstance(alert, dict)
+        }
+        summary = payload.get("summary", {})
+        expected_alerts = {
+            event_id
+            for event_id in expected_accepted
+            if "high" in event_id or "medium" in event_id
+        }
+        return (
+            accepted_raw_ids == expected_accepted
+            and failed_raw_ids == expected_failures
+            and alert_ids == expected_alerts
+            and summary.get("totalAcceptedEvents") == len(expected_accepted)
+        )
+
+    @staticmethod
+    def _panel_signature(panel: "_HarnessResponse") -> dict[str, Any]:
+        if not panel.ok:
+            return {}
+        payload = panel.payload
+        raw_records = payload.get("rawRecords", [])
+        alerts = payload.get("alerts", [])
+        return {
+            "summary": payload.get("summary", {}),
+            "alerts": [
+                (alert.get("sourceSystem"), alert.get("eventId"))
+                for alert in alerts
+                if isinstance(alert, dict)
+            ],
+            "rawRecords": [
+                (record.get("recordKind"), record.get("sourceSystem"), record.get("eventId"))
+                for record in raw_records
+                if isinstance(record, dict)
+            ],
+        }
 
 
 @dataclass(frozen=True)

@@ -433,6 +433,32 @@ button {
   gap: 1rem;
 }
 
+.security-event-observation-panel {
+  display: grid;
+  gap: 1rem;
+}
+
+.observation-range-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+}
+
+.observation-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr);
+  gap: 1rem;
+}
+
+.link-button {
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--accent-warm);
+  font-weight: 700;
+  text-align: left;
+}
+
 .security-event-filters {
   display: grid;
   grid-template-columns: repeat(6, minmax(0, 1fr));
@@ -599,6 +625,7 @@ button {
   .analytics-grid,
   .chart-grid,
   .detail-grid,
+  .observation-grid,
   .security-event-filters {
     grid-template-columns: 1fr;
   }

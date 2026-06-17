@@ -6,6 +6,7 @@ const state = {
   apiBase: injectedApiBase || storedApiBase || defaultApiBase,
   overview: null,
   selectedClientId: null,
+  observationRange: "24h",
   stream: null,
 };
 
@@ -27,6 +28,11 @@ const elements = {
   securityEventFilters: document.getElementById("security-event-filters"),
   securityEventList: document.getElementById("security-event-list"),
   securityEventDetail: document.getElementById("security-event-detail"),
+  observationRangeControls: document.getElementById("observation-range-controls"),
+  observationSummary: document.getElementById("observation-summary"),
+  observationAlerts: document.getElementById("observation-alerts"),
+  observationRawRecords: document.getElementById("observation-raw-records"),
+  observationFocusedRawRecord: document.getElementById("observation-focused-raw-record"),
   toast: document.getElementById("toast"),
 };
 
@@ -67,6 +73,17 @@ if (elements.securityEventFilters) {
   elements.securityEventFilters.addEventListener("submit", async (event) => {
     event.preventDefault();
     await renderSecurityEventInbox();
+  });
+}
+
+if (elements.observationRangeControls) {
+  elements.observationRangeControls.addEventListener("click", async (event) => {
+    const range = event.target?.dataset?.range;
+    if (!range) {
+      return;
+    }
+    state.observationRange = range;
+    await renderSecurityEventObservationPanel();
   });
 }
 
@@ -461,6 +478,158 @@ async function renderSecurityEventInbox() {
   }
 }
 
+function distributionTable(distribution) {
+  const entries = Object.entries(distribution || {});
+  if (!entries.length) {
+    return '<div class="empty-state">暂无分布数据。</div>';
+  }
+  return entries
+    .map(([key, value]) => `<div>${escapeHtml(key)}: <strong>${escapeHtml(value)}</strong></div>`)
+    .join("");
+}
+
+function renderObservationAlerts(alerts) {
+  if (!elements.observationAlerts) {
+    return;
+  }
+  if (!alerts.length) {
+    elements.observationAlerts.innerHTML = '<div class="empty-state">当前范围内无 HIGH / MEDIUM 告警。</div>';
+    return;
+  }
+  elements.observationAlerts.innerHTML = `
+    <table class="security-event-table">
+      <thead>
+        <tr>
+          <th>severity</th>
+          <th>occurredAt</th>
+          <th>sourceSystem</th>
+          <th>event type</th>
+          <th>summary</th>
+          <th>key object</th>
+          <th>eventId</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${alerts.map((alert) => `
+          <tr>
+            <td><span class="severity-badge severity-${escapeHtml(String(alert.severity || "").toLowerCase())}">${escapeHtml(alert.severity)}</span></td>
+            <td>${escapeHtml(alert.occurredAt)}</td>
+            <td>${escapeHtml(alert.sourceSystem)}</td>
+            <td>${escapeHtml(alert.eventTypeDisplayName || alert.eventTypeId)}</td>
+            <td>${escapeHtml(alert.summary)}</td>
+            <td>${escapeHtml(alert.keyObject || "--")}</td>
+            <td><button type="button" class="link-button" data-source="${escapeHtml(alert.sourceSystem)}" data-event-id="${escapeHtml(alert.eventId)}">${escapeHtml(alert.eventId)}</button></td>
+          </tr>
+        `).join("")}
+      </tbody>
+    </table>
+  `;
+  elements.observationAlerts.querySelectorAll("[data-source][data-event-id]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      await renderSecurityEventObservationPanel({
+        focusSourceSystem: button.dataset.source,
+        focusEventId: button.dataset.eventId,
+      });
+    });
+  });
+}
+
+function renderObservationRawRecords(rawRecords) {
+  if (!elements.observationRawRecords) {
+    return;
+  }
+  if (!rawRecords.length) {
+    elements.observationRawRecords.innerHTML = '<div class="empty-state">当前范围内无原始接收记录。</div>';
+    return;
+  }
+  elements.observationRawRecords.innerHTML = `
+    <table class="security-event-table">
+      <thead>
+        <tr>
+          <th>result</th>
+          <th>receivedAt</th>
+          <th>occurredAt</th>
+          <th>sourceSystem</th>
+          <th>event type</th>
+          <th>severity</th>
+          <th>eventId</th>
+          <th>failure reason</th>
+          <th>raw payload summary</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${rawRecords.map((record) => `
+          <tr>
+            <td>${escapeHtml(record.receptionResult || record.recordKind)}</td>
+            <td>${escapeHtml(record.receivedAt)}</td>
+            <td>${escapeHtml(record.occurredAt || "--")}</td>
+            <td>${escapeHtml(record.sourceSystem)}</td>
+            <td>${escapeHtml(record.eventTypeDisplayName || record.eventTypeId || "--")}</td>
+            <td>${escapeHtml(record.severity || "--")}</td>
+            <td>${escapeHtml(record.eventId || "--")}</td>
+            <td>${escapeHtml(record.failureReason || "--")}</td>
+            <td>${escapeHtml(record.rawPayloadSummary || "--")}</td>
+          </tr>
+        `).join("")}
+      </tbody>
+    </table>
+  `;
+}
+
+function renderFocusedRawRecord(record) {
+  if (!elements.observationFocusedRawRecord) {
+    return;
+  }
+  if (!record) {
+    elements.observationFocusedRawRecord.innerHTML = "";
+    return;
+  }
+  elements.observationFocusedRawRecord.innerHTML = `
+    <article class="security-event-detail-card">
+      <h3>Focused Raw Evidence: ${escapeHtml(record.sourceSystem)} / ${escapeHtml(record.eventId)}</h3>
+      ${objectTable({
+        recordKind: record.recordKind,
+        receivedAt: record.receivedAt,
+        occurredAt: record.occurredAt,
+        eventTypeId: record.eventTypeId,
+        severity: record.severity,
+        failureReason: record.failureReason,
+      })}
+      <pre class="raw-payload" aria-label="focused raw payload">${escapeHtml(JSON.stringify(record.rawPayload || record.rawPayloadSummary || {}, null, 2))}</pre>
+    </article>
+  `;
+}
+
+async function renderSecurityEventObservationPanel(options = {}) {
+  if (!elements.observationSummary || !elements.observationAlerts || !elements.observationRawRecords) {
+    return;
+  }
+  const params = new URLSearchParams();
+  params.set("range", state.observationRange);
+  if (options.focusSourceSystem) {
+    params.set("focusSourceSystem", options.focusSourceSystem);
+  }
+  if (options.focusEventId) {
+    params.set("focusEventId", options.focusEventId);
+  }
+  try {
+    const panel = await readJson(`/security-center/v1/operator/event-observation-panel?${params.toString()}`);
+    const summary = panel.summary || {};
+    elements.observationSummary.innerHTML = [
+      metricCard("当前范围", panel.selectedRange || state.observationRange),
+      metricCard("合法事件总数", summary.totalAcceptedEvents ?? 0),
+      metricCard("HIGH 合法事件", summary.highAcceptedEvents ?? 0, "danger"),
+      metricCard("来源分布", distributionTable(summary.sourceSystemDistribution)),
+      metricCard("类型分布", distributionTable(summary.eventTypeIdDistribution)),
+    ].join("");
+    renderObservationAlerts(panel.alerts || []);
+    renderObservationRawRecords(panel.rawRecords || []);
+    renderFocusedRawRecord(panel.focusedRawRecord || null);
+  } catch (error) {
+    elements.observationSummary.innerHTML = `<div class="empty-state danger">Security Event Observation Panel 加载失败：${escapeHtml(error.message)}</div>`;
+  }
+}
+
 function showToast(alert) {
   elements.toast.innerHTML = `<strong>${alertTypeLabel(alert.type)}</strong><div>${alert.message}</div>`;
   elements.toast.classList.remove("hidden");
@@ -508,6 +677,7 @@ async function refreshDashboard(reconnectStream = true) {
     updateClientPicker(overview);
     await renderTimeline();
     await renderSecurityEventInbox();
+    await renderSecurityEventObservationPanel();
     setApiStatus("已连接到安全中心后端。", "success");
     if (reconnectStream) {
       connectStream();
@@ -528,6 +698,7 @@ async function refreshDashboard(reconnectStream = true) {
         updateClientPicker(overview);
         await renderTimeline();
         await renderSecurityEventInbox();
+        await renderSecurityEventObservationPanel();
         setApiStatus(`已通过 ${state.apiBase} 恢复后端连接。`, "success");
         if (reconnectStream) {
           connectStream();

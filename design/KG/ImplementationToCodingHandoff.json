@@ -1,8 +1,8 @@
 {
   "stage": "implementation-to-coding",
-  "generatedAt": "2026-06-12",
+  "generatedAt": "2026-06-17",
   "sourceIntentGraphPath": "design/KG/SystemArchitecture.json",
-  "summary": "Implementation Design materialized sec-event-ingestion-v1 architecture contracts, V1 configuration baseline, six explicit acceptance entrypoints, a critical non-explicit contract guard, and expected failing signals for Coding/Repair. Current production deploy/api and deploy/web do not yet implement Security Event Ingestion V1 routes or inbox rendering, so the new explicit entrypoints are intentionally failed and must be repaired without editing the frozen tests or harness.",
+  "summary": "Implementation Design materialized security-center-event-observation-panel-v1 architecture contracts, six explicit Web e2e acceptance entrypoints, a critical non-explicit contract guard, and expected failing signals for Coding/Repair. The strengthened acceptance design freezes default latest 24h behavior when no range is supplied and freezes failed-reception time-range membership to backend receivedAt. Current production deploy/api and deploy/web already implement Security Event Ingestion V1 records, but do not yet implement the observation-panel read model at GET /security-center/v1/operator/event-observation-panel or the /security-event-observation Web route, so the new explicit entrypoints are intentionally failed and must be repaired without editing the frozen tests or harness.",
   "implementationContracts": [
     "OVERALL_ARCHITECTURE.md",
     "deploy/ARCHITECTURE.md",
@@ -115,6 +115,60 @@
       "initialExecutionStatus": "failed",
       "initialExecutionCommand": ".\\.venv\\Scripts\\python.exe -m pytest tests/integration/security/test_security_event_ingestion.py::test_records_failed_receptions_without_business_event_pollution -q",
       "failureReason": "Expected first failure: deploy/api currently lacks failed reception records, persistence-error simulation handling, oversized invalid payload bounding, and event-list cleanliness guarantees."
+    },
+    {
+      "testcaseName": "security-center-event-observation-panel-v1-posture-statistics",
+      "entryPath": "tests/e2e/security_center/test_security_event_observation_panel.py::test_observation_panel_summarizes_current_event_posture",
+      "controlPoint": "Run the frozen real Security Center API/Web subprocess entrypoint: submit five accepted events inside latest 24h across endpoint_edr and cloud_siem, malware_detected and correlation_rule_match, and multiple severities with exactly two HIGH events, then open /security-event-observation and call the observation-panel API without an explicit range.",
+      "observationPoint": "The default observation panel response must be equivalent to explicit range=24h and must show total accepted events 5, HIGH accepted events 2, sourceSystem distribution endpoint_edr=3 and cloud_siem=2, and eventTypeId distribution malware_detected=3 and correlation_rule_match=2 without counting failed receptions.",
+      "initialExecutionStatus": "failed",
+      "initialExecutionCommand": ".\\.venv\\Scripts\\python.exe -m pytest tests/e2e/security_center/test_security_event_observation_panel.py::test_observation_panel_summarizes_current_event_posture -q",
+      "failureReason": "Expected first failure: deploy/api currently lacks GET /security-center/v1/operator/event-observation-panel and deploy/web lacks /security-event-observation, so the harness reports Security_Event_Observation_Panel_API_Missing or Security_Event_Observation_Panel_Web_Missing."
+    },
+    {
+      "testcaseName": "security-center-event-observation-panel-v1-alert-scope",
+      "entryPath": "tests/e2e/security_center/test_security_event_observation_panel.py::test_observation_panel_filters_alerts_by_severity",
+      "controlPoint": "Run the frozen real Security Center API/Web subprocess entrypoint: submit one DEBUG, one LOW, one MEDIUM, and one HIGH accepted event, then open the observation panel.",
+      "observationPoint": "The alert list must include only MEDIUM and HIGH accepted events, while DEBUG, LOW, MEDIUM, and HIGH successful receptions all remain visible in rawRecords.",
+      "initialExecutionStatus": "failed",
+      "initialExecutionCommand": ".\\.venv\\Scripts\\python.exe -m pytest tests/e2e/security_center/test_security_event_observation_panel.py::test_observation_panel_filters_alerts_by_severity -q",
+      "failureReason": "Expected first failure: the observation panel read model and Web route are not implemented, so alert severity scope cannot be observed."
+    },
+    {
+      "testcaseName": "security-center-event-observation-panel-v1-alert-ordering",
+      "entryPath": "tests/e2e/security_center/test_security_event_observation_panel.py::test_observation_panel_sorts_alerts_by_severity_and_occurred_at",
+      "controlPoint": "Run the frozen real Security Center API/Web subprocess entrypoint: submit interleaved HIGH and MEDIUM accepted events with distinct occurredAt timestamps, then open the observation panel alert list.",
+      "observationPoint": "All HIGH alerts must appear before MEDIUM alerts, and same-severity alerts must be ordered by occurredAt descending.",
+      "initialExecutionStatus": "failed",
+      "initialExecutionCommand": ".\\.venv\\Scripts\\python.exe -m pytest tests/e2e/security_center/test_security_event_observation_panel.py::test_observation_panel_sorts_alerts_by_severity_and_occurred_at -q",
+      "failureReason": "Expected first failure: the observation panel read model has not implemented severity-priority plus occurredAt-descending alert ordering."
+    },
+    {
+      "testcaseName": "security-center-event-observation-panel-v1-failed-receptions-visible",
+      "entryPath": "tests/e2e/security_center/test_security_event_observation_panel.py::test_observation_panel_shows_failed_receptions_in_raw_records",
+      "controlPoint": "Run the frozen real Security Center API/Web subprocess entrypoint: submit invalid events for illegal source, missing required summary, and payload type error, then open the observation panel raw reception list.",
+      "observationPoint": "Failed receptions must not increase accepted-event summary counts and must not appear as alerts, but rawRecords must show each failed reception with failure reason and bounded raw-payload summary.",
+      "initialExecutionStatus": "failed",
+      "initialExecutionCommand": ".\\.venv\\Scripts\\python.exe -m pytest tests/e2e/security_center/test_security_event_observation_panel.py::test_observation_panel_shows_failed_receptions_in_raw_records -q",
+      "failureReason": "Expected first failure: the observation panel read model has not implemented failed reception raw-record projection without legal-event summary or alert pollution."
+    },
+    {
+      "testcaseName": "security-center-event-observation-panel-v1-alert-to-raw-traceability",
+      "entryPath": "tests/e2e/security_center/test_security_event_observation_panel.py::test_observation_panel_links_alert_to_raw_record",
+      "controlPoint": "Run the frozen real Security Center API/Web subprocess entrypoint: submit one HIGH accepted event, open the observation panel, and select/focus that alert by sourceSystem plus eventId.",
+      "observationPoint": "The raw reception list must focus the same sourceSystem plus eventId raw record and expose bounded raw-payload evidence for the selected alert.",
+      "initialExecutionStatus": "failed",
+      "initialExecutionCommand": ".\\.venv\\Scripts\\python.exe -m pytest tests/e2e/security_center/test_security_event_observation_panel.py::test_observation_panel_links_alert_to_raw_record -q",
+      "failureReason": "Expected first failure: the observation panel read model has not implemented focusSourceSystem/focusEventId focusedRawRecord traceability."
+    },
+    {
+      "testcaseName": "security-center-event-observation-panel-v1-time-range-consistency",
+      "entryPath": "tests/e2e/security_center/test_security_event_observation_panel.py::test_observation_panel_applies_time_range_consistently",
+      "controlPoint": "Run the frozen real Security Center API/Web subprocess entrypoint: seed accepted events by occurredAt and failed receptions by backend receivedAt inside latest 1h, inside latest 24h, inside latest 7d, and outside latest 7d, then switch the panel among 1h, 24h, and 7d quick ranges.",
+      "observationPoint": "For each quick range, summary, alert list, and raw reception list must include only records in the same selected range; accepted records are ranged by occurredAt, failed receptions are ranged by backend receivedAt, and records outside that range are excluded.",
+      "initialExecutionStatus": "failed",
+      "initialExecutionCommand": ".\\.venv\\Scripts\\python.exe -m pytest tests/e2e/security_center/test_security_event_observation_panel.py::test_observation_panel_applies_time_range_consistently -q",
+      "failureReason": "Expected first failure: the observation panel read model has not implemented shared 1h/24h/7d range semantics across summary, alerts, and rawRecords."
     }
   ],
   "criticalNonExplicitTests": [
@@ -138,6 +192,13 @@
       "kind": "explicit-entrypoint-correctness-guard",
       "controlPoint": "Read SystemArchitecture.json, ImplementationToCodingHandoff.json, OVERALL_ARCHITECTURE.md, deploy/api/ARCHITECTURE.md, deploy/web/ARCHITECTURE.md, deploy/config/security-event-contracts.v1.json, tests/integration/security/test_security_event_ingestion.py, tests/integration/security/security_event_harness.py, and tests/e2e/security_center/test_security_event_inbox.py.",
       "observationPoint": "The guard proves all six Security Event Ingestion V1 acceptanceCriteria, handoff entries, protected harness categories, API/Web contract markers, config baseline, and expected failing state remain frozen for Coding/Repair."
+    },
+    {
+      "name": "security-event-observation-panel-contract-boundaries",
+      "path": "tests/architecture/security-event-observation-panel-contract-boundaries.test.js",
+      "kind": "explicit-entrypoint-correctness-guard",
+      "controlPoint": "Read SystemArchitecture.json, ImplementationToCodingHandoff.json, OVERALL_ARCHITECTURE.md, deploy/ARCHITECTURE.md, deploy/api/ARCHITECTURE.md, deploy/web/ARCHITECTURE.md, tests/ARCHITECTURE.md, tests/architecture/ARCHITECTURE.md, tests/e2e/security_center/ARCHITECTURE.md, tests/integration/security/ARCHITECTURE.md, tests/integration/security/security_event_harness.py, and tests/e2e/security_center/test_security_event_observation_panel.py.",
+      "observationPoint": "The guard proves all six Security Event Observation Panel V1 acceptanceCriteria, handoff entries, protected harness categories, API/Web route markers, default latest 24h no-range assertion, failed-reception backend receivedAt range source, business-readable GIVEN/WHEN/THEN entrypoint bodies, and expected failing state remain frozen for Coding/Repair."
     }
   ],
   "supportingNonExplicitTests": [
@@ -187,133 +248,152 @@
       "path": "tests/integration/security/test_security_event_ingestion.py::test_records_failed_receptions_without_business_event_pollution",
       "failureSignal": "Security_Event_Failure_Record_Gap",
       "nextAction": "Implement failed reception records for illegal submissions, real idempotency conflict, test-injected persistence failure, and oversized invalid payload cases while keeping accepted event list clean except for the intentional idempotency baseline and keeping request summaries bounded."
+    },
+    {
+      "testcaseName": "security-center-event-observation-panel-v1-posture-statistics",
+      "path": "tests/e2e/security_center/test_security_event_observation_panel.py::test_observation_panel_summarizes_current_event_posture",
+      "failureSignal": "Security_Event_Observation_Panel_Gap / Security_Event_Observation_Panel_API_Missing / Security_Event_Observation_Panel_Web_Missing",
+      "nextAction": "Implement deploy/api observation-panel read model and deploy/web /security-event-observation route so default no-range behavior equals latest 24h, current 24h accepted-event posture summary counts only legal accepted events, and sourceSystem/eventTypeId distributions are reported."
+    },
+    {
+      "testcaseName": "security-center-event-observation-panel-v1-alert-scope",
+      "path": "tests/e2e/security_center/test_security_event_observation_panel.py::test_observation_panel_filters_alerts_by_severity",
+      "failureSignal": "Security_Event_Observation_Panel_Gap",
+      "nextAction": "Implement observation-panel alerts as HIGH/MEDIUM accepted events only while keeping DEBUG/LOW accepted events in rawRecords."
+    },
+    {
+      "testcaseName": "security-center-event-observation-panel-v1-alert-ordering",
+      "path": "tests/e2e/security_center/test_security_event_observation_panel.py::test_observation_panel_sorts_alerts_by_severity_and_occurred_at",
+      "failureSignal": "Security_Event_Observation_Panel_Gap",
+      "nextAction": "Order observation-panel alerts by severity priority HIGH before MEDIUM and occurredAt descending within each severity."
+    },
+    {
+      "testcaseName": "security-center-event-observation-panel-v1-failed-receptions-visible",
+      "path": "tests/e2e/security_center/test_security_event_observation_panel.py::test_observation_panel_shows_failed_receptions_in_raw_records",
+      "failureSignal": "Security_Event_Observation_Panel_Gap",
+      "nextAction": "Project failed reception records into rawRecords with failure reason and bounded raw-payload summary while excluding them from accepted-event summary and alerts."
+    },
+    {
+      "testcaseName": "security-center-event-observation-panel-v1-alert-to-raw-traceability",
+      "path": "tests/e2e/security_center/test_security_event_observation_panel.py::test_observation_panel_links_alert_to_raw_record",
+      "failureSignal": "Security_Event_Observation_Panel_Gap",
+      "nextAction": "Implement focusSourceSystem/focusEventId handling and focusedRawRecord so alert selection deterministically locates the same raw evidence record."
+    },
+    {
+      "testcaseName": "security-center-event-observation-panel-v1-time-range-consistency",
+      "path": "tests/e2e/security_center/test_security_event_observation_panel.py::test_observation_panel_applies_time_range_consistently",
+      "failureSignal": "Security_Event_Observation_Panel_Gap",
+      "nextAction": "Implement latest 1h, 24h, and 7d quick-range filtering consistently across summary, alerts, and rawRecords, with latest 24h as the default and failed receptions ranged by backend receivedAt."
     }
   ],
   "taskExecutionPlan": {
-    "executionStrategy": "Preserve all frozen explicit test bodies and protected harness vocabulary. Implement production behavior under deploy/api, deploy/web, and deploy/config only, using deploy/api as the single backend control point and deploy/web as a read-only operator consumer.",
+    "executionStrategy": "Preserve all frozen explicit test bodies and protected harness vocabulary. Implement production behavior under deploy/api and deploy/web only, using deploy/api as the single observation-panel read-model owner and deploy/web as a read-only operator consumer.",
     "tasks": [
       {
-        "taskId": "sec-event-ingestion-v1-api-config-store-001",
-        "title": "Implement event config and API store",
-        "objective": "Load deploy/config/security-event-contracts.v1.json and implement accepted-event plus failed-reception durable storage under deploy/api.",
+        "taskId": "security-event-observation-panel-api-001",
+        "title": "Implement observation panel read model",
+        "objective": "Add deploy/api GET /security-center/v1/operator/event-observation-panel over existing accepted-event and failed-reception stores.",
         "relatedTestcases": [
-          "sec-event-ingestion-v1-accept-legal-event",
-          "sec-event-ingestion-v1-reject-invalid-config-boundary",
-          "sec-event-ingestion-v1-bound-failure-records"
-        ],
-        "targetPaths": [
-          "deploy/api/app.py",
-          "deploy/api/store.py",
-          "deploy/config/security-event-contracts.v1.json"
-        ],
-        "steps": [
-          "Keep tests/integration/security/test_security_event_ingestion.py and tests/integration/security/security_event_harness.py read-only.",
-          "Add deploy/api models and route handlers for POST /security-center/v1/events and failed reception record query.",
-          "Persist accepted events and failure records in the deploy/api store without sharing edge runtime storage.",
-          "Return success only after accepted-event persistence; return failure for persistence errors."
-        ],
-        "completionSignal": "The legal acceptance and invalid-boundary entrypoints no longer report Security_Event_Ingestion_API_Missing."
-      },
-      {
-        "taskId": "sec-event-ingestion-v1-validation-idempotency-002",
-        "title": "Implement validation and idempotency",
-        "objective": "Enforce sourceSystem/eventType/schema/payload validation plus sourceSystem+eventId idempotency and conflict semantics.",
-        "dependsOn": [
-          "sec-event-ingestion-v1-api-config-store-001"
-        ],
-        "relatedTestcases": [
-          "sec-event-ingestion-v1-reject-invalid-config-boundary",
-          "sec-event-ingestion-v1-preserve-undefined-payload-fields",
-          "sec-event-ingestion-v1-enforce-idempotency"
+          "security-center-event-observation-panel-v1-posture-statistics",
+          "security-center-event-observation-panel-v1-alert-scope",
+          "security-center-event-observation-panel-v1-alert-ordering",
+          "security-center-event-observation-panel-v1-failed-receptions-visible",
+          "security-center-event-observation-panel-v1-alert-to-raw-traceability",
+          "security-center-event-observation-panel-v1-time-range-consistency"
         ],
         "targetPaths": [
           "deploy/api/app.py",
           "deploy/api/store.py"
         ],
         "steps": [
-          "Validate source allow-listing, enabled flags, source-to-type authorization, unknown event types, schemaVersion, severity, base required summary, occurredAt, and configured payload required/type/enum fields.",
-          "Preserve undefined payload fields separately from configured structured fields.",
-          "Normalize accepted content for idempotency comparison and record conflicts as failed receptions.",
-          "Keep eventId uniqueness scoped to sourceSystem rather than global."
+          "Keep tests/e2e/security_center/test_security_event_observation_panel.py and tests/integration/security/security_event_harness.py read-only.",
+          "Add the observation-panel API route with range values 1h, 24h, and 7d, defaulting to latest 24h when no range query is supplied.",
+          "Compute summary only from accepted legal events inside the selected range.",
+          "Return rawRecords from accepted events plus failed reception records inside the same selected range, using accepted-event occurredAt for accepted rows and backend receivedAt for failed reception rows."
         ],
-        "completionSignal": "The rejection, undefined-field, and idempotency explicit entrypoints pass without altering their tests."
+        "completionSignal": "The six observation-panel entrypoints no longer report Security_Event_Observation_Panel_API_Missing."
       },
       {
-        "taskId": "sec-event-ingestion-v1-web-inbox-003",
-        "title": "Implement operator event inbox",
-        "objective": "Add deploy/web Security Event Inbox list/filter/detail behavior backed only by deploy/api.",
+        "taskId": "security-event-observation-panel-alerts-002",
+        "title": "Implement alert and raw evidence semantics",
+        "objective": "Close alert scope, alert ordering, failed reception visibility, and alert-to-raw traceability semantics in deploy/api.",
         "dependsOn": [
-          "sec-event-ingestion-v1-api-config-store-001",
-          "sec-event-ingestion-v1-validation-idempotency-002"
+          "security-event-observation-panel-api-001"
         ],
         "relatedTestcases": [
-          "sec-event-ingestion-v1-render-web-list-and-detail"
+          "security-center-event-observation-panel-v1-alert-scope",
+          "security-center-event-observation-panel-v1-alert-ordering",
+          "security-center-event-observation-panel-v1-failed-receptions-visible",
+          "security-center-event-observation-panel-v1-alert-to-raw-traceability"
         ],
         "targetPaths": [
+          "deploy/api/store.py"
+        ],
+        "steps": [
+          "Include only HIGH and MEDIUM accepted events in alerts.",
+          "Sort alerts HIGH before MEDIUM, then occurredAt descending within each severity.",
+          "Project failed receptions into rawRecords with failureReason and bounded rawPayloadSummary without adding them to summary or alerts.",
+          "Implement focusSourceSystem/focusEventId and focusedRawRecord for deterministic alert-to-raw traceability."
+        ],
+        "completionSignal": "Alert scope, ordering, failed reception visibility, and alert-to-raw traceability entrypoints pass without altering frozen tests."
+      },
+      {
+        "taskId": "security-event-observation-panel-web-003",
+        "title": "Implement operator observation panel",
+        "objective": "Add deploy/web /security-event-observation route and rendering backed only by deploy/api.",
+        "dependsOn": [
+          "security-event-observation-panel-api-001",
+          "security-event-observation-panel-alerts-002"
+        ],
+        "relatedTestcases": [
+          "security-center-event-observation-panel-v1-posture-statistics",
+          "security-center-event-observation-panel-v1-alert-scope",
+          "security-center-event-observation-panel-v1-alert-ordering",
+          "security-center-event-observation-panel-v1-failed-receptions-visible",
+          "security-center-event-observation-panel-v1-alert-to-raw-traceability",
+          "security-center-event-observation-panel-v1-time-range-consistency"
+        ],
+        "targetPaths": [
+          "deploy/web/server.py",
           "deploy/web/index.html",
           "deploy/web/app.js",
-          "deploy/web/styles.css",
-          "deploy/api/app.py"
+          "deploy/web/styles.css"
         ],
         "steps": [
-          "Expose deploy/api list and detail responses with receivedAt-descending ordering, source/type/severity/time filters, core fields, event type display names, configured list payload fields, and bounded raw payload data.",
-          "Render a Web inbox route and stable sourceSystem plus eventId detail route without adding Web configuration editing.",
-          "Keep undefined payload fields out of list columns and show them only in detail undefined/raw sections with base facts and structured payload visible."
+          "Serve /security-event-observation from deploy/web/server.py.",
+          "Render default latest 24h summary when no explicit range is supplied, quick range controls for 1h/24h/7d, HIGH/MEDIUM alerts, raw reception records, and focused raw evidence.",
+          "Consume deploy/api observation-panel responses only; do not read deploy/config or backend store directly.",
+          "Do not add disposition, ticketing, assignment, approval, risk scoring, search, export, requester identity, or authentication UI."
         ],
-        "completionSignal": "tests/e2e/security_center/test_security_event_inbox.py::test_web_lists_filters_and_opens_event_detail passes."
+        "completionSignal": "The six Web e2e observation-panel entrypoints pass without altering their test bodies or harness vocabulary."
       },
       {
-        "taskId": "sec-event-ingestion-v1-failure-bounds-004",
-        "title": "Close failure-record bounds",
-        "objective": "Ensure rejected submissions, persistence failures, and oversized invalid payloads remain traceable without accepted-event pollution or unbounded storage/display.",
+        "taskId": "security-event-observation-panel-validation-004",
+        "title": "Validate observation panel handoff",
+        "objective": "Prove the implementation satisfies frozen contracts, explicit entrypoints, and handoff validation.",
         "dependsOn": [
-          "sec-event-ingestion-v1-api-config-store-001",
-          "sec-event-ingestion-v1-validation-idempotency-002"
+          "security-event-observation-panel-web-003"
         ],
         "relatedTestcases": [
-          "sec-event-ingestion-v1-bound-failure-records"
-        ],
-        "targetPaths": [
-          "deploy/api/app.py",
-          "deploy/api/store.py",
-          "deploy/web/app.js"
-        ],
-        "steps": [
-          "Bound failure request summaries using deploy/config/security-event-contracts.v1.json requestLimits.",
-          "Keep illegal submissions out of accepted event list.",
-          "Return explicit failure for the test-only X-QwenPaw-Test-Persistence-Failure seam or real persistence errors rather than accepted success.",
-          "Apply bounded raw payload display to oversized invalid payload evidence."
-        ],
-        "completionSignal": "tests/integration/security/test_security_event_ingestion.py::test_records_failed_receptions_without_business_event_pollution passes."
-      },
-      {
-        "taskId": "sec-event-ingestion-v1-architecture-validation-005",
-        "title": "Validate handoff and explicit gate",
-        "objective": "Prove the implementation satisfies frozen architecture contracts and explicit entrypoints.",
-        "dependsOn": [
-          "sec-event-ingestion-v1-web-inbox-003",
-          "sec-event-ingestion-v1-failure-bounds-004"
-        ],
-        "relatedTestcases": [
-          "sec-event-ingestion-v1-accept-legal-event",
-          "sec-event-ingestion-v1-reject-invalid-config-boundary",
-          "sec-event-ingestion-v1-preserve-undefined-payload-fields",
-          "sec-event-ingestion-v1-enforce-idempotency",
-          "sec-event-ingestion-v1-render-web-list-and-detail",
-          "sec-event-ingestion-v1-bound-failure-records"
+          "security-center-event-observation-panel-v1-posture-statistics",
+          "security-center-event-observation-panel-v1-alert-scope",
+          "security-center-event-observation-panel-v1-alert-ordering",
+          "security-center-event-observation-panel-v1-failed-receptions-visible",
+          "security-center-event-observation-panel-v1-alert-to-raw-traceability",
+          "security-center-event-observation-panel-v1-time-range-consistency"
         ],
         "targetPaths": [
           "design/KG/test-failure-records.json",
           "design/KG/ImplementationToCodingHandoff.json",
-          "tests/architecture/security-event-ingestion-contract-boundaries.test.js"
+          "tests/architecture/security-event-observation-panel-contract-boundaries.test.js"
         ],
         "steps": [
-          "Run the six focused explicit Security Event Ingestion entrypoints.",
-          "Run node tests/architecture/security-event-ingestion-contract-boundaries.test.js.",
+          "Run the six focused explicit Security Event Observation Panel entrypoints.",
+          "Run node tests/architecture/security-event-observation-panel-contract-boundaries.test.js.",
           "Run npm run validate:system-architecture and npm run validate:handoff:implementation.",
-          "Run npm run test:argo and ensure design/KG/test-failure-records.json no longer contains sec-event-ingestion-v1 failures."
+          "Run npm run test:argo and ensure design/KG/test-failure-records.json no longer contains security-center-event-observation-panel-v1 failures."
         ],
-        "completionSignal": "All six Security Event Ingestion explicit entrypoints pass, architecture guard passes, validateStageHandoff passes, and Argo failure records are empty for sec-event-ingestion-v1."
+        "completionSignal": "All six observation-panel explicit entrypoints pass, architecture guard passes, validateStageHandoff passes, and Argo failure records are empty for security-center-event-observation-panel-v1."
       }
     ]
   },
@@ -328,19 +408,22 @@
     "tests/ARCHITECTURE.md",
     "tests/architecture/ARCHITECTURE.md",
     "tests/architecture/security-event-ingestion-contract-boundaries.test.js",
+    "tests/architecture/security-event-observation-panel-contract-boundaries.test.js",
     "tests/integration/security/ARCHITECTURE.md",
     "tests/integration/security/security_event_harness.py",
     "tests/integration/security/test_security_event_ingestion.py",
     "tests/e2e/security_center/ARCHITECTURE.md",
     "tests/e2e/security_center/conftest.py",
     "tests/e2e/security_center/test_security_event_inbox.py",
+    "tests/e2e/security_center/test_security_event_observation_panel.py",
     "tests/integration/security/harness.py",
     "tests/integration/security/test_audit_foundation.py",
     "extension/rule_integrity/tests/test_rules_integrity.py"
   ],
   "openGaps": [
-    "deploy/api currently lacks POST /security-center/v1/events, accepted event storage, failed reception storage, event list/detail routes, event contract validation, idempotency, persistence-error behavior, and oversized invalid payload bounding.",
-    "deploy/web currently lacks the Security Event Inbox list/filter/detail route, stable sourceSystem plus eventId detail navigation, undefined-field detail area, and bounded read-only raw payload display.",
-    "The six Security Event Ingestion V1 explicit entrypoints are expected to fail until Coding/Repair implements production behavior under deploy/api and deploy/web. They must not be converted to placeholder passing tests."
+    "deploy/api currently lacks GET /security-center/v1/operator/event-observation-panel with no-range default latest 24h and 1h/24h/7d quick-range read-model semantics.",
+    "deploy/api currently lacks observation-panel summary, HIGH/MEDIUM alert scope, severity-plus-occurredAt ordering, failed-reception rawRecords, and focusSourceSystem/focusEventId focusedRawRecord traceability.",
+    "deploy/web currently lacks the /security-event-observation route and read-only panel rendering for default latest 24h, summary statistics, quick ranges, alerts, raw reception records, and alert-to-raw evidence focus.",
+    "The six Security Event Observation Panel V1 explicit entrypoints are expected to fail until Coding/Repair implements production behavior under deploy/api and deploy/web. They must not be converted to placeholder passing tests."
   ]
 }

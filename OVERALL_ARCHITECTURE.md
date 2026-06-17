@@ -2,6 +2,7 @@
 
 ## Scope
 - Freeze the stable implementation boundaries that currently realize QwenPaw in this repository.
+- Materialize `security-center-event-observation-panel-v1` as a Security Event Ingestion V1 read-only operator observation surface over accepted events and failed reception records.
 - Materialize the `sec-e2e-024`, `sec-e2e-025`, `sec-e2e-027`, `sec-e2e-028`, `sec-e2e-021`, and `sec-e2e-029` explicit acceptance entrypoints as repository-owned, read-only testcase bodies plus their harness abstractions.
 - Constrain the explicit security slice to a real-environment acceptance baseline that uses the live app subprocess, real HTTP surfaces, isolated working directories, and a separately contracted cloud-side Security Center boundary.
 - Record where intent is already directly implemented, where current code only provides transitional evidence, and which gaps are intentionally handed to Coding/Repair.
@@ -60,7 +61,7 @@
     - intent-cloud-integrity-stub
     - intent-security-event-ingestion-v1
   contract: deploy/ARCHITECTURE.md
-  role: Stable repository-owned contract boundary for the physically separate Security Center service, including a cloud-side HTTP API backend, an operator-facing web frontend, SSE or WebSocket alert delivery to operators, the integrity mirror seam consumed only through edge-to-cloud HTTP, and the Security Event Ingestion V1 intake/inbox capability for configured internal systems.
+  role: Stable repository-owned contract boundary for the physically separate Security Center service, including a cloud-side HTTP API backend, an operator-facing web frontend, SSE or WebSocket alert delivery to operators, the integrity mirror seam consumed only through edge-to-cloud HTTP, and the Security Event Ingestion V1 intake/inbox/observation capability for configured internal systems.
 
 - path: deploy/config/security-event-contracts.v1.json
   kind: SecurityEventContractConfig
@@ -97,6 +98,8 @@
 - direct sub-boundary materialization: `deploy/web/ARCHITECTURE.md` freezes the operator-facing Security Center web frontend that visualizes anomalies, rejected events, recovery state, hash-break curve forks, and nonce-driven red alerts.
 - direct implementation boundary: `deploy/api/ARCHITECTURE.md` owns `intent-security-event-ingestion-v1`, `intent-security-event`, and `intent-security-event-failure-record` for V1 event intake, configuration validation, durable-before-success accepted-event persistence, failure reception records, list/detail query APIs, persistence-error semantics, idempotency, and bounded oversized invalid payload summaries.
 - direct implementation boundary: `deploy/web/ARCHITECTURE.md` owns `intent-security-event-inbox-web` by consuming deploy/api list/detail APIs only; it renders receivedAt-descending inbox rows, filters, configured list fields, stable detail URLs, undefined fields, and bounded read-only raw payload without Web configuration editing.
+- direct implementation boundary: `deploy/api/ARCHITECTURE.md` owns the observation-panel read model for `intent-security-event-observation-panel-v1`: default latest 24h range when no explicit range is supplied, 1h/24h/7d quick ranges, accepted-event summary statistics, HIGH/MEDIUM alert ordering, raw reception rows for accepted and failed submissions, failed-reception time-range membership by backend `receivedAt`, and sourceSystem plus eventId focus for alert-to-raw traceability.
+- direct implementation boundary: `deploy/web/ARCHITECTURE.md` owns the operator observation panel UI for `intent-security-event-observation-panel-v1` by consuming deploy/api only; it must not introduce disposition, ticketing, assignment, approval, risk scoring, custom analytics, raw-payload full-text search, raw-payload export, requester identity, or authentication behavior.
 - direct configuration materialization: `deploy/config/security-event-contracts.v1.json` realizes `intent-security-event-contract-config` and is the frozen V1 configuration baseline for `sourceSystem`, `eventTypeId`, `schemaVersion`, payload field labels/types/required flags/enums/max lengths/list flags, and bounded failure/raw display limits.
 - direct testcase materialization: `tests/integration/security/test_audit_foundation.py::test_end_to_end_non_repudiation_evidence_chain` is the read-only explicit entrypoint for `sec-e2e-024-end-to-end-non-repudiation-evidence-chain`, and it must run through the real `app_server` fixture rather than repository source inspection.
 - direct testcase materialization: `tests/integration/security/test_audit_foundation.py::test_audit_integrity_self_healing_lockdown` is the read-only explicit entrypoint for `sec-e2e-025-audit-integrity-self-healing-lockdown`.
@@ -110,6 +113,12 @@
 - direct testcase materialization: `tests/integration/security/test_security_event_ingestion.py::test_enforces_source_event_id_idempotency` is the read-only explicit entrypoint for `sec-event-ingestion-v1-enforce-idempotency`.
 - direct testcase materialization: `tests/e2e/security_center/test_security_event_inbox.py::test_web_lists_filters_and_opens_event_detail` is the read-only explicit entrypoint for `sec-event-ingestion-v1-render-web-list-and-detail`.
 - direct testcase materialization: `tests/integration/security/test_security_event_ingestion.py::test_records_failed_receptions_without_business_event_pollution` is the read-only explicit entrypoint for `sec-event-ingestion-v1-bound-failure-records`.
+- direct testcase materialization: `tests/e2e/security_center/test_security_event_observation_panel.py::test_observation_panel_summarizes_current_event_posture` is the read-only explicit entrypoint for observation-panel posture statistics.
+- direct testcase materialization: `tests/e2e/security_center/test_security_event_observation_panel.py::test_observation_panel_filters_alerts_by_severity` is the read-only explicit entrypoint for alert severity scope.
+- direct testcase materialization: `tests/e2e/security_center/test_security_event_observation_panel.py::test_observation_panel_sorts_alerts_by_severity_and_occurred_at` is the read-only explicit entrypoint for severity-plus-occurredAt alert ordering.
+- direct testcase materialization: `tests/e2e/security_center/test_security_event_observation_panel.py::test_observation_panel_shows_failed_receptions_in_raw_records` is the read-only explicit entrypoint for failed reception visibility in raw records.
+- direct testcase materialization: `tests/e2e/security_center/test_security_event_observation_panel.py::test_observation_panel_links_alert_to_raw_record` is the read-only explicit entrypoint for sourceSystem plus eventId alert-to-raw traceability.
+- direct testcase materialization: `tests/e2e/security_center/test_security_event_observation_panel.py::test_observation_panel_applies_time_range_consistently` is the read-only explicit entrypoint for shared 1h/24h/7d time-range interpretation.
 
 ## Explicit Testcase Materialization
 - testcase: cli-version-surface
@@ -192,6 +201,36 @@
   entrypoint: tests/integration/security/test_security_event_ingestion.py::test_records_failed_receptions_without_business_event_pollution
   runtime_mode: real-security-center-api-and-web-subprocess
 
+- testcase: security-center-event-observation-panel-v1-posture-statistics
+  intent_element: intent-security-event-observation-panel-v1
+  entrypoint: tests/e2e/security_center/test_security_event_observation_panel.py::test_observation_panel_summarizes_current_event_posture
+  runtime_mode: real-security-center-api-and-web-subprocess
+
+- testcase: security-center-event-observation-panel-v1-alert-scope
+  intent_element: intent-security-event-observation-panel-v1
+  entrypoint: tests/e2e/security_center/test_security_event_observation_panel.py::test_observation_panel_filters_alerts_by_severity
+  runtime_mode: real-security-center-api-and-web-subprocess
+
+- testcase: security-center-event-observation-panel-v1-alert-ordering
+  intent_element: intent-security-event-observation-panel-v1
+  entrypoint: tests/e2e/security_center/test_security_event_observation_panel.py::test_observation_panel_sorts_alerts_by_severity_and_occurred_at
+  runtime_mode: real-security-center-api-and-web-subprocess
+
+- testcase: security-center-event-observation-panel-v1-failed-receptions-visible
+  intent_element: intent-security-event-observation-panel-v1
+  entrypoint: tests/e2e/security_center/test_security_event_observation_panel.py::test_observation_panel_shows_failed_receptions_in_raw_records
+  runtime_mode: real-security-center-api-and-web-subprocess
+
+- testcase: security-center-event-observation-panel-v1-alert-to-raw-traceability
+  intent_element: intent-security-event-observation-panel-v1
+  entrypoint: tests/e2e/security_center/test_security_event_observation_panel.py::test_observation_panel_links_alert_to_raw_record
+  runtime_mode: real-security-center-api-and-web-subprocess
+
+- testcase: security-center-event-observation-panel-v1-time-range-consistency
+  intent_element: intent-security-event-observation-panel-v1
+  entrypoint: tests/e2e/security_center/test_security_event_observation_panel.py::test_observation_panel_applies_time_range_consistently
+  runtime_mode: real-security-center-api-and-web-subprocess
+
 ## Critical Non-Explicit Guardrails
 - tests/architecture/root-architecture-contracts.test.js guards the presence and cross-reference integrity of the root contracts, including the new security contracts.
 - tests/architecture/root-architecture-deliverables.test.js guards that the expected architecture deliverables exist at stable repository paths.
@@ -199,6 +238,7 @@
 - tests/architecture/security-audit-contract-boundaries.test.js guards the frozen boundary between `src/qwenpaw/security`, the explicit security entrypoint zone, the separate Security Center deployment boundary, and the root/runtime/test contracts that reference them.
 - tests/architecture/security-explicit-entrypoint-traceability.test.js guards that `sec-e2e-024`, `sec-e2e-025`, `sec-e2e-027`, `sec-e2e-028`, `sec-e2e-021`, and `sec-e2e-029` stay mounted to the read-only explicit entrypoints and that the implementation handoff keeps the same paths plus frozen execution-state traceability for open security gaps.
 - tests/architecture/security-event-ingestion-contract-boundaries.test.js guards that Security Event Ingestion V1 stays mounted to `deploy/api`, `deploy/web`, `deploy/config/security-event-contracts.v1.json`, `tests/integration/security/test_security_event_ingestion.py`, `tests/integration/security/security_event_harness.py`, and `tests/e2e/security_center/test_security_event_inbox.py` with expected failing handoff entries until Coding/Repair implements the production behavior.
+- tests/architecture/security-event-observation-panel-contract-boundaries.test.js guards that Security Event Observation Panel V1 stays mounted to deploy/api, deploy/web, the protected Security Event harness, six Web e2e entrypoints, and expected failing handoff entries until Coding/Repair implements the production read model and UI.
 
 ## Frozen Files For Downstream Coding
 - design/KG/SystemArchitecture.json
@@ -231,6 +271,7 @@
 - tests/architecture/security-audit-contract-boundaries.test.js
 - tests/architecture/security-explicit-entrypoint-traceability.test.js
 - tests/architecture/security-event-ingestion-contract-boundaries.test.js
+- tests/architecture/security-event-observation-panel-contract-boundaries.test.js
 - .github/validator/ARCHITECTURE.md
 
 ## Integrity Protection Delivery Addendum
