@@ -295,8 +295,9 @@ def _generate_sandbox_script(  # noqa: E501  pylint: disable=too-many-branches,t
     # Compute access rights for the ruleset
     handled_fs = _get_all_fs_access(abi_version)
 
-    # Build path rules: list of (path, access_mask)
-    path_rules: List[Tuple[str, int]] = []
+    # Build path rules: list of (path, access_mask, critical)
+    # critical=True means sandbox aborts if the rule can't be installed.
+    path_rules: List[Tuple[str, int, bool]] = []
 
     # System paths (always readable)
     system_read_paths = [
@@ -313,15 +314,19 @@ def _generate_sandbox_script(  # noqa: E501  pylint: disable=too-many-branches,t
     ]
     for sp in system_read_paths:
         if os.path.exists(sp):
-            path_rules.append((sp, _FS_READ_ACCESS | _FS_EXEC_ACCESS))
+            path_rules.append((sp, _FS_READ_ACCESS | _FS_EXEC_ACCESS, True))
 
     # /tmp always writable (many tools need it)
     if os.path.exists("/tmp"):
         path_rules.append(
-            ("/tmp", _FS_READ_ACCESS | _FS_WRITE_ACCESS | _FS_EXEC_ACCESS),
+            (
+                "/tmp",
+                _FS_READ_ACCESS | _FS_WRITE_ACCESS | _FS_EXEC_ACCESS,
+                True,
+            ),
         )
 
-    # Mounts from config
+    # Mounts from config (workspace mount is critical)
     for mount in config.mounts:
         if not os.path.exists(mount.path):
             continue
@@ -334,7 +339,10 @@ def _generate_sandbox_script(  # noqa: E501  pylint: disable=too-many-branches,t
                 access |= LANDLOCK_ACCESS_FS_REFER
         if mount.executable:
             access |= _FS_EXEC_ACCESS
-        path_rules.append((mount.path, access))
+        # Workspace mount is critical — if it can't be installed,
+        # the sandbox is useless.
+        is_critical = mount.path == config.workspace_dir
+        path_rules.append((mount.path, access, is_critical))
 
     # allow_read_all mode:
     # On Linux Landlock (whitelist model), granting "/" would make
@@ -372,7 +380,9 @@ def _generate_sandbox_script(  # noqa: E501  pylint: disable=too-many-branches,t
                 # but just in case)
                 if any(dp.startswith(sp + "/") for dp in deny_expanded):
                     continue
-                path_rules.append((sp, _FS_READ_ACCESS | _FS_EXEC_ACCESS))
+                path_rules.append(
+                    (sp, _FS_READ_ACCESS | _FS_EXEC_ACCESS, False),
+                )
 
             # Handle HOME: enumerate direct children, skip deny_paths
             if os.path.isdir(home):
@@ -398,12 +408,18 @@ def _generate_sandbox_script(  # noqa: E501  pylint: disable=too-many-branches,t
                                         )
                                         if sub_path not in deny_expanded:
                                             path_rules.append(
-                                                (sub_path, _FS_READ_ACCESS),
+                                                (
+                                                    sub_path,
+                                                    _FS_READ_ACCESS,
+                                                    False,
+                                                ),
                                             )
                                 except OSError:
                                     pass
                         else:
-                            path_rules.append((full_path, _FS_READ_ACCESS))
+                            path_rules.append(
+                                (full_path, _FS_READ_ACCESS, False),
+                            )
                 except OSError:
                     # Fail-closed: do NOT fall back to granting "/".
                     # Granting root would make deny_paths ineffective
@@ -417,7 +433,9 @@ def _generate_sandbox_script(  # noqa: E501  pylint: disable=too-many-branches,t
                     )
         else:
             # No deny_paths: safe to grant everything
-            path_rules.append(("/", _FS_READ_ACCESS | _FS_EXEC_ACCESS))
+            path_rules.append(
+                ("/", _FS_READ_ACCESS | _FS_EXEC_ACCESS, False),
+            )
     elif not config.allow_read_all:
         # Strict mode: only system paths + workspace (from mounts above)
         # are readable. No HOME enumeration — truly whitelist-only.
@@ -515,11 +533,16 @@ def _generate_sandbox_script(  # noqa: E501  pylint: disable=too-many-branches,t
         "",
         "O_PATH = 0o10000000",
         "",
-        "def add_path(path, access):",
+        "def add_path(path, access, critical=False):",
         "    try:",
         "        pfd = os.open(path, O_PATH | os.O_CLOEXEC)",
         "    except OSError as _e:",
         "        sys.stderr.write(f'landlock: skip {path}: {_e}\\n')",
+        "        if critical:",
+        "            sys.stderr.write(",
+        "                'landlock: ABORT — critical path rule failed\\n'",
+        "            )",
+        "            sys.exit(1)",
         "        return",
         "    try:",
         "        a = struct.pack('Qi', access, pfd)",
@@ -536,7 +559,7 @@ def _generate_sandbox_script(  # noqa: E501  pylint: disable=too-many-branches,t
     ]
 
     # Add path rules
-    for path, access in path_rules:
+    for path, access, critical in path_rules:
         # Skip deny_paths
         skip = False
         if config.deny_paths:
@@ -546,7 +569,9 @@ def _generate_sandbox_script(  # noqa: E501  pylint: disable=too-many-branches,t
                     skip = True
                     break
         if not skip:
-            script_lines.append(f"add_path({path!r}, 0x{access:x})")
+            script_lines.append(
+                f"add_path({path!r}, 0x{access:x}, critical={critical})",
+            )
 
     # Add network port rules if applicable
     if net_port_rules:

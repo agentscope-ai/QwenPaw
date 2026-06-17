@@ -9,22 +9,22 @@ from typing import Any, Dict, List, Optional
 
 
 class SandboxMode(str, Enum):
-    """沙箱隔离模式。"""
+    """Sandbox isolation mode."""
 
     SEATBELT = "seatbelt"  # macOS sandbox-exec
     LANDLOCK = "landlock"  # Linux (future)
     WSL2 = "wsl2"  # Windows (future)
-    NONE = "none"  # 不隔离，直接执行
+    NONE = "none"  # No isolation, direct execution
 
 
 @dataclass
 class MountSpec:
-    """一条路径权限声明。
+    """A single path permission declaration.
 
     Attributes:
-        path: 路径。
-        writable: True 表示可读写，False 表示只读。
-        executable: True 表示允许执行该路径下的二进制，False 则禁止。
+        path: Filesystem path.
+        writable: True = read-write, False = read-only.
+        executable: True = allow executing binaries under this path.
     """
 
     path: str
@@ -34,12 +34,12 @@ class MountSpec:
 
 @dataclass
 class PortRule:
-    """TCP 端口规则。
+    """TCP port rule.
 
     Attributes:
-        port: TCP 端口号。
-        direction: "connect"（出站连接）或 "bind"（绑定监听）。
-        allow: True 表示允许，False 表示拒绝。
+        port: TCP port number.
+        direction: "connect" (outbound) or "bind" (listen).
+        allow: True = permit, False = deny.
     """
 
     port: int
@@ -49,48 +49,55 @@ class PortRule:
 
 @dataclass
 class SandboxConfig:
-    """sandbox 的完整约束配置。白名单模型：未列入 = 拒绝。"""
+    """Complete sandbox constraint configuration. Allowlist model: unlisted = deny."""
 
     mode: SandboxMode
     workspace_dir: str
     mounts: List[MountSpec] = field(default_factory=list)
 
-    # --- 读控制 ---
+    # --- Read control ---
     allow_read_all: bool = True
-    """True = 默认可读所有文件（deny-list 模式）。
-    False = 只能读 mounts 声明的路径（allow-list 模式）。"""
+    """True = allow reading all files by default (deny-list mode).
+    False = only paths declared in mounts are readable (allow-list mode)."""
 
     deny_paths: List[str] = field(default_factory=list)
-    """显式拒绝读写的敏感路径列表（优先级高于 allow_read_all 和 mounts）。"""
+    """Sensitive paths explicitly denied for read/write (takes priority over
+    allow_read_all and mounts)."""
 
-    # --- 网络 ---
+    # --- Network ---
     network_allow: List[str] = field(default_factory=list)
-    """域名白名单。["*"]=全开, []=全关。域名级过滤为 best-effort（需代理层支持）。"""
+    """Domain allowlist. ["*"] = all open, [] = all blocked.
+    Domain-level filtering is best-effort (requires proxy layer support)."""
 
     network_ports: Optional[List[PortRule]] = None
-    """TCP 端口级控制（Linux Landlock v4 原生支持，其他平台降级为全开/全关）。"""
+    """TCP port-level control (Linux Landlock v4 native; other platforms
+    degrade to all-open/all-blocked)."""
 
-    # --- 资源限制 ---
+    # --- Resource limits ---
     max_processes: Optional[int] = None
-    """最大子进程数。Windows Job 原生, Linux cgroups, macOS 不支持则忽略。"""
+    """Max subprocess count. Windows Job native, Linux cgroups,
+    macOS unsupported (ignored)."""
 
     max_memory_mb: Optional[int] = None
-    """最大内存(MB)。Windows Job 原生, Linux cgroups, macOS 不支持则忽略。"""
+    """Max memory (MB). Windows Job native, Linux cgroups,
+    macOS unsupported (ignored)."""
 
-    # --- 执行控制 ---
+    # --- Execution control ---
     timeout_seconds: int = 30
     env_vars: Dict[str, str] = field(default_factory=dict)
     env_mode: str = "inject"
-    """'inject' = 追加到当前环境, 'allowlist' = 只传递声明的变量。"""
+    """'inject' = append to current environment,
+    'allowlist' = only pass declared variables."""
 
-    # --- 平台透传 (escape hatch) ---
+    # --- Platform passthrough (escape hatch) ---
     platform_hints: Dict[str, Any] = field(default_factory=dict)
-    """极少使用。透传平台原生参数，如 seatbelt_extra_rules / landlock_extra_flags。"""
+    """Rarely used. Pass-through for platform-native parameters such as
+    seatbelt_extra_rules / landlock_extra_flags."""
 
 
 @dataclass
 class ExecutionResult:
-    """sandbox.execute() 的返回值。"""
+    """Return value of sandbox.execute()."""
 
     exit_code: int
     stdout: str
@@ -102,29 +109,32 @@ class ExecutionResult:
 
 @dataclass
 class SandboxCapability:
-    """平台沙箱支持探测结果。启动时调用 probe_sandbox_support() 获取。"""
+    """Platform sandbox capability probe result.
+
+    Obtained at startup via probe_sandbox_support().
+    """
 
     supported: bool
     mode: SandboxMode
-    reason: str  # 人类可读原因
-    landlock_abi_version: int = 0  # Linux 专属：Landlock ABI 版本（0=不支持）
+    reason: str  # Human-readable reason
+    landlock_abi_version: int = 0  # Linux only: Landlock ABI version (0=unsupported)
 
 
 def _probe_linux_landlock() -> (
     SandboxCapability
 ):  # pylint: disable=too-many-return-statements
-    """探测 Linux Landlock 支持情况。
+    """Probe Linux Landlock support.
 
-    检测步骤：
-        1. 内核版本 >= 5.13
-        2. /sys/kernel/security/lsm 包含 "landlock"
-        3. 尝试 landlock_create_ruleset syscall 探测 ABI 版本
+    Detection steps:
+        1. Kernel version >= 5.13
+        2. /sys/kernel/security/lsm contains "landlock"
+        3. Attempt landlock_create_ruleset syscall to detect ABI version
     """
     import os
     import ctypes
     import ctypes.util
 
-    # Step 1: 检查内核版本
+    # Step 1: Check kernel version
     try:
         release = os.uname().release  # e.g. "5.15.0-125-generic"
         parts = release.split(".", 2)
@@ -143,7 +153,7 @@ def _probe_linux_landlock() -> (
             reason=f"Kernel {major}.{minor} < 5.13, Landlock unavailable",
         )
 
-    # Step 2: 检查 LSM 列表
+    # Step 2: Check LSM list
     try:
         with open("/sys/kernel/security/lsm", "r", encoding="utf-8") as f:
             lsm_list = f.read().strip()
@@ -160,7 +170,7 @@ def _probe_linux_landlock() -> (
             reason="Cannot read /sys/kernel/security/lsm",
         )
 
-    # Step 3: 探测 ABI 版本 via landlock_create_ruleset(
+    # Step 3: Probe ABI version via landlock_create_ruleset(
     #     NULL, 0, LANDLOCK_CREATE_RULESET_VERSION)
     try:
         libc = ctypes.CDLL(
@@ -231,7 +241,7 @@ def _probe_linux_landlock() -> (
 
 
 def _probe_macos_seatbelt() -> SandboxCapability:
-    """探测 macOS Seatbelt 支持情况。"""
+    """Probe macOS Seatbelt (sandbox-exec) support."""
     import shutil
 
     if shutil.which("sandbox-exec"):
@@ -248,13 +258,13 @@ def _probe_macos_seatbelt() -> SandboxCapability:
 
 
 def _probe_windows_wsl2() -> SandboxCapability:
-    """探测 Windows WSL2 + Landlock 支持情况。
+    """Probe Windows WSL2 + Landlock support.
 
-    检测步骤：
-        1. wsl.exe 是否可用
-        2. 是否有 WSL2 发行版
-        3. WSL2 发行版内是否有 python3
-        4. WSL2 发行版内核是否支持 Landlock
+    Detection steps:
+        1. wsl.exe is available
+        2. A WSL2 distribution exists
+        3. python3 is available inside the WSL2 distribution
+        4. The WSL2 distribution kernel supports Landlock
     """
     try:
         from .windows_sandbox import (
@@ -301,10 +311,11 @@ def _probe_windows_wsl2() -> SandboxCapability:
 
 
 def probe_sandbox_support() -> SandboxCapability:
-    """启动时探测当前平台沙箱支持情况。
+    """Probe current platform sandbox support at startup.
 
-    返回 SandboxCapability 描述是否支持沙箱隔离。
-    如果不支持，mode 为 NONE，调用方应据此阻止 SANDBOX_FALLBACK 路径。
+    Returns a SandboxCapability describing whether sandbox isolation is
+    available. If unsupported, mode is NONE and callers should block
+    the SANDBOX_FALLBACK path.
     """
     import sys
 
@@ -333,10 +344,10 @@ def probe_sandbox_support() -> SandboxCapability:
 
 
 def detect_platform_mode() -> SandboxMode:
-    """根据当前 OS 自动选择沙箱模式。
+    """Auto-detect sandbox mode based on current OS.
 
-    调用 probe_sandbox_support() 进行真实能力探测：
-    如果平台不支持沙箱隔离，返回 NONE。
+    Calls probe_sandbox_support() for real capability probing.
+    Returns NONE if the platform does not support sandbox isolation.
     """
     cap = probe_sandbox_support()
     return cap.mode
