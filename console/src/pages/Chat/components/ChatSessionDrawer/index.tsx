@@ -5,7 +5,8 @@ import React, {
   useRef,
   useState,
 } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
+import { buildSessionPath } from "../../../../utils/sessionRoute";
 import { Drawer, Spin, Tooltip } from "antd";
 import { FixedSizeList, type ListChildComponentProps } from "react-window";
 import { IconButton } from "@agentscope-ai/design";
@@ -106,6 +107,7 @@ interface ExtendedChatSession extends IAgentScopeRuntimeWebUISession {
   userId?: string;
   channel?: string;
   createdAt?: string | null;
+  updatedAt?: string | null;
   meta?: Record<string, unknown>;
   status?: ChatStatus;
   generating?: boolean;
@@ -152,6 +154,7 @@ const getBackendId = (session: ExtendedChatSession): string | null => {
 const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
   const { t } = useTranslation();
   const navigate = useNavigate();
+  const location = useLocation();
   const sdkState = useChatAnywhereSessionsState();
   const { codingMode } = useCodingMode();
 
@@ -171,11 +174,18 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
 
   /** Create a new session; close the drawer only when not pinned */
   const handleCreateSession = useCallback(async () => {
-    await createSession();
-    if (!props.pinned) {
-      props.onClose();
+    if (props.embedded) {
+      // In embedded mode, we're outside the SDK context tree.
+      // Dispatch a DOM event so ChatSessionInitializer (inside the tree) handles it.
+      window.dispatchEvent(new CustomEvent("qwenpaw:sidebar-new-chat"));
+    } else {
+      await createSession();
+      // Only close the drawer (not the embedded panel) when not pinned
+      if (!props.pinned) {
+        props.onClose();
+      }
     }
-  }, [createSession, props.onClose, props.pinned]);
+  }, [createSession, props.onClose, props.pinned, props.embedded]);
 
   /** ID of the session currently being renamed */
   const [editingSessionId, setEditingSessionId] = useState<string | null>(null);
@@ -224,7 +234,7 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
     string | null
   >(null);
 
-  /** Sessions sorted by pinned first, then by createdAt descending */
+  /** Sessions sorted by pinned first, then by updatedAt/createdAt descending */
   const sortedSessions = useMemo(() => {
     return [...sessions].sort((a, b) => {
       const extA = a as ExtendedChatSession;
@@ -233,8 +243,8 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
       if (extA.pinned && !extB.pinned) return -1;
       if (!extA.pinned && extB.pinned) return 1;
 
-      const aTime = extA.createdAt;
-      const bTime = extB.createdAt;
+      const aTime = extA.updatedAt ?? extA.createdAt;
+      const bTime = extB.updatedAt ?? extB.createdAt;
       if (!aTime && !bTime) return 0;
       if (!aTime) return 1;
       if (!bTime) return -1;
@@ -300,6 +310,18 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
       if (sessionApi.isSessionSwitching) return;
       if (sessionId === currentSessionId) return;
 
+      if (props.embedded) {
+        // In embedded mode, we're outside the SDK context tree.
+        // Dispatch a DOM event so ChatSessionInitializer (inside the tree) handles it.
+        setSwitchingSessionId(sessionId);
+        window.dispatchEvent(
+          new CustomEvent("qwenpaw:sidebar-select-session", {
+            detail: { sessionId },
+          }),
+        );
+        return;
+      }
+
       // Lock immediately (synchronous) before any async work.
       sessionApi.isSessionSwitching = true;
       setSwitchingSessionId(sessionId);
@@ -317,8 +339,9 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
           // to /coding before session data loads, causing the switch to fail.
           // Instead, just set the session directly — the UI stays on /coding.
           if (!codingMode) {
-            const targetUrl = `/chat/${realId || sessionId}`;
-            sessionApi.lastNavigatedChatId = realId || sessionId;
+            const effectiveId = realId || sessionId;
+            const targetUrl = buildSessionPath("chat", effectiveId);
+            sessionApi.lastNavigatedChatId = effectiveId;
             navigate(targetUrl, { replace: true });
           }
           // Now set currentSessionId — the library's getSession will hit cache.
@@ -342,8 +365,17 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
           setSwitchingSessionId(null);
         });
     },
-    [currentSessionId, setCurrentSessionId, navigate, codingMode],
+    [currentSessionId, setCurrentSessionId, navigate, codingMode, props.embedded],
   );
+
+  // In embedded mode, clear switchingSessionId when the URL changes
+  // (signals that the session switch initiated via DOM event has completed).
+  useEffect(() => {
+    if (props.embedded && switchingSessionId) {
+      setSwitchingSessionId(null);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.pathname]);
 
   /** Delete a session: call deleteChat API then refresh the list */
   const handleDelete = useCallback(
@@ -358,13 +390,19 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
       }
 
       if (currentSessionId === sessionId) {
-        const next = sessions.filter((s) => s.id !== sessionId);
-        setCurrentSessionId(next[0]?.id);
+        if (props.embedded) {
+          // In embedded mode, create a new chat via DOM event
+          // since we can't directly set the session from outside the context tree.
+          window.dispatchEvent(new CustomEvent("qwenpaw:sidebar-new-chat"));
+        } else {
+          const next = sessions.filter((s) => s.id !== sessionId);
+          setCurrentSessionId(next[0]?.id);
+        }
       }
 
       await refreshSessions();
     },
-    [sessions, currentSessionId, setCurrentSessionId, refreshSessions],
+    [sessions, currentSessionId, setCurrentSessionId, refreshSessions, props.embedded],
   );
 
   /** Enter rename mode for a session */
@@ -577,19 +615,17 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
             <Spin />
           </div>
         ) : (
-          <>
-            <FixedSizeList
-              height={listHeight}
-              width="100%"
-              itemCount={sortedSessions.length}
-              itemSize={ITEM_HEIGHT}
-              overscanCount={20}
-              itemData={itemData}
-              className={styles.list}
-            >
-              {SessionRow}
-            </FixedSizeList>
-          </>
+          <FixedSizeList
+            height={listHeight}
+            width="100%"
+            itemCount={sortedSessions.length}
+            itemSize={ITEM_HEIGHT}
+            overscanCount={20}
+            itemData={itemData}
+            className={styles.list}
+          >
+            {SessionRow}
+          </FixedSizeList>
         )}
         <div className={styles.bottomGradient} />
       </div>
