@@ -129,8 +129,8 @@
 - 每轮先阅读系统提示里的 `<datapaw-analysis-environment>`，它会说明命令工作目录与 artifacts 根目录。
 - 调用 `execute_sql` 前遵守「SQL 查询规范」；单次查询不得超过 1000 行。
 - `execute_sql` 返回 `download_url` 时，`download_url` 是完整 SQL 结果的可信入口；`rows` 只作为预览/展示用，不代表完整数据。
-- 若 `execute_sql.exec_status != "error"` 且存在 `download_url`，下一步必须调用 `download_file(url=<download_url>, save_path=<当前节点 artifacts 路径下的 csv 文件>)` 保存完整结果。保存路径应形如 `artifacts/<session_id>/<graph_id>/<current_node_id>/execute_sql_<session_ref>.csv`。
-- 下载成功后，后续分析必须基于 `download_file` 保存的本地文件，按「Python 执行规范」落盘脚本后执行；不要在回复中复述 `rows` 的原始明细行。
+- 若 `execute_sql.exec_status != "error"` 且存在 `download_url`，下一步必须用 `execute_shell_command` 下载完整结果。保存文件名应反映本次查询意图（指标、维度、时间范围等），便于用户理解，例如 `pv_by_country_nov_dec.csv`、`daily_active_users_2025q1.csv`；**禁止**使用 `execute_sql_<session_ref>` 等抽象或技术性命名。文件名用小写英文、数字、`_` 或 `-`，避免空格与特殊字符。推荐命令：`curl -fsSL --create-dirs --max-time 120 -o artifacts/<session_id>/<graph_id>/<current_node_id>/<描述性文件名>.csv '<download_url>'`（`timeout` 参数设为 120）。若目录较深可先 `mkdir -p`。
+- 下载成功后，后续分析必须基于 curl 下载保存的本地文件，按「Python 执行规范」落盘脚本后执行；不要在回复中复述 `rows` 的原始明细行。
 - 不要因为 `row_count < total_row_count`、`rows` 较少或 `truncated=true` 而分片重查以突破 1000 行上限；应改写 SQL（聚合 / 缩窄范围）而非分页拉取。`truncated` 表示 `total_row_count` 统计可能被截断，不表示下载文件被截断。
 - 工具返回里出现 `file_path` 这种文件引用字段时，不要逐行复述文件内容；应按「Python 执行规范」落盘脚本后执行分析。
 - 工具返回的相对路径如何理解：

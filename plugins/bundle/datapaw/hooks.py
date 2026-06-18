@@ -6,18 +6,20 @@
 # operates in that regime; per-site disables would be noise.
 """Monkey-patches the DataPaw plugin applies to host runtime.
 
-Three patches, installed from ``plugin._on_startup``:
+Four patches, installed from ``plugin._on_startup``:
 
-1. ``setup_runner_hooks`` — replaces ``qwenpaw.app.runner.runner.QwenPawAgent``
+1. ``setup_mcp_timeout_hook`` — extends CM ``HttpStatefulClient`` MCP /
+   httpx read timeouts so long ``execute_sql`` calls can run up to ~40min.
+2. ``setup_runner_hooks`` — replaces ``qwenpaw.app.runner.runner.QwenPawAgent``
    with a smart factory that returns ``DataPawAgent`` when
    ``request_context["agent_id"] == "datapaw"``, plus a thin wrapper around
    ``AgentRunner.query_handler`` that stashes ``request`` / ``runner`` in
    contextvars so the adapter can wire ``DAGStore`` and the SSE queue after
    agent construction.
-2. ``setup_channel_sse_hook`` — replaces ``ConsoleChannel.stream_one`` so the
+3. ``setup_channel_sse_hook`` — replaces ``ConsoleChannel.stream_one`` so the
    DAG ``TaskEvent`` queue attached to ``request._datapaw_sse_queue`` gets
    drained into SSE frames alongside the regular message stream.
-3. ``setup_console_request_context_hook`` — restores the top-level
+4. ``setup_console_request_context_hook`` — restores the top-level
    ``request_context`` (e.g. ``{"datasource_id": ...}``) that the console
    chat router otherwise drops, so it reaches the agent's ``_request_context``.
 """
@@ -50,6 +52,37 @@ _datapaw_runner_var: contextvars.ContextVar = contextvars.ContextVar(
     "_datapaw_runner",
     default=None,
 )
+
+
+# ---------------------------------------------------------------------------
+# CM MCP long-timeout patch (HttpStatefulClient build hook)
+# ---------------------------------------------------------------------------
+
+
+def setup_mcp_timeout_hook(_manager_cls=None) -> None:
+    """Patch ``MCPClientManager._build_client`` for CM long ``execute_sql``.
+
+    The optional ``_manager_cls`` argument is for unit tests.
+    """
+    from .core.mcp_cm import apply_cm_mcp_long_timeouts, is_cm_mcp_config
+
+    if _manager_cls is None:
+        from qwenpaw.app.mcp.manager import MCPClientManager
+
+        _manager_cls = MCPClientManager
+
+    orig = _manager_cls._build_client
+    if getattr(orig, "_datapaw_mcp_timeout_patched", False):
+        return
+
+    def _patched_build_client(client_config):
+        client = orig(client_config)
+        if is_cm_mcp_config(client_config):
+            apply_cm_mcp_long_timeouts(client)
+        return client
+
+    _patched_build_client._datapaw_mcp_timeout_patched = True  # type: ignore[attr-defined]
+    _manager_cls._build_client = staticmethod(_patched_build_client)
 
 
 # ---------------------------------------------------------------------------

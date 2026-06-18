@@ -93,9 +93,10 @@ def _fake_client(name, tool_names=None, raises=False):
 def test_register_collects_only_cm_tool_names():
     from plugin_datapaw.core.agents.base import CM_MCP_NAME
 
+    cm_client = _fake_client(CM_MCP_NAME, ["fetch_data", "run_sql"])
     agent = _make_agent(
         _mcp_clients=[
-            _fake_client(CM_MCP_NAME, ["fetch_data", "run_sql"]),
+            cm_client,
             _fake_client("Other MCP", ["foo"]),
         ],
     )
@@ -107,6 +108,19 @@ def test_register_collects_only_cm_tool_names():
         asyncio.run(agent.register_mcp_clients())
 
     assert agent._cm_tool_names == {"fetch_data", "run_sql"}
+
+
+def test_register_collects_context_manager_by_name():
+    cm_client = _fake_client("Context Manager", ["execute_sql"])
+    agent = _make_agent(_mcp_clients=[cm_client])
+
+    with patch(
+        "qwenpaw.agents.react_agent.QwenPawAgent.register_mcp_clients",
+        new=AsyncMock(),
+    ):
+        asyncio.run(agent.register_mcp_clients())
+
+    assert agent._cm_tool_names == {"execute_sql"}
 
 
 def test_register_handles_list_tools_failure():
