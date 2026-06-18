@@ -542,20 +542,17 @@ export function RemoteModelManageModal({
 
   // ---- Batch operations ----
 
-  const handleSelectModel = useCallback(
-    (modelId: string, checked: boolean) => {
-      setSelectedModelIds((prev) => {
-        const next = new Set(prev);
-        if (checked) {
-          next.add(modelId);
-        } else {
-          next.delete(modelId);
-        }
-        return next;
-      });
-    },
-    [],
-  );
+  const handleSelectModel = useCallback((modelId: string, checked: boolean) => {
+    setSelectedModelIds((prev) => {
+      const next = new Set(prev);
+      if (checked) {
+        next.add(modelId);
+      } else {
+        next.delete(modelId);
+      }
+      return next;
+    });
+  }, []);
 
   const deferredSearchQuery = useDeferredValue(modelSearchQuery);
 
@@ -577,21 +574,22 @@ export function RemoteModelManageModal({
 
   const colors = tagColors(isDark);
 
-  const handleSelectAll = useCallback((checked: boolean) => {
-    if (checked) {
-      setSelectedModelIds(
-        new Set(
-          filteredModels
-            .filter(
-              (m) => provider.is_custom || extraModelIds.has(m.id),
-            )
-            .map((m) => m.id),
-        ),
-      );
-    } else {
-      setSelectedModelIds(new Set());
-    }
-  }, [filteredModels, provider.is_custom, extraModelIds]);
+  const handleSelectAll = useCallback(
+    (checked: boolean) => {
+      if (checked) {
+        setSelectedModelIds(
+          new Set(
+            filteredModels
+              .filter((m) => provider.is_custom || extraModelIds.has(m.id))
+              .map((m) => m.id),
+          ),
+        );
+      } else {
+        setSelectedModelIds(new Set());
+      }
+    },
+    [filteredModels, provider.is_custom, extraModelIds],
+  );
 
   const handleBatchTest = async () => {
     if (selectedModelIds.size === 0) return;
@@ -875,9 +873,7 @@ export function RemoteModelManageModal({
             <span
               style={{
                 fontSize: 12,
-                color: isDark
-                  ? "rgba(255,255,255,0.5)"
-                  : "#888",
+                color: isDark ? "rgba(255,255,255,0.5)" : "#888",
               }}
             >
               {selectedModelIds.size > 0
