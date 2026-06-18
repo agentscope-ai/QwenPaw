@@ -540,7 +540,10 @@ class _MCPClientMixin:
             asyncio.TimeoutError: If the connection is not established
                 within *timeout* seconds.
         """
-        has_task = self._lifecycle_task is not None and not self._lifecycle_task.done()
+        has_task = (
+            self._lifecycle_task is not None
+            and not self._lifecycle_task.done()
+        )
         if self.is_connected or has_task:
             raise RuntimeError(
                 f"MCP client '{self.name}' is already connected or a "
@@ -588,7 +591,8 @@ class _MCPClientMixin:
         """
         if not self.is_connected:
             raise RuntimeError(
-                f"MCP client '{self.name}' is not connected. " f"Call connect() first.",
+                f"MCP client '{self.name}' is not connected. "
+                f"Call connect() first.",
             )
 
         logger.info(f"Triggering reload for MCP client: {self.name}")
@@ -671,7 +675,9 @@ class _MCPClientMixin:
         whitelist = getattr(self, "_tool_whitelist", None)
         if whitelist is not None:
             rewritten = [t for t in rewritten if t.name in whitelist]
-            alias_to_real = {k: v for k, v in alias_to_real.items() if k in whitelist}
+            alias_to_real = {
+                k: v for k, v in alias_to_real.items() if k in whitelist
+            }
 
         self._cached_tools = rewritten
         self._name_alias_to_real = alias_to_real
@@ -784,7 +790,10 @@ class _MCPClientMixin:
             RuntimeError: If not connected and no task running,
                 and ``ignore_errors`` is ``False``.
         """
-        has_task = self._lifecycle_task is not None and not self._lifecycle_task.done()
+        has_task = (
+            self._lifecycle_task is not None
+            and not self._lifecycle_task.done()
+        )
 
         if not self.is_connected and not has_task:
             if not ignore_errors:
@@ -893,7 +902,8 @@ class _MCPClientMixin:
         """
         if not self.is_connected:
             raise RuntimeError(
-                f"MCP client '{self.name}' is not connected. " f"Call connect() first.",
+                f"MCP client '{self.name}' is not connected. "
+                f"Call connect() first.",
             )
 
         if not self.session:
@@ -1062,7 +1072,8 @@ class HttpStatefulClient(_MCPClientMixin, StatefulClientBase):
             )
         if transport not in ["streamable_http", "sse"]:
             raise ValueError(
-                f"transport must be 'streamable_http' or 'sse', " f"got {transport!r}",
+                f"transport must be 'streamable_http' or 'sse', "
+                f"got {transport!r}",
             )
         if not isinstance(url, str):
             raise TypeError(f"url must be str, got {type(url).__name__}")
