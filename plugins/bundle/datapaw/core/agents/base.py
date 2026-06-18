@@ -33,7 +33,7 @@ from ..mcp_cm import apply_cm_mcp_long_timeouts, is_cm_mcp_client
 from ..orchestration import RuntimeStateManager
 from ..path_context import PathContext, default_artifacts_root
 from ..sse_metadata import NODE_ROUTING_METADATA_KEYS
-from ..tools import DEFAULT_TOOL_NAMES, TOOL_REGISTRY, bind_download_file_tool
+from ..tools import DEFAULT_TOOL_NAMES, TOOL_REGISTRY
 
 if TYPE_CHECKING:
     from qwenpaw.agents.memory import BaseMemoryManager
@@ -124,8 +124,8 @@ class DataPawConfig:
     """DataPaw-owned tool names.
 
     Real data query tools such as ``execute_sql`` are expected to come from
-    ``agent_config.mcp``. ``download_file`` is built in so agents can persist
-    result files returned by those external tools.
+    ``agent_config.mcp``. Large result downloads use ``execute_shell_command``
+    with ``curl`` (see MASTER prompt).
     """
 
     sub_agent_dispatcher: Any = None
@@ -427,8 +427,7 @@ class DataPawAgent(QwenPawAgent):
         """Register DataPaw built-in tools listed in ``DataPawConfig.tools``.
 
         Data query tools are expected to come from MCP clients configured on
-        ``agent_config.mcp``. This method registers DataPaw-owned helpers such
-        as ``download_file``; unknown names log a warning so misconfigurations
+        ``agent_config.mcp``. Unknown names log a warning so misconfigurations
         are visible.
         """
         tool_registry: dict[str, Any] = TOOL_REGISTRY
@@ -442,8 +441,6 @@ class DataPawAgent(QwenPawAgent):
                     tool_name,
                 )
                 continue
-            if tool_name == "download_file":
-                fn = bind_download_file_tool(self._datapaw_workspace_dir)
             try:
                 self.toolkit.register_tool_function(
                     fn,
