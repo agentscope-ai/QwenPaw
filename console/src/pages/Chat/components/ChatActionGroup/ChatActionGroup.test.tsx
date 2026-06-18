@@ -25,11 +25,18 @@ describe("ChatActionGroup", () => {
     expect(() => renderWithProviders(<ChatActionGroup />)).not.toThrow();
   });
 
-  it("renders history icon button", () => {
-    renderWithProviders(<ChatActionGroup />);
+  it("renders history icon button when onToggleHistory is provided", () => {
+    renderWithProviders(<ChatActionGroup onToggleHistory={() => {}} />);
     expect(
       document.querySelector('[data-icon="SparkHistoryLine"]'),
     ).toBeInTheDocument();
+  });
+
+  it("does not render history icon button in simple mode (no onToggleHistory)", () => {
+    renderWithProviders(<ChatActionGroup />);
+    expect(
+      document.querySelector('[data-icon="SparkHistoryLine"]'),
+    ).not.toBeInTheDocument();
   });
 
   it("renders new chat icon button", () => {
