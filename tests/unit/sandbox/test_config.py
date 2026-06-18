@@ -12,7 +12,7 @@ from qwenpaw.sandbox import (
     SandboxConfig,
     SandboxMode,
 )
-from qwenpaw.sandbox.local_sandbox import MacOSSandbox
+from qwenpaw.sandbox.macos_sandbox import MacOSSandbox
 
 # ============================================================================
 # Task 5.1: test_sandbox_config_defaults

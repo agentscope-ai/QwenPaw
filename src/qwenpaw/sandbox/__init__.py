@@ -32,16 +32,16 @@ from .config import (
     SandboxCapability,
     SandboxConfig,
     SandboxMode,
+    create_sandbox,
     detect_platform_mode,
     probe_sandbox_support,
 )
 from .bubblewrap_sandbox import BubblewrapSandbox
 from .local_sandbox import (
     LocalSandbox,
-    MacOSSandbox,
     NoneSandbox,
-    create_sandbox,
 )
+from .macos_sandbox import MacOSSandbox
 from .windows_sandbox import WindowsSandbox
 
 __all__ = [

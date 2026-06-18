@@ -1,5 +1,32 @@
 # -*- coding: utf-8 -*-
-"""Sandbox configuration and result types."""
+"""Sandbox — configuration, capability probing, and factory (entry point).
+
+This is the natural entry point into the :mod:`qwenpaw.sandbox` package:
+it defines the constraint vocabulary (modes, mounts, ports), probes what
+the current platform actually supports, and ships the factory that maps a
+``SandboxConfig`` to a concrete backend.
+
+Backend layout (``create_sandbox`` dispatches to these by ``SandboxMode``):
+  - SEATBELT   → :mod:`qwenpaw.sandbox.macos_sandbox`      (MacOSSandbox)
+  - BUBBLEWRAP → :mod:`qwenpaw.sandbox.bubblewrap_sandbox` (BubblewrapSandbox)
+  - LANDLOCK   → :mod:`qwenpaw.sandbox.linux_sandbox`      (LinuxSandbox)
+  - WSL2       → :mod:`qwenpaw.sandbox.windows_sandbox`    (WindowsSandbox)
+  - NONE       → :mod:`qwenpaw.sandbox.local_sandbox`      (NoneSandbox)
+
+Shared base class for all backends:
+  - :class:`qwenpaw.sandbox.local_sandbox.LocalSandbox`
+
+Typical usage:
+    from .sandbox import create_sandbox, SandboxConfig, SandboxMode, MountSpec
+    config = SandboxConfig(
+        mode=SandboxMode.BUBBLEWRAP,
+        workspace_dir="/path/to/project",
+        mounts=[MountSpec(path="/path/to/project", writable=True)],
+    )
+    async with create_sandbox(config) as sandbox:
+        result = await sandbox.execute("echo hello")
+        print(result.stdout)
+"""
 
 from __future__ import annotations
 
@@ -429,3 +456,44 @@ def detect_platform_mode() -> SandboxMode:
     """
     cap = probe_sandbox_support()
     return cap.mode
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Factory
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+def create_sandbox(config: SandboxConfig) -> Any:
+    """Create a sandbox instance based on ``config.mode``.
+
+    Supported modes:
+      - SEATBELT    → MacOSSandbox
+      - BUBBLEWRAP  → BubblewrapSandbox (Linux preferred)
+      - LANDLOCK    → LinuxSandbox (Linux fallback)
+      - NONE        → NoneSandbox
+      - WSL2        → WindowsSandbox (currently disabled at probe time;
+                     Re-enable in ``probe_sandbox_support`` when the
+                     Windows sandbox path is production-ready.)
+    """
+    if config.mode == SandboxMode.SEATBELT:
+        from .macos_sandbox import MacOSSandbox
+
+        return MacOSSandbox(config)
+    elif config.mode == SandboxMode.NONE:
+        from .local_sandbox import NoneSandbox
+
+        return NoneSandbox(config)
+    elif config.mode == SandboxMode.BUBBLEWRAP:
+        from .bubblewrap_sandbox import BubblewrapSandbox
+
+        return BubblewrapSandbox(config)
+    elif config.mode == SandboxMode.LANDLOCK:
+        from .linux_sandbox import LinuxSandbox
+
+        return LinuxSandbox(config)
+    elif config.mode == SandboxMode.WSL2:
+        from .windows_sandbox import WindowsSandbox
+
+        return WindowsSandbox(config)
+    else:
+        raise ValueError(f"Unknown sandbox mode: {config.mode}")

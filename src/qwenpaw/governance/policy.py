@@ -475,6 +475,13 @@ DEFAULT_USER_RULES: List[GovernanceRule] = [
         action=GovernanceAction.ALLOW,
         reason="Allow all browser access",
     ),
+    # ── /tmp ──
+    # Allow all tool access under /tmp without prompting.
+    GovernanceRule(
+        match="*(/tmp/**)",
+        action=GovernanceAction.ALLOW,
+        reason="Scratch directory access for tmp",
+    ),
 ]
 
 

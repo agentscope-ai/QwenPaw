@@ -188,11 +188,21 @@ class ResourceGovernor:
         # trace policy evaluation results without querying audit.db.
         # ``target`` is truncated to keep log lines bounded.
         target_repr = (tc_spec.target or "")[:120]
+        # sandbox backend actually used for this call: the compiled
+        # config's mode (bubblewrap/landlock/...), or "-" when the
+        # decision does not route through a sandbox.
+        sandbox_mode = (
+            decision.sandbox_config.mode.value
+            if decision.sandbox_config is not None
+            else "-"
+        )
         logger.info(
-            "governance decision: tool=%s target=%r action=%s reason=%s",
+            "governance decision: tool=%s target=%r action=%s sandbox=%s "
+            "reason=%s",
             tc_spec.tool_name,
             target_repr,
             decision.action.value,
+            sandbox_mode,
             decision.reason,
         )
         return decision

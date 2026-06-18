@@ -344,6 +344,12 @@ class TestGovernancePolicyEvaluate:
         decision = policy.evaluate(tc)
         assert decision.action == GovernanceAction.ASK
 
+    def test_write_tmp_file_allow(self, policy):
+        """Writing a file directly under /tmp should be ALLOW."""
+        tc = _tc("Write", "/tmp/a.txt")
+        decision = policy.evaluate(tc)
+        assert decision.action == GovernanceAction.ALLOW
+
 
 # ---------------------------------------------------------------------------
 # Test: ResourceGovernor assert_policy with sandbox fallback escalation
