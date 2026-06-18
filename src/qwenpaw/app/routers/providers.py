@@ -544,7 +544,13 @@ async def batch_delete_models(
                 status_code=400,
                 detail=f"Failed to delete model '{model_id}': {exc!s}",
             ) from exc
-    return await manager.get_provider_info(provider_id)
+    provider_info = await manager.get_provider_info(provider_id)
+    if provider_info is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Provider '{provider_id}' not found",
+        )
+    return provider_info
 
 
 @router.delete(
