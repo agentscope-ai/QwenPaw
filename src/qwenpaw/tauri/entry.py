@@ -259,7 +259,7 @@ def main(log_level: str | None = None) -> None:
         )
         _emit_startup_timing("initialization_finished")
 
-    _run_backend_server(effective_log_level)
+    _run_backend_server(str(effective_log_level))
 
 
 if __name__ == "__main__":

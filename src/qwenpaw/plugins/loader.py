@@ -296,7 +296,7 @@ class PluginLoader:
         manifest: PluginManifest,
         source_path: Path,
         config: Optional[Dict] = None,
-    ) -> PluginRecord:
+    ) -> Optional[PluginRecord]:
         """Load a single plugin.
 
         Args:
