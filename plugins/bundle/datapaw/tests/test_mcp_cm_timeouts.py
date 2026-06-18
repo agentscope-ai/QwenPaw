@@ -75,9 +75,7 @@ def test_setup_mcp_timeout_hook_extends_cm_client():
                 )
             return SimpleNamespace(name=client_config.name, url=client_config.url)
 
-    FakeManager._build_client = classmethod(
-        lambda cls, cfg: FakeManager._orig_build(cfg),
-    )
+    FakeManager._build_client = staticmethod(FakeManager._orig_build)
 
     setup_mcp_timeout_hook(FakeManager)
 

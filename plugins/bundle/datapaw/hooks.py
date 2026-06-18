@@ -71,19 +71,18 @@ def setup_mcp_timeout_hook(_manager_cls=None) -> None:
 
         _manager_cls = MCPClientManager
 
-    orig = _manager_cls._build_client.__func__
+    orig = _manager_cls._build_client
     if getattr(orig, "_datapaw_mcp_timeout_patched", False):
         return
 
-    @classmethod
-    def _patched_build_client(cls, client_config):
-        client = orig(cls, client_config)
+    def _patched_build_client(client_config):
+        client = orig(client_config)
         if is_cm_mcp_config(client_config):
             apply_cm_mcp_long_timeouts(client)
         return client
 
     _patched_build_client._datapaw_mcp_timeout_patched = True  # type: ignore[attr-defined]
-    _manager_cls._build_client = _patched_build_client
+    _manager_cls._build_client = staticmethod(_patched_build_client)
 
 
 # ---------------------------------------------------------------------------
