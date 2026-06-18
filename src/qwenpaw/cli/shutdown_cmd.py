@@ -17,7 +17,6 @@ from .process_utils import (
     _windows_process_snapshot,
 )
 
-
 _PROJECT_ROOT = Path(__file__).resolve().parents[3]
 _CONSOLE_DIR = (_PROJECT_ROOT / "console").resolve()
 _SIGTERM = signal.SIGTERM
@@ -78,9 +77,7 @@ def _listening_pids_for_port(port: int) -> set[int]:
             continue
 
         pids = {
-            int(token)
-            for token in (result.stdout or "").split()
-            if token.isdigit()
+            int(token) for token in (result.stdout or "").split() if token.isdigit()
         }
         if pids:
             return pids
@@ -137,7 +134,7 @@ def _find_windows_wrapper_ancestor_pids(pids: set[int]) -> set[int]:
                 break
 
             parent_pid = info[0]
-            if parent_pid is None or parent_pid in (0,) or parent_pid in visited:
+            if parent_pid is None or parent_pid == 0 or parent_pid in visited:
                 break
             visited.add(parent_pid)
 
@@ -360,9 +357,7 @@ def shutdown_cmd(ctx: click.Context, port: Optional[int]) -> None:
         - set(desktop_stopped),
     )
 
-    stopped = (
-        wrapper_stopped + frontend_stopped + desktop_stopped + backend_stopped
-    )
+    stopped = wrapper_stopped + frontend_stopped + desktop_stopped + backend_stopped
     failed = list(
         set(
             wrapper_failed + frontend_failed + desktop_failed + backend_failed,
