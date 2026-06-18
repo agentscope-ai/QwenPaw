@@ -30,6 +30,7 @@ import styles from "./index.module.less";
 import { IconButton } from "@agentscope-ai/design";
 import ChatActionGroup from "./components/ChatActionGroup";
 import ChatSessionDrawer from "./components/ChatSessionDrawer";
+import { useSidebarModeStore } from "../../stores/sidebarModeStore";
 import TurnUsageAction from "./components/TurnUsageAction";
 import { wrapChatResponseUsageStream } from "./turnUsage";
 import ChatHeaderTitle from "./components/ChatHeaderTitle";
@@ -1232,6 +1233,8 @@ export default function ChatPage() {
     Map<string, ApprovalMessageData>
   >(new Map());
   const [planEnabled, setPlanEnabled] = useState(false);
+  const { mode: sidebarMode } = useSidebarModeStore();
+  const isFullMode = sidebarMode === "full";
 
   // Right-side history panel state
   const [historyPanelOpen, setHistoryPanelOpen] = useState(() => {
@@ -2430,8 +2433,8 @@ export default function ChatPage() {
             <ModelSelector />
             <ChatActionGroup
               planEnabled={planEnabled}
-              onToggleHistory={toggleHistoryPanel}
-              historyOpen={historyPanelOpen}
+              onToggleHistory={isFullMode ? toggleHistoryPanel : undefined}
+              historyOpen={isFullMode ? historyPanelOpen : false}
               isWideMode={isWideMode}
               onToggleWideMode={toggleWideMode}
             />
@@ -2883,8 +2886,8 @@ export default function ChatPage() {
       </div>
       {/* End of main chat area */}
 
-      {/* Right-side history panel */}
-      {historyPanelOpen && (
+      {/* Right-side history panel (full mode only) */}
+      {isFullMode && historyPanelOpen && (
         <div className={styles.historyPanel}>
           <ChatSessionDrawer
             open={historyPanelOpen}

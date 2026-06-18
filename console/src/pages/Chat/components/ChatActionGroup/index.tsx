@@ -76,16 +76,20 @@ const ChatActionGroup: React.FC<ChatActionGroupProps> = ({
           onClick={() => setSearchOpen(true)}
         />
       </Tooltip>
-      <Tooltip title={t("chat.chatHistoryTooltip")} mouseEnterDelay={0.5}>
-        <IconButton
-          bordered={false}
-          icon={<SparkHistoryLine />}
-          style={
-            historyOpen ? { color: "var(--color-primary, #ff9d4d)" } : undefined
-          }
-          onClick={onToggleHistory}
-        />
-      </Tooltip>
+      {onToggleHistory && (
+        <Tooltip title={t("chat.chatHistoryTooltip")} mouseEnterDelay={0.5}>
+          <IconButton
+            bordered={false}
+            icon={<SparkHistoryLine />}
+            style={
+              historyOpen
+                ? { color: "var(--color-primary, #ff9d4d)" }
+                : undefined
+            }
+            onClick={onToggleHistory}
+          />
+        </Tooltip>
+      )}
       {onToggleWideMode && (
         <Tooltip
           title={
