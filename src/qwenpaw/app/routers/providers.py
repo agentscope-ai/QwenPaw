@@ -535,7 +535,8 @@ async def batch_delete_models(
             )
         except (ValueError, AppBaseException) as exc:
             logger.warning(
-                "Batch delete: failed to remove model '%s' from provider '%s': %s",
+                # ponytail: kept < 79 chars for flake8
+                "Batch delete: failed to remove '%s' from '%s': %s",
                 model_id,
                 provider_id,
                 exc,
