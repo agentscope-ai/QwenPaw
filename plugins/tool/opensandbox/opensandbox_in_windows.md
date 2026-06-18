@@ -44,7 +44,7 @@ api_key = "<your-api-key>"
 
 [runtime]
 type = "docker"
-execd_image = "opensandbox/execd:v1.0.16"
+execd_image = "docker.io/opensandbox/execd:v1.0.16"
 ```
 
 ### WSL2 + k3s 路线
@@ -77,12 +77,25 @@ api_key = "<your-api-key>"
 
 [runtime]
 type = "kubernetes"
-execd_image = "opensandbox/execd:v1.0.16"
+execd_image = "docker.io/opensandbox/execd:v1.0.16"
 
 [runtime.kubernetes]
 kubeconfig_path = "/home/<wsl-user>/.kube/config"
 namespace = "opensandbox"
 ```
+
+## 导入和启用 opensandbox镜像
+
+wsl --unregister Ubuntu-26.04
+
+wsl --import Ubuntu-26.04 D:\wsl-container\opensandbox D:\temp\opensandbox-wsl.tar
+
+容器内部的镜像管理：
+k3s ctr images list
+k3s ctr images import python-3.10-alpine.tar
+k3s ctr image del docker.io/library/python:3.10-alpine
+k3s ctr image tag  docker.io/library/python310-alpine-curl:latest  docker.io/library/python:3.10-alpine
+k3s  kubectl get pods --namespace opensandbox
 
 #### Windows 侧保活 WSL2
 
@@ -126,7 +139,11 @@ args: [
   "127.0.0.1:8080",
   "--protocol",
   "http",
-  "--use-server-proxy"
+  "--use-server-proxy",
+  "--sandbox-default-timeout-seconds",
+  "300",
+  "--sandbox-idle-timeout-seconds",
+  "30"
 ]
 cwd: 自动计算为插件安装目录
 env:
@@ -147,21 +164,28 @@ env:
 
 ### 镜像边界
 
-两个镜像语义必须分开：
+两个配置字段语义必须分开：
 
-- `execd_image = "opensandbox/execd:v1.0.16"`：写在 `.sandbox.toml` 的 `[runtime]` 中，由 `opensandbox-server` 注入 sandbox，负责 command/file/endpoint。
-- `sandbox_create.image = "opensandbox/code-interpreter:v1.0.2"`：Agent 创建 workload sandbox 时使用的运行环境镜像。
+- `execd_image = "docker.io/opensandbox/execd:v1.0.16"`：写在 `.sandbox.toml` 的 `[runtime]` 中，由 `opensandbox-server` 注入 sandbox，负责 command/file/endpoint。
+- `sandbox_create.image = "docker.io/library/python:3.10-alpine"`：Agent 创建 workload sandbox 时使用的推荐运行环境镜像；未显式传入 `image` 时，插件 launcher 会默认注入该镜像。为兼容上一版配置，仍允许显式传入 `docker.io/library/python:3.10-slim` 和 `docker.io/opensandbox/execd:v1.0.16`。
 
-当前插件只允许 Agent 创建：
+当前插件优先支持 Agent 创建，并在未传入 `image` 时默认使用：
 
 ```text
-opensandbox/code-interpreter:v1.0.2
+docker.io/library/python:3.10-alpine
+```
+
+兼容允许显式传入：
+
+```text
+docker.io/library/python:3.10-slim
+docker.io/opensandbox/execd:v1.0.16
 ```
 
 其他 `sandbox_create.image` 会被 MCP launcher 拒绝：
 
 ```text
-not support image, pls use "opensandbox/code-interpreter:v1.0.2" instead.
+not support image, pls use "docker.io/library/python:3.10-alpine" instead.
 ```
 
 ### 运行边界

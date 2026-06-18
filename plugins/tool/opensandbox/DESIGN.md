@@ -82,7 +82,11 @@ args: [
   "--audit-agent-id",
   "<agent-id>",
   "--audit-timeout-seconds",
-  "2"
+  "2",
+  "--sandbox-default-timeout-seconds",
+  "300",
+  "--sandbox-idle-timeout-seconds",
+  "30"
 ]
 cwd: 自动计算为插件安装目录
 env:
@@ -100,7 +104,7 @@ env:
 - 构造 `ConnectionConfig(api_key, domain, protocol, request_timeout, use_server_proxy)`。
 - 支持 `OPEN_SANDBOX_USE_SERVER_PROXY`、`--use-server-proxy` 和 `--no-use-server-proxy`。
 - 在 `Sandbox.create` 前检查 `sandbox_create.image`。
-- 给 `sandbox_create.image` schema 标注唯一可用 enum：`opensandbox/code-interpreter:v1.0.2`。
+- 给 `sandbox_create.image` schema 标注推荐默认值 `docker.io/library/python:3.10-alpine` 和兼容镜像 enum。
 - 在 FastMCP `_tool_manager.call_tool` 边界记录全部官方 OpenSandbox 工具调用。
 - 对参数进行工具级脱敏和限长后，使用 `requests` 上报到 Security Center。
 - 调用 `opensandbox_mcp.server.create_server()` 并以 stdio 运行。
@@ -141,7 +145,7 @@ Docker runtime 示例：
 ```toml
 [runtime]
 type = "docker"
-execd_image = "opensandbox/execd:v1.0.16"
+execd_image = "docker.io/opensandbox/execd:v1.0.16"
 ```
 
 Kubernetes / WSL2+k3s runtime 示例：
@@ -149,24 +153,31 @@ Kubernetes / WSL2+k3s runtime 示例：
 ```toml
 [runtime]
 type = "kubernetes"
-execd_image = "opensandbox/execd:v1.0.16"
+execd_image = "docker.io/opensandbox/execd:v1.0.16"
 ```
 
-两个镜像语义必须分开：
+两个配置字段语义必须分开：
 
-- `execd_image = "opensandbox/execd:v1.0.16"`：OpenSandbox server 注入 sandbox 的 data-plane 镜像，负责 command/file/endpoint 等操作。
-- `sandbox_create.image = "opensandbox/code-interpreter:v1.0.2"`：Agent 创建 workload sandbox 时使用的运行环境镜像。
+- `execd_image = "docker.io/opensandbox/execd:v1.0.16"`：OpenSandbox server 注入 sandbox 的 data-plane 镜像，负责 command/file/endpoint 等操作。
+- `sandbox_create.image = "docker.io/library/python:3.10-alpine"`：Agent 创建 workload sandbox 时使用的推荐运行环境镜像；未显式传入 `image` 时，插件 launcher 会默认注入该镜像。为兼容上一版配置，仍允许显式传入 `docker.io/library/python:3.10-slim` 和 `docker.io/opensandbox/execd:v1.0.16`。
 
-当前插件对 `sandbox_create.image` 做白名单硬拦截，只允许：
+当前插件对 `sandbox_create.image` 做白名单硬拦截，并在未传入 `image` 时默认使用：
 
 ```text
-opensandbox/code-interpreter:v1.0.2
+docker.io/library/python:3.10-alpine
+```
+
+兼容允许显式传入：
+
+```text
+docker.io/library/python:3.10-slim
+docker.io/opensandbox/execd:v1.0.16
 ```
 
 白名单错误文案：
 
 ```text
-not support image, pls use "opensandbox/code-interpreter:v1.0.2" instead.
+not support image, pls use "docker.io/library/python:3.10-alpine" instead.
 ```
 
 ### Agent 工作流
@@ -184,11 +195,10 @@ sandbox_kill
 默认 workload profile：
 
 ```text
-image: opensandbox/code-interpreter:v1.0.2
-entrypoint: ["/opt/opensandbox/code-interpreter.sh"]
-env: {"PYTHON_VERSION": "3.11"}
+image: docker.io/library/python:3.10-alpine
+env: {}
 resource: {"cpu": "500m", "memory": "512Mi"}
-timeout_seconds: 600
+timeout_seconds: 300
 ready_timeout_seconds: 120
 ```
 

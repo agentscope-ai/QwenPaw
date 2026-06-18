@@ -84,7 +84,7 @@ def test_file_and_sandbox_arguments_hide_contents_and_env_values():
     create_event = reporter.build_event(
         tool_name="sandbox_create",
         arguments={
-            "image": "opensandbox/code-interpreter:v1.0.2",
+            "image": "docker.io/library/python:3.10-alpine",
             "env": {"ACCESS_TOKEN": "env-secret", "MODE": "test"},
             "auth_password": "registry-secret",
         },

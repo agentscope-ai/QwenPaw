@@ -27,8 +27,12 @@ _AUDIT_DISABLED_ARG = "--audit-disabled"
 _SECURITY_CENTER_URL_ARG = "--security-center-url"
 _AUDIT_AGENT_ID_ARG = "--audit-agent-id"
 _AUDIT_TIMEOUT_ARG = "--audit-timeout-seconds"
+_SANDBOX_DEFAULT_TIMEOUT_ARG = "--sandbox-default-timeout-seconds"
+_SANDBOX_IDLE_TIMEOUT_ARG = "--sandbox-idle-timeout-seconds"
 _DEFAULT_SECURITY_CENTER_URL = "http://127.0.0.1:8091"
 _DEFAULT_AUDIT_TIMEOUT_SECONDS = "2"
+_DEFAULT_SANDBOX_TIMEOUT_SECONDS = "300"
+_DEFAULT_SANDBOX_IDLE_TIMEOUT_SECONDS = "30"
 _LEGACY_TOOL_NAMES = frozenset(
     {
         "execute_opensandbox_command",
@@ -119,6 +123,10 @@ def _default_mcp_args(agent_id: str = "unknown") -> list[str]:
         agent_id,
         _AUDIT_TIMEOUT_ARG,
         _DEFAULT_AUDIT_TIMEOUT_SECONDS,
+        _SANDBOX_DEFAULT_TIMEOUT_ARG,
+        _DEFAULT_SANDBOX_TIMEOUT_SECONDS,
+        _SANDBOX_IDLE_TIMEOUT_ARG,
+        _DEFAULT_SANDBOX_IDLE_TIMEOUT_SECONDS,
     ]
 
 
@@ -221,6 +229,24 @@ def _refresh_audit_args(args: list[str], agent_id: str) -> list[str]:
     return refreshed
 
 
+def _refresh_lifecycle_args(args: list[str]) -> list[str]:
+    """Add sandbox lifecycle defaults while preserving user values."""
+    refreshed = list(args)
+    if not _has_arg(refreshed, _SANDBOX_DEFAULT_TIMEOUT_ARG):
+        refreshed = _set_arg_value(
+            refreshed,
+            _SANDBOX_DEFAULT_TIMEOUT_ARG,
+            _DEFAULT_SANDBOX_TIMEOUT_SECONDS,
+        )
+    if not _has_arg(refreshed, _SANDBOX_IDLE_TIMEOUT_ARG):
+        refreshed = _set_arg_value(
+            refreshed,
+            _SANDBOX_IDLE_TIMEOUT_ARG,
+            _DEFAULT_SANDBOX_IDLE_TIMEOUT_SECONDS,
+        )
+    return refreshed
+
+
 def _migrate_env_connection_args(
     args: list[str],
     existing_env: object,
@@ -273,19 +299,21 @@ def _refresh_managed_mcp_client(
     )
     refreshed.cwd = getattr(default_client, "cwd", str(_PLUGIN_DIR))
     refreshed.transport = getattr(default_client, "transport", "stdio")
-    refreshed.args = _refresh_audit_args(
-        _migrate_env_connection_args(
-            _refresh_launcher_args(
-                getattr(existing, "args", None),
-                getattr(
-                    default_client,
-                    "args",
-                    _default_mcp_args(agent_id),
+    refreshed.args = _refresh_lifecycle_args(
+        _refresh_audit_args(
+            _migrate_env_connection_args(
+                _refresh_launcher_args(
+                    getattr(existing, "args", None),
+                    getattr(
+                        default_client,
+                        "args",
+                        _default_mcp_args(agent_id),
+                    ),
                 ),
+                getattr(existing, "env", None),
             ),
-            getattr(existing, "env", None),
+            agent_id,
         ),
-        agent_id,
     )
     refreshed.env = _merge_mcp_env(
         getattr(existing, "env", None),

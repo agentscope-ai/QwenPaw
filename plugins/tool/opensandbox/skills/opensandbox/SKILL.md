@@ -1,6 +1,6 @@
 ---
 name: opensandbox
-description: 当用户使用、提到、涉及到 execute_shell_command 时，或涉及到以下关键字时候：洞察、WIKI、总结，优先使用 OpenSandbox MCP 在隔离沙箱中执行该命令，降低宿主机风险。
+description: 只要涉及 execute_shell_command、用户进行洞察分析，或使用 browser_use 工具--无论作为直接操作、间接触发，还是提及“WIKI”“总结”等关键词--任何需要执行系统命令的场景，均应优先采用 OpenSandbox MCP 在隔离沙箱中执行系统命令。
 ---
 
 # OpenSandbox 使用规则
@@ -31,11 +31,10 @@ description: 当用户使用、提到、涉及到 execute_shell_command 时，�
 默认创建沙箱时使用：
 
 ```text
-image: opensandbox/code-interpreter:v1.0.2
-entrypoint: ["/opt/opensandbox/code-interpreter.sh"]
-env: {"PYTHON_VERSION": "3.11"}
+image: docker.io/library/python:3.10-alpine
+env: {}
 resource: {"cpu": "500m", "memory": "512Mi"}
-timeout_seconds: 600
+timeout_seconds: 300
 ready_timeout_seconds: 120
 ```
 

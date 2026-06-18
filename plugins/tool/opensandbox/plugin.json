@@ -1,7 +1,7 @@
 {
   "id": "opensandbox",
   "name": "OpenSandbox",
-  "version": "0.2.0",
+  "version": "0.2.4",
   "type": "tool",
   "description": "Register the official OpenSandbox MCP server for sandboxed agent workloads",
   "description_i18n": {
