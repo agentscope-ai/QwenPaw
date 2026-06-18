@@ -6,7 +6,7 @@ import json
 import os
 import time
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -95,6 +95,27 @@ def _bounded_raw_payload(payload: dict[str, Any], *, limit: int) -> dict[str, An
         "_truncated": True,
         "preview": _bounded_text(payload, limit=limit),
     }
+
+
+def _parse_security_event_timestamp(value: Any) -> datetime | None:
+    timestamp = str(value or "").strip()
+    if not timestamp:
+        return None
+    try:
+        parsed = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def _range_start(range_key: str, *, now: datetime) -> datetime:
+    if range_key == "1h":
+        return now - timedelta(hours=1)
+    if range_key == "7d":
+        return now - timedelta(days=7)
+    return now - timedelta(hours=24)
 
 
 def derive_shadow_hash(client_id: str, *parts: Any) -> str:
@@ -692,6 +713,55 @@ class SecurityCenterStore:
         row.update(event.get("listPayloadFields") or {})
         return row
 
+    def _observation_alert_row(self, event: dict[str, Any]) -> dict[str, Any]:
+        payload = event.get("structuredPayload") if isinstance(event.get("structuredPayload"), dict) else {}
+        key_object = payload.get("assetId") or payload.get("ruleId") or payload.get("toolName") or ""
+        return {
+            "sourceSystem": event.get("sourceSystem"),
+            "eventId": event.get("eventId"),
+            "eventTypeId": event.get("eventTypeId"),
+            "eventTypeDisplayName": event.get("eventTypeDisplayName"),
+            "severity": event.get("severity"),
+            "summary": event.get("summary"),
+            "occurredAt": event.get("occurredAt"),
+            "receivedAt": event.get("receivedAt"),
+            "keyObject": key_object,
+        }
+
+    def _accepted_raw_record_row(self, event: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "recordKind": "accepted",
+            "receptionResult": "success",
+            "sourceSystem": event.get("sourceSystem"),
+            "eventId": event.get("eventId"),
+            "eventTypeId": event.get("eventTypeId"),
+            "eventTypeDisplayName": event.get("eventTypeDisplayName"),
+            "severity": event.get("severity"),
+            "summary": event.get("summary"),
+            "occurredAt": event.get("occurredAt"),
+            "receivedAt": event.get("receivedAt"),
+            "failureReason": None,
+            "rawPayload": event.get("rawPayload") or {},
+            "rawPayloadSummary": _bounded_text(event.get("rawPayload") or {}, limit=_DEFAULT_RAW_PAYLOAD_DISPLAY_LIMIT),
+        }
+
+    def _failed_raw_record_row(self, failure: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "recordKind": "failed",
+            "receptionResult": "failed",
+            "sourceSystem": failure.get("sourceSystem") or failure.get("submittedSourceSystem"),
+            "eventId": failure.get("eventId"),
+            "eventTypeId": failure.get("eventTypeId") or failure.get("submittedEventTypeId"),
+            "eventTypeDisplayName": failure.get("eventTypeId") or failure.get("submittedEventTypeId"),
+            "severity": None,
+            "summary": None,
+            "occurredAt": None,
+            "receivedAt": failure.get("receivedAt"),
+            "failureReason": failure.get("failureReason") or failure.get("reason"),
+            "rawPayload": None,
+            "rawPayloadSummary": failure.get("requestSummary") or "",
+        }
+
     async def submit_security_event(
         self,
         request_body: dict[str, Any],
@@ -817,6 +887,90 @@ class SecurityCenterStore:
             failures = list(state["security_event_failures"])
         failures.sort(key=lambda item: str(item.get("receivedAt") or ""), reverse=True)
         return {"failures": failures}
+
+    async def security_event_observation_panel(
+        self,
+        *,
+        range_key: str | None = None,
+        focus_source_system: str | None = None,
+        focus_event_id: str | None = None,
+    ) -> dict[str, Any]:
+        selected_range = range_key if range_key in {"1h", "24h", "7d"} else "24h"
+        now = datetime.now(timezone.utc)
+        starts_at = _range_start(selected_range, now=now)
+
+        async with self._lock:
+            state = self._read_locked()
+            events = list(state["security_events"].values())
+            failures = list(state["security_event_failures"])
+
+        ranged_events = [
+            event
+            for event in events
+            if (occurred_at := _parse_security_event_timestamp(event.get("occurredAt"))) is not None
+            and starts_at <= occurred_at <= now
+        ]
+        ranged_failures = [
+            failure
+            for failure in failures
+            if (received_at := _parse_security_event_timestamp(failure.get("receivedAt"))) is not None
+            and starts_at <= received_at <= now
+        ]
+
+        source_distribution: dict[str, int] = {}
+        event_type_distribution: dict[str, int] = {}
+        for event in ranged_events:
+            source_system = str(event.get("sourceSystem") or "")
+            event_type_id = str(event.get("eventTypeId") or "")
+            if source_system:
+                source_distribution[source_system] = source_distribution.get(source_system, 0) + 1
+            if event_type_id:
+                event_type_distribution[event_type_id] = event_type_distribution.get(event_type_id, 0) + 1
+
+        severity_priority = {"HIGH": 0, "MEDIUM": 1}
+        alerts = [
+            self._observation_alert_row(event)
+            for event in ranged_events
+            if str(event.get("severity") or "").upper() in severity_priority
+        ]
+        alerts.sort(
+            key=lambda alert: (
+                severity_priority.get(str(alert.get("severity") or "").upper(), 99),
+                str(alert.get("occurredAt") or ""),
+            ),
+            reverse=False,
+        )
+        alerts.sort(key=lambda alert: str(alert.get("occurredAt") or ""), reverse=True)
+        alerts.sort(key=lambda alert: severity_priority.get(str(alert.get("severity") or "").upper(), 99))
+
+        raw_records = [self._accepted_raw_record_row(event) for event in ranged_events]
+        raw_records.extend(self._failed_raw_record_row(failure) for failure in ranged_failures)
+        raw_records.sort(key=lambda record: str(record.get("receivedAt") or ""), reverse=True)
+
+        focused_raw_record = None
+        if focus_source_system and focus_event_id:
+            for record in raw_records:
+                if record.get("sourceSystem") == focus_source_system and record.get("eventId") == focus_event_id:
+                    focused_raw_record = record
+                    break
+
+        return {
+            "selectedRange": selected_range,
+            "availableRanges": ["1h", "24h", "7d"],
+            "range": {
+                "startsAt": starts_at.isoformat(timespec="seconds").replace("+00:00", "Z"),
+                "endsAt": now.isoformat(timespec="seconds").replace("+00:00", "Z"),
+            },
+            "summary": {
+                "totalAcceptedEvents": len(ranged_events),
+                "highAcceptedEvents": sum(1 for event in ranged_events if str(event.get("severity") or "").upper() == "HIGH"),
+                "sourceSystemDistribution": source_distribution,
+                "eventTypeIdDistribution": event_type_distribution,
+            },
+            "alerts": alerts,
+            "rawRecords": raw_records,
+            "focusedRawRecord": focused_raw_record,
+        }
 
     async def subscribe(self) -> asyncio.Queue[dict[str, Any]]:
         queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()

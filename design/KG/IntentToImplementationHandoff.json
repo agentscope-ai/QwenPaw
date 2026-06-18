@@ -1,8 +1,8 @@
 {
   "stage": "intent-to-implementation",
-  "generatedAt": "2026-06-12",
+  "generatedAt": "2026-06-17",
   "sourceIntentGraphPath": "design/KG/SystemArchitecture.json",
-  "summary": "Intent design for sec-event-ingestion-v1 from design/prd/security-event-ingestion-prd.md. Security Center must provide a V1 internal-system HTTP security-event intake, configuration-driven validation, durable-before-success persistence, traceable failed reception records, and operator Web list/detail inbox views; V1 explicitly excludes authentication, external third-party intake, alerting, ticketing, remediation, assignment, comments, export, statistics dashboards, Web configuration editing, historical schema display policy, and default retention promises.",
+  "summary": "Intent design for security-center-event-observation-panel-v1 from design/tasks/security-center-event-observation-panel-v1.md. Security Center must add a V1 operator observation panel on top of the existing Security Event Ingestion V1 records: one default 24-hour page with quick ranges for 1 hour, 24 hours, and 7 days; summary statistics over legal accepted events; a HIGH/MEDIUM alert list; a raw reception list that includes both successful events and failed reception records; and alert-to-raw evidence traceability. V1 remains an observation panel, not a disposition, ticketing, assignment, approval, risk scoring, custom analytics, raw-payload full-text search, raw-payload export, requester identity, or authentication platform.",
   "intentElementIds": [
     "intent-qwenpaw-platform",
     "intent-security-center",
@@ -10,7 +10,8 @@
     "intent-security-event-contract-config",
     "intent-security-event",
     "intent-security-event-failure-record",
-    "intent-security-event-inbox-web"
+    "intent-security-event-inbox-web",
+    "intent-security-event-observation-panel-v1"
   ],
   "relationshipIds": [
     "rel-platform-security-center",
@@ -19,87 +20,90 @@
     "rel-event-ingestion-security-event",
     "rel-event-ingestion-failure-record",
     "rel-event-ingestion-inbox-web",
-    "rel-inbox-web-security-event"
+    "rel-inbox-web-security-event",
+    "rel-event-ingestion-observation-panel-v1",
+    "rel-observation-panel-security-event",
+    "rel-observation-panel-failure-record"
   ],
   "explicitTestcases": [
     {
-      "name": "sec-event-ingestion-v1-accept-legal-event",
-      "mountedElementId": "intent-security-event-ingestion-v1",
-      "mountedElementName": "Security Event Ingestion V1",
+      "name": "security-center-event-observation-panel-v1-posture-statistics",
+      "mountedElementId": "intent-security-event-observation-panel-v1",
+      "mountedElementName": "Security Event Observation Panel V1",
       "type": "Acceptance Test",
-      "controlPoint": "Submit a legal HTTP security event from an enabled configured internal sourceSystem with an allowed eventTypeId, valid schemaVersion, required summary, occurredAt, severity, and payload fields, then immediately query event list and event detail surfaces.",
-      "observationPoint": "The API returns success with eventId and duplicate=false only after persistence, the event appears in the operator list ordered by receivedAt, detail lookup by sourceSystem plus eventId succeeds, and backend-generated receivedAt overrides any caller-provided value.",
-      "acceptanceBoundary": "tests/integration/security/test_security_event_ingestion.py::test_accepts_legal_event_after_persistence must be materialized by Implementation Design as the explicit entrypoint for legal event intake.",
+      "controlPoint": "Submit five legal accepted security events inside the selected time range, covering multiple sourceSystem values, multiple eventTypeId values, and multiple severity values, with exactly two HIGH events; then open the observation panel for that range.",
+      "observationPoint": "The summary area shows total accepted event count 5, HIGH accepted event count 2, and sourceSystem and eventTypeId distributions exactly matching the submitted accepted events.",
+      "acceptanceBoundary": "tests/e2e/security_center/test_security_event_observation_panel.py::test_observation_panel_summarizes_current_event_posture must be materialized by Implementation Design as the explicit entrypoint for observation-panel posture statistics.",
       "requiredEntryKind": "explicit-testcase-entry",
-      "implementationNotes": "Implementation Design should decide whether this lives under tests/integration/security or a new deploy-focused integration zone, but the final frozen entrypoint must remain a concrete workspace path and drive the real Security Center API plus observable list/detail read model."
+      "implementationNotes": "The statistic source of truth is accepted legal Security Event records in the selected range. Failed reception records are raw evidence only and must not increase legal event counts or distributions."
     },
     {
-      "name": "sec-event-ingestion-v1-reject-invalid-config-boundary",
-      "mountedElementId": "intent-security-event-ingestion-v1",
-      "mountedElementName": "Security Event Ingestion V1",
+      "name": "security-center-event-observation-panel-v1-alert-scope",
+      "mountedElementId": "intent-security-event-observation-panel-v1",
+      "mountedElementName": "Security Event Observation Panel V1",
       "type": "Acceptance Test",
-      "controlPoint": "Submit events that violate sourceSystem allow-listing or enabled status, source-to-eventType authorization, eventTypeId existence, schemaVersion existence, required payload fields, field types, or enum values.",
-      "observationPoint": "Each request returns a clear failure reason, none of the rejected submissions appears in the business event list, and each creates a failure reception record with received time, submitted source field, submitted event type field, failure reason, and bounded request summary.",
-      "acceptanceBoundary": "tests/integration/security/test_security_event_ingestion.py::test_rejects_invalid_event_config_boundary must be materialized by Implementation Design as the explicit entrypoint for config and schema rejection.",
+      "controlPoint": "Submit one DEBUG, one LOW, one MEDIUM, and one HIGH legal accepted event inside the selected time range; then open the observation panel.",
+      "observationPoint": "The alert list shows only the MEDIUM and HIGH accepted events, while the raw reception list shows all four successful reception records.",
+      "acceptanceBoundary": "tests/e2e/security_center/test_security_event_observation_panel.py::test_observation_panel_filters_alerts_by_severity must be materialized by Implementation Design as the explicit entrypoint for alert-list severity scope.",
       "requiredEntryKind": "explicit-testcase-entry",
-      "implementationNotes": "Do not replace this with unit-only validation. The acceptance must observe both API rejection and failure-record persistence."
+      "implementationNotes": "HIGH and MEDIUM accepted events are alert-focus rows. LOW and DEBUG are not alerts in V1, but they remain successful raw reception rows."
     },
     {
-      "name": "sec-event-ingestion-v1-preserve-undefined-payload-fields",
-      "mountedElementId": "intent-security-event-ingestion-v1",
-      "mountedElementName": "Security Event Ingestion V1",
+      "name": "security-center-event-observation-panel-v1-alert-ordering",
+      "mountedElementId": "intent-security-event-observation-panel-v1",
+      "mountedElementName": "Security Event Observation Panel V1",
       "type": "Acceptance Test",
-      "controlPoint": "Submit a legal event whose payload includes all required configured fields plus at least one field not declared by the schema configuration.",
-      "observationPoint": "The event is saved successfully, configured list columns exclude the undefined field, detail shows configured fields by label, and the undefined payload field appears only in the undefined-fields detail area and raw payload view.",
-      "acceptanceBoundary": "tests/integration/security/test_security_event_ingestion.py::test_preserves_undefined_payload_fields_in_detail_only must be materialized by Implementation Design as the explicit entrypoint for undefined payload handling.",
+      "controlPoint": "Submit multiple HIGH and MEDIUM legal accepted events with interleaved occurredAt timestamps inside the selected time range; then open the observation panel alert list.",
+      "observationPoint": "All HIGH alerts appear before all MEDIUM alerts, and alerts with the same severity are ordered by occurredAt descending.",
+      "acceptanceBoundary": "tests/e2e/security_center/test_security_event_observation_panel.py::test_observation_panel_sorts_alerts_by_severity_and_occurred_at must be materialized by Implementation Design as the explicit entrypoint for alert ordering.",
       "requiredEntryKind": "explicit-testcase-entry",
-      "implementationNotes": "V1 allows undefined payload fields for traceability; rejecting them or treating them as primary list columns violates intent."
+      "implementationNotes": "Alert ordering is severity priority first, then occurredAt descending. receivedAt ordering from the older inbox list must not override this panel-specific alert ordering."
     },
     {
-      "name": "sec-event-ingestion-v1-enforce-idempotency",
-      "mountedElementId": "intent-security-event-ingestion-v1",
-      "mountedElementName": "Security Event Ingestion V1",
+      "name": "security-center-event-observation-panel-v1-failed-receptions-visible",
+      "mountedElementId": "intent-security-event-observation-panel-v1",
+      "mountedElementName": "Security Event Observation Panel V1",
       "type": "Acceptance Test",
-      "controlPoint": "Submit the same normalized event twice, submit the same sourceSystem plus eventId with a different eventTypeId, schemaVersion, or payload field value, and submit the same eventId from a different sourceSystem.",
-      "observationPoint": "Identical repeat returns success with duplicate=true and no second business event; conflicting same-key submissions are rejected and recorded as idempotency conflicts; different sourceSystem plus same eventId is accepted as a distinct event.",
-      "acceptanceBoundary": "tests/integration/security/test_security_event_ingestion.py::test_enforces_source_event_id_idempotency must be materialized by Implementation Design as the explicit entrypoint for sourceSystem plus eventId idempotency.",
+      "controlPoint": "Submit invalid events for an illegal source, a missing required field, and a payload type error inside the selected time range; then open the observation panel raw reception list.",
+      "observationPoint": "The failed reception records do not increase legal event summary counts and do not appear in the alert list, but they appear in the raw reception list with failure reason and bounded raw-payload summary.",
+      "acceptanceBoundary": "tests/e2e/security_center/test_security_event_observation_panel.py::test_observation_panel_shows_failed_receptions_in_raw_records must be materialized by Implementation Design as the explicit entrypoint for failed reception visibility.",
       "requiredEntryKind": "explicit-testcase-entry",
-      "implementationNotes": "The canonical comparison must use normalized event content; sourceSystem is part of the key, so global eventId uniqueness is not required."
+      "implementationNotes": "Use the existing Security Event Failure Record semantics from sec-event-ingestion-v1. This testcase freezes raw-list visibility and non-pollution of stats/alerts, not a new retention promise."
     },
     {
-      "name": "sec-event-ingestion-v1-render-web-list-and-detail",
-      "mountedElementId": "intent-security-event-inbox-web",
-      "mountedElementName": "Security Event Inbox Web",
+      "name": "security-center-event-observation-panel-v1-alert-to-raw-traceability",
+      "mountedElementId": "intent-security-event-observation-panel-v1",
+      "mountedElementName": "Security Event Observation Panel V1",
       "type": "Acceptance Test",
-      "controlPoint": "Seed multiple accepted events with different receivedAt, occurredAt, sourceSystem, eventTypeId, severity, configured list payload fields, undefined fields, and raw payloads; open the Web list, apply time/source/type/severity filters, and navigate to a detail URL.",
-      "observationPoint": "The list defaults to receivedAt descending, shows receivedAt, occurredAt, sourceSystem, event type display name, severity, summary, eventId, and configured list payload fields; filters constrain visible rows; the detail URL reopens the same event and displays base facts, labeled structured payload, undefined fields, and read-only raw payload with large-payload protection.",
-      "acceptanceBoundary": "tests/e2e/security_center/test_security_event_inbox.py::test_web_lists_filters_and_opens_event_detail must be materialized by Implementation Design as the explicit entrypoint for operator Web consumption.",
+      "controlPoint": "Submit one HIGH legal accepted event, open the observation panel, and select that event in the alert list.",
+      "observationPoint": "The raw reception list locates or filters to the same sourceSystem plus eventId raw record, and the operator can open or view the bounded raw payload evidence for that record.",
+      "acceptanceBoundary": "tests/e2e/security_center/test_security_event_observation_panel.py::test_observation_panel_links_alert_to_raw_record must be materialized by Implementation Design as the explicit entrypoint for alert-to-raw traceability.",
       "requiredEntryKind": "explicit-testcase-entry",
-      "implementationNotes": "If the repository does not yet have a browser e2e harness, Implementation Design must either establish one or document a narrower executable Web/API observation entrypoint without dropping list ordering, filters, stable detail URL, or large-payload protection."
+      "implementationNotes": "The requirement allows locating or filtering. Recommended Implementation Design choice is to freeze a filtered/focused raw-list state keyed by sourceSystem plus eventId because it is deterministic for tests and preserves evidence traceability."
     },
     {
-      "name": "sec-event-ingestion-v1-bound-failure-records",
-      "mountedElementId": "intent-security-event-ingestion-v1",
-      "mountedElementName": "Security Event Ingestion V1",
+      "name": "security-center-event-observation-panel-v1-time-range-consistency",
+      "mountedElementId": "intent-security-event-observation-panel-v1",
+      "mountedElementName": "Security Event Observation Panel V1",
       "type": "Acceptance Test",
-      "controlPoint": "Submit illegal events for disallowed source, disallowed type, schema failure, payload validation failure, idempotency conflict, simulated persistence error, and an oversized illegal payload.",
-      "observationPoint": "Business event list remains clean for illegal submissions, failure records are queryable with received time, source field, event type field, failure reason, and bounded request summary; database write failure returns failure instead of success, and oversized illegal payload handling stores only a bounded summary or rejects safely without storage/page instability.",
-      "acceptanceBoundary": "tests/integration/security/test_security_event_ingestion.py::test_records_failed_receptions_without_business_event_pollution must be materialized by Implementation Design as the explicit entrypoint for failed reception records.",
+      "controlPoint": "Construct accepted and failed reception records inside the latest 1 hour, inside the latest 24 hours, inside the latest 7 days, and outside the latest 7 days; then switch the panel among latest 1 hour, latest 24 hours, and latest 7 days.",
+      "observationPoint": "After each quick-range change, the summary area, alert list, and raw reception list all include only records within the same selected range and do not contradict each other.",
+      "acceptanceBoundary": "tests/e2e/security_center/test_security_event_observation_panel.py::test_observation_panel_applies_time_range_consistently must be materialized by Implementation Design as the explicit entrypoint for shared time-range interpretation.",
       "requiredEntryKind": "explicit-testcase-entry",
-      "implementationNotes": "Retention duration is a V1 non-goal. Implementation should not invent a default retention SLA, but it must avoid unbounded storage of oversized invalid payloads."
+      "implementationNotes": "Default range is latest 24 hours. Implementation Design must define stable clock control or fixture data construction so 1h/24h/7d boundaries are executable without flaky wall-clock assumptions."
     }
   ],
   "frozenBaselines": [
+    "design/tasks/security-center-event-observation-panel-v1.md",
     "design/prd/security-event-ingestion-prd.md",
-    "design/prd/security-event-ingestion-decision-tree.md",
     "design/KG/SystemArchitecture.json",
     "design/KG/IntentToImplementationHandoff.json",
-    "tests/integration/security/test_security_event_ingestion.py::test_accepts_legal_event_after_persistence",
-    "tests/integration/security/test_security_event_ingestion.py::test_rejects_invalid_event_config_boundary",
-    "tests/integration/security/test_security_event_ingestion.py::test_preserves_undefined_payload_fields_in_detail_only",
-    "tests/integration/security/test_security_event_ingestion.py::test_enforces_source_event_id_idempotency",
-    "tests/e2e/security_center/test_security_event_inbox.py::test_web_lists_filters_and_opens_event_detail",
-    "tests/integration/security/test_security_event_ingestion.py::test_records_failed_receptions_without_business_event_pollution"
+    "tests/e2e/security_center/test_security_event_observation_panel.py::test_observation_panel_summarizes_current_event_posture",
+    "tests/e2e/security_center/test_security_event_observation_panel.py::test_observation_panel_filters_alerts_by_severity",
+    "tests/e2e/security_center/test_security_event_observation_panel.py::test_observation_panel_sorts_alerts_by_severity_and_occurred_at",
+    "tests/e2e/security_center/test_security_event_observation_panel.py::test_observation_panel_shows_failed_receptions_in_raw_records",
+    "tests/e2e/security_center/test_security_event_observation_panel.py::test_observation_panel_links_alert_to_raw_record",
+    "tests/e2e/security_center/test_security_event_observation_panel.py::test_observation_panel_applies_time_range_consistently"
   ],
   "requiredImplementationArtifacts": [
     "OVERALL_ARCHITECTURE.md",
@@ -107,46 +111,34 @@
     "deploy/api/ARCHITECTURE.md",
     "deploy/web/ARCHITECTURE.md",
     "tests/ARCHITECTURE.md",
+    "tests/e2e/security_center/ARCHITECTURE.md",
     "tests/integration/security/ARCHITECTURE.md",
+    "tests/integration/security/security_event_harness.py",
+    "tests/e2e/security_center/test_security_event_observation_panel.py",
+    "tests/e2e/security_center/conftest.py",
+    "tests/architecture/security-event-observation-panel-contract-boundaries.test.js",
     "design/KG/ImplementationToCodingHandoff.json",
     "design/KG/test-failure-records.json",
-    "tests/integration/security/test_security_event_ingestion.py",
-    "tests/e2e/security_center/test_security_event_inbox.py",
     "deploy/api",
     "deploy/web"
   ],
   "openQuestions": [
     {
-      "question": "Should V1 add request authentication or source credentials because sourceSystem is caller-provided?",
-      "recommendedAnswer": "No. Keep authentication and requester identity management out of V1, but make sourceSystem allow-listing, enabled flags, event-type authorization, and schema validation mandatory.",
-      "reason": "The PRD explicitly excludes request authentication and identity management. Adding auth would expand scope, while accepting arbitrary sourceSystem without config controls would let untrusted data pollute the event inbox."
+      "question": "Should selecting an alert locate the raw row in-place or filter the raw reception list to only the same sourceSystem plus eventId?",
+      "recommendedAnswer": "Use a deterministic filtered or focused raw-list state keyed by sourceSystem plus eventId, while allowing the UI to visually highlight the row when practical.",
+      "reason": "The requirement permits locate or filter. Freezing the sourceSystem plus eventId filtered/focused observation makes the acceptance test stable while preserving the product goal of tracing alert evidence."
     },
     {
-      "question": "Should undefined payload fields cause rejection?",
-      "recommendedAnswer": "No. Save legal events with undefined payload fields, mark those fields as undefined, exclude them from list main columns, and show them only in detail and raw payload areas.",
-      "reason": "The PRD chooses traceability and integration tolerance over strict rejection for extra fields, but prevents operators from mistaking them for configured schema fields."
-    },
-    {
-      "question": "Should Security Center return success before persistence and complete storage asynchronously?",
-      "recommendedAnswer": "No. Legal event persistence must complete before success; database write failure must return failure.",
-      "reason": "The PRD makes durable-before-success the core reliability boundary. Returning early would create accepted-but-missing events and break operator trust."
-    },
-    {
-      "question": "Should implementation-design reuse existing Security Center audit-chain tests for this PRD?",
-      "recommendedAnswer": "No. Reuse deploy/api, deploy/web, and tests architecture boundaries where appropriate, but create separate explicit entrypoints for security event ingestion rather than mixing them with audit integrity, lease recovery, or high-risk tool guard scenarios.",
-      "reason": "The existing explicit security tests verify audit-chain trust semantics. This PRD is a different business capability: event intake, validation, persistence, Web inbox, and failure reception traceability."
-    },
-    {
-      "question": "Should V1 define retention periods or historical schema display behavior?",
-      "recommendedAnswer": "No. Preserve them as non-goals and avoid implementing hidden default promises.",
-      "reason": "The PRD explicitly excludes both. Silent defaults would create product commitments not accepted in intent design."
+      "question": "Should the observation panel introduce automatic alerting, disposition status, ticketing, assignment, comments, approval, risk scoring, custom reports, full-text raw-payload search, raw-payload export, requester identity, or request authentication?",
+      "recommendedAnswer": "No. Keep V1 as an observation and evidence-traceability panel only.",
+      "reason": "Both the source task and the underlying Security Event Ingestion V1 PRD explicitly exclude those product commitments. Adding them would redesign intent beyond this task."
     }
   ],
   "notes": [
-    "Task ID: sec-event-ingestion-v1, generated from design/prd/security-event-ingestion-prd.md.",
-    "Implementation Design should update root and local architecture contracts so deploy/api owns event intake, config validation, durable event and failure-record storage, query APIs, and persistence-error semantics; deploy/web owns operator event inbox list/detail rendering; tests owns explicit event-ingestion entrypoints and any supporting harness.",
-    "Implementation Design must decide the physical configuration artifact path and schema for source systems, event types, schema versions, payload fields, labels, enum values, maximum lengths, and list-display flags. The configuration file defines event contracts and display metadata only, not workflow rules.",
-    "Implementation Design must produce design/KG/ImplementationToCodingHandoff.json and design/KG/test-failure-records.json after materializing executable entrypoints. Expected initial failures are acceptable if production behavior is not yet implemented, but placeholder passing tests are not acceptable.",
-    "Do not edit production implementation in the intent stage. Do not add alerting, ticketing, notification, remediation, assignment, comments, exports, dashboards, Web self-service configuration editing, authentication, third-party external intake, retention promises, or historical schema display policy unless the intent graph is explicitly redesigned."
+    "Task ID: security-center-event-observation-panel-v1, generated from design/tasks/security-center-event-observation-panel-v1.md.",
+    "This handoff intentionally builds on existing sec-event-ingestion-v1 accepted event and failed reception semantics rather than redefining ingestion, validation, idempotency, durable persistence, failure-record bounding, or Web detail behavior.",
+    "Implementation Design must update root and local architecture contracts so deploy/api owns any panel read-model/API needed for shared time range, summary statistics, alert ordering, raw reception records, and alert-to-raw lookup; deploy/web owns the operator panel rendering and interactions by consuming deploy/api only.",
+    "Implementation Design must materialize executable explicit Web acceptance entrypoints under tests/e2e/security_center/test_security_event_observation_panel.py and should use tests/integration/security/security_event_harness.py for business-readable seeding and observation helpers.",
+    "Implementation Design must produce design/KG/ImplementationToCodingHandoff.json and design/KG/test-failure-records.json after materializing executable entrypoints. Expected initial failures are acceptable if production behavior is not yet implemented, but placeholder passing tests are not acceptable."
   ]
 }

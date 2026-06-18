@@ -23,6 +23,7 @@
           <a class="nav-item" href="#rejection-panel">拒绝取证</a>
           <a class="nav-item" href="#chart-panel">分叉曲线</a>
           <a class="nav-item" href="/security-events">Security Event Inbox</a>
+          <a class="nav-item" href="/security-event-observation">Security Event Observation</a>
           <a class="nav-item" href="#event-panel">事件日志</a>
         </nav>
         <div class="sidebar-footnote">
@@ -187,6 +188,34 @@
           </form>
           <div id="security-event-list" class="security-event-list"></div>
           <div id="security-event-detail" class="security-event-detail"></div>
+        </section>
+
+        <section class="panel security-event-observation-panel" id="security-event-observation">
+          <!-- Frozen explicit anchor: Security Event Observation Panel -->
+          <div class="panel-heading compact">
+            <div>
+              <span class="section-kicker">Security Event Observation Panel</span>
+              <h2>安全事件观察面板</h2>
+            </div>
+            <p>只读消费 deploy/api，统一展示最新 1 小时、24 小时、7 天的统计、告警与原始接收证据。</p>
+          </div>
+          <div class="observation-range-controls" id="observation-range-controls" aria-label="observation quick ranges">
+            <button type="button" data-range="1h">最近 1 小时</button>
+            <button type="button" data-range="24h">最近 24 小时</button>
+            <button type="button" data-range="7d">最近 7 天</button>
+          </div>
+          <div id="observation-summary" class="metric-grid"></div>
+          <div class="observation-grid">
+            <article>
+              <h3>HIGH / MEDIUM Alerts</h3>
+              <div id="observation-alerts" class="security-event-list"></div>
+            </article>
+            <article>
+              <h3>Raw Reception Records</h3>
+              <div id="observation-raw-records" class="security-event-list"></div>
+              <div id="observation-focused-raw-record" class="security-event-detail"></div>
+            </article>
+          </div>
         </section>
       </main>
     </div>

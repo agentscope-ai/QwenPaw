@@ -465,6 +465,92 @@
       "description": "Operator-facing Web inbox for accepted security events. It provides a receivedAt-descending list with core columns and configured list payload fields, supports time range, sourceSystem, eventTypeId, and severity filters, and provides stable detail URLs that show base facts, labeled structured payload, undefined fields, and read-only raw payload with large-payload protection.\n#file:design/prd/security-event-ingestion-prd.md"
     },
     {
+      "id": "intent-security-event-observation-panel-v1",
+      "parent": "intent-security-event-ingestion-v1",
+      "name": "Security Event Observation Panel V1",
+      "type": "Application Interface",
+      "archimate_layer": "Application",
+      "archimate_aspect": "Active Structure",
+      "browser_path": "QwenPaw Platform/Security Center/Security Event Ingestion V1/Security Event Observation Panel V1",
+      "description": "Operator-facing Security Center observation panel layered on the existing Security Event Ingestion V1 records. It lets security operators judge recent posture within one page by sharing one selected time range across summary statistics, a HIGH/MEDIUM alert list, and a raw reception list containing both accepted events and failed reception records. V1 is an observation and evidence-traceability panel, not an alert disposition, ticketing, assignment, approval, risk-scoring, custom analytics, full-text raw-payload search, payload export, requester identity, or authentication platform.\n#file:design/tasks/security-center-event-observation-panel-v1.md\n#file:design/prd/security-event-ingestion-prd.md",
+      "attributes": [
+        {
+          "name": "task_id",
+          "value": "security-center-event-observation-panel-v1"
+        },
+        {
+          "name": "time_range_rule",
+          "value": "The default time range is the latest 24 hours. The only V1 quick ranges are latest 1 hour, latest 24 hours, and latest 7 days. Summary statistics, alert list, and raw reception list must always use the same selected time range."
+        },
+        {
+          "name": "summary_rule",
+          "value": "Summary statistics count only accepted legal security events inside the selected time range: total accepted event count, HIGH accepted event count, sourceSystem distribution, and eventTypeId distribution. Failed reception records must not be counted as legal events."
+        },
+        {
+          "name": "alert_list_rule",
+          "value": "The alert list displays only accepted legal events with severity HIGH or MEDIUM. LOW and DEBUG accepted events stay out of the alert list but remain visible in the raw reception list. Default ordering is severity priority HIGH before MEDIUM, then occurredAt descending within the same severity."
+        },
+        {
+          "name": "raw_reception_rule",
+          "value": "The raw reception list displays all reception records in the selected time range: successful accepted events plus failed reception records. Failed records show failure reason and bounded raw-payload summary; successful records expose a bounded raw-payload view or entry point."
+        },
+        {
+          "name": "alert_traceability_rule",
+          "value": "Selecting an alert must locate or filter the raw reception list to the same sourceSystem plus eventId raw record so operators can trace the alert back to original received evidence."
+        }
+      ],
+      "testcases": [
+        {
+          "name": "security-center-event-observation-panel-v1-posture-statistics",
+          "description": "When accepted security events cover multiple sources, event types, and severities, the observation panel must summarize the selected time range accurately without counting failed receptions as legal events.",
+          "type": "Acceptance Test",
+          "Input": "Control point: submit five legal accepted security events inside the selected time range, covering multiple sourceSystem values, multiple eventTypeId values, and multiple severity values, with exactly two HIGH events; then open the observation panel for that range.",
+          "acceptanceCriteria": "tests/e2e/security_center/test_security_event_observation_panel.py::test_observation_panel_summarizes_current_event_posture",
+          "TestResults": "Observation point: the summary area shows total accepted event count 5, HIGH accepted event count 2, and sourceSystem and eventTypeId distributions exactly matching the submitted accepted events."
+        },
+        {
+          "name": "security-center-event-observation-panel-v1-alert-scope",
+          "description": "The alert list must focus operators on HIGH and MEDIUM accepted events while leaving LOW and DEBUG accepted events visible only as raw reception evidence.",
+          "type": "Acceptance Test",
+          "Input": "Control point: submit one DEBUG, one LOW, one MEDIUM, and one HIGH legal accepted event inside the selected time range; then open the observation panel.",
+          "acceptanceCriteria": "tests/e2e/security_center/test_security_event_observation_panel.py::test_observation_panel_filters_alerts_by_severity",
+          "TestResults": "Observation point: the alert list shows only the MEDIUM and HIGH accepted events, while the raw reception list shows all four successful reception records."
+        },
+        {
+          "name": "security-center-event-observation-panel-v1-alert-ordering",
+          "description": "The alert list must order priority events by severity first and by business occurrence time within the same severity.",
+          "type": "Acceptance Test",
+          "Input": "Control point: submit multiple HIGH and MEDIUM legal accepted events with interleaved occurredAt timestamps inside the selected time range; then open the observation panel alert list.",
+          "acceptanceCriteria": "tests/e2e/security_center/test_security_event_observation_panel.py::test_observation_panel_sorts_alerts_by_severity_and_occurred_at",
+          "TestResults": "Observation point: all HIGH alerts appear before all MEDIUM alerts, and alerts with the same severity are ordered by occurredAt descending."
+        },
+        {
+          "name": "security-center-event-observation-panel-v1-failed-receptions-visible",
+          "description": "Failed event submissions must remain visible as raw reception evidence without polluting legal-event statistics or the alert list.",
+          "type": "Acceptance Test",
+          "Input": "Control point: submit invalid events for an illegal source, a missing required field, and a payload type error inside the selected time range; then open the observation panel raw reception list.",
+          "acceptanceCriteria": "tests/e2e/security_center/test_security_event_observation_panel.py::test_observation_panel_shows_failed_receptions_in_raw_records",
+          "TestResults": "Observation point: the failed reception records do not increase legal event summary counts and do not appear in the alert list, but they appear in the raw reception list with failure reason and bounded raw-payload summary."
+        },
+        {
+          "name": "security-center-event-observation-panel-v1-alert-to-raw-traceability",
+          "description": "Operators must be able to trace a HIGH or MEDIUM alert to the original raw received evidence for the same sourceSystem plus eventId.",
+          "type": "Acceptance Test",
+          "Input": "Control point: submit one HIGH legal accepted event, open the observation panel, and select that event in the alert list.",
+          "acceptanceCriteria": "tests/e2e/security_center/test_security_event_observation_panel.py::test_observation_panel_links_alert_to_raw_record",
+          "TestResults": "Observation point: the raw reception list locates or filters to the same sourceSystem plus eventId raw record, and the operator can open or view the bounded raw payload evidence for that record."
+        },
+        {
+          "name": "security-center-event-observation-panel-v1-time-range-consistency",
+          "description": "Changing the quick time range must update summary statistics, alert list, and raw reception list with one consistent time-range interpretation.",
+          "type": "Acceptance Test",
+          "Input": "Control point: construct accepted and failed reception records inside the latest 1 hour, inside the latest 24 hours, inside the latest 7 days, and outside the latest 7 days; then switch the panel among latest 1 hour, latest 24 hours, and latest 7 days.",
+          "acceptanceCriteria": "tests/e2e/security_center/test_security_event_observation_panel.py::test_observation_panel_applies_time_range_consistently",
+          "TestResults": "Observation point: after each quick-range change, the summary area, alert list, and raw reception list all include only records within the same selected range and do not contradict each other."
+        }
+      ]
+    },
+    {
       "id": "intent-local-operator-cli",
       "parent": "intent-qwenpaw-platform",
       "name": "Local Operator CLI",
@@ -777,6 +863,36 @@
       "target_name": "Security Event"
     },
     {
+      "id": "rel-event-ingestion-observation-panel-v1",
+      "statement": "Security Event Observation Panel V1 is part of Security Event Ingestion V1 as the operator posture, alert-focus, and raw-evidence traceability surface.",
+      "name": "Composition",
+      "archimate_category": "Structural",
+      "source_id": "intent-security-event-ingestion-v1",
+      "target_id": "intent-security-event-observation-panel-v1",
+      "source_name": "Security Event Ingestion V1",
+      "target_name": "Security Event Observation Panel V1"
+    },
+    {
+      "id": "rel-observation-panel-security-event",
+      "statement": "Security Event Observation Panel V1 reads accepted Security Event records to compute summary statistics, render HIGH and MEDIUM alerts, and show successful raw reception rows.",
+      "name": "Access",
+      "archimate_category": "Dependency",
+      "source_id": "intent-security-event-observation-panel-v1",
+      "target_id": "intent-security-event",
+      "source_name": "Security Event Observation Panel V1",
+      "target_name": "Security Event"
+    },
+    {
+      "id": "rel-observation-panel-failure-record",
+      "statement": "Security Event Observation Panel V1 reads Security Event Failure Record entries so failed submissions remain visible in the raw reception list without entering legal-event statistics or alerts.",
+      "name": "Access",
+      "archimate_category": "Dependency",
+      "source_id": "intent-security-event-observation-panel-v1",
+      "target_id": "intent-security-event-failure-record",
+      "source_name": "Security Event Observation Panel V1",
+      "target_name": "Security Event Failure Record"
+    },
+    {
       "id": "rel-lease-monitor-cloud-stub",
       "statement": "Audit Lease Monitor coordinates with Cloud Integrity Stub to require full-gap validation before an UNTRUSTED client can recover trusted status.",
       "name": "Association",
@@ -926,6 +1042,7 @@
         "intent-security-event",
         "intent-security-event-failure-record",
         "intent-security-event-inbox-web",
+        "intent-security-event-observation-panel-v1",
         "intent-local-operator-cli",
         "intent-console-frontend",
         "intent-docs-website",
@@ -959,6 +1076,9 @@
         "rel-event-ingestion-failure-record",
         "rel-event-ingestion-inbox-web",
         "rel-inbox-web-security-event",
+        "rel-event-ingestion-observation-panel-v1",
+        "rel-observation-panel-security-event",
+        "rel-observation-panel-failure-record",
         "rel-lease-monitor-cloud-stub",
         "rel-security-schema-contract-audit-event",
         "rel-uplink-service-security-schema-contract",
@@ -1072,7 +1192,7 @@
       "view_id": "view-security-event-ingestion-v1",
       "view_name": "Security Event Ingestion V1",
       "browser_path": "Views/Security Event Ingestion V1",
-      "description": "Intent view for the V1 Security Center event intake inbox: internal systems submit events over HTTP, backend validates against configuration, legal events persist before success, illegal submissions become failure records, and security operators consume list/detail Web views.",
+      "description": "Intent view for the V1 Security Center event intake, inbox, and observation panel: internal systems submit events over HTTP, backend validates against configuration, legal events persist before success, illegal submissions become failure records, and security operators consume list/detail plus posture, alert-focus, and raw-evidence views.",
       "included_elements": [
         "intent-qwenpaw-platform",
         "intent-security-center",
@@ -1080,7 +1200,8 @@
         "intent-security-event-contract-config",
         "intent-security-event",
         "intent-security-event-failure-record",
-        "intent-security-event-inbox-web"
+        "intent-security-event-inbox-web",
+        "intent-security-event-observation-panel-v1"
       ],
       "included_relationships": [
         "rel-platform-security-center",
@@ -1089,7 +1210,10 @@
         "rel-event-ingestion-security-event",
         "rel-event-ingestion-failure-record",
         "rel-event-ingestion-inbox-web",
-        "rel-inbox-web-security-event"
+        "rel-inbox-web-security-event",
+        "rel-event-ingestion-observation-panel-v1",
+        "rel-observation-panel-security-event",
+        "rel-observation-panel-failure-record"
       ]
     }
   ]

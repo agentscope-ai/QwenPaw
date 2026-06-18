@@ -169,6 +169,18 @@ def create_app(store: SecurityCenterStore | None = None) -> FastAPI:
     async def operator_security_event_failures() -> dict[str, Any]:
         return await service_store.security_event_failures()
 
+    @app.get("/security-center/v1/operator/event-observation-panel")
+    async def operator_security_event_observation_panel(
+        range: str | None = None,  # noqa: A002 - external API query parameter is frozen.
+        focusSourceSystem: str | None = None,  # noqa: N803
+        focusEventId: str | None = None,  # noqa: N803
+    ) -> dict[str, Any]:
+        return await service_store.security_event_observation_panel(
+            range_key=range,
+            focus_source_system=focusSourceSystem,
+            focus_event_id=focusEventId,
+        )
+
     @app.get("/security-center/v1/operator/rejections/{nonce}")
     async def operator_rejection(nonce: str) -> dict[str, Any]:
         record = await service_store.rejection(nonce)

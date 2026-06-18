@@ -13,7 +13,7 @@ element_path: tests
 - Own the physical repository entrypoints for explicit and non-explicit verification assets.
 - Keep architecture guardrails under `tests/architecture` and product behavior tests under `unit/`, `integration/`, `contract/`, and `e2e/`.
 - Keep explicit security acceptance bodies business-readable by routing low-level live-runtime inspection through harness helpers inside `tests/integration/security`.
-- Own the Security Event Ingestion V1 explicit acceptance entrypoints and guardrails while keeping business assertions behind `tests/integration/security/security_event_harness.py`.
+- Own the Security Event Ingestion V1 explicit acceptance entrypoints and guardrails, including the Security Event Observation Panel V1 Web e2e entrypoints, while keeping business assertions behind `tests/integration/security/security_event_harness.py`.
 
 ### Out Of Scope
 - Defining acceptance scope independently from `design/KG/SystemArchitecture.json`.
@@ -34,7 +34,7 @@ element_path: tests
   role: integration-level regression coverage owned by implementation
 - path: e2e
   kind: supporting-verification-zone
-  role: end-to-end behavior coverage, including the Security Center Web inbox explicit baseline under `e2e/security_center`
+  role: end-to-end behavior coverage, including the Security Center Web inbox and observation-panel explicit baselines under `e2e/security_center`
 
 ### Explicit Testcase Entrypoints
 - unit/cli/test_cli_version.py::test_cli_version_option_outputs_current_version
@@ -53,6 +53,12 @@ element_path: tests
 - integration/security/test_security_event_ingestion.py::test_enforces_source_event_id_idempotency
 - integration/security/test_security_event_ingestion.py::test_records_failed_receptions_without_business_event_pollution
 - e2e/security_center/test_security_event_inbox.py::test_web_lists_filters_and_opens_event_detail
+- e2e/security_center/test_security_event_observation_panel.py::test_observation_panel_summarizes_current_event_posture
+- e2e/security_center/test_security_event_observation_panel.py::test_observation_panel_filters_alerts_by_severity
+- e2e/security_center/test_security_event_observation_panel.py::test_observation_panel_sorts_alerts_by_severity_and_occurred_at
+- e2e/security_center/test_security_event_observation_panel.py::test_observation_panel_shows_failed_receptions_in_raw_records
+- e2e/security_center/test_security_event_observation_panel.py::test_observation_panel_links_alert_to_raw_record
+- e2e/security_center/test_security_event_observation_panel.py::test_observation_panel_applies_time_range_consistently
 
 ### Critical Non-Explicit Tests
 - architecture/root-architecture-contracts.test.js
@@ -63,6 +69,7 @@ element_path: tests
 - architecture/security-runtime-client-identity-boundary.test.js
 - architecture/security-runtime-lease-persistence-boundary.test.js
 - architecture/security-event-ingestion-contract-boundaries.test.js
+- architecture/security-event-observation-panel-contract-boundaries.test.js
 
 ### Supporting Non-Explicit Tests
 - integration/test_security_config.py
@@ -100,3 +107,5 @@ element_path: tests
 - `tests/integration/security/test_security_event_ingestion.py` owns five Security Event Ingestion V1 explicit API/data entrypoints. Control point: drive legal, invalid, undefined-field, idempotency, real idempotency conflict, test-injected persistence-failure, and oversized-illegal-payload submissions through the real Security Center API subprocess. Observation point: accepted events, rejected submissions, failure records for every failed branch, idempotency semantics, persistence-failure event exclusion, and bounded summaries are visible through API list/detail/failure surfaces. Current repository state is expected to fail until `deploy/api` implements the event routes.
 - `tests/e2e/security_center/test_security_event_inbox.py` owns the Security Event Inbox Web explicit entrypoint. Control point: seed accepted events, open the Web inbox, apply source/type/severity/time filters, and navigate to stable detail. Observation point: receivedAt-descending list, core/configured fields, event type display name, filter correctness, stable detail URL, base facts, structured payload, undefined fields, and bounded raw payload are observable through Web/API. Current repository state is expected to fail until `deploy/web` implements the inbox.
 - `tests/architecture/security-event-ingestion-contract-boundaries.test.js` is a critical non-explicit explicit-entrypoint-correctness and implementation-traceability guard. Its control point is static inspection of `design/KG/SystemArchitecture.json`, `design/KG/ImplementationToCodingHandoff.json`, `OVERALL_ARCHITECTURE.md`, `deploy/api/ARCHITECTURE.md`, `deploy/web/ARCHITECTURE.md`, `deploy/config/security-event-contracts.v1.json`, `tests/integration/security/test_security_event_ingestion.py`, `tests/integration/security/security_event_harness.py`, and `tests/e2e/security_center/test_security_event_inbox.py`; its observation point is that all six V1 acceptance baselines, invalid-config branches, failed-reception branches, Web filter/detail assertions, protected failure-injection seam, business failure categories, and expected-failing handoff state remain frozen.
+- `tests/e2e/security_center/test_security_event_observation_panel.py` owns six Security Event Observation Panel V1 explicit Web e2e entrypoints. Control point: seed accepted and failed reception records through the protected Security Event harness, open `/security-event-observation` without range for the default case, select quick ranges, and focus alerts by sourceSystem plus eventId. Observation point: deploy/api/deploy-web together expose default latest 24h posture summary equivalent to explicit `range=24h`, HIGH/MEDIUM alert scope, severity-plus-occurredAt ordering, failed reception raw evidence ranged by backend `receivedAt`, alert-to-raw focus, and 1h/24h/7d time-range consistency.
+- `tests/architecture/security-event-observation-panel-contract-boundaries.test.js` is a critical non-explicit explicit-entrypoint-correctness and implementation-traceability guard. Its control point is static inspection of `design/KG/SystemArchitecture.json`, `design/KG/ImplementationToCodingHandoff.json`, `OVERALL_ARCHITECTURE.md`, `deploy/api/ARCHITECTURE.md`, `deploy/web/ARCHITECTURE.md`, `tests/ARCHITECTURE.md`, `tests/e2e/security_center/ARCHITECTURE.md`, `tests/integration/security/security_event_harness.py`, and `tests/e2e/security_center/test_security_event_observation_panel.py`; its observation point is that all six observation-panel acceptance baselines, protected Harness category strings, API/Web route markers, business-readable GIVEN/WHEN/THEN bodies, and expected failing handoff state remain frozen.

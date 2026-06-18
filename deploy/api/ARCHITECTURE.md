@@ -18,6 +18,7 @@ element_path: deploy/api
 - Own cloud-side shadow-state comparison, rejected-event intake, and recovery-handshake orchestration.
 - Own cloud-side lease registry, TTL-expiry downgrade decisions, shadow-state comparison, rejected-event intake, and recovery-handshake orchestration.
 - Own Security Event Ingestion V1 backend semantics: intake, contract-config validation, durable-before-success accepted-event persistence, failed reception records, idempotency, list/detail query APIs, persistence-failure response, and oversized invalid payload bounding.
+- Own Security Event Observation Panel V1 backend semantics as a read-only projection over accepted events and failed reception records: shared 1h/24h/7d time ranges, default latest 24h range when no `range` query is supplied, accepted-event summary statistics, HIGH/MEDIUM alert rows, severity-plus-occurredAt alert ordering, raw reception rows, and sourceSystem plus eventId focus.
 
 ### Out Of Scope
 - Owning edge runtime behavior or local audit files.
@@ -25,6 +26,7 @@ element_path: deploy/api
 - Exposing non-HTTP transports to the edge runtime for this slice.
 - Rendering the Security Event Inbox UI directly.
 - Defining authentication, external third-party intake, alerting, ticketing, remediation, assignment, comments, export, statistics dashboard, retention promises, Web configuration editing, or historical schema display policy for Security Event Ingestion V1.
+- Turning the observation panel into a disposition, ticketing, assignment, approval, risk scoring, custom analytics, raw-payload full-text search, raw-payload export, requester identity, or authentication platform.
 
 ### Dependency Direction
 - src/qwenpaw/security may call this boundary only through HTTP.
@@ -32,6 +34,7 @@ element_path: deploy/api
 - deploy/web may consume this boundary's SSE or WebSocket push stream for red-alert popups and shadow-hash divergence updates.
 - This boundary must not read edge-local files, share edge durable storage, or be imported into the edge runtime as a library.
 - For Security Event Ingestion V1, `deploy/api` reads `deploy/config/security-event-contracts.v1.json` as configuration input and owns its own durable store. `deploy/web` and tests may consume API responses only; they must not read or write the event store directly.
+- The observation-panel read model must be derived from the same accepted-event and failed-reception stores owned by this boundary. `deploy/web` must not recompute summary, alert scope, alert ordering, raw-record membership, or alert-to-raw focus from a separate client-side store.
 
 ### Required API Roles
 - audit uplink intake API
@@ -46,16 +49,22 @@ element_path: deploy/api
 - `GET /security-center/v1/operator/events` returns accepted security events receivedAt-descending with filters for time range, sourceSystem, eventTypeId, and severity, core fields, and configured list payload fields only.
 - `GET /security-center/v1/operator/events/{sourceSystem}/{eventId}` returns stable detail for one accepted event, including base facts, labeled structured payload, undefined payload fields, and bounded read-only raw payload.
 - `GET /security-center/v1/operator/event-reception-failures` returns traceable failed reception records with received time, submitted source field, submitted event type field, failure reason, and bounded request summary.
+- `GET /security-center/v1/operator/event-observation-panel` without an explicit `range` returns the same projection as `range=24h`; this default latest 24h behavior is part of the frozen acceptance boundary.
+- `GET /security-center/v1/operator/event-observation-panel?range={1h|24h|7d}` returns the read-only observation-panel projection for one quick range. It must include `selectedRange`, available quick ranges, summary fields `totalAcceptedEvents`, `highAcceptedEvents`, `sourceSystemDistribution`, `eventTypeIdDistribution`, an `alerts` list containing only HIGH/MEDIUM accepted events ordered HIGH before MEDIUM then occurredAt descending, and `rawRecords` containing accepted and failed reception rows in the same selected range.
+- `GET /security-center/v1/operator/event-observation-panel?range={1h|24h|7d}&focusSourceSystem={sourceSystem}&focusEventId={eventId}` returns the same projection plus `focusedRawRecord` for the matching raw reception record when present.
 
 ### Security Event Data Model
 - Accepted event identity is `(sourceSystem, eventId)`.
 - Accepted events store `eventTypeId`, `schemaVersion`, `severity`, caller-provided `summary`, caller-provided `occurredAt`, backend-generated `receivedAt`, configured structured payload fields, undefined payload fields, and bounded raw payload for detail display.
 - Failure records store received time, submitted source field, submitted event type field, submitted eventId when present, failure reason, and bounded request summary for source rejection, type rejection, schema rejection, payload validation failure, idempotency conflict, persistence failure, and oversized invalid payload handling.
 - Canonical idempotency comparison must normalize event content using the accepted request fields and configured payload values. `sourceSystem` is part of the key; global `eventId` uniqueness is not required.
+- Observation-panel summary and alerts count only accepted legal events by occurredAt within the selected quick range. Failed reception records are visible only in `rawRecords` and must not increase legal-event totals, HIGH counts, source distributions, event-type distributions, or alerts.
+- Observation-panel raw records include accepted events and failed receptions by the same selected time range. Accepted rows use accepted-event `occurredAt` for time-range membership and expose bounded raw payload evidence; failed reception rows use backend-generated `receivedAt` as the time-range source of truth and expose failure reason plus bounded raw-payload/request summary.
 
 ### Notes
 - Coding/Repair may choose concrete framework and route layout, but must preserve HTTP as the edge transport, keep this backend as the only cloud-side control point for edge interactions, require missing-gap verification before an `UNTRUSTED` client regains model access, and publish Security_Rejection_Nonce-triggered operator alerts to deploy/web in under 500ms from uplink receipt without requiring manual refresh.
 - For `sec-event-ingestion-v1`, the current repository state has no implemented event intake/list/detail/failure-record API routes. The explicit entrypoints under `../../tests/integration/security/test_security_event_ingestion.py` and `../../tests/e2e/security_center/test_security_event_inbox.py` are expected to fail with `Security_Event_Ingestion_API_Missing` until Coding/Repair implements this backend contract.
+- For `security-center-event-observation-panel-v1`, the current repository state has accepted-event and failed-reception APIs, but no `GET /security-center/v1/operator/event-observation-panel` read model. The explicit entrypoints under `../../tests/e2e/security_center/test_security_event_observation_panel.py` are expected to fail with `Security_Event_Observation_Panel_API_Missing` until Coding/Repair implements this backend contract.
 - Legal event persistence must complete before `POST /security-center/v1/events` returns success. If the store write fails, the API must return failure and create or preserve a bounded failure reception record when possible; it must not return accepted success for an event that cannot be queried.
 - Security Event records must be durably persisted before success is returned to the caller.
 - `X-QwenPaw-Test-Persistence-Failure` is reserved only as a test-environment failure-injection seam for the frozen explicit acceptance entrypoint. It must not become public production V1 API semantics, must not be documented as an integration feature, and must be ignored or unavailable outside explicit test mode.

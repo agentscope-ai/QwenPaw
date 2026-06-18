@@ -29,11 +29,15 @@ QwenPaw now includes a deploy-owned Security Center slice that stays physically 
     - Returns stable detail by source plus event id, including base facts, labeled structured payload, separated undefined payload fields, and bounded read-only raw payload.
   - Security event failure records: `GET /security-center/v1/operator/event-reception-failures`
     - Returns bounded trace records for rejected or failed event receptions.
+  - Security event observation panel: `GET /security-center/v1/operator/event-observation-panel?range={1h|24h|7d}`
+    - Defaults to latest 24 hours when `range` is omitted.
+    - Returns accepted-event summary statistics, HIGH/MEDIUM alert rows ordered by severity then `occurredAt`, accepted and failed raw reception records, and optional `focusSourceSystem` plus `focusEventId` raw-evidence focus.
 
 - Operator web: `deploy/web/index.html`
   - Renders anomaly dashboard, trust-state and recovery view, rejected-event evidence, hash-break curve chart, gap-validation state, recovery gate state, and Security_Rejection_Nonce Voucher display.
   - Subscribes to deploy/api over Server-Sent Events instead of manual refresh.
   - Renders the Security Event Inbox at `/security-events` and stable detail pages at `/security-events/{sourceSystem}/{eventId}` by consuming deploy/api only.
+  - Renders the Security Event Observation Panel at `/security-event-observation` by consuming the backend observation-panel API only.
 
 ## Security Event Ingestion V1 Calling Examples
 
@@ -135,6 +139,14 @@ curl -sS "http://127.0.0.1:8091/security-center/v1/operator/event-reception-fail
 ```
 
 Invalid source/type/schema/payload submissions, idempotency conflicts, and persistence failures are recorded here with bounded request summaries. They do not appear in the accepted event list.
+
+### Query the observation panel
+
+```bash
+curl -sS "http://127.0.0.1:8091/security-center/v1/operator/event-observation-panel?range=24h"
+```
+
+Use `range=1h`, `range=24h`, or `range=7d`; omitting `range` is equivalent to `range=24h`. Add `focusSourceSystem` and `focusEventId` to locate the raw reception record for a selected alert.
 
 ### Integration Notes
 

@@ -21,7 +21,11 @@ class SecurityCenterWebHandler(SimpleHTTPRequestHandler):
                 f"window.SECURITY_CENTER_CONFIG = {{ apiBase: {api_base!r} }};".encode("utf-8"),
             )
             return
-        if request_path == "/security-events" or request_path.startswith("/security-events/"):
+        if (
+            request_path == "/security-events"
+            or request_path.startswith("/security-events/")
+            or request_path == "/security-event-observation"
+        ):
             self.path = "/index.html"
         return super().do_GET()
 
