@@ -464,17 +464,22 @@ def create_sandbox(config: SandboxConfig) -> Any:
     """Create a sandbox instance based on ``config.mode``.
 
     Supported modes:
-      - SEATBELT → MacOSSandbox
-      - LANDLOCK → LinuxSandbox
-      - NONE     → NoneSandbox
-      - WSL2     → WindowsSandbox (currently disabled at probe time;
-                   Re-enable in ``probe_sandbox_support`` when the
-                   Windows sandbox path is production-ready.)
+      - SEATBELT    → MacOSSandbox
+      - BUBBLEWRAP  → BubblewrapSandbox (Linux preferred)
+      - LANDLOCK    → LinuxSandbox (Linux fallback)
+      - NONE        → NoneSandbox
+      - WSL2        → WindowsSandbox (currently disabled at probe time;
+                     Re-enable in ``probe_sandbox_support`` when the
+                     Windows sandbox path is production-ready.)
     """
     if config.mode == SandboxMode.SEATBELT:
         return MacOSSandbox(config)
     elif config.mode == SandboxMode.NONE:
         return NoneSandbox(config)
+    elif config.mode == SandboxMode.BUBBLEWRAP:
+        from .bubblewrap_sandbox import BubblewrapSandbox
+
+        return BubblewrapSandbox(config)
     elif config.mode == SandboxMode.LANDLOCK:
         from .linux_sandbox import LinuxSandbox
 

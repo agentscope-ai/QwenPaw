@@ -12,7 +12,8 @@ class SandboxMode(str, Enum):
     """Sandbox isolation mode."""
 
     SEATBELT = "seatbelt"  # macOS sandbox-exec
-    LANDLOCK = "landlock"  # Linux (future)
+    BUBBLEWRAP = "bubblewrap"  # Linux bubblewrap (preferred)
+    LANDLOCK = "landlock"  # Linux Landlock LSM (fallback)
     WSL2 = "wsl2"  # Windows (future)
     NONE = "none"  # No isolation, direct execution
 
@@ -315,18 +316,90 @@ def _probe_windows_wsl2() -> SandboxCapability:
     )
 
 
+def _probe_linux_bubblewrap() -> SandboxCapability:
+    """Probe bubblewrap (bwrap) availability on Linux.
+
+    Detection steps:
+        1. bwrap binary exists on PATH
+        2. User namespaces work (test run with --unshare-user)
+    """
+    import shutil
+    import subprocess
+
+    bwrap = shutil.which("bwrap")
+    if not bwrap:
+        return SandboxCapability(
+            supported=False,
+            mode=SandboxMode.NONE,
+            reason="bwrap not found on PATH",
+        )
+    # Probe: attempt a trivial sandboxed execution to confirm
+    # user namespace and mount namespace work.
+    try:
+        result = subprocess.run(  # noqa: S603, pylint: disable=W1510
+            [
+                bwrap,
+                "--ro-bind",
+                "/",
+                "/",
+                "--dev",
+                "/dev",
+                "--unshare-user",
+                "--unshare-pid",
+                "--proc",
+                "/proc",
+                "--",
+                "/bin/true",
+            ],
+            capture_output=True,
+            timeout=5,
+        )
+        if result.returncode == 0:
+            return SandboxCapability(
+                supported=True,
+                mode=SandboxMode.BUBBLEWRAP,
+                reason="bubblewrap available with user namespaces",
+            )
+        stderr = result.stderr.decode("utf-8", errors="replace")
+        return SandboxCapability(
+            supported=False,
+            mode=SandboxMode.NONE,
+            reason=(
+                f"bwrap probe failed (rc={result.returncode}): "
+                f"{stderr[:200]}"
+            ),
+        )
+    except subprocess.TimeoutExpired:
+        return SandboxCapability(
+            supported=False,
+            mode=SandboxMode.NONE,
+            reason="bwrap probe timed out",
+        )
+    except (FileNotFoundError, OSError) as e:
+        return SandboxCapability(
+            supported=False,
+            mode=SandboxMode.NONE,
+            reason=f"bwrap probe error: {e}",
+        )
+
+
 def probe_sandbox_support() -> SandboxCapability:
     """Probe current platform sandbox support at startup.
 
     Returns a SandboxCapability describing whether sandbox isolation is
     available. If unsupported, mode is NONE and callers should block
     the SANDBOX_FALLBACK path.
+
+    On Linux the priority is: bubblewrap > Landlock > NONE.
     """
     import sys
 
     if sys.platform == "darwin":
         return _probe_macos_seatbelt()
     elif sys.platform == "linux":
+        cap = _probe_linux_bubblewrap()
+        if cap.supported:
+            return cap
         return _probe_linux_landlock()
     elif sys.platform == "win32":
         # Windows sandbox (WSL2 + Landlock) is currently disabled because the

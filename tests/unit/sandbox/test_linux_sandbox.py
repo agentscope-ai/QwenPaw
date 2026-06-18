@@ -35,9 +35,10 @@ class TestProbeSandboxSupport:
         assert result.mode == SandboxMode.SEATBELT
 
     @patch("sys.platform", "linux")
+    @patch("shutil.which", return_value=None)  # bwrap not found
     @patch("os.uname")
-    def test_linux_delegates_to_landlock(self, mock_uname):
-        # Will fail kernel check but that's fine — we just verify routing
+    def test_linux_delegates_to_landlock(self, mock_uname, mock_which):
+        # bwrap not found → falls through to Landlock → kernel too old
         mock_uname.return_value = MagicMock(release="4.0.0")
         result = probe_sandbox_support()
         # Should go through _probe_linux_landlock and fail on kernel version
