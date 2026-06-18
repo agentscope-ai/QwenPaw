@@ -1,0 +1,14 @@
+.env
+.env.local
+generated/*.yaml
+generated/*.yml
+!generated/.gitkeep
+results/*.json
+results/*.html
+!results/.gitkeep
+reports/*
+!reports/.gitkeep
+.promptfoo/
+promptfoo-results*
+*.sqlite
+*.db

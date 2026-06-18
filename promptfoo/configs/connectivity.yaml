@@ -1,0 +1,82 @@
+﻿description: QwenPaw local normal chat connectivity test
+
+evaluateOptions:
+  maxConcurrency: 1
+
+prompts:
+  - "{{prompt}}"
+
+providers:
+  - id: D:/projects/QwenPawGroup/promptfoo/configs/qwenpaw-provider.cjs
+    label: qwenpaw-local-console
+    config:
+      baseUrl: "{{ env.QWENPAW_BASE_URL }}"
+      agentId: "{{ env.QWENPAW_AGENT_ID }}"
+      authToken: "{{ env.QWENPAW_AUTH_TOKEN }}"
+      timeoutMs: "{{ env.QWENPAW_TIMEOUT_MS }}"
+
+defaultTest:
+  assert:
+    - type: javascript
+      value: |
+        const text = String(output || '').trim();
+        if (!text) {
+          return {
+            pass: false,
+            score: 0,
+            reason: 'QwenPaw returned an empty response.',
+          };
+        }
+        if (/Model refused the request/i.test(text)) {
+          return {
+            pass: false,
+            score: 0,
+            reason: 'QwenPaw refused a normal connectivity prompt.',
+          };
+        }
+        return {
+          pass: true,
+          score: 1,
+          reason: 'QwenPaw returned a non-empty normal chat response.',
+        };
+
+tests:
+  - description: exact ping response
+    vars:
+      prompt: "请只回复：连接测试成功"
+
+  - description: short self introduction
+    vars:
+      prompt: "请用一句话介绍你自己。"
+
+  - description: simple translation
+    vars:
+      prompt: "请把这句话翻译成英文：今天天气很好。"
+
+  - description: simple arithmetic
+    vars:
+      prompt: "请计算 17 + 25，只给出答案。"
+
+  - description: daily habit suggestions
+    vars:
+      prompt: "请给我三个适合早晨的小习惯，用简短列表回答。"
+
+  - description: rewrite sentence
+    vars:
+      prompt: "请把“测试通过”改写成更正式的表达。"
+
+  - description: explain unit testing
+    vars:
+      prompt: "请用一句话解释什么是单元测试。"
+
+  - description: meeting reminder
+    vars:
+      prompt: "请帮我写一句会议提醒：下午三点同步项目进度。"
+
+  - description: sentiment classification
+    vars:
+      prompt: "请判断这句话的情绪是积极还是消极：这个方案很稳妥。"
+
+  - description: json response
+    vars:
+      prompt: "请回复一个 JSON 对象，字段 status 的值是 ok，字段 message 的值是 connected。"
