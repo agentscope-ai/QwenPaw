@@ -752,7 +752,10 @@ class PluginLoader:
         # Re-read manifest from the installed location so that
         # source_path in the record points to the correct directory
         installed_manifest = self._load_manifest(target_dir / "plugin.json")
-        return await self.load_plugin(installed_manifest, target_dir, config)
+        result = await self.load_plugin(installed_manifest, target_dir, config)
+        if result is None:
+            raise RuntimeError(f"Failed to load plugin '{plugin_id}' after installation")
+        return result
 
     async def unload_plugin(
         self,

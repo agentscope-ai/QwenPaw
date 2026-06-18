@@ -222,13 +222,16 @@ def _resolved_desktop_base_url() -> str:
     return cands[0].rstrip("/") if cands else "http://127.0.0.1:8765"
 
 
-def desktop_health() -> dict[str, Any] | None:
+def desktop_health(timeout: float | None = None) -> dict[str, Any] | None:
     global _active_desktop_base
+    client_kwargs = _httpx_client_kwargs()
+    if timeout is not None:
+        client_kwargs["timeout"] = timeout
     for base in _desktop_url_candidates():
         try:
             response = httpx.get(
                 f"{base.rstrip('/')}/health",
-                **_httpx_client_kwargs(),
+                **client_kwargs,
             )
             response.raise_for_status()
             data = response.json()
@@ -379,7 +382,6 @@ def _build_spawn_command(
 
 
 def _spawn_desktop_background_impl() -> tuple[bool, str | None]:
-    python_exe = sys.executable
     try:
         from qwenpaw_pet_desktop import runtime as pet_rt
     except ImportError as exc:
@@ -541,7 +543,7 @@ def stop_desktop(
         )
         _clear_desktop_base_url_cache()
         return {"ok": True, "stopped": False, "reason": "pid is qwenpaw"}
-    running = pet_rt.is_pet_desktop_pid(pid)
+    running = pet_rt.is_pid_running(pid)
     if not running and not force:
         _clear_desktop_base_url_cache()
         return {"ok": True, "stopped": False, "reason": "not running"}
