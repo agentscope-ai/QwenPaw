@@ -43,6 +43,21 @@
       "allowedEventTypeIds": [
         "data_loss_policy_match"
       ]
+    },
+    {
+      "sourceSystem": "agentgateway_rbac",
+      "enabled": true,
+      "displayName": "AgentGateway RBAC",
+      "allowedEventTypeIds": [
+        "gateway_log_error",
+        "gateway_log_warning",
+        "mcp_authorization_deny",
+        "mcp_protocol_error",
+        "gateway_request_error",
+        "http_server_error",
+        "http_client_error",
+        "gateway_stderr_error"
+      ]
     }
   ],
   "eventTypes": [
@@ -191,6 +206,230 @@
               "required": true,
               "showInList": false
             }
+          ]
+        }
+      ]
+    },
+    {
+      "eventTypeId": "gateway_log_error",
+      "displayName": "Gateway Log Error",
+      "schemaVersions": [
+        {
+          "schemaVersion": "1.0",
+          "payloadFields": [
+            { "name": "gateway", "label": "Gateway", "type": "string", "required": false, "maxLength": 128, "showInList": false },
+            { "name": "listener", "label": "Listener", "type": "string", "required": false, "maxLength": 128, "showInList": false },
+            { "name": "route", "label": "Route", "type": "string", "required": false, "maxLength": 128, "showInList": false },
+            { "name": "httpMethod", "label": "HTTP Method", "type": "string", "required": false, "maxLength": 16, "showInList": true },
+            { "name": "httpPath", "label": "HTTP Path", "type": "string", "required": false, "maxLength": 512, "showInList": true },
+            { "name": "httpStatus", "label": "HTTP Status", "type": "string", "required": false, "maxLength": 8, "showInList": true },
+            { "name": "jwtSubject", "label": "JWT Subject", "type": "string", "required": false, "maxLength": 128, "showInList": true },
+            { "name": "mcpMethod", "label": "MCP Method", "type": "string", "required": false, "maxLength": 64, "showInList": false },
+            { "name": "mcpTarget", "label": "MCP Target", "type": "string", "required": false, "maxLength": 64, "showInList": true },
+            { "name": "mcpTool", "label": "MCP Tool", "type": "string", "required": false, "maxLength": 128, "showInList": true },
+            { "name": "error", "label": "Error", "type": "string", "required": false, "maxLength": 2048, "showInList": true },
+            { "name": "reason", "label": "Reason", "type": "string", "required": false, "maxLength": 128, "showInList": false },
+            { "name": "protocol", "label": "Protocol", "type": "string", "required": false, "maxLength": 32, "showInList": false },
+            { "name": "logLevel", "label": "Log Level", "type": "string", "required": false, "maxLength": 16, "showInList": false },
+            { "name": "logScope", "label": "Log Scope", "type": "string", "required": false, "maxLength": 32, "showInList": false },
+            { "name": "sourceFile", "label": "Source File", "type": "string", "required": false, "maxLength": 256, "showInList": false },
+            { "name": "rawLogLine", "label": "Raw Log Line", "type": "string", "required": false, "maxLength": 4096, "showInList": false }
+          ]
+        }
+      ]
+    },
+    {
+      "eventTypeId": "gateway_log_warning",
+      "displayName": "Gateway Log Warning",
+      "schemaVersions": [
+        {
+          "schemaVersion": "1.0",
+          "payloadFields": [
+            { "name": "gateway", "label": "Gateway", "type": "string", "required": false, "maxLength": 128, "showInList": false },
+            { "name": "listener", "label": "Listener", "type": "string", "required": false, "maxLength": 128, "showInList": false },
+            { "name": "route", "label": "Route", "type": "string", "required": false, "maxLength": 128, "showInList": false },
+            { "name": "httpMethod", "label": "HTTP Method", "type": "string", "required": false, "maxLength": 16, "showInList": true },
+            { "name": "httpPath", "label": "HTTP Path", "type": "string", "required": false, "maxLength": 512, "showInList": true },
+            { "name": "httpStatus", "label": "HTTP Status", "type": "string", "required": false, "maxLength": 8, "showInList": true },
+            { "name": "jwtSubject", "label": "JWT Subject", "type": "string", "required": false, "maxLength": 128, "showInList": true },
+            { "name": "mcpMethod", "label": "MCP Method", "type": "string", "required": false, "maxLength": 64, "showInList": false },
+            { "name": "mcpTarget", "label": "MCP Target", "type": "string", "required": false, "maxLength": 64, "showInList": true },
+            { "name": "mcpTool", "label": "MCP Tool", "type": "string", "required": false, "maxLength": 128, "showInList": true },
+            { "name": "error", "label": "Error", "type": "string", "required": false, "maxLength": 2048, "showInList": true },
+            { "name": "reason", "label": "Reason", "type": "string", "required": false, "maxLength": 128, "showInList": false },
+            { "name": "protocol", "label": "Protocol", "type": "string", "required": false, "maxLength": 32, "showInList": false },
+            { "name": "logLevel", "label": "Log Level", "type": "string", "required": false, "maxLength": 16, "showInList": false },
+            { "name": "logScope", "label": "Log Scope", "type": "string", "required": false, "maxLength": 32, "showInList": false },
+            { "name": "sourceFile", "label": "Source File", "type": "string", "required": false, "maxLength": 256, "showInList": false },
+            { "name": "rawLogLine", "label": "Raw Log Line", "type": "string", "required": false, "maxLength": 4096, "showInList": false }
+          ]
+        }
+      ]
+    },
+    {
+      "eventTypeId": "mcp_authorization_deny",
+      "displayName": "MCP Authorization Deny",
+      "schemaVersions": [
+        {
+          "schemaVersion": "1.0",
+          "payloadFields": [
+            { "name": "gateway", "label": "Gateway", "type": "string", "required": false, "maxLength": 128, "showInList": false },
+            { "name": "listener", "label": "Listener", "type": "string", "required": false, "maxLength": 128, "showInList": false },
+            { "name": "route", "label": "Route", "type": "string", "required": false, "maxLength": 128, "showInList": false },
+            { "name": "httpMethod", "label": "HTTP Method", "type": "string", "required": false, "maxLength": 16, "showInList": true },
+            { "name": "httpPath", "label": "HTTP Path", "type": "string", "required": false, "maxLength": 512, "showInList": true },
+            { "name": "httpStatus", "label": "HTTP Status", "type": "string", "required": false, "maxLength": 8, "showInList": true },
+            { "name": "jwtSubject", "label": "JWT Subject", "type": "string", "required": false, "maxLength": 128, "showInList": true },
+            { "name": "mcpMethod", "label": "MCP Method", "type": "string", "required": false, "maxLength": 64, "showInList": false },
+            { "name": "mcpTarget", "label": "MCP Target", "type": "string", "required": false, "maxLength": 64, "showInList": true },
+            { "name": "mcpTool", "label": "MCP Tool", "type": "string", "required": false, "maxLength": 128, "showInList": true },
+            { "name": "error", "label": "Error", "type": "string", "required": false, "maxLength": 2048, "showInList": true },
+            { "name": "reason", "label": "Reason", "type": "string", "required": false, "maxLength": 128, "showInList": false },
+            { "name": "protocol", "label": "Protocol", "type": "string", "required": false, "maxLength": 32, "showInList": false },
+            { "name": "logLevel", "label": "Log Level", "type": "string", "required": false, "maxLength": 16, "showInList": false },
+            { "name": "logScope", "label": "Log Scope", "type": "string", "required": false, "maxLength": 32, "showInList": false },
+            { "name": "sourceFile", "label": "Source File", "type": "string", "required": false, "maxLength": 256, "showInList": false },
+            { "name": "rawLogLine", "label": "Raw Log Line", "type": "string", "required": false, "maxLength": 4096, "showInList": false }
+          ]
+        }
+      ]
+    },
+    {
+      "eventTypeId": "mcp_protocol_error",
+      "displayName": "MCP Protocol Error",
+      "schemaVersions": [
+        {
+          "schemaVersion": "1.0",
+          "payloadFields": [
+            { "name": "gateway", "label": "Gateway", "type": "string", "required": false, "maxLength": 128, "showInList": false },
+            { "name": "listener", "label": "Listener", "type": "string", "required": false, "maxLength": 128, "showInList": false },
+            { "name": "route", "label": "Route", "type": "string", "required": false, "maxLength": 128, "showInList": false },
+            { "name": "httpMethod", "label": "HTTP Method", "type": "string", "required": false, "maxLength": 16, "showInList": true },
+            { "name": "httpPath", "label": "HTTP Path", "type": "string", "required": false, "maxLength": 512, "showInList": true },
+            { "name": "httpStatus", "label": "HTTP Status", "type": "string", "required": false, "maxLength": 8, "showInList": true },
+            { "name": "jwtSubject", "label": "JWT Subject", "type": "string", "required": false, "maxLength": 128, "showInList": true },
+            { "name": "mcpMethod", "label": "MCP Method", "type": "string", "required": false, "maxLength": 64, "showInList": false },
+            { "name": "mcpTarget", "label": "MCP Target", "type": "string", "required": false, "maxLength": 64, "showInList": true },
+            { "name": "mcpTool", "label": "MCP Tool", "type": "string", "required": false, "maxLength": 128, "showInList": true },
+            { "name": "error", "label": "Error", "type": "string", "required": false, "maxLength": 2048, "showInList": true },
+            { "name": "reason", "label": "Reason", "type": "string", "required": false, "maxLength": 128, "showInList": false },
+            { "name": "protocol", "label": "Protocol", "type": "string", "required": false, "maxLength": 32, "showInList": false },
+            { "name": "logLevel", "label": "Log Level", "type": "string", "required": false, "maxLength": 16, "showInList": false },
+            { "name": "logScope", "label": "Log Scope", "type": "string", "required": false, "maxLength": 32, "showInList": false },
+            { "name": "sourceFile", "label": "Source File", "type": "string", "required": false, "maxLength": 256, "showInList": false },
+            { "name": "rawLogLine", "label": "Raw Log Line", "type": "string", "required": false, "maxLength": 4096, "showInList": false }
+          ]
+        }
+      ]
+    },
+    {
+      "eventTypeId": "gateway_request_error",
+      "displayName": "Gateway Request Error",
+      "schemaVersions": [
+        {
+          "schemaVersion": "1.0",
+          "payloadFields": [
+            { "name": "gateway", "label": "Gateway", "type": "string", "required": false, "maxLength": 128, "showInList": false },
+            { "name": "listener", "label": "Listener", "type": "string", "required": false, "maxLength": 128, "showInList": false },
+            { "name": "route", "label": "Route", "type": "string", "required": false, "maxLength": 128, "showInList": false },
+            { "name": "httpMethod", "label": "HTTP Method", "type": "string", "required": false, "maxLength": 16, "showInList": true },
+            { "name": "httpPath", "label": "HTTP Path", "type": "string", "required": false, "maxLength": 512, "showInList": true },
+            { "name": "httpStatus", "label": "HTTP Status", "type": "string", "required": false, "maxLength": 8, "showInList": true },
+            { "name": "jwtSubject", "label": "JWT Subject", "type": "string", "required": false, "maxLength": 128, "showInList": true },
+            { "name": "mcpMethod", "label": "MCP Method", "type": "string", "required": false, "maxLength": 64, "showInList": false },
+            { "name": "mcpTarget", "label": "MCP Target", "type": "string", "required": false, "maxLength": 64, "showInList": true },
+            { "name": "mcpTool", "label": "MCP Tool", "type": "string", "required": false, "maxLength": 128, "showInList": true },
+            { "name": "error", "label": "Error", "type": "string", "required": false, "maxLength": 2048, "showInList": true },
+            { "name": "reason", "label": "Reason", "type": "string", "required": false, "maxLength": 128, "showInList": false },
+            { "name": "protocol", "label": "Protocol", "type": "string", "required": false, "maxLength": 32, "showInList": false },
+            { "name": "logLevel", "label": "Log Level", "type": "string", "required": false, "maxLength": 16, "showInList": false },
+            { "name": "logScope", "label": "Log Scope", "type": "string", "required": false, "maxLength": 32, "showInList": false },
+            { "name": "sourceFile", "label": "Source File", "type": "string", "required": false, "maxLength": 256, "showInList": false },
+            { "name": "rawLogLine", "label": "Raw Log Line", "type": "string", "required": false, "maxLength": 4096, "showInList": false }
+          ]
+        }
+      ]
+    },
+    {
+      "eventTypeId": "http_server_error",
+      "displayName": "HTTP Server Error",
+      "schemaVersions": [
+        {
+          "schemaVersion": "1.0",
+          "payloadFields": [
+            { "name": "gateway", "label": "Gateway", "type": "string", "required": false, "maxLength": 128, "showInList": false },
+            { "name": "listener", "label": "Listener", "type": "string", "required": false, "maxLength": 128, "showInList": false },
+            { "name": "route", "label": "Route", "type": "string", "required": false, "maxLength": 128, "showInList": false },
+            { "name": "httpMethod", "label": "HTTP Method", "type": "string", "required": false, "maxLength": 16, "showInList": true },
+            { "name": "httpPath", "label": "HTTP Path", "type": "string", "required": false, "maxLength": 512, "showInList": true },
+            { "name": "httpStatus", "label": "HTTP Status", "type": "string", "required": false, "maxLength": 8, "showInList": true },
+            { "name": "jwtSubject", "label": "JWT Subject", "type": "string", "required": false, "maxLength": 128, "showInList": true },
+            { "name": "mcpMethod", "label": "MCP Method", "type": "string", "required": false, "maxLength": 64, "showInList": false },
+            { "name": "mcpTarget", "label": "MCP Target", "type": "string", "required": false, "maxLength": 64, "showInList": true },
+            { "name": "mcpTool", "label": "MCP Tool", "type": "string", "required": false, "maxLength": 128, "showInList": true },
+            { "name": "error", "label": "Error", "type": "string", "required": false, "maxLength": 2048, "showInList": true },
+            { "name": "reason", "label": "Reason", "type": "string", "required": false, "maxLength": 128, "showInList": false },
+            { "name": "protocol", "label": "Protocol", "type": "string", "required": false, "maxLength": 32, "showInList": false },
+            { "name": "logLevel", "label": "Log Level", "type": "string", "required": false, "maxLength": 16, "showInList": false },
+            { "name": "logScope", "label": "Log Scope", "type": "string", "required": false, "maxLength": 32, "showInList": false },
+            { "name": "sourceFile", "label": "Source File", "type": "string", "required": false, "maxLength": 256, "showInList": false },
+            { "name": "rawLogLine", "label": "Raw Log Line", "type": "string", "required": false, "maxLength": 4096, "showInList": false }
+          ]
+        }
+      ]
+    },
+    {
+      "eventTypeId": "http_client_error",
+      "displayName": "HTTP Client Error",
+      "schemaVersions": [
+        {
+          "schemaVersion": "1.0",
+          "payloadFields": [
+            { "name": "gateway", "label": "Gateway", "type": "string", "required": false, "maxLength": 128, "showInList": false },
+            { "name": "listener", "label": "Listener", "type": "string", "required": false, "maxLength": 128, "showInList": false },
+            { "name": "route", "label": "Route", "type": "string", "required": false, "maxLength": 128, "showInList": false },
+            { "name": "httpMethod", "label": "HTTP Method", "type": "string", "required": false, "maxLength": 16, "showInList": true },
+            { "name": "httpPath", "label": "HTTP Path", "type": "string", "required": false, "maxLength": 512, "showInList": true },
+            { "name": "httpStatus", "label": "HTTP Status", "type": "string", "required": false, "maxLength": 8, "showInList": true },
+            { "name": "jwtSubject", "label": "JWT Subject", "type": "string", "required": false, "maxLength": 128, "showInList": true },
+            { "name": "mcpMethod", "label": "MCP Method", "type": "string", "required": false, "maxLength": 64, "showInList": false },
+            { "name": "mcpTarget", "label": "MCP Target", "type": "string", "required": false, "maxLength": 64, "showInList": true },
+            { "name": "mcpTool", "label": "MCP Tool", "type": "string", "required": false, "maxLength": 128, "showInList": true },
+            { "name": "error", "label": "Error", "type": "string", "required": false, "maxLength": 2048, "showInList": true },
+            { "name": "reason", "label": "Reason", "type": "string", "required": false, "maxLength": 128, "showInList": false },
+            { "name": "protocol", "label": "Protocol", "type": "string", "required": false, "maxLength": 32, "showInList": false },
+            { "name": "logLevel", "label": "Log Level", "type": "string", "required": false, "maxLength": 16, "showInList": false },
+            { "name": "logScope", "label": "Log Scope", "type": "string", "required": false, "maxLength": 32, "showInList": false },
+            { "name": "sourceFile", "label": "Source File", "type": "string", "required": false, "maxLength": 256, "showInList": false },
+            { "name": "rawLogLine", "label": "Raw Log Line", "type": "string", "required": false, "maxLength": 4096, "showInList": false }
+          ]
+        }
+      ]
+    },
+    {
+      "eventTypeId": "gateway_stderr_error",
+      "displayName": "Gateway Stderr Error",
+      "schemaVersions": [
+        {
+          "schemaVersion": "1.0",
+          "payloadFields": [
+            { "name": "gateway", "label": "Gateway", "type": "string", "required": false, "maxLength": 128, "showInList": false },
+            { "name": "listener", "label": "Listener", "type": "string", "required": false, "maxLength": 128, "showInList": false },
+            { "name": "route", "label": "Route", "type": "string", "required": false, "maxLength": 128, "showInList": false },
+            { "name": "httpMethod", "label": "HTTP Method", "type": "string", "required": false, "maxLength": 16, "showInList": true },
+            { "name": "httpPath", "label": "HTTP Path", "type": "string", "required": false, "maxLength": 512, "showInList": true },
+            { "name": "httpStatus", "label": "HTTP Status", "type": "string", "required": false, "maxLength": 8, "showInList": true },
+            { "name": "jwtSubject", "label": "JWT Subject", "type": "string", "required": false, "maxLength": 128, "showInList": true },
+            { "name": "mcpMethod", "label": "MCP Method", "type": "string", "required": false, "maxLength": 64, "showInList": false },
+            { "name": "mcpTarget", "label": "MCP Target", "type": "string", "required": false, "maxLength": 64, "showInList": true },
+            { "name": "mcpTool", "label": "MCP Tool", "type": "string", "required": false, "maxLength": 128, "showInList": true },
+            { "name": "error", "label": "Error", "type": "string", "required": false, "maxLength": 2048, "showInList": true },
+            { "name": "reason", "label": "Reason", "type": "string", "required": false, "maxLength": 128, "showInList": false },
+            { "name": "protocol", "label": "Protocol", "type": "string", "required": false, "maxLength": 32, "showInList": false },
+            { "name": "logLevel", "label": "Log Level", "type": "string", "required": false, "maxLength": 16, "showInList": false },
+            { "name": "logScope", "label": "Log Scope", "type": "string", "required": false, "maxLength": 32, "showInList": false },
+            { "name": "sourceFile", "label": "Source File", "type": "string", "required": false, "maxLength": 256, "showInList": false },
+            { "name": "rawLogLine", "label": "Raw Log Line", "type": "string", "required": false, "maxLength": 4096, "showInList": false }
           ]
         }
       ]

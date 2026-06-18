@@ -1,0 +1,1785 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>QwenPaw Promptfoo 测试看板</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #eef3f8;
+      --panel: #ffffff;
+      --panel-soft: #f6f8fb;
+      --text: #111827;
+      --muted: #5f6f85;
+      --border: #d8e1ec;
+      --border-strong: #b9c7d8;
+      --pass: #057a55;
+      --fail: #be123c;
+      --error: #b45309;
+      --info: #0f62fe;
+      --info-soft: #edf4ff;
+      --accent: #00a3a3;
+      --shadow: 0 18px 44px rgba(30, 41, 59, 0.10);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.92) 0, rgba(238, 243, 248, 0.96) 210px, var(--bg) 100%),
+        var(--bg);
+      color: var(--text);
+      font-family: "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+      font-size: 13px;
+      line-height: 1.5;
+    }
+    header {
+      padding: 0 20px;
+      border-bottom: 1px solid var(--border);
+      background: rgba(255, 255, 255, 0.96);
+      box-shadow: 0 1px 4px rgba(17, 24, 39, 0.08);
+    }
+    .topbar {
+      min-height: 56px;
+      margin: 0 auto;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 20px;
+    }
+    .nav-left {
+      display: flex;
+      align-items: center;
+      gap: 28px;
+      min-width: 0;
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      min-width: max-content;
+    }
+    .brand-badge {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 24px;
+      height: 24px;
+      border-radius: 7px;
+      background: #111827;
+      color: #fff;
+      font-size: 12px;
+      font-weight: 800;
+      line-height: 1;
+    }
+    .brand-subtitle {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 600;
+    }
+    h1 {
+      margin: 0;
+      font-size: 17px;
+      font-weight: 700;
+      letter-spacing: 0;
+      line-height: 1.1;
+    }
+    h2 {
+      margin: 0;
+      font-size: 15px;
+      font-weight: 650;
+      letter-spacing: 0;
+    }
+    main {
+      max-width: 1440px;
+      margin: 0 auto;
+      padding: 18px 28px 40px;
+    }
+    .muted { color: var(--muted); }
+    .tabs {
+      display: flex;
+      align-items: center;
+      justify-content: flex-start;
+      gap: 8px;
+      padding: 0;
+      margin: 0;
+      border: 0;
+      border-radius: 0;
+      background: transparent;
+      box-shadow: none;
+      overflow-x: auto;
+      max-width: 100%;
+    }
+    .tab-button {
+      border: 0;
+      border-radius: 8px;
+      background: transparent;
+      color: #1f2937;
+      padding: 8px 12px;
+      min-height: 34px;
+      white-space: nowrap;
+      font-weight: 500;
+    }
+    .tab-button:hover {
+      background: #f3f6fb;
+      color: var(--text);
+    }
+    .tab-button.active {
+      background: #e7f0ff;
+      color: var(--text);
+      box-shadow: none;
+    }
+    .nav-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--muted);
+      min-width: max-content;
+    }
+    .tab-panel {
+      display: none;
+      background: rgba(255, 255, 255, 0.96);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 16px;
+      box-shadow: var(--shadow);
+    }
+    .tab-panel.active { display: block; }
+    .panel-head {
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+      gap: 14px;
+      margin-bottom: 12px;
+    }
+    .panel-copy {
+      margin-top: 3px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+    .cards {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+      gap: 10px;
+      margin: 0 0 12px;
+    }
+    .card {
+      background: linear-gradient(180deg, #ffffff, #fbfdff);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 12px 13px;
+      box-shadow: 0 1px 2px rgba(30, 41, 59, 0.04);
+    }
+    .metric-card {
+      cursor: pointer;
+      transition: border-color 140ms ease, box-shadow 140ms ease, transform 140ms ease;
+    }
+    .metric-card:hover,
+    .metric-card:focus-visible {
+      border-color: rgba(15, 98, 254, 0.48);
+      box-shadow: 0 10px 22px rgba(15, 98, 254, 0.12);
+      transform: translateY(-1px);
+      outline: none;
+    }
+    .card .label {
+      color: var(--muted);
+      font-size: 11px;
+      margin-bottom: 3px;
+    }
+    .card .value {
+      font-size: 24px;
+      font-weight: 700;
+      line-height: 1.15;
+    }
+    .overview-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 10px;
+    }
+    .insight-card {
+      min-height: 96px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: linear-gradient(135deg, #ffffff 0%, #f8fbff 100%);
+      padding: 12px 13px;
+    }
+    .insight-label {
+      color: var(--muted);
+      font-size: 11px;
+      margin-bottom: 6px;
+    }
+    .insight-value {
+      font-size: 18px;
+      font-weight: 700;
+      margin-bottom: 5px;
+    }
+    .insight-copy {
+      color: var(--muted);
+      font-size: 12px;
+    }
+    .chart-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px;
+      margin: 12px 0;
+    }
+    .chart-card {
+      min-height: 260px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
+      padding: 12px;
+      box-shadow: 0 1px 2px rgba(30, 41, 59, 0.04);
+    }
+    .chart-title {
+      margin-bottom: 4px;
+      font-size: 13px;
+      font-weight: 700;
+    }
+    .chart-copy {
+      margin-bottom: 8px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+    .chart {
+      width: 100%;
+      height: 210px;
+    }
+    .overview-layout {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px;
+      margin-top: 10px;
+    }
+    .framework-head {
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+      gap: 12px;
+      margin: 16px 0 10px;
+    }
+    .framework-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px;
+      margin-bottom: 10px;
+    }
+    .framework-card {
+      display: flex;
+      flex-direction: column;
+      min-height: 360px;
+      overflow: hidden;
+      border: 1px solid #cfe6dc;
+      border-radius: 10px;
+      background: linear-gradient(180deg, #f8fffc 0%, #f2fbf8 100%);
+      box-shadow: 0 1px 2px rgba(30, 41, 59, 0.04);
+    }
+    .framework-card-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 14px 14px 10px;
+    }
+    .framework-title {
+      margin: 0;
+      font-size: 16px;
+      font-weight: 750;
+      line-height: 1.35;
+    }
+    .framework-desc {
+      padding: 0 14px 10px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+    .framework-result {
+      margin: 0 14px 10px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.72);
+      overflow: hidden;
+    }
+    .framework-result-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 8px 10px;
+      background: rgba(222, 235, 228, 0.65);
+    }
+    .framework-items {
+      display: grid;
+      overflow: auto;
+      max-height: 310px;
+    }
+    .framework-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 10px;
+      align-items: center;
+      padding: 8px 10px;
+      border-top: 1px solid rgba(216, 225, 236, 0.7);
+    }
+    .framework-row-name {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .framework-row-meta {
+      margin-top: 2px;
+      color: var(--muted);
+      font-size: 11px;
+    }
+    .fw-status {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 70px;
+      border-radius: 999px;
+      padding: 2px 8px;
+      font-size: 11px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+    .fw-status.PASS { color: var(--pass); background: #dff8ed; }
+    .fw-status.FAIL { color: var(--fail); background: #fde7ed; }
+    .fw-status.NOT_TESTED { color: #667085; background: #eef2f7; }
+    .overview-section,
+    .detail-card {
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: rgba(255, 255, 255, 0.88);
+      padding: 12px;
+    }
+    .section-title {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      margin-bottom: 9px;
+      font-weight: 650;
+    }
+    .compact-list {
+      display: grid;
+      gap: 7px;
+    }
+    .list-row {
+      width: 100%;
+      display: grid;
+      gap: 6px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: linear-gradient(180deg, #fff, #fbfdff);
+      padding: 8px 9px;
+      text-align: left;
+    }
+    .list-row:hover,
+    .list-row:focus-visible {
+      border-color: rgba(15, 98, 254, 0.48);
+      background: #f6faff;
+      color: var(--text);
+      outline: none;
+    }
+    .row-main {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      min-width: 0;
+    }
+    .row-title {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-weight: 600;
+    }
+    .row-value {
+      flex: 0 0 auto;
+      font-weight: 700;
+    }
+    .row-meta {
+      color: var(--muted);
+      font-size: 12px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .mini-bar {
+      height: 5px;
+      overflow: hidden;
+      border-radius: 999px;
+      background: #e5e7eb;
+    }
+    .mini-bar-fill {
+      height: 100%;
+      border-radius: inherit;
+      background: linear-gradient(90deg, var(--info), var(--accent));
+    }
+    .detail-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 10px;
+    }
+    .detail-card.wide { grid-column: 1 / -1; }
+    .detail-value {
+      font-size: 17px;
+      font-weight: 700;
+      word-break: break-word;
+    }
+    .file-list {
+      margin: 6px 0 0;
+      padding-left: 0;
+      color: var(--text);
+      list-style: none;
+    }
+    .file-list li + li { margin-top: 6px; }
+    .file-list li {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: #fff;
+      padding: 7px 9px;
+    }
+    .source-file-name {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .source-file-download {
+      flex: 0 0 auto;
+      border-radius: 999px;
+      background: var(--info-soft);
+      color: var(--info);
+      padding: 2px 9px;
+      text-decoration: none;
+      font-size: 12px;
+      font-weight: 650;
+    }
+    .source-file-download:hover {
+      background: #dbeafe;
+    }
+    .toolbar {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      gap: 8px;
+      margin: 0 0 12px;
+    }
+    input, select {
+      width: 100%;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: #fff;
+      color: var(--text);
+      padding: 7px 9px;
+      font: inherit;
+      min-height: 34px;
+      outline: none;
+      transition: border-color 120ms ease, box-shadow 120ms ease;
+    }
+    input:focus, select:focus {
+      border-color: var(--info);
+      box-shadow: 0 0 0 3px var(--info-soft);
+    }
+    #suiteTable, #categoryTable {
+      overflow-x: auto;
+      border-radius: 10px;
+    }
+    #caseTable {
+      overflow-x: hidden;
+      border-radius: 10px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      overflow: hidden;
+      box-shadow: 0 1px 2px rgba(30, 41, 59, 0.04);
+    }
+    th, td {
+      padding: 6px 9px;
+      border-bottom: 1px solid var(--border);
+      vertical-align: top;
+      text-align: left;
+    }
+    th {
+      background: #f2f6fb;
+      font-size: 11px;
+      color: #344054;
+      font-weight: 650;
+      white-space: nowrap;
+      position: sticky;
+      top: 0;
+      z-index: 1;
+    }
+    tbody tr:hover td { background: #f6faff; }
+    tr:last-child td { border-bottom: 0; }
+    #caseTable table {
+      table-layout: fixed;
+      min-width: 0;
+    }
+    #caseTable th,
+    #caseTable td {
+      overflow-wrap: anywhere;
+      word-break: break-word;
+    }
+    #caseTable th:nth-child(1),
+    #caseTable td:nth-child(1) { width: 64px; }
+    #caseTable th:nth-child(2),
+    #caseTable td:nth-child(2) { width: 72px; }
+    #caseTable th:nth-child(3),
+    #caseTable td:nth-child(3) { width: 13%; }
+    #caseTable th:nth-child(4),
+    #caseTable td:nth-child(4) { width: 13%; }
+    #caseTable th:nth-child(5),
+    #caseTable td:nth-child(5) { width: 24%; }
+    #caseTable th:nth-child(6),
+    #caseTable td:nth-child(6) { width: 24%; }
+    #caseTable th:nth-child(7),
+    #caseTable td:nth-child(7) { width: auto; }
+    .status {
+      display: inline-block;
+      min-width: 46px;
+      border-radius: 999px;
+      padding: 1px 7px;
+      text-align: center;
+      font-size: 11px;
+      font-weight: 700;
+      line-height: 1.6;
+    }
+    .PASS { color: var(--pass); background: #e8f5ee; }
+    .FAIL { color: var(--fail); background: #fdecec; }
+    .ERROR { color: var(--error); background: #fff3e6; }
+    .case-text {
+      display: -webkit-box;
+      overflow: hidden;
+      -webkit-box-orient: vertical;
+      line-height: 1.45;
+    }
+    .case-text.clamp-2 { -webkit-line-clamp: 2; }
+    .case-text.clamp-4 { -webkit-line-clamp: 4; }
+    .case-desc {
+      margin-bottom: 3px;
+      color: var(--muted);
+      font-size: 11px;
+    }
+    .case-action-button {
+      width: 46px;
+      min-width: 46px;
+      padding: 4px 0;
+      font-size: 12px;
+    }
+    button {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: #fff;
+      padding: 5px 9px;
+      cursor: pointer;
+      font: inherit;
+      min-height: 30px;
+      transition: border-color 120ms ease, color 120ms ease, background 120ms ease;
+    }
+    button:hover {
+      border-color: var(--info);
+      color: var(--info);
+      background: var(--info-soft);
+    }
+    .tabs .tab-button {
+      border: 0;
+      background: transparent;
+      color: #1f2937;
+      box-shadow: none;
+    }
+    .tabs .tab-button:hover {
+      background: #f3f6fb;
+      color: var(--text);
+    }
+    .tabs .tab-button.active {
+      background: #e7f0ff;
+      color: var(--text);
+    }
+    .nav-actions .icon-button {
+      width: 32px;
+      min-width: 32px;
+      height: 32px;
+      min-height: 32px;
+      border: 0;
+      border-radius: 8px;
+      background: transparent;
+      color: var(--muted);
+      padding: 0;
+      font-size: 16px;
+      line-height: 1;
+    }
+    .nav-actions .icon-button:hover {
+      background: #f3f6fb;
+      color: var(--text);
+    }
+    .pagination {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-top: 10px;
+      color: var(--muted);
+      flex-wrap: wrap;
+    }
+    .pagination-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .pagination button:disabled {
+      cursor: not-allowed;
+      opacity: 0.48;
+      color: var(--muted);
+      border-color: var(--border);
+    }
+    dialog {
+      width: min(980px, calc(100vw - 40px));
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 0;
+      box-shadow: var(--shadow);
+    }
+    dialog::backdrop { background: rgba(15, 23, 42, 0.42); }
+    .dialog-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--border);
+      background: var(--panel-soft);
+    }
+    .dialog-body { padding: 14px; }
+    pre {
+      margin: 6px 0 14px;
+      padding: 10px;
+      background: #0f172a;
+      color: #e5e7eb;
+      border-radius: 8px;
+      overflow: auto;
+      max-height: 260px;
+      white-space: pre-wrap;
+      word-break: break-word;
+      font-size: 12px;
+    }
+    .grid-2 {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 14px;
+    }
+    @media (max-width: 760px) {
+      header { padding: 0 12px; }
+      .topbar {
+        min-height: auto;
+        align-items: flex-start;
+        flex-direction: column;
+        gap: 9px;
+        padding: 12px 0;
+      }
+      .nav-left {
+        width: 100%;
+        align-items: flex-start;
+        flex-direction: column;
+        gap: 10px;
+      }
+      .brand { min-width: 0; }
+      h1 { font-size: 17px; }
+      .nav-actions { display: none; }
+      main { padding: 14px 12px 28px; }
+      .tabs { width: 100%; justify-content: flex-start; }
+      .tab-button { flex: 1 0 auto; }
+      .panel-head { align-items: flex-start; flex-direction: column; }
+      .tab-panel { padding: 12px; }
+      .overview-layout { grid-template-columns: 1fr; }
+      .framework-grid { grid-template-columns: 1fr; }
+      .chart-grid { grid-template-columns: 1fr; }
+      .chart { height: 240px; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="topbar">
+      <div class="nav-left">
+        <div class="brand">
+          <span class="brand-badge" aria-hidden="true">QP</span>
+          <div>
+            <h1>QwenPaw</h1>
+            <div class="brand-subtitle">Promptfoo Report</div>
+          </div>
+        </div>
+        <nav class="tabs" aria-label="报表视图">
+          <button class="tab-button active" type="button" data-tab="overview" aria-selected="true">概览</button>
+          <button class="tab-button" type="button" data-tab="cases" aria-selected="false">用例明细</button>
+          <button class="tab-button" type="button" data-tab="suites" aria-selected="false">测试套件</button>
+          <button class="tab-button" type="button" data-tab="categories" aria-selected="false">分类</button>
+          <button class="tab-button" type="button" data-tab="details" aria-selected="false">其他</button>
+        </nav>
+      </div>
+      <div class="nav-actions" aria-label="报表工具">
+        <button class="icon-button" type="button" data-nav-action="details" title="其他" aria-label="其他">ⓘ</button>
+        <button class="icon-button" type="button" data-nav-action="failures" title="失败用例" aria-label="失败用例">⚠</button>
+        <button class="icon-button" type="button" data-nav-action="overview" title="回到概览" aria-label="回到概览">▭</button>
+      </div>
+    </div>
+  </header>
+  <main>
+    <section class="tab-panel active" data-panel="overview">
+      <div class="panel-head">
+        <div>
+          <h2>总体概览</h2>
+          <div class="panel-copy">当前测试结果快照</div>
+        </div>
+      </div>
+      <div class="chart-grid">
+        <article class="chart-card">
+          <div class="chart-title">结果状态分布</div>
+          <div class="chart-copy" id="statusDistributionSummary">通过、失败与异常用例的数量占比。</div>
+          <div class="chart" id="statusDistributionChart"></div>
+        </article>
+        <article class="chart-card" id="failureStats">
+          <div class="chart-title">失败分类占比</div>
+          <div class="chart-copy" id="failureStatsSummary"></div>
+          <div class="chart" id="failureCategoryChart"></div>
+        </article>
+        <article class="chart-card">
+          <div class="chart-title">套件用例占比</div>
+          <div class="chart-copy">按测试套件统计用例数量占比，点击扇区可查看套件用例。</div>
+          <div class="chart" id="suiteHealthChart"></div>
+        </article>
+      </div>
+      <div class="framework-head">
+        <div>
+          <h2>框架覆盖</h2>
+          <div class="panel-copy">按 OWASP 与 EU AI Act 风险域聚合当前测试覆盖情况。</div>
+        </div>
+      </div>
+      <div class="framework-grid" id="frameworkGrid"></div>
+    </section>
+
+    <section class="tab-panel" data-panel="suites">
+      <div class="panel-head">
+        <div>
+          <h2>测试套件汇总</h2>
+          <div class="panel-copy">按结果文件聚合，适合判断不同测试套件的整体质量。</div>
+        </div>
+      </div>
+      <div id="suiteTable"></div>
+    </section>
+
+    <section class="tab-panel" data-panel="categories">
+      <div class="panel-head">
+        <div>
+          <h2>分类汇总</h2>
+          <div class="panel-copy">按用例分类或插件聚合，适合发现风险热点。</div>
+        </div>
+      </div>
+      <div id="categoryTable"></div>
+    </section>
+
+    <section class="tab-panel" data-panel="cases">
+      <div class="panel-head">
+        <div>
+          <h2>用例明细</h2>
+          <div class="panel-copy">支持筛选、搜索和分页；默认每页显示 10 条。</div>
+        </div>
+      </div>
+      <div class="toolbar">
+        <select id="statusFilter">
+          <option value="">全部状态</option>
+          <option value="FAIL">失败</option>
+          <option value="ERROR">异常</option>
+          <option value="PASS">通过</option>
+        </select>
+        <select id="suiteFilter"></select>
+        <select id="categoryFilter"></select>
+        <select id="pageSizeSelect">
+          <option value="10" selected>每页 10 条</option>
+          <option value="25">每页 25 条</option>
+          <option value="50">每页 50 条</option>
+          <option value="100">每页 100 条</option>
+          <option value="200">每页 200 条</option>
+        </select>
+        <input id="searchInput" placeholder="搜索测试输入 / 判定原因 / 模型输出" />
+      </div>
+      <div id="caseTable"></div>
+      <div class="pagination">
+        <div id="paginationSummary"></div>
+        <div class="pagination-actions">
+          <button id="prevPage" type="button">上一页</button>
+          <span id="pageIndicator"></span>
+          <button id="nextPage" type="button">下一页</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="tab-panel" data-panel="details">
+      <div class="panel-head">
+        <div>
+          <h2>其他</h2>
+          <div class="panel-copy">结果来源与生成信息</div>
+        </div>
+      </div>
+      <div class="detail-grid">
+        <article class="detail-card">
+          <div class="insight-label">生成时间</div>
+          <div class="detail-value" id="detailGeneratedAt"></div>
+        </article>
+        <article class="detail-card">
+          <div class="insight-label">结果文件数</div>
+          <div class="detail-value" id="detailResultFileCount"></div>
+        </article>
+        <article class="detail-card">
+          <div class="insight-label">总用例数</div>
+          <div class="detail-value" id="detailCaseCount"></div>
+        </article>
+        <article class="detail-card wide">
+          <div class="insight-label">输入文件</div>
+          <ul class="file-list" id="detailSourceFiles"></ul>
+        </article>
+      </div>
+    </section>
+  </main>
+
+  <dialog id="caseDialog">
+    <div class="dialog-header">
+      <strong id="dialogTitle">用例详情</strong>
+      <button id="closeDialog" type="button">关闭</button>
+    </div>
+    <div class="dialog-body">
+      <div class="grid-2">
+        <div>
+          <div class="muted">测试输入</div>
+          <pre id="dialogPrompt"></pre>
+        </div>
+        <div>
+          <div class="muted">模型输出</div>
+          <pre id="dialogOutput"></pre>
+        </div>
+      </div>
+      <div class="muted">判定原因</div>
+      <pre id="dialogReason"></pre>
+      <div class="muted">元数据</div>
+      <pre id="dialogMeta"></pre>
+    </div>
+  </dialog>
+
+  <script src="assets/echarts.min.js"></script>
+  <script>
+    const REPORT_DATA = __REPORT_DATA_JSON__;
+    const SOURCE_FILE_DOWNLOADS = __SOURCE_FILE_DOWNLOADS_JSON__;
+
+    const fmtPct = (value) => `${value.toFixed(1)}%`;
+    const byId = (id) => document.getElementById(id);
+    const text = (value) => value == null ? '' : String(value);
+    const STATUS_LABELS = {
+      PASS: '通过',
+      FAIL: '失败',
+      ERROR: '异常',
+    };
+    const FRAMEWORK_STATUS_LABELS = {
+      PASS: '通过',
+      FAIL: '失败',
+      NOT_TESTED: '未测试',
+    };
+    const pageState = {
+      page: 1,
+      pageSize: 10,
+    };
+    const chartRegistry = new Map();
+    const CHART_COLORS = {
+      pass: '#8fdcc3',
+      fail: '#f5a7b8',
+      error: '#f8c987',
+      muted: '#d6e1ec',
+      info: '#a9c8f5',
+      accent: '#9bded9',
+      text: '#111827',
+      subtle: '#5f6f85',
+    };
+    const CHART_PALETTE = [
+      '#a9c8f5',
+      '#9bded9',
+      '#aee2bd',
+      '#f8c987',
+      '#f5a7b8',
+      '#cdbdf4',
+      '#a8cfe9',
+      '#efbdd7',
+    ];
+
+    function hasCharts() {
+      return typeof window !== 'undefined'
+        && window.echarts
+        && typeof window.echarts.init === 'function';
+    }
+
+    function chartTextStyle(size = 12, weight = 500, color = CHART_COLORS.subtle) {
+      return {
+        color,
+        fontSize: size,
+        fontWeight: weight,
+        fontFamily: '"Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, sans-serif',
+      };
+    }
+
+    function getChart(id) {
+      const element = byId(id);
+      if (!element || !hasCharts()) return null;
+      if (!chartRegistry.has(id)) {
+        chartRegistry.set(id, window.echarts.init(element, null, { renderer: 'canvas' }));
+      }
+      return chartRegistry.get(id);
+    }
+
+    function setChartClick(chart, handler) {
+      if (!chart) return;
+      if (typeof chart.off === 'function') chart.off('click');
+      if (typeof chart.on === 'function') chart.on('click', handler);
+    }
+
+    function renderEmptyChart(chart, message = '暂无可视化数据') {
+      if (!chart) return;
+      chart.setOption({
+        title: {
+          text: message,
+          left: 'center',
+          top: 'middle',
+          textStyle: chartTextStyle(13, 600),
+        },
+        xAxis: { show: false },
+        yAxis: { show: false },
+        series: [],
+      }, true);
+    }
+
+    function resizeCharts() {
+      chartRegistry.forEach((chart) => {
+        if (chart && typeof chart.resize === 'function') {
+          chart.resize();
+        }
+      });
+    }
+
+    if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+      window.addEventListener('resize', resizeCharts);
+    }
+
+    function makeTable(headers, rows) {
+      const table = document.createElement('table');
+      const thead = document.createElement('thead');
+      const trh = document.createElement('tr');
+      headers.forEach((header) => {
+        const th = document.createElement('th');
+        th.textContent = header;
+        trh.appendChild(th);
+      });
+      thead.appendChild(trh);
+      table.appendChild(thead);
+
+      const tbody = document.createElement('tbody');
+      rows.forEach((cells) => {
+        const tr = document.createElement('tr');
+        cells.forEach((cell) => {
+          const td = document.createElement('td');
+          if (cell instanceof Node) {
+            td.appendChild(cell);
+          } else {
+            td.textContent = text(cell);
+          }
+          tr.appendChild(td);
+        });
+        tbody.appendChild(tr);
+      });
+      table.appendChild(tbody);
+      return table;
+    }
+
+    function statusPill(status) {
+      const span = document.createElement('span');
+      span.className = `status ${status}`;
+      span.textContent = STATUS_LABELS[status] || status;
+      return span;
+    }
+
+    function frameworkStatusPill(status) {
+      const span = document.createElement('span');
+      span.className = `fw-status ${status}`;
+      span.textContent = FRAMEWORK_STATUS_LABELS[status] || status;
+      return span;
+    }
+
+    function activateTab(name, updateHash = true) {
+      const tabs = [...document.querySelectorAll('.tab-button')];
+      const panels = [...document.querySelectorAll('.tab-panel')];
+      const panelName = panels.some((panel) => panel.dataset.panel === name) ? name : 'overview';
+      tabs.forEach((tab) => {
+        const active = tab.dataset.tab === panelName;
+        tab.classList.toggle('active', active);
+        tab.setAttribute('aria-selected', active ? 'true' : 'false');
+      });
+      panels.forEach((panel) => {
+        panel.classList.toggle('active', panel.dataset.panel === panelName);
+      });
+      if (updateHash && window.location.protocol !== 'file:') {
+        history.replaceState(null, '', `#${panelName}`);
+      }
+      if (typeof window !== 'undefined' && typeof window.setTimeout === 'function') {
+        window.setTimeout(resizeCharts, 0);
+      } else {
+        resizeCharts();
+      }
+    }
+
+    function setupTabs() {
+      const tabs = [...document.querySelectorAll('.tab-button')];
+      tabs.forEach((tab) => {
+        tab.addEventListener('click', () => activateTab(tab.dataset.tab));
+      });
+      activateTab(window.location.hash.replace('#', '') || 'overview', false);
+    }
+
+    function setupNavActions() {
+      document.querySelectorAll('[data-nav-action]').forEach((button) => {
+        button.addEventListener('click', () => {
+          const action = button.dataset.navAction;
+          if (action === 'details') activateTab('details');
+          if (action === 'failures') showCaseList({ status: 'FAIL' });
+          if (action === 'overview') activateTab('overview');
+        });
+      });
+    }
+
+    function attachKeyboardAction(element, action) {
+      element.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          action();
+        }
+      });
+    }
+
+    function showCaseList({ status = '', suite = '', category = '', search = '' } = {}) {
+      byId('statusFilter').value = status;
+      byId('suiteFilter').value = suite;
+      byId('categoryFilter').value = category;
+      byId('searchInput').value = search;
+      pageState.page = 1;
+      renderCases();
+      activateTab('cases');
+    }
+
+    function clampPct(value) {
+      return Math.max(0, Math.min(100, Number(value) || 0));
+    }
+
+    function truncateForRow(value, max = 110) {
+      const valueText = text(value).replace(/\s+/g, ' ').trim();
+      return valueText.length > max ? `${valueText.slice(0, max - 1)}...` : valueText;
+    }
+
+    function overviewRow({ title, value, meta, rate, onClick }) {
+      const row = document.createElement('button');
+      row.type = 'button';
+      row.className = 'list-row';
+
+      const main = document.createElement('div');
+      main.className = 'row-main';
+      const titleEl = document.createElement('span');
+      titleEl.className = 'row-title';
+      titleEl.textContent = title;
+      const valueEl = document.createElement('span');
+      valueEl.className = 'row-value';
+      valueEl.textContent = value;
+      main.append(titleEl, valueEl);
+
+      const metaEl = document.createElement('div');
+      metaEl.className = 'row-meta';
+      metaEl.textContent = meta;
+
+      const bar = document.createElement('div');
+      bar.className = 'mini-bar';
+      const fill = document.createElement('div');
+      fill.className = 'mini-bar-fill';
+      fill.style.width = `${clampPct(rate)}%`;
+      bar.appendChild(fill);
+
+      row.append(main, metaEl, bar);
+      row.addEventListener('click', onClick);
+      return row;
+    }
+
+    function issuePreviewRow(item) {
+      const row = document.createElement('button');
+      row.type = 'button';
+      row.className = 'list-row';
+
+      const main = document.createElement('div');
+      main.className = 'row-main';
+      const titleEl = document.createElement('span');
+      titleEl.className = 'row-title';
+      titleEl.textContent = `${item.suiteNameZh || item.suite} / ${item.categoryNameZh || item.category}`;
+      const valueEl = statusPill(item.status);
+      main.append(titleEl, valueEl);
+
+      const metaEl = document.createElement('div');
+      metaEl.className = 'row-meta';
+      metaEl.textContent = truncateForRow(item.reason || item.prompt || item.description);
+
+      row.append(main, metaEl);
+      row.addEventListener('click', () => showCase(item));
+      return row;
+    }
+
+    function renderOverviewLists() {
+      const suiteRoot = byId('overviewSuiteHealth');
+      suiteRoot.innerHTML = '';
+      REPORT_DATA.suites.slice(0, 6).forEach((suite) => {
+        suiteRoot.appendChild(overviewRow({
+          title: suite.nameZh || suite.suite,
+          value: fmtPct(suite.passRate),
+          meta: `${suite.suite} · ${suite.passed}/${suite.total} 通过，失败 ${suite.failed}，异常 ${suite.errors}`,
+          rate: suite.passRate,
+          onClick: () => showCaseList({ suite: suite.suite }),
+        }));
+      });
+
+      const categoryRoot = byId('overviewCategoryRisk');
+      categoryRoot.innerHTML = '';
+      const categories = [...REPORT_DATA.categories]
+        .sort((a, b) => ((b.failed + b.errors) - (a.failed + a.errors)) || (b.total - a.total))
+        .slice(0, 6);
+      categories.forEach((category) => {
+        categoryRoot.appendChild(overviewRow({
+          title: category.nameZh || category.category,
+          value: `风险 ${category.failed + category.errors}`,
+          meta: `${category.category} · ${category.total} 条，通过率 ${fmtPct(category.passRate)}`,
+          rate: category.passRate,
+          onClick: () => showCaseList({ category: category.category }),
+        }));
+      });
+
+      const issueRoot = byId('overviewIssuePreview');
+      issueRoot.innerHTML = '';
+      const issues = REPORT_DATA.cases
+        .filter((item) => item.status === 'FAIL' || item.status === 'ERROR')
+        .slice(0, 5);
+      if (issues.length === 0) {
+        const empty = document.createElement('div');
+        empty.className = 'row-meta';
+        empty.textContent = '暂无失败或异常样本';
+        issueRoot.appendChild(empty);
+        return;
+      }
+      issues.forEach((item) => issueRoot.appendChild(issuePreviewRow(item)));
+    }
+
+    function renderFrameworks() {
+      const root = byId('frameworkGrid');
+      root.innerHTML = '';
+      (REPORT_DATA.frameworks || []).forEach((framework) => {
+        const card = document.createElement('article');
+        card.className = 'framework-card';
+
+        const head = document.createElement('div');
+        head.className = 'framework-card-head';
+        const title = document.createElement('h3');
+        title.className = 'framework-title';
+        title.textContent = framework.title;
+        const overallStatus = framework.failed > 0 ? 'FAIL' : (framework.tested > 0 ? 'PASS' : 'NOT_TESTED');
+        head.append(title, frameworkStatusPill(overallStatus));
+
+        const desc = document.createElement('div');
+        desc.className = 'framework-desc';
+        desc.textContent = framework.description || '';
+
+        const result = document.createElement('div');
+        result.className = 'framework-result';
+        const resultHead = document.createElement('div');
+        resultHead.className = 'framework-result-head';
+        const resultTitle = document.createElement('span');
+        resultTitle.textContent = 'Framework Results';
+        const resultBadge = document.createElement('span');
+        resultBadge.className = `fw-status ${framework.failed > 0 ? 'FAIL' : 'PASS'}`;
+        resultBadge.textContent = `${framework.failed} / ${framework.tested} failed`;
+        resultHead.append(resultTitle, resultBadge);
+
+        const rows = document.createElement('div');
+        rows.className = 'framework-items';
+        framework.items.forEach((item) => {
+          const row = document.createElement('div');
+          row.className = 'framework-row';
+          const body = document.createElement('div');
+          const name = document.createElement('div');
+          name.className = 'framework-row-name';
+          name.textContent = item.name;
+          const meta = document.createElement('div');
+          meta.className = 'framework-row-meta';
+          meta.textContent = item.total === 0
+            ? `${item.plugins.length} 个映射项未覆盖`
+            : `${item.passed}/${item.total} 通过，失败 ${item.failed}，异常 ${item.errors}`;
+          body.append(name, meta);
+          row.append(body, frameworkStatusPill(item.status));
+          rows.appendChild(row);
+        });
+
+        result.append(resultHead, rows);
+        card.append(head, desc, result);
+        root.appendChild(card);
+      });
+    }
+
+    function renderCards() {
+      const s = REPORT_DATA.overall;
+      const cards = [
+        ['总用例', s.total, () => showCaseList()],
+        ['通过', s.passed, () => showCaseList({ status: 'PASS' })],
+        ['失败', s.failed, () => showCaseList({ status: 'FAIL' })],
+        ['异常', s.errors, () => showCaseList({ status: 'ERROR' })],
+        ['通过率', fmtPct(s.passRate), () => showCaseList()],
+        ['结果文件', REPORT_DATA.sourceFiles.length, () => activateTab('details')],
+      ];
+      const root = byId('cards');
+      root.innerHTML = '';
+      cards.forEach(([label, value, action]) => {
+        const card = document.createElement('div');
+        card.className = 'card metric-card';
+        card.setAttribute('role', 'button');
+        card.tabIndex = 0;
+        const labelEl = document.createElement('div');
+        labelEl.className = 'label';
+        labelEl.textContent = label;
+        const valueEl = document.createElement('div');
+        valueEl.className = 'value';
+        valueEl.textContent = value;
+        card.append(labelEl, valueEl);
+        card.addEventListener('click', action);
+        attachKeyboardAction(card, action);
+        root.appendChild(card);
+      });
+    }
+
+    function renderOverview() {
+      renderFrameworks();
+      renderSuiteHealthChart();
+      renderOverallCharts();
+    }
+
+    function renderSummaryTables() {
+      byId('suiteTable').replaceChildren(makeTable(
+        ['测试套件', '中文名称', '总数', '通过', '失败', '异常', '通过率', '平均耗时'],
+        REPORT_DATA.suites.map((s) => [
+          s.suite,
+          s.nameZh || s.suite,
+          s.total,
+          s.passed,
+          s.failed,
+          s.errors,
+          fmtPct(s.passRate),
+          `${Math.round(s.avgLatencyMs || 0)} ms`,
+        ]),
+      ));
+
+      byId('categoryTable').replaceChildren(makeTable(
+        ['分类', '中文名称', '总数', '通过', '失败', '异常', '通过率'],
+        REPORT_DATA.categories.map((c) => [
+          c.category,
+          c.nameZh || c.category,
+          c.total,
+          c.passed,
+          c.failed,
+          c.errors,
+          fmtPct(c.passRate),
+        ]),
+      ));
+    }
+
+    function fillFilters() {
+      const suiteFilter = byId('suiteFilter');
+      suiteFilter.innerHTML = '<option value="">全部测试套件</option>';
+      REPORT_DATA.suites.forEach((s) => {
+        const option = document.createElement('option');
+        option.value = s.suite;
+        option.textContent = `${s.nameZh || s.suite} (${s.suite})`;
+        suiteFilter.appendChild(option);
+      });
+
+      const categoryFilter = byId('categoryFilter');
+      categoryFilter.innerHTML = '<option value="">全部分类</option>';
+      REPORT_DATA.categories.forEach((c) => {
+        const option = document.createElement('option');
+        option.value = c.category;
+        option.textContent = `${c.nameZh || c.category} (${c.category})`;
+        categoryFilter.appendChild(option);
+      });
+    }
+
+    function blobFromBase64(base64, mimeType) {
+      const binary = atob(base64);
+      const chunks = [];
+      for (let offset = 0; offset < binary.length; offset += 32768) {
+        const slice = binary.slice(offset, offset + 32768);
+        const bytes = new Uint8Array(slice.length);
+        for (let i = 0; i < slice.length; i += 1) {
+          bytes[i] = slice.charCodeAt(i);
+        }
+        chunks.push(bytes);
+      }
+      return new Blob(chunks, { type: mimeType || 'application/octet-stream' });
+    }
+
+    function downloadSourceFile(file) {
+      const payload = SOURCE_FILE_DOWNLOADS[file];
+      if (!payload || !payload.base64 || typeof Blob === 'undefined' || !window.URL) {
+        window.location.href = `source-files/${encodeURIComponent(file)}`;
+        return;
+      }
+
+      const blob = blobFromBase64(payload.base64, payload.mimeType);
+      const url = window.URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = file;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      window.setTimeout(() => window.URL.revokeObjectURL(url), 1000);
+    }
+
+    function renderDetails() {
+      byId('detailGeneratedAt').textContent = REPORT_DATA.generatedAt;
+      byId('detailResultFileCount').textContent = REPORT_DATA.sourceFiles.length;
+      byId('detailCaseCount').textContent = REPORT_DATA.overall.total;
+      const list = byId('detailSourceFiles');
+      list.innerHTML = '';
+      REPORT_DATA.sourceFiles.forEach((file) => {
+        const li = document.createElement('li');
+        const name = document.createElement('span');
+        name.className = 'source-file-name';
+        name.textContent = file;
+        name.title = file;
+
+        const link = document.createElement('a');
+        link.className = 'source-file-download';
+        link.href = `source-files/${encodeURIComponent(file)}`;
+        link.download = file;
+        link.textContent = '下载';
+        link.title = `下载 ${file}`;
+        link.addEventListener('click', (event) => {
+          event.preventDefault();
+          downloadSourceFile(file);
+        });
+
+        li.append(name, link);
+        list.appendChild(li);
+      });
+    }
+
+    function buildFailureCategoryRows() {
+      const failedCases = REPORT_DATA.cases.filter((item) => item.status === 'FAIL');
+      const totalByCategory = new Map();
+      REPORT_DATA.cases.forEach((item) => {
+        totalByCategory.set(item.category, (totalByCategory.get(item.category) || 0) + 1);
+      });
+
+      const grouped = new Map();
+      failedCases.forEach((item) => {
+        if (!grouped.has(item.category)) {
+          grouped.set(item.category, {
+            category: item.category,
+            nameZh: item.categoryNameZh || item.category,
+            failed: 0,
+            total: totalByCategory.get(item.category) || 0,
+          });
+        }
+        grouped.get(item.category).failed += 1;
+      });
+
+      const rows = [...grouped.values()]
+        .map((item) => ({
+          ...item,
+          share: pct(item.failed, failedCases.length),
+          failRate: pct(item.failed, item.total),
+        }))
+        .sort((a, b) => (b.share - a.share) || (b.failRate - a.failRate) || a.category.localeCompare(b.category));
+
+      return { rows, failedTotal: failedCases.length };
+    }
+
+    function renderFailureStats() {
+      const { rows, failedTotal } = buildFailureCategoryRows();
+      const summary = byId('failureStatsSummary');
+      if (failedTotal === 0) {
+        summary.textContent = '暂无失败用例。';
+        renderFailureCategoryChart([], 0);
+        return;
+      }
+      summary.textContent = `共 ${failedTotal} 条失败用例，覆盖 ${rows.length} 个分类。点击扇区可查看对应用例。`;
+      renderFailureCategoryChart(rows, failedTotal);
+    }
+
+    function pct(part, total) {
+      return total > 0 ? (part / total) * 100 : 0;
+    }
+
+    function suiteHealthColor(passRate) {
+      if (passRate >= 95) return CHART_COLORS.pass;
+      if (passRate >= 80) return CHART_COLORS.info;
+      if (passRate >= 60) return CHART_COLORS.error;
+      return CHART_COLORS.fail;
+    }
+
+    function renderSuiteHealthChart() {
+      const chart = getChart('suiteHealthChart');
+      if (!chart) return;
+      const suites = [...REPORT_DATA.suites]
+        .filter((item) => item.total > 0)
+        .sort((a, b) => b.total - a.total || (b.failed + b.errors) - (a.failed + a.errors));
+      if (suites.length === 0) {
+        renderEmptyChart(chart, '暂无套件数据');
+        return;
+      }
+      const topSuites = suites.slice(0, 8);
+      const otherSuites = suites.slice(8);
+      const chartRows = otherSuites.length === 0
+        ? topSuites
+        : [
+            ...topSuites,
+            otherSuites.reduce((acc, item) => {
+              acc.total += item.total;
+              acc.passed += item.passed;
+              acc.failed += item.failed;
+              acc.errors += item.errors;
+              acc.passRate = pct(acc.passed, acc.total);
+              return acc;
+            }, { suite: '', nameZh: '其他', total: 0, passed: 0, failed: 0, errors: 0, passRate: 0 }),
+          ];
+
+      chart.setOption({
+        color: CHART_PALETTE,
+        tooltip: {
+          trigger: 'item',
+          formatter: ({ data, percent }) => `${data.name}<br/>用例数: ${data.value}<br/>用例占比: ${Number(percent || 0).toFixed(1)}%<br/>通过率: ${fmtPct(data.passRate)}<br/>通过: ${data.passed}<br/>失败: ${data.failed}<br/>异常: ${data.errors}`,
+        },
+        legend: {
+          type: 'scroll',
+          bottom: 0,
+          icon: 'circle',
+          textStyle: chartTextStyle(12, 500),
+        },
+        series: [{
+          name: '套件用例占比',
+          type: 'pie',
+          radius: ['48%', '72%'],
+          center: ['50%', '42%'],
+          minAngle: 8,
+          avoidLabelOverlap: true,
+          data: chartRows.map((item, index) => ({
+            name: item.nameZh || item.suite,
+            value: item.total,
+            suite: item.suite,
+            passed: item.passed,
+            failed: item.failed,
+            errors: item.errors,
+            passRate: item.passRate,
+            itemStyle: { color: CHART_PALETTE[index % CHART_PALETTE.length] },
+          })),
+          itemStyle: {
+            borderWidth: 0,
+          },
+          label: {
+            formatter: ({ name, percent }) => `${name}\n${Number(percent || 0).toFixed(1)}%`,
+            ...chartTextStyle(11, 700, CHART_COLORS.text),
+          },
+          labelLine: {
+            length: 10,
+            length2: 8,
+          },
+          emphasis: {
+            scale: true,
+            scaleSize: 8,
+          },
+        }],
+      }, true);
+      setChartClick(chart, (params) => {
+        if (params.data && params.data.suite) {
+          showCaseList({ suite: params.data.suite });
+        }
+      });
+    }
+
+    function renderOverallCharts() {
+      const s = REPORT_DATA.overall;
+      byId('statusDistributionSummary').textContent = `总共 ${s.total} 个用例，${s.passed} 个用例通过，${s.failed} 个用例失败，${s.errors} 个用例异常。`;
+      const statusChart = getChart('statusDistributionChart');
+      if (!statusChart) return;
+      if (s.total === 0) {
+        renderEmptyChart(statusChart);
+        return;
+      }
+      const statusData = [
+        { name: '通过', value: s.passed, status: 'PASS', itemStyle: { color: CHART_COLORS.pass } },
+        { name: '失败', value: s.failed, status: 'FAIL', itemStyle: { color: CHART_COLORS.fail } },
+        { name: '异常', value: s.errors, status: 'ERROR', itemStyle: { color: CHART_COLORS.error } },
+      ];
+      statusChart.setOption({
+        tooltip: {
+          trigger: 'item',
+          formatter: ({ name, value, percent }) => `${name}<br/>${value} 条 · ${Number(percent || 0).toFixed(1)}%`,
+        },
+        legend: {
+          bottom: 0,
+          icon: 'circle',
+          textStyle: chartTextStyle(12, 500),
+        },
+        series: [{
+          name: '状态分布',
+          type: 'pie',
+          radius: ['48%', '72%'],
+          center: ['50%', '44%'],
+          avoidLabelOverlap: true,
+          itemStyle: {
+            borderWidth: 0,
+          },
+          label: {
+            formatter: '{b}\n{d}%',
+            ...chartTextStyle(12, 650, CHART_COLORS.text),
+          },
+          labelLine: {
+            length: 10,
+            length2: 8,
+          },
+          data: statusData,
+          emphasis: {
+            scale: true,
+            scaleSize: 8,
+          },
+        }],
+      }, true);
+      setChartClick(statusChart, (params) => {
+        if (params.data && params.data.status) {
+          showCaseList({ status: params.data.status });
+        }
+      });
+    }
+
+    function renderFailureCategoryChart(rows, failedTotal) {
+      const chart = getChart('failureCategoryChart');
+      if (!chart) return;
+      if (!rows || rows.length === 0 || failedTotal === 0) {
+        renderEmptyChart(chart, '暂无失败分类数据');
+        return;
+      }
+      const topRows = rows.slice(0, 7);
+      const otherRows = rows.slice(7);
+      const chartRows = otherRows.length === 0
+        ? topRows
+        : [
+            ...topRows,
+            {
+              category: '',
+              nameZh: '其他',
+              failed: otherRows.reduce((sum, item) => sum + item.failed, 0),
+              failRate: pct(otherRows.reduce((sum, item) => sum + item.failed, 0), otherRows.reduce((sum, item) => sum + item.total, 0)),
+            },
+          ];
+      chart.setOption({
+        color: [
+          '#f5a7b8',
+          '#f7bac6',
+          '#f9cfd6',
+          '#f8c987',
+          '#dfbd95',
+          '#cdbdf4',
+          '#a9c8f5',
+          '#9bded9',
+        ],
+        tooltip: {
+          trigger: 'item',
+          formatter: ({ data, percent }) => `${data.name}<br/>失败数: ${data.failed}<br/>失败占比: ${Number(percent || 0).toFixed(1)}%<br/>分类失败率: ${fmtPct(data.failRate)}`,
+        },
+        legend: {
+          type: 'scroll',
+          bottom: 0,
+          icon: 'circle',
+          textStyle: chartTextStyle(12, 500),
+        },
+        series: [{
+          name: '失败占比',
+          type: 'pie',
+          radius: ['48%', '72%'],
+          center: ['50%', '42%'],
+          minAngle: 8,
+          avoidLabelOverlap: true,
+          data: chartRows.map((item) => ({
+            name: item.nameZh || item.category,
+            value: item.failed,
+            category: item.category,
+            failed: item.failed,
+            failRate: item.failRate,
+          })),
+          itemStyle: {
+            borderWidth: 0,
+          },
+          label: {
+            show: true,
+            formatter: ({ name, percent }) => `${name}\n${Number(percent || 0).toFixed(1)}%`,
+            ...chartTextStyle(11, 700, CHART_COLORS.text),
+          },
+          labelLine: {
+            length: 10,
+            length2: 8,
+          },
+          emphasis: {
+            scale: true,
+            scaleSize: 8,
+          },
+        }],
+      }, true);
+      setChartClick(chart, (params) => {
+        if (params.data && params.data.category) {
+          showCaseList({ status: 'FAIL', category: params.data.category });
+        }
+      });
+    }
+
+    function filteredCases() {
+      const status = byId('statusFilter').value;
+      const suite = byId('suiteFilter').value;
+      const category = byId('categoryFilter').value;
+      const q = byId('searchInput').value.trim().toLowerCase();
+
+      return REPORT_DATA.cases.filter((item) => {
+        if (status && item.status !== status) return false;
+        if (suite && item.suite !== suite) return false;
+        if (category && item.category !== category) return false;
+        if (!q) return true;
+        return [item.prompt, item.output, item.reason, item.description, item.plugin]
+          .some((v) => text(v).toLowerCase().includes(q));
+      });
+    }
+
+    function renderCases() {
+      const allRows = filteredCases();
+      const pageCount = Math.max(1, Math.ceil(allRows.length / pageState.pageSize));
+      if (pageState.page > pageCount) {
+        pageState.page = pageCount;
+      }
+      const start = (pageState.page - 1) * pageState.pageSize;
+      const pageRows = allRows.slice(start, start + pageState.pageSize);
+
+      const rows = pageRows.map((item) => {
+        const prompt = document.createElement('div');
+        prompt.title = item.prompt;
+        if (item.description || item.plugin) {
+          const desc = document.createElement('div');
+          desc.className = 'case-desc';
+          desc.textContent = item.description || item.plugin || '';
+          prompt.appendChild(desc);
+        }
+        const promptText = document.createElement('div');
+        promptText.className = 'case-text clamp-2';
+        promptText.textContent = item.prompt;
+        prompt.appendChild(promptText);
+
+        const reason = document.createElement('div');
+        reason.className = 'case-text clamp-4';
+        reason.title = item.reason || '';
+        reason.textContent = item.reason || '';
+
+        const output = document.createElement('div');
+        output.className = 'case-text clamp-4';
+        output.title = item.output || '';
+        output.textContent = item.output || '';
+
+        const action = document.createElement('button');
+        action.type = 'button';
+        action.className = 'case-action-button';
+        action.textContent = '查看';
+        action.addEventListener('click', () => showCase(item));
+
+        return [
+          action,
+          statusPill(item.status),
+          item.suite,
+          item.category,
+          prompt,
+          output,
+          reason,
+        ];
+      });
+      byId('caseTable').replaceChildren(makeTable(
+        ['详情', '状态', '测试套件', '分类', '测试输入', 'Agent输出', '判定原因'],
+        rows,
+      ));
+
+      byId('paginationSummary').textContent = allRows.length === 0
+        ? '没有匹配的用例'
+        : `共 ${allRows.length} 条，显示第 ${start + 1}-${Math.min(start + pageState.pageSize, allRows.length)} 条`;
+      byId('pageIndicator').textContent = `第 ${pageState.page} / ${pageCount} 页`;
+      byId('prevPage').disabled = pageState.page <= 1;
+      byId('nextPage').disabled = pageState.page >= pageCount;
+    }
+
+    function showCase(item) {
+      byId('dialogTitle').textContent = `${STATUS_LABELS[item.status] || item.status} / ${item.suite} / ${item.category}`;
+      byId('dialogPrompt').textContent = item.prompt || '';
+      byId('dialogOutput').textContent = item.output || '';
+      byId('dialogReason').textContent = item.reason || '';
+      byId('dialogMeta').textContent = JSON.stringify({
+        id: item.id,
+        suite: item.suite,
+        category: item.category,
+        plugin: item.plugin,
+        strategy: item.strategy,
+        score: item.score,
+        latencyMs: item.latencyMs,
+        tokenUsage: item.tokenUsage,
+        sourceFile: item.sourceFile,
+      }, null, 2);
+      byId('caseDialog').showModal();
+    }
+
+    byId('closeDialog').addEventListener('click', () => byId('caseDialog').close());
+    ['statusFilter', 'suiteFilter', 'categoryFilter', 'searchInput'].forEach((id) => {
+      const resetAndRender = () => {
+        pageState.page = 1;
+        renderCases();
+      };
+      byId(id).addEventListener('input', resetAndRender);
+      byId(id).addEventListener('change', resetAndRender);
+    });
+    byId('pageSizeSelect').addEventListener('change', () => {
+      pageState.pageSize = Number(byId('pageSizeSelect').value) || 10;
+      pageState.page = 1;
+      renderCases();
+    });
+    byId('prevPage').addEventListener('click', () => {
+      pageState.page = Math.max(1, pageState.page - 1);
+      renderCases();
+    });
+    byId('nextPage').addEventListener('click', () => {
+      pageState.page += 1;
+      renderCases();
+    });
+
+    setupTabs();
+    setupNavActions();
+    fillFilters();
+    renderOverview();
+    renderSummaryTables();
+    renderDetails();
+    renderFailureStats();
+    byId('statusFilter').value = '';
+    renderCases();
+  </script>
+</body>
+</html>
