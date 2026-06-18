@@ -77,7 +77,9 @@ def _listening_pids_for_port(port: int) -> set[int]:
             continue
 
         pids = {
-            int(token) for token in (result.stdout or "").split() if token.isdigit()
+            int(token)
+            for token in (result.stdout or "").split()
+            if token.isdigit()
         }
         if pids:
             return pids
@@ -357,7 +359,9 @@ def shutdown_cmd(ctx: click.Context, port: Optional[int]) -> None:
         - set(desktop_stopped),
     )
 
-    stopped = wrapper_stopped + frontend_stopped + desktop_stopped + backend_stopped
+    stopped = (
+        wrapper_stopped + frontend_stopped + desktop_stopped + backend_stopped
+    )
     failed = list(
         set(
             wrapper_failed + frontend_failed + desktop_failed + backend_failed,
