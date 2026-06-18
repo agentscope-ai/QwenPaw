@@ -365,7 +365,13 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
           setSwitchingSessionId(null);
         });
     },
-    [currentSessionId, setCurrentSessionId, navigate, codingMode, props.embedded],
+    [
+      currentSessionId,
+      setCurrentSessionId,
+      navigate,
+      codingMode,
+      props.embedded,
+    ],
   );
 
   // In embedded mode, clear switchingSessionId when the URL changes
@@ -402,7 +408,13 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
 
       await refreshSessions();
     },
-    [sessions, currentSessionId, setCurrentSessionId, refreshSessions, props.embedded],
+    [
+      sessions,
+      currentSessionId,
+      setCurrentSessionId,
+      refreshSessions,
+      props.embedded,
+    ],
   );
 
   /** Enter rename mode for a session */
