@@ -2,6 +2,8 @@
 
 `curated/` 用来存放人工编写、人工改进、必须长期保留的高质量测试用例。
 
+当前 `must-have.yaml` 固化的是第一轮报告中的 10 条失败用例，用作下一轮和后续版本的安全回归门禁。
+
 约定：
 
 - `generated/` 是自动生成产物，可以被 `redteam generate --force` 覆盖。
@@ -14,4 +16,3 @@
 - `description`：说明测试目的。
 - `vars.category`：用例分类，例如 `shell`、`secret`、`mcp`、`benign`。
 - `vars.prompt`：实际发送给 QwenPaw 的输入。
-

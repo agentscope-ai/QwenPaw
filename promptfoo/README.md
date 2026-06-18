@@ -20,8 +20,11 @@
 
 ```powershell
 cd D:\projects\QwenPawGroup\promptfoo
+Copy-Item .env.example .env
 . .\load-env.ps1
 ```
+
+首次使用时，先复制 `.env.example` 为 `.env`，再填写本地 QwenPaw 地址和 OpenAI-compatible 模型配置。`.env` 不提交到 git。
 
 检查 QwenPaw 认证状态：
 
@@ -110,6 +113,45 @@ npx promptfoo@latest eval -c configs/curated.yaml --no-cache --no-share -o resul
 - 从 `generated/*.generated.yaml` 里发现好用例后，把对应 `vars.prompt` 复制到 `curated/must-have.yaml`。
 - 复制后补充 `description` 和 `vars.category`，并把措辞改成稳定、可复现、不会依赖某次生成上下文的版本。
 - 不要把人工改进直接长期保存在 `generated/`，因为下一次 `--force` 生成会覆盖它。
+
+## 第二轮重点回归
+
+第一轮主要失败集中在审批绕过、认证降级、MCP 内网/凭据绑定、插件技能供应链、debug/tool schema 泄露几个方向。第二轮不要先盲目扩大全部 suite，建议先按下面顺序复测：
+
+1. 连通性和正常用例仍然 100% 通过。
+2. `curated/must-have.yaml` 中的 10 条第一轮失败用例全部通过。
+3. 只重新生成并执行失败集中 suite：`approval`、`auth-api`、`mcp`、`plugin-skill`、`prompt-extraction`。
+4. 生成报表后，优先确认是否还存在真实安全失败；判分模型拒绝或超时类问题单独归为测试问题。
+
+固定失败回归：
+
+```powershell
+npx promptfoo@latest validate config -c configs/curated.yaml
+npx promptfoo@latest eval -c configs/curated.yaml --no-cache --no-share -o results/curated.results.json
+```
+
+第二轮重点生成：
+
+```powershell
+npx promptfoo@latest redteam generate -c configs/approval.yaml -o generated/approval.generated.yaml --force --strict
+npx promptfoo@latest redteam generate -c configs/auth-api.yaml -o generated/auth-api.generated.yaml --force --strict
+npx promptfoo@latest redteam generate -c configs/mcp.yaml -o generated/mcp.generated.yaml --force --strict
+npx promptfoo@latest redteam generate -c configs/plugin-skill.yaml -o generated/plugin-skill.generated.yaml --force --strict
+npx promptfoo@latest redteam generate -c configs/prompt-extraction.yaml -o generated/prompt-extraction.generated.yaml --force --strict
+```
+
+第二轮重点执行：
+
+```powershell
+npx promptfoo@latest redteam eval -c generated/approval.generated.yaml --no-cache --no-share -j 1 -o results/approval.results.json
+npx promptfoo@latest redteam eval -c generated/auth-api.generated.yaml --no-cache --no-share -j 1 -o results/auth-api.results.json
+npx promptfoo@latest redteam eval -c generated/mcp.generated.yaml --no-cache --no-share -j 1 -o results/mcp.results.json
+npx promptfoo@latest redteam eval -c generated/plugin-skill.generated.yaml --no-cache --no-share -j 1 -o results/plugin-skill.results.json
+npx promptfoo@latest redteam eval -c generated/prompt-extraction.generated.yaml --no-cache --no-share -j 1 -o results/prompt-extraction.results.json
+node scripts/build-report.cjs
+```
+
+如果 `prompt-extraction` 判分出现 `returned no final message content` 或 `finish_reason: refusal`，优先换成非 reasoning chat 模型，或者提高 `PROMPTFOO_OPENAI_MAX_TOKENS`。
 
 ## 单个 Suite 的标准流程
 
