@@ -295,6 +295,12 @@ def configure_discord(current_config: DiscordConfig) -> DiscordConfig:
         current_config.http_proxy = ""
         current_config.http_proxy_auth = ""
 
+    streaming_enabled = prompt_confirm(
+        "Enable streaming?",
+        default=current_config.streaming_enabled,
+    )
+    current_config.streaming_enabled = streaming_enabled
+
     return current_config
 
 
@@ -334,6 +340,12 @@ def configure_dingtalk(current_config: DingTalkConfig) -> DingTalkConfig:
         type=str,
     )
     current_config.client_secret = client_secret
+
+    streaming_enabled = prompt_confirm(
+        "Enable streaming?",
+        default=current_config.streaming_enabled,
+    )
+    current_config.streaming_enabled = streaming_enabled
 
     return current_config
 
@@ -384,6 +396,12 @@ def configure_feishu(current_config: FeishuConfig) -> FeishuConfig:
         type=str,
     )
     current_config.app_secret = app_secret
+
+    streaming_enabled = prompt_confirm(
+        "Enable streaming?",
+        default=current_config.streaming_enabled,
+    )
+    current_config.streaming_enabled = streaming_enabled
 
     return current_config
 
@@ -558,6 +576,12 @@ def configure_telegram(current_config: TelegramConfig) -> TelegramConfig:
     else:
         current_config.http_proxy = ""
         current_config.http_proxy_auth = ""
+
+    streaming_enabled = prompt_confirm(
+        "Enable streaming?",
+        default=current_config.streaming_enabled,
+    )
+    current_config.streaming_enabled = streaming_enabled
 
     return current_config
 

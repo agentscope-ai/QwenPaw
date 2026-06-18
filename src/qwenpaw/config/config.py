@@ -224,6 +224,7 @@ class DiscordConfig(BaseChannelConfig):
     http_proxy: str = ""
     http_proxy_auth: str = ""
     accept_bot_messages: bool = False
+    streaming_enabled: bool = False
 
 
 class DingTalkConfig(BaseChannelConfig):

@@ -1436,7 +1436,8 @@ export function ChannelDrawer({
           {(activeKey === "wecom" ||
             activeKey === "telegram" ||
             activeKey === "dingtalk" ||
-            activeKey === "feishu") && (
+            activeKey === "feishu" ||
+            activeKey === "discord") && (
             <Form.Item
               name="streaming_enabled"
               label={t("channels.streamingEnabled")}
