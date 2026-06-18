@@ -1,6 +1,16 @@
-import { Layout, Menu, Button, Modal, Input, Form, Tooltip, Badge } from "antd";
-import { useState, useEffect, useMemo } from "react";
-import { useNavigate } from "react-router-dom";
+import {
+  Layout,
+  Menu,
+  Button,
+  Modal,
+  Input,
+  Form,
+  Tooltip,
+  Badge,
+  Popover,
+} from "antd";
+import { useState, useEffect, useMemo, useCallback } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { useAppMessage } from "../hooks/useAppMessage";
 import AgentSelector from "../components/AgentSelector";
@@ -11,11 +21,16 @@ import {
   SparkMenuExpandLine,
   SparkMenuFoldLine,
   SparkEmailLine,
+  SparkSettingLine,
 } from "@agentscope-ai/icons";
+import SidebarSessionList from "./SidebarSessionList";
+import SidebarSettingsPanel from "./SidebarSettingsPanel";
 import { clearAuthToken } from "../api/config";
 import { authApi } from "../api/modules/auth";
 import api from "../api";
 import { useCodingMode } from "../stores/codingModeStore";
+import { useSidebarModeStore } from "../stores/sidebarModeStore";
+import { buildSessionPath, getSessionIdFromPath } from "../utils/sessionRoute";
 import styles from "./index.module.less";
 import { useTheme } from "../contexts/ThemeContext";
 import { useMenuItems, useRoutes } from "../plugins/registry/hooks";
@@ -28,6 +43,7 @@ import {
   routeIdToPath,
   toAntdItems,
 } from "./registry/adapter";
+import type { FlatMenuEntry } from "./registry/adapter";
 import type { MenuItem } from "../plugins/registry/types";
 import type { ReactNode } from "react";
 
@@ -45,6 +61,38 @@ function isMobileSidebarViewport() {
 }
 const INBOX_BADGE_POLLING_MS = 6000;
 
+// ── Simple mode whitelist ─────────────────────────────────────────────────
+
+/** Menu item IDs that remain visible in simple sidebar mode (no groups). */
+const SIMPLE_MODE_WHITELIST = new Set([
+  "core.inbox",
+  "core.cron-jobs",
+  "core.agent-config",
+  "core.models",
+]);
+
+/**
+ * Flatten a MenuItem tree into a leaf-only list for simple sidebar mode.
+ * Groups are eliminated entirely — only whitelisted children survive
+ * as top-level items.
+ */
+function flattenMenuForSimpleMode(items: MenuItem[]): MenuItem[] {
+  const result: MenuItem[] = [];
+  for (const rawItem of items) {
+    const item = rawItem as MenuItem & { __children?: MenuItem[] };
+    if (item.__children && item.__children.length > 0) {
+      for (const child of item.__children) {
+        if (SIMPLE_MODE_WHITELIST.has(child.id)) {
+          result.push(child);
+        }
+      }
+    } else if (SIMPLE_MODE_WHITELIST.has(item.id)) {
+      result.push(item);
+    }
+  }
+  return result;
+}
+
 // ── Types ─────────────────────────────────────────────────────────────────
 
 interface SidebarProps {
@@ -56,25 +104,59 @@ interface SidebarProps {
 
 export default function Sidebar({ selectedKey }: SidebarProps) {
   const navigate = useNavigate();
+  const location = useLocation();
   const { t } = useTranslation();
   const { message } = useAppMessage();
   const { isDark } = useTheme();
   // When coding mode is on, the sidebar "Chat" entry should land on /coding
   // (FileTree + Editor + Chat panel) rather than the bare Chat page.
   const { codingMode } = useCodingMode();
-  const chatPath = codingMode ? "/coding" : "/chat";
+  const currentSessionId = getSessionIdFromPath(location.pathname);
+  const chatPath = buildSessionPath(
+    codingMode ? "coding" : "chat",
+    currentSessionId,
+  );
   const [authEnabled, setAuthEnabled] = useState(false);
   const [accountModalOpen, setAccountModalOpen] = useState(false);
   const [accountLoading, setAccountLoading] = useState(false);
   const [accountForm] = Form.useForm();
   const [collapsed, setCollapsed] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [isMobile, setIsMobile] = useState(isMobileSidebarViewport);
   const [hasInboxUnread, setHasInboxUnread] = useState(false);
 
+  // Sidebar mode: "simple" (only core items) or "full" (everything)
+  const { mode: sidebarMode } = useSidebarModeStore();
+
   // Menu + route snapshots from registry (builtin + plugin registrations merged).
-  const agentMenu = useMenuItems("primary.agentScoped");
-  const settingsMenu = useMenuItems("primary.settings");
+  const rawAgentMenu = useMenuItems("primary.agentScoped");
+  const rawSettingsMenu = useMenuItems("primary.settings");
   const routes = useRoutes();
+
+  // Apply simple-mode filtering when enabled
+  const agentMenu = useMemo(
+    () =>
+      sidebarMode === "simple"
+        ? flattenMenuForSimpleMode(rawAgentMenu)
+        : rawAgentMenu,
+    [rawAgentMenu, sidebarMode],
+  );
+  const settingsMenu = useMemo(
+    () =>
+      sidebarMode === "simple"
+        ? flattenMenuForSimpleMode(rawSettingsMenu)
+        : rawSettingsMenu,
+    [rawSettingsMenu, sidebarMode],
+  );
+
+  // Flat nav entries for simple mode (icon + label + path)
+  const simpleFlatNav = useMemo(() => {
+    if (sidebarMode !== "simple") return [];
+    return [
+      ...flattenMenu(agentMenu, routes, 16),
+      ...flattenMenu(settingsMenu, routes, 16),
+    ];
+  }, [agentMenu, settingsMenu, routes, sidebarMode]);
 
   // ── Effects ──────────────────────────────────────────────────────────────
 
@@ -164,7 +246,7 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
 
   const collapsedNavItems = useMemo(() => {
     // Sticky chat is its own carve-out (lives outside menu data — see builtinMenu.ts).
-    const stickyChat = {
+    const stickyChat: FlatMenuEntry = {
       key: "core.chat",
       icon: <SparkChatTabFill size={18} />,
       path: chatPath,
@@ -206,9 +288,43 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
 
   const handleMenuClick = (key: string, allItems: MenuItem[]) => {
     const item = findMenuItem(allItems, key);
+    if (item?.href) {
+      window.open(item.href, "_blank", "noopener,noreferrer");
+      return;
+    }
     const path = routeIdToPath(item?.route, routes);
     if (path) navigate(path);
   };
+
+  /**
+   * New chat: if we're already on the chat page, dispatch the event so
+   * ChatSessionInitializer (which is mounted) creates the session.
+   * If we're on another page, navigate to /chat without a session id —
+   * the chat page will auto-create a new session on mount.
+   */
+  const handleNewChat = useCallback(() => {
+    const onChatPage =
+      location.pathname.startsWith("/chat") ||
+      location.pathname.startsWith("/coding");
+    if (onChatPage) {
+      window.dispatchEvent(new CustomEvent("qwenpaw:sidebar-new-chat"));
+    } else {
+      navigate("/chat");
+    }
+  }, [location.pathname, navigate]);
+
+  /**
+   * Session click: navigate directly without relying on ChatSessionInitializer.
+   * buildSessionPath handles coding-mode paths.
+   */
+  const handleSidebarSessionClick = useCallback(
+    (sessionId: string) => {
+      const mode = codingMode ? "coding" : "chat";
+      const targetPath = buildSessionPath(mode, sessionId);
+      navigate(targetPath);
+    },
+    [codingMode, navigate],
+  );
 
   const handleUpdateProfile = async (values: {
     currentPassword: string;
@@ -272,12 +388,16 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
   // `renderIcon` retained for tree-shaking awareness.
   void renderIcon;
 
+  const isSimpleExpanded = sidebarMode === "simple" && !collapsed;
+
   return (
     <Sider
       width={siderWidth}
       className={`${styles.sider}${
         collapsed ? ` ${styles.siderCollapsed}` : ""
-      }${isDark ? ` ${styles.siderDark}` : ""}`}
+      }${isDark ? ` ${styles.siderDark}` : ""}${
+        isSimpleExpanded ? ` ${styles.siderSimple}` : ""
+      }`}
     >
       {collapsed ? (
         <nav className={styles.collapsedNav}>
@@ -300,7 +420,11 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
                   className={`${styles.collapsedNavItem} ${
                     isActive ? styles.collapsedNavItemActive : ""
                   }`}
-                  onClick={() => navigate(item.path)}
+                  onClick={() =>
+                    item.href
+                      ? window.open(item.href, "_blank", "noopener,noreferrer")
+                      : navigate(item.path)
+                  }
                 >
                   {item.icon}
                 </button>
@@ -308,6 +432,72 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
             );
           })}
         </nav>
+      ) : isSimpleExpanded ? (
+        <>
+          {/* Simple mode: flat nav items + session list */}
+          <div className={styles.agentScopedSection}>
+            <div className={styles.agentSelectorContainer}>
+              <AgentSelector collapsed={collapsed} />
+            </div>
+            {/* Flat nav items (no groups) */}
+            <div className={styles.simpleNavItems}>
+              {simpleFlatNav.map((entry) => {
+                const isInbox = entry.key === "core.inbox";
+                const isActive = selectedKey === entry.key;
+                return (
+                  <button
+                    key={entry.key}
+                    className={`${styles.simpleNavItem} ${
+                      isActive ? styles.simpleNavItemActive : ""
+                    }`}
+                    onClick={() =>
+                      entry.href
+                        ? window.open(
+                            entry.href,
+                            "_blank",
+                            "noopener,noreferrer",
+                          )
+                        : navigate(entry.path)
+                    }
+                  >
+                    {isInbox ? (
+                      <span
+                        style={{
+                          position: "relative",
+                          display: "inline-flex",
+                        }}
+                      >
+                        {entry.icon ?? <SparkEmailLine size={16} />}
+                        {hasInboxUnread && (
+                          <span
+                            style={{
+                              position: "absolute",
+                              top: -1,
+                              right: -3,
+                              width: 6,
+                              height: 6,
+                              borderRadius: "50%",
+                              background: "rgba(255, 157, 77, 1)",
+                            }}
+                          />
+                        )}
+                      </span>
+                    ) : (
+                      entry.icon
+                    )}
+                    <span>{entry.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Session list — fills remaining space */}
+          <SidebarSessionList
+            onNewChat={handleNewChat}
+            onSessionClick={handleSidebarSessionClick}
+          />
+        </>
       ) : (
         <>
           {/* Agent-scoped section: selector + Chat + Control + Workspace */}
@@ -385,6 +575,23 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
       )}
 
       <div className={styles.collapseToggleContainer}>
+        {!collapsed && (
+          <Popover
+            open={settingsOpen}
+            onOpenChange={setSettingsOpen}
+            placement="topRight"
+            trigger="click"
+            content={
+              <SidebarSettingsPanel onClose={() => setSettingsOpen(false)} />
+            }
+          >
+            <Button
+              type="text"
+              icon={<SparkSettingLine size={18} />}
+              className={styles.collapseToggle}
+            />
+          </Popover>
+        )}
         <Button
           type="text"
           icon={

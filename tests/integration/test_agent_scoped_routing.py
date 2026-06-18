@@ -18,143 +18,32 @@ Covers 13 P0 endpoints across five domains:
 from __future__ import annotations
 
 import io
-import json
-import shutil
 import time
 import zipfile
-from pathlib import Path
-from typing import Any
 
 import httpx
 import pytest
 
+from tests.integration.helpers import (
+    LOADER_READY_TIMEOUT,
+    OFFICIAL_PLUGINS_DIR,
+    PLUGIN_HTTP_TIMEOUT,
+    clean_inbox,
+    create_agent,
+    delete_agent_quietly,
+    delete_plugin_quietly,
+    make_event,
+    scoped,
+    seed_inbox_events,
+    wait_until_plugin_loader_ready,
+)
+
 _HTTP_TIMEOUT = 15.0
-_PLUGIN_HTTP_TIMEOUT = 30.0
-_LOADER_READY_TIMEOUT = 20.0
-_REPO_ROOT = Path(__file__).resolve().parents[2]
-_OFFICIAL_PLUGINS_DIR = _REPO_ROOT / "plugins"
-_AGENT_SCOPED_PREFIX = "/api/agents"
 
 
 # ------------------------------------------------------------------ #
-# helpers
+# file-local helpers (not shared)
 # ------------------------------------------------------------------ #
-
-
-def _scoped(agent_id: str, path: str) -> str:
-    """Build an agent-scoped URL."""
-    return f"{_AGENT_SCOPED_PREFIX}/{agent_id}{path}"
-
-
-def _wait_until_plugin_loader_ready(
-    app_server,
-    *,
-    timeout: float = _LOADER_READY_TIMEOUT,
-) -> None:
-    """Poll POST /api/plugins/install with an invalid source until the
-    plugin loader is initialised (503 → 400 transition)."""
-    deadline = time.time() + timeout
-    last_status = None
-    last_detail = ""
-    while time.time() < deadline:
-        try:
-            resp = app_server.api_request(
-                "POST",
-                "/api/plugins/install",
-                json={
-                    "source": "/tmp/integ-agent-scoped-probe-not-a-path",
-                    "force": False,
-                },
-                timeout=5.0,
-            )
-        except httpx.TimeoutException:
-            time.sleep(0.5)
-            continue
-        last_status = resp.status_code
-        try:
-            last_detail = resp.json().get("detail", "")
-        except ValueError:
-            last_detail = resp.text[:200]
-        if resp.status_code == 400 and "Path not found" in last_detail:
-            return
-        if resp.status_code == 503:
-            time.sleep(0.5)
-            continue
-        return
-    raise AssertionError(
-        f"plugin_loader not ready in {timeout}s, "
-        f"last status={last_status} detail={last_detail!r}",
-    )
-
-
-def _delete_plugin_quietly(app_server, plugin_id: str) -> None:
-    """Best-effort plugin delete for finally blocks."""
-    try:
-        _wait_until_plugin_loader_ready(app_server)
-        app_server.api_request(
-            "DELETE",
-            f"/api/plugins/{plugin_id}",
-            timeout=_PLUGIN_HTTP_TIMEOUT,
-        )
-    except (AssertionError, Exception):
-        pass
-
-
-def _inbox_path(working_dir: Path) -> Path:
-    return working_dir / "inbox_events.json"
-
-
-def _trace_dir(working_dir: Path) -> Path:
-    return working_dir / "inbox_traces"
-
-
-def _seed_inbox_events(
-    working_dir: Path,
-    events: list[dict[str, Any]],
-) -> None:
-    path = _inbox_path(working_dir)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        json.dumps(events, ensure_ascii=False, indent=2, sort_keys=True),
-        encoding="utf-8",
-    )
-
-
-def _clean_inbox(working_dir: Path) -> None:
-    path = _inbox_path(working_dir)
-    if path.exists():
-        path.unlink()
-    directory = _trace_dir(working_dir)
-    if directory.exists():
-        shutil.rmtree(directory)
-
-
-def _make_event(
-    *,
-    event_id: str,
-    agent_id: str = "default",
-    source_type: str = "cron",
-    event_type: str = "cron_executed",
-    status: str = "completed",
-    severity: str = "info",
-    title: str = "scoped routing event",
-    read: bool = False,
-    created_at: float | None = None,
-) -> dict[str, Any]:
-    return {
-        "id": event_id,
-        "agent_id": agent_id,
-        "source_type": source_type,
-        "source_id": "",
-        "event_type": event_type,
-        "status": status,
-        "severity": severity,
-        "title": title,
-        "body": "",
-        "payload": {},
-        "read": read,
-        "created_at": (created_at if created_at is not None else time.time()),
-    }
 
 
 def _build_workspace_zip(files: dict[str, str]) -> bytes:
@@ -164,26 +53,6 @@ def _build_workspace_zip(files: dict[str, str]) -> bytes:
         for name, content in files.items():
             zf.writestr(name, content)
     return buf.getvalue()
-
-
-def _create_agent(app_server, agent_id: str) -> None:
-    resp = app_server.api_request(
-        "POST",
-        "/api/agents",
-        json={
-            "id": agent_id,
-            "name": f"Agent {agent_id}",
-            "description": "",
-        },
-    )
-    assert resp.status_code == 201, app_server.logs_tail()
-
-
-def _delete_agent_quietly(app_server, agent_id: str) -> None:
-    try:
-        app_server.api_request("DELETE", f"/api/agents/{agent_id}")
-    except Exception:
-        pass
 
 
 # ------------------------------------------------------------------ #
@@ -207,15 +76,15 @@ def test_plugins_install_invalid_source(app_server) -> None:
     API endpoints:
     - POST /api/agents/{agentId}/plugins/install
     """
-    _wait_until_plugin_loader_ready(app_server)
+    wait_until_plugin_loader_ready(app_server)
     resp = app_server.api_request(
         "POST",
-        _scoped("default", "/plugins/install"),
+        scoped("default", "/plugins/install"),
         json={
             "source": "/tmp/integ-no-such-plugin-path",
             "force": False,
         },
-        timeout=_PLUGIN_HTTP_TIMEOUT,
+        timeout=PLUGIN_HTTP_TIMEOUT,
     )
     assert resp.status_code == 400, app_server.logs_tail()
     assert "Path not found" in resp.json().get("detail", "")
@@ -237,12 +106,12 @@ def test_plugins_upload_non_zip_rejected(app_server) -> None:
     API endpoints:
     - POST /api/agents/{agentId}/plugins/upload
     """
-    _wait_until_plugin_loader_ready(app_server)
+    wait_until_plugin_loader_ready(app_server)
     resp = app_server.api_request(
         "POST",
-        _scoped("default", "/plugins/upload"),
+        scoped("default", "/plugins/upload"),
         files={"file": ("test.txt", b"not a zip", "text/plain")},
-        timeout=_PLUGIN_HTTP_TIMEOUT,
+        timeout=PLUGIN_HTTP_TIMEOUT,
     )
     assert resp.status_code == 400, app_server.logs_tail()
     assert ".zip" in resp.json().get("detail", "")
@@ -263,11 +132,11 @@ def test_plugins_uninstall_unknown(app_server) -> None:
     API endpoints:
     - DELETE /api/agents/{agentId}/plugins/{plugin_id}
     """
-    _wait_until_plugin_loader_ready(app_server)
+    wait_until_plugin_loader_ready(app_server)
     resp = app_server.api_request(
         "DELETE",
-        _scoped("default", "/plugins/integ-nonexistent-plugin"),
-        timeout=_PLUGIN_HTTP_TIMEOUT,
+        scoped("default", "/plugins/integ-nonexistent-plugin"),
+        timeout=PLUGIN_HTTP_TIMEOUT,
     )
     assert resp.status_code == 404, app_server.logs_tail()
     assert "not loaded" in resp.json().get("detail", "")
@@ -275,7 +144,7 @@ def test_plugins_uninstall_unknown(app_server) -> None:
 
 @pytest.mark.integration
 @pytest.mark.p0
-def test_plugins_install_real_via_agent_scoped(app_server) -> None:
+def test_plugins_install_real_via_agentscoped(app_server) -> None:
     """Test purpose:
     - Verify a real plugin (bundled ``cloudpaw``) can be installed and
       uninstalled through the agent-scoped path. This is the happy-path
@@ -297,20 +166,29 @@ def test_plugins_install_real_via_agent_scoped(app_server) -> None:
     - DELETE /api/agents/{agentId}/plugins/{plugin_id}
     """
     plugin_id = "cloudpaw"
-    source_path = _OFFICIAL_PLUGINS_DIR / "bundle" / "cloudpaw"
+    source_path = OFFICIAL_PLUGINS_DIR / "bundle" / "cloudpaw"
     assert source_path.is_dir(), f"missing source: {source_path}"
 
     try:
-        _wait_until_plugin_loader_ready(app_server)
-        deadline = time.time() + _LOADER_READY_TIMEOUT
+        wait_until_plugin_loader_ready(app_server)
+        deadline = time.time() + LOADER_READY_TIMEOUT
         resp = None
         while True:
-            resp = app_server.api_request(
-                "POST",
-                _scoped("default", "/plugins/install"),
-                json={"source": str(source_path), "force": False},
-                timeout=_PLUGIN_HTTP_TIMEOUT,
-            )
+            try:
+                resp = app_server.api_request(
+                    "POST",
+                    scoped("default", "/plugins/install"),
+                    json={
+                        "source": str(source_path),
+                        "force": False,
+                    },
+                    timeout=PLUGIN_HTTP_TIMEOUT,
+                )
+            except httpx.TimeoutException:
+                if time.time() >= deadline:
+                    raise
+                time.sleep(0.5)
+                continue
             if resp.status_code != 503 or time.time() >= deadline:
                 break
             time.sleep(0.5)
@@ -324,8 +202,8 @@ def test_plugins_install_real_via_agent_scoped(app_server) -> None:
 
         list_resp = app_server.api_request(
             "GET",
-            _scoped("default", "/plugins"),
-            timeout=_PLUGIN_HTTP_TIMEOUT,
+            scoped("default", "/plugins"),
+            timeout=PLUGIN_HTTP_TIMEOUT,
         )
         assert list_resp.status_code == 200, app_server.logs_tail()
         items = list_resp.json()
@@ -338,15 +216,15 @@ def test_plugins_install_real_via_agent_scoped(app_server) -> None:
         }
         assert plugin_id in loaded_ids
 
-        _wait_until_plugin_loader_ready(app_server)
+        wait_until_plugin_loader_ready(app_server)
         del_resp = app_server.api_request(
             "DELETE",
-            _scoped("default", f"/plugins/{plugin_id}"),
-            timeout=_PLUGIN_HTTP_TIMEOUT,
+            scoped("default", f"/plugins/{plugin_id}"),
+            timeout=PLUGIN_HTTP_TIMEOUT,
         )
         assert del_resp.status_code == 200, app_server.logs_tail()
     finally:
-        _delete_plugin_quietly(app_server, plugin_id)
+        delete_plugin_quietly(app_server, plugin_id)
 
 
 # ------------------------------------------------------------------ #
@@ -379,16 +257,16 @@ def test_inbox_seed_list_read_delete_lifecycle(app_server) -> None:
     - DELETE /api/agents/{agentId}/console/inbox/events/{event_id}
     """
     events = [
-        _make_event(event_id="scoped-inbox-01"),
-        _make_event(event_id="scoped-inbox-02"),
-        _make_event(event_id="scoped-inbox-03"),
+        make_event(event_id="scoped-inbox-01"),
+        make_event(event_id="scoped-inbox-02"),
+        make_event(event_id="scoped-inbox-03"),
     ]
-    _seed_inbox_events(app_server.working_dir, events)
+    seed_inbox_events(app_server.working_dir, events)
 
     try:
         list_resp = app_server.api_request(
             "GET",
-            _scoped("default", "/console/inbox/events"),
+            scoped("default", "/console/inbox/events"),
             timeout=_HTTP_TIMEOUT,
         )
         assert list_resp.status_code == 200, app_server.logs_tail()
@@ -397,7 +275,7 @@ def test_inbox_seed_list_read_delete_lifecycle(app_server) -> None:
 
         mark_resp = app_server.api_request(
             "POST",
-            _scoped("default", "/console/inbox/read"),
+            scoped("default", "/console/inbox/read"),
             json={
                 "event_ids": ["scoped-inbox-01", "scoped-inbox-02"],
                 "all": False,
@@ -409,7 +287,7 @@ def test_inbox_seed_list_read_delete_lifecycle(app_server) -> None:
 
         verify_resp = app_server.api_request(
             "GET",
-            _scoped("default", "/console/inbox/events"),
+            scoped("default", "/console/inbox/events"),
             timeout=_HTTP_TIMEOUT,
         )
         assert verify_resp.status_code == 200, app_server.logs_tail()
@@ -420,7 +298,7 @@ def test_inbox_seed_list_read_delete_lifecycle(app_server) -> None:
 
         del_resp = app_server.api_request(
             "DELETE",
-            _scoped("default", "/console/inbox/events/scoped-inbox-03"),
+            scoped("default", "/console/inbox/events/scoped-inbox-03"),
             timeout=_HTTP_TIMEOUT,
         )
         assert del_resp.status_code == 200, app_server.logs_tail()
@@ -428,14 +306,14 @@ def test_inbox_seed_list_read_delete_lifecycle(app_server) -> None:
 
         final_resp = app_server.api_request(
             "GET",
-            _scoped("default", "/console/inbox/events"),
+            scoped("default", "/console/inbox/events"),
             timeout=_HTTP_TIMEOUT,
         )
         assert final_resp.status_code == 200, app_server.logs_tail()
         remaining = {e["id"] for e in final_resp.json()["events"]}
         assert remaining == {"scoped-inbox-01", "scoped-inbox-02"}
     finally:
-        _clean_inbox(app_server.working_dir)
+        clean_inbox(app_server.working_dir)
 
 
 # ------------------------------------------------------------------ #
@@ -460,11 +338,11 @@ def test_workspace_upload_invalid_content_type(app_server) -> None:
     - POST /api/agents/{agentId}/workspace/upload
     """
     agent_id = "integ_ws_upload_bad_ct_01"
-    _create_agent(app_server, agent_id)
+    create_agent(app_server, agent_id)
     try:
         resp = app_server.api_request(
             "POST",
-            _scoped(agent_id, "/workspace/upload"),
+            scoped(agent_id, "/workspace/upload"),
             files={
                 "file": (
                     "bad.zip",
@@ -477,7 +355,7 @@ def test_workspace_upload_invalid_content_type(app_server) -> None:
         assert resp.status_code == 400, app_server.logs_tail()
         assert "zip" in resp.json().get("detail", "").lower()
     finally:
-        _delete_agent_quietly(app_server, agent_id)
+        delete_agent_quietly(app_server, agent_id)
 
 
 @pytest.mark.integration
@@ -500,7 +378,7 @@ def test_workspace_upload_valid_zip_merges(app_server) -> None:
     - POST /api/agents/{agentId}/workspace/upload
     """
     agent_id = "integ_ws_upload_ok_01"
-    _create_agent(app_server, agent_id)
+    create_agent(app_server, agent_id)
     try:
         zip_bytes = _build_workspace_zip(
             {
@@ -509,7 +387,7 @@ def test_workspace_upload_valid_zip_merges(app_server) -> None:
         )
         resp = app_server.api_request(
             "POST",
-            _scoped(agent_id, "/workspace/upload"),
+            scoped(agent_id, "/workspace/upload"),
             files={
                 "file": (
                     "workspace.zip",
@@ -522,7 +400,7 @@ def test_workspace_upload_valid_zip_merges(app_server) -> None:
         assert resp.status_code == 200, app_server.logs_tail()
         assert resp.json().get("success") is True
     finally:
-        _delete_agent_quietly(app_server, agent_id)
+        delete_agent_quietly(app_server, agent_id)
 
 
 # ------------------------------------------------------------------ #
@@ -549,17 +427,17 @@ def test_mcp_oauth_revoke_unknown_client(app_server) -> None:
     - DELETE /api/agents/{agentId}/mcp/oauth/{client_key}
     """
     agent_id = "integ_mcp_oauth_revoke_01"
-    _create_agent(app_server, agent_id)
+    create_agent(app_server, agent_id)
     try:
         resp = app_server.api_request(
             "DELETE",
-            _scoped(agent_id, "/mcp/oauth/no-such-client"),
+            scoped(agent_id, "/mcp/oauth/no-such-client"),
             timeout=_HTTP_TIMEOUT,
         )
         assert resp.status_code == 404, app_server.logs_tail()
         assert "not found" in resp.json().get("detail", "").lower()
     finally:
-        _delete_agent_quietly(app_server, agent_id)
+        delete_agent_quietly(app_server, agent_id)
 
 
 # ------------------------------------------------------------------ #
@@ -584,7 +462,7 @@ def test_transcribe_disabled_returns_400(app_server) -> None:
     """
     resp = app_server.api_request(
         "POST",
-        _scoped("default", "/workspace/transcribe"),
+        scoped("default", "/workspace/transcribe"),
         files={
             "file": ("test.webm", b"\x00" * 16, "audio/webm"),
         },
@@ -616,7 +494,7 @@ def test_transcribe_unsupported_extension(app_server) -> None:
     """
     enable_resp = app_server.api_request(
         "PUT",
-        _scoped("default", "/workspace/transcription-provider-type"),
+        scoped("default", "/workspace/transcription-provider-type"),
         json={"transcription_provider_type": "whisper_api"},
         timeout=_HTTP_TIMEOUT,
     )
@@ -625,7 +503,7 @@ def test_transcribe_unsupported_extension(app_server) -> None:
     try:
         resp = app_server.api_request(
             "POST",
-            _scoped("default", "/workspace/transcribe"),
+            scoped("default", "/workspace/transcribe"),
             files={
                 "file": ("test.txt", b"hello", "text/plain"),
             },
@@ -637,7 +515,7 @@ def test_transcribe_unsupported_extension(app_server) -> None:
     finally:
         app_server.api_request(
             "PUT",
-            _scoped(
+            scoped(
                 "default",
                 "/workspace/transcription-provider-type",
             ),
@@ -675,7 +553,7 @@ def test_transcription_provider_roundtrip(app_server) -> None:
 
     baseline_resp = app_server.api_request(
         "GET",
-        _scoped("default", base_path),
+        scoped("default", base_path),
         timeout=_HTTP_TIMEOUT,
     )
     assert baseline_resp.status_code == 200, app_server.logs_tail()
@@ -684,7 +562,7 @@ def test_transcription_provider_roundtrip(app_server) -> None:
     try:
         put_resp = app_server.api_request(
             "PUT",
-            _scoped("default", base_path),
+            scoped("default", base_path),
             json={"transcription_provider_type": "whisper_api"},
             timeout=_HTTP_TIMEOUT,
         )
@@ -695,7 +573,7 @@ def test_transcription_provider_roundtrip(app_server) -> None:
 
         get_resp = app_server.api_request(
             "GET",
-            _scoped("default", base_path),
+            scoped("default", base_path),
             timeout=_HTTP_TIMEOUT,
         )
         assert get_resp.status_code == 200, app_server.logs_tail()
@@ -705,7 +583,7 @@ def test_transcription_provider_roundtrip(app_server) -> None:
     finally:
         app_server.api_request(
             "PUT",
-            _scoped("default", base_path),
+            scoped("default", base_path),
             json={
                 "transcription_provider_type": baseline or "disabled",
             },
@@ -714,7 +592,7 @@ def test_transcription_provider_roundtrip(app_server) -> None:
 
     restore_resp = app_server.api_request(
         "GET",
-        _scoped("default", base_path),
+        scoped("default", base_path),
         timeout=_HTTP_TIMEOUT,
     )
     assert restore_resp.status_code == 200, app_server.logs_tail()
@@ -740,7 +618,7 @@ def test_transcription_provider_invalid(app_server) -> None:
     """
     resp = app_server.api_request(
         "PUT",
-        _scoped("default", "/workspace/transcription-provider-type"),
+        scoped("default", "/workspace/transcription-provider-type"),
         json={"transcription_provider_type": "foobar"},
         timeout=_HTTP_TIMEOUT,
     )
@@ -769,7 +647,7 @@ def test_hub_install_cancel_unknown_task(app_server) -> None:
     """
     resp = app_server.api_request(
         "POST",
-        _scoped(
+        scoped(
             "default",
             "/skills/hub/install/cancel/integ-no-such-task",
         ),

@@ -69,6 +69,21 @@
     "backups": "备份",
     "pluginManager": "插件管理"
   },
+  "sidebar": {
+    "newVersion": "发现新版本 v{{version}}，点击前往升级",
+    "updateModal": {
+      "title": "发现新版本 v{{version}}",
+      "viewReleases": "查看 Releases",
+      "close": "关闭"
+    },
+    "settings": {
+      "language": "语言",
+      "theme": "主题",
+      "mode": "模式"
+    },
+    "simpleMode": "精简模式",
+    "fullMode": "完整模式"
+  },
   "debug": {
     "title": "调试",
     "desc": "查看后端守护进程日志文件，便于排查问题。在此页面打开时日志会自动刷新。",
@@ -426,6 +441,8 @@
     "broadcast": "广播到智能体",
     "broadcastHint": "将技能广播给选定的智能体",
     "refreshHint": "从磁盘刷新技能池",
+    "deleteExternalConfirm": "将从磁盘删除外部技能文件:{{path}}。",
+    "deleteExternalBatchWarning": "所选的外部技能将从磁盘永久删除。",
     "broadcastTitle": "广播 {{name}}",
     "importBuiltin": "更新内置技能",
     "importBuiltinHint": "将内置技能更新到最新版本",
@@ -1038,6 +1055,7 @@
     "saveSuccess": "会话保存成功",
     "saveFailed": "会话保存失败",
     "batchDeleteButton": "批量删除",
+    "filterTitle": "按标题筛选",
     "filterUserId": "按用户ID筛选",
     "filterChannel": "按频道筛选",
     "allChannels": "全部频道",
@@ -1172,6 +1190,7 @@
     "providersDescription": "为每个提供商配置 API 密钥和端点。",
     "llmTitle": "模型",
     "defaultLlm": "默认LLM",
+    "notConfiguredYet": "尚未配置",
     "llmDescription": "在这里设置全局默认的 LLM 模型。你也可以在聊天页面为具体 Agent 单独选择使用的模型。",
     "configureProvider": "配置 {{name}}",
     "baseURL": "基础 URL",
@@ -1261,6 +1280,16 @@
     "builtin": "内置",
     "freeTierGroup": "免费",
     "paidGroup": "付费",
+    "localCustomGroup": "本地 & 自定义",
+    "cloudGroup": "云端提供商",
+    "configuredGroup": "已配置",
+    "configuredOnline": "个提供商在线",
+    "noConfigured": "尚未配置任何提供商，请在下方选择一个开始使用",
+    "goConfigureBtn": "去配置",
+    "availableGroup": "可用提供商",
+    "clickToConfigure": "点击配置",
+    "configureAction": "配置 →",
+    "endpointCount": "{{count}} 个端点",
     "connect": "OAuth 认证",
     "saveApiKey": "保存",
     "addProvider": "添加提供商",
@@ -1280,6 +1309,12 @@
     "deleteProviderConfirm": "确定删除自定义提供商 \"{{name}}\" 及其所有模型？此操作不可撤销。",
     "providerDeleted": "提供商 \"{{name}}\" 已删除",
     "providerDeleteFailed": "删除提供商失败",
+    "disableProvider": "停用提供商",
+    "disableProviderConfirm": "确定清除 \"{{name}}\" 的 API Key？该提供商将变为未配置状态。",
+    "disableBtn": "停用",
+    "changeApiKey": "修改",
+    "selectVariant": "选择 {{name}} 的版本",
+    "providerDisabled": "提供商 \"{{name}}\" 已停用",
     "manageModels": "模型",
     "models": "模型",
     "manageModelsTitle": "{{provider}} — 模型管理",
@@ -1765,19 +1800,13 @@
     "light": "浅色",
     "system": "跟随系统"
   },
-  "sidebar": {
-    "newVersion": "发现新版本 v{{version}}，点击前往升级",
-    "updateModal": {
-      "title": "发现新版本 v{{version}}",
-      "viewReleases": "查看 Releases",
-      "close": "关闭"
-    }
-  },
   "chat": {
     "modelSelectTooltip": "模型选择",
     "newChatTooltip": "新建聊天",
     "searchTooltip": "搜索所有聊天",
     "chatHistoryTooltip": "聊天历史",
+    "wideModeTooltip": "宽屏模式",
+    "normalModeTooltip": "正常模式",
     "allChats": "全部聊天",
     "createNewChat": "创建新聊天",
     "pinDrawer": "固定",
@@ -1790,6 +1819,7 @@
     "prompt1": "让我们开启一段新的旅程吧！",
     "prompt2": "能告诉我你有哪些技能吗？",
     "inputPlaceholder": "\"↑↓\" 浏览消息 · \"/\" 快捷指令（审批时 \"/approve\" 或 \"/deny\"）",
+    "emptyOutputError": "助手返回了空响应。",
     "commands": {
       "clear": {
         "description": "清空对话上下文"
@@ -1825,6 +1855,14 @@
       "imageOnlyWarning": "当前模型仅检测到图片支持，视频等非图片文件可能无法被正确处理"
     },
     "rateLimitHit": "当前模型已触发限流，请尝试切换其他免费模型。",
+    "turnUsagePopover": {
+      "ariaLabel": "查看本轮 Token 与上下文用量",
+      "turn": "本轮",
+      "turnEstimated": "本轮约",
+      "tok": "tok",
+      "inOut": "in {{inTok}} · out {{outTok}}",
+      "contextLabel": "上下文窗口："
+    },
     "rateLimitMessage": "已触发限流，切换其他免费模型：",
     "rateLimitSwitched": "已切换至 {{model}}",
     "speech": {
@@ -1855,7 +1893,38 @@
       "pin": "置顶",
       "unpin": "取消置顶",
       "delete": "删除"
-    }
+    },
+    "queue": {
+      "title": "消息队列",
+      "paused": "已暂停",
+      "sendFailed": "发送失败",
+      "resume": "继续发送队列",
+      "pause": "暂停发送队列",
+      "clear": "清空队列",
+      "dragSort": "拖动排序",
+      "edit": "编辑",
+      "retry": "重试",
+      "skip": "跳过",
+      "interruptAndSend": "打断并发送",
+      "delete": "删除",
+      "file": "文件",
+      "noChatWarning": "请先发送一条消息创建对话，再使用队列功能",
+      "queueFull": "队列已满（最多 {{max}} 条），请先发送或删除部分消息",
+      "otherTabOwner": "当前对话已在另一个标签页中发送，本标签页只能将输入加入队列；所有发送操作均由其他标签页完成。"
+    },
+    "group": {
+      "pinned": "置顶",
+      "today": "今天",
+      "week": "7天内",
+      "month": "30天内",
+      "older": "更早"
+    },
+    "sessionPanel": {
+      "searchConversations": "搜索对话…",
+      "noConversations": "暂无对话",
+      "loadingConversations": "加载中…"
+    },
+    "conversationHistory": "历史对话"
   },
   "security": {
     "parent": "设置",
@@ -1997,7 +2066,9 @@
       "duplicate": "该路径已存在",
       "saveSuccess": "文件防护设置已保存",
       "saveFailed": "保存文件防护设置失败",
-      "loadFailed": "加载文件防护设置失败"
+      "loadFailed": "加载文件防护设置失败",
+      "allowPreviewOutsideWorkspace": "允许控制台预览工作区外文件",
+      "allowPreviewOutsideWorkspaceDesc": "允许在控制台中预览工作区目录之外的文件，敏感文件防护仍然生效。"
     },
     "allowNoAuthHosts": {
       "title": "免认证主机白名单",
@@ -2305,6 +2376,7 @@
     "installed": "已安装插件",
     "noPlugins": "暂无已安装插件",
     "installBtn": "安装插件",
+    "publishBtn": "发布插件",
     "installTitle": "安装插件",
     "dropPrimary": "拖入文件夹或 ZIP 文件",
     "dropSecondary": "或点击选择 ZIP 文件",
@@ -2344,7 +2416,18 @@
     "kindBundle": "插件包",
     "kindTool": "工具",
     "filterByName": "按名称筛选",
-    "filterByKind": "按标签筛选"
+    "filterByKind": "按标签筛选",
+    "marketTitle": "插件市场",
+    "marketEmpty": "暂无市场插件",
+    "marketLoadFailed": "加载插件市场失败",
+    "marketUnavailable": "插件市场正在维护中，请稍后再试",
+    "marketSearch": "搜索插件...",
+    "marketAll": "全部",
+    "marketCategory": "按类别筛选",
+    "marketSearchResult": "\"{{keyword}}\" 相关插件共搜索到 {{count}} 个结果",
+    "marketDetails": "详情",
+    "marketDownloads": "下载量",
+    "marketDeveloper": "开发者"
   },
   "codingMode": {
     "title": "编程模式",
@@ -2397,9 +2480,12 @@
   },
   "market": {
     "searchPlaceholder": "在多平台中搜索技能",
+    "categoryAll": "全部",
+    "searchResult": "\"{{keyword}}\" 相关技能共搜索到 {{count}} 个结果",
     "providerUnavailable": "数据源不可用",
     "noResults": "没有找到结果",
     "startTyping": "在上方输入关键字以搜索技能市场",
+    "browseHint": "选择分类或输入关键词以浏览 {{providers}} 中的技能",
     "noDescription": "暂无描述",
     "targetPool": "技能池",
     "targetWorkspace": "工作区",
@@ -2446,5 +2532,129 @@
     "timeout": "后端服务在 {{seconds}} 秒内未能启动。",
     "timeoutHint": "后端启动失败，请重试，或检查应用日志了解详情。",
     "retry": "重试"
+  },
+  "tool": {
+    "readFile": "阅读 {{file}}",
+    "readFileDefault": "阅读 文件",
+    "writeFile": "创建 {{file}}",
+    "writeFileDefault": "创建 文件",
+    "editFile": "编辑 {{file}}",
+    "editFileDefault": "编辑 文件",
+    "appendFile": "追加 {{file}}",
+    "appendFileDefault": "追加 文件",
+    "grepSearch": "文本匹配 {{pattern}}",
+    "grepSearchDefault": "文本匹配",
+    "globSearch": "文件匹配 {{pattern}}",
+    "globSearchDefault": "文件匹配",
+    "viewImage": "查看图片 {{file}}",
+    "viewImageDefault": "查看图片",
+    "viewVideo": "查看视频 {{file}}",
+    "viewVideoDefault": "查看视频",
+    "desktopScreenshot": "截图 桌面",
+    "sendFile": "发送 {{file}}",
+    "sendFileDefault": "发送 文件",
+    "browserUse": "浏览 {{detail}}",
+    "browserNavigate": "浏览 打开 {{url}}",
+    "browserNavigateDefault": "浏览 打开页面",
+    "browserClick": "浏览 点击",
+    "browserType": "浏览 输入",
+    "browserSnapshot": "浏览 快照",
+    "browserScroll": "浏览 滚动",
+    "getCurrentTime": "获取 当前时间",
+    "setTimezone": "设置 {{timezone}}",
+    "getTokenUsage": "查询 Token 用量",
+    "memorySearch": "搜索 {{query}}",
+    "memorySearchDefault": "搜索 记忆",
+    "listAgents": "列出 代理",
+    "chatWithAgent": "对话 {{agent}}",
+    "chatWithAgentDefault": "对话 代理",
+    "submitToAgent": "提交 {{agent}}{{task}}",
+    "submitToAgentDefault": "提交 任务",
+    "checkAgentTask": "检查 {{agent}} #{{taskId}}",
+    "checkAgentTaskAgent": "检查 {{agent}}",
+    "checkAgentTaskDefault": "检查 任务",
+    "delegateExternalAgent": "委派 {{runner}}",
+    "delegateExternalAgentDefault": "委派 外部代理",
+    "materializeSkill": "创建 {{skill}}",
+    "materializeSkillDefault": "创建 技能",
+    "shell": "执行 {{command}}",
+    "shellDefault": "执行 命令",
+    "formatTable": {
+      "file": "文件",
+      "lineNumber": "行号",
+      "score": "分数",
+      "summary": "摘要",
+      "name": "名称",
+      "id": "ID",
+      "description": "描述",
+      "status": "状态"
+    },
+    "loading": "处理中...",
+    "browserAction": {
+      "startHeaded": "启动浏览器(有界面)",
+      "start": "启动浏览器",
+      "stop": "关闭浏览器",
+      "open": "打开 {{url}}",
+      "openDefault": "打开页面",
+      "navigate": "导航 {{url}}",
+      "navigateDefault": "导航页面",
+      "navigateBack": "返回上一页",
+      "click": "点击 {{selector}}",
+      "clickDefault": "点击元素",
+      "type": "输入 {{text}}",
+      "typeDefault": "输入文本",
+      "snapshot": "获取快照",
+      "screenshot": "截图 {{path}}",
+      "screenshotDefault": "截图",
+      "eval": "执行 {{code}}",
+      "evalDefault": "执行代码",
+      "runCode": "运行 {{code}}",
+      "runCodeDefault": "运行代码",
+      "closePage": "关闭页面",
+      "tabs": "标签页 {{action}}",
+      "tabsDefault": "管理标签页",
+      "fillForm": "填写表单",
+      "fileUpload": "上传 {{filename}}",
+      "fileUploadDefault": "上传文件",
+      "fileDownload": "下载 {{target}}",
+      "fileDownloadDefault": "下载文件",
+      "pressKey": "按键 {{key}}",
+      "pressKeyDefault": "按键",
+      "hover": "悬停 {{selector}}",
+      "hoverDefault": "悬停元素",
+      "drag": "拖拽",
+      "selectOption": "选择选项",
+      "waitFor": "等待 {{target}}",
+      "waitForDefault": "等待元素",
+      "resize": "调整大小 {{w}}x{{h}}",
+      "resizeDefault": "调整窗口大小",
+      "pdf": "导出PDF {{path}}",
+      "pdfDefault": "导出PDF",
+      "install": "安装",
+      "batch": "批量操作"
+    },
+    "lineBadge": {
+      "lines": "{{count}}行",
+      "addLines": "+{{count}}行",
+      "delLines": "-{{count}}行",
+      "matches": "{{count}}匹配",
+      "files": "{{count}}文件"
+    },
+    "inlineResult": {
+      "taskId": "任务 #{{id}}",
+      "submitted": "已提交"
+    },
+    "execute": "执行 {{tool}}",
+    "executeDefault": "执行 工具"
+  },
+  "preview": {
+    "error": {
+      "SENSITIVE_FILE_BLOCKED": "该文件被文件防护拦截（敏感文件保护）。",
+      "OUTSIDE_WORKSPACE": "该文件位于工作区范围之外。请在 设置 → 安全 → 文件防护 中启用「允许控制台预览工作区外文件」。",
+      "FORBIDDEN": "访问被拒绝：没有预览此文件的权限。",
+      "NOT_FOUND": "文件未找到，可能已被移动或删除。",
+      "LOAD_FAILED": "加载文件预览失败。",
+      "LOAD_FAILED_DETAIL": "加载文件预览失败：{{detail}}"
+    }
   }
 }

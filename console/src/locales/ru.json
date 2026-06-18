@@ -320,6 +320,8 @@
     "broadcast": "Трансляция",
     "broadcastHint": "Транслировать навыки пула во все или выбранные рабочие пространства",
     "refreshHint": "Обновить пул навыков с диска",
+    "deleteExternalConfirm": "Файлы внешнего навыка в {{path}} будут удалены с диска.",
+    "deleteExternalBatchWarning": "Выбранные внешние навыки будут безвозвратно удалены с диска.",
     "broadcastTitle": "Транслировать {{name}}",
     "importBuiltin": "Импорт встроенных",
     "importBuiltinHint": "Импортировать встроенные навыки из исходников в пул",
@@ -893,6 +895,7 @@
     "saveSuccess": "Сессия успешно сохранена",
     "saveFailed": "Не удалось сохранить сессию",
     "batchDeleteButton": "Массовое удаление",
+    "filterTitle": "Фильтр по названию",
     "filterUserId": "Фильтр по ID пользователя",
     "filterChannel": "Фильтр по каналу",
     "allChannels": "Все каналы",
@@ -1116,6 +1119,8 @@
     "builtin": "Встроенный",
     "freeTierGroup": "Бесплатный уровень",
     "paidGroup": "Платные",
+    "localCustomGroup": "Локальные и пользовательские",
+    "endpointCount": "{{count}} конечных точек",
     "connect": "OAuth",
     "saveApiKey": "Сохранить",
     "addProvider": "Добавить провайдера",
@@ -1609,13 +1614,22 @@
       "title": "Доступна новая версия: v{{version}}",
       "viewReleases": "Открыть релизы",
       "close": "Закрыть"
-    }
+    },
+    "settings": {
+      "language": "Язык",
+      "theme": "Тема",
+      "mode": "Режим"
+    },
+    "simpleMode": "Простой режим",
+    "fullMode": "Полный режим"
   },
   "chat": {
     "modelSelectTooltip": "Выбор модели",
     "newChatTooltip": "Новый чат",
     "searchTooltip": "Поиск во всех чатах",
     "chatHistoryTooltip": "История чатов",
+    "wideModeTooltip": "Широкий режим",
+    "normalModeTooltip": "Обычный режим",
     "allChats": "Все чаты",
     "createNewChat": "Создать новый чат",
     "pinDrawer": "Закрепить",
@@ -1628,6 +1642,7 @@
     "prompt1": "Давайте начнём новое путешествие!",
     "prompt2": "Расскажи мне, какими навыками ты обладаешь?",
     "inputPlaceholder": "\"↑↓\" для навигации по сообщениям · \"/\" для быстрых команд (\"/approve\" или \"/deny\" во время подтверждения)",
+    "emptyOutputError": "Ассистент вернул пустой ответ.",
     "commands": {
       "clear": {
         "description": "Очистить контекст диалога"
@@ -1663,6 +1678,14 @@
       "imageOnlyWarning": "Текущая модель поддерживает только изображения, видео и другие файлы могут быть обработаны некорректно"
     },
     "rateLimitHit": "Текущая модель ограничена. Попробуйте переключиться на другую бесплатную модель.",
+    "turnUsagePopover": {
+      "ariaLabel": "Показать использование токенов и контекста за ход",
+      "turn": "Этот ход",
+      "turnEstimated": "Этот ход ~",
+      "tok": "tok",
+      "inOut": "in {{inTok}} · out {{outTok}}",
+      "contextLabel": "Окно контекста:"
+    },
     "rateLimitMessage": "Достигнут лимит запросов. Переключитесь на другую бесплатную модель:",
     "rateLimitSwitched": "Переключено на {{model}}",
     "speech": {
@@ -1693,7 +1716,38 @@
       "pin": "Закрепить",
       "unpin": "Открепить",
       "delete": "Удалить"
-    }
+    },
+    "queue": {
+      "title": "Очередь сообщений",
+      "paused": "Приостановлено",
+      "sendFailed": "Ошибка отправки",
+      "resume": "Возобновить очередь",
+      "pause": "Приостановить очередь",
+      "clear": "Очистить очередь",
+      "dragSort": "Перетащите для сортировки",
+      "edit": "Редактировать",
+      "retry": "Повторить",
+      "skip": "Пропустить",
+      "interruptAndSend": "Прервать и отправить",
+      "delete": "Удалить",
+      "file": "Файл",
+      "noChatWarning": "Сначала отправьте сообщение, чтобы создать диалог, прежде чем использовать очередь",
+      "queueFull": "Очередь полна (макс. {{max}} записей). Отправьте или удалите некоторые сообщения",
+      "otherTabOwner": "Этот диалог отправляется из другой вкладки. В этой вкладке можно только добавлять ввод в очередь."
+    },
+    "group": {
+      "pinned": "Закреплённые",
+      "today": "Сегодня",
+      "week": "За 7 дней",
+      "month": "За 30 дней",
+      "older": "Ранее"
+    },
+    "sessionPanel": {
+      "searchConversations": "Поиск…",
+      "noConversations": "Нет диалогов",
+      "loadingConversations": "Загрузка…"
+    },
+    "conversationHistory": "История диалогов"
   },
   "security": {
     "parent": "Настройки",
@@ -1801,7 +1855,9 @@
       "duplicate": "Этот путь уже есть в списке",
       "saveSuccess": "Настройки защиты файлов сохранены",
       "saveFailed": "Не удалось сохранить настройки защиты файлов",
-      "loadFailed": "Не удалось загрузить настройки защиты файлов"
+      "loadFailed": "Не удалось загрузить настройки защиты файлов",
+      "allowPreviewOutsideWorkspace": "Разрешить предпросмотр файлов вне рабочего пространства",
+      "allowPreviewOutsideWorkspaceDesc": "Разрешить предпросмотр файлов за пределами рабочей директории в консоли. Защита конфиденциальных файлов остаётся активной."
     },
     "allowNoAuthHosts": {
       "title": "Хосты без аутентификации",
@@ -2169,7 +2225,18 @@
     "kindBundle": "Пакет",
     "kindTool": "Инструмент",
     "filterByName": "Фильтр по имени",
-    "filterByKind": "Фильтр по типу"
+    "filterByKind": "Фильтр по типу",
+    "marketTitle": "Plugin Market",
+    "marketEmpty": "No plugins found in market",
+    "marketLoadFailed": "Failed to load plugin market",
+    "marketUnavailable": "Plugin Market is currently under maintenance, please try again later",
+    "marketAll": "All",
+    "marketSearch": "Search plugins...",
+    "marketCategory": "Filter by category",
+    "marketSearchResult": "Found {{count}} plugins matching \"{{keyword}}\"",
+    "marketDetails": "Details",
+    "marketDownloads": "Downloads",
+    "marketDeveloper": "Developer"
   },
   "plan": {
     "title": "План",
@@ -2299,9 +2366,12 @@
   },
   "market": {
     "searchPlaceholder": "Поиск навыков по платформам",
+    "categoryAll": "Все",
+    "searchResult": "Найдено навыков по запросу \"{{keyword}}\": {{count}}",
     "providerUnavailable": "Источник недоступен",
     "noResults": "Ничего не найдено",
     "startTyping": "Введите запрос выше, чтобы найти навык в маркете",
+    "browseHint": "Выберите категорию или введите ключевое слово, чтобы просмотреть навыки в {{providers}}",
     "noDescription": "Описание отсутствует",
     "targetPool": "Пул",
     "targetWorkspace": "Рабочее пространство",
@@ -2348,5 +2418,15 @@
     "timeout": "Не удалось запустить сервер за {{seconds}} секунд.",
     "timeoutHint": "Не удалось запустить бэкенд. Повторите попытку или проверьте журналы приложения.",
     "retry": "Повторить"
+  },
+  "preview": {
+    "error": {
+      "SENSITIVE_FILE_BLOCKED": "Этот файл заблокирован защитой файлов (защита конфиденциальных файлов).",
+      "OUTSIDE_WORKSPACE": "Этот файл находится за пределами рабочего пространства. Включите «Разрешить предпросмотр файлов вне рабочего пространства» в Настройки → Безопасность → Защита файлов.",
+      "FORBIDDEN": "Доступ запрещён: недостаточно прав для предпросмотра этого файла.",
+      "NOT_FOUND": "Файл не найден. Возможно, он был перемещён или удалён.",
+      "LOAD_FAILED": "Не удалось загрузить предпросмотр файла.",
+      "LOAD_FAILED_DETAIL": "Не удалось загрузить предпросмотр файла: {{detail}}"
+    }
   }
 }

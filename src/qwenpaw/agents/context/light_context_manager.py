@@ -686,7 +686,9 @@ class LightContextManager(BaseContextManager):
         before the ReAct loop runs.
         """
         msg = kwargs.get("msg")
-        if msg is None:
+        if msg is None or (isinstance(msg, list) and not msg):
+            # Nothing to augment; an empty list would also make msg[-1]
+            # below raise IndexError.
             return None
 
         last_msg = msg[-1] if isinstance(msg, list) else msg

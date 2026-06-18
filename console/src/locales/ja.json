@@ -320,6 +320,8 @@
     "broadcast": "ブロードキャスト",
     "broadcastHint": "スキルプールのスキルを全てまたは選択したワークスペースにブロードキャスト",
     "refreshHint": "ディスクからスキルプールを更新",
+    "deleteExternalConfirm": "外部スキルのファイル {{path}} をディスクから削除します。",
+    "deleteExternalBatchWarning": "選択した外部スキルはディスクから完全に削除されます。",
     "broadcastTitle": "{{name}} をブロードキャスト",
     "importBuiltin": "ビルトインを取り込む",
     "importBuiltinHint": "ソースからビルトインスキルをプールに取り込みます",
@@ -893,6 +895,7 @@
     "saveSuccess": "セッションを保存しました",
     "saveFailed": "セッションの保存に失敗しました",
     "batchDeleteButton": "一括削除",
+    "filterTitle": "タイトルで絞り込み",
     "filterUserId": "ユーザーIDで絞り込み",
     "filterChannel": "チャンネルで絞り込み",
     "allChannels": "すべてのチャンネル",
@@ -1116,6 +1119,8 @@
     "builtin": "組み込み",
     "freeTierGroup": "無料枠",
     "paidGroup": "有料",
+    "localCustomGroup": "ローカル & カスタム",
+    "endpointCount": "{{count}} エンドポイント",
     "connect": "OAuth",
     "saveApiKey": "保存",
     "addProvider": "プロバイダーを追加",
@@ -1594,13 +1599,22 @@
       "title": "新しいバージョンが利用可能です: v{{version}}",
       "viewReleases": "リリースを見る",
       "close": "閉じる"
-    }
+    },
+    "settings": {
+      "language": "言語",
+      "theme": "テーマ",
+      "mode": "モード"
+    },
+    "simpleMode": "シンプルモード",
+    "fullMode": "フルモード"
   },
   "chat": {
     "modelSelectTooltip": "モデルを選択",
     "newChatTooltip": "新しいチャット",
     "searchTooltip": "すべてのチャットを検索",
     "chatHistoryTooltip": "チャット履歴",
+    "wideModeTooltip": "ワイドモード",
+    "normalModeTooltip": "標準モード",
     "allChats": "すべてのチャット",
     "createNewChat": "新しいチャットを作成",
     "pinDrawer": "固定",
@@ -1613,6 +1627,7 @@
     "prompt1": "新しい旅を始めましょう！",
     "prompt2": "あなたのスキルを教えてください。",
     "inputPlaceholder": "\"↑↓\"でメッセージ移動 · \"/\"でクイックコマンド（承認時は\"/approve\"または\"/deny\"）",
+    "emptyOutputError": "アシスタントが空のレスポンスを返しました。",
     "commands": {
       "clear": {
         "description": "会話のコンテキストをクリア"
@@ -1648,6 +1663,14 @@
       "imageOnlyWarning": "現在のモデルは画像のみ対応しています。動画などの非画像ファイルは正しく処理されない場合があります"
     },
     "rateLimitHit": "現在のモデルがレート制限されています。他の無料モデルに切り替えてみてください。",
+    "turnUsagePopover": {
+      "ariaLabel": "このターンのトークンとコンテキスト使用量を表示",
+      "turn": "このターン",
+      "turnEstimated": "このターン約",
+      "tok": "tok",
+      "inOut": "入力 {{inTok}} · 出力 {{outTok}}",
+      "contextLabel": "コンテキストウィンドウ："
+    },
     "rateLimitMessage": "レート制限に達しました。他の無料モデルに切り替え：",
     "rateLimitSwitched": "{{model}} に切り替えました",
     "speech": {
@@ -1678,7 +1701,38 @@
       "pin": "ピン留め",
       "unpin": "ピン留め解除",
       "delete": "削除"
-    }
+    },
+    "queue": {
+      "title": "メッセージキュー",
+      "paused": "一時停止中",
+      "sendFailed": "送信失敗",
+      "resume": "キューを再開",
+      "pause": "キューを一時停止",
+      "clear": "キューをクリア",
+      "dragSort": "ドラッグで並べ替え",
+      "edit": "編集",
+      "retry": "再試行",
+      "skip": "スキップ",
+      "interruptAndSend": "中断して送信",
+      "delete": "削除",
+      "file": "ファイル",
+      "noChatWarning": "キューを使用する前に、まずメッセージを送信して会話を作成してください",
+      "queueFull": "キューが満杯です（最大 {{max}} 件）。メッセージを送信または削除してください",
+      "otherTabOwner": "この会話は別のタブから送信中です。このタブでは入力をキューに追加することのみ可能です。"
+    },
+    "group": {
+      "pinned": "ピン留め",
+      "today": "今日",
+      "week": "7日以内",
+      "month": "30日以内",
+      "older": "それ以前"
+    },
+    "sessionPanel": {
+      "searchConversations": "会話を検索…",
+      "noConversations": "会話なし",
+      "loadingConversations": "読み込み中…"
+    },
+    "conversationHistory": "会話履歴"
   },
   "security": {
     "parent": "設定",
@@ -1786,7 +1840,9 @@
       "duplicate": "このパスは既にリストに存在します",
       "saveSuccess": "ファイルガード設定を保存しました",
       "saveFailed": "ファイルガード設定の保存に失敗しました",
-      "loadFailed": "ファイルガード設定の読み込みに失敗しました"
+      "loadFailed": "ファイルガード設定の読み込みに失敗しました",
+      "allowPreviewOutsideWorkspace": "コンソールでワークスペース外ファイルのプレビューを許可",
+      "allowPreviewOutsideWorkspaceDesc": "コンソールでワークスペースディレクトリ外のファイルをプレビューできるようにします。機密ファイル保護は引き続き有効です。"
     },
     "allowNoAuthHosts": {
       "title": "認証不要ホスト",
@@ -2154,7 +2210,18 @@
     "kindBundle": "バンドル",
     "kindTool": "ツール",
     "filterByName": "名前で絞り込み",
-    "filterByKind": "タグで絞り込み"
+    "filterByKind": "タグで絞り込み",
+    "marketTitle": "Plugin Market",
+    "marketEmpty": "No plugins found in market",
+    "marketLoadFailed": "Failed to load plugin market",
+    "marketUnavailable": "Plugin Market is currently under maintenance, please try again later",
+    "marketAll": "All",
+    "marketSearch": "Search plugins...",
+    "marketCategory": "Filter by category",
+    "marketSearchResult": "Found {{count}} plugins matching \"{{keyword}}\"",
+    "marketDetails": "Details",
+    "marketDownloads": "Downloads",
+    "marketDeveloper": "Developer"
   },
   "plan": {
     "title": "プラン",
@@ -2284,9 +2351,12 @@
   },
   "market": {
     "searchPlaceholder": "プラットフォームを横断してスキルを検索",
+    "categoryAll": "すべて",
+    "searchResult": "「{{keyword}}」に一致するスキルが {{count}} 件見つかりました",
     "providerUnavailable": "ソースが利用できません",
     "noResults": "結果が見つかりません",
     "startTyping": "上の検索ボックスにキーワードを入力してスキルを探します",
+    "browseHint": "{{providers}} のスキルを閲覧するには、カテゴリを選択するかキーワードを入力してください",
     "noDescription": "説明はありません",
     "targetPool": "プール",
     "targetWorkspace": "ワークスペース",
@@ -2333,5 +2403,15 @@
     "timeout": "{{seconds}} 秒以内にバックエンドの起動に失敗しました。",
     "timeoutHint": "バックエンドの起動に失敗しました。再試行するか、アプリケーションのログを確認してください。",
     "retry": "再試行"
+  },
+  "preview": {
+    "error": {
+      "SENSITIVE_FILE_BLOCKED": "このファイルはファイルガードによりブロックされています（機密ファイル保護）。",
+      "OUTSIDE_WORKSPACE": "このファイルはワークスペースの範囲外です。設定 → セキュリティ → ファイルガード で「コンソールでワークスペース外ファイルのプレビューを許可」を有効にしてください。",
+      "FORBIDDEN": "アクセス拒否：このファイルをプレビューする権限がありません。",
+      "NOT_FOUND": "ファイルが見つかりません。移動または削除された可能性があります。",
+      "LOAD_FAILED": "ファイルプレビューの読み込みに失敗しました。",
+      "LOAD_FAILED_DETAIL": "ファイルプレビューの読み込みに失敗しました: {{detail}}"
+    }
   }
 }

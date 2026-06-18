@@ -259,7 +259,10 @@ class Workspace:
             ),
         )
 
-        # Priority 30: Channel manager
+        # Channel manager: only needs the runner reference (P10).
+        # Runs concurrent with other P20 services so its heavy SDK
+        # imports overlap with memory_manager init (~1s each).
+        # start_all() fires channel connections in background.
         sm.register(
             ServiceDescriptor(
                 name="channel_manager",
@@ -267,8 +270,8 @@ class Workspace:
                 post_init=create_channel_service,
                 start_method="start_all",
                 stop_method="stop_all",
-                priority=30,
-                concurrent_init=False,
+                priority=20,
+                concurrent_init=True,
             ),
         )
 

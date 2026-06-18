@@ -15,6 +15,7 @@
 [![Discord](https://img.shields.io/badge/Discord-Join_Us-blueviolet.svg?logo=discord)](https://discord.gg/eYMpfnkG8h)
 [![X](https://img.shields.io/badge/X-Follow_Us-black.svg?logo=x)](https://x.com/agentscope_ai)
 [![DingTalk](https://img.shields.io/badge/DingTalk-Join_Us-orange.svg)](https://qr.dingtalk.com/action/joingroup?code=v1,k1,OmDlBXpjW+I2vWjKDsjvI9dhcXjGZi3bQiojOq3dlDw=&_dt_no_comment=1&origin=11)
+[![AgentScope Platform](https://img.shields.io/badge/%E2%98%81_AgentScope_Platform-%F0%9F%90%BE_7%2F24_Online_%26_Free-FF6B2B.svg)](https://platform.agentscope.io/)
 
 [[Documentation](https://qwenpaw.agentscope.io/)] [[中文](README_zh.md)] [[日本語](README_ja.md)] [[Русский](README_ru.md)]
 
@@ -60,17 +61,23 @@ Your personal AI assistant — easy to install, deploy locally or in the cloud, 
 
 ## News
 
-- [2026-06-01] **v1.1.10 — Spawn Subagent & More Channels** | Agents can now spawn sub-agents; Tencent Yuanbao joins the channel family.
+- [2026-06-17] **v1.1.12 — Models Page Overhaul & Simple Mode** | Redesigned Models page with provider aggregation; new Simple Mode for streamlined navigation.
 
   | Highlight | What's new |
   |-----------|------------|
-  | **Spawn Subagent** | New `spawn_subagent` tool for ephemeral in-workspace sub-agent execution. |
-  | **Open Directory** | Coding mode gains an "Open Directory" tab to reference local projects without copying. |
-  | **Feishu Thread Reply** | Agents can now reply within Feishu message threads. |
-  | **Tencent Yuanbao Channel** | New channel integration for Tencent Yuanbao bot. |
-  | **Dynamic Upload Limit** | Upload size limit is now configurable across console and channels. |
+  | **Models Page Overhaul** | Provider Aggregation, Unified Card UI & Layout Redesign. |
+  | **Simple Mode** | Flat nav and sorted session list by updated time. |
+  | **Non-blocking Flush** | Adaptive throttling for all channels. |
+  | **Per-Turn Token Usage** | Token and context usage popover per turn. |
+  | **Desktop Port Persistence** | Persist backend port across restarts. |
 
-  Also: OpenRouter attribution headers, bundled desktop CLI, skill update stability fixes. [v1.1.10 Release Notes →](https://qwenpaw.agentscope.io/release-notes#v1.1.10)
+  Also: wide mode toggle, syntax highlighting, Langfuse agent loop grouping, Gemini tool schema fix. [v1.1.12 Release Notes →](https://qwenpaw.agentscope.io/release-notes#v1.1.12)
+
+- [2026-06-11] **AgentScope Platform is live** — Free QwenPaw deployment, plugin sharing, and Skill marketplace. [Try it now →](https://platform.agentscope.io/)
+
+- [2026-06-10] **v1.1.11** — Free Model OAuth, Plugin Market, MCP Tool Whitelisting. [v1.1.11 Release Notes →](https://qwenpaw.agentscope.io/release-notes#v1.1.11)
+
+- [2026-06-01] **v1.1.10** — Spawn Subagent, Open Directory, Tencent Yuanbao channel. [v1.1.10 Release Notes →](https://qwenpaw.agentscope.io/release-notes#v1.1.10)
 
 - [2026-05-27] **v1.1.9** — Coding Mode (three-panel Web IDE), Tauri desktop app, unified access control. [v1.1.9 Release Notes →](https://qwenpaw.agentscope.io/release-notes#v1.1.9)
 
@@ -416,23 +423,19 @@ Star QwenPaw on GitHub and be instantly notified of new releases.
 | ------------------------ | -------------------------------------------------------------------------------------------- | -------------------- |
 | **Horizontal Expansion** | More channels, models, skills, MCPs — **community contributions welcome**                  | Seeking Contributors |
 | **Existing Feature Extension** | Display optimization, download hints, Windows path compatibility, etc. — **community contributions welcome** | Seeking Contributors |
-| **Client Experience**    | Install, update, and packaging improvements                                                  | In Progress          |
+| **Infra**               | QwenPaw OS foundation                                                                         | In Progress          |
 | **Models**               | Multi-model switching                                                                         | In Progress          |
-|                          | OAuth                                                                                        | Planned              |
 |                          | Response API                                                                                 | Planned              |
-| **Workspace**            | File access control with Sandbox integration                                                 | In Progress          |
-|                          | Subfolder layout (config, production files, etc.)                                            | Planned              |
-| **Coding**               | LSP, dedicated prompts, workspace versioning, runtime, and supporting infra                  | In Progress              |
-|                          | Lightweight native APIs                                                                      | Planned              |
-|                          | Tool self-evolution                                                                          | Planned              |
-|                          | Compatibility with existing agents (e.g. Claude Code)                                        | Planned              |
+| **Workspace**            | Subfolder layout (config, production files, etc.)                                            | Planned              |
+| **Coding**               | Compatibility with existing agents (e.g. Claude Code)                                        | Planned              |
 | **Multi-agent**          | Group chat                                                                                   | Planned              |
-|                          | Subagent Visualization                                                                                 | Planned              |
+|                          | Subagent visualization                                                                                 | Planned              |
 |                          | HiClaw enterprise capabilities                                                               | Planned              |
-| **Context Management**   | Personal Knowledge Base                                                             | In Progress          |
+| **Context Management**   | Personal knowledge base                                                             | In Progress          |
 |                          | User-selectable compression (fine-grained control)                                           | Planned              |
 | **QwenPaw Application**   | QwenPaw Creator                                                             | In Progress          |
 |                          | QwenPaw Insight                                           | In Progress              |
+
 _Status:_ **In Progress** — actively being worked on; **Planned** — queued or under design, also welcome contributions; **Seeking Contributors** — we strongly encourage community contributions.
 
 ## Install from source

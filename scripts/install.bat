@@ -30,6 +30,7 @@ set "ARG_FROM_SOURCE=0"
 set "ARG_SOURCE_DIR="
 set "ARG_EXTRAS="
 set "ARG_UV_PATH="
+set "ARG_PRERELEASE=0"
 set "CONSOLE_COPIED=0"
 set "CONSOLE_AVAILABLE=0"
 
@@ -40,6 +41,7 @@ if /i "%~1"=="-Version"    goto :arg_version
 if /i "%~1"=="-FromSource" goto :arg_fromsource
 if /i "%~1"=="-SourceDir"  goto :arg_sourcedir
 if /i "%~1"=="-Extras"     goto :arg_extras
+if /i "%~1"=="-Prerelease" goto :arg_prerelease
 if /i "%~1"=="-UvPath"     goto :arg_uvpath
 if /i "%~1"=="-Help"       goto :show_help
 shift
@@ -65,6 +67,11 @@ set "ARG_EXTRAS=%~2"
 shift & shift
 goto :parse_args
 
+:arg_prerelease
+set "ARG_PRERELEASE=1"
+shift
+goto :parse_args
+
 :arg_uvpath
 set "ARG_UV_PATH=%~2"
 shift & shift
@@ -85,6 +92,7 @@ echo   -FromSource           Install from source (requires git, or use -SourceDi
 echo   -SourceDir ^<DIR^>      Local source directory (used with -FromSource)
 echo   -Extras ^<EXTRAS^>      Comma-separated optional extras to install
 echo                          (e.g. dev, whisper)
+echo   -Prerelease           Install the latest PyPI release, including pre-releases
 echo   -UvPath ^<PATH^>        Path to a pre-installed uv.exe (skips all auto-install)
 echo   -Help                 Show this help
 echo.
@@ -383,7 +391,7 @@ if not errorlevel 1 (
 rem === End Security Validation ===
 
 rem The input has now been verified as safe and can proceed with installation.
-uv pip install "%ARG_SOURCE_DIR%%EXTRAS_SUFFIX%" --python "%VENV_PYTHON%" --prerelease=allow
+uv pip install "%ARG_SOURCE_DIR%%EXTRAS_SUFFIX%" --python "%VENV_PYTHON%"
 set "_INST_ERR=%errorlevel%"
 call :cleanup_console "%ARG_SOURCE_DIR%"
 if %_INST_ERR% neq 0 (
@@ -410,7 +418,7 @@ if errorlevel 1 (
 )
 call :prepare_console "%CLONE_DIR%"
 echo [qwenpaw] Installing package from source...
-uv pip install "%CLONE_DIR%%EXTRAS_SUFFIX%" --python "%VENV_PYTHON%" --prerelease=allow
+uv pip install "%CLONE_DIR%%EXTRAS_SUFFIX%" --python "%VENV_PYTHON%"
 set "_INST_ERR=%errorlevel%"
 if exist "%CLONE_DIR%" rd /s /q "%CLONE_DIR%"
 if %_INST_ERR% neq 0 (
@@ -443,7 +451,10 @@ rem for safety, if ARG_EXTRAS is defined globally, it is best to reuse the valid
 rem Assume EXTRAS_SUFFIX is generated here based on the previously validated ARG_EXTRAS, or is empty.
 rem If ARG_EXTRAS is passed globally, it is recommended to validate it uniformly at the beginning of the script.
 
-uv pip install "%_PACKAGE%%EXTRAS_SUFFIX%" --python "%VENV_PYTHON%" --prerelease=allow --quiet --refresh-package qwenpaw
+set "PRERELEASE_ARG="
+if "%ARG_PRERELEASE%"=="1" set "PRERELEASE_ARG=--prerelease=allow"
+
+uv pip install "%_PACKAGE%%EXTRAS_SUFFIX%" --python "%VENV_PYTHON%" --quiet --refresh-package qwenpaw %PRERELEASE_ARG%
 if errorlevel 1 (
     echo [qwenpaw] ERROR: Installation failed
     exit /b 1

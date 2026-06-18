@@ -100,6 +100,8 @@ export interface MenuItem {
   icon?: React.ComponentType<any> | React.ReactNode;
   /** Route id to navigate to when clicked. If absent, item is non-interactive (group header / divider). */
   route?: string;
+  /** External URL to open in a new tab when clicked. Mutually exclusive with `route`. */
+  href?: string;
   /** Hide this entry when callback returns false. Defaults to always visible. */
   visible?: () => boolean;
   /** Render as group header (children appear nested under it). */
@@ -221,9 +223,21 @@ export type ChatResponseSlotFn = (ctx: {
   isLast?: boolean;
 }) => React.ReactNode;
 
+export type ChatRequestPayloadTransform = (ctx: {
+  payload: Record<string, unknown>;
+  sessionId: string;
+  selectedAgent: string;
+}) => Record<string, unknown> | void;
+
 export interface ChatSlotItem<F> {
   id: string;
   render: F;
+  order?: number;
+}
+
+export interface ChatRequestPayloadTransformItem {
+  id: string;
+  transform: ChatRequestPayloadTransform;
   order?: number;
 }
 

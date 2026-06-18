@@ -204,9 +204,13 @@ def _patch_model_factory(
             "qwenpaw.agents.model_factory.create_model_and_formatter",
             side_effect=factory_error,
         )
+    formatter = MagicMock()
+    formatter.format = AsyncMock(
+        return_value=[{"role": "user", "content": "mock"}],
+    )
     return patch(
         "qwenpaw.agents.model_factory.create_model_and_formatter",
-        return_value=(model, MagicMock()),
+        return_value=(model, formatter),
     )
 
 

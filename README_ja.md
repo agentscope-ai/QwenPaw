@@ -15,6 +15,7 @@
 [![Discord](https://img.shields.io/badge/Discord-Join_Us-blueviolet.svg?logo=discord)](https://discord.gg/eYMpfnkG8h)
 [![X](https://img.shields.io/badge/X-Follow_Us-black.svg?logo=x)](https://x.com/agentscope_ai)
 [![DingTalk](https://img.shields.io/badge/DingTalk-Join_Us-orange.svg)](https://qr.dingtalk.com/action/joingroup?code=v1,k1,OmDlBXpjW+I2vWjKDsjvI9dhcXjGZi3bQiojOq3dlDw=&_dt_no_comment=1&origin=11)
+[![AgentScope Platform](https://img.shields.io/badge/%E2%98%81_AgentScope_Platform-%F0%9F%90%BE_7%2F24_Online_%26_Free-FF6B2B.svg)](https://platform.agentscope.io/)
 
 [[ドキュメント](https://qwenpaw.agentscope.io/)] [[English](README.md)] [[中文](README_zh.md)] [[Русский](README_ru.md)]
 
@@ -58,17 +59,23 @@
 
 ## ニュース
 
-- [2026-06-01] **v1.1.10 — サブエージェント生成 & チャネル拡充** | エージェントがサブエージェントを生成可能に。Tencent Yuanbao チャネル追加。
+- [2026-06-17] **v1.1.12 — モデルページ大刷新 & シンプルモード** | Provider 集約による新モデルページデザイン、フラットナビのシンプルモード追加。
 
   | ハイライト | 内容 |
   |-----------|------|
-  | **Spawn Subagent** | 新しい `spawn_subagent` ツールで、ワークスペース内に一時的なサブエージェントを生成。 |
-  | **ディレクトリを開く** | Coding モードに「ディレクトリを開く」タブを追加。コピーなしでローカルプロジェクトを参照可能。 |
-  | **Feishu スレッド返信** | Feishu メッセージスレッド内での返信に対応。 |
-  | **Tencent Yuanbao チャネル** | Tencent Yuanbao ボットのチャネル統合を新規追加。 |
-  | **動的アップロード制限** | コンソールとチャネル全体でアップロードサイズ制限を動的に設定可能。 |
+  | **モデルページ大刷新** | Provider 集約、統一カード UI & レイアウト刷新。 |
+  | **シンプルモード** | フラットナビ、更新時間順セッションリスト。 |
+  | **ノンブロッキングフラッシュ** | 全チャネルで適応型スロットリング。 |
+  | **ターンごとのトークン使用量** | ターンごとのトークン＆コンテキスト使用量ポップオーバー。 |
+  | **デスクトップポート永続化** | 再起動後もバックエンドポートを維持。 |
 
-  その他：OpenRouter アトリビューションヘッダー、デスクトップ版バンドル CLI、スキル更新の安定性修正。[v1.1.10 リリースノート →](https://qwenpaw.agentscope.io/release-notes#v1.1.10)
+  その他：ワイドモード、シンタックスハイライト、Langfuse エージェントループグルーピング、Gemini ツールスキーマ修正。[v1.1.12 リリースノート →](https://qwenpaw.agentscope.io/release-notes#v1.1.12)
+
+- [2026-06-11] **AgentScope プラットフォーム公開** — QwenPaw の無料デプロイ、プラグイン共有、Skill マーケットに対応。[今すぐ試す →](https://platform.agentscope.io/)
+
+- [2026-06-10] **v1.1.11** — 無料モデル OAuth、プラグインマーケット、MCP ツールホワイトリスト。[v1.1.11 リリースノート →](https://qwenpaw.agentscope.io/release-notes#v1.1.11)
+
+- [2026-06-01] **v1.1.10** — サブエージェント生成、ディレクトリを開く、Tencent Yuanbao チャネル。[v1.1.10 リリースノート →](https://qwenpaw.agentscope.io/release-notes#v1.1.10)
 
 - [2026-05-27] **v1.1.9** — Coding モード（3 パネル Web IDE）、Tauri デスクトップアプリ、統合アクセス制御。[v1.1.9 リリースノート →](https://qwenpaw.agentscope.io/release-notes#v1.1.9)
 
@@ -429,16 +436,11 @@ GitHubでQwenPawにスターを付けて、新しいリリースの通知を即�
 | ------------------------ | -------------------------------------------------------------------------------------------- | ------------ |
 | **横展開**               | より多くのチャネル、モデル、スキル、MCP など — **コミュニティの貢献歓迎**                    | 貢献者募集中 |
 | **既存機能の拡張・改善** | 表示の最適化、ダウンロードヒント、Windows パス互換など — **コミュニティの貢献歓迎**          | 貢献者募集中 |
-| **クライアント体験**     | インストール・アップデート・パッケージングの最適化                                           | 進行中       |
+| **インフラ**             | QwenPaw OS 基盤                                                                              | 進行中       |
 | **モデル**               | マルチモデル切り替え                                                                         | 進行中       |
-|                          | OAuth                                                                                        | 計画中       |
 |                          | Response API                                                                                 | 計画中       |
-| **ワークスペース**       | Sandbox 連携のファイルアクセス制御                                                           | 進行中       |
-|                          | サブディレクトリ分割（設定・本番ファイルなど）                                               | 計画中       |
-| **Coding 能力**          | LSP、専用 Prompt、ワークスペースバージョン管理、実行環境などの関連インフラ                   | 進行中       |
-|                          | 軽量ネイティブ API                                                                           | 計画中       |
-|                          | ツール自己進化                                                                               | 計画中       |
-|                          | Claude Code など既存 Agent との互換                                                          | 計画中       |
+| **ワークスペース**       | サブディレクトリ分割（設定・本番ファイルなど）                                               | 計画中       |
+| **Coding 能力**          | Claude Code など既存 Agent との互換                                                          | 計画中       |
 | **マルチエージェント**   | グループチャット                                                                             | 計画中       |
 |                          | Subagent の可視化                                                                            | 計画中       |
 |                          | HiClaw エンタープライズ機能                                                                  | 計画中       |

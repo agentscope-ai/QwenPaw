@@ -55,6 +55,28 @@ describe("menuRegistry.add", () => {
     expect(items).toContain("shown");
     expect(items).not.toContain("hidden");
   });
+
+  it("recomputes visible() after refresh", () => {
+    let visible = false;
+    menuRegistry.add("p1", {
+      id: "refreshable",
+      label: "R",
+      visible: () => visible,
+    });
+    expect(
+      menuRegistry.snapshot("primary.settings").map((i) => i.id),
+    ).not.toContain("refreshable");
+
+    visible = true;
+    expect(
+      menuRegistry.snapshot("primary.settings").map((i) => i.id),
+    ).not.toContain("refreshable");
+
+    menuRegistry.refresh();
+    expect(
+      menuRegistry.snapshot("primary.settings").map((i) => i.id),
+    ).toContain("refreshable");
+  });
 });
 
 describe("menuRegistry.replace", () => {
@@ -153,6 +175,33 @@ describe("menuRegistry locations", () => {
     expect(menuRegistry.snapshot("primary.settings").map((i) => i.id)).toEqual([
       "s",
     ]);
+  });
+});
+
+describe("menuRegistry href support", () => {
+  it("item with href appears in snapshot", () => {
+    menuRegistry.add("p1", {
+      id: "ext-link",
+      label: "External",
+      href: "https://example.com",
+    });
+    const items = menuRegistry.snapshot("primary.settings");
+    const item = items.find((i) => i.id === "ext-link");
+    expect(item).toBeDefined();
+    expect(item?.href).toBe("https://example.com");
+  });
+
+  it("href and route can coexist", () => {
+    menuRegistry.add("p1", {
+      id: "dual",
+      label: "Dual",
+      route: "core.chat",
+      href: "https://example.com",
+    });
+    const items = menuRegistry.snapshot("primary.settings");
+    const item = items.find((i) => i.id === "dual");
+    expect(item?.route).toBe("core.chat");
+    expect(item?.href).toBe("https://example.com");
   });
 });
 

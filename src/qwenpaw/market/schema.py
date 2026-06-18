@@ -35,3 +35,4 @@ class ProviderInfo:
     label: str
     available: bool
     reason: str | None
+    supports_browse: bool = True

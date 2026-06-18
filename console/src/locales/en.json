@@ -69,6 +69,21 @@
     "backups": "Backups",
     "pluginManager": "Plugin Manager"
   },
+  "sidebar": {
+    "newVersion": "New version available: v{{version}}, click to upgrade",
+    "updateModal": {
+      "title": "New version available: v{{version}}",
+      "viewReleases": "View Releases",
+      "close": "Close"
+    },
+    "settings": {
+      "language": "Language",
+      "theme": "Theme",
+      "mode": "Mode"
+    },
+    "simpleMode": "Simple Mode",
+    "fullMode": "Full Mode"
+  },
   "debug": {
     "title": "Debug",
     "desc": "View the backend daemon log file to help diagnose issues. Logs refresh automatically while this page is open.",
@@ -587,6 +602,8 @@
     "broadcast": "Broadcast to Agents",
     "broadcastHint": "Broadcast skills to selected agents",
     "refreshHint": "Refresh skill pool from disk",
+    "deleteExternalConfirm": "This deletes the external skill files at {{path}} from disk.",
+    "deleteExternalBatchWarning": "Selected external skills will be permanently deleted from disk.",
     "broadcastTitle": "Broadcast {{name}}",
     "importBuiltin": "Update Built-in Skills",
     "importBuiltinHint": "Update built-in skills to the latest version",
@@ -1189,6 +1206,7 @@
     "saveSuccess": "Session saved successfully",
     "saveFailed": "Failed to save session",
     "batchDeleteButton": "Batch Delete",
+    "filterTitle": "Filter by Title",
     "filterUserId": "Filter by User ID",
     "filterChannel": "Filter by Channel",
     "allChannels": "All Channels",
@@ -1323,6 +1341,7 @@
     "providersDescription": "Configure API keys and endpoints for each provider.",
     "llmTitle": "Models",
     "defaultLlm": "Default LLM",
+    "notConfiguredYet": "Not configured",
     "llmDescription": "Set the global default LLM model from an authorized provider. You can choose a specific model for each Agent in the Chat page.",
     "configureProvider": "Configure {{name}}",
     "baseURL": "Base URL",
@@ -1412,6 +1431,16 @@
     "builtin": "Built-in",
     "freeTierGroup": "Free Tier",
     "paidGroup": "Paid",
+    "localCustomGroup": "Local & Custom",
+    "cloudGroup": "Cloud Providers",
+    "configuredGroup": "Configured",
+    "configuredOnline": "providers online",
+    "noConfigured": "No providers configured yet. Select one below to get started.",
+    "goConfigureBtn": "Configure a Provider",
+    "availableGroup": "Available Providers",
+    "clickToConfigure": "Click to configure",
+    "configureAction": "Configure \u2192",
+    "endpointCount": "{{count}} endpoints",
     "connect": "OAuth",
     "saveApiKey": "Save",
     "addProvider": "Add Provider",
@@ -1431,6 +1460,12 @@
     "deleteProviderConfirm": "Delete custom provider \"{{name}}\" and all its models? This cannot be undone.",
     "providerDeleted": "Provider \"{{name}}\" deleted",
     "providerDeleteFailed": "Failed to delete provider",
+    "disableProvider": "Disable Provider",
+    "disableProviderConfirm": "Clear API key for \"{{name}}\"? The provider will become unconfigured.",
+    "disableBtn": "Disable",
+    "changeApiKey": "Change",
+    "selectVariant": "Select {{name}} Variant",
+    "providerDisabled": "Provider \"{{name}}\" disabled",
     "manageModels": "Models",
     "models": "Models",
     "manageModelsTitle": "{{provider}} — Model Management",
@@ -1916,19 +1951,13 @@
     "light": "Light",
     "system": "System"
   },
-  "sidebar": {
-    "newVersion": "New version available: v{{version}}, click to upgrade",
-    "updateModal": {
-      "title": "New version available: v{{version}}",
-      "viewReleases": "View Releases",
-      "close": "Close"
-    }
-  },
   "chat": {
     "modelSelectTooltip": "Select model",
     "newChatTooltip": "New chat",
     "searchTooltip": "Search all chats",
     "chatHistoryTooltip": "Chat history",
+    "wideModeTooltip": "Wide mode",
+    "normalModeTooltip": "Normal mode",
     "allChats": "All Chats",
     "createNewChat": "Create New Chat",
     "pinDrawer": "Pin",
@@ -1941,6 +1970,7 @@
     "prompt1": "Let's start a new journey!",
     "prompt2": "Can you tell me what skills you have?",
     "inputPlaceholder": "\"↑↓\" for message navigation · \"/\" for quick commands (\"/approve\" or \"/deny\" during approvals)",
+    "emptyOutputError": "The assistant returned an empty response.",
     "commands": {
       "clear": {
         "description": "Clear the conversation context"
@@ -1976,6 +2006,14 @@
       "imageOnlyWarning": "Current model only supports images, non-image files like videos may not be processed correctly"
     },
     "rateLimitHit": "The current model is rate-limited. Try switching to another free model.",
+    "turnUsagePopover": {
+      "ariaLabel": "View turn token and context usage",
+      "turn": "This turn",
+      "turnEstimated": "This turn ~",
+      "tok": "tok",
+      "inOut": "in {{inTok}} · out {{outTok}}",
+      "contextLabel": "Context window:"
+    },
     "rateLimitMessage": "Rate limit reached. Switch to another free model:",
     "rateLimitSwitched": "Switched to {{model}}",
     "speech": {
@@ -2006,7 +2044,38 @@
       "pin": "Pin",
       "unpin": "Unpin",
       "delete": "Delete"
-    }
+    },
+    "queue": {
+      "title": "Message Queue",
+      "paused": "Paused",
+      "sendFailed": "Send failed",
+      "resume": "Resume queue",
+      "pause": "Pause queue",
+      "clear": "Clear queue",
+      "dragSort": "Drag to reorder",
+      "edit": "Edit",
+      "retry": "Retry",
+      "skip": "Skip",
+      "interruptAndSend": "Interrupt & send",
+      "delete": "Delete",
+      "file": "File",
+      "noChatWarning": "Please send a message first to create a conversation before using the queue",
+      "queueFull": "Queue is full (max {{max}} items), please send or remove some messages first",
+      "otherTabOwner": "This conversation is being sent from another tab. This tab can only add inputs to the queue; all send operations are handled by the other tab."
+    },
+    "group": {
+      "pinned": "Pinned",
+      "today": "Today",
+      "week": "Within 7 days",
+      "month": "Within 30 days",
+      "older": "Earlier"
+    },
+    "sessionPanel": {
+      "searchConversations": "Search conversations…",
+      "noConversations": "No conversations yet",
+      "loadingConversations": "Loading…"
+    },
+    "conversationHistory": "Conversation History"
   },
   "security": {
     "parent": "Settings",
@@ -2148,7 +2217,9 @@
       "duplicate": "This path is already in the list",
       "saveSuccess": "File guard settings saved",
       "saveFailed": "Failed to save file guard settings",
-      "loadFailed": "Failed to load file guard settings"
+      "loadFailed": "Failed to load file guard settings",
+      "allowPreviewOutsideWorkspace": "Allow Console Preview Outside Workspace",
+      "allowPreviewOutsideWorkspaceDesc": "Allow previewing files outside the workspace directory in console. Sensitive file protection still applies."
     },
     "allowNoAuthHosts": {
       "title": "Allow No Auth Hosts",
@@ -2296,6 +2367,7 @@
     "installed": "Installed Plugins",
     "noPlugins": "No plugins installed yet",
     "installBtn": "Install Plugin",
+    "publishBtn": "Publish Plugin",
     "installTitle": "Install Plugin",
     "dropPrimary": "Drop folder or ZIP here",
     "dropSecondary": "or click to browse a ZIP file",
@@ -2335,7 +2407,18 @@
     "kindBundle": "Bundle",
     "kindTool": "Tool",
     "filterByName": "Filter by name",
-    "filterByKind": "Filter by kind"
+    "filterByKind": "Filter by kind",
+    "marketTitle": "Plugin Market",
+    "marketEmpty": "No plugins found in market",
+    "marketLoadFailed": "Failed to load plugin market",
+    "marketUnavailable": "Plugin Market is currently under maintenance, please try again later",
+    "marketSearch": "Search plugins...",
+    "marketAll": "All",
+    "marketCategory": "Filter by category",
+    "marketSearchResult": "Found {{count}} plugins matching \"{{keyword}}\"",
+    "marketDetails": "Details",
+    "marketDownloads": "Downloads",
+    "marketDeveloper": "Developer"
   },
   "codingMode": {
     "title": "Coding Mode",
@@ -2388,9 +2471,12 @@
   },
   "market": {
     "searchPlaceholder": "Search skills across platforms",
+    "categoryAll": "All",
+    "searchResult": "Found {{count}} skills matching \"{{keyword}}\"",
     "providerUnavailable": "Provider unavailable",
     "noResults": "No results",
     "startTyping": "Type a query above to search the market",
+    "browseHint": "Pick a category or enter a keyword to browse skills in {{providers}}",
     "noDescription": "No description provided",
     "targetPool": "Pool",
     "targetWorkspace": "Workspace",
@@ -2437,5 +2523,129 @@
     "timeout": "Backend failed to start within {{seconds}} seconds.",
     "timeoutHint": "Backend failed to start. Please retry, or check application logs for details.",
     "retry": "Retry"
+  },
+  "tool": {
+    "readFile": "Read {{file}}",
+    "readFileDefault": "Read file",
+    "writeFile": "Create {{file}}",
+    "writeFileDefault": "Create file",
+    "editFile": "Edit {{file}}",
+    "editFileDefault": "Edit file",
+    "appendFile": "Append {{file}}",
+    "appendFileDefault": "Append file",
+    "grepSearch": "Grep {{pattern}}",
+    "grepSearchDefault": "Grep search",
+    "globSearch": "Glob {{pattern}}",
+    "globSearchDefault": "Glob search",
+    "viewImage": "View image {{file}}",
+    "viewImageDefault": "View image",
+    "viewVideo": "View video {{file}}",
+    "viewVideoDefault": "View video",
+    "desktopScreenshot": "Screenshot desktop",
+    "sendFile": "Send {{file}}",
+    "sendFileDefault": "Send file",
+    "browserUse": "Browse {{detail}}",
+    "browserNavigate": "Browse open {{url}}",
+    "browserNavigateDefault": "Browse open page",
+    "browserClick": "Browse click",
+    "browserType": "Browse type",
+    "browserSnapshot": "Browse snapshot",
+    "browserScroll": "Browse scroll",
+    "getCurrentTime": "Get current time",
+    "setTimezone": "Set {{timezone}}",
+    "getTokenUsage": "Query token usage",
+    "memorySearch": "Search {{query}}",
+    "memorySearchDefault": "Search memory",
+    "listAgents": "List agents",
+    "chatWithAgent": "Chat {{agent}}",
+    "chatWithAgentDefault": "Chat agent",
+    "submitToAgent": "Submit {{agent}}{{task}}",
+    "submitToAgentDefault": "Submit task",
+    "checkAgentTask": "Check {{agent}} #{{taskId}}",
+    "checkAgentTaskAgent": "Check {{agent}}",
+    "checkAgentTaskDefault": "Check task",
+    "delegateExternalAgent": "Delegate {{runner}}",
+    "delegateExternalAgentDefault": "Delegate external agent",
+    "materializeSkill": "Create {{skill}}",
+    "materializeSkillDefault": "Create skill",
+    "shell": "Run {{command}}",
+    "shellDefault": "Run command",
+    "formatTable": {
+      "file": "File",
+      "lineNumber": "Line",
+      "score": "Score",
+      "summary": "Summary",
+      "name": "Name",
+      "id": "ID",
+      "description": "Description",
+      "status": "Status"
+    },
+    "loading": "Loading...",
+    "browserAction": {
+      "startHeaded": "Start browser (headed)",
+      "start": "Start browser",
+      "stop": "Stop browser",
+      "open": "Open {{url}}",
+      "openDefault": "Open page",
+      "navigate": "Navigate {{url}}",
+      "navigateDefault": "Navigate",
+      "navigateBack": "Go back",
+      "click": "Click {{selector}}",
+      "clickDefault": "Click element",
+      "type": "Type {{text}}",
+      "typeDefault": "Type text",
+      "snapshot": "Get snapshot",
+      "screenshot": "Screenshot {{path}}",
+      "screenshotDefault": "Screenshot",
+      "eval": "Eval {{code}}",
+      "evalDefault": "Evaluate code",
+      "runCode": "Run {{code}}",
+      "runCodeDefault": "Run code",
+      "closePage": "Close page",
+      "tabs": "Tabs {{action}}",
+      "tabsDefault": "Manage tabs",
+      "fillForm": "Fill form",
+      "fileUpload": "Upload {{filename}}",
+      "fileUploadDefault": "Upload file",
+      "fileDownload": "Download {{target}}",
+      "fileDownloadDefault": "Download file",
+      "pressKey": "Press {{key}}",
+      "pressKeyDefault": "Press key",
+      "hover": "Hover {{selector}}",
+      "hoverDefault": "Hover element",
+      "drag": "Drag",
+      "selectOption": "Select option",
+      "waitFor": "Wait for {{target}}",
+      "waitForDefault": "Wait for element",
+      "resize": "Resize {{w}}x{{h}}",
+      "resizeDefault": "Resize window",
+      "pdf": "Export PDF {{path}}",
+      "pdfDefault": "Export PDF",
+      "install": "Install",
+      "batch": "Batch"
+    },
+    "lineBadge": {
+      "lines": "{{count}} lines",
+      "addLines": "+{{count}} lines",
+      "delLines": "-{{count}} lines",
+      "matches": "{{count}} matches",
+      "files": "{{count}} files"
+    },
+    "inlineResult": {
+      "taskId": "Task #{{id}}",
+      "submitted": "Submitted"
+    },
+    "execute": "Run {{tool}}",
+    "executeDefault": "Run tool"
+  },
+  "preview": {
+    "error": {
+      "SENSITIVE_FILE_BLOCKED": "This file is blocked by File Guard (sensitive file protection).",
+      "OUTSIDE_WORKSPACE": "This file is outside the workspace scope. Enable \"Allow Console Preview Outside Workspace\" in Settings → Security → File Guard.",
+      "FORBIDDEN": "Access denied: insufficient permissions to preview this file.",
+      "NOT_FOUND": "File not found. It may have been moved or deleted.",
+      "LOAD_FAILED": "Failed to load file preview.",
+      "LOAD_FAILED_DETAIL": "Failed to load file preview: {{detail}}"
+    }
   }
 }

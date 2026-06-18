@@ -6,20 +6,15 @@
 | ------------------------------ | ------------------------------------------------------------------------------------------------------------ | -------------------- |
 | **Horizontal Expansion**       | More channels, models, skills, MCPs — **community contributions welcome**                                    | Seeking Contributors |
 | **Existing Feature Extension** | Display optimization, download hints, Windows path compatibility, etc. — **community contributions welcome** | Seeking Contributors |
-| **Client Experience**          | Install, update, and packaging improvements                                                                  | In Progress          |
+| **Infra**                      | QwenPaw OS foundation                                                                                        | In Progress          |
 | **Models**                     | Multi-model switching                                                                                        | In Progress          |
-|                                | OAuth                                                                                                        | Planned              |
 |                                | Response API                                                                                                 | Planned              |
-| **Workspace**                  | File access control with Sandbox integration                                                                 | In Progress          |
-|                                | Subfolder layout (config, production files, etc.)                                                            | Planned              |
-| **Coding**                     | LSP, dedicated prompts, workspace versioning, runtime, and supporting infra                                  | In Progress          |
-|                                | Lightweight native APIs                                                                                      | Planned              |
-|                                | Tool self-evolution                                                                                          | Planned              |
-|                                | Compatibility with existing agents (e.g. Claude Code)                                                        | Planned              |
+| **Workspace**                  | Subfolder layout (config, production files, etc.)                                                            | Planned              |
+| **Coding**                     | Compatibility with existing agents (e.g. Claude Code)                                                        | Planned              |
 | **Multi-agent**                | Group chat                                                                                                   | Planned              |
-|                                | Subagent Visualization                                                                                       | Planned              |
+|                                | Subagent visualization                                                                                       | Planned              |
 |                                | HiClaw enterprise capabilities                                                                               | Planned              |
-| **Context Management**         | Personal Knowledge Base                                                                                      | In Progress          |
+| **Context Management**         | Personal knowledge base                                                                                      | In Progress          |
 |                                | User-selectable compression (fine-grained control)                                                           | Planned              |
 | **QwenPaw Application**        | QwenPaw Creator                                                                                              | In Progress          |
 |                                | QwenPaw Insight                                                                                              | In Progress          |

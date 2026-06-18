@@ -4,6 +4,7 @@ import "./i18n";
 import { installHostExternals } from "./plugins/hostExternals";
 import { installHostSdk } from "./plugins/hostSdk/install";
 import { registerHostModulesDynamic } from "./plugins/dynamicModuleRegistry";
+import { registerBuiltinCards } from "./components/Chat/ToolCards/registerBuiltinCards";
 // Bare side-effect imports: each file self-registers its data into
 // menuRegistry / routeRegistry so consumers' first render sees them.
 import "./layouts/registry/builtinMenu";
@@ -16,6 +17,10 @@ installHostExternals();
 // Attach window.QwenPaw.chat (Chat customization), extend
 // window.QwenPaw.host with hooks + fetch, attach window.QwenPaw.audit.
 installHostSdk();
+
+// Register built-in tool card renderers into the PluginSystem
+// so ChatV1 (@agentscope-ai/chat) picks them up via customToolRenderConfig.
+registerBuiltinCards();
 
 // Dynamic module registration — fire-and-forget. Pages register into
 // `moduleRegistry` as they are lazy-loaded; this background pass pre-warms

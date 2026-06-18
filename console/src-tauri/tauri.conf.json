@@ -39,7 +39,7 @@
       "../../scripts/pack/assets/icon.icns",
       "../../scripts/pack/assets/icon.ico"
     ],
-    "resources": ["binaries/qwenpaw-backend"],
+    "resources": ["binaries/qwenpaw-backend", "binaries/python-runtime"],
     "windows": {
       "webviewInstallMode": {
         "type": "downloadBootstrapper",
@@ -55,7 +55,8 @@
           "Indonesian",
           "Japanese",
           "Russian",
-          "PortugueseBR"
+          "PortugueseBR",
+          "Vietnamese"
         ],
         "customLanguageFiles": {
           "English": "nsis-languages/English.nsh",

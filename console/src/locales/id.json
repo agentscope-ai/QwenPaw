@@ -88,7 +88,14 @@
       "title": "Versi baru tersedia: v{{version}}",
       "viewReleases": "Lihat Rilis",
       "close": "Tutup"
-    }
+    },
+    "settings": {
+      "language": "Bahasa",
+      "theme": "Tema",
+      "mode": "Mode"
+    },
+    "simpleMode": "Mode sederhana",
+    "fullMode": "Mode lengkap"
   },
   "login": {
     "title": "Masuk ke QwenPaw",
@@ -114,6 +121,8 @@
     "newChatTooltip": "Chat baru",
     "searchTooltip": "Cari semua chat",
     "chatHistoryTooltip": "Riwayat chat",
+    "wideModeTooltip": "Mode lebar",
+    "normalModeTooltip": "Mode normal",
     "allChats": "Semua Chat",
     "createNewChat": "Buat Chat Baru",
     "pinDrawer": "Sematkan",
@@ -126,6 +135,7 @@
     "prompt1": "Mari mulai perjalanan baru!",
     "prompt2": "Bisa jelaskan skill apa saja yang Anda miliki?",
     "inputPlaceholder": "\"↑↓\" untuk navigasi pesan · \"/\" untuk perintah cepat (\"/approve\" atau \"/deny\" saat approval)",
+    "emptyOutputError": "Asisten mengembalikan respons kosong.",
     "commands": {
       "clear": {
         "description": "Bersihkan konteks percakapan"
@@ -191,7 +201,38 @@
       "pin": "Sematkan",
       "unpin": "Lepas sematan",
       "delete": "Hapus"
-    }
+    },
+    "queue": {
+      "title": "Antrean pesan",
+      "paused": "Dijeda",
+      "sendFailed": "Gagal mengirim",
+      "resume": "Lanjutkan antrean",
+      "pause": "Jeda antrean",
+      "clear": "Hapus antrean",
+      "dragSort": "Seret untuk mengurutkan",
+      "edit": "Edit",
+      "retry": "Coba lagi",
+      "skip": "Lewati",
+      "interruptAndSend": "Hentikan & kirim",
+      "delete": "Hapus",
+      "file": "File",
+      "noChatWarning": "Kirim pesan terlebih dahulu untuk membuat percakapan sebelum menggunakan antrean",
+      "queueFull": "Antrean penuh (maks. {{max}} item). Kirim atau hapus beberapa pesan terlebih dahulu",
+      "otherTabOwner": "Percakapan ini sedang dikirim dari tab lain. Tab ini hanya dapat menambahkan input ke antrean."
+    },
+    "group": {
+      "pinned": "Disematkan",
+      "today": "Hari ini",
+      "week": "7 hari terakhir",
+      "month": "30 hari terakhir",
+      "older": "Sebelumnya"
+    },
+    "sessionPanel": {
+      "searchConversations": "Cari…",
+      "noConversations": "Tidak ada percakapan",
+      "loadingConversations": "Memuat…"
+    },
+    "conversationHistory": "Riwayat Percakapan"
   },
   "modelSelector": {
     "selectModel": "Pilih model",
@@ -327,6 +368,8 @@
     "broadcast": "Sebarkan ke Agen",
     "broadcastHint": "Sebarkan skill ke agen yang dipilih",
     "refreshHint": "Segarkan kumpulan skill dari disk",
+    "deleteExternalConfirm": "Menghapus file skill eksternal di {{path}} dari disk.",
+    "deleteExternalBatchWarning": "Skill eksternal yang dipilih akan dihapus permanen dari disk.",
     "importBuiltin": "Perbarui Skill Bawaan",
     "importHubHint": "Impor skill melalui URL",
     "uploadZipHint": "Unggah via ZIP",
@@ -719,7 +762,18 @@
     "kindBundle": "Bundel",
     "kindTool": "Alat",
     "filterByName": "Filter berdasarkan nama",
-    "filterByKind": "Filter berdasarkan jenis"
+    "filterByKind": "Filter berdasarkan jenis",
+    "marketTitle": "Plugin Market",
+    "marketEmpty": "No plugins found in market",
+    "marketLoadFailed": "Failed to load plugin market",
+    "marketUnavailable": "Plugin Market is currently under maintenance, please try again later",
+    "marketAll": "All",
+    "marketSearch": "Search plugins...",
+    "marketCategory": "Filter by category",
+    "marketSearchResult": "Found {{count}} plugins matching \"{{keyword}}\"",
+    "marketDetails": "Details",
+    "marketDownloads": "Downloads",
+    "marketDeveloper": "Developer"
   },
   "debug": {
     "title": "Debug",
@@ -795,9 +849,12 @@
   },
   "market": {
     "searchPlaceholder": "Cari skill di berbagai platform",
+    "categoryAll": "Semua",
+    "searchResult": "Ditemukan {{count}} skill yang cocok dengan \"{{keyword}}\"",
     "providerUnavailable": "Sumber tidak tersedia",
     "noResults": "Tidak ada hasil",
     "startTyping": "Ketik kata kunci di atas untuk mencari di marketplace",
+    "browseHint": "Pilih kategori atau masukkan kata kunci untuk menjelajahi skill di {{providers}}",
     "noDescription": "Tidak ada deskripsi",
     "targetPool": "Pool",
     "targetWorkspace": "Workspace",

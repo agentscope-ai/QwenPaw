@@ -12,7 +12,9 @@ import logging
 import os
 import time
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("qwenpaw").getChild(
+    __name__.replace("plugin_cloudpaw.", ""),
+)
 
 _TOKEN_REFRESH_MARGIN_SECONDS = 300  # refresh 5 min before expiry
 

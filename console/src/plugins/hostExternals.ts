@@ -71,6 +71,9 @@ export interface PluginRouteDeclaration {
 /** Internal per-plugin registration record. */
 export interface PluginRegistration {
   pluginId: string;
+  /** When true, this plugin's tool renderers are treated as fallback defaults.
+   *  External (non-builtin) renderers for the same tool name take priority. */
+  isBuiltin: boolean;
   routes: PluginRouteDeclaration[];
   toolRenderers: Record<string, React.FC<any>>;
 }
@@ -94,20 +97,27 @@ class PluginSystem {
   addToolRenderers(
     pluginId: string,
     renderers: Record<string, React.FC<any>>,
+    options?: { isBuiltin?: boolean },
   ): void {
     const rec = this._record(pluginId);
+    if (options?.isBuiltin) rec.isBuiltin = true;
     Object.assign(rec.toolRenderers, renderers);
     this._notify();
   }
 
   // ── Read API (consumed by PluginContext / usePlugins) ────────────────────
 
-  /** Merged map of all tool renderers across all plugins. */
+  /** Merged map of all tool renderers across all plugins.
+   *  Builtin renderers are applied first, then external plugin renderers
+   *  overlay on top — so external plugins take priority over builtins. */
   getToolRenderConfig(): Record<string, React.FC<any>> {
-    const out: Record<string, React.FC<any>> = {};
-    for (const rec of this.records.values())
-      Object.assign(out, rec.toolRenderers);
-    return out;
+    const builtinRenderers: Record<string, React.FC<any>> = {};
+    const externalRenderers: Record<string, React.FC<any>> = {};
+    for (const rec of this.records.values()) {
+      const target = rec.isBuiltin ? builtinRenderers : externalRenderers;
+      Object.assign(target, rec.toolRenderers);
+    }
+    return { ...builtinRenderers, ...externalRenderers };
   }
 
   /** Flat list of all page routes across all plugins, sorted by priority. */
@@ -129,7 +139,12 @@ class PluginSystem {
 
   private _record(pluginId: string): PluginRegistration {
     if (!this.records.has(pluginId)) {
-      this.records.set(pluginId, { pluginId, routes: [], toolRenderers: {} });
+      this.records.set(pluginId, {
+        pluginId,
+        isBuiltin: false,
+        routes: [],
+        toolRenderers: {},
+      });
     }
     return this.records.get(pluginId)!;
   }

@@ -1,6 +1,6 @@
 {
   "name": "cloudpaw-plugin-ui",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "private": true,
   "description": "Frontend UI for the CloudPaw plugin — custom tool renderers for proposal_choice and manage_prd",
   "scripts": {

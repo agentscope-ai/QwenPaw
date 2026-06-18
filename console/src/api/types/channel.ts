@@ -141,7 +141,6 @@ export interface XiaoYiConfig extends BaseChannelConfig {
   ak: string;
   sk: string;
   agent_id: string;
-  ws_url: string;
   task_timeout_ms?: number;
 }
 
@@ -159,6 +158,7 @@ export interface YuanbaoConfig extends BaseChannelConfig {
   app_secret: string;
   api_domain: string;
   media_dir?: string;
+  accept_bot_messages?: boolean;
 }
 
 export interface OneBotConfig extends BaseChannelConfig {

@@ -71,7 +71,11 @@ async def download_media(
                 )
 
                 extension = _resolve_extension(content_type, filename)
-                safe_name = _build_safe_filename(filename, extension)
+                safe_name = _build_safe_filename(
+                    filename,
+                    extension,
+                    media_dir,
+                )
                 local_path = media_dir / safe_name
 
                 local_path.write_bytes(data)
@@ -111,24 +115,45 @@ def guess_mime_type(file_path: str) -> str:
 
 
 def _resolve_extension(content_type: str, filename: str) -> str:
-    """Determine file extension from content type or filename."""
-    if content_type:
-        ext = mimetypes.guess_extension(content_type)
-        if ext:
-            return ext
+    """Determine file extension.
+
+    Priority: original filename suffix > content-type guess > .bin.
+    The original suffix is preferred because Yuanbao CDN often returns a
+    generic ``application/octet-stream`` content-type that would otherwise
+    silently rewrite ``.txt`` to ``.bin`` or ``.mp3`` to ``.mpga``.
+    """
     if filename:
         suffix = Path(filename).suffix
         if suffix:
             return suffix
+    if content_type:
+        ext = mimetypes.guess_extension(content_type)
+        if ext:
+            return ext
     return ".bin"
 
 
-def _build_safe_filename(filename: str, extension: str) -> str:
-    """Build a safe, unique filename for local storage."""
-    uid = uuid.uuid4().hex[:12]
+def _build_safe_filename(
+    filename: str,
+    extension: str,
+    media_dir: Path,
+) -> str:
+    """Build a safe filename for local storage, preserving original name.
+
+    Keeps alphanumeric (incl. CJK), dash, underscore, dot, and parens.
+    Whitespace and shell-meta chars are dropped to avoid quoting hassles.
+    A short uid suffix is appended only when the target path already
+    exists, so unique uploads keep their human-readable filename.
+    """
     if filename:
         stem = Path(filename).stem
-        safe_stem = "".join(c for c in stem if c.isalnum() or c in "-_")
-        if safe_stem:
-            return f"{safe_stem}_{uid}{extension}"
-    return f"yuanbao_{uid}{extension}"
+        safe_stem = (
+            "".join(c for c in stem if c.isalnum() or c in "-_.()") or "file"
+        )
+    else:
+        safe_stem = f"yuanbao_{uuid.uuid4().hex[:12]}"
+    candidate = f"{safe_stem}{extension}"
+    if not (media_dir / candidate).exists():
+        return candidate
+    # Conflict: append short uid before extension.
+    return f"{safe_stem}_{uuid.uuid4().hex[:8]}{extension}"

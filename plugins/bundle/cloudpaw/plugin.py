@@ -19,11 +19,29 @@ import os
 import platform
 import shutil
 import subprocess
+import sys
 import tempfile
 from collections.abc import Callable
 from pathlib import Path
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("qwenpaw").getChild("plugin.cloudpaw")
+
+
+# ---------------------------------------------------------------------------
+# Plugin path initialization (must run before any router/tool imports)
+# ---------------------------------------------------------------------------
+
+
+def _init_plugin_path() -> None:
+    """Ensure the plugin directory is on sys.path.
+
+    This eliminates the cold-start window where absolute imports like
+    ``from modules.a2a.client_manager`` would fail because ``constants.py``
+    (which does ``sys.path.insert``) has not been imported yet.
+    """
+    plugin_dir = str(Path(__file__).parent)
+    if plugin_dir not in sys.path:
+        sys.path.insert(0, plugin_dir)
 
 
 # ---------------------------------------------------------------------------
@@ -465,6 +483,44 @@ class CloudPawPlugin:
 
     def register(self, api):
         """Register all CloudPaw components via startup hook."""
+        logger.info("CloudPawPlugin.register() called")
+
+        # Ensure plugin dir is on sys.path BEFORE any router/tool imports.
+        _init_plugin_path()
+
+        # Inject synthetic modules BEFORE route registration so that
+        # routers_setup.py can import InteractionManager.  This must
+        # happen early because on cold restart sys.modules is empty.
+        from .injectors import inject_interaction_module
+
+        inject_interaction_module()
+        logger.info("CloudPaw: injected synthetic modules")
+
+        # Register HTTP routers via the official PluginApi — no manual
+        # app mounting needed. The registry already has the FastAPI app
+        # set via set_plugin_http_app() before load_all_plugins().
+        try:
+            from .routers_setup import build_plugin_routers
+
+            routers = build_plugin_routers()
+            logger.info(
+                "CloudPaw: got %d HTTP routers: %s",
+                len(routers),
+                [(r.prefix, p) for r, p in routers],
+            )
+            for router, prefix in routers:
+                logger.info(
+                    "CloudPaw: registering router at prefix '/api%s'",
+                    prefix,
+                )
+                api.register_http_router(router, prefix=prefix)
+        except Exception as e:
+            logger.warning(
+                "Failed to register HTTP routers: %s",
+                e,
+                exc_info=True,
+            )
+
         api.register_startup_hook(
             hook_name="cloudpaw_init",
             callback=self._on_startup,
@@ -479,22 +535,17 @@ class CloudPawPlugin:
 
     async def _on_startup(self):
         """Initialize all CloudPaw components on application startup."""
-        from .injectors import inject_interaction_module
         from .agents_setup import ensure_builtin_agents
         from .hooks import (
             setup_tool_and_prompt_hooks,
             setup_mission_hooks,
             setup_acp_auto_approve,
         )
-        from .routers_setup import mount_routers
 
         logger.info("CloudPaw plugin starting up...")
 
         logger.info("[CloudPaw] Ensuring default environment variables...")
         _ensure_default_env_vars()
-
-        logger.info("[CloudPaw] Injecting synthetic modules...")
-        inject_interaction_module()
 
         logger.info("[CloudPaw] Installing skills to pool...")
         _install_plugin_skills()
@@ -510,9 +561,6 @@ class CloudPawPlugin:
 
         logger.info("[CloudPaw] Setting up mission mode hooks...")
         setup_mission_hooks()
-
-        logger.info("[CloudPaw] Mounting API routers...")
-        mount_routers()
 
         logger.info("[CloudPaw] Initializing A2A client manager...")
         _init_a2a_manager()

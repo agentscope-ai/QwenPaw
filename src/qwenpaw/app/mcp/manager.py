@@ -199,9 +199,11 @@ class MCPClientManager:
                 logger.warning(f"Error closing MCP client '{key}': {e}")
 
     async def close_all(self) -> None:
-        """Close all MCP clients.
+        """Close all MCP clients concurrently.
 
-        Called during application shutdown.
+        Called during application shutdown.  All clients are
+        closed in parallel via ``asyncio.gather`` with a 30 s
+        overall timeout so one hung client cannot block the rest.
         """
         if self._init_task is not None and not self._init_task.done():
             self._init_task.cancel()
@@ -217,13 +219,46 @@ class MCPClientManager:
             clients_snapshot = list(self._clients.items())
             self._clients.clear()
 
-        logger.debug("Closing all MCP clients")
-        for key, client in clients_snapshot:
-            if client is not None:
-                try:
-                    await client.close()
-                except Exception as e:
-                    logger.warning(f"Error closing MCP client '{key}': {e}")
+        if not clients_snapshot:
+            return
+
+        logger.debug(
+            f"Closing {len(clients_snapshot)} MCP client(s)",
+        )
+
+        async def _close_one(key: str, client) -> None:
+            try:
+                await client.close()
+            except Exception as e:
+                logger.warning(
+                    f"Error closing MCP client '{key}': {e}",
+                )
+
+        try:
+            await asyncio.wait_for(
+                asyncio.gather(
+                    *(
+                        _close_one(k, c)
+                        for k, c in clients_snapshot
+                        if c is not None
+                    ),
+                    return_exceptions=True,
+                ),
+                timeout=30.0,
+            )
+        except asyncio.TimeoutError:
+            logger.warning(
+                "MCP close_all timed out after 30s; "
+                "some clients may not have shut down cleanly",
+            )
+
+        # Reap orphans only — PIDs that survived their client's
+        # close().  Do NOT use include_active=True here because
+        # another manager (e.g. new workspace after reload) may
+        # have already registered fresh PIDs in the global table.
+        from .stateful_client import kill_orphaned_mcp_children
+
+        await kill_orphaned_mcp_children(include_active=False)
 
     async def _add_client(
         self,

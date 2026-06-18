@@ -28,12 +28,14 @@ from .store import (
     get_workspace_skills_dir,
     import_skill_dir,
     is_ignored_skill_entry,
+    is_primary_pool_skill_dir,
     mutate_json,
     normalize_skill_dir_name,
     read_json,
     read_skill_from_dir,
     read_skill_manifest,
     read_skill_pool_manifest,
+    resolve_pool_skill_dir,
     safe_skill_dir,
     scan_skill_dir_or_raise,
     staged_skill_dir,
@@ -66,6 +68,7 @@ def _register_pool_skill_entry(
         source=source,
         protected=protected,
     )
+    entry["external"] = not is_primary_pool_skill_dir(skill_dir)
 
     installed_from_final = installed_from or str(
         preserve_from.get("installed_from", "") or "",
@@ -132,8 +135,11 @@ class SkillPoolService:
         pool_dir = get_skill_pool_dir()
         skills: list[SkillInfo] = []
         for skill_name, entry in sorted(manifest.get("skills", {}).items()):
+            skill_dir = resolve_pool_skill_dir(skill_name) or (
+                pool_dir / skill_name
+            )
             skill = read_skill_from_dir(
-                pool_dir / skill_name,
+                skill_dir,
                 entry.get("source", "customized"),
             )
             if skill is not None:
@@ -341,7 +347,10 @@ class SkillPoolService:
         if entry is None:
             return False
 
-        skill_dir = safe_skill_dir(get_skill_pool_dir(), skill_name)
+        skill_dir = resolve_pool_skill_dir(skill_name) or safe_skill_dir(
+            get_skill_pool_dir(),
+            skill_name,
+        )
         if skill_dir.exists():
             shutil.rmtree(skill_dir)
 
@@ -487,7 +496,10 @@ class SkillPoolService:
         config: dict[str, Any] | None,
         entry: dict[str, Any],
     ) -> dict[str, Any]:
-        skill_dir = safe_skill_dir(get_skill_pool_dir(), skill_name)
+        skill_dir = resolve_pool_skill_dir(skill_name) or safe_skill_dir(
+            get_skill_pool_dir(),
+            skill_name,
+        )
         new_config = (
             config if config is not None else entry.get("config") or {}
         )
@@ -555,9 +567,12 @@ class SkillPoolService:
         config: dict[str, Any] | None,
         entry: dict[str, Any],
     ) -> dict[str, Any]:
-        pool_dir = get_skill_pool_dir()
-        skill_dir = safe_skill_dir(pool_dir, final_name)
-        old_skill_dir = safe_skill_dir(pool_dir, skill_name)
+        old_skill_dir = resolve_pool_skill_dir(skill_name) or safe_skill_dir(
+            get_skill_pool_dir(),
+            skill_name,
+        )
+        root_dir = old_skill_dir.parent
+        skill_dir = safe_skill_dir(root_dir, final_name)
 
         with staged_skill_dir(final_name) as staged_dir:
             if old_skill_dir.exists():
@@ -803,7 +818,9 @@ class SkillPoolService:
         if entry is None:
             return {"success": False, "reason": "not_found"}
 
-        source_dir = safe_skill_dir(get_skill_pool_dir(), skill_name)
+        source_dir = resolve_pool_skill_dir(skill_name)
+        if source_dir is None:
+            return {"success": False, "reason": "not_found"}
         final_name = normalize_skill_dir_name(skill_name)
         target_dir = safe_skill_dir(
             get_workspace_skills_dir(workspace_dir),

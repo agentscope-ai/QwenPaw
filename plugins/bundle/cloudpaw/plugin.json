@@ -1,7 +1,7 @@
 {
   "id": "cloudpaw",
   "name": "CloudPaw",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "type": "general",
   "description": "CloudPaw —— QwenPaw 云能力增强插件。用自然语言描述需求，自动完成从资源创建到应用部署的全流程。安装后请完成以下配置：1) 在「环境变量」中配置阿里云 AK-SK（ALIBABA_CLOUD_ACCESS_KEY_ID / ALIBABA_CLOUD_ACCESS_KEY_SECRET）；2) 安装完成后请刷新当前页面以加载插件。",
   "description_i18n": {

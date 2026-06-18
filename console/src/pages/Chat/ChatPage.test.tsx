@@ -12,6 +12,7 @@ import { screen, waitFor, act } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { renderWithProviders } from "@/test/common_setup";
 import ChatPage from "./index";
+import { chatExtensions } from "@/plugins/registry/chatExtensions";
 
 // ---------------------------------------------------------------------------
 // Capture AgentScopeRuntimeWebUI options
@@ -200,6 +201,7 @@ const mockProviders = [
 // ---------------------------------------------------------------------------
 describe("ChatPage", () => {
   beforeEach(() => {
+    chatExtensions.__resetForTests();
     capturedOptions = null;
     mockListProviders.mockResolvedValue(mockProviders);
     mockGetActiveModels.mockResolvedValue(mockActiveModel);
@@ -212,7 +214,10 @@ describe("ChatPage", () => {
     });
   });
 
-  afterEach(() => vi.clearAllMocks());
+  afterEach(() => {
+    chatExtensions.__resetForTests();
+    vi.clearAllMocks();
+  });
 
   // ── basic rendering ───────────────────────────────────────────────────────
 
@@ -303,6 +308,46 @@ describe("ChatPage", () => {
       "/api/console/chat",
       expect.objectContaining({ method: "POST" }),
     );
+  });
+
+  it("customFetch applies request payload transforms before sending", async () => {
+    global.fetch = vi
+      .fn()
+      .mockResolvedValue({ ok: true, status: 200 } as Response);
+    chatExtensions.addRequestPayloadTransform("plugin-a", {
+      id: "plugin-a.request-context",
+      order: 10,
+      transform: ({ payload, sessionId, selectedAgent }) => ({
+        ...payload,
+        request_context: {
+          session_id: sessionId,
+          agent_id: selectedAgent,
+          datasource_id: "ds-123",
+        },
+      }),
+    });
+
+    renderWithProviders(<ChatPage />, { initialEntries: ["/chat"] });
+    await screen.findByTestId("chat-ui");
+
+    await capturedOptions.api.fetch({
+      input: [
+        {
+          role: "user",
+          content: "hello",
+          session: { session_id: "session-1" },
+        },
+      ],
+      signal: undefined,
+    });
+
+    const init = vi.mocked(fetch).mock.calls[0][1] as RequestInit;
+    const body = JSON.parse(String(init.body)) as Record<string, unknown>;
+    expect(body.request_context).toEqual({
+      session_id: "session-1",
+      agent_id: "default",
+      datasource_id: "ds-123",
+    });
   });
 
   // ── handleFileUpload ──────────────────────────────────────────────────────
