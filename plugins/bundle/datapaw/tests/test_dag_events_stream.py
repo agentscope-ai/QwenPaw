@@ -81,6 +81,86 @@ async def test_iter_dag_sse_events_yields_snapshot_before_heartbeat():
 
 
 @pytest.mark.asyncio
+async def test_iter_dag_sse_events_stops_after_initial_terminal_snapshot():
+    from plugin_datapaw.core.orchestration.dag_store import (
+        DAGBroadcaster,
+        format_sse,
+    )
+    from plugin_datapaw.core.routers.tasks import _iter_dag_sse_events
+
+    sid = "s-initial-terminal"
+    queue = DAGBroadcaster.subscribe(sid)
+    request = SimpleNamespace()
+    request.is_disconnected = AsyncMock(return_value=False)
+
+    snapshot = {
+        "sequence_number": 1,
+        "current_plan": {"id": "g1", "state": "done"},
+    }
+    dag_store = SimpleNamespace()
+    dag_store.read = AsyncMock(return_value=snapshot)
+
+    stream = _iter_dag_sse_events(
+        request=request,
+        session_id=sid,
+        dag_store=dag_store,
+        queue=queue,
+    )
+
+    first = await asyncio.wait_for(stream.__anext__(), timeout=1.0)
+    assert first == format_sse(snapshot)
+
+    with pytest.raises(StopAsyncIteration):
+        await stream.__anext__()
+
+    assert sid not in DAGBroadcaster._queues_by_sid
+
+
+@pytest.mark.asyncio
+async def test_iter_dag_sse_events_stops_after_queued_terminal_snapshot():
+    from plugin_datapaw.core.orchestration.dag_store import (
+        DAGBroadcaster,
+        format_sse,
+    )
+    from plugin_datapaw.core.routers.tasks import _iter_dag_sse_events
+
+    sid = "s-queued-terminal"
+    queue = DAGBroadcaster.subscribe(sid)
+    request = SimpleNamespace()
+    request.is_disconnected = AsyncMock(return_value=False)
+
+    initial = {
+        "sequence_number": 1,
+        "current_plan": {"id": "g1", "state": "in_progress"},
+    }
+    terminal = {
+        "sequence_number": 2,
+        "current_plan": {"id": "g1", "state": "abandoned"},
+    }
+    dag_store = SimpleNamespace()
+    dag_store.read = AsyncMock(return_value=initial)
+
+    stream = _iter_dag_sse_events(
+        request=request,
+        session_id=sid,
+        dag_store=dag_store,
+        queue=queue,
+    )
+
+    first = await asyncio.wait_for(stream.__anext__(), timeout=1.0)
+    assert first == format_sse(initial)
+
+    DAGBroadcaster.push(sid, terminal)
+    second = await asyncio.wait_for(stream.__anext__(), timeout=1.0)
+    assert second == format_sse(terminal)
+
+    with pytest.raises(StopAsyncIteration):
+        await stream.__anext__()
+
+    assert sid not in DAGBroadcaster._queues_by_sid
+
+
+@pytest.mark.asyncio
 async def test_iter_dag_sse_events_unsubscribes_on_close():
     from plugin_datapaw.core.orchestration.dag_store import DAGBroadcaster
     from plugin_datapaw.core.routers.tasks import _iter_dag_sse_events

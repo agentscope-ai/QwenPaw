@@ -281,6 +281,15 @@ async def get_sop(
 DAG_SSE_HEARTBEAT_SECONDS = 30.0
 
 
+def _is_terminal_dag_snapshot(snapshot: dict | None) -> bool:
+    if not isinstance(snapshot, dict):
+        return False
+    plan = snapshot.get("current_plan") or snapshot.get("graph_snapshot")
+    if not isinstance(plan, dict):
+        return False
+    return plan.get("state") in {"done", "abandoned"}
+
+
 async def _iter_dag_sse_events(
     *,
     request: Request,
@@ -292,6 +301,8 @@ async def _iter_dag_sse_events(
         snapshot = await dag_store.read(session_id)
         if snapshot is not None:
             yield format_sse(snapshot)
+            if _is_terminal_dag_snapshot(snapshot):
+                return
         while True:
             if await request.is_disconnected():
                 break
@@ -301,6 +312,8 @@ async def _iter_dag_sse_events(
                     timeout=DAG_SSE_HEARTBEAT_SECONDS,
                 )
                 yield format_sse(snapshot)
+                if _is_terminal_dag_snapshot(snapshot):
+                    break
             except asyncio.TimeoutError:
                 yield ": heartbeat\n\n"
     finally:

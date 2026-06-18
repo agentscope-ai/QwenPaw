@@ -93,6 +93,12 @@ export function useTaskPanel({
         .catch((error) => {
           if (abort.signal.aborted) return;
           console.warn("[TaskPanel] DAG SSE unavailable:", error);
+        })
+        .finally(() => {
+          if (dagAbortRef.current === abort) {
+            dagAbortRef.current = null;
+            dagSessionIdRef.current = null;
+          }
         });
     },
     [applySnapshot, enabled, stopDagSubscription, userId],
