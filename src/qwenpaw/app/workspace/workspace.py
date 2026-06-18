@@ -100,11 +100,6 @@ class Workspace:
         return self._service_manager.services.get("memory_manager")
 
     @property
-    def context_manager(self):
-        """Get context manager instance from ServiceManager."""
-        return self._service_manager.services.get("context_manager")
-
-    @property
     def driver_manager(self):
         """Get DriverManager instance from ServiceManager."""
         return self._service_manager.services.get("driver_manager")
@@ -283,9 +278,6 @@ class Workspace:
         from ...agents.memory.base_memory_manager import (
             get_memory_manager_backend,
         )
-        from ...agents.context.base_context_manager import (
-            get_context_manager_backend,
-        )
 
         sm = self._service_manager
 
@@ -341,24 +333,6 @@ class Workspace:
                 # longer ships; let the workspace boot without
                 # memory_manager when its import fails.
                 optional=True,
-            ),
-        )
-
-        sm.register(
-            ServiceDescriptor(
-                name="context_manager",
-                service_class=lambda ws: get_context_manager_backend(
-                    ws._config.running.context_manager_backend,
-                ),
-                init_args=lambda ws: {
-                    "working_dir": str(ws.workspace_dir),
-                    "agent_id": ws.agent_id,
-                },
-                start_method="start",
-                stop_method="close",
-                reusable=True,
-                priority=20,
-                concurrent_init=True,
             ),
         )
 
@@ -461,7 +435,6 @@ class Workspace:
             components: Dict mapping component name to instance.
                 Supported keys:
                 - 'memory_manager': BaseMemoryManager instance
-                - 'context_manager': BaseContextManager instance
                 - 'chat_manager': ChatManager instance
 
         Example:

@@ -182,7 +182,6 @@ class AgentBuilder:
         # Model + formatter.
         model, _formatter = self.build_model(agent_config)
 
-        # Middlewares (only context_manager).
         middlewares = self._build_middlewares(ctx, agent_config)
 
         running_config = agent_config.running
@@ -198,7 +197,8 @@ class AgentBuilder:
             workspace_dir=workspace_dir,
             request_context=request_context,
             memory_manager=self._get_memory_manager(ctx),
-            context_manager=self._get_context_manager(ctx),
+            offloader=self._build_offloader(ctx, agent_config),
+            context_config=self._build_context_config(agent_config),
             effective_skills=effective_skills,
             governor=governor,
         )
@@ -446,24 +446,56 @@ class AgentBuilder:
         return None
 
     @staticmethod
-    def _get_context_manager(ctx: Any) -> Any:
+    def _build_context_config(agent_config: Any) -> Any:
+        """Map QwenPaw's ``ContextCompactConfig`` to AS ``ContextConfig``."""
+        from agentscope.agent import ContextConfig
+
+        try:
+            lcc = agent_config.running.light_context_config
+            ccc = lcc.context_compact_config
+            return ContextConfig(
+                trigger_ratio=ccc.compact_threshold_ratio,
+                reserve_ratio=ccc.reserve_threshold_ratio,
+            )
+        except Exception:
+            return ContextConfig()
+
+    @staticmethod
+    def _build_offloader(ctx: Any, agent_config: Any) -> Any:
+        """Build the offloader for context and tool-result persistence."""
         workspace = getattr(ctx, "workspace", None)
-        if workspace is not None:
-            return getattr(workspace, "context_manager", None)
-        return None
+        workspace_dir = (
+            str(getattr(workspace, "workspace_dir", ""))
+            if workspace is not None
+            else ""
+        )
+        if not workspace_dir:
+            return None
+
+        import os
+
+        from ..agents.offloader import QwenPawOffloader
+
+        lcc = agent_config.running.light_context_config
+        dialog_path = os.path.join(workspace_dir, lcc.dialog_path)
+        trc = lcc.tool_result_pruning_config
+        tool_results_dir = os.path.join(workspace_dir, trc.tool_results_cache)
+        return QwenPawOffloader(
+            dialog_path=dialog_path,
+            tool_results_dir=tool_results_dir,
+        )
 
     @staticmethod
     def _build_middlewares(
         ctx: Any,
         agent_config: Any,
-    ) -> list[Any]:  # noqa: ARG004
+    ) -> list[Any]:
         """Build middleware list.
 
         Order (onion model, outermost first):
         1. ToolCoordinatorMiddleware — tool call lifecycle management
-        2. context_manager (LightContextManager) — context pruning
+        2. ToolResultPruningMiddleware — tiered tool result pruning
         """
-        del agent_config  # reserved for future mode-specific middleware
         mws: list[Any] = []
 
         app_services = getattr(ctx, "app_services", None)
@@ -480,9 +512,49 @@ class AgentBuilder:
                     ToolCoordinatorMiddleware(coordinator=tool_coordinator),
                 )
 
-        context_manager = AgentBuilder._get_context_manager(ctx)
-        if context_manager is not None:
-            mws.append(context_manager)
+        # Tiered tool-result pruning (ported from LightContextManager)
+        try:
+            import os
+
+            from ..agents.middlewares import ToolResultPruningMiddleware
+
+            lcc = agent_config.running.light_context_config
+            trc = lcc.tool_result_pruning_config
+
+            workspace = getattr(ctx, "workspace", None)
+            workspace_dir = (
+                str(getattr(workspace, "workspace_dir", ""))
+                if workspace is not None
+                else ""
+            )
+            tool_results_dir = (
+                os.path.join(workspace_dir, trc.tool_results_cache)
+                if workspace_dir
+                else ""
+            )
+
+            mws.append(
+                ToolResultPruningMiddleware(
+                    enabled=trc.enabled,
+                    recent_n=trc.pruning_recent_n,
+                    old_max_bytes=trc.pruning_old_msg_max_bytes,
+                    recent_max_bytes=trc.pruning_recent_msg_max_bytes,
+                    exempt_file_extensions={
+                        e.lower() for e in trc.exempt_file_extensions
+                    },
+                    exempt_tool_names={
+                        n.lower() for n in trc.exempt_tool_names
+                    },
+                    tool_results_dir=tool_results_dir,
+                    agent_id=getattr(agent_config, "id", "default"),
+                ),
+            )
+        except Exception:
+            _logger.debug(
+                "ToolResultPruningMiddleware not created",
+                exc_info=True,
+            )
+
         return mws
 
 

@@ -50,11 +50,6 @@ def _make_daemon_adapter(subcommand: str) -> CommandSpec:
         daemon_ctx = DaemonContext(
             load_config_fn=lambda: load_agent_config(agent_id),
             memory_manager=getattr(workspace, "memory_manager", None),
-            context_manager=getattr(
-                workspace,
-                "context_manager",
-                None,
-            ),
             manager=getattr(workspace, "_manager", None),
             agent_id=agent_id,
             session_id=getattr(ctx, "session_id", "") or "",
@@ -119,11 +114,6 @@ def _make_daemon_compound_adapter() -> CommandSpec:
             memory_manager=getattr(
                 workspace,
                 "memory_manager",
-                None,
-            ),
-            context_manager=getattr(
-                workspace,
-                "context_manager",
                 None,
             ),
             manager=getattr(workspace, "_manager", None),
@@ -374,12 +364,34 @@ def _make_conversation_adapter(name: str) -> CommandSpec:
             return None
 
         agent_id = getattr(ctx, "agent_id", None) or "default"
+
+        offloader = None
+        from ..agents.offloader import QwenPawOffloader
+        from ..config.config import load_agent_config
+
+        try:
+            ws_dir = str(getattr(workspace, "workspace_dir", ""))
+            if ws_dir:
+                import os
+
+                cfg = load_agent_config(agent_id)
+                lcc = cfg.running.light_context_config
+                offloader = QwenPawOffloader(
+                    dialog_path=os.path.join(ws_dir, lcc.dialog_path),
+                    tool_results_dir=os.path.join(
+                        ws_dir,
+                        lcc.tool_result_pruning_config.tool_results_cache,
+                    ),
+                )
+        except Exception:
+            pass
+
         cmd_handler = CommandHandler(
             agent_name="QwenPaw",
             state=state,
             agent_id=agent_id,
             memory_manager=getattr(workspace, "memory_manager", None),
-            context_manager=getattr(workspace, "context_manager", None),
+            offloader=offloader,
         )
 
         full_query = f"/{name} {args}".strip() if args else f"/{name}"

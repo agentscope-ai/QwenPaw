@@ -12,7 +12,6 @@ def _make_agent():
     agent = MagicMock()
     agent.state = SimpleNamespace(context=[])
     agent.memory_manager = None
-    agent.context_manager = None
     return agent
 
 

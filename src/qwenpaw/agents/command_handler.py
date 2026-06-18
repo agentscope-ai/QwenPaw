@@ -7,14 +7,11 @@ This module handles system commands like /compact, /new, /clear, etc.
 import json
 import logging
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import Any, TYPE_CHECKING
 
 from agentscope.message import Msg, TextBlock
 
-from .context.context_helpers import (
-    format_history_str,
-    persist_and_clear_context,
-)
+from .utils.context_stats import format_history_str
 from ..config.config import load_agent_config, get_model_max_input_length
 from ..constant import DEBUG_HISTORY_FILE, MAX_LOAD_HISTORY_COUNT
 from ..exceptions import SystemCommandException
@@ -23,7 +20,6 @@ if TYPE_CHECKING:
     from agentscope.agent import Agent
     from agentscope.state import AgentState
     from .memory import BaseMemoryManager
-    from .context import BaseContextManager
 
 logger = logging.getLogger(__name__)
 
@@ -36,8 +32,7 @@ def _fmt_tokens(n: int) -> str:
 class ConversationCommandHandlerMixin:
     """Mixin for conversation (system) commands: /compact, /new, /clear, etc.
 
-    Expects self to have: agent_name, memory, formatter, memory_manager,
-    context_manager.
+    Expects self to have: agent_name, memory, formatter, memory_manager.
     """
 
     # Supported conversation commands (unchanged set)
@@ -88,7 +83,7 @@ class CommandHandler(ConversationCommandHandlerMixin):
         agent_name: str,
         agent: "Agent | None" = None,
         memory_manager: "BaseMemoryManager | None" = None,
-        context_manager: "BaseContextManager | None" = None,
+        offloader: Any = None,
         *,
         state: "AgentState | None" = None,
         agent_id: str = "default",
@@ -97,7 +92,7 @@ class CommandHandler(ConversationCommandHandlerMixin):
 
         Can be constructed in two modes:
 
-        1. **Agent-backed** (legacy): pass ``agent`` — state is read from
+        1. **Agent-backed**: pass ``agent`` — state is read from
            ``agent.state``.
         2. **Standalone**: pass ``state`` directly — no
            agent instance required.  Used by slash command adapters that
@@ -107,7 +102,7 @@ class CommandHandler(ConversationCommandHandlerMixin):
             agent_name: Name of the agent for message creation.
             agent: The owning agent (optional in standalone mode).
             memory_manager: Optional long-term memory manager (ReMe).
-            context_manager: Optional context manager.
+            offloader: Optional offloader for persisting context to disk.
             state: Direct AgentState (standalone mode). Mutually
                 exclusive with ``agent``.
             agent_id: Agent ID for config loading (standalone mode).
@@ -122,13 +117,12 @@ class CommandHandler(ConversationCommandHandlerMixin):
         self._state_direct: "AgentState | None" = state
         self._agent_id = agent_id
         self.memory_manager: "BaseMemoryManager" = memory_manager
-        self.context_manager: "BaseContextManager" = context_manager
+        self._offloader = offloader
 
     def _get_agent_config(self):
         """Get hot-reloaded agent config."""
-        source = self.memory_manager or self.context_manager
-        if source is not None:
-            return load_agent_config(source.agent_id)
+        if self.memory_manager is not None:
+            return load_agent_config(self.memory_manager.agent_id)
         return load_agent_config(self._agent_id)
 
     # ------------------------------------------------------------------
@@ -152,18 +146,6 @@ class CommandHandler(ConversationCommandHandlerMixin):
     def _set_summary(self, value: str) -> None:
         """Write the rolling compaction summary."""
         self._state.summary = value or ""
-
-    def _dialog_path(self) -> str | None:
-        """Resolve the JSONL dialog dir for this agent (may be ``None``)."""
-        if self.context_manager is None:
-            return None
-        # Direct attribute access (not ``getattr``) so pylint can see the
-        # bound method and narrow the type — ``getattr(..., None)`` returns
-        # ``Any | None`` which pylint flags as "not callable" even after a
-        # ``callable()`` check.
-        if hasattr(self.context_manager, "get_dialog_path"):
-            return self.context_manager.get_dialog_path()
-        return None
 
     def is_command(self, query: str | None) -> bool:
         """Check if the query is a system command (alias for mixin)."""
@@ -194,75 +176,90 @@ class CommandHandler(ConversationCommandHandlerMixin):
         """Check if memory manager is available."""
         return self.memory_manager is not None
 
-    def _has_context_manager(self) -> bool:
-        """Check if context manager is available."""
-        return self.context_manager is not None
-
     async def _process_compact(
         self,
         messages: list[Msg],
-        args: str = "",
+        args: str = "",  # pylint: disable=unused-argument
     ) -> Msg:
-        """Process /compact command."""
-        extra_instruction = args.strip()
+        """Process /compact command.
+
+        Delegates to agentscope's native ``Agent.compress_context()``.
+        In standalone mode (no agent instance), a temporary lightweight
+        Agent is built to perform the compression.
+        """
         if not messages:
             return await self._make_system_msg(
                 "📭 **No messages to compact.**\n\n"
                 "- Current memory is empty\n"
                 "- No action taken",
             )
-        if not self._has_context_manager():
-            return await self._make_system_msg(
-                "🚫 **Context Manager Disabled**\n\n"
-                "- Memory compaction is not available\n"
-                "- Enable context manager to use this feature",
-            )
 
         if self._has_memory_manager():
             self.memory_manager.add_summarize_task(messages=messages)
-        result = await self.context_manager.compact_context(
-            messages=messages,
-            previous_summary=self._get_summary(),
-            extra_instruction=extra_instruction,
-        )
 
-        agent_config = self._get_agent_config()
-        max_len = get_model_max_input_length(agent_config)
+        agent = self._agent
+        if agent is None:
+            agent = self._build_tmp_agent()
+            if agent is None:
+                return await self._make_system_msg(
+                    "🚫 **Compact failed — could not initialise model.**\n\n"
+                    "- Check that an active model is configured",
+                )
 
-        if not result.get("success"):
-            reason = result.get("reason", "unknown")
-            before = result.get("before_tokens", 0)
-            before_pct = (
-                f"{before / max_len * 100:.0f}%" if max_len > 0 else "N/A"
-            )
+        try:
+            await agent.compress_context()
+        except Exception as e:
+            logger.exception("compress_context failed: %s", e)
             return await self._make_system_msg(
-                f"❌ **Compact Failed!**\n\n"
-                f"- Reason: {reason}\n"
-                f"- Messages: {len(messages)}, "
-                f"Tokens: {_fmt_tokens(before)}/"
-                f"{_fmt_tokens(max_len)} ({before_pct})\n"
-                f"- Please check the logs for details\n"
-                f"- If context exceeds max length, "
-                f"please use `/new` or `/clear` to clear the context",
+                f"❌ **Compact Failed!**\n\n- Reason: {e}\n"
+                f"- Use `/clear` to reset the context if needed",
             )
 
-        compact_content = result.get("history_compact", "")
-        self._set_summary(compact_content)
-        before = result.get("before_tokens", 0)
-        after = result.get("after_tokens", 0)
-        await persist_and_clear_context(self._state, self._dialog_path())
-        before_pct = f"{before / max_len * 100:.0f}%" if max_len > 0 else "N/A"
-        after_pct = f"{after / max_len * 100:.0f}%" if max_len > 0 else "N/A"
+        summary = self._get_summary()
         return await self._make_system_msg(
             f"✅ **Compact Complete!**\n\n"
             f"- Messages compacted: {len(messages)}\n"
-            f"- Tokens: {_fmt_tokens(before)}/"
-            f"{_fmt_tokens(max_len)}({before_pct}) -> "
-            f"{_fmt_tokens(after)}/"
-            f"{_fmt_tokens(max_len)}({after_pct})\n"
-            f"**Compressed Summary:**\n{compact_content}\n"
-            f"- Summary task started in background\n",
+            f"**Compressed Summary:**\n{summary}\n",
         )
+
+    def _build_tmp_agent(self) -> "Agent | None":
+        """Build a minimal Agent for standalone compression.
+
+        Shares ``self._state`` so compression side-effects (summary,
+        context trimming, offloading) are reflected immediately.
+        """
+        try:
+            from agentscope.agent import Agent
+
+            from ..agents.model_factory import (
+                create_model_and_formatter,
+            )
+
+            agent_config = self._get_agent_config()
+            model, _fmt = create_model_and_formatter(
+                agent_config.id,
+            )
+
+            lcc = agent_config.running.light_context_config
+            ccc = lcc.context_compact_config
+            from agentscope.agent import ContextConfig
+
+            context_config = ContextConfig(
+                trigger_ratio=ccc.compact_threshold_ratio,
+                reserve_ratio=ccc.reserve_threshold_ratio,
+            )
+
+            return Agent(
+                name="compactor",
+                model=model,
+                system_prompt="",
+                state=self._state,
+                offloader=self._offloader,
+                context_config=context_config,
+            )
+        except Exception:
+            logger.exception("Failed to build temporary agent for /compact")
+            return None
 
     async def _process_new(self, messages: list[Msg], _args: str = "") -> Msg:
         """Process /new command."""
@@ -286,7 +283,7 @@ class CommandHandler(ConversationCommandHandlerMixin):
         self.memory_manager.add_summarize_task(messages=messages)
         self._set_summary("")
 
-        await persist_and_clear_context(self._state, self._dialog_path())
+        await self._persist_and_clear()
         return await self._make_system_msg(
             "**New Conversation Started!**\n\n"
             "- Summary task started in background\n"
@@ -301,7 +298,7 @@ class CommandHandler(ConversationCommandHandlerMixin):
         _args: str = "",
     ) -> Msg:
         """Process /clear command."""
-        await persist_and_clear_context(self._state, self._dialog_path())
+        await self._persist_and_clear()
         self._set_summary("")
         return await self._make_system_msg(
             "**History Cleared!**\n\n"
@@ -310,6 +307,20 @@ class CommandHandler(ConversationCommandHandlerMixin):
             "- Plan state cleared",
             metadata={"clear_history": True, "clear_plan": True},
         )
+
+    async def _persist_and_clear(self) -> None:
+        """Persist current context to disk via offloader, then clear."""
+        state = self._state
+        if state.context and self._offloader is not None:
+            try:
+                session_id = getattr(state, "session_id", "") or ""
+                await self._offloader.offload_context(
+                    session_id,
+                    list(state.context),
+                )
+            except Exception as e:
+                logger.warning("offloader.offload_context failed: %s", e)
+        state.context.clear()
 
     async def _process_compact_str(
         self,

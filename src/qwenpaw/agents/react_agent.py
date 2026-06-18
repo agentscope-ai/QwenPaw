@@ -31,7 +31,6 @@ from ..providers.model_capability_cache import get_capability_cache
 
 if TYPE_CHECKING:
     from ..agents.memory import BaseMemoryManager
-    from ..agents.context import BaseContextManager
     from ..config.config import AgentProfileConfig
 
 logger = logging.getLogger(__name__)
@@ -62,7 +61,8 @@ class QwenPawAgent(CodingModeMixin, Agent):
         workspace_dir: Path | None = None,
         request_context: Optional[dict[str, str]] = None,
         memory_manager: "BaseMemoryManager | None" = None,
-        context_manager: "BaseContextManager | None" = None,
+        offloader: Any = None,
+        context_config: Any = None,
         effective_skills: Optional[list[str]] = None,
         governor: Any = None,
     ):
@@ -82,9 +82,7 @@ class QwenPawAgent(CodingModeMixin, Agent):
 
         self._governor = governor
 
-        # Store managers for downstream consumers
         self.memory_manager = memory_manager
-        self.context_manager = context_manager
 
         # Register memory tools into toolkit
         if self.memory_manager is not None:
@@ -114,14 +112,18 @@ class QwenPawAgent(CodingModeMixin, Agent):
                 [fn.__name__ for fn in memory_tools],
             )
 
-        super().__init__(
-            name=name,
-            model=model,
-            system_prompt=system_prompt,
-            toolkit=toolkit,
-            react_config=react_config,
-            middlewares=middlewares,
-        )
+        init_kwargs: dict[str, Any] = {
+            "name": name,
+            "model": model,
+            "system_prompt": system_prompt,
+            "toolkit": toolkit,
+            "react_config": react_config,
+            "middlewares": middlewares,
+            "offloader": offloader,
+        }
+        if context_config is not None:
+            init_kwargs["context_config"] = context_config
+        super().__init__(**init_kwargs)
 
         # Bypass agentscope's built-in permission engine — qwenpaw uses
         # its own GuardedFunctionTool.check_permissions for tool-guard.
@@ -133,6 +135,19 @@ class QwenPawAgent(CodingModeMixin, Agent):
         self.memory = None  # type: ignore[assignment]
 
         self._register_tool_call_hooks()
+
+    async def compress_context(
+        self,
+        context_config: Any = None,
+    ) -> None:
+        """Respect ``context_compact_config.enabled``."""
+        try:
+            lcc = self._agent_config.running.light_context_config
+            if not lcc.context_compact_config.enabled:
+                return
+        except Exception:
+            pass
+        await super().compress_context(context_config)
 
     # Session persistence calls state_dict/load_state_dict on the agent;
     # these round-trip through self.state (AgentState pydantic model).
@@ -190,13 +205,27 @@ class QwenPawAgent(CodingModeMixin, Agent):
             )
 
     async def close(self) -> None:
-        """Shut down governor (flush audit log, persist policy)."""
+        """Shut down governor and clean up expired tool-result files."""
         gov = getattr(self, "_governor", None)
         if gov is not None:
             try:
                 gov.stop()
             except Exception:
                 logger.debug("governor stop failed", exc_info=True)
+
+        offloader = getattr(self, "offloader", None)
+        if offloader is not None and hasattr(
+            offloader,
+            "cleanup_expired",
+        ):
+            try:
+                lcc = self._agent_config.running.light_context_config
+                trc = lcc.tool_result_pruning_config
+                offloader.cleanup_expired(
+                    retention_days=trc.offload_retention_days,
+                )
+            except Exception:
+                logger.debug("offloader cleanup failed", exc_info=True)
 
     def _register_skills(
         self,

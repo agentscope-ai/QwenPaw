@@ -2,9 +2,10 @@
 """ADBPG Memory Manager for QwenPaw agents.
 
 Provides long-term memory backed by AnalyticDB for PostgreSQL (ADBPG).
-Context management (compaction, tool result pruning) is handled by
-LightContextManager — this class only manages long-term memory storage
-and retrieval.
+Context compaction is handled natively by AgentScope's
+``Agent.compress_context()``; tool result pruning is handled by
+``ToolResultPruningMiddleware``. This class only manages long-term
+memory storage and retrieval.
 """
 import asyncio
 import json
@@ -36,7 +37,8 @@ class ADBPGMemoryManager(BaseMemoryManager):
     """ADBPG-backed long-term memory manager.
 
     Delegates storage and retrieval to AnalyticDB for PostgreSQL.
-    Context management is handled by LightContextManager.
+    Context compaction and tool result pruning are handled by the
+    agent's native compression and ``ToolResultPruningMiddleware``.
     """
 
     def __init__(self, working_dir: str, agent_id: str) -> None:
