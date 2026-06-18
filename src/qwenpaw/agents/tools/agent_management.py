@@ -700,6 +700,21 @@ async def spawn_subagent(
             timeout=timeout,
         )
 
+    from ...app.agent_context import (
+        get_current_session_id,
+        get_current_user_id,
+        get_current_channel,
+    )
+
+    request_context: dict = {
+        "session_id": subagent_session_id,
+        "user_id": get_current_user_id() or "",
+        "channel": get_current_channel() or "",
+        "agent_id": current_agent_id,
+        "root_session_id": get_current_session_id() or "",
+        "root_agent_id": current_agent_id,
+    }
+
     request_payload = {
         "session_id": subagent_session_id,
         "input": [
@@ -708,7 +723,7 @@ async def spawn_subagent(
                 "content": [{"type": "text", "text": task}],
             },
         ],
-        "request_context": {},
+        "request_context": request_context,
     }
 
     if background:
@@ -855,7 +870,14 @@ async def _spawn_forked_subagent(
     worktree_path = fork_result.get("worktree_path", "")
     worktree_branch = fork_result.get("worktree_branch", "")
 
-    request_context: dict = {}
+    request_context: dict = {
+        "session_id": fork_session_id,
+        "user_id": user_id,
+        "channel": channel,
+        "agent_id": current_agent_id,
+        "root_session_id": parent_session_id,
+        "root_agent_id": current_agent_id,
+    }
     if worktree_path:
         request_context["fork_project_dir"] = worktree_path
 
