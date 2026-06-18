@@ -68,9 +68,11 @@ class DataPawPlugin:
         from .hooks import (
             setup_channel_sse_hook,
             setup_console_request_context_hook,
+            setup_mcp_timeout_hook,
             setup_runner_hooks,
         )
 
+        setup_mcp_timeout_hook()
         ensure_builtin_agents()
         setup_runner_hooks()
         setup_channel_sse_hook()

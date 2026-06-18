@@ -29,6 +29,7 @@ from qwenpaw.agents.react_agent import NamesakeStrategy, QwenPawAgent
 from qwenpaw.agents.skill_system.store import get_workspace_skills_dir
 
 from ..i18n import tr
+from ..mcp_cm import apply_cm_mcp_long_timeouts, is_cm_mcp_client
 from ..orchestration import RuntimeStateManager
 from ..path_context import PathContext, default_artifacts_root
 from ..sse_metadata import NODE_ROUTING_METADATA_KEYS
@@ -513,11 +514,15 @@ class DataPawAgent(QwenPawAgent):
         ``_acting`` to inject the request's ``datasource_id`` into the
         tool's ``metadata`` argument before execution.
         """
+        for client in self._mcp_clients:
+            if is_cm_mcp_client(client):
+                apply_cm_mcp_long_timeouts(client)
+
         await super().register_mcp_clients(namesake_strategy=namesake_strategy)
 
         self._cm_tool_names: set[str] = set()
         for client in self._mcp_clients:
-            if getattr(client, "name", "") != CM_MCP_NAME:
+            if not is_cm_mcp_client(client):
                 continue
             try:
                 tools = await client.list_tools()
