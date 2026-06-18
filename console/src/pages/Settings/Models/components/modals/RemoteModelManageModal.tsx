@@ -542,11 +542,6 @@ export function RemoteModelManageModal({
 
   // ---- Batch operations ----
 
-  const isModelDeletable = useCallback(
-    (modelId: string) => provider.is_custom || extraModelIds.has(modelId),
-    [provider.is_custom, extraModelIds],
-  );
-
   const handleSelectModel = useCallback(
     (modelId: string, checked: boolean) => {
       setSelectedModelIds((prev) => {
@@ -561,6 +556,26 @@ export function RemoteModelManageModal({
     },
     [],
   );
+
+  const deferredSearchQuery = useDeferredValue(modelSearchQuery);
+
+  useEffect(() => {
+    setVisibleCount(PAGE_SIZE);
+  }, [deferredSearchQuery]);
+
+  const filteredModels = useMemo(() => {
+    const all_models = [
+      ...(provider.extra_models ?? []),
+      ...(provider.models ?? []),
+    ];
+    const q = deferredSearchQuery.trim().toLowerCase();
+    if (!q) return all_models;
+    return all_models.filter(
+      (m) => m.name.toLowerCase().includes(q) || m.id.toLowerCase().includes(q),
+    );
+  }, [provider.models, provider.extra_models, deferredSearchQuery]);
+
+  const colors = tagColors(isDark);
 
   const handleSelectAll = useCallback((checked: boolean) => {
     if (checked) {
@@ -801,26 +816,6 @@ export function RemoteModelManageModal({
     setAdding(false);
     form.resetFields();
   }, [adding, form, isOpenRouter]);
-
-  const deferredSearchQuery = useDeferredValue(modelSearchQuery);
-
-  useEffect(() => {
-    setVisibleCount(PAGE_SIZE);
-  }, [deferredSearchQuery]);
-
-  const filteredModels = useMemo(() => {
-    const all_models = [
-      ...(provider.extra_models ?? []),
-      ...(provider.models ?? []),
-    ];
-    const q = deferredSearchQuery.trim().toLowerCase();
-    if (!q) return all_models;
-    return all_models.filter(
-      (m) => m.name.toLowerCase().includes(q) || m.id.toLowerCase().includes(q),
-    );
-  }, [provider.models, provider.extra_models, deferredSearchQuery]);
-
-  const colors = tagColors(isDark);
 
   return (
     <Modal
