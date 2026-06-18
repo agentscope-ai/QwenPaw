@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Dict, List, Literal, Optional
 from fastapi import (
@@ -285,6 +286,33 @@ class TestModelRequest(BaseModel):
     model_id: str = Field(..., description="Model ID to test")
 
 
+class BatchTestModelsRequest(BaseModel):
+    model_ids: List[str] = Field(
+        ...,
+        description="List of model IDs to test",
+    )
+
+
+class SingleTestResult(BaseModel):
+    model_id: str = Field(..., description="Model ID that was tested")
+    success: bool = Field(..., description="Whether the test passed")
+    message: str = Field(..., description="Result message")
+
+
+class BatchTestModelsResponse(BaseModel):
+    results: List[SingleTestResult] = Field(
+        ...,
+        description="Per-model test results",
+    )
+
+
+class BatchDeleteModelsRequest(BaseModel):
+    model_ids: List[str] = Field(
+        ...,
+        description="List of model IDs to delete",
+    )
+
+
 class DiscoverModelsRequest(BaseModel):
     api_key: Optional[str] = Field(
         default=None,
@@ -443,6 +471,80 @@ async def test_model(
         )
     except (ValueError, AppBaseException) as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.post(
+    "/{provider_id}/models/batch-test",
+    response_model=BatchTestModelsResponse,
+    summary="Batch test multiple models",
+)
+async def batch_test_models(
+    manager: ProviderManager = Depends(get_provider_manager),
+    provider_id: str = Path(...),
+    body: BatchTestModelsRequest = Body(...),
+) -> BatchTestModelsResponse:
+    """Test multiple models in parallel against the configured provider."""
+    provider = manager.get_provider(provider_id)
+    if provider is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Provider '{provider_id}' not found.",
+        )
+
+    async def _test_one(model_id: str) -> SingleTestResult:
+        try:
+            ok, msg = await provider.check_model_connection(
+                model_id=model_id,
+            )
+            return SingleTestResult(
+                model_id=model_id,
+                success=ok,
+                message="Model connection successful"
+                if ok
+                else f"Model connection failed: {msg}",
+            )
+        except Exception as exc:
+            return SingleTestResult(
+                model_id=model_id,
+                success=False,
+                message=f"Error: {exc!s}",
+            )
+
+    results = await asyncio.gather(
+        *[_test_one(mid) for mid in body.model_ids],
+    )
+    return BatchTestModelsResponse(results=list(results))
+
+
+@router.post(
+    "/{provider_id}/models/batch-delete",
+    response_model=ProviderInfo,
+    summary="Batch delete multiple models",
+)
+async def batch_delete_models(
+    manager: ProviderManager = Depends(get_provider_manager),
+    provider_id: str = Path(...),
+    body: BatchDeleteModelsRequest = Body(...),
+) -> ProviderInfo:
+    """Delete multiple models from a provider in sequence."""
+    for model_id in body.model_ids:
+        try:
+            await manager.delete_model_from_provider(
+                provider_id=provider_id,
+                model_id=model_id,
+            )
+        except (ValueError, AppBaseException) as exc:
+            logger.warning(
+                "Batch delete: failed to remove model '%s' from provider '%s': %s",
+                model_id,
+                provider_id,
+                exc,
+            )
+            raise HTTPException(
+                status_code=400,
+                detail=f"Failed to delete model '{model_id}': {exc!s}",
+            ) from exc
+    return await manager.get_provider_info(provider_id)
 
 
 @router.delete(

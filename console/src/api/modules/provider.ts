@@ -14,6 +14,9 @@ import type {
   TestConnectionResponse,
   TestProviderRequest,
   TestModelRequest,
+  BatchTestModelsRequest,
+  BatchTestModelsResponse,
+  BatchDeleteModelsRequest,
   DiscoverModelsResponse,
   ProbeMultimodalResponse,
   SeriesResponse,
@@ -143,6 +146,26 @@ export const providerApi = {
   testModelConnection: (providerId: string, body: TestModelRequest) =>
     request<TestConnectionResponse>(
       `/models/${encodeURIComponent(providerId)}/models/test`,
+      {
+        method: "POST",
+        body: JSON.stringify(body),
+      },
+    ),
+
+  /* ---- Batch operations ---- */
+
+  batchTestModels: (providerId: string, body: BatchTestModelsRequest) =>
+    request<BatchTestModelsResponse>(
+      `/models/${encodeURIComponent(providerId)}/models/batch-test`,
+      {
+        method: "POST",
+        body: JSON.stringify(body),
+      },
+    ),
+
+  batchDeleteModels: (providerId: string, body: BatchDeleteModelsRequest) =>
+    request<ProviderInfo>(
+      `/models/${encodeURIComponent(providerId)}/models/batch-delete`,
       {
         method: "POST",
         body: JSON.stringify(body),

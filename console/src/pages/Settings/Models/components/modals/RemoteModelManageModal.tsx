@@ -14,7 +14,8 @@ import {
   Tag,
   Tooltip,
 } from "@agentscope-ai/design";
-import { AutoComplete } from "antd";
+import { AutoComplete, Checkbox } from "antd";
+import type { CheckboxChangeEvent } from "antd/es/checkbox";
 import {
   DeleteOutlined,
   PlusOutlined,
@@ -380,6 +381,11 @@ export function RemoteModelManageModal({
   const [loadingDiscoveredModels, setLoadingDiscoveredModels] = useState(false);
   const PAGE_SIZE = 30;
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
+  const [selectedModelIds, setSelectedModelIds] = useState<Set<string>>(
+    new Set(),
+  );
+  const [batchTesting, setBatchTesting] = useState(false);
+  const [batchDeleting, setBatchDeleting] = useState(false);
 
   // For custom providers ALL models are deletable.
   // For built-in providers only extra_models are deletable.
@@ -534,10 +540,122 @@ export function RemoteModelManageModal({
     });
   };
 
+  // ---- Batch operations ----
+
+  const isModelDeletable = useCallback(
+    (modelId: string) => provider.is_custom || extraModelIds.has(modelId),
+    [provider.is_custom, extraModelIds],
+  );
+
+  const handleSelectModel = useCallback(
+    (modelId: string, checked: boolean) => {
+      setSelectedModelIds((prev) => {
+        const next = new Set(prev);
+        if (checked) {
+          next.add(modelId);
+        } else {
+          next.delete(modelId);
+        }
+        return next;
+      });
+    },
+    [],
+  );
+
+  const handleSelectAll = useCallback((checked: boolean) => {
+    if (checked) {
+      setSelectedModelIds(
+        new Set(
+          filteredModels
+            .filter(
+              (m) => provider.is_custom || extraModelIds.has(m.id),
+            )
+            .map((m) => m.id),
+        ),
+      );
+    } else {
+      setSelectedModelIds(new Set());
+    }
+  }, [filteredModels, provider.is_custom, extraModelIds]);
+
+  const handleBatchTest = async () => {
+    if (selectedModelIds.size === 0) return;
+    setBatchTesting(true);
+    try {
+      const result = await api.batchTestModels(provider.id, {
+        model_ids: Array.from(selectedModelIds),
+      });
+      const passed = result.results.filter((r) => r.success).length;
+      const failed = result.results.filter((r) => !r.success).length;
+      message.success(
+        t("models.batchTestDone", {
+          total: result.results.length,
+          passed,
+          failed,
+          defaultValue: `Batch test done: ${passed} passed, ${failed} failed`,
+        }),
+      );
+      // Show individual failures
+      for (const r of result.results) {
+        if (!r.success) {
+          message.warning(`${r.model_id}: ${r.message}`);
+        }
+      }
+      await onSaved();
+    } catch (error) {
+      const errMsg =
+        error instanceof Error
+          ? error.message
+          : t("models.batchTestFailed", "Batch test failed");
+      message.error(errMsg);
+    } finally {
+      setBatchTesting(false);
+    }
+  };
+
+  const handleBatchDelete = () => {
+    if (selectedModelIds.size === 0) return;
+    Modal.confirm({
+      title: t("models.batchRemoveModel", "Batch Delete Models"),
+      content: t("models.batchRemoveModelConfirm", {
+        count: selectedModelIds.size,
+        defaultValue: `Are you sure you want to delete ${selectedModelIds.size} models?`,
+      }),
+      okText: t("common.delete"),
+      okButtonProps: { danger: true },
+      cancelText: t("models.cancel"),
+      onOk: async () => {
+        setBatchDeleting(true);
+        try {
+          await api.batchDeleteModels(provider.id, {
+            model_ids: Array.from(selectedModelIds),
+          });
+          message.success(
+            t("models.batchModelsRemoved", {
+              count: selectedModelIds.size,
+              defaultValue: `${selectedModelIds.size} models deleted`,
+            }),
+          );
+          setSelectedModelIds(new Set());
+          await onSaved();
+        } catch (error) {
+          const errMsg =
+            error instanceof Error
+              ? error.message
+              : t("models.batchRemoveFailed", "Batch delete failed");
+          message.error(errMsg);
+        } finally {
+          setBatchDeleting(false);
+        }
+      },
+    });
+  };
+
   const handleClose = () => {
     setAdding(false);
     setConfigOpenModelId(null);
     setModelSearchQuery("");
+    setSelectedModelIds(new Set());
     setVisibleCount(PAGE_SIZE);
     form.resetFields();
     onClose();
@@ -721,6 +839,84 @@ export function RemoteModelManageModal({
         allowClear
       />
 
+      {/* Batch toolbar */}
+      {filteredModels.length > 0 && (
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            margin: "8px 0 0",
+            padding: "4px 0",
+            borderTop: isDark
+              ? "1px solid rgba(255,255,255,0.08)"
+              : "1px solid #f0f0f0",
+            borderBottom: isDark
+              ? "1px solid rgba(255,255,255,0.08)"
+              : "1px solid #f0f0f0",
+            minHeight: 36,
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <Checkbox
+              indeterminate={
+                selectedModelIds.size > 0 &&
+                selectedModelIds.size <
+                  filteredModels.filter(
+                    (m) => provider.is_custom || extraModelIds.has(m.id),
+                  ).length
+              }
+              checked={
+                selectedModelIds.size > 0 &&
+                selectedModelIds.size ===
+                  filteredModels.filter(
+                    (m) => provider.is_custom || extraModelIds.has(m.id),
+                  ).length
+              }
+              onChange={(e: CheckboxChangeEvent) =>
+                handleSelectAll(e.target.checked)
+              }
+            />
+            <span
+              style={{
+                fontSize: 12,
+                color: isDark
+                  ? "rgba(255,255,255,0.5)"
+                  : "#888",
+              }}
+            >
+              {selectedModelIds.size > 0
+                ? t("models.selectedCount", {
+                    count: selectedModelIds.size,
+                    defaultValue: `${selectedModelIds.size} selected`,
+                  })
+                : t("models.selectHint", "Select models...")}
+            </span>
+          </div>
+          <div style={{ display: "flex", gap: 8 }}>
+            <Button
+              size="small"
+              icon={<ApiOutlined />}
+              disabled={selectedModelIds.size === 0}
+              loading={batchTesting}
+              onClick={handleBatchTest}
+            >
+              {t("models.batchTest", "Batch Test")}
+            </Button>
+            <Button
+              size="small"
+              danger
+              icon={<DeleteOutlined />}
+              disabled={selectedModelIds.size === 0}
+              loading={batchDeleting}
+              onClick={handleBatchDelete}
+            >
+              {t("models.batchDelete", "Batch Delete")}
+            </Button>
+          </div>
+        </div>
+      )}
+
       {/* Model list */}
       <div className={styles.modelList}>
         {filteredModels.length === 0 ? (
@@ -733,6 +929,13 @@ export function RemoteModelManageModal({
               return (
                 <div key={m.id}>
                   <div className={styles.modelListItem}>
+                    <Checkbox
+                      checked={selectedModelIds.has(m.id)}
+                      onChange={(e: CheckboxChangeEvent) =>
+                        handleSelectModel(m.id, e.target.checked)
+                      }
+                      style={{ marginRight: 8 }}
+                    />
                     <div className={styles.modelListItemInfo}>
                       <span className={styles.modelListItemName}>{m.name}</span>
                       <span className={styles.modelListItemId}>{m.id}</span>

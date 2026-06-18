@@ -202,6 +202,24 @@ export interface TestModelRequest {
   model_id: string;
 }
 
+export interface BatchTestModelsRequest {
+  model_ids: string[];
+}
+
+export interface SingleTestResult {
+  model_id: string;
+  success: boolean;
+  message: string;
+}
+
+export interface BatchTestModelsResponse {
+  results: SingleTestResult[];
+}
+
+export interface BatchDeleteModelsRequest {
+  model_ids: string[];
+}
+
 export interface DiscoverModelsResponse {
   success: boolean;
   message: string;
