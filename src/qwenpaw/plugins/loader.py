@@ -747,7 +747,7 @@ class PluginLoader:
         result = await self.load_plugin(installed_manifest, target_dir, config)
         if result is None:
             raise RuntimeError(
-                f"Failed to load plugin '{plugin_id}' after installation"
+                f"Failed to load plugin '{plugin_id}' after installation",
             )
         return result
 

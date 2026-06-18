@@ -264,7 +264,7 @@ def _unregister_stdio_pids(pids: set[int]) -> None:
             pid_alive = _pid_exists(pid)
             pgroup_alive = False
             pgid = _stdio_pgids.get(pid)
-            if not pid_alive and pgid is not None and _killpg is not None:
+            if not pid_alive and pgid is not None and _killpg is not None and callable(_killpg):
                 try:
                     _killpg(pgid, 0)
                     pgroup_alive = True
@@ -320,7 +320,7 @@ async def kill_orphaned_mcp_children(
 
     def _send(pid: int, sig: int) -> None:
         pgid = pgids.get(pid)
-        if pgid is not None and _killpg is not None:
+        if pgid is not None and _killpg is not None and callable(_killpg):
             try:
                 _killpg(pgid, sig)
                 return
