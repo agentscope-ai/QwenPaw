@@ -11,6 +11,7 @@
     "backend-download",
     "core:default",
     "dialog:allow-save",
-    "open-external-link"
+    "open-external-link",
+    "core:tray:default"
   ]
 }

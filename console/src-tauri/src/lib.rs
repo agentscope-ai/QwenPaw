@@ -3,6 +3,7 @@
 mod backend;
 mod backend_download;
 mod external_link;
+mod tray;
 
 use tauri::{Manager, RunEvent, WindowEvent};
 
@@ -20,13 +21,15 @@ pub fn run() {
             external_link::open_external_link,
         ])
         .manage(backend::BackendState::default())
-        .setup(backend::setup)
+        .setup(|app| {
+            backend::setup(app)?;
+            tray::setup(app)?;
+            Ok(())
+        })
         .on_window_event(|window, event| {
-            // The app currently has a single "main" window, so closing it
-            // is equivalent to quitting. If a multi-window mode is introduced,
-            // make this window-count aware and keep the exit-event fallback.
-            if matches!(event, WindowEvent::CloseRequested { .. }) {
-                backend::stop(window.app_handle());
+            if let WindowEvent::CloseRequested { api, .. } = event {
+                let _ = window.hide();
+                api.prevent_close();
             }
         })
         .build(tauri::generate_context!());
