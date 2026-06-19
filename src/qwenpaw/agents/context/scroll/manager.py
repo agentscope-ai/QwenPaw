@@ -41,11 +41,15 @@ class ScrollContextManager:
         session_id: str,
         agent_id: str | None = None,
         pinned: int = 1,
+        capped_results: dict[str, int] | None = None,
     ) -> None:
         self._history = history
         self._session_id = session_id
         self._agent_id = agent_id
         self._pinned = pinned
+        # Shared with the cap middleware: tool_call_id -> seq of results it
+        # already wrote in full. We skip re-persisting their truncated stubs.
+        self._capped_results = capped_results if capped_results is not None else {}
         self._persisted_ids: set[str] = set()      # msgs whose non-result row is stored
         self._persisted_tcids: set[str] = set()    # tool_call_ids whose result row is stored
         self._synthetic_ids: set[str] = set()      # placeholder msgs we inserted
@@ -145,11 +149,18 @@ class ScrollContextManager:
                     anon_pos += 1
                     if tcid in self._persisted_tcids:
                         continue
-                    seq = self._history.append(
-                        session_id=self._session_id,
-                        agent_id=self._agent_id, entry=entry,
-                        dedup_key=tcid,
-                    )
+                    capped_seq = self._capped_results.get(tcid)
+                    if capped_seq is not None:
+                        # The cap middleware already wrote this result in full;
+                        # don't persist the in-context truncated stub. Adopt its
+                        # seq so the result still falls inside the eviction span.
+                        seq = capped_seq
+                    else:
+                        seq = self._history.append(
+                            session_id=self._session_id,
+                            agent_id=self._agent_id, entry=entry,
+                            dedup_key=tcid,
+                        )
                     self._persisted_tcids.add(tcid)
                 else:
                     nblk = len(entry.blocks or ())

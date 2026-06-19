@@ -52,8 +52,19 @@ def make_execute_python(
     agent_id: str | None = None,
     scratch_root: str,
     timeout_s: int = 300,
+    allow_unsandboxed: bool = False,
 ):
-    """Build an ``execute_python`` tool bound to one session's history."""
+    """Build an ``execute_python`` tool bound to one session's history.
+
+    ``execute_python`` runs model-authored Python. The sandbox is the only
+    isolation boundary, and ``sandbox_config`` is injected solely by
+    ``PolicyGuardedTool``. When governance is degraded (e.g. the governor
+    fails to start and the tool is wrapped in a plain ``GuardedFunctionTool``)
+    no config is injected — so the tool **fails closed**: with ``sandbox_config
+    is None`` it refuses to run unless ``allow_unsandboxed=True`` is explicitly
+    set. Enabling that opt-in runs arbitrary host code as the agent user with
+    zero isolation; use it only for trusted local/dev setups.
+    """
     scratch_dir = str(Path(scratch_root) / "repl")
     scratch_db = str(Path(scratch_root) / "repl" / "scratch.db")
     cells_dir = Path(scratch_root) / "cells"
@@ -80,6 +91,23 @@ def make_execute_python(
         source: str,
         sandbox_config: Optional[Any] = None,
     ) -> ToolChunk:
+        # Fail closed: without a sandbox there is no isolation, so refuse to
+        # run model-authored code unless an operator explicitly opted in.
+        if sandbox_config is None and not allow_unsandboxed:
+            return ToolChunk(
+                content=[TextBlock(
+                    type="text",
+                    text=(
+                        "execute_python refused: no sandbox available "
+                        "(sandbox_config is None). This tool runs "
+                        "model-authored Python and only executes inside the "
+                        "sandbox. The governance layer may be degraded. "
+                        "Set scroll_config.allow_unsandboxed=true to run "
+                        "without isolation (UNSAFE; trusted local use only)."
+                    ),
+                )],
+                state=ToolResultState.DENIED,
+            )
         cell = _build_cell(source)
         cmd = f"{shlex.quote(sys.executable)} {shlex.quote(str(cell))}"
         try:

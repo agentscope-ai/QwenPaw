@@ -78,11 +78,18 @@ def build_scroll_components(
     history = HistoryStore(Path(workspace_dir) / sc.db_filename)
     scratch_root = str(Path(workspace_dir) / ".scroll")
 
+    # Shared {tool_call_id -> seq} of results the cap middleware already wrote in
+    # full. The manager consults it so it never re-persists the truncated stub
+    # the model sees in-context (which would duplicate the row + bloat FTS); it
+    # adopts the cap's seq so the result still falls inside the eviction span.
+    capped_results: dict[str, int] = {}
+
     manager = ScrollContextManager(
         history=history,
         session_id=session_id,
         agent_id=agent_id,
         pinned=sc.pinned,
+        capped_results=capped_results,
     )
     cap = ToolResultCapMiddleware(
         history=history,
@@ -90,6 +97,7 @@ def build_scroll_components(
         session_id=session_id,
         agent_id=agent_id,
         token_cap=sc.tool_output_token_cap,
+        capped_results=capped_results,
     )
     tool = make_execute_python(
         history_db_path=str(history.path),
@@ -97,6 +105,7 @@ def build_scroll_components(
         agent_id=agent_id,
         scratch_root=scratch_root,
         timeout_s=sc.repl_timeout_s,
+        allow_unsandboxed=sc.allow_unsandboxed,
     )
     return ScrollComponents(
         context_manager=manager,

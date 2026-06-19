@@ -824,6 +824,18 @@ class ScrollContextConfig(BaseModel):
         description="Per-call timeout for the execute_python REPL tool.",
     )
 
+    allow_unsandboxed: bool = Field(
+        default=False,
+        description=(
+            "UNSAFE escape hatch. The execute_python recall REPL runs "
+            "model-authored Python and is only isolated by the sandbox; the "
+            "sandbox config is injected by the governance layer. When that "
+            "layer is degraded the tool fails closed and refuses to run. Set "
+            "this to true to run the REPL with NO isolation (arbitrary host "
+            "code as the agent user) — trusted local/dev use only."
+        ),
+    )
+
 
 class LightContextConfig(BaseModel):
     """Light context manager configuration."""

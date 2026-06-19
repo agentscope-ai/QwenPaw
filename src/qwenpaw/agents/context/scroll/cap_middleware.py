@@ -34,12 +34,16 @@ class ToolResultCapMiddleware(MiddlewareBase):
         session_id: str,
         agent_id: str | None = None,
         token_cap: int = 3000,
+        capped_results: dict[str, int] | None = None,
     ) -> None:
         self._history = history
         self._model = model
         self._session_id = session_id
         self._agent_id = agent_id
         self._token_cap = token_cap
+        # Shared with the manager: tool_call_id -> seq of the full output we
+        # persisted, so the manager skips re-writing the truncated stub.
+        self._capped_results = capped_results if capped_results is not None else {}
 
     async def on_acting(
         self,
@@ -68,7 +72,7 @@ class ToolResultCapMiddleware(MiddlewareBase):
         if n_tokens <= self._token_cap:
             return resp
         tcid = getattr(tool_call, "id", None)
-        self._history.append(
+        seq = self._history.append(
             session_id=self._session_id,
             agent_id=self._agent_id,
             dedup_key=tcid,
@@ -81,6 +85,11 @@ class ToolResultCapMiddleware(MiddlewareBase):
                 metadata={"capped": True, "full_tokens": n_tokens},
             ),
         )
+        # Tell the manager this result is already durable (in full) so it won't
+        # re-persist the truncated stub it sees in-context. Keyed by tcid, which
+        # the manager uses as the result's dedup key.
+        if tcid is not None:
+            self._capped_results[tcid] = seq
         keep = max(1, int(len(text) * self._token_cap / n_tokens))
         resp.content = [TextBlock(text=(
             f"{text[:keep]}\n"
