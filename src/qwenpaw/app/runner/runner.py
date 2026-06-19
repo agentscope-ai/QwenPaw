@@ -424,6 +424,7 @@ class AgentRunner(Runner):
             set_current_root_session_id,
             set_current_user_id,
             set_current_channel,
+            set_current_plan_notebook,
         )
 
         set_current_agent_id(self.agent_id)
@@ -655,14 +656,14 @@ class AgentRunner(Runner):
                 "enabled",
                 False,
             )
-            if plan_enabled:
-                try:
-                    from agentscope.plan import (
-                        PlanNotebook,
-                        InMemoryPlanStorage,
-                    )
-                    from ...plan.hints import SimplePlanToHint, set_plan_gate
+            try:
+                from agentscope.plan import (
+                    PlanNotebook,
+                    InMemoryPlanStorage,
+                )
+                from ...plan.hints import SimplePlanToHint, set_plan_gate
 
+                if plan_enabled:
                     hint_gen = SimplePlanToHint()
                     plan_notebook = PlanNotebook(
                         plan_to_hint=hint_gen,
@@ -683,61 +684,70 @@ class AgentRunner(Runner):
                                 "Plan mode: /plan gate set, desc=%s",
                                 plan_desc[:60],
                             )
+                else:
+                    plan_notebook = PlanNotebook(
+                        # ponytail: use empty dummy lambda to prevent
+                        # system prompt pollution while allowing todo_write
+                        plan_to_hint=lambda plan: None,
+                        storage=InMemoryPlanStorage(),
+                    )
 
-                    # Register SSE broadcast hook + state tracking
-                    from ...plan.broadcast import broadcast_plan_update
-                    from ...plan.schemas import plan_to_response
+                # Register SSE broadcast hook + state tracking
+                from ...plan.broadcast import broadcast_plan_update
+                from ...plan.schemas import plan_to_response
 
-                    def _on_plan_change(  # pylint: disable=protected-access
-                        nb,
-                        plan,
-                    ):
-                        if getattr(nb, "_loading_from_state", False):
-                            nb._qp_had_plan = plan is not None
-                            nb._qp_prev_plan_id = (
-                                plan.id if plan is not None else None
-                            )
-                            return
-
-                        had_plan = getattr(nb, "_qp_had_plan", False)
-                        prev_id = getattr(nb, "_qp_prev_plan_id", None)
-
-                        if plan is not None:
-                            cur_id = plan.id
-                            if not had_plan or cur_id != prev_id:
-                                nb._plan_just_mutated = True
-                            nb._qp_prev_plan_id = cur_id
-                        else:
-                            if had_plan:
-                                nb._plan_recently_finished = True
-                                nb._plan_awaiting_user_confirm = False
-                            nb._qp_prev_plan_id = None
+                def _on_plan_change(  # pylint: disable=protected-access
+                    nb,
+                    plan,
+                ):
+                    if getattr(nb, "_loading_from_state", False):
                         nb._qp_had_plan = plan is not None
-
-                        payload = {
-                            "type": "plan_update",
-                            "plan": (
-                                plan_to_response(plan).model_dump()
-                                if plan is not None
-                                else None
-                            ),
-                        }
-                        broadcast_plan_update(
-                            self.agent_id,
-                            payload,
-                            session_id=session_id,
+                        nb._qp_prev_plan_id = (
+                            plan.id if plan is not None else None
                         )
+                        return
 
-                    plan_notebook.register_plan_change_hook(
-                        "broadcast",
-                        _on_plan_change,
+                    had_plan = getattr(nb, "_qp_had_plan", False)
+                    prev_id = getattr(nb, "_qp_prev_plan_id", None)
+
+                    if plan is not None:
+                        cur_id = plan.id
+                        if not had_plan or cur_id != prev_id:
+                            nb._plan_just_mutated = True
+                        nb._qp_prev_plan_id = cur_id
+                    else:
+                        if had_plan:
+                            nb._plan_recently_finished = True
+                            nb._plan_awaiting_user_confirm = False
+                        nb._qp_prev_plan_id = None
+                    nb._qp_had_plan = plan is not None
+
+                    payload = {
+                        "type": "plan_update",
+                        "plan": (
+                            plan_to_response(plan).model_dump()
+                            if plan is not None
+                            else None
+                        ),
+                    }
+                    broadcast_plan_update(
+                        self.agent_id,
+                        payload,
+                        session_id=session_id,
                     )
-                except Exception:
-                    logger.warning(
-                        "Failed to create PlanNotebook",
-                        exc_info=True,
-                    )
-                    plan_notebook = None
+
+                plan_notebook.register_plan_change_hook(
+                    "broadcast",
+                    _on_plan_change,
+                )
+                set_current_plan_notebook(plan_notebook)
+            except Exception:
+                logger.warning(
+                    "Failed to create PlanNotebook",
+                    exc_info=True,
+                )
+                plan_notebook = None
+                set_current_plan_notebook(None)
 
             agent = QwenPawAgent(
                 agent_config=agent_config,

@@ -61,6 +61,8 @@ from .tools import (
     set_user_timezone,
     view_image,
     view_video,
+    todo_write,
+    TodoWrite,
     write_file,
 )
 from .utils import process_file_and_media_blocks_in_message
@@ -308,6 +310,8 @@ class QwenPawAgent(CodingModeMixin, ToolGuardMixin, ReActAgent):
             "check_agent_task": check_agent_task,
             "spawn_subagent": spawn_subagent,
             "run_tool_batch": run_tool_batch,
+            "todo_write": todo_write,
+            "TodoWrite": TodoWrite,
             # Register only when the `make-skill` skill is enabled.
             **(
                 {"materialize_skill": materialize_skill}

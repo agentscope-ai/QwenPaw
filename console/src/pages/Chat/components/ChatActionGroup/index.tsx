@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { IconButton } from "@agentscope-ai/design";
 import {
   SparkHistoryLine,
@@ -6,11 +6,15 @@ import {
   SparkSearchLine,
 } from "@agentscope-ai/icons";
 import { ExpandAltOutlined, CompressOutlined } from "@ant-design/icons";
-import { useChatAnywhereSessions } from "@agentscope-ai/chat";
+import {
+  useChatAnywhereSessions,
+  useChatAnywhereSessionsState,
+} from "@agentscope-ai/chat";
 import { useTranslation } from "react-i18next";
 import { Flex, Tooltip } from "antd";
 import ChatSearchPanel from "../ChatSearchPanel";
 import PlanPanel from "../../../../components/PlanPanel";
+import { planApi, subscribePlanUpdates } from "../../../../api/modules/plan";
 
 const PlanIcon = () => (
   <svg
@@ -49,11 +53,49 @@ const ChatActionGroup: React.FC<ChatActionGroupProps> = ({
 
   const [searchOpen, setSearchOpen] = useState(false);
   const [planOpen, setPlanOpen] = useState(false);
+  const [hasActivePlan, setHasActivePlan] = useState(false);
+  const prevHasPlanRef = useRef(false);
+
   const { createSession } = useChatAnywhereSessions();
+  const { currentSessionId } = useChatAnywhereSessionsState();
+
+  // Fetch initial plan status when session changes
+  useEffect(() => {
+    const checkPlan = async () => {
+      const sid = (window as any).currentSessionId || "";
+      try {
+        const data = await planApi.getCurrentPlan(sid || undefined);
+        const hasPlan = data !== null;
+        setHasActivePlan(hasPlan);
+        prevHasPlanRef.current = hasPlan;
+      } catch {
+        // ignore
+      }
+    };
+    checkPlan();
+  }, [currentSessionId]);
+
+  // Subscribe to real-time plan updates
+  useEffect(() => {
+    const unsub = subscribePlanUpdates((updatedPlan, eventSessionId) => {
+      const mySid = (window as any).currentSessionId || "";
+      if (eventSessionId && mySid && eventSessionId !== mySid) return;
+
+      const hasPlan = updatedPlan !== null;
+      setHasActivePlan(hasPlan);
+
+      if (hasPlan && !prevHasPlanRef.current) {
+        setPlanOpen(true);
+      }
+      prevHasPlanRef.current = hasPlan;
+    });
+
+    return unsub;
+  }, []);
 
   return (
     <Flex gap={8} align="center">
-      {planEnabled && (
+      {(planEnabled || hasActivePlan) && (
         <Tooltip title={t("plan.title", "Plan")} mouseEnterDelay={0.5}>
           <IconButton
             bordered={false}
@@ -105,7 +147,7 @@ const ChatActionGroup: React.FC<ChatActionGroupProps> = ({
         </Tooltip>
       )}
       <ChatSearchPanel open={searchOpen} onClose={() => setSearchOpen(false)} />
-      {planEnabled && (
+      {(planEnabled || hasActivePlan) && (
         <PlanPanel open={planOpen} onClose={() => setPlanOpen(false)} />
       )}
     </Flex>

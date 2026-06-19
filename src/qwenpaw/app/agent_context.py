@@ -5,7 +5,7 @@ Provides utilities to get the correct agent instance for each request.
 """
 from contextvars import ContextVar
 from pathlib import Path
-from typing import Optional, TYPE_CHECKING
+from typing import Optional, TYPE_CHECKING, Any
 from fastapi import Request
 from .multi_agent_manager import MultiAgentManager
 from ..config.utils import load_config
@@ -228,3 +228,19 @@ def set_current_channel(channel: Optional[str]) -> None:
 def get_current_channel() -> Optional[str]:
     """Get current channel from context."""
     return _current_channel.get()
+
+
+_current_plan_notebook: ContextVar[Optional[Any]] = ContextVar(
+    "current_plan_notebook",
+    default=None,
+)
+
+
+def set_current_plan_notebook(nb: Optional[Any]) -> None:
+    """Set current plan notebook in context."""
+    _current_plan_notebook.set(nb)
+
+
+def get_current_plan_notebook() -> Optional[Any]:
+    """Get current plan notebook from context."""
+    return _current_plan_notebook.get()
