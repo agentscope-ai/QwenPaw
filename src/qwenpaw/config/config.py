@@ -683,6 +683,21 @@ class ReMeLightMemoryConfig(BaseModel):
         ),
     )
 
+    memory_search_recency_boost_enabled: bool = Field(
+        default=False,
+        description=(
+            "Whether to enable recency-aware ranking for memory_search "
+            "results from daily memory files"
+        ),
+    )
+
+    memory_search_recency_half_life_days: int = Field(
+        default=30,
+        description=(
+            "Half life in days for the temporal decay score adjustment"
+        ),
+    )
+
 
 class ContextCompactConfig(BaseModel):
     """Context compaction configuration."""

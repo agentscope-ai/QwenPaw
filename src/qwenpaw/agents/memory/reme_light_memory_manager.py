@@ -115,8 +115,8 @@ class ReMeLightMemoryManager(BaseMemoryManager):
 
         fts_enabled = EnvVarLoader.get_bool("FTS_ENABLED", True)
 
-        agent_config = load_agent_config(self.agent_id)
-        reme_cfg = agent_config.running.reme_light_memory_config
+        self.agent_config = load_agent_config(self.agent_id)
+        reme_cfg = self.agent_config.running.reme_light_memory_config
         rebuild_on_start = reme_cfg.rebuild_memory_index_on_start
 
         store_name = "memory"
@@ -485,11 +485,113 @@ class ReMeLightMemoryManager(BaseMemoryManager):
             logger.exception(f"Failed to tokenize query: {e} query={query}")
             query_final = query
 
-        return await self._reme.memory_search(
+        response = await self._reme.memory_search(
             query=query_final,
             max_results=max_results,
             min_score=min_score,
         )
+
+        # ponytail: keep logic clean, direct and modular
+        # Apply recency-aware ranking if enabled for memory/YYYY-MM-DD.md
+        try:
+            agent_config = load_agent_config(self.agent_id)
+        except Exception:
+            # ponytail: fall back to cached config if load fails (e.g. tests)
+            agent_config = getattr(self, "agent_config", None)
+
+        if agent_config:
+            reme_cfg = agent_config.running.reme_light_memory_config
+            recency_enabled = getattr(
+                reme_cfg,
+                "memory_search_recency_boost_enabled",
+                False,
+            )
+            if recency_enabled:
+                half_life = getattr(
+                    reme_cfg,
+                    "memory_search_recency_half_life_days",
+                    30,
+                )
+                response = self._apply_recency_boost(
+                    response=response,
+                    half_life=half_life,
+                )
+
+        return response
+
+    def _apply_recency_boost(
+        self,
+        response: ToolResponse,
+        half_life: int,
+    ) -> ToolResponse:
+        """Apply recency-aware ranking to results from daily memory files."""
+        if not response.content:
+            return response
+
+        try:
+            import math
+            import re
+            from datetime import date
+
+            today = date.today()
+            config = load_config()
+            tz_str = config.user_timezone
+            if tz_str:
+                try:
+                    # ponytail: use stdlib zoneinfo instead of pytz
+                    from zoneinfo import ZoneInfo
+
+                    tz = ZoneInfo(tz_str)
+                    today = datetime.now(tz).date()
+                except Exception:
+                    pass
+
+            text_data = response.content[0].get("text", "")
+            results = json.loads(text_data)
+
+            if isinstance(results, list):
+                date_pattern = re.compile(
+                    r"memory[/\\](\d{4}-\d{2}-\d{2})\.md$",
+                )
+
+                modified = False
+                for r in results:
+                    path = r.get("path", "")
+                    match = date_pattern.search(path)
+                    if match:
+                        date_str = match.group(1)
+                        try:
+                            file_date = datetime.strptime(
+                                date_str,
+                                "%Y-%m-%d",
+                            ).date()
+                            age_days = max(0, (today - file_date).days)
+                            recency_factor = math.exp(
+                                -math.log(2) * age_days / half_life,
+                            )
+                            r["score"] = r["score"] * recency_factor
+                            modified = True
+                        except Exception:
+                            pass
+
+                if modified:
+                    # ponytail: re-rank and re-sort, do not filter min_score
+                    results.sort(
+                        key=lambda x: x.get("score", 0.0),
+                        reverse=True,
+                    )
+                    response.content[0]["text"] = json.dumps(
+                        results,
+                        indent=2,
+                        ensure_ascii=False,
+                    )
+        except Exception as e:
+            logger.warning(
+                f"Failed to apply recency boost: {e}",
+                exc_info=True,
+            )
+
+        return response
 
     async def summarize(self, messages: list[Msg], **_kwargs) -> str:
         """Generate a summary of the given messages and persist to memory."""
