@@ -89,6 +89,10 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         super().__init__(working_dir=working_dir, agent_id=agent_id)
         self._reme_version_ok: bool = self._check_reme_version()
         self._reme = None
+        # US-003: write counter for auto-compact
+        self._write_counter: int = 0
+        self._compact_threshold: int = 1000
+        self._compact_lock: asyncio.Lock | None = None
 
         logger.info(
             f"ReMeLightMemoryManager init: "
@@ -109,8 +113,7 @@ class ReMeLightMemoryManager(BaseMemoryManager):
             "api_key": self._mask_key(emb_config["api_key"]),
         }
         logger.info(
-            f"Embedding config: {log_cfg}, "
-            f"vector_enabled={vector_enabled}",
+            f"Embedding config: {log_cfg}, vector_enabled={vector_enabled}",
         )
 
         fts_enabled = EnvVarLoader.get_bool("FTS_ENABLED", True)
@@ -127,17 +130,6 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         )
 
         recursive_file_watcher = reme_cfg.recursive_file_watcher
-
-        self._memory_backend = memory_manager_backend
-        self._reme_init_kwargs = {
-            "working_dir": working_dir,
-            "emb_config": emb_config,
-            "store_name": store_name,
-            "vector_enabled": vector_enabled,
-            "fts_enabled": fts_enabled,
-            "effective_rebuild": effective_rebuild,
-            "recursive_file_watcher": recursive_file_watcher,
-        }
 
         self._reme = ReMeLight(
             working_dir=working_dir,
@@ -257,103 +249,14 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         return True
 
     # ------------------------------------------------------------------
-    # chromadb runtime probe
-    # ------------------------------------------------------------------
-
-    _CHROMADB_PROBE_SCRIPT = (
-        "import chromadb; "
-        "c = chromadb.EphemeralClient(); "
-        "c.get_or_create_collection('probe-test')"
-    )
-    _CHROMADB_PROBE_TIMEOUT = 15
-
-    @staticmethod
-    async def _probe_chromadb_runtime() -> bool:
-        """Spawn a subprocess to verify chromadb Rust bindings.
-
-        Returns ``True`` when the probe succeeds, ``False`` on
-        crash (SIGSEGV), timeout, or any other failure.
-        """
-        try:
-            proc = await asyncio.create_subprocess_exec(
-                sys.executable,
-                "-c",
-                ReMeLightMemoryManager._CHROMADB_PROBE_SCRIPT,
-                stdout=asyncio.subprocess.DEVNULL,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            _, stderr = await asyncio.wait_for(
-                proc.communicate(),
-                timeout=(ReMeLightMemoryManager._CHROMADB_PROBE_TIMEOUT),
-            )
-            if proc.returncode != 0:
-                logger.warning(
-                    f"chromadb runtime probe failed "
-                    f"(rc={proc.returncode}): "
-                    f"{stderr.decode(errors='replace').strip()}",
-                )
-            return proc.returncode == 0
-        except asyncio.TimeoutError:
-            logger.warning(
-                "chromadb runtime probe timed out",
-            )
-            try:
-                proc.kill()  # type: ignore[possibly-undefined]
-            except ProcessLookupError:
-                pass
-            return False
-        except Exception as exc:
-            logger.warning(
-                f"chromadb runtime probe error: {exc}",
-            )
-            return False
-
-    def _rebuild_reme_with_local(self) -> None:
-        """Recreate ``self._reme`` with the local backend."""
-        from reme.reme_light import ReMeLight  # noqa: PLC0415
-
-        kw = self._reme_init_kwargs
-        self._memory_backend = "local"
-        self._reme = ReMeLight(
-            working_dir=kw["working_dir"],
-            default_embedding_model_config=kw["emb_config"],
-            default_file_store_config={
-                "backend": "local",
-                "store_name": kw["store_name"],
-                "vector_enabled": kw["vector_enabled"],
-                "fts_enabled": kw["fts_enabled"],
-            },
-            default_file_watcher_config={
-                "rebuild_index_on_start": (kw["effective_rebuild"]),
-                "recursive": kw["recursive_file_watcher"],
-            },
-        )
-
-    # ------------------------------------------------------------------
     # BaseMemoryManager interface
     # ------------------------------------------------------------------
 
     async def start(self):
-        """Start the ReMeLight lifecycle.
-
-        When the detected backend is ``chroma``, an async
-        subprocess probe verifies that the Rust native bindings
-        work at runtime.  If the probe fails (e.g. SIGSEGV on
-        macOS), the manager silently downgrades to the ``local``
-        backend so the agent can still start.
-        """
+        """Start the ReMeLight lifecycle."""
         self._warn_if_version_mismatch()
         if self._reme is None:
             return None
-
-        if self._memory_backend == "chroma":
-            if not await self._probe_chromadb_runtime():
-                logger.warning(
-                    "chromadb Rust bindings unusable, "
-                    "downgrading to local backend",
-                )
-                self._rebuild_reme_with_local()
-
         return await self._reme.start()
 
     async def close(self) -> bool:
@@ -364,6 +267,42 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         )
         if self._reme is None:
             return True
+        # Workaround for reme bug: Application.close() calls
+        # file_store.close() (sets client=None) BEFORE file_watcher.close()
+        # which needs client for clear_all(). We restore client and
+        # manually close file_watcher first, then let ReMeLight.close()
+        # handle the rest (file_watcher.close is idempotent).
+        ctx = getattr(self._reme, "service_context", None)
+        if ctx is not None:
+            store = ctx.file_stores.get("default")
+            if store is not None and store.client is None:
+                try:
+                    import chromadb
+                    from chromadb.config import Settings as _Settings
+                    store.client = chromadb.PersistentClient(
+                        path=str(store.db_path),
+                        settings=_Settings(
+                            anonymized_telemetry=False,
+                            allow_reset=True,
+                        ),
+                    )
+                    store.chunks_collection = store.client.get_or_create_collection(
+                        name=store.collection_name,
+                        metadata={"hnsw:space": "cosine"},
+                    )
+                    logger.info("close() restored ChromaDB client")
+                except Exception as e:
+                    logger.warning(f"close() client restore failed: {e}")
+
+            # Close file_watcher while client is still alive
+            fw = ctx.file_watchers.get("default")
+            if fw is not None and getattr(fw, "_running", False):
+                try:
+                    await fw.close()
+                    logger.info("close() file_watcher closed early")
+                except Exception as e:
+                    logger.warning(f"file_watcher close failed: {e}")
+
         result = await self._reme.close()
         logger.info(
             f"ReMeLightMemoryManager closed: agent_id={self.agent_id}, "
@@ -485,11 +424,27 @@ class ReMeLightMemoryManager(BaseMemoryManager):
             logger.exception(f"Failed to tokenize query: {e} query={query}")
             query_final = query
 
-        return await self._reme.memory_search(
-            query=query_final,
-            max_results=max_results,
-            min_score=min_score,
-        )
+        try:
+            return await asyncio.wait_for(
+                self._reme.memory_search(
+                    query=query_final,
+                    max_results=max_results,
+                    min_score=min_score,
+                ),
+                timeout=30,
+            )
+        except asyncio.TimeoutError:
+            logger.warning(
+                "memory_search timed out after 30s, returning empty results",
+            )
+            return ToolResponse(
+                content=[
+                    TextBlock(
+                        type="text",
+                        text="Memory search timed out, please retry later.",
+                    ),
+                ],
+            )
 
     async def summarize(self, messages: list[Msg], **_kwargs) -> str:
         """Generate a summary of the given messages and persist to memory."""
@@ -503,7 +458,7 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         recent_max_bytes = pruning_cfg.pruning_recent_msg_max_bytes
         set_current_recent_max_bytes(recent_max_bytes)
 
-        return await self._reme.summary_memory(
+        result = await self._reme.summary_memory(
             messages=messages,
             as_llm=chat_model,
             as_llm_formatter=formatter,
@@ -515,6 +470,173 @@ class ReMeLightMemoryManager(BaseMemoryManager):
             timezone=load_config().user_timezone or None,
             add_thinking_block=cc.compact_with_thinking_block,
         )
+
+        # US-003: increment write counter and trigger auto-compact
+        self._write_counter += 1
+        if self._write_counter >= self._compact_threshold:
+            self._write_counter = 0
+            asyncio.create_task(self._auto_compact())
+
+        return result
+
+    # ------------------------------------------------------------------
+    # US-002 / US-003: index maintenance & auto-compact
+    # ------------------------------------------------------------------
+
+    def _get_chroma_store(self):
+        """Return the underlying ChromaFileStore instance.
+
+        Accesses the file store from ReMeLight's service context.
+        The key is ``"default"`` (ReMeLight config name), while the
+        ``store_name`` inside the config is ``"memory"``.
+        Returns ``None`` if the store is not available or not a ChromaDB store.
+        """
+        if self._reme is None:
+            return None
+        ctx = getattr(self._reme, "service_context", None)
+        if ctx is None:
+            return None
+        # ReMeLight registers file stores under config names ("default"),
+        # not under the store_name ("memory").
+        store = ctx.file_stores.get("default")
+        if store is None:
+            # Fallback: try "memory" for compatibility
+            store = ctx.file_stores.get("memory")
+        if store is None:
+            return None
+        # Guard: only expose ChromaDB-backed stores
+        if not hasattr(store, "chunks_collection"):
+            return None
+        return store
+
+    async def compact_index(self) -> dict:
+        """Compact the ChromaDB vector index.
+
+        For ChromaDB this rebuilds the HNSW index by re-inserting all
+        chunks, which reclaims space from deleted entries.
+
+        Returns:
+            dict with ``status`` and ``stats`` keys.
+        """
+        store = self._get_chroma_store()
+        if store is None:
+            return {"status": "error", "message": "ChromaDB store not available"}
+
+        try:
+            collection = store.chunks_collection
+            count = collection.count()
+            if count == 0:
+                return {"status": "ok", "message": "Index is empty, nothing to compact", "doc_count": 0}
+
+            # ChromaDB doesn't expose a native compact, so we rebuild:
+            # 1. Get all existing data
+            all_data = collection.get(
+                include=["documents", "metadatas", "embeddings"],
+            )
+            # 2. Delete and recreate collection
+            store.client.delete_collection(name=store.collection_name)
+            store.chunks_collection = store.client.get_or_create_collection(
+                name=store.collection_name,
+                metadata={"hnsw:space": "cosine"},
+            )
+            # 3. Re-insert in batches
+            batch_size = 500
+            total = len(all_data["ids"])
+            for i in range(0, total, batch_size):
+                batch_ids = all_data["ids"][i : i + batch_size]
+                batch_docs = all_data["documents"][i : i + batch_size]
+                batch_meta = all_data["metadatas"][i : i + batch_size]
+                batch_emb = all_data["embeddings"][i : i + batch_size]
+                store.chunks_collection.upsert(
+                    ids=batch_ids,
+                    documents=batch_docs,
+                    metadatas=batch_meta,
+                    embeddings=batch_emb,
+                )
+                await asyncio.sleep(0.01)  # yield to event loop
+
+            new_count = store.chunks_collection.count()
+            logger.info(
+                f"compact_index completed: {total} docs re-indexed, "
+                f"collection={store.collection_name}"
+            )
+            return {
+                "status": "ok",
+                "doc_count": new_count,
+                "message": f"Index compacted: {total} docs re-indexed",
+            }
+        except Exception as e:
+            logger.exception(f"compact_index failed: {e}")
+            return {"status": "error", "message": str(e)}
+
+    async def purge_index(self) -> dict:
+        """Delete and recreate the ChromaDB collection (full purge).
+
+        Returns:
+            dict with ``status`` and ``message`` keys.
+        """
+        store = self._get_chroma_store()
+        if store is None:
+            return {"status": "error", "message": "ChromaDB store not available"}
+
+        try:
+            await store.clear_all()
+            logger.info(f"purge_index completed: collection={store.collection_name}")
+            return {
+                "status": "ok",
+                "message": f"Index purged: collection '{store.collection_name}' recreated",
+            }
+        except Exception as e:
+            logger.exception(f"purge_index failed: {e}")
+            return {"status": "error", "message": str(e)}
+
+    def get_index_stats(self) -> dict:
+        """Return index statistics (doc count, disk size, etc.).
+
+        Returns:
+            dict with ``status`` and various stats.
+        """
+        store = self._get_chroma_store()
+        if store is None:
+            return {"status": "error", "message": "ChromaDB store not available"}
+
+        try:
+            collection = store.chunks_collection
+            doc_count = collection.count()
+
+            # Estimate disk size from the ChromaDB persist directory
+            db_path = store.db_path
+            total_size = 0
+            if db_path.exists():
+                for f in db_path.rglob("*"):
+                    if f.is_file():
+                        total_size += f.stat().st_size
+
+            return {
+                "status": "ok",
+                "doc_count": doc_count,
+                "disk_size_bytes": total_size,
+                "disk_size_mb": round(total_size / (1024 * 1024), 2),
+                "collection_name": store.collection_name,
+                "db_path": str(db_path),
+                "write_counter": self._write_counter,
+                "compact_threshold": self._compact_threshold,
+            }
+        except Exception as e:
+            logger.exception(f"get_index_stats failed: {e}")
+            return {"status": "error", "message": str(e)}
+
+    async def _auto_compact(self) -> None:
+        """Background auto-compact task (US-003)."""
+        try:
+            logger.info(
+                f"auto_compact triggered (counter={self._write_counter}, "
+                f"threshold={self._compact_threshold})"
+            )
+            result = await self.compact_index()
+            logger.info(f"auto_compact result: {result}")
+        except Exception as e:
+            logger.exception(f"auto_compact failed: {e}")
 
     async def retrieve(
         self,
