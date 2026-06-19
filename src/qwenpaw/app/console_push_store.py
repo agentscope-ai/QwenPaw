@@ -7,9 +7,12 @@ are dropped when reading. Frontend dedupes by id and caps its seen set.
 from __future__ import annotations
 
 import asyncio
+import logging
 import time
 import uuid
-from typing import Any, Dict, List
+from typing import Any, Callable, Dict, List
+
+logger = logging.getLogger(__name__)
 
 # Single list: each item has id, text, ts, session_id and optional metadata.
 # Bounded by count and age.
@@ -18,24 +21,42 @@ _lock = asyncio.Lock()
 _MAX_AGE_SECONDS = 60
 _MAX_MESSAGES = 500
 
+# Optional async callback fired from append (used by SSE broadcaster).
+# ponytail: single subscriber is enough; if multiple broadcast targets appear,
+# promote to a list of callbacks with subscribe/unsubscribe pattern.
+_on_append_callback: Callable | None = None
+
+
+def set_on_append(callback: Callable) -> None:
+    """Register async callback called on each append."""
+    global _on_append_callback  # noqa: PLW0603
+    _on_append_callback = callback
+
 
 async def append(session_id: str, text: str, *, sticky: bool = False) -> None:
     """Append a message (bounded: oldest dropped if over _MAX_MESSAGES)."""
     if not session_id or not text:
         return
     async with _lock:
-        _list.append(
-            {
-                "id": str(uuid.uuid4()),
-                "text": text,
-                "sticky": sticky,
-                "ts": time.time(),
-                "session_id": session_id,
-            },
-        )
+        msg = {
+            "id": str(uuid.uuid4()),
+            "text": text,
+            "sticky": sticky,
+            "ts": time.time(),
+            "session_id": session_id,
+        }
+        _list.append(msg)
         if len(_list) > _MAX_MESSAGES:
             _list.sort(key=lambda m: m["ts"])
             del _list[: len(_list) - _MAX_MESSAGES]
+    # ponytail: broadcast after releasing _lock to avoid deadlock
+    # ceiling: if multiple targets appear, use asyncio.Event or a bus.
+    cb = _on_append_callback
+    if cb is not None:
+        try:
+            await cb(msg)
+        except Exception:
+            logger.exception("push-store append callback failed")
 
 
 async def take(session_id: str) -> List[Dict[str, Any]]:

@@ -8,13 +8,15 @@ import logging
 import re
 import uuid
 from pathlib import Path
-from typing import AsyncGenerator, Union
+from typing import AsyncGenerator, Set, Union
 
 from fastapi import APIRouter, File, HTTPException, Query, Request, UploadFile
 from pydantic import BaseModel
 from starlette.responses import StreamingResponse
+from starlette.requests import Request as StarletteRequest
 
 from agentscope_runtime.engine.schemas.agent_schemas import AgentRequest
+
 from ...utils.logging import LOG_FILE_PATH
 from ..agent_context import get_agent_for_request
 from ..runner.title_generator import generate_and_update_title
@@ -451,3 +453,65 @@ async def get_inbox_trace(run_id: str):
     if trace is None:
         raise HTTPException(status_code=404, detail="trace not found")
     return trace
+
+
+# ── SSE push-message endpoint (#5322 prototype) ──────────────────────────
+# ponytail: set + Queue is enough for single-instance.  If horizontal scaling
+# is needed, replace with Redis pub/sub.
+_sse_subscribers: Set[asyncio.Queue] = set()
+_sse_subscribers_lock = asyncio.Lock()
+
+
+async def _sse_broadcast(msg_dict: dict) -> None:
+    """Push-store callback: forward message to all SSE subscribers."""
+    payload = json.dumps(msg_dict, ensure_ascii=False)
+    async with _sse_subscribers_lock:
+        stale = []
+        for q in _sse_subscribers:
+            try:
+                q.put_nowait(payload)
+            except asyncio.QueueFull:
+                stale.append(q)
+        for q in stale:
+            _sse_subscribers.discard(q)
+
+
+async def _sse_generator(
+    request: StarletteRequest,
+) -> AsyncGenerator[str, None]:
+    """Yield SSE events + heartbeat every 30 s. Cleanup on disconnect."""
+    queue: asyncio.Queue = asyncio.Queue(maxsize=128)
+    async with _sse_subscribers_lock:
+        _sse_subscribers.add(queue)
+    try:
+        while True:
+            try:
+                data = await asyncio.wait_for(queue.get(), timeout=30.0)
+                yield f"data: {data}\n\n"
+            except asyncio.TimeoutError:
+                # Heartbeat — keep connection alive
+                if await request.is_disconnected():
+                    break
+                yield ": heartbeat\n\n"
+    finally:
+        async with _sse_subscribers_lock:
+            _sse_subscribers.discard(queue)
+
+
+@router.get("/events")
+async def sse_events(request: StarletteRequest):
+    """Server-Sent Events endpoint for real-time push messages.
+
+    Frontend connects with ``EventSource('/api/console/events')``.
+    Messages are pushed when ``console_push_store.append()`` is called.
+    Heartbeat every 30 s keeps the connection alive.
+    """
+    return StreamingResponse(
+        _sse_generator(request),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )

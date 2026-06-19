@@ -6,6 +6,7 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button, Modal, Result, Tooltip } from "antd";
 import { useAppMessage } from "../../hooks/useAppMessage";
+import { useSSEPushMessages } from "../../hooks/useSSEPushMessages";
 import { ExclamationCircleOutlined, SettingOutlined } from "@ant-design/icons";
 import { SparkCopyLine, SparkAttachmentLine } from "@agentscope-ai/icons";
 import { usePlugins } from "../../plugins/PluginContext";
@@ -1228,6 +1229,13 @@ export default function ChatPage() {
   chatLoadingRef.current = chatLoading;
   const prevChatLoadingRef = useRef<boolean | string>(false);
   const { message } = useAppMessage();
+  // SSE push messages — real-time notification (#5322 prototype)
+  useSSEPushMessages({
+    playBeep: true,
+    onMessage: (text) => {
+      message.info(text.slice(0, 120));
+    },
+  });
   const { approvals, setApprovals } = useApprovalContext();
   const [approvalRequests, setApprovalRequests] = useState<
     Map<string, ApprovalMessageData>
