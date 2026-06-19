@@ -36,7 +36,7 @@ class MemorySpace:
         *,
         history_db_path: str | Path | None = None,
         session_id: str | None = None,
-        task_id: str | None = None,
+        agent_id: str | None = None,
         row_cap: int = _DEFAULT_ROW_CAP,
         scratch_db_path: str | Path | None = None,
     ) -> None:
@@ -51,7 +51,7 @@ class MemorySpace:
         self._conn.row_factory = sqlite3.Row
         self._row_cap = row_cap
         self._session_id = session_id
-        self._task_id = task_id
+        self._agent_id = agent_id
         self._session_suffix = sanitize_suffix(session_id)
         self._fts_ok: bool | None = None  # cached FTS5-availability check
         if history_db_path is not None:
@@ -66,13 +66,13 @@ class MemorySpace:
 
     @property
     def session_id(self) -> str | None:
-        """The current session id (this run only)."""
+        """The current session id (this conversation)."""
         return self._session_id
 
     @property
-    def task_id(self) -> str | None:
-        """The current task id — scopes ``hist`` across ALL runs of this task."""
-        return self._task_id
+    def agent_id(self) -> str | None:
+        """The current agent id — scopes recall to this agent across sessions."""
+        return self._agent_id
 
     def sql_exec(self, sql: str, params: tuple | dict | None = None) -> int:
         """Run a non-SELECT statement. Returns rowcount or lastrowid.
@@ -104,15 +104,16 @@ class MemorySpace:
         self,
         query: str,
         *,
-        scope: str = "session",
+        scope: str = "agent",
         kind: str | None = None,
         k: int = 10,
     ) -> list[dict]:
         """Full-text search over ``hist.conversation_history`` content (FTS5).
 
         Returns up to ``k`` rows ranked by relevance (bm25). ``scope`` limits to
-        ``'session'`` (this run, default), ``'task'`` (all runs of this task),
-        or ``'all'``. ``kind`` optionally filters. Falls back to a LIKE scan if
+        ``'agent'`` (this agent across all sessions — the default),
+        ``'session'`` (this conversation only), or ``'all'`` (every agent in the
+        workspace). ``kind`` optionally filters. Falls back to a LIKE scan if
         this SQLite lacks FTS5.
         """
         if not self._fts_available():
@@ -121,12 +122,17 @@ class MemorySpace:
         fts = "conversation_history_fts"
         where = [f"{fts} MATCH ?"]
         params: list = [query]
-        if scope == "session" and self._session_id:
+        # "all" is the only way to drop the lineage filter; "session" narrows to
+        # this conversation; anything else (incl. the default "agent" and any
+        # typo) fails safe to this agent's own cross-session history.
+        if scope == "all":
+            pass
+        elif scope == "session" and self._session_id:
             where.append("ch.session_id = ?")
             params.append(self._session_id)
-        elif scope == "task" and self._task_id:
-            where.append("ch.task_id = ?")
-            params.append(self._task_id)
+        elif self._agent_id:
+            where.append("ch.agent_id = ?")
+            params.append(self._agent_id)
         if kind:
             where.append("ch.kind = ?")
             params.append(kind)
@@ -160,12 +166,14 @@ class MemorySpace:
         """LIKE fallback when FTS5 is unavailable."""
         where = ["content LIKE ?"]
         params: list = [f"%{query}%"]
-        if scope == "session" and self._session_id:
+        if scope == "all":
+            pass
+        elif scope == "session" and self._session_id:
             where.append("session_id = ?")
             params.append(self._session_id)
-        elif scope == "task" and self._task_id:
-            where.append("task_id = ?")
-            params.append(self._task_id)
+        elif self._agent_id:
+            where.append("agent_id = ?")
+            params.append(self._agent_id)
         if kind:
             where.append("kind = ?")
             params.append(kind)

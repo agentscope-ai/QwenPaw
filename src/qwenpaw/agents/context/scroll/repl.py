@@ -32,7 +32,9 @@ _DOC = """Run Python to recall evicted conversation history.
 The persistent record lives in a SQLite store reached through `ms`:
   • ms.sql_query(sql, params=None) — read; `hist.conversation_history` is the
     durable history (read-only), `main` is your read/write scratch.
-  • ms.search(query, scope="session"|"task"|"all", kind=None, k=10) — FTS5.
+  • ms.search(query, scope="agent"|"session"|"all", kind=None, k=10) — FTS5.
+    scope="agent" (default) searches your whole history across past sessions;
+    "session" limits to this conversation; "all" spans every agent here.
   • ms.sql_exec(sql, params=None) — write to scratch (CREATE/INSERT/...).
 Also available: SCRATCH (a Path for working files), grep(pattern, path=SCRATCH),
 days_between(d1, d2). Only what you print() is returned; variables do NOT
@@ -47,7 +49,7 @@ def make_execute_python(
     *,
     history_db_path: str,
     session_id: str | None,
-    task_id: str | None,
+    agent_id: str | None = None,
     scratch_root: str,
     timeout_s: int = 300,
 ):
@@ -64,7 +66,7 @@ def make_execute_python(
             "globals().update(bootstrap(\n"
             f"    history_db_path={history_db_path!r},\n"
             f"    session_id={session_id!r},\n"
-            f"    task_id={task_id!r},\n"
+            f"    agent_id={agent_id!r},\n"
             f"    scratch_dir={scratch_dir!r},\n"
             f"    scratch_db_path={scratch_db!r},\n"
             "))\n"

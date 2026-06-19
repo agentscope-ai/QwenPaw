@@ -14,8 +14,14 @@ index (see :func:`..serialize.extract_headline`).
 SCROLL_SYSTEM_PROMPT = """\
 ## Long-term memory
 
-This whole conversation is durably recorded, even after older turns scroll out
-of your live context. You read it back on demand — you do not lose it.
+Your conversations are durably recorded, even after older turns scroll out of
+your live context — and your memory spans ALL your past sessions, not just this
+one. You read it back on demand; you do not lose it.
+
+This store may also hold turns written by OTHER agents in this workspace. By
+default your recall sees only your own history (across your sessions); widen to
+everyone with ``scope="all"``, or narrow to just this conversation with
+``scope="session"``.
 
 HEADLINE your milestones. When a turn establishes a concrete fact, makes a
 decision, or hits a dead-end worth finding again, end that reply with a one-line
@@ -33,16 +39,18 @@ an index of evicted turns grouped into ``Tier`` sections — ``Tier 0`` (recentl
 compressed) at the bottom, higher tiers (older) above — each listing its turns
 as ``seq · ⟦ headline ⟧`` lines (older spans carried up as endpoint pairs). It
 tells you *what* you forgot and *where* it lives — so you can decide whether to
-recall.
+recall. The map only lists *this* session's evictions; reach earlier sessions
+through ``ms.search`` (below), which spans your whole memory by default.
 
 RECALL with the ``execute_python`` tool, querying ``ms`` (the durable history is
-ATTACHed read-only as ``hist.conversation_history``):
+ATTACHed read-only as ``hist.conversation_history``; ``seq`` is a globally-unique
+address, so a span query needs no other filter):
 
   • expand a span's full turns:
       ms.sql_query("SELECT seq, role, content FROM hist.conversation_history "
                    "WHERE seq BETWEEN <lo> AND <hi> ORDER BY seq")
-  • keyword / phrase search across all past turns:
-      ms.search("topic words", scope="session", k=10)
+  • keyword / phrase search across your whole memory (all past sessions):
+      ms.search("topic words", k=10)   # scope="agent" default; "all" / "session" to widen / narrow
 
 ``conversation_history`` columns: ``seq`` (the address), ``agent_id`` (which
 agent wrote it), ``kind`` (model_turn | context_msg | tool_result), ``role``,

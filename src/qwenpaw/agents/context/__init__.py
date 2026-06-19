@@ -42,8 +42,6 @@ def build_scroll_components(
     workspace_dir: Any,
     model: Any,
     session_id: str,
-    run_id: str | None = None,
-    task_id: str | None = None,
     agent_id: str | None = None,
 ) -> ScrollComponents | None:
     """Construct the scroll strategy's components, or ``None`` if not selected.
@@ -83,8 +81,6 @@ def build_scroll_components(
     manager = ScrollContextManager(
         history=history,
         session_id=session_id,
-        run_id=run_id,
-        task_id=task_id,
         agent_id=agent_id,
         pinned=sc.pinned,
     )
@@ -92,15 +88,13 @@ def build_scroll_components(
         history=history,
         model=model,
         session_id=session_id,
-        run_id=run_id,
-        task_id=task_id,
         agent_id=agent_id,
         token_cap=sc.tool_output_token_cap,
     )
     tool = make_execute_python(
         history_db_path=str(history.path),
         session_id=session_id,
-        task_id=task_id,
+        agent_id=agent_id,
         scratch_root=scratch_root,
         timeout_s=sc.repl_timeout_s,
     )

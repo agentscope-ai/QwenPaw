@@ -17,7 +17,7 @@ def bootstrap(
     *,
     history_db_path: str,
     session_id: str | None,
-    task_id: str | None,
+    agent_id: str | None = None,
     scratch_dir: str,
     scratch_db_path: str | None,
 ) -> dict[str, Any]:
@@ -30,7 +30,7 @@ def bootstrap(
     ms = MemorySpace(
         history_db_path=history_db_path,
         session_id=session_id,
-        task_id=task_id,
+        agent_id=agent_id,
         scratch_db_path=scratch_db_path,
     )
     return {

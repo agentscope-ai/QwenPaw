@@ -14,7 +14,7 @@ _BUSY_TIMEOUT_MS = 5000
 
 # Columns of conversation_history, in INSERT order (minus the autoincrement seq).
 _INSERT_COLUMNS = (
-    "session_id", "run_id", "task_id", "agent_id", "step_index", "msg_index",
+    "session_id", "agent_id", "step_index", "msg_index",
     "kind", "role", "name", "content",
     "tool_call_id", "tool_input", "tool_state", "headline", "blocks",
     "metadata", "created_at",
@@ -95,8 +95,6 @@ class HistoryStore:
                 CREATE TABLE IF NOT EXISTS conversation_history (
                     seq          INTEGER PRIMARY KEY AUTOINCREMENT,
                     session_id   TEXT NOT NULL,
-                    run_id       TEXT,
-                    task_id      TEXT,
                     agent_id     TEXT,
                     step_index   INTEGER,
                     msg_index    INTEGER,
@@ -133,10 +131,6 @@ class HistoryStore:
             self._conn.execute(
                 "CREATE INDEX IF NOT EXISTS ch_agent "
                 "ON conversation_history(agent_id)",
-            )
-            self._conn.execute(
-                "CREATE INDEX IF NOT EXISTS ch_task "
-                "ON conversation_history(task_id)",
             )
             self._conn.execute(
                 "CREATE INDEX IF NOT EXISTS ch_kind "
@@ -187,16 +181,12 @@ class HistoryStore:
         self,
         *,
         session_id: str,
-        run_id: str | None,
-        task_id: str | None,
         entry: LogEntry,
         agent_id: str | None = None,
     ) -> int:
         """Write-through one event. Returns the assigned ``seq`` (watermark)."""
         row = (
             session_id,
-            run_id,
-            task_id,
             agent_id,
             entry.step_index,
             entry.msg_index,

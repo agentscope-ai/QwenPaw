@@ -30,8 +30,8 @@ class ScrollContextManager:
 
     Holds the per-session bookkeeping that links live ``Msg`` ids to their
     durable ``seq`` rows and to their eviction-index leaves. One instance per
-    agent; ``run_id``/``task_id`` are threaded so each row carries the full
-    lineage (and cross-run ``WHERE task_id = ?`` recall works).
+    agent; ``session_id`` (the conversation) and ``agent_id`` (which agent) are
+    threaded onto each row so cross-session, per-agent recall works.
     """
 
     def __init__(
@@ -39,15 +39,11 @@ class ScrollContextManager:
         *,
         history: HistoryStore,
         session_id: str,
-        run_id: str | None = None,
-        task_id: str | None = None,
         agent_id: str | None = None,
         pinned: int = 1,
     ) -> None:
         self._history = history
         self._session_id = session_id
-        self._run_id = run_id
-        self._task_id = task_id
         self._agent_id = agent_id
         self._pinned = pinned
         self._persisted_ids: set[str] = set()      # msgs whose non-result row is stored
@@ -58,7 +54,7 @@ class ScrollContextManager:
         self._model_turn_nblk: dict[str, int] = {}  # msg.id -> #non-result blocks persisted
         self._leaf_by_id: dict[str, Leaf] = {}     # msg.id -> its index leaf
         self._msg_counter = 0
-        self._index = EvictionIndex(session_id=session_id)
+        self._index = EvictionIndex(session_id=session_id, agent_id=agent_id)
 
     # -- delegated hooks -----------------------------------------------------
 
@@ -148,9 +144,8 @@ class ScrollContextManager:
                     if tcid in self._persisted_tcids:
                         continue
                     seq = self._history.append(
-                        session_id=self._session_id, run_id=self._run_id,
-                        task_id=self._task_id, agent_id=self._agent_id,
-                        entry=entry,
+                        session_id=self._session_id,
+                        agent_id=self._agent_id, entry=entry,
                     )
                     self._persisted_tcids.add(tcid)
                 else:
@@ -180,9 +175,8 @@ class ScrollContextManager:
                             )
                         continue
                     seq = self._history.append(
-                        session_id=self._session_id, run_id=self._run_id,
-                        task_id=self._task_id, agent_id=self._agent_id,
-                        entry=entry,
+                        session_id=self._session_id,
+                        agent_id=self._agent_id, entry=entry,
                     )
                     self._persisted_ids.add(mid)
                     self._model_turn_seq[mid] = seq

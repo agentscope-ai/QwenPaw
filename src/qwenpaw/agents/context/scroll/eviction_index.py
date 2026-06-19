@@ -102,8 +102,9 @@ def _collapse(blocks: list[Block]) -> Block:
 class EvictionIndex:
     """A stack of levels, each a list of blocks oldest-first."""
 
-    def __init__(self, session_id: str) -> None:
+    def __init__(self, session_id: str, agent_id: str | None = None) -> None:
         self._session_id = session_id
+        self._agent_id = agent_id
         self._levels: list[list[Block]] = []
 
     @property
@@ -188,6 +189,7 @@ class EvictionIndex:
         """Plain-data snapshot of the index, for agent checkpoints."""
         return {
             "session_id": self._session_id,
+            "agent_id": self._agent_id,
             "levels": [
                 [
                     {
@@ -206,7 +208,10 @@ class EvictionIndex:
 
     @classmethod
     def from_dict(cls, data: dict) -> "EvictionIndex":
-        idx = cls(session_id=data.get("session_id", ""))
+        idx = cls(
+            session_id=data.get("session_id", ""),
+            agent_id=data.get("agent_id"),
+        )
         for level in data.get("levels", []):
             idx._levels.append([
                 Block(
@@ -243,19 +248,17 @@ class EvictionIndex:
             "the pinned task is above and the recent live turns follow. Each "
             "'·' line is a seq span you can re-expand.",
             "",
-            "Recall (inside execute_python):",
+            "Recall (inside execute_python); seq is a globally-unique address, "
+            "so a span query needs no other filter:",
             "  • expand a span to its per-turn headlines: ms.sql_query("
             "\"SELECT seq, headline FROM hist.conversation_history WHERE "
-            f"session_id='{self._session_id}' AND seq BETWEEN <lo> AND <hi> "
-            "AND headline IS NOT NULL ORDER BY seq\")",
+            "seq BETWEEN <lo> AND <hi> AND headline IS NOT NULL ORDER BY seq\")",
             "  • a span's (or one turn's) full content: ms.sql_query(\"SELECT "
             "seq, kind, role, content FROM hist.conversation_history WHERE "
-            f"session_id='{self._session_id}' AND seq BETWEEN <lo> AND <hi> "
-            "ORDER BY seq\")",
-            "  • keyword search (FTS5): ms.sql_query(\"SELECT seq, kind, "
-            "content FROM hist.conversation_history WHERE seq IN (SELECT rowid "
-            "FROM hist.conversation_history_fts('YOUR KEYWORDS')) ORDER BY "
-            "seq\")",
+            "seq BETWEEN <lo> AND <hi> ORDER BY seq\")",
+            "  • keyword search across your whole memory (all past sessions): "
+            "ms.search(\"YOUR KEYWORDS\")  — add scope=\"all\" to include other "
+            "agents, scope=\"session\" to limit to this conversation.",
             "",
         ]
         for k in range(len(self._levels) - 1, -1, -1):

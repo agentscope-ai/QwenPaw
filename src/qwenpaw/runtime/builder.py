@@ -553,15 +553,13 @@ class AgentBuilder:
 
         from ..agents.context import build_scroll_components
 
-        # history.db is shared across sessions in this workspace, so the task
-        # lineage collapses to the session id (mirrors the standalone fallback).
+        # history.db is shared across sessions in this workspace; rows are keyed
+        # by session_id (the conversation) and agent_id (which agent wrote them).
         return build_scroll_components(
             agent_config=agent_config,
             workspace_dir=workspace_dir,
             model=model,
             session_id=session_id,
-            run_id=session_id,
-            task_id=session_id,
             agent_id=agent_id,
         )
 
