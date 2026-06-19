@@ -24,6 +24,35 @@ def sanitize_suffix(session_id: str | None) -> str:
     return re.sub(r"[^0-9A-Za-z_]", "_", session_id)
 
 
+# Mutating actions denied against the read-only ``hist`` schema. DDL is covered
+# transitively: DROP/ALTER/CREATE authorize as writes to ``hist.sqlite_master``.
+_HIST_WRITE_ACTIONS = frozenset(
+    {sqlite3.SQLITE_INSERT, sqlite3.SQLITE_UPDATE, sqlite3.SQLITE_DELETE}
+)
+
+
+def _authorize(action, arg1, arg2, db_name, trigger):  # noqa: ANN001
+    """SQLite authorizer for the model-facing recall connection.
+
+    The durable history is mounted read-only as ``hist``; the model owns the
+    ``main`` scratch DB read/write. We forbid only what would let it escape that
+    contract:
+
+    * ``ATTACH``/``DETACH`` — blocks re-mounting ``hist`` read-write and mounting
+      another workspace's store (the documented escapes).
+    * ``INSERT``/``UPDATE``/``DELETE`` on ``hist`` — defense-in-depth over the
+      read-only file handle (and these transitively block DDL on ``hist``).
+
+    Everything else (scratch reads/writes, ``SELECT`` and read pragmas such as
+    ``data_version`` on ``hist``, functions, transactions) is allowed.
+    """
+    if action in (sqlite3.SQLITE_ATTACH, sqlite3.SQLITE_DETACH):
+        return sqlite3.SQLITE_DENY
+    if db_name == "hist" and action in _HIST_WRITE_ACTIONS:
+        return sqlite3.SQLITE_DENY
+    return sqlite3.SQLITE_OK
+
+
 class MemorySpace:
     """The model's scratch space + read-only attach of durable history.
 
@@ -59,6 +88,11 @@ class MemorySpace:
             self._conn.execute(
                 "ATTACH DATABASE ? AS hist", (f"file:{abs_path}?mode=ro",),
             )
+        # Lock the connection down AFTER our own ATTACH: the model runs arbitrary
+        # SQL through sql_query/sql_exec, so guard at the engine level. An
+        # authorizer fires at prepare time and can't be evaded by comments,
+        # casing, or stacked statements the way a string blocklist can.
+        self._conn.set_authorizer(_authorize)
 
     @property
     def session_suffix(self) -> str:
