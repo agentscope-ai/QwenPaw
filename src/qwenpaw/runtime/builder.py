@@ -545,6 +545,11 @@ class AgentBuilder:
             else ""
         )
         session_id = getattr(ctx, "session_id", None) or "local"
+        agent_id = (
+            getattr(agent_config, "id", None)
+            or getattr(ctx, "agent_id", None)
+            or "default"
+        )
 
         from ..agents.context import build_scroll_components
 
@@ -557,6 +562,7 @@ class AgentBuilder:
             session_id=session_id,
             run_id=session_id,
             task_id=session_id,
+            agent_id=agent_id,
         )
 
     @staticmethod

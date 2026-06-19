@@ -29,9 +29,11 @@ the memory index, so headline what your future self will want to locate. One
 line only; no ``⟧`` inside.
 
 THE MAP. Once context is compressed you'll see a ``[context compressed]`` block:
-an index of evicted turns as ``seq · ⟦ headline ⟧`` lines (recent ones listed
-per turn at the bottom, older spans carried up as endpoint pairs). It tells you
-*what* you forgot and *where* it lives — so you can decide whether to recall.
+an index of evicted turns grouped into ``Tier`` sections — ``Tier 0`` (recently
+compressed) at the bottom, higher tiers (older) above — each listing its turns
+as ``seq · ⟦ headline ⟧`` lines (older spans carried up as endpoint pairs). It
+tells you *what* you forgot and *where* it lives — so you can decide whether to
+recall.
 
 RECALL with the ``execute_python`` tool, querying ``ms`` (the durable history is
 ATTACHed read-only as ``hist.conversation_history``):
@@ -42,9 +44,9 @@ ATTACHed read-only as ``hist.conversation_history``):
   • keyword / phrase search across all past turns:
       ms.search("topic words", scope="session", k=10)
 
-``conversation_history`` columns: ``seq`` (the address), ``kind``
-(model_turn | context_msg | tool_result), ``role``, ``name``, ``content``,
-``headline``, ``tool_call_id``, ``created_at``.
+``conversation_history`` columns: ``seq`` (the address), ``agent_id`` (which
+agent wrote it), ``kind`` (model_turn | context_msg | tool_result), ``role``,
+``name``, ``content``, ``headline``, ``tool_call_id``, ``created_at``.
 
 DISCIPLINE (this is where recall goes wrong):
   • If the request depends on something not in your live context, recall BEFORE

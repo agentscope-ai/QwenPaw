@@ -810,9 +810,12 @@ class ScrollContextConfig(BaseModel):
     )
 
     pinned: int = Field(
-        default=1,
+        default=2,
         ge=0,
-        description="Leading messages never evicted (the task).",
+        description=(
+            "Leading messages never evicted: the first user request (the task) "
+            "and the first agent reply."
+        ),
     )
 
     repl_timeout_s: int = Field(

@@ -34,6 +34,7 @@ class ToolResultCapMiddleware(MiddlewareBase):
         session_id: str,
         run_id: str | None,
         task_id: str | None,
+        agent_id: str | None = None,
         token_cap: int = 3000,
     ) -> None:
         self._history = history
@@ -41,6 +42,7 @@ class ToolResultCapMiddleware(MiddlewareBase):
         self._session_id = session_id
         self._run_id = run_id
         self._task_id = task_id
+        self._agent_id = agent_id
         self._token_cap = token_cap
 
     async def on_acting(
@@ -74,6 +76,7 @@ class ToolResultCapMiddleware(MiddlewareBase):
             session_id=self._session_id,
             run_id=self._run_id,
             task_id=self._task_id,
+            agent_id=self._agent_id,
             entry=LogEntry(
                 kind="tool_result",
                 role="tool",

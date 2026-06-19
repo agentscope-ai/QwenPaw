@@ -44,6 +44,7 @@ def build_scroll_components(
     session_id: str,
     run_id: str | None = None,
     task_id: str | None = None,
+    agent_id: str | None = None,
 ) -> ScrollComponents | None:
     """Construct the scroll strategy's components, or ``None`` if not selected.
 
@@ -84,6 +85,7 @@ def build_scroll_components(
         session_id=session_id,
         run_id=run_id,
         task_id=task_id,
+        agent_id=agent_id,
         pinned=sc.pinned,
     )
     cap = ToolResultCapMiddleware(
@@ -92,6 +94,7 @@ def build_scroll_components(
         session_id=session_id,
         run_id=run_id,
         task_id=task_id,
+        agent_id=agent_id,
         token_cap=sc.tool_output_token_cap,
     )
     tool = make_execute_python(

@@ -41,12 +41,14 @@ class ScrollContextManager:
         session_id: str,
         run_id: str | None = None,
         task_id: str | None = None,
+        agent_id: str | None = None,
         pinned: int = 1,
     ) -> None:
         self._history = history
         self._session_id = session_id
         self._run_id = run_id
         self._task_id = task_id
+        self._agent_id = agent_id
         self._pinned = pinned
         self._persisted_ids: set[str] = set()      # msgs whose non-result row is stored
         self._persisted_tcids: set[str] = set()    # tool_call_ids whose result row is stored
@@ -147,7 +149,8 @@ class ScrollContextManager:
                         continue
                     seq = self._history.append(
                         session_id=self._session_id, run_id=self._run_id,
-                        task_id=self._task_id, entry=entry,
+                        task_id=self._task_id, agent_id=self._agent_id,
+                        entry=entry,
                     )
                     self._persisted_tcids.add(tcid)
                 else:
@@ -178,7 +181,8 @@ class ScrollContextManager:
                         continue
                     seq = self._history.append(
                         session_id=self._session_id, run_id=self._run_id,
-                        task_id=self._task_id, entry=entry,
+                        task_id=self._task_id, agent_id=self._agent_id,
+                        entry=entry,
                     )
                     self._persisted_ids.add(mid)
                     self._model_turn_seq[mid] = seq

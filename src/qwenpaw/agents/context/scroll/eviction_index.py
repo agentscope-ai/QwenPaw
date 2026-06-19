@@ -226,21 +226,23 @@ class EvictionIndex:
     def render(self) -> str:
         """The single placeholder message: the whole map + how to expand it.
 
-        Levels print coarsest-first (highest level on top, L0 at the bottom),
-        so the model reads oldest -> newest, top -> bottom.
+        Tiers print oldest-first (highest tier on top) down to ``Tier 0`` (the
+        most recently compressed) at the bottom, mirroring the live tail below.
+
+        KV-cache safe: the intro + recall block and the ``Tier N`` banners are
+        constant, and a new eviction only appends a block to the bottom of
+        ``Tier 0`` — so every byte above it is unchanged and the cache holds up
+        to the first new token. (A carry reshapes upper tiers and breaks it
+        then, which is inherent to the roll-up.)
         """
-        lines = [
-            "<system-info>[context compressed] Evicted turns are durable; this "
-            "is their index — newest evictions are listed per turn at the "
-            "bottom, older spans are carried up and shown as endpoint pairs. "
-            "Expand any span inside execute_python.",
-        ]
-        for k in range(len(self._levels) - 1, -1, -1):
-            for block in self._levels[k]:
-                lines.append(f"[L{k}] seq {block.seq_lo}–{block.seq_hi}")
-                for ln in block.lines:
-                    lines.append(f"  · {ln.span}  ⟦ {ln.text} ⟧")
-        lines += [
+        out = [
+            "<system-info>",
+            "[context compressed] The turns below were evicted from the live "
+            "window but remain durable in conversation_history. This is their "
+            "index: read it top (oldest) to bottom (most recently compressed); "
+            "the pinned task is above and the recent live turns follow. Each "
+            "'·' line is a seq span you can re-expand.",
+            "",
             "Recall (inside execute_python):",
             "  • expand a span to its per-turn headlines: ms.sql_query("
             "\"SELECT seq, headline FROM hist.conversation_history WHERE "
@@ -254,6 +256,17 @@ class EvictionIndex:
             "content FROM hist.conversation_history WHERE seq IN (SELECT rowid "
             "FROM hist.conversation_history_fts('YOUR KEYWORDS')) ORDER BY "
             "seq\")",
-            "</system-info>",
+            "",
         ]
-        return "\n".join(lines)
+        for k in range(len(self._levels) - 1, -1, -1):
+            level = self._levels[k]
+            if not level:
+                continue
+            label = "recently compressed" if k == 0 else "older msgs"
+            out.append(f"===== Tier {k} ({label}) =====")
+            for block in level:
+                out.append(f"  [seq {block.seq_lo}–{block.seq_hi}]")
+                for ln in block.lines:
+                    out.append(f"    · {ln.span}  ⟦ {ln.text} ⟧")
+        out.append("</system-info>")
+        return "\n".join(out)

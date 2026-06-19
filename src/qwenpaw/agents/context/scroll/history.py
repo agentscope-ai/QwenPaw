@@ -9,12 +9,12 @@ from pathlib import Path
 
 from ..types import LogEntry
 
-_SCHEMA_VERSION = "1"
+_SCHEMA_VERSION = "2"
 _BUSY_TIMEOUT_MS = 5000
 
 # Columns of conversation_history, in INSERT order (minus the autoincrement seq).
 _INSERT_COLUMNS = (
-    "session_id", "run_id", "task_id", "step_index", "msg_index",
+    "session_id", "run_id", "task_id", "agent_id", "step_index", "msg_index",
     "kind", "role", "name", "content",
     "tool_call_id", "tool_input", "tool_state", "headline", "blocks",
     "metadata", "created_at",
@@ -97,6 +97,7 @@ class HistoryStore:
                     session_id   TEXT NOT NULL,
                     run_id       TEXT,
                     task_id      TEXT,
+                    agent_id     TEXT,
                     step_index   INTEGER,
                     msg_index    INTEGER,
                     kind         TEXT NOT NULL,
@@ -113,9 +114,25 @@ class HistoryStore:
                 )
                 """,
             )
+            # Migrate pre-v2 DBs: CREATE TABLE IF NOT EXISTS won't add the
+            # column to an already-existing table, so ALTER it in once.
+            cols = {
+                r["name"]
+                for r in self._conn.execute(
+                    "PRAGMA table_info(conversation_history)",
+                )
+            }
+            if "agent_id" not in cols:
+                self._conn.execute(
+                    "ALTER TABLE conversation_history ADD COLUMN agent_id TEXT",
+                )
             self._conn.execute(
                 "CREATE INDEX IF NOT EXISTS ch_session "
                 "ON conversation_history(session_id)",
+            )
+            self._conn.execute(
+                "CREATE INDEX IF NOT EXISTS ch_agent "
+                "ON conversation_history(agent_id)",
             )
             self._conn.execute(
                 "CREATE INDEX IF NOT EXISTS ch_task "
@@ -173,12 +190,14 @@ class HistoryStore:
         run_id: str | None,
         task_id: str | None,
         entry: LogEntry,
+        agent_id: str | None = None,
     ) -> int:
         """Write-through one event. Returns the assigned ``seq`` (watermark)."""
         row = (
             session_id,
             run_id,
             task_id,
+            agent_id,
             entry.step_index,
             entry.msg_index,
             entry.kind,
