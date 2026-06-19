@@ -224,7 +224,7 @@ class ScrollContextManager:
                         if new_headline:
                             self._leaf_by_id[mid] = Leaf(
                                 seq=prev_seq,
-                                headline=entry.headline,
+                                headline=entry.headline or "",
                             )
                         continue
                     seq = self._history.append(

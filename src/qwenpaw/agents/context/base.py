@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """The pluggable context-manager interface.
 
 A ``ContextManager`` is an injectable strategy that owns an agent's context
@@ -25,7 +26,6 @@ class ContextManager(Protocol):
         Called from ``QwenPawAgent.compress_context`` in place of the native
         AgentScope compression.
         """
-        ...
 
     def on_save(self, agent: Any, blocks: Sequence[Any]) -> None:
         """React to blocks just appended to ``agent.state.context``.
@@ -33,4 +33,3 @@ class ContextManager(Protocol):
         Called from ``QwenPawAgent._save_to_context`` after the base append,
         so the manager can write them through to durable storage.
         """
-        ...

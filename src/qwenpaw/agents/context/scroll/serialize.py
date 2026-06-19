@@ -1,4 +1,5 @@
-"""Serialize AgentScope ``Msg`` blocks into durable ``conversation_history`` rows."""
+# -*- coding: utf-8 -*-
+"""Serialize AgentScope ``Msg`` blocks into ``conversation_history`` rows."""
 from __future__ import annotations
 
 import re
@@ -95,29 +96,36 @@ def msg_to_entries(msg: Msg, msg_index: int) -> list[LogEntry]:
                 tool_call_id = getattr(b, "id", None)
         dumped = [_dump(b) for b in non_result]
         text = msg.get_text_content() or ""
-        # Headline only on the model's own turns; user/placeholder rows need none.
+        # Headline only on the model's own turns; user/placeholder rows
+        # need none.
         headline = extract_headline(text) if msg.role == "assistant" else None
-        entries.append(LogEntry(
-            kind="model_turn" if msg.role == "assistant" else "context_msg",
-            role=msg.role,
-            name=name,
-            content=text,
-            tool_call_id=tool_call_id,
-            msg_index=msg_index,
-            headline=headline,
-            blocks=dumped or None,
-            created_at=created_at,
-        ))
+        entries.append(
+            LogEntry(
+                kind="model_turn"
+                if msg.role == "assistant"
+                else "context_msg",
+                role=msg.role,
+                name=name,
+                content=text,
+                tool_call_id=tool_call_id,
+                msg_index=msg_index,
+                headline=headline,
+                blocks=dumped or None,
+                created_at=created_at,
+            ),
+        )
     for b in results:
-        entries.append(LogEntry(
-            kind="tool_result",
-            role=msg.role,
-            name=getattr(b, "name", None),
-            content=flatten_output(getattr(b, "output", None)),
-            tool_call_id=getattr(b, "id", None),
-            tool_state=_state_value(getattr(b, "state", None)),
-            msg_index=msg_index,
-            blocks=[_dump(b)],
-            created_at=created_at,
-        ))
+        entries.append(
+            LogEntry(
+                kind="tool_result",
+                role=msg.role,
+                name=getattr(b, "name", None),
+                content=flatten_output(getattr(b, "output", None)),
+                tool_call_id=getattr(b, "id", None),
+                tool_state=_state_value(getattr(b, "state", None)),
+                msg_index=msg_index,
+                blocks=[_dump(b)],
+                created_at=created_at,
+            ),
+        )
     return entries

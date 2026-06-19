@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """Shared data types for the context-management package."""
 from __future__ import annotations
 
