@@ -88,4 +88,12 @@ async def preview_file(
 
     if not os.access(path, os.R_OK):
         raise HTTPException(status_code=500, detail="Permission denied")
-    return FileResponse(path, filename=path.name)
+    return FileResponse(
+        path,
+        filename=path.name,
+        # ponytail: FileResponse uses "attachment" by default;
+        # browsers download instead of inline display.
+        # ceiling: if per-file download-vs-preview logic is needed, extract
+        # into a helper parameter.
+        content_disposition_type="inline",
+    )

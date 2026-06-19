@@ -17,7 +17,13 @@ export function toDisplayUrl(url: string): string {
   if (url.startsWith("http://") || url.startsWith("https://")) return url;
   if (url.startsWith("data:")) return url;
   if (url.startsWith("file://")) url = url.replace("file://", "");
-  return chatApi.filePreviewUrl(url.startsWith("/") ? url : `/${url}`);
+  // ponytail: normalize Windows backslashes to forward slashes
+  // so paths like C:\Users\... work in HTTP URLs.
+  // ceiling: if we need more URL sanitisation, extract into a helper.
+  const normalized = url.replace(/\\/g, "/");
+  return chatApi.filePreviewUrl(
+    normalized.startsWith("/") ? normalized : `/${normalized}`,
+  );
 }
 
 // ---------------------------------------------------------------------------
