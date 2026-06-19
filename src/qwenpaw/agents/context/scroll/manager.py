@@ -15,10 +15,13 @@ two delegated hooks.
 from __future__ import annotations
 
 import logging
+import sqlite3
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from agentscope.message import Msg, UserMsg
 
+from . import _as_internals as as_internals
 from .eviction_index import EvictionIndex, Leaf
 from .history import HistoryStore
 from .serialize import msg_to_entries
@@ -83,12 +86,16 @@ class ScrollContextManager:
         agent: Any,
         blocks: Any,
     ) -> None:
-        """Write through any live-context blocks not yet persisted."""
+        """Write through any live-context blocks not yet persisted.
+
+        Only disk/SQLite failures are swallowed (recorded as degraded
+        durability) so the chat loop survives a write outage; any other
+        exception is a real bug and is left to propagate rather than hidden.
+        """
         try:
             self._persist_new(agent)
-        except (
-            Exception
-        ):  # noqa: BLE001 - persistence must never break the loop
+        except (sqlite3.Error, OSError) as exc:
+            self._history.note_write_failure(exc)
             logger.exception("ScrollContextManager write-through failed")
 
     async def compress(self, agent: Any, context_config: Any = None) -> None:
@@ -108,8 +115,7 @@ class ScrollContextManager:
         self._persist_new(agent)
 
         # 2) Trigger check (reuse AgentScope's own token accounting).
-        # pylint: disable-next=protected-access
-        kwargs = await agent._prepare_model_input()
+        kwargs = await as_internals.prepare_model_input(agent)
         if (
             await agent.model.count_tokens(**kwargs)
             < cfg.trigger_ratio * agent.model.context_size
@@ -121,8 +127,8 @@ class ScrollContextManager:
         # 3) Pairing-safe split; keep pinned head + recent tail, evict the
         #    middle.
         reserve = cfg.reserve_ratio * agent.model.context_size
-        # pylint: disable-next=protected-access
-        to_compress, to_reserve = await agent._split_context_for_compression(
+        to_compress, to_reserve = await as_internals.split_for_compression(
+            agent,
             reserve,
             kwargs.get("tools", []),
         )
@@ -144,8 +150,7 @@ class ScrollContextManager:
         #    terminates.
         while (
             await agent.model.count_tokens(
-                # pylint: disable-next=protected-access
-                **(await agent._prepare_model_input()),
+                **(await as_internals.prepare_model_input(agent)),
             )
             > reserve
             and self._index.compact()
@@ -337,6 +342,16 @@ class ScrollContextManager:
         self._msg_counter = int(data.get("msg_counter", 0))
         if "index" in data:
             self._index = EvictionIndex.from_dict(data["index"])
+
+    def purge_old(self, retention_days: int) -> int:
+        """Drop durable history older than ``retention_days`` (0 = keep
+        forever). Returns the number of rows removed."""
+        if retention_days <= 0:
+            return 0
+        cutoff = (
+            datetime.now(timezone.utc) - timedelta(days=retention_days)
+        ).isoformat()
+        return self._history.purge(before=cutoff)
 
     def close(self) -> None:
         self._history.close()

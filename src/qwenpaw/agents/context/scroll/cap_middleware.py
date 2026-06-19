@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import sqlite3
 from typing import Any, AsyncGenerator, Callable
 
 from agentscope.message import Msg, TextBlock
@@ -59,8 +60,12 @@ class ToolResultCapMiddleware(MiddlewareBase):
             if isinstance(item, ToolResponse):
                 try:
                     item = await self._cap(item, tool_call)
-                except Exception:  # noqa: BLE001
-                    logger.exception("ToolResultCapMiddleware failed")
+                except (sqlite3.Error, OSError) as exc:
+                    # The durable write failed: don't truncate (that would
+                    # lose data we couldn't store) — yield the full output and
+                    # record degraded durability instead of hiding it.
+                    self._history.note_write_failure(exc)
+                    logger.exception("ToolResultCapMiddleware write failed")
             yield item
 
     async def _cap(self, resp: ToolResponse, tool_call: Any) -> ToolResponse:

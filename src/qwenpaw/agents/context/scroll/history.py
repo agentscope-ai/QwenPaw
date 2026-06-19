@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import json
+import logging
 import sqlite3
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
 from ..types import LogEntry
+
+logger = logging.getLogger(__name__)
 
 _BUSY_TIMEOUT_MS = 5000
 
@@ -48,6 +51,11 @@ class HistoryStore:
         self._path = Path(db_path).expanduser()
         self._path.parent.mkdir(parents=True, exist_ok=True)
         self.quarantined_to: Path | None = None
+        # Durability health: flipped True the first time a write-through fails
+        # (disk/SQLite error). The durability promise no longer holds while
+        # degraded; callers/monitoring can read this.
+        self.degraded = False
+        self.write_failures = 0
         try:
             self._open_and_init()
         except sqlite3.DatabaseError as exc:
@@ -292,6 +300,53 @@ class HistoryStore:
             (session_id,),
         )
         return int(cur.fetchone()["n"])
+
+    def purge(self, *, before: str) -> int:
+        """Delete history rows with ``created_at < before`` (ISO-8601).
+
+        Returns the number of rows removed. The FTS index is kept in sync (each
+        purged row is removed from it first). Rows with a NULL/empty
+        ``created_at`` are never matched, so they are retained. This is the
+        retention/clear path — by default nothing calls it (history is kept
+        forever); a caller opts in by supplying a cutoff.
+        """
+        with self._conn:
+            doomed = self._conn.execute(
+                "SELECT seq, content FROM conversation_history "
+                "WHERE created_at IS NOT NULL AND created_at < ?",
+                (before,),
+            ).fetchall()
+            if not doomed:
+                return 0
+            if self._fts:
+                for row in doomed:
+                    self._conn.execute(
+                        "INSERT INTO conversation_history_fts"
+                        "(conversation_history_fts, rowid, content) "
+                        "VALUES('delete', ?, ?)",
+                        (row["seq"], row["content"] or ""),
+                    )
+            self._conn.execute(
+                "DELETE FROM conversation_history "
+                "WHERE created_at IS NOT NULL AND created_at < ?",
+                (before,),
+            )
+            return len(doomed)
+
+    def note_write_failure(self, exc: BaseException) -> None:
+        """Record a write-through failure — durability is now degraded.
+
+        Logs prominently on the first failure (then counts the rest, to avoid
+        log spam). Read ``degraded`` to gate any "fully durable" guarantees.
+        """
+        self.write_failures += 1
+        if not self.degraded:
+            self.degraded = True
+            logger.error(
+                "history write-through FAILED; durability degraded "
+                "(further failures counted silently): %s",
+                exc,
+            )
 
     def close(self) -> None:
         try:

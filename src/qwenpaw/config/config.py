@@ -824,6 +824,17 @@ class ScrollContextConfig(BaseModel):
         description="Per-call timeout for the execute_python REPL tool.",
     )
 
+    history_retention_days: int = Field(
+        default=0,
+        ge=0,
+        description=(
+            "Days of durable history to keep; rows older than this are "
+            "purged on agent teardown. 0 (default) keeps history forever "
+            "— the memory is never dropped unless an operator opts into a "
+            "retention window."
+        ),
+    )
+
     allow_unsandboxed: bool = Field(
         default=False,
         description=(

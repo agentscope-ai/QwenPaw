@@ -239,15 +239,28 @@ class QwenPawAgent(CodingModeMixin, Agent):
             except Exception:
                 logger.debug("governor stop failed", exc_info=True)
 
-        # Release the scroll history store's read-write connection (db + -wal +
-        # -shm fds) — otherwise they accumulate across requests on a long-lived
-        # server.
+        # Scroll history: apply the retention window (if any) while the
+        # connection is still open, then release it (db + -wal + -shm fds —
+        # otherwise they accumulate across requests on a long-lived server).
         cm = getattr(self, "_context_manager", None)
-        if cm is not None and hasattr(cm, "close"):
-            try:
-                cm.close()
-            except Exception:
-                logger.debug("context manager close failed", exc_info=True)
+        if cm is not None:
+            if hasattr(cm, "purge_old"):
+                try:
+                    lcc = self._agent_config.running.light_context_config
+                    cm.purge_old(lcc.scroll_config.history_retention_days)
+                except Exception:
+                    logger.debug(
+                        "history retention purge failed",
+                        exc_info=True,
+                    )
+            if hasattr(cm, "close"):
+                try:
+                    cm.close()
+                except Exception:
+                    logger.debug(
+                        "context manager close failed",
+                        exc_info=True,
+                    )
 
         offloader = getattr(self, "offloader", None)
         if offloader is not None and hasattr(
