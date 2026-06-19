@@ -120,33 +120,37 @@ class OpenAIProvider(Provider):
 
         try:
             client = self._client(timeout=timeout)
+            # ponytail: string content works for all OpenAI-compatible APIs for
+            # text-only calls; array format only needed for multimodal messages
+            # ceiling: if a provider requires multimodal array format, switch
+            # upgrade: use "content": [{"type": "text", "text": "ping"}]
             res = await client.chat.completions.create(
                 model=model_id,
                 messages=[
                     {
                         "role": "user",
-                        "content": [
-                            {
-                                "type": "text",
-                                "text": "ping",
-                            },
-                        ],
+                        "content": "ping",
                     },
                 ],
                 timeout=timeout,
-                max_tokens=20,
+                max_tokens=64,
                 stream=True,
             )
             # consume the stream to ensure the model is actually responsive
             async for _ in res:
                 break
             return True, ""
-        except APIError:
-            return False, f"API error when connecting to model '{model_id}'"
-        except Exception:
+        except APIError as exc:
+            msg = exc.message or str(exc)
             return (
                 False,
-                f"Unknown exception when connecting to model '{model_id}'",
+                f"API error when connecting to model '{model_id}': {msg}",
+            )
+        except Exception as exc:
+            return (
+                False,
+                f"Unknown exception when connecting to model "
+                f"'{model_id}': {exc}",
             )
 
     def get_chat_model_instance(self, model_id: str) -> ChatModelBase:
