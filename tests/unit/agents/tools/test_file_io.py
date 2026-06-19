@@ -276,3 +276,141 @@ class TestAppendFile:
             "No" in result.content[0]["text"]
             and "file_path" in result.content[0]["text"]
         )
+
+
+# ---------------------------------------------------------------------------
+# Workspace containment (path traversal via model-supplied file_path)
+# ---------------------------------------------------------------------------
+
+
+class TestWorkspaceContainment:
+    """Regression tests for workspace-containment of model file tools.
+
+    A model-driven tool call must not read/write outside the agent's
+    configured workspace via ``..`` segments or an absolute path. The
+    guard lives in ``_resolve_file_path`` and is shared by read_file,
+    write_file, edit_file and append_file. On the unpatched code every
+    assertion below would fail (the escaping path would be accepted and
+    the file would be created outside the workspace).
+    """
+
+    @pytest.fixture
+    def workspace(self, tmp_path):
+        """An isolated agent workspace plus an outside-the-workspace dir."""
+        ws = tmp_path / "workspace"
+        ws.mkdir()
+        outside = tmp_path / "outside"
+        outside.mkdir()
+        return ws, outside
+
+    # --- write_file (the reported sink, file_io.py write path) -----------
+
+    @pytest.mark.asyncio
+    async def test_write_relative_escape_blocked(self, workspace):
+        ws, outside = workspace
+        target = outside / "qwenpaw_path_probe.txt"
+        with patch(
+            "qwenpaw.agents.tools.file_io.get_current_workspace_dir",
+            return_value=ws,
+        ):
+            result = await write_file(
+                "../outside/qwenpaw_path_probe.txt",
+                "probe",
+            )
+        text = result.content[0]["text"]
+        assert "outside the workspace" in text
+        assert not target.exists()
+
+    @pytest.mark.asyncio
+    async def test_write_absolute_escape_blocked(self, workspace):
+        ws, outside = workspace
+        target = outside / "abs_probe.txt"
+        with patch(
+            "qwenpaw.agents.tools.file_io.get_current_workspace_dir",
+            return_value=ws,
+        ):
+            result = await write_file(str(target), "probe")
+        text = result.content[0]["text"]
+        assert "outside the workspace" in text
+        assert not target.exists()
+
+    @pytest.mark.asyncio
+    async def test_write_inside_workspace_allowed(self, workspace):
+        """Legitimate in-workspace writes must still succeed."""
+        ws, _ = workspace
+        with patch(
+            "qwenpaw.agents.tools.file_io.get_current_workspace_dir",
+            return_value=ws,
+        ):
+            result = await write_file("notes.txt", "ok")
+        assert "Wrote" in result.content[0]["text"]
+        assert (ws / "notes.txt").exists()
+
+    # --- read_file / edit_file / append_file (shared guard) -------------
+
+    @pytest.mark.asyncio
+    async def test_read_relative_escape_blocked(self, workspace):
+        ws, outside = workspace
+        secret = outside / "secret.txt"
+        secret.write_text("top secret", encoding="utf-8")
+        with patch(
+            "qwenpaw.agents.tools.file_io.get_current_workspace_dir",
+            return_value=ws,
+        ):
+            result = await read_file("../outside/secret.txt")
+        text = result.content[0]["text"]
+        assert "outside the workspace" in text
+        assert "top secret" not in text
+
+    @pytest.mark.asyncio
+    async def test_edit_relative_escape_blocked(self, workspace):
+        ws, outside = workspace
+        victim = outside / "victim.txt"
+        victim.write_text("original", encoding="utf-8")
+        with patch(
+            "qwenpaw.agents.tools.file_io.get_current_workspace_dir",
+            return_value=ws,
+        ):
+            result = await edit_file(
+                "../outside/victim.txt",
+                "original",
+                "tampered",
+            )
+        assert "outside the workspace" in result.content[0]["text"]
+        assert victim.read_text(encoding="utf-8") == "original"
+
+    @pytest.mark.asyncio
+    async def test_append_relative_escape_blocked(self, workspace):
+        ws, outside = workspace
+        target = outside / "append_probe.txt"
+        with patch(
+            "qwenpaw.agents.tools.file_io.get_current_workspace_dir",
+            return_value=ws,
+        ):
+            result = await append_file(
+                "../outside/append_probe.txt",
+                "probe",
+            )
+        assert "outside the workspace" in result.content[0]["text"]
+        assert not target.exists()
+
+    # --- explicit operator opt-out restores legacy behavior -------------
+
+    @pytest.mark.asyncio
+    async def test_optout_env_allows_escape(self, workspace, monkeypatch):
+        ws, outside = workspace
+        target = outside / "optout_probe.txt"
+        monkeypatch.setenv(
+            "QWENPAW_ALLOW_FILE_TOOLS_OUTSIDE_WORKSPACE",
+            "1",
+        )
+        with patch(
+            "qwenpaw.agents.tools.file_io.get_current_workspace_dir",
+            return_value=ws,
+        ):
+            result = await write_file(
+                "../outside/optout_probe.txt",
+                "probe",
+            )
+        assert "Wrote" in result.content[0]["text"]
+        assert target.exists()

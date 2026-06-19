@@ -21,23 +21,80 @@ from ...config.context import (
 from ...constant import WORKING_DIR, TRUNCATION_NOTICE_MARKER
 
 
+class PathContainmentError(ValueError):
+    """Raised when a tool-supplied path resolves outside the workspace."""
+
+
+# Operators who intentionally need the built-in file tools to reach paths
+# outside the agent workspace can opt out of containment by setting this
+# env var to a truthy value. Containment is on by default (fail-closed).
+_ALLOW_OUTSIDE_WORKSPACE_ENV = "QWENPAW_ALLOW_FILE_TOOLS_OUTSIDE_WORKSPACE"
+
+
+def _file_tools_allow_outside_workspace() -> bool:
+    """Return True when workspace containment for file tools is disabled."""
+    value = os.environ.get(_ALLOW_OUTSIDE_WORKSPACE_ENV, "")
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _path_error_response(error: PathContainmentError) -> ToolResponse:
+    """Wrap a containment violation as a fail-closed tool error."""
+    return ToolResponse(
+        content=[
+            TextBlock(type="text", text=str(error)),
+        ],
+    )
+
+
 def _resolve_file_path(file_path: str) -> str:
     """Resolve file path: use absolute path as-is,
     resolve relative path from current workspace or WORKING_DIR.
+
+    When an agent workspace directory is set in context (the case for
+    model-driven tool calls in a ReAct turn), the resolved path is
+    constrained to that workspace so a tool-supplied ``file_path`` cannot
+    escape it via ``..`` segments, symlinks, or an absolute path. Set
+    ``QWENPAW_ALLOW_FILE_TOOLS_OUTSIDE_WORKSPACE=1`` to opt out. When no
+    workspace is configured the legacy behavior (resolve relative to
+    ``WORKING_DIR``, absolute paths as-is) is preserved.
 
     Args:
         file_path: The input file path (absolute or relative).
 
     Returns:
         The resolved absolute file path as string.
+
+    Raises:
+        PathContainmentError: If a workspace is configured and the
+            resolved path escapes it (and the opt-out env var is not set).
     """
+    # Workspace directory the model-driven agent is confined to, if any.
+    workspace_dir = get_current_workspace_dir()
     path = Path(file_path).expanduser()
     if path.is_absolute():
-        return str(path)
+        resolved = path
     else:
-        # Use current workspace_dir from context, fallback to WORKING_DIR
-        workspace_dir = get_current_workspace_dir() or WORKING_DIR
-        return str(workspace_dir / file_path)
+        resolved = Path(workspace_dir or WORKING_DIR) / path
+
+    # Only enforce containment when an agent workspace is set. Without one,
+    # the caller is the trusted local operator (direct/library use) and the
+    # legacy resolution behavior is preserved.
+    if workspace_dir is None or _file_tools_allow_outside_workspace():
+        return str(resolved)
+
+    # realpath collapses ``..`` and resolves symlinks so containment cannot
+    # be defeated by traversal or links pointing outside the workspace.
+    real_resolved = os.path.realpath(str(resolved))
+    real_root = os.path.realpath(str(workspace_dir))
+    if (
+        real_resolved != real_root
+        and os.path.commonpath([real_root, real_resolved]) != real_root
+    ):
+        raise PathContainmentError(
+            f"Error: file_path {file_path!r} resolves outside the "
+            f"workspace directory {real_root!r}.",
+        )
+    return str(resolved)
 
 
 def _get_encoding_for_file(file_path: str) -> str:
@@ -110,7 +167,10 @@ async def read_file(  # pylint: disable=too-many-return-statements
                 ],
             )
 
-    file_path = _resolve_file_path(file_path)
+    try:
+        file_path = _resolve_file_path(file_path)
+    except PathContainmentError as exc:
+        return _path_error_response(exc)
 
     if not os.path.exists(file_path):
         return ToolResponse(
@@ -229,7 +289,10 @@ async def write_file(
             ],
         )
 
-    file_path = _resolve_file_path(file_path)
+    try:
+        file_path = _resolve_file_path(file_path)
+    except PathContainmentError as exc:
+        return _path_error_response(exc)
     encoding = _get_encoding_for_file(file_path)
 
     try:
@@ -282,7 +345,10 @@ async def edit_file(
             ],
         )
 
-    resolved_path = _resolve_file_path(file_path)
+    try:
+        resolved_path = _resolve_file_path(file_path)
+    except PathContainmentError as exc:
+        return _path_error_response(exc)
 
     if not os.path.exists(resolved_path):
         return ToolResponse(
@@ -371,7 +437,10 @@ async def append_file(
             ],
         )
 
-    file_path = _resolve_file_path(file_path)
+    try:
+        file_path = _resolve_file_path(file_path)
+    except PathContainmentError as exc:
+        return _path_error_response(exc)
     encoding = _get_encoding_for_file(file_path)
 
     try:
