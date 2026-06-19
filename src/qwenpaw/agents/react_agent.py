@@ -77,7 +77,8 @@ class QwenPawAgent(CodingModeMixin, Agent):
         self._workspace_dir = workspace_dir
         self._language = agent_config.language
         # Optional context-management strategy. When None, the agent keeps its
-        # native AgentScope compression (see compress_context / _save_to_context).
+        # native AgentScope compression (see compress_context /
+        # _save_to_context).
         self._context_manager = context_manager
 
         # Register skills metadata on toolkit
@@ -199,7 +200,11 @@ class QwenPawAgent(CodingModeMixin, Agent):
             # is recognized as already durable (no re-append on resume).
             cm = getattr(self, "_context_manager", None)
             scroll = state_dict.get("scroll")
-            if cm is not None and scroll is not None and hasattr(cm, "load_state"):
+            if (
+                cm is not None
+                and scroll is not None
+                and hasattr(cm, "load_state")
+            ):
                 cm.load_state(scroll)
             return
 

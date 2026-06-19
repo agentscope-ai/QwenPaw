@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """The sandboxed ``execute_python`` recall tool.
 
 The model recalls evicted history by running Python here, not by scrolling
@@ -36,9 +37,9 @@ The persistent record lives in a SQLite store reached through `ms`:
     scope="agent" (default) searches your whole history across past sessions;
     "session" limits to this conversation; "all" spans every agent here.
   • ms.sql_exec(sql, params=None) — write to scratch (CREATE/INSERT/...).
-Also available: SCRATCH (a Path for working files), grep(pattern, path=SCRATCH),
-days_between(d1, d2). Only what you print() is returned; variables do NOT
-persist across calls, but scratch tables do.
+Also available: SCRATCH (a Path for working files), grep(pattern,
+path=SCRATCH), days_between(d1, d2). Only what you print() is returned;
+variables do NOT persist across calls, but scratch tables do.
 
 Args:
     source (str): Python source to execute.
@@ -95,17 +96,20 @@ def make_execute_python(
         # run model-authored code unless an operator explicitly opted in.
         if sandbox_config is None and not allow_unsandboxed:
             return ToolChunk(
-                content=[TextBlock(
-                    type="text",
-                    text=(
-                        "execute_python refused: no sandbox available "
-                        "(sandbox_config is None). This tool runs "
-                        "model-authored Python and only executes inside the "
-                        "sandbox. The governance layer may be degraded. "
-                        "Set scroll_config.allow_unsandboxed=true to run "
-                        "without isolation (UNSAFE; trusted local use only)."
+                content=[
+                    TextBlock(
+                        type="text",
+                        text=(
+                            "execute_python refused: no sandbox available "
+                            "(sandbox_config is None). This tool runs "
+                            "model-authored Python and only executes inside "
+                            "the sandbox. The governance layer may be "
+                            "degraded. Set scroll_config.allow_unsandboxed="
+                            "true to run without isolation (UNSAFE; trusted "
+                            "local use only)."
+                        ),
                     ),
-                )],
+                ],
                 state=ToolResultState.DENIED,
             )
         cell = _build_cell(source)
@@ -113,11 +117,16 @@ def make_execute_python(
         try:
             if sandbox_config is not None:
                 stdout, stderr, code = await _run_sandboxed(
-                    cmd, sandbox_config, timeout_s, scratch_root,
+                    cmd,
+                    sandbox_config,
+                    timeout_s,
+                    scratch_root,
                 )
             else:
                 stdout, stderr, code = await _run_subprocess(
-                    cmd, timeout_s, scratch_root,
+                    cmd,
+                    timeout_s,
+                    scratch_root,
                 )
         finally:
             try:
@@ -135,18 +144,23 @@ def make_execute_python(
     # Attach the descriptor directly (not via @tool_descriptor) so the tool is
     # sandbox-capable but is NOT auto-collected into the global builtin set —
     # it exists only when the scroll strategy wires it in.
-    execute_python._tool_descriptor = ToolDescriptor(  # type: ignore[attr-defined]
+    descriptor = ToolDescriptor(
         name="execute_python",
         func=execute_python,
         requires_sandbox=("shell_exec",),
         async_execution=True,
         description=_DOC.splitlines()[0],
     )
+    # pylint: disable-next=protected-access
+    execute_python._tool_descriptor = descriptor  # type: ignore[attr-defined]
     return execute_python
 
 
 async def _run_sandboxed(
-    cmd: str, sandbox_config: Any, timeout_s: int, cwd: str,
+    cmd: str,
+    sandbox_config: Any,
+    timeout_s: int,
+    cwd: str,
 ) -> tuple[str, str, int]:
     from ....sandbox import create_sandbox
 
@@ -157,7 +171,9 @@ async def _run_sandboxed(
 
 
 async def _run_subprocess(
-    cmd: str, timeout_s: int, cwd: str,
+    cmd: str,
+    timeout_s: int,
+    cwd: str,
 ) -> tuple[str, str, int]:
     proc = await asyncio.create_subprocess_shell(
         cmd,
@@ -166,11 +182,18 @@ async def _run_subprocess(
         stderr=asyncio.subprocess.PIPE,
     )
     try:
-        out, err = await asyncio.wait_for(proc.communicate(), timeout=timeout_s)
+        out, err = await asyncio.wait_for(
+            proc.communicate(),
+            timeout=timeout_s,
+        )
     except asyncio.TimeoutError:
         proc.kill()
         return "", f"execute_python timed out after {timeout_s}s", -1
-    return out.decode("utf-8", "replace"), err.decode("utf-8", "replace"), proc.returncode or 0
+    return (
+        out.decode("utf-8", "replace"),
+        err.decode("utf-8", "replace"),
+        proc.returncode or 0,
+    )
 
 
 def _format_observation(stdout: str, stderr: str, code: int) -> str:

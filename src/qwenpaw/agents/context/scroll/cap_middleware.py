@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """Cap oversized tool results in-context; write the full output through."""
 from __future__ import annotations
 
@@ -43,7 +44,9 @@ class ToolResultCapMiddleware(MiddlewareBase):
         self._token_cap = token_cap
         # Shared with the manager: tool_call_id -> seq of the full output we
         # persisted, so the manager skips re-writing the truncated stub.
-        self._capped_results = capped_results if capped_results is not None else {}
+        self._capped_results = (
+            capped_results if capped_results is not None else {}
+        )
 
     async def on_acting(
         self,
@@ -65,8 +68,13 @@ class ToolResultCapMiddleware(MiddlewareBase):
         if not text:
             return resp
         n_tokens = await self._model.count_tokens(
-            [Msg(name="scroll", role="assistant",
-                 content=[TextBlock(text=text)])],
+            [
+                Msg(
+                    name="scroll",
+                    role="assistant",
+                    content=[TextBlock(text=text)],
+                ),
+            ],
             None,
         )
         if n_tokens <= self._token_cap:
@@ -85,18 +93,24 @@ class ToolResultCapMiddleware(MiddlewareBase):
                 metadata={"capped": True, "full_tokens": n_tokens},
             ),
         )
-        # Tell the manager this result is already durable (in full) so it won't
-        # re-persist the truncated stub it sees in-context. Keyed by tcid, which
-        # the manager uses as the result's dedup key.
+        # Tell the manager this result is already durable (in full) so it
+        # won't re-persist the truncated stub it sees in-context. Keyed by
+        # tcid, which the manager uses as the result's dedup key.
         if tcid is not None:
             self._capped_results[tcid] = seq
         keep = max(1, int(len(text) * self._token_cap / n_tokens))
-        resp.content = [TextBlock(text=(
-            f"{text[:keep]}\n"
-            f"<<<TRUNCATED ~{n_tokens - self._token_cap} tokens>>>\n"
-            "<system-info>Full output preserved durably. Recall it inside "
-            'execute_python via ms.sql_query("SELECT content FROM '
-            f"hist.conversation_history WHERE tool_call_id='{tcid}'\")."
-            "</system-info>"
-        ))]
+        resp.content = [
+            TextBlock(
+                text=(
+                    f"{text[:keep]}\n"
+                    f"<<<TRUNCATED ~{n_tokens - self._token_cap} tokens>>>\n"
+                    "<system-info>Full output preserved durably. Recall "
+                    "it inside "
+                    'execute_python via ms.sql_query("SELECT content FROM '
+                    f"hist.conversation_history WHERE "
+                    f"tool_call_id='{tcid}'\")."
+                    "</system-info>"
+                ),
+            ),
+        ]
         return resp

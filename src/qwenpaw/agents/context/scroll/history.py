@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """Durable, file-backed conversation history shared across sessions."""
 from __future__ import annotations
 
@@ -11,12 +12,25 @@ from ..types import LogEntry
 
 _BUSY_TIMEOUT_MS = 5000
 
-# Columns of conversation_history, in INSERT order (minus the autoincrement seq).
+# Columns of conversation_history, in INSERT order (minus the
+# autoincrement seq).
 _INSERT_COLUMNS = (
-    "session_id", "agent_id", "step_index", "msg_index",
-    "kind", "role", "name", "content",
-    "tool_call_id", "tool_input", "tool_state", "headline", "blocks",
-    "metadata", "created_at", "dedup_key",
+    "session_id",
+    "agent_id",
+    "step_index",
+    "msg_index",
+    "kind",
+    "role",
+    "name",
+    "content",
+    "tool_call_id",
+    "tool_input",
+    "tool_state",
+    "headline",
+    "blocks",
+    "metadata",
+    "created_at",
+    "dedup_key",
 )
 
 
@@ -209,15 +223,16 @@ class HistoryStore:
                 row,
             )
             if cur.rowcount == 0:
-                # Conflict: this event is already durable. Return its seq so the
-                # caller re-links to the existing row; no new row, no FTS write.
+                # Conflict: this event is already durable. Return its seq so
+                # the caller re-links to the existing row; no new row, no FTS
+                # write.
                 existing = self._conn.execute(
                     "SELECT seq FROM conversation_history "
                     "WHERE session_id = ? AND dedup_key = ?",
                     (session_id, dedup_key),
                 ).fetchone()
                 return int(existing["seq"]) if existing else 0
-            seq = int(cur.lastrowid)
+            seq = int(cur.lastrowid or 0)
             if self._fts:
                 self._conn.execute(
                     "INSERT INTO conversation_history_fts(rowid, content) "

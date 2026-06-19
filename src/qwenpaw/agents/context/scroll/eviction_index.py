@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """The eviction index — an in-context, level-capped odometer of evicted turns.
 
 The whole index lives in the prompt as ONE placeholder, so the model always
@@ -54,7 +55,11 @@ class Line:
     @property
     def text(self) -> str:
         """A single headline, or ``first - last`` for a span."""
-        return self.head if self.head == self.tail else f"{self.head} - {self.tail}"
+        return (
+            self.head
+            if self.head == self.tail
+            else f"{self.head} - {self.tail}"
+        )
 
     @property
     def span(self) -> str:
@@ -119,15 +124,16 @@ class EvictionIndex:
         *,
         seq_lo: int,
         seq_hi: int,
-        n_turns: int | None = None,
     ) -> None:
         """Drop one eviction onto L0 as a new block, then run the carry.
 
-        ``leaves`` are the evicted milestone turns; ``seq_lo``/``seq_hi`` is the
-        *full* evicted span (tool results and unheadlined turns included) so a
-        range query recovers everything.
+        ``leaves`` are the evicted milestone turns; ``seq_lo``/``seq_hi`` is
+        the *full* evicted span (tool results and unheadlined turns
+        included) so a range query recovers everything.
         """
-        lines = [Line(lf.seq, lf.seq, lf.headline, lf.headline) for lf in leaves]
+        lines = [
+            Line(lf.seq, lf.seq, lf.headline, lf.headline) for lf in leaves
+        ]
         if not lines:
             # An eviction with no headlined turns is still addressable by span.
             lines = [Line(seq_lo, seq_hi, "(no milestone)", "(no milestone)")]
@@ -137,7 +143,8 @@ class EvictionIndex:
         self._carry(0)
 
     def _carry(self, k: int) -> None:
-        """If level k is full, keep its newest block, fold the rest up, cascade."""
+        """If level k is full, keep its newest block, fold the rest up,
+        cascade."""
         if len(self._levels[k]) < _LEVEL_CAP:
             return
         self._carry_run(k, len(self._levels[k]) - 1)
@@ -166,9 +173,9 @@ class EvictionIndex:
         so it can always shrink toward a single line. Returns True while it
         shrank, False once a single block remains.
         """
-        for k in range(len(self._levels)):
-            if len(self._levels[k]) >= 2:
-                self._carry_run(k, len(self._levels[k]) - 1)
+        for k, level in enumerate(self._levels):
+            if len(level) >= 2:
+                self._carry_run(k, len(level) - 1)
                 return True
         # Every level holds <=1 block: fold the whole index into one top block.
         # Sort by span so _collapse sees blocks oldest-first.
@@ -213,17 +220,19 @@ class EvictionIndex:
             agent_id=data.get("agent_id"),
         )
         for level in data.get("levels", []):
-            idx._levels.append([
-                Block(
-                    seq_lo=b["seq_lo"],
-                    seq_hi=b["seq_hi"],
-                    lines=[
-                        Line(lo, hi, head, tail)
-                        for lo, hi, head, tail in b["lines"]
-                    ],
-                )
-                for b in level
-            ])
+            idx._levels.append(
+                [
+                    Block(
+                        seq_lo=b["seq_lo"],
+                        seq_hi=b["seq_hi"],
+                        lines=[
+                            Line(lo, hi, head, tail)
+                            for lo, hi, head, tail in b["lines"]
+                        ],
+                    )
+                    for b in level
+                ],
+            )
         return idx
 
     # -- rendering -----------------------------------------------------------
@@ -244,21 +253,24 @@ class EvictionIndex:
             "<system-info>",
             "[context compressed] The turns below were evicted from the live "
             "window but remain durable in conversation_history. This is their "
-            "index: read it top (oldest) to bottom (most recently compressed); "
+            "index: read it top (oldest) to bottom (most recently "
+            "compressed); "
             "the pinned task is above and the recent live turns follow. Each "
             "'·' line is a seq span you can re-expand.",
             "",
-            "Recall (inside execute_python); seq is a globally-unique address, "
+            "Recall (inside execute_python); seq is a globally-unique "
+            "address, "
             "so a span query needs no other filter:",
             "  • expand a span to its per-turn headlines: ms.sql_query("
-            "\"SELECT seq, headline FROM hist.conversation_history WHERE "
-            "seq BETWEEN <lo> AND <hi> AND headline IS NOT NULL ORDER BY seq\")",
+            '"SELECT seq, headline FROM hist.conversation_history WHERE '
+            "seq BETWEEN <lo> AND <hi> AND headline IS NOT NULL ORDER BY "
+            'seq")',
             "  • a span's (or one turn's) full content: ms.sql_query(\"SELECT "
             "seq, kind, role, content FROM hist.conversation_history WHERE "
-            "seq BETWEEN <lo> AND <hi> ORDER BY seq\")",
+            'seq BETWEEN <lo> AND <hi> ORDER BY seq")',
             "  • keyword search across your whole memory (all past sessions): "
-            "ms.search(\"YOUR KEYWORDS\")  — add scope=\"all\" to include other "
-            "agents, scope=\"session\" to limit to this conversation.",
+            'ms.search("YOUR KEYWORDS")  — add scope="all" to include other '
+            'agents, scope="session" to limit to this conversation.',
             "",
         ]
         for k in range(len(self._levels) - 1, -1, -1):

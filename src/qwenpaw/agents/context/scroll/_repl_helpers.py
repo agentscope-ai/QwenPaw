@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """Bootstrap for the sandboxed ``execute_python`` REPL (stdlib only).
 
 Runs *inside* the sandbox subprocess. ``bootstrap(...)`` builds the names the
@@ -43,6 +44,7 @@ def bootstrap(
 
 def _make_grep(default_root: Path) -> Callable[..., list[str]]:
     """Recursive ``grep(pattern, path=SCRATCH)`` -> ``relpath:lineno:line``."""
+
     def grep(
         pattern: str,
         path: str | Path | None = None,
@@ -86,6 +88,7 @@ def _parse_date(value: Any) -> date:
 
 
 def _days_between(d1: str, d2: str, inclusive: bool = False) -> int:
-    """Absolute number of days between two dates (LLM calendar math is flaky)."""
+    """Absolute number of days between two dates (LLM calendar math is
+    flaky)."""
     n = abs((_parse_date(d2) - _parse_date(d1)).days)
     return n + 1 if inclusive else n

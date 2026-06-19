@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """System-prompt block taught to the agent under the scroll strategy.
 
 Injected only when ``strategy == "scroll"`` (see
@@ -24,8 +25,8 @@ everyone with ``scope="all"``, or narrow to just this conversation with
 ``scope="session"``.
 
 HEADLINE your milestones. When a turn establishes a concrete fact, makes a
-decision, or hits a dead-end worth finding again, end that reply with a one-line
-headline as an HTML comment on its own line:
+decision, or hits a dead-end worth finding again, end that reply with a
+one-line headline as an HTML comment on its own line:
 
     <!-- ⟦ user's flight is AA231 on 2026-07-02 ⟧ -->
 
@@ -34,23 +35,25 @@ work"). The comment is invisible to the user but becomes this turn's entry in
 the memory index, so headline what your future self will want to locate. One
 line only; no ``⟧`` inside.
 
-THE MAP. Once context is compressed you'll see a ``[context compressed]`` block:
-an index of evicted turns grouped into ``Tier`` sections — ``Tier 0`` (recently
-compressed) at the bottom, higher tiers (older) above — each listing its turns
-as ``seq · ⟦ headline ⟧`` lines (older spans carried up as endpoint pairs). It
-tells you *what* you forgot and *where* it lives — so you can decide whether to
-recall. The map only lists *this* session's evictions; reach earlier sessions
-through ``ms.search`` (below), which spans your whole memory by default.
+THE MAP. Once context is compressed you'll see a ``[context compressed]``
+block: an index of evicted turns grouped into ``Tier`` sections — ``Tier 0``
+(recently compressed) at the bottom, higher tiers (older) above — each
+listing its turns as ``seq · ⟦ headline ⟧`` lines (older spans carried up as
+endpoint pairs). It tells you *what* you forgot and *where* it lives — so you
+can decide whether to recall. The map only lists *this* session's evictions;
+reach earlier sessions through ``ms.search`` (below), which spans your whole
+memory by default.
 
-RECALL with the ``execute_python`` tool, querying ``ms`` (the durable history is
-ATTACHed read-only as ``hist.conversation_history``; ``seq`` is a globally-unique
-address, so a span query needs no other filter):
+RECALL with the ``execute_python`` tool, querying ``ms`` (the durable history
+is ATTACHed read-only as ``hist.conversation_history``; ``seq`` is a
+globally-unique address, so a span query needs no other filter):
 
   • expand a span's full turns:
       ms.sql_query("SELECT seq, role, content FROM hist.conversation_history "
                    "WHERE seq BETWEEN <lo> AND <hi> ORDER BY seq")
   • keyword / phrase search across your whole memory (all past sessions):
-      ms.search("topic words", k=10)   # scope="agent" default; "all" / "session" to widen / narrow
+      # scope="agent" default; "all" / "session" to widen / narrow
+      ms.search("topic words", k=10)
 
 ``conversation_history`` columns: ``seq`` (the address), ``agent_id`` (which
 agent wrote it), ``kind`` (model_turn | context_msg | tool_result), ``role``,

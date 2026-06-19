@@ -132,7 +132,10 @@ class AgentBuilder:
 
     # ----------------------------------------------------------------- build
 
-    async def build(self, ctx: Any) -> Any:
+    async def build(  # pylint: disable=too-many-statements
+        self,
+        ctx: Any,
+    ) -> Any:
         """Construct a fully-wired :class:`QwenPawAgent` for one request.
 
         Integrates all per-workspace registries: QwenPawLocalWorkspace
@@ -224,7 +227,10 @@ class AgentBuilder:
         if scroll is not None:
             extra_tools.append(
                 self._wrap_tool(
-                    scroll.repl_tool, agent_id, request_context, governor,
+                    scroll.repl_tool,
+                    agent_id,
+                    request_context,
+                    governor,
                 ),
             )
 
@@ -532,7 +538,11 @@ class AgentBuilder:
             return ContextConfig(summary_schema=summary_schema)
 
     @staticmethod
-    def _build_scroll_components(ctx: Any, agent_config: Any, model: Any) -> Any:
+    def _build_scroll_components(
+        ctx: Any,
+        agent_config: Any,
+        model: Any,
+    ) -> Any:
         """Build the scroll context strategy, or None when not selected.
 
         Returns ``None`` for the native strategy (the default) so nothing
@@ -553,8 +563,9 @@ class AgentBuilder:
 
         from ..agents.context import build_scroll_components
 
-        # history.db is shared across sessions in this workspace; rows are keyed
-        # by session_id (the conversation) and agent_id (which agent wrote them).
+        # history.db is shared across sessions in this workspace; rows are
+        # keyed by session_id (the conversation) and agent_id (which agent
+        # wrote them).
         return build_scroll_components(
             agent_config=agent_config,
             workspace_dir=workspace_dir,
@@ -575,10 +586,14 @@ class AgentBuilder:
             from ..governance import PolicyGuardedTool
 
             return PolicyGuardedTool(
-                fn, governor=governor, request_context=request_context,
+                fn,
+                governor=governor,
+                request_context=request_context,
             )
         return GuardedFunctionTool(
-            fn, agent_id=agent_id, request_context=request_context,
+            fn,
+            agent_id=agent_id,
+            request_context=request_context,
         )
 
     @staticmethod

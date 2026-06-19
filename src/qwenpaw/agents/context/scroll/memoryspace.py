@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """The model's SQLite working surface inside ``execute_python``.
 
 Self-contained (stdlib only) so it can be imported by the sandboxed REPL
@@ -24,22 +25,29 @@ def sanitize_suffix(session_id: str | None) -> str:
     return re.sub(r"[^0-9A-Za-z_]", "_", session_id)
 
 
-# Mutating actions denied against the read-only ``hist`` schema. DDL is covered
-# transitively: DROP/ALTER/CREATE authorize as writes to ``hist.sqlite_master``.
+# Mutating actions denied against the read-only ``hist`` schema. DDL is
+# covered transitively: DROP/ALTER/CREATE authorize as writes to
+# ``hist.sqlite_master``.
 _HIST_WRITE_ACTIONS = frozenset(
-    {sqlite3.SQLITE_INSERT, sqlite3.SQLITE_UPDATE, sqlite3.SQLITE_DELETE}
+    {sqlite3.SQLITE_INSERT, sqlite3.SQLITE_UPDATE, sqlite3.SQLITE_DELETE},
 )
 
 
-def _authorize(action, arg1, arg2, db_name, trigger):  # noqa: ANN001
+def _authorize(  # noqa: ANN001  # pylint: disable=unused-argument
+    action,
+    arg1,
+    arg2,
+    db_name,
+    trigger,
+):
     """SQLite authorizer for the model-facing recall connection.
 
     The durable history is mounted read-only as ``hist``; the model owns the
-    ``main`` scratch DB read/write. We forbid only what would let it escape that
-    contract:
+    ``main`` scratch DB read/write. We forbid only what would let it escape
+    that contract:
 
-    * ``ATTACH``/``DETACH`` — blocks re-mounting ``hist`` read-write and mounting
-      another workspace's store (the documented escapes).
+    * ``ATTACH``/``DETACH`` — blocks re-mounting ``hist`` read-write and
+      mounting another workspace's store (the documented escapes).
     * ``INSERT``/``UPDATE``/``DELETE`` on ``hist`` — defense-in-depth over the
       read-only file handle (and these transitively block DDL on ``hist``).
 
@@ -70,7 +78,8 @@ class MemorySpace:
         scratch_db_path: str | Path | None = None,
     ) -> None:
         # ``main`` is in-memory by default; a file path keeps derived scratch
-        # tables across calls (the sandboxed REPL runs a fresh process per cell).
+        # tables across calls (the sandboxed REPL runs a fresh process per
+        # cell).
         main = (
             str(Path(scratch_db_path).expanduser())
             if scratch_db_path is not None
@@ -86,12 +95,14 @@ class MemorySpace:
         if history_db_path is not None:
             abs_path = Path(history_db_path).expanduser().resolve()
             self._conn.execute(
-                "ATTACH DATABASE ? AS hist", (f"file:{abs_path}?mode=ro",),
+                "ATTACH DATABASE ? AS hist",
+                (f"file:{abs_path}?mode=ro",),
             )
-        # Lock the connection down AFTER our own ATTACH: the model runs arbitrary
-        # SQL through sql_query/sql_exec, so guard at the engine level. An
-        # authorizer fires at prepare time and can't be evaded by comments,
-        # casing, or stacked statements the way a string blocklist can.
+        # Lock the connection down AFTER our own ATTACH: the model runs
+        # arbitrary SQL through sql_query/sql_exec, so guard at the engine
+        # level. An authorizer fires at prepare time and can't be evaded by
+        # comments, casing, or stacked statements the way a string blocklist
+        # can.
         self._conn.set_authorizer(_authorize)
 
     @property
@@ -105,7 +116,8 @@ class MemorySpace:
 
     @property
     def agent_id(self) -> str | None:
-        """The current agent id — scopes recall to this agent across sessions."""
+        """The current agent id — scopes recall to this agent across
+        sessions."""
         return self._agent_id
 
     def sql_exec(self, sql: str, params: tuple | dict | None = None) -> int:
@@ -119,7 +131,11 @@ class MemorySpace:
             cur = self._conn.execute(sql, params or ())
             return int(cur.lastrowid or cur.rowcount or 0)
 
-    def sql_query(self, sql: str, params: tuple | dict | None = None) -> list[dict]:
+    def sql_query(
+        self,
+        sql: str,
+        params: tuple | dict | None = None,
+    ) -> list[dict]:
         """Run a SELECT (or any read query). Returns up to ``row_cap`` rows.
 
         Rows come back as plain dicts. On overflow, only the first ``row_cap``
@@ -142,13 +158,14 @@ class MemorySpace:
         kind: str | None = None,
         k: int = 10,
     ) -> list[dict]:
-        """Full-text search over ``hist.conversation_history`` content (FTS5).
+        """Full-text search over ``hist.conversation_history`` content
+        (FTS5).
 
-        Returns up to ``k`` rows ranked by relevance (bm25). ``scope`` limits to
-        ``'agent'`` (this agent across all sessions — the default),
-        ``'session'`` (this conversation only), or ``'all'`` (every agent in the
-        workspace). ``kind`` optionally filters. Falls back to a LIKE scan if
-        this SQLite lacks FTS5.
+        Returns up to ``k`` rows ranked by relevance (bm25). ``scope`` limits
+        to ``'agent'`` (this agent across all sessions — the default),
+        ``'session'`` (this conversation only), or ``'all'`` (every agent in
+        the workspace). ``kind`` optionally filters. Falls back to a LIKE scan
+        if this SQLite lacks FTS5.
         """
         if not self._fts_available():
             return self._search_like(query, scope, kind, int(k))
@@ -156,9 +173,9 @@ class MemorySpace:
         fts = "conversation_history_fts"
         where = [f"{fts} MATCH ?"]
         params: list = [query]
-        # "all" is the only way to drop the lineage filter; "session" narrows to
-        # this conversation; anything else (incl. the default "agent" and any
-        # typo) fails safe to this agent's own cross-session history.
+        # "all" is the only way to drop the lineage filter; "session" narrows
+        # to this conversation; anything else (incl. the default "agent" and
+        # any typo) fails safe to this agent's own cross-session history.
         if scope == "all":
             pass
         elif scope == "session" and self._session_id:

@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """Pluggable context-management strategies.
 
 The default agent behavior is AgentScope-native compression; injecting a
@@ -46,8 +47,8 @@ def build_scroll_components(
 ) -> ScrollComponents | None:
     """Construct the scroll strategy's components, or ``None`` if not selected.
 
-    Returns ``None`` when ``strategy != "scroll"`` or no workspace is available,
-    leaving the agent on its native context management.
+    Returns ``None`` when ``strategy != "scroll"`` or no workspace is
+    available, leaving the agent on its native context management.
     """
     try:
         lcc = agent_config.running.light_context_config
@@ -78,10 +79,11 @@ def build_scroll_components(
     history = HistoryStore(Path(workspace_dir) / sc.db_filename)
     scratch_root = str(Path(workspace_dir) / ".scroll")
 
-    # Shared {tool_call_id -> seq} of results the cap middleware already wrote in
-    # full. The manager consults it so it never re-persists the truncated stub
-    # the model sees in-context (which would duplicate the row + bloat FTS); it
-    # adopts the cap's seq so the result still falls inside the eviction span.
+    # Shared {tool_call_id -> seq} of results the cap middleware already
+    # wrote in full. The manager consults it so it never re-persists the
+    # truncated stub the model sees in-context (which would duplicate the row
+    # + bloat FTS); it adopts the cap's seq so the result still falls inside
+    # the eviction span.
     capped_results: dict[str, int] = {}
 
     manager = ScrollContextManager(

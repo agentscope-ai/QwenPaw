@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """ScrollContextManager — write-through + eviction-index context management.
 
 The strategy form of the design in ``CONTEXT_MANAGEMENT.html``: instead of
@@ -49,36 +50,57 @@ class ScrollContextManager:
         self._pinned = pinned
         # Shared with the cap middleware: tool_call_id -> seq of results it
         # already wrote in full. We skip re-persisting their truncated stubs.
-        self._capped_results = capped_results if capped_results is not None else {}
-        self._persisted_ids: set[str] = set()      # msgs whose non-result row is stored
-        self._persisted_tcids: set[str] = set()    # tool_call_ids whose result row is stored
-        self._synthetic_ids: set[str] = set()      # placeholder msgs we inserted
-        self._seq_by_id: dict[str, tuple[int, int]] = {}  # msg.id -> (first, last) seq
-        self._model_turn_seq: dict[str, int] = {}  # msg.id -> seq of its model_turn row
-        self._model_turn_nblk: dict[str, int] = {}  # msg.id -> #non-result blocks persisted
-        self._leaf_by_id: dict[str, Leaf] = {}     # msg.id -> its index leaf
+        self._capped_results = (
+            capped_results if capped_results is not None else {}
+        )
+        self._persisted_ids: set[
+            str
+        ] = set()  # msgs whose non-result row is stored
+        self._persisted_tcids: set[
+            str
+        ] = set()  # tool_call_ids whose result row is stored
+        self._synthetic_ids: set[str] = set()  # placeholder msgs we inserted
+        self._seq_by_id: dict[
+            str,
+            tuple[int, int],
+        ] = {}  # msg.id -> (first, last) seq
+        self._model_turn_seq: dict[
+            str,
+            int,
+        ] = {}  # msg.id -> seq of its model_turn row
+        self._model_turn_nblk: dict[
+            str,
+            int,
+        ] = {}  # msg.id -> #non-result blocks persisted
+        self._leaf_by_id: dict[str, Leaf] = {}  # msg.id -> its index leaf
         self._msg_counter = 0
         self._index = EvictionIndex(session_id=session_id, agent_id=agent_id)
 
     # -- delegated hooks -----------------------------------------------------
 
-    def on_save(self, agent: Any, blocks: Any) -> None:
+    def on_save(  # pylint: disable=unused-argument
+        self,
+        agent: Any,
+        blocks: Any,
+    ) -> None:
         """Write through any live-context blocks not yet persisted."""
         try:
             self._persist_new(agent)
-        except Exception:  # noqa: BLE001 - persistence must never break the loop
+        except (
+            Exception
+        ):  # noqa: BLE001 - persistence must never break the loop
             logger.exception("ScrollContextManager write-through failed")
 
     async def compress(self, agent: Any, context_config: Any = None) -> None:
         """Evict the middle into the index; roll the index up under pressure.
 
-          1. persist     — every live turn is now durable.
-          2. trigger     — under the token threshold? nothing to do.
-          3. split       — pinned head | evictable middle | recent tail.
-          4. add_eviction— fold the middle into the index as a fresh L0 block,
-                           rebuild context = head + [index] + tail.
-          5. compact     — while the rebuilt context still overflows, shrink the
-                           index one step and rebuild. Always progresses.
+        1. persist     — every live turn is now durable.
+        2. trigger     — under the token threshold? nothing to do.
+        3. split       — pinned head | evictable middle | recent tail.
+        4. add_eviction— fold the middle into the index as a fresh L0 block,
+                         rebuild context = head + [index] + tail.
+        5. compact     — while the rebuilt context still overflows, shrink the
+                         index one step and rebuild. Always progresses.
         """
         cfg = context_config or agent.context_config
 
@@ -86,6 +108,7 @@ class ScrollContextManager:
         self._persist_new(agent)
 
         # 2) Trigger check (reuse AgentScope's own token accounting).
+        # pylint: disable-next=protected-access
         kwargs = await agent._prepare_model_input()
         if (
             await agent.model.count_tokens(**kwargs)
@@ -95,16 +118,19 @@ class ScrollContextManager:
         if len(agent.state.context) <= self._pinned + 1:
             return
 
-        # 3) Pairing-safe split; keep pinned head + recent tail, evict the middle.
+        # 3) Pairing-safe split; keep pinned head + recent tail, evict the
+        #    middle.
         reserve = cfg.reserve_ratio * agent.model.context_size
+        # pylint: disable-next=protected-access
         to_compress, to_reserve = await agent._split_context_for_compression(
-            reserve, kwargs.get("tools", []),
+            reserve,
+            kwargs.get("tools", []),
         )
         real = lambda msgs: [
             m for m in msgs if m.id not in self._synthetic_ids
         ]
         head = real(to_compress[: self._pinned])
-        middle = real(to_compress[self._pinned:])
+        middle = real(to_compress[self._pinned :])
         tail = real(to_reserve)
         if not middle:
             return
@@ -113,19 +139,25 @@ class ScrollContextManager:
         self._index_evicted(middle)
         self._rebuild_context(agent, head, tail)
 
-        # 5) Pressure-triggered compaction: shrink the index one step at a time
-        #    until we fit (or it collapses to a single line). Always terminates.
+        # 5) Pressure-triggered compaction: shrink the index one step at a
+        #    time until we fit (or it collapses to a single line). Always
+        #    terminates.
         while (
             await agent.model.count_tokens(
+                # pylint: disable-next=protected-access
                 **(await agent._prepare_model_input()),
-            ) > reserve
+            )
+            > reserve
             and self._index.compact()
         ):
             self._rebuild_context(agent, head, tail)
 
     # -- write-through -------------------------------------------------------
 
-    def _persist_new(self, agent: Any) -> None:
+    def _persist_new(  # pylint: disable=too-many-branches
+        self,
+        agent: Any,
+    ) -> None:
         """Write through live-context blocks not yet persisted.
 
         AgentScope 2.0 extends the last assistant Msg in place (one Msg per
@@ -142,23 +174,26 @@ class ScrollContextManager:
             anon_pos = 0  # stable index for results lacking a tool_call_id
             for entry in msg_to_entries(msg, self._msg_counter):
                 if entry.kind == "tool_result":
-                    # Key on the call id, else this result's position in the msg
-                    # — a fixed function of (msg.id, block order), so it matches
-                    # on a later reload instead of drifting with a set's size.
+                    # Key on the call id, else this result's position in the
+                    # msg — a fixed function of (msg.id, block order), so it
+                    # matches on a later reload instead of drifting with a
+                    # set's size.
                     tcid = entry.tool_call_id or f"{mid}#anon{anon_pos}"
                     anon_pos += 1
                     if tcid in self._persisted_tcids:
                         continue
                     capped_seq = self._capped_results.get(tcid)
                     if capped_seq is not None:
-                        # The cap middleware already wrote this result in full;
-                        # don't persist the in-context truncated stub. Adopt its
-                        # seq so the result still falls inside the eviction span.
+                        # The cap middleware already wrote this result in
+                        # full; don't persist the in-context truncated stub.
+                        # Adopt its seq so the result still falls inside the
+                        # eviction span.
                         seq = capped_seq
                     else:
                         seq = self._history.append(
                             session_id=self._session_id,
-                            agent_id=self._agent_id, entry=entry,
+                            agent_id=self._agent_id,
+                            entry=entry,
                             dedup_key=tcid,
                         )
                     self._persisted_tcids.add(tcid)
@@ -171,7 +206,8 @@ class ScrollContextManager:
                         if prev_seq is None:
                             continue
                         new_headline = (
-                            bool(entry.headline) and mid not in self._leaf_by_id
+                            bool(entry.headline)
+                            and mid not in self._leaf_by_id
                         )
                         if (
                             nblk <= self._model_turn_nblk.get(mid, 0)
@@ -179,18 +215,22 @@ class ScrollContextManager:
                         ):
                             continue
                         self._history.update_entry(
-                            prev_seq, content=entry.content,
-                            headline=entry.headline, blocks=entry.blocks,
+                            prev_seq,
+                            content=entry.content,
+                            headline=entry.headline,
+                            blocks=entry.blocks,
                         )
                         self._model_turn_nblk[mid] = nblk
                         if new_headline:
                             self._leaf_by_id[mid] = Leaf(
-                                seq=prev_seq, headline=entry.headline,
+                                seq=prev_seq,
+                                headline=entry.headline,
                             )
                         continue
                     seq = self._history.append(
                         session_id=self._session_id,
-                        agent_id=self._agent_id, entry=entry,
+                        agent_id=self._agent_id,
+                        entry=entry,
                         dedup_key=mid,
                     )
                     self._persisted_ids.add(mid)
@@ -200,19 +240,24 @@ class ScrollContextManager:
                     # A model turn with a headline becomes an index leaf.
                     if entry.headline:
                         self._leaf_by_id[mid] = Leaf(
-                            seq=seq, headline=entry.headline,
+                            seq=seq,
+                            headline=entry.headline,
                         )
-                # Track the msg's seq span (it grows as results are appended) so
-                # eviction recovers the whole turn by range.
+                # Track the msg's seq span (it grows as results are appended)
+                # so eviction recovers the whole turn by range.
                 lo, hi = self._seq_by_id.get(mid, (seq, seq))
                 self._seq_by_id[mid] = (min(lo, seq), max(hi, seq))
 
     # -- eviction ------------------------------------------------------------
 
     def _rebuild_context(
-        self, agent: Any, head: list[Msg], tail: list[Msg],
+        self,
+        agent: Any,
+        head: list[Msg],
+        tail: list[Msg],
     ) -> None:
-        """state.context = pinned head + the single index placeholder + tail."""
+        """state.context = pinned head + the single index placeholder +
+        tail."""
         placeholder = UserMsg(name="memory", content=self._index.render())
         self._synthetic_ids.add(placeholder.id)
         agent.state.context = head + [placeholder] + tail
@@ -221,11 +266,12 @@ class ScrollContextManager:
         """Append the evicted middle to the index as one fresh L0 block.
 
         The block spans every evicted ``seq`` (so a range query recovers the
-        full turns, tool results included); its leaves are the model turns that
-        carry a headline.
+        full turns, tool results included); its leaves are the model turns
+        that carry a headline.
         """
         leaves: list[Leaf] = []
-        lo = hi = None
+        lo: int | None = None
+        hi: int | None = None
         for m in middle:
             mid = getattr(m, "id", None) or str(id(m))
             rng = self._seq_by_id.get(mid)
@@ -238,7 +284,9 @@ class ScrollContextManager:
         if lo is None or hi is None:  # no known seq (shouldn't happen)
             return
         self._index.add_eviction(
-            leaves, seq_lo=lo, seq_hi=hi, n_turns=len(leaves) or len(middle),
+            leaves,
+            seq_lo=lo,
+            seq_hi=hi,
         )
 
     # -- checkpoint ----------------------------------------------------------
@@ -256,7 +304,9 @@ class ScrollContextManager:
             "persisted_ids": sorted(self._persisted_ids),
             "persisted_tcids": sorted(self._persisted_tcids),
             "synthetic_ids": sorted(self._synthetic_ids),
-            "seq_by_id": {k: [lo, hi] for k, (lo, hi) in self._seq_by_id.items()},
+            "seq_by_id": {
+                k: [lo, hi] for k, (lo, hi) in self._seq_by_id.items()
+            },
             "model_turn_seq": dict(self._model_turn_seq),
             "model_turn_nblk": dict(self._model_turn_nblk),
             "leaf_by_id": {
