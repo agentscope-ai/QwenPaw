@@ -225,13 +225,24 @@ class QwenPawAgent(CodingModeMixin, Agent):
             )
 
     async def close(self) -> None:
-        """Shut down governor and clean up expired tool-result files."""
+        """Shut down governor, release the history store, and clean up expired
+        tool-result files."""
         gov = getattr(self, "_governor", None)
         if gov is not None:
             try:
                 gov.stop()
             except Exception:
                 logger.debug("governor stop failed", exc_info=True)
+
+        # Release the scroll history store's read-write connection (db + -wal +
+        # -shm fds) — otherwise they accumulate across requests on a long-lived
+        # server.
+        cm = getattr(self, "_context_manager", None)
+        if cm is not None and hasattr(cm, "close"):
+            try:
+                cm.close()
+            except Exception:
+                logger.debug("context manager close failed", exc_info=True)
 
         offloader = getattr(self, "offloader", None)
         if offloader is not None and hasattr(
