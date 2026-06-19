@@ -125,12 +125,7 @@ class OpenAIProvider(Provider):
                 messages=[
                     {
                         "role": "user",
-                        "content": [
-                            {
-                                "type": "text",
-                                "text": "ping",
-                            },
-                        ],
+                        "content": "ping",
                     },
                 ],
                 timeout=timeout,
