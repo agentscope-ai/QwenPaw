@@ -71,6 +71,7 @@ class ToolResultCapMiddleware(MiddlewareBase):
         self._history.append(
             session_id=self._session_id,
             agent_id=self._agent_id,
+            dedup_key=tcid,
             entry=LogEntry(
                 kind="tool_result",
                 role="tool",

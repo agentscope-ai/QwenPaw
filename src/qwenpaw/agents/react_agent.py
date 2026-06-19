@@ -164,7 +164,13 @@ class QwenPawAgent(CodingModeMixin, Agent):
         state = getattr(self, "state", None)
         if state is None:
             return {}
-        return {"state": state.model_dump(mode="json")}
+        out = {"state": state.model_dump(mode="json")}
+        # Persist the scroll manager's dedup bookkeeping + eviction index so a
+        # resumed session doesn't re-append its restored window to history.db.
+        cm = getattr(self, "_context_manager", None)
+        if cm is not None and hasattr(cm, "to_dict"):
+            out["scroll"] = cm.to_dict()
+        return out
 
     def load_state_dict(self, state_dict: dict, strict: bool = True) -> None:
         """Restore ``self.state`` from a dict produced by :meth:`state_dict`.
@@ -189,6 +195,12 @@ class QwenPawAgent(CodingModeMixin, Agent):
                 raise KeyError(
                     f"Could not load AgentState from snapshot: {exc}",
                 ) from exc
+            # Rehydrate the scroll manager's bookkeeping so the restored window
+            # is recognized as already durable (no re-append on resume).
+            cm = getattr(self, "_context_manager", None)
+            scroll = state_dict.get("scroll")
+            if cm is not None and scroll is not None and hasattr(cm, "load_state"):
+                cm.load_state(scroll)
             return
 
         # --- 1.x legacy format: migrate ``memory`` → ``state`` ---

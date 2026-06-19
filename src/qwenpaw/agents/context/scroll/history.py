@@ -9,7 +9,6 @@ from pathlib import Path
 
 from ..types import LogEntry
 
-_SCHEMA_VERSION = "2"
 _BUSY_TIMEOUT_MS = 5000
 
 # Columns of conversation_history, in INSERT order (minus the autoincrement seq).
@@ -17,7 +16,7 @@ _INSERT_COLUMNS = (
     "session_id", "agent_id", "step_index", "msg_index",
     "kind", "role", "name", "content",
     "tool_call_id", "tool_input", "tool_state", "headline", "blocks",
-    "metadata", "created_at",
+    "metadata", "created_at", "dedup_key",
 )
 
 
@@ -108,22 +107,11 @@ class HistoryStore:
                     headline     TEXT,
                     blocks       TEXT,
                     metadata     TEXT,
-                    created_at   TEXT
+                    created_at   TEXT,
+                    dedup_key    TEXT
                 )
                 """,
             )
-            # Migrate pre-v2 DBs: CREATE TABLE IF NOT EXISTS won't add the
-            # column to an already-existing table, so ALTER it in once.
-            cols = {
-                r["name"]
-                for r in self._conn.execute(
-                    "PRAGMA table_info(conversation_history)",
-                )
-            }
-            if "agent_id" not in cols:
-                self._conn.execute(
-                    "ALTER TABLE conversation_history ADD COLUMN agent_id TEXT",
-                )
             self._conn.execute(
                 "CREATE INDEX IF NOT EXISTS ch_session "
                 "ON conversation_history(session_id)",
@@ -136,14 +124,14 @@ class HistoryStore:
                 "CREATE INDEX IF NOT EXISTS ch_kind "
                 "ON conversation_history(kind)",
             )
+            # Idempotency net: a second append of the same logical event (a
+            # resume re-persisting its restored window, or the cap middleware
+            # racing the manager) collides here and is dropped by ON CONFLICT
+            # rather than duplicating a row. NULL dedup_key never conflicts, so
+            # un-keyed rows are simply never deduped.
             self._conn.execute(
-                "CREATE TABLE IF NOT EXISTS _meta "
-                "(key TEXT PRIMARY KEY, value TEXT)",
-            )
-            self._conn.execute(
-                "INSERT OR IGNORE INTO _meta (key, value) "
-                "VALUES ('schema_version', ?)",
-                (_SCHEMA_VERSION,),
+                "CREATE UNIQUE INDEX IF NOT EXISTS ux_dedup "
+                "ON conversation_history(session_id, dedup_key)",
             )
             self._init_fts()
 
@@ -183,8 +171,17 @@ class HistoryStore:
         session_id: str,
         entry: LogEntry,
         agent_id: str | None = None,
+        dedup_key: str | None = None,
     ) -> int:
-        """Write-through one event. Returns the assigned ``seq`` (watermark)."""
+        """Write-through one event. Returns the assigned ``seq`` (watermark).
+
+        ``dedup_key`` is the row's stable identity within the session (the
+        source ``msg.id`` for a turn, the ``tool_call_id`` for a result). A
+        second append carrying the same ``(session_id, dedup_key)`` is a no-op
+        and returns the *existing* seq, so a resume that re-persists its
+        restored window can re-link bookkeeping without duplicating rows. A
+        ``None`` key is never deduped.
+        """
         row = (
             session_id,
             agent_id,
@@ -201,14 +198,25 @@ class HistoryStore:
             _to_json(entry.blocks),
             _to_json(entry.metadata or None),
             entry.created_at or datetime.now(timezone.utc).isoformat(),
+            dedup_key,
         )
         placeholders = ", ".join("?" for _ in _INSERT_COLUMNS)
         with self._conn:
             cur = self._conn.execute(
                 f"INSERT INTO conversation_history "
-                f"({', '.join(_INSERT_COLUMNS)}) VALUES ({placeholders})",
+                f"({', '.join(_INSERT_COLUMNS)}) VALUES ({placeholders}) "
+                f"ON CONFLICT(session_id, dedup_key) DO NOTHING",
                 row,
             )
+            if cur.rowcount == 0:
+                # Conflict: this event is already durable. Return its seq so the
+                # caller re-links to the existing row; no new row, no FTS write.
+                existing = self._conn.execute(
+                    "SELECT seq FROM conversation_history "
+                    "WHERE session_id = ? AND dedup_key = ?",
+                    (session_id, dedup_key),
+                ).fetchone()
+                return int(existing["seq"]) if existing else 0
             seq = int(cur.lastrowid)
             if self._fts:
                 self._conn.execute(

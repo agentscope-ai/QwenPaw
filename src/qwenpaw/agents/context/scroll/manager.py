@@ -135,17 +135,20 @@ class ScrollContextManager:
             mid = getattr(msg, "id", None) or str(id(msg))
             if mid in self._synthetic_ids:
                 continue
+            anon_pos = 0  # stable index for results lacking a tool_call_id
             for entry in msg_to_entries(msg, self._msg_counter):
                 if entry.kind == "tool_result":
-                    tcid = (
-                        entry.tool_call_id
-                        or f"{mid}#anon{len(self._persisted_tcids)}"
-                    )
+                    # Key on the call id, else this result's position in the msg
+                    # — a fixed function of (msg.id, block order), so it matches
+                    # on a later reload instead of drifting with a set's size.
+                    tcid = entry.tool_call_id or f"{mid}#anon{anon_pos}"
+                    anon_pos += 1
                     if tcid in self._persisted_tcids:
                         continue
                     seq = self._history.append(
                         session_id=self._session_id,
                         agent_id=self._agent_id, entry=entry,
+                        dedup_key=tcid,
                     )
                     self._persisted_tcids.add(tcid)
                 else:
@@ -177,6 +180,7 @@ class ScrollContextManager:
                     seq = self._history.append(
                         session_id=self._session_id,
                         agent_id=self._agent_id, entry=entry,
+                        dedup_key=mid,
                     )
                     self._persisted_ids.add(mid)
                     self._model_turn_seq[mid] = seq
@@ -225,6 +229,53 @@ class ScrollContextManager:
         self._index.add_eviction(
             leaves, seq_lo=lo, seq_hi=hi, n_turns=len(leaves) or len(middle),
         )
+
+    # -- checkpoint ----------------------------------------------------------
+
+    def to_dict(self) -> dict:
+        """Snapshot the dedup bookkeeping + eviction index for the agent
+        checkpoint.
+
+        All maps are keyed by ``msg.id``, which round-trips identically through
+        ``AgentState`` (de)serialization — so on reload these seed the dedup
+        sets and ``_persist_new`` recognizes the restored window as already
+        durable instead of re-appending it.
+        """
+        return {
+            "persisted_ids": sorted(self._persisted_ids),
+            "persisted_tcids": sorted(self._persisted_tcids),
+            "synthetic_ids": sorted(self._synthetic_ids),
+            "seq_by_id": {k: [lo, hi] for k, (lo, hi) in self._seq_by_id.items()},
+            "model_turn_seq": dict(self._model_turn_seq),
+            "model_turn_nblk": dict(self._model_turn_nblk),
+            "leaf_by_id": {
+                k: [lf.seq, lf.headline] for k, lf in self._leaf_by_id.items()
+            },
+            "msg_counter": self._msg_counter,
+            "index": self._index.to_dict(),
+        }
+
+    def load_state(self, data: Any) -> None:
+        """Rehydrate bookkeeping from :meth:`to_dict`. Tolerant of partial or
+        absent data (older checkpoints) — anything missing stays at its
+        freshly-constructed empty default."""
+        if not isinstance(data, dict):
+            return
+        self._persisted_ids = set(data.get("persisted_ids", ()))
+        self._persisted_tcids = set(data.get("persisted_tcids", ()))
+        self._synthetic_ids = set(data.get("synthetic_ids", ()))
+        self._seq_by_id = {
+            k: (lo, hi) for k, (lo, hi) in data.get("seq_by_id", {}).items()
+        }
+        self._model_turn_seq = dict(data.get("model_turn_seq", {}))
+        self._model_turn_nblk = dict(data.get("model_turn_nblk", {}))
+        self._leaf_by_id = {
+            k: Leaf(seq=seq, headline=headline)
+            for k, (seq, headline) in data.get("leaf_by_id", {}).items()
+        }
+        self._msg_counter = int(data.get("msg_counter", 0))
+        if "index" in data:
+            self._index = EvictionIndex.from_dict(data["index"])
 
     def close(self) -> None:
         self._history.close()
