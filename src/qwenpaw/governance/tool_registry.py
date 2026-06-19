@@ -154,6 +154,9 @@ def _create_default_registry() -> ToolRegistry:
     registry.register("SubmitToAgent", "internal", "agent_id")
     registry.register("CheckAgentTask", "internal", "task_id")
     registry.register("DelegateExternalAgent", "internal", "runner")
+    # Scroll context strategy's recall REPL — read-only search over the
+    # durable conversation history (history.db); safe to auto-allow.
+    registry.register("ExecutePython", "internal", "")
 
     # ── Python function name mappings ──
     registry.register_python_name("execute_shell_command", "Bash")

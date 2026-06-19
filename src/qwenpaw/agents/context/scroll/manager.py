@@ -1,0 +1,232 @@
+"""ScrollContextManager — write-through + eviction-index context management.
+
+The strategy form of the design in ``CONTEXT_MANAGEMENT.html``: instead of
+subclassing the agent, it is injected into :class:`QwenPawAgent` and drives the
+two delegated hooks.
+
+* :meth:`on_save` — every live turn is persisted to the durable
+  ``conversation_history`` as it enters the window (write-through).
+* :meth:`compress` — past the token threshold, keep a pinned head + recent tail
+  and fold the evicted middle into an in-context :class:`EvictionIndex`. No
+  summarization, nothing lost — every node points to a ``seq`` span recallable
+  via the sandboxed ``execute_python`` REPL.
+"""
+from __future__ import annotations
+
+import logging
+from typing import Any
+
+from agentscope.message import Msg, UserMsg
+
+from .eviction_index import EvictionIndex, Leaf
+from .history import HistoryStore
+from .serialize import msg_to_entries
+
+logger = logging.getLogger(__name__)
+
+
+class ScrollContextManager:
+    """Context management as an injectable strategy (not an agent subclass).
+
+    Holds the per-session bookkeeping that links live ``Msg`` ids to their
+    durable ``seq`` rows and to their eviction-index leaves. One instance per
+    agent; ``run_id``/``task_id`` are threaded so each row carries the full
+    lineage (and cross-run ``WHERE task_id = ?`` recall works).
+    """
+
+    def __init__(
+        self,
+        *,
+        history: HistoryStore,
+        session_id: str,
+        run_id: str | None = None,
+        task_id: str | None = None,
+        pinned: int = 1,
+    ) -> None:
+        self._history = history
+        self._session_id = session_id
+        self._run_id = run_id
+        self._task_id = task_id
+        self._pinned = pinned
+        self._persisted_ids: set[str] = set()      # msgs whose non-result row is stored
+        self._persisted_tcids: set[str] = set()    # tool_call_ids whose result row is stored
+        self._synthetic_ids: set[str] = set()      # placeholder msgs we inserted
+        self._seq_by_id: dict[str, tuple[int, int]] = {}  # msg.id -> (first, last) seq
+        self._model_turn_seq: dict[str, int] = {}  # msg.id -> seq of its model_turn row
+        self._model_turn_nblk: dict[str, int] = {}  # msg.id -> #non-result blocks persisted
+        self._leaf_by_id: dict[str, Leaf] = {}     # msg.id -> its index leaf
+        self._msg_counter = 0
+        self._index = EvictionIndex(session_id=session_id)
+
+    # -- delegated hooks -----------------------------------------------------
+
+    def on_save(self, agent: Any, blocks: Any) -> None:
+        """Write through any live-context blocks not yet persisted."""
+        try:
+            self._persist_new(agent)
+        except Exception:  # noqa: BLE001 - persistence must never break the loop
+            logger.exception("ScrollContextManager write-through failed")
+
+    async def compress(self, agent: Any, context_config: Any = None) -> None:
+        """Evict the middle into the index; roll the index up under pressure.
+
+          1. persist     — every live turn is now durable.
+          2. trigger     — under the token threshold? nothing to do.
+          3. split       — pinned head | evictable middle | recent tail.
+          4. add_eviction— fold the middle into the index as a fresh L0 block,
+                           rebuild context = head + [index] + tail.
+          5. compact     — while the rebuilt context still overflows, shrink the
+                           index one step and rebuild. Always progresses.
+        """
+        cfg = context_config or agent.context_config
+
+        # 1) Durability first — everything in the window is now in the DB.
+        self._persist_new(agent)
+
+        # 2) Trigger check (reuse AgentScope's own token accounting).
+        kwargs = await agent._prepare_model_input()
+        if (
+            await agent.model.count_tokens(**kwargs)
+            < cfg.trigger_ratio * agent.model.context_size
+        ):
+            return
+        if len(agent.state.context) <= self._pinned + 1:
+            return
+
+        # 3) Pairing-safe split; keep pinned head + recent tail, evict the middle.
+        reserve = cfg.reserve_ratio * agent.model.context_size
+        to_compress, to_reserve = await agent._split_context_for_compression(
+            reserve, kwargs.get("tools", []),
+        )
+        real = lambda msgs: [
+            m for m in msgs if m.id not in self._synthetic_ids
+        ]
+        head = real(to_compress[: self._pinned])
+        middle = real(to_compress[self._pinned:])
+        tail = real(to_reserve)
+        if not middle:
+            return
+
+        # 4) Fold the evicted middle into the index as a new L0 block.
+        self._index_evicted(middle)
+        self._rebuild_context(agent, head, tail)
+
+        # 5) Pressure-triggered compaction: shrink the index one step at a time
+        #    until we fit (or it collapses to a single line). Always terminates.
+        while (
+            await agent.model.count_tokens(
+                **(await agent._prepare_model_input()),
+            ) > reserve
+            and self._index.compact()
+        ):
+            self._rebuild_context(agent, head, tail)
+
+    # -- write-through -------------------------------------------------------
+
+    def _persist_new(self, agent: Any) -> None:
+        """Write through live-context blocks not yet persisted.
+
+        AgentScope 2.0 extends the last assistant Msg in place (one Msg per
+        reply accumulates ``[text, tool_call, tool_result, ...]``). So each
+        tool_result is written once per ``tool_call_id``; the msg's single
+        non-result row is written once, then refreshed in place as the Msg
+        grows — so every cell's tool-call blocks and any later ``⟦…⟧`` headline
+        persist. Synthetic placeholders are never persisted.
+        """
+        for msg in agent.state.context:
+            mid = getattr(msg, "id", None) or str(id(msg))
+            if mid in self._synthetic_ids:
+                continue
+            for entry in msg_to_entries(msg, self._msg_counter):
+                if entry.kind == "tool_result":
+                    tcid = (
+                        entry.tool_call_id
+                        or f"{mid}#anon{len(self._persisted_tcids)}"
+                    )
+                    if tcid in self._persisted_tcids:
+                        continue
+                    seq = self._history.append(
+                        session_id=self._session_id, run_id=self._run_id,
+                        task_id=self._task_id, entry=entry,
+                    )
+                    self._persisted_tcids.add(tcid)
+                else:
+                    nblk = len(entry.blocks or ())
+                    if mid in self._persisted_ids:
+                        # Msg extended in place — refresh the row when it grew
+                        # (more tool calls) or a headline appeared later.
+                        prev_seq = self._model_turn_seq.get(mid)
+                        if prev_seq is None:
+                            continue
+                        new_headline = (
+                            bool(entry.headline) and mid not in self._leaf_by_id
+                        )
+                        if (
+                            nblk <= self._model_turn_nblk.get(mid, 0)
+                            and not new_headline
+                        ):
+                            continue
+                        self._history.update_entry(
+                            prev_seq, content=entry.content,
+                            headline=entry.headline, blocks=entry.blocks,
+                        )
+                        self._model_turn_nblk[mid] = nblk
+                        if new_headline:
+                            self._leaf_by_id[mid] = Leaf(
+                                seq=prev_seq, headline=entry.headline,
+                            )
+                        continue
+                    seq = self._history.append(
+                        session_id=self._session_id, run_id=self._run_id,
+                        task_id=self._task_id, entry=entry,
+                    )
+                    self._persisted_ids.add(mid)
+                    self._model_turn_seq[mid] = seq
+                    self._model_turn_nblk[mid] = nblk
+                    self._msg_counter += 1
+                    # A model turn with a headline becomes an index leaf.
+                    if entry.headline:
+                        self._leaf_by_id[mid] = Leaf(
+                            seq=seq, headline=entry.headline,
+                        )
+                # Track the msg's seq span (it grows as results are appended) so
+                # eviction recovers the whole turn by range.
+                lo, hi = self._seq_by_id.get(mid, (seq, seq))
+                self._seq_by_id[mid] = (min(lo, seq), max(hi, seq))
+
+    # -- eviction ------------------------------------------------------------
+
+    def _rebuild_context(
+        self, agent: Any, head: list[Msg], tail: list[Msg],
+    ) -> None:
+        """state.context = pinned head + the single index placeholder + tail."""
+        placeholder = UserMsg(name="memory", content=self._index.render())
+        self._synthetic_ids.add(placeholder.id)
+        agent.state.context = head + [placeholder] + tail
+
+    def _index_evicted(self, middle: list[Msg]) -> None:
+        """Append the evicted middle to the index as one fresh L0 block.
+
+        The block spans every evicted ``seq`` (so a range query recovers the
+        full turns, tool results included); its leaves are the model turns that
+        carry a headline.
+        """
+        leaves: list[Leaf] = []
+        lo = hi = None
+        for m in middle:
+            mid = getattr(m, "id", None) or str(id(m))
+            rng = self._seq_by_id.get(mid)
+            if rng:
+                lo = rng[0] if lo is None else min(lo, rng[0])
+                hi = rng[1] if hi is None else max(hi, rng[1])
+            leaf = self._leaf_by_id.get(mid)
+            if leaf:
+                leaves.append(leaf)
+        if lo is None or hi is None:  # no known seq (shouldn't happen)
+            return
+        self._index.add_eviction(
+            leaves, seq_lo=lo, seq_hi=hi, n_turns=len(leaves) or len(middle),
+        )
+
+    def close(self) -> None:
+        self._history.close()

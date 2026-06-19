@@ -784,10 +784,57 @@ class ToolResultPruningConfig(BaseModel):
     )
 
 
+class ScrollContextConfig(BaseModel):
+    """Scroll (retrieval-driven) context manager configuration.
+
+    Only consulted when ``LightContextConfig.strategy == "scroll"``. The
+    durable history lives at ``{working_dir}/{db_filename}``; evicted turns
+    fold into an in-context eviction index recallable from the sandboxed
+    ``execute_python`` REPL.
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    db_filename: str = Field(
+        default="history.db",
+        description="SQLite history store filename, relative to working_dir.",
+    )
+
+    tool_output_token_cap: int = Field(
+        default=3000,
+        ge=100,
+        description=(
+            "In-context cap for a single tool result; the full output is "
+            "written through to history and recalled by tool_call_id."
+        ),
+    )
+
+    pinned: int = Field(
+        default=1,
+        ge=0,
+        description="Leading messages never evicted (the task).",
+    )
+
+    repl_timeout_s: int = Field(
+        default=300,
+        ge=1,
+        description="Per-call timeout for the execute_python REPL tool.",
+    )
+
+
 class LightContextConfig(BaseModel):
     """Light context manager configuration."""
 
     model_config = ConfigDict(extra="ignore")
+
+    strategy: Literal["native", "scroll"] = Field(
+        default="scroll",
+        description=(
+            "Context management strategy. 'native' = AgentScope compression; "
+            "'scroll' = retrieval-driven history.db + eviction index with a "
+            "sandboxed execute_python recall REPL (the default)."
+        ),
+    )
 
     dialog_path: str = Field(
         default="dialog",
@@ -809,6 +856,9 @@ class LightContextConfig(BaseModel):
     )
     tool_result_pruning_config: ToolResultPruningConfig = Field(
         default_factory=ToolResultPruningConfig,
+    )
+    scroll_config: ScrollContextConfig = Field(
+        default_factory=ScrollContextConfig,
     )
 
 

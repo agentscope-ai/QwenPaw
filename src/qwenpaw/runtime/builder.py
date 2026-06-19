@@ -215,6 +215,19 @@ class AgentBuilder:
             ctx.extras = {}
         ctx.extras["driver_prompt_hints"] = driver_prompt_hints
 
+        # Model + formatter (built before the toolkit so the scroll context
+        # strategy, which needs the model for token counting, can wire in).
+        model, _formatter = self.build_model(agent_config)
+
+        # Optional scroll context strategy (None unless strategy="scroll").
+        scroll = self._build_scroll_components(ctx, agent_config, model)
+        if scroll is not None:
+            extra_tools.append(
+                self._wrap_tool(
+                    scroll.repl_tool, agent_id, request_context, governor,
+                ),
+            )
+
         toolkit = await self.build_toolkit(
             agent_config,
             agent_id=agent_id,
@@ -229,10 +242,9 @@ class AgentBuilder:
         # System prompt.
         sys_prompt = self.build_prompt(ctx, agent_config)
 
-        # Model + formatter.
-        model, _formatter = self.build_model(agent_config)
-
         middlewares = self._build_middlewares(ctx, agent_config)
+        if scroll is not None:
+            middlewares.append(scroll.cap_middleware)
 
         running_config = agent_config.running
 
@@ -249,6 +261,9 @@ class AgentBuilder:
             memory_manager=self._get_memory_manager(ctx),
             offloader=self._build_offloader(ctx, agent_config),
             context_config=self._build_context_config(agent_config),
+            context_manager=(
+                scroll.context_manager if scroll is not None else None
+            ),
             effective_skills=effective_skills,
             governor=governor,
         )
@@ -515,6 +530,52 @@ class AgentBuilder:
             )
         except Exception:
             return ContextConfig(summary_schema=summary_schema)
+
+    @staticmethod
+    def _build_scroll_components(ctx: Any, agent_config: Any, model: Any) -> Any:
+        """Build the scroll context strategy, or None when not selected.
+
+        Returns ``None`` for the native strategy (the default) so nothing
+        changes unless ``light_context_config.strategy == "scroll"``.
+        """
+        workspace = getattr(ctx, "workspace", None)
+        workspace_dir = (
+            str(getattr(workspace, "workspace_dir", ""))
+            if workspace is not None
+            else ""
+        )
+        session_id = getattr(ctx, "session_id", None) or "local"
+
+        from ..agents.context import build_scroll_components
+
+        # history.db is shared across sessions in this workspace, so the task
+        # lineage collapses to the session id (mirrors the standalone fallback).
+        return build_scroll_components(
+            agent_config=agent_config,
+            workspace_dir=workspace_dir,
+            model=model,
+            session_id=session_id,
+            run_id=session_id,
+            task_id=session_id,
+        )
+
+    @staticmethod
+    def _wrap_tool(
+        fn: Any,
+        agent_id: str,
+        request_context: dict[str, Any],
+        governor: Any,
+    ) -> Any:
+        """Wrap a raw tool fn in the repo's standard guard (policy or tool)."""
+        if governor is not None:
+            from ..governance import PolicyGuardedTool
+
+            return PolicyGuardedTool(
+                fn, governor=governor, request_context=request_context,
+            )
+        return GuardedFunctionTool(
+            fn, agent_id=agent_id, request_context=request_context,
+        )
 
     @staticmethod
     def _build_offloader(ctx: Any, agent_config: Any) -> Any:

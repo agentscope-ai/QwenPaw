@@ -62,6 +62,7 @@ class QwenPawAgent(CodingModeMixin, Agent):
         memory_manager: "BaseMemoryManager | None" = None,
         offloader: Any = None,
         context_config: Any = None,
+        context_manager: Any = None,
         effective_skills: Optional[list[str]] = None,
         governor: Any = None,
     ):
@@ -75,6 +76,9 @@ class QwenPawAgent(CodingModeMixin, Agent):
         self._request_context = dict(request_context or {})
         self._workspace_dir = workspace_dir
         self._language = agent_config.language
+        # Optional context-management strategy. When None, the agent keeps its
+        # native AgentScope compression (see compress_context / _save_to_context).
+        self._context_manager = context_manager
 
         # Register skills metadata on toolkit
         self._register_skills(toolkit, effective_skills=effective_skills or [])
@@ -130,7 +134,15 @@ class QwenPawAgent(CodingModeMixin, Agent):
         self,
         context_config: Any = None,
     ) -> None:
-        """Respect ``context_compact_config.enabled``."""
+        """Delegate to the context manager, else native compression.
+
+        With a ``context_manager`` injected (e.g. the scroll strategy), it owns
+        compression. Otherwise fall back to AgentScope's native path, gated on
+        ``context_compact_config.enabled``.
+        """
+        if self._context_manager is not None:
+            await self._context_manager.compress(self, context_config)
+            return
         try:
             lcc = self._agent_config.running.light_context_config
             if not lcc.context_compact_config.enabled:
@@ -138,6 +150,12 @@ class QwenPawAgent(CodingModeMixin, Agent):
         except Exception:
             pass
         await super().compress_context(context_config)
+
+    def _save_to_context(self, blocks: Any, usage: Any = None) -> None:
+        """Append blocks, then let the context manager write them through."""
+        super()._save_to_context(blocks, usage)
+        if self._context_manager is not None:
+            self._context_manager.on_save(self, blocks)
 
     # Session persistence calls state_dict/load_state_dict on the agent;
     # these round-trip through self.state (AgentState pydantic model).
