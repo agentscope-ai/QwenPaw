@@ -660,11 +660,13 @@ def _fix_image_mime_types(messages: list[dict]) -> None:
 _MEDIA_BLOCK_TYPES = ("image", "audio", "video")
 
 # Block types that the upstream agentscope OpenAI / Gemini formatters
-# silently drop. We track them here so we can predict which assistant
-# messages will be dropped before alignment in FileBlockSupportFormatter.
-# Keep this in sync with the `else: logger.warning("Unsupported block
-# type ...")` branch in agentscope's _openai_formatter.
-_FORMATTER_SKIPPED_TYPES = frozenset({"thinking", "file"})
+# keep in assistant messages (produce content_blocks or tool_calls).
+# Messages whose blocks are ALL outside this set will be dropped.
+# Using a "known-surviving" whitelist is safer than a "known-dropped"
+# blacklist: if AgentScope adds support for a new block type, a
+# blacklist would silently misalign (wrong reasoning injected), while
+# a whitelist triggers a mismatch warning and skips injection safely.
+_FORMATTER_SURVIVING_TYPES = frozenset({"text", "tool_use", "image"})
 
 
 def _fixup_media_list(items: list) -> None:
@@ -867,15 +869,15 @@ def _create_file_block_support_formatter(
                 for m in (
                     msg for msg in normalized_msgs if msg.role == "assistant"
                 ):
-                    # A message is dropped by the base formatter when every
-                    # block is one the formatter skips (currently "thinking"
-                    # and "file" — see _FORMATTER_SKIPPED_TYPES). Predicting
-                    # this lets us align reasoning_content correctly.
+                    # A message survives the base formatter only if at
+                    # least one block is a "surviving" type (text,
+                    # tool_use, or image).  Empty messages and messages
+                    # with only non-surviving blocks (thinking, file,
+                    # audio on assistant, unknown types) are dropped.
                     is_dropped_by_formatter = (
                         isinstance(m.content, list)
-                        and m.content
                         and all(
-                            b.get("type") in _FORMATTER_SKIPPED_TYPES
+                            b.get("type") not in _FORMATTER_SURVIVING_TYPES
                             for b in m.content
                         )
                     )
@@ -889,21 +891,30 @@ def _create_file_block_support_formatter(
                 ]
 
                 if len(aligned_reasoning) != len(out_assistant):
-                    # A mismatch means a message was dropped by the base
-                    # formatter that our predictor did not anticipate
-                    # (likely a new block type that should be added to
-                    # _FORMATTER_SKIPPED_TYPES). Index-based alignment past
-                    # the drop point would attribute every subsequent
-                    # message's reasoning to the wrong response — actively
-                    # misleading. Skip injection for this turn only and
-                    # warn loudly so the gap can be closed at the source.
+                    # A mismatch means the predictor and base formatter
+                    # disagree on which assistant messages survive. This can
+                    # happen in two directions:
+                    #   - aligned < out: the base formatter kept a message
+                    #     our predictor thought would be dropped (likely a new
+                    #     block type added to agentscope's formatter that is
+                    #     missing from _FORMATTER_SURVIVING_TYPES).
+                    #   - aligned > out: the base formatter dropped a message
+                    #     our predictor thought would survive (likely the
+                    #     formatter removed support for a type that is still
+                    #     listed in _FORMATTER_SURVIVING_TYPES).
+                    # In either case, index-based alignment past the drop
+                    # point would attribute every subsequent message's
+                    # reasoning to the wrong response — actively misleading.
+                    # Skip injection for this turn only and warn loudly so
+                    # the gap can be closed at the source.
                     logger.warning(
                         "Assistant message count mismatch after formatting "
                         "(%d expected survivors, %d actual). "
                         "Skipping reasoning_content injection for this turn. "
-                        "A block type is likely being dropped by the base "
-                        "formatter without being listed in "
-                        "_FORMATTER_SKIPPED_TYPES — please investigate.",
+                        "The base formatter likely supports or dropped a "
+                        "block type not reflected in "
+                        "_FORMATTER_SURVIVING_TYPES — please investigate "
+                        "and update the constant.",
                         len(aligned_reasoning),
                         len(out_assistant),
                     )
