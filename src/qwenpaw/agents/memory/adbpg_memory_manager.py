@@ -8,14 +8,12 @@ Context compaction is handled natively by AgentScope's
 memory storage and retrieval.
 """
 import asyncio
-import json
 import logging
 import threading
-import uuid
 from collections.abc import Callable
 from pathlib import Path
 
-from agentscope.message import Msg, TextBlock, ToolCallBlock, ToolResultBlock
+from agentscope.message import Msg
 from agentscope.tool import ToolChunk
 from agentscope.message import ToolResultState
 
@@ -228,42 +226,7 @@ class ADBPGMemoryManager(BaseMemoryManager):
                 return None
 
             text_content = "[Long-term Memory from ADBPG]\n" + "\n".join(parts)
-
-            # Construct tool_use + tool_result message pair
-            _id = uuid.uuid4().hex
-            tool_input = {"query": query, "max_results": 3, "min_score": 0.1}
-            agent_name = _kwargs.get("agent_name", "")
-
-            assistant_msg = Msg(
-                name=agent_name,
-                role="assistant",
-                content=[
-                    TextBlock(
-                        type="text",
-                        text="Searching long-term memory...",
-                    ),
-                    ToolCallBlock(
-                        id=_id,
-                        name="memory_search",
-                        input=json.dumps(tool_input, ensure_ascii=False),
-                    ),
-                ],
-            )
-
-            tool_result_msg = Msg(
-                name=agent_name,
-                role="system",
-                content=[
-                    ToolResultBlock(
-                        type="tool_result",
-                        id=_id,
-                        name="memory_search",
-                        output=[TextBlock(type="text", text=text_content)],
-                    ),
-                ],
-            )
-
-            return {"msg": msgs + [assistant_msg, tool_result_msg]}
+            return {"query": query, "text": text_content}
 
         except Exception as e:
             logger.warning(f"Auto-retrieve ADBPG memories failed: {e}")

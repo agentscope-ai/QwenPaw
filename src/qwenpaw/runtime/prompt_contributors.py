@@ -11,7 +11,6 @@ Contributors read configuration from ``ctx.extras``:
 * ``agent_id``      — from ``ctx.agent_id``
 * ``language``      — ``ctx.extras["language"]`` (default ``"zh"``)
 * ``heartbeat_enabled`` — ``ctx.extras.get("heartbeat_enabled", False)``
-* ``memory_manager``    — ``ctx.extras.get("memory_manager")``
 * ``env_context``       — ``ctx.extras.get("env_context")``
 * ``agent_config``      — ``ctx.extras.get("agent_config")``
 * ``driver_prompt_hints`` — ``ctx.extras.get("driver_prompt_hints", [])``

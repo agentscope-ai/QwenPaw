@@ -8,6 +8,7 @@ from datetime import datetime
 from typing import Any
 
 from agentscope.message import Msg
+from agentscope.middleware import MiddlewareBase
 from agentscope.tool import ToolChunk
 
 from ..utils.registry import Registry
@@ -74,6 +75,16 @@ class BaseMemoryManager(ABC):
         Returns:
             Ordered list of tool functions to register with the agent toolkit.
         """
+
+    def build_middlewares(self) -> list[MiddlewareBase]:
+        """Return AgentScope middlewares contributed by this manager.
+
+        Tool registration remains a toolkit construction concern.  This hook
+        is only for prompt/model-call/reply lifecycle behavior.
+        """
+        from ..middlewares import MemoryMiddleware
+
+        return [MemoryMiddleware(memory_manager=self)]
 
     # pylint: disable=unused-argument
     async def summarize(self, messages: list[Msg], **kwargs) -> str:

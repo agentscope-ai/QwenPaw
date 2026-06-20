@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, AsyncGenerator, Callable, Set
 
 from agentscope.middleware import MiddlewareBase
+from agentscope.message import SystemMsg
 
 from .tools.utils import truncate_text_output, DEFAULT_MAX_BYTES
 from ..constant import TRUNCATION_NOTICE_MARKER
@@ -31,6 +32,127 @@ if TYPE_CHECKING:
     from agentscope.message import Msg
 
 logger = logging.getLogger(__name__)
+
+
+class MemoryMiddleware(MiddlewareBase):
+    """Attach long-term memory behavior to AgentScope 2.0 agents.
+
+    The middleware owns lifecycle-level memory behavior only:
+
+    * system prompt guidance injection
+    * temporary auto-memory-search context injection for model calls
+    * post-reply auto-memory scheduling
+
+    Tool registration remains part of toolkit construction.
+    """
+
+    def __init__(self, *, memory_manager: Any) -> None:
+        self._memory_manager = memory_manager
+        self._searched_reply_ids: set[str] = set()
+        self._persisted_reply_ids: set[str] = set()
+
+    async def on_system_prompt(
+        self,
+        agent: "Agent",
+        current_prompt: str,
+    ) -> str:
+        language = getattr(agent, "_language", "zh")
+        prompt = self._memory_manager.get_memory_prompt(language)
+        if not prompt or prompt in current_prompt:
+            return current_prompt
+        if current_prompt.strip():
+            return f"{current_prompt.rstrip()}\n\n{prompt.strip()}"
+        return prompt.strip()
+
+    async def on_model_call(
+        self,
+        agent: "Agent",
+        input_kwargs: dict[str, Any],
+        next_handler: Callable[..., Any],
+    ) -> Any:
+        reply_id = getattr(agent.state, "reply_id", "") or ""
+        if reply_id and reply_id not in self._searched_reply_ids:
+            self._searched_reply_ids.add(reply_id)
+            await self._inject_memory_context(agent, input_kwargs)
+        return await next_handler(**input_kwargs)
+
+    async def on_reply(
+        self,
+        agent: "Agent",
+        input_kwargs: dict[str, Any],
+        next_handler: Callable[..., AsyncGenerator[Any, None]],
+    ) -> AsyncGenerator[Any, None]:
+        async for item in next_handler(**input_kwargs):
+            yield item
+
+        reply_id = getattr(agent.state, "reply_id", "") or ""
+        if reply_id and reply_id in self._persisted_reply_ids:
+            return
+        if reply_id:
+            self._persisted_reply_ids.add(reply_id)
+
+        try:
+            await self._memory_manager.auto_memory(
+                list(agent.state.context),
+                session_id=getattr(agent.state, "session_id", ""),
+                reply_id=reply_id,
+            )
+        except Exception:
+            logger.exception("MemoryMiddleware auto_memory failed")
+
+    async def _inject_memory_context(
+        self,
+        agent: "Agent",
+        input_kwargs: dict[str, Any],
+    ) -> None:
+        try:
+            result = await self._memory_manager.auto_memory_search(
+                list(agent.state.context),
+                agent_name=getattr(agent, "name", ""),
+                session_id=getattr(agent.state, "session_id", ""),
+                reply_id=getattr(agent.state, "reply_id", ""),
+            )
+        except Exception:
+            logger.exception("MemoryMiddleware auto_memory_search failed")
+            return
+
+        text = self._extract_memory_text(result)
+        if not text:
+            return
+
+        messages = list(input_kwargs.get("messages") or [])
+        memory_msg = SystemMsg(
+            name="memory",
+            content=(
+                "Relevant long-term memory retrieved for this turn:\n\n"
+                f"{text}"
+            ),
+        )
+
+        # Keep the original system prompt first, then add transient memory
+        # context before the conversation messages.
+        insert_at = 1 if messages else 0
+        messages.insert(insert_at, memory_msg)
+        input_kwargs["messages"] = messages
+
+    @staticmethod
+    def _extract_memory_text(result: Any) -> str:
+        if result is None:
+            return ""
+        if isinstance(result, str):
+            return result.strip()
+        if isinstance(result, dict):
+            text = result.get("text") or result.get("content")
+            if isinstance(text, str) and text.strip():
+                return text.strip()
+            msgs = result.get("msg")
+            if isinstance(msgs, list):
+                parts = [
+                    getattr(msg, "get_text_content", lambda: "")()
+                    for msg in msgs
+                ]
+                return "\n".join(p for p in parts if p).strip()
+        return ""
 
 
 class ToolResultPruningMiddleware(MiddlewareBase):

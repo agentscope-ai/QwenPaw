@@ -245,7 +245,6 @@ class AgentBuilder:
             extras={
                 "language": agent_config.language,
                 "heartbeat_enabled": heartbeat_enabled,
-                "memory_manager": self._get_memory_manager(ctx),
                 "env_context": self._build_env_context(ctx, agent_config),
                 "agent_config": agent_config,
                 "driver_prompt_hints": self._get_driver_prompt_hints(ctx),
@@ -511,6 +510,19 @@ class AgentBuilder:
                 mws.append(
                     ToolCoordinatorMiddleware(coordinator=tool_coordinator),
                 )
+
+        memory_manager = AgentBuilder._get_memory_manager(ctx)
+        if memory_manager is not None:
+            try:
+                build_middlewares = getattr(
+                    memory_manager,
+                    "build_middlewares",
+                    None,
+                )
+                if callable(build_middlewares):
+                    mws.extend(build_middlewares())
+            except Exception:
+                _logger.debug("Memory middlewares not created", exc_info=True)
 
         # Tiered tool-result pruning (ported from LightContextManager)
         try:
