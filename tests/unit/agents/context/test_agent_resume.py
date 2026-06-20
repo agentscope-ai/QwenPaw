@@ -43,7 +43,9 @@ class AgentShim:
 
 def _user(text):
     return Msg(
-        name="u", role="user", content=[TextBlock(type="text", text=text)]
+        name="u",
+        role="user",
+        content=[TextBlock(type="text", text=text)],
     )
 
 
@@ -72,7 +74,7 @@ def _seed_session(store):
             _user("do the task"),
             _assistant("step one", headline="h1"),
             _assistant("step two", headline="h2"),
-        ]
+        ],
     )
     mgr = ScrollContextManager(history=store, session_id="s1", agent_id="ag1")
     agent = AgentShim(mgr, state)

@@ -42,7 +42,10 @@ def _sample_msgs() -> list[Msg]:
             content=[
                 TextBlock(type="text", text="working\n⟦ did the work ⟧"),
                 ToolCallBlock(
-                    type="tool_call", id="c1", name="grep", input="{}"
+                    type="tool_call",
+                    id="c1",
+                    name="grep",
+                    input="{}",
                 ),
                 ToolResultBlock(
                     type="tool_result",

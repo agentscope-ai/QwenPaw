@@ -425,7 +425,9 @@ def _make_conversation_adapter(name: str) -> CommandSpec:
                 # source of truth); only wire an offloader for the commands
                 # when ``offload_dialog`` is on. Native keeps it always.
                 want_dialog = lcc.strategy != "scroll" or getattr(
-                    lcc.scroll_config, "offload_dialog", False
+                    lcc.scroll_config,
+                    "offload_dialog",
+                    False,
                 )
                 if want_dialog:
                     offloader = QwenPawOffloader(

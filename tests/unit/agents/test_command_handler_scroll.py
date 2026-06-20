@@ -30,7 +30,9 @@ def _handler(tmp_path, *, strategy="scroll", workspace=True, monkeypatch):
         session_id="sess-x",
     )
     monkeypatch.setattr(
-        handler, "_get_agent_config", lambda: _config(strategy)
+        handler,
+        "_get_agent_config",
+        lambda: _config(strategy),
     )
     return handler
 
@@ -55,7 +57,10 @@ def test_native_strategy_stays_on_native(tmp_path, monkeypatch):
 
 def test_no_workspace_stays_on_native(tmp_path, monkeypatch):
     handler = _handler(
-        tmp_path, strategy="scroll", workspace=False, monkeypatch=monkeypatch
+        tmp_path,
+        strategy="scroll",
+        workspace=False,
+        monkeypatch=monkeypatch,
     )
     assert handler._build_standalone_scroll_manager() is None
 

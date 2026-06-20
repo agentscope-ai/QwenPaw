@@ -26,7 +26,9 @@ from qwenpaw.agents.context.types import LogEntry
 
 def user(text: str) -> Msg:
     return Msg(
-        name="u", role="user", content=[TextBlock(type="text", text=text)]
+        name="u",
+        role="user",
+        content=[TextBlock(type="text", text=text)],
     )
 
 
@@ -243,7 +245,9 @@ async def test_compress_does_not_index_boundary_msg_still_in_tail(
         content=[TextBlock(type="text", text="boundary tail blocks")],
     )
     object.__setattr__(
-        reserve_half, "id", boundary.id
+        reserve_half,
+        "id",
+        boundary.id,
     )  # same id, fewer blocks
     agent._split_return = ([pinned, a, compress_half], [reserve_half])
 

@@ -26,6 +26,7 @@ shared per-date files), so it cannot be recovered. Each date-file is mapped to
 one synthetic session, ``legacy:{YYYY-MM-DD}``, preserving the day-grouped
 timeline the legacy design was built around.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -141,7 +142,9 @@ def _save_manifest(manifest_path: Path, manifest: dict) -> None:
         )
     except OSError as exc:
         logger.warning(
-            "migrate: could not write manifest %s: %s", manifest_path, exc,
+            "migrate: could not write manifest %s: %s",
+            manifest_path,
+            exc,
         )
 
 
@@ -175,7 +178,9 @@ def _migrate_file(
             except Exception as exc:  # noqa: BLE001 - tolerate any bad line
                 res.unparseable += 1
                 logger.warning(
-                    "migrate: skipping bad line in %s: %s", path.name, exc,
+                    "migrate: skipping bad line in %s: %s",
+                    path.name,
+                    exc,
                 )
                 continue
 
