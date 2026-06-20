@@ -141,7 +141,7 @@ class OpenAIProvider(Provider):
                 break
             return True, ""
         except APIError as exc:
-            msg = exc.message or str(exc)
+            msg = getattr(exc, "message", None) or str(exc)
             return (
                 False,
                 f"API error when connecting to model '{model_id}': {msg}",

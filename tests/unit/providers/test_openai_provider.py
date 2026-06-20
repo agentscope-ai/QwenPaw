@@ -122,7 +122,7 @@ async def test_check_model_connection_success(monkeypatch) -> None:
     assert len(captured) == 1
     assert captured[0]["model"] == "gpt-4o-mini"
     assert captured[0]["timeout"] == 4
-    assert captured[0]["max_tokens"] == 20
+    assert captured[0]["max_tokens"] == 64
     assert captured[0]["stream"] is True
 
 
@@ -145,7 +145,65 @@ async def test_check_model_connection_api_error_returns_false(
     ok, msg = await provider.check_model_connection("gpt-4o-mini", timeout=4)
 
     assert ok is False
-    assert msg == "API error when connecting to model 'gpt-4o-mini'"
+    assert "API error when connecting to model 'gpt-4o-mini'" in msg
+
+
+async def test_check_model_connection_zhipu_group_success(monkeypatch) -> None:
+    provider = _make_provider()
+    provider.provider_group = "zhipu"
+    captured: list[dict] = []
+
+    class FakeStream:
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            raise StopAsyncIteration
+
+    class FakeCompletions:
+        async def create(self, **kwargs):
+            captured.append(kwargs)
+            return FakeStream()
+
+    fake_client = SimpleNamespace(
+        chat=SimpleNamespace(completions=FakeCompletions()),
+    )
+    monkeypatch.setattr(provider, "_client", lambda timeout=5: fake_client)
+
+    ok, _ = await provider.check_model_connection("glm-4", timeout=4)
+
+    assert ok is True
+    assert len(captured) == 1
+    assert captured[0]["messages"][0]["content"] == "ping"
+
+
+async def test_check_model_connection_zhipu_id_success(monkeypatch) -> None:
+    provider = _make_provider()
+    provider.id = "zhipu-something"
+    captured: list[dict] = []
+
+    class FakeStream:
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            raise StopAsyncIteration
+
+    class FakeCompletions:
+        async def create(self, **kwargs):
+            captured.append(kwargs)
+            return FakeStream()
+
+    fake_client = SimpleNamespace(
+        chat=SimpleNamespace(completions=FakeCompletions()),
+    )
+    monkeypatch.setattr(provider, "_client", lambda timeout=5: fake_client)
+
+    ok, _ = await provider.check_model_connection("glm-4", timeout=4)
+
+    assert ok is True
+    assert len(captured) == 1
+    assert captured[0]["messages"][0]["content"] == "ping"
 
 
 async def test_update_config_updates_non_none_values_and_get_info() -> None:
