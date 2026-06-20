@@ -53,6 +53,8 @@ through ``ms`` — call these intent helpers instead of writing SQL by hand
   • ms.recall_tool(id)  — re-read a tool call and its result by tool_call_id
   • ms.search("topic words", k=10) — full-text across your whole memory
       (scope="agent" default; "all" / "session" to widen / narrow)
+  • ms.sessions() / ms.session(id) — list your past conversations (incl.
+      scheduled cron/heartbeat runs), then read one in full by session_id
   • ms.days_between(d1, d2) — |days| between two dates, parsing each out
 
 For custom aggregation (counting or ranking mentions) ``ms.sql_query(sql,

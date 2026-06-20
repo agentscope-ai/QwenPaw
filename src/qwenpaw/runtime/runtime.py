@@ -184,12 +184,8 @@ class Runtime:
 
     def _build_context(self, request: Any) -> HookContext:
         workspace_dir = getattr(self.workspace, "workspace_dir", None)
-        # Fall back to the resolved workspace's own agent id (not a hardcoded
-        # "default") so the builder loads THIS agent's config. Otherwise a
-        # request that selected a non-default agent via workspace resolution
-        # (e.g. X-Agent-Id header) but without agent_id in the body would load
-        # "default"'s config onto the right workspace — e.g. silently dropping
-        # the scroll context strategy.
+        # Prefer the workspace's resolved agent id over a bare "default", so an
+        # agent selected by header (no body agent_id) loads its own config.
         agent_id = (
             getattr(request, "agent_id", None)
             or getattr(self.workspace, "agent_id", None)
