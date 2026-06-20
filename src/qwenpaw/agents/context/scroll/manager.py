@@ -62,12 +62,12 @@ class ScrollContextManager:
         self._capped_results = (
             capped_results if capped_results is not None else {}
         )
-        self._persisted_ids: set[str] = (
-            set()
-        )  # msgs whose non-result row is stored
-        self._persisted_tcids: set[str] = (
-            set()
-        )  # tool_call_ids whose result row is stored
+        self._persisted_ids: set[
+            str
+        ] = set()  # msgs whose non-result row is stored
+        self._persisted_tcids: set[
+            str
+        ] = set()  # tool_call_ids whose result row is stored
         self._synthetic_ids: set[str] = set()  # placeholder msgs we inserted
         self._seq_by_id: dict[
             str,
