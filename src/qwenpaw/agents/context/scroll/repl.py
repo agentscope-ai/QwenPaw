@@ -4,9 +4,9 @@
 The model recalls evicted history by running Python here, not by scrolling
 back. Each call runs a fresh process (Option A: stateless cells) inside the
 sandbox when a ``sandbox_config`` is supplied — mirroring
-``execute_shell_command``. The cell's namespace exposes ``ms`` (the durable
-history ATTACHed read-only + a file-backed scratch DB), ``SCRATCH``, ``grep``
-and ``days_between`` via :mod:`._repl_helpers`.
+``execute_shell_command``. The cell preamble builds ``ms`` (the durable
+history ATTACHed read-only + a file-backed scratch DB) from
+:mod:`.memoryspace`.
 
 Python variables do not persist across calls; derived tables do, because the
 ``ms`` scratch DB is file-backed under the workspace.
@@ -24,22 +24,29 @@ from agentscope.tool import ToolChunk
 from ...tools.utils import truncate_text_output  # repo-standard output bound
 from ....runtime.tool_registry import ToolDescriptor
 
-# Directory holding _repl_helpers.py / memoryspace.py — added to the cell's
-# sys.path so the sandboxed process imports them by bare module name.
+# Directory holding memoryspace.py — added to the cell's sys.path so the
+# sandboxed process imports it by bare module name.
 _PKG_DIR = str(Path(__file__).parent)
 
 _DOC = """Run Python to recall evicted conversation history.
 
-The persistent record lives in a SQLite store reached through `ms`:
-  • ms.sql_query(sql, params=None) — read; `hist.conversation_history` is the
-    durable history (read-only), `main` is your read/write scratch.
+The persistent record reaches you through `ms`. Prefer these intent helpers
+(values are bound for you — no SQL to write):
+  • ms.expand(lo, hi) — full turns in the seq span [lo, hi], oldest first.
+  • ms.outline(lo, hi) — headlines only in that span (zoom before expand).
+  • ms.recall_tool(tool_call_id) — a tool call and its result (this agent;
+    pass all_agents=True to widen).
   • ms.search(query, scope="agent"|"session"|"all", kind=None, k=10) — FTS5.
     scope="agent" (default) searches your whole history across past sessions;
     "session" limits to this conversation; "all" spans every agent here.
-  • ms.sql_exec(sql, params=None) — write to scratch (CREATE/INSERT/...).
-Also available: SCRATCH (a Path for working files), grep(pattern,
-path=SCRATCH), days_between(d1, d2). Only what you print() is returned;
-variables do NOT persist across calls, but scratch tables do.
+  • ms.days_between(d1, d2, inclusive=False) — |days| between two dates
+    (parses a date out of either string); use it instead of hand math.
+Advanced escape hatch: ms.sql_query(sql, params) reads arbitrary SQL over the
+read-only `hist.conversation_history` (for custom counting/ranking) and
+ms.sql_exec(sql, params) writes a `main` scratch DB. Bind via params, never
+f-string values in.
+Only what you print() is returned; variables do NOT persist across calls,
+but scratch tables do.
 
 Args:
     source (str): Python source to execute.
@@ -66,22 +73,24 @@ def make_execute_python(
     set. Enabling that opt-in runs arbitrary host code as the agent user with
     zero isolation; use it only for trusted local/dev setups.
     """
-    scratch_dir = str(Path(scratch_root) / "repl")
     scratch_db = str(Path(scratch_root) / "repl" / "scratch.db")
     cells_dir = Path(scratch_root) / "cells"
 
     def _build_cell(source: str) -> Path:
+        # sqlite3.connect won't create missing parent dirs, so make the
+        # scratch DB's holding dir before MemorySpace opens it.
         preamble = (
             "import sys\n"
             f"sys.path.insert(0, {_PKG_DIR!r})\n"
-            "from _repl_helpers import bootstrap\n"
-            "globals().update(bootstrap(\n"
+            "from pathlib import Path\n"
+            "from memoryspace import MemorySpace\n"
+            f"Path({scratch_db!r}).parent.mkdir(parents=True, exist_ok=True)\n"
+            "ms = MemorySpace(\n"
             f"    history_db_path={history_db_path!r},\n"
             f"    session_id={session_id!r},\n"
             f"    agent_id={agent_id!r},\n"
-            f"    scratch_dir={scratch_dir!r},\n"
             f"    scratch_db_path={scratch_db!r},\n"
-            "))\n"
+            ")\n"
         )
         cells_dir.mkdir(parents=True, exist_ok=True)
         cell = cells_dir / f"cell_{uuid.uuid4().hex}.py"

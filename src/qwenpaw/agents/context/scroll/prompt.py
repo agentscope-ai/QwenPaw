@@ -44,20 +44,20 @@ can decide whether to recall. The map only lists *this* session's evictions;
 reach earlier sessions through ``ms.search`` (below), which spans your whole
 memory by default.
 
-RECALL with the ``execute_python`` tool, querying ``ms`` (the durable history
-is ATTACHed read-only as ``hist.conversation_history``; ``seq`` is a
-globally-unique address, so a span query needs no other filter):
+RECALL with the ``execute_python`` tool. The durable history reaches you
+through ``ms`` — call these intent helpers instead of writing SQL by hand
+(``seq`` is a globally-unique address, so a span needs no other filter):
 
-  • expand a span's full turns:
-      ms.sql_query("SELECT seq, role, content FROM hist.conversation_history "
-                   "WHERE seq BETWEEN <lo> AND <hi> ORDER BY seq")
-  • keyword / phrase search across your whole memory (all past sessions):
-      # scope="agent" default; "all" / "session" to widen / narrow
-      ms.search("topic words", k=10)
+  • ms.expand(lo, hi)   — the full turns in a seq span (the map gives you it)
+  • ms.outline(lo, hi)  — headlines only, to zoom into a collapsed span first
+  • ms.recall_tool(id)  — re-read a tool call and its result by tool_call_id
+  • ms.search("topic words", k=10) — full-text across your whole memory
+      (scope="agent" default; "all" / "session" to widen / narrow)
+  • ms.days_between(d1, d2) — |days| between two dates, parsing each out
 
-``conversation_history`` columns: ``seq`` (the address), ``agent_id`` (which
-agent wrote it), ``kind`` (model_turn | context_msg | tool_result), ``role``,
-``name``, ``content``, ``headline``, ``tool_call_id``, ``created_at``.
+For custom aggregation (counting or ranking mentions) ``ms.sql_query(sql,
+params)`` runs read-only SQL over ``hist.conversation_history``; bind values
+through ``params``, never f-string them in.
 
 DISCIPLINE (this is where recall goes wrong):
   • If the request depends on something not in your live context, recall BEFORE

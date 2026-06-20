@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """The model's SQLite working surface inside ``execute_python``.
 
-Self-contained (stdlib only) so it can be imported by the sandboxed REPL
-bootstrap without the rest of qwenpaw on the path.
+Self-contained (stdlib only) so the sandboxed REPL cell can import it by bare
+module name, without the rest of qwenpaw on the path.
 
 ``main`` is an in-memory database the model owns read/write — its scratch
 space. The durable ``conversation_history`` file is ATTACHed **read-only** as
@@ -13,9 +13,12 @@ from __future__ import annotations
 
 import re
 import sqlite3
+from datetime import date
 from pathlib import Path
 
 _DEFAULT_ROW_CAP = 1000
+
+_DATE_RE = re.compile(r"(\d{4})[-/](\d{1,2})[-/](\d{1,2})")
 
 
 def sanitize_suffix(session_id: str | None) -> str:
@@ -23,6 +26,19 @@ def sanitize_suffix(session_id: str | None) -> str:
     if not session_id:
         return "scratch"
     return re.sub(r"[^0-9A-Za-z_]", "_", session_id)
+
+
+def parse_date(value: object) -> date:
+    """Pull the first ``YYYY-MM-DD`` (or ``YYYY/MM/DD``) out of any string.
+
+    Tolerant of trailing time / surrounding text, so a raw stored timestamp
+    like ``'2024-03-01 09:15:00'`` parses cleanly.
+    """
+    m = _DATE_RE.search(str(value))
+    if not m:
+        raise ValueError(f"no YYYY-MM-DD date in {value!r}")
+    y, mo, d = (int(g) for g in m.groups())
+    return date(y, mo, d)
 
 
 # Mutating actions denied against the read-only ``hist`` schema. DDL is
@@ -138,10 +154,17 @@ class MemorySpace:
     ) -> list[dict]:
         """Run a SELECT (or any read query). Returns up to ``row_cap`` rows.
 
-        Rows come back as plain dicts. On overflow, only the first ``row_cap``
-        are returned plus a trailing ``_truncated`` marker.
+        An escape hatch for custom aggregation (counting/ranking mentions);
+        for ordinary recall prefer :meth:`expand` / :meth:`outline` /
+        :meth:`recall_tool`. Rows come back as plain dicts; on overflow only
+        the first ``row_cap`` are returned plus a trailing ``_truncated``
+        marker. Bind values through ``params`` — never f-string them in.
         """
-        cur = self._conn.execute(sql, params or ())
+        return self._select(sql, params or ())
+
+    def _select(self, sql: str, params: tuple | dict) -> list[dict]:
+        """Execute a read query and return capped, dict-shaped rows."""
+        cur = self._conn.execute(sql, params)
         rows: list[dict] = []
         for i, row in enumerate(cur):
             if i >= self._row_cap:
@@ -149,6 +172,56 @@ class MemorySpace:
                 break
             rows.append({k: row[k] for k in row.keys()})
         return rows
+
+    # -- intent-named recall over the read-only history -----------------------
+
+    def expand(self, lo: int, hi: int) -> list[dict]:
+        """Full durable turns in the seq span ``[lo, hi]``, oldest first.
+
+        ``seq`` is a globally-unique address (one autoincrement across every
+        session and agent), so a span needs no scope filter. This is the
+        primary way to re-read the evicted turns the index points you at.
+        """
+        return self._select(
+            "SELECT seq, kind, role, name, content, headline "
+            "FROM hist.conversation_history "
+            "WHERE seq BETWEEN ? AND ? ORDER BY seq",
+            (int(lo), int(hi)),
+        )
+
+    def outline(self, lo: int, hi: int) -> list[dict]:
+        """Headlines only within ``[lo, hi]`` — a zoom-in on a collapsed tier
+        span before you pull its full content with :meth:`expand`."""
+        return self._select(
+            "SELECT seq, headline FROM hist.conversation_history "
+            "WHERE seq BETWEEN ? AND ? AND headline IS NOT NULL ORDER BY seq",
+            (int(lo), int(hi)),
+        )
+
+    def recall_tool(
+        self,
+        tool_call_id: str,
+        *,
+        all_agents: bool = False,
+    ) -> list[dict]:
+        """Re-read a tool call and its result by ``tool_call_id``.
+
+        Scoped to this agent's history by default — tool-call ids are not
+        globally unique, so widening risks cross-agent collisions; pass
+        ``all_agents=True`` only when you mean to. Returns the matching rows
+        oldest-first (typically the call turn followed by its result).
+        """
+        where = ["tool_call_id = ?"]
+        params: list = [str(tool_call_id)]
+        if not all_agents and self._agent_id:
+            where.append("agent_id = ?")
+            params.append(self._agent_id)
+        return self._select(
+            "SELECT seq, kind, role, name, tool_input, tool_state, content "
+            "FROM hist.conversation_history "
+            "WHERE " + " AND ".join(where) + " ORDER BY seq",
+            tuple(params),
+        )
 
     def search(
         self,
@@ -238,6 +311,23 @@ class MemorySpace:
             {kk: r[kk] for kk in r.keys()}
             for r in self._conn.execute(sql, params)
         ]
+
+    def days_between(
+        self,
+        d1: object,
+        d2: object,
+        *,
+        inclusive: bool = False,
+    ) -> int:
+        """Absolute number of days between two dates — order-independent.
+
+        Each argument may be a date string or any value containing one (e.g. a
+        stored timestamp); the first ``YYYY-MM-DD`` in it is used. LLM calendar
+        arithmetic is flaky, so prefer this over computing the span by hand.
+        Pass ``inclusive=True`` to count both endpoints.
+        """
+        n = abs((parse_date(d2) - parse_date(d1)).days)
+        return n + 1 if inclusive else n
 
     def tables(self) -> list[str]:
         """Names of all scratch (``main``) tables defined so far."""

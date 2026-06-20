@@ -104,7 +104,7 @@ class ScrollContextManager:
         1. persist     — every live turn is now durable.
         2. trigger     — under the token threshold? nothing to do.
         3. split       — pinned head | evictable middle | recent tail.
-        4. add_eviction— fold the middle into the index as a fresh L0 block,
+        4. add_eviction— fold the middle into the index as a fresh Tier 0 block,
                          rebuild context = head + [index] + tail.
         5. compact     — while the rebuilt context still overflows, shrink the
                          index one step and rebuild. Always progresses.
@@ -141,7 +141,7 @@ class ScrollContextManager:
         if not middle:
             return
 
-        # 4) Fold the evicted middle into the index as a new L0 block.
+        # 4) Fold the evicted middle into the index as a new Tier 0 block.
         self._index_evicted(middle)
         self._rebuild_context(agent, head, tail)
 
@@ -268,7 +268,7 @@ class ScrollContextManager:
         agent.state.context = head + [placeholder] + tail
 
     def _index_evicted(self, middle: list[Msg]) -> None:
-        """Append the evicted middle to the index as one fresh L0 block.
+        """Append the evicted middle to the index as one fresh Tier 0 block.
 
         The block spans every evicted ``seq`` (so a range query recovers the
         full turns, tool results included); its leaves are the model turns
