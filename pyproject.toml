@@ -22,8 +22,6 @@ dependencies = [
     "playwright>=1.49.0",
     "questionary>=2.1.1",
     "mss>=9.0.0",
-    # ReMe4 application framework. The `core` extra provides the AgentScope
-    # wrappers, indexes, graph, and local store components used by memory.
     "reme[core]==0.4.0.0",
     "transformers>=4.30.0",
     "python-dotenv>=1.0.0",
