@@ -282,40 +282,62 @@ class MemorySpace:
             (int(limit),),
         )
 
+    def _scope_filters(
+        self,
+        all_agents: bool,
+        session_id: str | None,
+        agent_id: str | None,
+    ) -> list[tuple[str, str]]:
+        """Resolve the ``(column, value)`` lineage filters for a search.
+
+        An explicit ``session_id`` and/or ``agent_id`` pin the search to that
+        conversation / agent (AND-combined). With neither given, the default
+        is this agent's own cross-session history; ``all_agents`` drops the
+        filter to span every agent in the workspace.
+        """
+        if session_id is not None or agent_id is not None:
+            pinned: list[tuple[str, str]] = []
+            if session_id is not None:
+                pinned.append(("session_id", session_id))
+            if agent_id is not None:
+                pinned.append(("agent_id", agent_id))
+            return pinned
+        if all_agents:
+            return []
+        if self._agent_id:
+            return [("agent_id", self._agent_id)]
+        return []
+
     def search(
         self,
         query: str,
         *,
-        scope: str = "agent",
+        session_id: str | None = None,
+        agent_id: str | None = None,
+        all_agents: bool = False,
         kind: str | None = None,
         k: int = 10,
     ) -> list[dict]:
         """Full-text search over ``hist.conversation_history`` content
         (FTS5).
 
-        Returns up to ``k`` rows ranked by relevance (bm25). ``scope`` limits
-        to ``'agent'`` (this agent across all sessions — the default),
-        ``'session'`` (this conversation only), or ``'all'`` (every agent in
-        the workspace). ``kind`` optionally filters. Falls back to a LIKE scan
-        if this SQLite lacks FTS5.
+        Returns up to ``k`` rows ranked by relevance (bm25). By default
+        searches this agent across all its sessions. Pass ``all_agents=True``
+        to span every agent, or pin a *specific* conversation / agent with
+        ``session_id='cron:<job>'`` and/or ``agent_id='<other>'`` (these
+        AND-combine and take precedence). ``kind`` optionally filters by row
+        kind. Falls back to a LIKE scan if this SQLite lacks FTS5.
         """
+        targets = self._scope_filters(all_agents, session_id, agent_id)
         if not self._fts_available():
-            return self._search_like(query, scope, kind, int(k))
+            return self._search_like(query, targets, kind, int(k))
         # bm25 and the `tbl MATCH` syntax need the table NAME, not an alias.
         fts = "conversation_history_fts"
         where = [f"{fts} MATCH ?"]
         params: list = [query]
-        # "all" is the only way to drop the lineage filter; "session" narrows
-        # to this conversation; anything else (incl. the default "agent" and
-        # any typo) fails safe to this agent's own cross-session history.
-        if scope == "all":
-            pass
-        elif scope == "session" and self._session_id:
-            where.append("ch.session_id = ?")
-            params.append(self._session_id)
-        elif self._agent_id:
-            where.append("ch.agent_id = ?")
-            params.append(self._agent_id)
+        for col, val in targets:
+            where.append(f"ch.{col} = ?")
+            params.append(val)
         if kind:
             where.append("ch.kind = ?")
             params.append(kind)
@@ -345,18 +367,18 @@ class MemorySpace:
                 self._fts_ok = False  # no hist attached at all
         return self._fts_ok
 
-    def _search_like(self, query, scope, kind, k) -> list[dict]:
-        """LIKE fallback when FTS5 is unavailable."""
+    def _search_like(self, query, targets, kind, k) -> list[dict]:
+        """LIKE fallback when FTS5 is unavailable.
+
+        ``targets`` is the resolved ``(column, value)`` lineage filter list
+        from :meth:`_scope_filters` (already accounts for scope vs explicit
+        session_id/agent_id).
+        """
         where = ["content LIKE ?"]
         params: list = [f"%{query}%"]
-        if scope == "all":
-            pass
-        elif scope == "session" and self._session_id:
-            where.append("session_id = ?")
-            params.append(self._session_id)
-        elif self._agent_id:
-            where.append("agent_id = ?")
-            params.append(self._agent_id)
+        for col, val in targets:
+            where.append(f"{col} = ?")
+            params.append(val)
         if kind:
             where.append("kind = ?")
             params.append(kind)

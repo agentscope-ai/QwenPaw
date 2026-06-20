@@ -21,8 +21,8 @@ one. You read it back on demand; you do not lose it.
 
 This store may also hold turns written by OTHER agents in this workspace. By
 default your recall sees only your own history (across your sessions); widen to
-everyone with ``scope="all"``, or narrow to just this conversation with
-``scope="session"``.
+everyone with ``all_agents=True``, or aim at one conversation/agent with
+``session_id=...`` / ``agent_id=...`` (see ``ms.search`` below).
 
 HEADLINE your milestones. When a turn establishes a concrete fact, makes a
 decision, or hits a dead-end worth finding again, end that reply with a
@@ -51,10 +51,12 @@ through ``ms`` — call these intent helpers instead of writing SQL by hand
   • ms.expand(lo, hi)   — the full turns in a seq span (the map gives you it)
   • ms.outline(lo, hi)  — headlines only, to zoom into a collapsed span first
   • ms.recall_tool(id)  — re-read a tool call and its result by tool_call_id
-  • ms.search("topic words", k=10) — full-text across your whole memory
-      (scope="agent" default; "all" / "session" to widen / narrow)
+  • ms.search("topic words") — full-text over your past sessions. Add
+      all_agents=True to include other agents, or pin one with
+      session_id="cron:<job>" / agent_id="<other>". k=N for more than 10 hits.
   • ms.sessions() / ms.session(id) — list your past conversations (incl.
-      scheduled cron/heartbeat runs), then read one in full by session_id
+      scheduled cron/heartbeat runs) and read one in full by session_id;
+      ms.agents() lists the other agents sharing this workspace.
   • ms.days_between(d1, d2) — |days| between two dates, parsing each out
 
 For custom aggregation (counting or ranking mentions) ``ms.sql_query(sql,

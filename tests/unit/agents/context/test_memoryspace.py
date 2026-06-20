@@ -116,29 +116,39 @@ def test_hist_is_readable(ms: MemorySpace):
 # -- recall scope semantics --------------------------------------------------
 
 
-def test_search_scope_agent_is_default_and_cross_session(ms: MemorySpace):
+def test_search_default_is_this_agent_cross_session(ms: MemorySpace):
     contents = {r["content"] for r in ms.search("tanks")}
-    # Both of ag1's turns (s1 + s2), none of ag2's.
+    # Both of ag1's turns (s1 + s2), none of ag2's — isolation by default.
     assert "tanks rolled in" in contents
     assert "tanks regrouped later" in contents
     assert "tanks of another agent" not in contents
 
 
-def test_search_scope_session_limits_to_this_conversation(ms: MemorySpace):
-    contents = {r["content"] for r in ms.search("tanks", scope="session")}
-    assert contents == {"tanks rolled in"}
-
-
-def test_search_scope_all_spans_every_agent(ms: MemorySpace):
-    contents = {r["content"] for r in ms.search("tanks", scope="all")}
+def test_search_all_agents_spans_the_workspace(ms: MemorySpace):
+    contents = {r["content"] for r in ms.search("tanks", all_agents=True)}
     assert "tanks of another agent" in contents
     assert len(contents) == 3
 
 
-def test_unknown_scope_fails_safe_to_agent(ms: MemorySpace):
-    """A typo'd scope must NOT leak other agents — it falls back to agent."""
-    contents = {r["content"] for r in ms.search("tanks", scope="bogus")}
-    assert "tanks of another agent" not in contents
+def test_search_pins_to_an_explicit_session(ms: MemorySpace):
+    # ms is on s1, but an explicit session_id targets a different one.
+    contents = {r["content"] for r in ms.search("tanks", session_id="s2")}
+    assert contents == {"tanks regrouped later"}
+
+
+def test_search_pins_to_an_explicit_agent(ms: MemorySpace):
+    # The default agent scope hides ag2; pin to it to read its history.
+    contents = {r["content"] for r in ms.search("tanks", agent_id="ag2")}
+    assert contents == {"tanks of another agent"}
+
+
+def test_explicit_target_takes_precedence(ms: MemorySpace):
+    # An explicit session_id wins even against all_agents=True.
+    contents = {
+        r["content"]
+        for r in ms.search("tanks", all_agents=True, session_id="s1")
+    }
+    assert contents == {"tanks rolled in"}
 
 
 def test_row_cap_truncates_with_marker(history_db: Path):
@@ -157,13 +167,14 @@ def test_row_cap_truncates_with_marker(history_db: Path):
 
 
 def test_like_fallback_respects_scope(ms: MemorySpace):
-    """Force the no-FTS path and confirm scoping still holds."""
+    """Force the no-FTS path; scope + explicit targeting still hold."""
     ms._fts_ok = False
-    contents = {
-        r["content"] for r in ms._search_like("tanks", "agent", None, 10)
-    }
+    contents = {r["content"] for r in ms.search("tanks")}
     assert "tanks of another agent" not in contents
     assert "tanks rolled in" in contents
+    # explicit targeting works on the LIKE path too
+    pinned = {r["content"] for r in ms.search("tanks", agent_id="ag2")}
+    assert pinned == {"tanks of another agent"}
 
 
 # -- intent-named recall helpers --------------------------------------------

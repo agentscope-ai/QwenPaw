@@ -37,9 +37,10 @@ The persistent record reaches you through `ms`. Prefer these intent helpers
   • ms.outline(lo, hi) — headlines only in that span (zoom before expand).
   • ms.recall_tool(tool_call_id) — a tool call and its result (this agent;
     pass all_agents=True to widen).
-  • ms.search(query, scope="agent"|"session"|"all", kind=None, k=10) — FTS5.
-    scope="agent" (default) searches your whole history across past sessions;
-    "session" limits to this conversation; "all" spans every agent here.
+  • ms.search(query, all_agents=False, kind=None, k=10) — FTS5. By default
+    searches your whole history across past sessions; all_agents=True spans
+    every agent here. Pin a specific one with session_id="cron:<job>" /
+    agent_id="<other>" (these take precedence).
   • ms.sessions() — your past conversations (incl. scheduled cron/heartbeat
     runs); ms.session(session_id) reads one in full. ms.agents() lists agents.
   • ms.days_between(d1, d2, inclusive=False) — |days| between two dates

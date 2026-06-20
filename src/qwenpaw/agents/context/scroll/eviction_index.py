@@ -269,8 +269,8 @@ class EvictionIndex:
             "  • re-read a tool call and its result: ms.recall_tool("
             "tool_call_id)",
             "  • keyword search across your whole memory (all past sessions): "
-            'ms.search("YOUR KEYWORDS")  — add scope="all" to include other '
-            'agents, scope="session" to limit to this conversation.',
+            'ms.search("YOUR KEYWORDS")  — add all_agents=True for other '
+            "agents, or session_id=/agent_id= to pin one.",
             "  • list your past sessions (incl. scheduled cron/heartbeat "
             "runs), then read one in full: ms.sessions() → ms.session(id)",
             "",
