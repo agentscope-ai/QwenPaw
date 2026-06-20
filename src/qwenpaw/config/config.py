@@ -34,9 +34,12 @@ from ..constant import (
     WORKING_DIR,
 )
 
+<<<<<<< HEAD
 logger = logging.getLogger(__name__)
 
 
+=======
+>>>>>>> 66d5f1b6 (feat(context): scroll-aware magic commands + opt-in dialog offloader)
 # ============================================================================
 # Core config models (moved here to avoid circular imports)
 # ============================================================================
@@ -844,6 +847,18 @@ class ScrollContextConfig(BaseModel):
             "layer is degraded the tool fails closed and refuses to run. Set "
             "this to true to run the REPL with NO isolation (arbitrary host "
             "code as the agent user) — trusted local/dev use only."
+        ),
+    )
+
+    offload_dialog: bool = Field(
+        default=False,
+        description=(
+            "Also archive evicted turns to legacy ``dialog/{date}.jsonl`` "
+            "files. Off by default: under scroll the durable ``history.db`` "
+            "is already the full record, so dialog files are a redundant "
+            "opt-in for external consumers (analytics, backup). When on, "
+            "dialog is written on every eviction AND on /clear, /new, "
+            "/compact; when off, scroll never writes dialog anywhere."
         ),
     )
 

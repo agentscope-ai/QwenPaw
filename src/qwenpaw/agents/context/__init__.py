@@ -10,6 +10,7 @@ sandboxed ``execute_python`` recall REPL), selected via
 :func:`build_scroll_components` is the single entry point the builder calls; it
 returns ``None`` for any non-scroll strategy, so the feature is fully opt-in.
 """
+
 from __future__ import annotations
 
 import logging
@@ -44,6 +45,7 @@ def build_scroll_components(
     model: Any,
     session_id: str,
     agent_id: str | None = None,
+    offloader: Any = None,
 ) -> ScrollComponents | None:
     """Construct the scroll strategy's components, or ``None`` if not selected.
 
@@ -92,6 +94,9 @@ def build_scroll_components(
         agent_id=agent_id,
         pinned=sc.pinned,
         capped_results=capped_results,
+        # Legacy dialog archive is opt-in; only hand the manager an offloader
+        # when configured, so by default scroll writes nothing to dialog/.
+        offloader=offloader if getattr(sc, "offload_dialog", False) else None,
     )
     cap = ToolResultCapMiddleware(
         history=history,

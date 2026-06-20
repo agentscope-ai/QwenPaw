@@ -222,8 +222,17 @@ class AgentBuilder:
         # strategy, which needs the model for token counting, can wire in).
         model, _formatter = self.build_model(agent_config)
 
+        # Built once and shared: the agent's native offloader, and (when
+        # ``offload_dialog`` is on) scroll's optional dialog archive.
+        offloader = self._build_offloader(ctx, agent_config)
+
         # Optional scroll context strategy (None unless strategy="scroll").
-        scroll = self._build_scroll_components(ctx, agent_config, model)
+        scroll = self._build_scroll_components(
+            ctx,
+            agent_config,
+            model,
+            offloader=offloader,
+        )
         if scroll is not None:
             extra_tools.append(
                 self._wrap_tool(
@@ -265,7 +274,7 @@ class AgentBuilder:
             workspace_dir=workspace_dir,
             request_context=request_context,
             memory_manager=self._get_memory_manager(ctx),
-            offloader=self._build_offloader(ctx, agent_config),
+            offloader=offloader,
             context_config=self._build_context_config(agent_config),
             context_manager=(
                 scroll.context_manager if scroll is not None else None
@@ -542,11 +551,14 @@ class AgentBuilder:
         ctx: Any,
         agent_config: Any,
         model: Any,
+        offloader: Any = None,
     ) -> Any:
         """Build the scroll context strategy, or None when not selected.
 
         Returns ``None`` for the native strategy (the default) so nothing
-        changes unless ``light_context_config.strategy == "scroll"``.
+        changes unless ``light_context_config.strategy == "scroll"``. The
+        shared ``offloader`` is forwarded so scroll can optionally archive
+        evicted turns to ``dialog/*.jsonl`` (opt-in via ``offload_dialog``).
         """
         workspace = getattr(ctx, "workspace", None)
         workspace_dir = (
@@ -572,6 +584,7 @@ class AgentBuilder:
             model=model,
             session_id=session_id,
             agent_id=agent_id,
+            offloader=offloader,
         )
 
     @staticmethod

@@ -47,11 +47,16 @@ class ScrollContextManager:
         agent_id: str | None = None,
         pinned: int = 1,
         capped_results: dict[str, int] | None = None,
+        offloader: Any = None,
     ) -> None:
         self._history = history
         self._session_id = session_id
         self._agent_id = agent_id
         self._pinned = pinned
+        # Optional legacy archive: when set (opt-in via ``offload_dialog``),
+        # evicted turns are also written to ``dialog/{date}.jsonl`` for
+        # external consumers. ``history.db`` remains the source of truth.
+        self._offloader = offloader
         # Shared with the cap middleware: tool_call_id -> seq of results it
         # already wrote in full. We skip re-persisting their truncated stubs.
         self._capped_results = (
@@ -112,6 +117,20 @@ class ScrollContextManager:
             logger.exception("ScrollContextManager write-through failed")
             return False
 
+    async def _offload_dialog(self, middle: list[Msg]) -> None:
+        """Best-effort legacy ``dialog/*.jsonl`` archive of evicted turns.
+
+        No-op unless an offloader was wired in (``offload_dialog`` opt-in).
+        Purely supplementary — the turns are already durable in history.db —
+        so a write failure is logged and swallowed, never aborting eviction.
+        """
+        if self._offloader is None or not middle:
+            return
+        try:
+            await self._offloader.offload_context(self._session_id, middle)
+        except Exception:  # noqa: BLE001 - archive is best-effort
+            logger.warning("scroll dialog offload failed", exc_info=True)
+
     async def compress(self, agent: Any, context_config: Any = None) -> None:
         """Evict the middle into the index; roll the index up under pressure.
 
@@ -170,6 +189,12 @@ class ScrollContextManager:
         ]
         if not middle:
             return
+
+        # 3b) Optional legacy archive of the evicted turns (opt-in). The full
+        #     turns are already durable in history.db; this is a redundant
+        #     dialog/*.jsonl copy for external consumers. A write failure must
+        #     never abort compaction.
+        await self._offload_dialog(middle)
 
         # 4) Fold the evicted middle into the index as a new Tier 0 block.
         self._index_evicted(middle)

@@ -293,6 +293,60 @@ def test_on_save_swallows_write_failure(store: HistoryStore, monkeypatch):
     assert store.degraded is True
 
 
+# -- optional dialog offload (offload_dialog opt-in) ------------------------
+
+
+class _RecordingOffloader:
+    def __init__(self) -> None:
+        self.calls: list = []
+
+    async def offload_context(self, session_id, msgs):
+        self.calls.append((session_id, [m.id for m in msgs]))
+        return "dialog/2026-06-19.jsonl"
+
+
+def _compactable(store, **kw):
+    ctx = [
+        user("task"),
+        assistant("step", headline="did-step"),
+        assistant("recent"),
+    ]
+    mgr = make_manager(store, pinned=1, **kw)
+    agent = FakeAgent(ctx, tokens=200)
+    agent._split_return = (
+        ctx[:2],
+        ctx[2:],
+    )  # evict [step]; keep task + recent
+    return mgr, agent, ctx
+
+
+async def test_compress_offloads_evicted_middle_when_configured(store):
+    off = _RecordingOffloader()
+    mgr, agent, ctx = _compactable(store, offloader=off)
+    await mgr.compress(agent)
+    assert len(off.calls) == 1
+    session_id, ids = off.calls[0]
+    assert session_id == "s1"
+    assert ids == [ctx[1].id]  # exactly the evicted middle turn
+
+
+async def test_compress_does_not_offload_without_offloader(store):
+    mgr, agent, _ = _compactable(store)  # no offloader wired
+    await mgr.compress(agent)  # must work + write nothing to dialog
+    assert "memory" in [m.name for m in agent.state.context]
+
+
+async def test_offload_failure_does_not_abort_eviction(store):
+    class _Boom:
+        async def offload_context(self, session_id, msgs):
+            raise OSError("disk full")
+
+    mgr, agent, _ = _compactable(store, offloader=_Boom())
+    await mgr.compress(agent)  # best-effort archive: swallow + keep evicting
+    assert "did-step" in mgr._index.render()
+    assert "memory" in [m.name for m in agent.state.context]
+
+
 # -- retention ---------------------------------------------------------------
 
 

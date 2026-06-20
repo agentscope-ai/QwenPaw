@@ -110,6 +110,9 @@ class CommandHandler(ConversationCommandHandlerMixin):
         *,
         state: "AgentState | None" = None,
         agent_id: str = "default",
+        workspace_dir: str | None = None,
+        scroll_state: dict | None = None,
+        session_id: str | None = None,
     ):
         """Initialize command handler.
 
@@ -129,6 +132,12 @@ class CommandHandler(ConversationCommandHandlerMixin):
             state: Direct AgentState (standalone mode). Mutually
                 exclusive with ``agent``.
             agent_id: Agent ID for config loading (standalone mode).
+            workspace_dir: Workspace directory (standalone mode) — needed to
+                open the scroll ``history.db`` when ``/compact`` runs under the
+                scroll strategy.
+            scroll_state: The session's persisted scroll checkpoint block, used
+                to seed a standalone ``/compact`` so its eviction index stays
+                continuous with prior compactions.
         """
         if agent is not None and state is not None:
             raise ValueError(
@@ -141,6 +150,22 @@ class CommandHandler(ConversationCommandHandlerMixin):
         self._agent_id = agent_id
         self.memory_manager: "BaseMemoryManager" = memory_manager
         self._offloader = offloader
+        self._workspace_dir = workspace_dir
+        self._scroll_state = scroll_state
+        self._session_id = session_id
+        # Set by a standalone scroll ``/compact`` to the manager's refreshed
+        # checkpoint, so the adapter can persist it back to the session.
+        self._updated_scroll_state: dict | None = None
+
+    @property
+    def updated_scroll_state(self) -> dict | None:
+        """The scroll checkpoint a standalone ``/compact`` produced, if any.
+
+        ``None`` means no scroll compaction ran (native strategy, agent-backed
+        mode, or a non-compacting command); the caller should then leave the
+        session's existing scroll block untouched.
+        """
+        return self._updated_scroll_state
 
     def _get_agent_config(self):
         """Get hot-reloaded agent config."""
@@ -230,7 +255,25 @@ class CommandHandler(ConversationCommandHandlerMixin):
                 )
 
         try:
-            await agent.compress_context()
+            # Agent-backed mode: ``QwenPawAgent.compress_context`` already
+            # routes to scroll or native by itself. Standalone mode builds a
+            # bare AgentScope ``Agent`` whose ``compress_context`` is always
+            # native, so under the scroll strategy we drive the scroll manager
+            # directly here. Native sessions fall through untouched.
+            scroll_mgr = (
+                self._build_standalone_scroll_manager()
+                if self._agent is None
+                else None
+            )
+            if scroll_mgr is not None:
+                try:
+                    scroll_mgr.load_state(self._scroll_state or {})
+                    await scroll_mgr.compress(agent)
+                    self._updated_scroll_state = scroll_mgr.to_dict()
+                finally:
+                    scroll_mgr.close()
+            else:
+                await agent.compress_context()
         except Exception as e:
             logger.exception("compress_context failed: %s", e)
             return await self._make_system_msg(
@@ -282,6 +325,50 @@ class CommandHandler(ConversationCommandHandlerMixin):
             )
         except Exception:
             logger.exception("Failed to build temporary agent for /compact")
+            return None
+
+    def _build_standalone_scroll_manager(self):
+        """Build a ScrollContextManager for a standalone ``/compact``.
+
+        Returns ``None`` unless the strategy is ``scroll`` and a workspace is
+        known — in which case the caller stays on native compression. The
+        manager opens the workspace ``history.db``; the caller must
+        ``close()`` it. No model is needed at construction (compaction reads it
+        from the agent passed to ``compress``).
+        """
+        try:
+            lcc = self._get_agent_config().running.light_context_config
+        except Exception:
+            return None
+        if (
+            getattr(lcc, "strategy", "native") != "scroll"
+            or not self._workspace_dir
+        ):
+            return None
+        try:
+            from .context.scroll.history import HistoryStore
+            from .context.scroll.manager import ScrollContextManager
+
+            sc = lcc.scroll_config
+            history = HistoryStore(Path(self._workspace_dir) / sc.db_filename)
+            # Must match the id normal turns persist under (the builder uses
+            # ``ctx.session_id``), so these rows align with the live history.
+            session_id = (
+                self._session_id
+                or getattr(self._state, "session_id", "")
+                or "local"
+            )
+            return ScrollContextManager(
+                history=history,
+                session_id=session_id,
+                agent_id=self._agent_id,
+                pinned=sc.pinned,
+                # Already gated: the adapter only supplies an offloader when
+                # ``offload_dialog`` is on, so this archives iff configured.
+                offloader=self._offloader,
+            )
+        except Exception:
+            logger.exception("Failed to build scroll manager for /compact")
             return None
 
     async def _process_new(self, messages: list[Msg], _args: str = "") -> Msg:
