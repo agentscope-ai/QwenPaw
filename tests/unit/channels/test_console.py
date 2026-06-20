@@ -582,6 +582,43 @@ class TestConsoleStreaming:
         assert "\\ud83d" not in events[0]
         assert "? broken" in events[0]
 
+    async def test_stream_one_yields_failed_event_on_exception(
+        self,
+        stream_channel,
+    ):
+        """stream_one should yield a failed response SSE event on exception."""
+        from agentscope_runtime.engine.schemas.agent_schemas import (
+            TextContent,
+            ContentType,
+        )
+
+        async def mock_process_error(_request):
+            for _ in range(0):
+                yield None
+            raise ValueError("Something went wrong during generation")
+
+        stream_channel._process = mock_process_error
+
+        payload = {
+            "sender_id": "user123",
+            "content_parts": [
+                TextContent(
+                    type=ContentType.TEXT,
+                    text="Hello",
+                ),
+            ],
+            "meta": {},
+        }
+
+        events = []
+        async for event in stream_channel.stream_one(payload):
+            events.append(event)
+
+        assert len(events) == 1
+        assert events[0].startswith("data: ")
+        assert "failed" in events[0]
+        assert "Something went wrong during generation" in events[0]
+
     async def test_consume_one_drain_stream(self, stream_channel):
         """consume_one should drain stream_one."""
         from unittest.mock import patch, AsyncMock
