@@ -12,6 +12,7 @@ two delegated hooks.
   summarization, nothing lost — every node points to a ``seq`` span recallable
   via the sandboxed ``execute_python`` REPL.
 """
+
 from __future__ import annotations
 
 import logging
@@ -56,12 +57,12 @@ class ScrollContextManager:
         self._capped_results = (
             capped_results if capped_results is not None else {}
         )
-        self._persisted_ids: set[
-            str
-        ] = set()  # msgs whose non-result row is stored
-        self._persisted_tcids: set[
-            str
-        ] = set()  # tool_call_ids whose result row is stored
+        self._persisted_ids: set[str] = (
+            set()
+        )  # msgs whose non-result row is stored
+        self._persisted_tcids: set[str] = (
+            set()
+        )  # tool_call_ids whose result row is stored
         self._synthetic_ids: set[str] = set()  # placeholder msgs we inserted
         self._seq_by_id: dict[
             str,
@@ -92,11 +93,24 @@ class ScrollContextManager:
         durability) so the chat loop survives a write outage; any other
         exception is a real bug and is left to propagate rather than hidden.
         """
+        self._persist_guarded(agent)
+
+    def _persist_guarded(self, agent: Any) -> bool:
+        """Write through, swallowing only disk/SQLite failures.
+
+        Returns ``True`` on success, ``False`` if a write outage was caught and
+        recorded as degraded durability. Any other exception is a real bug and
+        is left to propagate. Shared by :meth:`on_save` (which ignores the
+        result — best-effort) and :meth:`compress` (which must NOT evict when
+        this returns ``False``, or it would drop un-persisted turns).
+        """
         try:
             self._persist_new(agent)
+            return True
         except (sqlite3.Error, OSError) as exc:
             self._history.note_write_failure(exc)
             logger.exception("ScrollContextManager write-through failed")
+            return False
 
     async def compress(self, agent: Any, context_config: Any = None) -> None:
         """Evict the middle into the index; roll the index up under pressure.
@@ -104,15 +118,19 @@ class ScrollContextManager:
         1. persist     — every live turn is now durable.
         2. trigger     — under the token threshold? nothing to do.
         3. split       — pinned head | evictable middle | recent tail.
-        4. add_eviction— fold the middle into the index as a fresh Tier 0 block,
+        4. add_eviction— fold the middle into the index as a new Tier 0 block,
                          rebuild context = head + [index] + tail.
         5. compact     — while the rebuilt context still overflows, shrink the
                          index one step and rebuild. Always progresses.
         """
         cfg = context_config or agent.context_config
 
-        # 1) Durability first — everything in the window is now in the DB.
-        self._persist_new(agent)
+        # 1) Durability first — everything in the window is now in the DB. If
+        #    the write-through failed (degraded durability), do NOT evict: the
+        #    middle isn't durable, so folding it in would leave seq pointers to
+        #    rows that don't exist. Keep it live instead.
+        if not self._persist_guarded(agent):
+            return
 
         # 2) Trigger check (reuse AgentScope's own token accounting).
         kwargs = await as_internals.prepare_model_input(agent)
@@ -136,8 +154,20 @@ class ScrollContextManager:
             m for m in msgs if m.id not in self._synthetic_ids
         ]
         head = real(to_compress[: self._pinned])
-        middle = real(to_compress[self._pinned :])
         tail = real(to_reserve)
+        # AgentScope's pairing-safe split deep-copies the *boundary* Msg into
+        # BOTH halves under the SAME id (its blocks divided between compress
+        # and reserve). That id therefore appears in both to_compress and
+        # to_reserve. Drop any tail id from the middle so we never fold a
+        # still-live turn's seq span into the index — the reserve copy keeps it
+        # visible, so it isn't evicted yet. It gets indexed in a later round
+        # once it moves fully onto the compress side.
+        tail_ids = {m.id for m in tail}
+        middle = [
+            m
+            for m in real(to_compress[self._pinned :])
+            if m.id not in tail_ids
+        ]
         if not middle:
             return
 
@@ -224,6 +254,9 @@ class ScrollContextManager:
                             content=entry.content,
                             headline=entry.headline,
                             blocks=entry.blocks,
+                            tool_call_id=entry.tool_call_id,
+                            name=entry.name,
+                            tool_state=entry.tool_state,
                         )
                         self._model_turn_nblk[mid] = nblk
                         if new_headline:

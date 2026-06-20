@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """Durable, file-backed conversation history shared across sessions."""
+
 from __future__ import annotations
 
 import json
@@ -256,13 +257,18 @@ class HistoryStore:
         content: str | None,
         headline: str | None,
         blocks,
+        tool_call_id: str | None = None,
+        name: str | None = None,
+        tool_state: str | None = None,
     ) -> None:
         """Refresh an already-appended row in place (keeping FTS in sync).
 
         Used when one logical turn is *extended* after first write: AgentScope
         accumulates a whole reply into a single assistant Msg, so the durable
         row must end up with every cell's blocks and any later-emitted
-        headline. ``seq`` is unchanged.
+        headline. The scalar ``tool_call_id``/``name``/``tool_state`` are
+        refreshed too, so a turn that grows a *later* tool call doesn't leave
+        them frozen at their first-write values. ``seq`` is unchanged.
         """
         with self._conn:
             old_content = None
@@ -274,8 +280,17 @@ class HistoryStore:
                 old_content = r["content"] if r else None
             self._conn.execute(
                 "UPDATE conversation_history SET content = ?, headline = ?, "
-                "blocks = ? WHERE seq = ?",
-                (content, headline, _to_json(blocks), seq),
+                "blocks = ?, tool_call_id = ?, name = ?, tool_state = ? "
+                "WHERE seq = ?",
+                (
+                    content,
+                    headline,
+                    _to_json(blocks),
+                    tool_call_id,
+                    name,
+                    tool_state,
+                    seq,
+                ),
             )
             if self._fts:
                 if old_content is not None:
