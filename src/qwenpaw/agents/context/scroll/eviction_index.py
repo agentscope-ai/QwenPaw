@@ -21,6 +21,7 @@ Nothing is lost — every line carries a ``seq`` span and the full turns stay in
 ``conversation_history``; a collapsed line is a zoomed-out view the model
 re-expands with one ``ms.sql_query`` over its span.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -270,6 +271,8 @@ class EvictionIndex:
             "  • keyword search across your whole memory (all past sessions): "
             'ms.search("YOUR KEYWORDS")  — add scope="all" to include other '
             'agents, scope="session" to limit to this conversation.',
+            "  • list your past sessions (incl. scheduled cron/heartbeat "
+            "runs), then read one in full: ms.sessions() → ms.session(id)",
             "",
         ]
         for k in range(len(self._tiers) - 1, -1, -1):

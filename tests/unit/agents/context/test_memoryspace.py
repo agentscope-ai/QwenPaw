@@ -211,6 +211,34 @@ def test_recall_tool_is_agent_scoped_by_default(history_db: Path, tmp_path):
         space.close()
 
 
+# -- session / agent discovery ----------------------------------------------
+
+
+def test_sessions_lists_this_agents_conversations(ms: MemorySpace):
+    rows = {r["session_id"]: r for r in ms.sessions()}
+    # ag1 ran in s1 and s2; ag2's s3 is hidden by the default agent scope.
+    assert set(rows) == {"s1", "s2"}
+    assert rows["s1"]["turns"] == 1
+
+
+def test_sessions_all_agents_spans_the_workspace(ms: MemorySpace):
+    ids = {r["session_id"] for r in ms.sessions(all_agents=True)}
+    assert ids == {"s1", "s2", "s3"}
+
+
+def test_session_reads_one_conversation_in_full(ms: MemorySpace):
+    # Reachable by id even when it belongs to a different agent — the id is
+    # the selector (mirrors how a cron:<job> session is inspected).
+    rows = ms.session("s3")
+    assert [r["content"] for r in rows] == ["tanks of another agent"]
+
+
+def test_agents_is_workspace_wide(ms: MemorySpace):
+    rows = {r["agent_id"]: r for r in ms.agents()}
+    assert set(rows) == {"ag1", "ag2"}
+    assert rows["ag1"]["sessions"] == 2  # s1 + s2
+
+
 def test_sanitize_suffix():
     assert sanitize_suffix(None) == "scratch"
     assert sanitize_suffix("a-b.c/d") == "a_b_c_d"

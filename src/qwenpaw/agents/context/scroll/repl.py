@@ -11,6 +11,7 @@ history ATTACHed read-only + a file-backed scratch DB) from
 Python variables do not persist across calls; derived tables do, because the
 ``ms`` scratch DB is file-backed under the workspace.
 """
+
 import asyncio
 import shlex
 import sys
@@ -39,6 +40,8 @@ The persistent record reaches you through `ms`. Prefer these intent helpers
   • ms.search(query, scope="agent"|"session"|"all", kind=None, k=10) — FTS5.
     scope="agent" (default) searches your whole history across past sessions;
     "session" limits to this conversation; "all" spans every agent here.
+  • ms.sessions() — your past conversations (incl. scheduled cron/heartbeat
+    runs); ms.session(session_id) reads one in full. ms.agents() lists agents.
   • ms.days_between(d1, d2, inclusive=False) — |days| between two dates
     (parses a date out of either string); use it instead of hand math.
 Advanced escape hatch: ms.sql_query(sql, params) reads arbitrary SQL over the

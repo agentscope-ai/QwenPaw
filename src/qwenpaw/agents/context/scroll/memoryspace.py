@@ -9,6 +9,7 @@ space. The durable ``conversation_history`` file is ATTACHed **read-only** as
 schema ``hist``: the model can ``SELECT ... FROM hist.conversation_history``
 across sessions, but any write to ``hist.*`` is rejected by SQLite itself.
 """
+
 from __future__ import annotations
 
 import re
@@ -221,6 +222,64 @@ class MemorySpace:
             "FROM hist.conversation_history "
             "WHERE " + " AND ".join(where) + " ORDER BY seq",
             tuple(params),
+        )
+
+    def sessions(
+        self,
+        *,
+        all_agents: bool = False,
+        limit: int = 50,
+    ) -> list[dict]:
+        """List the conversations recorded in durable history.
+
+        Scoped to this agent's own sessions by default (e.g. the live chat
+        plus any ``cron:<job-id>`` / ``main`` heartbeat sessions it has run);
+        pass ``all_agents=True`` for every agent in the workspace. Each row is
+        a ``session_id`` with its turn count and ``seq``/time span — use it to
+        discover a session, then read it with :meth:`session`.
+        """
+        where: list[str] = []
+        params: list = []
+        if not all_agents and self._agent_id:
+            where.append("agent_id = ?")
+            params.append(self._agent_id)
+        clause = ("WHERE " + " AND ".join(where) + " ") if where else ""
+        params.append(int(limit))
+        return self._select(
+            "SELECT session_id, COUNT(*) AS turns, MIN(seq) AS first_seq, "
+            "MAX(seq) AS last_seq, MAX(created_at) AS last_at "
+            "FROM hist.conversation_history "
+            f"{clause}GROUP BY session_id ORDER BY last_seq DESC LIMIT ?",
+            tuple(params),
+        )
+
+    def session(self, session_id: str, *, limit: int = 200) -> list[dict]:
+        """Read one conversation's turns oldest-first, by ``session_id``.
+
+        The companion to :meth:`sessions` — e.g.
+        ``ms.session("cron:nightly-report")`` reconstructs exactly what that
+        scheduled job said and did. Not scope-filtered: the ``session_id`` is
+        the selector.
+        """
+        return self._select(
+            "SELECT seq, kind, role, name, headline, content "
+            "FROM hist.conversation_history "
+            "WHERE session_id = ? ORDER BY seq LIMIT ?",
+            (str(session_id), int(limit)),
+        )
+
+    def agents(self, *, limit: int = 50) -> list[dict]:
+        """List every agent that has written history in this workspace.
+
+        Always workspace-wide (a discovery/ops view), so it can surface other
+        agents — each row is an ``agent_id`` with its session and turn counts.
+        """
+        return self._select(
+            "SELECT agent_id, COUNT(DISTINCT session_id) AS sessions, "
+            "COUNT(*) AS turns, MAX(created_at) AS last_at "
+            "FROM hist.conversation_history "
+            "GROUP BY agent_id ORDER BY last_at DESC LIMIT ?",
+            (int(limit),),
         )
 
     def search(
