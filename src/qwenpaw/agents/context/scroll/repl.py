@@ -34,7 +34,8 @@ _DOC = """Run Python to recall evicted conversation history.
 The persistent record reaches you through `ms`. Prefer these intent helpers
 (values are bound for you — no SQL to write):
   • ms.expand(lo, hi) — full turns in the seq span [lo, hi], oldest first.
-  • ms.outline(lo, hi) — headlines only in that span (zoom before expand).
+  • ms.outline(lo, hi) — headlines + a 600-char content preview per turn in
+    that span (zoom before pulling full turns with expand).
   • ms.recall_tool(tool_call_id) — a tool call and its result (this agent;
     pass all_agents=True to widen).
   • ms.search(query, all_agents=False, kind=None, k=10) — FTS5. By default

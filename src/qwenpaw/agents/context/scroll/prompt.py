@@ -44,24 +44,11 @@ can decide whether to recall. The map only lists *this* session's evictions;
 reach earlier sessions through ``ms.search`` (below), which spans your whole
 memory by default.
 
-RECALL with the ``execute_python`` tool. The durable history reaches you
-through ``ms`` — call these intent helpers instead of writing SQL by hand
-(``seq`` is a globally-unique address, so a span needs no other filter):
-
-  • ms.expand(lo, hi)   — the full turns in a seq span (the map gives you it)
-  • ms.outline(lo, hi)  — headlines only, to zoom into a collapsed span first
-  • ms.recall_tool(id)  — re-read a tool call and its result by tool_call_id
-  • ms.search("topic words") — full-text over your past sessions. Add
-      all_agents=True to include other agents, or pin one with
-      session_id="cron:<job>" / agent_id="<other>". k=N for more than 10 hits.
-  • ms.sessions() / ms.session(id) — list your past conversations (incl.
-      scheduled cron/heartbeat runs) and read one in full by session_id;
-      ms.agents() lists the other agents sharing this workspace.
-  • ms.days_between(d1, d2) — |days| between two dates, parsing each out
-
-For custom aggregation (counting or ranking mentions) ``ms.sql_query(sql,
-params)`` runs read-only SQL over ``hist.conversation_history``; bind values
-through ``params``, never f-string them in.
+RECALL with the ``execute_python`` tool: the durable history reaches you
+through the ``ms`` helpers (``ms.expand``/``outline`` a seq span the map gave
+you, ``ms.search`` across past sessions, ``ms.sessions``/``session`` to read a
+past conversation, …). The full recall API lives in that tool's own
+description — read it there rather than guessing signatures.
 
 DISCIPLINE (this is where recall goes wrong):
   • If the request depends on something not in your live context, recall BEFORE

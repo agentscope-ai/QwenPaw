@@ -191,10 +191,12 @@ class MemorySpace:
         )
 
     def outline(self, lo: int, hi: int) -> list[dict]:
-        """Headlines only within ``[lo, hi]`` — a zoom-in on a collapsed tier
-        span before you pull its full content with :meth:`expand`."""
+        """Headlines + a 600-char content preview within ``[lo, hi]`` — a
+        zoom-in on a collapsed tier span before you pull the full turns with
+        :meth:`expand`. ``content`` is truncated to its first 600 chars."""
         return self._select(
-            "SELECT seq, headline FROM hist.conversation_history "
+            "SELECT seq, headline, substr(content, 1, 600) AS content "
+            "FROM hist.conversation_history "
             "WHERE seq BETWEEN ? AND ? AND headline IS NOT NULL ORDER BY seq",
             (int(lo), int(hi)),
         )

@@ -261,18 +261,12 @@ class EvictionIndex:
             "the pinned task is above and the recent live turns follow. Each "
             "'·' line is a seq span you can re-expand.",
             "",
-            "Recall (inside execute_python); seq is a globally-unique "
-            "address, so a span needs no other filter:",
-            "  • zoom a span to its per-turn headlines: ms.outline(lo, hi)",
-            "  • read a span's (or one turn's) full content: "
-            "ms.expand(lo, hi)",
-            "  • re-read a tool call and its result: ms.recall_tool("
-            "tool_call_id)",
-            "  • keyword search across your whole memory (all past sessions): "
-            'ms.search("YOUR KEYWORDS")  — add all_agents=True for other '
-            "agents, or session_id=/agent_id= to pin one.",
-            "  • list your past sessions (incl. scheduled cron/heartbeat "
-            "runs), then read one in full: ms.sessions() → ms.session(id)",
+            "Re-expand a span inside execute_python: ms.expand(lo, hi) for "
+            "full content, ms.outline(lo, hi) for headlines + a 600-char "
+            "preview (seq is a "
+            "globally-unique address, so a span needs no other filter). Other "
+            "recall helpers (search, sessions, …) are in the execute_python "
+            "tool description.",
             "",
         ]
         for k in range(len(self._tiers) - 1, -1, -1):
