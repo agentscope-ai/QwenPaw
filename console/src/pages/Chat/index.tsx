@@ -2963,13 +2963,19 @@ export default function ChatPage() {
 
       {/* Right-side history panel (full mode only) */}
       {isFullMode && historyPanelOpen && (
-        <div className={styles.historyPanel}>
-          <ChatSessionDrawer
-            open={historyPanelOpen}
-            onClose={toggleHistoryPanel}
-            embedded
+        <>
+          <div
+            className={styles.historyPanelMask}
+            onClick={toggleHistoryPanel}
           />
-        </div>
+          <div className={styles.historyPanel}>
+            <ChatSessionDrawer
+              open={historyPanelOpen}
+              onClose={toggleHistoryPanel}
+              embedded
+            />
+          </div>
+        </>
       )}
     </div>
   );

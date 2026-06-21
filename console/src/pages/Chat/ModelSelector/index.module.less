@@ -61,6 +61,15 @@
   display: flex;
   flex-direction: column;
   overflow: hidden;
+
+  @media (max-width: 768px) {
+    width: calc(100vw - 32px);
+    max-width: 360px;
+    max-height: 60vh;
+    position: fixed !important;
+    left: 50% !important;
+    transform: translateX(-50%) !important;
+  }
 }
 
 /* ---- Search box ---- */

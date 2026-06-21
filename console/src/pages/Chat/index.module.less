@@ -117,7 +117,20 @@
 
 @media (max-width: 900px) {
   .historyPanel {
-    display: none;
+    position: fixed;
+    top: 90px;
+    right: 0;
+    bottom: 0;
+    width: min(330px, 85vw);
+    z-index: 1000;
+    box-shadow: -4px 0 12px rgba(0, 0, 0, 0.15);
+    border-radius: 12px 0 0 12px;
+  }
+  .historyPanelMask {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.45);
+    z-index: 999;
   }
 }
 
