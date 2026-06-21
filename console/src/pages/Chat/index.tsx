@@ -32,7 +32,10 @@ import ChatActionGroup from "./components/ChatActionGroup";
 import ChatSessionDrawer from "./components/ChatSessionDrawer";
 import { useSidebarModeStore } from "../../stores/sidebarModeStore";
 import TurnUsageAction from "./components/TurnUsageAction";
-import { wrapChatResponseUsageStream } from "./turnUsage";
+import {
+  patchContextMaxInputLength,
+  wrapChatResponseUsageStream,
+} from "./turnUsage";
 import ChatHeaderTitle from "./components/ChatHeaderTitle";
 import ChatSessionInitializer from "./components/ChatSessionInitializer";
 import { ApprovalCard } from "../../components/ApprovalCard/ApprovalCard";
@@ -1491,6 +1494,19 @@ export default function ChatPage() {
   const chatIdRef = useRef(chatId);
   const navigateRef = useRef(navigate);
   const chatRef = useRef<IAgentScopeRuntimeWebUIRef>(null);
+
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const maxInputLength = (e as CustomEvent<{ maxInputLength?: number }>)
+        .detail?.maxInputLength;
+      if (typeof maxInputLength === "number" && maxInputLength > 0) {
+        patchContextMaxInputLength(chatRef, maxInputLength);
+      }
+    };
+    window.addEventListener("model-switched", handler);
+    return () => window.removeEventListener("model-switched", handler);
+  }, []);
+
   const pendingClearHistoryRef = useRef(false);
   const whisperSpeechRef = useRef<WhisperSpeechButtonRef>(null);
   const [whisperEnabled, setWhisperEnabled] = useState(false);
