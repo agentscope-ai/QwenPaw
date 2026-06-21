@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import {
   Button,
   Card,
+  Dropdown,
   Form,
   Modal,
   Popover,
@@ -11,6 +12,7 @@ import {
 import {
   CalendarOutlined,
   LeftOutlined,
+  MoreOutlined,
   RightOutlined,
   UnorderedListOutlined,
 } from "@ant-design/icons";
@@ -73,6 +75,14 @@ function CronJobsPage() {
   const [saving, setSaving] = useState(false);
   const [templateModalOpen, setTemplateModalOpen] = useState(false);
   const [viewMode, setViewMode] = useState<CronViewMode>("list");
+  const [isMobile, setIsMobile] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 768px)");
+    setIsMobile(mq.matches);
+    const handler = (e: MediaQueryListEvent) => setIsMobile(e.matches);
+    mq.addEventListener("change", handler);
+    return () => mq.removeEventListener("change", handler);
+  }, []);
   const [scheduleTypeFilter, setScheduleTypeFilter] =
     useState<ScheduleTypeFilter>("all");
   const [calendarMonth, setCalendarMonth] = useState(dayjs());
@@ -160,6 +170,44 @@ function CronJobsPage() {
       ...templateValues,
     });
     setDrawerOpen(true);
+  };
+
+  const formatSchedule = (job: CronJob) => {
+    if (job.schedule?.type === "once") {
+      return job.schedule?.run_at
+        ? dayjs(job.schedule.run_at).format("YYYY-MM-DD HH:mm")
+        : "-";
+    }
+    const cron = job.schedule?.cron || "-";
+    const parts = parseCron(cron);
+    switch (parts.type) {
+      case "hourly":
+        return t("cronJobs.cronTypeHourly");
+      case "daily":
+        return `${t("cronJobs.cronTypeDaily")} ${String(parts.hour).padStart(
+          2,
+          "0",
+        )}:${String(parts.minute).padStart(2, "0")}`;
+      case "weekly": {
+        const dayNames = (parts.daysOfWeek || [])
+          .map((d) => {
+            const dayMap: Record<string, string> = {
+              mon: t("cronJobs.cronDayMon"),
+              tue: t("cronJobs.cronDayTue"),
+              wed: t("cronJobs.cronDayWed"),
+              thu: t("cronJobs.cronDayThu"),
+              fri: t("cronJobs.cronDayFri"),
+              sat: t("cronJobs.cronDaySat"),
+              sun: t("cronJobs.cronDaySun"),
+            };
+            return dayMap[d] || d;
+          })
+          .join(",");
+        return `${t("cronJobs.cronTypeWeekly")} ${dayNames}`;
+      }
+      default:
+        return cron;
+    }
   };
 
   const handleEdit = (job: CronJob) => {
@@ -533,7 +581,9 @@ function CronJobsPage() {
               <Select<ScheduleTypeFilter>
                 value={scheduleTypeFilter}
                 onChange={setScheduleTypeFilter}
-                style={{ width: 200 }}
+                style={
+                  isMobile ? { width: "100%", maxWidth: 160 } : { width: 200 }
+                }
                 options={[
                   {
                     label: t("cronJobs.scheduleFilterAll"),
@@ -570,30 +620,121 @@ function CronJobsPage() {
                 <CalendarOutlined />
               </button>
             </div>
-            <Button type="primary" onClick={handleCreate}>
-              + {t("cronJobs.createJob")}
-            </Button>
-            <Button onClick={handleOpenTemplateModal}>
-              {t("cronJobs.createFromTemplate")}
-            </Button>
+            {!isMobile && (
+              <Button type="primary" onClick={handleCreate}>
+                + {t("cronJobs.createJob")}
+              </Button>
+            )}
+            {isMobile && (
+              <Button type="primary" onClick={handleCreate} size="small">
+                +
+              </Button>
+            )}
+            {!isMobile && (
+              <Button onClick={handleOpenTemplateModal}>
+                {t("cronJobs.createFromTemplate")}
+              </Button>
+            )}
           </div>
         }
       />
 
       {viewMode === "list" ? (
-        <Card className={styles.tableCard} bodyStyle={{ padding: 0 }}>
-          <Table
-            columns={columns}
-            dataSource={filteredListJobs}
-            loading={loading}
-            rowKey="id"
-            scroll={{ x: 2840 }}
-            pagination={{
-              pageSize: 10,
-              showSizeChanger: false,
-            }}
-          />
-        </Card>
+        isMobile ? (
+          <div className={styles.mobileCardList}>
+            {filteredListJobs.map((job) => (
+              <Card
+                key={job.id}
+                className={styles.mobileJobCard}
+                size="small"
+                bodyStyle={{ padding: 24 }}
+              >
+                <div className={styles.mobileJobHeader}>
+                  <span className={styles.mobileJobName}>{job.name}</span>
+                  <span
+                    className={`${styles.mobileJobStatus} ${
+                      job.enabled ? styles.enabled : ""
+                    }`}
+                  >
+                    <span
+                      className={`${styles.statusDot} ${
+                        job.enabled ? styles.enabled : styles.disabled
+                      }`}
+                    />
+                    {job.enabled ? t("common.enabled") : t("common.disabled")}
+                  </span>
+                </div>
+                <div className={styles.mobileJobSchedule}>
+                  {formatSchedule(job)}
+                </div>
+                <div className={styles.mobileJobActions}>
+                  <Button
+                    size="small"
+                    className={styles.mobileActionBtn}
+                    onClick={() => toggleEnabled(job)}
+                  >
+                    {job.enabled ? t("cronJobs.disable") : t("common.enable")}
+                  </Button>
+                  <Button
+                    size="small"
+                    className={styles.mobileActionBtn}
+                    onClick={() => executeNow(job.id as string)}
+                  >
+                    {t("cronJobs.executeNow")}
+                  </Button>
+                  <Button
+                    size="small"
+                    className={styles.mobileActionBtn}
+                    onClick={() => handleViewHistory(job)}
+                  >
+                    {t("cronJobs.executionHistory")}
+                  </Button>
+                  <Dropdown
+                    menu={{
+                      items: [
+                        {
+                          key: "edit",
+                          label: t("cronJobs.edit"),
+                          disabled: job.enabled,
+                          onClick: () => handleEdit(job),
+                        },
+                        {
+                          key: "delete",
+                          label: t("cronJobs.delete"),
+                          disabled: job.enabled,
+                          danger: true,
+                          onClick: () => handleDelete(job.id as string),
+                        },
+                      ],
+                    }}
+                    placement="bottomRight"
+                  >
+                    <Button
+                      type="text"
+                      size="small"
+                      className={styles.mobileMoreBtn}
+                      icon={<MoreOutlined />}
+                    />
+                  </Dropdown>
+                </div>
+              </Card>
+            ))}
+          </div>
+        ) : (
+          <Card className={styles.tableCard} bodyStyle={{ padding: 0 }}>
+            <Table
+              columns={columns}
+              dataSource={filteredListJobs}
+              loading={loading}
+              rowKey="id"
+              scroll={{ x: 2840 }}
+              pagination={{
+                pageSize: 10,
+                showSizeChanger: false,
+              }}
+            />
+          </Card>
+        )
       ) : (
         <Card className={styles.calendarCard} bodyStyle={{ padding: 0 }}>
           <div className={styles.calendarHeader}>
