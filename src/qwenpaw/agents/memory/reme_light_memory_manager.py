@@ -263,7 +263,7 @@ class ReMeLightMemoryManager(BaseMemoryManager):
     _CHROMADB_PROBE_SCRIPT = (
         "import chromadb; "
         "c = chromadb.EphemeralClient(); "
-        "c.get_or_create_collection('_probe')"
+        "c.get_or_create_collection('probe-test')"
     )
     _CHROMADB_PROBE_TIMEOUT = 15
 
