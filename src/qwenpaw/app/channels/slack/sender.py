@@ -6,8 +6,8 @@ Handles text, image, and file delivery through the Slack Web API.
 Text messages are formatted as mrkdwn and automatically split at
 the 8000-character limit.  Image and file uploads use Slack's
 ``files.uploadV2`` (for simple cases) or the 3-step external upload
-flow (``files.getUploadURLExternal`` → HTTP POST →
-``files.completeUploadExternal``) when a local file path is provided.
+flow (``files_getUploadURLExternal`` → HTTP POST →
+``files_completeUploadExternal``) when a local file path is provided.
 """
 
 from __future__ import annotations
@@ -15,7 +15,6 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-import time
 from typing import TYPE_CHECKING, Any, Dict, Optional
 
 import aiohttp
@@ -46,7 +45,7 @@ def _is_slack_ssrf_allowed(url: str) -> bool:
     if not host:
         return False
 
-    # 精确后缀匹配 — 杜绝 fnmatch 通配符绕过
+    # Exact suffix matching — Prevent fnmatch wildcards from being bypassed
     _ALLOWED_SUFFIXES: tuple[str, ...] = (
         ".slack.com",
         ".slack-edge.com",
@@ -106,9 +105,10 @@ class SlackSender:
         channel_id, thread_ts = self.resolve_route(to_handle, meta)
         route_key = f"{channel_id}:{thread_ts or ''}"
 
-        if route_key not in self._per_route_locks:
-            self._per_route_locks[route_key] = asyncio.Lock()
-        lock = self._per_route_locks[route_key]
+        lock = self._per_route_locks.setdefault(
+            route_key,
+            asyncio.Lock(),
+        )
 
         async with lock:
             return await self._send_content_parts_impl(
@@ -205,11 +205,7 @@ class SlackSender:
                 ts = resp.get("ts")
                 if ts:
                     last_ts = ts
-                    self._channel._bot_message_ts[ts] = time.monotonic()
-                    if thread_ts:
-                        self._channel._bot_message_ts[
-                            thread_ts
-                        ] = time.monotonic()
+                    await self._channel.record_bot_message(ts, thread_ts)
             except Exception:
                 logger.exception(
                     "slack send: chat_postMessage failed chunk=%d/%d "
@@ -221,10 +217,11 @@ class SlackSender:
                 failed_chunks.append(i)
 
         # If all chunks fail, throw an explicit error
-        if failed_chunks and last_ts is None:
+        if failed_chunks:
             raise RuntimeError(
-                f"All {len(chunks)} message chunks failed to send "
-                f"to channel={channel_id}",
+                f"{len(failed_chunks)}/{len(chunks)} message chunks "
+                f"failed to send to channel={channel_id} "
+                f"(failed: {failed_chunks})",
             )
 
         return last_ts
@@ -364,9 +361,9 @@ class SlackSender:
     ) -> Optional[str]:
         """3-step external file upload for local files.
 
-        1. ``files.getUploadURLExternal`` → pre-signed URL
+        1. ``files_getUploadURLExternal`` → pre-signed URL
         2. HTTP POST binary content to the pre-signed URL
-        3. ``files.completeUploadExternal`` → finalise and share
+        3. ``files_completeUploadExternal`` → finalise and share
         """
 
         if not os.path.isfile(filepath):
@@ -378,7 +375,7 @@ class SlackSender:
         # Step 1: get upload URL
         try:
             upload_resp = await with_retry(
-                client.files.getUploadURLExternal,
+                client.files_getUploadURLExternal,
                 filename=filename,
                 length=file_size,
             )
@@ -405,10 +402,17 @@ class SlackSender:
             session = await self._get_http_session()
             with open(filepath, "rb") as fh:
                 data = fh.read()
+            post_kwargs: dict = {
+                "data": data,
+                "timeout": aiohttp.ClientTimeout(30),
+            }
+            # Mirror the proxy used by the Slack REST client
+            proxy_url = self._channel.proxy_url
+            if proxy_url:
+                post_kwargs["proxy"] = proxy_url
             async with session.post(
                 upload_url,
-                data=data,
-                timeout=aiohttp.ClientTimeout(30),
+                **post_kwargs,
             ) as up_resp:
                 if up_resp.status >= 400:
                     logger.warning(
@@ -423,7 +427,7 @@ class SlackSender:
         # Step 3: complete
         try:
             complete_resp = await with_retry(
-                client.files.completeUploadExternal,
+                client.files_completeUploadExternal,
                 files=[{"id": file_id, "title": title or filename}],
                 channel_id=channel_id,
                 thread_ts=thread_ts,
@@ -462,9 +466,7 @@ class SlackSender:
             )
             ts = resp.get("file", {}).get("id")
             if ts:
-                self._channel._bot_message_ts[ts] = time.monotonic()
-                if thread_ts:
-                    self._channel._bot_message_ts[thread_ts] = time.monotonic()
+                await self._channel.record_bot_message(ts, thread_ts)
             return ts
         except Exception:
             logger.exception("slack send: files.uploadV2 failed")
@@ -509,3 +511,8 @@ class SlackSender:
             )
 
         return channel_id, thread_ts
+
+    async def close(self) -> None:
+        """Close the internal aiohttp session if open."""
+        if self._http_session and not self._http_session.closed:
+            await self._http_session.close()

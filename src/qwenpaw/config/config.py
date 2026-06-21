@@ -472,6 +472,7 @@ class SlackConfig(BaseChannelConfig):
     app_token: str = ""
     proxy: Optional[str] = None
     streaming_enabled: bool = False
+    media_dir: Optional[str] = None
 
 
 class ChannelConfig(BaseModel):

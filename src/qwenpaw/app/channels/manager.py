@@ -79,6 +79,8 @@ class ChannelManager:
         self._command_registry = CommandRegistry()
         self._queue_manager: UnifiedQueueManager | None = None
         self._workspace = None
+        for ch in self.channels:
+            ch._manager = self
 
         # Per-channel locks to prevent concurrent restarts
         self._restart_locks: dict[str, asyncio.Lock] = {}

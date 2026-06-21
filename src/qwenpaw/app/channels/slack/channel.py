@@ -42,7 +42,15 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
+import re
+from pathlib import Path
 from typing import Any, Dict, List, Optional
+
+from agentscope_runtime.engine.schemas.agent_schemas import (
+    ContentType,
+    TextContent,
+)
 
 from slack_bolt.adapter.socket_mode.async_handler import (
     AsyncSocketModeHandler,
@@ -71,6 +79,8 @@ from .utils import _resolve_slack_proxy_url, _apply_slack_proxy
 
 logger = logging.getLogger(__name__)
 
+# Streaming edit throttle interval (seconds)
+_STREAM_EDIT_INTERVAL_S = 1.5
 
 # Error messages that indicate a non-recoverable auth failure.
 # When detected, reconnection is abandoned and the channel must be
@@ -104,7 +114,7 @@ def _is_non_recoverable_slack_error(error: Exception) -> bool:
 # ── Main channel class ──
 
 
-class SlackChannel(BaseChannel):
+class SlackChannel(BaseChannel):  # pylint: disable=too-many-public-methods
     """Slack channel with Socket Mode connection and native streaming.
 
     Parameters
@@ -140,6 +150,10 @@ class SlackChannel(BaseChannel):
         deny_message: str = "",
         access_control_dm: bool = False,
         access_control_group: bool = False,
+        dm_disabled: bool = False,
+        group_disabled: bool = False,
+        media_dir: str = "",
+        workspace_dir: Path | None = None,
     ):
         super().__init__(
             process=process,
@@ -156,8 +170,20 @@ class SlackChannel(BaseChannel):
             access_control_group=access_control_group,
         )
         self.enabled = enabled
+        self.dm_disabled = dm_disabled
+        self.group_disabled = group_disabled
         self.bot_token = bot_token
         self.app_token = app_token
+        # Use workspace-specific media dir if workspace_dir is provided
+        if not media_dir and workspace_dir:
+            self._media_dir = Path(workspace_dir).expanduser() / "media"
+        elif media_dir:
+            self._media_dir = Path(media_dir).expanduser()
+        else:
+            from ....constant import DEFAULT_MEDIA_DIR
+
+            self._media_dir = DEFAULT_MEDIA_DIR
+        self._media_dir.mkdir(parents=True, exist_ok=True)
         self.bot_prefix = bot_prefix
         self.proxy = proxy
         self.streaming_enabled = streaming_enabled
@@ -175,6 +201,14 @@ class SlackChannel(BaseChannel):
         self._proxy_url: Optional[str] = None
         self._bot_user_id: str = ""
         self._bot_message_ts: Dict[str, float] = {}
+        self._bot_message_ts_lock = asyncio.Lock()
+        self._thread_context_cache: Dict[str, tuple[str, float]] = {}
+        self.THREAD_CONTEXT_CACHE_TTL: float = 60.0  # seconds
+
+    @property
+    def media_dir(self) -> Path:
+        """Directory for caching downloaded media files."""
+        return self._media_dir
 
     @classmethod
     def from_env(
@@ -215,7 +249,24 @@ class SlackChannel(BaseChannel):
         show_tool_details=True,
         filter_tool_messages=False,
         filter_thinking=False,
+        workspace_dir: Path | None = None,
     ) -> "SlackChannel":
+        # Read from config if present, otherwise fall back to caller args
+        show_tool_details = getattr(
+            config,
+            "show_tool_details",
+            show_tool_details,
+        )
+        filter_tool_messages = getattr(
+            config,
+            "filter_tool_messages",
+            filter_tool_messages,
+        )
+        filter_thinking = getattr(
+            config,
+            "filter_thinking",
+            filter_thinking,
+        )
         return cls(
             process=process,
             enabled=True,
@@ -239,7 +290,21 @@ class SlackChannel(BaseChannel):
                 "access_control_group",
                 False,
             ),
+            dm_disabled=getattr(config, "dm_disabled", False),
+            group_disabled=getattr(config, "group_disabled", False),
+            media_dir=getattr(config, "media_dir", "") or "",
+            workspace_dir=workspace_dir,
         )
+
+    @property
+    def proxy_url(self) -> Optional[str]:
+        """The resolved Slack proxy URL, or None."""
+        return self._proxy_url
+
+    @property
+    def bot_user_id(self) -> str:
+        """The bot's Slack user ID (resolved from auth.test)."""
+        return self._bot_user_id
 
     # ── Lifecycle ──
 
@@ -284,6 +349,41 @@ class SlackChannel(BaseChannel):
         if self._app is not None:
             self._event_handler.register(self._app)
 
+        # Retrieve all command names from CommandRegistry and CommandHandler,
+        # and register them with Slack
+        _slash_names = set()
+
+        # _command_registry is injected by ChannelManager.set_workspace(),
+        # but may not yet be set during the _on_init() phase,
+        # so precautions are needed.
+        registry = getattr(self, "_command_registry", None)
+        if registry is not None:
+            for cmd in registry._command_to_level:
+                name = cmd.lstrip("/").split()[0]
+                if name:
+                    _slash_names.add(name)
+
+        from qwenpaw.agents.command_handler import CommandHandler
+
+        for name in CommandHandler.SYSTEM_COMMANDS:
+            _slash_names.add(name)
+
+        if _slash_names:
+            _slash_pattern = re.compile(
+                r"^/(?:"
+                + "|".join(re.escape(n) for n in sorted(_slash_names))
+                + r")$",
+            )
+
+            @self._app.command(_slash_pattern)
+            async def _handle_qwenpaw_slash(ack, command):
+                slash_name = (command.get("command") or "").lstrip("/")
+                await ack(
+                    response_type="ephemeral",
+                    text=f"Running `/{slash_name}`…",
+                )
+                await self._event_handler.handle_slash_command(command)
+
         self._sender = SlackSender(channel=self)
         self._stream_manager = SlackStreamManager(channel=self)
 
@@ -319,6 +419,13 @@ class SlackChannel(BaseChannel):
     async def _stop(self) -> None:
         """Gracefully disconnect: close handler, cancel task."""
         await self._stop_socket_mode_handler()
+        # Abandon all active streaming sessions
+        if self._stream_manager is not None:
+            await self._stream_manager.cleanup_all()
+        if self._sender is not None:
+            await self._sender.close()
+        if self._event_handler is not None:
+            await self._event_handler.close()
         logger.info("[%s] slack channel stopped", self.channel)
 
     # ── Socket Mode resilience ──
@@ -502,6 +609,169 @@ class SlackChannel(BaseChannel):
         await self._sender.send_content_parts(to_handle, content_parts, meta)
         return {"sent": True}
 
+    # ------------------------------------------------------------------
+    # Streaming hooks — edit-in-place via Slack chat.update
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _get_stream_state(
+        send_meta: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """Get or create the per-request streaming state dict in send_meta."""
+        stream_state = send_meta.get("_sl_stream")
+        if stream_state is None:
+            stream_state = {
+                "message_ts": {},
+                "channel_id": "",
+                "last_edit_ts": {},
+            }
+            send_meta["_sl_stream"] = stream_state
+        return stream_state  # type: ignore[return-value]
+
+    async def on_streaming_start(
+        self,
+        request: Any,
+        to_handle: str,
+        event: Any,
+        send_meta: Dict[str, Any],
+        stream_type: str,
+        accumulated_text: str = "",
+    ) -> None:
+        """Send a placeholder message for streaming."""
+        if stream_type == "reasoning" and self._filter_thinking:
+            return
+
+        channel_id = send_meta.get("slack_channel_id") or ""
+        thread_ts = send_meta.get("slack_thread_ts") or None
+        if not channel_id:
+            return
+
+        client = await self.get_client()
+        prefix = "\U0001f4ad " if stream_type == "reasoning" else ""
+        placeholder = f"{prefix}\u23f3 ..."
+
+        try:
+            resp = await client.chat_postMessage(
+                channel=channel_id,
+                thread_ts=thread_ts,
+                text=placeholder,
+                mrkdwn=True,
+            )
+            ts = resp.get("ts")
+            if ts:
+                state = self._get_stream_state(send_meta)
+                state["message_ts"][stream_type] = ts
+                state["channel_id"] = channel_id
+                await self.record_bot_message(ts, thread_ts)
+        except Exception:
+            logger.debug(
+                "slack on_streaming_start: placeholder failed",
+                exc_info=True,
+            )
+
+    async def on_streaming_delta(
+        self,
+        request: Any,
+        to_handle: str,
+        event: Any,
+        send_meta: Dict[str, Any],
+        stream_type: str,
+        accumulated_text: str = "",
+    ) -> None:
+        """Throttled chat.update to show incremental progress."""
+        if stream_type == "reasoning" and self._filter_thinking:
+            return
+
+        state = self._get_stream_state(send_meta)
+        msg_ts = state["message_ts"].get(stream_type)
+        channel_id = state["channel_id"]
+        if not msg_ts or not channel_id:
+            return
+
+        now = time.monotonic()
+        last_ts = state["last_edit_ts"].get(stream_type, 0.0)
+        if now - last_ts < _STREAM_EDIT_INTERVAL_S:
+            return
+
+        client = await self.get_client()
+        prefix = "\U0001f4ad " if stream_type == "reasoning" else ""
+        display = f"{prefix}{accumulated_text}" if prefix else accumulated_text
+
+        # Truncate if exceeds Slack text limit
+        if len(display) > SLACK_TEXT_LIMIT:
+            display = "..." + display[-(SLACK_TEXT_LIMIT - 4) :]
+
+        try:
+            await client.chat_update(
+                channel=channel_id,
+                ts=msg_ts,
+                text=display,
+                mrkdwn=True,
+            )
+            state["last_edit_ts"][stream_type] = now
+        except Exception:
+            logger.debug(
+                "slack on_streaming_delta: update failed",
+                exc_info=True,
+            )
+
+    async def on_streaming_end(
+        self,
+        request: Any,
+        to_handle: str,
+        event: Any,
+        send_meta: Dict[str, Any],
+        stream_type: str,
+        accumulated_text: str = "",
+    ) -> None:
+        """Final chat.update with full text; fallback to normal send."""
+        state = self._get_stream_state(send_meta)
+        msg_ts = state["message_ts"].pop(stream_type, None)
+        state["last_edit_ts"].pop(stream_type, None)
+        channel_id = state["channel_id"]
+
+        if stream_type == "reasoning" and self._filter_thinking:
+            return
+
+        if not accumulated_text.strip():
+            return
+
+        # If placeholder was never sent, fall back to normal send
+        if not msg_ts or not channel_id:
+            await self._send(
+                to_handle,
+                [TextContent(text=accumulated_text)],
+                send_meta,
+            )
+            return
+
+        client = await self.get_client()
+        prefix = "\U0001f4ad " if stream_type == "reasoning" else ""
+        final_text = (
+            f"{prefix}{accumulated_text}" if prefix else accumulated_text
+        )
+        mrkdwn = markdown_to_slack_mrkdwn(final_text)
+
+        try:
+            await client.chat_update(
+                channel=channel_id,
+                ts=msg_ts,
+                text=mrkdwn,
+                mrkdwn=True,
+            )
+        except Exception:
+            logger.debug(
+                "slack on_streaming_end: final update failed, "
+                "falling back to normal send",
+                exc_info=True,
+            )
+            # Fallback: send as a new message via normal path
+            await self._send(
+                to_handle,
+                [TextContent(text=accumulated_text)],
+                send_meta,
+            )
+
     async def _send_streaming(
         self,
         to_handle: str,
@@ -610,7 +880,7 @@ class SlackChannel(BaseChannel):
                 self.channel,
             )
             if stream_session:
-                self._stream_manager.cleanup(channel_id)
+                await self._stream_manager.cleanup(channel_id)
             return await self._streaming_edit_fallback(
                 channel_id,
                 full_text,
@@ -623,17 +893,15 @@ class SlackChannel(BaseChannel):
         stream_generator,
         _meta: Dict[str, Any],
     ) -> Dict[str, Any]:
-        """No thread_ts — post a placeholder and stream via chat_update."""
-        client = await self.get_client()
-        result = await client.chat_postMessage(
-            channel=channel_id,
-            text="...",
-        )
+        """No thread_ts — stream via chat_update fallback.
+
+        Delegates entirely to :meth:`_streaming_edit_fallback`, which
+        posts a placeholder message and then edits it incrementally.
+        """
         return await self._streaming_edit_fallback(
             channel_id,
             "",
             stream_generator,
-            initial_message_ts=result.get("ts"),
         )
 
     async def _streaming_edit_fallback(
@@ -690,6 +958,34 @@ class SlackChannel(BaseChannel):
             await self._build_app()
         return self._client
 
+    async def record_bot_message(
+        self,
+        ts: str,
+        thread_ts: Optional[str] = None,
+    ) -> None:
+        """Record that the bot sent a message at *ts*."""
+        async with self._bot_message_ts_lock:
+            self._bot_message_ts[ts] = time.monotonic()
+            if thread_ts:
+                self._bot_message_ts[thread_ts] = time.monotonic()
+
+    async def has_bot_replied_in_thread(self, thread_ts: str) -> bool:
+        """Return True if the bot has previously replied in this thread."""
+        async with self._bot_message_ts_lock:
+            return thread_ts in self._bot_message_ts
+
+    async def prune_bot_message_ts(self) -> None:
+        """Trim the oldest half of entries when exceeding 5000."""
+        async with self._bot_message_ts_lock:
+            if len(self._bot_message_ts) > 5000:
+                sorted_items = sorted(
+                    self._bot_message_ts.items(),
+                    key=lambda x: x[1],
+                )
+                self._bot_message_ts = dict(
+                    sorted_items[len(sorted_items) // 2 :],
+                )
+
     # ── Public send API (BaseChannel contract) ──
 
     async def send(
@@ -702,10 +998,6 @@ class SlackChannel(BaseChannel):
         if not self.enabled:
             logger.debug("[%s] channel disabled, skipping send", self.channel)
             return
-        from agentscope_runtime.engine.schemas.agent_schemas import (
-            ContentType,
-            TextContent,
-        )
 
         parts = [TextContent(type=ContentType.TEXT, text=text)]
         await self.send_content_parts(to_handle, parts, meta or {})
@@ -751,6 +1043,30 @@ class SlackChannel(BaseChannel):
         request.user_id = user_id
         request.channel_meta = meta
         return request
+
+    def get_cached_thread_context(
+        self,
+        channel_id: str,
+        thread_ts: str,
+    ) -> Optional[str]:
+        """Return cached thread context if still valid, else None."""
+        key = f"{channel_id}:{thread_ts}"
+        cached = self._thread_context_cache.get(key)
+        if cached and (
+            time.monotonic() - cached[1] < self.THREAD_CONTEXT_CACHE_TTL
+        ):
+            return cached[0]
+        return None
+
+    def set_cached_thread_context(
+        self,
+        channel_id: str,
+        thread_ts: str,
+        content: str,
+    ) -> None:
+        """Store thread context in cache."""
+        key = f"{channel_id}:{thread_ts}"
+        self._thread_context_cache[key] = (content, time.monotonic())
 
     def resolve_session_id(
         self,

@@ -304,7 +304,43 @@ class SlackStreamManager:
 
     # ── Cleanup ──
 
-    def cleanup(self, channel_id: str) -> None:
-        """Abandon all streaming sessions for *channel_id*."""
-        self._native_sessions.pop(channel_id, None)
-        self._edit_sessions.pop(channel_id, None)
+    async def cleanup_all(self) -> None:
+        """Gracefully shut down all active streaming sessions."""
+        for ch_id in list(self._native_sessions):
+            await self.cleanup(ch_id)
+        for ch_id in list(self._edit_sessions):
+            await self.cleanup(ch_id)
+
+    async def cleanup(self, channel_id: str) -> None:
+        """Gracefully shut down streaming sessions for *channel_id*.
+
+        Native sessions are stopped via ``AsyncChatStream.stop()`` so the
+        SDK can finalise the streaming message.  Edit sessions receive a
+        final ``chat_update`` flush if there is accumulated text.
+        Failures are logged but not re-raised — cleanup is best-effort
+        during shutdown.
+        """
+        native = self._native_sessions.pop(channel_id, None)
+        if native is not None and not native.stopped:
+            native.stopped = True
+            try:
+                await native.streamer.stop()
+            except Exception:
+                logger.debug(
+                    "slack stream: cleanup native failed channel=%s",
+                    channel_id,
+                    exc_info=True,
+                )
+
+        edit = self._edit_sessions.pop(channel_id, None)
+        if edit is not None and not edit.stopped:
+            edit.stopped = True
+            if edit.accumulated_text:
+                try:
+                    await self._flush_edit(edit)
+                except Exception:
+                    logger.debug(
+                        "slack stream: cleanup edit failed channel=%s",
+                        channel_id,
+                        exc_info=True,
+                    )

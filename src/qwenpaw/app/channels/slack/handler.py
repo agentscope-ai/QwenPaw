@@ -43,7 +43,11 @@ from .constants import (
     SLACK_THREAD_CACHE_MAX,
     SLACK_THREAD_CACHE_TTL_SECONDS,
 )
-from .utils import build_dedup_key, generate_session_id, with_retry
+from .utils import (
+    build_dedup_key,
+    generate_session_id,
+    with_retry,
+)
 
 if TYPE_CHECKING:
     from .channel import SlackChannel
@@ -77,7 +81,9 @@ _ALLOWED_SUBTYPES: frozenset[str] = frozenset(
 # Commands that are known to the QwenPaw pipeline and can be rewritten
 # from ``!`` prefix to ``/`` prefix.  Populated dynamically from the
 # channel's :class:`CommandRegistry` when available.
-_KNOWN_COMMAND_WORDS: frozenset[str] = frozenset(
+# Fallback command set — used when the CommandRegistry is unavailable.
+# Mirrors the default registrations in CommandRegistry._register_defaults().
+_FALLBACK_COMMAND_WORDS: frozenset[str] = frozenset(
     {
         "stop",
         "status",
@@ -90,6 +96,20 @@ _KNOWN_COMMAND_WORDS: frozenset[str] = frozenset(
         "clear",
         "dream",
         "daemon",
+        "logs",
+        "approve",
+        "deny",
+        "approval",
+        "new",
+        "compact",
+        "history",
+        "compact_str",
+        "summarize_status",
+        "message",
+        "dump_history",
+        "load_history",
+        "proactive",
+        "plan",
     },
 )
 
@@ -108,7 +128,6 @@ class SlackEventHandler:
         self._enqueue = enqueue_callback
         self._bot_prefix = bot_prefix
         self._require_mention = require_mention
-        self._bot_user_id: Optional[str] = None
 
         self._dedup_lock = asyncio.Lock()
         self._dedup_map: OrderedDict[str, float] = OrderedDict()
@@ -181,6 +200,24 @@ class SlackEventHandler:
         is_dm = channel_id.startswith("D")
         is_group = not is_dm
 
+        # 4a. Channel-level mute: honour dm_disabled / group_disabled
+        if is_dm and getattr(self._channel, "dm_disabled", False):
+            logger.debug(
+                "slack handler: dropping DM message (dm_disabled) "
+                "channel=%s user=%s",
+                channel_id,
+                user_id,
+            )
+            return
+        if is_group and getattr(self._channel, "group_disabled", False):
+            logger.debug(
+                "slack handler: dropping group message (group_disabled) "
+                "channel=%s user=%s",
+                channel_id,
+                user_id,
+            )
+            return
+
         # 5. @mention gate (group channels only)
         if is_group and self._require_mention and not was_mentioned:
             if not self._is_bot_mentioned(event):
@@ -195,11 +232,17 @@ class SlackEventHandler:
         #       replied again after restart" scenario).
         if thread_ts and not was_mentioned:
             if not self._has_thread_participation(channel_id, thread_ts):
-                if thread_ts not in self._channel._bot_message_ts:
+                has_participated = (
+                    await self._channel.has_bot_replied_in_thread(
+                        thread_ts,
+                    )
+                )
+                if not has_participated:
                     return
 
         # 7. Extract text
         text = _extract_message_text(event, self._bot_prefix)
+        text = _rewrite_bang_command(text, self._channel)
 
         # 7a. Fetch thread context (cached, TTL 60 s).
         # Prepend recent thread history so the Agent has full context
@@ -217,13 +260,10 @@ class SlackEventHandler:
                     f"[Latest message]\n{text}"
                 )
 
-        # 8. Rewrite "!command" → "/command" for thread compatibility
-        text = _rewrite_bang_command(text)
-
-        # 9. Append link unfurl previews from attachments
+        # 8. Append link unfurl previews from attachments
         text = _append_unfurl_text(text, event.get("attachments") or [])
 
-        # 10. Extract file attachments
+        # 9. Extract file attachments
         content_parts: list = [TextContent(text=text)] if text else []
         file_extraction_failed = False
         try:
@@ -238,7 +278,7 @@ class SlackEventHandler:
         if not content_parts:
             return
 
-        # 11. Build & enqueue native dict
+        # 10. Build & enqueue native dict
         session_id = generate_session_id(
             channel_id=channel_id,
             thread_ts=thread_ts,
@@ -267,21 +307,15 @@ class SlackEventHandler:
         if self._enqueue:
             self._enqueue(native)
 
-        # 12. Record thread participation
+        # 11. Record thread participation
         if thread_ts:
             self._record_thread_participation(channel_id, thread_ts)
 
-        # 13. Prune _bot_message_ts when it grows too large.
+        # 12. Prune _bot_message_ts when it grows too large.
         # The set tracks every message ts the bot has ever sent;
         # without bounds it would grow unboundedly.  We trim the
         # oldest half when exceeding 5000 entries.
-        if len(self._channel._bot_message_ts) > 5000:
-            sorted_items = sorted(
-                self._channel._bot_message_ts.items(),
-                key=lambda x: x[1],
-            )
-            keep = sorted_items[len(sorted_items) // 2 :]
-            self._channel._bot_message_ts = dict(keep)
+        await self._channel.prune_bot_message_ts()
 
     async def _handle_message_changed(
         self,
@@ -309,7 +343,7 @@ class SlackEventHandler:
             return
 
         # Skip the bot's own message edits.
-        bot_id = self._resolve_bot_user_id()
+        bot_id = self._channel.bot_user_id or None
         if bot_id and message.get("bot_id"):
             if message.get("user") == bot_id:
                 return
@@ -350,12 +384,17 @@ class SlackEventHandler:
                 "is_dm": is_dm,
                 "is_group": not is_dm,
                 "bot_mentioned": False,
-                "edited": True,  # 标记为编辑事件
+                "edited": True,
             },
         }
 
         if self._enqueue:
             self._enqueue(native)
+
+    async def close(self) -> None:
+        """Close the internal aiohttp session if open."""
+        if self._http_session and not self._http_session.closed:
+            await self._http_session.close()
 
     async def _get_http_session(self) -> aiohttp.ClientSession:
         if self._http_session is None or self._http_session.closed:
@@ -386,61 +425,112 @@ class SlackEventHandler:
         url: str = f.get("url_private_download") or f.get("url_private") or ""
         if not url:
             return None
-        url = await self._resolve_download_url(url)
+        local_path = await self._download_slack_file(url, filename)
+        if local_path is None:
+            return None
 
         if mime_type.startswith("image/"):
-            return ImageContent(image_url=url, filename=filename)
+            return ImageContent(image_url=local_path, filename=filename)
         if mime_type.startswith("audio/"):
-            return AudioContent(audio_url=url, filename=filename)
+            return AudioContent(audio_url=local_path, filename=filename)
         if mime_type.startswith("video/"):
-            return VideoContent(video_url=url, filename=filename)
-        return FileContent(file_url=url, filename=filename)
+            return VideoContent(video_url=local_path, filename=filename)
+        return FileContent(file_url=local_path, filename=filename)
 
     # ── Download URL resolution ──
 
-    async def _resolve_download_url(self, url: str) -> str:
-        """Follow up to 3 HTTP redirects with retry to
-        get the real download URL.
+    async def _download_slack_file(
+        self,
+        url: str,
+        filename: str,
+    ) -> Optional[str]:
+        """Download a Slack private file with bot auth and cache locally.
 
-        Slack private file URLs (``url_private`` / ``url_private_download``)
-        are temporary and may redirect through multiple hosts.  This helper
-        follows each redirect, checks the content type to avoid caching
-        HTML error pages, and returns the final URL.
+        Slack ``url_private_download`` URLs require the bot token as an
+        ``Authorization`` header.  aiohttp handles redirects automatically
+        (``follow_redirects=True`` by default), so no manual redirect
+        resolution loop is needed.
 
-        Falls back to the original *url* when resolution fails.
+        On auth failure Slack returns an HTML sign-in page — we detect the
+        ``text/html`` content-type and bail early instead of caching junk.
+
+        Retries up to 3 times with exponential backoff on transient errors
+        (timeouts, 429, 5xx).  Returns the absolute path to the cached
+        temp file, or *None* on failure.
         """
-        current = url
-        for _ in range(3):
+        import os as _os
+
+        headers = {"Authorization": f"Bearer {self._channel.bot_token}"}
+        last_exc = None
+
+        for attempt in range(3):
             try:
                 session = await self._get_http_session()
-                async with session.head(
-                    current,
-                    allow_redirects=False,
-                    timeout=aiohttp.ClientTimeout(10),
+                async with session.get(
+                    url,
+                    headers=headers,
+                    timeout=aiohttp.ClientTimeout(60),
                 ) as resp:
-                    if resp.status in (301, 302, 303, 307, 308):
-                        location = resp.headers.get("location")
-                        if location:
-                            current = location
+                    if resp.status != 200:
+                        if resp.status < 429 and attempt < 2:
+                            await asyncio.sleep(1.5 * (attempt + 1))
                             continue
-                    # Check content type — Slack may return HTML error
-                    # pages instead of binary on auth failures.
-                    ct = resp.headers.get("content-type", "")
-                    if "text/html" in ct and resp.status != 200:
-                        logger.debug(
-                            "slack handler: HTML response for %s (status=%s)",
-                            current[:80],
+                        logger.warning(
+                            "slack handler: download status=%s for %s",
                             resp.status,
+                            filename,
                         )
-                        return url
-                    return current
-            except Exception:
-                logger.debug(
-                    "slack handler: redirect resolution failed for %s",
-                    current[:80],
+                        return None
+
+                    ct = resp.headers.get("content-type", "")
+                    if "text/html" in ct:
+                        logger.warning(
+                            "slack handler: HTML response for %s "
+                            "(auth issue?)",
+                            filename,
+                        )
+                        return None
+
+                    data = await resp.read()
+                    break
+            except (asyncio.TimeoutError, aiohttp.ClientError) as exc:
+                last_exc = exc
+                if attempt < 2:
+                    logger.debug(
+                        "slack handler: retry %d/2 for %s",
+                        attempt + 1,
+                        filename,
+                    )
+                    await asyncio.sleep(1.5 * (attempt + 1))
+                    continue
+                logger.exception(
+                    "slack handler: download failed for %s",
+                    filename,
                 )
-                return url
-        return current
+                return None
+        else:
+            logger.error(
+                "slack handler: exhausted retries for %s: %s",
+                filename,
+                last_exc,
+            )
+            return None
+
+        # Cache locally
+        suffix = _os.path.splitext(filename)[1] or ""
+        path = str(
+            self._channel.media_dir / f"slack_{_os.urandom(8).hex()}{suffix}",
+        )
+        with open(path, "wb") as fh:
+            fh.write(data)
+
+        logger.debug(
+            "slack handler: cached %s → %s (%d bytes)",
+            filename,
+            path,
+            len(data),
+        )
+        return path
 
     # ── Deduplication ──
 
@@ -464,23 +554,11 @@ class SlackEventHandler:
     # ── @mention detection ──
 
     def _is_bot_mentioned(self, event: dict) -> bool:
-        bot_id = self._resolve_bot_user_id()
+        bot_id = self._channel.bot_user_id or None
         if not bot_id:
             return False
         text = event.get("text") or ""
         return f"<@{bot_id}>" in text
-
-    def _resolve_bot_user_id(self) -> Optional[str]:
-        if self._bot_user_id is None:
-            self._bot_user_id = (
-                getattr(
-                    self._channel,
-                    "_bot_user_id",
-                    None,
-                )
-                or ""
-            )
-        return self._bot_user_id or None
 
     # ── Thread participation ──
 
@@ -535,11 +613,12 @@ class SlackEventHandler:
         an empty string when the thread is empty or the cache is still
         warm.
         """
-        cache_key = f"{channel_id}:{thread_ts}"
-        now = time.monotonic()
-        cached = self._channel.thread_context_cache.get(cache_key)
-        if cached and (now - cached[1]) < self._channel.THREAD_CACHE_TTL:
-            return cached[0]
+        cached = self._channel.get_cached_thread_context(
+            channel_id,
+            thread_ts,
+        )
+        if cached:
+            return cached
 
         try:
             result = await with_retry(
@@ -560,7 +639,7 @@ class SlackEventHandler:
 
         messages = result.get("messages", [])
         context_parts: list[str] = []
-        bot_id = self._resolve_bot_user_id()
+        bot_id = self._channel.bot_user_id or None
 
         for msg in messages:
             if msg.get("ts") == current_ts:
@@ -577,7 +656,11 @@ class SlackEventHandler:
             context_parts.append(f"{name}: {msg_text}")
 
         content = "\n".join(context_parts) if context_parts else ""
-        self._channel.thread_context_cache[cache_key] = (content, now)
+        self._channel.set_cached_thread_context(
+            channel_id,
+            thread_ts,
+            content,
+        )
         return content
 
     async def _resolve_user_name(
@@ -614,6 +697,41 @@ class SlackEventHandler:
                 user_id,
             )
         return user_id
+
+    async def handle_slash_command(self, command: dict) -> None:
+        slash_name = (command.get("command") or "").lstrip("/")
+        text = (command.get("text") or "").strip()
+        channel_id = command.get("channel_id") or ""
+        user_id = command.get("user_id") or ""
+        is_dm = channel_id.startswith("D")
+
+        full_text = f"/{slash_name} {text}".strip()
+
+        session_id = generate_session_id(
+            channel_id=channel_id,
+            thread_ts="",
+            user_id=user_id,
+            is_dm=is_dm,
+        )
+
+        native = {
+            "channel_id": self._channel.channel,
+            "sender_id": user_id,
+            "user_id": user_id,
+            "session_id": session_id,
+            "content_parts": [TextContent(text=full_text)],
+            "meta": {
+                "slack_channel_id": channel_id,
+                "slack_thread_ts": "",
+                "slack_message_ts": "",
+                "slack_user_id": user_id,
+                "slack_is_dm": is_dm,
+                "slack_response_url": command.get("response_url", ""),
+                "slack_is_slash_command": True,
+            },
+        }
+        if self._enqueue:
+            self._enqueue(native)
 
 
 # ── Text extraction helpers ──
@@ -752,15 +870,56 @@ def _append_line(
 
 
 # ── "!" command rewriting ──
+def _get_known_command_words(
+    channel: "SlackChannel | None" = None,
+) -> frozenset[str]:
+    """Return the set of known command words, preferring the live
+    :class:`CommandRegistry` when available through the channel's
+    owning :class:`ChannelManager`.
+
+    Strategy
+    --------
+    1. Access *channel* → ``_command_registry`` (set by
+       :meth:`BaseChannel.set_workspace`).
+    2. Extract command names (strip ``/`` prefix) from the registry.
+    3. Fall back to :data:`_FALLBACK_COMMAND_WORDS` when the registry
+       is unavailable.
+    """
+    words: set[str] = set()
+    if channel is not None:
+        try:
+            registry = getattr(channel, "_command_registry", None)
+            if registry is not None:
+                for cmd in registry._command_to_level:
+                    name = cmd.lstrip("/").split()[0]
+                    words.add(name)
+        except Exception:
+            pass
+
+    try:
+        from qwenpaw.agents.command_handler import CommandHandler
+
+        words.update(CommandHandler.SYSTEM_COMMANDS)
+    except Exception:
+        words.update(_FALLBACK_COMMAND_WORDS)
+
+    return frozenset(words) if words else _FALLBACK_COMMAND_WORDS
 
 
-def _rewrite_bang_command(text: str) -> str:
+def _rewrite_bang_command(
+    text: str,
+    channel: "SlackChannel | None" = None,
+) -> str:
     """Rewrite ``!command`` to ``/command`` for Slack threads.
 
     Slack blocks ``/``-prefixed messages in threads but allows ``!``.
     QwenPaw's :class:`CommandRegistry` expects ``/``-prefixed commands,
     so we transparently rewrite the prefix before the message enters
     the pipeline.
+
+    Command words are resolved dynamically from the live
+    :class:`CommandRegistry` when available, falling back to a static
+    set of well-known commands.
     """
     if not text or not text.startswith("!"):
         return text
@@ -772,7 +931,7 @@ def _rewrite_bang_command(text: str) -> str:
     # Strip any trailing @bot mention (e.g. "!help @MyBot").
     if "@" in first_word:
         first_word = first_word.split("@")[0]
-    if first_word in _KNOWN_COMMAND_WORDS:
+    if first_word in _get_known_command_words(channel):
         return "/" + stripped
     return text
 
@@ -824,49 +983,3 @@ def _append_unfurl_text(text: str, attachments: list) -> str:
 
     suffix = "\n\n" + "\n".join(unfurl_parts)
     return text + suffix
-
-
-async def _download_slack_file(url: str, token: str) -> bytes:
-    """Download a Slack file with retry and content-type validation.
-
-    Slack private URLs may return HTML error pages instead of binary
-    content when authentication fails or the file has expired.  This
-    helper checks the ``content-type`` header and raises ``ValueError``
-    when HTML is received instead of the expected binary content.
-
-    Parameters
-    ----------
-    url:
-        The private download URL (``url_private_download``).
-    token:
-        Bot token for the ``Authorization: Bearer`` header.
-    """
-
-    last_exc = None
-    for attempt in range(3):
-        try:
-            async with aiohttp.ClientSession() as session:
-                async with session.get(
-                    url,
-                    headers={"Authorization": f"Bearer {token}"},
-                    timeout=aiohttp.ClientTimeout(30),
-                ) as resp:
-                    if resp.status == 200:
-                        ct = resp.headers.get("content-type", "")
-                        if "text/html" in ct:
-                            raise ValueError(
-                                "Slack returned HTML instead of "
-                                "binary content",
-                            )
-                        return await resp.read()
-                    if resp.status in (429, 500, 502, 503):
-                        await asyncio.sleep(1.5**attempt)
-                        continue
-                    resp.raise_for_status()
-        except ValueError:
-            raise
-        except Exception as exc:
-            last_exc = exc
-            if attempt < 2:
-                await asyncio.sleep(1.5**attempt)
-    raise last_exc or Exception("Max retries exceeded")
