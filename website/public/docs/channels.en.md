@@ -1359,12 +1359,12 @@ Find `channels.slack` in your agent's `agent.json` (e.g., `~/.qwenpaw/workspaces
 
 **Slack-specific fields:**
 
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `bot_token` | string | `""` (required) | Slack Bot User OAuth Token, starts with `xoxb-` |
-| `app_token` | string | `""` (required) | Slack App-Level Token for Socket Mode, starts with `xapp-` |
-| `proxy` | string | `""` | HTTP proxy URL for connecting to Slack API (e.g., `http://127.0.0.1:18118`) |
-| `streaming_enabled` | bool | `false` | Enable incremental message rendering in threads |
+| Field               | Type   | Default         | Description                                                                 |
+| ------------------- | ------ | --------------- | --------------------------------------------------------------------------- |
+| `bot_token`         | string | `""` (required) | Slack Bot User OAuth Token, starts with `xoxb-`                             |
+| `app_token`         | string | `""` (required) | Slack App-Level Token for Socket Mode, starts with `xapp-`                  |
+| `proxy`             | string | `""`            | HTTP proxy URL for connecting to Slack API (e.g., `http://127.0.0.1:18118`) |
+| `streaming_enabled` | bool   | `false`         | Enable incremental message rendering in threads                             |
 
 ### Notes
 
