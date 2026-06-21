@@ -173,9 +173,13 @@ def register_custom_channel_routes(app) -> None:
             hook = getattr(mod, "register_app_routes", None)
             if not callable(hook):
                 continue
-            prev_routes = {r.path for r in app.routes}
+            prev_routes = {r.path for r in app.routes if hasattr(r,'path')}
+            last_route = app.routes[-1]
             hook(app)
-            new_routes = {r.path for r in app.routes} - prev_routes
+            new_routes = {r.path for r in app.routes if hasattr(r,'path')} - prev_routes
+            if not new_routes and last_route != app.routes[-1]: # last _IncludedRouter
+                last_route = app.routes[-1]
+                new_routes = {r.path for r in last_route.original_router.routes if hasattr(r,'path')}
             non_api = {p for p in new_routes if not p.startswith("/api/")}
             if non_api:
                 logger.warning(
@@ -185,8 +189,8 @@ def register_custom_channel_routes(app) -> None:
                     name,
                     non_api,
                 )
-        except Exception:
-            logger.exception("Failed to load custom channel routes: %s", name)
+        except Exception as e:
+            logger.exception("Failed to load custom channel routes: %s, error: %s", name,e)
 
 
 def get_channel_registry() -> dict[str, type[BaseChannel]]:

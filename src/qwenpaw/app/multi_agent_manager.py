@@ -391,6 +391,10 @@ class MultiAgentManager:
                     f"{list(reusable.keys())}",
                 )
 
+            # Step 5: Gracefully stop old instance (outside lock)
+            # Delegates to helper method to avoid too-many-statements
+            await self._graceful_stop_old_instance(old_instance, agent_id)
+
         try:
             await new_instance.start()
             new_instance.set_manager(self)  # Set manager reference
@@ -423,10 +427,6 @@ class MultiAgentManager:
             old_instance = self.agents[agent_id]
             self.agents[agent_id] = new_instance
             logger.info(f"Workspace instance replaced: {agent_id}")
-
-        # Step 5: Gracefully stop old instance (outside lock)
-        # Delegates to helper method to avoid too-many-statements
-        await self._graceful_stop_old_instance(old_instance, agent_id)
 
         return True
 
