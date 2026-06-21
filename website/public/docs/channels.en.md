@@ -1312,6 +1312,67 @@ After configuration, start a call from your SIP phone or browser:
 
 ---
 
+## Slack
+
+### Get Credentials
+
+1. Go to [https://api.slack.com/apps](https://api.slack.com/apps), click **Create New App** → **From scratch**, enter a name and pick your workspace.
+
+2. In **Features → OAuth & Permissions**, add these **Bot Token Scopes**:
+
+   `chat:write`, `app_mentions:read`, `channels:history`, `channels:read`, `groups:history`, `im:history`, `im:read`, `im:write`, `users:read`, `files:read`, `files:write`
+
+   > **Note:** Without `channels:history` and `groups:history`, the bot will only work in DMs. Without `files:read`, uploaded attachments cannot be read.
+
+3. In **Settings → Socket Mode**, toggle it ON and create an **App-Level Token** with the `connections:write` scope. Copy the token — it starts with `xapp-`.
+
+4. In **Features → Event Subscriptions**, toggle ON and subscribe to `message.im`, `message.channels`, `message.groups`, and `app_mention`.
+
+5. In **Features → App Home**, enable the **Messages Tab** and check "Allow users to send Slash commands and messages from the messages tab".
+
+6. In **Settings → Install App**, click **Install to Workspace** and copy the **Bot User OAuth Token** — it starts with `xoxb-`.
+
+7. Invite the bot to each channel with `/invite @QwenPaw` in Slack.
+
+### Configure the Bot
+
+You can configure via the Console UI or by editing the agent workspace `agent.json`.
+
+**Method 1:** Configure in the Console
+
+Go to **Control → Channels**, click **Slack**, and enter the **Bot Token** and **App Token** you obtained.
+
+**Method 2:** Edit agent workspace `agent.json`
+
+Find `channels.slack` in your agent's `agent.json` (e.g., `~/.qwenpaw/workspaces/default/agent.json`) and fill in the fields, for example:
+
+```json
+"slack": {
+    "enabled": true,
+    "bot_prefix": "[BOT]",
+    "bot_token": "xoxb-your-bot-token-here",
+    "app_token": "xapp-your-app-token-here",
+    "proxy": "",
+    "streaming_enabled": false
+}
+```
+
+**Slack-specific fields:**
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `bot_token` | string | `""` (required) | Slack Bot User OAuth Token, starts with `xoxb-` |
+| `app_token` | string | `""` (required) | Slack App-Level Token for Socket Mode, starts with `xapp-` |
+| `proxy` | string | `""` | HTTP proxy URL for connecting to Slack API (e.g., `http://127.0.0.1:18118`) |
+| `streaming_enabled` | bool | `false` | Enable incremental message rendering in threads |
+
+### Notes
+
+- In channels, the bot **only responds when @mentioned** and replies in a thread. In DMs the bot responds to every message without a mention. Once the bot has joined a thread, subsequent replies in that thread do not require @mention.
+- QwenPaw commands (`/help`, `/status`, `/new`, etc.) work as native Slack slash commands. Slack blocks `/`-prefixed messages in threads — use the `!` prefix instead (e.g., `!help`, `!status`).
+- If you change scopes or event subscriptions later, you **must reinstall the app** for the changes to take effect.
+- To control who can interact with the bot, use the common access control fields (`dm_policy`, `group_policy`, `allow_from`, `deny_message`, `require_mention`). Slack uses **Member IDs** (e.g., `U01ABC2DEF3`) for user identification — find them via profile → ⋮ → Copy member ID.
+
 ## Appendix
 
 ### Config overview
@@ -1326,6 +1387,7 @@ After configuration, start a call from your SIP phone or browser:
 | Telegram   | telegram   | bot_token; optional http_proxy, http_proxy_auth                                                            |
 | Mattermost | mattermost | url, bot_token; optional show_typing, thread_follow_without_mention                                        |
 | Matrix     | matrix     | homeserver, user_id, access_token                                                                          |
+| Slack      | slack      | bot_token, app_token; optional proxy, streaming_enabled                                                    |
 | WeCom      | wecom      | bot_id, secret; optional media_dir, max_reconnect_attempts                                                 |
 | WeChat     | wechat     | bot_token (or QR login); optional bot_token_file, base_url, media_dir                                      |
 | XiaoYi     | xiaoyi     | ak, sk, agent_id; optional ws_url                                                                          |

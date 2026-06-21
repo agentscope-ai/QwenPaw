@@ -1343,6 +1343,66 @@ pip install "qwenpaw[sip,sip-livekit]"
 | `welcome_greeting`   | string | `"Hi! This is QwenPaw. How can I help you?"` | 欢迎语（接通电话后的第一句话）                         |
 | `call_timeout`       | float  | `30.0`                                       | 呼出超时时间（秒）                                     |
 
+
+## Slack
+
+### 获取凭据
+
+1. 访问 [https://api.slack.com/apps](https://api.slack.com/apps)，点击 **创建新应用** → **从头开始**，输入名称并选择您的工作区。
+
+2. 在 **功能 → OAuth 与权限** 中，添加以下 **机器人令牌范围**：
+
+   `chat:write`, `app_mentions:read`, `channels:history`, `channels:read`, `groups:history`, `im:history`, `im:read`, `im:write`, `users:read`, `files:read`, `files:write`
+
+   > **注意：** 若缺少 `channels:history` 和 `groups:history`，机器人将仅在私信中工作。若缺少 `files:read`，则无法读取上传的附件。
+
+3. 在 **设置 → 套接字模式** 中，将其切换为开启状态，并创建一个具有 `connections:write` 权限范围的 **应用级令牌**。复制该令牌——它以 `xapp-` 开头。
+
+4. 在 **功能 → 事件订阅** 中，开启该功能并订阅 `message.im`、`message.channels`、`message.groups` 和 `app_mention`。
+
+5. 在 **功能 → 应用主页** 中，启用 **消息标签页**，并勾选“允许用户从消息标签页发送斜杠命令和消息”。
+
+6. 在 **设置 → 安装应用** 中，点击 **安装到工作区**，并复制 **机器人用户 OAuth 令牌** —— 该令牌以 `xoxb-` 开头。
+
+7. 在 Slack 中输入 `/invite @QwenPaw`，将机器人邀请到每个频道。
+
+### 配置机器人
+
+您可以通过控制台界面进行配置，或通过编辑代理工作区中的 `agent.json` 文件进行配置。
+
+**方法 1：** 在控制台中配置
+
+转到 **控制 → 频道**，点击 **Slack**，并输入您获取的 **机器人令牌** 和 **应用令牌**。
+**方法 2：** 编辑代理工作区 `agent.json`
+
+在代理的 `agent.json` 文件中（例如 `~/.qwenpaw/workspaces/default/agent.json`）找到 `channels.slack` 部分，并填写相关字段，例如：
+
+```json
+“slack”: {
+    “enabled”: true,
+    “bot_prefix”: “[BOT]”,
+    “bot_token”: “xoxb-your-bot-token-here”,
+    “app_token”: “xapp-your-app-token-here”,
+    “proxy”: “”,
+    “streaming_enabled”: false
+}
+```
+
+**Slack 专属字段：**
+
+| 字段 | 类型 | 默认值 | 说明 |
+|-------|------|---------|-------------|
+| `bot_token` | 字符串 | `“”`（必填） | Slack 机器人用户的 OAuth 令牌，以 `xoxb-` 开头 |
+| `app_token` | 字符串 | `“”`（必填） | 用于套接字模式的 Slack 应用级令牌，以 `xapp-` 开头 |
+| `proxy` | 字符串 | `“”` | 用于连接 Slack API 的 HTTP 代理 URL（例如 `http://127.0.0.1:18118`） |
+
+### 注意事项
+
+- 在频道中，机器人**仅在被 @提及 时** 才会响应，并在对话线程中回复。在私信中，机器人会对每条未提及的消息进行回复。一旦机器人加入某个对话线程，后续在该线程中的回复就不需要 @提及。
+- QwenPaw 命令（`/help`、`/status`、`/new` 等）与原生 Slack 斜杠命令功能相同。Slack 会屏蔽线程中以 `/` 开头的消息——请改用 `!` 前缀（例如 `!help`、`!status`）。
+- 若后续更改权限范围或事件订阅，**必须重新安装该应用**，更改才能生效。
+- 要控制哪些用户可以与机器人互动，请使用常见的访问控制字段（`dm_policy`、`group_policy`、`allow_from`、`deny_message`、`require_mention`）。Slack 使用 **成员 ID**（例如 `U01ABC2DEF3`）来识别用户——您可通过“个人资料”→ ⋮ → “复制成员 ID”来获取该 ID。
+
 ---
 
 ## 附录
