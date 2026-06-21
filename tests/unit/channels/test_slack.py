@@ -183,7 +183,7 @@ def slack_event_handler(
         bot_prefix="[SlackBot] ",
         require_mention=True,
     )
-    handler._bot_user_id = "U999"
+    handler._channel._bot_user_id = "U999"
     yield handler
 
 
@@ -833,8 +833,8 @@ class TestMarkdownToSlackMrkdwn:
         from qwenpaw.app.channels.slack.format import markdown_to_slack_mrkdwn
 
         result = markdown_to_slack_mrkdwn("**bold**")
-        # Actual implementation returns "_bold_"
-        assert result == "_bold_"
+        # Slack mrkdwn uses * for bold
+        assert result == "*bold*"
 
     def test_italic_conversion(self):
         from qwenpaw.app.channels.slack.format import markdown_to_slack_mrkdwn
@@ -894,8 +894,8 @@ class TestMarkdownToSlackMrkdwn:
         from qwenpaw.app.channels.slack.format import markdown_to_slack_mrkdwn
 
         result = markdown_to_slack_mrkdwn("**bold** and `**not bold**`")
-        # Actual output: "_bold_ and `**not bold**`"
-        assert "_bold_" in result
+        # Slack mrkdwn: *bold* for bold, inline code preserved
+        assert "*bold*" in result
         assert "`**not bold**`" in result
 
 
@@ -1232,7 +1232,8 @@ class TestSlackEventHandlerInit:
 
 
 class TestSlackEventHandlerMentionDetection:
-    def test_is_bot_mentioned_true(self, slack_event_handler):
+    def test_is_bot_mentioned_true(self, slack_channel, slack_event_handler):
+        slack_channel._bot_user_id = "U999"
         event = {"text": "Hello <@U999> how are you?"}
         assert slack_event_handler._is_bot_mentioned(event) is True
 
@@ -1243,9 +1244,6 @@ class TestSlackEventHandlerMentionDetection:
     def test_is_bot_mentioned_no_mentions(self, slack_event_handler):
         event = {"text": "Hello everyone"}
         assert slack_event_handler._is_bot_mentioned(event) is False
-
-    def test_resolve_bot_user_id(self, slack_event_handler):
-        assert slack_event_handler._resolve_bot_user_id() == "U999"
 
 
 class TestSlackEventHandlerDedup:
@@ -1260,10 +1258,10 @@ class TestSlackEventHandlerDedup:
 
     @pytest.mark.asyncio
     async def test_dedup_expires(self, slack_event_handler):
-        with patch(
-            "qwenpaw.app.channels.slack.constants.SLACK_DEDUP_WINDOW_SECONDS",
-            0,
-        ):
+        _target = (
+            "qwenpaw.app.channels.slack.handler.SLACK_DEDUP_WINDOW_SECONDS"
+        )
+        with patch(_target, 0):
             # Insert a key with a very old timestamp
             slack_event_handler._dedup_map["expired_key"] = (
                 time.monotonic() - 100
@@ -1296,7 +1294,7 @@ class TestSlackEventHandlerThreadParticipation:
 
     def test_thread_participation_expires(self, slack_event_handler):
         with patch(
-            "qwenpaw.app.channels.slack.constants"
+            "qwenpaw.app.channels.slack.handler"
             ".SLACK_THREAD_CACHE_TTL_SECONDS",
             0,
         ):
@@ -1451,10 +1449,11 @@ class TestSlackEventHandlerMessageChanged:
     @pytest.mark.asyncio
     async def test_message_changed_skip_bot_own_edit(
         self,
+        slack_channel,
         slack_event_handler,
         mock_enqueue,
     ):
-        slack_event_handler._bot_user_id = "U999"
+        slack_channel._bot_user_id = "U999"
         event = {
             "message": {
                 "user": "U999",
@@ -1484,8 +1483,8 @@ class TestSlackEventHandlerFileExtraction:
         }
         with patch.object(
             slack_event_handler,
-            "_resolve_download_url",
-            AsyncMock(return_value="https://resolved.url"),
+            "_download_slack_file",
+            AsyncMock(return_value="/tmp/test.png"),
         ):
             parts = await slack_event_handler._extract_file_parts(
                 event,
@@ -1493,7 +1492,7 @@ class TestSlackEventHandlerFileExtraction:
             )
             assert len(parts) == 1
             assert isinstance(parts[0], ImageContent)
-            assert parts[0].image_url == "https://resolved.url"
+            assert parts[0].image_url == "/tmp/test.png"
 
     @pytest.mark.asyncio
     async def test_extract_file_parts_audio(
@@ -1512,8 +1511,8 @@ class TestSlackEventHandlerFileExtraction:
         }
         with patch.object(
             slack_event_handler,
-            "_resolve_download_url",
-            AsyncMock(return_value="https://resolved.url"),
+            "_download_slack_file",
+            AsyncMock(return_value="/tmp/test.png"),
         ):
             parts = await slack_event_handler._extract_file_parts(
                 event,
@@ -1539,8 +1538,8 @@ class TestSlackEventHandlerFileExtraction:
         }
         with patch.object(
             slack_event_handler,
-            "_resolve_download_url",
-            AsyncMock(return_value="https://resolved.url"),
+            "_download_slack_file",
+            AsyncMock(return_value="/tmp/test.png"),
         ):
             parts = await slack_event_handler._extract_file_parts(
                 event,
@@ -1566,8 +1565,8 @@ class TestSlackEventHandlerFileExtraction:
         }
         with patch.object(
             slack_event_handler,
-            "_resolve_download_url",
-            AsyncMock(return_value="https://resolved.url"),
+            "_download_slack_file",
+            AsyncMock(return_value="/tmp/test.png"),
         ):
             parts = await slack_event_handler._extract_file_parts(
                 event,
@@ -1577,23 +1576,31 @@ class TestSlackEventHandlerFileExtraction:
             assert isinstance(parts[0], FileContent)
 
     @pytest.mark.asyncio
-    async def test_resolve_download_url_follows_redirects(
+    async def test_download_slack_file_caches_locally(
         self,
+        slack_channel,
         slack_event_handler,
+        tmp_path,
     ):
-        # Properly mock aiohttp ClientSession
+        # Mock aiohttp to return file content
         mock_resp = AsyncMock()
-        mock_resp.status = 302
-        mock_resp.headers = {"location": "https://final.url"}
+        mock_resp.status = 200
+        mock_resp.headers = {"content-type": "application/octet-stream"}
+        mock_resp.read = AsyncMock(return_value=b"file content")
         mock_resp.__aenter__ = AsyncMock(return_value=mock_resp)
         mock_resp.__aexit__ = AsyncMock()
-        mock_session = AsyncMock()
-        mock_session.head.return_value = mock_resp
+        mock_session = MagicMock()
+        mock_session.get = MagicMock(return_value=mock_resp)
         with patch("aiohttp.ClientSession", return_value=mock_session):
-            result = await slack_event_handler._resolve_download_url(
-                "https://redirect.slack.com/file",
+            slack_channel._media_dir = tmp_path / "media"
+            slack_channel._media_dir.mkdir(parents=True, exist_ok=True)
+            result = await slack_event_handler._download_slack_file(
+                "https://files.slack.com/test.png",
+                "test.png",
             )
-            assert result == "https://final.url"
+            assert result is not None
+            assert result.endswith(".png")
+            assert Path(result).exists()
 
 
 # =============================================================================
@@ -1788,12 +1795,13 @@ class TestSlackSenderMediaUpload:
         test_file.write_text("content")
 
         # Mock HTTP session for PUT
-        mock_session = AsyncMock()
+        mock_session = MagicMock()
+        mock_session.closed = False
         mock_resp = AsyncMock()
         mock_resp.status = 200
         mock_resp.__aenter__ = AsyncMock(return_value=mock_resp)
         mock_resp.__aexit__ = AsyncMock()
-        mock_session.post.return_value = mock_resp
+        mock_session.post = MagicMock(return_value=mock_resp)
         sender._http_session = mock_session
 
         result = await sender._upload_file_external(
@@ -2099,9 +2107,9 @@ class TestSlackChannelAdvancedInit:
             filter_tool_messages=True,
             filter_thinking=True,
         )
-        assert channel.show_tool_details is False
-        assert channel.filter_tool_messages is True
-        assert channel.filter_thinking is True
+        assert channel._show_tool_details is False
+        assert channel._filter_tool_messages is True
+        assert channel._filter_thinking is True
 
     def test_init_media_dir_from_workspace(self, mock_process, tmp_path):
         from qwenpaw.app.channels.slack.channel import SlackChannel
@@ -2226,7 +2234,7 @@ class TestSlackChannelLifecycle:
 
     async def test_stop_socket_mode_handler_cancels_task(self, slack_channel):
         slack_channel._handler = AsyncMock()
-        task = AsyncMock()
+        task = MagicMock()
         task.done.return_value = False
         slack_channel._socket_mode_task = task
         await slack_channel._stop_socket_mode_handler()
@@ -2320,7 +2328,7 @@ class TestSlackChannelSocketModeResilience:
         self,
         slack_channel,
     ):
-        task = AsyncMock()
+        task = MagicMock()
         task.cancelled.return_value = False
         task.exception.return_value = None
         slack_channel._socket_mode_task = task
@@ -2339,7 +2347,7 @@ class TestSlackChannelSocketModeResilience:
         self,
         slack_channel,
     ):
-        task = AsyncMock()
+        task = MagicMock()
         task.cancelled.return_value = False
         task.exception.return_value = Exception("invalid_auth")
         slack_channel._socket_mode_task = task
@@ -2352,7 +2360,7 @@ class TestSlackChannelSocketModeResilience:
         self,
         slack_channel,
     ):
-        task = AsyncMock()
+        task = MagicMock()
         task.cancelled.return_value = True
         slack_channel._socket_mode_task = task
         slack_channel._running = True
@@ -2366,7 +2374,7 @@ class TestSlackChannelSocketModeResilience:
             mock_restart.assert_not_called()
 
     async def test_on_socket_mode_task_done_not_running(self, slack_channel):
-        task = AsyncMock()
+        task = MagicMock()
         task.cancelled.return_value = False
         slack_channel._socket_mode_task = task
         slack_channel._running = False
@@ -2554,7 +2562,7 @@ class TestSlackEventHandlerFullPipeline:
         mock_client,
         mock_enqueue,
     ):
-        slack_event_handler._bot_user_id = "U999"
+        slack_event_handler._channel._bot_user_id = "U999"
         event = {
             "channel": "C123",
             "user": "U456",
@@ -2639,7 +2647,7 @@ class TestSlackEventHandlerFullPipeline:
         mock_enqueue,
     ):
         slack_event_handler._channel.group_disabled = True
-        slack_event_handler._bot_user_id = "U999"
+        slack_event_handler._channel._bot_user_id = "U999"
         event = {
             "channel": "C123",
             "user": "U456",
@@ -2676,7 +2684,7 @@ class TestSlackEventHandlerFullPipeline:
         await slack_event_handler._handle_event(
             event,
             mock_client,
-            was_mentioned=False,
+            was_mentioned=True,
         )
         mock_enqueue.assert_called_once()
         native = mock_enqueue.call_args[0][0]
@@ -2886,7 +2894,12 @@ class TestSlackEventHandlerUserResolution:
 class TestSlackEventHandlerSlashCommand:
     """Tests for slash command handling."""
 
-    def test_handle_slash_command(self, slack_event_handler, mock_enqueue):
+    @pytest.mark.asyncio
+    async def test_handle_slash_command(
+        self,
+        slack_event_handler,
+        mock_enqueue,
+    ):
         command = {
             "command": "/help",
             "text": "something",
@@ -2894,7 +2907,7 @@ class TestSlackEventHandlerSlashCommand:
             "user_id": "U456",
             "response_url": "https://hooks.slack.com/response",
         }
-        slack_event_handler.handle_slash_command(command)
+        await slack_event_handler.handle_slash_command(command)
         mock_enqueue.assert_called_once()
         native = mock_enqueue.call_args[0][0]
         assert native["content_parts"][0].text == "/help something"
@@ -2904,18 +2917,24 @@ class TestSlackEventHandlerSlashCommand:
             == "https://hooks.slack.com/response"
         )
 
-    def test_handle_slash_command_dm(self, slack_event_handler, mock_enqueue):
+    @pytest.mark.asyncio
+    async def test_handle_slash_command_dm(
+        self,
+        slack_event_handler,
+        mock_enqueue,
+    ):
         command = {
             "command": "/status",
             "text": "",
             "channel_id": "D123",
             "user_id": "U456",
         }
-        slack_event_handler.handle_slash_command(command)
+        await slack_event_handler.handle_slash_command(command)
         native = mock_enqueue.call_args[0][0]
         assert "slack:dm:U456" in native["session_id"]
 
-    def test_handle_slash_command_no_text(
+    @pytest.mark.asyncio
+    async def test_handle_slash_command_no_text(
         self,
         slack_event_handler,
         mock_enqueue,
@@ -2926,7 +2945,7 @@ class TestSlackEventHandlerSlashCommand:
             "channel_id": "C123",
             "user_id": "U456",
         }
-        slack_event_handler.handle_slash_command(command)
+        await slack_event_handler.handle_slash_command(command)
         native = mock_enqueue.call_args[0][0]
         assert native["content_parts"][0].text == "/version"
 
@@ -3303,9 +3322,12 @@ class TestSlackChannelSendStreamingDispatch:
         async def gen():
             yield "Hello"
 
-        meta = {"slack_channel_id": "C123", "slack_thread_ts": "123.456"}
+        meta = {
+            "slack_channel_id": "C123",
+            "slack_thread_ts": "1234567890.123456",
+        }
         result = await slack_channel._send_streaming(
-            "C123:123.456",
+            "C123:1234567890.123456",
             gen(),
             meta,
         )
@@ -3379,7 +3401,7 @@ class TestSlackEventHandlerFileShare:
     async def test_handle_event_file_share(
         self,
         slack_event_handler,
-        mock_client,
+        mock_slack_client,
         mock_enqueue,
     ):
         event = {
@@ -3402,7 +3424,7 @@ class TestSlackEventHandlerFileShare:
             "_download_slack_file",
             AsyncMock(return_value="/tmp/photo.png"),
         ):
-            await slack_event_handler._handle_event(event, mock_client)
+            await slack_event_handler._handle_event(event, mock_slack_client)
             mock_enqueue.assert_called_once()
             native = mock_enqueue.call_args[0][0]
             assert len(native["content_parts"]) >= 1  # text + image

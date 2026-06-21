@@ -830,6 +830,15 @@ def _walk_elements(
                 for line in code.split("\n"):
                     _append_line(parts, line, quote_depth, "")
                 _append_line(parts, "```", quote_depth, "")
+        elif et == "text":
+            # Raw text element (e.g. inside rich_text_quote or
+            # rich_text_list when the item is a bare text node).
+            _append_line(
+                parts,
+                _render_inline_elements([elem]),
+                quote_depth,
+                bullet,
+            )
 
 
 def _render_inline_elements(elements: list) -> str:
@@ -879,13 +888,22 @@ def _get_known_command_words(
 
     Strategy
     --------
-    1. Access *channel* → ``_command_registry`` (set by
-       :meth:`BaseChannel.set_workspace`).
-    2. Extract command names (strip ``/`` prefix) from the registry.
-    3. Fall back to :data:`_FALLBACK_COMMAND_WORDS` when the registry
-       is unavailable.
+    1. Start with :data:`_FALLBACK_COMMAND_WORDS` as a baseline.
+    2. Merge in :class:`CommandHandler.SYSTEM_COMMANDS` when available.
+    3. Access *channel* → ``_command_registry`` (set by
+       :meth:`BaseChannel.set_workspace`) and add any additional
+       commands registered there.
     """
-    words: set[str] = set()
+    # Always start with the static fallback set as a baseline.
+    words: set[str] = set(_FALLBACK_COMMAND_WORDS)
+
+    try:
+        from qwenpaw.agents.command_handler import CommandHandler
+
+        words.update(CommandHandler.SYSTEM_COMMANDS)
+    except Exception:
+        pass
+
     if channel is not None:
         try:
             registry = getattr(channel, "_command_registry", None)
@@ -896,14 +914,7 @@ def _get_known_command_words(
         except Exception:
             pass
 
-    try:
-        from qwenpaw.agents.command_handler import CommandHandler
-
-        words.update(CommandHandler.SYSTEM_COMMANDS)
-    except Exception:
-        words.update(_FALLBACK_COMMAND_WORDS)
-
-    return frozenset(words) if words else _FALLBACK_COMMAND_WORDS
+    return frozenset(words)
 
 
 def _rewrite_bang_command(
