@@ -44,6 +44,7 @@
    ![保存](https://img.alicdn.com/imgextra/i1/O1CN01vrzbIA1Qey2x8Jbua_!!6000000002002-2-tps-2809-1585.png)
 
 6. 在"基础信息→凭证与基础信息"中获取：
+
    - **Client ID**（即 AppKey）
    - **Client Secret**（即 AppSecret）
 
@@ -313,6 +314,7 @@
    ![权限](https://img.alicdn.com/imgextra/i2/O1CN01gCbMWX1S2c77mcoPo_!!6000000002189-2-tps-958-440.png)
 
 4. 填写 iMessage 数据库路径。默认路径为 `~/Library/Messages/chat.db`，若你改过系统路径，请填实际路径。有以下两种填写方案：
+
    - 进入 **控制台 → 频道**，点击 **iMessage** 卡片，将 **Enable** 开关打开，在 **DB Path**中填写上面的路径，点击 **保存**。
 
      ![控制台](https://img.alicdn.com/imgextra/i4/O1CN01yxsvJ51yOetCYur9f_!!6000000006569-2-tps-3822-2070.png)
@@ -853,6 +855,7 @@ Matrix 频道通过 [matrix-nio](https://github.com/poljar/matrix-nio) 库将 Qw
 1. 在任意 Matrix 服务器上注册机器人账号（例如 [matrix.org](https://matrix.org)，可在 [app.element.io](https://app.element.io/#/register) 注册）。
 
 2. 获取机器人的 **Access Token**，最简便的方式是通过 Element：
+
    - 以机器人账号登录 [app.element.io](https://app.element.io)
    - 前往 **设置 → 帮助与关于 → 高级 → Access Token**
    - 复制 Token（以 `syt_...` 开头）
@@ -1153,6 +1156,7 @@ QwenPaw 会自动重启 SIP 频道，终端中会看到：
 ```
 
 3. 打开 [Linphone](https://www.linphone.org/linphone)（或任意 SIP 软电话）并配置：
+
    - 进入 **Preferences → SIP Accounts → Add**
    - Username：任意名称（如 `caller`）
    - SIP Domain：`127.0.0.1`（使用 IP 地址，**不要**用 `localhost`，避免 IPv6 问题）
