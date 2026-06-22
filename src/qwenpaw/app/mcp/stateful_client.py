@@ -266,7 +266,7 @@ def _unregister_stdio_pids(pids: set[int]) -> None:
             pgid = _stdio_pgids.get(pid)
             if not pid_alive and pgid is not None and _killpg is not None:
                 try:
-                    _killpg(pgid, 0)
+                    _killpg(pgid, 0)  # pylint: disable=not-callable
                     pgroup_alive = True
                 except (
                     ProcessLookupError,
@@ -322,7 +322,7 @@ async def kill_orphaned_mcp_children(
         pgid = pgids.get(pid)
         if pgid is not None and _killpg is not None:
             try:
-                _killpg(pgid, sig)
+                _killpg(pgid, sig)  # pylint: disable=not-callable
                 return
             except (
                 ProcessLookupError,
