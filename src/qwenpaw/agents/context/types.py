@@ -22,8 +22,6 @@ class LogEntry:
     name: str | None = None  # tool name (for tool_call/tool_result)
     content: str | None = None  # text body
     metadata: dict[str, Any] = field(default_factory=dict)
-    step_index: int | None = None
-    msg_index: int | None = None  # index of the owning Msg in history
     tool_call_id: str | None = None  # links tool_call <-> tool_result
     tool_input: Any = None
     tool_state: str | None = None

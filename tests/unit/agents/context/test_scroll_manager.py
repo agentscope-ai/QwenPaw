@@ -403,7 +403,7 @@ def test_serialize_captures_tool_input():
             ),
         ],
     )
-    entries = msg_to_entries(msg, 0)
+    entries = msg_to_entries(msg)
     turn = next(e for e in entries if e.kind == "model_turn")
     assert turn.name == "read_file"
     assert turn.tool_call_id == "call-1"
@@ -426,7 +426,7 @@ def test_tool_input_round_trips_to_db(store: HistoryStore):
             ),
         ],
     )
-    (turn,) = msg_to_entries(msg, 0)
+    (turn,) = msg_to_entries(msg)
     store.append(session_id="s1", dedup_key="m1", entry=turn)
     row = store._conn.execute(
         "SELECT tool_input FROM conversation_history "

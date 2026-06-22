@@ -54,7 +54,7 @@ The persistent record reaches you through `ms`. Prefer these intent helpers
     searches your whole history across past sessions; all_agents=True spans
     every agent here. Pin a specific one with session_id="cron:<job>" /
     agent_id="<other>" (these take precedence). Keys: seq, session_id,
-    step_index, kind, role, name, headline, content (600-char preview).
+    kind, role, name, headline, content (600-char preview).
   • ms.sessions() — your past conversations (incl. scheduled cron/heartbeat
     runs); ms.session(session_id) reads one in full. ms.agents() lists agents.
   • ms.days_between(d1, d2, inclusive=False) — |days| between two dates

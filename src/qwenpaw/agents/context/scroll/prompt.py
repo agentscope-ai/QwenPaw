@@ -13,8 +13,6 @@ index (see :func:`..serialize.extract_headline`).
 """
 
 SCROLL_SYSTEM_PROMPT = """\
-## Long-term memory
-
 Your conversations are durably recorded, even after older turns scroll out of
 your live context — and your memory spans ALL your past sessions, not just this
 one. You read it back on demand; you do not lose it.

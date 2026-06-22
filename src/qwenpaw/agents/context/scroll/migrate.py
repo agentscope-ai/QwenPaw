@@ -166,7 +166,7 @@ def _migrate_file(
     res = FileResult(filename=path.name, session_id=session_id)
     before = 0 if dry_run else history.count(session_id)
 
-    msg_index = 0
+    row_index = 0
     with path.open("r", encoding="utf-8") as f:
         for raw in f:
             line = raw.strip()
@@ -186,9 +186,9 @@ def _migrate_file(
 
             # Stable fallback id: the line's position is a fixed function of
             # the file, so a re-run re-derives the same key (unlike id(msg)).
-            mid = getattr(msg, "id", None) or f"{session_id}#row{msg_index}"
+            mid = getattr(msg, "id", None) or f"{session_id}#row{row_index}"
             anon_pos = 0
-            for entry in msg_to_entries(msg, msg_index):
+            for entry in msg_to_entries(msg):
                 if entry.kind == "tool_result":
                     dedup_key = entry.tool_call_id or f"{mid}#anon{anon_pos}"
                     anon_pos += 1
@@ -202,7 +202,7 @@ def _migrate_file(
                         entry=entry,
                         dedup_key=dedup_key,
                     )
-            msg_index += 1
+            row_index += 1
 
     res.rows_inserted = 0 if dry_run else history.count(session_id) - before
     return res

@@ -332,9 +332,9 @@ class MemorySpace:
         (FTS5).
 
         Returns up to ``k`` rows ranked by relevance (bm25), each a dict with
-        keys: ``seq``, ``session_id``, ``step_index``, ``kind``, ``role``,
-        ``name``, ``headline``, ``content`` (a 600-char preview — pull the full
-        turn with ``expand(seq, seq)``). By default searches this agent across
+        keys: ``seq``, ``session_id``, ``kind``, ``role``, ``name``,
+        ``headline``, ``content`` (a 600-char preview — pull the full turn
+        with ``expand(seq, seq)``). By default searches this agent across
         all its sessions. Pass ``all_agents=True`` to span every agent, or pin
         a *specific* conversation / agent with ``session_id='cron:<job>'``
         and/or ``agent_id='<other>'`` (these AND-combine and take precedence).
@@ -356,7 +356,7 @@ class MemorySpace:
             where.append("ch.kind = ?")
             params.append(kind)
         sql = (
-            "SELECT ch.seq, ch.session_id, ch.step_index, ch.kind, ch.role, "
+            "SELECT ch.seq, ch.session_id, ch.kind, ch.role, "
             "ch.name, ch.headline, substr(ch.content, 1, 600) AS content "
             f"FROM hist.{fts} JOIN hist.conversation_history ch "
             f"ON ch.seq = {fts}.rowid "
@@ -398,7 +398,7 @@ class MemorySpace:
             where.append("kind = ?")
             params.append(kind)
         sql = (
-            "SELECT seq, session_id, step_index, kind, role, name, headline, "
+            "SELECT seq, session_id, kind, role, name, headline, "
             "substr(content, 1, 600) AS content "
             "FROM hist.conversation_history "
             "WHERE " + " AND ".join(where) + " ORDER BY seq DESC LIMIT ?"

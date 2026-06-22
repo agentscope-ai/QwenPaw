@@ -71,7 +71,7 @@ def extract_headline(text: str | None) -> str | None:
     return None
 
 
-def msg_to_entries(msg: Msg, msg_index: int) -> list[LogEntry]:
+def msg_to_entries(msg: Msg) -> list[LogEntry]:
     """Map one ``Msg`` to one or more durable ``LogEntry`` rows.
 
     The assistant text/thinking/tool-call blocks become a single ``model_turn``
@@ -116,7 +116,6 @@ def msg_to_entries(msg: Msg, msg_index: int) -> list[LogEntry]:
                 content=text,
                 tool_call_id=tool_call_id,
                 tool_input=tool_input,
-                msg_index=msg_index,
                 headline=headline,
                 blocks=dumped or None,
                 created_at=created_at,
@@ -131,7 +130,6 @@ def msg_to_entries(msg: Msg, msg_index: int) -> list[LogEntry]:
                 content=flatten_output(getattr(b, "output", None)),
                 tool_call_id=getattr(b, "id", None),
                 tool_state=_state_value(getattr(b, "state", None)),
-                msg_index=msg_index,
                 blocks=[_dump(b)],
                 created_at=created_at,
             ),

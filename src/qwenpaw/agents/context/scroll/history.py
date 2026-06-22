@@ -32,8 +32,6 @@ _RECALL_TOOL_NAME = "execute_python"
 _INSERT_COLUMNS = (
     "session_id",
     "agent_id",
-    "step_index",
-    "msg_index",
     "kind",
     "role",
     "name",
@@ -129,8 +127,6 @@ class HistoryStore:
                     seq          INTEGER PRIMARY KEY AUTOINCREMENT,
                     session_id   TEXT NOT NULL,
                     agent_id     TEXT,
-                    step_index   INTEGER,
-                    msg_index    INTEGER,
                     kind         TEXT NOT NULL,
                     role         TEXT,
                     name         TEXT,
@@ -219,8 +215,6 @@ class HistoryStore:
         row = (
             session_id,
             agent_id,
-            entry.step_index,
-            entry.msg_index,
             entry.kind,
             entry.role,
             entry.name,

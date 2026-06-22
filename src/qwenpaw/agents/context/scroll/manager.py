@@ -82,7 +82,6 @@ class ScrollContextManager:
             int,
         ] = {}  # msg.id -> #non-result blocks persisted
         self._leaf_by_id: dict[str, Leaf] = {}  # msg.id -> its index leaf
-        self._msg_counter = 0
         self._index = EvictionIndex(session_id=session_id, agent_id=agent_id)
 
     # -- delegated hooks -----------------------------------------------------
@@ -232,7 +231,7 @@ class ScrollContextManager:
             if mid in self._synthetic_ids:
                 continue
             anon_pos = 0  # stable index for results lacking a tool_call_id
-            for entry in msg_to_entries(msg, self._msg_counter):
+            for entry in msg_to_entries(msg):
                 if entry.kind == "tool_result":
                     # Key on the call id, else this result's position in the
                     # msg — a fixed function of (msg.id, block order), so it
@@ -300,7 +299,6 @@ class ScrollContextManager:
                     self._persisted_ids.add(mid)
                     self._model_turn_seq[mid] = seq
                     self._model_turn_nblk[mid] = nblk
-                    self._msg_counter += 1
                     # A model turn with a headline becomes an index leaf.
                     if entry.headline:
                         self._leaf_by_id[mid] = Leaf(
@@ -381,7 +379,6 @@ class ScrollContextManager:
             "leaf_by_id": {
                 k: [lf.seq, lf.headline] for k, lf in self._leaf_by_id.items()
             },
-            "msg_counter": self._msg_counter,
             "index": self._index.to_dict(),
         }
 
@@ -403,7 +400,6 @@ class ScrollContextManager:
             k: Leaf(seq=seq, headline=headline)
             for k, (seq, headline) in data.get("leaf_by_id", {}).items()
         }
-        self._msg_counter = int(data.get("msg_counter", 0))
         if "index" in data:
             self._index = EvictionIndex.from_dict(data["index"])
 
