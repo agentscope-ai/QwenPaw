@@ -320,7 +320,8 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
 
     fast_elapsed = time.time() - startup_start_time
     logger.info(
-        f"Server ready in {fast_elapsed:.3f}s " f"(agents loading in background)",
+        f"Server ready in {fast_elapsed:.3f}s "
+        f"(agents loading in background)",
     )
 
     # ================================================================
@@ -488,7 +489,8 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
 
             startup_elapsed = time.time() - startup_start_time
             logger.info(
-                "Background startup completed in " f"{startup_elapsed:.3f} seconds",
+                "Background startup completed in "
+                f"{startup_elapsed:.3f} seconds",
             )
 
             # Print server URL again so it's visible after background logs
@@ -665,7 +667,8 @@ logger.info(f"STATIC_DIR: {_CONSOLE_STATIC_DIR}")
 def read_root():
     if _CONSOLE_INDEX and _CONSOLE_INDEX.exists():
         return FileResponse(
-            _CONSOLE_INDEX, headers={"X-Content-Type-Options": "nosniff"}
+            _CONSOLE_INDEX,
+            headers={"X-Content-Type-Options": "nosniff"},
         )
     return {
         "message": (
@@ -728,7 +731,8 @@ if os.path.isdir(_CONSOLE_STATIC_DIR):
     def _serve_console_index():
         if _CONSOLE_INDEX and _CONSOLE_INDEX.exists():
             return FileResponse(
-                _CONSOLE_INDEX, headers={"X-Content-Type-Options": "nosniff"}
+                _CONSOLE_INDEX,
+                headers={"X-Content-Type-Options": "nosniff"},
             )
 
         raise HTTPException(status_code=404, detail="Not Found")
@@ -771,7 +775,8 @@ if os.path.isdir(_CONSOLE_STATIC_DIR):
                 static_file = _console_path / full_path
                 if static_file.is_file():
                     return FileResponse(
-                        static_file, headers={"X-Content-Type-Options": "nosniff"}
+                        static_file,
+                        headers={"X-Content-Type-Options": "nosniff"},
                     )
 
         return _serve_console_index()
