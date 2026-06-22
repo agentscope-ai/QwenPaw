@@ -53,6 +53,11 @@ from .migration import (
     ensure_qa_agent_exists,
 )
 from .channels.registry import register_custom_channel_routes
+from .runner.subagent_events import get_subagent_event_registry
+from .runner.subagent_cancel import (
+    cancel_linked_subagents,
+    set_subagent_task_cancel_callback,
+)
 
 # Apply log level on load so reload child process gets same level as CLI.
 logger = setup_logger(os.environ.get(LOG_LEVEL_ENV, "info"))
@@ -206,10 +211,138 @@ class DynamicMultiAgentRunner:
         return None
 
 
+class QwenPawAgentApp(AgentApp):
+    """AgentApp with QwenPaw background subagent lifecycle events."""
+
+    SUBAGENT_HEARTBEAT_INTERVAL = 30.0
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._stream_task_handles = {}
+
+    async def cancel_stream_task(self, task_id: str) -> bool:
+        """Cancel an in-memory stream task by AgentApp task_id."""
+        task = self._stream_task_handles.get(task_id)
+        if task is None or task.done():
+            return False
+        task.cancel()
+        return True
+
+    async def execute_stream_query_task(
+        self,
+        task_id,
+        stream_func,
+        request,
+        queue,
+        timeout=None,
+    ):
+        start_time = time.time()
+        registry = get_subagent_event_registry()
+        current_task = asyncio.current_task()
+        if current_task is not None:
+            self._stream_task_handles[task_id] = current_task
+        heartbeat_task = None
+
+        async def publish_periodic_heartbeat():
+            while True:
+                await asyncio.sleep(self.SUBAGENT_HEARTBEAT_INTERVAL)
+                registry.publish_event(
+                    task_id,
+                    "subagent.heartbeat",
+                    "running",
+                )
+
+        async def stream_with_heartbeat(request_payload):
+            async for item in stream_func(request_payload):
+                registry.publish_event(
+                    task_id,
+                    "subagent.heartbeat",
+                    "running",
+                )
+                yield item
+
+        try:
+            heartbeat_task = asyncio.create_task(publish_periodic_heartbeat())
+            result = await super().execute_stream_query_task(
+                task_id=task_id,
+                stream_func=stream_with_heartbeat,
+                request=request,
+                queue=queue,
+                timeout=timeout,
+            )
+            registry.publish_terminal(
+                task_id,
+                status="completed",
+                result=result,
+                elapsed_time=time.time() - start_time,
+            )
+            return result
+        except asyncio.TimeoutError:
+            registry.publish_terminal(
+                task_id,
+                status="timed_out",
+                error=f"Task exceeded timeout of {timeout}s",
+                elapsed_time=time.time() - start_time,
+            )
+            raise
+        except asyncio.CancelledError:
+            parent_session_id = getattr(request, "session_id", "") or ""
+            if parent_session_id:
+                try:
+                    cancelled_children = await cancel_linked_subagents(
+                        parent_session_id,
+                    )
+                    if cancelled_children:
+                        logger.info(
+                            "Cancelled %s linked subagent task(s) for "
+                            "parent_session=%s",
+                            cancelled_children,
+                            parent_session_id,
+                        )
+                except Exception:
+                    logger.debug(
+                        "Failed to cancel linked subagents for "
+                        "parent_session=%s",
+                        parent_session_id,
+                        exc_info=True,
+                    )
+            active_task = getattr(self, "active_tasks", {}).get(task_id)
+            if active_task is not None:
+                active_task.update(
+                    {
+                        "status": "failed",
+                        "error": "Task was cancelled",
+                        "error_type": "CancelledError",
+                        "failed_at": time.time(),
+                    },
+                )
+            registry.publish_terminal(
+                task_id,
+                status="cancelled",
+                error="Task was cancelled",
+                elapsed_time=time.time() - start_time,
+            )
+            raise
+        except Exception as exc:
+            registry.publish_terminal(
+                task_id,
+                status="failed",
+                error=str(exc),
+                elapsed_time=time.time() - start_time,
+            )
+            raise
+        finally:
+            if heartbeat_task is not None:
+                heartbeat_task.cancel()
+                with suppress(asyncio.CancelledError):
+                    await heartbeat_task
+            self._stream_task_handles.pop(task_id, None)
+
+
 # Use dynamic runner for AgentApp
 runner = DynamicMultiAgentRunner()
 
-agent_app = AgentApp(
+agent_app = QwenPawAgentApp(
     app_name="QwenPaw",
     app_description="A helpful assistant with background task support",
     runner=runner,
@@ -217,6 +350,32 @@ agent_app = AgentApp(
     stream_task_queue="stream_query",
     stream_task_timeout=1800,
 )
+
+set_subagent_task_cancel_callback(agent_app.cancel_stream_task)
+
+
+async def _subagent_stale_watchdog(
+    *,
+    interval: float = 30.0,
+    stale_after: float = 120.0,
+) -> None:
+    registry = get_subagent_event_registry()
+    while True:
+        await asyncio.sleep(interval)
+        try:
+            stale_events = registry.mark_stale_tasks(stale_after)
+            for event in stale_events:
+                logger.warning(
+                    "Background subagent task marked stale: task_id=%s "
+                    "parent_session=%s",
+                    event.task_id,
+                    event.parent_session_id,
+                )
+        except Exception:
+            logger.debug(
+                "Subagent stale watchdog iteration failed",
+                exc_info=True,
+            )
 
 
 @asynccontextmanager
@@ -506,10 +665,16 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
             )
 
     _bg_task = asyncio.create_task(_background_startup())
+    _subagent_watchdog_task = asyncio.create_task(_subagent_stale_watchdog())
 
     try:
         yield
     finally:
+        if not _subagent_watchdog_task.done():
+            _subagent_watchdog_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await _subagent_watchdog_task
+
         # Cancel background startup if still in progress
         if not _bg_task.done():
             _bg_task.cancel()

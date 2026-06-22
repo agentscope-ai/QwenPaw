@@ -1544,8 +1544,20 @@ def _default_builtin_tools() -> Dict[str, BuiltinToolConfig]:
         "check_agent_task": BuiltinToolConfig(
             name="check_agent_task",
             enabled=True,
-            description="Check the status of a background agent task",
+            description=(
+                "Check background task status; for spawned subagents prefer "
+                "wait_subagent_events"
+            ),
             icon="⏳",
+        ),
+        "wait_subagent_events": BuiltinToolConfig(
+            name="wait_subagent_events",
+            enabled=True,
+            description=(
+                "Wait for background subagent completion events without "
+                "frequent status polling"
+            ),
+            icon="📬",
         ),
         "spawn_subagent": BuiltinToolConfig(
             name="spawn_subagent",
@@ -1670,6 +1682,7 @@ def build_local_agent_tools_config() -> ToolsConfig:
             "chat_with_agent",
             "submit_to_agent",
             "check_agent_task",
+            "wait_subagent_events",
             "execute_shell_command",
             "read_file",
             "write_file",

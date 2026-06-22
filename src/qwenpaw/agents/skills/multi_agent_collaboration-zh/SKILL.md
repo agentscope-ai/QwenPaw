@@ -33,6 +33,7 @@ metadata:
 3. **调用前先查 agent，不要猜 ID**
 4. **需要上下文续聊时，必须传 `--session-id`**
 5. **不要回调消息来源 agent**
+6. **如果使用内置 `spawn_subagent(background=True)` 启动后台子 agent，优先用 `wait_subagent_events(task_ids=[...])` 等待结果；不要围绕 `check_agent_task` 高频轮询**
 
 ---
 
@@ -144,6 +145,20 @@ qwenpaw agents chat \
 6. 等待合理时间（30-60秒）后查询状态
 7. 使用 --background --task-id 查询结果
 ```
+
+如果是工具层的 `spawn_subagent(background=True)`，后台子 agent 会把完成/失败/取消/超时事件发回当前父会话。记录返回的 task_id 后，使用：
+
+```python
+wait_subagent_events(task_ids=["<task_id>"])
+```
+
+多个后台子 agent 可以一起等待：
+
+```python
+wait_subagent_events(task_ids=["<task_id_1>", "<task_id_2>"])
+```
+
+`check_agent_task` 只作为手动排查或事件不可用时的兜底。
 
 ---
 

@@ -19,6 +19,7 @@ from ...utils.http import trust_env_for_url
 
 DEFAULT_AGENT_API_BASE_URL = "http://127.0.0.1:8088"
 DEFAULT_AGENT_API_TIMEOUT = 30.0
+MAX_BACKGROUND_SUBAGENTS_PER_PARENT = 5
 
 
 def resolve_agent_api_base_url(base_url: Optional[str] = None) -> str:
@@ -361,21 +362,34 @@ def format_agent_chat_text(
 def format_background_submission_text(
     task_result: Dict[str, Any],
     session_id: str,
+    *,
+    prefer_events: bool = False,
 ) -> str:
     """Format background submission result as plain text."""
     task_id = task_result.get("task_id")
     if not task_id:
         return "ERROR: No task_id returned from server"
 
-    return "\n".join(
-        [
-            f"[TASK_ID: {task_id}]",
-            f"[SESSION: {session_id}]",
-            "",
-            "Task submitted successfully.",
+    lines = [
+        f"[TASK_ID: {task_id}]",
+        f"[SESSION: {session_id}]",
+        "",
+        "Task submitted successfully.",
+    ]
+    if prefer_events:
+        lines.extend(
+            [
+                "Wait for completion with: "
+                f"wait_subagent_events(task_ids=['{task_id}'])",
+                "Fallback status check: "
+                f"check_agent_task(task_id='{task_id}')",
+            ],
+        )
+    else:
+        lines.append(
             "Check status with: check_agent_task(" f"task_id='{task_id}')",
-        ],
-    )
+        )
+    return "\n".join(lines)
 
 
 def format_background_status_text(
@@ -609,7 +623,10 @@ async def check_agent_task(
     This tool queries a previously submitted background task by its task ID.
     If the task is still in progress, it returns the current lifecycle state.
     If the task has finished, it returns either the final agent response or a
-    failure message.
+    failure message. For background tasks created by ``spawn_subagent``, prefer
+    ``wait_subagent_events`` because spawned subagents publish completion events
+    back to the parent session. Use this tool as a manual fallback or for
+    background tasks that are not linked to the current parent session.
 
     Args:
         task_id (`str`):
@@ -639,6 +656,195 @@ async def check_agent_task(
     )
 
 
+def _normalize_task_ids(task_ids: Optional[list[str]]) -> Optional[set[str]]:
+    if not task_ids:
+        return None
+    normalized = {
+        normalize_id(str(task_id))
+        for task_id in task_ids
+        if normalize_id(str(task_id))
+    }
+    return normalized or None
+
+
+def _check_background_subagent_capacity(parent_session_id: str) -> str:
+    if not parent_session_id:
+        return ""
+
+    from ...app.runner.subagent_events import get_subagent_event_registry
+
+    running = get_subagent_event_registry().linked_running_count(
+        parent_session_id,
+    )
+    if running < MAX_BACKGROUND_SUBAGENTS_PER_PARENT:
+        return ""
+    return (
+        "ERROR: background subagent limit reached for the current parent "
+        f"session ({running}/{MAX_BACKGROUND_SUBAGENTS_PER_PARENT} running). "
+        "Wait for existing subagents with wait_subagent_events(...) or stop "
+        "them before spawning more."
+    )
+
+
+def _format_subagent_event(event: dict[str, Any]) -> str:
+    task_id = event.get("task_id", "")
+    status = event.get("status", "unknown")
+    child_session_id = event.get("child_session_id", "")
+    lines = [
+        f"[TASK_ID: {task_id}]",
+        f"[STATUS: {status}]",
+    ]
+    if child_session_id:
+        lines.append(f"[SESSION: {child_session_id}]")
+    lines.append("")
+
+    if status == "completed":
+        lines.append("Task completed.")
+        result = event.get("result")
+        if isinstance(result, dict):
+            lines.append("")
+            lines.append(
+                format_agent_chat_text(
+                    result,
+                    session_id=child_session_id or None,
+                ),
+            )
+        elif result:
+            lines.append("")
+            lines.append(str(result))
+    elif status in {"failed", "cancelled", "timed_out"}:
+        lines.append(f"Task {status}.")
+        error = event.get("error")
+        if error:
+            lines.append("")
+            lines.append(f"Error: {error}")
+    else:
+        lines.append(_json_text(event))
+    return "\n".join(lines)
+
+
+def _format_running_subagent_summary(
+    parent_session_id: str,
+    task_ids: Optional[set[str]],
+) -> str:
+    from ...app.runner.subagent_events import get_subagent_event_registry
+
+    now = time.time()
+    records = get_subagent_event_registry().get_records_for_parent(
+        parent_session_id,
+    )
+    lines = []
+    for record in records:
+        if task_ids and record.task_id not in task_ids:
+            continue
+        if record.status not in {"submitted", "running"}:
+            continue
+        last_seen = (
+            record.last_heartbeat_at
+            or record.started_at
+            or record.created_at
+        )
+        heartbeat_age = max(0, int(now - last_seen))
+        lines.append(
+            f"- {record.task_id}: {record.status}, "
+            f"last heartbeat {heartbeat_age}s ago",
+        )
+    if not lines:
+        return ""
+    return "Running linked subagents:\n" + "\n".join(lines)
+
+
+async def wait_subagent_events(
+    task_ids: Optional[list[str]] = None,
+    timeout: int = 60,
+    wait_for_all: bool = True,
+) -> ToolResponse:
+    """Wait for background subagent completion events.
+
+    This is the event-driven counterpart to ``check_agent_task``. It waits on
+    the parent session's subagent event inbox and returns completed, failed,
+    cancelled, or timed-out child results. Use ``check_agent_task`` only as a
+    fallback manual status inspection tool. After starting one or more
+    background subagents with ``spawn_subagent(background=True)``, call this
+    tool with their task IDs instead of repeatedly polling status.
+
+    Args:
+        task_ids: Optional list of background task IDs to wait for. When
+            omitted, returns the next available terminal subagent event for
+            the current parent session.
+        timeout: Maximum wait time in seconds.
+        wait_for_all: When task_ids is provided, wait until all listed tasks
+            have terminal events or timeout.
+    """
+    from ...app.agent_context import get_current_session_id
+    from ...app.runner.subagent_events import (
+        TERMINAL_STATUSES,
+        get_subagent_event_registry,
+    )
+
+    parent_session_id = get_current_session_id() or ""
+    if not parent_session_id:
+        return _tool_text_response(
+            "ERROR: unable to resolve current parent session ID",
+        )
+
+    wanted = _normalize_task_ids(task_ids)
+    deadline = time.monotonic() + max(0, timeout)
+    registry = get_subagent_event_registry()
+    collected: list[dict[str, Any]] = []
+    completed_task_ids: set[str] = set()
+
+    while True:
+        events = registry.drain_events(
+            parent_session_id,
+            task_ids=wanted,
+            terminal_only=True,
+        )
+        for event in events:
+            data = event.to_dict()
+            collected.append(data)
+            if data.get("status") in TERMINAL_STATUSES:
+                completed_task_ids.add(data.get("task_id", ""))
+
+        if collected:
+            if not wanted or not wait_for_all:
+                break
+            if wanted.issubset(completed_task_ids):
+                break
+
+        if time.monotonic() >= deadline:
+            break
+        await asyncio.sleep(0.5)
+
+    if not collected:
+        running_summary = _format_running_subagent_summary(
+            parent_session_id,
+            wanted,
+        )
+        if running_summary:
+            return _tool_text_response(
+                "No terminal subagent events received before timeout.\n\n"
+                + running_summary,
+            )
+        return _tool_text_response(
+            "No terminal subagent events received before timeout.",
+        )
+
+    parts = []
+    for index, event in enumerate(collected, 1):
+        if len(collected) > 1:
+            parts.append(f"## Subagent Event {index}")
+            parts.append("")
+        parts.append(_format_subagent_event(event))
+        parts.append("")
+
+    if wanted and not wanted.issubset(completed_task_ids):
+        pending = sorted(wanted - completed_task_ids)
+        parts.append("Pending task IDs: " + ", ".join(pending))
+
+    return _tool_text_response("\n".join(parts).rstrip())
+
+
 def _generate_subagent_session_id() -> str:
     """Generate a short session ID for a spawned subagent."""
     return f"sub-{str(uuid4())[:8]}"
@@ -659,6 +865,12 @@ async def spawn_subagent(
     Unlike ``chat_with_agent`` (which calls a *different* agent),
     this tool targets the same agent identity and workspace.
 
+    Background subagents are linked to the current parent session. When a
+    linked background subagent finishes, fails, times out, or is cancelled, it
+    publishes a terminal event to the parent session. To collect results for
+    one or more background subagents, call ``wait_subagent_events`` with the
+    returned task IDs. Avoid tight loops around ``check_agent_task``.
+
     Args:
         task: Description of the sub-task to perform.
         fork: If True, the subagent inherits parent session state.
@@ -667,8 +879,11 @@ async def spawn_subagent(
             back to workspace; no worktree if not a git repo).
             If False (default), starts with a fresh empty session.
         background: If True, submit as background task and return
-            immediately with a task_id. Use check_agent_task(task_id)
-            to poll status and retrieve the result.
+            immediately with a task_id. Use
+            ``wait_subagent_events(task_ids=[...])`` as the primary way to
+            receive completion events. Use ``check_agent_task(task_id)`` only
+            as a manual fallback. A parent session can have at most
+            5 running/submitted background subagents at once.
         timeout: Foreground wait timeout in seconds (default 600).
 
     Returns:
@@ -712,6 +927,15 @@ async def spawn_subagent(
     }
 
     if background:
+        from ...app.agent_context import get_current_session_id
+
+        parent_session_id = get_current_session_id() or ""
+        capacity_error = _check_background_subagent_capacity(
+            parent_session_id,
+        )
+        if capacity_error:
+            return _tool_text_response(capacity_error)
+
         result = await asyncio.to_thread(
             submit_agent_chat_task,
             None,
@@ -719,10 +943,35 @@ async def spawn_subagent(
             current_agent_id,
             int(DEFAULT_AGENT_API_TIMEOUT),
         )
+        task_id = result.get("task_id")
+        if task_id:
+            from ...app.agent_context import (
+                get_current_channel,
+                get_current_user_id,
+            )
+            from ...app.runner.subagent_events import (
+                SubagentTaskRecord,
+                get_subagent_event_registry,
+            )
+
+            get_subagent_event_registry().register_task(
+                SubagentTaskRecord(
+                    task_id=task_id,
+                    parent_agent_id=current_agent_id,
+                    parent_session_id=parent_session_id,
+                    child_agent_id=current_agent_id,
+                    child_session_id=subagent_session_id,
+                    task=task,
+                    user_id=get_current_user_id() or "",
+                    channel=get_current_channel() or "",
+                    fork=False,
+                ),
+            )
         return _tool_text_response(
             format_background_submission_text(
                 result,
                 subagent_session_id,
+                prefer_events=True,
             ),
         )
 
@@ -836,6 +1085,13 @@ async def _spawn_forked_subagent(
     user_id = get_current_user_id() or ""
     channel = get_current_channel() or ""
 
+    if background:
+        capacity_error = _check_background_subagent_capacity(
+            parent_session_id,
+        )
+        if capacity_error:
+            return _tool_text_response(capacity_error)
+
     fork_result = await _call_fork_api(
         agent_id=current_agent_id,
         parent_session_id=parent_session_id,
@@ -880,9 +1136,30 @@ async def _spawn_forked_subagent(
             current_agent_id,
             int(DEFAULT_AGENT_API_TIMEOUT),
         )
+        task_id = result.get("task_id")
+        if task_id:
+            from ...app.runner.subagent_events import (
+                SubagentTaskRecord,
+                get_subagent_event_registry,
+            )
+
+            get_subagent_event_registry().register_task(
+                SubagentTaskRecord(
+                    task_id=task_id,
+                    parent_agent_id=current_agent_id,
+                    parent_session_id=parent_session_id,
+                    child_agent_id=current_agent_id,
+                    child_session_id=fork_session_id,
+                    task=task,
+                    user_id=user_id,
+                    channel=channel,
+                    fork=True,
+                ),
+            )
         submission_text = format_background_submission_text(
             result,
             fork_session_id,
+            prefer_events=True,
         )
         if worktree_path:
             submission_text += (

@@ -44,6 +44,7 @@ from .tools import (
     delegate_external_agent,
     chat_with_agent,
     check_agent_task,
+    wait_subagent_events,
     spawn_subagent,
     submit_to_agent,
     desktop_screenshot,
@@ -306,6 +307,7 @@ class QwenPawAgent(CodingModeMixin, ToolGuardMixin, ReActAgent):
             "chat_with_agent": chat_with_agent,
             "submit_to_agent": submit_to_agent,
             "check_agent_task": check_agent_task,
+            "wait_subagent_events": wait_subagent_events,
             "spawn_subagent": spawn_subagent,
             "run_tool_batch": run_tool_batch,
             # Register only when the `make-skill` skill is enabled.

@@ -278,6 +278,104 @@ async def test_check_agent_task_formats_finished_background_result(
     assert "Background reply" in text
 
 
+async def test_wait_subagent_events_formats_completed_event(monkeypatch):
+    from qwenpaw.app.runner.subagent_events import (
+        SubagentEventRegistry,
+        SubagentTaskRecord,
+    )
+
+    registry = SubagentEventRegistry()
+    registry.register_task(
+        SubagentTaskRecord(
+            task_id="task-1",
+            parent_agent_id="default",
+            parent_session_id="parent-1",
+            child_agent_id="default",
+            child_session_id="child-1",
+        ),
+    )
+    registry.publish_terminal(
+        "task-1",
+        status="completed",
+        result={
+            "output": [
+                {
+                    "content": [
+                        {"type": "text", "text": "Subagent done"},
+                    ],
+                },
+            ],
+        },
+    )
+
+    monkeypatch.setattr(
+        "qwenpaw.app.agent_context.get_current_session_id",
+        lambda: "parent-1",
+    )
+    monkeypatch.setattr(
+        "qwenpaw.app.runner.subagent_events.get_subagent_event_registry",
+        lambda: registry,
+    )
+
+    response = await agent_management.wait_subagent_events(
+        task_ids=["task-1"],
+        timeout=0,
+    )
+
+    text = response.content[0].get("text", "")
+    assert "[TASK_ID: task-1]" in text
+    assert "[STATUS: completed]" in text
+    assert "Subagent done" in text
+
+
+async def test_spawn_subagent_background_registers_event_relation(
+    monkeypatch,
+):
+    from qwenpaw.app.runner.subagent_events import SubagentEventRegistry
+
+    registry = SubagentEventRegistry()
+    monkeypatch.setattr(
+        agent_management,
+        "submit_agent_chat_task",
+        lambda *_args, **_kwargs: {
+            "task_id": "task-1",
+            "status": "submitted",
+        },
+    )
+    monkeypatch.setattr(
+        "qwenpaw.app.agent_context.get_current_agent_id",
+        lambda: "default",
+    )
+    monkeypatch.setattr(
+        "qwenpaw.app.agent_context.get_current_session_id",
+        lambda: "parent-1",
+    )
+    monkeypatch.setattr(
+        "qwenpaw.app.agent_context.get_current_user_id",
+        lambda: "user-1",
+    )
+    monkeypatch.setattr(
+        "qwenpaw.app.agent_context.get_current_channel",
+        lambda: "console",
+    )
+    monkeypatch.setattr(
+        "qwenpaw.app.runner.subagent_events.get_subagent_event_registry",
+        lambda: registry,
+    )
+
+    response = await agent_management.spawn_subagent(
+        task="do work",
+        background=True,
+    )
+
+    text = response.content[0].get("text", "")
+    assert "wait_subagent_events" in text
+    records = registry.get_records_for_parent("parent-1")
+    assert len(records) == 1
+    assert records[0].task_id == "task-1"
+    assert records[0].child_session_id.startswith("sub-")
+
+
 async def test_chat_with_agent_uses_to_thread_for_final_mode(monkeypatch):
     monkeypatch.setattr(
         agent_management,

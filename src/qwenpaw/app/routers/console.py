@@ -17,6 +17,7 @@ from starlette.responses import StreamingResponse
 from agentscope_runtime.engine.schemas.agent_schemas import AgentRequest
 from ...utils.logging import LOG_FILE_PATH
 from ..agent_context import get_agent_for_request
+from ..runner.subagent_cancel import cancel_linked_subagents
 from ..runner.title_generator import generate_and_update_title
 from ..utils import check_upload_size
 
@@ -236,6 +237,17 @@ async def post_console_chat_stop(
     """Stop the running chat. Only stops when called."""
     logger.debug("[STOP API] Received stop request for chat_id=%s", chat_id)
     workspace = await get_agent_for_request(request)
+    cancelled_subagents = 0
+    cancelled_sessions = set()
+
+    async def cancel_once(session_id: str) -> int:
+        if not session_id or session_id in cancelled_sessions:
+            return 0
+        cancelled_sessions.add(session_id)
+        return await cancel_linked_subagents(session_id)
+
+    cancelled_subagents += await cancel_once(chat_id)
+    resolved_chat_id = None
 
     # Try to stop with the provided chat_id first
     logger.debug(
@@ -266,11 +278,22 @@ async def post_console_chat_stop(
                     resolved_chat_id,
                 )
 
+    chat_manager = getattr(workspace.runner, "_chat_manager", None)
+    if chat_manager:
+        chat_spec = await chat_manager.get_chat(resolved_chat_id or chat_id)
+        if chat_spec is not None:
+            cancelled_subagents += await cancel_once(chat_spec.session_id)
+
     logger.debug(
-        "[STOP API] task_tracker.request_stop returned: stopped=%s",
+        "[STOP API] task_tracker.request_stop returned: stopped=%s "
+        "cancelled_subagents=%s",
         stopped,
+        cancelled_subagents,
     )
-    return {"stopped": stopped}
+    return {
+        "stopped": stopped,
+        "cancelled_subagents": cancelled_subagents,
+    }
 
 
 @router.post("/upload", response_model=dict, summary="Upload file for chat")
