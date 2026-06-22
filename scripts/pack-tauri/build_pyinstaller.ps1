@@ -201,6 +201,14 @@ Copy-Item -Recurse -Force (Join-Path $BACKEND_DIR "*") $DEST
 Write-Host "Copied to: $DEST" -ForegroundColor Green
 Write-Host ""
 
+# Stage a standalone CPython (same X.Y/arch as this build's interpreter) so the
+# frozen backend can install third-party plugin dependencies at runtime.
+Write-Host "== Staging bundled Python runtime ==" -ForegroundColor Yellow
+& $PYTHON_BIN (Join-Path $REPO_ROOT "scripts\pack-tauri\stage_python_runtime.py") `
+    --dest (Join-Path $BINARIES_DIR "python-runtime")
+Assert-LastExit "Failed to stage bundled Python runtime"
+Write-Host ""
+
 Write-Host "=========================================" -ForegroundColor Cyan
 Write-Host "PyInstaller Build Complete!" -ForegroundColor Green
 Write-Host "=========================================" -ForegroundColor Cyan

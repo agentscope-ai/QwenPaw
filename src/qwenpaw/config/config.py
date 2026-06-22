@@ -411,7 +411,6 @@ class XiaoYiConfig(BaseChannelConfig):
     ak: str = ""  # Access Key
     sk: str = ""  # Secret Key
     agent_id: str = ""  # Agent ID from XiaoYi platform
-    ws_url: str = "wss://hag.cloud.huawei.com/openclaw/v1/ws/link"
     task_timeout_ms: int = 3600000  # 1 hour task timeout
 
 

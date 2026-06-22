@@ -7,6 +7,7 @@ import inspect
 import json
 import logging
 import os
+import platform
 import shutil
 import subprocess
 import sys
@@ -14,7 +15,8 @@ import threading
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
-from importlib.metadata import distributions as _all_distributions
+from importlib.metadata import PackageNotFoundError
+from importlib.metadata import version as _dist_version
 from packaging.requirements import Requirement
 
 from .architecture import PluginManifest, PluginRecord
@@ -22,6 +24,67 @@ from .api import PluginApi
 from .registry import PluginRegistry
 
 logger = logging.getLogger(__name__)
+
+# Distribution name -> import name, for the common cases where they differ.
+_IMPORT_NAME_OVERRIDES = {
+    "pillow": "PIL",
+    "pyyaml": "yaml",
+    "beautifulsoup4": "bs4",
+    "python-dateutil": "dateutil",
+    "opencv-python": "cv2",
+    "scikit-learn": "sklearn",
+    "protobuf": "google.protobuf",
+}
+
+
+def _is_frozen() -> bool:
+    return bool(getattr(sys, "frozen", False))
+
+
+def _desktop_python() -> Optional[str]:
+    """Bundled standalone CPython used to install plugin deps in the frozen
+    desktop build. Its absolute path is injected by the Tauri shell."""
+    path = os.environ.get("QWENPAW_DESKTOP_PY_RUNTIME", "").strip()
+    return path if path and Path(path).is_file() else None
+
+
+def _plugin_site_dir() -> Path:
+    """User-writable, ABI-bucketed directory holding installed plugin deps."""
+    from ..constant import WORKING_DIR
+
+    bucket = (
+        f"py{sys.version_info.major}.{sys.version_info.minor}"
+        f"-{platform.system().lower()}-{platform.machine().lower()}"
+    )
+    site_dir = Path(WORKING_DIR) / "plugin_runtime" / bucket / "site"
+    site_dir.mkdir(parents=True, exist_ok=True)
+    return site_dir
+
+
+def _ensure_plugin_site_on_path() -> None:
+    """Put the plugin-deps site dir on ``sys.path`` (idempotent).
+
+    Only relevant for the frozen desktop build, where plugin dependencies are
+    installed into a user-writable target dir; in normal installs they go into
+    the active environment, so this is a no-op.
+    """
+    if not _is_frozen():
+        return
+    try:
+        site_dir = str(_plugin_site_dir())
+    except Exception:
+        return
+    # Expose the dir so plugins that spawn the bundled Python (e.g. the pet
+    # desktop window) can put their installed deps on the child's PYTHONPATH.
+    os.environ["QWENPAW_PLUGIN_SITE"] = site_dir
+    if site_dir in sys.path:
+        return
+    import site as _site
+
+    _site.addsitedir(site_dir)
+    if site_dir not in sys.path:
+        sys.path.insert(0, site_dir)
+    importlib.invalidate_caches()
 
 
 class PluginLoader:
@@ -90,28 +153,52 @@ class PluginLoader:
         return PluginManifest.from_dict(data)
 
     @staticmethod
+    def _is_requirement_satisfied(req: Requirement) -> bool:
+        """Return True if *req* is already available.
+
+        Two complementary probes are combined so neither environment causes a
+        spurious reinstall on every launch:
+
+        * ``importlib.metadata`` — authoritative for deps installed via
+          ``pip install --target`` (they keep a proper ``.dist-info``) and the
+          only way to honour version specifiers. It is keyed by *distribution*
+          name, so import-name/dist-name mismatches (``pillow`` -> ``PIL``)
+          never cause false negatives.
+        * ``find_spec`` import probe — covers deps already bundled into the
+          frozen desktop build, whose ``.dist-info`` is often stripped, so they
+          are not misreported as missing (issue #5209).
+        """
+        # 1) Metadata probe: reliable for --target installs and version checks.
+        try:
+            installed = _dist_version(req.name)
+        except PackageNotFoundError:
+            installed = None
+        if installed is not None:
+            if not req.specifier:
+                return True
+            try:
+                return req.specifier.contains(installed)
+            except Exception:
+                return True
+        # 2) Import probe: frozen-bundled deps that lack ``.dist-info``.
+        dist = req.name.lower().replace("_", "-")
+        import_name = _IMPORT_NAME_OVERRIDES.get(
+            dist,
+            req.name.replace("-", "_"),
+        )
+        top = import_name.split(".")[0]
+        try:
+            return importlib.util.find_spec(top) is not None
+        except (ImportError, ValueError):
+            return False
+
+    @staticmethod
     def _check_dependencies_satisfied(
         requirements_file: Path,
     ) -> List[str]:
-        """Check which dependencies from requirements.txt are missing.
-
-        Uses ``importlib.metadata`` to inspect installed packages and
-        ``packaging.requirements`` to parse version specifiers.
-
-        Args:
-            requirements_file: Path to requirements.txt
-
-        Returns:
-            List of unsatisfied requirement strings (empty if all met).
-        """
+        """Return requirement lines that are not importable / out of spec."""
         if not requirements_file.exists():
             return []
-
-        installed_packages: Dict[str, str] = {}
-        for dist in _all_distributions():
-            name = dist.metadata["Name"]
-            if name:
-                installed_packages[name.lower()] = dist.metadata["Version"]
 
         missing: List[str] = []
         for line in requirements_file.read_text(encoding="utf-8").splitlines():
@@ -122,24 +209,7 @@ class PluginLoader:
                 req = Requirement(line)
             except Exception:
                 continue
-            installed_version = installed_packages.get(
-                req.name.lower().replace("-", "-"),
-            )
-            # Also check with underscores (pip normalizes both ways)
-            if installed_version is None:
-                installed_version = installed_packages.get(
-                    req.name.lower().replace("-", "_"),
-                )
-            if installed_version is None:
-                installed_version = installed_packages.get(
-                    req.name.lower().replace("_", "-"),
-                )
-            if installed_version is None:
-                missing.append(line)
-                continue
-            if req.specifier and not req.specifier.contains(
-                installed_version,
-            ):
+            if not PluginLoader._is_requirement_satisfied(req):
                 missing.append(line)
 
         return missing
@@ -159,6 +229,10 @@ class PluginLoader:
             source_path: Plugin directory containing requirements.txt
             plugin_id: Plugin identifier (for log messages)
         """
+        # Previously installed plugin deps live in a user-writable site dir;
+        # ensure it is importable before checking and before plugin import.
+        _ensure_plugin_site_on_path()
+
         requirements_file = source_path / "requirements.txt"
         missing_deps = self._check_dependencies_satisfied(requirements_file)
         if not missing_deps:
@@ -463,6 +537,12 @@ class PluginLoader:
         req = str(requirements_file)
         timeout = 300
 
+        # In a frozen desktop build ``sys.executable`` is the backend binary,
+        # not a Python interpreter; install via the bundled runtime instead.
+        if _is_frozen():
+            self._install_requirements_frozen(req, plugin_id, timeout)
+            return
+
         # ── Attempt 1: python -m pip ──────────────────────────────────
         try:
             result = self._run_subprocess_with_streaming_log(
@@ -542,6 +622,64 @@ class PluginLoader:
             )
         logger.info(
             f"Dependencies installed for plugin '{plugin_id}' (via uv)",
+        )
+
+    def _install_requirements_frozen(
+        self,
+        req: str,
+        plugin_id: str,
+        timeout: int,
+    ) -> None:
+        """Install plugin deps in the frozen desktop build.
+
+        Uses the bundled standalone CPython (same ``X.Y``/arch as the frozen
+        runtime) to ``pip install --target`` into a user-writable, ABI-bucketed
+        directory. Never runs ``sys.executable`` — that is the frozen backend
+        binary, and invoking it re-launches the backend and crash-loops the
+        desktop app (issue #5209).
+        """
+        python = _desktop_python()
+        if python is None:
+            raise RuntimeError(
+                f"Cannot install dependencies for plugin '{plugin_id}': the "
+                "bundled Python runtime is unavailable "
+                "(QWENPAW_DESKTOP_PY_RUNTIME not set). Reinstall QwenPaw "
+                "Desktop, or install the plugin's dependencies manually.",
+            )
+        target = str(_plugin_site_dir())
+        try:
+            result = self._run_subprocess_with_streaming_log(
+                [
+                    python,
+                    "-m",
+                    "pip",
+                    "install",
+                    "--disable-pip-version-check",
+                    "--no-input",
+                    "--target",
+                    target,
+                    "-r",
+                    req,
+                ],
+                timeout=timeout,
+                plugin_id=plugin_id,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise RuntimeError(
+                f"Dependency installation timed out for '{plugin_id}' "
+                f"(300 s limit exceeded)",
+            ) from exc
+
+        if result.returncode != 0:
+            raise RuntimeError(
+                f"Dependency installation failed for '{plugin_id}': "
+                f"{result.stdout}",
+            )
+        importlib.invalidate_caches()
+        logger.info(
+            "Dependencies installed for plugin '%s' into %s",
+            plugin_id,
+            target,
         )
 
     async def load_plugin_from_path(

@@ -27,12 +27,13 @@ async def snapshot_context_usage_for_memory(
 ) -> dict[str, Any] | None:
     """Estimate token totals from a loaded memory object."""
     try:
-        from ..config.config import load_agent_config
-
-        max_input_length = int(
-            getattr(load_agent_config(agent_id).running, "max_input_length", 0)
-            or 0,
+        from ..config.config import (
+            load_agent_config,
+            get_model_max_input_length,
         )
+
+        agent_config = load_agent_config(agent_id)
+        max_input_length = int(get_model_max_input_length(agent_config) or 0)
         if max_input_length <= 0:
             return None
 

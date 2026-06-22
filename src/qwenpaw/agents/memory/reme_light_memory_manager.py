@@ -1,10 +1,12 @@
 # -*- coding: utf-8 -*-
 """ReMeLight-backed memory manager for agents."""
+import asyncio
 import importlib.metadata
 import json
 import logging
 import platform
 import shutil
+import sys
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -107,7 +109,8 @@ class ReMeLightMemoryManager(BaseMemoryManager):
             "api_key": self._mask_key(emb_config["api_key"]),
         }
         logger.info(
-            f"Embedding config: {log_cfg}, vector_enabled={vector_enabled}",
+            f"Embedding config: {log_cfg}, "
+            f"vector_enabled={vector_enabled}",
         )
 
         fts_enabled = EnvVarLoader.get_bool("FTS_ENABLED", True)
@@ -124,6 +127,17 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         )
 
         recursive_file_watcher = reme_cfg.recursive_file_watcher
+
+        self._memory_backend = memory_manager_backend
+        self._reme_init_kwargs = {
+            "working_dir": working_dir,
+            "emb_config": emb_config,
+            "store_name": store_name,
+            "vector_enabled": vector_enabled,
+            "fts_enabled": fts_enabled,
+            "effective_rebuild": effective_rebuild,
+            "recursive_file_watcher": recursive_file_watcher,
+        }
 
         self._reme = ReMeLight(
             working_dir=working_dir,
@@ -243,14 +257,103 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         return True
 
     # ------------------------------------------------------------------
+    # chromadb runtime probe
+    # ------------------------------------------------------------------
+
+    _CHROMADB_PROBE_SCRIPT = (
+        "import chromadb; "
+        "c = chromadb.EphemeralClient(); "
+        "c.get_or_create_collection('probe-test')"
+    )
+    _CHROMADB_PROBE_TIMEOUT = 15
+
+    @staticmethod
+    async def _probe_chromadb_runtime() -> bool:
+        """Spawn a subprocess to verify chromadb Rust bindings.
+
+        Returns ``True`` when the probe succeeds, ``False`` on
+        crash (SIGSEGV), timeout, or any other failure.
+        """
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                sys.executable,
+                "-c",
+                ReMeLightMemoryManager._CHROMADB_PROBE_SCRIPT,
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            _, stderr = await asyncio.wait_for(
+                proc.communicate(),
+                timeout=(ReMeLightMemoryManager._CHROMADB_PROBE_TIMEOUT),
+            )
+            if proc.returncode != 0:
+                logger.warning(
+                    f"chromadb runtime probe failed "
+                    f"(rc={proc.returncode}): "
+                    f"{stderr.decode(errors='replace').strip()}",
+                )
+            return proc.returncode == 0
+        except asyncio.TimeoutError:
+            logger.warning(
+                "chromadb runtime probe timed out",
+            )
+            try:
+                proc.kill()  # type: ignore[possibly-undefined]
+            except ProcessLookupError:
+                pass
+            return False
+        except Exception as exc:
+            logger.warning(
+                f"chromadb runtime probe error: {exc}",
+            )
+            return False
+
+    def _rebuild_reme_with_local(self) -> None:
+        """Recreate ``self._reme`` with the local backend."""
+        from reme.reme_light import ReMeLight  # noqa: PLC0415
+
+        kw = self._reme_init_kwargs
+        self._memory_backend = "local"
+        self._reme = ReMeLight(
+            working_dir=kw["working_dir"],
+            default_embedding_model_config=kw["emb_config"],
+            default_file_store_config={
+                "backend": "local",
+                "store_name": kw["store_name"],
+                "vector_enabled": kw["vector_enabled"],
+                "fts_enabled": kw["fts_enabled"],
+            },
+            default_file_watcher_config={
+                "rebuild_index_on_start": (kw["effective_rebuild"]),
+                "recursive": kw["recursive_file_watcher"],
+            },
+        )
+
+    # ------------------------------------------------------------------
     # BaseMemoryManager interface
     # ------------------------------------------------------------------
 
     async def start(self):
-        """Start the ReMeLight lifecycle."""
+        """Start the ReMeLight lifecycle.
+
+        When the detected backend is ``chroma``, an async
+        subprocess probe verifies that the Rust native bindings
+        work at runtime.  If the probe fails (e.g. SIGSEGV on
+        macOS), the manager silently downgrades to the ``local``
+        backend so the agent can still start.
+        """
         self._warn_if_version_mismatch()
         if self._reme is None:
             return None
+
+        if self._memory_backend == "chroma":
+            if not await self._probe_chromadb_runtime():
+                logger.warning(
+                    "chromadb Rust bindings unusable, "
+                    "downgrading to local backend",
+                )
+                self._rebuild_reme_with_local()
+
         return await self._reme.start()
 
     async def close(self) -> bool:

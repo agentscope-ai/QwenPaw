@@ -276,12 +276,27 @@ class MockLLMHandler(BaseHTTPRequestHandler):
     def _stream_completion(self):
         body = self._read_body()
 
+        # Track request count for fail-then-recover scenarios.
+        count = getattr(self.server, "request_count", 0) + 1
+        self.server.request_count = count
+
         delay = getattr(self.server, "response_delay", 0)
         if delay:
             time.sleep(delay)
 
+        # force_status_code can be:
+        #   - int: always return that status
+        #   - list[int]: pop one per request (sequential failures)
+        forced_codes = getattr(self.server, "force_status_code", None)
+        if isinstance(forced_codes, list) and forced_codes:
+            self._respond_error(forced_codes.pop(0))
+            return
+        if isinstance(forced_codes, int):
+            self._respond_error(forced_codes)
+            return
+
         if getattr(self.server, "force_error", False):
-            self._respond_error()
+            self._respond_error(422)
             return
 
         messages = body.get("messages", [])
@@ -305,13 +320,13 @@ class MockLLMHandler(BaseHTTPRequestHandler):
         else:
             self._stream_text(MOCK_LLM_RESPONSE)
 
-    def _respond_error(self):
-        self.send_response(422)
+    def _respond_error(self, status_code: int = 422):
+        self.send_response(status_code)
         self.send_header("Content-Type", "application/json")
         self.end_headers()
         err = {
             "error": {
-                "message": "forced",
+                "message": f"forced status {status_code}",
                 "type": "invalid_request_error",
             },
         }
@@ -376,6 +391,13 @@ class MockLLMHandler(BaseHTTPRequestHandler):
         self.send_header("Cache-Control", "no-cache")
         self.end_headers()
 
+        tool_name = getattr(
+            self.server,
+            "tool_call_name",
+            "get_current_time",
+        )
+        tool_args = getattr(self.server, "tool_call_arguments", "{}")
+
         chunk1 = json.dumps(
             {
                 "id": "chatcmpl-mock-tc",
@@ -394,7 +416,7 @@ class MockLLMHandler(BaseHTTPRequestHandler):
                                     "id": "call_mock_tc",
                                     "type": "function",
                                     "function": {
-                                        "name": ("get_current_time"),
+                                        "name": tool_name,
                                         "arguments": "",
                                     },
                                 },
@@ -422,7 +444,7 @@ class MockLLMHandler(BaseHTTPRequestHandler):
                                 {
                                     "index": 0,
                                     "function": {
-                                        "arguments": "{}",
+                                        "arguments": tool_args,
                                     },
                                 },
                             ],
