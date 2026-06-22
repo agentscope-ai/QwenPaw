@@ -79,42 +79,6 @@ _ALLOWED_SUBTYPES: frozenset[str] = frozenset(
     {"file_share", "thread_broadcast"},
 )
 
-# Commands that are known to the QwenPaw pipeline and can be rewritten
-# from ``!`` prefix to ``/`` prefix.  Populated dynamically from the
-# channel's :class:`CommandRegistry` when available.
-# Fallback command set — used when the CommandRegistry is unavailable.
-# Mirrors the default registrations in CommandRegistry._register_defaults().
-_FALLBACK_COMMAND_WORDS: frozenset[str] = frozenset(
-    {
-        "stop",
-        "status",
-        "restart",
-        "reload-config",
-        "reload_config",
-        "version",
-        "help",
-        "reset",
-        "clear",
-        "dream",
-        "daemon",
-        "logs",
-        "approve",
-        "deny",
-        "approval",
-        "new",
-        "compact",
-        "history",
-        "compact_str",
-        "summarize_status",
-        "message",
-        "dump_history",
-        "load_history",
-        "proactive",
-        "plan",
-    },
-)
-
-
 class SlackEventHandler:
     """Convert Slack events to native dicts and enqueue for processing."""
 
@@ -243,7 +207,6 @@ class SlackEventHandler:
 
         # 7. Extract text
         text = _extract_message_text(event, self._bot_prefix)
-        text = _rewrite_bang_command(text, self._channel)
 
         # 7a. Fetch thread context (cached, TTL 60 s).
         # Prepend recent thread history so the Agent has full context
@@ -399,7 +362,9 @@ class SlackEventHandler:
 
     async def _get_http_session(self) -> aiohttp.ClientSession:
         if self._http_session is None or self._http_session.closed:
-            self._http_session = aiohttp.ClientSession()
+            self._http_session = aiohttp.ClientSession(
+                trust_env=True,
+            )
         return self._http_session
 
     # ── File extraction ──
@@ -876,75 +841,6 @@ def _append_line(
         return
     prefix = (">" * quote_depth + " ") if quote_depth else ""
     parts.append(f"{prefix}{bullet}{text}".rstrip())
-
-
-# ── "!" command rewriting ──
-def _get_known_command_words(
-    channel: "SlackChannel | None" = None,
-) -> frozenset[str]:
-    """Return the set of known command words, preferring the live
-    :class:`CommandRegistry` when available through the channel's
-    owning :class:`ChannelManager`.
-
-    Strategy
-    --------
-    1. Start with :data:`_FALLBACK_COMMAND_WORDS` as a baseline.
-    2. Merge in :class:`CommandHandler.SYSTEM_COMMANDS` when available.
-    3. Access *channel* → ``_command_registry`` (set by
-       :meth:`BaseChannel.set_workspace`) and add any additional
-       commands registered there.
-    """
-    # Always start with the static fallback set as a baseline.
-    words: set[str] = set(_FALLBACK_COMMAND_WORDS)
-
-    try:
-        from qwenpaw.agents.command_handler import CommandHandler
-
-        words.update(CommandHandler.SYSTEM_COMMANDS)
-    except Exception:
-        pass
-
-    if channel is not None:
-        try:
-            registry = getattr(channel, "_command_registry", None)
-            if registry is not None:
-                for cmd in registry._command_to_level:
-                    name = cmd.lstrip("/").split()[0]
-                    words.add(name)
-        except Exception:
-            pass
-
-    return frozenset(words)
-
-
-def _rewrite_bang_command(
-    text: str,
-    channel: "SlackChannel | None" = None,
-) -> str:
-    """Rewrite ``!command`` to ``/command`` for Slack threads.
-
-    Slack blocks ``/``-prefixed messages in threads but allows ``!``.
-    QwenPaw's :class:`CommandRegistry` expects ``/``-prefixed commands,
-    so we transparently rewrite the prefix before the message enters
-    the pipeline.
-
-    Command words are resolved dynamically from the live
-    :class:`CommandRegistry` when available, falling back to a static
-    set of well-known commands.
-    """
-    if not text or not text.startswith("!"):
-        return text
-    stripped = text[1:].lstrip()
-    if not stripped:
-        return text
-    # Extract the first word (the command name).
-    first_word = stripped.split(maxsplit=1)[0].lower()
-    # Strip any trailing @bot mention (e.g. "!help @MyBot").
-    if "@" in first_word:
-        first_word = first_word.split("@")[0]
-    if first_word in _get_known_command_words(channel):
-        return "/" + stripped
-    return text
 
 
 # ── Link unfurl extraction ──

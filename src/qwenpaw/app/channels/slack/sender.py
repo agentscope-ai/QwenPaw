@@ -468,7 +468,9 @@ class SlackSender:
 
     async def _get_http_session(self) -> aiohttp.ClientSession:
         if self._http_session is None or self._http_session.closed:
-            self._http_session = aiohttp.ClientSession()
+            self._http_session = aiohttp.ClientSession(
+                trust_env=True,
+            )
         return self._http_session
 
     # ── Route resolution ──

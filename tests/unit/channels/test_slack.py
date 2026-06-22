@@ -2551,65 +2551,6 @@ class TestSlackEventHandlerFullPipeline:
 
 
 # =============================================================================
-# P1: Handler Bang Command Rewriting
-# =============================================================================
-
-
-class TestSlackEventHandlerBangCommand:
-    """Tests for !command → /command rewriting."""
-
-    def test_rewrite_known_command(self, slack_channel):
-        from qwenpaw.app.channels.slack.handler import _rewrite_bang_command
-
-        result = _rewrite_bang_command("!help", slack_channel)
-        assert result == "/help"
-
-    def test_rewrite_known_command_with_args(self, slack_channel):
-        from qwenpaw.app.channels.slack.handler import _rewrite_bang_command
-
-        result = _rewrite_bang_command("!status all", slack_channel)
-        assert result == "/status all"
-
-    def test_rewrite_unknown_command_preserved(self, slack_channel):
-        from qwenpaw.app.channels.slack.handler import _rewrite_bang_command
-
-        result = _rewrite_bang_command("!unknown_command", slack_channel)
-        assert result == "!unknown_command"
-
-    def test_no_bang_prefix(self, slack_channel):
-        from qwenpaw.app.channels.slack.handler import _rewrite_bang_command
-
-        result = _rewrite_bang_command("hello", slack_channel)
-        assert result == "hello"
-
-    def test_empty_text(self):
-        from qwenpaw.app.channels.slack.handler import _rewrite_bang_command
-
-        assert _rewrite_bang_command("") == ""
-
-    def test_bang_only(self):
-        from qwenpaw.app.channels.slack.handler import _rewrite_bang_command
-
-        assert _rewrite_bang_command("!") == "!"
-
-    def test_bang_with_at_mention(self, slack_channel):
-        from qwenpaw.app.channels.slack.handler import _rewrite_bang_command
-
-        result = _rewrite_bang_command("!help @MyBot", slack_channel)
-        assert result == "/help @MyBot"
-
-    def test_rewrite_stop(self, slack_channel):
-        from qwenpaw.app.channels.slack.handler import _rewrite_bang_command
-
-        assert _rewrite_bang_command("!stop", slack_channel) == "/stop"
-
-    def test_rewrite_reset(self, slack_channel):
-        from qwenpaw.app.channels.slack.handler import _rewrite_bang_command
-
-        assert _rewrite_bang_command("!reset", slack_channel) == "/reset"
-
-
-# =============================================================================
 # P1: Handler Unfurl Extraction
 # =============================================================================
 
