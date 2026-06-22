@@ -223,6 +223,16 @@
 /* ─── Dark mode ─────────────────────────────────────────────────────────────── */
 :global(.dark-mode) {
   .sessionsPage {
+    /* Override the light-mode table header background */
+    :global {
+      .qwenpaw-table-wrapper
+        .qwenpaw-table-container
+        .qwenpaw-table-thead
+        > tr
+        > th {
+        background: #2a2a2a !important;
+      }
+    }
   }
 
   .pageHeader {
@@ -319,6 +329,11 @@
       &:hover:not(:disabled) {
         color: rgba(255, 255, 255, 0.85);
         border-color: rgba(255, 255, 255, 0.35);
+      }
+
+      &:disabled {
+        color: rgba(255, 255, 255, 0.25);
+        border-color: rgba(255, 255, 255, 0.1);
       }
 
       &.danger {
