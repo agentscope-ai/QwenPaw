@@ -188,7 +188,12 @@ export default function BackupTable({
       size="small"
       title={
         <div className={styles.mobileCardHeader}>
-          <span className={styles.mobileId}>{backup.id}</span>
+          <Typography.Text
+            ellipsis={{ tooltip: true }}
+            className={styles.mobileId}
+          >
+            {backup.id}
+          </Typography.Text>
           <span className={styles.mobileTime}>
             {dayjs(backup.created_at).format("YYYY-MM-DD HH:mm")}
           </span>
@@ -219,7 +224,11 @@ export default function BackupTable({
       ) : null}
       <div className={styles.mobileRow}>
         <span className={styles.mobileLabel}>{t("backup.scopeSummary")}</span>
-        <ScopeTags scope={backup.scope} agentCount={backup.agent_count} />
+        <ScopeTags
+          scope={backup.scope}
+          agentCount={backup.agent_count}
+          compact
+        />
       </div>
       <div className={styles.mobileActions}>
         <Button
