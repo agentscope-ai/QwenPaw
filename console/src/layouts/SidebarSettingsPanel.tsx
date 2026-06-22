@@ -13,9 +13,11 @@ import {
   SparkFullscreenLine,
   SparkExitFullscreenLine,
 } from "@agentscope-ai/icons";
-import { languageApi } from "../api/modules/language";
+import { settingsApi } from "../api/modules/language";
 import { useTheme, type ThemeMode } from "../contexts/ThemeContext";
 import { useSidebarModeStore } from "../stores/sidebarModeStore";
+import { isTauriRuntime } from "../tauri/backendRuntime";
+import { invoke } from "@tauri-apps/api/core";
 import styles from "./sidebarSettingsPanel.module.less";
 
 // ── Language config ────────────────────────────────────────────────────────
@@ -49,7 +51,27 @@ export default function SidebarSettingsPanel({
   const changeLanguage = (lang: string) => {
     i18n.changeLanguage(lang);
     localStorage.setItem("language", lang);
-    languageApi.updateLanguage(lang).catch(() => {});
+    settingsApi.updateLanguage(lang).catch(() => {});
+    if (isTauriRuntime()) {
+      invoke("update_tray_menu").catch(() => {});
+    }
+  };
+
+  const [closeBehavior, setCloseBehavior] = React.useState<"minimize" | "quit">("quit");
+
+  React.useEffect(() => {
+    if (isTauriRuntime()) {
+      settingsApi.getCloseBehavior()
+        .then((res) => {
+          setCloseBehavior(res.close_behavior);
+        })
+        .catch(() => {});
+    }
+  }, []);
+
+  const handleCloseBehaviorChange = (behavior: "minimize" | "quit") => {
+    setCloseBehavior(behavior);
+    settingsApi.updateCloseBehavior(behavior).catch(() => {});
   };
 
   const themeOptions: {
@@ -148,6 +170,36 @@ export default function SidebarSettingsPanel({
           )}
         </button>
       </div>
+
+      {isTauriRuntime() && (
+        <div className={styles.row}>
+          <span className={styles.label}>
+            {t("sidebar.settings.closeBehavior", "Close Behavior")}
+          </span>
+          <div className={styles.options}>
+            <button
+              className={`${styles.optBtn} ${
+                closeBehavior === "quit" ? styles.optBtnActive : ""
+              }`}
+              onClick={() => handleCloseBehaviorChange("quit")}
+            >
+              <span className={styles.optLabel}>
+                {t("sidebar.settings.closeBehaviorQuit", "Quit")}
+              </span>
+            </button>
+            <button
+              className={`${styles.optBtn} ${
+                closeBehavior === "minimize" ? styles.optBtnActive : ""
+              }`}
+              onClick={() => handleCloseBehaviorChange("minimize")}
+            >
+              <span className={styles.optLabel}>
+                {t("sidebar.settings.closeBehaviorMinimize", "Minimize to Tray")}
+              </span>
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -1618,7 +1618,10 @@
     "settings": {
       "language": "Язык",
       "theme": "Тема",
-      "mode": "Режим"
+      "mode": "Режим",
+      "closeBehavior": "Поведение при закрытии",
+      "closeBehaviorMinimize": "Свернуть в трей",
+      "closeBehaviorQuit": "Выйти"
     },
     "simpleMode": "Простой режим",
     "fullMode": "Полный режим"

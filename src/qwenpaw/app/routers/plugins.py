@@ -878,9 +878,16 @@ async def serve_plugin_ui_file(
         content_type = "text/css"
 
     if content_type:
-        return FileResponse(str(full_path), media_type=content_type)
+        return FileResponse(
+            str(full_path),
+            media_type=content_type,
+            headers={"X-Content-Type-Options": "nosniff"},
+        )
 
-    return FileResponse(str(full_path))
+    return FileResponse(
+        str(full_path),
+        headers={"X-Content-Type-Options": "nosniff"},
+    )
 
 
 # ── Plugin market proxy ───────────────────────────────────────────────────

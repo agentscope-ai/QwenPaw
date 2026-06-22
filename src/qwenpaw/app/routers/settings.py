@@ -70,3 +70,28 @@ async def put_language(
 async def get_upload_limit() -> dict:
     """Return the configured upload size limit (MB), or null if unlimited."""
     return {"upload_max_size_mb": UPLOAD_MAX_SIZE_MB}
+
+
+@router.get("/close-behavior", summary="Get window close behavior")
+async def get_close_behavior() -> dict:
+    import sys
+
+    # Default to minimize on macOS, quit on Windows/Linux
+    default_behavior = "minimize" if sys.platform == "darwin" else "quit"
+    return {"close_behavior": _load().get("close_behavior", default_behavior)}
+
+
+@router.put("/close-behavior", summary="Update window close behavior")
+async def put_close_behavior(
+    body: dict = Body(..., description='e.g. {"close_behavior": "minimize"}'),
+) -> dict:
+    behavior = body.get("close_behavior", "").strip()
+    if behavior not in {"minimize", "quit"}:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid close_behavior, must be 'minimize' or 'quit'",
+        )
+    data = _load()
+    data["close_behavior"] = behavior
+    _save(data)
+    return {"close_behavior": behavior}

@@ -11,6 +11,15 @@ export const settingsApi = {
 
   getUploadLimit: () =>
     request<{ upload_max_size_mb: number | null }>("/settings/upload-limit"),
+
+  getCloseBehavior: () =>
+    request<{ close_behavior: "minimize" | "quit" }>("/settings/close-behavior"),
+
+  updateCloseBehavior: (close_behavior: "minimize" | "quit") =>
+    request<{ close_behavior: "minimize" | "quit" }>("/settings/close-behavior", {
+      method: "PUT",
+      body: JSON.stringify({ close_behavior }),
+    }),
 };
 
 /** @deprecated Use settingsApi instead */

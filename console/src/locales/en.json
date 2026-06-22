@@ -79,7 +79,10 @@
     "settings": {
       "language": "Language",
       "theme": "Theme",
-      "mode": "Mode"
+      "mode": "Mode",
+      "closeBehavior": "Close Behavior",
+      "closeBehaviorMinimize": "Minimize to Tray",
+      "closeBehaviorQuit": "Quit"
     },
     "simpleMode": "Simple Mode",
     "fullMode": "Full Mode"

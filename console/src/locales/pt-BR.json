@@ -1810,7 +1810,10 @@
     "settings": {
       "language": "Idioma",
       "theme": "Tema",
-      "mode": "Modo"
+      "mode": "Modo",
+      "closeBehavior": "Comportamento ao fechar",
+      "closeBehaviorMinimize": "Minimizar para a bandeja",
+      "closeBehaviorQuit": "Sair"
     },
     "simpleMode": "Modo simples",
     "fullMode": "Modo completo"

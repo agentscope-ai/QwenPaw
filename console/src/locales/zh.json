@@ -79,7 +79,10 @@
     "settings": {
       "language": "语言",
       "theme": "主题",
-      "mode": "模式"
+      "mode": "模式",
+      "closeBehavior": "关闭行为",
+      "closeBehaviorMinimize": "最小化到托盘",
+      "closeBehaviorQuit": "退出"
     },
     "simpleMode": "精简模式",
     "fullMode": "完整模式"

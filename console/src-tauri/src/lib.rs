@@ -19,6 +19,7 @@ pub fn run() {
             backend::backend_startup_error,
             backend::restart_backend,
             external_link::open_external_link,
+            tray::update_tray_menu,
         ])
         .manage(backend::BackendState::default())
         .setup(|app| {
@@ -28,8 +29,13 @@ pub fn run() {
         })
         .on_window_event(|window, event| {
             if let WindowEvent::CloseRequested { api, .. } = event {
-                let _ = window.hide();
-                api.prevent_close();
+                let behavior = tray::get_close_behavior(window.app_handle());
+                if behavior == "minimize" {
+                    let _ = window.hide();
+                    api.prevent_close();
+                } else {
+                    backend::stop(window.app_handle());
+                }
             }
         })
         .build(tauri::generate_context!());
@@ -37,8 +43,19 @@ pub fn run() {
     match build_result {
         Ok(app) => {
             app.run(|app_handle, event| {
-                if let RunEvent::ExitRequested { .. } = event {
-                    backend::stop(app_handle);
+                match event {
+                    RunEvent::ExitRequested { .. } => {
+                        backend::stop(app_handle);
+                    }
+                    RunEvent::Reopen { has_visible_windows, .. } => {
+                        if !has_visible_windows {
+                            if let Some(window) = app_handle.get_webview_window("main") {
+                                let _ = window.show();
+                                let _ = window.set_focus();
+                            }
+                        }
+                    }
+                    _ => {}
                 }
             });
         }

@@ -89,7 +89,10 @@
     "settings": {
       "language": "Ngôn ngữ",
       "theme": "Giao diện",
-      "mode": "Chế độ"
+      "mode": "Chế độ",
+      "closeBehavior": "Hành vi khi đóng",
+      "closeBehaviorMinimize": "Thu nhỏ xuống khay hệ thống",
+      "closeBehaviorQuit": "Thoát"
     },
     "simpleMode": "Chế độ đơn giản",
     "fullMode": "Chế độ đầy đủ"

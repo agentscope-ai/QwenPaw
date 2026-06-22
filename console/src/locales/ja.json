@@ -1603,7 +1603,10 @@
     "settings": {
       "language": "言語",
       "theme": "テーマ",
-      "mode": "モード"
+      "mode": "モード",
+      "closeBehavior": "閉じる時の動作",
+      "closeBehaviorMinimize": "トレイに最小化",
+      "closeBehaviorQuit": "終了"
     },
     "simpleMode": "シンプルモード",
     "fullMode": "フルモード"

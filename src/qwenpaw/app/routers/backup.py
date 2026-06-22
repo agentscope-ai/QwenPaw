@@ -319,4 +319,5 @@ async def export_backup_route(backup_id: str):
         path=zip_path,
         media_type="application/zip",
         filename=filename,
+        headers={"X-Content-Type-Options": "nosniff"},
     )

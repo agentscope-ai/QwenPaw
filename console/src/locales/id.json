@@ -92,7 +92,10 @@
     "settings": {
       "language": "Bahasa",
       "theme": "Tema",
-      "mode": "Mode"
+      "mode": "Mode",
+      "closeBehavior": "Tindakan Penutupan",
+      "closeBehaviorMinimize": "Minimalkan ke Baki",
+      "closeBehaviorQuit": "Keluar"
     },
     "simpleMode": "Mode sederhana",
     "fullMode": "Mode lengkap"

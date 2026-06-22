@@ -358,3 +358,48 @@ def test_files_preview_directory_path_returns_404(
     )
     assert resp.status_code == 404, app_server.logs_tail()
     assert resp.json().get("detail") == "Not found"
+
+
+@pytest.mark.integration
+@pytest.mark.p1
+def test_files_preview_security_hardening(app_server, tmp_path) -> None:
+    """Test purpose:
+    - Verify files preview endpoint returns X-Content-Type-Options: nosniff,
+      and only serves safe media types (image, video, audio, pdf) inline,
+      while dangerous types (html, svg, xml) fall back to attachment.
+    """
+    # 1. Test image file (png) -> inline, with nosniff
+    png_file = tmp_path / "test.png"
+    png_file.write_bytes(b"dummy png content")
+    encoded_png = quote(str(png_file), safe="")
+    resp = app_server.client.get(
+        f"{app_server.base_url}/api/files/preview/{encoded_png}",
+        timeout=_MESSAGES_FILES_TIMEOUT,
+    )
+    assert resp.status_code == 200
+    assert resp.headers.get("x-content-type-options") == "nosniff"
+    assert "inline" in resp.headers.get("content-disposition", "")
+
+    # 2. Test HTML file (html) -> attachment, with nosniff
+    html_file = tmp_path / "test.html"
+    html_file.write_bytes(b"<html>dummy</html>")
+    encoded_html = quote(str(html_file), safe="")
+    resp = app_server.client.get(
+        f"{app_server.base_url}/api/files/preview/{encoded_html}",
+        timeout=_MESSAGES_FILES_TIMEOUT,
+    )
+    assert resp.status_code == 200
+    assert resp.headers.get("x-content-type-options") == "nosniff"
+    assert "attachment" in resp.headers.get("content-disposition", "")
+
+    # 3. Test SVG file (svg) -> attachment, with nosniff
+    svg_file = tmp_path / "test.svg"
+    svg_file.write_bytes(b"<svg></svg>")
+    encoded_svg = quote(str(svg_file), safe="")
+    resp = app_server.client.get(
+        f"{app_server.base_url}/api/files/preview/{encoded_svg}",
+        timeout=_MESSAGES_FILES_TIMEOUT,
+    )
+    assert resp.status_code == 200
+    assert resp.headers.get("x-content-type-options") == "nosniff"
+    assert "attachment" in resp.headers.get("content-disposition", "")

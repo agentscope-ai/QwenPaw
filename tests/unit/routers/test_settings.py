@@ -134,3 +134,59 @@ async def test_put_language_preserves_other_settings(
     data = json.loads(_use_tmp_settings.read_text("utf-8"))
     assert data["language"] == "zh"
     assert data["theme"] == "dark"
+
+
+# ── GET/PUT /settings/close-behavior ─────────────────────────────────
+
+
+async def test_get_close_behavior_default(api_client):
+    """Should return default behavior depending on platform when not set."""
+    import sys
+
+    expected_default = "minimize" if sys.platform == "darwin" else "quit"
+    async with api_client:
+        resp = await api_client.get("/api/settings/close-behavior")
+    assert resp.status_code == 200
+    assert resp.json() == {"close_behavior": expected_default}
+
+
+async def test_get_close_behavior_persisted(api_client, _use_tmp_settings):
+    """Should return the persisted close behavior value."""
+    _use_tmp_settings.write_text(
+        json.dumps({"close_behavior": "minimize"}),
+        "utf-8",
+    )
+    async with api_client:
+        resp = await api_client.get("/api/settings/close-behavior")
+    assert resp.status_code == 200
+    assert resp.json() == {"close_behavior": "minimize"}
+
+
+@pytest.mark.parametrize("behavior", ["minimize", "quit"])
+async def test_put_close_behavior_valid(
+    api_client,
+    behavior,
+    _use_tmp_settings,
+):
+    """Should accept valid close behaviors and persist them."""
+    async with api_client:
+        resp = await api_client.put(
+            "/api/settings/close-behavior",
+            json={"close_behavior": behavior},
+        )
+    assert resp.status_code == 200
+    assert resp.json() == {"close_behavior": behavior}
+
+    data = json.loads(_use_tmp_settings.read_text("utf-8"))
+    assert data["close_behavior"] == behavior
+
+
+async def test_put_close_behavior_invalid(api_client):
+    """Should reject invalid close behavior with 400."""
+    async with api_client:
+        resp = await api_client.put(
+            "/api/settings/close-behavior",
+            json={"close_behavior": "invalid_value"},
+        )
+    assert resp.status_code == 400
+    assert "Invalid close_behavior" in resp.json()["detail"]

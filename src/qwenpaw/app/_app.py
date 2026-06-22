@@ -666,7 +666,10 @@ logger.info(f"STATIC_DIR: {_CONSOLE_STATIC_DIR}")
 @app.get("/")
 def read_root():
     if _CONSOLE_INDEX and _CONSOLE_INDEX.exists():
-        return FileResponse(_CONSOLE_INDEX)
+        return FileResponse(
+            _CONSOLE_INDEX,
+            headers={"X-Content-Type-Options": "nosniff"},
+        )
     return {
         "message": (
             f"{PROJECT_NAME} web console is not available. "
@@ -727,7 +730,10 @@ if os.path.isdir(_CONSOLE_STATIC_DIR):
 
     def _serve_console_index():
         if _CONSOLE_INDEX and _CONSOLE_INDEX.exists():
-            return FileResponse(_CONSOLE_INDEX)
+            return FileResponse(
+                _CONSOLE_INDEX,
+                headers={"X-Content-Type-Options": "nosniff"},
+            )
 
         raise HTTPException(status_code=404, detail="Not Found")
 
@@ -768,6 +774,9 @@ if os.path.isdir(_CONSOLE_STATIC_DIR):
             if not Path(full_path).is_absolute():
                 static_file = _console_path / full_path
                 if static_file.is_file():
-                    return FileResponse(static_file)
+                    return FileResponse(
+                        static_file,
+                        headers={"X-Content-Type-Options": "nosniff"},
+                    )
 
         return _serve_console_index()
