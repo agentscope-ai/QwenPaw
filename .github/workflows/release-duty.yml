@@ -243,7 +243,7 @@ jobs:
             ## Docker — ${mention('docker')}
 
             \`\`\`bash
-            docker run --rm -p 7860:7860 agentscope/qwenpaw:${tag}
+            docker run --rm -p 8088:8088 agentscope/qwenpaw:${tag}
             \`\`\`
 
             - [ ] Image pulled successfully

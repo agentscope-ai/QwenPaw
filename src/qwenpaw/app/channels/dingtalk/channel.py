@@ -31,7 +31,10 @@ from typing import (
 from uuid import uuid4
 from urllib.parse import unquote, urlparse
 
+import ssl
+
 import aiohttp
+import certifi
 import dingtalk_stream
 from dingtalk_stream import ChatbotMessage
 from alibabacloud_tea_openapi import models as open_api_models
@@ -2656,7 +2659,9 @@ class DingTalkChannel(BaseChannel):
         )
         self._stream_thread.start()
         if self._http is None:
-            self._http = aiohttp.ClientSession()
+            ssl_context = ssl.create_default_context(cafile=certifi.where())
+            connector = aiohttp.TCPConnector(ssl=ssl_context)
+            self._http = aiohttp.ClientSession(connector=connector)
 
         # Initialize DingTalk OpenAPI SDK clients
         sdk_config = open_api_models.Config()

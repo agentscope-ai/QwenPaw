@@ -192,6 +192,10 @@ jobs:
 
       - name: Build Tauri Windows package
         shell: pwsh
+        env:
+          # Authenticate the python-build-standalone release lookup in
+          # stage_python_runtime.py to avoid anonymous API rate limits.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: ./scripts/pack-tauri/build_win_pyinstaller.ps1
 
       - name: Stage Tauri Windows installer
@@ -254,6 +258,9 @@ jobs:
       - name: Build Tauri macOS package
         env:
           NODE_OPTIONS: "--max-old-space-size=8192"
+          # Authenticate the python-build-standalone release lookup in
+          # stage_python_runtime.py to avoid anonymous API rate limits.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           chmod +x scripts/pack-tauri/build_macos_pyinstaller.sh
           bash scripts/pack-tauri/build_macos_pyinstaller.sh

@@ -399,6 +399,14 @@ class OpenAIChatModelCompat(OpenAIChatModel):
             if extra_body:
                 self.generate_kwargs["extra_body"] = extra_body
 
+    async def __call__(self, *args: Any, **kwargs: Any) -> Any:
+        from ..observability.langfuse import current_generation_kwargs
+
+        langfuse_kwargs = current_generation_kwargs(self.model_name)
+        if langfuse_kwargs:
+            kwargs = {**langfuse_kwargs, **kwargs}
+        return await super().__call__(*args, **kwargs)
+
     def _format_tools_json_schemas(
         self,
         schemas: list[dict[str, Any]],

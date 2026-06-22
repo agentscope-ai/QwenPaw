@@ -1,5 +1,12 @@
-import React, { useCallback, useMemo, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import { useNavigate, useLocation } from "react-router-dom";
+import { buildSessionPath } from "../../../../utils/sessionRoute";
 import { Drawer, Spin, Tooltip } from "antd";
 import { FixedSizeList, type ListChildComponentProps } from "react-window";
 import { IconButton } from "@agentscope-ai/design";
@@ -11,19 +18,20 @@ import {
 import {
   useChatAnywhereSessionsState,
   useChatAnywhereSessions,
+  type IAgentScopeRuntimeWebUISession,
 } from "@agentscope-ai/chat";
 import { useTranslation } from "react-i18next";
+import type { ChatStatus } from "../../../../api/types/chat";
+import { chatApi } from "../../../../api/modules/chat";
 import sessionApi from "../../sessionApi";
-import { buildSessionPath } from "../../../../utils/sessionRoute";
 import { useCodingMode } from "../../../../stores/codingModeStore";
 import ChatSessionItem from "../ChatSessionItem";
 import { getChannelLabel } from "../../../Control/Channels/components";
-import { ContextMenu } from "../../../../components/ContextMenu";
 import {
-  useSessionListData,
-  type ExtendedChatSession,
-  formatCreatedAt,
-} from "./useSessionListData";
+  ContextMenu,
+  useContextMenu,
+  type ContextMenuItem,
+} from "../../../../components/ContextMenu";
 import styles from "./index.module.less";
 
 /** Fixed height of each session item in pixels (matches CSS min-height) */
@@ -33,6 +41,7 @@ const ITEM_HEIGHT = 77;
 interface SessionRowData {
   sortedSessions: ExtendedChatSession[];
   currentSessionId: string | undefined;
+  /** When non-null, a session switch is in progress and other items are disabled */
   switchingSessionId: string | null;
   editingSessionId: string | null;
   editValue: string;
@@ -59,6 +68,7 @@ const SessionRow = React.memo(function SessionRow({
     ? getChannelLabel(channelKey, data.t)
     : undefined;
   const isEditing = data.editingSessionId === session.id;
+
   const isDisabled =
     !!data.switchingSessionId && session.id !== data.switchingSessionId;
 
@@ -67,7 +77,7 @@ const SessionRow = React.memo(function SessionRow({
       <ChatSessionItem
         sessionId={session.id!}
         name={session.name || "New Chat"}
-        time={formatCreatedAt(session.updatedAt ?? null)}
+        time={formatCreatedAt(session.createdAt ?? null)}
         channelKey={channelKey || undefined}
         channelLabel={channelLabel}
         chatStatus={session.status}
@@ -90,6 +100,20 @@ const SessionRow = React.memo(function SessionRow({
   );
 });
 
+/** Sessions from QwenPaw backend include extra fields beyond the runtime UI type */
+interface ExtendedChatSession extends IAgentScopeRuntimeWebUISession {
+  realId?: string;
+  sessionId?: string;
+  userId?: string;
+  channel?: string;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+  meta?: Record<string, unknown>;
+  status?: ChatStatus;
+  generating?: boolean;
+  pinned?: boolean;
+}
+
 interface ChatSessionDrawerProps {
   /** Whether the drawer is visible */
   open: boolean;
@@ -99,23 +123,77 @@ interface ChatSessionDrawerProps {
   pinned?: boolean;
   /** Callback to toggle the pinned state */
   onPinChange?: (pinned: boolean) => void;
+  /**
+   * When true, render as an inline panel instead of an antd Drawer.
+   * The parent is responsible for layout (width, positioning, etc.).
+   */
+  embedded?: boolean;
 }
+
+/** Format an ISO 8601 timestamp to YYYY-MM-DD HH:mm:ss */
+const formatCreatedAt = (raw: string | null | undefined): string => {
+  if (!raw) return "";
+  const date = new Date(raw);
+  if (isNaN(date.getTime())) return "";
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(
+    date.getDate(),
+  )} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(
+    date.getSeconds(),
+  )}`;
+};
+
+/** Resolve the real backend UUID from an extended session (id may be a local timestamp) */
+const getBackendId = (session: ExtendedChatSession): string | null => {
+  if (session.realId) return session.realId;
+  const id = session.id;
+  if (!/^\d+$/.test(id)) return id;
+  return null;
+};
 
 const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const { sessions, currentSessionId, setCurrentSessionId, setSessions } =
-    useChatAnywhereSessionsState();
+  const location = useLocation();
+  const sdkState = useChatAnywhereSessionsState();
   const { codingMode } = useCodingMode();
-  const { createSession } = useChatAnywhereSessions();
+
+  const sdkActions = useChatAnywhereSessions();
+
+  // In embedded mode, maintain a local session list fetched directly from the
+  // API so we don't depend on the SDK context tree (which lives inside
+  // AgentScopeRuntimeWebUI and may not be accessible from outside).
+  const [localSessions, setLocalSessions] = useState<
+    IAgentScopeRuntimeWebUISession[]
+  >([]);
+
+  const sessions = props.embedded ? localSessions : sdkState.sessions;
+  const { currentSessionId, setCurrentSessionId } = sdkState;
+  const setSessions = props.embedded ? setLocalSessions : sdkState.setSessions;
+  const createSession = sdkActions.createSession;
 
   /** Create a new session; close the drawer only when not pinned */
   const handleCreateSession = useCallback(async () => {
-    await createSession();
-    if (!props.pinned) {
-      props.onClose();
+    if (props.embedded) {
+      // In embedded mode, we're outside the SDK context tree.
+      // Dispatch a DOM event so ChatSessionInitializer (inside the tree) handles it.
+      window.dispatchEvent(new CustomEvent("qwenpaw:sidebar-new-chat"));
+    } else {
+      await createSession();
+      // Only close the drawer (not the embedded panel) when not pinned
+      if (!props.pinned) {
+        props.onClose();
+      }
     }
-  }, [createSession, props.onClose, props.pinned]);
+  }, [createSession, props.onClose, props.pinned, props.embedded]);
+
+  /** ID of the session currently being renamed */
+  const [editingSessionId, setEditingSessionId] = useState<string | null>(null);
+  /** Current value of the rename input */
+  const [editValue, setEditValue] = useState("");
+
+  /** Whether the session list is being fetched (default true because destroyOnHidden re-mounts) */
+  const [listLoading, setListLoading] = useState(true);
 
   /** Height of the virtual list container, measured via ResizeObserver */
   const [listHeight, setListHeight] = useState(0);
@@ -123,85 +201,342 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
 
   /** Callback ref: attach a ResizeObserver whenever the wrapper DOM node appears */
   const listWrapperRef = useCallback((node: HTMLDivElement | null) => {
+    // Cleanup previous observer
     if (observerRef.current) {
       observerRef.current.disconnect();
       observerRef.current = null;
     }
+
     if (!node) return;
+
     const observer = new ResizeObserver((entries) => {
       for (const entry of entries) {
         const height = entry.contentRect.height;
-        if (height > 0) setListHeight(height);
+        if (height > 0) {
+          setListHeight(height);
+        }
       }
     });
+
     observer.observe(node);
     observerRef.current = observer;
+
+    // Measure immediately in case layout is already stable
     const initialHeight = node.clientHeight;
-    if (initialHeight > 0) setListHeight(initialHeight);
+    if (initialHeight > 0) {
+      setListHeight(initialHeight);
+    }
   }, []);
 
-  /**
-   * onSessionClick: inside the chat context tree, so we can call
-   * setCurrentSessionId / navigate directly.
-   */
-  const onSessionClick = useCallback(
+  /** Shared context menu — only one instance instead of one per item */
+  const sharedContextMenu = useContextMenu();
+  const [contextMenuSessionId, setContextMenuSessionId] = useState<
+    string | null
+  >(null);
+
+  /** Sessions sorted by pinned first, then by updatedAt/createdAt descending */
+  const sortedSessions = useMemo(() => {
+    return [...sessions].sort((a, b) => {
+      const extA = a as ExtendedChatSession;
+      const extB = b as ExtendedChatSession;
+
+      if (extA.pinned && !extB.pinned) return -1;
+      if (!extA.pinned && extB.pinned) return 1;
+
+      const aTime = extA.updatedAt ?? extA.createdAt;
+      const bTime = extB.updatedAt ?? extB.createdAt;
+      if (!aTime && !bTime) return 0;
+      if (!aTime) return 1;
+      if (!bTime) return -1;
+      return new Date(bTime).getTime() - new Date(aTime).getTime();
+    });
+  }, [sessions]);
+
+  /** Re-fetch session list from the backend and sync to context state */
+  const refreshSessions = useCallback(async () => {
+    const list = await sessionApi.getSessionList();
+    setSessions(list);
+  }, [setSessions]);
+
+  /** Open drawer → refresh session list and start polling */
+  useEffect(() => {
+    if (!props.open) return;
+
+    let isCancelled = false;
+
+    const fetchSessions = async () => {
+      setListLoading(true);
+      try {
+        const list = await sessionApi.getSessionList();
+        if (!isCancelled) {
+          setSessions(list);
+        }
+      } catch (error) {
+        console.error("Failed to refresh session list:", error);
+      } finally {
+        if (!isCancelled) {
+          setListLoading(false);
+        }
+      }
+    };
+
+    void fetchSessions();
+
+    const timer = setInterval(async () => {
+      try {
+        const list = await sessionApi.getSessionList();
+        if (!isCancelled) {
+          setSessions(list);
+        }
+      } catch {
+        // ignore polling errors
+      }
+    }, 3000);
+
+    return () => {
+      isCancelled = true;
+      clearInterval(timer);
+    };
+  }, [props.open, setSessions]);
+
+  /** Whether a session switch is in progress (issue #4557) */
+  const [switchingSessionId, setSwitchingSessionId] = useState<string | null>(
+    null,
+  );
+
+  const handleSessionClick = useCallback(
     (sessionId: string) => {
+      // Block clicks while a switch is in progress.
+      if (sessionApi.isSessionSwitching) return;
+      if (sessionId === currentSessionId) return;
+
+      if (props.embedded) {
+        // In embedded mode, we're outside the SDK context tree.
+        // Dispatch a DOM event so ChatSessionInitializer (inside the tree) handles it.
+        setSwitchingSessionId(sessionId);
+        window.dispatchEvent(
+          new CustomEvent("qwenpaw:sidebar-select-session", {
+            detail: { sessionId },
+          }),
+        );
+        return;
+      }
+
+      // Lock immediately (synchronous) before any async work.
       sessionApi.isSessionSwitching = true;
+      setSwitchingSessionId(sessionId);
+
+      // 1) Pre-load session data (network request happens here).
+      // 2) Navigate to the correct URL (using realId if available).
+      // 3) Only THEN set currentSessionId so the library's useAsyncEffect
+      //    hits the result cache instead of making another request.
+      // 4) Keep lock held until the next React render cycle completes.
       sessionApi
         .preloadSession(sessionId)
         .then(({ realId }) => {
-          const effectiveId = realId || sessionId;
-          const targetUrl = buildSessionPath(
-            codingMode ? "coding" : "chat",
-            effectiveId,
-          );
-          sessionApi.lastNavigatedChatId = effectiveId;
-          navigate(targetUrl, { replace: true });
+          // Issue #4987: In coding mode, skip URL navigation to /chat/<id>.
+          // The redirect effect in ChatPage would immediately navigate back
+          // to /coding before session data loads, causing the switch to fail.
+          // Instead, just set the session directly — the UI stays on /coding.
+          if (!codingMode) {
+            const effectiveId = realId || sessionId;
+            const targetUrl = buildSessionPath("chat", effectiveId);
+            sessionApi.lastNavigatedChatId = effectiveId;
+            navigate(targetUrl, { replace: true });
+          }
+          // Now set currentSessionId — the library's getSession will hit cache.
           setCurrentSessionId(sessionId);
         })
         .catch(() => {
+          // On error, still try to switch normally.
           setCurrentSessionId(sessionId);
         })
-        .finally(() => {
-          requestAnimationFrame(() => {
+        .then(() => {
+          // Wait two animation frames so React commits + runs effects,
+          // ensuring ChatSessionInitializer's effect has been skipped.
+          return new Promise<void>((resolve) => {
             requestAnimationFrame(() => {
-              sessionApi.finishSessionSwitch();
+              requestAnimationFrame(() => resolve());
             });
           });
+        })
+        .finally(() => {
+          sessionApi.finishSessionSwitch();
+          setSwitchingSessionId(null);
         });
     },
-    [codingMode, navigate, setCurrentSessionId],
+    [
+      currentSessionId,
+      setCurrentSessionId,
+      navigate,
+      codingMode,
+      props.embedded,
+    ],
   );
 
-  const extSessions = sessions as ExtendedChatSession[];
-  const setExtSessions = setSessions as (s: ExtendedChatSession[]) => void;
+  // In embedded mode, clear switchingSessionId when the URL changes
+  // (signals that the session switch initiated via DOM event has completed).
+  useEffect(() => {
+    if (props.embedded && switchingSessionId) {
+      setSwitchingSessionId(null);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.pathname]);
 
-  const {
-    sortedSessions,
-    loading: listLoading,
-    switchingSessionId,
-    editingSessionId,
-    editValue,
+  /** Delete a session: call deleteChat API then refresh the list */
+  const handleDelete = useCallback(
+    async (sessionId: string) => {
+      const session = sessions.find((s) => s.id === sessionId) as
+        | ExtendedChatSession
+        | undefined;
+      const backendId = session ? getBackendId(session) : null;
+
+      if (backendId) {
+        await chatApi.deleteChat(backendId);
+      }
+
+      if (currentSessionId === sessionId) {
+        if (props.embedded) {
+          // In embedded mode, create a new chat via DOM event
+          // since we can't directly set the session from outside the context tree.
+          window.dispatchEvent(new CustomEvent("qwenpaw:sidebar-new-chat"));
+        } else {
+          const next = sessions.filter((s) => s.id !== sessionId);
+          setCurrentSessionId(next[0]?.id);
+        }
+      }
+
+      await refreshSessions();
+    },
+    [
+      sessions,
+      currentSessionId,
+      setCurrentSessionId,
+      refreshSessions,
+      props.embedded,
+    ],
+  );
+
+  /** Enter rename mode for a session */
+  const handleEditStart = useCallback(
+    (sessionId: string, currentName: string) => {
+      setEditingSessionId(sessionId);
+      setEditValue(currentName);
+    },
+    [],
+  );
+
+  /** Update rename input value */
+  const handleEditChange = useCallback((value: string) => {
+    setEditValue(value);
+  }, []);
+
+  /** Submit rename */
+  const handleEditSubmit = useCallback(async () => {
+    if (!editingSessionId) return;
+
+    const session = sessions.find((s) => s.id === editingSessionId) as
+      | ExtendedChatSession
+      | undefined;
+    const backendId = session ? getBackendId(session) : null;
+    const newName = editValue.trim();
+
+    if (backendId && newName && session) {
+      await chatApi.updateChat(backendId, {
+        name: newName,
+      });
+    }
+
+    setEditingSessionId(null);
+    setEditValue("");
+    await refreshSessions();
+  }, [editingSessionId, editValue, sessions, refreshSessions]);
+
+  /** Cancel rename mode */
+  const handleEditCancel = useCallback(() => {
+    setEditingSessionId(null);
+    setEditValue("");
+  }, []);
+
+  /** Toggle pin status for a session */
+  const handlePinToggle = useCallback(
+    async (sessionId: string) => {
+      const session = sessions.find((s) => s.id === sessionId) as
+        | ExtendedChatSession
+        | undefined;
+      const backendId = session ? getBackendId(session) : null;
+
+      if (backendId && session) {
+        try {
+          const newPinnedState = !session.pinned;
+          await chatApi.updateChat(backendId, {
+            pinned: newPinnedState,
+          });
+          await refreshSessions();
+        } catch (error) {
+          console.error("Failed to toggle pin status:", error);
+        }
+      }
+    },
+    [sessions, refreshSessions],
+  );
+
+  /** Show shared context menu for a specific session */
+  const handleItemContextMenu = useCallback(
+    (sessionId: string, event: React.MouseEvent) => {
+      setContextMenuSessionId(sessionId);
+      sharedContextMenu.show(event);
+    },
+    [sharedContextMenu],
+  );
+
+  /** Build context menu items for the currently right-clicked session */
+  const contextMenuItems: ContextMenuItem[] = useMemo(() => {
+    if (!contextMenuSessionId) return [];
+    const session = sessions.find((s) => s.id === contextMenuSessionId) as
+      | ExtendedChatSession
+      | undefined;
+    return [
+      {
+        key: "open",
+        label: t("chat.contextMenu.open", "Open"),
+        onClick: () => handleSessionClick(contextMenuSessionId),
+      },
+      {
+        key: "rename",
+        label: t("chat.contextMenu.rename", "Rename"),
+        onClick: () =>
+          handleEditStart(contextMenuSessionId, session?.name || "New Chat"),
+      },
+      {
+        key: "pin",
+        label: session?.pinned
+          ? t("chat.contextMenu.unpin", "Unpin")
+          : t("chat.contextMenu.pin", "Pin"),
+        onClick: () => handlePinToggle(contextMenuSessionId),
+      },
+      { key: "divider-1", label: "", divider: true },
+      {
+        key: "delete",
+        label: t("chat.contextMenu.delete", "Delete"),
+        danger: true,
+        onClick: () => handleDelete(contextMenuSessionId),
+      },
+    ];
+  }, [
+    contextMenuSessionId,
+    sessions,
+    t,
     handleSessionClick,
     handleEditStart,
-    handleDelete,
     handlePinToggle,
-    handleEditChange,
-    handleEditSubmit,
-    handleEditCancel,
-    handleItemContextMenu,
-    contextMenu: sharedContextMenu,
-    contextMenuItems,
-  } = useSessionListData(extSessions, setExtSessions, {
-    active: props.open,
-    currentSessionId,
-    onSessionClick,
-  });
+    handleDelete,
+  ]);
 
-  /** Stable data object for FixedSizeList */
+  /** Stable data object for FixedSizeList — avoids re-creating row renderer on every render */
   const itemData = useMemo<SessionRowData>(
     () => ({
-      sortedSessions,
+      sortedSessions: sortedSessions as ExtendedChatSession[],
       currentSessionId,
       switchingSessionId,
       editingSessionId,
@@ -234,57 +569,36 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
     ],
   );
 
-  return (
-    <Drawer
-      open={props.open}
-      onClose={props.pinned ? undefined : props.onClose}
-      destroyOnHidden={!props.pinned}
-      placement="right"
-      width={360}
-      closable={false}
-      title={null}
-      mask={!props.pinned}
-      styles={{
-        header: { display: "none" },
-        body: {
-          padding: 0,
-          display: "flex",
-          flexDirection: "column",
-          height: "100%",
-          overflow: "hidden",
-        },
-        mask: { background: "transparent" },
-      }}
-      className={styles.drawer}
-    >
+  const panelContent = (
+    <>
       {/* Header bar */}
       <div className={styles.header}>
         <div className={styles.headerLeft}>
           <span className={styles.headerTitle}>{t("chat.allChats")}</span>
         </div>
         <div className={styles.headerRight}>
-          <Tooltip
-            title={
-              props.pinned
-                ? t("chat.unpinDrawer", "Unpin")
-                : t("chat.pinDrawer", "Pin")
-            }
-            mouseEnterDelay={0.5}
-          >
-            <IconButton
-              bordered={false}
-              icon={props.pinned ? <SparkLockFill /> : <SparkLockLine />}
-              className={props.pinned ? styles.pinActive : undefined}
-              onClick={() => props.onPinChange?.(!props.pinned)}
-            />
-          </Tooltip>
-          {!props.pinned && (
-            <IconButton
-              bordered={false}
-              icon={<SparkOperateRightLine />}
-              onClick={props.onClose}
-            />
+          {!props.embedded && (
+            <Tooltip
+              title={
+                props.pinned
+                  ? t("chat.unpinDrawer", "Unpin")
+                  : t("chat.pinDrawer", "Pin")
+              }
+              mouseEnterDelay={0.5}
+            >
+              <IconButton
+                bordered={false}
+                icon={props.pinned ? <SparkLockFill /> : <SparkLockLine />}
+                className={props.pinned ? styles.pinActive : undefined}
+                onClick={() => props.onPinChange?.(!props.pinned)}
+              />
+            </Tooltip>
           )}
+          <IconButton
+            bordered={false}
+            icon={<SparkOperateRightLine />}
+            onClick={props.onClose}
+          />
         </div>
       </div>
 
@@ -336,6 +650,40 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
         items={contextMenuItems}
         onClose={sharedContextMenu.hide}
       />
+    </>
+  );
+
+  // Embedded mode: render as an inline panel (no Drawer wrapper)
+  if (props.embedded) {
+    if (!props.open) return null;
+    return <div className={styles.embeddedPanel}>{panelContent}</div>;
+  }
+
+  // Drawer mode (legacy)
+  return (
+    <Drawer
+      open={props.open}
+      onClose={props.pinned ? undefined : props.onClose}
+      destroyOnHidden={!props.pinned}
+      placement="right"
+      width={330}
+      closable={false}
+      title={null}
+      mask={!props.pinned}
+      styles={{
+        header: { display: "none" },
+        body: {
+          padding: 0,
+          display: "flex",
+          flexDirection: "column",
+          height: "100%",
+          overflow: "hidden",
+        },
+        mask: { background: "transparent" },
+      }}
+      className={styles.drawer}
+    >
+      {panelContent}
     </Drawer>
   );
 };

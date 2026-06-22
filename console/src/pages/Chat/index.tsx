@@ -29,6 +29,8 @@ import { useChatAnywhereInput } from "@agentscope-ai/chat";
 import styles from "./index.module.less";
 import { IconButton } from "@agentscope-ai/design";
 import ChatActionGroup from "./components/ChatActionGroup";
+import ChatSessionDrawer from "./components/ChatSessionDrawer";
+import { useSidebarModeStore } from "../../stores/sidebarModeStore";
 import TurnUsageAction from "./components/TurnUsageAction";
 import { wrapChatResponseUsageStream } from "./turnUsage";
 import ChatHeaderTitle from "./components/ChatHeaderTitle";
@@ -1019,6 +1021,8 @@ const timestampStyle: React.CSSProperties = {
   whiteSpace: "nowrap",
 };
 
+const HISTORY_PANEL_STORAGE_KEY = "qwenpaw_history_panel_open";
+
 export default function ChatPage() {
   const { t, i18n } = useTranslation();
   const navigate = useNavigate();
@@ -1229,6 +1233,32 @@ export default function ChatPage() {
     Map<string, ApprovalMessageData>
   >(new Map());
   const [planEnabled, setPlanEnabled] = useState(false);
+  const { mode: sidebarMode } = useSidebarModeStore();
+  const isFullMode = sidebarMode === "full";
+
+  // Right-side history panel state
+  const [historyPanelOpen, setHistoryPanelOpen] = useState(() => {
+    try {
+      return localStorage.getItem(HISTORY_PANEL_STORAGE_KEY) === "true";
+    } catch {
+      return false;
+    }
+  });
+  const toggleHistoryPanel = useCallback(() => {
+    setHistoryPanelOpen((prev) => {
+      const next = !prev;
+      try {
+        if (next) {
+          localStorage.setItem(HISTORY_PANEL_STORAGE_KEY, "true");
+        } else {
+          localStorage.removeItem(HISTORY_PANEL_STORAGE_KEY);
+        }
+      } catch {
+        // storage unavailable
+      }
+      return next;
+    });
+  }, []);
   const [chatSkills, setChatSkills] = useState<SkillSpec[]>([]);
   const consoleSkills = useMemo(
     () => chatSkills.filter(isSkillAvailableInConsole),
@@ -2403,6 +2433,8 @@ export default function ChatPage() {
             <ModelSelector />
             <ChatActionGroup
               planEnabled={planEnabled}
+              onToggleHistory={isFullMode ? toggleHistoryPanel : undefined}
+              historyOpen={isFullMode ? historyPanelOpen : false}
               isWideMode={isWideMode}
               onToggleWideMode={toggleWideMode}
             />
@@ -2680,177 +2712,190 @@ export default function ChatPage() {
   ]);
 
   return (
-    <div
-      style={{
-        height: "100%",
-        width: "100%",
-        display: "flex",
-        flexDirection: "column",
-      }}
-    >
-      <div
-        className={
-          isWideMode
-            ? `${styles.chatMessagesArea} ${styles.wideMode}`
-            : styles.chatMessagesArea
-        }
-      >
-        <AgentScopeRuntimeWebUI
-          ref={chatRef}
-          key={refreshKey}
-          options={options}
-        />
-      </div>
-
-      {/* Rate-limit guidance banner */}
-      {rateLimitAlternatives.length > 0 && (
-        <div className={styles.rateLimitBanner}>
-          <span className={styles.rateLimitText}>
-            {t("chat.rateLimitMessage")}
-          </span>
-          <div className={styles.rateLimitActions}>
-            {rateLimitAlternatives.slice(0, 3).map((alt) => (
-              <Button
-                key={`${alt.provider_id}/${alt.model_id}`}
-                size="small"
-                type="default"
-                onClick={async () => {
-                  try {
-                    await providerApi.setActiveLlm({
-                      provider_id: alt.provider_id,
-                      model: alt.model_id,
-                      scope: "agent",
-                      agent_id: selectedAgent,
-                    });
-                    window.dispatchEvent(new CustomEvent("model-switched"));
-                    message.success(
-                      t("chat.rateLimitSwitched", { model: alt.model_name }),
-                    );
-                    setRateLimitAlternatives([]);
-                  } catch {
-                    message.error(t("modelSelector.switchFailed"));
-                  }
-                }}
-              >
-                {alt.model_name}
-              </Button>
-            ))}
-            <Button
-              size="small"
-              type="link"
-              onClick={() => setRateLimitAlternatives([])}
-            >
-              {t("common.close")}
-            </Button>
-          </div>
-        </div>
-      )}
-
-      {/* Render approval cards as overlays */}
-      {Array.from(approvalRequests.values()).map((request) => (
+    <div className={styles.chatPageRoot}>
+      {/* Main chat area */}
+      <div className={styles.chatMainArea}>
         <div
-          key={request.requestId}
-          data-approval-id={request.requestId}
-          style={{
-            position: "fixed",
-            bottom: 80,
-            right: 24,
-            zIndex: 1000,
-            maxWidth: 480,
-            width: "calc(100vw - 48px)",
-          }}
+          className={
+            isWideMode
+              ? `${styles.chatMessagesArea} ${styles.wideMode}`
+              : styles.chatMessagesArea
+          }
         >
-          <ApprovalCard
-            requestId={request.requestId}
-            agentId={request.agentId}
-            toolName={request.toolName}
-            severity={request.severity}
-            findingsCount={request.findingsCount}
-            findingsSummary={request.findingsSummary}
-            toolParams={request.toolParams}
-            createdAt={request.createdAt}
-            timeoutSeconds={request.timeoutSeconds}
-            sessionId={request.sessionId}
-            rootSessionId={request.rootSessionId}
-            onApprove={handleApprove}
-            onDeny={handleDeny}
-            onCancel={() => {
-              const sessionId =
-                request.rootSessionId || window.currentSessionId || "";
-              const resolvedChatId =
-                sessionApi.getRealIdForSession(sessionId) ??
-                chatIdRef.current ??
-                sessionId;
-
-              if (resolvedChatId) {
-                console.log("[Chat] Calling stopChat with:", resolvedChatId);
-                chatApi
-                  .stopChat(resolvedChatId)
-                  .then(() => {
-                    console.log("[Chat] stopChat succeeded");
-                    setApprovals((prev) =>
-                      prev.filter(
-                        (item) =>
-                          item.root_session_id !== request.rootSessionId,
-                      ),
-                    );
-                  })
-                  .catch((err) => {
-                    console.error("[Chat] stopChat failed:", err);
-                  });
-              } else {
-                console.warn("[Chat] No chat_id resolved, cannot cancel task");
-              }
-            }}
+          <AgentScopeRuntimeWebUI
+            ref={chatRef}
+            key={refreshKey}
+            options={options}
           />
         </div>
-      ))}
 
-      <Modal
-        open={showModelPrompt}
-        closable={false}
-        footer={null}
-        width={480}
-        styles={{
-          content: isDark
-            ? { background: "#1f1f1f", boxShadow: "0 8px 32px rgba(0,0,0,0.5)" }
-            : undefined,
-        }}
-      >
-        <Result
-          icon={<ExclamationCircleOutlined style={{ color: "#faad14" }} />}
-          title={
-            <span
-              style={{ color: isDark ? "rgba(255,255,255,0.88)" : undefined }}
-            >
-              {t("modelConfig.promptTitle")}
+        {/* Rate-limit guidance banner */}
+        {rateLimitAlternatives.length > 0 && (
+          <div className={styles.rateLimitBanner}>
+            <span className={styles.rateLimitText}>
+              {t("chat.rateLimitMessage")}
             </span>
-          }
-          subTitle={
-            <span
-              style={{ color: isDark ? "rgba(255,255,255,0.55)" : undefined }}
-            >
-              {t("modelConfig.promptMessage")}
-            </span>
-          }
-          extra={[
-            <Button key="skip" onClick={() => setShowModelPrompt(false)}>
-              {t("modelConfig.skipButton")}
-            </Button>,
-            <Button
-              key="configure"
-              type="primary"
-              icon={<SettingOutlined />}
-              onClick={() => {
-                setShowModelPrompt(false);
-                navigate("/models");
+            <div className={styles.rateLimitActions}>
+              {rateLimitAlternatives.slice(0, 3).map((alt) => (
+                <Button
+                  key={`${alt.provider_id}/${alt.model_id}`}
+                  size="small"
+                  type="default"
+                  onClick={async () => {
+                    try {
+                      await providerApi.setActiveLlm({
+                        provider_id: alt.provider_id,
+                        model: alt.model_id,
+                        scope: "agent",
+                        agent_id: selectedAgent,
+                      });
+                      window.dispatchEvent(new CustomEvent("model-switched"));
+                      message.success(
+                        t("chat.rateLimitSwitched", { model: alt.model_name }),
+                      );
+                      setRateLimitAlternatives([]);
+                    } catch {
+                      message.error(t("modelSelector.switchFailed"));
+                    }
+                  }}
+                >
+                  {alt.model_name}
+                </Button>
+              ))}
+              <Button
+                size="small"
+                type="link"
+                onClick={() => setRateLimitAlternatives([])}
+              >
+                {t("common.close")}
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {/* Render approval cards as overlays */}
+        {Array.from(approvalRequests.values()).map((request) => (
+          <div
+            key={request.requestId}
+            data-approval-id={request.requestId}
+            style={{
+              position: "fixed",
+              bottom: 80,
+              right: 24,
+              zIndex: 1000,
+              maxWidth: 480,
+              width: "calc(100vw - 48px)",
+            }}
+          >
+            <ApprovalCard
+              requestId={request.requestId}
+              agentId={request.agentId}
+              toolName={request.toolName}
+              severity={request.severity}
+              findingsCount={request.findingsCount}
+              findingsSummary={request.findingsSummary}
+              toolParams={request.toolParams}
+              createdAt={request.createdAt}
+              timeoutSeconds={request.timeoutSeconds}
+              sessionId={request.sessionId}
+              rootSessionId={request.rootSessionId}
+              onApprove={handleApprove}
+              onDeny={handleDeny}
+              onCancel={() => {
+                const sessionId =
+                  request.rootSessionId || window.currentSessionId || "";
+                const resolvedChatId =
+                  sessionApi.getRealIdForSession(sessionId) ??
+                  chatIdRef.current ??
+                  sessionId;
+
+                if (resolvedChatId) {
+                  console.log("[Chat] Calling stopChat with:", resolvedChatId);
+                  chatApi
+                    .stopChat(resolvedChatId)
+                    .then(() => {
+                      console.log("[Chat] stopChat succeeded");
+                      setApprovals((prev) =>
+                        prev.filter(
+                          (item) =>
+                            item.root_session_id !== request.rootSessionId,
+                        ),
+                      );
+                    })
+                    .catch((err) => {
+                      console.error("[Chat] stopChat failed:", err);
+                    });
+                } else {
+                  console.warn(
+                    "[Chat] No chat_id resolved, cannot cancel task",
+                  );
+                }
               }}
-            >
-              {t("modelConfig.configureButton")}
-            </Button>,
-          ]}
-        />
-      </Modal>
+            />
+          </div>
+        ))}
+
+        <Modal
+          open={showModelPrompt}
+          closable={false}
+          footer={null}
+          width={480}
+          styles={{
+            content: isDark
+              ? {
+                  background: "#1f1f1f",
+                  boxShadow: "0 8px 32px rgba(0,0,0,0.5)",
+                }
+              : undefined,
+          }}
+        >
+          <Result
+            icon={<ExclamationCircleOutlined style={{ color: "#faad14" }} />}
+            title={
+              <span
+                style={{ color: isDark ? "rgba(255,255,255,0.88)" : undefined }}
+              >
+                {t("modelConfig.promptTitle")}
+              </span>
+            }
+            subTitle={
+              <span
+                style={{ color: isDark ? "rgba(255,255,255,0.55)" : undefined }}
+              >
+                {t("modelConfig.promptMessage")}
+              </span>
+            }
+            extra={[
+              <Button key="skip" onClick={() => setShowModelPrompt(false)}>
+                {t("modelConfig.skipButton")}
+              </Button>,
+              <Button
+                key="configure"
+                type="primary"
+                icon={<SettingOutlined />}
+                onClick={() => {
+                  setShowModelPrompt(false);
+                  navigate("/models");
+                }}
+              >
+                {t("modelConfig.configureButton")}
+              </Button>,
+            ]}
+          />
+        </Modal>
+      </div>
+      {/* End of main chat area */}
+
+      {/* Right-side history panel (full mode only) */}
+      {isFullMode && historyPanelOpen && (
+        <div className={styles.historyPanel}>
+          <ChatSessionDrawer
+            open={historyPanelOpen}
+            onClose={toggleHistoryPanel}
+            embedded
+          />
+        </div>
+      )}
     </div>
   );
 }
