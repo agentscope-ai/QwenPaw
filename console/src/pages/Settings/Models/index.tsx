@@ -324,15 +324,18 @@ function ModelsPage() {
                       onChange={(e) => setSearchQuery(e.target.value)}
                       className={styles.searchInput}
                       prefix={<SearchOutlined />}
+                      suffix={
+                        <Button
+                          icon={<SyncOutlined />}
+                          onClick={() => fetchAll()}
+                          className={styles.searchBtn}
+                          title={t("common.refresh")}
+                          type="text"
+                        />
+                      }
                       allowClear
                       autoComplete="off"
                       data-form-type="other"
-                    />
-                    <Button
-                      icon={<SyncOutlined />}
-                      onClick={() => fetchAll()}
-                      className={styles.searchBtn}
-                      title={t("common.refresh")}
                     />
                   </div>
                   <Button

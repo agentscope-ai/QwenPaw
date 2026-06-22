@@ -305,7 +305,11 @@ export default function ModelSelector() {
       setActiveModels({
         active_llm: { provider_id: providerId, model: modelId },
       });
-      window.dispatchEvent(new CustomEvent("model-switched"));
+      window.dispatchEvent(
+        new CustomEvent("model-switched", {
+          detail: { maxInputLength: targetModel?.max_input_length },
+        }),
+      );
     } catch (err) {
       const msg =
         err instanceof Error ? err.message : t("modelSelector.switchFailed");
@@ -335,7 +339,17 @@ export default function ModelSelector() {
             model: oauthModal.pendingModelId,
           },
         });
-        window.dispatchEvent(new CustomEvent("model-switched"));
+        const oauthProvider = eligibleProviders.find(
+          (p) => p.id === oauthModal.providerId,
+        );
+        const oauthModel = oauthProvider?.models.find(
+          (m) => m.id === oauthModal.pendingModelId,
+        );
+        window.dispatchEvent(
+          new CustomEvent("model-switched", {
+            detail: { maxInputLength: oauthModel?.max_input_length },
+          }),
+        );
       } catch (err) {
         const msg =
           err instanceof Error ? err.message : t("modelSelector.switchFailed");

@@ -609,7 +609,11 @@
   "preview": {
     "error": {
       "SENSITIVE_FILE_BLOCKED": "File bị chặn bởi File Guard (bảo vệ file nhạy cảm).",
-      "OUTSIDE_WORKSPACE": "File nằm ngoài phạm vi workspace.",
+      "OUTSIDE_WORKSPACE": "File nằm ngoài phạm vi workspace. Bật \"Cho phép xem trước ngoài Workspace\" trong Cài đặt → Bảo mật → File Guard.",
+      "FORBIDDEN": "Truy cập bị từ chối: không đủ quyền để xem trước file này.",
+      "NOT_FOUND": "Không tìm thấy file, có thể đã bị di chuyển hoặc xóa. Nếu đang dùng đường dẫn tương đối, hãy thử dùng đường dẫn tuyệt đối.",
+      "LOAD_FAILED": "Không thể tải xem trước file.",
+      "LOAD_FAILED_DETAIL": "Không thể tải xem trước file: {{detail}}",
       "UNKNOWN": "Không thể xem trước file này."
     }
   },
