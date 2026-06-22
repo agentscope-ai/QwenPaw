@@ -33,10 +33,23 @@ function getDateGroup(
   if (!timestamp) return "older";
   const date = new Date(timestamp);
   if (isNaN(date.getTime())) return "older";
-  const diffDays = (Date.now() - date.getTime()) / (1000 * 60 * 60 * 24);
-  if (diffDays < 1) return "today";
-  if (diffDays < 7) return "week";
-  if (diffDays < 30) return "month";
+
+  // Use calendar dates (not elapsed-time differences) so that
+  // "today" always means the same Y/M/D, regardless of the hour.
+  const now = new Date();
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const dateStart = new Date(
+    date.getFullYear(),
+    date.getMonth(),
+    date.getDate(),
+  );
+  const calendarDays = Math.floor(
+    (todayStart.getTime() - dateStart.getTime()) / (1000 * 60 * 60 * 24),
+  );
+
+  if (calendarDays <= 0) return "today"; // same calendar day (or future)
+  if (calendarDays < 7) return "week";
+  if (calendarDays < 30) return "month";
   return "older";
 }
 

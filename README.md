@@ -61,17 +61,21 @@ Your personal AI assistant — easy to install, deploy locally or in the cloud, 
 
 ## News
 
-- [2026-06-11] **AgentScope Platform is live** — Free QwenPaw deployment, plugin sharing, and Skill marketplace. [Try it now →](https://platform.agentscope.io/)
-
-- [2026-06-10] **v1.1.11 — Free Model OAuth & Plugin Market** | Zero-config free models with one-click OAuth; Plugin Market with AgentScope Platform integration.
+- [2026-06-17] **v1.1.12 — Models Page Overhaul & Simple Mode** | Redesigned Models page with provider aggregation; new Simple Mode for streamlined navigation.
 
   | Highlight | What's new |
   |-----------|------------|
-  | **Free Model OAuth** | Zero-config free models with one-click OAuth authentication. |
-  | **Plugin Market** | New Plugin Market tab with AgentScope Platform integration. |
-  | **MCP Tool Whitelisting** | Per-server MCP tool whitelisting with frontend toggle UI. |
+  | **Models Page Overhaul** | Provider Aggregation, Unified Card UI & Layout Redesign. |
+  | **Simple Mode** | Flat nav and sorted session list by updated time. |
+  | **Non-blocking Flush** | Adaptive throttling for all channels. |
+  | **Per-Turn Token Usage** | Token and context usage popover per turn. |
+  | **Desktop Port Persistence** | Persist backend port across restarts. |
 
-  Also: self-evolving skill creation, backend startup optimization, Feishu group sharing, QQ QR code auth. [v1.1.11 Release Notes →](https://qwenpaw.agentscope.io/release-notes#v1.1.11)
+  Also: wide mode toggle, syntax highlighting, Langfuse agent loop grouping, Gemini tool schema fix. [v1.1.12 Release Notes →](https://qwenpaw.agentscope.io/release-notes#v1.1.12)
+
+- [2026-06-11] **AgentScope Platform is live** — Free QwenPaw deployment, plugin sharing, and Skill marketplace. [Try it now →](https://platform.agentscope.io/)
+
+- [2026-06-10] **v1.1.11** — Free Model OAuth, Plugin Market, MCP Tool Whitelisting. [v1.1.11 Release Notes →](https://qwenpaw.agentscope.io/release-notes#v1.1.11)
 
 - [2026-06-01] **v1.1.10** — Spawn Subagent, Open Directory, Tencent Yuanbao channel. [v1.1.10 Release Notes →](https://qwenpaw.agentscope.io/release-notes#v1.1.10)
 
@@ -419,23 +423,19 @@ Star QwenPaw on GitHub and be instantly notified of new releases.
 | ------------------------ | -------------------------------------------------------------------------------------------- | -------------------- |
 | **Horizontal Expansion** | More channels, models, skills, MCPs — **community contributions welcome**                  | Seeking Contributors |
 | **Existing Feature Extension** | Display optimization, download hints, Windows path compatibility, etc. — **community contributions welcome** | Seeking Contributors |
-| **Client Experience**    | Install, update, and packaging improvements                                                  | In Progress          |
+| **Infra**               | QwenPaw OS foundation                                                                         | In Progress          |
 | **Models**               | Multi-model switching                                                                         | In Progress          |
-|                          | OAuth                                                                                        | Planned              |
 |                          | Response API                                                                                 | Planned              |
-| **Workspace**            | File access control with Sandbox integration                                                 | In Progress          |
-|                          | Subfolder layout (config, production files, etc.)                                            | Planned              |
-| **Coding**               | LSP, dedicated prompts, workspace versioning, runtime, and supporting infra                  | In Progress              |
-|                          | Lightweight native APIs                                                                      | Planned              |
-|                          | Tool self-evolution                                                                          | Planned              |
-|                          | Compatibility with existing agents (e.g. Claude Code)                                        | Planned              |
+| **Workspace**            | Subfolder layout (config, production files, etc.)                                            | Planned              |
+| **Coding**               | Compatibility with existing agents (e.g. Claude Code)                                        | Planned              |
 | **Multi-agent**          | Group chat                                                                                   | Planned              |
-|                          | Subagent Visualization                                                                                 | Planned              |
+|                          | Subagent visualization                                                                                 | Planned              |
 |                          | HiClaw enterprise capabilities                                                               | Planned              |
-| **Context Management**   | Personal Knowledge Base                                                             | In Progress          |
+| **Context Management**   | Personal knowledge base                                                             | In Progress          |
 |                          | User-selectable compression (fine-grained control)                                           | Planned              |
 | **QwenPaw Application**   | QwenPaw Creator                                                             | In Progress          |
 |                          | QwenPaw Insight                                           | In Progress              |
+
 _Status:_ **In Progress** — actively being worked on; **Planned** — queued or under design, also welcome contributions; **Seeking Contributors** — we strongly encourage community contributions.
 
 ## Install from source

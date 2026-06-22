@@ -21,6 +21,7 @@ param(
     [string]$SourceDir = "",
     [string]$Extras    = "",
     [string]$UvPath    = "",
+    [switch]$Prerelease,
     [switch]$Help
 )
 
@@ -52,6 +53,7 @@ Options:
   -SourceDir <DIR>      Local source directory (used with -FromSource)
   -Extras <EXTRAS>      Comma-separated optional extras to install
                         (e.g. dev, whisper)
+  -Prerelease           Install the latest PyPI release, including pre-releases
   -UvPath <PATH>        Path to a pre-installed uv.exe (skips all auto-install)
   -Help                 Show this help
 
@@ -288,7 +290,7 @@ if ($FromSource) {
         Write-Info "Installing QwenPaw from local source: $SourceDir"
         Prepare-Console $SourceDir
         Write-Info "Installing package from source..."
-        uv pip install "${SourceDir}${ExtrasSuffix}" --python $VenvPython --prerelease=allow
+        uv pip install "${SourceDir}${ExtrasSuffix}" --python $VenvPython
         if ($LASTEXITCODE -ne 0) { Stop-WithError "Installation from source failed" }
         Cleanup-Console $SourceDir
     } else {
@@ -302,7 +304,7 @@ if ($FromSource) {
             if ($LASTEXITCODE -ne 0) { Stop-WithError "Failed to clone repository" }
             Prepare-Console $cloneDir
             Write-Info "Installing package from source..."
-            uv pip install "${cloneDir}${ExtrasSuffix}" --python $VenvPython --prerelease=allow
+            uv pip install "${cloneDir}${ExtrasSuffix}" --python $VenvPython
             if ($LASTEXITCODE -ne 0) { Stop-WithError "Installation from source failed" }
         } finally {
             if (Test-Path $cloneDir) {
@@ -314,8 +316,11 @@ if ($FromSource) {
     $package = "qwenpaw"
     if ($Version) { $package = "qwenpaw==$Version" }
 
+    $prereleaseArgs = @()
+    if ($Prerelease) { $prereleaseArgs = @("--prerelease=allow") }
+
     Write-Info "Installing ${package}${ExtrasSuffix} from PyPI..."
-    uv pip install "${package}${ExtrasSuffix}" --python $VenvPython --prerelease=allow --quiet --refresh-package qwenpaw
+    uv pip install "${package}${ExtrasSuffix}" --python $VenvPython --quiet --refresh-package qwenpaw @prereleaseArgs
     if ($LASTEXITCODE -ne 0) { Stop-WithError "Installation failed" }
 }
 

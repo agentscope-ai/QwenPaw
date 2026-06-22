@@ -108,7 +108,7 @@ def _httpx_client_kwargs() -> dict[str, Any]:
     ``trust_env=False`` avoids routing ``127.0.0.1`` through HTTP(S)_PROXY
     (e.g. Clash on 7890), which would time out and break all pet events.
     """
-    return {"trust_env": False, "timeout": 0.35}
+    return {"trust_env": False, "timeout": 5.0}
 
 
 def _spawn_host_port_from_env() -> tuple[str, int]:
