@@ -57,11 +57,14 @@ export default function SidebarSettingsPanel({
     }
   };
 
-  const [closeBehavior, setCloseBehavior] = React.useState<"minimize" | "quit">("quit");
+  const [closeBehavior, setCloseBehavior] = React.useState<"minimize" | "quit">(
+    "quit",
+  );
 
   React.useEffect(() => {
     if (isTauriRuntime()) {
-      settingsApi.getCloseBehavior()
+      settingsApi
+        .getCloseBehavior()
         .then((res) => {
           setCloseBehavior(res.close_behavior);
         })
@@ -194,7 +197,10 @@ export default function SidebarSettingsPanel({
               onClick={() => handleCloseBehaviorChange("minimize")}
             >
               <span className={styles.optLabel}>
-                {t("sidebar.settings.closeBehaviorMinimize", "Minimize to Tray")}
+                {t(
+                  "sidebar.settings.closeBehaviorMinimize",
+                  "Minimize to Tray",
+                )}
               </span>
             </button>
           </div>
