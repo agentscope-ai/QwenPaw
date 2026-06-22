@@ -716,6 +716,19 @@
     border-bottom-color: rgba(255, 255, 255, 0.12);
   }
 
+  /* Override the light-mode table header background */
+  .cronJobsPage {
+    :global {
+      .qwenpaw-table-wrapper
+        .qwenpaw-table-container
+        .qwenpaw-table-thead
+        > tr
+        > th {
+        background: #2a2a2a !important;
+      }
+    }
+  }
+
   .breadcrumbParent {
     color: rgba(255, 255, 255, 0.35);
   }
