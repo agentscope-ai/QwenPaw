@@ -1683,10 +1683,6 @@ export default function ChatPage() {
       if (!textarea) return;
       const val = textarea.value.trim();
       if (!val) return;
-      // Slash commands (e.g. /clear, /compact) must always be handled by the
-      // slash-command system, never enqueued as plain messages — even when
-      // the chat is loading or the queue is busy.
-      if (val.startsWith("/")) return;
       e.preventDefault();
       e.stopPropagation();
       if (!chatId) {
@@ -2261,9 +2257,6 @@ export default function ChatPage() {
           ?.querySelector("textarea") as HTMLTextAreaElement | null;
         const val = textarea?.value.trim() ?? "";
         if (!val) return false;
-        // Slash commands must not be enqueued; let the slash-command
-        // system handle them locally.
-        if (val.startsWith("/")) return true;
         if (!chatId) {
           return false;
         }
