@@ -178,24 +178,25 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
   const { currentSessionId, setCurrentSessionId } = sdkState;
   const setSessions = props.embedded ? setLocalSessions : sdkState.setSessions;
   const createSession = sdkActions.createSession;
+  const { embedded, pinned, onClose } = props;
 
   /** Create a new session; close the drawer only when not pinned */
   const handleCreateSession = useCallback(async () => {
     if (sessionApi.isSessionSwitching) {
       sessionApi.finishSessionSwitch();
     }
-    if (props.embedded) {
+    if (embedded) {
       // In embedded mode, we're outside the SDK context tree.
       // Dispatch a DOM event so ChatSessionInitializer (inside the tree) handles it.
       window.dispatchEvent(new CustomEvent("qwenpaw:sidebar-new-chat"));
     } else {
       await createSession();
       // Only close the drawer (not the embedded panel) when not pinned
-      if (!props.pinned) {
-        props.onClose();
+      if (!pinned) {
+        onClose();
       }
     }
-  }, [createSession, props.onClose, props.pinned, props.embedded]);
+  }, [createSession, onClose, pinned, embedded]);
 
   /** ID of the session currently being renamed */
   const [editingSessionId, setEditingSessionId] = useState<string | null>(null);
@@ -396,10 +397,14 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
   // is still stuck (e.g. event missed, component re-mounted, race condition),
   // clear it so the UI doesn't remain greyed out.
   useEffect(() => {
-    if (!sessionApi.isSessionSwitching && switchingSessionId) {
-      setSwitchingSessionId(null);
-    }
-  }, [sessionApi.isSessionSwitching, switchingSessionId]);
+    if (!switchingSessionId) return;
+    const id = setInterval(() => {
+      if (!sessionApi.isSessionSwitching) {
+        setSwitchingSessionId(null);
+      }
+    }, 500);
+    return () => clearInterval(id);
+  }, [switchingSessionId]);
 
   // In embedded mode, clear switchingSessionId when the URL changes
   // (signals that the session switch initiated via DOM event has completed).
