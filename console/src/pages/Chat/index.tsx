@@ -133,17 +133,34 @@ function stopBackgroundQueue(queueKey?: string) {
  *
  * Returns true when the chat became idle (or status is unknown / 404, which
  * we treat as idle to avoid blocking the queue forever); false if aborted.
+ *
+ * @param agentId - If provided, overrides X-Agent-Id in the status request
+ *   so that switching agents does not cause a spurious "idle" result.
  */
 async function waitForChatIdle(
   chatIdForStatus: string,
   signal: AbortSignal,
+  agentId?: string,
 ): Promise<boolean> {
   if (!chatIdForStatus) return true;
   while (!signal.aborted) {
     try {
-      const chat = await chatApi.getChat(chatIdForStatus);
+      // Use direct fetch with the correct agent ID header to avoid
+      // cross-agent status misreads when the user has switched agents.
+      const headers = buildAuthHeaders();
+      if (agentId) {
+        headers["X-Agent-Id"] = agentId;
+      }
+      const res = await fetch(
+        getApiUrl(`/chats/${encodeURIComponent(chatIdForStatus)}`),
+        { headers, signal },
+      );
+      if (!res.ok) return true; // 404 / error → treat as idle
+      const chat = await res.json();
       if (chat?.status !== "running") return true;
     } catch {
+      // If aborted, return false (not idle) so the caller breaks cleanly.
+      if (signal.aborted) return false;
       // Backend unreachable / 404 (e.g. id is still a local timestamp).
       // Treat as idle so we don't block forever.
       return true;
@@ -236,7 +253,11 @@ async function startBackgroundQueue(
       // Wait until the backend finishes the currently running task before
       // sending the next one. This preserves order task1 → task2 → task3
       // and prevents firing while task1 is still generating.
-      const idle = await waitForChatIdle(chatIdForStatus, ctrl.signal);
+      const idle = await waitForChatIdle(
+        chatIdForStatus,
+        ctrl.signal,
+        item.agentId,
+      );
       if (!idle) break;
 
       // Mark as sending — visible to other tabs and to the foreground page
@@ -271,11 +292,17 @@ async function startBackgroundQueue(
       // foreground SDK's reconnect will pick it up.
       let fetchStarted = false;
       try {
+        const authHeaders = buildAuthHeaders();
+        // Use the agent ID captured at enqueue time to prevent cross-agent
+        // delivery when the user switches agents after queueing.
+        if (item.agentId) {
+          authHeaders["X-Agent-Id"] = item.agentId;
+        }
         const res = await fetch(getApiUrl("/console/chat"), {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            ...buildAuthHeaders(),
+            ...authHeaders,
           },
           body: JSON.stringify({
             input: [
