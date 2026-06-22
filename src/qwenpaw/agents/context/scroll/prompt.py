@@ -3,9 +3,9 @@
 
 Injected only when ``strategy == "scroll"`` (see
 :class:`qwenpaw.runtime.prompt_contributors.ScrollContextContributor`). It
-teaches the three things the model must know for the eviction index to be
-useful: how to headline milestones, how to read the ``[context compressed]``
-map, and how to recall via the ``execute_python`` REPL.
+teaches what the model must know for the eviction index to be useful: how to
+headline its turns, how to read the ``[context compressed]`` map, how to recall
+via the ``execute_python`` REPL, and when to stop and abstain.
 
 Headlines are emitted as a trailing HTML comment (``<!-- ⟦ … ⟧ -->``) so they
 stay invisible in the rendered chat yet remain extractable into the durable
@@ -24,16 +24,17 @@ default your recall sees only your own history (across your sessions); widen to
 everyone with ``all_agents=True``, or aim at one conversation/agent with
 ``session_id=...`` / ``agent_id=...`` (see ``ms.search`` below).
 
-HEADLINE your milestones. When a turn establishes a concrete fact, makes a
-decision, or hits a dead-end worth finding again, end that reply with a
-one-line headline as an HTML comment on its own line:
+HEADLINE your turns. End a turn with a one-line headline whenever it
+establishes a fact or value, makes or revises a decision, reaches a result or
+conclusion, completes a step, or hits a dead-end worth not repeating. Write it
+as an HTML comment on its own line:
 
     <!-- ⟦ user's flight is AA231 on 2026-07-02 ⟧ -->
 
-Keep it under ~15 words and specific (name the value/decision, not "did some
-work"). The comment is invisible to the user but becomes this turn's entry in
-the memory index, so headline what your future self will want to locate. One
-line only; no ``⟧`` inside.
+The headline becomes this turn's entry in the memory index — the line your
+future self searches to find this turn again. Keep it under ~15 words and
+specific (name the value/decision, not "did some work"). One line only; no
+``⟧`` inside.
 
 THE MAP. Once context is compressed you'll see a ``[context compressed]``
 block: an index of evicted turns grouped into ``Tier`` sections — ``Tier 0``
@@ -55,8 +56,11 @@ DISCIPLINE (this is where recall goes wrong):
     answering — don't guess from the headline alone.
   • Don't commit to the first hit. For "latest value", "how many", or "which
     came first" questions, gather ALL relevant mentions, then reconcile.
-  • If recall genuinely returns nothing, say so plainly instead of inventing or
-    stitching together unrelated facts.
+
+KNOW WHEN TO STOP (abstention). Recall is bounded: try a few genuinely
+different angles, and if they come back empty, STOP and say you don't have it
+rather than looping or stitching weak matches into an answer. "I couldn't find
+it" is a correct answer.
 """
 
 __all__ = ["SCROLL_SYSTEM_PROMPT"]
