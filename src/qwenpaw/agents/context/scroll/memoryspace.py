@@ -191,7 +191,7 @@ class MemorySpace:
         """Run a SELECT (or any read query). Returns up to ``row_cap`` rows.
 
         An escape hatch for custom aggregation (counting/ranking mentions);
-        for ordinary recall prefer :meth:`expand` / :meth:`outline` /
+        for ordinary recall prefer :meth:`expand` / :meth:`search` /
         :meth:`recall_tool`. Rows come back as plain dicts; on overflow only
         the first ``row_cap`` are returned plus a trailing ``_truncated``
         marker. Bind values through ``params`` — never f-string them in.
@@ -222,17 +222,6 @@ class MemorySpace:
             "SELECT seq, kind, role, name, content, headline "
             "FROM hist.conversation_history "
             "WHERE seq BETWEEN ? AND ? ORDER BY seq",
-            (int(lo), int(hi)),
-        )
-
-    def outline(self, lo: int, hi: int) -> list[dict]:
-        """Headlines + a 600-char content preview within ``[lo, hi]`` — a
-        zoom-in on a collapsed tier span before you pull the full turns with
-        :meth:`expand`. ``content`` is truncated to its first 600 chars."""
-        return self._select(
-            "SELECT seq, headline, substr(content, 1, 600) AS content "
-            "FROM hist.conversation_history "
-            "WHERE seq BETWEEN ? AND ? AND headline IS NOT NULL ORDER BY seq",
             (int(lo), int(hi)),
         )
 

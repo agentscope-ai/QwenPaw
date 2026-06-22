@@ -37,42 +37,40 @@ session's turns that scrolled out of context (seq spans come from the
 [context compressed] map) plus your earlier sessions. Usual flow: LOCATE a
 seq — via the map or ms.search — then ms.expand(lo, hi) for the full turns
 (one turn is ms.expand(seq, seq)). Commit an answer only from the FULL turn
-text that ms.search / ms.expand return, never from a headline or the outline
-preview alone — the answer is often buried late in a long, multi-topic turn.
+text that ms.search / ms.expand return, never from a headline alone — the
+answer is often buried late in a long, multi-topic turn.
 
 `ms` is ALREADY DEFINED in this cell — use it directly. Do NOT `import ms`: it
 is a ready-made object, not a module, and importing it raises
 ModuleNotFoundError. Only what you print() is returned; variables do NOT
 persist across calls, but scratch tables do.
 
-    # locate, then read full content
-    hits = ms.search("flight number", k=5)
+    # scan hits by content (raw turns usually have NO headline), then re-read
+    hits = ms.search("flight number", k=20)
     for r in hits:
-        print(r["seq"], r["headline"])
+        print(r["seq"], r["content"][:1000])
     print(ms.expand(180, 184))   # full turns once you have the seq span
 
-Every helper returns a LIST OF DICTS (rows). Index with the EXACT keys named
-below — there is no `content_preview` (the text key is always `content`), and
-only `search` carries `session_id`. Don't assume a key; print(rows[0].keys())
-if unsure. On overflow the row helpers append a trailing {"_truncated": True}
-row (search is capped by k instead) — narrow your span if you see it.
+Every helper returns a LIST OF DICTS (rows). Each helper's output schema is its
+`Row: {…}` line below — those are the EXACT dict keys you index by (there is no
+`content_preview`: the text key is always `content`, and only `search` carries
+`session_id`). Don't assume a key; print(rows[0].keys()) if unsure. On overflow
+the row helpers append a trailing {"_truncated": True} row (search is capped by
+k instead) — narrow your span if you see it.
 
 The persistent record reaches you through `ms`. Prefer these intent helpers
 (values are bound for you — no SQL to write):
   • ms.expand(lo, hi) — full turns in the seq span [lo, hi], oldest first.
-    Keys: seq, kind, role, name, content, headline.
-  • ms.outline(lo, hi) — one row per headlined turn in that span (zoom before
-    pulling full turns with expand). Keys: seq, headline, content (600-char
-    preview).
+    Row: {seq, kind, role, name, content, headline}.
   • ms.recall_tool(tool_call_id) — a tool call and its result (this agent;
-    pass all_agents=True to widen). Keys: seq, kind, role, name, tool_input,
-    tool_state, content.
+    pass all_agents=True to widen). Row: {seq, kind, role, name, tool_input,
+    tool_state, content}.
   • ms.search(query, all_agents=False, kind=None, k=10) — FTS5. By default
     searches your whole history across past sessions; all_agents=True spans
     every agent here. Pin a specific one with session_id="cron:<job>" /
     agent_id="<other>" (these take precedence). kind filters by row kind
-    ("model_turn" / "tool_result"). Keys: seq, session_id, kind, role, name,
-    headline, content (full turn). Query with keywords, not full sentences
+    ("model_turn" / "tool_result"). Row: {seq, session_id, kind, role, name,
+    headline, content (full turn)}. Query with keywords, not full sentences
     (all terms must appear); use OR-sets for alternatives and a generous k to
     cast a wide net: ms.search("tank OR aquarium OR goldfish", k=20).
   • ms.sessions() — your past conversations (incl. scheduled cron/heartbeat

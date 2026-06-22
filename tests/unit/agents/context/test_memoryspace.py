@@ -301,11 +301,6 @@ def test_expand_returns_full_turns_in_span(ms: MemorySpace):
     }
 
 
-def test_outline_returns_only_headlined_rows(ms: MemorySpace):
-    rows = ms.outline(1, 99)
-    assert [r["headline"] for r in rows] == ["battle"]
-
-
 def test_recall_tool_is_agent_scoped_by_default(history_db: Path, tmp_path):
     h = HistoryStore(history_db)
     h.append(
