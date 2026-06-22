@@ -20,6 +20,12 @@ from typing import Any, AsyncGenerator, Callable, Coroutine, Optional
 
 logger = logging.getLogger(__name__)
 
+# Maximum time (seconds) a task can run before the watchdog force-cancels it.
+# Default: 5 minutes. Set via QWENPAW_LLM_TASK_TIMEOUT env var.
+_TASK_TIMEOUT = float(
+    __import__("os").environ.get("QWENPAW_LLM_TASK_TIMEOUT", "300")
+)
+
 _SENTINEL = None
 
 
@@ -47,6 +53,7 @@ class TaskTracker:
         self._runs: dict[str, _RunState] = {}
         self._global_last_run_at: Optional[datetime] = None
         self._global_last_finish_at: Optional[datetime] = None
+        self._watchdog_task: Optional[asyncio.Task] = None
 
     @property
     def lock(self) -> asyncio.Lock:
@@ -94,6 +101,85 @@ class TaskTracker:
                 if not state.task.done():
                     return True
             return False
+
+    # ------------------------------------------------------------------
+    # Watchdog: auto-cancel tasks that exceed the timeout
+    # ------------------------------------------------------------------
+
+    def start_watchdog(self, interval: float = 30.0) -> None:
+        """Start the background watchdog that cancels stuck tasks.
+
+        Args:
+            interval: How often (seconds) to check for stuck tasks.
+        """
+        if self._watchdog_task is not None:
+            return
+        self._watchdog_task = asyncio.create_task(
+            self._watchdog_loop(interval),
+            name="task_tracker_watchdog",
+        )
+        logger.info(
+            "Task watchdog started (timeout=%.0fs, interval=%.0fs)",
+            _TASK_TIMEOUT,
+            interval,
+        )
+
+    def stop_watchdog(self) -> None:
+        """Stop the background watchdog."""
+        if self._watchdog_task is not None:
+            self._watchdog_task.cancel()
+            self._watchdog_task = None
+            logger.info("Task watchdog stopped")
+
+    async def _watchdog_loop(self, interval: float) -> None:
+        """Background loop: cancel tasks running longer than _TASK_TIMEOUT."""
+        try:
+            while True:
+                await asyncio.sleep(interval)
+                await self._cancel_stuck_tasks()
+        except asyncio.CancelledError:
+            return
+
+    async def _cancel_stuck_tasks(self) -> None:
+        """Find tasks running longer than _TASK_TIMEOUT and cancel them."""
+        now = datetime.now(timezone.utc)
+        to_cancel: list[str] = []
+
+        async with self._lock:
+            for run_key, state in self._runs.items():
+                if state.task.done() or state.start_time is None:
+                    continue
+                elapsed = (now - state.start_time).total_seconds()
+                if elapsed > _TASK_TIMEOUT:
+                    to_cancel.append(run_key)
+
+        for run_key in to_cancel:
+            async with self._lock:
+                state = self._runs.get(run_key)
+                if state is None or state.task.done():
+                    continue
+                elapsed = (now - state.start_time).total_seconds() if state.start_time else 0
+                logger.warning(
+                    "Watchdog: cancelling stuck task %s (running %.0fs > %.0fs limit)",
+                    run_key,
+                    elapsed,
+                    _TASK_TIMEOUT,
+                )
+                # Send error to subscribers so they disconnect cleanly
+                err_sse = (
+                    "data: "
+                    f'{{"error": "Task cancelled by watchdog: '
+                    f"exceeded {int(_TASK_TIMEOUT)}s timeout\"}}\n\n"
+                )
+                state.buffer.append(err_sse)
+                for q in state.queues:
+                    q.put_nowait(err_sse)
+                    q.put_nowait(_SENTINEL)
+                state.task.cancel()
+                finish_time = datetime.now(timezone.utc)
+                state.finish_time = finish_time
+                self._global_last_finish_at = finish_time
+            logger.info("Watchdog: stuck task %s cancelled", run_key)
 
     async def list_active_tasks(self) -> list[str]:
         """List all currently running task keys.

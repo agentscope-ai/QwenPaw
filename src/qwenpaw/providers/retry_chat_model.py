@@ -40,6 +40,7 @@ from ..constant import (
     LLM_ACQUIRE_TIMEOUT,
     LLM_BACKOFF_BASE,
     LLM_BACKOFF_CAP,
+    LLM_CALL_TIMEOUT,
     LLM_MAX_CONCURRENT,
     LLM_MAX_RETRIES,
     LLM_MAX_QPM,
@@ -153,6 +154,7 @@ def _is_retryable(exc: Exception) -> bool:
         _get_openai_retryable()
         + _get_anthropic_retryable()
         + _get_httpx_retryable()
+        + (asyncio.TimeoutError,)
     )
     if retryable and isinstance(exc, retryable):
         return True
@@ -440,7 +442,13 @@ class RetryChatModel(ChatModelBase):
                     ) from exc
 
                 try:
-                    result = await self._inner(*args, **kwargs)
+                    if LLM_CALL_TIMEOUT > 0:
+                        result = await asyncio.wait_for(
+                            self._inner(*args, **kwargs),
+                            timeout=LLM_CALL_TIMEOUT,
+                        )
+                    else:
+                        result = await self._inner(*args, **kwargs)
                 except Exception as inner_exc:
                     if not (
                         _is_missing_reasoning_content_error(inner_exc)
@@ -453,7 +461,13 @@ class RetryChatModel(ChatModelBase):
                         "on every assistant message. Injecting empty "
                         "values and retrying (learned for future calls).",
                     )
-                    result = await self._inner(*args, **kwargs)
+                    if LLM_CALL_TIMEOUT > 0:
+                        result = await asyncio.wait_for(
+                            self._inner(*args, **kwargs),
+                            timeout=LLM_CALL_TIMEOUT,
+                        )
+                    else:
+                        result = await self._inner(*args, **kwargs)
 
                 if isinstance(result, AsyncGenerator):
                     # Transfer semaphore ownership to _wrap_stream, which uses
