@@ -197,7 +197,8 @@ export function useSessionListData(
       if (backendId) await chatApi.deleteChat(backendId);
 
       // Fetch fresh session list after deletion
-      const freshList = (await sessionApi.getSessionList()) as ExtendedChatSession[];
+      const freshList =
+        (await sessionApi.getSessionList()) as ExtendedChatSession[];
       setSessions(freshList);
       syncSessionsGlobal(freshList);
 

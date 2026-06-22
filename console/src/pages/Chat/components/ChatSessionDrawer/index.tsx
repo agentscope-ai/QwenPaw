@@ -6,7 +6,10 @@ import React, {
   useState,
 } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
-import { buildSessionPath, getSessionIdFromPath } from "../../../../utils/sessionRoute";
+import {
+  buildSessionPath,
+  getSessionIdFromPath,
+} from "../../../../utils/sessionRoute";
 import { Drawer, Spin, Tooltip } from "antd";
 import { FixedSizeList, type ListChildComponentProps } from "react-window";
 import { IconButton } from "@agentscope-ai/design";
@@ -32,7 +35,10 @@ import {
   useContextMenu,
   type ContextMenuItem,
 } from "../../../../components/ContextMenu";
-import { syncSessionsGlobal, type ExtendedSession } from "../../../../stores/sessionListStore";
+import {
+  syncSessionsGlobal,
+  type ExtendedSession,
+} from "../../../../stores/sessionListStore";
 import styles from "./index.module.less";
 
 /** Fixed height of each session item in pixels (matches CSS min-height) */
@@ -397,7 +403,8 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
       }
 
       // Fetch the updated session list after deletion
-      const freshList = (await sessionApi.getSessionList()) as ExtendedChatSession[];
+      const freshList =
+        (await sessionApi.getSessionList()) as ExtendedChatSession[];
       setSessions(freshList);
       syncSessionsGlobal(freshList as unknown as ExtendedSession[]);
 
