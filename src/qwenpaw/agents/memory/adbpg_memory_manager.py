@@ -13,7 +13,7 @@ import threading
 from collections.abc import Callable
 from pathlib import Path
 
-from agentscope.message import Msg
+from agentscope.message import Msg, TextBlock
 from agentscope.tool import ToolChunk
 from agentscope.message import ToolResultState
 

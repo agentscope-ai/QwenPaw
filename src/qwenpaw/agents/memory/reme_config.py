@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """Embedded ReMe4 application configuration for QwenPaw memory.
 
 ReMe's standalone CLI normally loads YAML such as
@@ -11,10 +12,10 @@ from typing import Any
 
 
 def build_reme_app_config(
-        *,
-        working_dir: str,
-        agent_config: Any,
-        user_timezone: str | None = None,
+    *,
+    working_dir: str,
+    agent_config: Any,
+    user_timezone: str | None = None,
 ) -> dict[str, Any]:
     """Build ReMe4 ``Application`` kwargs for embedded QwenPaw usage."""
     cfg = _base_config()
@@ -72,14 +73,20 @@ def _base_config() -> dict[str, Any]:
                         "monitor_type": "file_catalog",
                         "monitor_name": "resource",
                         "dispatch_steps": [
-                            {"backend": "update_catalog_step", "file_catalog": "resource"},
+                            {
+                                "backend": "update_catalog_step",
+                                "file_catalog": "resource",
+                            },
                             {"backend": "auto_resource_step"},
                         ],
                     },
                     {
                         "backend": "watch_changes_step",
                         "dispatch_steps": [
-                            {"backend": "update_catalog_step", "file_catalog": "resource"},
+                            {
+                                "backend": "update_catalog_step",
+                                "file_catalog": "resource",
+                            },
                             {"backend": "auto_resource_step"},
                         ],
                     },
@@ -93,7 +100,10 @@ def _base_config() -> dict[str, Any]:
             },
             "reindex": {
                 "backend": "base",
-                "description": "wipe the file store and rebuild it from the existing files",
+                "description": (
+                    "wipe the file store and rebuild it from the existing "
+                    "files"
+                ),
                 "watch_dirs": ["daily_dir", "digest_dir", "resource_dir"],
                 "watch_suffixes": ["md", "jsonl"],
                 "parameters": {"type": "object", "properties": {}},
@@ -109,12 +119,21 @@ def _base_config() -> dict[str, Any]:
             },
             "search": {
                 "backend": "base",
-                "description": "Hybrid vault search (vector + BM25, RRF-fused).",
+                "description": (
+                    "Hybrid vault search (vector + BM25, RRF-fused)."
+                ),
                 "parameters": {
                     "type": "object",
                     "properties": {
-                        "query": {"type": "string", "description": "search query"},
-                        "limit": {"type": "integer", "description": "max results", "default": 5},
+                        "query": {
+                            "type": "string",
+                            "description": "search query",
+                        },
+                        "limit": {
+                            "type": "integer",
+                            "description": "max results",
+                            "default": 5,
+                        },
                         "min_score": {
                             "type": "number",
                             "description": "min fused score",
@@ -139,7 +158,10 @@ def _base_config() -> dict[str, Any]:
                 "parameters": {
                     "type": "object",
                     "properties": {
-                        "query": {"type": "string", "description": "search query"},
+                        "query": {
+                            "type": "string",
+                            "description": "search query",
+                        },
                         "limit": {
                             "type": "integer",
                             "description": "max digest nodes to return",
@@ -158,7 +180,9 @@ def _base_config() -> dict[str, Any]:
             },
             "daily_create": {
                 "backend": "base",
-                "description": "Provision a session note under a daily folder.",
+                "description": (
+                    "Provision a session note under a daily folder."
+                ),
                 "parameters": {
                     "type": "object",
                     "properties": {
@@ -298,7 +322,9 @@ def _base_config() -> dict[str, Any]:
                     "properties": {"path": {"type": "string"}},
                     "required": ["path"],
                 },
-                "steps": [{"backend": "read_image_step", "max_bytes": 5242880}],
+                "steps": [
+                    {"backend": "read_image_step", "max_bytes": 5242880},
+                ],
             },
             "write": {
                 "backend": "base",
@@ -339,7 +365,10 @@ def _base_config() -> dict[str, Any]:
                         "date": {"type": "string", "default": ""},
                         "hint": {"type": "string", "default": ""},
                         "topic_count": {"type": "integer", "default": 3},
-                        "topic_diversity_days": {"type": "integer", "default": 7},
+                        "topic_diversity_days": {
+                            "type": "integer",
+                            "default": 7,
+                        },
                     },
                 },
                 "steps": [
@@ -364,18 +393,27 @@ def _base_config() -> dict[str, Any]:
                     "type": "object",
                     "properties": {
                         "date": {"type": "string", "default": ""},
-                        "include_content": {"type": "boolean", "default": True},
+                        "include_content": {
+                            "type": "boolean",
+                            "default": True,
+                        },
                     },
                 },
                 "steps": [{"backend": "proactive_step"}],
             },
             "auto_memory": {
                 "backend": "base",
-                "description": "Auto-memory: record conversation facts into a daily note",
+                "description": (
+                    "Auto-memory: record conversation facts into a daily "
+                    "note"
+                ),
                 "parameters": {
                     "type": "object",
                     "properties": {
-                        "messages": {"type": "array", "items": {"type": "object"}},
+                        "messages": {
+                            "type": "array",
+                            "items": {"type": "object"},
+                        },
                         "session_id": {"type": "string", "default": ""},
                         "memory_hint": {"type": "string"},
                     },
@@ -385,11 +423,16 @@ def _base_config() -> dict[str, Any]:
             },
             "auto_resource": {
                 "backend": "base",
-                "description": "Auto-resource: interpret resource files into daily notes",
+                "description": (
+                    "Auto-resource: interpret resource files into daily notes"
+                ),
                 "parameters": {
                     "type": "object",
                     "properties": {
-                        "changes": {"type": "array", "items": {"type": "object"}},
+                        "changes": {
+                            "type": "array",
+                            "items": {"type": "object"},
+                        },
                     },
                     "required": ["changes"],
                 },
@@ -438,8 +481,14 @@ def _base_components() -> dict[str, Any]:
             "dream": {"backend": "local"},
         },
         "file_chunker": {
-            "markdown": {"backend": "markdown", "supported_extensions": ["md"]},
-            "default": {"backend": "default", "supported_extensions": ["jsonl"]},
+            "markdown": {
+                "backend": "markdown",
+                "supported_extensions": ["md"],
+            },
+            "default": {
+                "backend": "default",
+                "supported_extensions": ["jsonl"],
+            },
         },
         "keyword_index": {
             "default": {"backend": "bm25", "tokenizer": "default"},
@@ -457,17 +506,17 @@ def _base_components() -> dict[str, Any]:
 
 
 def _configure_embedding(
-        config: dict[str, Any],
-        agent_config: Any,
-        *,
-        enabled: bool,
+    config: dict[str, Any],
+    agent_config: Any,
+    *,
+    enabled: bool,
 ) -> None:
     """Add optional ReMe embedding config.
 
-    QwenPaw keeps embedding settings in the generated ReMe config, but does not
-    wire them into ``file_store`` by default.  This keeps ReMe memory usable via
-    BM25 when embedding is unavailable or the ReMe/AgentScope embedding APIs
-    are out of sync.
+    QwenPaw keeps embedding settings in the generated ReMe config, but does
+    not wire them into ``file_store`` by default.  This keeps ReMe memory
+    usable via BM25 when embedding is unavailable or the ReMe/AgentScope
+    embedding APIs are out of sync.
     """
     reme_cfg = agent_config.running.reme_light_memory_config
     emb = reme_cfg.embedding_model_config
@@ -515,10 +564,10 @@ def _configure_embedding(
 
 
 def get_reme_app_config(
-        *,
-        working_dir: str,
-        agent_config: Any,
-        user_timezone: str | None = None,
+    *,
+    working_dir: str,
+    agent_config: Any,
+    user_timezone: str | None = None,
 ) -> dict[str, Any]:
     """Public wrapper returning a deep copy safe for caller mutation."""
     return deepcopy(

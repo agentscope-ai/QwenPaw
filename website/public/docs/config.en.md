@@ -419,15 +419,15 @@ Controls agent runtime behavior, retry strategies, context management, and memor
 
 **ReMeLight Memory Configuration (`reme_light_memory_config` object):**
 
-| Field                           | Type        | Default        | Description                                                            |
-| ------------------------------- | ----------- | -------------- | ---------------------------------------------------------------------- |
-| `summarize_when_compact`        | bool        | `true`         | Whether to enable memory summarization during compaction               |
+| Field                           | Type        | Default        | Description                                                                           |
+| ------------------------------- | ----------- | -------------- | ------------------------------------------------------------------------------------- |
+| `summarize_when_compact`        | bool        | `true`         | Whether to enable memory summarization during compaction                              |
 | `auto_memory_interval`          | int \| null | `1`            | Auto memory every N user queries. `1` runs after every user message; null disables it |
-| `dream_cron`                    | string      | `"0 23 * * *"` | Cron expression for dream-based memory optimization (empty to disable) |
-| `rebuild_memory_index_on_start` | bool        | `false`        | Whether to rebuild memory search index on startup                      |
-| `recursive_file_watcher`        | bool        | `false`        | Whether to watch memory directory recursively                          |
-| `auto_memory_search_config`     | object      | _(see below)_  | Auto memory search configuration                                       |
-| `embedding_model_config`        | object      | _(see below)_  | Embedding model configuration                                          |
+| `dream_cron`                    | string      | `"0 23 * * *"` | Cron expression for dream-based memory optimization (empty to disable)                |
+| `rebuild_memory_index_on_start` | bool        | `false`        | Whether to rebuild memory search index on startup                                     |
+| `recursive_file_watcher`        | bool        | `false`        | Whether to watch memory directory recursively                                         |
+| `auto_memory_search_config`     | object      | _(see below)_  | Auto memory search configuration                                                      |
+| `embedding_model_config`        | object      | _(see below)_  | Embedding model configuration                                                         |
 
 **Auto Memory Search Configuration (`reme_light_memory_config.auto_memory_search_config` object):**
 

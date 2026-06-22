@@ -8,7 +8,7 @@ ReMe4's application/job framework.
 
 import logging
 from contextlib import suppress
-from typing import Any, Optional, TYPE_CHECKING
+from typing import Any, TYPE_CHECKING
 
 from agentscope.message import Msg, TextBlock
 from agentscope.message import ToolResultState
@@ -58,15 +58,19 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         )
 
         try:
-            from reme import ReMe  # type: ignore
+            from reme import ReMe as ReMeApp  # type: ignore
 
             agent_config = load_agent_config(self.agent_id)
             global_config = load_config()
-            self._reme = ReMe(
+            self._reme = ReMeApp(
                 **get_reme_app_config(
                     working_dir=self.working_dir,
                     agent_config=agent_config,
-                    user_timezone=getattr(global_config, "user_timezone", None),
+                    user_timezone=getattr(
+                        global_config,
+                        "user_timezone",
+                        None,
+                    ),
                 ),
             )
         except Exception as exc:
@@ -89,11 +93,17 @@ class ReMeLightMemoryManager(BaseMemoryManager):
                 logger.exception("ReMe4 cleanup after failed start failed")
             raise
 
-        logger.info("ReMe4 memory manager started for agent '%s'", self.agent_id)
+        logger.info(
+            "ReMe4 memory manager started for agent '%s'",
+            self.agent_id,
+        )
 
     async def close(self) -> bool:
         """Close ReMe4 and cleanup background summary worker state."""
-        logger.info("ReMeLightMemoryManager closing: agent_id=%s", self.agent_id)
+        logger.info(
+            "ReMeLightMemoryManager closing: agent_id=%s",
+            self.agent_id,
+        )
 
         worker = self._worker_task
         if worker is not None and not worker.done():
@@ -133,11 +143,11 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         )
 
     async def _run_reme_job(
-            self,
-            name: str,
-            *,
-            needs_llm: bool = False,
-            **kwargs: Any,
+        self,
+        name: str,
+        *,
+        needs_llm: bool = False,
+        **kwargs: Any,
     ) -> Any | None:
         if self._reme is None or not getattr(self._reme, "is_started", False):
             logger.debug("ReMe4 job skipped; app not started: %s", name)
@@ -151,10 +161,10 @@ class ReMeLightMemoryManager(BaseMemoryManager):
             return None
 
     async def memory_search(
-            self,
-            query: str,
-            max_results: int = 5,
-            min_score: float = 0.1,
+        self,
+        query: str,
+        max_results: int = 5,
+        min_score: float = 0.1,
     ) -> ToolChunk:
         """Search ReMe4 memory."""
         query = query.strip()
@@ -177,9 +187,9 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         return _tool_chunk(answer, ok=ok)
 
     async def summarize(
-            self,
-            messages: list[Msg],
-            **kwargs: Any,
+        self,
+        messages: list[Msg],
+        **kwargs: Any,
     ) -> str:
         """Persist conversation messages through ReMe4 auto-memory."""
         if not messages:
@@ -197,9 +207,9 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         return str(getattr(response, "answer", "") or "")
 
     async def retrieve(
-            self,
-            messages: list[Msg] | Msg,
-            **_kwargs: Any,
+        self,
+        messages: list[Msg] | Msg,
+        **_kwargs: Any,
     ) -> dict | None:
         """Retrieve relevant memory as transient text context."""
         msgs = [messages] if isinstance(messages, Msg) else list(messages)
@@ -222,10 +232,10 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         return {"query": query, "text": text}
 
     async def auto_memory_search(
-            self,
-            messages: list[Msg] | Msg,
-            agent_name: str = "",
-            **kwargs: Any,
+        self,
+        messages: list[Msg] | Msg,
+        agent_name: str = "",
+        **kwargs: Any,
     ) -> dict | None:
         """Auto-search memory if configured."""
         del agent_name, kwargs
@@ -236,9 +246,9 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         return await self.retrieve(messages)
 
     async def summarize_when_compact(
-            self,
-            messages: list[Msg],
-            **kwargs: Any,
+        self,
+        messages: list[Msg],
+        **kwargs: Any,
     ) -> None:
         """Schedule memory extraction when compaction occurs."""
         if not messages:
@@ -249,9 +259,9 @@ class ReMeLightMemoryManager(BaseMemoryManager):
             self.add_summarize_task(messages=messages, **kwargs)
 
     async def auto_memory(
-            self,
-            all_messages: list[Msg],
-            **kwargs: Any,
+        self,
+        all_messages: list[Msg],
+        **kwargs: Any,
     ) -> None:
         """Auto-extract memory every configured N user messages."""
         agent_config = load_agent_config(self.agent_id)
@@ -268,7 +278,10 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         if user_count < interval or user_count % interval != 0:
             return
 
-        recent_messages = self._recent_interval_messages(all_messages, interval)
+        recent_messages = self._recent_interval_messages(
+            all_messages,
+            interval,
+        )
         if not recent_messages:
             return
 
@@ -321,8 +334,8 @@ class ReMeLightMemoryManager(BaseMemoryManager):
 
     @staticmethod
     def _recent_interval_messages(
-            messages: list[Msg],
-            interval: int,
+        messages: list[Msg],
+        interval: int,
     ) -> list[Msg]:
         seen = 0
         for idx in range(len(messages) - 1, -1, -1):
