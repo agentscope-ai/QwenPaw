@@ -51,6 +51,8 @@ from qwenpaw.cli.tui.widgets import (
     ThemePicker,
 )
 
+pytestmark = [pytest.mark.unit, pytest.mark.p1]
+
 
 class FakeTransport:
     """In-process transport that scripts a canned turn for the UI."""
@@ -611,6 +613,39 @@ async def test_welcome_message_mounts_with_qwenpaw_greeting():
         assert "QwenPaw 9.8.7" in status
         # The TUI version is no longer shown — only QwenPaw's.
         assert "TUI" not in status
+
+
+@pytest.mark.asyncio
+async def test_welcome_logo_animates_then_restores_on_live_terminal(
+    monkeypatch,
+):
+    # ``run_test`` is headless, which skips the hop; pretend it's a live
+    # terminal so ``on_mount`` starts the animation, then drive the frame
+    # loop deterministically (each ``_tick`` advances a fixed step, so we
+    # don't have to wait wall-clock seconds).
+    monkeypatch.setattr(
+        PawApp,
+        "is_headless",
+        property(lambda self: False),
+    )
+    transport = FakeTransport()
+    app = PawApp(transport)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        welcome = app.query(WelcomeMessage).first()
+        assert welcome._animating is True
+        assert welcome._anim_timer is not None
+
+        for _ in range(500):
+            if not welcome._animating:
+                break
+            welcome._tick()
+
+        assert welcome._animating is False
+        assert welcome._anim_timer is None
+        # The settled logo is the same as the static one.
+        plain = welcome.content.plain
+        assert plain.count("█") == welcome._render_body().plain.count("█")
 
 
 @pytest.mark.asyncio

@@ -6,7 +6,11 @@ from __future__ import annotations
 # ``bar`` is a fine local name for a StatusBar widget under test.
 # pylint: disable=disallowed-name
 
+import pytest
+
 from qwenpaw.cli.tui.widgets.status_bar import StatusBar, _fmt_count
+
+pytestmark = [pytest.mark.unit, pytest.mark.p1]
 
 
 def test_fmt_count_compacts_large_numbers():

@@ -13,9 +13,13 @@ from __future__ import annotations
 
 import sys
 
+import pytest
+
 from click.testing import CliRunner
 
 from qwenpaw.cli.tui.launch import _build_transport, tui_cmd
+
+pytestmark = [pytest.mark.unit, pytest.mark.p1]
 
 
 def test_default_transport_targets_current_interpreter():

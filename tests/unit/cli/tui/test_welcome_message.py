@@ -6,11 +6,18 @@ from __future__ import annotations
 # Tests exercise the widget's private rendering helpers directly.
 # pylint: disable=protected-access
 
+import pytest
+
 from qwenpaw.cli.tui.widgets.messages import (
     WelcomeMessage,
+    _bounce,
     _bright_dot_hex,
     _relative_luminance,
 )
+
+pytestmark = [pytest.mark.unit, pytest.mark.p1]
+
+_PALETTE = ("#071b2c", "#101f3c", "#163857")
 
 
 def test_welcome_logo_palette_changes_rendered_colors():
@@ -67,3 +74,59 @@ def test_welcome_logo_rows_use_a_single_flat_color():
         if row.plain[span.start : span.end] == "█"
     }
     assert block_colors == {welcome._gradient_color(1)}
+
+
+def test_logo_splits_into_one_segment_per_glyph():
+    """The wordmark hops letter by letter, so it must segment cleanly.
+
+    "QwenPaw" is seven glyphs (the paw prints ride on the second "a"), so the
+    blank-column split must yield exactly seven column spans.
+    """
+    welcome = WelcomeMessage(_PALETTE)
+    assert len(welcome._segments) == 7
+    # Spans are ordered left to right and never overlap.
+    for (_, end), (start, _) in zip(
+        welcome._segments,
+        welcome._segments[1:],
+    ):
+        assert end <= start
+
+
+def test_hop_animation_settles_to_the_static_logo():
+    """Once every letter lands, the frame matches the resting logo exactly."""
+    welcome = WelcomeMessage(_PALETTE)
+
+    frame, settled = welcome._compose_frame(welcome._ANIM_CAP)
+    static = welcome._render_body()
+
+    assert settled is True
+
+    def trimmed(text):
+        return [line.rstrip() for line in text.plain.split("\n")]
+
+    assert trimmed(frame) == trimmed(static)
+    assert frame.plain.count("█") == static.plain.count("█")
+
+
+def test_hop_animation_starts_off_canvas_and_fills_in():
+    """Letters drop in: the first frame is empty, the last is full."""
+    welcome = WelcomeMessage(_PALETTE)
+
+    first = welcome._compose_frame(0.0)[0].plain.count("█")
+    midway = welcome._compose_frame(0.8)[0].plain.count("█")
+    final = welcome._compose_frame(welcome._ANIM_CAP)[0].plain.count("█")
+
+    # Nothing has dropped in yet on frame zero; the logo assembles over time.
+    assert first == 0
+    assert first < midway < final
+
+
+def test_bounce_drops_in_then_comes_to_rest():
+    drop = 9.0
+    # Before its start (negative time) the ball waits at full drop height.
+    assert _bounce(-0.5, drop, 80.0, 0.5) == drop
+    # It never dips below the floor while bouncing...
+    samples = [_bounce(t / 100, drop, 80.0, 0.5) for t in range(400)]
+    assert min(samples) >= 0.0
+    # ...and it has come to rest well before the animation cap.
+    assert _bounce(3.0, drop, 80.0, 0.5) == 0.0

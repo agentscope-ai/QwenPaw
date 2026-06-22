@@ -22,6 +22,8 @@ from qwenpaw.cli.tui.events import (
 )
 from qwenpaw.cli.tui.transport.acp import AcpTransport
 
+pytestmark = [pytest.mark.unit, pytest.mark.p1]
+
 FAKE = os.path.join(os.path.dirname(__file__), "_fake_acp_agent.py")
 
 

@@ -6,6 +6,8 @@ from __future__ import annotations
 # ``assert normalize_update(...) == []`` reads clearer than ``not ...`` here.
 # pylint: disable=use-implicit-booleaness-not-comparison
 
+import pytest
+
 from acp import (
     start_tool_call,
     text_block,
@@ -26,6 +28,8 @@ from acp.schema import (
 
 from qwenpaw.cli.tui import events as E
 from qwenpaw.cli.tui.normalize import normalize_update
+
+pytestmark = [pytest.mark.unit, pytest.mark.p1]
 
 
 def test_message_chunk_is_text_delta():

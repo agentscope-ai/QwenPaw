@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import math
 import time
 
 from rich.text import Text
@@ -84,8 +85,10 @@ class WelcomeMessage(Static):
         palette: tuple[str, str, str] | None = None,
         accent: str | None = None,
     ) -> None:
-        # ``_frame`` is fixed at 0: the logo colour is static (no animation),
-        # so the gradient is a fixed vertical wash with the embossed shading.
+        # ``_frame`` is the colour-gradient phase and stays fixed at 0: the
+        # vertical colour wash is static. The startup *motion* is positional —
+        # a one-shot hop where each letter drops in and bounces to its place
+        # (see :meth:`on_mount`), independent of the gradient.
         self._frame = 0
         self._accent = accent
         self._gradient_stops = (
@@ -96,6 +99,17 @@ class WelcomeMessage(Static):
         )
         if palette is not None:
             self._set_palette_colors(palette)
+        # Rectangular (space-padded) copy of the pixel grid plus the column
+        # span of each glyph, so the hop animation can move one letter at a
+        # time. Row colours are cached for the per-frame repaint.
+        width = max(len(row) for row in self._LOGO_PIXELS)
+        self._grid = tuple(row.ljust(width) for row in self._LOGO_PIXELS)
+        self._width = width
+        self._segments = _segment_columns(self._grid)
+        self._row_colors = self._row_color_cache()
+        self._animating = False
+        self._anim_elapsed = 0.0
+        self._anim_timer = None
         super().__init__(self._render_body(), classes="msg welcome")
 
     def set_palette(
@@ -106,7 +120,14 @@ class WelcomeMessage(Static):
         if accent is not None:
             self._accent = accent
         self._set_palette_colors(palette)
+        self._row_colors = self._row_color_cache()
+        if self._animating:
+            # A hop is in flight; the next frame repaints with the new colours.
+            return
         self.update(self._render_body())
+
+    def _row_color_cache(self) -> list[str]:
+        return [self._gradient_color(row) for row in range(len(self._grid))]
 
     def _set_palette_colors(self, palette: tuple[str, str, str]) -> None:
         screen, prompt_bg, chrome = palette
@@ -163,6 +184,148 @@ class WelcomeMessage(Static):
         start = int(position)
         amount = position - start
         return _mix_hex(stops[start], stops[(start + 1) % len(stops)], amount)
+
+    # -- startup hop animation ----------------------------------------------
+    #
+    # Each glyph is a little kitten: it drops in from above and bounces to its
+    # resting row, with staggered start times so the wordmark scrambles itself
+    # together before settling — playful, and over in well under five seconds.
+    # ``_HOPS`` is ``(start_delay_s, drop_rows, gravity, restitution)`` per
+    # glyph, left to right; distances are character rows, gravity rows/s².
+    _ANIM_TICK = 0.04
+    _ANIM_CAP = 2.7
+    _HOPS = (
+        (0.00, 9.0, 80.0, 0.48),
+        (0.14, 7.5, 92.0, 0.50),
+        (0.30, 11.0, 74.0, 0.46),
+        (0.45, 8.0, 96.0, 0.50),
+        (0.62, 10.0, 82.0, 0.52),
+        (0.80, 7.5, 100.0, 0.46),
+        (0.98, 9.0, 86.0, 0.50),
+    )
+
+    def on_mount(self) -> None:
+        # Animate only on a live terminal; headless test/CI drivers get the
+        # final logo immediately so output stays deterministic.
+        if self.app.is_headless:
+            return
+        self._animating = True
+        self._anim_elapsed = 0.0
+        self.update(self._compose_frame(0.0)[0])
+        self._anim_timer = self.set_interval(self._ANIM_TICK, self._tick)
+
+    def _tick(self) -> None:
+        self._anim_elapsed += self._ANIM_TICK
+        frame, settled = self._compose_frame(self._anim_elapsed)
+        if settled or self._anim_elapsed >= self._ANIM_CAP:
+            self._finish_animation()
+            return
+        self.update(frame)
+
+    def _finish_animation(self) -> None:
+        self._animating = False
+        if self._anim_timer is not None:
+            self._anim_timer.stop()
+            self._anim_timer = None
+        self.update(self._render_body())
+
+    def _glyph_offset(self, index: int, elapsed: float) -> float:
+        delay, drop, gravity, restitution = self._HOPS[index % len(self._HOPS)]
+        return _bounce(elapsed - delay, drop, gravity, restitution)
+
+    def _compose_frame(self, elapsed: float) -> tuple[Text, bool]:
+        height = len(self._grid)
+        # ``None`` cells stay blank; a colour means a lit block at that cell.
+        canvas: list[list[str | None]] = [
+            [None] * self._width for _ in range(height)
+        ]
+        settled = True
+        for index, (start, end) in enumerate(self._segments):
+            offset = self._glyph_offset(index, elapsed)
+            if offset > 0.04:
+                settled = False
+            shift = int(round(offset))
+            for row in range(height):
+                dest_row = row - shift
+                if dest_row < 0 or dest_row >= height:
+                    continue
+                source = self._grid[row]
+                color = self._row_colors[row]
+                dest = canvas[dest_row]
+                for col in range(start, end):
+                    char = source[col]
+                    if char == " ":
+                        continue
+                    dest[col] = (
+                        _bright_dot_hex(color) if char == "O" else color
+                    )
+        return _canvas_to_text(canvas), settled
+
+
+def _canvas_to_text(canvas: list[list[str | None]]) -> Text:
+    body = Text()
+    last = len(canvas) - 1
+    for index, row in enumerate(canvas):
+        for color in row:
+            if color is None:
+                body.append(" ")
+            else:
+                body.append("█", style=color)
+        if index != last:
+            body.append("\n")
+    return body
+
+
+def _segment_columns(grid: tuple[str, ...]) -> tuple[tuple[int, int], ...]:
+    """Column span ``[start, end)`` of each glyph, split on blank columns."""
+    height = len(grid)
+    width = len(grid[0]) if grid else 0
+
+    def blank(col: int) -> bool:
+        return all(grid[row][col] == " " for row in range(height))
+
+    segments: list[tuple[int, int]] = []
+    col = 0
+    while col < width:
+        if blank(col):
+            col += 1
+            continue
+        start = col
+        while col < width and not blank(col):
+            col += 1
+        segments.append((start, col))
+    return tuple(segments)
+
+
+def _bounce(
+    tau: float,
+    drop: float,
+    gravity: float,
+    restitution: float,
+) -> float:
+    """Height (rows above the resting row) of a ball dropped at ``tau == 0``.
+
+    The ball falls from ``drop`` rows up, hits the floor and bounces with the
+    given ``restitution`` until its energy is spent, returning ``0.0`` once it
+    settles. Drives each glyph's hop into place on startup.
+    """
+    if tau <= 0.0:
+        return drop
+    first_fall = math.sqrt(2.0 * drop / gravity)
+    if tau < first_fall:
+        return max(0.0, drop - 0.5 * gravity * tau * tau)
+    remaining = tau - first_fall
+    speed = gravity * first_fall * restitution
+    while speed > 1e-2:
+        arc = 2.0 * speed / gravity
+        if remaining < arc:
+            return max(
+                0.0,
+                speed * remaining - 0.5 * gravity * remaining * remaining,
+            )
+        remaining -= arc
+        speed *= restitution
+    return 0.0
 
 
 def _mix_hex(left: str, right: str, amount: float) -> str:
