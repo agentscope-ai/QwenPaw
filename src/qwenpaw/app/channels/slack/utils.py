@@ -56,53 +56,7 @@ def build_dedup_key(event: Dict[str, Any]) -> str:
     return f"msg:{ch}:{ts}"
 
 
-# ── User display name ──
-
-
-def resolve_sender_display(
-    user_info: Optional[Dict[str, Any]] = None,
-    fallback: str = "",
-) -> str:
-    """Extract the best human-readable name from a Slack user-info object.
-
-    Resolution order: ``profile.display_name`` → ``profile.real_name``
-    → ``real_name`` → ``name`` → *fallback*.
-    """
-    if not isinstance(user_info, dict):
-        return fallback or "unknown"
-
-    profile = user_info.get("profile")
-    if isinstance(profile, dict):
-        display = profile.get("display_name")
-        if display:
-            return display
-        real = profile.get("real_name")
-        if real:
-            return real
-
-    real = user_info.get("real_name")
-    if real:
-        return real
-    name = user_info.get("name")
-    if name:
-        return name
-    return fallback or "unknown"
-
-
 # ── Text helpers ──
-
-
-def truncate_slack_text(value: str, max_len: int) -> str:
-    """Return *value* truncated to *max_len* characters.
-
-    A Unicode ellipsis (``…``) is appended when truncation occurs.
-    """
-    trimmed = value.strip()
-    if len(trimmed) <= max_len:
-        return trimmed
-    if max_len <= 1:
-        return trimmed[:max_len]
-    return f"{trimmed[:max_len - 1]}…"
 
 
 def detect_file_type(filename: str) -> str:
@@ -205,72 +159,6 @@ def _is_retryable_error(exc: Exception) -> bool:
             "ratelimited",
         )
     )
-
-
-# ── Error messages ──
-
-
-def slack_error_to_user_message(error: Exception, context: str = "") -> str:
-    """Convert a Slack API error into a human-readable message.
-
-    Recognises common error patterns (missing scopes, permission
-    denials, rate limits, file-not-found) and returns a short
-    explanation.  Falls back to the first 100 characters of the raw
-    error when no pattern matches.
-
-    Parameters
-    ----------
-    error:
-        The exception raised by a Slack SDK or HTTP call.
-    context:
-        Optional prefix describing what operation was being attempted
-        (e.g. ``"uploading file"``).
-    """
-    prefix = f"{context}: " if context else ""
-    msg = str(error).lower()
-
-    # (pattern_key, message_template) pairs; first match wins.
-    patterns: list[tuple[str, str]] = [
-        (
-            "missing_scope",
-            "The Slack bot is missing a required permission scope. "
-            "Please ask an admin to add the scope in the Slack App settings.",
-        ),
-        (
-            "not_authorized",
-            "Permission denied — the bot cannot access this channel or file.",
-        ),
-        (
-            "access_denied",
-            "Permission denied — the bot cannot access this channel or file.",
-        ),
-        (
-            "file_not_found",
-            "The file was not found or has been deleted.",
-        ),
-        (
-            "rate_limited",
-            "Slack is rate-limiting this request. Please try again later.",
-        ),
-        (
-            "ratelimited",
-            "Slack is rate-limiting this request. Please try again later.",
-        ),
-        (
-            "channel_not_found",
-            "The channel was not found — it may have been archived or "
-            "deleted.",
-        ),
-        (
-            "not_in_channel",
-            "The bot is not a member of this channel. Please invite it first.",
-        ),
-    ]
-    for key, explanation in patterns:
-        if key in msg:
-            return f"{prefix}{explanation}"
-
-    return f"{prefix}An error occurred: {str(error)[:100]}"
 
 
 # ── Proxy helpers ──
