@@ -408,14 +408,14 @@ def _start_backend_and_wait(
     if ready:
         logger.info("HTTP ready, transitioning to webview...")
         _set_loading_text(root, loading_label, "\u542f\u52a8\u5b8c\u6210\uff0c\u6b63\u5728\u6253\u5f00...")
-        root.after(0, progress_bar.stop)
-        time.sleep(0.3)  # let mainloop return
-        root.destroy()
-        time.sleep(0.2)  # let window fully close
-        _open_webview(url)
+        # Signal main thread that backend is ready, then close loading window
+        loading_state["backend_ready"] = True
+        time.sleep(0.3)  # brief pause to show status text
+        root.after(0, root.destroy)  # close from main thread
     else:
         # Timeout
         logger.error("Server did not become ready in time.")
+        loading_state["backend_ready"] = False
         def _show_timeout():
             progress_bar.stop()
             loading_label.configure(
@@ -491,7 +491,7 @@ def desktop_cmd(
         # while the backend starts in the background.
         root, progress_bar, loading_label, bg, fg_dim = _create_loading_window()
 
-        proc_ref: list = []
+        proc_ref: list = [None]
         loading_state = {
             "root": root,
             "progress_bar": progress_bar,
@@ -513,8 +513,13 @@ def desktop_cmd(
 
         root.mainloop()  # blocks until loading window is closed
 
+        # If backend is ready, open webview on the main thread.
+        # pywebview.start() MUST run on the main thread.
+        if loading_state.get("backend_ready"):
+            _open_webview(url)  # blocks until user closes the window
+
         # After webview closes, ensure backend process is cleaned up
-        proc = proc_ref[0] if proc_ref else None
+        proc = proc_ref[0]
         _terminate_backend_process(proc)
 
         # Report unexpected backend exit
