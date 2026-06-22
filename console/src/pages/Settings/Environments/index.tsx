@@ -151,7 +151,7 @@ function EnvironmentsPage() {
         },
       });
     },
-    [workingRows, ensureLocal, envVars.length, fetchAll],
+    [workingRows, ensureLocal, envVars.length, fetchAll, message, t],
   );
 
   const removeSelected = useCallback(() => {
