@@ -1,14 +1,12 @@
 # -*- coding: utf-8 -*-
 """The sandboxed ``recall_history_python`` recall tool.
 
-This is raw conversation-history recall (this conversation's own evicted
-turns), distinct from ReMe ``memory_search`` (distilled long-term memory
-across conversations). The model recalls evicted history by running Python
+This is raw conversation-history recall — the agent's own recorded turns
+across its sessions (verbatim). The model recalls history by running Python
 here, not by scrolling back. Each call runs a fresh process (Option A:
 stateless cells) inside the sandbox when a ``sandbox_config`` is supplied —
 mirroring ``execute_shell_command``. The cell preamble builds ``ms`` (the
-durable
-history ATTACHed read-only + a file-backed scratch DB) from
+durable history ATTACHed read-only + a file-backed scratch DB) from
 :mod:`.memoryspace`.
 
 Python variables do not persist across calls; derived tables do, because the
@@ -32,19 +30,32 @@ from ....runtime.tool_registry import ToolDescriptor
 # sandboxed process imports it by bare module name.
 _PKG_DIR = str(Path(__file__).parent)
 
-_DOC = """Recall THIS conversation's evicted history by running Python.
+_DOC = """Recall your recorded conversation history (raw turns) via Python.
 
-For raw past turns of the current conversation that scrolled out of context —
-NOT long-term memory across conversations (that is ReMe `memory_search`).
+Read back the verbatim turns of your conversations from a durable log: this
+session's turns that scrolled out of context (seq spans come from the
+[context compressed] map) plus your earlier sessions. Usual flow: LOCATE a
+seq — via the map or ms.search — then ms.expand(lo, hi) for the full turns
+(one turn is ms.expand(seq, seq)). Commit an answer only from the FULL turn
+text that ms.search / ms.expand return, never from a headline or the outline
+preview alone — the answer is often buried late in a long, multi-topic turn.
 
-`ms` is ALREADY DEFINED in this cell — use it directly (e.g. ms.search(...)).
-Do NOT `import ms`: it is a ready-made object, not a module, and importing it
-raises ModuleNotFoundError.
+`ms` is ALREADY DEFINED in this cell — use it directly. Do NOT `import ms`: it
+is a ready-made object, not a module, and importing it raises
+ModuleNotFoundError. Only what you print() is returned; variables do NOT
+persist across calls, but scratch tables do.
+
+    # locate, then read full content
+    hits = ms.search("flight number", k=5)
+    for r in hits:
+        print(r["seq"], r["headline"])
+    print(ms.expand(180, 184))   # full turns once you have the seq span
 
 Every helper returns a LIST OF DICTS (rows). Index with the EXACT keys named
 below — there is no `content_preview` (the text key is always `content`), and
 only `search` carries `session_id`. Don't assume a key; print(rows[0].keys())
-if unsure.
+if unsure. On overflow the row helpers append a trailing {"_truncated": True}
+row (search is capped by k instead) — narrow your span if you see it.
 
 The persistent record reaches you through `ms`. Prefer these intent helpers
 (values are bound for you — no SQL to write):
@@ -59,9 +70,11 @@ The persistent record reaches you through `ms`. Prefer these intent helpers
   • ms.search(query, all_agents=False, kind=None, k=10) — FTS5. By default
     searches your whole history across past sessions; all_agents=True spans
     every agent here. Pin a specific one with session_id="cron:<job>" /
-    agent_id="<other>" (these take precedence). Keys: seq, session_id,
-    kind, role, name, headline, content (600-char preview). Query with
-    keywords, not full sentences (all terms must appear).
+    agent_id="<other>" (these take precedence). kind filters by row kind
+    ("model_turn" / "tool_result"). Keys: seq, session_id, kind, role, name,
+    headline, content (full turn). Query with keywords, not full sentences
+    (all terms must appear); use OR-sets for alternatives and a generous k to
+    cast a wide net: ms.search("tank OR aquarium OR goldfish", k=20).
   • ms.sessions() — your past conversations (incl. scheduled cron/heartbeat
     runs); ms.session(session_id, all_agents=False) reads one in full, scoped
     to you by default. ms.agents() lists agents.
@@ -71,8 +84,6 @@ Advanced escape hatch: ms.sql_query(sql, params) reads arbitrary SQL over the
 read-only `hist.conversation_history` (for custom counting/ranking) and
 ms.sql_exec(sql, params) writes a `main` scratch DB. Bind via params, never
 f-string values in.
-Only what you print() is returned; variables do NOT persist across calls,
-but scratch tables do.
 
 Args:
     source (str): Python source to execute.

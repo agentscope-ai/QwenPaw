@@ -15,6 +15,7 @@ import pytest
 from qwenpaw.agents.context.scroll.history import HistoryStore
 from qwenpaw.agents.context.scroll.memoryspace import (
     MemorySpace,
+    fts_match_query,
     sanitize_suffix,
 )
 from qwenpaw.agents.context.types import LogEntry
@@ -185,6 +186,53 @@ def test_search_rows_carry_session_id(ms: MemorySpace):
     rows = {r["content"]: r for r in ms.search("tanks", all_agents=True)}
     assert rows["tanks rolled in"]["session_id"] == "s1"
     assert rows["tanks regrouped later"]["session_id"] == "s2"
+
+
+def test_fts_match_query_passes_boolean_operators():
+    # Bare UPPERCASE AND/OR/NOT are FTS5 operators (so the model can cast a
+    # wide net); every other token is a quoted literal; a plain query is AND.
+    assert fts_match_query("tank OR aquarium") == '"tank" OR "aquarium"'
+    assert fts_match_query("plain words") == '"plain" "words"'
+    # lowercase 'or' is a search term, not an operator
+    assert fts_match_query("salt or pepper") == '"salt" "or" "pepper"'
+    # punctuation operators are still neutralised
+    assert fts_match_query("F-15") == '"F" "15"'
+
+
+def test_search_or_widens_beyond_a_single_term(tmp_path: Path):
+    h = HistoryStore(tmp_path / "history.db")
+    h.append(
+        session_id="s1",
+        agent_id="ag1",
+        dedup_key="a",
+        entry=LogEntry(
+            kind="model_turn",
+            role="user",
+            content="cleaned the goldfish tank",
+        ),
+    )
+    h.append(
+        session_id="s1",
+        agent_id="ag1",
+        dedup_key="b",
+        entry=LogEntry(
+            kind="model_turn",
+            role="user",
+            content="bought an aquarium filter",
+        ),
+    )
+    h.close()
+    space = MemorySpace(
+        history_db_path=str(tmp_path / "history.db"),
+        session_id="s1",
+        agent_id="ag1",
+    )
+    try:
+        # OR matches EITHER term (2 rows); the AND form would match neither.
+        assert len(space.search("tank OR aquarium")) == 2
+        assert len(space.search("tank aquarium")) == 0
+    finally:
+        space.close()
 
 
 def test_search_all_agents_spans_the_workspace(ms: MemorySpace):

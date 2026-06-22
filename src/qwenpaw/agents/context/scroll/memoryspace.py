@@ -32,6 +32,10 @@ _RECALL_EXCL_PLACEHOLDERS = ", ".join("?" for _ in _RECALL_TOOL_NAMES)
 _DATE_RE = re.compile(r"(\d{4})[-/](\d{1,2})[-/](\d{1,2})")
 
 _FTS_TOKEN_RE = re.compile(r"\w+", re.UNICODE)
+# FTS5's boolean operators are UPPERCASE-only; we pass these through bare so a
+# query like ``tank OR aquarium`` casts a wide net, while every other token is
+# quoted as a literal phrase. A lowercase ``or`` stays a search term.
+_FTS_OPERATORS = frozenset({"AND", "OR", "NOT"})
 
 
 def fts_match_query(raw: str) -> str:
@@ -39,12 +43,18 @@ def fts_match_query(raw: str) -> str:
 
     FTS5 ``MATCH`` takes a query grammar, not plain text, so raw queries like
     ``C++`` or ``foo-bar`` raise a syntax error. Extract word tokens and quote
-    each as a phrase (doubling embedded quotes), AND-combined — keeping the
-    implicit-AND of a plain multi-word query while neutralising every operator.
+    each as a phrase (doubling embedded quotes); bare uppercase ``AND``/``OR``/
+    ``NOT`` pass through as boolean operators (so ``tank OR aquarium`` works),
+    everything else is AND-combined implicitly — keeping a plain multi-word
+    query's implicit-AND while neutralising punctuation operators. A malformed
+    operator sequence just raises in ``MATCH`` and the caller degrades to LIKE.
     Returns ``""`` when there are no word tokens (caller falls back to LIKE).
     """
     toks = _FTS_TOKEN_RE.findall(raw)
-    return " ".join('"' + t.replace('"', '""') + '"' for t in toks)
+    return " ".join(
+        t if t in _FTS_OPERATORS else '"' + t.replace('"', '""') + '"'
+        for t in toks
+    )
 
 
 def sanitize_suffix(session_id: str | None) -> str:
@@ -365,8 +375,9 @@ class MemorySpace:
 
         Returns up to ``k`` rows ranked by relevance (bm25), each a dict with
         keys: ``seq``, ``session_id``, ``kind``, ``role``, ``name``,
-        ``headline``, ``content`` (a 600-char preview — pull the full turn
-        with ``expand(seq, seq)``). By default searches this agent across
+        ``headline``, ``content`` (the FULL turn text — the answer is often
+        buried late in a long, multi-topic turn, so don't judge from the head
+        of it). By default searches this agent across
         all its sessions. Pass ``all_agents=True`` to span every agent, or pin
         a *specific* conversation / agent with ``session_id='cron:<job>'``
         and/or ``agent_id='<other>'`` (these AND-combine and take precedence).
@@ -399,7 +410,7 @@ class MemorySpace:
             params.append(kind)
         sql = (
             "SELECT ch.seq, ch.session_id, ch.kind, ch.role, "
-            "ch.name, ch.headline, substr(ch.content, 1, 600) AS content "
+            "ch.name, ch.headline, ch.content "
             f"FROM hist.{fts} JOIN hist.conversation_history ch "
             f"ON ch.seq = {fts}.rowid "
             "WHERE " + " AND ".join(where) + f" ORDER BY bm25({fts}) LIMIT ?"
@@ -448,8 +459,7 @@ class MemorySpace:
             where.append("kind = ?")
             params.append(kind)
         sql = (
-            "SELECT seq, session_id, kind, role, name, headline, "
-            "substr(content, 1, 600) AS content "
+            "SELECT seq, session_id, kind, role, name, headline, content "
             "FROM hist.conversation_history "
             "WHERE " + " AND ".join(where) + " ORDER BY seq DESC LIMIT ?"
         )

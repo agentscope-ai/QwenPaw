@@ -14,13 +14,8 @@ index (see :func:`..serialize.extract_headline`).
 
 SCROLL_SYSTEM_PROMPT = """\
 Your conversations are durably recorded, even after older turns scroll out of
-your live context — and your memory spans ALL your past sessions, not just this
-one. You read it back on demand; you do not lose it.
-
-This store may also hold turns written by OTHER agents in this workspace. By
-default your recall sees only your own history (across your sessions); widen to
-everyone with ``all_agents=True``, or aim at one conversation/agent with
-``session_id=...`` / ``agent_id=...`` (see ``ms.search`` below).
+your live context — and your recorded history spans ALL your past sessions, not
+just this one. You read it back on demand; you do not lose it.
 
 HEADLINE your turns. End a turn with a one-line headline whenever it
 establishes a fact or value, makes or revises a decision, reaches a result or
@@ -29,38 +24,35 @@ as an HTML comment on its own line:
 
     <!-- ⟦ user's flight is AA231 on 2026-07-02 ⟧ -->
 
-The headline becomes this turn's entry in the memory index — the line your
+The headline becomes this turn's entry in the history index — the line your
 future self searches to find this turn again. Keep it under ~15 words and
 specific (name the value/decision, not "did some work"). One line only; no
 ``⟧`` inside.
 
 THE MAP. Once context is compressed you'll see a ``[context compressed]``
-block: an index of evicted turns grouped into ``Tier`` sections — ``Tier 0``
-(recently compressed) at the bottom, higher tiers (older) above — each
-listing its turns as ``seq · ⟦ headline ⟧`` lines (older spans carried up as
-endpoint pairs). It tells you *what* you forgot and *where* it lives — so you
-can decide whether to recall. The map only lists *this* session's evictions;
-reach earlier sessions through ``ms.search`` (below), which spans your whole
-memory by default.
+block: an index of the turns you evicted, each a ``seq · ⟦ headline ⟧`` line
+(oldest at top). It tells you *what* you forgot and the ``seq`` to recall it
+with. But it is a lossy headline index of *this* session — un-headlined turns
+and collapsed older spans aren't listed. For anything it doesn't show
+(including your earlier sessions), search your history with ``ms.search``.
 
-RECALL with the ``recall_history_python`` tool: the durable history reaches you
-through the ``ms`` helpers (``ms.expand``/``outline`` a seq span the map gave
-you, ``ms.search`` across past sessions, ``ms.sessions``/``session`` to read a
-past conversation, …). This recalls your own raw conversation turns — distinct
-from ReMe ``memory_search`` (distilled long-term memory). The full recall API
-lives in that tool's own description — read it there rather than guessing
-signatures.
+RECALL with the ``recall_history_python`` tool: it reads back your own raw
+conversation turns on demand. Recall defaults to your own history (across all
+your sessions); you can widen to other agents' turns when you mean to. Its
+description holds the full ``ms`` API (helpers, their result keys, query
+mechanics) — read it there rather than guessing signatures.
 
 DISCIPLINE (this is where recall goes wrong):
   • If the request depends on something not in your live context, recall BEFORE
-    answering — don't guess from the headline alone.
+    answering — don't guess from a headline alone.
   • Don't commit to the first hit. For "latest value", "how many", or "which
     came first" questions, gather ALL relevant mentions, then reconcile.
-
-KNOW WHEN TO STOP (abstention). Recall is bounded: try a few genuinely
-different angles, and if they come back empty, STOP and say you don't have it
-rather than looping or stitching weak matches into an answer. "I couldn't find
-it" is a correct answer.
+  • CONNECT facts: linking two stated facts to reach a third is valid reading
+    of context, not fabrication.
+  • COMMIT only to the EXACT thing asked — a near-relative does not count.
+  • SEARCH BEFORE YOU REFUSE. Before concluding "not recorded", run real
+    retrieval and try one more differently-phrased search. Abstain only when
+    the history truly holds nothing — never stitch weak matches into an answer.
 """
 
 __all__ = ["SCROLL_SYSTEM_PROMPT"]

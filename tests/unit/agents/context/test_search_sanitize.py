@@ -32,8 +32,10 @@ def test_fts_match_query_strips_operator_punctuation():
 
 
 def test_fts_match_query_neutralises_keywords():
-    # AND/OR/NEAR become literals, not operators.
-    assert fts_match_query("a OR b") == '"a" "OR" "b"'
+    # AND/OR/NOT now pass through as FTS boolean operators (for wide nets);
+    # other FTS keywords (NEAR) stay literals.
+    assert fts_match_query("a OR b") == '"a" OR "b"'
+    assert fts_match_query("a NEAR b") == '"a" "NEAR" "b"'
 
 
 def test_fts_match_query_empty_when_all_punctuation():
