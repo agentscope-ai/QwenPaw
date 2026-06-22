@@ -168,9 +168,13 @@ def make_execute_python(
                 pass
 
         text = _format_observation(stdout, stderr, code)
+        # The subprocess has finished, so this is a terminal chunk — RUNNING
+        # would leave it looking perpetually in-flight to tool coordination,
+        # persisted tool_state, and the model. Reflect the actual exit.
+        state = ToolResultState.SUCCESS if code == 0 else ToolResultState.ERROR
         return ToolChunk(
             content=[TextBlock(type="text", text=truncate_text_output(text))],
-            state=ToolResultState.RUNNING,
+            state=state,
         )
 
     execute_python.__doc__ = _DOC
