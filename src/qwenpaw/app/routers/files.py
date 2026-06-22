@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 
+import mimetypes
 import os
 from pathlib import Path
 from urllib.parse import unquote
@@ -88,12 +89,30 @@ async def preview_file(
 
     if not os.access(path, os.R_OK):
         raise HTTPException(status_code=500, detail="Permission denied")
+
+    content_type, _ = mimetypes.guess_type(path)
+    # ponytail: Keep inline only for known-safe media types (image/video/audio/pdf)
+    # and exclude dangerous ones like text/html, image/svg+xml, or XML.
+    is_safe = False
+    if content_type:
+        ct_lower = content_type.lower()
+        if (
+            ct_lower.startswith("image/")
+            or ct_lower.startswith("video/")
+            or ct_lower.startswith("audio/")
+            or ct_lower == "application/pdf"
+        ):
+            if (
+                "svg" not in ct_lower
+                and "xml" not in ct_lower
+                and "html" not in ct_lower
+            ):
+                is_safe = True
+
+    content_disposition_type = "inline" if is_safe else "attachment"
     return FileResponse(
         path,
+        headers={"X-Content-Type-Options": "nosniff"},
+        content_disposition_type=content_disposition_type,
         filename=path.name,
-        # ponytail: FileResponse uses "attachment" by default;
-        # browsers download instead of inline display.
-        # ceiling: if per-file download-vs-preview logic is needed, extract
-        # into a helper parameter.
-        content_disposition_type="inline",
     )
