@@ -261,12 +261,12 @@ Redis 不承载永久事件事实。它只用于：
 本次上线应以推荐规格作为预算和部署基线：
 
 ```text
-API: 2 * 4C8G, with load balancer, scalable to 3 instances
-DB primary: 8C32G + 2TB NVMe/SSD
-DB standby: 8C32G + 2TB NVMe/SSD
-Redis: 2C4G
-Queue: managed queue or lightweight HA queue cluster
-Object storage: 180d 1.5-3TB, 1y 3-6TB
+API 服务：2 台 4C8G，前置负载均衡，后续可扩展到 3 台
+数据库主库：8C32G + 2TB NVMe/SSD
+数据库备库：8C32G + 2TB NVMe/SSD
+Redis：2C4G
+消息队列：托管队列或轻量高可用队列集群
+对象存储：180 天留存按 1.5-3TB 规划，1 年留存按 3-6TB 规划
 ```
 
 该规格对应的业务承诺是：2 万日活被监控资产、100 万审计事件/日、100 EPS 稳态高峰验收、30 天热数据、5 个运营人员同时在线、API 双实例和 DB 主备。
