@@ -313,6 +313,23 @@ class BatchDeleteModelsRequest(BaseModel):
     )
 
 
+class SingleDeleteResult(BaseModel):
+    model_id: str = Field(..., description="Model ID that was deleted")
+    success: bool = Field(..., description="Whether the deletion succeeded")
+    message: str = Field(..., description="Result message")
+
+
+class BatchDeleteModelsResponse(BaseModel):
+    results: List[SingleDeleteResult] = Field(
+        ...,
+        description="Per-model deletion results",
+    )
+    provider_info: ProviderInfo = Field(
+        ...,
+        description="Updated provider info after deletion",
+    )
+
+
 class DiscoverModelsRequest(BaseModel):
     api_key: Optional[str] = Field(
         default=None,
@@ -518,20 +535,28 @@ async def batch_test_models(
 
 @router.post(
     "/{provider_id}/models/batch-delete",
-    response_model=ProviderInfo,
+    response_model=BatchDeleteModelsResponse,
     summary="Batch delete multiple models",
 )
 async def batch_delete_models(
     manager: ProviderManager = Depends(get_provider_manager),
     provider_id: str = Path(...),
     body: BatchDeleteModelsRequest = Body(...),
-) -> ProviderInfo:
+) -> BatchDeleteModelsResponse:
     """Delete multiple models from a provider in sequence."""
+    results = []
     for model_id in body.model_ids:
         try:
             await manager.delete_model_from_provider(
                 provider_id=provider_id,
                 model_id=model_id,
+            )
+            results.append(
+                SingleDeleteResult(
+                    model_id=model_id,
+                    success=True,
+                    message="Model deleted successfully",
+                ),
             )
         except (ValueError, AppBaseException) as exc:
             logger.warning(
@@ -541,17 +566,23 @@ async def batch_delete_models(
                 provider_id,
                 exc,
             )
-            raise HTTPException(
-                status_code=400,
-                detail=f"Failed to delete model '{model_id}': {exc!s}",
-            ) from exc
+            results.append(
+                SingleDeleteResult(
+                    model_id=model_id,
+                    success=False,
+                    message=str(exc),
+                ),
+            )
     provider_info = await manager.get_provider_info(provider_id)
     if provider_info is None:
         raise HTTPException(
             status_code=404,
             detail=f"Provider '{provider_id}' not found",
         )
-    return provider_info
+    return BatchDeleteModelsResponse(
+        results=results,
+        provider_info=provider_info,
+    )
 
 
 @router.delete(

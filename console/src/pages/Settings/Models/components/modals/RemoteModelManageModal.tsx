@@ -640,15 +640,22 @@ export function RemoteModelManageModal({
       onOk: async () => {
         setBatchDeleting(true);
         try {
-          await api.batchDeleteModels(provider.id, {
+          const result = await api.batchDeleteModels(provider.id, {
             model_ids: Array.from(selectedModelIds),
           });
-          message.success(
-            t("models.batchModelsRemoved", {
-              count: selectedModelIds.size,
-              defaultValue: `${selectedModelIds.size} models deleted`,
-            }),
-          );
+          const succeeded = result.results.filter((r) => r.success).length;
+          const failed = result.results.filter((r) => !r.success);
+          if (succeeded > 0) {
+            message.success(
+              t("models.batchModelsRemoved", {
+                count: succeeded,
+                defaultValue: `${succeeded} models deleted`,
+              }),
+            );
+          }
+          for (const f of failed) {
+            message.error(`${f.model_id}: ${f.message}`);
+          }
           setSelectedModelIds(new Set());
           await onSaved();
         } catch (error) {
@@ -922,6 +929,7 @@ export function RemoteModelManageModal({
                   <div className={styles.modelListItem}>
                     <Checkbox
                       checked={selectedModelIds.has(m.id)}
+                      disabled={!isDeletable}
                       onChange={(e: CheckboxChangeEvent) =>
                         handleSelectModel(m.id, e.target.checked)
                       }

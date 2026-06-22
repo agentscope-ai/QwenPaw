@@ -17,6 +17,7 @@ import type {
   BatchTestModelsRequest,
   BatchTestModelsResponse,
   BatchDeleteModelsRequest,
+  BatchDeleteModelsResponse,
   DiscoverModelsResponse,
   ProbeMultimodalResponse,
   SeriesResponse,
@@ -164,7 +165,7 @@ export const providerApi = {
     ),
 
   batchDeleteModels: (providerId: string, body: BatchDeleteModelsRequest) =>
-    request<ProviderInfo>(
+    request<BatchDeleteModelsResponse>(
       `/models/${encodeURIComponent(providerId)}/models/batch-delete`,
       {
         method: "POST",

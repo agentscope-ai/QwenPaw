@@ -220,6 +220,17 @@ export interface BatchDeleteModelsRequest {
   model_ids: string[];
 }
 
+export interface SingleDeleteResult {
+  model_id: string;
+  success: boolean;
+  message: string;
+}
+
+export interface BatchDeleteModelsResponse {
+  results: SingleDeleteResult[];
+  provider_info: ProviderInfo;
+}
+
 export interface DiscoverModelsResponse {
   success: boolean;
   message: string;
