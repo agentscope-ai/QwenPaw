@@ -69,7 +69,7 @@ def test_console_chat_when_idle(client, workspace_mock, setup_console_chat):
     """If agent is not busy, console/chat starts a new stream (status 200)."""
     # Mock task tracker behavior
     tracker = workspace_mock.task_tracker
-    tracker.has_active_tasks = AsyncMock(return_value=False)
+    tracker.get_status = AsyncMock(return_value="idle")
 
     # Mock attach_or_start
     queue = asyncio.Queue()
@@ -84,7 +84,7 @@ def test_console_chat_when_idle(client, workspace_mock, setup_console_chat):
 
     assert response.status_code == 200
     assert "text/event-stream" in response.headers.get("content-type", "")
-    tracker.has_active_tasks.assert_awaited_once()
+    tracker.get_status.assert_awaited_once_with("chat-123")
     tracker.attach_or_start.assert_awaited_once()
 
 
@@ -95,7 +95,7 @@ def test_console_chat_when_busy_returns_503(
 ):
     """If agent is busy, console/chat immediately returns HTTP 503."""
     tracker = workspace_mock.task_tracker
-    tracker.has_active_tasks = AsyncMock(return_value=True)
+    tracker.get_status = AsyncMock(return_value="running")
 
     response = client.post("/api/console/chat", json=_CHAT_PAYLOAD)
 
@@ -103,5 +103,5 @@ def test_console_chat_when_busy_returns_503(
     assert (
         response.json()["detail"] == "Agent is busy processing another request"
     )
-    tracker.has_active_tasks.assert_awaited_once()
+    tracker.get_status.assert_awaited_once_with("chat-123")
     tracker.attach_or_start.assert_not_called()

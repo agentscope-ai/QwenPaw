@@ -195,7 +195,7 @@ async def post_console_chat(
             return
     else:
         # ponytail: return 503 if busy to prevent silent drops
-        if await tracker.has_active_tasks():
+        if await tracker.get_status(chat.id) == "running":
             raise HTTPException(
                 status_code=503,
                 detail="Agent is busy processing another request",
