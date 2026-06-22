@@ -302,3 +302,23 @@ class PlanPage(BasePage):
             "(sid) => { window.currentSessionId = sid; }",
             session_id,
         )
+
+    def wait_and_read_session_id(self, timeout: int = 15000) -> str:
+        """Wait until the frontend sets ``window.currentSessionId`` and
+        return its value.
+
+        After ``page.goto("/chat")``, the chat library auto-creates a
+        session and writes the backend session id into this global
+        asynchronously. We poll until it's set.
+        """
+        import time as _time
+        deadline = _time.time() + timeout / 1000
+        while _time.time() < deadline:
+            sid = self.page.evaluate("() => window.currentSessionId || ''")
+            if sid:
+                logger.info("Read window.currentSessionId = %s", sid)
+                return sid
+            _time.sleep(0.3)
+        raise TimeoutError(
+            f"window.currentSessionId not set within {timeout}ms"
+        )

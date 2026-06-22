@@ -202,33 +202,52 @@ class TestPlanDrawerWithSeededPlan:
     ) -> None:
         test_name = request.node.name
         original_enabled = plan_page.api_get_plan_enabled(api_context)
-        session_id = f"e2e-plan-{int(time.time() * 1000)}"
         plan_name = "E2E Seeded Plan"
+        session_id = None
 
         try:
-            log_test_step("1. Seed session state with a 3-subtask plan")
+            log_test_step("1. Enable Plan Mode")
+            plan_page.api_set_plan_enabled(api_context, True)
+
+            log_test_step("2. Open /chat and let frontend create a session")
+            plan_page.open_chat()
+
+            log_test_step("3. Read the real session_id assigned by frontend")
+            session_id = plan_page.wait_and_read_session_id()
+
+            log_test_step("4. Write plan seed to this session's state file")
             plan_page.seed_plan_session_state(
                 session_id=session_id,
                 plan_name=plan_name,
             )
 
-            log_test_step("2. Enable Plan Mode")
-            plan_page.api_set_plan_enabled(api_context, True)
-
-            log_test_step("3. Open /chat with the seeded session_id")
-            plan_page.open_chat(session_id=session_id)
-
             log_test_step(
-                "4. Pin window.currentSessionId so PlanPanel reads our seed"
+                "5. Reload to make PlanPanel re-fetch from disk"
             )
-            plan_page.set_window_session_id(session_id)
+            plan_page.page.reload(wait_until="load", timeout=30000)
+            plan_page.page.wait_for_timeout(3000)
+            # After reload the frontend may re-select the same session
+            # or a different one. Ensure the seed covers the current id.
+            new_sid = plan_page.wait_and_read_session_id()
+            if new_sid != session_id:
+                logger.info(
+                    "Session id changed after reload: %s -> %s, "
+                    "copying seed",
+                    session_id,
+                    new_sid,
+                )
+                plan_page.seed_plan_session_state(
+                    session_id=new_sid,
+                    plan_name=plan_name,
+                )
+                session_id = new_sid
 
-            log_test_step("5. Click the Plan button")
+            log_test_step("6. Click the Plan button")
             btn = plan_page.page.locator(plan_page.CHAT_PLAN_BUTTON).first
             expect(btn).to_be_visible(timeout=plan_page.timeout)
             btn.click()
 
-            log_test_step("6. Drawer shows the plan name")
+            log_test_step("7. Drawer shows the plan name")
             expect(
                 plan_page.page.locator(plan_page.PLAN_DRAWER).first
             ).to_be_visible(timeout=plan_page.timeout)
@@ -238,7 +257,7 @@ class TestPlanDrawerWithSeededPlan:
                 ).first
             ).to_be_visible(timeout=plan_page.timeout)
 
-            log_test_step("7. All three seeded subtasks are visible")
+            log_test_step("8. All three seeded subtasks are visible")
             for needle in (
                 "Subtask alpha",
                 "Subtask bravo",
@@ -253,5 +272,6 @@ class TestPlanDrawerWithSeededPlan:
             log_test_result(test_name, True, 0)
             logger.info(f"Test {test_name} passed (session={session_id})")
         finally:
-            plan_page.remove_plan_session_state(session_id)
+            if session_id:
+                plan_page.remove_plan_session_state(session_id)
             plan_page.api_set_plan_enabled(api_context, original_enabled)
