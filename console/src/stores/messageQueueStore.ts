@@ -42,6 +42,8 @@ export interface QueueItem {
   images?: QueueImage[];
   mentions?: QueueMention[];
   quote?: QueueQuote;
+  userId?: string;
+  channel?: string;
   status: QueueItemStatus;
   retryCount: number;
   errorMessage?: string;
@@ -55,6 +57,8 @@ export interface QueueItemInput {
   images?: QueueImage[];
   mentions?: QueueMention[];
   quote?: QueueQuote;
+  userId?: string;
+  channel?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -347,6 +351,8 @@ export const useMessageQueueStore = create<MessageQueueStore>((set, get) => ({
       images: input.images,
       mentions: input.mentions,
       quote: input.quote,
+      userId: input.userId,
+      channel: input.channel,
       status: "pending",
       retryCount: 0,
       createdAt: Date.now(),

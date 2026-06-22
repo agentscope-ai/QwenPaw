@@ -288,8 +288,8 @@ async function startBackgroundQueue(
               },
             ],
             session_id: backendSessionId,
-            user_id: DEFAULT_USER_ID,
-            channel: DEFAULT_CHANNEL,
+            user_id: item.userId || DEFAULT_USER_ID,
+            channel: item.channel || DEFAULT_CHANNEL,
             stream: true,
           }),
           signal: ctrl.signal,
@@ -1649,6 +1649,8 @@ export default function ChatPage() {
                 size: f.size,
               }))
             : undefined,
+        userId: window.currentUserId || DEFAULT_USER_ID,
+        channel: window.currentChannel || DEFAULT_CHANNEL,
       });
       // Clear tracked attachments after enqueuing
       pendingFileListRef.current = [];
@@ -2216,6 +2218,8 @@ export default function ChatPage() {
                   size: f.size,
                 }))
               : undefined,
+          userId: window.currentUserId || DEFAULT_USER_ID,
+          channel: window.currentChannel || DEFAULT_CHANNEL,
         });
         pendingFileListRef.current = [];
         if (textarea) setTextareaValue(textarea, "");
@@ -2548,7 +2552,8 @@ export default function ChatPage() {
           }
 
           if (payload.type === "turn_usage") {
-            return null;
+            // Return a heartbeat so the SDK's handle() safely skips this chunk
+            return { object: "message", type: "heartbeat" };
           }
 
           if (payload.type === "rate_limited") {
@@ -2556,7 +2561,7 @@ export default function ChatPage() {
               (payload.alternatives as typeof rateLimitAlternatives) || [];
             setRateLimitAlternatives(alts);
             message.warning(t("chat.rateLimitHit"));
-            return null;
+            return { object: "message", type: "heartbeat" };
           }
 
           if (payloadRequestsHistoryClear(payload)) {
