@@ -169,7 +169,8 @@ function ensureDagEventsSubscription(sessionId: string): void {
 
   stopDagEventsSubscription();
   dagSessionId = sid;
-  dagAbort = new AbortController();
+  const abort = new AbortController();
+  dagAbort = abort;
 
   void subscribeDagEvents(
     sid,
@@ -183,10 +184,17 @@ function ensureDagEventsSubscription(sessionId: string): void {
       logTaskGraphDebug("dag-current-plan-null", { sessionId: sid });
       void fetchAndApplyTaskPlan(sid);
     },
-    dagAbort.signal,
-  ).catch(() => {
-    /* DAG SSE is optional; plan updates follow create_plan + GET /api/tasks */
-  });
+    abort.signal,
+  )
+    .catch(() => {
+      /* DAG SSE is optional; plan updates follow create_plan + GET /api/tasks */
+    })
+    .finally(() => {
+      if (dagAbort === abort) {
+        dagAbort = null;
+        dagSessionId = null;
+      }
+    });
 }
 
 function clearCurrentPlan(
