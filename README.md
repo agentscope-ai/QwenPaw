@@ -248,6 +248,37 @@ Also available on Alibaba Cloud Container Registry (ACR) for users in China: `ag
 
 Then open **http://127.0.0.1:8088/** for the Console. Config, memory, and skills are stored in the `qwenpaw-data` volume; model provider settings and API keys are in the `qwenpaw-secrets` volume; backup archives are stored in the `qwenpaw-backups` volume. To pass API keys (e.g. `DASHSCOPE_API_KEY`), add `-e VAR=value` or `--env-file .env` to `docker run`.
 
+Langfuse tracing is optional. If you do not use Langfuse, no extra package or
+configuration is required. To enable it, install the Langfuse SDK and provide
+your Langfuse credentials. `LANGFUSE_BASE_URL` can point to Langfuse Cloud or a
+self-hosted Langfuse instance.
+
+For source or local deployments:
+
+```bash
+pip install "langfuse>=4,<5"
+```
+
+For Docker deployments, build a small custom image:
+
+```dockerfile
+FROM agentscope/qwenpaw:latest
+RUN pip install --no-cache-dir "langfuse>=4,<5"
+```
+
+Then run QwenPaw with Langfuse environment variables:
+
+```bash
+docker run -p 127.0.0.1:8088:8088 \
+  -e LANGFUSE_SECRET_KEY=sk-lf-... \
+  -e LANGFUSE_PUBLIC_KEY=pk-lf-... \
+  -e LANGFUSE_BASE_URL=https://your-langfuse.example.com \
+  -v qwenpaw-data:/app/working \
+  -v qwenpaw-secrets:/app/working.secret \
+  -v qwenpaw-backups:/app/working.backups \
+  qwenpaw-langfuse:latest
+```
+
 > **Connecting to Ollama or other services on the host machine**
 >
 > Inside a Docker container, `localhost` refers to the container itself, not your host machine. If you run Ollama (or other model services) on the host and want QwenPaw in Docker to reach them, use one of these approaches:
