@@ -20,7 +20,6 @@ from typing import Any, TYPE_CHECKING
 from agentscope.message import Msg, ToolResultBlock
 
 from .spawn_subagent import make_spawn_subagent_fn
-from .tools import download_file
 from ..sse_metadata import SUBAGENT_ROUTING_BLOCK_TYPE
 
 if TYPE_CHECKING:
@@ -62,7 +61,6 @@ def build_spawn_subagent_fn(agent: "DataPawAgent") -> Any:
                 fn = registered.original_func
                 if fn is not None:
                     tools.append(fn)
-        tools.append(download_file)
         return tools
 
     def _get_mcp_clients() -> list:
