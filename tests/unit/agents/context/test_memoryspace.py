@@ -299,10 +299,12 @@ def test_sessions_all_agents_spans_the_workspace(ms: MemorySpace):
     assert ids == {"s1", "s2", "s3"}
 
 
-def test_session_reads_one_conversation_in_full(ms: MemorySpace):
-    # Reachable by id even when it belongs to a different agent — the id is
-    # the selector (mirrors how a cron:<job> session is inspected).
-    rows = ms.session("s3")
+def test_session_is_agent_scoped_by_default(ms: MemorySpace):
+    # ag2's s3 is hidden by the default agent scope: session ids are not
+    # globally unique (main/local/cron:<job> recur across agents), so the
+    # default must not leak another agent's conversation. all_agents widens.
+    assert ms.session("s3") == []
+    rows = ms.session("s3", all_agents=True)
     assert [r["content"] for r in rows] == ["tanks of another agent"]
 
 

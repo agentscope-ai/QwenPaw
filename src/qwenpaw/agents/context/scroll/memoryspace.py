@@ -263,19 +263,34 @@ class MemorySpace:
             tuple(params),
         )
 
-    def session(self, session_id: str, *, limit: int = 200) -> list[dict]:
+    def session(
+        self,
+        session_id: str,
+        *,
+        all_agents: bool = False,
+        limit: int = 200,
+    ) -> list[dict]:
         """Read one conversation's turns oldest-first, by ``session_id``.
 
         The companion to :meth:`sessions` — e.g.
         ``ms.session("cron:nightly-report")`` reconstructs exactly what that
-        scheduled job said and did. Not scope-filtered: the ``session_id`` is
-        the selector.
+        scheduled job said and did. Scoped to this agent's history by default:
+        session ids are not globally unique (``main``, ``local``,
+        ``cron:<job>`` recur across agents in a shared workspace), so widening
+        risks reading another agent's conversation. Pass ``all_agents=True``
+        only when you mean to span every agent.
         """
+        where = ["session_id = ?"]
+        params: list = [str(session_id)]
+        if not all_agents and self._agent_id:
+            where.append("agent_id = ?")
+            params.append(self._agent_id)
+        params.append(int(limit))
         return self._select(
             "SELECT seq, kind, role, name, headline, content "
             "FROM hist.conversation_history "
-            "WHERE session_id = ? ORDER BY seq LIMIT ?",
-            (str(session_id), int(limit)),
+            "WHERE " + " AND ".join(where) + " ORDER BY seq LIMIT ?",
+            tuple(params),
         )
 
     def agents(self, *, limit: int = 50) -> list[dict]:

@@ -56,7 +56,8 @@ The persistent record reaches you through `ms`. Prefer these intent helpers
     agent_id="<other>" (these take precedence). Keys: seq, session_id,
     kind, role, name, headline, content (600-char preview).
   • ms.sessions() — your past conversations (incl. scheduled cron/heartbeat
-    runs); ms.session(session_id) reads one in full. ms.agents() lists agents.
+    runs); ms.session(session_id, all_agents=False) reads one in full, scoped
+    to you by default. ms.agents() lists agents.
   • ms.days_between(d1, d2, inclusive=False) — |days| between two dates
     (parses a date out of either string); use it instead of hand math.
 Advanced escape hatch: ms.sql_query(sql, params) reads arbitrary SQL over the
