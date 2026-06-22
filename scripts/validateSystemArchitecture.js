@@ -1,92 +1,18 @@
 const fs = require('fs');
 const path = require('path');
 
-const repoRoot = path.resolve(__dirname, '..', '..', '..');
-const graphPath = path.join(repoRoot, 'design', 'KG', 'SystemArchitecture.json');
+const repoRoot = path.resolve(__dirname, '..');
+const graphRelativePath = path.join('design', 'KG', 'SystemArchitecture.json');
+const graphPath = path.join(repoRoot, graphRelativePath);
 const schemaPathCandidates = [
-    path.join(repoRoot, '.cursor', 'argoschema', 'SystemArchitecture.schema.json'),
     path.join(repoRoot, 'schema', 'SystemArchitecture.schema.json'),
 ];
 
-const elementTypeMetadata = new Map([
-    ['Resource', { layer: 'Strategy', aspect: 'Strategy' }],
-    ['Capability', { layer: 'Strategy', aspect: 'Strategy' }],
-    ['Value Stream', { layer: 'Strategy', aspect: 'Strategy' }],
-    ['Course of Action', { layer: 'Strategy', aspect: 'Strategy' }],
-    ['Business Actor', { layer: 'Business', aspect: 'Active Structure' }],
-    ['Business Role', { layer: 'Business', aspect: 'Active Structure' }],
-    ['Business Collaboration', { layer: 'Business', aspect: 'Active Structure' }],
-    ['Business Interface', { layer: 'Business', aspect: 'Active Structure' }],
-    ['Business Process', { layer: 'Business', aspect: 'Behavior' }],
-    ['Business Function', { layer: 'Business', aspect: 'Behavior' }],
-    ['Business Interaction', { layer: 'Business', aspect: 'Behavior' }],
-    ['Business Event', { layer: 'Business', aspect: 'Behavior' }],
-    ['Business Service', { layer: 'Business', aspect: 'Behavior' }],
-    ['Business Object', { layer: 'Business', aspect: 'Passive Structure' }],
-    ['Contract', { layer: 'Business', aspect: 'Passive Structure' }],
-    ['Representation', { layer: 'Business', aspect: 'Passive Structure' }],
-    ['Product', { layer: 'Business', aspect: 'Composite' }],
-    ['Application Component', { layer: 'Application', aspect: 'Active Structure' }],
-    ['Application Collaboration', { layer: 'Application', aspect: 'Active Structure' }],
-    ['Application Interface', { layer: 'Application', aspect: 'Active Structure' }],
-    ['Application Process', { layer: 'Application', aspect: 'Behavior' }],
-    ['Application Function', { layer: 'Application', aspect: 'Behavior' }],
-    ['Application Interaction', { layer: 'Application', aspect: 'Behavior' }],
-    ['Application Event', { layer: 'Application', aspect: 'Behavior' }],
-    ['Application Service', { layer: 'Application', aspect: 'Behavior' }],
-    ['Data Object', { layer: 'Application', aspect: 'Passive Structure' }],
-    ['Node', { layer: 'Technology', aspect: 'Active Structure' }],
-    ['Device', { layer: 'Technology', aspect: 'Active Structure' }],
-    ['System Software', { layer: 'Technology', aspect: 'Active Structure' }],
-    ['Technology Collaboration', { layer: 'Technology', aspect: 'Active Structure' }],
-    ['Technology Interface', { layer: 'Technology', aspect: 'Active Structure' }],
-    ['Path', { layer: 'Technology', aspect: 'Active Structure' }],
-    ['Communication Network', { layer: 'Technology', aspect: 'Active Structure' }],
-    ['Technology Process', { layer: 'Technology', aspect: 'Behavior' }],
-    ['Technology Function', { layer: 'Technology', aspect: 'Behavior' }],
-    ['Technology Interaction', { layer: 'Technology', aspect: 'Behavior' }],
-    ['Technology Event', { layer: 'Technology', aspect: 'Behavior' }],
-    ['Technology Service', { layer: 'Technology', aspect: 'Behavior' }],
-    ['Artifact', { layer: 'Technology', aspect: 'Passive Structure' }],
-    ['Equipment', { layer: 'Physical', aspect: 'Active Structure' }],
-    ['Facility', { layer: 'Physical', aspect: 'Active Structure' }],
-    ['Distribution Network', { layer: 'Physical', aspect: 'Active Structure' }],
-    ['Material', { layer: 'Physical', aspect: 'Passive Structure' }],
-    ['Stakeholder', { layer: 'Motivation', aspect: 'Motivation' }],
-    ['Driver', { layer: 'Motivation', aspect: 'Motivation' }],
-    ['Assessment', { layer: 'Motivation', aspect: 'Motivation' }],
-    ['Goal', { layer: 'Motivation', aspect: 'Motivation' }],
-    ['Outcome', { layer: 'Motivation', aspect: 'Motivation' }],
-    ['Principle', { layer: 'Motivation', aspect: 'Motivation' }],
-    ['Requirement', { layer: 'Motivation', aspect: 'Motivation' }],
-    ['Constraint', { layer: 'Motivation', aspect: 'Motivation' }],
-    ['Meaning', { layer: 'Motivation', aspect: 'Motivation' }],
-    ['Value', { layer: 'Motivation', aspect: 'Motivation' }],
-    ['Work Package', { layer: 'Implementation & Migration', aspect: 'Implementation & Migration' }],
-    ['Deliverable', { layer: 'Implementation & Migration', aspect: 'Implementation & Migration' }],
-    ['Implementation Event', { layer: 'Implementation & Migration', aspect: 'Implementation & Migration' }],
-    ['Plateau', { layer: 'Implementation & Migration', aspect: 'Implementation & Migration' }],
-    ['Gap', { layer: 'Implementation & Migration', aspect: 'Implementation & Migration' }],
-    ['Grouping', { layer: 'Other', aspect: 'Other' }],
-    ['Location', { layer: 'Other', aspect: 'Other' }],
-    ['Junction', { layer: 'Other', aspect: 'Other' }],
-    ['And Junction', { layer: 'Other', aspect: 'Other' }],
-    ['Or Junction', { layer: 'Other', aspect: 'Other' }],
-]);
-
-const relationshipCategoryByType = new Map([
-    ['Composition', 'Structural'],
-    ['Aggregation', 'Structural'],
-    ['Assignment', 'Structural'],
-    ['Realization', 'Structural'],
-    ['Serving', 'Dependency'],
-    ['Access', 'Dependency'],
-    ['Influence', 'Dependency'],
-    ['Triggering', 'Dynamic'],
-    ['Flow', 'Dynamic'],
-    ['Association', 'Other'],
-    ['Specialization', 'Other'],
-]);
+const {
+    elementTypeMetadata,
+    relationshipCategoryByType,
+    validateRelationshipEndpointTypes,
+} = require('./archimate32-rules');
 
 function main() {
     const schemaPath = schemaPathCandidates.find(candidate => fs.existsSync(candidate));
@@ -337,14 +263,6 @@ function validateGraphSemantics(document, errors) {
             errors.push(`elements '${element.id}' uses unsupported ArchiMate element type '${element.type}'`);
             continue;
         }
-
-        if (element.archimate_layer !== expectedMetadata.layer) {
-            errors.push(`elements '${element.id}' must declare archimate_layer '${expectedMetadata.layer}' for type '${element.type}'`);
-        }
-
-        if (element.archimate_aspect !== expectedMetadata.aspect) {
-            errors.push(`elements '${element.id}' must declare archimate_aspect '${expectedMetadata.aspect}' for type '${element.type}'`);
-        }
     }
 
     for (const element of elements) {
@@ -369,11 +287,9 @@ function validateGraphSemantics(document, errors) {
 
         relationshipById.set(relationship.id, relationship);
 
-        const expectedCategory = relationshipCategoryByType.get(relationship.name);
+        const expectedCategory = relationshipCategoryByType.get(relationship.type);
         if (!expectedCategory) {
-            errors.push(`relationships '${relationship.id}' uses unsupported ArchiMate relationship type '${relationship.name}'`);
-        } else if (relationship.archimate_category !== expectedCategory) {
-            errors.push(`relationships '${relationship.id}' must declare archimate_category '${expectedCategory}' for relationship '${relationship.name}'`);
+            errors.push(`relationships '${relationship.id}' uses unsupported ArchiMate relationship type '${relationship.type}'`);
         }
 
         const source = elementById.get(relationship.source_id);
@@ -389,11 +305,28 @@ function validateGraphSemantics(document, errors) {
         } else if (relationship.target_name !== target.name) {
             errors.push(`relationships '${relationship.id}' target_name '${relationship.target_name}' does not match element '${relationship.target_id}' name '${target.name}'`);
         }
+
+        if (source && target) {
+            errors.push(...validateRelationshipEndpointTypes(relationship, source, target));
+        }
     }
 
+    const topLevelViews = views.filter(view => view && typeof view === 'object' && !view.parent_element_id);
+    if (topLevelViews.length !== 1) {
+        errors.push(`views must contain exactly one top-level view named 'SystemArchitecture'; found ${topLevelViews.length}`);
+    } else if (topLevelViews[0].view_name !== 'SystemArchitecture') {
+        errors.push(`top-level view '${topLevelViews[0].view_id}' view_name must be 'SystemArchitecture'`);
+    }
+
+    const elementIdsIncludedInViews = new Set();
+    const relationshipIdsIncludedInViews = new Set();
     for (const view of views) {
         if (!view || typeof view !== 'object') {
             continue;
+        }
+
+        if (!view.parent_element_id && view.view_name !== 'SystemArchitecture') {
+            errors.push(`views '${view.view_id}' must declare parent_element_id unless it is the top-level SystemArchitecture view`);
         }
 
         if (view.parent_element_id) {
@@ -406,7 +339,11 @@ function validateGraphSemantics(document, errors) {
         }
 
         const includedElements = Array.isArray(view.included_elements) ? view.included_elements : [];
+        if (includedElements.length > 7) {
+            errors.push(`views '${view.view_id}' must contain at most 7 elements; found ${includedElements.length}. Split the content into layered sub-views before adding more elements.`);
+        }
         includedElements.forEach(elementId => {
+            elementIdsIncludedInViews.add(elementId);
             if (!elementById.has(elementId)) {
                 errors.push(`views '${view.view_id}' references missing included element '${elementId}'`);
             }
@@ -414,10 +351,23 @@ function validateGraphSemantics(document, errors) {
 
         const includedRelationships = Array.isArray(view.included_relationships) ? view.included_relationships : [];
         includedRelationships.forEach(relationshipId => {
+            relationshipIdsIncludedInViews.add(relationshipId);
             if (!relationshipById.has(relationshipId)) {
                 errors.push(`views '${view.view_id}' references missing included relationship '${relationshipId}'`);
             }
         });
+    }
+
+    for (const element of elements) {
+        if (element && typeof element === 'object' && !elementIdsIncludedInViews.has(element.id)) {
+            errors.push(`elements '${element.id}' must be included in at least one view`);
+        }
+    }
+
+    for (const relationship of relationships) {
+        if (relationship && typeof relationship === 'object' && !relationshipIdsIncludedInViews.has(relationship.id)) {
+            errors.push(`relationships '${relationship.id}' must be included in at least one view`);
+        }
     }
 }
 

@@ -31,3 +31,4 @@ disable-model-invocation: true
 - 除非用户明确要求进入实现，否则不要修改代码、测试、脚本或设计资产
 - 如果最终判断只是 Implementation Design 或 Coding/Repair 问题，要明确说明“不需要改 intent”
 - 用户选中候选后，交回现有 `grill-me` 流程继续按设计树逐支路确认
+- 如果用户最终批准修改 intent graph，不能直接编辑 `design/KG/SystemArchitecture.json`；必须将候选转成 Intent Design mutation request，并由统一 `argo` MCP mutation tools preview/apply。

@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "./.cursor/argoschema/ImplementationToCodingHandoff.schema.json",
+  "$id": "./schema/ImplementationToCodingHandoff.schema.json",
   "title": "Implementation To Coding Handoff Schema",
   "type": "object",
   "additionalProperties": false,

@@ -1,8 +1,8 @@
 {
   "mcpServers": {
-    "argo-validator": {
+    "argo": {
       "command": "node",
-      "args": ["${workspaceFolder}/.cursor/tools/validator/server.js"],
+      "args": ["${workspaceFolder}/scripts/argo-mcp-server.js"],
       "cwd": "${workspaceFolder}",
       "env": {
         "ARGO_REPO_ROOT": "${workspaceFolder}"

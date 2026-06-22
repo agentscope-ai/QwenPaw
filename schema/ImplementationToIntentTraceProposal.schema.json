@@ -1,0 +1,180 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "./schema/ImplementationToIntentTraceProposal.schema.json",
+  "title": "Implementation To Intent Trace Proposal Schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "proposalType",
+    "generatedAt",
+    "sourceAgent",
+    "targetAgent",
+    "lifecycle",
+    "sourceIntentGraphPath",
+    "implementationContracts",
+    "anchorProposals"
+  ],
+  "properties": {
+    "proposalType": {
+      "type": "string",
+      "const": "implementation-to-intent-trace"
+    },
+    "generatedAt": {
+      "type": "string"
+    },
+    "sourceAgent": {
+      "type": "string",
+      "const": "ImplementationDesign"
+    },
+    "targetAgent": {
+      "type": "string",
+      "const": "IntentionDesign"
+    },
+    "lifecycle": {
+      "type": "string",
+      "const": "temporary-trace-proposal"
+    },
+    "sourceIntentGraphPath": {
+      "type": "string"
+    },
+    "implementationContracts": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string"
+      }
+    },
+    "anchorProposals": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/anchorProposal"
+      }
+    },
+    "openQuestions": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/openQuestion"
+      }
+    },
+    "notes": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "$defs": {
+    "anchorProposal": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "intentElementId",
+        "implementationElementName",
+        "implementationElementKind",
+        "implementsType",
+        "tracePurpose",
+        "contractPaths",
+        "contextEntryPoints",
+        "excludedDetails"
+      ],
+      "properties": {
+        "intentElementId": {
+          "type": "string"
+        },
+        "intentElementName": {
+          "type": "string"
+        },
+        "implementationElementName": {
+          "type": "string"
+        },
+        "implementationElementKind": {
+          "type": "string",
+          "enum": [
+            "stable-directory",
+            "contract-file",
+            "explicit-test-entry",
+            "critical-guardrail",
+            "runtime-component",
+            "schema-contract",
+            "mcp-tool",
+            "command"
+          ]
+        },
+        "implementsType": {
+          "type": "string",
+          "enum": [
+            "direct",
+            "indirect"
+          ]
+        },
+        "tracePurpose": {
+          "type": "string"
+        },
+        "contractPaths": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string"
+          }
+        },
+        "contextEntryPoints": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string"
+          }
+        },
+        "excludedDetails": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string"
+          }
+        },
+        "suggestedIntentAttributes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/intentAttribute"
+          }
+        }
+      }
+    },
+    "intentAttribute": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "description"
+      ],
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        }
+      }
+    },
+    "openQuestion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "question",
+        "recommendedAnswer",
+        "reason"
+      ],
+      "properties": {
+        "question": {
+          "type": "string"
+        },
+        "recommendedAnswer": {
+          "type": "string"
+        },
+        "reason": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}

@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "./.cursor/argoschema/IntentToImplementationHandoff.schema.json",
+  "$id": "./schema/IntentToImplementationHandoff.schema.json",
   "title": "Intent To Implementation Handoff Schema",
   "type": "object",
   "additionalProperties": false,

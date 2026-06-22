@@ -18,7 +18,7 @@ Coding/Repair
 
 - 意图架构图谱：`design/KG/SystemArchitecture.json`
 - 实现到编码交接物：`design/KG/ImplementationToCodingHandoff.json`
-- 实现到编码交接物 Schema：`.cursor/argoschema/ImplementationToCodingHandoff.schema.json`
+- 实现到编码交接物 Schema：`schema/ImplementationToCodingHandoff.schema.json`
 - 失败测试记录：`design/KG/test-failure-records.json`
 - 实现架构根契约：`OVERALL_ARCHITECTURE.md`
 
@@ -36,7 +36,7 @@ Coding/Repair
 6. 在 handoff 或最终回复中，只要提到文件、契约、测试入口或夹具，都必须写出具体仓库路径；不要使用“相关文件”“对应 ARCHITECTURE.md”这类模糊表述。若这些路径是给用户读取、修改或执行的输入，请单独放进 ```text 代码块```，并保持一行一个路径，便于直接复制。
 7. 如果发现缺失显性测试入口、关键非显性测试契约错误、关键护栏失效且必须改写，或测试环境信息只能通过改写冻结资产才能补齐，请将其视为实现架构设计阶段缺口并明确回报，不要在编码阶段直接改写这些冻结资产。
 8. 如新增或调整外部接口，必须同步更新项目根目录的 INTRODUCTION.md，确保对外说明与真实接口一致。
-9. 修复不能导致已有显性测试用例失败；完成修复后必须调用 `argo-validator` MCP tool `runArchitectureTests` 触发全量显性测试用例，如果失败则必须继续修复，直到所有用例都通过。
+9. 修复不能导致已有显性测试用例失败；完成修复后必须调用统一 `argo` MCP tool `runArchitectureTests` 触发全量显性测试用例，如果失败则必须继续修复，直到所有用例都通过。
 10. 测试过程中如果遇到测试环境问题，你[MUST NOT]因为环境问题而跳过测试用例执行，你[MUST]委派一个新的子agent去解决环境问题，解决后再执行测试用例。
 11. Simplicity First
 **Minimum code that solves the problem. Nothing speculative.**

@@ -7,22 +7,20 @@ const { promisify } = require('node:util');
 const execFileAsync = promisify(execFile);
 
 const HANDOFF_STAGES = ['intent-to-implementation', 'implementation-to-coding'];
+const DEFAULT_TRACE_PROPOSAL_PATH = 'design/KG/ImplementationToIntentTraceProposal.json';
 const DEFAULT_ARCHITECTURE_GRAPH_PATH = 'design/KG/SystemArchitecture.json';
 
 const SCRIPT_CANDIDATES = {
   validateSystemArchitecture: [
-    '.cursor/validator/script/validateSystemArchitecture.js',
-    '.github/validator/script/validateSystemArchitecture.js',
     'scripts/validateSystemArchitecture.js',
   ],
   validateStageHandoff: [
-    '.cursor/validator/script/validateStageHandoff.js',
-    '.github/validator/script/validateStageHandoff.js',
     'scripts/validateStageHandoff.js',
   ],
+  validateTraceProposal: [
+    'scripts/validateTraceProposal.js',
+  ],
   runArchitectureTests: [
-    '.cursor/validator/script/runArchitectureTests.js',
-    '.github/validator/script/runArchitectureTests.js',
     'scripts/runArchitectureTests.js',
   ],
 };
@@ -30,7 +28,7 @@ const SCRIPT_CANDIDATES = {
 const TOOLS = [
   {
     name: 'validateSystemArchitecture',
-    description: 'Validate design/KG/SystemArchitecture.json against .cursor/argoschema/SystemArchitecture.schema.json and Argo graph rules.',
+    description: 'Validate design/KG/SystemArchitecture.json against schema/SystemArchitecture.schema.json and Argo graph rules.',
     inputSchema: {
       type: 'object',
       properties: {},
@@ -47,6 +45,20 @@ const TOOLS = [
           type: 'string',
           enum: HANDOFF_STAGES,
           description: 'Optional handoff stage to validate.',
+        },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'validateTraceProposal',
+    description: 'Validate ImplementationToIntentTraceProposal JSON against schema/ImplementationToIntentTraceProposal.schema.json and repository path references.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        proposalPath: {
+          type: 'string',
+          description: `Optional proposal path relative to workspace root. Default: ${DEFAULT_TRACE_PROPOSAL_PATH}`,
         },
       },
       additionalProperties: false,
@@ -71,7 +83,7 @@ const TOOLS = [
 function resolveWorkspaceRoot() {
   return process.env.ARGO_REPO_ROOT
     || process.env.WORKSPACE_FOLDER
-    || path.resolve(__dirname, '..', '..', '..');
+    || path.resolve(__dirname, '..');
 }
 
 function resolveScriptPath(workspaceRoot, candidates) {
@@ -153,6 +165,11 @@ async function callTool(name, args) {
     return toolResult(await runValidatorScript(workspaceRoot, 'validateStageHandoff', stage ? [stage] : []));
   }
 
+  if (name === 'validateTraceProposal') {
+    const proposalPath = (args && args.proposalPath) || DEFAULT_TRACE_PROPOSAL_PATH;
+    return toolResult(await runValidatorScript(workspaceRoot, 'validateTraceProposal', [proposalPath]));
+  }
+
   if (name === 'runArchitectureTests') {
     const architecturePath = (args && args.architecturePath) || DEFAULT_ARCHITECTURE_GRAPH_PATH;
     return toolResult(await runValidatorScript(workspaceRoot, 'runArchitectureTests', [architecturePath]));
@@ -174,7 +191,7 @@ async function handleRequest(request) {
           tools: {},
         },
         serverInfo: {
-          name: 'argo-validator',
+          name: 'argo',
           version: '1.0.0',
         },
       },
@@ -263,7 +280,14 @@ async function main() {
   }
 }
 
-main().catch((error) => {
-  console.error(error);
-  process.exit(1);
-});
+if (require.main === module) {
+  main().catch((error) => {
+    console.error(error);
+    process.exit(1);
+  });
+}
+
+module.exports = {
+  callTool,
+  main,
+};
