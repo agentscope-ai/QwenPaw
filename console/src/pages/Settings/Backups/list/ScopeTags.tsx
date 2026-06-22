@@ -22,7 +22,9 @@ export default function ScopeTags({ scope, agentCount }: Props) {
       ) : null}
       {scope.include_global_config && <Tag>{t("backup.globalConfig")}</Tag>}
       {scope.include_skill_pool && <Tag>{t("backup.skillPool")}</Tag>}
-      {scope.include_secrets && <Tag color="orange">{t("backup.secrets")}</Tag>}
+      {scope.include_secrets && (
+        <Tag color="warning">{t("backup.secrets")}</Tag>
+      )}
     </div>
   );
 }
