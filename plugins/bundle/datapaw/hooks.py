@@ -32,7 +32,7 @@ import logging
 from typing import Any
 
 from .constants import BUILTIN_DATAPAW_AGENT_ID
-from .core.sse_metadata import NODE_ROUTING_METADATA_KEYS
+from .core.sse_metadata import NODE_ROUTING_METADATA_KEYS, SUBAGENT_ROUTING_BLOCK_TYPE
 
 logger = logging.getLogger(__name__)
 
@@ -364,8 +364,50 @@ def _maybe_inject_node_metadata(
 
     if obj == "content":
         msg_id = payload.get("msg_id")
+        modified = False
+
+        data = payload.get("data")
+        if isinstance(data, dict):
+            output_str = data.get("output")
+            if (
+                isinstance(output_str, str)
+                and output_str.startswith("[")
+            ):
+                try:
+                    blocks = json.loads(output_str)
+                    if (
+                        isinstance(blocks, list)
+                        and blocks
+                        and isinstance(blocks[-1], dict)
+                        and blocks[-1].get("type")
+                        == SUBAGENT_ROUTING_BLOCK_TYPE
+                    ):
+                        routing = blocks.pop()
+                        new_meta: dict[str, str] = {}
+                        if routing.get("e"):
+                            new_meta["subagent_event"] = str(
+                                routing["e"],
+                            )
+                        if routing.get("t"):
+                            new_meta["subagent_tool_name"] = str(
+                                routing["t"],
+                            )
+                        if msg_id is not None and new_meta:
+                            cached = store.get(str(msg_id), {})
+                            cached.update(new_meta)
+                            store[str(msg_id)] = cached
+                        data["output"] = json.dumps(
+                            blocks, ensure_ascii=False,
+                        )
+                        modified = True
+                except (json.JSONDecodeError, ValueError):
+                    pass
+
         if msg_id is not None and str(msg_id) in store:
             payload["metadata"] = store[str(msg_id)]
+            return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+
+        if modified:
             return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
 
     return frame

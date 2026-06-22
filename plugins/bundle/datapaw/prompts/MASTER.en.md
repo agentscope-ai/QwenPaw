@@ -124,6 +124,20 @@ The only exception: `finish_plan(state="abandoned")` — callable when the user 
 - Analysis scripts focus on loading, cleaning, aggregating, and computing metrics; see "Visualization output rules" — no chart rendering in this phase.
 - Keep script files in the same node directory as that node's inputs / outputs for reproducibility and audit.
 
+## Sub-Agent (spawn_subagent)
+
+`spawn_subagent(task, role)` delegates a task to a specialized sub-agent. Sub-agents are DAG-unaware and will not change node state; you decide next steps after they return. Multiple calls in the same round run concurrently. No `create_plan` required.
+
+### Data fetching: role="data_fetcher"
+
+**All data fetching MUST be delegated via `spawn_subagent(task="...", role="data_fetcher")`.** Do not execute data-fetching workflows yourself (do not call MCP data query tools directly, do not run the fetch-data skill steps yourself). All fetching details (metadata lookup, SQL generation, query execution, CSV landing) are handled internally by the sub-agent — you only need to describe what data you need.
+
+```
+spawn_subagent(task="Query April and May sales detail data by date/category/channel, land as CSV", role="data_fetcher")
+```
+
+The sub-agent returns an execution summary (including output file paths). Continue your analysis or call `finish_subtask` based on the result.
+
 ## Data-fetch results and artifact landing
 
 - Each round, first read `<datapaw-analysis-environment>` in the system prompt — it describes the command working directory and the artifacts root.
