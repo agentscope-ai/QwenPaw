@@ -23,6 +23,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+<<<<<<< HEAD
 # User-facing conversation commands and their summaries, used when
 # advertising commands to clients (e.g. the ACP
 # ``available_commands_update`` notification). Intentionally a small,
@@ -45,6 +46,21 @@ SYSTEM_COMMAND_DESCRIPTIONS: dict[str, str] = {
         "Compact the conversation context; optional instruction supported"
     ),
 }
+=======
+# Manual ``/compact`` skips the auto ``trigger_ratio`` gate and runs compaction
+# directly; the field is constrained ``gt=0``, so we use a negligible value
+# rather than zero.
+_FORCE_TRIGGER_RATIO = 1e-6
+# Manual ``/compact`` also shrinks the ``reserve_ratio`` recent-tail budget
+# to a small window. The auto reserve (~10% of the context window, e.g. ~13K
+# tokens on a 128K model) is sized for *automatic* compaction near the
+# trigger; reusing it for a manual command means a small conversation that
+# fits inside the reserve has nothing to evict, so ``/compact`` appears to do
+# nothing. On demand the user wants space freed *now*, so we keep only a couple
+# of recent turns for continuity (eviction is lossless under scroll — the rest
+# stays recallable).
+_FORCE_RESERVE_RATIO = 0.02
+>>>>>>> b063fae2 (fix(context): harden scroll recall — robustness, manual /compact, anti-pollution)
 
 
 def _fmt_tokens(n: int) -> str:
@@ -224,6 +240,34 @@ class CommandHandler(ConversationCommandHandlerMixin):
         """Check if memory manager is available."""
         return self.memory_manager is not None
 
+    def _forced_context_config(self, agent: "Agent"):
+        """Clone the agent's ContextConfig for a manual ``/compact``.
+
+        Two overrides vs. the auto config: ``trigger_ratio`` is dropped so
+        compaction runs directly (skipping the auto threshold), and
+        ``reserve_ratio`` is shrunk to ``_FORCE_RESERVE_RATIO`` so a small
+        conversation that would fit inside the auto reserve still has a middle
+        to evict — i.e. on-demand ``/compact`` actually frees space instead of
+        reporting "nothing to compact". Both scroll and native honour
+        a ``context_config`` override; falls back to the agent's config if
+        cloning fails."""
+        base = getattr(agent, "context_config", None)
+        if base is None:
+            return None
+        try:
+            return base.model_copy(
+                update={
+                    "trigger_ratio": _FORCE_TRIGGER_RATIO,
+                    "reserve_ratio": _FORCE_RESERVE_RATIO,
+                },
+            )
+        except Exception:
+            logger.warning(
+                "Could not clone context_config to force /compact; "
+                "falling back to the auto-gated config.",
+            )
+            return base
+
     async def _process_compact(
         self,
         messages: list[Msg],
@@ -254,6 +298,14 @@ class CommandHandler(ConversationCommandHandlerMixin):
                     "- Check that an active model is configured",
                 )
 
+        # Manual command: force compaction, and measure before/after so the
+        # reply reports what was actually evicted.
+        forced_cfg = self._forced_context_config(agent)
+        before = len(self._state.context)
+        # Scroll keeps its compaction map in the eviction index
+        # (``state.summary`` stays empty); native fills ``state.summary``.
+        # Capture whichever applies.
+        index_text = ""
         try:
             # Agent-backed mode: ``QwenPawAgent.compress_context`` already
             # routes to scroll or native by itself. Standalone mode builds a
@@ -268,12 +320,14 @@ class CommandHandler(ConversationCommandHandlerMixin):
             if scroll_mgr is not None:
                 try:
                     scroll_mgr.load_state(self._scroll_state or {})
-                    await scroll_mgr.compress(agent)
+                    await scroll_mgr.compress(agent, forced_cfg)
                     self._updated_scroll_state = scroll_mgr.to_dict()
+                    index_text = scroll_mgr.describe_index()
                 finally:
                     scroll_mgr.close()
             else:
-                await agent.compress_context()
+                await agent.compress_context(forced_cfg)
+                index_text = self._scroll_index_text(agent)
         except Exception as e:
             logger.exception("compress_context failed: %s", e)
             return await self._make_system_msg(
@@ -281,12 +335,32 @@ class CommandHandler(ConversationCommandHandlerMixin):
                 f"- Use `/clear` to reset the context if needed",
             )
 
+        after = len(self._state.context)
+        evicted = max(0, before - after)
         summary = self._get_summary()
+        if evicted == 0 and not summary and not index_text:
+            return await self._make_system_msg(
+                "ℹ️ **Nothing to compact.**\n\n"
+                f"- Context is already minimal ({before} message(s))\n"
+                "- No turns were evicted",
+            )
+        if index_text:
+            detail = f"**Eviction Index:**\n{index_text}\n"
+        else:
+            detail = f"**Compressed Summary:**\n{summary}\n"
         return await self._make_system_msg(
             f"✅ **Compact Complete!**\n\n"
-            f"- Messages compacted: {len(messages)}\n"
-            f"**Compressed Summary:**\n{summary}\n",
+            f"- Messages compacted: {evicted}\n"
+            f"{detail}",
         )
+
+    @staticmethod
+    def _scroll_index_text(agent: "Agent") -> str:
+        """Scroll eviction-index map for a live agent, or '' under native."""
+        cm = getattr(agent, "_context_manager", None)
+        if cm is not None and hasattr(cm, "describe_index"):
+            return cm.describe_index()
+        return ""
 
     def _build_tmp_agent(self) -> "Agent | None":
         """Build a minimal Agent for standalone compression.

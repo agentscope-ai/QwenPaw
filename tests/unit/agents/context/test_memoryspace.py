@@ -124,6 +124,68 @@ def test_search_default_is_this_agent_cross_session(ms: MemorySpace):
     assert "tanks of another agent" not in contents
 
 
+def test_search_excludes_recall_tool_own_turns(tmp_path: Path):
+    """The recall tool's own source/output must not surface as search hits, or
+    a query matches the agent's earlier queries (self-pollution)."""
+    h = HistoryStore(tmp_path / "history.db")
+    h.append(
+        session_id="s1",
+        agent_id="ag1",
+        dedup_key="real",
+        entry=LogEntry(
+            kind="model_turn",
+            role="assistant",
+            content="the car needs service after 10000 miles",
+        ),
+    )
+    # The agent's own recall call (its Python source) and its printed output —
+    # both carry the searched keywords and both must be excluded.
+    h.append(
+        session_id="s1",
+        agent_id="ag1",
+        dedup_key="recall_call",
+        entry=LogEntry(
+            kind="model_turn",
+            role="assistant",
+            name="execute_python",
+            content='ms.search("car service")',
+        ),
+    )
+    h.append(
+        session_id="s1",
+        agent_id="ag1",
+        dedup_key="recall_out",
+        entry=LogEntry(
+            kind="tool_result",
+            role="assistant",
+            name="execute_python",
+            content="stdout: searching for car service ...",
+            tool_call_id="t1",
+        ),
+    )
+    h.close()
+    space = MemorySpace(
+        history_db_path=str(tmp_path / "history.db"),
+        session_id="s1",
+        agent_id="ag1",
+    )
+    try:
+        hits = space.search("car service")
+        contents = [r["content"] for r in hits]
+        assert contents == ["the car needs service after 10000 miles"]
+    finally:
+        space.close()
+
+
+def test_search_rows_carry_session_id(ms: MemorySpace):
+    # Cross-session/agent search is only useful if a hit says which session it
+    # came from — the model needs ``session_id`` to follow up (it used to guess
+    # the key and crash with KeyError).
+    rows = {r["content"]: r for r in ms.search("tanks", all_agents=True)}
+    assert rows["tanks rolled in"]["session_id"] == "s1"
+    assert rows["tanks regrouped later"]["session_id"] == "s2"
+
+
 def test_search_all_agents_spans_the_workspace(ms: MemorySpace):
     contents = {r["content"] for r in ms.search("tanks", all_agents=True)}
     assert "tanks of another agent" in contents

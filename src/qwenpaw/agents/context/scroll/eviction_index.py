@@ -269,6 +269,18 @@ class EvictionIndex:
             "tool description.",
             "",
         ]
+        out.extend(self._tier_lines())
+        out.append("</system-info>")
+        return "\n".join(out)
+
+    def describe(self) -> str:
+        """The tier/span map without the ``render`` preamble — for the
+        user-facing ``/compact`` reply. Empty string if nothing is indexed."""
+        return "\n".join(self._tier_lines())
+
+    def _tier_lines(self) -> list[str]:
+        """Tiers oldest-first, each block's seq span and per-line headlines."""
+        out: list[str] = []
         for k in range(len(self._tiers) - 1, -1, -1):
             tier = self._tiers[k]
             if not tier:
@@ -279,5 +291,4 @@ class EvictionIndex:
                 out.append(f"  [seq {block.seq_lo}–{block.seq_hi}]")
                 for ln in block.lines:
                     out.append(f"    · {ln.span}  ⟦ {ln.text} ⟧")
-        out.append("</system-info>")
-        return "\n".join(out)
+        return out

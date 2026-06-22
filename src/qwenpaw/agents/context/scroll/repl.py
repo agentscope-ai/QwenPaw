@@ -31,17 +31,30 @@ _PKG_DIR = str(Path(__file__).parent)
 
 _DOC = """Run Python to recall evicted conversation history.
 
+`ms` is ALREADY DEFINED in this cell — use it directly (e.g. ms.search(...)).
+Do NOT `import ms`: it is a ready-made object, not a module, and importing it
+raises ModuleNotFoundError.
+
+Every helper returns a LIST OF DICTS (rows). Index with the EXACT keys named
+below — there is no `content_preview` (the text key is always `content`), and
+only `search` carries `session_id`. Don't assume a key; print(rows[0].keys())
+if unsure.
+
 The persistent record reaches you through `ms`. Prefer these intent helpers
 (values are bound for you — no SQL to write):
   • ms.expand(lo, hi) — full turns in the seq span [lo, hi], oldest first.
-  • ms.outline(lo, hi) — headlines + a 600-char content preview per turn in
-    that span (zoom before pulling full turns with expand).
+    Keys: seq, kind, role, name, content, headline.
+  • ms.outline(lo, hi) — one row per headlined turn in that span (zoom before
+    pulling full turns with expand). Keys: seq, headline, content (600-char
+    preview).
   • ms.recall_tool(tool_call_id) — a tool call and its result (this agent;
-    pass all_agents=True to widen).
+    pass all_agents=True to widen). Keys: seq, kind, role, name, tool_input,
+    tool_state, content.
   • ms.search(query, all_agents=False, kind=None, k=10) — FTS5. By default
     searches your whole history across past sessions; all_agents=True spans
     every agent here. Pin a specific one with session_id="cron:<job>" /
-    agent_id="<other>" (these take precedence).
+    agent_id="<other>" (these take precedence). Keys: seq, session_id,
+    step_index, kind, role, name, headline, content (600-char preview).
   • ms.sessions() — your past conversations (incl. scheduled cron/heartbeat
     runs); ms.session(session_id) reads one in full. ms.agents() lists agents.
   • ms.days_between(d1, d2, inclusive=False) — |days| between two dates
@@ -96,6 +109,11 @@ def make_execute_python(
             f"    agent_id={agent_id!r},\n"
             f"    scratch_db_path={scratch_db!r},\n"
             ")\n"
+            # Safety net: ``ms`` is meant to be used directly, but models often
+            # reflexively ``import ms``. Registering the instance as a module
+            # makes that import bind ``ms`` to this same object instead of
+            # raising ModuleNotFoundError.
+            "sys.modules['ms'] = ms\n"
         )
         cells_dir.mkdir(parents=True, exist_ok=True)
         cell = cells_dir / f"cell_{uuid.uuid4().hex}.py"

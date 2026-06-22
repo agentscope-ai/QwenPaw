@@ -16,6 +16,16 @@ logger = logging.getLogger(__name__)
 
 _BUSY_TIMEOUT_MS = 5000
 
+# The recall tool's own turns — the model's ``ms.*`` Python source and its
+# printed stdout/stderr — are written through to history like any turn, but
+# they are the agent *reading* memory, not memory content. Keyword-indexing
+# them lets a later ``ms.search`` match the agent's own past queries (and their
+# tracebacks), drowning the real content: a self-pollution feedback loop. So
+# these rows stay durable + recallable by ``seq``, but are kept OUT of the FTS
+# index (and out of ``search`` — see ``MemorySpace``). Must match the recall
+# tool name in ``repl.py``.
+_RECALL_TOOL_NAME = "execute_python"
+
 # Columns of conversation_history, in INSERT order (minus the
 # autoincrement seq).
 _INSERT_COLUMNS = (
@@ -242,7 +252,7 @@ class HistoryStore:
                 ).fetchone()
                 return int(existing["seq"]) if existing else 0
             seq = int(cur.lastrowid or 0)
-            if self._fts:
+            if self._fts and entry.name != _RECALL_TOOL_NAME:
                 self._conn.execute(
                     "INSERT INTO conversation_history_fts(rowid, content) "
                     "VALUES (?, ?)",
@@ -270,9 +280,12 @@ class HistoryStore:
         refreshed too, so a turn that grows a *later* tool call doesn't leave
         them frozen at their first-write values. ``seq`` is unchanged.
         """
+        # Recall-tool rows are never FTS-indexed (see ``_RECALL_TOOL_NAME``),
+        # so don't touch the index for them on update either.
+        fts_sync = self._fts and name != _RECALL_TOOL_NAME
         with self._conn:
             old_content = None
-            if self._fts:
+            if fts_sync:
                 r = self._conn.execute(
                     "SELECT content FROM conversation_history WHERE seq = ?",
                     (seq,),
@@ -292,7 +305,7 @@ class HistoryStore:
                     seq,
                 ),
             )
-            if self._fts:
+            if fts_sync:
                 if old_content is not None:
                     self._conn.execute(
                         "INSERT INTO conversation_history_fts"

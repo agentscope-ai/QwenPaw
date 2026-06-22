@@ -352,6 +352,11 @@ class ScrollContextManager:
             seq_hi=hi,
         )
 
+    def describe_index(self) -> str:
+        """The eviction-index tier/span map for the ``/compact`` reply (empty
+        if nothing has been evicted yet)."""
+        return self._index.describe()
+
     # -- checkpoint ----------------------------------------------------------
 
     def to_dict(self) -> dict:

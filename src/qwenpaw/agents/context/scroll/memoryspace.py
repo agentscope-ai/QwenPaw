@@ -19,6 +19,14 @@ from pathlib import Path
 
 _DEFAULT_ROW_CAP = 1000
 
+# The recall tool's own turns (its ``ms.*`` source + printed output) are
+# durable but must never surface as *search hits* — otherwise a query matches
+# the agent's own earlier queries/tracebacks (self-pollution). New rows are
+# already kept out of the FTS index (see ``history._RECALL_TOOL_NAME``); this
+# filter also hides any legacy rows indexed before that, and covers the LIKE
+# fallback. Must match the recall tool name in ``repl.py``.
+_RECALL_TOOL_NAME = "execute_python"
+
 _DATE_RE = re.compile(r"(\d{4})[-/](\d{1,2})[-/](\d{1,2})")
 
 
@@ -323,20 +331,24 @@ class MemorySpace:
         """Full-text search over ``hist.conversation_history`` content
         (FTS5).
 
-        Returns up to ``k`` rows ranked by relevance (bm25). By default
-        searches this agent across all its sessions. Pass ``all_agents=True``
-        to span every agent, or pin a *specific* conversation / agent with
-        ``session_id='cron:<job>'`` and/or ``agent_id='<other>'`` (these
-        AND-combine and take precedence). ``kind`` optionally filters by row
-        kind. Falls back to a LIKE scan if this SQLite lacks FTS5.
+        Returns up to ``k`` rows ranked by relevance (bm25), each a dict with
+        keys: ``seq``, ``session_id``, ``step_index``, ``kind``, ``role``,
+        ``name``, ``headline``, ``content`` (a 600-char preview — pull the full
+        turn with ``expand(seq, seq)``). By default searches this agent across
+        all its sessions. Pass ``all_agents=True`` to span every agent, or pin
+        a *specific* conversation / agent with ``session_id='cron:<job>'``
+        and/or ``agent_id='<other>'`` (these AND-combine and take precedence).
+        ``kind`` optionally filters by row kind. Falls back to a LIKE scan if
+        this SQLite lacks FTS5.
         """
         targets = self._scope_filters(all_agents, session_id, agent_id)
         if not self._fts_available():
             return self._search_like(query, targets, kind, int(k))
         # bm25 and the `tbl MATCH` syntax need the table NAME, not an alias.
         fts = "conversation_history_fts"
-        where = [f"{fts} MATCH ?"]
-        params: list = [query]
+        # Exclude the recall tool's own turns (NULL-safe: keep un-named rows).
+        where = [f"{fts} MATCH ?", "(ch.name IS NULL OR ch.name != ?)"]
+        params: list = [query, _RECALL_TOOL_NAME]
         for col, val in targets:
             where.append(f"ch.{col} = ?")
             params.append(val)
@@ -344,8 +356,8 @@ class MemorySpace:
             where.append("ch.kind = ?")
             params.append(kind)
         sql = (
-            "SELECT ch.seq, ch.step_index, ch.kind, ch.role, ch.name, "
-            "ch.headline, ch.content "
+            "SELECT ch.seq, ch.session_id, ch.step_index, ch.kind, ch.role, "
+            "ch.name, ch.headline, substr(ch.content, 1, 600) AS content "
             f"FROM hist.{fts} JOIN hist.conversation_history ch "
             f"ON ch.seq = {fts}.rowid "
             "WHERE " + " AND ".join(where) + f" ORDER BY bm25({fts}) LIMIT ?"
@@ -376,8 +388,9 @@ class MemorySpace:
         from :meth:`_scope_filters` (already accounts for scope vs explicit
         session_id/agent_id).
         """
-        where = ["content LIKE ?"]
-        params: list = [f"%{query}%"]
+        # Exclude the recall tool's own turns (NULL-safe: keep un-named rows).
+        where = ["content LIKE ?", "(name IS NULL OR name != ?)"]
+        params: list = [f"%{query}%", _RECALL_TOOL_NAME]
         for col, val in targets:
             where.append(f"{col} = ?")
             params.append(val)
@@ -385,7 +398,8 @@ class MemorySpace:
             where.append("kind = ?")
             params.append(kind)
         sql = (
-            "SELECT seq, step_index, kind, role, name, headline, content "
+            "SELECT seq, session_id, step_index, kind, role, name, headline, "
+            "substr(content, 1, 600) AS content "
             "FROM hist.conversation_history "
             "WHERE " + " AND ".join(where) + " ORDER BY seq DESC LIMIT ?"
         )
