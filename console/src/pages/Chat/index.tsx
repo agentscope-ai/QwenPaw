@@ -1231,8 +1231,9 @@ export default function ChatPage() {
         // so customFetch uses the correct session_id, even if the global
         // was overwritten by a recent agent switch.
         if (next.backendSessionId) {
-          (window as unknown as { currentSessionId?: string }).currentSessionId =
-            next.backendSessionId;
+          (
+            window as unknown as { currentSessionId?: string }
+          ).currentSessionId = next.backendSessionId;
         }
         chatRef.current?.input.submit({
           query: next.text,
