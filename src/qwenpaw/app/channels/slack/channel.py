@@ -42,8 +42,10 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import time
+import os
+import random
 import re
+import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -203,7 +205,7 @@ class SlackChannel(BaseChannel):  # pylint: disable=too-many-public-methods
         self._bot_message_ts: Dict[str, float] = {}
         self._bot_message_ts_lock = asyncio.Lock()
         self._thread_context_cache: Dict[str, tuple[str, float]] = {}
-        self.THREAD_CONTEXT_CACHE_TTL: float = 60.0  # seconds
+        self._thread_context_cache_ttl: float = 60.0
 
     @property
     def media_dir(self) -> Path:
@@ -216,8 +218,6 @@ class SlackChannel(BaseChannel):  # pylint: disable=too-many-public-methods
         process: ProcessHandler,
         on_reply_sent: OnReplySent = None,
     ) -> "SlackChannel":
-        import os
-
         allow_from_env = os.getenv("SLACK_ALLOW_FROM", "")
         allow_from = (
             [s.strip() for s in allow_from_env.split(",") if s.strip()]
@@ -527,8 +527,6 @@ class SlackChannel(BaseChannel):  # pylint: disable=too-many-public-methods
                 SLACK_RECONNECT_MAX_S,
             )
             if delay > 0:
-                import random
-
                 jitter = (
                     delay * SLACK_RECONNECT_JITTER * (2 * random.random() - 1)
                 )
@@ -1053,7 +1051,8 @@ class SlackChannel(BaseChannel):  # pylint: disable=too-many-public-methods
         key = f"{channel_id}:{thread_ts}"
         cached = self._thread_context_cache.get(key)
         if cached and (
-            time.monotonic() - cached[1] < self.THREAD_CONTEXT_CACHE_TTL
+            time.monotonic() - cached[1]
+            < self._thread_context_cache_ttl
         ):
             return cached[0]
         return None

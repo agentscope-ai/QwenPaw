@@ -25,6 +25,7 @@ from agentscope_runtime.engine.schemas.agent_schemas import (
 )
 
 from .constants import (
+    SLACK_SSRF_ALLOWED_SUFFIXES,
     SLACK_TEXT_LIMIT,
 )
 from .format import chunk_slack_text, markdown_to_slack_mrkdwn
@@ -44,16 +45,9 @@ def _is_slack_ssrf_allowed(url: str) -> bool:
     host = (urlparse(url).hostname or "").lower()
     if not host:
         return False
-
-    # Exact suffix matching — Prevent fnmatch wildcards from being bypassed
-    _ALLOWED_SUFFIXES: tuple[str, ...] = (
-        ".slack.com",
-        ".slack-edge.com",
-        ".slack-files.com",
-    )
     return any(
         host == suffix[1:] or host.endswith(suffix)
-        for suffix in _ALLOWED_SUFFIXES
+        for suffix in SLACK_SSRF_ALLOWED_SUFFIXES
     )
 
 

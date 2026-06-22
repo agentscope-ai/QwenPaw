@@ -447,7 +447,10 @@ class TestDetectFileType:
     def test_unknown_extension(self):
         from qwenpaw.app.channels.slack.utils import detect_file_type
 
-        assert detect_file_type("file.xyz") == "application/octet-stream"
+        assert (
+            detect_file_type("file.unknownext123")
+            == "application/octet-stream"
+        )
 
 
 class TestIsSlackHost:
@@ -2149,7 +2152,7 @@ class TestSlackChannelAdvancedInit:
         assert isinstance(slack_channel._thread_context_cache, dict)
         assert hasattr(slack_channel, "_bot_message_ts")
         assert isinstance(slack_channel._bot_message_ts, dict)
-        assert slack_channel.THREAD_CONTEXT_CACHE_TTL == 60.0
+        assert slack_channel._thread_context_cache_ttl == 60.0
 
 
 # =============================================================================
@@ -2305,7 +2308,7 @@ class TestSlackChannelThreadContextCache:
         assert result is None
 
     def test_get_cached_thread_context_expired(self, slack_channel):
-        slack_channel.THREAD_CONTEXT_CACHE_TTL = 0.0
+        slack_channel._thread_context_cache_ttl = 0.0
         slack_channel.set_cached_thread_context(
             "C123",
             "123.456",

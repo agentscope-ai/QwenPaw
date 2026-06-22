@@ -123,16 +123,15 @@ def is_slack_host(url: str) -> bool:
     """Return *True* if *url* is hosted on a Slack domain."""
     from urllib.parse import urlparse
 
+    from .constants import SLACK_SSRF_ALLOWED_SUFFIXES
+
     host = (urlparse(url).hostname or "").lower()
     if not host:
         return False
-
-    _ALLOWED_SUFFIXES = (
-        ".slack.com",
-        ".slack-edge.com",
-        ".slack-files.com",
+    return any(
+        host == s[1:] or host.endswith(s)
+        for s in SLACK_SSRF_ALLOWED_SUFFIXES
     )
-    return any(host == s[1:] or host.endswith(s) for s in _ALLOWED_SUFFIXES)
 
 
 # ── Retry helpers ──

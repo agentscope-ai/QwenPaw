@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import time
 from collections import OrderedDict
 from typing import TYPE_CHECKING, Any, Callable, Dict, Optional
@@ -458,8 +459,6 @@ class SlackEventHandler:
         (timeouts, 429, 5xx).  Returns the absolute path to the cached
         temp file, or *None* on failure.
         """
-        import os as _os
-
         headers = {"Authorization": f"Bearer {self._channel.bot_token}"}
         last_exc = None
 
@@ -517,9 +516,10 @@ class SlackEventHandler:
             return None
 
         # Cache locally
-        suffix = _os.path.splitext(filename)[1] or ""
+        suffix = os.path.splitext(filename)[1] or ""
         path = str(
-            self._channel.media_dir / f"slack_{_os.urandom(8).hex()}{suffix}",
+            self._channel.media_dir
+            / f"slack_{os.urandom(8).hex()}{suffix}",
         )
         with open(path, "wb") as fh:
             fh.write(data)

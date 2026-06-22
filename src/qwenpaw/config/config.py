@@ -470,9 +470,19 @@ class SlackConfig(BaseChannelConfig):
 
     bot_token: str = ""
     app_token: str = ""
+    bot_prefix: str = ""
     proxy: Optional[str] = None
     streaming_enabled: bool = False
+    require_mention: bool = True
     media_dir: Optional[str] = None
+    dm_policy: str = "open"
+    group_policy: str = "open"
+    allow_from: Optional[list] = None
+    deny_message: str = ""
+    access_control_dm: bool = False
+    access_control_group: bool = False
+    dm_disabled: bool = False
+    group_disabled: bool = False
 
 
 class ChannelConfig(BaseModel):
