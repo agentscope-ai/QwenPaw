@@ -354,7 +354,13 @@ async def edit_file(
     )
 
     if write_response.content and len(write_response.content) > 0:
-        write_text = write_response.content[0].get("text", "")
+        first_block = write_response.content[0]
+        if hasattr(first_block, "text"):
+            write_text = str(getattr(first_block, "text", ""))
+        elif isinstance(first_block, dict):
+            write_text = str(first_block.get("text", ""))
+        else:
+            write_text = str(first_block)
         if write_text.startswith("Error:"):
             return write_response
 

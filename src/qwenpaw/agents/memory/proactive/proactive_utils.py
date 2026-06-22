@@ -251,7 +251,13 @@ async def _analyze_screen_activity(
 
         content = screenshot_result.content
         if isinstance(content, list) and len(content) > 0:
-            result_text = content[0].get("text", "")
+            first_block = content[0]
+            if hasattr(first_block, "text"):
+                result_text = str(getattr(first_block, "text", ""))
+            elif isinstance(first_block, dict):
+                result_text = str(first_block.get("text", ""))
+            else:
+                result_text = str(first_block)
         else:
             result_text = str(content)
 
