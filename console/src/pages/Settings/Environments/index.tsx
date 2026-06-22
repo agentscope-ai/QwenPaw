@@ -264,6 +264,7 @@ function EnvironmentsPage() {
       <PageHeader
         parent={t("environments.parent")}
         current={t("environments.environments")}
+        className={styles.pageHeader}
       />
 
       {/* ---- Content ---- */}
