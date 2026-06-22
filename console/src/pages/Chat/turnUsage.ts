@@ -198,9 +198,9 @@ export function schedulePatchLastResponseCardUsage(
 export function patchContextMaxInputLength(
   chatRef: React.RefObject<IAgentScopeRuntimeWebUIRef | null>,
   newMaxInputLength: number,
-): boolean {
+): void {
   const messagesApi = chatRef.current?.messages;
-  if (!messagesApi || newMaxInputLength <= 0) return false;
+  if (!messagesApi || newMaxInputLength <= 0) return;
 
   const allMessages = messagesApi.getMessages() ?? [];
   for (let i = allMessages.length - 1; i >= 0; i--) {
@@ -215,7 +215,7 @@ export function patchContextMaxInputLength(
     if (
       readNumber(snap.context_usage, "max_input_length") === newMaxInputLength
     ) {
-      return true;
+      return;
     }
 
     const newRatio = Math.min(
@@ -226,7 +226,7 @@ export function patchContextMaxInputLength(
       JSON.stringify(msg),
     ) as IAgentScopeRuntimeWebUIMessage;
     const updatedData = getResponseCardData(updatedMsg.cards);
-    if (!updatedData) return false;
+    if (!updatedData) return;
     updatedData.context_usage = {
       estimated_tokens: estimatedTokens,
       max_input_length: newMaxInputLength,
@@ -235,9 +235,8 @@ export function patchContextMaxInputLength(
     ReactDOM.flushSync(() => {
       messagesApi.updateMessage(updatedMsg);
     });
-    return true;
+    return;
   }
-  return false;
 }
 
 function parseSseDataLines(buffer: string): {
