@@ -98,6 +98,7 @@ class SlackEventHandler:
         self._dedup_map: OrderedDict[str, float] = OrderedDict()
         self._thread_participation: Dict[str, float] = {}
         self._http_session: Optional[aiohttp.ClientSession] = None
+        self._user_name_cache: Dict[str, str] = {}
 
     # ── Registration ──
 
@@ -144,9 +145,6 @@ class SlackEventHandler:
         if subtype in _SKIP_SUBTYPES:
             return
         if subtype and subtype not in _ALLOWED_SUBTYPES:
-            return
-        if subtype == "message_changed":
-            await self._handle_message_changed(event, client)
             return
         # 2. Skip bot messages
         if event.get("bot_id"):
@@ -242,7 +240,8 @@ class SlackEventHandler:
         if not content_parts:
             return
 
-        # 10. Build & enqueue native dict
+        # 10. Resolve display name (cached) and build native dict
+        user_name = await self._resolve_user_name(user_id, client)
         session_id = generate_session_id(
             channel_id=channel_id,
             thread_ts=thread_ts,
@@ -252,6 +251,7 @@ class SlackEventHandler:
         native: Dict[str, Any] = {
             "channel_id": self._channel.channel,
             "sender_id": user_id,
+            "acl_sender_id": user_id,
             "user_id": user_id,
             "session_id": session_id,
             "content_parts": content_parts,
@@ -260,9 +260,9 @@ class SlackEventHandler:
                 "slack_thread_ts": thread_ts,
                 "slack_message_ts": event_ts,
                 "slack_user_id": user_id,
-                "is_dm": is_dm,
                 "is_group": is_group,
                 "bot_mentioned": was_mentioned,
+                "user_name": user_name,
             },
         }
         if file_extraction_failed:
@@ -280,80 +280,6 @@ class SlackEventHandler:
         # without bounds it would grow unboundedly.  We trim the
         # oldest half when exceeding 5000 entries.
         await self._channel.prune_bot_message_ts()
-
-    async def _handle_message_changed(
-        self,
-        event: dict,
-        _client: Any,
-    ) -> None:
-        """Handle ``message_changed`` events.
-
-        Only processes messages that belong to a Slack assistant thread
-        (``assistant_thread`` metadata).  Other edit events are ignored
-        to avoid double-processing user edits.
-
-        The bot's own message edits are also skipped to prevent
-        self-triggered loops.
-        """
-        message = event.get("message", {})
-        if not isinstance(message, dict):
-            return
-
-        # Only process assistant-thread messages.
-        metadata = message.get("metadata", {})
-        if not isinstance(metadata, dict):
-            return
-        if not metadata.get("event_type") == "assistant_thread":
-            return
-
-        # Skip the bot's own message edits.
-        bot_id = self._channel.bot_user_id or None
-        if bot_id and message.get("bot_id"):
-            if message.get("user") == bot_id:
-                return
-
-        # Use the message's own user field (the original author).
-        user_id = message.get("user") or event.get("user") or ""
-        if not user_id:
-            return
-
-        # Extract text from the edited message.
-        text = _extract_message_text(message, self._bot_prefix)
-        if not text.strip():
-            return
-
-        channel_id = event.get("channel") or ""
-        thread_ts = message.get("thread_ts") or event.get("thread_ts") or ""
-        event_ts = message.get("ts") or event.get("ts") or ""
-        is_dm = channel_id.startswith("D")
-
-        # Build native payload and enqueue.
-        session_id = generate_session_id(
-            channel_id=channel_id,
-            thread_ts=thread_ts,
-            user_id=user_id,
-            is_dm=is_dm,
-        )
-        native: Dict[str, Any] = {
-            "channel_id": self._channel.channel,
-            "sender_id": user_id,
-            "user_id": user_id,
-            "session_id": session_id,
-            "content_parts": [TextContent(text=text)],
-            "meta": {
-                "slack_channel_id": channel_id,
-                "slack_thread_ts": thread_ts,
-                "slack_message_ts": event_ts,
-                "slack_user_id": user_id,
-                "is_dm": is_dm,
-                "is_group": not is_dm,
-                "bot_mentioned": False,
-                "edited": True,
-            },
-        }
-
-        if self._enqueue:
-            self._enqueue(native)
 
     async def close(self) -> None:
         """Close the internal aiohttp session if open."""
@@ -636,8 +562,10 @@ class SlackEventHandler:
         """Look up a Slack user's display name via ``users.info``.
 
         Falls back to the user ID when the API call fails or the user
-        is not found.
+        is not found.  Results are cached per user_id.
         """
+        if user_id in self._user_name_cache:
+            return self._user_name_cache[user_id]
         try:
             resp = await with_retry(
                 client.users_info,
@@ -649,12 +577,15 @@ class SlackEventHandler:
                 if isinstance(profile, dict):
                     display = profile.get("display_name")
                     if display:
+                        self._user_name_cache[user_id] = display
                         return display
                     real = profile.get("real_name")
                     if real:
+                        self._user_name_cache[user_id] = real
                         return real
                 name = info.get("real_name") or info.get("name")
                 if name:
+                    self._user_name_cache[user_id] = name
                     return name
         except Exception:
             logger.debug(
@@ -682,6 +613,7 @@ class SlackEventHandler:
         native = {
             "channel_id": self._channel.channel,
             "sender_id": user_id,
+            "acl_sender_id": user_id,
             "user_id": user_id,
             "session_id": session_id,
             "content_parts": [TextContent(text=full_text)],
@@ -691,6 +623,7 @@ class SlackEventHandler:
                 "slack_message_ts": "",
                 "slack_user_id": user_id,
                 "slack_is_dm": is_dm,
+                "is_group": not is_dm,
                 "slack_response_url": command.get("response_url", ""),
                 "slack_is_slash_command": True,
             },

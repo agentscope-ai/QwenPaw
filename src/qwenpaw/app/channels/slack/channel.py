@@ -349,40 +349,17 @@ class SlackChannel(BaseChannel):  # pylint: disable=too-many-public-methods
         if self._app is not None:
             self._event_handler.register(self._app)
 
-        # Retrieve all command names from CommandRegistry and CommandHandler,
-        # and register them with Slack
-        _slash_names = set()
-
-        # _command_registry is injected by ChannelManager.set_workspace(),
-        # but may not yet be set during the _on_init() phase,
-        # so precautions are needed.
-        registry = getattr(self, "_command_registry", None)
-        if registry is not None:
-            for cmd in registry._command_to_level:
-                name = cmd.lstrip("/").split()[0]
-                if name:
-                    _slash_names.add(name)
-
-        from qwenpaw.agents.command_handler import CommandHandler
-
-        for name in CommandHandler.SYSTEM_COMMANDS:
-            _slash_names.add(name)
-
-        if _slash_names:
-            _slash_pattern = re.compile(
-                r"^/(?:"
-                + "|".join(re.escape(n) for n in sorted(_slash_names))
-                + r")$",
+        # Register a catch-all Slash Command handler.
+        # Any slash command configured in the Slack App dashboard
+        # will be reconstructed as "/<name> <text>" and enqueued.
+        @self._app.command(re.compile(r'^/.+'))
+        async def _handle_qwenpaw_slash(ack, command):
+            slash_name = (command.get('command') or '').lstrip('/')
+            await ack(
+                response_type='ephemeral',
+                text=f'Running `/{slash_name}`…',
             )
-
-            @self._app.command(_slash_pattern)
-            async def _handle_qwenpaw_slash(ack, command):
-                slash_name = (command.get("command") or "").lstrip("/")
-                await ack(
-                    response_type="ephemeral",
-                    text=f"Running `/{slash_name}`…",
-                )
-                await self._event_handler.handle_slash_command(command)
+            await self._event_handler.handle_slash_command(command)
 
         self._sender = SlackSender(channel=self)
         self._stream_manager = SlackStreamManager(channel=self)

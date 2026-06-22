@@ -1254,59 +1254,6 @@ class TestSlackEventHandlerRichTextExtraction:
         assert "```" in result
 
 
-class TestSlackEventHandlerMessageChanged:
-    @pytest.mark.asyncio
-    async def test_message_changed_assistant_thread(
-        self,
-        slack_event_handler,
-        mock_enqueue,
-    ):
-        event = {
-            "channel": "C123",
-            "thread_ts": "1234567890.123456",
-            "ts": "1234567890.123456",
-            "message": {
-                "user": "U456",
-                "text": "Edited message",
-                "thread_ts": "1234567890.123456",
-                "metadata": {"event_type": "assistant_thread"},
-            },
-        }
-        await slack_event_handler._handle_message_changed(event, AsyncMock())
-        mock_enqueue.assert_called_once()
-        call_args = mock_enqueue.call_args[0][0]
-        assert call_args["meta"]["edited"] is True
-        assert call_args["content_parts"][0].text == "Edited message"
-
-    @pytest.mark.asyncio
-    async def test_message_changed_skip_non_assistant(
-        self,
-        slack_event_handler,
-        mock_enqueue,
-    ):
-        event = {"message": {"metadata": {"event_type": "something_else"}}}
-        await slack_event_handler._handle_message_changed(event, AsyncMock())
-        mock_enqueue.assert_not_called()
-
-    @pytest.mark.asyncio
-    async def test_message_changed_skip_bot_own_edit(
-        self,
-        slack_channel,
-        slack_event_handler,
-        mock_enqueue,
-    ):
-        slack_channel._bot_user_id = "U999"
-        event = {
-            "message": {
-                "user": "U999",
-                "bot_id": "B999",
-                "metadata": {"event_type": "assistant_thread"},
-            },
-        }
-        await slack_event_handler._handle_message_changed(event, AsyncMock())
-        mock_enqueue.assert_not_called()
-
-
 class TestSlackEventHandlerFileExtraction:
     @pytest.mark.asyncio
     async def test_extract_file_parts_image(
@@ -2395,7 +2342,6 @@ class TestSlackEventHandlerFullPipeline:
         await slack_event_handler._handle_event(event, mock_client)
         mock_enqueue.assert_called_once()
         native = mock_enqueue.call_args[0][0]
-        assert native["meta"]["is_dm"] is True
         assert native["meta"]["is_group"] is False
 
     async def test_handle_event_group_with_mention(
