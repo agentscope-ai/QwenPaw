@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """CLI command: run QwenPaw app on a free port in a native webview window."""
 
 # pylint:disable=too-many-branches,too-many-statements,consider-using-with

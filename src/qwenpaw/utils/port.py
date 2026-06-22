@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """Port persistence utilities for desktop backends.
 
 Provides helpers to persist and reuse the backend port across restarts
