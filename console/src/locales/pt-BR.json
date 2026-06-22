@@ -2452,5 +2452,21 @@
       "LOAD_FAILED": "Falha ao carregar a visualização do arquivo.",
       "LOAD_FAILED_DETAIL": "Falha ao carregar a visualização do arquivo: {{detail}}"
     }
+  },
+  "managePrd": {
+    "status": "Status",
+    "id": "ID",
+    "title": "Título",
+    "priority": "Prioridade",
+    "description": "Descrição",
+    "acceptance": "Critérios de Aceitação",
+    "completed": "Concluído",
+    "pending": "Pendente",
+    "progress": "Progresso",
+    "loading": "Atualizando PRD...",
+    "errorPrefix": "Erro de formato do PRD, será corrigido: ",
+    "unknownError": "Erro desconhecido",
+    "expandMore": "+{{count}} itens...",
+    "collapse": "Recolher"
   }
 }

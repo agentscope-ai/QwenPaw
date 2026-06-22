@@ -59,7 +59,7 @@ qwenpaw plugin install /path/to/cloudpaw
 qwenpaw plugin install https://qwenpaw-download.oss-ap-southeast-1.aliyuncs.com/files/plugins/cloudpaw/cloudpaw-0.0.3.zip
 ```
 
-> **⚠️ 重要提示：安装完成后必须强制刷新浏览器**（`Ctrl+Shift+R` / `Cmd+Shift+R`）以加载前端更新。CloudPaw 的自定义 UI 组件（方案选择、PRD 管理等）在刷新前不会显示。如果安装后发现功能缺失，请先尝试刷新页面。
+> **⚠️ 重要提示：安装完成后必须强制刷新浏览器**（`Ctrl+Shift+R` / `Cmd+Shift+R`）以加载前端更新。CloudPaw 的自定义 UI 组件（方案选择等）在刷新前不会显示。如果安装后发现功能缺失，请先尝试刷新页面。
 
 ### 2. 完成必要配置
 
@@ -124,7 +124,6 @@ QwenPaw/
 
 - **IaC 部署编排**：通过 [iac-code](https://github.com/aliyun/iac-code) 引擎自动生成 ROS/Terraform 模板，实现阿里云资源自动化部署
 - **资源方案选择**：交互式多方案对比和选择，提供专属前端渲染（`proposal_choice` 工具）
-- **PRD 管理前端增强**：为 QwenPaw Mission Mode 的 PRD 管理提供自定义前端渲染组件（`manage_prd` 工具）
 - **多 Agent 协作**：基于 QwenPaw Mission Mode 编排多个 Agent 协同完成复杂部署任务
 - **阿里云 Skills 远程托管能力接入**：通过 A2A 协议连接阿里云 Skills 门户的远程托管 Agent，支持流式实时显示响应进度
 - **自动依赖安装**：插件启动时自动安装 `iac-code` 和阿里云 CLI

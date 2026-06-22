@@ -52,14 +52,6 @@ _AGENT_SPECS: list[dict[str, Any]] = [
                 "description": "展示资源部署方案供用户确认或调整",
                 "icon": "☁️",
             },
-            "manage_prd": {
-                "name": "manage_prd",
-                "enabled": True,
-                "description": (
-                    "操作 PRD stories：" "create/add/update/delete/mark_passed"
-                ),
-                "icon": "📋",
-            },
             "delegate_external_agent": {
                 "name": "delegate_external_agent",
                 "enabled": True,

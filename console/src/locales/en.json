@@ -2647,5 +2647,21 @@
       "LOAD_FAILED": "Failed to load file preview.",
       "LOAD_FAILED_DETAIL": "Failed to load file preview: {{detail}}"
     }
+  },
+  "managePrd": {
+    "status": "Status",
+    "id": "ID",
+    "title": "Title",
+    "priority": "Priority",
+    "description": "Description",
+    "acceptance": "Acceptance Criteria",
+    "completed": "Completed",
+    "pending": "Pending",
+    "progress": "Progress",
+    "loading": "Updating PRD...",
+    "errorPrefix": "PRD format error, will be corrected: ",
+    "unknownError": "Unknown error",
+    "expandMore": "+{{count}} items...",
+    "collapse": "Collapse"
   }
 }

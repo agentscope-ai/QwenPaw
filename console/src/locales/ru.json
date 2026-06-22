@@ -2428,5 +2428,21 @@
       "LOAD_FAILED": "Не удалось загрузить предпросмотр файла.",
       "LOAD_FAILED_DETAIL": "Не удалось загрузить предпросмотр файла: {{detail}}"
     }
+  },
+  "managePrd": {
+    "status": "Статус",
+    "id": "ID",
+    "title": "Название",
+    "priority": "Приоритет",
+    "description": "Описание",
+    "acceptance": "Критерии приёмки",
+    "completed": "Выполнено",
+    "pending": "В ожидании",
+    "progress": "Прогресс",
+    "loading": "Обновление PRD...",
+    "errorPrefix": "Ошибка формата PRD, будет исправлено: ",
+    "unknownError": "Неизвестная ошибка",
+    "expandMore": "+{{count}} элем...",
+    "collapse": "Свернуть"
   }
 }

@@ -2,7 +2,7 @@
   "name": "cloudpaw-plugin-ui",
   "version": "0.0.3",
   "private": true,
-  "description": "Frontend UI for the CloudPaw plugin — custom tool renderers for proposal_choice and manage_prd",
+  "description": "Frontend UI for the CloudPaw plugin — custom tool renderer for proposal_choice",
   "scripts": {
     "dev": "vite build --watch",
     "build": "vite build"

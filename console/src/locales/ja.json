@@ -2413,5 +2413,21 @@
       "LOAD_FAILED": "ファイルプレビューの読み込みに失敗しました。",
       "LOAD_FAILED_DETAIL": "ファイルプレビューの読み込みに失敗しました: {{detail}}"
     }
+  },
+  "managePrd": {
+    "status": "ステータス",
+    "id": "ID",
+    "title": "タイトル",
+    "priority": "優先度",
+    "description": "説明",
+    "acceptance": "受け入れ基準",
+    "completed": "完了",
+    "pending": "保留中",
+    "progress": "進捗",
+    "loading": "PRDを更新中...",
+    "errorPrefix": "PRDフォーマットエラー、修正されます：",
+    "unknownError": "不明なエラー",
+    "expandMore": "+{{count}} 件...",
+    "collapse": "閉じる"
   }
 }

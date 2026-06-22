@@ -266,8 +266,10 @@ def _remaining_summary(
         "1. Dispatch **workers** for remaining stories\n"
         "2. Once a worker finishes, dispatch a **verifier** for "
         "that story\n"
-        "3. Parse verifier VERDICT: PASS → set `passes: true` "
-        "in prd.json; FAIL → retry with error context\n\n"
+        "3. Parse verifier VERDICT: **only PASS** → use "
+        "`manage_prd(operation='mark_passed', ...)` to set passes; "
+        "FAIL/PARTIAL → retry with error context. "
+        "NEVER mark_passed before verifier says PASS.\n\n"
         "Remember: you are the CONTROLLER — delegate ALL work "
         "via `qwenpaw agents chat --background`."
     )
@@ -280,28 +282,33 @@ _PRD_FIX_PROMPT = """\
 ⚠️ **prd.json schema validation FAILED**. Problems found:
 {problems}
 
-You MUST rewrite `{loop_dir}/prd.json` using the **exact** schema below.
-Do NOT invent your own fields.
+You MUST fix prd.json using the `manage_prd` tool.
+Do NOT use `write_file` or `edit_file` to modify prd.json.
 
-**Required top-level structure:**
-```json
-{{
-  "project": "<short name>",
-  "branchName": "mission/<kebab-case>",
-  "description": "<one-line summary>",
-  "userStories": [
-    {{
-      "id": "US-001",
-      "title": "<short title>",
-      "description": "As a <user>, I want <feature> so that <benefit>",
-      "acceptanceCriteria": ["<verifiable criterion 1>", ...],
-      "priority": 1,
-      "passes": false,
-      "notes": ""
-    }}
-  ]
-}}
+If prd.json does not exist yet, use:
 ```
+manage_prd(
+    loop_dir="{loop_dir}",
+    operation="create",
+    project="<short name>",
+    description="<one-line summary>",
+    stories=[
+        {{
+            "id": "US-001",
+            "title": "<short title>",
+            "description": "As a <user>, I want <feature> so that <benefit>",
+            "acceptanceCriteria": ["<verifiable criterion 1>", ...],
+            "priority": 1
+        }}
+    ]
+)
+```
+
+⚠️ `acceptanceCriteria` MUST be an array of strings, not a single string.
+```
+
+If prd.json exists but has wrong structure, use `manage_prd` to
+recreate it (delete then create, or update individual stories).
 
 **Rules:**
 - Top-level MUST have `userStories` (array), NOT `features`, `tasks`, etc.
@@ -311,7 +318,7 @@ acceptanceCriteria, priority, passes, notes
 - All `passes` MUST be `false` initially
 - `acceptanceCriteria` MUST be a non-empty array of strings
 
-Rewrite prd.json NOW with the correct format. \
+Fix prd.json NOW using `manage_prd`. \
 Keep the same task decomposition \
 but restructure it into the required schema.
 """

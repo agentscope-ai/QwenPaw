@@ -59,7 +59,7 @@ qwenpaw plugin install /path/to/cloudpaw
 qwenpaw plugin install https://qwenpaw-download.oss-ap-southeast-1.aliyuncs.com/files/plugins/cloudpaw/cloudpaw-0.0.3.zip
 ```
 
-> **⚠️ 重要：インストール後、ブラウザを強制リフレッシュする必要があります**（`Ctrl+Shift+R` / `Cmd+Shift+R`）。CloudPaw のカスタム UI コンポーネント（提案選択、PRD 管理など）はページをリフレッシュするまで表示されません。インストール後に機能が不足している場合は、まずリフレッシュをお試しください。
+> **⚠️ 重要：インストール後、ブラウザを強制リフレッシュする必要があります**（`Ctrl+Shift+R` / `Cmd+Shift+R`）。CloudPaw のカスタム UI コンポーネント（提案選択など）はページをリフレッシュするまで表示されません。インストール後に機能が不足している場合は、まずリフレッシュをお試しください。
 
 ### 2. 設定
 
@@ -122,7 +122,6 @@ QwenPaw/
 
 - **IaC デプロイオーケストレーション**：[iac-code](https://github.com/aliyun/iac-code) エンジンによる ROS/Terraform テンプレート生成で Alibaba Cloud リソースデプロイを自動化
 - **リソース提案選択**：専用フロントエンドレンダリングによるインタラクティブな複数提案の比較と選択（`proposal_choice` ツール）
-- **PRD 管理フロントエンド拡張**：QwenPaw Mission Mode の PRD 管理用カスタムフロントエンドレンダリング（`manage_prd` ツール）
 - **マルチ Agent 協調**：QwenPaw Mission Mode を通じて複数の Agent を編成し、複雑なデプロイタスクを実行
 - **Alibaba Cloud Skills リモート Agent 統合**：A2A プロトコルを通じて Alibaba Cloud Skills Hub のリモート Agent に接続・呼び出し、リアルタイムストリーミング表示
 - **自動依存関係セットアップ**：プラグイン起動時に `iac-code` と Alibaba Cloud CLI を自動インストール

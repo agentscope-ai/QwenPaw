@@ -4,7 +4,7 @@
 Provides Alibaba Cloud deployment orchestration capabilities:
 - Built-in agents (Orchestration + IaC Code + Executor + Verifier)
 - Custom skills (alicloud_cli, terraform, etc.)
-- Custom tools (proposal_choice, manage_prd)
+- Custom tools (proposal_choice)
 - API router (interaction)
 - IaC Code ACP integration (iac-code agent via ACP protocol)
 

@@ -3,7 +3,6 @@
  *
  * Registers custom tool renderers for:
  * - proposal_choice: interactive resource proposal tables with confirm/adjust
- * - manage_prd: interactive PRD display (auto-rendered after each manage_prd call)
  *
  * Uses window.QwenPaw plugin API (PR #3512+)
  */
@@ -20,24 +19,15 @@ function buildPlugin() {
     Button,
     Input,
     Radio,
-    Collapse,
     Descriptions,
-    Tooltip,
     Spin,
     message: antdMessage,
     theme,
   } = antd;
   const { Text } = Typography;
   const { TextArea } = Input;
-  const { useState, useMemo, useCallback, useRef } = React;
-  const {
-    InfoCircleOutlined,
-    DownOutlined,
-    RightOutlined,
-    CheckCircleOutlined,
-    FieldTimeOutlined,
-    FileTextOutlined,
-  } = antdIcons || {};
+  const { useState, useMemo, useCallback } = React;
+  const { InfoCircleOutlined, DownOutlined, RightOutlined } = antdIcons || {};
 
   // ── Helpers ──────────────────────────────────────────────────────────
 
@@ -836,285 +826,6 @@ function buildPlugin() {
       multiHint,
       disclaimer,
       !isCompleted && actionSection,
-    );
-  }
-
-  // ── manage_prd renderer ───────────────────────────────────────────────
-
-  function ManagePRDRender({ data }: { data: any }) {
-    const [prd, setPrd] = useState<any>(null);
-    const [fetchError, setFetchError] = useState(false);
-    const isLoading =
-      data?.status === "in_progress" || data?.status === "created";
-
-    const loopDir = useMemo(() => {
-      const args = parseToolArgs(data);
-      return args?.loop_dir || null;
-    }, [data]);
-
-    const toolResult = useMemo(() => {
-      const outputText = extractOutputText(data?.content?.[1]?.data?.output);
-      if (!outputText) return null;
-      try {
-        return JSON.parse(outputText);
-      } catch {
-        return null;
-      }
-    }, [data]);
-
-    const isSuccess = toolResult?.status === "ok";
-    const isError = toolResult?.status === "error";
-    const errorMessage = isError ? toolResult?.message || "未知错误" : null;
-
-    const fetchPrd = useCallback(async () => {
-      if (!loopDir) return;
-      try {
-        const token = getApiToken();
-        const headers: Record<string, string> = {};
-        if (token) headers["Authorization"] = `Bearer ${token}`;
-        const res = await fetch(
-          getApiUrl(`/prd?loop_dir=${encodeURIComponent(loopDir)}`),
-          { headers },
-        );
-        if (!res.ok) {
-          setFetchError(true);
-          return;
-        }
-        const json = await res.json();
-        if (json && Array.isArray(json.userStories)) {
-          setPrd(json);
-          setFetchError(false);
-        } else {
-          setFetchError(true);
-        }
-      } catch {
-        setFetchError(true);
-      }
-    }, [loopDir]);
-
-    React.useEffect(() => {
-      if (!isLoading && isSuccess && loopDir) fetchPrd();
-    }, [isLoading, isSuccess, loopDir, fetchPrd]);
-
-    if (isLoading) {
-      return React.createElement(
-        "div",
-        {
-          style: {
-            width: "100%",
-            borderRadius: 10,
-            border: "1px solid #f0f0f0",
-            background: "#fff",
-            padding: "24px 16px",
-            margin: "4px 0",
-            display: "flex",
-            flexDirection: "column",
-            alignItems: "center",
-            gap: 12,
-          },
-        },
-        React.createElement(Spin, { size: "default" }),
-        React.createElement(
-          Text,
-          { type: "secondary", style: { fontSize: 13 } },
-          "正在更新 PRD...",
-        ),
-      );
-    }
-
-    if (isError) {
-      return React.createElement(
-        "div",
-        {
-          style: {
-            width: "100%",
-            borderRadius: 10,
-            border: "1px solid #fff1f0",
-            background: "#fff1f0",
-            padding: "12px 16px",
-            margin: "4px 0",
-            display: "flex",
-            alignItems: "center",
-            gap: 8,
-          },
-        },
-        React.createElement(
-          Text,
-          { type: "danger", style: { fontSize: 13 } },
-          `PRD 格式错误，将会修正：${errorMessage}`,
-        ),
-      );
-    }
-
-    if (!isSuccess || fetchError || !prd) return null;
-
-    const stories = prd.userStories;
-    const sortedStories = [...stories].sort(
-      (a: any, b: any) => (a.priority || 99) - (b.priority || 99),
-    );
-    const passedCount = stories.filter((s: any) => s.passes).length;
-
-    const storyColumns = [
-      {
-        title: "状态",
-        key: "status",
-        width: 50,
-        align: "center" as const,
-        render: (_: any, record: any) => {
-          if (record.passes) {
-            const icon = CheckCircleOutlined
-              ? React.createElement(CheckCircleOutlined, {
-                  style: { color: "#52c41a", fontSize: 18 },
-                })
-              : "✅";
-            return React.createElement(Tooltip, { title: "已完成" }, icon);
-          }
-          const icon = FieldTimeOutlined
-            ? React.createElement(FieldTimeOutlined, {
-                style: { color: "#faad14", fontSize: 18 },
-              })
-            : "🕐";
-          return React.createElement(Tooltip, { title: "待处理" }, icon);
-        },
-      },
-      {
-        title: "ID",
-        dataIndex: "id",
-        key: "id",
-        width: 85,
-        render: (val: string) =>
-          React.createElement(Tag, { color: "blue" }, val),
-      },
-      {
-        title: "标题",
-        dataIndex: "title",
-        key: "title",
-        render: (val: string) =>
-          React.createElement(Text, { strong: true }, val),
-      },
-      {
-        title: "优先级",
-        key: "priority",
-        width: 70,
-        render: (_: any, record: any) => {
-          const p = record.priority;
-          return React.createElement(
-            Tag,
-            { color: "default" },
-            p != null ? String(p) : "-",
-          );
-        },
-      },
-      {
-        title: "描述",
-        dataIndex: "description",
-        key: "description",
-        ellipsis: true,
-      },
-      {
-        title: "验收标准",
-        key: "acceptance",
-        width: 200,
-        render: (_: any, record: any) => {
-          const criteria = record.acceptanceCriteria;
-          if (typeof criteria === "string") {
-            return React.createElement(
-              "div",
-              {
-                style: { fontSize: 12, color: "#666", whiteSpace: "pre-wrap" },
-              },
-              criteria.length > 100 ? criteria.slice(0, 100) + "..." : criteria,
-            );
-          }
-          if (Array.isArray(criteria)) {
-            return React.createElement(
-              "div",
-              { style: { fontSize: 12, color: "#666" } },
-              criteria.length > 2
-                ? criteria.slice(0, 2).join(", ") + "..."
-                : criteria.join(", "),
-            );
-          }
-          return "-";
-        },
-      },
-    ];
-
-    const titleEl = React.createElement(
-      Space,
-      { size: 8 },
-      FileTextOutlined
-        ? React.createElement(FileTextOutlined, { style: { color: "#1677ff" } })
-        : null,
-      React.createElement(
-        "span",
-        { style: { fontSize: 14 } },
-        React.createElement(Text, { strong: true }, prd.project || "PRD"),
-      ),
-    );
-
-    const storyTable = React.createElement(Table, {
-      columns: storyColumns,
-      dataSource: sortedStories.map((s: any) => ({ ...s, key: s.id })),
-      size: "small",
-      pagination: false,
-      scroll: { x: "max-content" },
-      style: { marginBottom: 4 },
-    });
-
-    return React.createElement(
-      "div",
-      {
-        style: {
-          width: "100%",
-          borderRadius: 10,
-          border: "1px solid #f0f0f0",
-          overflow: "hidden",
-          background: "#fff",
-          padding: "12px 16px",
-          margin: "4px 0",
-        },
-      },
-      React.createElement("div", { style: { marginBottom: 8 } }, titleEl),
-      React.createElement(Descriptions, {
-        size: "small",
-        column: { xs: 1, sm: 2, md: 3 },
-        style: { marginBottom: 12 },
-        bordered: false,
-        items: [
-          {
-            key: "progress",
-            label: "进度",
-            children: `${passedCount}/${stories.length} 完成`,
-          },
-        ],
-      }),
-      storyTable,
-      React.createElement(
-        "div",
-        {
-          style: {
-            fontSize: 11,
-            color: "#8c8c8c",
-            display: "flex",
-            alignItems: "center",
-            gap: 8,
-          },
-        },
-        CheckCircleOutlined
-          ? React.createElement(CheckCircleOutlined, {
-              style: { color: "#52c41a", fontSize: 14 },
-            })
-          : "✅",
-        React.createElement("span", null, "已完成"),
-        React.createElement("span", { style: { margin: "0 4px" } }, "·"),
-        FieldTimeOutlined
-          ? React.createElement(FieldTimeOutlined, {
-              style: { color: "#faad14", fontSize: 14 },
-            })
-          : "🕐",
-        React.createElement("span", null, "待处理"),
-      ),
     );
   }
 
@@ -3040,7 +2751,6 @@ function buildPlugin() {
 
   (window as any).QwenPaw.registerToolRender?.("cloudpaw", {
     proposal_choice: ProposalChoiceRender,
-    manage_prd: ManagePRDRender,
     a2a_call: A2ACallRender,
   });
 

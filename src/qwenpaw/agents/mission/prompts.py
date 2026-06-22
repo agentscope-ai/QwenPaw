@@ -59,7 +59,8 @@ you MUST NOT create any implementation files or run implementation
 commands.  Your ONLY output for Step 0 is `prd.json`.**
 
 Before starting the iteration loop, **you** must decompose the task
-into a structured prd.json.  You have tools — use them.
+into a structured prd.json.  Use the `manage_prd` tool — do NOT
+use `write_file` or `edit_file` on prd.json.
 
 **What good prd.json looks like (refer to this as your template):**
 
@@ -104,7 +105,8 @@ into a structured prd.json.  You have tools — use them.
 
 ### 0b. prd.json output format
 
-Write `{loop_dir}/prd.json` with this **exact structure**:
+Create prd.json via `manage_prd(operation="create", ...)` with this
+**exact structure**:
 
 **Required fields (do NOT rename or omit):**
 - `project`: short project name
@@ -117,48 +119,38 @@ Write `{loop_dir}/prd.json` with this **exact structure**:
 - `title`: short title
 - `description`: "As a [user], I want [feature] so that [benefit]"
 - `acceptanceCriteria`: array of verifiable criteria
+  **⚠️ MUST be an array ["...", "..."], NOT a single string.**
 - `priority`: number (1 = first, same number = parallel)
 - `passes`: boolean (always false initially)
 - `notes`: string (empty initially)
 
-**Example prd.json:**
+**Example `manage_prd` call:**
 
-```json
-{{
-  "project": "TaskApp",
-  "branchName": "mission/task-status",
-  "description": "Add task status tracking with filters",
-  "userStories": [
-    {{
-      "id": "US-001",
-      "title": "Add status field to database",
-      "description": "As a developer, I need to store task status.",
-      "acceptanceCriteria": [
-        "Add status column: 'pending' | 'in_progress' | 'done'",
-        "Generate and run migration",
-        "Typecheck passes"
-      ],
-      "priority": 1,
-      "passes": false,
-      "notes": ""
-    }},
-    {{
-      "id": "US-002",
-      "title": "Display status badge",
-      "description": "As a user, I want to see status at a glance.",
-      "acceptanceCriteria": [
-        "Each task card shows colored badge",
-        "Badge colors: gray=pending, blue=in_progress, green=done",
-        "Typecheck passes",
-        "Verify in browser"
-      ],
-      "priority": 2,
-      "passes": false,
-      "notes": ""
-    }}
-  ]
-}}
 ```
+manage_prd(
+    loop_dir="{loop_dir}",
+    operation="create",
+    project="<short name>",
+    description="<one-line summary>",
+    stories=[
+        {{
+            "id": "US-001",
+            "title": "<short title>",
+            "description": "As a <user>, I want <feature> so that <benefit>",
+            "acceptanceCriteria": ["<criterion 1>", "<criterion 2>"],
+            "priority": 1,
+            "passes": false,
+            "notes": ""
+        }}
+    ]
+)
+```
+
+**⚠️ Always pass `loop_dir="{loop_dir}"` in every `manage_prd` call.**
+
+**⚠️ Every story MUST include ALL fields: id, title, description,
+acceptanceCriteria (array), priority (int), passes (bool), notes (string).
+Do NOT omit any field.**
 
 **⚠️ CRITICAL: You MUST use this exact structure.  Do NOT invent your
 own fields like "project_name", "requirements", "tech_stack",
@@ -177,7 +169,65 @@ own fields like "project_name", "requirements", "tech_stack",
 
 **✅ CORRECT: Use the structure shown in the examples above.**
 
-### 0c. Story size — the number-one rule
+### 0c. Modifying PRD after creation
+
+Use `manage_prd` operations to modify existing PRD:
+
+**Add a story:**
+```
+manage_prd(
+    loop_dir="{loop_dir}",
+    operation="add",
+    story={{
+        "id": "US-004",
+        "title": "...",
+        "description": "...",
+        "acceptanceCriteria": ["criterion 1", "criterion 2"],
+        "priority": 3,
+        "passes": false,
+        "notes": ""
+    }}
+)
+```
+
+**Update story fields:**
+```
+manage_prd(
+    loop_dir="{loop_dir}",
+    operation="update",
+    story_id="US-001",
+    fields={{
+        "title": "new title",
+        "description": "new description",
+        "acceptanceCriteria": ["new criterion"],
+        "priority": 2,
+        "notes": "some note"
+    }}
+)
+```
+Forbidden fields: `id`, `passes` (cannot update these).
+
+**Delete stories:**
+```
+manage_prd(
+    loop_dir="{loop_dir}",
+    operation="delete",
+    story_ids=["US-001", "US-002"]
+)
+```
+
+**Mark stories passed (after verifier VERDICT: PASS):**
+```
+manage_prd(
+    loop_dir="{loop_dir}",
+    operation="mark_passed",
+    story_ids=["US-001"]
+)
+```
+
+**⚠️ Every operation MUST include `loop_dir`.**
+
+### 0d. Story size — the number-one rule
 
 **Each story must be completable in ONE worker iteration (one context
 window).**  Workers are fresh sessions with no memory.  If a story is
@@ -204,7 +254,7 @@ Too big (split these):
 **Rule of thumb:** if you cannot describe the change in 2–3 sentences,
 it is too big.
 
-### 0d. Story ordering & parallelism
+### 0e. Story ordering & parallelism
 
 Stories execute in `priority` order (1 = first).
 
@@ -225,7 +275,7 @@ Example:
 - US-003 (API using schema, priority 2) → after batch 1
 - US-004 (UI for API, priority 3) → after US-003
 
-### 0e. Acceptance criteria — must be verifiable
+### 0f. Acceptance criteria — must be verifiable
 
 Each criterion must be something the worker can **check**, not
 something vague.
@@ -247,7 +297,7 @@ Bad (vague):
 For stories with testable logic, also add: "Tests pass".
 For stories that change UI, also add: "Verify in browser".
 
-### 0f. Conversion rules
+### 0g. Conversion rules
 
 1. Each user story → one JSON entry.
 2. IDs: sequential (US-001, US-002, …).
@@ -256,7 +306,7 @@ For stories that change UI, also add: "Verify in browser".
 5. `branchName`: derive from feature name, kebab-case, prefixed
    with `mission/`.
 
-### 0g. Splitting large features — example
+### 0h. Splitting large features — example
 
 **Original:** "Add user notification system"
 
@@ -271,14 +321,14 @@ For stories that change UI, also add: "Verify in browser".
 Each is one focused change that can be completed and verified
 independently.
 
-### 0h. Non-software tasks
+### 0i. Non-software tasks
 
 For research, writing, analysis, etc.: stories can be research steps,
 draft sections, analysis phases.  `branchName` may be "".  Criteria
 should still be verifiable ("Section has ≥500 words", "All sources
 cited").
 
-### 0i. Checklist before saving prd.json
+### 0j. Checklist before calling `manage_prd`
 
 - [ ] Each story completable in one iteration (small enough)
 - [ ] Stories ordered by dependency (schema → backend → UI)
@@ -289,10 +339,10 @@ cited").
 
 ---
 
-**After writing prd.json, report to the user:**
-- Summary of the PRD (number of stories, priority levels)
-- Show the first 2-3 stories as examples
-- Ask the user to confirm when ready
+**After calling `manage_prd(operation="create", ...)`:**
+The frontend will automatically render the PRD table.
+Output ONLY a short confirmation, do NOT repeat the PRD content.
+Ask the user to confirm when ready.
 
 **When the user confirms** (in any language or phrasing — use your judgment
 to determine if they are approving the PRD):
@@ -301,9 +351,8 @@ to determine if they are approving the PRD):
 2. The system will detect this signal and transition to Phase 2
    automatically (with implementation tools restricted).
 
-**If the user requests changes**: modify prd.json accordingly and report
-the updated PRD.  Do NOT set `execution_confirmed` until the user is
-satisfied.
+**If the user requests changes**: use `manage_prd` to modify prd.json.
+Do NOT set `execution_confirmed` until the user is satisfied.
 
 ---
 
@@ -406,7 +455,8 @@ using `submit_to_agent`.
 
 The verifier is an **adversarial agent** that tries to break the
 worker's implementation.  It outputs a structured verdict:
-- `VERDICT: PASS` → set `"passes": true` in prd.json for that story
+- `VERDICT: PASS` → use `manage_prd(operation="mark_passed", ...)` to
+  mark the story as passed
 - `VERDICT: FAIL` → note the failure details, prepare a retry prompt
   for the worker with error context
 - `VERDICT: PARTIAL` → treat as FAIL with environmental caveats
@@ -420,8 +470,9 @@ verifier prompt.**
 {git_verify_step}
 
 ### 6. Decide & continue
-- **All stories in batch verified (PASS)** → update prd.json,
-  report progress, go to Step 1 for the next priority batch.
+- **All stories in batch verified (PASS)** → use `manage_prd` to
+  update story passes, report progress, go to Step 1 for the next
+  priority batch.
 - **Some failed (FAIL/PARTIAL)** → retry the failures: compose a
   new worker prompt with the verifier's failure details, re-dispatch
   worker → verifier.  Max 3 retries per story, then ask the user.
@@ -448,6 +499,11 @@ pass or you hit the iteration limit.
 **⚠️ RULE #1: You are the CONTROLLER.**  In Phase 2, you dispatch
 workers using Agent Chat tools (`submit_to_agent`, `check_agent_task`).
 ALL coding, building, and testing is done by workers.
+
+**⚠️ RULE #2: PRD operations ONLY via `manage_prd`.**
+- Use `manage_prd(operation="mark_passed", ...)` to mark stories passed
+- Use `manage_prd(operation="add/update/delete", ...)` to modify stories
+- Do NOT use `write_file` or `edit_file` on prd.json
 
 **Phase 2 continuity:** The system automatically loops back to you after
 each turn if stories remain.  Focus on dispatching the current batch,

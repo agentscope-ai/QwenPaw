@@ -442,9 +442,6 @@ def setup_tool_and_prompt_hooks() -> (  # pylint: disable=too-many-statements
             from .tools.proposal_choice import (
                 proposal_choice as _proposal_choice_fn,
             )
-            from .tools.manage_prd import (
-                manage_prd as _manage_prd_fn,
-            )
 
             if agent_id == BUILTIN_ORCHESTRATION_AGENT_ID:
                 try:
@@ -455,15 +452,6 @@ def setup_tool_and_prompt_hooks() -> (  # pylint: disable=too-many-statements
                     logger.debug("Registered plugin tool: proposal_choice")
                 except Exception as e:
                     logger.debug("proposal_choice registration skipped: %s", e)
-
-                try:
-                    toolkit.register_tool_function(
-                        _manage_prd_fn,
-                        namesake_strategy=namesake_strategy,
-                    )
-                    logger.debug("Registered plugin tool: manage_prd")
-                except Exception as e:
-                    logger.debug("manage_prd registration skipped: %s", e)
 
         except Exception as e:
             logger.warning(

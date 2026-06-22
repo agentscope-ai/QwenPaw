@@ -1555,6 +1555,15 @@ def _default_builtin_tools() -> Dict[str, BuiltinToolConfig]:
             ),
             icon="🔀",
         ),
+        "manage_prd": BuiltinToolConfig(
+            name="manage_prd",
+            enabled=True,
+            description=(
+                "Create or modify the PRD (prd.json) for "
+                "the current mission"
+            ),
+            icon="📋",
+        ),
     }
 
     # Merge dynamically registered tools from plugins

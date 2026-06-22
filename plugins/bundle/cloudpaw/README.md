@@ -122,7 +122,6 @@ QwenPaw/
 
 - **IaC Deployment Orchestration**: Automate Alibaba Cloud resource deployment via [iac-code](https://github.com/aliyun/iac-code) engine for ROS/Terraform template generation
 - **Resource Proposal Selection**: Interactive multi-proposal comparison and selection with dedicated frontend rendering (`proposal_choice` tool)
-- **PRD Management Frontend Enhancement**: Custom frontend rendering for QwenPaw Mission Mode's PRD management (`manage_prd` tool)
 - **Multi-Agent Collaboration**: Orchestrate multiple agents for complex deployment tasks via QwenPaw Mission Mode
 - **Alibaba Cloud Skills Remote Agent Integration**: Connect and call remote agents hosted on Alibaba Cloud Skills Hub via A2A protocol with real-time streaming display
 - **Auto-dependency Setup**: Automatically installs `iac-code` and Alibaba Cloud CLI during plugin startup

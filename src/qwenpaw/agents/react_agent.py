@@ -54,6 +54,7 @@ from .tools import (
     glob_search,
     grep_search,
     list_agents,
+    manage_prd,
     materialize_skill,
     read_file,
     run_tool_batch,
@@ -308,6 +309,7 @@ class QwenPawAgent(CodingModeMixin, ToolGuardMixin, ReActAgent):
             "check_agent_task": check_agent_task,
             "spawn_subagent": spawn_subagent,
             "run_tool_batch": run_tool_batch,
+            "manage_prd": manage_prd,
             # Register only when the `make-skill` skill is enabled.
             **(
                 {"materialize_skill": materialize_skill}

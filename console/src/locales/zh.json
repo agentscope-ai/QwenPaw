@@ -2656,5 +2656,21 @@
       "LOAD_FAILED": "加载文件预览失败。",
       "LOAD_FAILED_DETAIL": "加载文件预览失败：{{detail}}"
     }
+  },
+  "managePrd": {
+    "status": "状态",
+    "id": "ID",
+    "title": "标题",
+    "priority": "优先级",
+    "description": "描述",
+    "acceptance": "验收标准",
+    "completed": "已完成",
+    "pending": "待处理",
+    "progress": "进度",
+    "loading": "正在更新 PRD...",
+    "errorPrefix": "PRD 格式错误，将会修正：",
+    "unknownError": "未知错误",
+    "expandMore": "+{{count}} 项...",
+    "collapse": "收起"
   }
 }

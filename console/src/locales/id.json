@@ -911,5 +911,21 @@
     "timeout": "Backend gagal dimulai dalam {{seconds}} detik.",
     "timeoutHint": "Backend gagal dimulai. Coba lagi, atau periksa log aplikasi untuk detail.",
     "retry": "Coba lagi"
+  },
+  "managePrd": {
+    "status": "Status",
+    "id": "ID",
+    "title": "Judul",
+    "priority": "Prioritas",
+    "description": "Deskripsi",
+    "acceptance": "Kriteria Penerimaan",
+    "completed": "Selesai",
+    "pending": "Menunggu",
+    "progress": "Progres",
+    "loading": "Memperbarui PRD...",
+    "errorPrefix": "Kesalahan format PRD, akan diperbaiki: ",
+    "unknownError": "Kesalahan tidak diketahui",
+    "expandMore": "+{{count}} item...",
+    "collapse": "Tutup"
   }
 }

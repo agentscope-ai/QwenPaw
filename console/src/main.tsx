@@ -1,7 +1,8 @@
 import { createRoot } from "react-dom/client";
 import App from "./App.tsx";
 import "./i18n";
-import { installHostExternals } from "./plugins/hostExternals";
+import { installHostExternals, pluginSystem } from "./plugins/hostExternals";
+import { PRDViewer } from "./components/PRDViewer/index.tsx";
 import { installHostSdk } from "./plugins/hostSdk/install";
 import { registerHostModulesDynamic } from "./plugins/dynamicModuleRegistry";
 import { registerBuiltinCards } from "./components/Chat/ToolCards/registerBuiltinCards";
@@ -13,6 +14,11 @@ import "./layouts/registry/builtinRoutes.tsx";
 // Expose host dependencies (React, antd, etc.) on window
 // so that plugin UI modules can use them without bundling their own copies.
 installHostExternals();
+
+// Register built-in tool renderers
+pluginSystem.addToolRenderers("qwenpaw-core", {
+  manage_prd: PRDViewer,
+});
 
 // Attach window.QwenPaw.chat (Chat customization), extend
 // window.QwenPaw.host with hooks + fetch, attach window.QwenPaw.audit.
