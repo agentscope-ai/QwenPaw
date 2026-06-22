@@ -90,10 +90,17 @@ def msg_to_entries(msg: Msg, msg_index: int) -> list[LogEntry]:
 
     if non_result or not results:
         name = tool_call_id = None
+        tool_input = None
         for b in non_result:
             if getattr(b, "type", None) == "tool_call":
+                # Scalar columns describe the turn's tool call (the last one,
+                # if several); the full set is always in ``blocks``. ``input``
+                # is the call's arguments (a dict or a raw JSON string) — kept
+                # so ``recall_tool`` can show *what* was called, not just the
+                # result. ``append()`` JSON-encodes a dict; a str passes thru.
                 name = getattr(b, "name", None)
                 tool_call_id = getattr(b, "id", None)
+                tool_input = getattr(b, "input", None)
         dumped = [_dump(b) for b in non_result]
         text = msg.get_text_content() or ""
         # Headline only on the model's own turns; user/placeholder rows
@@ -108,6 +115,7 @@ def msg_to_entries(msg: Msg, msg_index: int) -> list[LogEntry]:
                 name=name,
                 content=text,
                 tool_call_id=tool_call_id,
+                tool_input=tool_input,
                 msg_index=msg_index,
                 headline=headline,
                 blocks=dumped or None,

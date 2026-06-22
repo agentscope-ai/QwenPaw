@@ -282,6 +282,7 @@ class ScrollContextManager:
                             tool_call_id=entry.tool_call_id,
                             name=entry.name,
                             tool_state=entry.tool_state,
+                            tool_input=entry.tool_input,
                         )
                         self._model_turn_nblk[mid] = nblk
                         if new_headline:

@@ -382,3 +382,54 @@ def test_purge_old_drops_rows_past_window(store: HistoryStore):
     )
     assert mgr.purge_old(1) == 1
     assert store.count("s1") == 0
+
+
+def test_serialize_captures_tool_input():
+    """A tool call's arguments land in the ``tool_input`` column (it used to be
+    dropped — only ``blocks`` carried them — so ``recall_tool`` returned None).
+    """
+    from qwenpaw.agents.context.scroll.serialize import msg_to_entries
+
+    msg = Msg(
+        name="a",
+        role="assistant",
+        content=[
+            TextBlock(type="text", text="reading a file"),
+            ToolCallBlock(
+                type="tool_call",
+                id="call-1",
+                name="read_file",
+                input='{"file_path": "PROFILE.md"}',
+            ),
+        ],
+    )
+    entries = msg_to_entries(msg, 0)
+    turn = next(e for e in entries if e.kind == "model_turn")
+    assert turn.name == "read_file"
+    assert turn.tool_call_id == "call-1"
+    assert turn.tool_input == '{"file_path": "PROFILE.md"}'
+
+
+def test_tool_input_round_trips_to_db(store: HistoryStore):
+    """End-to-end: the persisted row's ``tool_input`` column is populated."""
+    from qwenpaw.agents.context.scroll.serialize import msg_to_entries
+
+    msg = Msg(
+        name="a",
+        role="assistant",
+        content=[
+            ToolCallBlock(
+                type="tool_call",
+                id="call-9",
+                name="grep",
+                input='{"pattern": "x"}',
+            ),
+        ],
+    )
+    (turn,) = msg_to_entries(msg, 0)
+    store.append(session_id="s1", dedup_key="m1", entry=turn)
+    row = store._conn.execute(
+        "SELECT tool_input FROM conversation_history "
+        "WHERE tool_call_id='call-9'",
+    ).fetchone()
+    assert row["tool_input"] == '{"pattern": "x"}'

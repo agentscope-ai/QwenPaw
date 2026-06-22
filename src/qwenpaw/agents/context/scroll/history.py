@@ -9,6 +9,7 @@ import sqlite3
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 from ..types import LogEntry
 
@@ -270,15 +271,17 @@ class HistoryStore:
         tool_call_id: str | None = None,
         name: str | None = None,
         tool_state: str | None = None,
+        tool_input: Any = None,
     ) -> None:
         """Refresh an already-appended row in place (keeping FTS in sync).
 
         Used when one logical turn is *extended* after first write: AgentScope
         accumulates a whole reply into a single assistant Msg, so the durable
         row must end up with every cell's blocks and any later-emitted
-        headline. The scalar ``tool_call_id``/``name``/``tool_state`` are
-        refreshed too, so a turn that grows a *later* tool call doesn't leave
-        them frozen at their first-write values. ``seq`` is unchanged.
+        headline. The scalar ``tool_call_id``/``name``/``tool_state``/
+        ``tool_input`` are refreshed too, so a turn that grows a *later* tool
+        call doesn't leave them frozen at their first-write values. ``seq`` is
+        unchanged.
         """
         # Recall-tool rows are never FTS-indexed (see ``_RECALL_TOOL_NAME``),
         # so don't touch the index for them on update either.
@@ -293,8 +296,8 @@ class HistoryStore:
                 old_content = r["content"] if r else None
             self._conn.execute(
                 "UPDATE conversation_history SET content = ?, headline = ?, "
-                "blocks = ?, tool_call_id = ?, name = ?, tool_state = ? "
-                "WHERE seq = ?",
+                "blocks = ?, tool_call_id = ?, name = ?, tool_state = ?, "
+                "tool_input = ? WHERE seq = ?",
                 (
                     content,
                     headline,
@@ -302,6 +305,7 @@ class HistoryStore:
                     tool_call_id,
                     name,
                     tool_state,
+                    _to_json(tool_input),
                     seq,
                 ),
             )
