@@ -91,7 +91,7 @@ async def preview_file(
         raise HTTPException(status_code=500, detail="Permission denied")
 
     content_type, _ = mimetypes.guess_type(path)
-    # ponytail: Keep inline only for known-safe media types (image/video/audio/pdf)
+    # ponytail: Keep inline only for safe media types (image/video/audio/pdf)
     # and exclude dangerous ones like text/html, image/svg+xml, or XML.
     is_safe = False
     if content_type:

@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """Integration tests for messages and files APIs."""
+
 from __future__ import annotations
 
 from urllib.parse import quote
@@ -403,4 +404,3 @@ def test_files_preview_security_hardening(app_server, tmp_path) -> None:
     assert resp.status_code == 200
     assert resp.headers.get("x-content-type-options") == "nosniff"
     assert "attachment" in resp.headers.get("content-disposition", "")
-
