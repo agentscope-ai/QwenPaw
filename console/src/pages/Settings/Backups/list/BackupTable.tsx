@@ -51,7 +51,6 @@ export default function BackupTable({
   }, [backups, searchQuery]);
 
   const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(PAGE_SIZE);
 
   // Keep mobile cards sorted by created time (desc) to match the desktop table default.
   const sortedFilteredBackups = useMemo(() => {
@@ -65,12 +64,12 @@ export default function BackupTable({
   }, [searchQuery]);
 
   const totalBackups = sortedFilteredBackups.length;
-  const maxPage = Math.max(1, Math.ceil(totalBackups / pageSize));
+  const maxPage = Math.max(1, Math.ceil(totalBackups / PAGE_SIZE));
   const currentPage = Math.min(page, maxPage);
-  const startIndex = (currentPage - 1) * pageSize;
+  const startIndex = (currentPage - 1) * PAGE_SIZE;
   const paginatedBackups = sortedFilteredBackups.slice(
     startIndex,
-    startIndex + pageSize,
+    startIndex + PAGE_SIZE,
   );
 
   /** Deletes a single backup by ID and refreshes the list on success. */
@@ -260,31 +259,17 @@ export default function BackupTable({
           />
         ) : (
           <>
-            <Pagination
-              current={currentPage}
-              pageSize={pageSize}
-              total={totalBackups}
-              showSizeChanger
-              showTotal={(count) => t("backup.total", { count })}
-              pageSizeOptions={["10", "20", "50"]}
-              onChange={(p, size) => {
-                setPage(p);
-                setPageSize(size);
-              }}
-            />
             {paginatedBackups.map(renderMobileCard)}
-            <Pagination
-              current={currentPage}
-              pageSize={pageSize}
-              total={totalBackups}
-              showSizeChanger
-              showTotal={(count) => t("backup.total", { count })}
-              pageSizeOptions={["10", "20", "50"]}
-              onChange={(p, size) => {
-                setPage(p);
-                setPageSize(size);
-              }}
-            />
+            <div className={styles.mobilePagination}>
+              <Pagination
+                current={currentPage}
+                pageSize={PAGE_SIZE}
+                total={totalBackups}
+                size="small"
+                simple
+                onChange={(p) => setPage(p)}
+              />
+            </div>
           </>
         )}
       </div>
