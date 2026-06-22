@@ -112,6 +112,9 @@ SECRET_DIR = (
 
 PROJECT_NAME = "QwenPaw"
 
+# Optional fixed port for the desktop backend (env var override).
+QWENPAW_DESKTOP_PORT = _get_env("QWENPAW_DESKTOP_PORT")
+
 # Subdirectory name inside each agent's workspace that holds cloned / imported
 # coding projects.
 # Full path = <workspace_dir> / CODING_PROJECT_SUBDIR / <name>

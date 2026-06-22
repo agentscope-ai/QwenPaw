@@ -137,6 +137,7 @@ def _detect_dark_mode() -> bool:
         return False
     try:
         import winreg
+
         with winreg.OpenKey(
             winreg.HKEY_CURRENT_USER,
             r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize",
@@ -173,25 +174,34 @@ def _create_loading_window():
 
     # Brand title
     tk.Label(
-        root, text="QwenPaw",
+        root,
+        text="QwenPaw",
         font=("Segoe UI", 32, "bold"),
-        fg=fg, bg=bg,
+        fg=fg,
+        bg=bg,
     ).pack(pady=(80, 20))
 
     # Loading status text
     loading_label = tk.Label(
-        root, text="\u6b63\u5728\u542f\u52a8...",
+        root,
+        text="\u6b63\u5728\u542f\u52a8...",
         font=("Segoe UI", 12),
-        fg=fg_secondary, bg=bg,
+        fg=fg_secondary,
+        bg=bg,
     )
     loading_label.pack(pady=10)
 
     # Indeterminate progress bar
     style = ttk.Style(root)
     style.theme_use("default")
-    pb_style = "Dark.Horizontal.TProgressbar" if dark else "Horizontal.TProgressbar"
+    pb_style = (
+        "Dark.Horizontal.TProgressbar" if dark else "Horizontal.TProgressbar"
+    )
     progress_bar = ttk.Progressbar(
-        root, mode="indeterminate", length=400, style=pb_style,
+        root,
+        mode="indeterminate",
+        length=400,
+        style=pb_style,
     )
     progress_bar.pack(pady=20)
     progress_bar.start(30)
@@ -205,10 +215,12 @@ def _create_loading_window():
 
 def _set_loading_text(root, label, text, color=None):
     """Thread-safe update of loading label text."""
+
     def _update():
         label.configure(text=text)
         if color:
             label.configure(fg=color)
+
     root.after(0, _update)
 
 
@@ -268,9 +280,15 @@ def _terminate_backend_process(proc):
         logger.info(f"Backend already exited with code {proc.returncode}")
 
 
-def _start_backend_and_wait(
-    host, port, log_level, is_windows, env,
-    proc_ref, loading_state, url,
+def _start_backend_and_wait(  # pylint: disable=R0917
+    host,
+    port,
+    log_level,
+    is_windows,
+    env,
+    proc_ref,
+    loading_state,
+    url,
 ):
     """Start backend subprocess and wait for HTTP readiness.
 
@@ -286,7 +304,6 @@ def _start_backend_and_wait(
     root = loading_state["root"]
     progress_bar = loading_state["progress_bar"]
     loading_label = loading_state["loading_label"]
-    bg = loading_state["bg"]
     fg_dim = loading_state["fg_dim"]
 
     # Start backend subprocess
@@ -319,8 +336,10 @@ def _start_backend_and_wait(
     except Exception as exc:
         logger.exception("Failed to start backend subprocess")
         _set_loading_text(
-            root, loading_label,
-            f"\u542f\u52a8\u5931\u8d25: {exc}", "#ff4444",
+            root,
+            loading_label,
+            f"\u542f\u52a8\u5931\u8d25: {exc}",
+            "#ff4444",
         )
         root.after(0, progress_bar.stop)
         return
@@ -357,7 +376,8 @@ def _start_backend_and_wait(
         except (OSError, socket.error):
             elapsed = int(time.monotonic() - start_time)
             _set_loading_text(
-                root, loading_label,
+                root,
+                loading_label,
                 f"\u6b63\u5728\u542f\u52a8... ({elapsed}s)",
             )
             time.sleep(1)
@@ -368,6 +388,7 @@ def _start_backend_and_wait(
             f"Backend process exited prematurely with code "
             f"{proc.returncode}"
         )
+
         def _show_error():
             progress_bar.stop()
             loading_label.configure(
@@ -375,15 +396,19 @@ def _start_backend_and_wait(
                 fg="#ff4444",
             )
             retry_btn = tk.Button(
-                root, text="\u91cd\u8bd5", command=_do_retry,
-                font=("Segoe UI", 12), width=12,
+                root,
+                text="\u91cd\u8bd5",
+                command=_do_retry,
+                font=("Segoe UI", 12),
+                width=12,
             )
             retry_btn.pack(pady=20)
 
         def _do_retry():
             proc_ref[0] = None
             loading_label.configure(
-                text="\u6b63\u5728\u542f\u52a8...", fg=fg_dim,
+                text="\u6b63\u5728\u542f\u52a8...",
+                fg=fg_dim,
             )
             progress_bar.start(30)
             # Remove retry button (last packed widget)
@@ -394,8 +419,14 @@ def _start_backend_and_wait(
             t = threading.Thread(
                 target=_start_backend_and_wait,
                 args=(
-                    host, port, log_level, is_windows, env,
-                    proc_ref, loading_state, url,
+                    host,
+                    port,
+                    log_level,
+                    is_windows,
+                    env,
+                    proc_ref,
+                    loading_state,
+                    url,
                 ),
                 daemon=True,
             )
@@ -407,7 +438,11 @@ def _start_backend_and_wait(
     # Backend is ready
     if ready:
         logger.info("HTTP ready, transitioning to webview...")
-        _set_loading_text(root, loading_label, "\u542f\u52a8\u5b8c\u6210\uff0c\u6b63\u5728\u6253\u5f00...")
+        _set_loading_text(
+            root,
+            loading_label,
+            "\u542f\u52a8\u5b8c\u6210\uff0c\u6b63\u5728\u6253\u5f00...",
+        )
         # Signal main thread that backend is ready, then close loading window
         loading_state["backend_ready"] = True
         time.sleep(0.3)  # brief pause to show status text
@@ -416,12 +451,14 @@ def _start_backend_and_wait(
         # Timeout
         logger.error("Server did not become ready in time.")
         loading_state["backend_ready"] = False
+
         def _show_timeout():
             progress_bar.stop()
             loading_label.configure(
                 text="\u542f\u52a8\u8d85\u65f6\uff0c\u8bf7\u91cd\u8bd5",
                 fg="#ff4444",
             )
+
         root.after(0, _show_timeout)
 
 
@@ -489,7 +526,13 @@ def desktop_cmd(
     try:
         # Show loading window immediately so the user sees feedback
         # while the backend starts in the background.
-        root, progress_bar, loading_label, bg, fg_dim = _create_loading_window()
+        (
+            root,
+            progress_bar,
+            loading_label,
+            bg,
+            fg_dim,
+        ) = _create_loading_window()
 
         proc_ref: list = [None]
         loading_state = {
@@ -504,8 +547,14 @@ def desktop_cmd(
         backend_thread = threading.Thread(
             target=_start_backend_and_wait,
             args=(
-                host, port, log_level, is_windows, env,
-                proc_ref, loading_state, url,
+                host,
+                port,
+                log_level,
+                is_windows,
+                env,
+                proc_ref,
+                loading_state,
+                url,
             ),
             daemon=True,
         )
