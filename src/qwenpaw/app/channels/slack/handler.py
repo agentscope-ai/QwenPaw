@@ -150,12 +150,7 @@ class SlackEventHandler:
         if event.get("bot_id"):
             return
 
-        # 3. Deduplicate
-        dedup_key = build_dedup_key(event)
-        if await self._is_duplicate(dedup_key):
-            return
-
-        # 4. Extract identifiers
+        # 3. Extract identifiers
         channel_id: str = event.get("channel") or ""
         user_id: str = event.get("user") or ""
         event_ts: str = event.get("ts") or ""
@@ -186,14 +181,15 @@ class SlackEventHandler:
             if not self._is_bot_mentioned(event):
                 return
 
-        # 6. Thread participation gate.
+        # 6. Thread participation gate (group channels only).
         # A thread reply is accepted when:
         #   (a) the bot has previously joined the thread (recorded in
         #       _thread_participation, 24h TTL), OR
         #   (b) the bot has sent a message in this thread (tracked in
         #       _bot_message_ts — covers the "bot replied, then user
         #       replied again after restart" scenario).
-        if thread_ts and not was_mentioned:
+        # DMs are exempt — the user is always talking to the bot.
+        if is_group and thread_ts and not was_mentioned:
             if not self._has_thread_participation(channel_id, thread_ts):
                 has_participated = (
                     await self._channel.has_bot_replied_in_thread(
@@ -202,6 +198,12 @@ class SlackEventHandler:
                 )
                 if not has_participated:
                     return
+
+        # 6.5. Deduplicate (after all gates so dropped messages
+        # don't block the paired app_mention event).
+        dedup_key = build_dedup_key(event)
+        if await self._is_duplicate(dedup_key):
+            return
 
         # 7. Extract text
         text = _extract_message_text(event, self._bot_prefix)

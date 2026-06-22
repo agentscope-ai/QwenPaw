@@ -1492,6 +1492,49 @@ class TestSlackSenderRouteResolution:
         assert channel_id == "C123"
         assert thread_ts == "1234567890.123456"
 
+    def test_session_id_thread(self):
+        from qwenpaw.app.channels.slack.sender import SlackSender
+
+        channel_id, thread_ts = SlackSender.resolve_route(
+            "slack:thread:C123:1234567890.123456",
+            {},
+        )
+        assert channel_id == "C123"
+        assert thread_ts == "1234567890.123456"
+
+    def test_session_id_channel(self):
+        from qwenpaw.app.channels.slack.sender import SlackSender
+
+        channel_id, thread_ts = SlackSender.resolve_route(
+            "slack:ch:C123",
+            {"slack_thread_ts": "1234567890.123456"},
+        )
+        assert channel_id == "C123"
+        assert thread_ts is None
+
+    def test_session_id_dm_prefers_meta(self):
+        from qwenpaw.app.channels.slack.sender import SlackSender
+
+        channel_id, thread_ts = SlackSender.resolve_route(
+            "slack:dm:U123",
+            {"slack_channel_id": "D456"},
+        )
+        assert channel_id == "D456"
+        assert thread_ts is None
+
+    def test_user_id_falls_back_to_meta(self):
+        from qwenpaw.app.channels.slack.sender import SlackSender
+
+        channel_id, thread_ts = SlackSender.resolve_route(
+            "U123",
+            {
+                "slack_channel_id": "C123",
+                "slack_thread_ts": "1234567890.123456",
+            },
+        )
+        assert channel_id == "C123"
+        assert thread_ts == "1234567890.123456"
+
 
 class TestSlackSenderTextSending:
     @pytest.mark.asyncio
@@ -1811,30 +1854,31 @@ class TestSlackChannelBuildAgentRequest:
             "channel_id": "slack",
             "sender_id": "U123",
             "user_id": "U123",
-            "session_id": "C123:123.456",
+            "session_id": "slack:thread:C123:123.456",
             "content_parts": [TextContent(type=ContentType.TEXT, text="Hi")],
             "meta": {"slack_channel_id": "C123", "slack_thread_ts": "123.456"},
         }
         request = slack_channel.build_agent_request_from_native(payload)
         assert request.user_id == "U123"
         assert request.channel == "slack"
-        assert request.session_id == "C123:123.456"
+        assert request.session_id == "slack:thread:C123:123.456"
         assert len(request.input) == 1
 
     def test_resolve_session_id(self, slack_channel):
         meta = {"slack_channel_id": "C123", "slack_thread_ts": "123.456"}
         sid = slack_channel.resolve_session_id("U123", meta)
-        assert sid == "C123:123.456"
+        assert sid == "slack:thread:C123:123.456"
         sid2 = slack_channel.resolve_session_id(
             "U123",
             {"slack_channel_id": "C123"},
         )
-        assert sid2 == "C123"
+        assert sid2 == "slack:ch:C123"
 
     def test_get_to_handle_from_request(self, slack_channel):
         from types import SimpleNamespace
 
         request = SimpleNamespace(
+            session_id="slack:thread:C123:123.456",
             channel_meta={
                 "slack_channel_id": "C123",
                 "slack_thread_ts": "123.456",
@@ -1842,10 +1886,29 @@ class TestSlackChannelBuildAgentRequest:
             user_id="U123",
         )
         handle = slack_channel.get_to_handle_from_request(request)
-        assert handle == "C123:123.456"
-        request2 = SimpleNamespace(channel_meta={}, user_id="U123")
+        assert handle == "slack:thread:C123:123.456"
+        request2 = SimpleNamespace(
+            channel_meta={"slack_channel_id": "D123"},
+            user_id="U123",
+        )
         handle2 = slack_channel.get_to_handle_from_request(request2)
-        assert handle2 == "dm:U123"
+        assert handle2 == "slack:dm:U123"
+        request3 = SimpleNamespace(
+            channel_meta={"slack_channel_id": "C123"},
+            user_id="U123",
+        )
+        handle3 = slack_channel.get_to_handle_from_request(request3)
+        assert handle3 == "slack:ch:C123"
+
+    def test_to_handle_from_target(self, slack_channel):
+        assert slack_channel.to_handle_from_target(
+            user_id="U123",
+            session_id="slack:ch:C123",
+        ) == "slack:ch:C123"
+        assert slack_channel.to_handle_from_target(
+            user_id="U123",
+            session_id="",
+        ) == "U123"
 
 
 # =============================================================================

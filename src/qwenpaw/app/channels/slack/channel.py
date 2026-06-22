@@ -77,7 +77,11 @@ from .format import (
 from .handler import SlackEventHandler
 from .sender import SlackSender
 from .streaming import SlackStreamManager, SlackStreamNotDeliveredError
-from .utils import _resolve_slack_proxy_url, _apply_slack_proxy
+from .utils import (
+    _resolve_slack_proxy_url,
+    _apply_slack_proxy,
+    generate_session_id,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -1049,24 +1053,42 @@ class SlackChannel(BaseChannel):  # pylint: disable=too-many-public-methods
         sender_id: str,
         channel_meta: Optional[Dict[str, Any]] = None,
     ) -> str:
-        """Resolve session id from Slack meta (channel + thread)."""
-        if channel_meta:
-            channel_id = channel_meta.get("slack_channel_id", "")
-            thread_ts = channel_meta.get("slack_thread_ts", "")
-            if thread_ts:
-                return f"{channel_id}:{thread_ts}"
-            return channel_id or sender_id
-        return sender_id or ""
+        """Resolve session id from Slack meta (channel + thread).
+
+        Returns the same ``slack:...`` format used by the handler's native
+        dicts so that :attr:`AgentRequest.session_id` can also serve as the
+        send handle.
+        """
+        meta = channel_meta or {}
+        channel_id = meta.get("slack_channel_id", "")
+        thread_ts = meta.get("slack_thread_ts", "")
+        is_dm = channel_id.startswith("D") if channel_id else False
+        return generate_session_id(
+            channel_id=channel_id,
+            thread_ts=thread_ts,
+            user_id=sender_id,
+            is_dm=is_dm,
+        )
+
+    def to_handle_from_target(
+        self,
+        *,
+        user_id: str,
+        session_id: str,
+    ) -> str:
+        """Return session_id as the proactive-send routing handle."""
+        return session_id or user_id
 
     def get_to_handle_from_request(self, request: Any) -> str:
         """Extract Slack routing handle from AgentRequest.
 
-        Returns ``channel_id`` or ``channel_id:thread_ts`` so that
-        :meth:`SlackSender.resolve_route` can parse it.
+        Prefer :attr:`AgentRequest.session_id` (``slack:...`` format) so that
+        cron, ACL, and normal reply paths all use the same routing key.
+        Falls back to reconstructing from ``channel_meta``.
         """
+        session_id = getattr(request, "session_id", "") or ""
+        if session_id:
+            return session_id
         meta = getattr(request, "channel_meta", None) or {}
-        channel_id = meta.get("slack_channel_id", "")
-        thread_ts = meta.get("slack_thread_ts", "")
-        if channel_id and thread_ts:
-            return f"{channel_id}:{thread_ts}"
-        return channel_id or f"dm:{getattr(request, 'user_id', '')}"
+        user_id = getattr(request, "user_id", "") or ""
+        return self.resolve_session_id(user_id, meta)

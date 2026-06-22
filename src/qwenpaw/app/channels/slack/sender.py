@@ -482,25 +482,50 @@ class SlackSender:
     ) -> tuple:
         """Resolve (channel_id, thread_ts) from *to_handle* and *meta*.
 
-        *to_handle* may be a bare ``C12345`` channel ID or a
-        ``C12345:1700000001.123456`` compound string.  When *to_handle*
-        is empty, both values are taken from *meta*.
+        Supported *to_handle* formats:
+
+        * ``slack:thread:<channel>:<thread_ts>`` — session_id for thread
+        * ``slack:dm:<user_id>`` — DM session_id (meta channel_id preferred)
+        * ``slack:ch:<channel_id>`` — session_id for channel
+        * ``C12345`` / ``D12345`` / ``G12345`` — bare channel ID
+        * ``C12345:1700000001.123456`` — compound channel:thread_ts
+
+        A raw user ID (``U...``) is not a valid send target; in that case
+        the routing falls back to *meta* (used by the access-control gate).
         """
         from .format import normalize_slack_thread_ts
 
         channel_id = ""
         thread_ts: Optional[str] = None
 
-        if to_handle and ":" in to_handle:
+        if to_handle and to_handle.startswith("slack:"):
+            parts = to_handle.split(":")
+            kind = parts[1] if len(parts) >= 2 else ""
+            if kind == "thread" and len(parts) >= 4:
+                channel_id = parts[2]
+                thread_ts = normalize_slack_thread_ts(
+                    ":".join(parts[3:]),
+                )
+            elif kind == "dm" and len(parts) >= 3:
+                # Prefer the DM channel ID stored in meta if available;
+                # otherwise fall back to the user ID (Slack accepts it).
+                channel_id = (
+                    meta.get("slack_channel_id")
+                    or parts[2]
+                )
+            elif kind == "ch" and len(parts) >= 3:
+                channel_id = parts[2]
+        elif to_handle and ":" in to_handle:
             parts = to_handle.split(":", 1)
             channel_id = parts[0]
             thread_ts = normalize_slack_thread_ts(parts[1])
-        elif to_handle:
+        elif to_handle and to_handle[0] in ("C", "D", "G"):
             channel_id = to_handle
             thread_ts = normalize_slack_thread_ts(
                 meta.get("slack_thread_ts") or "",
             )
-        else:
+
+        if not channel_id:
             channel_id = meta.get("slack_channel_id") or ""
             thread_ts = normalize_slack_thread_ts(
                 meta.get("slack_thread_ts") or "",
