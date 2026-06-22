@@ -1924,8 +1924,8 @@
       "delete": "Excluir",
       "file": "Arquivo",
       "noChatWarning": "Envie uma mensagem primeiro para criar uma conversa antes de usar a fila",
-      "queueFull": "Fila cheia (m\u00e1x. {{max}} itens). Envie ou remova algumas mensagens primeiro",
-      "otherTabOwner": "Esta conversa est\u00e1 sendo enviada de outra aba. Nesta aba, voc\u00ea s\u00f3 pode adicionar entradas \u00e0 fila."
+      "queueFull": "Fila cheia (máx. {{max}} itens). Envie ou remova algumas mensagens primeiro",
+      "otherTabOwner": "Esta conversa está sendo enviada de outra aba. Nesta aba, você só pode adicionar entradas à fila."
     },
     "group": {
       "pinned": "Fixados",
@@ -1939,7 +1939,13 @@
       "noConversations": "Sem conversas",
       "loadingConversations": "Carregando…"
     },
-    "conversationHistory": "Histórico de conversas"
+    "conversationHistory": "Histórico de conversas",
+    "thumbnailSidebar": {
+      "noMessages": "Nenhuma mensagem do usuário",
+      "previewTitle": "Entrada do usuário",
+      "gotoMessage": "Ir para a mensagem",
+      "attachment": "Anexo"
+    }
   },
   "security": {
     "parent": "Configuracoes",

@@ -232,7 +232,13 @@
       "noConversations": "Tidak ada percakapan",
       "loadingConversations": "Memuat…"
     },
-    "conversationHistory": "Riwayat Percakapan"
+    "conversationHistory": "Riwayat Percakapan",
+    "thumbnailSidebar": {
+      "noMessages": "Belum ada pesan pengguna",
+      "previewTitle": "Input pengguna",
+      "gotoMessage": "Pergi ke pesan",
+      "attachment": "Lampiran"
+    }
   },
   "modelSelector": {
     "selectModel": "Pilih model",

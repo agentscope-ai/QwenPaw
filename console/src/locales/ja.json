@@ -1732,7 +1732,13 @@
       "noConversations": "会話なし",
       "loadingConversations": "読み込み中…"
     },
-    "conversationHistory": "会話履歴"
+    "conversationHistory": "会話履歴",
+    "thumbnailSidebar": {
+      "noMessages": "ユーザーメッセージなし",
+      "previewTitle": "ユーザー入力",
+      "gotoMessage": "メッセージへ移動",
+      "attachment": "添付ファイル"
+    }
   },
   "security": {
     "parent": "設定",

@@ -223,7 +223,13 @@
       "noConversations": "Không có hội thoại",
       "loadingConversations": "Đang tải…"
     },
-    "conversationHistory": "Lịch sử hội thoại"
+    "conversationHistory": "Lịch sử hội thoại",
+    "thumbnailSidebar": {
+      "noMessages": "Chưa có tin nhắn của người dùng",
+      "previewTitle": "Đầu vào người dùng",
+      "gotoMessage": "Đi đến tin nhắn",
+      "attachment": "Tệp đính kèm"
+    }
   },
   "debug": {
     "title": "Gỡ lỗi",

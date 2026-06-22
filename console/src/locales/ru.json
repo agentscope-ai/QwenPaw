@@ -1747,7 +1747,13 @@
       "noConversations": "Нет диалогов",
       "loadingConversations": "Загрузка…"
     },
-    "conversationHistory": "История диалогов"
+    "conversationHistory": "История диалогов",
+    "thumbnailSidebar": {
+      "noMessages": "Нет сообщений пользователя",
+      "previewTitle": "Ввод пользователя",
+      "gotoMessage": "Перейти к сообщению",
+      "attachment": "Вложение"
+    }
   },
   "security": {
     "parent": "Настройки",

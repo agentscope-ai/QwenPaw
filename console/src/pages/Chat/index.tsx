@@ -94,6 +94,7 @@ import { openExternalLink } from "../../utils/openExternalLink";
 import { getLastEditorCopy } from "../Coding/lastEditorCopy";
 import { useUploadLimitStore } from "../../stores/uploadLimitStore";
 import MessageQueuePanel from "./components/MessageQueuePanel";
+import UserInputThumbnailSidebar from "./components/UserInputThumbnailSidebar";
 import {
   useMessageQueueStore,
   type QueueItem,
@@ -2885,6 +2886,9 @@ export default function ChatPage() {
         </Modal>
       </div>
       {/* End of main chat area */}
+
+      {/* Right-side user input thumbnail navigation */}
+      <UserInputThumbnailSidebar chatRef={chatRef} />
 
       {/* Right-side history panel (full mode only) */}
       {isFullMode && historyPanelOpen && (

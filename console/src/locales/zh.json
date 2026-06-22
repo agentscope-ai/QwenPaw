@@ -1924,7 +1924,13 @@
       "noConversations": "暂无对话",
       "loadingConversations": "加载中…"
     },
-    "conversationHistory": "历史对话"
+    "conversationHistory": "历史对话",
+    "thumbnailSidebar": {
+      "noMessages": "暂无用户消息",
+      "previewTitle": "用户输入",
+      "gotoMessage": "跳转至该消息",
+      "attachment": "附件"
+    }
   },
   "security": {
     "parent": "设置",

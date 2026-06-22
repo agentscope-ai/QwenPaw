@@ -2075,6 +2075,12 @@
       "noConversations": "No conversations yet",
       "loadingConversations": "Loading…"
     },
+    "thumbnailSidebar": {
+      "noMessages": "No user messages yet",
+      "previewTitle": "User Input",
+      "gotoMessage": "Go to message",
+      "attachment": "Attachment"
+    },
     "conversationHistory": "Conversation History"
   },
   "security": {
