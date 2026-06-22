@@ -51,6 +51,25 @@ class TestBuildSubPrompt:
         assert "直接调用工具" in prompt
         assert "最终回答" in prompt
 
+    def test_includes_datapaw_environment(self, tmp_path):
+        workspace_dir = tmp_path / "workspace"
+        prompt = _build_sub_prompt(
+            "查询数据",
+            "",
+            {},
+            ["execute_shell_command"],
+            [],
+            workspace_dir=workspace_dir,
+            artifacts_root=workspace_dir / "artifacts",
+            session_id="s1",
+            graph_id="graph_abc",
+            node_id="n1",
+        )
+
+        assert str(workspace_dir) in prompt
+        assert "artifacts/s1/graph_abc/n1/" in prompt
+        assert "s1/graph_abc/n1/<filename>" in prompt
+
 
 class TestShouldStream:
     def test_assistant_streams(self):
@@ -174,6 +193,9 @@ class TestExtractToolCallInfo:
 
 def _make_runtime_state():
     rs = MagicMock()
+    plan = MagicMock()
+    plan.id = "graph_1"
+    rs.current_plan = plan
     node = MagicMock()
     node.node_id = "n1"
     rs.get_current_in_progress_node.return_value = node
@@ -266,6 +288,76 @@ async def test_successful_run():
         assert len(results) >= 2
         assert results[-1].is_last is True
         assert results[0].content[0]["text"] == "let me think"
+
+
+@pytest.mark.asyncio
+async def test_subagent_sets_qwenpaw_tool_context(tmp_path):
+    from qwenpaw.config.context import (
+        get_current_recent_max_bytes,
+        get_current_session_id,
+        get_current_shell_command_executable,
+        get_current_shell_command_timeout,
+        get_current_toolkit,
+        get_current_workspace_dir,
+        set_current_workspace_dir,
+    )
+
+    workspace_dir = tmp_path / "workspace"
+    parent_workspace_dir = tmp_path / "parent"
+    captured = {}
+    reply_msg = Msg("agent", content="done", role="assistant")
+    set_current_workspace_dir(parent_workspace_dir)
+
+    with patch("core.agents.spawn_subagent.ReActAgent") as MockAgent:
+
+        async def _call(task_msg):
+            captured["workspace_dir"] = get_current_workspace_dir()
+            captured["session_id"] = get_current_session_id()
+            captured["recent_max_bytes"] = get_current_recent_max_bytes()
+            captured["shell_timeout"] = get_current_shell_command_timeout()
+            captured["shell_executable"] = (
+                get_current_shell_command_executable()
+            )
+            captured["toolkit"] = get_current_toolkit()
+            q = instance._stored_queue
+            await q.put(
+                (Msg("agent", content="任务完成", role="assistant"), True, None)
+            )
+            return reply_msg
+
+        instance = AsyncMock(side_effect=_call)
+
+        def _set_q(enabled, q):
+            instance._stored_queue = q
+
+        instance.set_msg_queue_enabled = _set_q
+        MockAgent.return_value = instance
+
+        fn = make_spawn_subagent_fn(
+            runtime_state=_make_runtime_state(),
+            get_model_and_formatter=lambda: (MagicMock(), MagicMock()),
+            get_builtin_tools=lambda: [],
+            get_mcp_clients=lambda: [],
+            get_skill_dirs_for_role=lambda r: [],
+            get_workspace_dir=lambda: workspace_dir,
+            get_artifacts_root=lambda: workspace_dir / "artifacts",
+            get_session_id=lambda: "s1",
+            get_recent_max_bytes=lambda: 4096,
+            get_shell_command_timeout=lambda: 120.0,
+            get_shell_command_executable=lambda: "/bin/sh",
+        )
+        results = []
+        async for resp in fn(task="do it", role="data_fetcher"):
+            results.append(resp)
+
+    assert results[-1].is_last is True
+    assert captured["workspace_dir"] == workspace_dir
+    assert captured["session_id"] == "s1"
+    assert captured["recent_max_bytes"] == 4096
+    assert captured["shell_timeout"] == 120.0
+    assert captured["shell_executable"] == "/bin/sh"
+    assert captured["toolkit"] is not None
+    assert get_current_workspace_dir() == parent_workspace_dir
 
 
 @pytest.mark.asyncio

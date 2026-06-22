@@ -20,11 +20,14 @@ import asyncio
 import json as _json
 import logging
 import uuid
+from contextlib import contextmanager
+from pathlib import Path
 from typing import (
     Any,
     AsyncGenerator,
     Callable,
     Dict,
+    Iterator,
     List,
     Optional,
     TYPE_CHECKING,
@@ -33,6 +36,20 @@ from typing import (
 from agentscope.agent import ReActAgent
 from agentscope.message import Msg, TextBlock
 from agentscope.tool import Toolkit, ToolResponse
+from qwenpaw.config.context import (
+    get_current_recent_max_bytes,
+    get_current_session_id,
+    get_current_shell_command_executable,
+    get_current_shell_command_timeout,
+    get_current_toolkit,
+    get_current_workspace_dir,
+    set_current_recent_max_bytes,
+    set_current_session_id,
+    set_current_shell_command_executable,
+    set_current_shell_command_timeout,
+    set_current_toolkit,
+    set_current_workspace_dir,
+)
 
 if TYPE_CHECKING:
     from ..orchestration.state import RuntimeStateManager
@@ -45,12 +62,108 @@ MAX_CONCURRENT = 4
 MAX_TOTAL_SPAWNS = 20
 
 
+def _as_path(value: Any) -> Path | None:
+    if value is None:
+        return None
+    return Path(value).expanduser()
+
+
+def _as_text(value: Any) -> str | None:
+    if value is None:
+        return None
+    text = str(value)
+    return text or None
+
+
+def _current_graph_id(runtime_state: "RuntimeStateManager") -> str | None:
+    plan = getattr(runtime_state, "current_plan", None)
+    graph_id = getattr(plan, "id", None)
+    return graph_id if isinstance(graph_id, str) and graph_id else None
+
+
+@contextmanager
+def _subagent_runtime_context(
+    *,
+    workspace_dir: Path | None,
+    session_id: str | None,
+    toolkit: Toolkit,
+    recent_max_bytes: int | None,
+    shell_command_timeout: float | None,
+    shell_command_executable: str | None,
+) -> Iterator[None]:
+    """Set QwenPaw tool context for the manually-created ReActAgent."""
+
+    previous_workspace_dir = get_current_workspace_dir()
+    previous_session_id = get_current_session_id()
+    previous_toolkit = get_current_toolkit()
+    previous_recent_max_bytes = get_current_recent_max_bytes()
+    previous_shell_timeout = get_current_shell_command_timeout()
+    previous_shell_executable = get_current_shell_command_executable()
+
+    set_current_workspace_dir(workspace_dir)
+    set_current_session_id(session_id)
+    set_current_toolkit(toolkit)
+    set_current_recent_max_bytes(recent_max_bytes)
+    set_current_shell_command_timeout(shell_command_timeout)
+    set_current_shell_command_executable(shell_command_executable)
+    try:
+        yield
+    finally:
+        set_current_workspace_dir(previous_workspace_dir)
+        set_current_session_id(previous_session_id)
+        set_current_toolkit(previous_toolkit)
+        set_current_recent_max_bytes(previous_recent_max_bytes)
+        set_current_shell_command_timeout(previous_shell_timeout)
+        set_current_shell_command_executable(previous_shell_executable)
+
+
+def _build_environment_section(
+    *,
+    workspace_dir: Path | None,
+    artifacts_root: Path | None,
+    session_id: str | None,
+    graph_id: str | None,
+    node_id: str | None,
+) -> str:
+    workspace_text = str(workspace_dir) if workspace_dir else "(unknown)"
+    artifacts_text = str(artifacts_root) if artifacts_root else "(unknown)"
+    if session_id and graph_id and node_id:
+        node_artifact_dir = f"artifacts/{session_id}/{graph_id}/{node_id}/"
+        file_ref = f"{session_id}/{graph_id}/{node_id}/<filename>"
+        node_rule = (
+            f"- 当前节点产物必须保存到 `{node_artifact_dir}`；"
+            f"最终摘要中的文件引用使用 `{file_ref}`，不要带 `artifacts/` 前缀。\n"
+        )
+    else:
+        node_rule = (
+            "- 当前节点产物必须保存到 "
+            "`artifacts/<session_id>/<graph_id>/<node_id>/`；"
+            "最终摘要中的文件引用不要带 `artifacts/` 前缀。\n"
+        )
+    return (
+        "## DataPaw 分析环境\n"
+        f"- agent workspace: `{workspace_text}`\n"
+        f"- host artifacts 根目录: `{artifacts_text}`\n"
+        "- `execute_shell_command` / `write_file` / `read_file` 的相对路径"
+        "都以 agent workspace 为根。\n"
+        "- 不要把文件写到服务进程目录、仓库根目录或裸 `./artifacts`；"
+        "始终使用 workspace 下的 `artifacts/...`。\n"
+        f"{node_rule}\n"
+    )
+
+
 def _build_sub_prompt(
     task: str,
     context: str,
     upstream_outputs: Dict[str, str],
     builtin_tool_names: List[str],
     mcp_tool_names: List[str],
+    *,
+    workspace_dir: Path | None = None,
+    artifacts_root: Path | None = None,
+    session_id: str | None = None,
+    graph_id: str | None = None,
+    node_id: str | None = None,
 ) -> str:
     upstream_section = "\n".join(
         f"- {nid}: {out}" for nid, out in upstream_outputs.items()
@@ -65,10 +178,18 @@ def _build_sub_prompt(
     ) if mcp_tool_names else (
         "以上是你的全部可用工具。当前没有语义层工具可用。\n"
     )
+    environment_section = _build_environment_section(
+        workspace_dir=workspace_dir,
+        artifacts_root=artifacts_root,
+        session_id=session_id,
+        graph_id=graph_id,
+        node_id=node_id,
+    )
 
     return (
         "你是一个任务执行器。精确完成指定任务。\n\n"
         f"## 你的任务\n{task}\n\n"
+        f"{environment_section}"
         "## 可用工具\n"
         f"内置工具：{builtin_list}\n"
         f"语义层 / MCP 工具：{mcp_list}\n"
@@ -186,6 +307,12 @@ def make_spawn_subagent_fn(
     get_builtin_tools: Callable[[], List[Any]],
     get_mcp_clients: Callable[[], List[Any]],
     get_skill_dirs_for_role: Callable[[str], List[str]],
+    get_workspace_dir: Callable[[], Any] | None = None,
+    get_artifacts_root: Callable[[], Any] | None = None,
+    get_session_id: Callable[[], str | None] | None = None,
+    get_recent_max_bytes: Callable[[], int | None] | None = None,
+    get_shell_command_timeout: Callable[[], float | None] | None = None,
+    get_shell_command_executable: Callable[[], str | None] | None = None,
 ) -> Callable[..., AsyncGenerator[ToolResponse, None]]:
     """Build the ``spawn_subagent`` closure capturing runtime dependencies.
 
@@ -252,9 +379,50 @@ def make_spawn_subagent_fn(
 
             current_node = runtime_state.get_current_in_progress_node()
             node_id = current_node.node_id if current_node else None
+            graph_id = _current_graph_id(runtime_state)
             upstream_outputs = (
                 runtime_state.get_upstream_outputs(node_id)
                 if node_id else {}
+            )
+            workspace_value = (
+                get_workspace_dir() if get_workspace_dir else None
+            )
+            workspace_dir = _as_path(workspace_value) or (
+                get_current_workspace_dir()
+            )
+            artifacts_value = (
+                get_artifacts_root() if get_artifacts_root else None
+            )
+            artifacts_root = _as_path(artifacts_value) or (
+                workspace_dir / "artifacts"
+                if workspace_dir is not None else None
+            )
+            session_value = get_session_id() if get_session_id else None
+            session_id = _as_text(session_value) or get_current_session_id()
+            recent_value = (
+                get_recent_max_bytes() if get_recent_max_bytes else None
+            )
+            recent_max_bytes = (
+                recent_value
+                if recent_value is not None else get_current_recent_max_bytes()
+            )
+            shell_timeout_value = (
+                get_shell_command_timeout()
+                if get_shell_command_timeout else None
+            )
+            shell_command_timeout = (
+                shell_timeout_value
+                if shell_timeout_value is not None
+                else get_current_shell_command_timeout()
+            )
+            shell_executable_value = (
+                get_shell_command_executable()
+                if get_shell_command_executable else None
+            )
+            shell_command_executable = (
+                shell_executable_value
+                if shell_executable_value is not None
+                else get_current_shell_command_executable()
             )
 
             try:
@@ -331,6 +499,11 @@ def make_spawn_subagent_fn(
                 task, context, upstream_outputs,
                 builtin_tool_names=builtin_names,
                 mcp_tool_names=mcp_names,
+                workspace_dir=workspace_dir,
+                artifacts_root=artifacts_root,
+                session_id=session_id,
+                graph_id=graph_id,
+                node_id=node_id,
             )
             skill_prompt = sub_toolkit.get_agent_skill_prompt()
             if skill_prompt:
@@ -358,7 +531,15 @@ def make_spawn_subagent_fn(
                 _deadline = asyncio.get_event_loop().time() + TIMEOUT_SECONDS
                 sub_queue: asyncio.Queue = asyncio.Queue()
                 sub_agent.set_msg_queue_enabled(True, sub_queue)
-                reply_task = asyncio.create_task(sub_agent(task_msg))
+                with _subagent_runtime_context(
+                    workspace_dir=workspace_dir,
+                    session_id=session_id,
+                    toolkit=sub_toolkit,
+                    recent_max_bytes=recent_max_bytes,
+                    shell_command_timeout=shell_command_timeout,
+                    shell_command_executable=shell_command_executable,
+                ):
+                    reply_task = asyncio.create_task(sub_agent(task_msg))
 
                 # Accumulate structured execution log for trace
                 trace_log: list[dict] = []

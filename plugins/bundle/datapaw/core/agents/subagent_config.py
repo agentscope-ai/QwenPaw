@@ -49,6 +49,8 @@ def build_spawn_subagent_fn(agent: "DataPawAgent") -> Any:
     """Build the ``spawn_subagent`` closure with captured dependencies."""
     from qwenpaw.agents.model_factory import create_model_and_formatter
 
+    from ..path_context import default_artifacts_root
+
     agent_id = agent._agent_config.id
 
     def _get_model_and_formatter():
@@ -69,12 +71,46 @@ def build_spawn_subagent_fn(agent: "DataPawAgent") -> Any:
     def _get_skill_dirs_for_role(role: str) -> list:
         return SKILL_DIRS.get(role, [])
 
+    def _get_workspace_dir() -> Path | None:
+        return getattr(agent, "_workspace_dir", None)
+
+    def _get_artifacts_root() -> Path:
+        return default_artifacts_root(
+            agent_id,
+            workspace_dir=_get_workspace_dir(),
+        )
+
+    def _get_session_id() -> str | None:
+        return (getattr(agent, "_request_context", None) or {}).get(
+            "session_id",
+        )
+
+    def _get_recent_max_bytes() -> int | None:
+        running = getattr(agent._agent_config, "running", None)
+        light_ctx = getattr(running, "light_context_config", None)
+        pruning = getattr(light_ctx, "tool_result_pruning_config", None)
+        return getattr(pruning, "pruning_recent_msg_max_bytes", None)
+
+    def _get_shell_command_timeout() -> float | None:
+        running = getattr(agent._agent_config, "running", None)
+        return getattr(running, "shell_command_timeout", None)
+
+    def _get_shell_command_executable() -> str | None:
+        running = getattr(agent._agent_config, "running", None)
+        return getattr(running, "shell_command_executable", None) or None
+
     return make_spawn_subagent_fn(
         runtime_state=agent.plan_notebook,
         get_model_and_formatter=_get_model_and_formatter,
         get_builtin_tools=_get_builtin_tools,
         get_mcp_clients=_get_mcp_clients,
         get_skill_dirs_for_role=_get_skill_dirs_for_role,
+        get_workspace_dir=_get_workspace_dir,
+        get_artifacts_root=_get_artifacts_root,
+        get_session_id=_get_session_id,
+        get_recent_max_bytes=_get_recent_max_bytes,
+        get_shell_command_timeout=_get_shell_command_timeout,
+        get_shell_command_executable=_get_shell_command_executable,
     )
 
 
