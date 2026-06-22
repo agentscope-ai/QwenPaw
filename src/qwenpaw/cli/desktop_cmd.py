@@ -280,7 +280,7 @@ def _terminate_backend_process(proc):
         logger.info(f"Backend already exited with code {proc.returncode}")
 
 
-def _start_backend_and_wait(  # pylint: disable=R0917
+def _start_backend_and_wait(
     host,
     port,
     log_level,
@@ -386,7 +386,7 @@ def _start_backend_and_wait(  # pylint: disable=R0917
     if not ready and proc.poll() is not None:
         logger.error(
             f"Backend process exited prematurely with code "
-            f"{proc.returncode}"
+            f"{proc.returncode}",
         )
 
         def _show_error():
