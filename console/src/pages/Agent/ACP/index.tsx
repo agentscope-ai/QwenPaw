@@ -250,7 +250,9 @@ function ACPPage() {
             <span className={styles.loadingText}>{t("acp.loading")}</span>
           </div>
         ) : (
-          <div className={`${styles.channelsGrid} ${stylesACP.channelsGridMobile}`}>
+          <div
+            className={`${styles.channelsGrid} ${stylesACP.channelsGridMobile}`}
+          >
             {cards.map(({ key, config }) => (
               <ACPCard
                 key={key}
