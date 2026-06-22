@@ -717,6 +717,16 @@
       "endpointHint": "Kosongkan untuk deteksi otomatis dari server MCP."
     }
   },
+  "preview": {
+    "error": {
+      "SENSITIVE_FILE_BLOCKED": "File diblokir oleh File Guard (perlindungan file sensitif).",
+      "OUTSIDE_WORKSPACE": "File berada di luar cakupan workspace. Aktifkan \"Izinkan Pratinjau Konsol di Luar Workspace\" di Pengaturan → Keamanan → File Guard.",
+      "FORBIDDEN": "Akses ditolak: izin tidak cukup untuk melihat pratinjau file ini.",
+      "NOT_FOUND": "File tidak ditemukan, mungkin telah dipindahkan atau dihapus. Jika menggunakan jalur relatif, coba gunakan jalur absolut.",
+      "LOAD_FAILED": "Gagal memuat pratinjau file.",
+      "LOAD_FAILED_DETAIL": "Gagal memuat pratinjau file: {{detail}}"
+    }
+  },
   "pluginManager": {
     "title": "Manajer Plugin",
     "description": "Instal, kelola, dan hapus plugin tanpa me-restart layanan.",

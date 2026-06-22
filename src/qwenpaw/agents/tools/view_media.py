@@ -12,6 +12,8 @@ from typing import Optional
 from agentscope.message import ImageBlock, TextBlock, VideoBlock
 from agentscope.tool import ToolResponse
 
+from .file_io import _path_to_file_url, _resolve_file_path
+
 logger = logging.getLogger(__name__)
 
 _IMAGE_EXTENSIONS = {
@@ -85,7 +87,7 @@ def _validate_media_path(
         "NFC",
         os.path.expanduser(file_path),
     )
-    resolved = Path(file_path).resolve()
+    resolved = Path(_resolve_file_path(file_path))
 
     if not resolved.exists() or not resolved.is_file():
         return resolved, ToolResponse(
@@ -354,6 +356,7 @@ async def view_image(image_path: str) -> ToolResponse:
     if err is not None:
         return err
 
+    file_url = _path_to_file_url(str(resolved))
     text_msg = (
         fallback_hint if fallback_hint else f"Image loaded: {resolved.name}"
     )
@@ -361,7 +364,7 @@ async def view_image(image_path: str) -> ToolResponse:
         content=[
             ImageBlock(
                 type="image",
-                source={"type": "url", "url": str(resolved)},
+                source={"type": "url", "url": file_url},
             ),
             TextBlock(type="text", text=text_msg),
         ],
@@ -424,6 +427,7 @@ async def view_video(video_path: str) -> ToolResponse:
     if err is not None:
         return err
 
+    file_url = _path_to_file_url(str(resolved))
     text_msg = (
         fallback_hint if fallback_hint else f"Video loaded: {resolved.name}"
     )
@@ -431,7 +435,7 @@ async def view_video(video_path: str) -> ToolResponse:
         content=[
             VideoBlock(
                 type="video",
-                source={"type": "url", "url": str(resolved)},
+                source={"type": "url", "url": file_url},
             ),
             TextBlock(type="text", text=text_msg),
         ],
