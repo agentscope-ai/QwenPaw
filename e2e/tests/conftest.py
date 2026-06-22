@@ -24,7 +24,13 @@ def pytest_sessionstart(session):
     directory. Without this, a developer running ``pytest`` without
     setting up the isolated test server could silently corrupt their
     real ``~/.qwenpaw`` data.
+
+    Skipped for ``ui_smoke`` runs — those hit a frontend dev server
+    only and never write seed files to disk.
     """
+    marker_expr = session.config.getoption("-m", default="")
+    if marker_expr.strip() == "ui_smoke":
+        return
     from config.settings import config
     _ = config.working_dir  # raises RuntimeError on misconfiguration
 
