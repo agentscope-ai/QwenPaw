@@ -218,10 +218,7 @@ export function patchContextMaxInputLength(
       return;
     }
 
-    const newRatio = Math.min(
-      (estimatedTokens / newMaxInputLength) * 100,
-      100,
-    );
+    const newRatio = Math.min((estimatedTokens / newMaxInputLength) * 100, 100);
     const updatedMsg = JSON.parse(
       JSON.stringify(msg),
     ) as IAgentScopeRuntimeWebUIMessage;
