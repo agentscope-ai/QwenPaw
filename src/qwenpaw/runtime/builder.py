@@ -234,9 +234,10 @@ class AgentBuilder:
             offloader=offloader,
         )
         # Eviction and recall must live or die together. Scroll's only recall
-        # path is the sandboxed execute_python tool, which fails closed without
-        # a sandbox_config — and that config is injected solely by the governor
-        # (PolicyGuardedTool). If the governor never came up and the operator
+        # path is the sandboxed recall_history_python tool, which fails closed
+        # without a sandbox_config — that config is injected solely by the
+        # governor (PolicyGuardedTool). If the governor never came up and the
+        # operator
         # hasn't opted into unsandboxed recall, wiring scroll would evict
         # history into an index nothing can read back. Degrade to native so the
         # full history stays in-context instead.
@@ -608,9 +609,9 @@ class AgentBuilder:
     def _scroll_recall_runnable(agent_config: Any, governor: Any) -> bool:
         """Whether scroll's recall tool can actually execute in this build.
 
-        Scroll's recall is the sandboxed ``execute_python`` tool, which fails
-        closed unless a ``sandbox_config`` is supplied. That config is injected
-        only by the governor (via ``PolicyGuardedTool``); the
+        Scroll's recall is the sandboxed ``recall_history_python`` tool, which
+        fails closed unless a ``sandbox_config`` is supplied. That config is
+        injected only by the governor (via ``PolicyGuardedTool``); the
         ``GuardedFunctionTool`` fallback used when the governor is absent never
         supplies one. So recall is runnable iff the governor is present, or the
         operator has explicitly opted into unsandboxed recall via

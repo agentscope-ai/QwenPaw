@@ -793,7 +793,7 @@ class ScrollContextConfig(BaseModel):
     Only consulted when ``LightContextConfig.strategy == "scroll"``. The
     durable history lives at ``{working_dir}/{db_filename}``; evicted turns
     fold into an in-context eviction index recallable from the sandboxed
-    ``execute_python`` REPL.
+    ``recall_history_python`` REPL.
     """
 
     model_config = ConfigDict(extra="ignore")
@@ -824,7 +824,9 @@ class ScrollContextConfig(BaseModel):
     repl_timeout_s: int = Field(
         default=300,
         ge=1,
-        description="Per-call timeout for the execute_python REPL tool.",
+        description=(
+            "Per-call timeout for the recall_history_python REPL tool."
+        ),
     )
 
     history_retention_days: int = Field(
@@ -841,7 +843,7 @@ class ScrollContextConfig(BaseModel):
     allow_unsandboxed: bool = Field(
         default=False,
         description=(
-            "UNSAFE escape hatch. The execute_python recall REPL runs "
+            "UNSAFE escape hatch. The recall_history_python recall REPL runs "
             "model-authored Python and is only isolated by the sandbox; the "
             "sandbox config is injected by the governance layer. When that "
             "layer is degraded the tool fails closed and refuses to run. Set "
@@ -873,7 +875,7 @@ class LightContextConfig(BaseModel):
         description=(
             "Context management strategy. 'native' = AgentScope compression; "
             "'scroll' = retrieval-driven history.db + eviction index with a "
-            "sandboxed execute_python recall REPL (the default)."
+            "sandboxed recall_history_python recall REPL (the default)."
         ),
     )
 

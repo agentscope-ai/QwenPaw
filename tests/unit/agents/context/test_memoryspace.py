@@ -139,7 +139,8 @@ def test_search_excludes_recall_tool_own_turns(tmp_path: Path):
         ),
     )
     # The agent's own recall call (its Python source) and its printed output —
-    # both carry the searched keywords and both must be excluded.
+    # both carry the searched keywords and both must be excluded. The output
+    # row uses the legacy "execute_python" name to also cover pre-rename rows.
     h.append(
         session_id="s1",
         agent_id="ag1",
@@ -147,7 +148,7 @@ def test_search_excludes_recall_tool_own_turns(tmp_path: Path):
         entry=LogEntry(
             kind="model_turn",
             role="assistant",
-            name="execute_python",
+            name="recall_history_python",
             content='ms.search("car service")',
         ),
     )
@@ -158,7 +159,7 @@ def test_search_excludes_recall_tool_own_turns(tmp_path: Path):
         entry=LogEntry(
             kind="tool_result",
             role="assistant",
-            name="execute_python",
+            name="execute_python",  # legacy name, still excluded
             content="stdout: searching for car service ...",
             tool_call_id="t1",
         ),

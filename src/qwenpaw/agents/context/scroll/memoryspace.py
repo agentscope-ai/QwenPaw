@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""The model's SQLite working surface inside ``execute_python``.
+"""The model's SQLite working surface inside ``recall_history_python``.
 
 Self-contained (stdlib only) so the sandboxed REPL cell can import it by bare
 module name, without the rest of qwenpaw on the path.
@@ -22,12 +22,29 @@ _DEFAULT_ROW_CAP = 1000
 # The recall tool's own turns (its ``ms.*`` source + printed output) are
 # durable but must never surface as *search hits* — otherwise a query matches
 # the agent's own earlier queries/tracebacks (self-pollution). New rows are
-# already kept out of the FTS index (see ``history._RECALL_TOOL_NAME``); this
+# already kept out of the FTS index (see ``history._RECALL_TOOL_NAMES``); this
 # filter also hides any legacy rows indexed before that, and covers the LIKE
-# fallback. Must match the recall tool name in ``repl.py``.
-_RECALL_TOOL_NAME = "execute_python"
+# fallback. Must match the recall tool name in ``repl.py``; the legacy
+# "execute_python" name is kept so pre-rename rows stay excluded.
+_RECALL_TOOL_NAMES = ("recall_history_python", "execute_python")
+_RECALL_EXCL_PLACEHOLDERS = ", ".join("?" for _ in _RECALL_TOOL_NAMES)
 
 _DATE_RE = re.compile(r"(\d{4})[-/](\d{1,2})[-/](\d{1,2})")
+
+_FTS_TOKEN_RE = re.compile(r"\w+", re.UNICODE)
+
+
+def fts_match_query(raw: str) -> str:
+    """The ``plainto_tsquery()`` that SQLite FTS5 lacks.
+
+    FTS5 ``MATCH`` takes a query grammar, not plain text, so raw queries like
+    ``C++`` or ``foo-bar`` raise a syntax error. Extract word tokens and quote
+    each as a phrase (doubling embedded quotes), AND-combined — keeping the
+    implicit-AND of a plain multi-word query while neutralising every operator.
+    Returns ``""`` when there are no word tokens (caller falls back to LIKE).
+    """
+    toks = _FTS_TOKEN_RE.findall(raw)
+    return " ".join('"' + t.replace('"', '""') + '"' for t in toks)
 
 
 def sanitize_suffix(session_id: str | None) -> str:
@@ -353,17 +370,27 @@ class MemorySpace:
         all its sessions. Pass ``all_agents=True`` to span every agent, or pin
         a *specific* conversation / agent with ``session_id='cron:<job>'``
         and/or ``agent_id='<other>'`` (these AND-combine and take precedence).
-        ``kind`` optionally filters by row kind. Falls back to a LIKE scan if
-        this SQLite lacks FTS5.
+        ``kind`` optionally filters by row kind. The query is plain text:
+        punctuation is treated as word separators (so ``C++`` searches the
+        term ``C``), not FTS5 operators. Falls back to a LIKE scan if this
+        SQLite lacks FTS5 or the query has no word tokens.
         """
         targets = self._scope_filters(all_agents, session_id, agent_id)
-        if not self._fts_available():
+        # FTS5 MATCH takes a query grammar, not plain text. Sanitize first; an
+        # all-punctuation query (no word tokens) has nothing to MATCH, so use
+        # the LIKE scan instead — as we also do when FTS5 is unavailable.
+        match = fts_match_query(query)
+        if not self._fts_available() or not match:
             return self._search_like(query, targets, kind, int(k))
         # bm25 and the `tbl MATCH` syntax need the table NAME, not an alias.
         fts = "conversation_history_fts"
         # Exclude the recall tool's own turns (NULL-safe: keep un-named rows).
-        where = [f"{fts} MATCH ?", "(ch.name IS NULL OR ch.name != ?)"]
-        params: list = [query, _RECALL_TOOL_NAME]
+        where = [
+            f"{fts} MATCH ?",
+            f"(ch.name IS NULL OR ch.name NOT IN "
+            f"({_RECALL_EXCL_PLACEHOLDERS}))",
+        ]
+        params: list = [match, *_RECALL_TOOL_NAMES]
         for col, val in targets:
             where.append(f"ch.{col} = ?")
             params.append(val)
@@ -378,10 +405,15 @@ class MemorySpace:
             "WHERE " + " AND ".join(where) + f" ORDER BY bm25({fts}) LIMIT ?"
         )
         params.append(int(k))
-        return [
-            {kk: r[kk] for kk in r.keys()}
-            for r in self._conn.execute(sql, params)
-        ]
+        try:
+            return [
+                {kk: r[kk] for kk in r.keys()}
+                for r in self._conn.execute(sql, params)
+            ]
+        except sqlite3.OperationalError:
+            # Backstop: any residual MATCH-grammar edge case the sanitizer
+            # missed degrades to LIKE rather than crashing the recall call.
+            return self._search_like(query, targets, kind, int(k))
 
     def _fts_available(self) -> bool:
         """True iff the read-only history DB has the FTS5 index table."""
@@ -404,8 +436,11 @@ class MemorySpace:
         session_id/agent_id).
         """
         # Exclude the recall tool's own turns (NULL-safe: keep un-named rows).
-        where = ["content LIKE ?", "(name IS NULL OR name != ?)"]
-        params: list = [f"%{query}%", _RECALL_TOOL_NAME]
+        where = [
+            "content LIKE ?",
+            f"(name IS NULL OR name NOT IN ({_RECALL_EXCL_PLACEHOLDERS}))",
+        ]
+        params: list = [f"%{query}%", *_RECALL_TOOL_NAMES]
         for col, val in targets:
             where.append(f"{col} = ?")
             params.append(val)

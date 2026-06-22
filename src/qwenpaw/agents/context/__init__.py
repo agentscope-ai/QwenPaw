@@ -4,7 +4,7 @@
 The default agent behavior is AgentScope-native compression; injecting a
 :class:`ContextManager` replaces it. The only built-in alternative today is the
 *scroll* strategy (durable ``history.db`` + an in-context eviction index + a
-sandboxed ``execute_python`` recall REPL), selected via
+sandboxed ``recall_history_python`` recall REPL), selected via
 ``LightContextConfig.strategy == "scroll"``.
 
 :func:`build_scroll_components` is the single entry point the builder calls; it
@@ -35,7 +35,7 @@ class ScrollComponents:
 
     context_manager: Any  # ScrollContextManager (delegated agent hooks)
     cap_middleware: Any  # ToolResultCapMiddleware (on_acting)
-    repl_tool: Any  # raw execute_python fn carrying a ``_tool_descriptor``
+    repl_tool: Any  # raw recall_history_python fn w/ a ``_tool_descriptor``
 
 
 def build_scroll_components(
@@ -75,7 +75,7 @@ def build_scroll_components(
     from .scroll.cap_middleware import ToolResultCapMiddleware
     from .scroll.history import HistoryStore
     from .scroll.manager import ScrollContextManager
-    from .scroll.repl import make_execute_python
+    from .scroll.repl import make_recall_history_python
 
     sc = lcc.scroll_config
     history = HistoryStore(Path(workspace_dir) / sc.db_filename)
@@ -106,7 +106,7 @@ def build_scroll_components(
         token_cap=sc.tool_output_token_cap,
         capped_results=capped_results,
     )
-    tool = make_execute_python(
+    tool = make_recall_history_python(
         history_db_path=str(history.path),
         session_id=session_id,
         agent_id=agent_id,

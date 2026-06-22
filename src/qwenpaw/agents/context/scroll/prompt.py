@@ -5,7 +5,7 @@ Injected only when ``strategy == "scroll"`` (see
 :class:`qwenpaw.runtime.prompt_contributors.ScrollContextContributor`). It
 teaches what the model must know for the eviction index to be useful: how to
 headline its turns, how to read the ``[context compressed]`` map, how to recall
-via the ``execute_python`` REPL, and when to stop and abstain.
+via the ``recall_history_python`` REPL, and when to stop and abstain.
 
 Headlines are emitted as a trailing HTML comment (``<!-- ⟦ … ⟧ -->``) so they
 stay invisible in the rendered chat yet remain extractable into the durable
@@ -43,11 +43,13 @@ can decide whether to recall. The map only lists *this* session's evictions;
 reach earlier sessions through ``ms.search`` (below), which spans your whole
 memory by default.
 
-RECALL with the ``execute_python`` tool: the durable history reaches you
+RECALL with the ``recall_history_python`` tool: the durable history reaches you
 through the ``ms`` helpers (``ms.expand``/``outline`` a seq span the map gave
 you, ``ms.search`` across past sessions, ``ms.sessions``/``session`` to read a
-past conversation, …). The full recall API lives in that tool's own
-description — read it there rather than guessing signatures.
+past conversation, …). This recalls your own raw conversation turns — distinct
+from ReMe ``memory_search`` (distilled long-term memory). The full recall API
+lives in that tool's own description — read it there rather than guessing
+signatures.
 
 DISCIPLINE (this is where recall goes wrong):
   • If the request depends on something not in your live context, recall BEFORE

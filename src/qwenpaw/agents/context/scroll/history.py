@@ -24,8 +24,9 @@ _BUSY_TIMEOUT_MS = 5000
 # tracebacks), drowning the real content: a self-pollution feedback loop. So
 # these rows stay durable + recallable by ``seq``, but are kept OUT of the FTS
 # index (and out of ``search`` — see ``MemorySpace``). Must match the recall
-# tool name in ``repl.py``.
-_RECALL_TOOL_NAME = "execute_python"
+# tool name in ``repl.py``; the legacy "execute_python" name is kept so rows
+# written before the rename stay excluded.
+_RECALL_TOOL_NAMES = ("recall_history_python", "execute_python")
 
 # Columns of conversation_history, in INSERT order (minus the
 # autoincrement seq).
@@ -247,7 +248,7 @@ class HistoryStore:
                 ).fetchone()
                 return int(existing["seq"]) if existing else 0
             seq = int(cur.lastrowid or 0)
-            if self._fts and entry.name != _RECALL_TOOL_NAME:
+            if self._fts and entry.name not in _RECALL_TOOL_NAMES:
                 self._conn.execute(
                     "INSERT INTO conversation_history_fts(rowid, content) "
                     "VALUES (?, ?)",
@@ -277,9 +278,9 @@ class HistoryStore:
         call doesn't leave them frozen at their first-write values. ``seq`` is
         unchanged.
         """
-        # Recall-tool rows are never FTS-indexed (see ``_RECALL_TOOL_NAME``),
+        # Recall-tool rows are never FTS-indexed (see ``_RECALL_TOOL_NAMES``),
         # so don't touch the index for them on update either.
-        fts_sync = self._fts and name != _RECALL_TOOL_NAME
+        fts_sync = self._fts and name not in _RECALL_TOOL_NAMES
         with self._conn:
             old_content = None
             if fts_sync:

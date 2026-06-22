@@ -2,8 +2,8 @@
 # pylint: disable=protected-access
 """The builder must not wire scroll when its recall tool cannot run.
 
-Scroll's only recall path is the sandboxed ``execute_python`` tool, which
-fails closed without a ``sandbox_config`` — and that config is injected only by
+Scroll's only recall path is the sandboxed ``recall_history_python`` tool,
+which fails closed without a ``sandbox_config`` — that config is injected by
 the governor. If the governor is absent and ``allow_unsandboxed`` is off,
 wiring scroll would evict history into an index nothing can read back, so the
 builder degrades to native context management.

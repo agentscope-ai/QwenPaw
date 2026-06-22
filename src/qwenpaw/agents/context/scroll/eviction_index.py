@@ -261,12 +261,12 @@ class EvictionIndex:
             "the pinned task is above and the recent live turns follow. Each "
             "'·' line is a seq span you can re-expand.",
             "",
-            "Re-expand a span inside execute_python: ms.expand(lo, hi) for "
-            "full content, ms.outline(lo, hi) for headlines + a 600-char "
+            "Re-expand a span inside recall_history_python: ms.expand(lo, hi) "
+            "for full content, ms.outline(lo, hi) for headlines + a 600-char "
             "preview (seq is a "
             "globally-unique address, so a span needs no other filter). Other "
-            "recall helpers (search, sessions, …) are in the execute_python "
-            "tool description.",
+            "recall helpers (search, sessions, …) are in the "
+            "recall_history_python tool description.",
             "",
         ]
         out.extend(self._tier_lines())

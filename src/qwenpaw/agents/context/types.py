@@ -32,7 +32,7 @@ class LogEntry:
 
 @dataclass(frozen=True)
 class ExecutionResult:
-    """What a single execute_python call returns."""
+    """What a single recall_history_python call returns."""
 
     stdout: str
     stderr: str

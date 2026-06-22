@@ -1,10 +1,13 @@
 # -*- coding: utf-8 -*-
-"""The sandboxed ``execute_python`` recall tool.
+"""The sandboxed ``recall_history_python`` recall tool.
 
-The model recalls evicted history by running Python here, not by scrolling
-back. Each call runs a fresh process (Option A: stateless cells) inside the
-sandbox when a ``sandbox_config`` is supplied — mirroring
-``execute_shell_command``. The cell preamble builds ``ms`` (the durable
+This is raw conversation-history recall (this conversation's own evicted
+turns), distinct from ReMe ``memory_search`` (distilled long-term memory
+across conversations). The model recalls evicted history by running Python
+here, not by scrolling back. Each call runs a fresh process (Option A:
+stateless cells) inside the sandbox when a ``sandbox_config`` is supplied —
+mirroring ``execute_shell_command``. The cell preamble builds ``ms`` (the
+durable
 history ATTACHed read-only + a file-backed scratch DB) from
 :mod:`.memoryspace`.
 
@@ -29,7 +32,10 @@ from ....runtime.tool_registry import ToolDescriptor
 # sandboxed process imports it by bare module name.
 _PKG_DIR = str(Path(__file__).parent)
 
-_DOC = """Run Python to recall evicted conversation history.
+_DOC = """Recall THIS conversation's evicted history by running Python.
+
+For raw past turns of the current conversation that scrolled out of context —
+NOT long-term memory across conversations (that is ReMe `memory_search`).
 
 `ms` is ALREADY DEFINED in this cell — use it directly (e.g. ms.search(...)).
 Do NOT `import ms`: it is a ready-made object, not a module, and importing it
@@ -54,7 +60,8 @@ The persistent record reaches you through `ms`. Prefer these intent helpers
     searches your whole history across past sessions; all_agents=True spans
     every agent here. Pin a specific one with session_id="cron:<job>" /
     agent_id="<other>" (these take precedence). Keys: seq, session_id,
-    kind, role, name, headline, content (600-char preview).
+    kind, role, name, headline, content (600-char preview). Query with
+    keywords, not full sentences (all terms must appear).
   • ms.sessions() — your past conversations (incl. scheduled cron/heartbeat
     runs); ms.session(session_id, all_agents=False) reads one in full, scoped
     to you by default. ms.agents() lists agents.
@@ -72,7 +79,7 @@ Args:
 """
 
 
-def make_execute_python(
+def make_recall_history_python(
     *,
     history_db_path: str,
     session_id: str | None,
@@ -81,9 +88,10 @@ def make_execute_python(
     timeout_s: int = 300,
     allow_unsandboxed: bool = False,
 ):
-    """Build an ``execute_python`` tool bound to one session's history.
+    """Build a ``recall_history_python`` tool bound to one session's history.
 
-    ``execute_python`` runs model-authored Python. The sandbox is the only
+    ``recall_history_python`` runs model-authored Python. The sandbox is the
+    only
     isolation boundary, and ``sandbox_config`` is injected solely by
     ``PolicyGuardedTool``. When governance is degraded (e.g. the governor
     fails to start and the tool is wrapped in a plain ``GuardedFunctionTool``)
@@ -121,7 +129,7 @@ def make_execute_python(
         cell.write_text(preamble + "\n" + (source or ""), encoding="utf-8")
         return cell
 
-    async def execute_python(
+    async def recall_history_python(
         source: str,
         sandbox_config: Optional[Any] = None,
     ) -> ToolChunk:
@@ -133,7 +141,8 @@ def make_execute_python(
                     TextBlock(
                         type="text",
                         text=(
-                            "execute_python refused: no sandbox available "
+                            "recall_history_python refused: no sandbox "
+                            "available "
                             "(sandbox_config is None). This tool runs "
                             "model-authored Python and only executes inside "
                             "the sandbox. The governance layer may be "
@@ -177,20 +186,20 @@ def make_execute_python(
             state=state,
         )
 
-    execute_python.__doc__ = _DOC
+    recall_history_python.__doc__ = _DOC
     # Attach the descriptor directly (not via @tool_descriptor) so the tool is
     # sandbox-capable but is NOT auto-collected into the global builtin set —
     # it exists only when the scroll strategy wires it in.
     descriptor = ToolDescriptor(
-        name="execute_python",
-        func=execute_python,
+        name="recall_history_python",
+        func=recall_history_python,
         requires_sandbox=("shell_exec",),
         async_execution=True,
         description=_DOC.splitlines()[0],
     )
     # pylint: disable-next=protected-access
-    execute_python._tool_descriptor = descriptor  # type: ignore[attr-defined]
-    return execute_python
+    recall_history_python._tool_descriptor = descriptor  # type: ignore[attr-defined] # noqa: E501
+    return recall_history_python
 
 
 async def _run_sandboxed(
@@ -225,7 +234,7 @@ async def _run_subprocess(
         )
     except asyncio.TimeoutError:
         proc.kill()
-        return "", f"execute_python timed out after {timeout_s}s", -1
+        return "", f"recall_history_python timed out after {timeout_s}s", -1
     return (
         out.decode("utf-8", "replace"),
         err.decode("utf-8", "replace"),

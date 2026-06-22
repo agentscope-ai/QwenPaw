@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 # pylint: disable=redefined-outer-name
-"""execute_python's final ToolChunk must reflect the subprocess exit.
+"""recall_history_python's final ToolChunk must reflect the subprocess exit.
 
 The run has finished by the time the tool returns, so a RUNNING state would
 leave it looking perpetually in-flight to tool coordination, persisted
@@ -15,7 +15,7 @@ import pytest
 from agentscope.message import ToolResultState
 
 from qwenpaw.agents.context.scroll.history import HistoryStore
-from qwenpaw.agents.context.scroll.repl import make_execute_python
+from qwenpaw.agents.context.scroll.repl import make_recall_history_python
 
 
 @pytest.fixture
@@ -24,7 +24,7 @@ def run(tmp_path):
     # HistoryStore creates and initialises it (mirrors the real wiring).
     db_path = tmp_path / "history.db"
     HistoryStore(db_path)
-    fn = make_execute_python(
+    fn = make_recall_history_python(
         history_db_path=str(db_path),
         session_id="s1",
         agent_id="ag1",
@@ -50,7 +50,7 @@ async def test_uncaught_exception_is_error(run):
 
 
 async def test_no_sandbox_refusal_is_denied(tmp_path):
-    fn = make_execute_python(
+    fn = make_recall_history_python(
         history_db_path=str(tmp_path / "history.db"),
         session_id="s1",
         scratch_root=str(tmp_path / ".scroll"),

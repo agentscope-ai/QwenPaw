@@ -10,7 +10,7 @@ two delegated hooks.
 * :meth:`compress` — past the token threshold, keep a pinned head + recent tail
   and fold the evicted middle into an in-context :class:`EvictionIndex`. No
   summarization, nothing lost — every node points to a ``seq`` span recallable
-  via the sandboxed ``execute_python`` REPL.
+  via the sandboxed ``recall_history_python`` REPL.
 """
 
 from __future__ import annotations
