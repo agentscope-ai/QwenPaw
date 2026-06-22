@@ -314,7 +314,7 @@ async function startBackgroundQueue(
                 ],
               },
             ],
-            session_id: backendSessionId,
+            session_id: item.backendSessionId || backendSessionId,
             user_id: DEFAULT_USER_ID,
             channel: DEFAULT_CHANNEL,
             stream: true,
@@ -413,8 +413,27 @@ function startAllBackgroundQueues(excludeSessionId?: string) {
     }
     // For background sending, resolve the actual session_id the backend
     // expects (chat.session_id), which may differ from the localStorage key
-    // (chat.id). Fall back to the key itself for locally-created sessions.
-    const backendSessionId = sessionApi.getBackendSessionId(sessionId);
+    // (chat.id). Prefer the snapshot stored in the queue item (captured at
+    // enqueue time) because the session list may have been cleared after an
+    // agent switch. Fall back to sessionApi lookup, then to the key itself.
+    let backendSessionId: string | undefined;
+    try {
+      const raw2 = localStorage.getItem(key);
+      if (raw2) {
+        const parsed2 = JSON.parse(raw2);
+        const itemsArr: Array<{ backendSessionId?: string }> = Array.isArray(
+          parsed2,
+        )
+          ? parsed2
+          : parsed2.items;
+        backendSessionId = itemsArr?.[0]?.backendSessionId || undefined;
+      }
+    } catch {
+      // ignore
+    }
+    if (!backendSessionId) {
+      backendSessionId = sessionApi.getBackendSessionId(sessionId);
+    }
     const chatIdForStatus =
       sessionApi.getRealIdForSession(sessionId) || sessionId;
     startBackgroundQueue(sessionId, backendSessionId, chatIdForStatus);
