@@ -56,15 +56,6 @@ const navLabel = (key: string, defaultValue?: string) => (): string =>
 
 export const BUILTIN_MENU: MenuItem[] = [
   // ── Agent-scoped (Sidebar Menu #1) ───────────────────────────────────────
-  {
-    id: "core.inbox",
-    location: "primary.agentScoped",
-    label: navLabel("nav.inbox"),
-    icon: SparkEmailLine,
-    route: "core.inbox",
-    order: 10,
-  },
-
   // control-group
   {
     id: "core.control-group",
@@ -183,6 +174,18 @@ export const BUILTIN_MENU: MenuItem[] = [
   },
 
   // ── Settings (Sidebar Menu #2) ───────────────────────────────────────────
+  // Inbox is global (shows push messages across all agents, with an in-page
+  // agent filter), so it lives in the global menu rather than the agent-scoped
+  // one. Standalone item above the Settings group, mirroring its prior
+  // standalone placement.
+  {
+    id: "core.inbox",
+    location: "primary.settings",
+    label: navLabel("nav.inbox"),
+    icon: SparkEmailLine,
+    route: "core.inbox",
+    order: 5,
+  },
   {
     id: "core.settings-group",
     location: "primary.settings",

@@ -235,8 +235,11 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
   );
 
   const settingsMenuItems = useMemo(
-    () => toAntdItems(settingsMenu, { collapsed }),
-    [settingsMenu, collapsed],
+    () => toAntdItems(settingsMenu, { collapsed, decorateLabel }),
+    // hasInboxUnread closure inside decorateLabel — listed as dep explicitly
+    // (inbox lives in the settings menu, so its unread badge is decorated here).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [settingsMenu, collapsed, hasInboxUnread],
   );
 
   const openKeys = useMemo(
