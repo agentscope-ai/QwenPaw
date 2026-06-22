@@ -42,17 +42,11 @@ your sessions); you can widen to other agents' turns when you mean to. Its
 description holds the full ``ms`` API (helpers, their result keys, query
 mechanics) — read it there rather than guessing signatures.
 
-DISCIPLINE (this is where recall goes wrong):
-  • If the request depends on something not in your live context, recall BEFORE
-    answering — don't guess from a headline alone.
-  • Don't commit to the first hit. For "latest value", "how many", or "which
-    came first" questions, gather ALL relevant mentions, then reconcile.
-  • CONNECT facts: linking two stated facts to reach a third is valid reading
-    of context, not fabrication.
-  • COMMIT only to the EXACT thing asked — a near-relative does not count.
-  • SEARCH BEFORE YOU REFUSE. Before concluding "not recorded", run real
-    retrieval and try one more differently-phrased search. Abstain only when
-    the history truly holds nothing — never stitch weak matches into an answer.
+DISCIPLINE:
+  • If the request needs something not in your live context, recall it with
+    recall_history_python BEFORE answering — don't guess from a headline, and
+    don't refuse before you've searched. How to recall well (wide nets, full
+    content, counting, recency, dates) is in that tool's own description.
 """
 
 __all__ = ["SCROLL_SYSTEM_PROMPT"]

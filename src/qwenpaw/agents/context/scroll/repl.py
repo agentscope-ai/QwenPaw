@@ -83,6 +83,25 @@ read-only `hist.conversation_history` (for custom counting/ranking) and
 ms.sql_exec(sql, params) writes a `main` scratch DB. Bind via params, never
 f-string values in.
 
+ANSWERING FROM RECALL — once you've pulled the turns:
+  • "How many / list all": the evidence is usually spread across SESSIONS —
+    find them ALL (several searches / angles), then count DISTINCT items the
+    user actually DID — not mentions (the same thing said 3× is one), and not
+    things merely planned/considered or that you (the assistant) suggested.
+  • A fact that CHANGED over time: the most recent one (by date) is the current
+    answer and supersedes earlier values — give the latest, don't report a
+    stale one or stack both.
+  • "When / how long between": read each relevant turn's date (turns carry a
+    date), anchor relative phrases ("last Tuesday", "two months ago") to THAT
+    turn's date, and use ms.days_between — never do calendar math by hand.
+  • What the USER did, owns, or prefers comes from the USER's own turns, not
+    from suggestions you (the assistant) offered.
+  • CONNECT facts: linking two stated facts to reach a third is valid reading,
+    not fabrication. But COMMIT only to the EXACT thing asked — a near-relative
+    does not count ("Sales Engineer" != "Sales Manager").
+  • Don't refuse after one empty query — try a differently-phrased search
+    first; abstain only when the history genuinely holds nothing.
+
 Args:
     source (str): Python source to execute.
 """
