@@ -47,6 +47,11 @@ class GovernanceDecision:
     reason: str
     sandbox_config: SandboxConfig | None = None
     findings: list[Any] | None = None  # GuardFinding list for approval card
+    # Origin of the decision, surfaced as the "Source" line on the approval
+    # card. Values: "builtin-rules", "user-rules", or a tool-guard threat
+    # category string (e.g. "command_injection", "sensitive_file_access")
+    # when the decision was driven by a deep-scan finding.
+    source: str = "builtin-rules"
 
 
 class ToolCallSpec:
@@ -591,6 +596,7 @@ class GovernancePolicy:
                     action=GovernanceAction.DENY,
                     reason="Critical security finding: " + "; ".join(reasons),
                     findings=findings,
+                    source=_findings_source(findings),
                 )
 
         # ── Phase 1.5: Shell danger keyword detection ──
@@ -615,6 +621,7 @@ class GovernancePolicy:
                     action=GovernanceAction(rule.action.value),
                     reason=rule.reason,
                     findings=findings or None,
+                    source="builtin-rules",
                 )
 
         for rule in self.user_rules:
@@ -626,6 +633,7 @@ class GovernancePolicy:
                     action=GovernanceAction(rule.action.value),
                     reason=rule.reason,
                     findings=findings or None,
+                    source="user-rules",
                 )
 
         # ── Phase 3: Fallback + execution_level threshold ──
@@ -634,6 +642,7 @@ class GovernancePolicy:
                 action=GovernanceAction.SANDBOX_FALLBACK,
                 reason="sandbox fallback",
                 findings=findings or None,
+                source="sandbox",
             )
         return self._apply_execution_level_fallback(tc_spec, findings)
 
@@ -685,10 +694,12 @@ class GovernancePolicy:
                 return GovernanceDecision(
                     action=GovernanceAction.ASK,
                     reason="STRICT mode: all tool calls require approval",
+                    source="STRICT mode",
                 )
             return GovernanceDecision(
                 action=GovernanceAction.ASK,
                 reason="No rule hit",
+                source="No rule hit",
             )
 
         # Has findings — decide based on execution_level
@@ -699,6 +710,7 @@ class GovernancePolicy:
                 action=GovernanceAction.ASK,
                 reason=f"STRICT mode: findings detected (max={max_sev})",
                 findings=findings,
+                source=_findings_source(findings),
             )
 
         if level == "smart":
@@ -707,11 +719,13 @@ class GovernancePolicy:
                     action=GovernanceAction.ALLOW,
                     reason=f"SMART mode: auto-allowed ({max_sev})",
                     findings=findings,
+                    source=_findings_source(findings),
                 )
             return GovernanceDecision(
                 action=GovernanceAction.ASK,
                 reason=f"SMART mode: {max_sev} finding requires approval",
                 findings=findings,
+                source=_findings_source(findings),
             )
 
         # AUTO / OFF fallback
@@ -719,6 +733,7 @@ class GovernancePolicy:
             action=GovernanceAction.ASK,
             reason="No rule hit",
             findings=findings or None,
+            source=_findings_source(findings),
         )
 
     def evaluate_source(self, tc_spec: ToolCallSpec) -> str:
@@ -851,6 +866,28 @@ def _max_severity(findings: list[Any]) -> str:
     return "SAFE"
 
 
+def _findings_source(findings: list[Any]) -> str:
+    """Pick the approval-card ``source`` for a finding-driven decision.
+
+    Returns the threat category of the highest-severity finding (e.g.
+    ``"command_injection"``), falling back to ``"builtin-rules"`` when no
+    finding carries a category.
+    """
+    if not findings:
+        return "builtin-rules"
+    for sev in _SEVERITY_ORDER:
+        for f in findings:
+            if getattr(f, "severity", "") == sev:
+                category = getattr(f, "category", None)
+                if category:
+                    return (
+                        category.value
+                        if hasattr(category, "value")
+                        else str(category)
+                    )
+    return "builtin-rules"
+
+
 # ---------------------------------------------------------------------------
 # Load / persist
 # ---------------------------------------------------------------------------
@@ -966,8 +1003,8 @@ def save_governance_policy(
         workspace_dir: workspace path, used to restore actual paths back to
                        WORKSPACE_DIR placeholders (keeps yaml portable)
     """
-    builtin_rules = list(policy.builtin_rules)
-    user_rules = list(policy.user_rules)
+    builtin_rules = copy.deepcopy(policy.builtin_rules)
+    user_rules = copy.deepcopy(policy.user_rules)
 
     # ── Restore actual paths to WORKSPACE_DIR placeholders ──
     if workspace_dir:

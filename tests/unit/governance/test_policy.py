@@ -18,6 +18,7 @@ from qwenpaw.governance.policy import (
     ToolCallSpec,
     _create_default_policy,
     load_governance_policy,
+    save_governance_policy,
 )
 from qwenpaw.governance.resource_governor import ResourceGovernor
 from qwenpaw.governance.tool_registry import DEFAULT_REGISTRY
@@ -36,6 +37,15 @@ def _tc(tool_name: str, target: str) -> ToolCallSpec:
         target=target,
         agent_id="test-agent",
         session_id="test-session",
+    )
+
+
+def _make_governor(tmp_path) -> ResourceGovernor:
+    """Build a governor whose policy dir + audit DB live under tmp_path
+    (not the real ~/.qwenpaw), so tests never pollute the home dir."""
+    return ResourceGovernor(
+        str(tmp_path),
+        governance_dir=str(tmp_path / "governance"),
     )
 
 
@@ -68,6 +78,42 @@ class TestDefaultPolicyLoad:
         # All WORKSPACE_DIR placeholders should be replaced
         for rule in policy.user_rules:
             assert "WORKSPACE_DIR" not in rule.match
+
+    def test_save_does_not_corrupt_in_memory_rules(self, tmp_path):
+        """Regression: save_governance_policy must not mutate the live
+        policy's rule objects.
+
+        ``_unresolve_workspace_dir`` rewrites resolved absolute paths back
+        to the ``WORKSPACE_DIR`` placeholder for portability. It must
+        operate on copies, not the live rule objects — otherwise the first
+        ``add_rule → save`` after a governor start corrupts the in-memory
+        workspace rules into the literal string ``WORKSPACE_DIR/**``,
+        after which ``evaluate`` can no longer match real paths and
+        silently degrades workspace Write/Read to ASK ("No rule hit")
+        until the governor is restarted.
+        """
+        ws = "/home/user/project"
+        policy_dir = tmp_path / "policy"
+        policy_dir.mkdir()
+        policy = _create_default_policy(workspace_dir=ws)
+
+        # Before save: a workspace Write is ALLOWed by the default rule.
+        target = f"{ws}/script.py"
+        assert policy.evaluate(_tc("Write", target)).action is (
+            GovernanceAction.ALLOW
+        )
+
+        save_governance_policy(policy, str(policy_dir), ws)
+
+        # After save: the live rules must still be resolved (no literal
+        # WORKSPACE_DIR) and evaluate must still ALLOW the workspace write.
+        for rule in policy.user_rules:
+            assert (
+                "WORKSPACE_DIR" not in rule.match
+            ), f"save_governance_policy mutated live rule: {rule.match!r}"
+        assert policy.evaluate(_tc("Write", target)).action is (
+            GovernanceAction.ALLOW
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -111,7 +157,7 @@ class TestAssertPolicySSHCommands:
     @pytest.fixture()
     def governor(self, tmp_path):
         """Create ResourceGovernor with default policy; sandbox unavailable."""
-        gov = ResourceGovernor(str(tmp_path))
+        gov = _make_governor(tmp_path)
         gov.start()
         # Reset the AuditLog singleton so tests don't interfere with each other
         yield gov
@@ -310,7 +356,7 @@ class TestAssertPolicySandboxEscalation:
     @pytest.fixture()
     def governor_no_sandbox(self, tmp_path):
         """ResourceGovernor with sandbox mocked as unavailable."""
-        gov = ResourceGovernor(str(tmp_path))
+        gov = _make_governor(tmp_path)
         gov._policy = _create_default_policy(str(tmp_path))
         gov._sandbox_available = False
         gov._sandbox_capability = SandboxCapability(
@@ -344,7 +390,7 @@ class TestBuiltinRulePriority:
     @pytest.fixture()
     def governor_with_deny(self, tmp_path):
         """Governor with user DENY rule for Bash + .ssh (lower priority)."""
-        gov = ResourceGovernor(str(tmp_path))
+        gov = _make_governor(tmp_path)
         gov.start()
         gov.add_rule(
             GovernanceRule(
@@ -384,7 +430,7 @@ class TestAddRulePrepend:
 
     @pytest.fixture()
     def governor(self, tmp_path):
-        gov = ResourceGovernor(str(tmp_path))
+        gov = _make_governor(tmp_path)
         gov.start()
         yield gov
         gov.stop()

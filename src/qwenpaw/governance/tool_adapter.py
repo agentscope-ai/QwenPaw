@@ -223,6 +223,7 @@ async def _policy_tool_check_permissions(
             request_context=getattr(self, "_qp_request_context", {}) or {},
             policy_findings=decision.findings,
             governance_reason=decision.reason,
+            source=decision.source,
         )
     else:
         # Unknown decision → deny as safe default
@@ -312,6 +313,11 @@ async def _policy_tool_call(
         "reason",
         None,
     )
+    governance_source = getattr(
+        getattr(self, "_qp_policy_decision", None),
+        "source",
+        "builtin-rules",
+    )
 
     # Record the ASK escalation (sandbox violation → ask user)
     governor.audit(
@@ -332,6 +338,7 @@ async def _policy_tool_call(
         request_context=request_context,
         violation_msg=violation_msg or None,
         governance_reason=governance_reason,
+        source=governance_source,
     )
 
     if decision.behavior == PermissionBehavior.ALLOW:
@@ -373,6 +380,7 @@ async def _ask_user_approval(
     violation_msg: str | None = None,
     governance_reason: str | None = None,
     policy_findings: list[Any] | None = None,
+    source: str = "builtin-rules",
 ) -> Any:
     """Request user approval, blocking until a reply is received."""
     from agentscope.permission import PermissionBehavior, PermissionDecision
@@ -520,6 +528,10 @@ async def _ask_user_approval(
                 "id": tool_call_id,
                 "name": tool_name,
                 "input": dict(params or {}),
+            },
+            "display": {
+                "tool_name": tool_name,
+                "tool_source": source,
             },
         },
     )

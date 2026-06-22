@@ -53,18 +53,26 @@ class ResourceGovernor:
         - Runtime/Agent scheduling → TBD
     """
 
-    def __init__(self, workspace_dir: str):
+    def __init__(
+        self,
+        workspace_dir: str,
+        governance_dir: Optional[str] = None,
+    ):
         self.workspace_dir = Path(workspace_dir)
         # Policy is stored outside the workspace to prevent agent tampering.
         # Use ``<basename>_<hash>`` so two workspaces with the same basename
         # but different absolute paths (e.g. ``/Users/a/project`` vs
         # ``/Users/b/project``) do not share the same policy directory.
+        if governance_dir is not None:
+            self._governance_dir = Path(governance_dir)
+        else:
+            self._governance_dir = WORKING_DIR / "governance"
         ws_resolved = str(self.workspace_dir.resolve())
         ws_hash = hashlib.sha256(
             ws_resolved.encode("utf-8"),
         ).hexdigest()[:12]
         self._policy_dir = (
-            WORKING_DIR / "governance" / f"{self.workspace_dir.name}_{ws_hash}"
+            self._governance_dir / f"{self.workspace_dir.name}_{ws_hash}"
         )
         self._policy: Optional[GovernancePolicy] = None
         self._sandbox_available: bool = False
@@ -122,7 +130,7 @@ class ResourceGovernor:
         # closed on interpreter exit (best-effort) which is fragile
         # under supervised restarts and may leak WAL frames.
         try:
-            AuditLog.get_instance().close()
+            self.audit_log.close()
         except Exception:
             logger.exception(
                 "ResourceGovernor.stop: failed to close AuditLog",
@@ -206,7 +214,7 @@ class ResourceGovernor:
             decision = governor.assert_policy(tc_spec)
             governor.audit(tc_spec, decision)
         """
-        AuditLog.get_instance().record(
+        self.audit_log.record(
             str(self.workspace_dir),
             tc_spec,
             decision,
@@ -415,4 +423,6 @@ class ResourceGovernor:
     @property
     def audit_log(self) -> AuditLog:
         """Get the global AuditLog singleton."""
-        return AuditLog.get_instance()
+        return AuditLog.get_instance(
+            db_dir=self._governance_dir,
+        )

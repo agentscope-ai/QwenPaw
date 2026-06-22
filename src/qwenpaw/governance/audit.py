@@ -115,11 +115,24 @@ class AuditLog:
     _lock: threading.Lock
 
     @classmethod
-    def get_instance(cls) -> AuditLog:
-        """Get the global singleton, initializing on first call."""
+    def get_instance(
+        cls,
+        db_dir: Optional[Path] = None,
+    ) -> AuditLog:
+        """Get the global singleton, initializing on first call.
+
+        Args:
+            db_dir: Optional directory to place ``audit.db`` in. Only
+                honored on first creation; if the singleton already
+                exists in a different directory, the request is logged
+                and ignored (the singleton stays shared).
+        """
         if cls._instance is None:
-            db_path = WORKING_DIR / "governance" / "audit.db"
-            cls._instance = cls._create(db_path)
+            if db_dir is not None:
+                resolved_dir = Path(db_dir)
+            else:
+                resolved_dir = WORKING_DIR / "governance"
+            cls._instance = cls._create(resolved_dir / "audit.db")
         return cls._instance
 
     @classmethod
