@@ -557,6 +557,24 @@
   .emptyState {
     color: rgba(255, 255, 255, 0.2);
   }
+
+  /* Mobile overrides must beat the non-dark media-query rules */
+  @media (max-width: 768px) {
+    .rowIconBtn {
+      color: rgba(255, 255, 255, 0.2);
+      background: transparent;
+
+      &:hover {
+        color: #ff7f16;
+        background: rgba(97, 92, 237, 0.12);
+      }
+    }
+
+    .rowIconBtnDanger:hover {
+      color: #ff7875;
+      background: rgba(255, 77, 79, 0.12);
+    }
+  }
 }
 
 @media (max-width: 768px) {
