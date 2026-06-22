@@ -8,7 +8,17 @@
  * Restore delegates to the parent via onRestore (handled by useRestoreFlow).
  */
 import { useEffect, useMemo, useState } from "react";
-import { Button, Card, Empty, Modal, Pagination, Popconfirm, Table, Tooltip, Typography } from "antd";
+import {
+  Button,
+  Card,
+  Empty,
+  Modal,
+  Pagination,
+  Popconfirm,
+  Table,
+  Tooltip,
+  Typography,
+} from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { useTranslation } from "react-i18next";
 import dayjs from "dayjs";
@@ -196,7 +206,9 @@ export default function BackupTable({
       </div>
       {backup.description ? (
         <div className={styles.mobileRow}>
-          <span className={styles.mobileLabel}>{t("backup.descriptionLabel")}</span>
+          <span className={styles.mobileLabel}>
+            {t("backup.descriptionLabel")}
+          </span>
           <Typography.Text
             ellipsis={{ tooltip: true }}
             className={styles.mobileValue}
@@ -210,7 +222,12 @@ export default function BackupTable({
         <ScopeTags scope={backup.scope} agentCount={backup.agent_count} />
       </div>
       <div className={styles.mobileActions}>
-        <Button type="primary" size="small" ghost onClick={() => onRestore(backup)}>
+        <Button
+          type="primary"
+          size="small"
+          ghost
+          onClick={() => onRestore(backup)}
+        >
           {t("backup.restore")}
         </Button>
         <Button size="small" onClick={() => handleExport(backup)}>
