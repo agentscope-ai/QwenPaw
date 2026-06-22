@@ -24,6 +24,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import re
 import time
 from collections import OrderedDict
 from typing import TYPE_CHECKING, Any, Callable, Dict, Optional
@@ -41,8 +42,6 @@ from agentscope_runtime.engine.schemas.agent_schemas import (
 from .constants import (
     SLACK_DEDUP_MAX_ENTRIES,
     SLACK_DEDUP_WINDOW_SECONDS,
-    SLACK_THREAD_CACHE_MAX,
-    SLACK_THREAD_CACHE_TTL_SECONDS,
 )
 from .utils import (
     build_dedup_key,
@@ -96,7 +95,6 @@ class SlackEventHandler:
 
         self._dedup_lock = asyncio.Lock()
         self._dedup_map: OrderedDict[str, float] = OrderedDict()
-        self._thread_participation: Dict[str, float] = {}
         self._http_session: Optional[aiohttp.ClientSession] = None
         self._user_name_cache: Dict[str, str] = {}
 
@@ -177,29 +175,14 @@ class SlackEventHandler:
             return
 
         # 5. @mention gate (group channels only)
-        if is_group and self._require_mention and not was_mentioned:
-            if not self._is_bot_mentioned(event):
-                return
-
-        # 6. Thread participation gate (group channels only).
-        # A thread reply is accepted when:
-        #   (a) the bot has previously joined the thread (recorded in
-        #       _thread_participation, 24h TTL), OR
-        #   (b) the bot has sent a message in this thread (tracked in
-        #       _bot_message_ts — covers the "bot replied, then user
-        #       replied again after restart" scenario).
-        # DMs are exempt — the user is always talking to the bot.
-        if is_group and thread_ts and not was_mentioned:
-            if not self._has_thread_participation(channel_id, thread_ts):
-                has_participated = (
-                    await self._channel.has_bot_replied_in_thread(
-                        thread_ts,
-                    )
-                )
-                if not has_participated:
+        # - Thread replies: always require @mention (no auto-tracking)
+        # - Top-level messages: honour require_mention config
+        if is_group and not was_mentioned:
+            if thread_ts or self._require_mention:
+                if not self._is_bot_mentioned(event):
                     return
 
-        # 6.5. Deduplicate (after all gates so dropped messages
+        # 6. Deduplicate (after all gates so dropped messages
         # don't block the paired app_mention event).
         dedup_key = build_dedup_key(event)
         if await self._is_duplicate(dedup_key):
@@ -272,16 +255,6 @@ class SlackEventHandler:
 
         if self._enqueue:
             self._enqueue(native)
-
-        # 11. Record thread participation
-        if thread_ts:
-            self._record_thread_participation(channel_id, thread_ts)
-
-        # 12. Prune _bot_message_ts when it grows too large.
-        # The set tracks every message ts the bot has ever sent;
-        # without bounds it would grow unboundedly.  We trim the
-        # oldest half when exceeding 5000 entries.
-        await self._channel.prune_bot_message_ts()
 
     async def close(self) -> None:
         """Close the internal aiohttp session if open."""
@@ -362,9 +335,12 @@ class SlackEventHandler:
                     url,
                     headers=headers,
                     timeout=aiohttp.ClientTimeout(60),
+                    proxy=self._channel.proxy_url or None,
                 ) as resp:
                     if resp.status != 200:
-                        if resp.status < 429 and attempt < 2:
+                        if resp.status in (
+                            429, 500, 502, 503, 504
+                        ) and attempt < 2:
                             await asyncio.sleep(1.5 * (attempt + 1))
                             continue
                         logger.warning(
@@ -453,39 +429,6 @@ class SlackEventHandler:
         text = event.get("text") or ""
         return f"<@{bot_id}>" in text
 
-    # ── Thread participation ──
-
-    def _record_thread_participation(
-        self,
-        channel_id: str,
-        thread_ts: str,
-    ) -> None:
-        key = f"{channel_id}:{thread_ts}"
-        now = time.time()
-        self._thread_participation[key] = now
-        if len(self._thread_participation) > SLACK_THREAD_CACHE_MAX:
-            expired = [
-                k
-                for k, v in self._thread_participation.items()
-                if now - v > SLACK_THREAD_CACHE_TTL_SECONDS
-            ]
-            for k in expired:
-                self._thread_participation.pop(k, None)
-
-    def _has_thread_participation(
-        self,
-        channel_id: str,
-        thread_ts: str,
-    ) -> bool:
-        key = f"{channel_id}:{thread_ts}"
-        last = self._thread_participation.get(key)
-        if last is None:
-            return False
-        if time.time() - last > SLACK_THREAD_CACHE_TTL_SECONDS:
-            self._thread_participation.pop(key, None)
-            return False
-        return True
-
     # ── Thread context fetching ──
 
     async def _fetch_thread_context(
@@ -545,7 +488,7 @@ class SlackEventHandler:
             if not msg_text:
                 continue
             user = msg.get("user") or "unknown"
-            name = await self._resolve_user_name(user, client)
+            name = await self._resolve_user_name(user, client) or user
             context_parts.append(f"{name}: {msg_text}")
 
         content = "\n".join(context_parts) if context_parts else ""
@@ -594,7 +537,7 @@ class SlackEventHandler:
                 "slack handler: users_info failed for %s",
                 user_id,
             )
-        return user_id
+        return ""
 
     async def handle_slash_command(self, command: dict) -> None:
         slash_name = (command.get("command") or "").lstrip("/")
@@ -612,6 +555,8 @@ class SlackEventHandler:
             is_dm=is_dm,
         )
 
+        user_name = command.get("user_name") or ""
+
         native = {
             "channel_id": self._channel.channel,
             "sender_id": user_id,
@@ -624,10 +569,10 @@ class SlackEventHandler:
                 "slack_thread_ts": "",
                 "slack_message_ts": "",
                 "slack_user_id": user_id,
-                "slack_is_dm": is_dm,
                 "is_group": not is_dm,
                 "slack_response_url": command.get("response_url", ""),
                 "slack_is_slash_command": True,
+                "user_name": user_name,
             },
         }
         if self._enqueue:
@@ -651,6 +596,10 @@ def _extract_message_text(event: dict, bot_prefix: str) -> str:
             text = extracted
     if bot_prefix and text.startswith(bot_prefix):
         text = text[len(bot_prefix) :].strip()
+    # Strip leading Slack @mention only when it wraps a slash command,
+    # so magic commands like "@bot /stop" are correctly detected.
+    # Similar to WeCom's handling of @prefix before commands.
+    text = re.sub(r"^<@\w+>\s+(?=/)", "", text).strip()
     return text
 
 

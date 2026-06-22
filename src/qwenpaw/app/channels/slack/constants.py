@@ -6,15 +6,6 @@
 # Maximum text length per Slack message (mrkdown)
 SLACK_TEXT_LIMIT: int = 30000
 
-# ── Streaming Output ──
-
-# AsyncChatStream local buffer size (characters);
-# messages are automatically flushed when this limit is exceeded
-SLACK_STREAM_BUFFER_SIZE: int = 256
-
-# Minimum interval (seconds) for fallback to chat_update for streaming editing
-SLACK_STREAM_EDIT_MIN_INTERVAL: float = 0.4
-
 # ── Duplicate Removal ──
 
 # Deduplication window (seconds);
@@ -23,15 +14,6 @@ SLACK_DEDUP_WINDOW_SECONDS: int = 300
 
 # Maximum number of entries in the deduplication cache
 SLACK_DEDUP_MAX_ENTRIES: int = 10000
-
-# ── Thread Participation Tracking ──
-
-# Thread participation cache TTL (seconds);
-# after this time, the thread will no longer be automatically replied to
-SLACK_THREAD_CACHE_TTL_SECONDS: int = 86400  # 24 hours
-
-# Maximum number of entries in the thread participation cache
-SLACK_THREAD_CACHE_MAX: int = 5000
 
 # ── SSRF Protection ──
 
@@ -57,3 +39,6 @@ SLACK_RECONNECT_JITTER: float = 0.25
 
 # Maximum reconnection attempts before giving up
 SLACK_RECONNECT_MAX_ATTEMPTS: int = 12
+
+# Socket Mode WebSocket keep-alive ping interval (seconds)
+SLACK_SOCKET_PING_INTERVAL_S: int = 10

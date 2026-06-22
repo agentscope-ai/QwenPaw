@@ -4,7 +4,7 @@
 
 Handles text, image, and file delivery through the Slack Web API.
 Text messages are formatted as mrkdwn and automatically split at
-the 8000-character limit.  Image and file uploads use Slack's
+the 40,000-character limit.  Image and file uploads use Slack's
 ``files.uploadV2`` (for simple cases) or the 3-step external upload
 flow (``files_getUploadURLExternal`` → HTTP POST →
 ``files_completeUploadExternal``) when a local file path is provided.
@@ -25,11 +25,10 @@ from agentscope_runtime.engine.schemas.agent_schemas import (
 )
 
 from .constants import (
-    SLACK_SSRF_ALLOWED_SUFFIXES,
     SLACK_TEXT_LIMIT,
 )
 from .format import chunk_slack_text, markdown_to_slack_mrkdwn
-from .utils import with_retry
+from .utils import is_slack_host, with_retry
 
 if TYPE_CHECKING:
     from slack_sdk.web.async_client import AsyncWebClient
@@ -40,15 +39,7 @@ logger = logging.getLogger(__name__)
 
 def _is_slack_ssrf_allowed(url: str) -> bool:
     """Return True if url resolves to a Slack-whitelisted hostname."""
-    from urllib.parse import urlparse
-
-    host = (urlparse(url).hostname or "").lower()
-    if not host:
-        return False
-    return any(
-        host == suffix[1:] or host.endswith(suffix)
-        for suffix in SLACK_SSRF_ALLOWED_SUFFIXES
-    )
+    return is_slack_host(url)
 
 
 def _resolve_local_file_path(url: str) -> Optional[str]:
@@ -175,9 +166,7 @@ class SlackSender:
         """Post *text* as Slack mrkdwn, chunking if necessary.
 
         Each chunk is sent via ``chat_postMessage`` with automatic retry
-        on transient failures.  The ``ts`` of every successful message is
-        recorded in the channel's ``_bot_message_ts`` set so the handler
-        can recognise threads the bot has already participated in.
+        on transient failures.
         """
         if not text.strip():
             return None
@@ -199,7 +188,6 @@ class SlackSender:
                 ts = resp.get("ts")
                 if ts:
                     last_ts = ts
-                    await self._channel.record_bot_message(ts, thread_ts)
             except Exception:
                 logger.exception(
                     "slack send: chat_postMessage failed chunk=%d/%d "
@@ -459,8 +447,6 @@ class SlackSender:
                 thread_ts=thread_ts,
             )
             ts = resp.get("file", {}).get("id")
-            if ts:
-                await self._channel.record_bot_message(ts, thread_ts)
             return ts
         except Exception:
             logger.exception("slack send: files.uploadV2 failed")

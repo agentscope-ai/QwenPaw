@@ -200,20 +200,6 @@ class TestSlackConstants:
 
         assert SLACK_TEXT_LIMIT == 30000
 
-    def test_slack_stream_buffer_size(self):
-        from qwenpaw.app.channels.slack.constants import (
-            SLACK_STREAM_BUFFER_SIZE,
-        )
-
-        assert SLACK_STREAM_BUFFER_SIZE == 256
-
-    def test_slack_stream_edit_min_interval(self):
-        from qwenpaw.app.channels.slack.constants import (
-            SLACK_STREAM_EDIT_MIN_INTERVAL,
-        )
-
-        assert SLACK_STREAM_EDIT_MIN_INTERVAL == 0.4
-
     def test_slack_dedup_window_seconds(self):
         from qwenpaw.app.channels.slack.constants import (
             SLACK_DEDUP_WINDOW_SECONDS,
@@ -227,18 +213,6 @@ class TestSlackConstants:
         )
 
         assert SLACK_DEDUP_MAX_ENTRIES == 10000
-
-    def test_slack_thread_cache_ttl(self):
-        from qwenpaw.app.channels.slack.constants import (
-            SLACK_THREAD_CACHE_TTL_SECONDS,
-        )
-
-        assert SLACK_THREAD_CACHE_TTL_SECONDS == 86400
-
-    def test_slack_thread_cache_max(self):
-        from qwenpaw.app.channels.slack.constants import SLACK_THREAD_CACHE_MAX
-
-        assert SLACK_THREAD_CACHE_MAX == 5000
 
     def test_slack_ssrf_allowed_suffixes(self):
         from qwenpaw.app.channels.slack.constants import (
@@ -808,251 +782,6 @@ class TestNormalizeSlackThreadTs:
 
 
 # =============================================================================
-# P1: Streaming Tests (corrected)
-# =============================================================================
-
-
-class TestSlackStreamNotDeliveredError:
-    def test_creation_with_text(self):
-        from qwenpaw.app.channels.slack.streaming import (
-            SlackStreamNotDeliveredError,
-        )
-
-        err = SlackStreamNotDeliveredError("some pending text")
-        assert err.pending_text == "some pending text"
-        assert "Slack native stream not delivered" in str(err)
-
-    def test_creation_without_text(self):
-        from qwenpaw.app.channels.slack.streaming import (
-            SlackStreamNotDeliveredError,
-        )
-
-        err = SlackStreamNotDeliveredError()
-        assert err.pending_text == ""
-
-
-class TestSlackStreamSession:
-    def test_defaults(self):
-        from qwenpaw.app.channels.slack.streaming import SlackStreamSession
-
-        streamer = MagicMock()
-        session = SlackStreamSession(
-            streamer=streamer,
-            channel="C123",
-            thread_ts="123.456",
-        )
-        assert session.streamer == streamer
-        assert session.channel == "C123"
-        assert session.thread_ts == "123.456"
-        assert session.stopped is False
-        assert session.delivered is False
-
-
-class TestSlackEditStreamSession:
-    def test_defaults(self):
-        from qwenpaw.app.channels.slack.streaming import SlackEditStreamSession
-
-        session = SlackEditStreamSession(channel="C123", message_ts="123.456")
-        assert session.channel == "C123"
-        assert session.message_ts == "123.456"
-        assert session.accumulated_text == ""
-        assert session.stopped is False
-
-
-class TestSlackStreamManager:
-    @pytest.fixture
-    def mock_channel(self):
-        channel = MagicMock()
-        channel.get_client = AsyncMock(return_value=AsyncMock())
-        return channel
-
-    @pytest.fixture
-    def stream_manager(self, mock_channel):
-        from qwenpaw.app.channels.slack.streaming import SlackStreamManager
-
-        return SlackStreamManager(channel=mock_channel)
-
-    @pytest.mark.asyncio
-    async def test_start_native_stream(self, stream_manager, mock_channel):
-        client = AsyncMock()
-        mock_channel.get_client.return_value = client
-        mock_streamer = AsyncMock()
-        client.chat_stream.return_value = mock_streamer
-
-        session = await stream_manager.start_native_stream(
-            channel_id="C123",
-            thread_ts="123.456",
-            team_id="T123",
-            user_id="U123",
-        )
-        client.chat_stream.assert_called_once()
-        assert session.channel == "C123"
-        assert session.thread_ts == "123.456"
-
-    @pytest.mark.asyncio
-    async def test_append_native_success(self, stream_manager):
-        mock_streamer = AsyncMock()
-        mock_streamer.append = AsyncMock(return_value={})
-        session = MagicMock()
-        session.streamer = mock_streamer
-        session.stopped = False
-        session.delivered = False
-
-        result = await stream_manager.append_native(session, "hello")
-        assert result is True
-        mock_streamer.append.assert_called_once_with(markdown_text="hello")
-        assert session.delivered is True
-
-    @pytest.mark.asyncio
-    async def test_append_native_buffered(self, stream_manager):
-        mock_streamer = AsyncMock()
-        mock_streamer.append = AsyncMock(return_value=None)
-        session = MagicMock()
-        session.streamer = mock_streamer
-        session.stopped = False
-        session.delivered = False
-
-        result = await stream_manager.append_native(session, "hello")
-        assert result is False
-        assert session.delivered is False
-
-    @pytest.mark.asyncio
-    async def test_append_native_error_not_delivered(self, stream_manager):
-        from slack_sdk.errors import SlackRequestError
-        from qwenpaw.app.channels.slack.streaming import (
-            SlackStreamNotDeliveredError,
-        )
-
-        mock_streamer = AsyncMock()
-        mock_streamer.append = AsyncMock(
-            side_effect=SlackRequestError("error"),
-        )
-        session = MagicMock()
-        session.streamer = mock_streamer
-        session.stopped = False
-        session.delivered = False
-
-        with pytest.raises(SlackStreamNotDeliveredError):
-            await stream_manager.append_native(session, "hello")
-
-    @pytest.mark.asyncio
-    async def test_append_native_error_already_delivered(self, stream_manager):
-        from slack_sdk.errors import SlackRequestError
-
-        mock_streamer = AsyncMock()
-        mock_streamer.append = AsyncMock(
-            side_effect=SlackRequestError("error"),
-        )
-        session = MagicMock()
-        session.streamer = mock_streamer
-        session.stopped = False
-        session.delivered = True
-
-        result = await stream_manager.append_native(session, "hello")
-        assert result is False
-
-    @pytest.mark.asyncio
-    async def test_stop_native_success(self, stream_manager):
-        mock_streamer = AsyncMock()
-        session = MagicMock()
-        session.streamer = mock_streamer
-        session.stopped = False
-        session.channel = "C123"
-
-        await stream_manager.stop_native(session, final_text="bye")
-        mock_streamer.stop.assert_called_once_with(markdown_text="bye")
-        assert session.delivered is True
-        assert session.stopped is True
-
-    @pytest.mark.asyncio
-    async def test_stop_native_raises_if_not_delivered(self, stream_manager):
-        from slack_sdk.errors import SlackRequestError
-        from qwenpaw.app.channels.slack.streaming import (
-            SlackStreamNotDeliveredError,
-        )
-
-        mock_streamer = AsyncMock()
-        mock_streamer.stop = AsyncMock(side_effect=SlackRequestError("error"))
-        session = MagicMock()
-        session.streamer = mock_streamer
-        session.stopped = False
-        session.delivered = False
-        session.channel = "C123"
-
-        with pytest.raises(SlackStreamNotDeliveredError):
-            await stream_manager.stop_native(session)
-
-    @pytest.mark.asyncio
-    async def test_start_edit_stream(self, stream_manager):
-        session = await stream_manager.start_edit_stream(
-            channel_id="C123",
-            message_ts="123.456",
-        )
-        assert session.channel == "C123"
-        assert session.message_ts == "123.456"
-
-    @pytest.mark.asyncio
-    async def test_append_edit_flush(self, stream_manager):
-        session = MagicMock()
-        session.stopped = False
-        session.accumulated_text = ""
-        session.last_flush = 0
-        stream_manager._flush_edit = AsyncMock()
-
-        await stream_manager.append_edit(session, "hello")
-        assert session.accumulated_text == "hello"
-        stream_manager._flush_edit.assert_called_once()
-
-    @pytest.mark.asyncio
-    async def test_append_edit_rate_limited(self, stream_manager):
-        session = MagicMock()
-        session.stopped = False
-        session.accumulated_text = ""
-        session.last_flush = time.monotonic() - 0.1
-        stream_manager._flush_edit = AsyncMock()
-
-        with patch(
-            "qwenpaw.app.channels.slack.streaming"
-            ".SLACK_STREAM_EDIT_MIN_INTERVAL",
-            1.0,
-        ):
-            await stream_manager.append_edit(session, "hello")
-        assert session.accumulated_text == "hello"
-        stream_manager._flush_edit.assert_not_called()
-
-    @pytest.mark.asyncio
-    async def test_stop_edit(self, stream_manager):
-        # Create a real session object to avoid MagicMock accumulation issues
-        from qwenpaw.app.channels.slack.streaming import SlackEditStreamSession
-
-        session = SlackEditStreamSession(channel="C123", message_ts="123.456")
-        stream_manager._flush_edit = AsyncMock()
-
-        await stream_manager.stop_edit(session, final_text="bye")
-        assert session.accumulated_text == "bye"
-        stream_manager._flush_edit.assert_called_once()
-        assert session.stopped is True
-
-    @pytest.mark.asyncio
-    async def test_flush_edit(self, stream_manager, mock_channel):
-        client = AsyncMock()
-        mock_channel.get_client.return_value = client
-        stream_manager._channel = mock_channel
-
-        session = MagicMock()
-        session.channel = "C123"
-        session.message_ts = "123.456"
-        session.accumulated_text = "test text"
-
-        await stream_manager._flush_edit(session)
-        client.chat_update.assert_called_once_with(
-            channel="C123",
-            ts="123.456",
-            text="test text",
-        )
-
-
-# =============================================================================
 # P2: Handler Tests (corrected)
 # =============================================================================
 
@@ -1113,45 +842,6 @@ class TestSlackEventHandlerDedup:
             assert result is False
             # The key should now be reinserted with current time
             assert "expired_key" in slack_event_handler._dedup_map
-
-
-class TestSlackEventHandlerThreadParticipation:
-    def test_record_thread_participation(self, slack_event_handler):
-        slack_event_handler._record_thread_participation("C123", "123.456")
-        key = "C123:123.456"
-        assert key in slack_event_handler._thread_participation
-
-    def test_has_thread_participation_true(self, slack_event_handler):
-        slack_event_handler._record_thread_participation("C123", "123.456")
-        assert (
-            slack_event_handler._has_thread_participation("C123", "123.456")
-            is True
-        )
-
-    def test_has_thread_participation_false(self, slack_event_handler):
-        assert (
-            slack_event_handler._has_thread_participation("C123", "123.456")
-            is False
-        )
-
-    def test_thread_participation_expires(self, slack_event_handler):
-        with patch(
-            "qwenpaw.app.channels.slack.handler"
-            ".SLACK_THREAD_CACHE_TTL_SECONDS",
-            0,
-        ):
-            slack_event_handler._record_thread_participation("C123", "123.456")
-            # Set the recorded time to be old enough
-            key = "C123:123.456"
-            slack_event_handler._thread_participation[key] = time.time() - 100
-            assert (
-                slack_event_handler._has_thread_participation(
-                    "C123",
-                    "123.456",
-                )
-                is False
-            )
-            assert key not in slack_event_handler._thread_participation
 
 
 class TestSlackEventHandlerRichTextExtraction:
@@ -1391,6 +1081,93 @@ class TestSlackEventHandlerFileExtraction:
             assert result.endswith(".png")
             assert Path(result).exists()
 
+    @pytest.mark.asyncio
+    async def test_get_http_session_uses_channel_proxy(
+        self,
+        slack_channel,
+        slack_event_handler,
+    ):
+        slack_channel._proxy_url = "http://test-proxy:8080"
+        with patch(
+            "qwenpaw.app.channels.slack.handler.aiohttp.ClientSession",
+        ) as mock_session_cls:
+            mock_session_cls.return_value.closed = False
+            await slack_event_handler._get_http_session()
+        mock_session_cls.assert_called_once()
+        call_kwargs = mock_session_cls.call_args[1]
+        # proxy is NOT passed to ClientSession (it's request-level)
+        assert "proxy" not in call_kwargs
+        assert call_kwargs.get("trust_env") is True
+
+    @pytest.mark.asyncio
+    async def test_download_slack_file_passes_proxy_to_request(
+        self,
+        slack_channel,
+        slack_event_handler,
+        tmp_path,
+    ):
+        slack_channel._proxy_url = "http://test-proxy:8080"
+        ok_resp = AsyncMock()
+        ok_resp.status = 200
+        ok_resp.headers = {"content-type": "application/octet-stream"}
+        ok_resp.read = AsyncMock(return_value=b"data")
+        ok_resp.__aenter__ = AsyncMock(return_value=ok_resp)
+        ok_resp.__aexit__ = AsyncMock()
+
+        mock_session = MagicMock()
+        mock_session.get = MagicMock(return_value=ok_resp)
+        with patch(
+            "qwenpaw.app.channels.slack.handler.aiohttp.ClientSession",
+            return_value=mock_session,
+        ):
+            slack_channel._media_dir = tmp_path / "media"
+            slack_channel._media_dir.mkdir(parents=True, exist_ok=True)
+            await slack_event_handler._download_slack_file(
+                "https://files.slack.com/test.png",
+                "test.png",
+            )
+        call_kwargs = mock_session.get.call_args[1]
+        assert call_kwargs.get("proxy") == "http://test-proxy:8080"
+
+    @pytest.mark.asyncio
+    async def test_download_slack_file_retries_on_5xx(
+        self,
+        slack_channel,
+        slack_event_handler,
+        tmp_path,
+    ):
+        ok_resp = AsyncMock()
+        ok_resp.status = 200
+        ok_resp.headers = {"content-type": "application/octet-stream"}
+        ok_resp.read = AsyncMock(return_value=b"file content")
+        ok_resp.__aenter__ = AsyncMock(return_value=ok_resp)
+        ok_resp.__aexit__ = AsyncMock()
+
+        fail_resp = AsyncMock()
+        fail_resp.status = 503
+        fail_resp.__aenter__ = AsyncMock(return_value=fail_resp)
+        fail_resp.__aexit__ = AsyncMock()
+
+        mock_session = MagicMock()
+        mock_session.get = MagicMock(
+            side_effect=[fail_resp, ok_resp],
+        )
+        with patch(
+            "qwenpaw.app.channels.slack.handler.aiohttp.ClientSession",
+            return_value=mock_session,
+        ), patch(
+            "qwenpaw.app.channels.slack.handler.asyncio.sleep",
+            AsyncMock(),
+        ):
+            slack_channel._media_dir = tmp_path / "media"
+            slack_channel._media_dir.mkdir(parents=True, exist_ok=True)
+            result = await slack_event_handler._download_slack_file(
+                "https://files.slack.com/test.png",
+                "test.png",
+            )
+        assert result is not None
+        assert mock_session.get.call_count == 2
+
 
 # =============================================================================
 # P2: Sender Tests (corrected)
@@ -1563,6 +1340,26 @@ class TestSlackSenderTextSending:
         await sender._send_text(mock_slack_client, "C123", long_text)
         assert mock_slack_client.chat_postMessage.call_count == 2
 
+    @pytest.mark.asyncio
+    async def test_get_http_session_uses_channel_proxy(
+        self,
+        slack_channel,
+    ):
+        from qwenpaw.app.channels.slack.sender import SlackSender
+
+        slack_channel._proxy_url = "http://sender-proxy:8080"
+        sender = SlackSender(channel=slack_channel)
+        with patch(
+            "qwenpaw.app.channels.slack.sender.aiohttp.ClientSession",
+        ) as mock_session_cls:
+            mock_session_cls.return_value.closed = False
+            await sender._get_http_session()
+        mock_session_cls.assert_called_once()
+        call_kwargs = mock_session_cls.call_args[1]
+        # proxy is NOT passed to ClientSession (it's request-level)
+        assert "proxy" not in call_kwargs
+        assert call_kwargs.get("trust_env") is True
+
 
 class TestSlackSenderMediaUpload:
     @pytest.mark.asyncio
@@ -1662,8 +1459,6 @@ class TestSlackChannelInit:
         assert slack_channel.require_mention is True
 
     def test_init_creates_data_structures(self, slack_channel):
-        assert hasattr(slack_channel, "_bot_message_ts")
-        assert isinstance(slack_channel._bot_message_ts, dict)
         assert hasattr(slack_channel, "_socket_reconnect_lock")
         assert slack_channel._event_handler is None
 
@@ -1794,58 +1589,6 @@ class TestSlackChannelSendMethods:
         parts = [TextContent(type=ContentType.TEXT, text="Hello")]
         await slack_channel.send_content_parts("C123", parts, {})
         slack_channel._sender.send_content_parts.assert_called_once()
-
-    @pytest.mark.asyncio
-    async def test_send_streaming_off(self, slack_channel, mock_slack_client):
-        slack_channel.streaming_enabled = False
-        slack_channel._client = mock_slack_client
-
-        async def gen():
-            yield "Hello "
-            yield "world"
-
-        result = await slack_channel._send_streaming_off(
-            "C123",
-            None,
-            gen(),
-            {},
-        )
-        assert result["sent"] is True
-        mock_slack_client.chat_postMessage.assert_called_once()
-
-    @pytest.mark.asyncio
-    async def test_send_streaming_partial_native(self, slack_channel):
-        slack_channel.streaming_enabled = True
-        slack_channel._stream_manager = AsyncMock()
-        mock_session = AsyncMock()
-        slack_channel._stream_manager.start_native_stream.return_value = (
-            mock_session
-        )
-        slack_channel._stream_manager.append_native.return_value = True
-        slack_channel._stream_manager.stop_native.return_value = None
-
-        async def gen():
-            yield "Hello"
-
-        result = await slack_channel._send_streaming_partial(
-            "C123",
-            "123.456",
-            gen(),
-            {},
-        )
-        assert result["sent"] is True
-
-    @pytest.mark.asyncio
-    async def test_send_streaming_edit(self, slack_channel, mock_slack_client):
-        slack_channel.streaming_enabled = True
-        slack_channel._client = mock_slack_client
-
-        async def gen():
-            yield "Hello"
-
-        result = await slack_channel._send_streaming_edit("C123", gen(), {})
-        assert result["sent"] is True
-        mock_slack_client.chat_postMessage.assert_called_once()
 
 
 class TestSlackChannelBuildAgentRequest:
@@ -1993,14 +1736,10 @@ class TestSlackChannelAdvancedInit:
     def test_init_creates_locks(self, slack_channel):
         assert hasattr(slack_channel, "_socket_reconnect_lock")
         assert isinstance(slack_channel._socket_reconnect_lock, asyncio.Lock)
-        assert hasattr(slack_channel, "_bot_message_ts_lock")
-        assert isinstance(slack_channel._bot_message_ts_lock, asyncio.Lock)
 
     def test_init_creates_caches(self, slack_channel):
         assert hasattr(slack_channel, "_thread_context_cache")
         assert isinstance(slack_channel._thread_context_cache, dict)
-        assert hasattr(slack_channel, "_bot_message_ts")
-        assert isinstance(slack_channel._bot_message_ts, dict)
         assert slack_channel._thread_context_cache_ttl == 60.0
 
 
@@ -2074,13 +1813,11 @@ class TestSlackChannelLifecycle:
             await slack_channel._fetch_bot_user_id()
 
     async def test_stop_cleans_up_all_components(self, slack_channel):
-        slack_channel._stream_manager = AsyncMock()
         slack_channel._sender = AsyncMock()
         slack_channel._event_handler = AsyncMock()
         slack_channel._handler = AsyncMock()
         slack_channel._socket_mode_task = None
         await slack_channel._stop()
-        slack_channel._stream_manager.cleanup_all.assert_called_once()
         slack_channel._sender.close.assert_called_once()
         slack_channel._event_handler.close.assert_called_once()
 
@@ -2093,46 +1830,6 @@ class TestSlackChannelLifecycle:
         task.cancel.assert_called_once()
         assert slack_channel._handler is None
         assert slack_channel._socket_mode_task is None
-
-
-# =============================================================================
-# P1: Bot Message Tracking
-# =============================================================================
-
-
-@pytest.mark.asyncio
-class TestSlackChannelBotMessageTracking:
-    """Tests for bot message timestamp recording and thread participation."""
-
-    async def test_record_bot_message(self, slack_channel):
-        await slack_channel.record_bot_message("111.001", thread_ts="111.000")
-        assert "111.001" in slack_channel._bot_message_ts
-        assert "111.000" in slack_channel._bot_message_ts
-
-    async def test_record_bot_message_no_thread_ts(self, slack_channel):
-        await slack_channel.record_bot_message("111.001")
-        assert "111.001" in slack_channel._bot_message_ts
-
-    async def test_has_bot_replied_in_thread_true(self, slack_channel):
-        await slack_channel.record_bot_message("111.001", thread_ts="111.000")
-        assert await slack_channel.has_bot_replied_in_thread("111.000") is True
-
-    async def test_has_bot_replied_in_thread_false(self, slack_channel):
-        assert (
-            await slack_channel.has_bot_replied_in_thread("999.999") is False
-        )
-
-    async def test_prune_bot_message_ts(self, slack_channel):
-        for i in range(5001):
-            slack_channel._bot_message_ts[f"ts_{i}"] = float(i)
-        await slack_channel.prune_bot_message_ts()
-        assert len(slack_channel._bot_message_ts) <= 2501
-
-    async def test_prune_bot_message_ts_below_threshold(self, slack_channel):
-        for i in range(100):
-            slack_channel._bot_message_ts[f"ts_{i}"] = float(i)
-        await slack_channel.prune_bot_message_ts()
-        assert len(slack_channel._bot_message_ts) == 100
 
 
 # =============================================================================
@@ -2261,101 +1958,68 @@ class TestSlackChannelSocketModeResilience:
         await slack_channel._restart_socket_mode("test")
         assert slack_channel._running is False
 
+    async def test_start_sets_running_true(self, slack_channel):
+        slack_channel._on_init = AsyncMock()
+        slack_channel._start = AsyncMock()
+        await slack_channel.start()
+        assert slack_channel._running is True
+
+    async def test_start_does_not_set_running_on_init_failure(
+        self,
+        slack_channel,
+    ):
+        slack_channel._on_init = AsyncMock(
+            side_effect=RuntimeError("init failed"),
+        )
+        slack_channel._start = AsyncMock()
+        with pytest.raises(RuntimeError, match="init failed"):
+            await slack_channel.start()
+        assert getattr(slack_channel, "_running", False) is False
+
+    async def test_start_does_not_reset_reconnect_attempt(
+        self,
+        slack_channel,
+    ):
+        slack_channel._socket_reconnect_attempt = 5
+        slack_channel._app = MagicMock()
+        slack_channel._handler = MagicMock()
+        slack_channel._handler.start_async = AsyncMock()
+        slack_channel._handler.close_async = AsyncMock()
+        await slack_channel._start()
+        assert slack_channel._socket_reconnect_attempt == 5
+
+    async def test_restart_socket_mode_resets_attempt_on_success(
+        self,
+        slack_channel,
+    ):
+        slack_channel._running = True
+        slack_channel._socket_reconnect_attempt = 3
+        slack_channel._stop_socket_mode_handler = AsyncMock()
+        slack_channel._start = AsyncMock()
+        await slack_channel._restart_socket_mode("test")
+        assert slack_channel._socket_reconnect_attempt == 0
+        assert slack_channel._running is True
+
+    async def test_restart_socket_mode_first_attempt_delay_positive(
+        self,
+        slack_channel,
+    ):
+        slack_channel._running = True
+        slack_channel._socket_reconnect_attempt = 0
+        slack_channel._stop_socket_mode_handler = AsyncMock()
+        slack_channel._start = AsyncMock()
+        with patch(
+            "qwenpaw.app.channels.slack.channel.asyncio.sleep",
+        ) as mock_sleep:
+            await slack_channel._restart_socket_mode("test")
+        mock_sleep.assert_called_once()
+        delay = mock_sleep.call_args[0][0]
+        assert delay > 0
+
 
 # =============================================================================
 # P1: Streaming Cleanup
 # =============================================================================
-
-
-@pytest.mark.asyncio
-class TestSlackStreamManagerCleanup:
-    """Tests for async cleanup of streaming sessions."""
-
-    @pytest.fixture
-    def mock_channel(self):
-        channel = MagicMock()
-        channel.get_client = AsyncMock(return_value=AsyncMock())
-        return channel
-
-    @pytest.fixture
-    def stream_manager(self, mock_channel):
-        from qwenpaw.app.channels.slack.streaming import SlackStreamManager
-
-        return SlackStreamManager(channel=mock_channel)
-
-    async def test_cleanup_native_session(self, stream_manager):
-        mock_streamer = AsyncMock()
-        from qwenpaw.app.channels.slack.streaming import SlackStreamSession
-
-        session = SlackStreamSession(
-            streamer=mock_streamer,
-            channel="C123",
-            thread_ts="123.456",
-        )
-        stream_manager._native_sessions["C123"] = session
-        await stream_manager.cleanup("C123")
-        mock_streamer.stop.assert_called_once()
-        assert "C123" not in stream_manager._native_sessions
-
-    async def test_cleanup_native_session_stopped(self, stream_manager):
-        mock_streamer = AsyncMock()
-        from qwenpaw.app.channels.slack.streaming import SlackStreamSession
-
-        session = SlackStreamSession(
-            streamer=mock_streamer,
-            channel="C123",
-            thread_ts="123.456",
-        )
-        session.stopped = True
-        stream_manager._native_sessions["C123"] = session
-        await stream_manager.cleanup("C123")
-        mock_streamer.stop.assert_not_called()
-        assert "C123" not in stream_manager._native_sessions
-
-    async def test_cleanup_edit_session_with_text(
-        self,
-        stream_manager,
-        mock_channel,
-    ):
-        client = AsyncMock()
-        mock_channel.get_client.return_value = client
-        from qwenpaw.app.channels.slack.streaming import SlackEditStreamSession
-
-        session = SlackEditStreamSession(channel="C123", message_ts="123.456")
-        session.accumulated_text = "pending text"
-        stream_manager._edit_sessions["C123"] = session
-        await stream_manager.cleanup("C123")
-        client.chat_update.assert_called_once()
-        assert "C123" not in stream_manager._edit_sessions
-
-    async def test_cleanup_edit_session_empty(self, stream_manager):
-        from qwenpaw.app.channels.slack.streaming import SlackEditStreamSession
-
-        session = SlackEditStreamSession(channel="C123", message_ts="123.456")
-        session.accumulated_text = ""
-        stream_manager._edit_sessions["C123"] = session
-        await stream_manager.cleanup("C123")
-        assert "C123" not in stream_manager._edit_sessions
-
-    async def test_cleanup_all(self, stream_manager):
-        mock_streamer = AsyncMock()
-        from qwenpaw.app.channels.slack.streaming import (
-            SlackStreamSession,
-            SlackEditStreamSession,
-        )
-
-        stream_manager._native_sessions["C1"] = SlackStreamSession(
-            streamer=mock_streamer,
-            channel="C1",
-            thread_ts="1.0",
-        )
-        stream_manager._edit_sessions["C2"] = SlackEditStreamSession(
-            channel="C2",
-            message_ts="2.0",
-        )
-        await stream_manager.cleanup_all()
-        assert len(stream_manager._native_sessions) == 0
-        assert len(stream_manager._edit_sessions) == 0
 
 
 # =============================================================================
@@ -2531,7 +2195,6 @@ class TestSlackEventHandlerFullPipeline:
             "text": "follow up",
         }
         # Record thread participation so the gate passes
-        slack_event_handler._record_thread_participation("C123", "100.000")
         await slack_event_handler._handle_event(
             event,
             mock_client,
@@ -2668,14 +2331,14 @@ class TestSlackEventHandlerUserResolution:
         )
         assert name == "Real Name"
 
-    async def test_resolve_user_name_fallback_to_id(self, slack_event_handler):
+    async def test_resolve_user_name_fallback_to_empty(self, slack_event_handler):
         mock_client = AsyncMock()
         mock_client.users_info.side_effect = Exception("api error")
         name = await slack_event_handler._resolve_user_name(
             "U123",
             mock_client,
         )
-        assert name == "U123"
+        assert name == ""
 
 
 # =============================================================================
@@ -3053,6 +2716,36 @@ class TestSlackChannelStreamingHooks:
         )
         slack_channel._sender.send_content_parts.assert_called_once()
 
+    async def test_on_streaming_end_long_text_chunked(
+        self,
+        slack_channel,
+        mock_slack_client,
+    ):
+        from qwenpaw.app.channels.slack.constants import SLACK_TEXT_LIMIT
+
+        slack_channel._client = mock_slack_client
+        slack_channel._sender = AsyncMock()
+        send_meta = {
+            "slack_channel_id": "C123",
+            "_sl_stream": {
+                "message_ts": {"text": "111.001"},
+                "channel_id": "C123",
+                "last_edit_ts": {"text": 0},
+            },
+        }
+        long_text = "A" * (SLACK_TEXT_LIMIT + 100)
+        await slack_channel.on_streaming_end(
+            None,
+            "C123",
+            None,
+            send_meta,
+            "text",
+            long_text,
+        )
+        mock_slack_client.chat_delete.assert_called_once()
+        slack_channel._sender.send_content_parts.assert_called_once()
+        mock_slack_client.chat_update.assert_not_called()
+
     async def test_on_streaming_end_empty_text(
         self,
         slack_channel,
@@ -3076,109 +2769,6 @@ class TestSlackChannelStreamingHooks:
             "   ",
         )
         mock_slack_client.chat_update.assert_not_called()
-
-
-# =============================================================================
-# P2: Channel _send_streaming Dispatch
-# =============================================================================
-
-
-@pytest.mark.asyncio
-class TestSlackChannelSendStreamingDispatch:
-    """Tests for the three-tier streaming dispatch logic."""
-
-    async def test_send_streaming_disabled(
-        self,
-        slack_channel,
-        mock_slack_client,
-    ):
-        slack_channel.streaming_enabled = False
-        slack_channel._client = mock_slack_client
-
-        async def gen():
-            yield "Hello world"
-
-        meta = {"slack_channel_id": "C123"}
-        result = await slack_channel._send_streaming("C123", gen(), meta)
-        assert result["sent"] is True
-
-    async def test_send_streaming_with_thread_ts(self, slack_channel):
-        slack_channel.streaming_enabled = True
-        slack_channel._stream_manager = AsyncMock()
-        mock_session = AsyncMock()
-        slack_channel._stream_manager.start_native_stream.return_value = (
-            mock_session
-        )
-        slack_channel._stream_manager.append_native.return_value = True
-
-        async def gen():
-            yield "Hello"
-
-        meta = {
-            "slack_channel_id": "C123",
-            "slack_thread_ts": "1234567890.123456",
-        }
-        result = await slack_channel._send_streaming(
-            "C123:1234567890.123456",
-            gen(),
-            meta,
-        )
-        assert result["sent"] is True
-        slack_channel._stream_manager.start_native_stream.assert_called_once()
-
-    async def test_send_streaming_no_thread_ts(
-        self,
-        slack_channel,
-        mock_slack_client,
-    ):
-        slack_channel.streaming_enabled = True
-        slack_channel._client = mock_slack_client
-
-        async def gen():
-            yield "Hello"
-
-        meta = {"slack_channel_id": "C123"}
-        result = await slack_channel._send_streaming("C123", gen(), meta)
-        assert result["sent"] is True
-
-    async def test_send_streaming_off_empty(
-        self,
-        slack_channel,
-        mock_slack_client,
-    ):
-        slack_channel._client = mock_slack_client
-
-        async def gen():
-            if False:
-                yield
-
-        result = await slack_channel._send_streaming_off(
-            "C123",
-            None,
-            gen(),
-            {},
-        )
-        assert result["sent"] is False
-
-    async def test_send_streaming_off_with_prefix(
-        self,
-        slack_channel,
-        mock_slack_client,
-    ):
-        slack_channel._client = mock_slack_client
-        slack_channel.bot_prefix = "[Bot] "
-
-        async def gen():
-            yield "Hello"
-
-        await slack_channel._send_streaming_off(
-            "C123",
-            None,
-            gen(),
-            {},
-        )
-        call_text = mock_slack_client.chat_postMessage.call_args[1]["text"]
-        assert call_text.startswith("[Bot]")
 
 
 # =============================================================================
@@ -3348,7 +2938,6 @@ class TestSlackChannelOnInit:
         ):
             await slack_channel._on_init()
         assert slack_channel._sender is not None
-        assert slack_channel._stream_manager is not None
         assert slack_channel._event_handler is not None
 
     async def test_on_init_with_command_registry(

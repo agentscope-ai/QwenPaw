@@ -4,7 +4,7 @@
 Slack uses a superset of Markdown called "mrkdwn". This module handles:
 - Escaping unsafe characters while preserving Slack angle-bracket tokens
 - Converting generic Markdown to Slack mrkdwn
-- Splitting long messages at paragraph boundaries (8000-char limit)
+- Splitting long messages at paragraph boundaries (SLACK_TEXT_LIMIT)
 """
 
 from __future__ import annotations

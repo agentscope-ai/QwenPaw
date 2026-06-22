@@ -1,24 +1,18 @@
 # -*- coding: utf-8 -*-
 # pylint: disable=too-many-statements,too-many-branches
 # pylint: disable=too-many-return-statements,protected-access
-"""Slack Channel — native streaming in threads, with automatic fallback.
+"""Slack Channel — streaming via chat.update edits.
 
-Slack's streaming API (chat.startStream/appendStream/stopStream) requires
-a thread_ts — streamed messages can only exist as thread replies. This
-forces a three-tier strategy:
+Streaming output uses the base class hook system:
 
-    thread_ts present → native AsyncChatStream (incremental rendering)
-    thread_ts absent  → placeholder message → chat_update edits
-    stream_mode="off" → buffer all deltas → single chat_postMessage
-
-When native streaming fails (SlackStreamNotDeliveredError), the channel
-falls back to chat_update automatically — the user still sees content,
-just without the typewriter effect.
+    on_streaming_start → chat.postMessage placeholder
+    on_streaming_delta → chat.update (throttled at 1.5s by base class)
+    on_streaming_end   → final chat.update with full text
 
 Socket Mode (WebSocket) is used instead of HTTP endpoints to avoid
 needing a public URL. In groups the bot responds only to @mentions by
-default; once it joins a thread, subsequent replies are auto-routed
-for 24 hours. Events are deduplicated within a 5-minute window.
+default; thread replies always require @mention.
+Events are deduplicated within a 5-minute window.
 
 Connection resilience
 ---------------------
@@ -35,7 +29,7 @@ set in the environment and ``slack.com`` is excluded, the proxy is
 bypassed transparently.
 
 Sub-modules: handler.py (inbound parsing), sender.py (API calls),
-streaming.py (session state), format.py (mrkdwn), utils.py (helpers).
+format.py (mrkdwn), utils.py (helpers).
 """
 
 from __future__ import annotations
@@ -68,6 +62,7 @@ from .constants import (
     SLACK_RECONNECT_JITTER,
     SLACK_RECONNECT_MAX_ATTEMPTS,
     SLACK_RECONNECT_MAX_S,
+    SLACK_SOCKET_PING_INTERVAL_S,
     SLACK_TEXT_LIMIT,
 )
 from .format import (
@@ -76,7 +71,6 @@ from .format import (
 )
 from .handler import SlackEventHandler
 from .sender import SlackSender
-from .streaming import SlackStreamManager, SlackStreamNotDeliveredError
 from .utils import (
     _resolve_slack_proxy_url,
     _apply_slack_proxy,
@@ -84,9 +78,6 @@ from .utils import (
 )
 
 logger = logging.getLogger(__name__)
-
-# Streaming edit throttle interval (seconds)
-_STREAM_EDIT_INTERVAL_S = 1.5
 
 # Error messages that indicate a non-recoverable auth failure.
 # When detected, reconnection is abandoned and the channel must be
@@ -135,6 +126,7 @@ class SlackChannel(BaseChannel):  # pylint: disable=too-many-public-methods
 
     channel: str = "slack"
     config_cls = SlackChannelConfig
+    _STREAM_DELTA_MIN_INTERVAL_S: float = 1.5
 
     def __init__(
         self,
@@ -201,13 +193,11 @@ class SlackChannel(BaseChannel):  # pylint: disable=too-many-public-methods
         self._socket_mode_task: Optional[asyncio.Task] = None
         self._socket_reconnect_attempt = 0
         self._socket_reconnect_lock = asyncio.Lock()
+        self._running: bool = False
         self._event_handler: Optional[SlackEventHandler] = None
         self._sender: Optional[SlackSender] = None
-        self._stream_manager: Optional[SlackStreamManager] = None
         self._proxy_url: Optional[str] = None
         self._bot_user_id: str = ""
-        self._bot_message_ts: Dict[str, float] = {}
-        self._bot_message_ts_lock = asyncio.Lock()
         self._thread_context_cache: Dict[str, tuple[str, float]] = {}
         self._thread_context_cache_ttl: float = 60.0
 
@@ -315,6 +305,7 @@ class SlackChannel(BaseChannel):  # pylint: disable=too-many-public-methods
     async def start(self) -> None:
         """Start the Slack channel: init SDK, then connect Socket Mode."""
         await self._on_init()
+        self._running = True
         await self._start()
 
     async def stop(self) -> None:
@@ -366,7 +357,6 @@ class SlackChannel(BaseChannel):  # pylint: disable=too-many-public-methods
             await self._event_handler.handle_slash_command(command)
 
         self._sender = SlackSender(channel=self)
-        self._stream_manager = SlackStreamManager(channel=self)
 
         logger.info("[%s] slack channel initialised", self.channel)
 
@@ -385,7 +375,7 @@ class SlackChannel(BaseChannel):  # pylint: disable=too-many-public-methods
             self._app,
             self.app_token,
             proxy=self._proxy_url,
-            ping_interval=10,
+            ping_interval=SLACK_SOCKET_PING_INTERVAL_S,
         )
 
         logger.info("[%s] slack socket mode connecting", self.channel)
@@ -395,14 +385,10 @@ class SlackChannel(BaseChannel):  # pylint: disable=too-many-public-methods
         self._socket_mode_task.add_done_callback(
             self._on_socket_mode_task_done,
         )
-        self._socket_reconnect_attempt = 0
 
     async def _stop(self) -> None:
         """Gracefully disconnect: close handler, cancel task."""
         await self._stop_socket_mode_handler()
-        # Abandon all active streaming sessions
-        if self._stream_manager is not None:
-            await self._stream_manager.cleanup_all()
         if self._sender is not None:
             await self._sender.close()
         if self._event_handler is not None:
@@ -456,7 +442,7 @@ class SlackChannel(BaseChannel):  # pylint: disable=too-many-public-methods
         if exc is None:
             # Normal exit — SDK's start_async() should never return normally,
             # but if it does, schedule a restart.
-            if getattr(self, "_running", False):
+            if self._running:
                 asyncio.ensure_future(
                     self._restart_socket_mode("task exited normally"),
                 )
@@ -478,7 +464,7 @@ class SlackChannel(BaseChannel):  # pylint: disable=too-many-public-methods
             self.channel,
             exc,
         )
-        if getattr(self, "_running", False):
+        if self._running:
             asyncio.ensure_future(self._restart_socket_mode("task error"))
 
     async def _restart_socket_mode(self, reason: str) -> None:
@@ -489,7 +475,7 @@ class SlackChannel(BaseChannel):  # pylint: disable=too-many-public-methods
         ``constants.py``.
         """
         async with self._socket_reconnect_lock:
-            if not getattr(self, "_running", False):
+            if not self._running:
                 return
 
             if self._socket_reconnect_attempt >= SLACK_RECONNECT_MAX_ATTEMPTS:
@@ -502,7 +488,7 @@ class SlackChannel(BaseChannel):  # pylint: disable=too-many-public-methods
                 return
 
             delay = min(
-                self._socket_reconnect_attempt
+                (self._socket_reconnect_attempt + 1)
                 * SLACK_RECONNECT_FACTOR
                 * SLACK_RECONNECT_INITIAL_S,
                 SLACK_RECONNECT_MAX_S,
@@ -528,6 +514,7 @@ class SlackChannel(BaseChannel):  # pylint: disable=too-many-public-methods
             try:
                 await self._stop_socket_mode_handler()
                 await self._start()
+                self._socket_reconnect_attempt = 0
             except Exception as exc:
                 if _is_non_recoverable_slack_error(exc):
                     logger.error(
@@ -602,7 +589,6 @@ class SlackChannel(BaseChannel):  # pylint: disable=too-many-public-methods
             stream_state = {
                 "message_ts": {},
                 "channel_id": "",
-                "last_edit_ts": {},
             }
             send_meta["_sl_stream"] = stream_state
         return stream_state  # type: ignore[return-value]
@@ -641,7 +627,6 @@ class SlackChannel(BaseChannel):  # pylint: disable=too-many-public-methods
                 state = self._get_stream_state(send_meta)
                 state["message_ts"][stream_type] = ts
                 state["channel_id"] = channel_id
-                await self.record_bot_message(ts, thread_ts)
         except Exception:
             logger.debug(
                 "slack on_streaming_start: placeholder failed",
@@ -657,7 +642,7 @@ class SlackChannel(BaseChannel):  # pylint: disable=too-many-public-methods
         stream_type: str,
         accumulated_text: str = "",
     ) -> None:
-        """Throttled chat.update to show incremental progress."""
+        """Update the streaming placeholder with accumulated text."""
         if stream_type == "reasoning" and self._filter_thinking:
             return
 
@@ -665,11 +650,6 @@ class SlackChannel(BaseChannel):  # pylint: disable=too-many-public-methods
         msg_ts = state["message_ts"].get(stream_type)
         channel_id = state["channel_id"]
         if not msg_ts or not channel_id:
-            return
-
-        now = time.monotonic()
-        last_ts = state["last_edit_ts"].get(stream_type, 0.0)
-        if now - last_ts < _STREAM_EDIT_INTERVAL_S:
             return
 
         client = await self.get_client()
@@ -687,7 +667,6 @@ class SlackChannel(BaseChannel):  # pylint: disable=too-many-public-methods
                 text=display,
                 mrkdwn=True,
             )
-            state["last_edit_ts"][stream_type] = now
         except Exception:
             logger.debug(
                 "slack on_streaming_delta: update failed",
@@ -706,7 +685,6 @@ class SlackChannel(BaseChannel):  # pylint: disable=too-many-public-methods
         """Final chat.update with full text; fallback to normal send."""
         state = self._get_stream_state(send_meta)
         msg_ts = state["message_ts"].pop(stream_type, None)
-        state["last_edit_ts"].pop(stream_type, None)
         channel_id = state["channel_id"]
 
         if stream_type == "reasoning" and self._filter_thinking:
@@ -715,22 +693,43 @@ class SlackChannel(BaseChannel):  # pylint: disable=too-many-public-methods
         if not accumulated_text.strip():
             return
 
-        # If placeholder was never sent, fall back to normal send
-        if not msg_ts or not channel_id:
-            await self._send(
-                to_handle,
-                [TextContent(text=accumulated_text)],
-                send_meta,
-            )
-            return
-
-        client = await self.get_client()
         prefix = "\U0001f4ad " if stream_type == "reasoning" else ""
         final_text = (
             f"{prefix}{accumulated_text}" if prefix else accumulated_text
         )
         mrkdwn = markdown_to_slack_mrkdwn(final_text)
 
+        # If placeholder was never sent, fall back to normal send
+        if not msg_ts or not channel_id:
+            await self._send(
+                to_handle,
+                [TextContent(text=final_text)],
+                send_meta,
+            )
+            return
+
+        # Final text too long for a single edit — delete the placeholder
+        # and fall back to the normal chunked send path (same as Telegram).
+        if len(mrkdwn) > SLACK_TEXT_LIMIT:
+            client = await self.get_client()
+            try:
+                await client.chat_delete(
+                    channel=channel_id,
+                    ts=msg_ts,
+                )
+            except Exception:
+                logger.debug(
+                    "slack on_streaming_end: delete placeholder failed",
+                    exc_info=True,
+                )
+            await self._send(
+                to_handle,
+                [TextContent(text=final_text)],
+                send_meta,
+            )
+            return
+
+        client = await self.get_client()
         try:
             await client.chat_update(
                 channel=channel_id,
@@ -747,177 +746,9 @@ class SlackChannel(BaseChannel):  # pylint: disable=too-many-public-methods
             # Fallback: send as a new message via normal path
             await self._send(
                 to_handle,
-                [TextContent(text=accumulated_text)],
+                [TextContent(text=final_text)],
                 send_meta,
             )
-
-    async def _send_streaming(
-        self,
-        to_handle: str,
-        stream_generator,
-        meta: Dict[str, Any],
-    ) -> Dict[str, Any]:
-        """Stream content to Slack.
-
-        When streaming is disabled, buffers the response and sends as a
-        single message.  When enabled, uses native Slack streaming API in
-        threads, with automatic chat_update fallback for non-thread messages.
-        """
-        if self._stream_manager is None:
-            self._stream_manager = SlackStreamManager(channel=self)
-
-        channel_id, thread_ts = SlackSender.resolve_route(to_handle, meta)
-
-        if not self.streaming_enabled:
-            return await self._send_streaming_off(
-                channel_id,
-                thread_ts,
-                stream_generator,
-                meta,
-            )
-        if thread_ts:
-            return await self._send_streaming_partial(
-                channel_id,
-                thread_ts,
-                stream_generator,
-                meta,
-            )
-        return await self._send_streaming_edit(
-            channel_id,
-            stream_generator,
-            meta,
-        )
-
-    async def _send_streaming_off(
-        self,
-        channel_id: str,
-        thread_ts: Optional[str],
-        stream_generator,
-        _meta: Dict[str, Any],
-    ) -> Dict[str, Any]:
-        """Buffer all deltas and send as a single message."""
-        chunks: List[str] = []
-        async for delta in stream_generator:
-            if delta:
-                chunks.append(delta)
-        full_text = "".join(chunks)
-        if not full_text.strip():
-            return {"sent": False}
-
-        mrkdwn = markdown_to_slack_mrkdwn(full_text)
-        text_chunks = chunk_slack_text(mrkdwn, SLACK_TEXT_LIMIT)
-
-        client = await self.get_client()
-        last_ts = None
-        for text in text_chunks:
-            if self.bot_prefix and last_ts is None:
-                text = f"{self.bot_prefix}\n{text}"
-            result = await client.chat_postMessage(
-                channel=channel_id,
-                thread_ts=thread_ts,
-                text=text,
-                mrkdwn=True,
-            )
-            last_ts = result.get("ts")
-        return {"sent": True, "message_ts": last_ts}
-
-    async def _send_streaming_partial(
-        self,
-        channel_id: str,
-        thread_ts: str,
-        stream_generator,
-        meta: Dict[str, Any],
-    ) -> Dict[str, Any]:
-        """Native AsyncChatStream streaming.  Falls back to chat_update
-        when ``SlackStreamNotDeliveredError`` is raised."""
-        if self._stream_manager is None:
-            self._stream_manager = SlackStreamManager(channel=self)
-
-        stream_session = None
-        full_text = ""
-        try:
-            stream_session = await self._stream_manager.start_native_stream(
-                channel_id=channel_id,
-                thread_ts=thread_ts,
-                team_id=meta.get("slack_team_id", ""),
-                user_id=meta.get("slack_user_id", ""),
-            )
-            async for delta in stream_generator:
-                if not delta:
-                    continue
-                full_text += delta
-                mrkdwn = markdown_to_slack_mrkdwn(delta)
-                await self._stream_manager.append_native(
-                    stream_session,
-                    mrkdwn,
-                )
-            await self._stream_manager.stop_native(stream_session)
-            return {"sent": True, "message_ts": stream_session.thread_ts}
-        except SlackStreamNotDeliveredError:
-            logger.warning(
-                "[%s] slack native stream not delivered, falling back",
-                self.channel,
-            )
-            if stream_session:
-                await self._stream_manager.cleanup(channel_id)
-            return await self._streaming_edit_fallback(
-                channel_id,
-                full_text,
-                stream_generator,
-            )
-
-    async def _send_streaming_edit(
-        self,
-        channel_id: str,
-        stream_generator,
-        _meta: Dict[str, Any],
-    ) -> Dict[str, Any]:
-        """No thread_ts — stream via chat_update fallback.
-
-        Delegates entirely to :meth:`_streaming_edit_fallback`, which
-        posts a placeholder message and then edits it incrementally.
-        """
-        return await self._streaming_edit_fallback(
-            channel_id,
-            "",
-            stream_generator,
-        )
-
-    async def _streaming_edit_fallback(
-        self,
-        channel_id: str,
-        prefix_text: str,
-        stream_generator,
-        initial_message_ts: Optional[str] = None,
-    ) -> Dict[str, Any]:
-        """chat_update-based streaming fallback."""
-        if self._stream_manager is None:
-            self._stream_manager = SlackStreamManager(channel=self)
-
-        client = await self.get_client()
-        if initial_message_ts is None:
-            result = await client.chat_postMessage(
-                channel=channel_id,
-                text="...",
-            )
-            initial_message_ts = result.get("ts")
-
-        edit_session = await self._stream_manager.start_edit_stream(
-            channel_id=channel_id,
-            message_ts=initial_message_ts,
-        )
-
-        if prefix_text:
-            await self._stream_manager.append_edit(edit_session, prefix_text)
-
-        async for delta in stream_generator:
-            if not delta:
-                continue
-            mrkdwn = markdown_to_slack_mrkdwn(delta)
-            await self._stream_manager.append_edit(edit_session, mrkdwn)
-
-        await self._stream_manager.stop_edit(edit_session)
-        return {"sent": True, "message_ts": initial_message_ts}
 
     # ── Internal helpers ──
 
@@ -936,34 +767,6 @@ class SlackChannel(BaseChannel):  # pylint: disable=too-many-public-methods
         if self._client is None:
             await self._build_app()
         return self._client
-
-    async def record_bot_message(
-        self,
-        ts: str,
-        thread_ts: Optional[str] = None,
-    ) -> None:
-        """Record that the bot sent a message at *ts*."""
-        async with self._bot_message_ts_lock:
-            self._bot_message_ts[ts] = time.monotonic()
-            if thread_ts:
-                self._bot_message_ts[thread_ts] = time.monotonic()
-
-    async def has_bot_replied_in_thread(self, thread_ts: str) -> bool:
-        """Return True if the bot has previously replied in this thread."""
-        async with self._bot_message_ts_lock:
-            return thread_ts in self._bot_message_ts
-
-    async def prune_bot_message_ts(self) -> None:
-        """Trim the oldest half of entries when exceeding 5000."""
-        async with self._bot_message_ts_lock:
-            if len(self._bot_message_ts) > 5000:
-                sorted_items = sorted(
-                    self._bot_message_ts.items(),
-                    key=lambda x: x[1],
-                )
-                self._bot_message_ts = dict(
-                    sorted_items[len(sorted_items) // 2 :],
-                )
 
     # ── Public send API (BaseChannel contract) ──
 
