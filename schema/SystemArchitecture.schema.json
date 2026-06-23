@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "./.cursor/argoschema/SystemArchitecture.schema.json",
+  "$id": "./schema/SystemArchitecture.schema.json",
   "title": "SystemArchitecture Knowledge Graph Schema",
   "description": "Schema for design/KG/SystemArchitecture.json. The repository keeps its existing knowledge-graph shape, while ArchiMate 3.2 terminology is enforced for element and relationship concepts.",
   "type": "object",
@@ -8,7 +8,6 @@
   "required": [
     "name",
     "description",
-    "standard",
     "elements",
     "relationships",
     "views"
@@ -21,9 +20,6 @@
     "description": {
       "type": "string",
       "minLength": 1
-    },
-    "standard": {
-      "$ref": "#/$defs/standard"
     },
     "attributes": {
       "type": "array",
@@ -62,25 +58,6 @@
     "nonEmptyString": {
       "type": "string",
       "minLength": 1
-    },
-    "standard": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "name",
-        "version"
-      ],
-      "properties": {
-        "name": {
-          "const": "ArchiMate"
-        },
-        "version": {
-          "const": "3.2"
-        },
-        "profile": {
-          "$ref": "#/$defs/nonEmptyString"
-        }
-      }
     },
     "archimateElementType": {
       "type": "string",
@@ -145,35 +122,8 @@
         "Gap",
         "Grouping",
         "Location",
-        "Junction",
         "And Junction",
         "Or Junction"
-      ]
-    },
-    "archimateLayer": {
-      "type": "string",
-      "enum": [
-        "Strategy",
-        "Business",
-        "Application",
-        "Technology",
-        "Physical",
-        "Motivation",
-        "Implementation & Migration",
-        "Other"
-      ]
-    },
-    "archimateAspect": {
-      "type": "string",
-      "enum": [
-        "Strategy",
-        "Active Structure",
-        "Behavior",
-        "Passive Structure",
-        "Composite",
-        "Motivation",
-        "Implementation & Migration",
-        "Other"
       ]
     },
     "archimateRelationshipType": {
@@ -191,140 +141,6 @@
         "Flow",
         "Specialization"
       ]
-    },
-    "archimateRelationshipCategory": {
-      "type": "string",
-      "enum": [
-        "Structural",
-        "Dependency",
-        "Dynamic",
-        "Other"
-      ]
-    },
-    "task": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "name"
-      ],
-      "properties": {
-        "name": {
-          "$ref": "#/$defs/nonEmptyString"
-        },
-        "type": {
-          "type": "string"
-        },
-        "status": {
-          "type": "string"
-        },
-        "description": {
-          "type": "string"
-        },
-        "start_date": {
-          "type": "string"
-        },
-        "completion_date": {
-          "type": "string"
-        },
-        "due_date": {
-          "type": "string"
-        },
-        "reporter": {
-          "type": "string"
-        },
-        "priority": {
-          "type": "string"
-        },
-        "assigned_to": {
-          "type": "string"
-        },
-        "progress": {
-          "type": "string"
-        }
-      }
-    },
-    "resource": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "owner",
-        "role",
-        "start_date",
-        "end_date",
-        "percent_complete",
-        "expected_hours"
-      ],
-      "properties": {
-        "owner": {
-          "$ref": "#/$defs/nonEmptyString"
-        },
-        "role": {
-          "$ref": "#/$defs/nonEmptyString"
-        },
-        "description": {
-          "type": "string"
-        },
-        "start_date": {
-          "type": "string"
-        },
-        "end_date": {
-          "type": "string"
-        },
-        "percent_complete": {
-          "type": "number"
-        },
-        "expected_hours": {
-          "type": "number"
-        },
-        "history": {
-          "type": "string"
-        }
-      }
-    },
-    "projectSummary": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "notes": {
-          "type": "string"
-        },
-        "started": {
-          "type": "string"
-        },
-        "deadline": {
-          "type": "string"
-        },
-        "priority": {
-          "type": "string"
-        },
-        "assigned_to": {
-          "type": "string"
-        },
-        "progress": {
-          "type": "string"
-        }
-      }
-    },
-    "projectInfo": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "summary": {
-          "$ref": "#/$defs/projectSummary"
-        },
-        "resources": {
-          "type": "array",
-          "items": {
-            "$ref": "#/$defs/resource"
-          }
-        },
-        "tasks": {
-          "type": "array",
-          "items": {
-            "$ref": "#/$defs/task"
-          }
-        }
-      }
     },
     "attribute": {
       "type": "object",
@@ -372,8 +188,7 @@
         "description",
         "type",
         "Input",
-        "acceptanceCriteria",
-        "TestResults"
+        "acceptanceCriteria"
       ],
       "properties": {
         "name": {
@@ -387,12 +202,7 @@
         "type": {
           "type": "string",
           "enum": [
-            "Unit Test",
-            "Integration Test",
-            "System Test",
-            "Acceptance Test",
-            "Scenario Test",
-            "Inspection Test"
+            "Acceptance Test"
           ]
         },
         "Input": {
@@ -413,9 +223,7 @@
       "required": [
         "id",
         "name",
-        "type",
-        "archimate_layer",
-        "archimate_aspect"
+        "type"
       ],
       "properties": {
         "id": {
@@ -430,28 +238,13 @@
         "type": {
           "$ref": "#/$defs/archimateElementType"
         },
-        "archimate_layer": {
-          "$ref": "#/$defs/archimateLayer"
-        },
-        "archimate_aspect": {
-          "$ref": "#/$defs/archimateAspect"
-        },
         "alias": {
           "type": "string"
         },
         "classifier": {
           "type": "string"
         },
-        "browser_path": {
-          "type": "string"
-        },
-        "status": {
-          "type": "string"
-        },
         "description": {
-          "type": "string"
-        },
-        "document": {
           "type": "string"
         },
         "attributes": {
@@ -460,18 +253,6 @@
           "items": {
             "$ref": "#/$defs/attribute"
           }
-        },
-        "code_file": {
-          "type": "string"
-        },
-        "condition_file": {
-          "type": "string"
-        },
-        "prompts_file": {
-          "type": "string"
-        },
-        "project_info": {
-          "$ref": "#/$defs/projectInfo"
         },
         "subdiagram_views": {
           "type": "array",
@@ -491,8 +272,7 @@
       "type": "object",
       "additionalProperties": false,
       "required": [
-        "name",
-        "description"
+        "name"
       ],
       "properties": {
         "name": {
@@ -510,7 +290,7 @@
         "id",
         "statement",
         "name",
-        "archimate_category",
+        "type",
         "source_id",
         "target_id",
         "source_name",
@@ -524,18 +304,12 @@
           "$ref": "#/$defs/nonEmptyString"
         },
         "name": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "type": {
           "$ref": "#/$defs/archimateRelationshipType"
         },
-        "archimate_category": {
-          "$ref": "#/$defs/archimateRelationshipCategory"
-        },
         "description": {
-          "type": "string"
-        },
-        "sequence": {
-          "type": "string"
-        },
-        "super_type": {
           "type": "string"
         },
         "document": {
@@ -566,9 +340,7 @@
       "additionalProperties": false,
       "required": [
         "view_id",
-        "view_name",
-        "included_elements",
-        "included_relationships"
+        "view_name"
       ],
       "properties": {
         "view_id": {
@@ -576,9 +348,6 @@
         },
         "view_name": {
           "$ref": "#/$defs/nonEmptyString"
-        },
-        "browser_path": {
-          "type": "string"
         },
         "parent_element_id": {
           "$ref": "#/$defs/identifier"

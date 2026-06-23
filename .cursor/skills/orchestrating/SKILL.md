@@ -20,6 +20,10 @@ When the @ImplementationDesign subagent has done the audit, you [MUST] ask @Inte
 
 The design of the acceptance testcases of @ImplementationDesign subagent [MUST] be audited by @IntentionDesign subagent before the handoff to @CodingAndReparing subagent.
 
+Task dispatch and its audit [MUST] stay in the same subagent session: resume the original task session for audit instead of launching a fresh session. Task implementation and fixes requested by audit feedback [MUST] also stay in the same implementation session: resume the original implementation session for corrections.
+
+Any approved mutation to `design/KG/SystemArchitecture.json` [MUST] be performed by @IntentionDesign through the unified `argo` MCP mutation tools. You [MUST] reject or reroute any subagent output that directly edits the intent graph JSON or lacks a successful `previewSystemArchitectureMutation` / `applySystemArchitectureMutation` and `validateSystemArchitecture` result.
+
 If any audit fails, you [MUST] ask the corresponding subagent to fix the problem until the audit passes.
 
 If any subagent returns empty result or not complete result, you [MUST] restart the [SAME] task with **the same task id of the previous one** again to continue that session.
