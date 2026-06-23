@@ -10,8 +10,10 @@ import uuid
 from pathlib import Path
 from urllib.parse import quote
 
+from pydantic import ValidationError
+
 from .base import BaseJobRepository
-from ..models import CronExecutionRecord, JobsFile
+from ..models import CronExecutionRecord, CronJobSpec, JobsFile
 
 logger = logging.getLogger(__name__)
 
@@ -197,6 +199,80 @@ def migrate_legacy_weixin_jobs_file(jobs_path: Path | str) -> None:
         logger.error(
             "Failed to migrate legacy 'weixin' cron dispatch targets in "
             "%s: %s",
+            path,
+            exc,
+        )
+
+
+def migrate_invalid_jobs(jobs_path: Path | str) -> None:
+    """Drop jobs.json entries that fail validation, on workspace start.
+
+    A single invalid job makes ``JobsFile`` validation fail for the whole
+    file, so the cron manager cannot start and the workspace hangs
+    (issue #4835). Invalid entries can appear after an upgrade that changed
+    the cron job schema, or from a manual edit / interrupted write.
+
+    Each job is validated individually; valid jobs are kept verbatim and
+    invalid ones are dropped. The original file is backed up before any
+    rewrite, and nothing is changed when every job is already valid.
+    Idempotent.
+    """
+    path = (
+        Path(jobs_path).expanduser()
+        if isinstance(jobs_path, str)
+        else jobs_path
+    )
+    if not path.is_file():
+        return
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return
+    if not isinstance(data, dict):
+        return
+
+    jobs = data.get("jobs")
+    if not isinstance(jobs, list):
+        return
+
+    valid_jobs: list = []
+    dropped = 0
+    for job in jobs:
+        try:
+            CronJobSpec.model_validate(job)
+        except ValidationError:
+            dropped += 1
+            continue
+        valid_jobs.append(job)
+
+    if dropped == 0:
+        return
+
+    try:
+        backup_path = path.with_suffix(
+            path.suffix + f".{uuid.uuid4().hex[:8]}.invalid-jobs.bak",
+        )
+        shutil.copy2(path, backup_path)
+        data["jobs"] = valid_jobs
+        tmp_path = path.with_suffix(path.suffix + ".tmp")
+        # newline="\n" keeps Windows from translating LF -> CRLF on rewrite.
+        tmp_path.write_text(
+            json.dumps(data, ensure_ascii=False, indent=2, sort_keys=True),
+            encoding="utf-8",
+            newline="\n",
+        )
+        # os.replace is the documented atomic-overwrite primitive on all
+        # supported platforms (POSIX rename + Windows ReplaceFile).
+        os.replace(tmp_path, path)
+        logger.warning(
+            "Dropped %d invalid job(s) from %s (backup: %s)",
+            dropped,
+            path,
+            backup_path,
+        )
+    except OSError as exc:
+        logger.error(
+            "Failed to drop invalid jobs in %s: %s",
             path,
             exc,
         )

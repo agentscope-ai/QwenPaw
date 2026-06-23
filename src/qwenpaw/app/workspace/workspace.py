@@ -410,7 +410,10 @@ class Workspace:
         Each step is guarded so a failure logs a warning instead of
         blocking startup; affected files stay in their legacy state.
         """
-        from ..crons.repo.json_repo import migrate_legacy_weixin_jobs_file
+        from ..crons.repo.json_repo import (
+            migrate_invalid_jobs,
+            migrate_legacy_weixin_jobs_file,
+        )
         from ..runner.repo.json_repo import migrate_legacy_weixin_chats_file
         from ..runner.session import migrate_legacy_weixin_session_files
 
@@ -434,6 +437,17 @@ class Workspace:
             logger.warning(
                 "weixin->wechat jobs.json migration failed for "
                 "agent %s: %s",
+                self.agent_id,
+                exc,
+            )
+
+        try:
+            migrate_invalid_jobs(
+                self.workspace_dir / "jobs.json",
+            )
+        except Exception as exc:
+            logger.warning(
+                "invalid-jobs migration failed for agent %s: %s",
                 self.agent_id,
                 exc,
             )
