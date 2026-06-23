@@ -535,6 +535,14 @@ class AutoMemorySearchConfig(BaseModel):
         ),
     )
 
+    persist_to_context: bool = Field(
+        default=True,
+        description=(
+            "Whether to persist auto memory search tool_call/tool_result "
+            "messages into the conversation context"
+        ),
+    )
+
 
 class EmbeddingModelConfig(BaseModel):
     """Embedding model configuration."""
@@ -617,11 +625,23 @@ class ReMeLightMemoryConfig(BaseModel):
 
     model_config = ConfigDict(extra="ignore")
 
-    metadata_dir: str = Field(default="mem_metadata", description="Subdirectory for ReMe persistent state")
-    session_dir: str = Field(default="mem_session", description="Subdirectory for persisted agent sessions")
-    resource_dir: str = Field(default="resource", description="Subdirectory for external assets")
-    daily_dir: str = Field(default="memory", description="Subdirectory for daily memory")
-    digest_dir: str = Field(default="digest", description="Subdirectory for digest memory")
+    metadata_dir: str = Field(
+        default="mem_metadata",
+        description="Subdirectory for ReMe persistent state",
+    )
+    session_dir: str = Field(
+        default="mem_session",
+        description="Subdirectory for persisted agent sessions",
+    )
+    resource_dir: str = Field(
+        default="resource", description="Subdirectory for external assets",
+    )
+    daily_dir: str = Field(
+        default="memory", description="Subdirectory for daily memory",
+    )
+    digest_dir: str = Field(
+        default="digest", description="Subdirectory for digest memory",
+    )
     enable_search_raw_log: bool = Field(
         default=False,
         description="Whether to enable raw log search",
@@ -665,7 +685,6 @@ class ReMeLightMemoryConfig(BaseModel):
     )
 
 
-
 class ContextCompactConfig(BaseModel):
     """Context compaction configuration."""
 
@@ -688,17 +707,12 @@ class ContextCompactConfig(BaseModel):
 
     reserve_threshold_ratio: float = Field(
         default=0.1,
-        ge=0,
+        gt=0,
         le=0.3,
         description=(
             "Context reserve threshold ratio: the most recent fraction of the "
             "context is preserved after compaction to maintain continuity"
         ),
-    )
-
-    compact_with_thinking_block: bool = Field(
-        default=True,
-        description="Whether to include thinking blocks when compacting",
     )
 
 

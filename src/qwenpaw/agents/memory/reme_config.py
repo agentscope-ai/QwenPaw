@@ -10,7 +10,7 @@ dict directly to ``reme.application.Application`` / ``reme.reme.ReMe``.
 from copy import deepcopy
 from typing import Any
 
-from qwenpaw.config.config import AgentProfileConfig
+from qwenpaw.config.config import AgentProfileConfig, EmbeddingModelConfig
 
 
 def build_reme_app_config(
@@ -22,6 +22,10 @@ def build_reme_app_config(
     """Build ReMe ``Application`` kwargs for embedded QwenPaw usage."""
     reme_config = agent_config.running.reme_light_memory_config
     cfg = _base_config(reme_config.enable_search_raw_log)
+    _apply_embedding_config(
+        cfg,
+        reme_config.embedding_model_config,
+    )
     cfg.update(
         {
             "workspace_dir": working_dir,
@@ -42,14 +46,10 @@ def build_reme_app_config(
 
 def _base_config(enable_search_raw_log: bool = False) -> dict[str, Any]:
     """Return the ReMe config shape used by QwenPaw."""
-    if enable_search_raw_log:
-        watch_dirs = ["daily_dir", "digest_dir", "resource_dir"]
-        watch_suffixes = ["md", "jsonl"]
-    else:
-        watch_dirs = ["daily_dir", "digest_dir"]
-        watch_suffixes = ["md"]
+    watch_dirs, watch_suffixes = _index_watch_rules(enable_search_raw_log)
 
     return {
+        "service": {"backend": "http"},
         "jobs": {
             "index_update_loop": {
                 "backend": "background",
@@ -64,7 +64,9 @@ def _base_config(enable_search_raw_log: bool = False) -> dict[str, Any]:
                     },
                     {
                         "backend": "watch_changes_step",
-                        "dispatch_steps": ["update_index_step"],
+                        "dispatch_steps": [
+                            {"backend": "update_index_step", "persist": False},
+                        ],
                     },
                 ],
             },
@@ -117,8 +119,8 @@ def _base_config(enable_search_raw_log: bool = False) -> dict[str, Any]:
                     "wipe the file store and rebuild it from the existing "
                     "files"
                 ),
-                "watch_dirs": ["daily_dir", "digest_dir", "resource_dir"],
-                "watch_suffixes": ["md", "jsonl"],
+                "watch_dirs": watch_dirs,
+                "watch_suffixes": watch_suffixes,
                 "parameters": {"type": "object", "properties": {}},
                 "steps": [
                     {"backend": "clear_store_step"},
@@ -456,6 +458,15 @@ def _base_config(enable_search_raw_log: bool = False) -> dict[str, Any]:
     }
 
 
+def _index_watch_rules(
+    enable_search_raw_log: bool,
+) -> tuple[list[str], list[str]]:
+    """Return directories/suffixes indexed by ReMe search jobs."""
+    if enable_search_raw_log:
+        return ["daily_dir", "digest_dir", "resource_dir"], ["md", "jsonl"]
+    return ["daily_dir", "digest_dir"], ["md"]
+
+
 def _base_components() -> dict[str, Any]:
     return {
         "tokenizer": {"default": {"backend": "regex"}},
@@ -506,16 +517,65 @@ def _base_components() -> dict[str, Any]:
         "keyword_index": {
             "default": {"backend": "bm25", "tokenizer": "default"},
         },
+        "as_embedding": {
+            "default": {
+                "backend": "openai",
+                "model": "",
+                "credential": {"api_key": "", "base_url": ""},
+                "parameters": {},
+            },
+        },
+        "embedding_store": {
+            "default": {
+                "backend": "local",
+                "as_embedding": "default",
+                "enable_cache": True,
+                "max_cache_size": 3000,
+                "max_input_length": 8192,
+                "max_batch_size": 10,
+            },
+        },
         "file_store": {
             "default": {
                 "backend": "local",
                 "store_name": "local",
-                "embedding_store": "",
+                "embedding_store": "default",
                 "keyword_index": "default",
                 "file_graph": "default",
             },
         },
     }
+
+
+def _apply_embedding_config(
+    cfg: dict[str, Any],
+    embedding_config: EmbeddingModelConfig,
+) -> None:
+    """Map QwenPaw embedding config into ReMe component config."""
+    components = cfg["components"]
+    parameters: dict[str, Any] = {}
+    if embedding_config.use_dimensions:
+        parameters["dimensions"] = embedding_config.dimensions
+
+    components["as_embedding"]["default"].update(
+        {
+            "backend": embedding_config.backend,
+            "model": embedding_config.model_name,
+            "credential": {
+                "api_key": embedding_config.api_key,
+                "base_url": embedding_config.base_url,
+            },
+            "parameters": parameters,
+        },
+    )
+    components["embedding_store"]["default"].update(
+        {
+            "enable_cache": embedding_config.enable_cache,
+            "max_cache_size": embedding_config.max_cache_size,
+            "max_input_length": embedding_config.max_input_length,
+            "max_batch_size": embedding_config.max_batch_size,
+        },
+    )
 
 
 def get_reme_app_config(

@@ -52,6 +52,7 @@ class MemoryMiddleware(MiddlewareBase):
 
     async def on_system_prompt(
         self,
+        # pylint: disable=unused-argument
         agent: "Agent",
         current_prompt: str,
     ) -> str:
@@ -91,8 +92,11 @@ class MemoryMiddleware(MiddlewareBase):
                 if memory_msgs:
                     messages.extend(memory_msgs)
                     input_kwargs["messages"] = messages
+                    if self._persist_auto_memory_search_to_context():
+                        agent.state.context.extend(memory_msgs)
         return await next_handler(**input_kwargs)
 
+    # pylint: disable=stop-iteration-return
     async def on_reply(
         self,
         agent: "Agent",
@@ -107,9 +111,8 @@ class MemoryMiddleware(MiddlewareBase):
             return
         self._seen_auto_memory_reply_ids[reply_id] = None
         if len(self._seen_auto_memory_reply_ids) > MAX_AUTO_MEMORY_REPLY_IDS:
-            self._seen_auto_memory_reply_ids.pop(
-                next(iter(self._seen_auto_memory_reply_ids)),
-            )
+            oldest_key = next(iter(self._seen_auto_memory_reply_ids))
+            self._seen_auto_memory_reply_ids.pop(oldest_key)
         self._pending_auto_memory_reply_ids.append(reply_id)
 
         interval = self._auto_memory_interval()
@@ -177,6 +180,7 @@ class MemoryMiddleware(MiddlewareBase):
         input_kwargs: dict[str, Any],
     ) -> bool:
         cfg = input_kwargs.get("context_config") or agent.context_config
+        # pylint: disable=protected-access
         kwargs = await agent._prepare_model_input()
         estimated_tokens = await agent.model.count_tokens(**kwargs)
         threshold = cfg.trigger_ratio * agent.model.context_size
@@ -217,6 +221,10 @@ class MemoryMiddleware(MiddlewareBase):
 
         agent_config = load_agent_config(self._memory_manager.agent_id)
         return agent_config.running.reme_light_memory_config
+
+    def _persist_auto_memory_search_to_context(self) -> bool:
+        search_cfg = self._memory_config().auto_memory_search_config
+        return bool(getattr(search_cfg, "persist_to_context", True))
 
     @staticmethod
     def _messages_for_reply_ids(

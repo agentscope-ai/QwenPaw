@@ -1609,8 +1609,6 @@
     "tokenCountEstimateDivisorTooltip": "基于字节数估算 token 数的除数（token 数 ≈ 字节数 / 除数）。推荐值：3.75 ~ 4。",
     "tokenCountEstimateDivisorRequired": "估算除数为必填项",
     "tokenCountEstimateDivisorMin": "估算除数范围为 2 ~ 5",
-    "compactWithThinkingBlock": "压缩时包含思考块",
-    "compactWithThinkingBlockTooltip": "压缩上下文时是否保留模型的思考（thinking）内容",
     "toolResultCompactTitle": "工具结果压缩配置",
     "toolResultCompactEnabled": "启用工具结果压缩",
     "toolResultCompactEnabledTooltip": "对过长的工具调用结果进行压缩，节省上下文空间",

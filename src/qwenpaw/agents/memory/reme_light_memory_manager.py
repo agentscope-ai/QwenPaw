@@ -207,7 +207,7 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         response = await self._run_reme_job(
             "auto_memory",
             needs_llm=True,
-            messages=[msg.model_dump_json() for msg in messages],
+            messages=[msg.model_dump(mode="json") for msg in messages],
             session_id=str(kwargs.get("session_id") or ""),
             memory_hint=str(kwargs.get("memory_hint") or ""),
         )

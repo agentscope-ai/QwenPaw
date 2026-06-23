@@ -10,7 +10,6 @@ export interface ContextCompactConfig {
   enabled: boolean;
   compact_threshold_ratio: number;
   reserve_threshold_ratio: number;
-  compact_with_thinking_block: boolean;
 }
 
 export interface ToolResultPruningConfig {
@@ -34,6 +33,7 @@ export interface AutoMemorySearchConfig {
   enabled: boolean;
   max_results: number;
   min_score: number;
+  persist_to_context: boolean;
 }
 
 export interface EmbeddingModelConfig {
