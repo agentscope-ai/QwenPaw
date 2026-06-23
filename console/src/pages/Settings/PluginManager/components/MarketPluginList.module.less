@@ -53,6 +53,47 @@
 
 .searchHint {
   font-size: 13px;
-  color: var(--ant-color-text-secondary);
+  color: var(--ant-color-text-tertiary);
   white-space: nowrap;
+}
+
+.searchInput {
+  width: 220px;
+}
+
+.catalogIconInline {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  background: var(--ant-color-fill-tertiary);
+  color: var(--ant-color-text-secondary);
+  margin-right: 8px;
+  flex-shrink: 0;
+  overflow: hidden;
+
+  img {
+    width: 18px;
+    height: 18px;
+    object-fit: contain;
+  }
+}
+
+@media (max-width: 768px) {
+  .toolbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .toolbarRight {
+    width: 100%;
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .searchInput {
+    width: 100%;
+  }
 }

@@ -93,7 +93,7 @@ export function OfficialPluginList({ onInstalled }: OfficialPluginListProps) {
             allowClear
             value={nameFilter}
             onChange={(e) => setNameFilter(e.target.value)}
-            style={{ width: 220 }}
+            className={styles.filterInput}
           />
           <Select
             placeholder={t("pluginManager.filterByKind")}
@@ -101,7 +101,7 @@ export function OfficialPluginList({ onInstalled }: OfficialPluginListProps) {
             value={kindFilter}
             onChange={(val) => setKindFilter(val)}
             options={kindOptions}
-            style={{ width: 150 }}
+            className={styles.filterSelect}
           />
         </div>
         <Button
@@ -131,11 +131,11 @@ export function OfficialPluginList({ onInstalled }: OfficialPluginListProps) {
         <div className={styles.catalogList}>
           {filteredPlugins.map((entry) => (
             <div className={styles.catalogRow} key={entry.id}>
-              <div className={styles.catalogIcon}>
-                <Package size={18} />
-              </div>
               <div className={styles.catalogInfo}>
                 <div className={styles.catalogNameRow}>
+                  <span className={styles.catalogIconInline}>
+                    <Package size={18} />
+                  </span>
                   <Text strong>{entry.name}</Text>
                   {entry.kind && (
                     <Tag

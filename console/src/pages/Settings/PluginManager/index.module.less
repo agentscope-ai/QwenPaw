@@ -17,6 +17,14 @@
   }
 }
 
+.desktopTable {
+  display: block;
+}
+
+.mobileCards {
+  display: none;
+}
+
 .table {
   :global(.ant-table-thead > tr > th) {
     background: transparent;
@@ -41,5 +49,103 @@
 
   :global(.ant-table-tbody > tr:hover > td) {
     background: var(--ant-color-fill-quaternary);
+  }
+}
+
+.pluginCard {
+  border: 1.5px solid var(--ant-color-border-strong, #d9d9d9);
+  border-radius: 12px;
+  padding: 16px 18px;
+  margin-bottom: 14px;
+  background: var(--ant-color-bg-container);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.pluginCard:active {
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+}
+
+.pluginCardHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.pluginCardTitle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  font-size: 15px;
+}
+
+.pluginCardStatus {
+  flex-shrink: 0;
+}
+
+.pluginCardDesc {
+  font-size: 13px;
+  color: var(--ant-color-text-tertiary);
+  margin-bottom: 10px;
+  line-height: 1.5;
+}
+
+.pluginCardMeta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.pluginCardMetaItem {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+}
+
+.pluginCardMetaLabel {
+  color: var(--ant-color-text-tertiary);
+}
+
+.pluginCardActions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+@media (max-width: 768px) {
+  .content {
+    padding: 0 12px;
+  }
+
+  .desktopTable {
+    display: none;
+  }
+
+  .mobileCards {
+    display: block;
+  }
+
+  .pluginCard {
+    padding: 12px;
+    margin-bottom: 10px;
+  }
+
+  .pluginCardTitle {
+    font-size: 14px;
+  }
+
+  .pluginCardDesc {
+    font-size: 12px;
+  }
+
+  .pluginCardMeta {
+    gap: 10px;
+  }
+
+  .pluginCardMetaItem {
+    font-size: 12px;
   }
 }

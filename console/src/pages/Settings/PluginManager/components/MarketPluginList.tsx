@@ -124,7 +124,7 @@ export function MarketPluginList({ onInstalled }: MarketPluginListProps) {
               if (!e.target.value) onSearch("");
             }}
             onSearch={onSearch}
-            style={{ width: 220 }}
+            className={marketStyles.searchInput}
           />
           <Button
             type="default"
@@ -154,24 +154,24 @@ export function MarketPluginList({ onInstalled }: MarketPluginListProps) {
         <div className={styles.catalogList}>
           {plugins.map((entry) => (
             <div className={styles.catalogRow} key={entry.id}>
-              <div className={styles.catalogIcon}>
-                {entry.logo_url ? (
-                  <img
-                    src={entry.logo_url}
-                    alt=""
-                    style={{
-                      width: 24,
-                      height: 24,
-                      borderRadius: 4,
-                      objectFit: "contain",
-                    }}
-                  />
-                ) : (
-                  <Package size={18} />
-                )}
-              </div>
               <div className={styles.catalogInfo}>
                 <div className={styles.catalogNameRow}>
+                  <span className={styles.catalogIconInline}>
+                    {entry.logo_url ? (
+                      <img
+                        src={entry.logo_url}
+                        alt=""
+                        style={{
+                          width: 18,
+                          height: 18,
+                          borderRadius: 4,
+                          objectFit: "contain",
+                        }}
+                      />
+                    ) : (
+                      <Package size={16} />
+                    )}
+                  </span>
                   <Text strong>{entry.display_name}</Text>
                   {entry.locales?.[lang]?.category && (
                     <Tag color="blue" style={{ margin: 0, fontSize: 11 }}>
