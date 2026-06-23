@@ -87,11 +87,47 @@ impl BackendState {
     fn stop(&self) {
         self.next_generation();
         let child = self.with_inner(|inner| inner.child.take());
+        let port = self.port();
+
+        // 1 — Fire-and-forget graceful shutdown request to the FastAPI backend.
+        //     Ponytail: raw TCP instead of reqwest to avoid the `blocking`
+        //     feature flag.  Response doesn't matter — we're shutting down.
+        if let Some(port) = port {
+            log::info!("[backend] requesting graceful shutdown on port {port}");
+            let addr: std::net::SocketAddr = ([127, 0, 0, 1], port).into();
+            std::thread::spawn(move || {
+                use std::io::Write;
+                use std::net::TcpStream;
+                use std::time::Duration;
+                if let Ok(mut stream) =
+                    TcpStream::connect_timeout(&addr, Duration::from_secs(3))
+                {
+                    let _ = stream.write_all(
+                        b"POST /api/shutdown HTTP/1.1\r\n\
+                          Host: 127.0.0.1\r\n\
+                          Content-Length: 0\r\n\r\n",
+                    );
+                    log::info!("[backend] graceful shutdown request sent");
+                }
+            });
+        }
+
+        // 2 — Give the backend time to shut down gracefully
+        //     before falling back to forced kill.
         if let Some(child) = child {
             let pid = child.pid();
-            log::info!("[backend] stopping process pid={pid}");
-            if let Err(err) = child.kill() {
-                log::warn!("[backend] failed to stop process: {err}");
+            log::info!("[backend] waiting for graceful exit pid={pid}");
+            std::thread::sleep(std::time::Duration::from_secs(5));
+
+            log::info!("[backend] forcing stop pid={pid}");
+            match child.kill() {
+                Ok(()) => log::info!("[backend] process pid={pid} killed"),
+                Err(err) => {
+                    // child.kill() returns Err when the process
+                    // already exited — which means graceful shutdown
+                    // succeeded.
+                    log::info!("[backend] process pid={pid} already exited: {err}");
+                }
             }
         }
     }

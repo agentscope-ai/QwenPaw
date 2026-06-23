@@ -11,7 +11,7 @@ from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, FastAPI, HTTPException
+from fastapi import APIRouter, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
@@ -790,6 +790,81 @@ def get_doctor_runtime():
         "python_executable": sys.executable,
         "python_environment": summarize_python_environment(),
     }
+
+
+@app.post("/api/shutdown")
+async def shutdown_endpoint(request: Request):
+    """Gracefully shut down the FastAPI backend.
+
+    Ponytail: duplicates the lifespan finally block inline rather than
+    extracting a shared helper — YAGNI (only two callers: lifespan and
+    this endpoint).  Ceiling: if a third caller appears, factor out
+    ``_run_shutdown()``.
+    """
+    logger.info("Shutdown requested via /api/shutdown")
+
+    app_ = request.app
+
+    # Plugin shutdown hooks
+    plugin_registry = getattr(app_.state, "plugin_registry", None)
+    if plugin_registry is not None:
+        logger.info("Executing plugin shutdown hooks...")
+        for hook in plugin_registry.get_shutdown_hooks():
+            try:
+                result = hook.callback()
+                if inspect.iscoroutine(result) or inspect.isawaitable(result):
+                    await result
+            except Exception as e:
+                logger.error(f"Plugin shutdown hook failed: {e}")
+
+    # Local model server
+    local_model_mgr = getattr(app_.state, "local_model_manager", None)
+    if local_model_mgr is not None:
+        try:
+            await local_model_mgr.shutdown_server()
+        except Exception as exc:
+            logger.error(f"Local model shutdown error: {exc}")
+            with suppress(OSError, RuntimeError, ValueError):
+                local_model_mgr.shutdown_server_sync()
+
+    # Multi-agent manager (stops all agents + ReMeLight)
+    multi_agent_mgr = getattr(app_.state, "multi_agent_manager", None)
+    if multi_agent_mgr is not None:
+        try:
+            await multi_agent_mgr.stop_all()
+        except Exception as e:
+            logger.error(f"Error stopping MultiAgentManager: {e}")
+
+    # Token usage manager
+    from ..token_usage import get_token_usage_manager
+
+    try:
+        await get_token_usage_manager().stop()
+    except Exception as e:
+        logger.error(f"Error stopping TokenUsageManager: {e}")
+
+    # Browser instances
+    from ..agents.tools.browser_control import stop_all_browsers
+
+    try:
+        await stop_all_browsers()
+    except Exception as e:
+        logger.error(f"Error stopping browsers: {e}")
+
+    # Skills hub HTTP client
+    from ..agents.skill_system.hub import aclose_hub_client
+
+    try:
+        await aclose_hub_client()
+    except Exception as e:
+        logger.error(f"Error closing skills hub: {e}")
+
+    logger.info("Graceful shutdown complete — exiting process")
+
+    # Schedule exit after response is sent
+    import threading
+
+    threading.Thread(target=os._exit, args=(0,), daemon=True).start()
 
 
 app.include_router(api_router, prefix="/api")
