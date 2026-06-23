@@ -156,6 +156,15 @@ export const useAgentsData = () => {
   };
 
   const handleFileClick = async (file: MarkdownFile) => {
+    if (file.filename === "MEMORY.md") {
+      setExpandedMemory((prev) => {
+        if (!prev) {
+          fetchDailyMemories();
+        }
+        return !prev;
+      });
+    }
+
     setSelectedFile(file);
     setLoading(true);
     try {
