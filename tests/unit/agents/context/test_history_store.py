@@ -7,6 +7,7 @@ in-place ``update_entry`` with FTS sync, retention ``purge``, the degraded
 durability flag, and corruption quarantine.
 """
 
+import logging
 import sqlite3
 from pathlib import Path
 
@@ -241,6 +242,46 @@ def test_purge_retains_null_created_at(store: HistoryStore):
     removed = store.purge(before="2999-01-01T00:00:00+00:00")
     assert removed == 0
     assert store.count("s") == 1
+
+
+class _NoFTSConn:
+    """Delegates to a real connection but fails the FTS5 table creation,
+    simulating a SQLite build without the FTS5 module."""
+
+    def __init__(self, real):
+        self._real = real
+
+    def execute(self, sql, *args, **kwargs):
+        if "CREATE VIRTUAL TABLE" in sql:
+            raise sqlite3.OperationalError("no such module: fts5")
+        return self._real.execute(sql, *args, **kwargs)
+
+    def __getattr__(self, name):
+        return getattr(self._real, name)
+
+
+def test_init_fts_degrades_and_warns_without_fts5(tmp_path: Path, caplog):
+    """A SQLite build without FTS5 must not break the store: history.db still
+    works and search degrades to LIKE, with one warning logged."""
+    HistoryStore._fts_unavailable_warned = False  # reset the per-process flag
+    store = HistoryStore(tmp_path / "history.db")
+    real = store._conn
+    try:
+        store._conn = _NoFTSConn(real)
+        with caplog.at_level(logging.WARNING):
+            store._init_fts()
+        assert store._fts is False
+        assert any("FTS5" in r.getMessage() for r in caplog.records)
+
+        # The store stays usable with FTS disabled: append + read still work.
+        store._conn = real
+        seq = store.append(session_id="s", dedup_key="x", entry=_entry("hi"))
+        assert seq > 0
+        assert store.count("s") == 1
+    finally:
+        store._conn = real
+        store.close()
+        HistoryStore._fts_unavailable_warned = False
 
 
 def test_note_write_failure_sets_degraded(store: HistoryStore):

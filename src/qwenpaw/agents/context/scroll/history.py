@@ -58,6 +58,10 @@ class HistoryStore:
     WAL. The file is never dropped; ``close()`` only closes this connection.
     """
 
+    # FTS5 is a property of the SQLite build, not of one DB — warn at most once
+    # per process when it's missing, so a long-lived server doesn't log-spam.
+    _fts_unavailable_warned = False
+
     def __init__(self, db_path: str | Path) -> None:
         self._path = Path(db_path).expanduser()
         self._path.parent.mkdir(parents=True, exist_ok=True)
@@ -172,8 +176,14 @@ class HistoryStore:
         External-content FTS5 indexes without duplicating the text; it is kept
         in sync by ``append``/``update_entry``. On a pre-existing DB it is
         back-filled once via 'rebuild'. Porter stemming on top of unicode61
-        casefolding so "tanks" matches "tank". Degrades silently to a LIKE
-        scan (see ``MemorySpace.search``) when this SQLite build lacks FTS5.
+        casefolding so "tanks" matches "tank".
+
+        Attempting the ``CREATE VIRTUAL TABLE`` is itself the availability
+        probe: SQLite builds without the FTS5 module (some minimal
+        container/distro builds) raise ``no such module: fts5`` here. We catch
+        that, leave ``self._fts`` False so the write path skips FTS upkeep, and
+        log one warning — search then degrades to a LIKE scan (see
+        ``MemorySpace.search``). The store itself stays fully functional.
         """
         try:
             existed = self._conn.execute(
@@ -191,8 +201,17 @@ class HistoryStore:
                     "(conversation_history_fts) VALUES('rebuild')",
                 )
             self._fts = True
-        except sqlite3.OperationalError:
+        except sqlite3.OperationalError as exc:
             self._fts = False
+            if not HistoryStore._fts_unavailable_warned:
+                HistoryStore._fts_unavailable_warned = True
+                logger.warning(
+                    "SQLite has no FTS5 module (%s); scroll history keyword "
+                    "search degrades to a slower LIKE scan. The history store "
+                    "is otherwise fully functional. Use a SQLite build with "
+                    "FTS5 to restore ranked full-text recall.",
+                    exc,
+                )
 
     # --- write path ----------------------------------------------------
 
