@@ -53,9 +53,9 @@ class ScrollContextManager:
         self._session_id = session_id
         self._agent_id = agent_id
         self._pinned = pinned
-        # Optional legacy archive: when set (opt-in via ``offload_dialog``),
-        # evicted turns are also written to ``dialog/{date}.jsonl`` for
-        # external consumers. ``history.db`` remains the source of truth.
+        # Dialog archive: when an offloader is wired (``offload_dialog``, on by
+        # default), evicted turns are also written to ``dialog/{date}.jsonl``
+        # for external consumers. ``history.db`` remains the source of truth.
         self._offloader = offloader
         # Shared with the cap middleware: tool_call_id -> seq of results it
         # already wrote in full. We skip re-persisting their truncated stubs.
@@ -119,7 +119,7 @@ class ScrollContextManager:
     async def _offload_dialog(self, middle: list[Msg]) -> None:
         """Best-effort legacy ``dialog/*.jsonl`` archive of evicted turns.
 
-        No-op unless an offloader was wired in (``offload_dialog`` opt-in).
+        No-op unless an offloader is wired in (``offload_dialog``, default on).
         Purely supplementary — the turns are already durable in history.db —
         so a write failure is logged and swallowed, never aborting eviction.
         """
@@ -403,15 +403,33 @@ class ScrollContextManager:
         if "index" in data:
             self._index = EvictionIndex.from_dict(data["index"])
 
-    def purge_old(self, retention_days: int) -> int:
+    def purge_old(self, retention_days: int, *, dry_run: bool = False) -> int:
         """Drop durable history older than ``retention_days`` (0 = keep
-        forever). Returns the number of rows removed."""
+        forever). Returns the number of rows removed (or, with ``dry_run``,
+        that would be removed — nothing is deleted)."""
         if retention_days <= 0:
             return 0
-        cutoff = (
+        return self._history.purge(
+            before=self._cutoff(retention_days),
+            dry_run=dry_run,
+        )
+
+    def estimate_purge_old(self, retention_days: int) -> dict:
+        """Preview a retention purge: ``{"rows", "content_bytes"}`` that
+        ``purge_old(retention_days)`` would drop. ``retention_days <= 0``
+        (keep forever) drops nothing, so returns zeros."""
+        if retention_days <= 0:
+            return {"rows": 0, "content_bytes": 0}
+        return self._history.estimate_purge(
+            before=self._cutoff(retention_days),
+        )
+
+    @staticmethod
+    def _cutoff(retention_days: int) -> str:
+        """ISO-8601 UTC instant ``retention_days`` ago — the purge boundary."""
+        return (
             datetime.now(timezone.utc) - timedelta(days=retention_days)
         ).isoformat()
-        return self._history.purge(before=cutoff)
 
     def close(self) -> None:
         self._history.close()

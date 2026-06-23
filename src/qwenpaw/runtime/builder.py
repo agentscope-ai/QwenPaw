@@ -575,8 +575,8 @@ class AgentBuilder:
 
         Returns ``None`` for the native strategy (the default) so nothing
         changes unless ``light_context_config.strategy == "scroll"``. The
-        shared ``offloader`` is forwarded so scroll can optionally archive
-        evicted turns to ``dialog/*.jsonl`` (opt-in via ``offload_dialog``).
+        shared ``offloader`` is forwarded so scroll can archive evicted turns
+        to ``dialog/*.jsonl`` (``offload_dialog``, on by default).
         """
         workspace = getattr(ctx, "workspace", None)
         workspace_dir = (

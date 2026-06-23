@@ -836,7 +836,14 @@ class ScrollContextConfig(BaseModel):
             "Days of durable history to keep; rows older than this are "
             "purged on agent teardown. 0 (default) keeps history forever "
             "— the memory is never dropped unless an operator opts into a "
-            "retention window."
+            "retention window. CAPACITY: scroll writes full tool output "
+            "(code files, command logs) through to history.db, and the FTS "
+            "index roughly mirrors that content, so on-disk size is ~2x the "
+            "raw text. For a long-running agent (cron jobs, persistent "
+            "coding sessions) the store grows without bound at the default; "
+            "set a window (e.g. 90) to cap it. Note: purge DELETEs rows but "
+            "does not VACUUM, so freed pages are reused without shrinking the "
+            "file until a separate vacuum."
         ),
     )
 
@@ -853,14 +860,18 @@ class ScrollContextConfig(BaseModel):
     )
 
     offload_dialog: bool = Field(
-        default=False,
+        default=True,
         description=(
-            "Also archive evicted turns to legacy ``dialog/{date}.jsonl`` "
-            "files. Off by default: under scroll the durable ``history.db`` "
-            "is already the full record, so dialog files are a redundant "
-            "opt-in for external consumers (analytics, backup). When on, "
-            "dialog is written on every eviction AND on /clear, /new, "
-            "/compact; when off, scroll never writes dialog anywhere."
+            "Also archive evicted turns to ``dialog/{date}.jsonl`` files. "
+            "On by default so scroll keeps the same human-readable dialog "
+            "timeline the native manager always wrote (for analytics, backup, "
+            "external consumers). When on, dialog is written on each eviction "
+            "AND on /clear, /new, /compact; set false to skip it entirely and "
+            "rely solely on the durable ``history.db`` (the source of truth). "
+            "Note: dialog files are a redundant second copy of the "
+            "conversation, so this roughly doubles on-disk text, and dialog "
+            "has no retention sweep of its own — it grows until pruned "
+            "externally."
         ),
     )
 
