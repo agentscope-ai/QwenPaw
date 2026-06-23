@@ -299,7 +299,8 @@ class SlackEventHandler:
         if mime_type.startswith("image/"):
             return ImageContent(image_url=local_path, filename=filename)
         if mime_type.startswith("audio/"):
-            return AudioContent(audio_url=local_path, filename=filename)
+            ext = os.path.splitext(filename)[1].lstrip(".") or "mp3"
+            return AudioContent(data=local_path, format=ext)
         if mime_type.startswith("video/"):
             return VideoContent(video_url=local_path, filename=filename)
         return FileContent(file_url=local_path, filename=filename)

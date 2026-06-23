@@ -1345,25 +1345,82 @@ pip install "qwenpaw[sip,sip-livekit]"
 
 ## Slack
 
-### 获取凭据
+### 创建 Slack 应用
 
-1. 访问 [https://api.slack.com/apps](https://api.slack.com/apps)，点击 **创建新应用** → **从头开始**，输入名称并选择您的工作区。
+1. 访问 [https://api.slack.com/apps](https://api.slack.com/apps)，点击 **Create New App** → **From a manifest**。
 
-2. 在 **功能 → OAuth 与权限** 中，添加以下 **机器人令牌范围**：
+   ![From a manifest 创建应用](<!-- IMAGE: 截图 - “Create New App” 下拉菜单，高亮“From a manifest”选项 -->)
 
-   `chat:write`, `app_mentions:read`, `channels:history`, `channels:read`, `groups:history`, `im:history`, `im:read`, `im:write`, `users:read`, `files:read`, `files:write`
+2. 选择要安装应用的工作区，然后粘贴以下 manifest（JSON 格式）：
 
-   > **注意：** 若缺少 `channels:history` 和 `groups:history`，机器人将仅在私信中工作。若缺少 `files:read`，则无法读取上传的附件。
+> **提示：** 粘贴前可以将 `name` 和 `display_name` 修改为你喜欢的机器人名称。
 
-3. 在 **设置 → 套接字模式** 中，将其切换为开启状态，并创建一个具有 `connections:write` 权限范围的 **应用级令牌**。复制该令牌——它以 `xapp-` 开头。
+```json
+{
+    "display_information": {
+        "name": "Demo App"
+    },
+    "features": {
+        "bot_user": {
+            "display_name": "Demo App",
+            "always_online": false
+        }
+    },
+    "oauth_config": {
+        "scopes": {
+            "bot": [
+                "chat:write",
+                "files:read",
+                "files:write",
+                "im:history",
+                "mpim:history",
+                "channels:history",
+                "groups:history",
+                "app_mentions:read"
+            ]
+        }
+    },
+    "settings": {
+        "event_subscriptions": {
+            "bot_events": [
+                "app_mention",
+                "message.channels",
+                "message.groups",
+                "message.im",
+                "message.mpim"
+            ]
+        },
+        "interactivity": {
+            "is_enabled": true
+        },
+        "org_deploy_enabled": false,
+        "socket_mode_enabled": true,
+        "token_rotation_enabled": false
+    }
+}
+```
 
-4. 在 **功能 → 事件订阅** 中，开启该功能并订阅 `message.im`、`message.channels`、`message.groups` 和 `app_mention`。
+3. 确认摘要信息后点击 **Create**。
 
-5. 在 **功能 → 应用主页** 中，启用 **消息标签页**，并勾选“允许用户从消息标签页发送斜杠命令和消息”。
+   ![Manifest 确认页](<!-- IMAGE: 截图 - 点击 Create 前的 manifest 审查页面 -->)
 
-6. 在 **设置 → 安装应用** 中，点击 **安装到工作区**，并复制 **机器人用户 OAuth 令牌** —— 该令牌以 `xoxb-` 开头。
+4. 在 **Features → App Home** 中，勾选 **"Allow users to send Slash commands and messages from the messages tab"**。
 
-7. 在 Slack 中输入 `/invite @QwenPaw`，将机器人邀请到每个频道。
+   ![App Home Messages Tab](<!-- IMAGE: 截图 - App Home 页面，Messages Tab 已开启且复选框已勾选 -->)
+
+### 获取 Token
+
+应用创建完成后，需要获取两个 Token：
+
+1. **App-Level Token** — 在 **Settings → Basic Information** 中，下滑到 **App-Level Tokens**，点击 **Generate Token and Scopes**，添加 `connections:write` 权限范围，复制生成的 Token（以 `xapp-` 开头）。
+
+   ![Generate App Token](<!-- IMAGE: 截图 - App-Level Token 生成对话框 -->)
+
+2. **Bot Token** — 在 **Settings → Install App** 中，点击 **Install to Workspace**，授权后复制 **Bot User OAuth Token**（以 `xoxb-` 开头）。
+
+   ![Install App](<!-- IMAGE: 截图 - Install App 页面，显示 xoxb Token -->)
+
+3. 在 Slack 中输入 `/invite @你的机器人名称`，将机器人邀请到每个频道。
 
 ### 配置机器人
 
@@ -1371,36 +1428,42 @@ pip install "qwenpaw[sip,sip-livekit]"
 
 **方法 1：** 在控制台中配置
 
-转到 **控制 → 频道**，点击 **Slack**，并输入您获取的 **机器人令牌** 和 **应用令牌**。
+转到 **控制 → 频道**，点击 **Slack**，并输入您获取的 **Bot Token** 和 **App Token**。
+
 **方法 2：** 编辑代理工作区 `agent.json`
 
-在代理的 `agent.json` 文件中（例如 `~/.qwenpaw/workspaces/default/agent.json`）找到 `channels.slack` 部分，并填写相关字段，例如：
+在代理的 `agent.json` 文件中（例如 `~/.qwenpaw/workspaces/default/agent.json`）找到 `channels.slack` 部分，填写相关字段：
 
 ```json
-“slack”: {
-    “enabled”: true,
-    “bot_prefix”: “[BOT]”,
-    “bot_token”: “xoxb-your-bot-token-here”,
-    “app_token”: “xapp-your-app-token-here”,
-    “proxy”: “”,
-    “streaming_enabled”: false
+"slack": {
+    "enabled": true,
+    "bot_token": "xoxb-your-bot-token-here",
+    "app_token": "xapp-your-app-token-here",
+    "proxy": "",
+    "streaming_enabled": false
 }
 ```
 
 **Slack 专属字段：**
 
-| 字段        | 类型   | 默认值       | 说明                                                                 |
-| ----------- | ------ | ------------ | -------------------------------------------------------------------- |
-| `bot_token` | 字符串 | `“”`（必填） | Slack 机器人用户的 OAuth 令牌，以 `xoxb-` 开头                       |
-| `app_token` | 字符串 | `“”`（必填） | 用于套接字模式的 Slack 应用级令牌，以 `xapp-` 开头                   |
-| `proxy`     | 字符串 | `“”`         | 用于连接 Slack API 的 HTTP 代理 URL（例如 `http://127.0.0.1:18118`） |
+| 字段                | 类型   | 默认值       | 说明                                                                 |
+| ------------------- | ------ | -------------- | -------------------------------------------------------------------- |
+| `bot_token`         | 字符串 | `""`（必填）   | Slack 机器人用户的 OAuth 令牌，以 `xoxb-` 开头                       |
+| `app_token`         | 字符串 | `""`（必填）   | 用于套接字模式的 Slack 应用级令牌，以 `xapp-` 开头                   |
+| `proxy`             | 字符串 | `""`           | 用于连接 Slack API 的 HTTP 代理 URL（例如 `http://127.0.0.1:18118`） |
+| `streaming_enabled` | 布尔值 | `false`        | 启用通过 chat.update 编辑的增量消息渲染                          |
+
+### 多模态支持
+
+Slack 支持发送和接收**所有文件类型** — 图片、音频、视频、PDF 及任意文件均可原生处理。当用户在与机器人的对话中上传文件时，QwenPaw 会自动下载并将其作为多模态输入进行处理。
 
 ### 注意事项
 
-- 在频道中，机器人**仅在被 @提及 时** 才会响应，并在对话线程中回复。在私信中，机器人会对每条未提及的消息进行回复。一旦机器人加入某个对话线程，后续在该线程中的回复就不需要 @提及。
-- QwenPaw 命令（`/help`、`/status`、`/new` 等）与原生 Slack 斜杠命令功能相同。Slack 会屏蔽线程中以 `/` 开头的消息——请改用 `!` 前缀（例如 `!help`、`!status`）。
+- 在频道中，机器人**仅在被 @提及 时**才会响应，线程回复也需要 @提及。在私信中，机器人会对每条消息进行回复。
+- QwenPaw 魔法命令（如 `/stop`、`/model list`）可以作为原生 Slack 斜杠命令发送。也可以作为普通消息发送 — 在线程中发送时加一个空格前缀（如 ` /stop`）即可绕过 Slack 的斜杠命令拦截。
 - 若后续更改权限范围或事件订阅，**必须重新安装该应用**，更改才能生效。
-- 要控制哪些用户可以与机器人互动，请使用常见的访问控制字段（`dm_policy`、`group_policy`、`allow_from`、`deny_message`、`require_mention`）。Slack 使用 **成员 ID**（例如 `U01ABC2DEF3`）来识别用户——您可通过“个人资料”→ ⋮ → “复制成员 ID”来获取该 ID。
+- 要控制哪些用户可以与机器人互动，请使用访问控制字段（`access_control_dm`、`access_control_group`）。Slack 使用**成员 ID**（例如 `U01ABC2DEF3`）来识别用户 — 您可通过“个人资料”→ ⋮ → “复制成员 ID”来获取。
+- 可以在 manifest 的 `slash_commands` 数组中添加更多斜杠命令来注册额外的魔法命令（如 `/stop`、`/status`）。
 
 ---
 
@@ -1454,6 +1517,7 @@ pip install "qwenpaw[sip,sip-livekit]"
 | 钉钉       | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        |
 | 飞书       | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        |
 | Discord    | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        |
+| Slack      | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        |
 | iMessage   | ✓        | ✗        | ✗        | ✗        | ✗        | ✓        | ✗        | ✗        | ✗        | ✗        |
 | QQ         | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        |
 | 企业微信   | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        |
@@ -1470,6 +1534,7 @@ pip install "qwenpaw[sip,sip-livekit]"
 - **钉钉**：接收支持富文本与单文件（downloadCode），发送通过会话 webhook 支持图片 / 语音 / 视频 / 文件。
 - **飞书**：WebSocket 长连接收消息，Open API 发送；支持文本 / 图片 / 文件收发；群聊时在消息 metadata 中带 `feishu_chat_id`、`feishu_message_id` 便于下游去重与群上下文。
 - **Discord**：接收时附件会解析为图片 / 视频 / 音频 / 文件并传入 Agent；回复时真实附件发送为 🚧 施工中，当前仅以链接形式附在文本中。
+- **Slack**：原生支持所有文件类型 — 图片、音频、视频、PDF 及任意文件。用户上传的文件会自动下载并作为多模态输入处理；发送侧通过 `files.uploadV2` 支持所有媒体类型。
 - **iMessage**：基于本地 imsg + 数据库轮询，仅支持文本收发；平台/实现限制，无法支持附件（✗）。
 - **QQ**：接收侧附件解析为多模态、发送侧真实媒体均为 🚧 施工中，当前仅文本 + 链接形式。
 - **Telegram**：接收时附件会解析为文件并传入，可在telegram对话界面以对应格式打开（图片 / 语音 / 视频 / 文件）

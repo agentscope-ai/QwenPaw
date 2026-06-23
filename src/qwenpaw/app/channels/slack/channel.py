@@ -66,7 +66,6 @@ from .constants import (
     SLACK_TEXT_LIMIT,
 )
 from .format import (
-    chunk_slack_text,
     markdown_to_slack_mrkdwn,
 )
 from .handler import SlackEventHandler
@@ -347,12 +346,12 @@ class SlackChannel(BaseChannel):  # pylint: disable=too-many-public-methods
         # Register a catch-all Slash Command handler.
         # Any slash command configured in the Slack App dashboard
         # will be reconstructed as "/<name> <text>" and enqueued.
-        @self._app.command(re.compile(r'^/.+'))
+        @self._app.command(re.compile(r"^/.+"))
         async def _handle_qwenpaw_slash(ack, command):
-            slash_name = (command.get('command') or '').lstrip('/')
+            slash_name = (command.get("command") or "").lstrip("/")
             await ack(
-                response_type='ephemeral',
-                text=f'Running `/{slash_name}`…',
+                response_type="ephemeral",
+                text=f"Running `/{slash_name}`…",
             )
             await self._event_handler.handle_slash_command(command)
 
@@ -835,8 +834,7 @@ class SlackChannel(BaseChannel):  # pylint: disable=too-many-public-methods
         key = f"{channel_id}:{thread_ts}"
         cached = self._thread_context_cache.get(key)
         if cached and (
-            time.monotonic() - cached[1]
-            < self._thread_context_cache_ttl
+            time.monotonic() - cached[1] < self._thread_context_cache_ttl
         ):
             return cached[0]
         return None

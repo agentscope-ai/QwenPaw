@@ -274,10 +274,13 @@ class SlackSender:
         """Upload a generic file via ``files.uploadV2``."""
         url: Optional[str] = (
             getattr(part, "file_url", None)
-            or getattr(part, "audio_url", None)
+            or getattr(part, "data", None)
             or getattr(part, "video_url", None)
         )
-        filename = getattr(part, "filename", None) or "file"
+        filename = getattr(part, "filename", None)
+        if not filename and url:
+            filename = os.path.basename(url) or "file"
+        filename = filename or "file"
 
         if not url:
             logger.warning("slack send: file has no url")
