@@ -11,6 +11,8 @@ from __future__ import annotations
 
 import asyncio
 
+from acp.schema import AllowedOutcome, RequestPermissionResponse
+
 from qwenpaw.agents.acp.server import (
     _ACP_REDUNDANT_COMMANDS,
     _EnvelopeTracker,
@@ -28,6 +30,35 @@ class _FakeConn:
 
     async def session_update(self, session_id: str, update: object) -> None:
         self.updates.append((session_id, update))
+
+
+class _ApprovalConn(_FakeConn):
+    """Records ACP permission requests and approves them."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.permission_requests: list[dict[str, object]] = []
+
+    async def request_permission(
+        self,
+        *,
+        session_id: str,
+        tool_call: object,
+        options: list[object],
+    ) -> RequestPermissionResponse:
+        self.permission_requests.append(
+            {
+                "session_id": session_id,
+                "tool_call": tool_call,
+                "options": options,
+            },
+        )
+        return RequestPermissionResponse(
+            outcome=AllowedOutcome(
+                outcome="selected",
+                option_id="approve",
+            ),
+        )
 
 
 async def _drain() -> None:
@@ -147,6 +178,74 @@ async def test_report_prompt_error_is_sent_to_client():
     assert "boom: invalid api key" in update.content.text
     # ...tagged via _meta so clients can render it as an error.
     assert update.field_meta == {ACP_ERROR_META_KEY: True}
+
+
+async def test_approval_bridge_resolves_pending_approval(monkeypatch):
+    from qwenpaw.app.approvals.service import ApprovalService
+    from qwenpaw.security.tool_guard.approval import ApprovalDecision
+    from qwenpaw.security.tool_guard.models import (
+        GuardFinding,
+        GuardSeverity,
+        GuardThreatCategory,
+        ToolGuardResult,
+    )
+
+    approval_svc = ApprovalService()
+    monkeypatch.setattr(
+        "qwenpaw.app.approvals.service._approval_service",
+        approval_svc,
+    )
+
+    agent = QwenPawACPAgent(agent_id="default")
+    conn = _ApprovalConn()
+    agent.on_connect(conn)
+
+    result = ToolGuardResult(
+        tool_name="execute_shell_command",
+        params={"command": "ls"},
+        findings=[
+            GuardFinding(
+                id="finding-1",
+                rule_id="test",
+                category=GuardThreatCategory.RESOURCE_ABUSE,
+                severity=GuardSeverity.MEDIUM,
+                title="Approval required",
+                description="Shell command requires approval.",
+                tool_name="execute_shell_command",
+            ),
+        ],
+    )
+    pending = await approval_svc.create_pending(
+        session_id="sess-approval",
+        root_session_id="sess-approval",
+        owner_agent_id="default",
+        user_id="acp_user",
+        channel="console",
+        agent_id="default",
+        tool_name="execute_shell_command",
+        result=result,
+    )
+
+    bridge = asyncio.create_task(
+        agent._bridge_approval_requests(
+            "sess-approval",
+            poll_interval=0.01,
+        ),
+    )
+    try:
+        decision = await asyncio.wait_for(pending.future, timeout=1.0)
+    finally:
+        await agent._stop_approval_bridge(bridge)
+
+    assert decision == ApprovalDecision.APPROVED
+    assert conn.permission_requests
+    request = conn.permission_requests[0]
+    tool_call = request["tool_call"]
+    assert request["session_id"] == "sess-approval"
+    assert tool_call.title == (
+        "execute_shell_command requires approval (MEDIUM)"
+    )
+    assert tool_call.kind == "execute"
 
 
 def test_acp_bootstrap_includes_runtime_slash_commands():

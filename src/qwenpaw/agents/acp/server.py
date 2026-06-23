@@ -47,6 +47,7 @@ from acp.schema import (
     Implementation,
     ListSessionsResponse,
     McpServerStdio,
+    PermissionOption,
     ResourceContentBlock,
     ResumeSessionResponse,
     SessionCapabilities,
@@ -59,6 +60,7 @@ from acp.schema import (
     SetSessionConfigOptionResponse,
     SseMcpServer,
     TextContentBlock,
+    ToolCallUpdate,
 )
 from qwenpaw.schemas import (
     AgentRequest,
@@ -477,9 +479,8 @@ class QwenPawACPAgent(Agent):
     async def new_session(  # pylint: disable=unused-argument
         self,
         cwd: str,
-        mcp_servers: (
-            list[HttpMcpServer | SseMcpServer | McpServerStdio] | None
-        ) = None,
+        mcp_servers: list[HttpMcpServer | SseMcpServer | McpServerStdio]
+        | None = None,
         **kwargs: Any,
     ) -> NewSessionResponse:
         session_id = uuid4().hex
@@ -504,9 +505,8 @@ class QwenPawACPAgent(Agent):
         self,
         cwd: str,
         session_id: str,
-        mcp_servers: (
-            list[HttpMcpServer | SseMcpServer | McpServerStdio] | None
-        ) = None,
+        mcp_servers: list[HttpMcpServer | SseMcpServer | McpServerStdio]
+        | None = None,
         **kwargs: Any,
     ) -> LoadSessionResponse | None:
         self._sessions[session_id] = {
@@ -550,6 +550,9 @@ class QwenPawACPAgent(Agent):
 
         cancel_event = asyncio.Event()
         self._cancel_events[session_id] = cancel_event
+        approval_bridge = asyncio.create_task(
+            self._bridge_approval_requests(session_id),
+        )
 
         session_mode = session_info.get("mode", self.MODE_DEFAULT)
         request_context: dict[str, str] = {}
@@ -597,6 +600,7 @@ class QwenPawACPAgent(Agent):
             )
             await self._report_prompt_error(session_id, exc)
         finally:
+            await self._stop_approval_bridge(approval_bridge)
             self._cancel_events.pop(session_id, None)
 
         await self._emit_usage_if_available(session_id)
@@ -609,6 +613,7 @@ class QwenPawACPAgent(Agent):
         **kwargs: Any,
     ) -> CloseSessionResponse | None:
         logger.info("ACP close_session: session=%s", session_id)
+        await self._cancel_pending_approvals(session_id)
         self._sessions.pop(session_id, None)
         self._cancel_events.pop(session_id, None)
         return CloseSessionResponse()
@@ -638,9 +643,8 @@ class QwenPawACPAgent(Agent):
         self,
         cwd: str,
         session_id: str,
-        mcp_servers: (
-            list[HttpMcpServer | SseMcpServer | McpServerStdio] | None
-        ) = None,
+        mcp_servers: list[HttpMcpServer | SseMcpServer | McpServerStdio]
+        | None = None,
         **kwargs: Any,
     ) -> ResumeSessionResponse:
         logger.info(
@@ -730,10 +734,139 @@ class QwenPawACPAgent(Agent):
         event = self._cancel_events.get(session_id)
         if event is not None:
             event.set()
+        await self._cancel_pending_approvals(session_id)
 
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
+
+    async def _bridge_approval_requests(
+        self,
+        session_id: str,
+        *,
+        poll_interval: float = 0.25,
+    ) -> None:
+        """Bridge QwenPaw ApprovalService waits to ACP permission prompts."""
+        from ...app.approvals import get_approval_service
+
+        svc = get_approval_service()
+        seen: set[str] = set()
+        while True:
+            pending_by_root = await svc.get_pending_by_root_session(
+                session_id,
+            )
+            pending_direct = await svc.get_all_pending_by_session(session_id)
+            pending_by_id = {
+                p.request_id: p for p in [*pending_by_root, *pending_direct]
+            }
+
+            for pending in pending_by_id.values():
+                if pending.request_id in seen:
+                    continue
+                seen.add(pending.request_id)
+                await self._request_approval_decision(session_id, pending)
+
+            await asyncio.sleep(poll_interval)
+
+    async def _request_approval_decision(
+        self,
+        session_id: str,
+        pending: Any,
+    ) -> None:
+        """Ask the ACP client to approve/deny a QwenPaw pending approval."""
+        from ...app.approvals import get_approval_service
+        from ...security.tool_guard.approval import ApprovalDecision
+
+        svc = get_approval_service()
+        try:
+            response = await self._conn.request_permission(
+                session_id=session_id,
+                tool_call=ToolCallUpdate(
+                    tool_call_id=pending.request_id,
+                    title=(
+                        f"{pending.tool_name} requires approval "
+                        f"({pending.severity})"
+                    ),
+                    kind=self._approval_tool_kind(pending.tool_name),
+                ),
+                options=[
+                    PermissionOption(
+                        option_id="approve",
+                        name="Approve",
+                        kind="allow_once",
+                    ),
+                    PermissionOption(
+                        option_id="deny",
+                        name="Deny",
+                        kind="reject_once",
+                    ),
+                ],
+            )
+        except Exception:
+            logger.exception(
+                "ACP approval bridge failed for request=%s",
+                pending.request_id[:8],
+            )
+            await svc.resolve_request(
+                pending.request_id,
+                ApprovalDecision.DENIED,
+            )
+            return
+
+        decision = (
+            ApprovalDecision.APPROVED
+            if self._permission_option_id(response) == "approve"
+            else ApprovalDecision.DENIED
+        )
+        await svc.resolve_request(pending.request_id, decision)
+
+    @staticmethod
+    def _permission_option_id(response: Any) -> str | None:
+        outcome = getattr(response, "outcome", None)
+        if isinstance(outcome, dict):
+            option_id = outcome.get("option_id") or outcome.get("optionId")
+        else:
+            option_id = getattr(outcome, "option_id", None) or getattr(
+                outcome,
+                "optionId",
+                None,
+            )
+        return str(option_id) if option_id else None
+
+    @staticmethod
+    def _approval_tool_kind(tool_name: str) -> str:
+        lowered = tool_name.lower()
+        if "shell" in lowered or "command" in lowered or "execute" in lowered:
+            return "execute"
+        return "other"
+
+    @staticmethod
+    async def _stop_approval_bridge(task: asyncio.Task[Any]) -> None:
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+        except Exception:
+            logger.debug(
+                "ACP approval bridge stopped with error",
+                exc_info=True,
+            )
+
+    @staticmethod
+    async def _cancel_pending_approvals(session_id: str) -> None:
+        try:
+            from ...app.approvals import get_approval_service
+
+            await get_approval_service().cancel_all_pending_by_root_session(
+                session_id,
+            )
+        except Exception:
+            logger.debug(
+                "Failed to cancel ACP pending approvals for session=%s",
+                session_id,
+                exc_info=True,
+            )
 
     async def _emit_usage_if_available(
         self,
