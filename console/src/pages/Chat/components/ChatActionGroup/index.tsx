@@ -1,16 +1,23 @@
 import React, { useState } from "react";
+
 import { IconButton } from "@agentscope-ai/design";
 import {
   SparkHistoryLine,
   SparkNewChatFill,
   SparkSearchLine,
 } from "@agentscope-ai/icons";
-import { ExpandAltOutlined, CompressOutlined } from "@ant-design/icons";
+import {
+  ExpandAltOutlined,
+  CompressOutlined,
+  MoreOutlined,
+} from "@ant-design/icons";
 import { useTranslation } from "react-i18next";
-import { Flex, Tooltip } from "antd";
+import { Dropdown, Flex, Tooltip } from "antd";
+import type { MenuProps } from "antd";
 import ChatSearchPanel from "../ChatSearchPanel";
 import PlanPanel from "../../../../components/PlanPanel";
 import { useCreateNewSession } from "../../hooks/useCreateNewSession";
+import { useIsMobile } from "../../../../hooks/useIsMobile";
 
 const PlanIcon = () => (
   <svg
@@ -51,9 +58,51 @@ const ChatActionGroup: React.FC<ChatActionGroupProps> = ({
   const [planOpen, setPlanOpen] = useState(false);
   const createNewSession = useCreateNewSession();
 
+  // Compact mode follows the viewport: collapse secondary actions only on
+  // mobile. This keeps Plan visible on desktop while saving space on phones.
+  const isCompact = useIsMobile();
+
+  // Build "more" dropdown items for compact mode: Plan, History, WideMode.
+  const moreItems: MenuProps["items"] = [];
+  if (planEnabled) {
+    moreItems.push({
+      key: "plan",
+      icon: <PlanIcon />,
+      label: (
+        <div style={{ textAlign: "center" }}>{t("plan.title", "Plan")}</div>
+      ),
+      onClick: () => setPlanOpen(true),
+    });
+  }
+  if (onToggleHistory) {
+    moreItems.push({
+      key: "history",
+      icon: <SparkHistoryLine />,
+      label: (
+        <div style={{ textAlign: "center" }}>
+          {t("chat.chatHistoryTooltip")}
+        </div>
+      ),
+      onClick: () => onToggleHistory(),
+    });
+  }
+  if (onToggleWideMode) {
+    moreItems.push({
+      key: "wideMode",
+      icon: isWideMode ? <CompressOutlined /> : <ExpandAltOutlined />,
+      label: (
+        <div style={{ textAlign: "center" }}>
+          {isWideMode ? t("chat.normalModeTooltip") : t("chat.wideModeTooltip")}
+        </div>
+      ),
+      onClick: () => onToggleWideMode(),
+    });
+  }
+
   return (
     <Flex gap={8} align="center">
-      {planEnabled && (
+      {/* Plan icon: only render inline when NOT compact */}
+      {!isCompact && planEnabled && (
         <Tooltip title={t("plan.title", "Plan")} mouseEnterDelay={0.5}>
           <IconButton
             bordered={false}
@@ -62,6 +111,8 @@ const ChatActionGroup: React.FC<ChatActionGroupProps> = ({
           />
         </Tooltip>
       )}
+
+      {/* Essential actions always visible */}
       <Tooltip title={t("chat.newChatTooltip")} mouseEnterDelay={0.5}>
         <IconButton
           bordered={false}
@@ -76,7 +127,9 @@ const ChatActionGroup: React.FC<ChatActionGroupProps> = ({
           onClick={() => setSearchOpen(true)}
         />
       </Tooltip>
-      {onToggleHistory && (
+
+      {/* History + WideMode: inline when NOT compact */}
+      {!isCompact && onToggleHistory && (
         <Tooltip title={t("chat.chatHistoryTooltip")} mouseEnterDelay={0.5}>
           <IconButton
             bordered={false}
@@ -90,7 +143,7 @@ const ChatActionGroup: React.FC<ChatActionGroupProps> = ({
           />
         </Tooltip>
       )}
-      {onToggleWideMode && (
+      {!isCompact && onToggleWideMode && (
         <Tooltip
           title={
             isWideMode ? t("chat.normalModeTooltip") : t("chat.wideModeTooltip")
@@ -104,6 +157,18 @@ const ChatActionGroup: React.FC<ChatActionGroupProps> = ({
           />
         </Tooltip>
       )}
+
+      {/* Compact mode: collapse Plan/History/WideMode into more dropdown */}
+      {isCompact && moreItems.length > 0 && (
+        <Dropdown
+          menu={{ items: moreItems }}
+          trigger={["click"]}
+          placement="bottomRight"
+        >
+          <IconButton bordered={false} icon={<MoreOutlined />} />
+        </Dropdown>
+      )}
+
       <ChatSearchPanel open={searchOpen} onClose={() => setSearchOpen(false)} />
       {planEnabled && (
         <PlanPanel open={planOpen} onClose={() => setPlanOpen(false)} />
