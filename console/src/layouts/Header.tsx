@@ -229,7 +229,7 @@ export default function Header() {
               ] as MenuProps["items"],
             }}
           >
-            <Button type="text">
+            <Button type="text" className={styles.hideOnMobile}>
               {t("header.resources")} <DownOutlined />
             </Button>
           </Dropdown>
@@ -238,12 +238,15 @@ export default function Header() {
               type="text"
               icon={<GithubOutlined />}
               onClick={() => handleNavClick(GITHUB_URL)}
+              className={styles.hideOnMobile}
             >
               {t("header.github")}
             </Button>
           </Tooltip>
           <div className={styles.headerDivider} />
-          <CodingModeToggle />
+          <span className={styles.hideOnMobile}>
+            <CodingModeToggle />
+          </span>
           <div className={styles.headerDivider} />
           <LanguageSwitcher />
           <ThemeToggleButton />

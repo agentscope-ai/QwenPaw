@@ -19,6 +19,21 @@
       justify-content: center;
     }
   }
+
+  // ─── Mobile (≤ 768px) ─────────────────────────────────────────────────
+  // On narrow screens, hide auxiliary header items (Resources dropdown,
+  // GitHub link, dividers, CodingModeToggle) so the Chat header below it
+  // gets enough horizontal room for action buttons.
+  @media (max-width: 768px) {
+    padding: 0 12px;
+
+    .headerDivider {
+      display: none;
+    }
+    .hideOnMobile {
+      display: none !important;
+    }
+  }
 }
 
 .headerTitle {
