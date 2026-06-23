@@ -7,6 +7,7 @@ import type {
   HubInstallTaskResponse,
   HubSkillSpec,
   PoolSkillSpec,
+  SkillRule,
   SkillSpec,
   WorkspaceSkillSummary,
 } from "../types";
@@ -485,6 +486,20 @@ export const skillApi = {
     request<{ cleared: boolean }>(
       `/skills/${encodeURIComponent(skillName)}/config`,
       { method: "DELETE" },
+    ),
+
+  getSkillRules: (skillName: string) =>
+    request<{ rules: SkillRule[] }>(
+      `/skills/${encodeURIComponent(skillName)}/rules`,
+    ),
+
+  updateSkillRules: (skillName: string, rules: SkillRule[]) =>
+    request<{ updated: boolean; rules: SkillRule[] }>(
+      `/skills/${encodeURIComponent(skillName)}/rules`,
+      {
+        method: "PUT",
+        body: JSON.stringify({ rules }),
+      },
     ),
 
   getPoolSkillConfig: (skillName: string) =>

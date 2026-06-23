@@ -5,7 +5,7 @@ import json
 import logging
 import re
 from pathlib import Path
-from typing import Optional, Union, Dict, List, Literal, Any, Set
+from typing import ClassVar, Optional, Union, Dict, List, Literal, Any, Set
 
 from pydantic import (
     BaseModel,
@@ -1085,6 +1085,7 @@ class PlanConfig(BaseModel):
     )
 
 
+
 class CodingModeConfig(BaseModel):
     """Configuration for the Coding Mode feature."""
 
@@ -1101,6 +1102,51 @@ class CodingModeConfig(BaseModel):
             "None means use the default workspace_dir."
         ),
     )
+
+
+class ProgressObservingConfig(BaseModel):
+    """Configuration for the progress-observing hook.
+
+    When set, a ``ProgressObservingHook`` is registered on the agent so
+    that ``check_agent_task(detail=True)`` can report what the agent is
+    doing while a background task is running.
+
+    Not set by default — omitting this field disables the feature.
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    VALID_HOOK_TYPES: ClassVar[set[str]] = {
+        "pre_reply",
+        "post_reply",
+        "pre_reasoning",
+        "post_reasoning",
+        "pre_acting",
+        "post_acting",
+        "plan_change",
+    }
+
+    hook_type: str = Field(
+        default="post_acting",
+        description=(
+            "Hook type to observe. "
+            "Instance hooks: pre_reply, post_reply, pre_reasoning, "
+            "post_reasoning, pre_acting, post_acting. "
+            "PlanNotebook hook: plan_change (requires plan.enabled=true)."
+        ),
+    )
+
+
+    @field_validator("hook_type")
+    @classmethod
+    def validate_hook_type(cls, v: str) -> str:
+        if v not in cls.VALID_HOOK_TYPES:
+            raise ValueError(
+                f"Invalid hook_type '{v}'. "
+                f"Must be one of: {sorted(cls.VALID_HOOK_TYPES)}",
+            )
+        return v
+
 
 
 class AgentProfileConfig(BaseModel):
@@ -1187,6 +1233,14 @@ class AgentProfileConfig(BaseModel):
     coding_mode: CodingModeConfig = Field(
         default_factory=CodingModeConfig,
         description="Coding Mode configuration for this agent",
+    )
+    progress_observing: Optional[ProgressObservingConfig] = Field(
+        default=None,
+        description=(
+            "Progress-observing hook configuration. "
+            "When set, snapshots agent progress into ProgressStore so that "
+            "check_agent_task(detail=True) can return live status."
+        ),
     )
 
 
@@ -1554,6 +1608,30 @@ def _default_builtin_tools() -> Dict[str, BuiltinToolConfig]:
                 "Spawn an ephemeral sub-task within the current " "workspace"
             ),
             icon="🔀",
+        ),
+        "list_skill_rules": BuiltinToolConfig(
+            name="list_skill_rules",
+            enabled=True,
+            description="List judgement rules for a skill",
+            icon="📋",
+        ),
+        "add_skill_rule": BuiltinToolConfig(
+            name="add_skill_rule",
+            enabled=True,
+            description="Add a judgement rule to a skill",
+            icon="➕",
+        ),
+        "update_skill_rule": BuiltinToolConfig(
+            name="update_skill_rule",
+            enabled=True,
+            description="Update a judgement rule for a skill",
+            icon="✏️",
+        ),
+        "delete_skill_rule": BuiltinToolConfig(
+            name="delete_skill_rule",
+            enabled=True,
+            description="Delete a judgement rule from a skill",
+            icon="🗑️",
         ),
     }
 

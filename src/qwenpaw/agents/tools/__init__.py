@@ -30,6 +30,12 @@ from .agent_management import (
     spawn_subagent,
 )
 from .delegate_external_agent import delegate_external_agent
+from .skill_rules import (
+    list_skill_rules,
+    add_skill_rule,
+    update_skill_rule,
+    delete_skill_rule,
+)
 
 # Registered via react_agent's hardcoded tool_functions; kept out of
 # __all__ so it's always enabled, not gated on agent config.

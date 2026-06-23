@@ -35,6 +35,7 @@ from .session import SafeJSONSession
 from .utils import build_env_context
 from ..channels.schema import DEFAULT_CHANNEL
 from ...agents.react_agent import QwenPawAgent
+from ...agents.skill_system.store import read_skill_rules
 from ...exceptions import convert_model_exception
 from ...agents.utils.file_handling import (
     read_text_file_with_encoding_fallback,
@@ -270,17 +271,39 @@ class AgentRunner(Runner):
         # a trailing <skill> block. The typed command stays verbatim at
         # the head; everything injected lives inside the block.
         original_text = AgentRunner._extract_text_content(msgs[-1])
+        
+        # Build rules section if skill declares rule_needed.
+        rules_section = ""
+        metadata = post.get("metadata", {}) or {}
+        if metadata.get("rule_needed"):
+            try:
+                rules = read_skill_rules(skill_dir)
+                enabled_rules = [
+                    r for r in rules
+                    if r.get("enabled", True) and r.get("content")
+                ]
+                if enabled_rules:
+                    rules_block = "\n".join(
+                        f"- {r['content']}" for r in enabled_rules
+                    )
+                    rules_section = (
+                        f"\n\n## Judgment Rules\n{rules_block}\n"
+                    )
+            except Exception:
+                pass  # rules read failure should not break skill execution
+        
         merged = (
             f"{original_text}\n\n"
             f'<skill name="{display_name}" dir="{skill_dir}">\n'
             f"This block was injected because the user invoked the "
             f"[{display_name}] skill above. It is the full content of "
-            f"the skill's SKILL.md — do not re-read that file. Follow "
+            f"the skill's SKILL.md \u2014 do not re-read that file. Follow "
             f"these instructions to fulfill the user's task: "
             f"{user_input}\n"
             f"Relative paths inside the skill (e.g. `scripts/`) resolve "
             f"against the skill directory.\n\n"
-            f"{post.content.strip()}\n"
+            f"{post.content.strip()}"
+            f"{rules_section}\n"
             f"</skill>"
         )
         AgentRunner._rewrite_last_message_text(msgs, merged)
@@ -732,6 +755,32 @@ class AgentRunner(Runner):
                         "broadcast",
                         _on_plan_change,
                     )
+
+                    # Progress-observing hook for plan_change type
+                    po_cfg = getattr(
+                        agent_config,
+                        "progress_observing",
+                        None,
+                    )
+                    if (
+                        po_cfg is not None
+                        and po_cfg.hook_type == "plan_change"
+                    ):
+                        from ...agents.tools.task_detail import (
+                            ProgressObservingHook,
+                        )
+
+                        po_hook = ProgressObservingHook(
+                            agent_id=self.agent_id,
+                            hook_type="plan_change",
+                        )
+                        plan_notebook.register_plan_change_hook(
+                            "progress_observing",
+                            po_hook.on_plan_change,
+                        )
+                        logger.debug(
+                            "Registered progress_observing plan_change hook",
+                        )
                 except Exception:
                     logger.warning(
                         "Failed to create PlanNotebook",

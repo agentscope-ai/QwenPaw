@@ -365,6 +365,8 @@ def apply_skill_config_env_overrides(
             channel_name,
         ):
             entry = entries.get(skill_name) or {}
+
+            # --- Config injection ---
             config = entry.get("config") or {}
             if not isinstance(config, dict) or not config:
                 continue

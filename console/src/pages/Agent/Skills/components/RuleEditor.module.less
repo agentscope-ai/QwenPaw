@@ -1,0 +1,57 @@
+.ruleEditor {
+  width: 100%;
+}
+
+.loading {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 16px 0;
+}
+
+.header {
+  margin-bottom: 12px;
+}
+
+.ruleList {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ruleItem {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 12px;
+  border: 1px solid var(--ant-color-border, #d9d9d9);
+  border-radius: 6px;
+  background: var(--ant-color-fill-quaternary, #fafafa);
+  transition: border-color 0.2s;
+
+  &:hover {
+    border-color: var(--ant-color-primary, #1677ff);
+  }
+}
+
+.ruleSwitch {
+  flex-shrink: 0;
+  padding-top: 2px;
+}
+
+.ruleContent {
+  flex: 1;
+  min-width: 0;
+  word-break: break-word;
+}
+
+.ruleActions {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+}
+
+.disabled {
+  color: var(--ant-color-text-disabled, #bfbfbf);
+  text-decoration: line-through;
+}

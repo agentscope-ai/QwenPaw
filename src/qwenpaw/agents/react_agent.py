@@ -58,6 +58,10 @@ from .tools import (
     read_file,
     run_tool_batch,
     send_file_to_user,
+    list_skill_rules,
+    add_skill_rule,
+    update_skill_rule,
+    delete_skill_rule,
     set_user_timezone,
     view_image,
     view_video,
@@ -308,6 +312,10 @@ class QwenPawAgent(CodingModeMixin, ToolGuardMixin, ReActAgent):
             "check_agent_task": check_agent_task,
             "spawn_subagent": spawn_subagent,
             "run_tool_batch": run_tool_batch,
+            "list_skill_rules": list_skill_rules,
+            "add_skill_rule": add_skill_rule,
+            "update_skill_rule": update_skill_rule,
+            "delete_skill_rule": delete_skill_rule,
             # Register only when the `make-skill` skill is enabled.
             **(
                 {"materialize_skill": materialize_skill}
@@ -527,6 +535,26 @@ class QwenPawAgent(CodingModeMixin, ToolGuardMixin, ReActAgent):
                 hook=self.context_manager.post_reply,
             )
             logger.debug("Registered context manager hooks")
+
+        # Progress-observing hook (instance hook types only)
+        po_cfg = getattr(self._agent_config, "progress_observing", None)
+        if po_cfg is not None and po_cfg.hook_type != "plan_change":
+            from .tools.task_detail import ProgressObservingHook
+
+            po_hook = ProgressObservingHook(
+                agent_id=self._agent_config.id,
+                hook_type=po_cfg.hook_type,
+            )
+            self.register_instance_hook(
+                hook_type=po_cfg.hook_type,
+                hook_name="progress_observing",
+                hook=po_hook.__call__,
+            )
+            logger.debug(
+                "Registered progress_observing hook: agent=%r type=%s",
+                self._agent_config.id,
+                po_cfg.hook_type,
+            )
 
     def rebuild_sys_prompt(self) -> None:
         """Rebuild and replace the system prompt.

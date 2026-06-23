@@ -617,6 +617,22 @@ def _extract_requirements(post: dict[str, Any]) -> SkillRequirements:
         return SkillRequirements()
 
 
+def _extract_rule_needed(post: dict[str, Any]) -> bool:
+    """Extract the ``rule_needed`` flag from a parsed frontmatter dict.
+
+    When ``metadata.rule_needed`` is ``true`` the skill is expected to
+    ship a separate ``rules.json`` (managed via the ``skill_rules``
+    tool family) that the SOP loads at judgement time.
+    """
+    metadata = post.get("metadata")
+    if not isinstance(metadata, dict):
+        return False
+    value = metadata.get("rule_needed", False)
+    if isinstance(value, str):
+        return value.strip().lower() in ("true", "yes", "1")
+    return bool(value)
+
+
 def build_skill_metadata(
     skill_name: str,
     skill_dir: Path,
@@ -632,6 +648,7 @@ def build_skill_metadata(
     """
     post = _read_frontmatter_safe(skill_dir, skill_name)
     requirements = _extract_requirements(post)
+    rule_needed = _extract_rule_needed(post)
     return {
         "name": skill_name,
         "description": str(post.get("description", "") or ""),
@@ -640,6 +657,7 @@ def build_skill_metadata(
         "source": source,
         "protected": protected,
         "requirements": requirements.model_dump(),
+        "rule_needed": rule_needed,
         "updated_at": get_skill_mtime(skill_dir),
     }
 
@@ -828,6 +846,7 @@ def read_skill_from_dir(skill_dir: Path, source: str) -> SkillInfo | None:
             references=references,
             scripts=scripts,
             emoji=emoji,
+            rule_needed=_extract_rule_needed(post),
         )
     except Exception as exc:
         logger.error("Failed to read skill %s: %s", skill_dir, exc)
@@ -954,3 +973,18 @@ def staged_skill_dir(skill_name: str) -> Iterator[Path]:
         yield stage_dir
     finally:
         shutil.rmtree(temp_root, ignore_errors=True)
+
+
+def read_skill_rules(skill_dir: Path) -> list[dict[str, Any]]:
+    """Read rules.json from a skill directory.
+
+    Returns an empty list when the file does not exist or is invalid.
+    """
+    rules_path = skill_dir / "rules.json"
+    if not rules_path.exists():
+        return []
+    payload = read_json(rules_path, {"rules": []})
+    rules = payload.get("rules", [])
+    if not isinstance(rules, list):
+        return []
+    return [r for r in rules if isinstance(r, dict)]

@@ -8,6 +8,7 @@ import type { SkillSpec } from "../../../../api/types";
 import { MarkdownCopy } from "../../../../components/MarkdownCopy/MarkdownCopy";
 import { api } from "../../../../api";
 import { deriveInstalledFromLabel } from "../../../../utils/skill";
+import { RuleEditor } from "./RuleEditor";
 
 /** Parse YAML frontmatter from a `---`-delimited content string. */
 export function parseFrontmatter(
@@ -371,6 +372,12 @@ export function SkillDrawer({
             placeholder={t("skills.configPlaceholder")}
           />
         </Form.Item>
+
+        {editingSkill?.rule_needed && (
+          <Form.Item label={t("skills.judgementRules")}>
+            <RuleEditor skillName={editingSkill.name} />
+          </Form.Item>
+        )}
 
         {editingSkill && (
           <>

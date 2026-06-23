@@ -29,6 +29,10 @@ from ...agents.skill_system.hub import (
     import_pool_skill_from_hub,
     install_skill_from_hub,
 )
+from ...agents.skill_system.rule_store import (
+    read_rules,
+    replace_all_rules,
+)
 from ...agents.skill_system import (
     SkillConflictError,
     SkillPoolService,
@@ -234,6 +238,10 @@ class DownloadFromPoolRequest(BaseModel):
 
 class SkillConfigRequest(BaseModel):
     config: dict[str, Any] = Field(default_factory=dict)
+
+
+class SkillRulesRequest(BaseModel):
+    rules: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class SavePoolSkillRequest(BaseModel):
@@ -1573,3 +1581,42 @@ async def delete_skill_config_endpoint(
     if not updated:
         raise HTTPException(status_code=404, detail="Skill not found")
     return {"cleared": True}
+
+
+# ---------------------------------------------------------------------------
+# Skill judgement rules (rule_needed skills)
+# ---------------------------------------------------------------------------
+
+
+@router.get("/{skill_name}/rules")
+async def get_skill_rules_endpoint(
+    request: Request,
+    skill_name: str,
+) -> dict[str, Any]:
+    """Return the judgement rules for a skill."""
+    workspace_dir = await _request_workspace_dir(request)
+    manifest = read_skill_manifest(workspace_dir)
+    entry = manifest.get("skills", {}).get(skill_name)
+    if entry is None:
+        raise HTTPException(status_code=404, detail="Skill not found")
+    rules = read_rules(workspace_dir, skill_name)
+    return {"rules": rules}
+
+
+@router.put("/{skill_name}/rules")
+async def update_skill_rules_endpoint(
+    request: Request,
+    skill_name: str,
+    body: SkillRulesRequest,
+) -> dict[str, Any]:
+    """Replace the entire rule list for a skill."""
+    workspace_dir = await _request_workspace_dir(request)
+    manifest = read_skill_manifest(workspace_dir)
+    entry = manifest.get("skills", {}).get(skill_name)
+    if entry is None:
+        raise HTTPException(status_code=404, detail="Skill not found")
+    try:
+        rules = replace_all_rules(workspace_dir, skill_name, body.rules)
+    except (ValueError, AppBaseException) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"updated": True, "rules": rules}

@@ -5,6 +5,13 @@ export type SkillSyncStatus =
   | "not_synced"
   | "conflict";
 
+/** A single judgement rule stored in rules.json. */
+export interface SkillRule {
+  id: string;
+  content: string;
+  enabled: boolean;
+}
+
 export interface SkillSpec {
   name: string;
   description?: string;
@@ -15,6 +22,7 @@ export interface SkillSpec {
   channels?: string[];
   tags?: string[];
   config?: Record<string, unknown>;
+  rule_needed?: boolean;
   last_updated?: string;
   emoji?: string;
   installed_from?: string;
