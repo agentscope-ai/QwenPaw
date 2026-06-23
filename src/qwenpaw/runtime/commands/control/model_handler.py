@@ -35,6 +35,7 @@ class ModelCommandHandler(BaseControlCommandHandler):
     """
 
     command_name = "/model"
+    description = "Show or switch AI model"
 
     async def handle(self, context: ControlContext) -> str:
         """Handle /model command.

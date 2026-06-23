@@ -5,30 +5,15 @@ The ACP server sends an ``available_commands_update`` notification after a
 session is created so clients (e.g. the paw TUI) can offer autocompletion.
 """
 
-# pylint: disable=protected-access,wrong-import-position,no-name-in-module
+# pylint: disable=protected-access
 
 from __future__ import annotations
 
 import asyncio
 
-import pytest
-
-# pylint: disable=no-name-in-module
-# flake8: noqa: E402,E501
-_acp_server = pytest.importorskip(  # type: ignore[assignment]
-    "qwenpaw.agents.acp.server",
-    reason=(
-        "_ACP_REDUNDANT_COMMANDS / ACP_AGENT_META_KEY / ACP_ERROR_META_KEY "
-        "were removed in AgentScope 2.0 ACP rewrite"
-    ),
-)
-if not hasattr(_acp_server, "_ACP_REDUNDANT_COMMANDS"):
-    pytest.skip(
-        "_ACP_REDUNDANT_COMMANDS not available in AgentScope 2.0",
-        allow_module_level=True,
-    )
-from qwenpaw.agents.acp.server import (  # type: ignore[import]
+from qwenpaw.agents.acp.server import (
     _ACP_REDUNDANT_COMMANDS,
+    _EnvelopeTracker,
     ACP_AGENT_META_KEY,
     ACP_ERROR_META_KEY,
     QwenPawACPAgent,
@@ -55,11 +40,10 @@ def test_build_available_commands_set():
     commands = QwenPawACPAgent._build_available_commands()
     names = {c.name for c in commands}
 
-    # Exactly the curated subset is advertised: the user-facing conversation
-    # commands plus mission and skills. Everything else (history, plan, /new,
-    # the ACP-redundant control commands, etc.) is intentionally not
-    # advertised.
-    assert names == {"clear", "compact", "mission", "skills"}
+    # Exactly the curated user-facing subset is advertised. Everything else
+    # (history, plan, /new, approval commands, etc.) is intentionally hidden
+    # from autocomplete.
+    assert names == {"clear", "compact", "skills", "model"}
 
     # Hidden from the palette: history/plan are internal; /new overlaps the
     # dedicated ACP ``new_session`` affordance (clients start a fresh session
@@ -89,8 +73,9 @@ async def test_new_session_advertises_commands():
     assert update.session_update == "available_commands_update"
 
     names = {c.name for c in update.available_commands}
-    assert "mission" in names
+    assert "mission" not in names
     assert "clear" in names
+    assert "model" in names
 
 
 async def test_load_session_advertises_commands():
@@ -116,6 +101,34 @@ async def test_new_session_reports_agent_id_in_meta():
     assert response.field_meta == {ACP_AGENT_META_KEY: "my-agent"}
 
 
+async def test_prompt_passes_resolved_agent_id_to_runtime(monkeypatch):
+    class _FakeWorkspace:
+        def __init__(self) -> None:
+            self.request = None
+
+        async def stream_query(self, request):
+            self.request = request
+            if self.request is None:
+                yield None
+
+    agent = QwenPawACPAgent(agent_id="my-agent")
+    conn = _FakeConn()
+    workspace = _FakeWorkspace()
+    agent.on_connect(conn)
+
+    async def _fake_workspace():
+        return workspace
+
+    monkeypatch.setattr(agent, "_ensure_workspace", _fake_workspace)
+
+    await agent.prompt(
+        [{"type": "text", "text": "hello"}],
+        session_id="sess-123",
+    )
+
+    assert getattr(workspace.request, "agent_id", None) == "my-agent"
+
+
 async def test_report_prompt_error_is_sent_to_client():
     agent = QwenPawACPAgent(agent_id="default")
     conn = _FakeConn()
@@ -134,3 +147,74 @@ async def test_report_prompt_error_is_sent_to_client():
     assert "boom: invalid api key" in update.content.text
     # ...tagged via _meta so clients can render it as an error.
     assert update.field_meta == {ACP_ERROR_META_KEY: True}
+
+
+def test_acp_bootstrap_includes_runtime_slash_commands():
+    from qwenpaw.app.app_services import AppServiceManager
+
+    kwargs = QwenPawACPAgent._build_bootstrap_kwargs(AppServiceManager())
+    command_names = {
+        spec.name for spec in kwargs.get("builtin_command_specs", [])
+    }
+
+    assert {"clear", "compact", "skills", "model"}.issubset(
+        command_names,
+    )
+    assert "mission" not in command_names
+    assert kwargs.get("builtin_hook_clses")
+
+
+def _text_event(text: str, *, delta: bool, msg_id: str = "msg-1"):
+    from qwenpaw.schemas import TextContent
+
+    event = TextContent(text=text, delta=delta, index=0)
+    event.object = "content"
+    event.msg_id = msg_id
+    return event
+
+
+def test_envelope_tracker_forwards_command_final_text():
+    tracker = _EnvelopeTracker()
+
+    [update] = tracker.process(
+        _text_event("**Current Model**", delta=False),
+    )
+
+    assert update.session_update == "agent_message_chunk"
+    assert update.content.text == "**Current Model**"
+
+
+def test_envelope_tracker_does_not_duplicate_streamed_final_text():
+    tracker = _EnvelopeTracker()
+
+    [delta_update] = tracker.process(_text_event("hello", delta=True))
+    final_updates = tracker.process(_text_event("hello", delta=False))
+
+    assert delta_update.content.text == "hello"
+    assert not final_updates
+
+
+def test_usage_meta_includes_model(monkeypatch):
+    from qwenpaw.token_usage.model_wrapper import TokenRecordingModelWrapper
+
+    monkeypatch.setattr(
+        TokenRecordingModelWrapper,
+        "pop_usage_for_session",
+        classmethod(
+            lambda cls, _session_id: {
+                "model_name": "qwen-plus",
+                "prompt_tokens": 12,
+                "completion_tokens": 34,
+                "total_tokens": 46,
+            },
+        ),
+    )
+
+    assert QwenPawACPAgent._pop_session_usage("sess-usage") == {
+        "usage": {
+            "inputTokens": 12,
+            "outputTokens": 34,
+            "totalTokens": 46,
+            "model": "qwen-plus",
+        },
+    }

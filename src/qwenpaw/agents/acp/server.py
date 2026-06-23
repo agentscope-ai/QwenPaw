@@ -8,6 +8,7 @@ Uses the full ``Workspace`` lifecycle so the ACP agent has exactly
 the same capabilities as the web console (MCP tools, memory,
 sub-agent delegation, etc.).
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -36,6 +37,8 @@ from acp.schema import (
     AgentCapabilities,
     AgentMessageChunk,
     AudioContentBlock,
+    AvailableCommand,
+    AvailableCommandsUpdate,
     ClientCapabilities,
     CloseSessionResponse,
     EmbeddedResourceContentBlock,
@@ -68,8 +71,31 @@ from ...__version__ import __version__
 from ...constant import WORKING_DIR
 from ...config.config import ModelSlotConfig
 from ...providers.provider_manager import ProviderManager
+from ...agents.command_handler import SYSTEM_COMMAND_DESCRIPTIONS
 
 logger = logging.getLogger(__name__)
+
+ACP_ERROR_META_KEY = "qwenpaw.error"
+ACP_AGENT_META_KEY = "qwenpaw.agent"
+
+_ADVERTISED_COMMAND_ORDER = (
+    "clear",
+    "compact",
+    "skills",
+    "model",
+)
+
+# Commands that are intentionally hidden from autocomplete because the TUI
+# handles them locally or ACP exposes a clearer native affordance.
+_ACP_REDUNDANT_COMMANDS = frozenset(
+    {
+        "approval",
+        "approve",
+        "deny",
+        "new",
+        "stop",
+    },
+)
 
 
 PromptBlocks = list[
@@ -109,6 +135,7 @@ class _EnvelopeTracker:
 
     def __init__(self) -> None:
         self._reasoning_msg_ids: set[str] = set()
+        self._streamed_text_msg_ids: set[str] = set()
 
     # pylint: disable=too-many-return-statements, too-many-branches
     def process(
@@ -119,12 +146,15 @@ class _EnvelopeTracker:
         obj = getattr(event, "object", None)
 
         if obj == "content":
-            if not getattr(event, "delta", False):
-                return []
             text = getattr(event, "text", "") or ""
             if not text:
                 return []
             msg_id = getattr(event, "msg_id", None)
+            is_delta = getattr(event, "delta", False)
+            if is_delta and msg_id:
+                self._streamed_text_msg_ids.add(msg_id)
+            elif msg_id in self._streamed_text_msg_ids:
+                return []
             if msg_id in self._reasoning_msg_ids:
                 return [update_agent_thought(text_block(text))]
             return [update_agent_message(text_block(text))]
@@ -210,6 +240,8 @@ class QwenPawACPAgent(Agent):
         self._cancel_events: dict[str, asyncio.Event] = {}
         self._workspace: Any | None = None
         self._workspace_ready = False
+        self._app_services: Any | None = None
+        self._app_services_started = False
 
     def on_connect(self, conn: Client) -> None:
         self._conn = conn
@@ -242,6 +274,125 @@ class QwenPawACPAgent(Agent):
             return self._workspace_dir
         return WORKING_DIR / "workspaces" / agent_id
 
+    async def _ensure_app_services(self) -> Any:
+        """Create and start ACP-local cross-workspace services."""
+        if self._app_services is None:
+            from ...app.app_services import AppServiceManager
+
+            self._app_services = AppServiceManager()
+        if not self._app_services_started:
+            await self._app_services.start()
+            self._app_services_started = True
+        return self._app_services
+
+    @staticmethod
+    def _build_bootstrap_kwargs(app_services: Any) -> dict[str, Any]:
+        """Build the same runtime plugin set used by the web app lifespan."""
+        kwargs: dict[str, Any] = {}
+        command_specs: list[Any] = []
+
+        try:
+            from ...agents.tools import discover_builtin_tool_funcs
+
+            kwargs["builtin_tool_funcs"] = discover_builtin_tool_funcs()
+        except Exception:
+            logger.debug(
+                "ACP bootstrap: built-in tools skipped",
+                exc_info=True,
+            )
+
+        try:
+            from ...runtime.builtin_commands import (
+                collect_builtin_command_specs,
+                get_skill_fallback_handler,
+            )
+
+            command_specs.extend(collect_builtin_command_specs())
+            kwargs["builtin_fallback_handler"] = get_skill_fallback_handler()
+        except Exception:
+            logger.debug(
+                "ACP bootstrap: built-in slash commands skipped",
+                exc_info=True,
+            )
+
+        try:
+            from ...app.app_services._builtin_tool_commands import (
+                build_tool_command_specs,
+            )
+
+            command_specs.extend(
+                build_tool_command_specs(app_services.tool_coordinator),
+            )
+        except Exception:
+            logger.debug(
+                "ACP bootstrap: HITL tool commands skipped",
+                exc_info=True,
+            )
+
+        if command_specs:
+            kwargs["builtin_command_specs"] = command_specs
+
+        try:
+            from ...hooks.bootstrap.bootstrap_hook import BootstrapHook
+            from ...hooks.cron.cron_hook import CronContextHook
+            from ...hooks.error.error_hook import (
+                CancelCleanupHook,
+                ErrorNormalizeHook,
+            )
+            from ...hooks.request_setup.contextvars_hook import (
+                ContextVarsSetupHook,
+            )
+            from ...hooks.request_setup.media_hook import MediaProcessHook
+            from ...hooks.session.session_hook import (
+                SessionLoadHook,
+                SessionSaveHook,
+            )
+            from ...hooks.skill_env.skill_env_hook import (
+                SkillEnvCleanupHook,
+                SkillEnvHook,
+            )
+
+            kwargs["builtin_hook_clses"] = [
+                CronContextHook,
+                SessionLoadHook,
+                SessionSaveHook,
+                BootstrapHook,
+                SkillEnvHook,
+                SkillEnvCleanupHook,
+                ContextVarsSetupHook,
+                MediaProcessHook,
+                ErrorNormalizeHook,
+                CancelCleanupHook,
+            ]
+        except Exception:
+            logger.debug(
+                "ACP bootstrap: lifecycle hooks skipped",
+                exc_info=True,
+            )
+
+        try:
+            from ...runtime.prompt_contributors import _ALL_CONTRIBUTORS
+
+            kwargs["builtin_contributor_clses"] = _ALL_CONTRIBUTORS
+        except Exception:
+            logger.debug(
+                "ACP bootstrap: prompt contributors skipped",
+                exc_info=True,
+            )
+
+        try:
+            from ...modes.coding import CodingMode
+            from ...modes.mission import MissionMode
+
+            kwargs["builtin_mode_clses"] = [
+                CodingMode,
+                MissionMode,
+            ]
+        except Exception:
+            logger.debug("ACP bootstrap: modes skipped", exc_info=True)
+
+        return kwargs
+
     async def _ensure_workspace(self) -> Any:
         """Boot a full ``Workspace`` (once) and return it."""
         if self._workspace is not None and self._workspace_ready:
@@ -256,6 +407,11 @@ class QwenPawACPAgent(Agent):
             agent_id=agent_id,
             workspace_dir=str(workspace_dir),
         )
+        app_services = await self._ensure_app_services()
+        workspace.bootstrap_plugins(
+            **self._build_bootstrap_kwargs(app_services),
+        )
+        workspace.set_app_services(app_services)
         await workspace.start()
 
         self._workspace = workspace
@@ -278,6 +434,12 @@ class QwenPawACPAgent(Agent):
                 )
             self._workspace = None
             self._workspace_ready = False
+        if self._app_services is not None and self._app_services_started:
+            try:
+                await self._app_services.stop()
+            except Exception:
+                logger.exception("Error stopping ACP app services")
+            self._app_services_started = False
 
     # ------------------------------------------------------------------
     # ACP protocol methods
@@ -331,9 +493,11 @@ class QwenPawACPAgent(Agent):
             session_id,
             cwd,
         )
+        asyncio.create_task(self._advertise_commands(session_id))
         return NewSessionResponse(
             session_id=session_id,
             config_options=self._build_config_options(session_id),
+            field_meta=self._session_meta(),
         )
 
     async def load_session(  # pylint: disable=unused-argument
@@ -355,7 +519,8 @@ class QwenPawACPAgent(Agent):
             session_id,
             cwd,
         )
-        return LoadSessionResponse()
+        asyncio.create_task(self._advertise_commands(session_id))
+        return LoadSessionResponse(field_meta=self._session_meta())
 
     async def prompt(  # pylint: disable=too-many-locals,unused-argument
         self,
@@ -402,6 +567,7 @@ class QwenPawACPAgent(Agent):
             ],
             session_id=session_id,
             user_id=user_id,
+            agent_id=self._resolve_agent_id(),
             request_context=request_context or None,
         )
 
@@ -424,11 +590,12 @@ class QwenPawACPAgent(Agent):
                     )
 
                 await self._emit_usage_if_available(session_id)
-        except Exception:
+        except Exception as exc:
             logger.exception(
                 "ACP prompt error: session=%s",
                 session_id,
             )
+            await self._report_prompt_error(session_id, exc)
         finally:
             self._cancel_events.pop(session_id, None)
 
@@ -611,6 +778,7 @@ class QwenPawACPAgent(Agent):
                 "inputTokens": raw.get("prompt_tokens", 0),
                 "outputTokens": raw.get("completion_tokens", 0),
                 "totalTokens": raw.get("total_tokens", 0),
+                "model": raw.get("model_name") or "",
             },
         }
 
@@ -620,6 +788,71 @@ class QwenPawACPAgent(Agent):
         if info is not None:
             return info.get("mode", self.MODE_DEFAULT)
         return self.MODE_DEFAULT
+
+    def _session_meta(self) -> dict[str, Any] | None:
+        """Return session ``_meta`` with the resolved QwenPaw agent id."""
+        try:
+            agent_id = self._resolve_agent_id()
+        except Exception:
+            logger.exception("ACP: failed to resolve agent id for _meta")
+            return None
+        return {ACP_AGENT_META_KEY: agent_id} if agent_id else None
+
+    @staticmethod
+    def _build_available_commands() -> list[AvailableCommand]:
+        """Build the curated slash-command list advertised to ACP clients."""
+        descriptions: dict[str, str] = {
+            **SYSTEM_COMMAND_DESCRIPTIONS,
+            "model": "Show or switch AI model",
+            "skills": (
+                "List chat-available skills and expose explicit skill commands"
+            ),
+        }
+        return [
+            AvailableCommand(
+                name=name,
+                description=descriptions.get(name, ""),
+            )
+            for name in _ADVERTISED_COMMAND_ORDER
+            if name not in _ACP_REDUNDANT_COMMANDS
+        ]
+
+    async def _report_prompt_error(
+        self,
+        session_id: str,
+        exc: BaseException,
+    ) -> None:
+        """Surface a prompt failure to ACP clients as a visible message."""
+        try:
+            await self._conn.session_update(
+                session_id=session_id,
+                update=AgentMessageChunk(
+                    sessionUpdate="agent_message_chunk",
+                    content=text_block(f"Error: {exc}"),
+                    field_meta={ACP_ERROR_META_KEY: True},
+                ),
+            )
+        except Exception:
+            logger.exception(
+                "ACP: failed to report prompt error to client (session=%s)",
+                session_id,
+            )
+
+    async def _advertise_commands(self, session_id: str) -> None:
+        """Send the ``available_commands_update`` for a session."""
+        try:
+            await self._conn.session_update(
+                session_id=session_id,
+                update=AvailableCommandsUpdate(
+                    sessionUpdate="available_commands_update",
+                    available_commands=self._build_available_commands(),
+                ),
+            )
+        except Exception:
+            logger.exception(
+                "ACP: failed to advertise available commands (session=%s)",
+                session_id,
+            )
 
     def _build_config_options(
         self,
