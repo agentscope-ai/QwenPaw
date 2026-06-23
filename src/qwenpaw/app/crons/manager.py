@@ -35,6 +35,8 @@ from .repo.base import BaseJobRepository
 
 HEARTBEAT_JOB_ID = "_heartbeat"
 DREAM_JOB_ID = "_dream"
+HEARTBEAT_MISFIRE_GRACE_SECONDS = 60
+DREAM_MISFIRE_GRACE_SECONDS = 600
 INTERNAL_JOB_IDS = frozenset({HEARTBEAT_JOB_ID, DREAM_JOB_ID})
 CRON_HISTORY_LIMIT = 50
 
@@ -119,6 +121,7 @@ class CronManager:
                     self._heartbeat_callback,
                     trigger=trigger,
                     id=HEARTBEAT_JOB_ID,
+                    misfire_grace_time=HEARTBEAT_MISFIRE_GRACE_SECONDS,
                     replace_existing=True,
                 )
                 logger.info(
@@ -139,6 +142,7 @@ class CronManager:
                         self._dream_callback,
                         trigger=trigger,
                         id=DREAM_JOB_ID,
+                        misfire_grace_time=DREAM_MISFIRE_GRACE_SECONDS,
                         replace_existing=True,
                     )
                     logger.info(
@@ -229,6 +233,7 @@ class CronManager:
                     self._heartbeat_callback,
                     trigger=trigger,
                     id=HEARTBEAT_JOB_ID,
+                    misfire_grace_time=HEARTBEAT_MISFIRE_GRACE_SECONDS,
                     replace_existing=True,
                 )
                 logger.info(
@@ -276,6 +281,7 @@ class CronManager:
                         self._dream_callback,
                         trigger=trigger,
                         id=DREAM_JOB_ID,
+                        misfire_grace_time=DREAM_MISFIRE_GRACE_SECONDS,
                         replace_existing=True,
                     )
                     logger.info(
