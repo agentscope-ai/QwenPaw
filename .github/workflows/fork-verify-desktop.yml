@@ -118,7 +118,7 @@ jobs:
             sleep 2
           done
           "$RUNNER_PYTHON" scripts/verify/desktop_verify.py \
-            --base-url http://127.0.0.1:8088 --ui-mode legacy
+            --base-url http://127.0.0.1:8088 --ui-mode legacy --headed
 
       - name: Stop desktop server
         if: always()
@@ -230,7 +230,7 @@ jobs:
             } catch { Start-Sleep -Seconds 2 }
           }
           if (-not $ready) { Write-Host "::error::Server timeout"; exit 1 }
-          & $env:RUNNER_PYTHON scripts/verify/desktop_verify.py --base-url http://127.0.0.1:8088 --ui-mode legacy
+          & $env:RUNNER_PYTHON scripts/verify/desktop_verify.py --base-url http://127.0.0.1:8088 --ui-mode legacy --headed
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Stop desktop server
@@ -299,44 +299,17 @@ jobs:
           QWENPAW_DASHSCOPE_API_KEY: ${{ secrets.QWENPAW_DASHSCOPE_API_KEY }}
         run: |
           set -euo pipefail
-          mkdir -p dist/verify-tauri
-          unzip -q dist/QwenPaw-Tauri-*-macOS.zip -d dist/verify-tauri
-          APP="$(find dist/verify-tauri -maxdepth 3 -name '*.app' -type d | head -1)"
-          if [ -z "$APP" ]; then echo "::error::Tauri .app not found"; exit 1; fi
-          xattr -dr com.apple.quarantine "$APP" 2>/dev/null || true
-          SIDECAR="$APP/Contents/Resources/binaries/qwenpaw-backend/qwenpaw-backend"
-          if [ ! -f "$SIDECAR" ]; then echo "::error::Sidecar not found"; exit 1; fi
-          chmod +x "$SIDECAR"
-          STDOUT_LOG="$RUNNER_TEMP/qwenpaw-desktop-stdout.log"
-          STDERR_LOG="$RUNNER_TEMP/qwenpaw-desktop-stderr.log"
-          : > "$STDOUT_LOG"; : > "$STDERR_LOG"
-          nohup "$SIDECAR" >"$STDOUT_LOG" 2>"$STDERR_LOG" </dev/null &
-          SIDECAR_PID=$!; disown "$SIDECAR_PID" 2>/dev/null || true
-          echo "$SIDECAR_PID" > "$RUNNER_TEMP/qwenpaw-desktop.pid"
-          PORT=""
-          for i in $(seq 1 60); do
-            PORT="$(grep -oE 'Address: http://127\.0\.0\.1:[0-9]+' "$STDOUT_LOG" 2>/dev/null | head -1 | grep -oE '[0-9]+$' || true)"
-            if [ -n "$PORT" ]; then echo "Sidecar port $PORT"; break; fi
-            sleep 2
-          done
-          if [ -z "$PORT" ]; then echo "::error::No port advertised"; exit 1; fi
-          BASE_URL="http://127.0.0.1:$PORT"
-          rm -f "$HOME/.qwenpaw/workspaces/default/BOOTSTRAP.md"
-          for i in $(seq 1 60); do
-            if curl -sf "$BASE_URL/api/version" >/dev/null; then echo "Server up"; break; fi
-            if [ "$i" = "60" ]; then echo "::error::Server timeout"; exit 1; fi
-            sleep 2
-          done
-          python scripts/verify/desktop_verify.py --base-url "$BASE_URL" --ui-mode tauri-macos
+          source scripts/verify/launch_tauri_macos.sh
+          python scripts/verify/desktop_verify.py --base-url "$BASE_URL" --ui-mode tauri-macos --headed
 
       - name: Stop desktop server
         if: always()
         run: |
-          if [ -f "$RUNNER_TEMP/qwenpaw-desktop.pid" ]; then
-            kill "$(cat "$RUNNER_TEMP/qwenpaw-desktop.pid")" 2>/dev/null || true
-            sleep 2
-            kill -9 "$(cat "$RUNNER_TEMP/qwenpaw-desktop.pid")" 2>/dev/null || true
-          fi
+          pkill -f "QwenPaw Desktop" 2>/dev/null || true
+          pkill -f "qwenpaw-backend" 2>/dev/null || true
+          sleep 2
+          pkill -9 -f "QwenPaw Desktop" 2>/dev/null || true
+          pkill -9 -f "qwenpaw-backend" 2>/dev/null || true
 
   tauri-windows:
     if: >-
@@ -403,44 +376,25 @@ jobs:
           QWENPAW_DASHSCOPE_API_KEY: ${{ secrets.QWENPAW_DASHSCOPE_API_KEY }}
           PYTHONIOENCODING: utf-8
         run: |
-          $ErrorActionPreference = "Stop"
-          $sidecar = "console\src-tauri\binaries\qwenpaw-backend\qwenpaw-backend.exe"
-          if (-not (Test-Path $sidecar)) { throw "Sidecar not found" }
-          $stdoutLog = Join-Path $env:RUNNER_TEMP "qwenpaw-desktop-stdout.log"
-          $stderrLog = Join-Path $env:RUNNER_TEMP "qwenpaw-desktop-stderr.log"
-          $proc = Start-Process -PassThru -NoNewWindow -FilePath $sidecar `
-            -RedirectStandardOutput $stdoutLog -RedirectStandardError $stderrLog
-          $proc.Id | Out-File -FilePath (Join-Path $env:RUNNER_TEMP "qwenpaw-desktop.pid") -Encoding ascii
-          $port = $null
-          $deadline = (Get-Date).AddSeconds(120)
-          while ((Get-Date) -lt $deadline) {
-            $match = Select-String -Path $stdoutLog -Pattern 'Address: http://127\.0\.0\.1:(\d+)' -ErrorAction SilentlyContinue |
-              Select-Object -First 1
-            if ($match) { $port = $match.Matches[0].Groups[1].Value; Write-Host "Sidecar port $port"; break }
-            Start-Sleep -Seconds 2
-          }
-          if (-not $port) { Write-Host "::error::No port advertised"; exit 1 }
-          $baseUrl = "http://127.0.0.1:$port"
-          $bootstrapMd = Join-Path $env:USERPROFILE ".qwenpaw\workspaces\default\BOOTSTRAP.md"
-          if (Test-Path $bootstrapMd) { Remove-Item -Force $bootstrapMd }
-          $ready = $false
-          for ($i = 1; $i -le 60; $i++) {
-            try {
-              $r = Invoke-WebRequest -Uri "$baseUrl/api/version" -UseBasicParsing -TimeoutSec 5 -ErrorAction Stop
-              if ($r.StatusCode -eq 200) { Write-Host "Server up"; $ready = $true; break }
-            } catch { Start-Sleep -Seconds 2 }
-          }
-          if (-not $ready) { Write-Host "::error::Server timeout"; exit 1 }
-          python scripts/verify/desktop_verify.py --base-url $baseUrl --ui-mode tauri-windows
+          . scripts/verify/launch_tauri_windows.ps1
+          python scripts/verify/desktop_verify.py `
+            --base-url $env:BASE_URL `
+            --ui-mode tauri-windows `
+            --headed
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Stop desktop server
         if: always()
         shell: pwsh
         run: |
-          $pidFile = Join-Path $env:RUNNER_TEMP "qwenpaw-desktop.pid"
-          if (Test-Path $pidFile) {
-            $pid = (Get-Content $pidFile | Select-Object -First 1).Trim()
-            if ($pid) { taskkill /F /T /PID $pid 2>$null | Out-Null }
-          }
+          $ErrorActionPreference = "Continue"
+          Get-Process -Name "qwenpaw-desktop" -ErrorAction SilentlyContinue |
+            Stop-Process -Force -ErrorAction SilentlyContinue
+          Get-Process -Name "qwenpaw-backend" -ErrorAction SilentlyContinue |
+            Stop-Process -Force -ErrorAction SilentlyContinue
+          Start-Sleep -Seconds 2
+          Get-Process -Name "qwenpaw-desktop" -ErrorAction SilentlyContinue |
+            Stop-Process -Force -ErrorAction SilentlyContinue
+          Get-Process -Name "qwenpaw-backend" -ErrorAction SilentlyContinue |
+            Stop-Process -Force -ErrorAction SilentlyContinue
           exit 0

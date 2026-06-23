@@ -250,6 +250,7 @@ class PlaywrightDriver(UIDriver):
         self,
         browser: str = "chromium",
         screenshot_dir: Optional[str] = None,
+        headless: bool = True,
     ) -> None:
         self._screenshot_dir = screenshot_dir
         if screenshot_dir:
@@ -270,7 +271,7 @@ class PlaywrightDriver(UIDriver):
                 raise UIDriverInitError(
                     f"playwright has no browser '{browser}'",
                 )
-            self._browser = launcher.launch(headless=True)
+            self._browser = launcher.launch(headless=headless)
             self._context = self._browser.new_context()
             self._page = self._context.new_page()
         except UIDriverInitError:
@@ -611,14 +612,15 @@ UI_MODES = ("legacy", "tauri-macos", "tauri-windows")
 def make_driver(
     ui_mode: str,
     screenshot_dir: Optional[str] = None,
+    headless: bool = True,
 ) -> UIDriver:
     """Build a concrete ``UIDriver`` for the requested mode."""
     if ui_mode == "legacy":
-        return PlaywrightDriver("chromium", screenshot_dir)
+        return PlaywrightDriver("chromium", screenshot_dir, headless)
     if ui_mode == "tauri-macos":
-        return PlaywrightDriver("webkit", screenshot_dir)
+        return PlaywrightDriver("webkit", screenshot_dir, headless)
     if ui_mode == "tauri-windows":
-        return PlaywrightDriver("chromium", screenshot_dir)
+        return PlaywrightDriver("chromium", screenshot_dir, headless)
     raise UIDriverInitError(f"unknown ui-mode: {ui_mode!r}")
 
 
@@ -742,6 +744,12 @@ def main() -> int:
         "env RUNNER_TEMP (set by GitHub Actions). Empty = no "
         "screenshots.",
     )
+    parser.add_argument(
+        "--headed",
+        action="store_true",
+        help="Run the browser in headed mode (visible window) "
+        "instead of headless. Requires a display server.",
+    )
     args = parser.parse_args()
 
     base_url = args.base_url.rstrip("/")
@@ -785,7 +793,11 @@ def main() -> int:
                     if args.screenshot_dir
                     else None
                 )
-                driver = make_driver(args.ui_mode, ss_dir)
+                driver = make_driver(
+                    args.ui_mode,
+                    ss_dir,
+                    headless=not args.headed,
+                )
             except UIDriverInitError as exc:
                 print(f"FAIL  UI driver init: {exc}", file=sys.stderr)
                 return 3

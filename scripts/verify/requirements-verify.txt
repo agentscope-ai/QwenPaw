@@ -4,9 +4,6 @@
 # layer; the drivers below are imported lazily so callers using --skip-ui
 # don't have to install them.
 
-# Legacy Win/Mac: Playwright + Chromium for headless browser automation.
+# All platforms: Playwright drives Chromium (Legacy + Tauri Win) or
+# WebKit (Tauri macOS) for headed/headless browser automation.
 playwright>=1.40
-
-# Tauri Win/Mac: Selenium drives platform webviews (msedgedriver via
-# tauri-driver on Windows, safaridriver on macOS).
-selenium>=4.20
