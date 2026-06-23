@@ -166,7 +166,6 @@ async def finalize_console_turn_usage(
     session_id: str,
     user_id: str,
     channel: str,
-    agent_id: str,
 ) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
     """After runner save, attach turn usage metadata and stage SSE pending."""
     turn = TokenRecordingModelWrapper.pop_usage_for_session(session_id)
@@ -184,49 +183,9 @@ async def finalize_console_turn_usage(
         state = None
 
     if state:
-        memory_state = state.get("agent", {}).get("memory", {})
-        # AgentContext (legacy context module) was removed in AgentScope 2.0.
-        # Memory-based token tracking is not available in this architecture.
-        if memory_state:
-            try:
-                from ..agents.context.agent_context import (  # noqa: F401
-                    AgentContext,
-                )
-                from ..agents.utils.estimate_token_counter import (
-                    EstimatedTokenCounter,
-                )
-
-                memory = AgentContext(EstimatedTokenCounter())
-                memory.load_state_dict(memory_state, strict=False)
-                ctx = await snapshot_context_usage_for_memory(
-                    memory,
-                    agent_id,
-                )
-                turn = reconcile_turn_with_context(turn, ctx)
-                if attach_turn_usage_metadata(memory, turn, ctx):
-                    try:
-                        await session.update_session_state(
-                            session_id=session_id,
-                            key="agent.memory",
-                            value=memory.state_dict(),
-                            user_id=user_id,
-                            channel=channel,
-                            create_if_not_exist=False,
-                        )
-                    except Exception:
-                        logger.debug(
-                            "update_session_state for turn usage skipped",
-                            exc_info=True,
-                        )
-            except ImportError:
-                # AgentContext not available in AgentScope 2.0.
-                logger.debug(
-                    "AgentContext not available; skipping memory-based "
-                    "turn usage tracking",
-                )
-                turn = reconcile_turn_with_context(turn, ctx)
-        else:
-            turn = reconcile_turn_with_context(turn, ctx)
+        # AgentContext removed in AgentScope 2.0 — memory-based tracking
+        # unavailable. Both branches reconcile the same way.
+        turn = reconcile_turn_with_context(turn, ctx)
     else:
         turn = reconcile_turn_with_context(turn, ctx)
 

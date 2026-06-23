@@ -446,18 +446,12 @@ class ConsoleChannel(BaseChannel):
 
             runner = getattr(self._workspace, "runner", None)
             session = getattr(runner, "session", None) if runner else None
-            agent_id = (
-                getattr(self._workspace, "agent_id", "default")
-                if self._workspace is not None
-                else "default"
-            )
             if session is not None and session_id:
                 await finalize_console_turn_usage(
                     session=session,
                     session_id=session_id,
                     user_id=user_id,
                     channel=channel_name,
-                    agent_id=agent_id,
                 )
 
             if trailing := self._build_trailing_usage_sse(session_id):

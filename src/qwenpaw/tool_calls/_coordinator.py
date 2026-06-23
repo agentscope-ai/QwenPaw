@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """ToolCoordinator — single owner of all in-flight tool calls."""
+
 from __future__ import annotations
 
 import asyncio
@@ -560,8 +561,6 @@ class ToolCoordinator:
                     )
                     if resp is not None:
                         entry.final_response = resp
-                except asyncio.CancelledError:
-                    pass
                 except Exception as exc:
                     logger.warning(
                         "after_call failed: %s",
