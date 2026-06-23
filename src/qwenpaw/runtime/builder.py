@@ -647,6 +647,8 @@ class AgentBuilder:
                 governor=governor,
                 request_context=request_context,
             )
+        from .tool_guard import GuardedFunctionTool
+
         return GuardedFunctionTool(
             fn,
             agent_id=agent_id,
