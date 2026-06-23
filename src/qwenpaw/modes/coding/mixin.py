@@ -143,9 +143,8 @@ class CodingModeMixin:
     def _get_coding_project_dir(self) -> str | None:
         """Return the active coding project dir.
 
-        Always reloads from disk so changes made via the API (which persist to
-        ``agent.json``) are reflected immediately rather than stale in-memory
-        config being used.
+        Request-scoped config wins when present. Otherwise, reload from disk so
+        API changes persisted to ``agent.json`` are reflected.
 
         Returns None when no project has been set (use workspace default).
         """
@@ -162,6 +161,16 @@ class CodingModeMixin:
             agent_id = getattr(self, "name", None)
         if not agent_id:
             return None
+
+        if agent_config is not None:
+            if isinstance(agent_config, dict):
+                cm_dict = agent_config.get("coding_mode") or {}
+                project_dir = cm_dict.get("project_dir")
+            else:
+                cm_obj = getattr(agent_config, "coding_mode", None)
+                project_dir = getattr(cm_obj, "project_dir", None)
+            if project_dir:
+                return project_dir
 
         try:
             config = load_agent_config(agent_id)
