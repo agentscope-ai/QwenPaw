@@ -634,13 +634,16 @@ class ReMeLightMemoryConfig(BaseModel):
         description="Subdirectory for persisted agent sessions",
     )
     resource_dir: str = Field(
-        default="resource", description="Subdirectory for external assets",
+        default="resource",
+        description="Subdirectory for external assets",
     )
     daily_dir: str = Field(
-        default="memory", description="Subdirectory for daily memory",
+        default="memory",
+        description="Subdirectory for daily memory",
     )
     digest_dir: str = Field(
-        default="digest", description="Subdirectory for digest memory",
+        default="digest",
+        description="Subdirectory for digest memory",
     )
     enable_search_raw_log: bool = Field(
         default=False,
