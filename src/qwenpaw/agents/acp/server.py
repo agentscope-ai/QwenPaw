@@ -240,9 +240,11 @@ class QwenPawACPAgent(Agent):
         self,
         agent_id: str | None = None,
         workspace_dir: Path | None = None,
+        local_diagnostics: bool = False,
     ):
         self._agent_id = agent_id
         self._workspace_dir = workspace_dir
+        self._local_diagnostics = local_diagnostics
         self._sessions: dict[str, dict[str, Any]] = {}
         self._cancel_events: dict[str, asyncio.Event] = {}
         self._workspace: Any | None = None
@@ -991,11 +993,12 @@ class QwenPawACPAgent(Agent):
                 session_id,
             )
 
-    @staticmethod
-    def _safe_prompt_error_text(exc: BaseException) -> str:
+    def _safe_prompt_error_text(self, exc: BaseException) -> str:
         """Return a client-safe prompt error message."""
         if isinstance(exc, AppBaseException) and exc.message:
             return str(exc.message)
+        if self._local_diagnostics:
+            return str(exc) or exc.__class__.__name__
         return _GENERIC_PROMPT_ERROR
 
     async def _advertise_commands(self, session_id: str) -> None:
@@ -1113,11 +1116,13 @@ class QwenPawACPAgent(Agent):
 async def run_qwenpaw_agent(
     agent_id: str | None = None,
     workspace_dir: Path | None = None,
+    local_diagnostics: bool = False,
 ) -> None:
     """Entry point: run QwenPaw as an ACP agent over stdio."""
     agent = QwenPawACPAgent(
         agent_id=agent_id,
         workspace_dir=workspace_dir,
+        local_diagnostics=local_diagnostics,
     )
     try:
         await run_agent(agent, use_unstable_protocol=True)

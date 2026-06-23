@@ -202,6 +202,21 @@ async def test_report_prompt_error_hides_unexpected_exception_details():
     assert update.field_meta == {ACP_ERROR_META_KEY: True}
 
 
+async def test_report_prompt_error_shows_details_for_local_diagnostics():
+    agent = QwenPawACPAgent(agent_id="default", local_diagnostics=True)
+    conn = _FakeConn()
+    agent.on_connect(conn)
+
+    await agent._report_prompt_error(
+        "sess-err",
+        RuntimeError("boom: invalid api key secret-token"),
+    )
+
+    _, update = conn.updates[0]
+    assert update.content.text == "Error: boom: invalid api key secret-token"
+    assert update.field_meta == {ACP_ERROR_META_KEY: True}
+
+
 async def test_approval_bridge_resolves_pending_approval(monkeypatch):
     from qwenpaw.app.approvals.service import ApprovalService
     from qwenpaw.security.tool_guard.approval import ApprovalDecision

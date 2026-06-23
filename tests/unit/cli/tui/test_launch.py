@@ -25,8 +25,15 @@ pytestmark = [pytest.mark.unit, pytest.mark.p1]
 def test_default_transport_targets_current_interpreter():
     """Default spawns this very ``python -m qwenpaw acp`` (no PATH lookup)."""
     transport, description = _build_transport(agent=None, resume=None)
-    assert transport._command == [sys.executable, "-m", "qwenpaw", "acp"]
+    assert transport._command == [
+        sys.executable,
+        "-m",
+        "qwenpaw",
+        "acp",
+        "--local-diagnostics",
+    ]
     assert "qwenpaw acp" in description
+    assert "--local-diagnostics" in description
 
 
 def test_default_transport_appends_agent_once():
@@ -37,6 +44,7 @@ def test_default_transport_appends_agent_once():
         "-m",
         "qwenpaw",
         "acp",
+        "--local-diagnostics",
         "--agent",
         "writer",
     ]

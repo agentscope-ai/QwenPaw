@@ -294,12 +294,18 @@ class AcpTransport:
         # of opening a fresh one.
         self._resume_session_id = resume_session_id
         # Default: re-invoke this very interpreter as `python -m qwenpaw acp`.
-        # Copy the caller's list so appending ``--agent`` never mutates it.
-        self._command = (
-            list(command)
-            if command
-            else [sys.executable, "-m", "qwenpaw", "acp"]
-        )
+        # The TUI owns that subprocess, so opt it into local diagnostics.
+        # Copy the caller's list so appending options never mutates it.
+        if command is None:
+            self._command = [
+                sys.executable,
+                "-m",
+                "qwenpaw",
+                "acp",
+                "--local-diagnostics",
+            ]
+        else:
+            self._command = list(command)
         if agent:
             self._command += ["--agent", agent]
 

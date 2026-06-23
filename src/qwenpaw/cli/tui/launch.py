@@ -7,8 +7,8 @@
 ``qwenpaw tui --resume ID``    resume a previous session and continue it
 
 The TUI spawns ``qwenpaw acp`` using the *current* interpreter
-(``python -m qwenpaw acp``), so it always drives the same install/venv it ships
-in -- no reliance on ``qwenpaw`` being on ``PATH``.
+(``python -m qwenpaw acp --local-diagnostics``), so it always drives the same
+install/venv it ships in -- no reliance on ``qwenpaw`` being on ``PATH``.
 
 Textual and the transport are imported lazily so ``qwenpaw --help`` and other
 subcommands stay fast.
@@ -29,14 +29,16 @@ def _build_transport(
     """Return ``(transport, description)`` for the requested target.
 
     ``command=None`` lets :class:`AcpTransport` use its default,
-    ``[sys.executable, "-m", "qwenpaw", "acp"]`` -- the same interpreter the
-    TUI is running under. The ``--agent`` suffix is *not* appended here:
-    ``AcpTransport`` appends ``--agent <id>`` itself when ``agent`` is set, so
-    doing it here too would double it.
+    ``[sys.executable, "-m", "qwenpaw", "acp", "--local-diagnostics"]`` --
+    the same interpreter the TUI is running under. The ``--agent`` suffix is
+    *not* appended here: ``AcpTransport`` appends ``--agent <id>`` itself when
+    ``agent`` is set, so doing it here too would double it.
     """
     from .transport.acp import AcpTransport
 
-    description = f"qwenpaw acp ({sys.executable} -m qwenpaw acp)"
+    description = (
+        f"qwenpaw acp ({sys.executable} -m qwenpaw acp --local-diagnostics)"
+    )
 
     return (
         AcpTransport(
