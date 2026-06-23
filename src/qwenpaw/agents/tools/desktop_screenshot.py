@@ -7,9 +7,10 @@ import platform
 import subprocess
 import time
 
-from agentscope.message import TextBlock
+from agentscope.message import ImageBlock, TextBlock
 from agentscope.tool import ToolResponse
 
+from .file_io import _path_to_file_url
 from ...config.context import get_current_workspace_dir
 from ...constant import WORKING_DIR
 
@@ -30,20 +31,14 @@ def _tool_error(msg: str) -> ToolResponse:
 
 
 def _tool_ok(path: str, message: str) -> ToolResponse:
+    file_url = _path_to_file_url(path)
     return ToolResponse(
         content=[
-            TextBlock(
-                type="text",
-                text=json.dumps(
-                    {
-                        "ok": True,
-                        "path": os.path.abspath(path),
-                        "message": message,
-                    },
-                    ensure_ascii=False,
-                    indent=2,
-                ),
+            ImageBlock(
+                type="image",
+                source={"type": "url", "url": file_url},
             ),
+            TextBlock(type="text", text=message),
         ],
     )
 

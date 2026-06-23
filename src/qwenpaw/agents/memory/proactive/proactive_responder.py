@@ -101,8 +101,13 @@ async def _initialize_single_proactive_agent(
     agent_id: str = "proactive",
 ) -> ReActAgent:
     """Initialize a single proactive agent instance."""
+    # Use a local constant for the proactive-specific iteration limit.
+    # Do NOT mutate the cached config object returned by load_agent_config(),
+    # as that would pollute the global cache and cause user settings to be
+    # silently overwritten when save_agent_config() is later triggered.
+    _PROACTIVE_MAX_ITERS = 50
+
     agent_config = load_agent_config(agent_id)
-    agent_config.running.max_iters = 50
 
     # Create model and formatter for the agent
     from ...model_factory import create_model_and_formatter
@@ -128,7 +133,7 @@ async def _initialize_single_proactive_agent(
         toolkit=toolkit,
         formatter=formatter,
         memory=None,
-        max_iters=agent_config.running.max_iters,
+        max_iters=_PROACTIVE_MAX_ITERS,
     )
 
     return agent

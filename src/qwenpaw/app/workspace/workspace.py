@@ -10,6 +10,7 @@ Each Workspace represents a standalone agent workspace with its own:
 
 All existing single-agent components are reused without modification.
 """
+
 import logging
 from pathlib import Path
 from typing import Optional
@@ -129,7 +130,8 @@ class Workspace:
     @property
     def config(self):
         """Get agent configuration."""
-        self._config = load_agent_config(self.agent_id)
+        if self._config is None:
+            self._config = load_agent_config(self.agent_id)
         return self._config
 
     def set_manager(self, manager) -> None:

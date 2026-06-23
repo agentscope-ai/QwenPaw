@@ -5,7 +5,7 @@
  * desktop_screenshot, send_file_to_user, and the default fallback).
  */
 
-import React, { useCallback, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import { Attachments } from "@agentscope-ai/chat";
 import { Audio, Video } from "@agentscope-ai/design";
 import { Image, ConfigProvider, Alert } from "antd";
@@ -38,8 +38,8 @@ const MediaPreview: React.FC<MediaPreviewProps> = ({ media }) => {
   const { t } = useTranslation();
   const [error, setError] = useState<string | null>(null);
 
-  const handleMediaError = useCallback(() => {
-    fetchPreviewError(media.url).then(({ status, code }) => {
+  const resolveError = useCallback(
+    ({ status, code }: { status: number; code: string }) => {
       const i18nKey = `preview.error.${code}`;
       const translated = t(i18nKey, { defaultValue: "" });
       if (translated) {
@@ -53,13 +53,38 @@ const MediaPreview: React.FC<MediaPreviewProps> = ({ media }) => {
       } else {
         setError(t("preview.error.LOAD_FAILED"));
       }
+    },
+    [t],
+  );
+
+  const handleMediaError = useCallback(() => {
+    fetchPreviewError(media.url).then(resolveError);
+  }, [media.url, resolveError]);
+
+  // For "file" type there is no native onError — proactively HEAD-check the URL
+  useEffect(() => {
+    if (media.type !== "file" || !media.url) return;
+    let cancelled = false;
+    fetchPreviewError(media.url).then((result) => {
+      if (!cancelled && result.status !== 200) {
+        resolveError(result);
+      }
     });
-  }, [media.url, t]);
+    return () => {
+      cancelled = true;
+    };
+  }, [media.type, media.url, resolveError]);
 
   if (error) {
+    const description = media.name ? media.name : undefined;
     return (
       <div className={styles.toolCallMediaPreview}>
-        <Alert type="warning" showIcon message={error} />
+        <Alert
+          type="warning"
+          showIcon
+          message={error}
+          description={description}
+        />
       </div>
     );
   }

@@ -117,7 +117,9 @@ function ModelsPage() {
 
     const isReady = (p: ProviderInfo) => {
       const hasModels = p.models.length + p.extra_models.length > 0;
-      if (p.is_local) return hasModels;
+      if (p.is_local) {
+        return hasModels || getIsConfigured(p);
+      }
       return getIsConfigured(p);
     };
 
