@@ -2253,6 +2253,65 @@ export default function ChatPage() {
     [multimodalCaps, t],
   );
 
+  // ponytail: native drag-and-drop handler for files dropped on the
+  // sender textarea (antd Dragger only covers the trigger button).
+  // Ceiling: if per-file progress or a drop-zone overlay is wanted,
+  // extend this effect with dragenter/dragleave + CSS class toggle.
+  useEffect(() => {
+    const handleDragOver = (e: DragEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (!target?.closest('[class*="sender"]')) return;
+      e.preventDefault();
+      if (e.dataTransfer) e.dataTransfer.dropEffect = "copy";
+    };
+
+    const handleDrop = async (e: DragEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (!target?.closest('[class*="sender"]')) return;
+      e.preventDefault();
+
+      const files = Array.from(e.dataTransfer?.files ?? []);
+      if (files.length === 0) return;
+
+      for (const file of files) {
+        try {
+          const sizeMb = file.size / 1024 / 1024;
+          const uploadLimit = useUploadLimitStore.getState().uploadMaxSizeMb;
+          if (uploadLimit !== null && sizeMb > uploadLimit) {
+            message.error(
+              t("chat.attachments.fileSizeExceeded", {
+                limit: uploadLimit,
+                size: sizeMb.toFixed(2),
+              }),
+            );
+            continue;
+          }
+          const res = await chatApi.uploadFile(file);
+          const previewUrl = chatApi.filePreviewUrl(res.url);
+          pendingFileListRef.current = [
+            ...pendingFileListRef.current,
+            {
+              uid: res.url,
+              name: file.name,
+              url: previewUrl,
+              type: file.type,
+              size: file.size,
+            },
+          ];
+        } catch {
+          message.error(t("chat.attachments.uploadFailed"));
+        }
+      }
+    };
+
+    document.addEventListener("dragover", handleDragOver);
+    document.addEventListener("drop", handleDrop);
+    return () => {
+      document.removeEventListener("dragover", handleDragOver);
+      document.removeEventListener("drop", handleDrop);
+    };
+  }, [t]);
+
   const options = useMemo(() => {
     const i18nConfig = getDefaultConfig(t);
     const commandSuggestions: CommandSuggestion[] = [
@@ -2606,6 +2665,11 @@ export default function ChatPage() {
           ) : undefined,
         attachments: {
           multiple: true,
+          // ponytail: drag=true makes antd Upload render a Dragger,
+          // covering the trigger button for file drops.
+          // Ceiling: if drop-on-textarea is needed, add a useEffect
+          // with native dragenter/dragover/drop on [class*="sender"].
+          drag: true,
           trigger: function (props: any) {
             const uploadLimit = useUploadLimitStore.getState().uploadMaxSizeMb;
             const tooltipKey = multimodalCaps.supportsMultimodal
