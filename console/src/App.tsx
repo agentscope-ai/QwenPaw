@@ -165,6 +165,16 @@ function AppInner() {
     };
   }, [i18n]);
 
+  // Remove the startup loading overlay once the app is ready to render
+  useEffect(() => {
+    if (pluginsLoading) return;
+    const overlay = document.getElementById("app-loading-overlay");
+    if (overlay) {
+      overlay.style.opacity = "0";
+      setTimeout(() => overlay.remove(), 300);
+    }
+  }, [pluginsLoading]);
+
   // Wait for plugins to load before rendering routes that might be patched
   if (pluginsLoading) {
     return null;

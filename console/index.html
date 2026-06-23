@@ -8,8 +8,88 @@
       content="width=device-width, initial-scale=1.0, viewport-fit=cover"
     />
     <title>QwenPaw Console</title>
+    <style>
+      #app-loading-overlay {
+        position: fixed;
+        inset: 0;
+        z-index: 99999;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: #fff;
+        transition: opacity 0.3s;
+      }
+      #app-loading-overlay .brand {
+        font-size: 2.5rem;
+        font-weight: 700;
+        color: #404040;
+        margin-bottom: 1.5rem;
+      }
+      #app-loading-overlay .spinner {
+        width: 40px;
+        height: 40px;
+        border: 4px solid rgba(0, 0, 0, 0.08);
+        border-top-color: #4a9eff;
+        border-radius: 50%;
+        animation: _alo_spin 1s linear infinite;
+        margin: 0 auto 1rem;
+      }
+      #app-loading-overlay .text {
+        color: #808080;
+        font-size: 1rem;
+      }
+      @keyframes _alo_spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+      @media (prefers-color-scheme: dark) {
+        #app-loading-overlay {
+          background: #1e1e1e;
+        }
+        #app-loading-overlay .brand {
+          color: #e0e0e0;
+        }
+        #app-loading-overlay .spinner {
+          border-color: rgba(255, 255, 255, 0.1);
+          border-top-color: #7eb8f7;
+        }
+        #app-loading-overlay .text {
+          color: #a0a0a0;
+        }
+      }
+    </style>
   </head>
   <body>
+    <div id="app-loading-overlay">
+      <div style="text-align: center">
+        <div class="brand">QwenPaw</div>
+        <div class="spinner"></div>
+        <div class="text" id="alo-status">加载中...</div>
+      </div>
+    </div>
+    <script>
+      (function () {
+        var el = document.getElementById("alo-status");
+        if (!el) return;
+        var base = 0;
+        try {
+          var v = sessionStorage.getItem("qp_ls");
+          if (v) {
+            base = parseInt(v, 10) || 0;
+            sessionStorage.removeItem("qp_ls");
+          }
+        } catch (e) {}
+        var t0 = Date.now();
+        setInterval(function () {
+          var s = base + Math.floor((Date.now() - t0) / 1000);
+          el.textContent =
+            s > 0
+              ? "\u52A0\u8F7D\u4E2D... (" + s + "s)"
+              : "\u52A0\u8F7D\u4E2D...";
+        }, 1000);
+      })();
+    </script>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

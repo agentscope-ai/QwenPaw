@@ -70,8 +70,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;o
 </div>
 <script>
 (function(){
-  var TIMEOUT=180, POLL=1000, ARC=329.87;
-  var elapsed=0, status='checking', errMsg='', polling=false, apiOk=false;
+  var TIMEOUT=300, POLL=1000, ARC=329.87;
+  var elapsed=0, status='checking', errMsg='';
   var arc=document.getElementById('arc');
   var label=document.getElementById('label');
   var st=document.getElementById('statusText');
@@ -102,57 +102,33 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;o
     }
   }
 
-  async function poll(){
-    if(!polling) return;
-    if(apiOk){
-      try{
-        var r=await window.pywebview.api.check_backend_ready();
-        if(r.status==='ready'){
-          status='ready';
-          st.textContent='Ready! Loading console...';
-          arc.setAttribute('stroke-dasharray',ARC+' 440');
-          window.location.href=r.url;
-          return;
-        }else if(r.status==='error'){
-          status='error'; errMsg=r.error||''; polling=false; ui(); return;
-        }
-      }catch(e){}
-    }
+  function tick(){
     elapsed++;
     if(elapsed>=TIMEOUT){
-      polling=false;
-      if(apiOk){
-        try{var e=await window.pywebview.api.get_startup_error();
-          if(e){status='error';errMsg=e;}else status='timeout';
-        }catch(x){status='timeout';}
-      }else status='timeout';
-      ui(); return;
+      status='timeout';
+      ui();
+      return;
     }
-    ui(); setTimeout(poll,POLL);
+    ui();
+    setTimeout(tick,POLL);
   }
 
-  function start(){
-    elapsed=0;status='checking';errMsg='';polling=true;
-    fail.classList.add('hidden');
-    arc.classList.remove('failed');
-    st.classList.remove('failed');
-    arc.setAttribute('stroke-dasharray','0 440');
-    ui(); setTimeout(poll,POLL);
-  }
-
-  window.doRetry=async function(){
-    if(apiOk){
-      try{
-        st.textContent='Restarting backend...';
-        fail.classList.add('hidden');
-        await window.pywebview.api.restart_backend();
-      }catch(e){}
-    }
-    start();
+  window.setError=function(msg){
+    status='error';
+    errMsg=msg||'';
+    ui();
   };
 
-  window.addEventListener('pywebviewready',function(){apiOk=true;});
-  start();
+  window.setReady=function(){
+    status='ready';
+    st.textContent='Ready! Loading console...';
+    arc.setAttribute('stroke-dasharray',ARC+' 440');
+  };
+
+  window.doRetry=function(){};
+
+  ui();
+  setTimeout(tick,POLL);
 })();
 </script>
 </body>

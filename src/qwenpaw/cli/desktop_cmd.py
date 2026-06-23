@@ -14,19 +14,13 @@ import time
 import traceback
 import webbrowser
 from collections.abc import Mapping
+from pathlib import Path
 
 import click
 
 from ..constant import LOG_LEVEL_ENV, WORKING_DIR
 from ..utils.logging import setup_logger
 from ..utils.port import get_stable_port
-
-try:
-    import tkinter as tk
-    from tkinter import ttk
-except ImportError:
-    tk = None  # type: ignore[assignment]
-    ttk = None  # type: ignore[assignment]
 
 try:
     import webview
@@ -131,137 +125,43 @@ def _stream_reader(in_stream, out_stream) -> None:
             pass
 
 
-def _detect_dark_mode() -> bool:
-    """Detect if the system is using dark mode (Windows 10/11)."""
-    if sys.platform != "win32":
-        return False
-    try:
-        import winreg
+def _wait_for_backend(
+    host: str,
+    port: int,
+    timeout_sec: float = 300.0,
+) -> bool:
+    """Block until backend HTTP is accepting connections."""
+    deadline = time.monotonic() + timeout_sec
+    while time.monotonic() < deadline:
+        try:
+            with socket.socket(
+                socket.AF_INET,
+                socket.SOCK_STREAM,
+            ) as s:
+                s.settimeout(2.0)
+                s.connect((host, port))
+                return True
+        except (OSError, socket.error):
+            time.sleep(1)
+    return False
 
-        with winreg.OpenKey(
-            winreg.HKEY_CURRENT_USER,
-            r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize",
-        ) as key:
-            value, _ = winreg.QueryValueEx(key, "AppsUseLightTheme")
-            return int(value) == 0
-    except Exception:
-        return False
 
+def _terminate_process(proc) -> bool:
+    """Terminate the backend subprocess cleanly.
 
-def _create_loading_window():
-    """Create a tkinter loading window shown while the backend starts.
-
-    Returns:
-        Tuple of (root, progress_bar, loading_label, bg_color, fg_color).
+    Returns True if the process was intentionally terminated.
     """
-    dark = _detect_dark_mode()
-    bg = "#1e1e1e" if dark else "#ffffff"
-    fg = "#e0e0e0" if dark else "#404040"
-    fg_secondary = "#a0a0a0" if dark else "#808080"
-    fg_dim = "#606060" if dark else "#c0c0c0"
-
-    root = tk.Tk()
-    root.title("QwenPaw Desktop")
-    root.geometry("600x400")
-    root.resizable(False, False)
-    root.configure(bg=bg)
-
-    # Center on screen
-    root.update_idletasks()
-    x = root.winfo_screenwidth() // 2 - 300
-    y = root.winfo_screenheight() // 2 - 200
-    root.geometry(f"600x400+{x}+{y}")
-
-    # Brand title
-    tk.Label(
-        root,
-        text="QwenPaw",
-        font=("Segoe UI", 32, "bold"),
-        fg=fg,
-        bg=bg,
-    ).pack(pady=(80, 20))
-
-    # Loading status text
-    loading_label = tk.Label(
-        root,
-        text="\u6b63\u5728\u542f\u52a8...",
-        font=("Segoe UI", 12),
-        fg=fg_secondary,
-        bg=bg,
-    )
-    loading_label.pack(pady=10)
-
-    # Indeterminate progress bar
-    style = ttk.Style(root)
-    style.theme_use("default")
-    pb_style = (
-        "Dark.Horizontal.TProgressbar" if dark else "Horizontal.TProgressbar"
-    )
-    progress_bar = ttk.Progressbar(
-        root,
-        mode="indeterminate",
-        length=400,
-        style=pb_style,
-    )
-    progress_bar.pack(pady=20)
-    progress_bar.start(30)
-
-    # Ensure window is visible before returning
-    root.deiconify()
-    root.update_idletasks()
-
-    return root, progress_bar, loading_label, bg, fg_dim
-
-
-def _set_loading_text(root, label, text, color=None):
-    """Thread-safe update of loading label text."""
-
-    def _update():
-        label.configure(text=text)
-        if color:
-            label.configure(fg=color)
-
-    root.after(0, _update)
-
-
-def _open_webview(url: str) -> None:
-    """Create and run the pywebview main window."""
-    logger.info("Creating webview window...")
-    api = WebViewAPI()
-    webview.create_window(
-        "QwenPaw Desktop",
-        url,
-        width=1280,
-        height=800,
-        text_select=True,
-        js_api=api,
-    )
-    logger.info("Calling webview.start() (blocks until closed)...")
-    # Persist localStorage/cookies across restarts so the
-    # user's agent selection, chat history, and preferences
-    # survive window close.  Without storage_path, WebView2
-    # may use a temp directory that is discarded on restart.
-    webview_storage = str(WORKING_DIR / "webview_data")
-    webview.start(
-        private_mode=False,
-        storage_path=webview_storage,
-    )  # blocks until user closes the window
-    logger.info("webview.start() returned (window closed).")
-
-
-def _terminate_backend_process(proc):
-    """Terminate the backend subprocess cleanly."""
-    global _manually_terminated
     if proc and proc.poll() is None:
         logger.info("Terminating backend server...")
-        _manually_terminated = True
         try:
             proc.terminate()
             try:
                 proc.wait(timeout=5.0)
                 logger.info("Backend server terminated cleanly.")
             except subprocess.TimeoutExpired:
-                logger.warning("Backend did not exit in 5s, force killing...")
+                logger.warning(
+                    "Backend did not exit in 5s, force killing...",
+                )
                 try:
                     proc.kill()
                     proc.wait()
@@ -276,195 +176,12 @@ def _terminate_backend_process(proc):
                 f"terminate() raised {e.__class__.__name__} "
                 f"(process already exited)",
             )
-    elif proc:
-        logger.info(f"Backend already exited with code {proc.returncode}")
-
-
-def _start_backend_and_wait(
-    host,
-    port,
-    log_level,
-    is_windows,
-    env,
-    proc_ref,
-    loading_state,
-    url,
-):
-    """Start backend subprocess and wait for HTTP readiness.
-
-    Runs in a background thread. Updates loading window during wait
-    and opens webview when backend is ready.
-
-    Args:
-        proc_ref: Single-element list; proc_ref[0] is set to the Popen
-            object once the subprocess is created.
-        loading_state: Dict with keys ``root``, ``progress_bar``,
-            ``loading_label``, ``bg``, ``fg_dim``.
-    """
-    root = loading_state["root"]
-    progress_bar = loading_state["progress_bar"]
-    loading_label = loading_state["loading_label"]
-    fg_dim = loading_state["fg_dim"]
-
-    # Start backend subprocess
-    held_socket = loading_state.get("held_socket")
-    if held_socket:
-        held_socket.close()
-
-    try:
-        proc = subprocess.Popen(
-            [
-                sys.executable,
-                "-m",
-                "qwenpaw",
-                "app",
-                "--host",
-                host,
-                "--port",
-                str(port),
-                "--log-level",
-                log_level,
-            ],
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.PIPE if is_windows else sys.stdout,
-            stderr=subprocess.PIPE if is_windows else sys.stderr,
-            env=env,
-            bufsize=1,
-            universal_newlines=True,
+        return True
+    if proc:
+        logger.info(
+            f"Backend already exited with code {proc.returncode}",
         )
-        proc_ref[0] = proc
-    except Exception as exc:
-        logger.exception("Failed to start backend subprocess")
-        _set_loading_text(
-            root,
-            loading_label,
-            f"\u542f\u52a8\u5931\u8d25: {exc}",
-            "#ff4444",
-        )
-        root.after(0, progress_bar.stop)
-        return
-
-    # Start stream reader threads (Windows)
-    if is_windows:
-        for stream_in, stream_out in (
-            (proc.stdout, sys.stdout),
-            (proc.stderr, sys.stderr),
-        ):
-            t = threading.Thread(
-                target=_stream_reader,
-                args=(stream_in, stream_out),
-                daemon=True,
-            )
-            t.start()
-
-    # Poll for HTTP readiness
-    logger.info("Waiting for HTTP ready...")
-    start_time = time.monotonic()
-    timeout_sec = 300.0
-    ready = False
-
-    while time.monotonic() - start_time < timeout_sec:
-        # Check if process exited prematurely
-        if proc.poll() is not None:
-            break
-        try:
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                s.settimeout(2.0)
-                s.connect((host, port))
-                ready = True
-                break
-        except (OSError, socket.error):
-            elapsed = int(time.monotonic() - start_time)
-            _set_loading_text(
-                root,
-                loading_label,
-                f"\u6b63\u5728\u542f\u52a8... ({elapsed}s)",
-            )
-            time.sleep(1)
-
-    # Handle premature process exit
-    if not ready and proc.poll() is not None:
-        logger.error(
-            f"Backend process exited prematurely with code "
-            f"{proc.returncode}",
-        )
-
-        def _show_error():
-            progress_bar.stop()
-            loading_label.configure(
-                text="\u542f\u52a8\u5931\u8d25\uff0c\u8bf7\u91cd\u8bd5",
-                fg="#ff4444",
-            )
-            retry_btn = tk.Button(
-                root,
-                text="\u91cd\u8bd5",
-                command=_do_retry,
-                font=("Segoe UI", 12),
-                width=12,
-            )
-            retry_btn.pack(pady=20)
-
-        def _do_retry():
-            proc_ref[0] = None
-            loading_label.configure(
-                text="\u6b63\u5728\u542f\u52a8...",
-                fg=fg_dim,
-            )
-            progress_bar.start(30)
-            # Remove retry button (last packed widget)
-            for w in root.winfo_children():
-                if isinstance(w, tk.Button):
-                    w.destroy()
-                    break
-            t = threading.Thread(
-                target=_start_backend_and_wait,
-                args=(
-                    host,
-                    port,
-                    log_level,
-                    is_windows,
-                    env,
-                    proc_ref,
-                    loading_state,
-                    url,
-                ),
-                daemon=True,
-            )
-            t.start()
-
-        root.after(0, _show_error)
-        return
-
-    # Backend is ready
-    if ready:
-        logger.info("HTTP ready, transitioning to webview...")
-        _set_loading_text(
-            root,
-            loading_label,
-            "\u542f\u52a8\u5b8c\u6210\uff0c\u6b63\u5728\u6253\u5f00...",
-        )
-        # Signal main thread that backend is ready, then close loading window
-        loading_state["backend_ready"] = True
-        time.sleep(0.3)  # brief pause to show status text
-        root.after(0, root.destroy)  # close from main thread
-    else:
-        # Timeout
-        logger.error("Server did not become ready in time.")
-        loading_state["backend_ready"] = False
-
-        def _show_timeout():
-            progress_bar.stop()
-            loading_label.configure(
-                text="\u542f\u52a8\u8d85\u65f6\uff0c\u8bf7\u91cd\u8bd5",
-                fg="#ff4444",
-            )
-
-        root.after(0, _show_timeout)
-
-
-# Module-level state for backend process lifecycle
-_proc_ref: list = []
-_manually_terminated: bool = False
+    return False
 
 
 @click.command("desktop")
@@ -494,13 +211,8 @@ def desktop_cmd(
     native webview window loading that URL. Use for a dedicated desktop
     window without conflicting with an existing QwenPaw app instance.
     """
-    # Setup logger for desktop command (separate from backend subprocess)
     setup_logger(log_level)
 
-    # get_stable_port() returns (port, socket) 鈥?the socket is kept open
-    # to hold the port until the subprocess is about to bind it, minimizing
-    # the TOCTOU window.  We close it just before Popen so the child can
-    # bind the same port.
     port_file = str(WORKING_DIR / "desktop_port")
     port, held_socket = get_stable_port(port_file, host)
     url = f"http://{host}:{port}"
@@ -522,59 +234,134 @@ def desktop_cmd(
         logger.warning("SSL_CERT_FILE not set on environment")
 
     is_windows = sys.platform == "win32"
+    proc = None
+    manually_terminated = False
 
     try:
-        # Show loading window immediately so the user sees feedback
-        # while the backend starts in the background.
-        (
-            root,
-            progress_bar,
-            loading_label,
-            bg,
-            fg_dim,
-        ) = _create_loading_window()
+        # Release the held socket just before spawning the subprocess
+        if held_socket:
+            held_socket.close()
 
-        proc_ref: list = [None]
-        loading_state = {
-            "root": root,
-            "progress_bar": progress_bar,
-            "loading_label": loading_label,
-            "bg": bg,
-            "fg_dim": fg_dim,
-            "held_socket": held_socket,
-        }
-
-        backend_thread = threading.Thread(
-            target=_start_backend_and_wait,
-            args=(
+        proc = subprocess.Popen(
+            [
+                sys.executable,
+                "-m",
+                "qwenpaw",
+                "app",
+                "--host",
                 host,
-                port,
+                "--port",
+                str(port),
+                "--log-level",
                 log_level,
-                is_windows,
-                env,
-                proc_ref,
-                loading_state,
-                url,
-            ),
-            daemon=True,
+            ],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE if is_windows else sys.stdout,
+            stderr=subprocess.PIPE if is_windows else sys.stderr,
+            env=env,
+            bufsize=1,
+            universal_newlines=True,
         )
-        backend_thread.start()
 
-        root.mainloop()  # blocks until loading window is closed
+        # Start stream readers on Windows
+        if is_windows:
+            for stream_in, stream_out in (
+                (proc.stdout, sys.stdout),
+                (proc.stderr, sys.stderr),
+            ):
+                t = threading.Thread(
+                    target=_stream_reader,
+                    args=(stream_in, stream_out),
+                    daemon=True,
+                )
+                t.start()
 
-        # If backend is ready, open webview on the main thread.
-        # pywebview.start() MUST run on the main thread.
-        if loading_state.get("backend_ready"):
-            _open_webview(url)  # blocks until user closes the window
+        # ---- Show loading page immediately in webview ----
+        loading_html = (
+            Path(__file__).parent / "desktop_loading.html"
+        ).resolve()
+        loading_url = loading_html.as_uri()
+        logger.info(
+            "Creating webview window with loading page: %s",
+            loading_url,
+        )
 
-        # After webview closes, ensure backend process is cleaned up
-        proc = proc_ref[0]
-        _terminate_backend_process(proc)
+        api = WebViewAPI()
+        win = webview.create_window(
+            "QwenPaw Desktop",
+            loading_url,
+            width=1280,
+            height=800,
+            text_select=True,
+            js_api=api,
+        )
 
-        # Report unexpected backend exit
-        if proc and proc.returncode != 0 and not _manually_terminated:
+        start_time = time.monotonic()
+
+        def _backend_monitor() -> None:
+            """Wait for backend HTTP ready, then navigate to it."""
+            logger.info("Waiting for HTTP ready...")
+            if not _wait_for_backend(host, port):
+                logger.error("Server did not become ready in time.")
+                try:
+                    win.evaluate_js(
+                        "if(window.setError)window.setError("
+                        "'\u670d\u52a1\u542f\u52a8\u8d85\u65f6');",
+                    )
+                except Exception:
+                    pass
+                return
+
+            elapsed = int(time.monotonic() - start_time)
+            console_url = f"{url}/#_ls={elapsed}"
+            logger.info(
+                "Backend ready after %ds, navigating to %s",
+                elapsed,
+                console_url,
+            )
+            try:
+                # Store elapsed seconds in sessionStorage for
+                # the Console overlay to pick up
+                win.evaluate_js(
+                    f"try{{sessionStorage.setItem("
+                    f"'qp_ls','{elapsed}')"
+                    f"}}catch(e){{}}",
+                )
+                time.sleep(0.15)
+                win.load_url(console_url)
+            except Exception as exc:
+                logger.error("load_url failed: %s", exc)
+                try:
+                    win.evaluate_js(
+                        "if(window.setError)window.setError("
+                        "'\u9875\u9762\u52a0\u8f7d\u5931\u8d25');",
+                    )
+                except Exception:
+                    pass
+
+        mon = threading.Thread(target=_backend_monitor, daemon=True)
+        mon.start()
+
+        # webview.start() blocks until the window is closed
+        logger.info(
+            "Calling webview.start() (blocks until closed)...",
+        )
+        webview_storage = str(WORKING_DIR / "webview_data")
+        webview.start(
+            private_mode=False,
+            storage_path=webview_storage,
+        )
+        logger.info(
+            "webview.start() returned (window closed).",
+        )
+
+        # Cleanup backend
+        manually_terminated = _terminate_process(proc)
+
+        # Report unexpected exit
+        if proc and proc.returncode != 0 and not manually_terminated:
             logger.error(
-                f"Backend process exited unexpectedly with code "
+                "Backend process exited unexpectedly with code "
                 f"{proc.returncode}",
             )
             if proc.returncode < 0:
