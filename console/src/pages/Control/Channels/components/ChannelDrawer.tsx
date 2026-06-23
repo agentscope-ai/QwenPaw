@@ -60,6 +60,7 @@ const CHANNEL_DOC_EN_URLS: Partial<Record<ChannelKey, string>> = {
   yuanbao: "https://qwenpaw.agentscope.io/docs/channels/?lang=en#Yuanbao",
   onebot:
     "https://qwenpaw.agentscope.io/docs/channels/?lang=en#OneBot-v11-NapCat--QQ-full-protocol",
+  slack: "https://qwenpaw.agentscope.io/docs/channels/?lang=en#Slack",
 };
 
 // Doc ZH URLs per channel (anchors on https://qwenpaw.agentscope.io/docs/channels)
@@ -83,6 +84,7 @@ const CHANNEL_DOC_ZH_URLS: Partial<Record<ChannelKey, string>> = {
     "https://qwenpaw.agentscope.io/docs/channels/?lang=zh#腾讯元宝Yuanbao",
   onebot:
     "https://qwenpaw.agentscope.io/docs/channels/?lang=zh#OneBot-v11NapCat--QQ-完整协议",
+  slack: "https://qwenpaw.agentscope.io/docs/channels/?lang=zh#Slack",
 };
 
 const TWILIO_CONSOLE_URL = "https://console.twilio.com";

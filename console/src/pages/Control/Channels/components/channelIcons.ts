@@ -13,7 +13,7 @@ export const CHANNEL_ICON_URLS: Record<string, string> = {
   telegram:
     "https://gw.alicdn.com/imgextra/i2/O1CN0100jIva25Dqqq1VqJN_!!6000000007493-2-tps-400-400.png",
   slack:
-    "https://a.slack-edge.com/38f0e7c/marketing/img/nav/slack-salesforce-logo-nav-black@2x.png",
+    "https://gw.alicdn.com/imgextra/i2/O1CN01JcOK7v1GqHhRjG0fy_!!6000000000673-2-tps-512-512.png",
   mqtt: "https://gw.alicdn.com/imgextra/i2/O1CN0117Adu3282o9G5ZNCd_!!6000000007875-2-tps-400-400.png",
   imessage:
     "https://gw.alicdn.com/imgextra/i1/O1CN016pwG4m1uEntwJKsGl_!!6000000006006-2-tps-400-400.png",

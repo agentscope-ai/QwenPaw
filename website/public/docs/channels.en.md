@@ -1318,7 +1318,7 @@ After configuration, start a call from your SIP phone or browser:
 
 1. Go to [https://api.slack.com/apps](https://api.slack.com/apps), click **Create New App** → **From a manifest**.
 
-   ![Create App from manifest](<!-- IMAGE: screenshot of "Create New App" dropdown with "From a manifest" highlighted -->)
+   ![Create App from manifest](https://img.alicdn.com/imgextra/i2/O1CN01K6LQ851dgsjSspFNi_!!6000000003766-2-tps-1760-1043.png)
 
 2. Select the workspace you want to install the app to, then paste the following manifest (JSON format):
 
@@ -1326,56 +1326,60 @@ After configuration, start a call from your SIP phone or browser:
 
 ```json
 {
-    "display_information": {
-        "name": "Demo App"
-    },
-    "features": {
-        "bot_user": {
-            "display_name": "Demo App",
-            "always_online": false
-        }
-    },
-    "oauth_config": {
-        "scopes": {
-            "bot": [
-                "chat:write",
-                "files:read",
-                "files:write",
-                "im:history",
-                "mpim:history",
-                "channels:history",
-                "groups:history",
-                "app_mentions:read"
-            ]
-        }
-    },
-    "settings": {
-        "event_subscriptions": {
-            "bot_events": [
-                "app_mention",
-                "message.channels",
-                "message.groups",
-                "message.im",
-                "message.mpim"
-            ]
-        },
-        "interactivity": {
-            "is_enabled": true
-        },
-        "org_deploy_enabled": false,
-        "socket_mode_enabled": true,
-        "token_rotation_enabled": false
+  "display_information": {
+    "name": "Demo App"
+  },
+  "features": {
+    "bot_user": {
+      "display_name": "Demo App",
+      "always_online": false
     }
+  },
+  "oauth_config": {
+    "scopes": {
+      "bot": [
+        "chat:write",
+        "files:read",
+        "files:write",
+        "im:history",
+        "mpim:history",
+        "channels:history",
+        "groups:history",
+        "app_mentions:read",
+        "users:read",
+        "commands"
+      ]
+    }
+  },
+  "settings": {
+    "event_subscriptions": {
+      "bot_events": [
+        "app_mention",
+        "message.channels",
+        "message.groups",
+        "message.im",
+        "message.mpim"
+      ]
+    },
+    "interactivity": {
+      "is_enabled": true
+    },
+    "org_deploy_enabled": false,
+    "socket_mode_enabled": true,
+    "token_rotation_enabled": false
+  }
 }
 ```
 
+![Paste JSON config](https://img.alicdn.com/imgextra/i1/O1CN01XtgiMy1IkuHXafxzg_!!6000000000932-2-tps-1765-1046.png)
+
 3. Review the summary and click **Create**.
 
-   ![Manifest review](<!-- IMAGE: screenshot of manifest review page before clicking Create -->)
+   ![Manifest review](https://img.alicdn.com/imgextra/i3/O1CN01M076Oa1OmdTIpshdZ_!!6000000001748-2-tps-1758-1042.png)
 
 4. In **Features → App Home**, check **"Allow users to send Slash commands and messages from the messages tab"**.
 
-   ![App Home Messages Tab](<!-- IMAGE: screenshot of App Home page with Messages Tab enabled and checkbox checked -->)
+   ![App Home Messages Tab](https://img.alicdn.com/imgextra/i2/O1CN01wvaTja1qARggWd6RB_!!6000000005455-2-tps-1752-1044.png)
 
 ### Get Tokens
 
@@ -1383,11 +1387,11 @@ After the app is created, you need two tokens:
 
 1. **App-Level Token** — In **Settings → Basic Information**, scroll to **App-Level Tokens**, click **Generate Token and Scopes**, add the `connections:write` scope, and copy the token (starts with `xapp-`).
 
-   ![Generate App Token](<!-- IMAGE: screenshot of App-Level Token generation dialog -->)
+   ![Generate App Token](https://img.alicdn.com/imgextra/i4/O1CN01OGk6GU1zpVk1zp8Ua_!!6000000006763-2-tps-1793-1079.png)
 
 2. **Bot Token** — In **Settings → Install App**, click **Install to Workspace**, authorize, then copy the **Bot User OAuth Token** (starts with `xoxb-`).
 
-   ![Install App](<!-- IMAGE: screenshot of Install App page showing xoxb token -->)
+   ![Install App](https://img.alicdn.com/imgextra/i1/O1CN01AjFgQN1al3UjLne0H_!!6000000003369-2-tps-1790-1080.png)
 
 3. Invite the bot to each channel by typing `/invite @YourBotName` in Slack.
 
@@ -1422,13 +1426,8 @@ Find `channels.slack` in your agent's `agent.json` (e.g., `~/.qwenpaw/workspaces
 | `proxy`             | string | `""`            | HTTP proxy URL for connecting to Slack API (e.g., `http://127.0.0.1:18118`) |
 | `streaming_enabled` | bool   | `false`         | Enable incremental message rendering via chat.update edits                  |
 
-### Multimodal Support
-
-Slack supports sending and receiving **all file types** — images, audio, video, PDFs, and arbitrary files are all handled natively. When a user uploads a file in a conversation with the bot, QwenPaw will automatically download and process it as a multimodal input.
-
 ### Notes
 
-- In channels, the bot **only responds when @mentioned**. Thread replies also require @mention. In DMs the bot responds to every message.
 - QwenPaw magic commands (e.g., `/stop`, `/model list`) can be sent as native Slack slash commands. You can also type them as plain messages — just prefix with a space (` /stop`) to bypass Slack's slash-command interception in threads.
 - If you change scopes or event subscriptions later, you **must reinstall the app** for the changes to take effect.
 - To control who can interact with the bot, use the access control fields (`access_control_dm`, `access_control_group`). Slack uses **Member IDs** (e.g., `U01ABC2DEF3`) for user identification — find them via profile → ⋮ → Copy member ID.
