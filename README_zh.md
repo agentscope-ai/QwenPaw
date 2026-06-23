@@ -251,36 +251,6 @@ docker run -p 127.0.0.1:8088:8088 \
 
 然后在浏览器中打开控制台：**http://127.0.0.1:8088/** 。配置、记忆与 Skills 保存在 `qwenpaw-data` 卷中；模型配置与 API Key 保存在 `qwenpaw-secrets` 卷中；备份归档保存在 `qwenpaw-backups` 卷中。如需传入 API Key（如 `DASHSCOPE_API_KEY`），在 `docker run` 时添加 `-e VAR=value` 或 `--env-file .env`。
 
-Langfuse tracing 是可选功能。如果不使用 Langfuse，不需要安装额外依赖或配置。
-如需启用，请先安装 Langfuse SDK，并传入 Langfuse 凭据。`LANGFUSE_BASE_URL`
-可以指向 Langfuse Cloud，也可以指向自托管的 Langfuse 实例。
-
-源码或本地部署：
-
-```bash
-pip install "langfuse>=4,<5"
-```
-
-Docker 部署可基于官方镜像构建一个小的自定义镜像：
-
-```dockerfile
-FROM agentscope/qwenpaw:latest
-RUN pip install --no-cache-dir "langfuse>=4,<5"
-```
-
-然后通过环境变量运行 QwenPaw：
-
-```bash
-docker run -p 127.0.0.1:8088:8088 \
-  -e LANGFUSE_SECRET_KEY=sk-lf-... \
-  -e LANGFUSE_PUBLIC_KEY=pk-lf-... \
-  -e LANGFUSE_BASE_URL=https://your-langfuse.example.com \
-  -v qwenpaw-data:/app/working \
-  -v qwenpaw-secrets:/app/working.secret \
-  -v qwenpaw-backups:/app/working.backups \
-  qwenpaw-langfuse:latest
-```
-
 > **从容器内连接宿主机上的 Ollama 或其他模型服务**
 >
 > Docker 容器内的 `localhost` 指向容器自身，而非宿主机。如果 Ollama（或其他模型服务）运行在宿主机上，可通过以下方式让容器内的 QwenPaw 访问：

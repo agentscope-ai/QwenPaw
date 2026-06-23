@@ -185,36 +185,6 @@ docker run -p 127.0.0.1:8088:8088 \
 
 然后在浏览器打开 **http://127.0.0.1:8088/** 进入控制台。配置、记忆与 Skills 保存在 `qwenpaw-data` 卷中；模型配置与 API Key 保存在 `qwenpaw-secrets` 卷中；备份归档保存在 `qwenpaw-backups` 卷中。传入 API Key 可在 `docker run` 时加 `-e DASHSCOPE_API_KEY=xxx` 或 `--env-file .env`。
 
-Langfuse tracing 是可选功能。如果不使用 Langfuse，不需要安装额外依赖或配置。
-如需启用，请先安装 Langfuse SDK，并传入 Langfuse 凭据。`LANGFUSE_BASE_URL`
-可以指向 Langfuse Cloud，也可以指向自托管的 Langfuse 实例。
-
-源码或本地部署：
-
-```bash
-pip install "langfuse>=4,<5"
-```
-
-Docker 部署可基于官方镜像构建一个小的自定义镜像：
-
-```dockerfile
-FROM agentscope/qwenpaw:latest
-RUN pip install --no-cache-dir "langfuse>=4,<5"
-```
-
-然后通过环境变量运行 QwenPaw：
-
-```bash
-docker run -p 127.0.0.1:8088:8088 \
-  -e LANGFUSE_SECRET_KEY=sk-lf-... \
-  -e LANGFUSE_PUBLIC_KEY=pk-lf-... \
-  -e LANGFUSE_BASE_URL=https://your-langfuse.example.com \
-  -v qwenpaw-data:/app/working \
-  -v qwenpaw-secrets:/app/working.secret \
-  -v qwenpaw-backups:/app/working.backups \
-  qwenpaw-langfuse:latest
-```
-
 ---
 
 ## 方式四：部署到阿里云 ECS
@@ -344,6 +314,38 @@ QwenPaw 需要大语言模型才能工作。你可以选择以下任一方式：
 2. 选择要接入的频道
 3. 按照 [频道配置](./channels) 文档获取凭据并填写
 4. 保存后即可在对应 app 中发消息给 QwenPaw
+
+#### 📊 启用 Langfuse tracing
+
+Langfuse tracing 是可选功能。如果不使用 Langfuse，不需要安装额外依赖或配置。
+如需启用，请先安装 Langfuse SDK，并传入 Langfuse 凭据。`LANGFUSE_BASE_URL`
+可以指向 Langfuse Cloud，也可以指向自托管的 Langfuse 实例。
+
+源码或本地部署：
+
+```bash
+pip install "langfuse>=4,<5"
+```
+
+Docker 部署可基于官方镜像构建一个小的自定义镜像：
+
+```dockerfile
+FROM agentscope/qwenpaw:latest
+RUN pip install --no-cache-dir "langfuse>=4,<5"
+```
+
+然后通过环境变量运行 QwenPaw：
+
+```bash
+docker run -p 127.0.0.1:8088:8088 \
+  -e LANGFUSE_SECRET_KEY=sk-lf-... \
+  -e LANGFUSE_PUBLIC_KEY=pk-lf-... \
+  -e LANGFUSE_BASE_URL=https://your-langfuse.example.com \
+  -v qwenpaw-data:/app/working \
+  -v qwenpaw-secrets:/app/working.secret \
+  -v qwenpaw-backups:/app/working.backups \
+  qwenpaw-langfuse:latest
+```
 
 #### 🔧 启用和扩展技能
 
