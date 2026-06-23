@@ -40,6 +40,7 @@ Exit codes:
     2  argument / configuration error
     3  UI driver could not be initialised (missing browser / driver)
 """
+
 from __future__ import annotations
 
 import abc
@@ -251,6 +252,7 @@ class PlaywrightDriver(UIDriver):
         browser: str = "chromium",
         screenshot_dir: Optional[str] = None,
         headless: bool = True,
+        cdp_url: str = "",
     ) -> None:
         self._screenshot_dir = screenshot_dir
         if screenshot_dir:
@@ -261,19 +263,39 @@ class PlaywrightDriver(UIDriver):
         except ImportError as exc:
             raise UIDriverInitError(
                 "playwright is not installed; "
-                "run 'pip install -r scripts/verify/requirements-verify.txt'",
+                "run 'pip install -r scripts/verify/"
+                "requirements-verify.txt'",
             ) from exc
 
         try:
             self._pw = sync_playwright().start()
-            launcher = getattr(self._pw, browser, None)
-            if launcher is None:
-                raise UIDriverInitError(
-                    f"playwright has no browser '{browser}'",
-                )
-            self._browser = launcher.launch(headless=headless)
-            self._context = self._browser.new_context()
-            self._page = self._context.new_page()
+            if cdp_url:
+                self._browser = self._pw.chromium.connect_over_cdp(cdp_url)
+                for _ in range(60):
+                    if (
+                        self._browser.contexts
+                        and self._browser.contexts[0].pages
+                    ):
+                        break
+                    time.sleep(0.5)
+                if (
+                    not self._browser.contexts
+                    or not self._browser.contexts[0].pages
+                ):
+                    raise UIDriverInitError(
+                        "CDP connected but no page appeared within 30s",
+                    )
+                self._context = self._browser.contexts[0]
+                self._page = self._context.pages[0]
+            else:
+                launcher = getattr(self._pw, browser, None)
+                if launcher is None:
+                    raise UIDriverInitError(
+                        f"playwright has no browser '{browser}'",
+                    )
+                self._browser = launcher.launch(headless=headless)
+                self._context = self._browser.new_context()
+                self._page = self._context.new_page()
         except UIDriverInitError:
             raise
         except Exception as exc:  # noqa: BLE001
@@ -294,6 +316,14 @@ class PlaywrightDriver(UIDriver):
 
     def open(self, url: str) -> None:
         self._page.goto(url, timeout=self.NAVIGATE_TIMEOUT_MS)
+        self._page.locator(SEL_INPUT).first.wait_for(
+            state="visible",
+            timeout=self.INPUT_VISIBLE_TIMEOUT_MS,
+        )
+        self._screenshot("01-page-loaded")
+
+    def wait_for_input(self) -> None:
+        """Wait for chat input on the current page (no navigation)."""
         self._page.locator(SEL_INPUT).first.wait_for(
             state="visible",
             timeout=self.INPUT_VISIBLE_TIMEOUT_MS,
@@ -613,6 +643,7 @@ def make_driver(
     ui_mode: str,
     screenshot_dir: Optional[str] = None,
     headless: bool = True,
+    cdp_url: str = "",
 ) -> UIDriver:
     """Build a concrete ``UIDriver`` for the requested mode."""
     if ui_mode == "legacy":
@@ -620,7 +651,12 @@ def make_driver(
     if ui_mode == "tauri-macos":
         return PlaywrightDriver("webkit", screenshot_dir, headless)
     if ui_mode == "tauri-windows":
-        return PlaywrightDriver("chromium", screenshot_dir, headless)
+        return PlaywrightDriver(
+            "chromium",
+            screenshot_dir,
+            headless,
+            cdp_url,
+        )
     raise UIDriverInitError(f"unknown ui-mode: {ui_mode!r}")
 
 
@@ -633,6 +669,7 @@ def verify_ui_chat(
     driver: UIDriver,
     base_url: str,
     timeout: int,
+    skip_navigate: bool = False,
 ) -> None:
     """Drive the real SPA with one factual question to prove LLM works.
 
@@ -660,8 +697,12 @@ def verify_ui_chat(
         "8849",
     )
 
-    print(f"--> opening UI at {base_url}")
-    driver.open(base_url)
+    if skip_navigate:
+        print("--> CDP mode: waiting for SPA on existing page")
+        driver.wait_for_input()
+    else:
+        print(f"--> opening UI at {base_url}")
+        driver.open(base_url)
     print("PASS  UI loaded, chat input visible")
 
     question = "What is the tallest mountain in the world?"
@@ -750,6 +791,13 @@ def main() -> int:
         help="Run the browser in headed mode (visible window) "
         "instead of headless. Requires a display server.",
     )
+    parser.add_argument(
+        "--cdp-url",
+        default="",
+        help="CDP endpoint URL (e.g. http://127.0.0.1:9222). "
+        "When set, connects to the existing WebView2 via CDP "
+        "instead of launching a new Playwright browser.",
+    )
     args = parser.parse_args()
 
     base_url = args.base_url.rstrip("/")
@@ -797,11 +845,17 @@ def main() -> int:
                     args.ui_mode,
                     ss_dir,
                     headless=not args.headed,
+                    cdp_url=args.cdp_url,
                 )
             except UIDriverInitError as exc:
                 print(f"FAIL  UI driver init: {exc}", file=sys.stderr)
                 return 3
-            verify_ui_chat(driver, base_url, args.timeout)
+            verify_ui_chat(
+                driver,
+                base_url,
+                args.timeout,
+                skip_navigate=bool(args.cdp_url),
+            )
     except RuntimeError as exc:
         print(f"FAIL  {exc}", file=sys.stderr)
         return 1

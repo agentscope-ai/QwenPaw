@@ -68,13 +68,27 @@ if (-not $tauriExe) {
 }
 Write-Host "Installed at: $tauriExe"
 
+# 2b. Verify WebView2 bootstrapper is bundled in the install.
+$installRoot = Split-Path $tauriExe -Parent
+$wv2Files = Get-ChildItem -Path $installRoot -Filter "*WebView2*" `
+  -Recurse -Depth 3 -ErrorAction SilentlyContinue
+if ($wv2Files) {
+  Write-Host "WebView2 bootstrapper present: $($wv2Files[0].Name)"
+} else {
+  Write-Host "::warning::WebView2 bootstrapper not found in install dir"
+}
+
 # 3. Pre-delete BOOTSTRAP.md so the agent answers in plain QA mode.
 $wsDir = Join-Path $env:USERPROFILE ".qwenpaw\workspaces\default"
 New-Item -ItemType Directory -Force -Path $wsDir | Out-Null
 $bootstrapMd = Join-Path $wsDir "BOOTSTRAP.md"
 if (Test-Path $bootstrapMd) { Remove-Item -Force $bootstrapMd }
 
-# 4. Launch the full Tauri shell (matches real user double-click).
+# 4. Launch the full Tauri shell with CDP debugging enabled.
+#    This makes WebView2 expose a Chrome DevTools Protocol port so
+#    Playwright can connect_over_cdp() to the real embedded webview.
+$cdpPort = 9222
+$env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = "--remote-debugging-port=$cdpPort"
 Start-Process -FilePath $tauriExe
 
 # 5. Wait for the sidecar to write the port file and respond.
@@ -104,7 +118,29 @@ if (-not $port) {
   exit 1
 }
 
+# 6. Wait for CDP endpoint to become available.
+$cdpUrl = "http://127.0.0.1:$cdpPort"
+$cdpReady = $false
+for ($i = 1; $i -le 30; $i++) {
+  try {
+    $r = Invoke-WebRequest -Uri "$cdpUrl/json/version" `
+      -UseBasicParsing -TimeoutSec 3 -ErrorAction Stop
+    if ($r.StatusCode -eq 200) {
+      Write-Host "CDP ready at $cdpUrl"
+      $cdpReady = $true
+      break
+    }
+  } catch { Start-Sleep -Seconds 2 }
+}
+if (-not $cdpReady) {
+  Write-Host "::warning::CDP not available, falling back to standalone browser"
+  $cdpUrl = ""
+}
+
 $baseUrl = "http://127.0.0.1:$port"
 $env:BASE_URL = $baseUrl
+$env:CDP_URL = $cdpUrl
 "BASE_URL=$baseUrl" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-Write-Host $baseUrl
+"CDP_URL=$cdpUrl" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+Write-Host "BASE_URL=$baseUrl"
+Write-Host "CDP_URL=$cdpUrl"

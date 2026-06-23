@@ -380,7 +380,8 @@ jobs:
           python scripts/verify/desktop_verify.py `
             --base-url $env:BASE_URL `
             --ui-mode tauri-windows `
-            --headed
+            --headed `
+            --cdp-url $env:CDP_URL
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Stop desktop server
