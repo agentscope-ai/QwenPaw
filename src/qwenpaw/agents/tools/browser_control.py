@@ -268,6 +268,7 @@ def _make_fresh_state(workspace_id: str, workspace_dir: str) -> dict[str, Any]:
         "pending_file_choosers": {},  # page_id -> FileChooser list
         "headless": True,
         "session_pages": {},
+        "_active_session_id": None,
         "_lock": asyncio.Lock(),
         "page_counter": 0,
         "last_activity_time": 0.0,  # monotonic timestamp of last browser activity
@@ -298,8 +299,12 @@ def _get_workspace_state(
     return _workspace_states[workspace_id]
 
 
+def _get_active_session_id(state: dict) -> str:
+    return str(state.get("_active_session_id") or "default")
+
+
 def _get_session_data(state: dict, session_id: str | None = None) -> dict:
-    session_id = session_id or "default"
+    session_id = session_id or _get_active_session_id(state)
     sp = state.setdefault("session_pages", {})
     return sp.setdefault(
         session_id,
@@ -365,13 +370,6 @@ def _real_page_is_referenced(state: dict, real_page_id: str) -> bool:
         if real_page_id in sd.get("map", {}).values():
             return True
     return False
-
-
-def _find_session_for_real_page(state: dict, real_page_id: str) -> str | None:
-    for sid, sd in state.get("session_pages", {}).items():
-        if real_page_id in sd.get("map", {}).values():
-            return sid
-    return None
 
 
 def _replace_page_id_values(
@@ -481,6 +479,7 @@ def _reset_browser_state(state: dict) -> None:
     state["pending_dialogs"].clear()
     state["pending_file_choosers"].clear()
     state["session_pages"].clear()
+    state["_active_session_id"] = None
     state["page_counter"] = 0
     state["last_activity_time"] = 0.0
     state["headless"] = True
@@ -1092,26 +1091,12 @@ def _attach_context_listeners(state: dict, context) -> None:
     def on_page(page):
         new_id = _next_page_id(state)
         _register_page(state, page, new_id)
-        session_id = None
-        try:
-            opener = page.opener
-            if callable(opener):
-                opener = opener()
-            if opener:
-                for rid, p in state.get("pages", {}).items():
-                    if p is opener:
-                        session_id = _find_session_for_real_page(state, rid)
-                        break
-        except Exception:
-            pass
-        if not session_id:
-            session_id = "default"
-        vid = _session_add_page(state, new_id, session_id)
+        vid = _session_add_page(state, new_id)
         logger.debug(
             "New tab opened by page, real_id=%s, virtual_id=%s, session=%s",
             new_id,
             vid,
-            session_id,
+            _get_active_session_id(state),
         )
 
     context.on("page", on_page)
@@ -4863,6 +4848,7 @@ async def browser_use(  # pylint: disable=R0911,R0912
     }
 
     async with state["_lock"]:
+        state["_active_session_id"] = _session_id
         if action in _NO_PAGE_ACTIONS:
             pass
         elif action == "open":
