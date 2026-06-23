@@ -234,11 +234,8 @@ class CommandHandler(ConversationCommandHandlerMixin):
                 f"- Use `/clear` to reset the context if needed",
             )
 
-        if (
-            self._has_memory_manager()
-            and agent_config.running
-            .reme_light_memory_config.summarize_when_compact
-        ):
+        reme_cfg = agent_config.running.reme_light_memory_config
+        if self._has_memory_manager() and reme_cfg.summarize_when_compact:
             self.memory_manager.add_summarize_task(messages=messages)
 
         summary = self._get_summary()
