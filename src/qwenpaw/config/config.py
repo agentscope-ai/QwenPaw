@@ -526,7 +526,7 @@ class AutoMemorySearchConfig(BaseModel):
     )
 
     min_score: float = Field(
-        default=0.3,
+        default=0,
         ge=0.0,
         le=1.0,
         description=(
@@ -617,6 +617,16 @@ class ReMeLightMemoryConfig(BaseModel):
 
     model_config = ConfigDict(extra="ignore")
 
+    metadata_dir: str = Field(default="mem_metadata", description="Subdirectory for ReMe persistent state")
+    session_dir: str = Field(default="mem_session", description="Subdirectory for persisted agent sessions")
+    resource_dir: str = Field(default="resource", description="Subdirectory for external assets")
+    daily_dir: str = Field(default="memory", description="Subdirectory for daily memory")
+    digest_dir: str = Field(default="digest", description="Subdirectory for digest memory")
+    enable_search_raw_log: bool = Field(
+        default=False,
+        description="Whether to enable raw log search",
+    )
+
     summarize_when_compact: bool = Field(
         default=True,
         description="Whether to enable memory summarization during compaction",
@@ -654,14 +664,6 @@ class ReMeLightMemoryConfig(BaseModel):
         ),
     )
 
-    recursive_file_watcher: bool = Field(
-        default=False,
-        description=(
-            "Whether to watch memory directory recursively. "
-            "Set to True to include subdirectories like memory/subdirectory/* "
-            "in vector search indexing."
-        ),
-    )
 
 
 class ContextCompactConfig(BaseModel):

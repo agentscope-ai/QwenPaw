@@ -53,12 +53,9 @@ class BaseMemoryManager(ABC):
         """
 
     @abstractmethod
-    def get_memory_prompt(self, language: str = "zh") -> str:
+    def get_memory_prompt(self) -> str:
         """Return the memory guidance prompt for inclusion
         in the system prompt.
-
-        Args:
-            language: Language code (``"zh"`` or ``"en"``).
 
         Returns:
             Formatted memory guidance string.

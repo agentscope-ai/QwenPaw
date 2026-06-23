@@ -142,8 +142,10 @@ class ADBPGMemoryManager(BaseMemoryManager):
         self._client = None
         return True
 
-    def get_memory_prompt(self, language: str = "zh") -> str:
+    def get_memory_prompt(self) -> str:
         """Return ADBPG memory guidance prompt."""
+        agent_config = load_agent_config(self.agent_id)
+        language = getattr(agent_config, "language", "zh") or "zh"
         prompts = {
             "zh": ADBPG_MEMORY_GUIDANCE_ZH,
             "en": ADBPG_MEMORY_GUIDANCE_EN,

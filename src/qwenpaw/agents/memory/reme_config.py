@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Embedded ReMe4 application configuration for QwenPaw memory.
+"""Embedded ReMe application configuration for QwenPaw memory.
 
 ReMe's standalone CLI normally loads YAML such as
 ``reme/config/default.yaml`` or ``reme/config/qwenpaw.yaml``.  QwenPaw embeds
@@ -10,19 +10,27 @@ dict directly to ``reme.application.Application`` / ``reme.reme.ReMe``.
 from copy import deepcopy
 from typing import Any
 
+from qwenpaw.config.config import AgentProfileConfig
+
 
 def build_reme_app_config(
     *,
     working_dir: str,
-    agent_config: Any,
+    agent_config: AgentProfileConfig,
     user_timezone: str | None = None,
 ) -> dict[str, Any]:
-    """Build ReMe4 ``Application`` kwargs for embedded QwenPaw usage."""
-    cfg = _base_config()
+    """Build ReMe ``Application`` kwargs for embedded QwenPaw usage."""
+    reme_config = agent_config.running.reme_light_memory_config
+    cfg = _base_config(reme_config.enable_search_raw_log)
     cfg.update(
         {
-            "vault_dir": working_dir,
-            "language": getattr(agent_config, "language", "zh"),
+            "workspace_dir": working_dir,
+            "metadata_dir": reme_config.metadata_dir,
+            "session_dir": reme_config.session_dir,
+            "resource_dir": reme_config.resource_dir,
+            "daily_dir": reme_config.daily_dir,
+            "digest_dir": reme_config.digest_dir,
+            "language": agent_config.language,
             "timezone": user_timezone or "Asia/Shanghai",
             "enable_logo": False,
             "log_to_console": False,
@@ -33,15 +41,21 @@ def build_reme_app_config(
     return cfg
 
 
-def _base_config() -> dict[str, Any]:
-    """Return the ReMe4 config shape used by QwenPaw."""
+def _base_config(enable_search_raw_log: bool = False) -> dict[str, Any]:
+    """Return the ReMe config shape used by QwenPaw."""
+    if enable_search_raw_log:
+        watch_dirs = ["daily_dir", "digest_dir", "resource_dir"]
+        watch_suffixes = ["md", "jsonl"]
+    else:
+        watch_dirs = ["daily_dir", "digest_dir"]
+        watch_suffixes = ["md"]
+
     return {
-        "service": {"backend": "http"},
         "jobs": {
             "index_update_loop": {
                 "backend": "background",
-                "watch_dirs": ["daily_dir", "digest_dir"],
-                "watch_suffixes": ["md"],
+                "watch_dirs": watch_dirs,
+                "watch_suffixes": watch_suffixes,
                 "steps": [
                     {
                         "backend": "init_changes_step",
@@ -55,43 +69,43 @@ def _base_config() -> dict[str, Any]:
                     },
                 ],
             },
-            "resource_watch_loop": {
-                "backend": "background",
-                "watch_dirs": ["resource_dir"],
-                "watch_suffixes": [
-                    "md",
-                    "txt",
-                    "json",
-                    "jsonl",
-                    "csv",
-                    "yaml",
-                    "html",
-                ],
-                "steps": [
-                    {
-                        "backend": "init_changes_step",
-                        "monitor_type": "file_catalog",
-                        "monitor_name": "resource",
-                        "dispatch_steps": [
-                            {
-                                "backend": "update_catalog_step",
-                                "file_catalog": "resource",
-                            },
-                            {"backend": "auto_resource_step"},
-                        ],
-                    },
-                    {
-                        "backend": "watch_changes_step",
-                        "dispatch_steps": [
-                            {
-                                "backend": "update_catalog_step",
-                                "file_catalog": "resource",
-                            },
-                            {"backend": "auto_resource_step"},
-                        ],
-                    },
-                ],
-            },
+            # "resource_watch_loop": {
+            #     "backend": "background",
+            #     "watch_dirs": ["resource_dir"],
+            #     "watch_suffixes": [
+            #         "md",
+            #         "txt",
+            #         "json",
+            #         "jsonl",
+            #         "csv",
+            #         "yaml",
+            #         "html",
+            #     ],
+            #     "steps": [
+            #         {
+            #             "backend": "init_changes_step",
+            #             "monitor_type": "file_catalog",
+            #             "monitor_name": "resource",
+            #             "dispatch_steps": [
+            #                 {
+            #                     "backend": "update_catalog_step",
+            #                     "file_catalog": "resource",
+            #                 },
+            #                 {"backend": "auto_resource_step"},
+            #             ],
+            #         },
+            #         {
+            #             "backend": "watch_changes_step",
+            #             "dispatch_steps": [
+            #                 {
+            #                     "backend": "update_catalog_step",
+            #                     "file_catalog": "resource",
+            #                 },
+            #                 {"backend": "auto_resource_step"},
+            #             ],
+            #         },
+            #     ],
+            # },
             "version": {
                 "backend": "base",
                 "description": "return reme package version",
@@ -566,7 +580,7 @@ def _configure_embedding(
 def get_reme_app_config(
     *,
     working_dir: str,
-    agent_config: Any,
+    agent_config: AgentProfileConfig,
     user_timezone: str | None = None,
 ) -> dict[str, Any]:
     """Public wrapper returning a deep copy safe for caller mutation."""

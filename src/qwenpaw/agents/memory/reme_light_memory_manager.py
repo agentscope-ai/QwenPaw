@@ -1,25 +1,28 @@
 # -*- coding: utf-8 -*-
-"""ReMe4-backed memory manager for agents.
+"""ReMe-backed memory manager for agents.
 
 The public class and registry key keep the historical ``ReMeLight`` naming so
 existing agent configs continue to work, but the implementation delegates to
-ReMe4's application/job framework.
+ReMe's application/job framework.
 """
 
+import json
 import logging
+import uuid
 from contextlib import suppress
 from typing import Any, TYPE_CHECKING
 
 from agentscope.message import Msg, TextBlock
-from agentscope.message import ToolResultState
+from agentscope.message import ToolCallBlock, ToolCallState
+from agentscope.message import ToolResultBlock, ToolResultState
 from agentscope.tool import ToolChunk
 
 from .base_memory_manager import BaseMemoryManager, memory_registry
-from .prompts import MEMORY_GUIDANCE_EN, MEMORY_GUIDANCE_ZH
+from .prompts import build_memory_guidance_prompt
 from .reme_config import get_reme_app_config
 from ..model_factory import create_model_and_formatter
 from ...config import load_config
-from ...config.config import load_agent_config
+from ...config.config import load_agent_config, AgentProfileConfig
 
 if TYPE_CHECKING:
     from reme import ReMe
@@ -27,6 +30,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 MAX_QUERY_CHARS = 50
+MAX_PERSISTED_REPLY_IDS = 1000
 NO_MEMORY_RESULTS = "(no memory results)"
 
 
@@ -40,17 +44,17 @@ def _tool_chunk(text: str, *, ok: bool = True) -> ToolChunk:
 
 @memory_registry.register("remelight")
 class ReMeLightMemoryManager(BaseMemoryManager):
-    """Memory manager backed by ReMe4.
+    """Memory manager backed by ReMe.
 
-    ReMe4 uses the QwenPaw workspace root as its vault.  Daily memory,
+    ReMe uses the QwenPaw workspace root as its vault.  Daily memory,
     digest memory, search, auto-memory, and auto-dream are executed through
-    ReMe4 jobs.
+    ReMe jobs.
     """
 
     def __init__(self, working_dir: str, agent_id: str):
         super().__init__(working_dir=working_dir, agent_id=agent_id)
         self._reme: "ReMe | None" = None
-        self._persisted_reply_ids: set[str] = set()
+        self._persisted_reply_ids: dict[str, None] = {}
         logger.info(
             "ReMeLightMemoryManager init: agent_id=%s working_dir=%s",
             agent_id,
@@ -60,7 +64,7 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         try:
             from reme import ReMe as ReMeApp  # type: ignore
 
-            agent_config = load_agent_config(self.agent_id)
+            agent_config: AgentProfileConfig = load_agent_config(self.agent_id)
             global_config = load_config()
             self._reme = ReMeApp(
                 **get_reme_app_config(
@@ -74,32 +78,35 @@ class ReMeLightMemoryManager(BaseMemoryManager):
                 ),
             )
         except Exception as exc:
-            logger.warning("ReMe4 import failed; memory disabled: %s", exc)
+            logger.warning("ReMe import failed; memory disabled: %s", exc)
 
     async def start(self) -> None:
-        """Start the embedded ReMe4 application."""
+        """Start the embedded ReMe application."""
         if self._reme is None:
-            return
-        if getattr(self._reme, "is_started", False):
             return
 
         await self._update_qwenpaw_model()
         try:
             await self._reme.start()
+            logger.info(
+                "ReMe memory manager started for agent '%s'",
+                self.agent_id,
+            )
         except Exception:
-            try:
-                await self._reme.close()
-            except Exception:
-                logger.exception("ReMe4 cleanup after failed start failed")
-            raise
+            logger.exception("ReMe start failed")
+            return
 
-        logger.info(
-            "ReMe4 memory manager started for agent '%s'",
-            self.agent_id,
-        )
+        agent_config = load_agent_config(self.agent_id)
+        cfg = agent_config.running.reme_light_memory_config
+        if cfg.rebuild_memory_index_on_start:
+            await self._run_reme_job("reindex")
+            logger.info(
+                "Memory index rebuilt on start for agent '%s'",
+                self.agent_id,
+            )
 
     async def close(self) -> bool:
-        """Close ReMe4 and cleanup background summary worker state."""
+        """Close ReMe and cleanup background summary worker state."""
         logger.info(
             "ReMeLightMemoryManager closing: agent_id=%s",
             self.agent_id,
@@ -115,23 +122,27 @@ class ReMeLightMemoryManager(BaseMemoryManager):
             try:
                 await self._reme.close()
             except Exception:
-                logger.exception("ReMe4 close failed")
+                logger.exception("ReMe close failed")
                 return False
 
         self._reme = None
         return True
 
-    def get_memory_prompt(self, language: str = "zh") -> str:
+    def get_memory_prompt(self) -> str:
         """Return memory guidance for system prompt injection."""
-        prompts = {"zh": MEMORY_GUIDANCE_ZH, "en": MEMORY_GUIDANCE_EN}
-        return prompts.get(language, MEMORY_GUIDANCE_EN)
+        agent_config = load_agent_config(self.agent_id)
+        cfg = agent_config.running.reme_light_memory_config
+        return build_memory_guidance_prompt(
+            agent_config.language,
+            daily_dir=cfg.daily_dir,
+        )
 
     def list_memory_tools(self):
         """Return memory tool functions to register with the agent toolkit."""
         return [self.memory_search]
 
     async def _update_qwenpaw_model(self) -> None:
-        """Reuse QwenPaw's active model in ReMe4's default LLM component."""
+        """Reuse QwenPaw's active model in ReMe's default LLM component."""
         if self._reme is None:
             return
 
@@ -150,14 +161,14 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         **kwargs: Any,
     ) -> Any | None:
         if self._reme is None or not getattr(self._reme, "is_started", False):
-            logger.debug("ReMe4 job skipped; app not started: %s", name)
+            logger.debug("ReMe job skipped; app not started: %s", name)
             return None
         try:
             if needs_llm:
                 await self._update_qwenpaw_model()
             return await self._reme.run_job(name, **kwargs)
         except Exception:
-            logger.exception("ReMe4 job failed: %s", name)
+            logger.exception("ReMe job failed: %s", name)
             return None
 
     async def memory_search(
@@ -166,7 +177,7 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         max_results: int = 5,
         min_score: float = 0.1,
     ) -> ToolChunk:
-        """Search ReMe4 memory."""
+        """Search ReMe memory."""
         query = query.strip()
         if not query:
             return _tool_chunk("Error: query cannot be empty", ok=False)
@@ -191,14 +202,14 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         messages: list[Msg],
         **kwargs: Any,
     ) -> str:
-        """Persist conversation messages through ReMe4 auto-memory."""
+        """Persist conversation messages through ReMe auto-memory."""
         if not messages:
             return ""
 
         response = await self._run_reme_job(
             "auto_memory",
             needs_llm=True,
-            messages=[msg.model_dump(mode="json") for msg in messages],
+            messages=[msg.model_dump_json() for msg in messages],
             session_id=str(kwargs.get("session_id") or ""),
             memory_hint=str(kwargs.get("memory_hint") or ""),
         )
@@ -209,9 +220,10 @@ class ReMeLightMemoryManager(BaseMemoryManager):
     async def retrieve(
         self,
         messages: list[Msg] | Msg,
+        agent_name: str = "",
         **_kwargs: Any,
     ) -> dict | None:
-        """Retrieve relevant memory as transient text context."""
+        """Retrieve memory and expose it as a completed tool interaction."""
         msgs = [messages] if isinstance(messages, Msg) else list(messages)
         query = self._build_query(msgs)
         if not query:
@@ -229,7 +241,43 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         text = self._chunk_text(result)
         if not text or text == NO_MEMORY_RESULTS:
             return None
-        return {"query": query, "text": text}
+
+        tool_call_id = uuid.uuid4().hex
+        tool_input = {
+            "query": query,
+            "max_results": ms.max_results,
+            "min_score": ms.min_score,
+        }
+        assistant_msg = Msg(
+            name=agent_name or self.agent_id,
+            role="assistant",
+            content=[
+                TextBlock(text="Searching memory for relevant context..."),
+                ToolCallBlock(
+                    id=tool_call_id,
+                    name="memory_search",
+                    input=json.dumps(tool_input, ensure_ascii=False),
+                    state=ToolCallState.FINISHED,
+                ),
+            ],
+        )
+        tool_result_msg = Msg(
+            name=agent_name or self.agent_id,
+            role="assistant",
+            content=[
+                ToolResultBlock(
+                    id=tool_call_id,
+                    name="memory_search",
+                    output=[TextBlock(text=text)],
+                    state=ToolResultState.SUCCESS,
+                ),
+            ],
+        )
+        return {
+            "query": query,
+            "text": text,
+            "msg": msgs + [assistant_msg, tool_result_msg],
+        }
 
     async def auto_memory_search(
         self,
@@ -238,12 +286,12 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         **kwargs: Any,
     ) -> dict | None:
         """Auto-search memory if configured."""
-        del agent_name, kwargs
+        del kwargs
         agent_config = load_agent_config(self.agent_id)
         ms = agent_config.running.reme_light_memory_config
         if not ms.auto_memory_search_config.enabled:
             return None
-        return await self.retrieve(messages)
+        return await self.retrieve(messages, agent_name=agent_name)
 
     async def summarize_when_compact(
         self,
@@ -286,14 +334,16 @@ class ReMeLightMemoryManager(BaseMemoryManager):
             return
 
         if reply_id:
-            self._persisted_reply_ids.add(reply_id)
+            if len(self._persisted_reply_ids) >= MAX_PERSISTED_REPLY_IDS:
+                self._persisted_reply_ids.pop(next(iter(self._persisted_reply_ids)))
+            self._persisted_reply_ids[reply_id] = None
         self.add_summarize_task(
             messages=recent_messages,
             session_id=str(kwargs.get("session_id") or ""),
         )
 
     async def dream(self, **kwargs: Any) -> None:
-        """Run one ReMe4 auto-dream pass."""
+        """Run one ReMe auto-dream pass."""
         response = await self._run_reme_job(
             "auto_dream",
             needs_llm=True,
