@@ -668,6 +668,7 @@ def read_root():
     if _CONSOLE_INDEX and _CONSOLE_INDEX.exists():
         return FileResponse(
             _CONSOLE_INDEX,
+            media_type="text/html",
             headers={"X-Content-Type-Options": "nosniff"},
         )
     return {
@@ -732,6 +733,7 @@ if os.path.isdir(_CONSOLE_STATIC_DIR):
         if _CONSOLE_INDEX and _CONSOLE_INDEX.exists():
             return FileResponse(
                 _CONSOLE_INDEX,
+                media_type="text/html",
                 headers={"X-Content-Type-Options": "nosniff"},
             )
 
@@ -774,8 +776,20 @@ if os.path.isdir(_CONSOLE_STATIC_DIR):
             if not Path(full_path).is_absolute():
                 static_file = _console_path / full_path
                 if static_file.is_file():
+                    content_type, _ = mimetypes.guess_type(static_file)
+                    if not content_type:
+                        content_type = "application/octet-stream"
+
+                    # Normalize script & stylesheet types to avoid mismatch
+                    sf_str = str(static_file)
+                    if sf_str.endswith(".js") or sf_str.endswith(".mjs"):
+                        content_type = "text/javascript"
+                    elif sf_str.endswith(".css"):
+                        content_type = "text/css"
+
                     return FileResponse(
                         static_file,
+                        media_type=content_type,
                         headers={"X-Content-Type-Options": "nosniff"},
                     )
 

@@ -112,6 +112,7 @@ async def preview_file(
     content_disposition_type = "inline" if is_safe else "attachment"
     return FileResponse(
         path,
+        media_type=content_type or "application/octet-stream",
         headers={"X-Content-Type-Options": "nosniff"},
         content_disposition_type=content_disposition_type,
         filename=path.name,
