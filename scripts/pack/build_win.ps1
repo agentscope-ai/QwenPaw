@@ -157,15 +157,6 @@ if (Test-Path $pythonExe) {
   Write-Host "[build_win] WARN: python.exe not found at $pythonExe, skipping bytecode compilation" -ForegroundColor Yellow
 }
 
-# Copy launcher.py to env root for fast startup
-$LauncherSrc = Join-Path $PackDir "launcher.py"
-if (Test-Path $LauncherSrc) {
-  Copy-Item $LauncherSrc -Destination $EnvRoot -Force
-  Write-Host "[build_win] Copied launcher.py to env root"
-} else {
-  Write-Host "[build_win] WARN: launcher.py not found at $LauncherSrc"
-}
-
 # Main launcher .bat (will be hidden by VBS)
 $LauncherBat = Join-Path $EnvRoot "QwenPaw Desktop.bat"
 @"
@@ -186,8 +177,7 @@ if not exist "%USERPROFILE%\.qwenpaw\config.json" (
   "%~dp0python.exe" -u -m qwenpaw init --defaults --accept-security
 )
 
-REM Use launcher.py for fast startup (shows loading window immediately)
-"%~dp0python.exe" -u "%~dp0launcher.py"
+"%~dp0python.exe" -u -m qwenpaw desktop --log-level %QWENPAW_LOG_LEVEL%
 "@ | Set-Content -Path $LauncherBat -Encoding ASCII
 
 # Debug launcher .bat (shows console)
@@ -219,10 +209,10 @@ if not exist "%USERPROFILE%\.qwenpaw\config.json" (
   echo [Init] Creating config...
   "%~dp0python.exe" -u -m qwenpaw init --defaults --accept-security
 )
-echo [Launch] Starting QwenPaw Desktop with launcher.py...
+echo [Launch] Starting QwenPaw Desktop with log-level=%QWENPAW_LOG_LEVEL%...
 echo Press Ctrl+C to stop
 echo.
-"%~dp0python.exe" -u "%~dp0launcher.py"
+"%~dp0python.exe" -u -m qwenpaw desktop --log-level %QWENPAW_LOG_LEVEL%
 echo.
 echo [Exit] QwenPaw Desktop closed
 pause
