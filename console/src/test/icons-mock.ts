@@ -24,6 +24,16 @@ export const SparkMarkLine = makeIcon("SparkMarkLine");
 export const SparkMarkFill = makeIcon("SparkMarkFill");
 export const SparkSearchLine = makeIcon("SparkSearchLine");
 export const SparkPlusLine = makeIcon("SparkPlusLine");
+export const SparkDragDotLine = makeIcon("SparkDragDotLine");
+export const SparkCirclePlayLine = makeIcon("SparkCirclePlayLine");
+export const SparkSendLine = makeIcon("SparkSendLine");
+export const SparkRefreshLine = makeIcon("SparkRefreshLine");
+export const SparkNextSentenceLine = makeIcon("SparkNextSentenceLine");
+export const SparkPauseLine = makeIcon("SparkPauseLine");
+export const SparkPlayFill = makeIcon("SparkPlayFill");
+export const SparkAlertLine = makeIcon("SparkAlertLine");
+export const SparkErrorCircleLine = makeIcon("SparkErrorCircleLine");
+export const SparkClearLine = makeIcon("SparkClearLine");
 // Language switcher icons
 export const SparkChinese02Line = makeIcon("SparkChinese02Line");
 export const SparkEnglish02Line = makeIcon("SparkEnglish02Line");
@@ -32,4 +42,3 @@ export const SparkRusLine = makeIcon("SparkRusLine");
 // Theme toggle icons
 export const SparkMoonLine = makeIcon("SparkMoonLine");
 export const SparkSunLine = makeIcon("SparkSunLine");
-export const SparkComputerLine = makeIcon("SparkComputerLine");

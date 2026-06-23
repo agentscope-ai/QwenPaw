@@ -173,6 +173,7 @@ def build_mcp_driver_card(
         config={
             "display_name": str(data.get("name") or "").strip() or client_key,
             "description": str(data.get("description") or ""),
+            "tools": data.get("tools"),
         },
         enabled=bool(data.get("enabled", True)),
         policy=policy,
@@ -209,6 +210,7 @@ def build_mcp_client_info_payload(
         "args": list(endpoint.get("args") or []),
         "env": env,
         "cwd": str(endpoint.get("cwd") or ""),
+        "tools": card.config.get("tools"),
         "oauth_status": _oauth_status(oauth_credential),
         "access_summary": {
             "default_effect": card.policy.default_effect,

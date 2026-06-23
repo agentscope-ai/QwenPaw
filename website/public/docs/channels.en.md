@@ -905,6 +905,32 @@ Invite the bot to a room or send it a direct message from any Matrix client (e.g
 
 ---
 
+## Yuanbao
+
+The Yuanbao channel connects QwenPaw to Tencent's Yuanbao AI assistant platform via protobuf WebSocket, supporting C2C (direct) and group chat with image/file sending.
+
+### Create a bot
+
+1. Open Tencent Yuanbao, go to **My Bots** and click **Create Bot**.
+
+   ![Create Bot](https://img.alicdn.com/imgextra/i3/O1CN01ChYAcN1L0b4pj7ODV_!!6000000001237-2-tps-2112-1440.png)
+
+2. In the bot settings, find **Method 2** to get the **App ID** and **App Secret**, then fill them into QwenPaw's channel settings and click **Done**.
+
+   ![App ID and Secret](https://img.alicdn.com/imgextra/i2/O1CN01F4vbLs29ID63r4cGf_!!6000000008044-2-tps-2112-1440.png)
+
+### Core Config
+
+**Yuanbao-specific fields:**
+
+| Field        | Type   | Default                   | Description                        |
+| ------------ | ------ | ------------------------- | ---------------------------------- |
+| `app_id`     | string | `""` (required)           | App ID from Yuanbao platform       |
+| `app_secret` | string | `""` (required)           | App Secret from Yuanbao platform   |
+| `api_domain` | string | `bot.yuanbao.tencent.com` | REST API domain for authentication |
+
+---
+
 ## XiaoYi
 
 The XiaoYi channel connects QwenPaw via **A2A (Agent-to-Agent) protocol** over WebSocket to Huawei's AI assistant platform.
@@ -1303,6 +1329,7 @@ After configuration, start a call from your SIP phone or browser:
 | WeCom      | wecom      | bot_id, secret; optional media_dir, max_reconnect_attempts                                                 |
 | WeChat     | wechat     | bot_token (or QR login); optional bot_token_file, base_url, media_dir                                      |
 | XiaoYi     | xiaoyi     | ak, sk, agent_id; optional ws_url                                                                          |
+| Yuanbao    | yuanbao    | app_id, app_secret; optional api_domain, media_dir                                                         |
 | Voice      | voice      | twilio_account_sid, twilio_auth_token, phone_number, phone_number_sid; optional tts_provider, stt_provider |
 
 All channels also support the common access control fields (`dm_policy`, `group_policy`, `allow_from`, `deny_message`, `require_mention`) documented in the common fields section below.
@@ -1345,6 +1372,7 @@ done). **✗** = not supported (not possible on this channel).
 | Mattermost | ✓         | ✓          | 🚧         | 🚧         | ✓         | ✓         | ✓          | 🚧         | 🚧         | ✓         |
 | Matrix     | ✓         | ✓          | ✓          | ✓          | ✓         | ✓         | ✓          | ✓          | ✓          | ✓         |
 | XiaoYi     | ✓         | ✓          | ✗          | ✗          | ✓         | ✓         | 🚧         | 🚧         | 🚧         | 🚧        |
+| Yuanbao    | ✓         | ✓          | ✗          | ✓          | ✓         | ✓         | ✓          | ✓          | ✓          | ✓         |
 | Voice      | ✗         | ✗          | ✗          | ✓          | ✗         | ✗         | ✗          | ✗          | ✓          | ✗         |
 
 Notes:
@@ -1365,6 +1393,7 @@ Notes:
 - **WeChat Personal (iLink)**: HTTP long-polling for receiving. Supports text, images (AES-128-ECB decrypted), voice (ASR transcription), files, and videos. Sending supports text, images, files, and videos; audio files (e.g., MP3) are not supported due to iLink API limitations.
 - **Matrix**: Receives image, video, audio, and file attachments via `mxc://` media URLs. Sends media by uploading to the homeserver and sending native Matrix media messages (`m.image`, `m.video`, `m.audio`, `m.file`).
 - **XiaoYi**: Supports receiving text, images (JPEG/PNG/BMP/WEBP), and files (PDF/DOC/DOCX/PPT/PPTX/XLS/XLSX/TXT); video and audio are not supported by the platform.
+- **Yuanbao**: Supports receiving text, images, and audio; sending supports text, images, video, audio, and files (via COS CDN upload); the platform does not forward video messages to bots.
 - **Voice**: Phone call interaction via Twilio ConversationRelay. Receives audio (speech) and sends audio (TTS). All communication is voice-based; text/image/video/file are not supported over phone calls.
 
 ### Changing config via HTTP

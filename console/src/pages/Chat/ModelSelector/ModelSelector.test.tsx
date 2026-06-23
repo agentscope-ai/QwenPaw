@@ -24,6 +24,19 @@ vi.mock("react-i18next", () => ({
   useTranslation: () => ({ t: (k: string) => k }),
 }));
 
+vi.mock("lucide-react", () => ({
+  Loader2: () => "Loader2",
+  ExternalLink: () => "ExternalLink",
+  ChevronDown: () => "ChevronDown",
+  ChevronRight: () => "ChevronRight",
+  Search: () => "Search",
+  X: () => "X",
+  Check: () => "Check",
+  AlertCircle: () => "AlertCircle",
+  Eye: () => "Eye",
+  Zap: () => "Zap",
+}));
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------

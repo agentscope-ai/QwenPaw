@@ -21,6 +21,7 @@ export interface BrowseDirsResponse {
   current: string;
   parent: string | null;
   dirs: Array<{ name: string; path: string }>;
+  selectable?: boolean;
 }
 
 export const codingProjectApi = {

@@ -46,6 +46,12 @@ class GovernanceDecision:
     action: GovernanceAction
     reason: str
     sandbox_config: SandboxConfig | None = None
+    findings: list[Any] | None = None  # GuardFinding list for approval card
+    # Origin of the decision, surfaced as the "Source" line on the approval
+    # card. Values: "builtin-rules", "user-rules", or a tool-guard threat
+    # category string (e.g. "command_injection", "sensitive_file_access")
+    # when the decision was driven by a deep-scan finding.
+    source: str = "builtin-rules"
 
 
 class ToolCallSpec:
@@ -56,6 +62,7 @@ class ToolCallSpec:
         target: Tool's target argument, e.g. "src/main.py", "git push"
         agent_id: Agent ID that initiated the call
         session_id: Current session ID
+        raw_params: Raw tool call arguments dict
     """
 
     def __init__(
@@ -64,11 +71,13 @@ class ToolCallSpec:
         target: str,
         agent_id: str,
         session_id: str,
+        raw_params: dict[str, Any] | None = None,
     ) -> None:
         self.tool_name = tool_name
         self.target = target
         self.agent_id = agent_id
         self.session_id = session_id
+        self.raw_params = raw_params or {}
 
 
 @dataclass
@@ -445,11 +454,33 @@ DEFAULT_USER_RULES: List[GovernanceRule] = [
         action=GovernanceAction.ALLOW,
         reason="File listing within workspace",
     ),
+    GovernanceRule(
+        match="ViewImage(WORKSPACE_DIR/**)",
+        action=GovernanceAction.ALLOW,
+        reason="Image view within workspace",
+    ),
+    GovernanceRule(
+        match="ViewVideo(WORKSPACE_DIR/**)",
+        action=GovernanceAction.ALLOW,
+        reason="Video view within workspace",
+    ),
+    GovernanceRule(
+        match="SendFileToUser(WORKSPACE_DIR/**)",
+        action=GovernanceAction.ALLOW,
+        reason="File send within workspace",
+    ),
     # ── Browser (treat as always allowed for now) ──
     GovernanceRule(
         match="Browser(**)",
         action=GovernanceAction.ALLOW,
         reason="Allow all browser access",
+    ),
+    # ── /tmp ──
+    # Allow all tool access under /tmp without prompting.
+    GovernanceRule(
+        match="*(/tmp/**)",
+        action=GovernanceAction.ALLOW,
+        reason="Scratch directory access for tmp",
     ),
 ]
 
@@ -460,23 +491,46 @@ DEFAULT_USER_RULES: List[GovernanceRule] = [
 
 
 @dataclass
+class DetectionRuleConfig:
+    """A single pattern-based detection rule (loaded from policy.yaml)."""
+
+    id: str
+    tools: List[str] = field(default_factory=list)
+    params: List[str] = field(default_factory=list)
+    category: str = "command_injection"
+    severity: str = "HIGH"
+    patterns: List[str] = field(default_factory=list)
+    exclude_patterns: List[str] = field(default_factory=list)
+    description: str = ""
+    remediation: str = ""
+
+
+@dataclass
 class GovernancePolicy:
     """Policy: builtin_rules + user_rules two layers, first-match-wins.
 
     Loaded from policy_dir/policy.yaml, held by ResourceGovernor.
 
-    Evaluation flow (§5):
-        ToolRegistry type check → builtin_rules → user_rules → global fallback
+    Evaluation flow (v2.0):
+        Phase 1: Deep security scan (findings accumulation)
+        Phase 2: builtin_rules + user_rules first-match-wins
+        Phase 3: Fallback + execution_level threshold
 
     Lifecycle:
         load → evaluate (hot path) → add_rule (user approve) → save
     """
 
-    version: str = "1.0"
+    version: str = "2.0"
     builtin_rules: List[GovernanceRule] = field(default_factory=list)
     user_rules: List[GovernanceRule] = field(default_factory=list)
     env_blacklist: List[str] = field(default_factory=list)
     audit_level: str = "all"  # "all" | "write_only" | "none"
+
+    # v2.0 fields
+    execution_level: str = "smart"  # "off" | "auto" | "smart" | "strict"
+    sensitive_paths: List[str] = field(default_factory=list)
+    shell_evasion_checks: dict[str, bool] = field(default_factory=dict)
+    detection_rules: List[DetectionRuleConfig] = field(default_factory=list)
 
     # Internal reference to registry (defaults to module-level
     # DEFAULT_REGISTRY)
@@ -510,15 +564,18 @@ class GovernancePolicy:
     ) -> GovernanceDecision:
         """Evaluate policy decision for a tool call.
 
-        Evaluation flow (§5):
-            0. ToolRegistry type check: unknown → DENY, internal → ALLOW
-            1. builtin_rules first-match-wins
-            2. user_rules first-match-wins
-            3. Global fallback: shell → SANDBOX_FALLBACK, others → ASK
+        Three-phase evaluation (v2.0):
+            Phase 0: Type check — unknown → DENY, internal → ALLOW
+            Phase 1: Deep security scan (accumulates findings)
+                     CRITICAL findings → immediate DENY
+            Phase 2: Policy rules first-match-wins
+                     (builtin_rules + user_rules)
+            Phase 3: Fallback + execution_level threshold
+                     shell → SANDBOX_FALLBACK, others → ASK
 
-        Returns: GovernanceDecision
+        Returns: GovernanceDecision (with optional findings attached)
         """
-        # ── Step 0: ToolRegistry type check ──
+        # ── Phase 0: ToolRegistry type check ──
         tool_type = self._registry.get_type(tc_spec.tool_name)
         if tool_type == "unknown":
             return GovernanceDecision(
@@ -528,19 +585,40 @@ class GovernancePolicy:
         if tool_type == "internal":
             return GovernanceDecision(action=GovernanceAction.ALLOW, reason="")
 
-        # ── Step 0.5: Shell danger keyword detection ──
+        # execution_level == OFF → skip Phase 1, go to Phase 2
+        skip_deep_scan = self.execution_level == "off"
+
+        # ── Phase 1: Deep security scan ──
+        findings: list[Any] = []
+        if not skip_deep_scan:
+            findings = self._deep_security_scan(tc_spec, tool_type)
+            # CRITICAL findings → immediate DENY
+            if any(getattr(f, "severity", "") == "CRITICAL" for f in findings):
+                reasons = [
+                    getattr(f, "title", "")
+                    for f in findings
+                    if getattr(f, "severity", "") == "CRITICAL"
+                ]
+                return GovernanceDecision(
+                    action=GovernanceAction.DENY,
+                    reason="Critical security finding: " + "; ".join(reasons),
+                    findings=findings,
+                    source=_findings_source(findings),
+                )
+
+        # ── Phase 1.5: Shell danger keyword detection ──
         # Regex-based check that catches command variants missed by
-        # the fnmatch-based builtin deny rules (flag reordering,
-        # absolute paths to sudo, piped commands, etc.).
+        # the fnmatch-based builtin deny rules.
         if tool_type == "shell" and tc_spec.target:
             danger_reason = _check_shell_danger_keywords(tc_spec.target)
             if danger_reason:
                 return GovernanceDecision(
                     action=GovernanceAction.DENY,
                     reason=danger_reason,
+                    findings=findings,
                 )
 
-        # ── Step 1: builtin_rules ──
+        # ── Phase 2: builtin_rules + user_rules (first-match-wins) ──
         for rule in self.builtin_rules:
             if rule.matches_tool_call(
                 tc_spec,
@@ -549,9 +627,10 @@ class GovernancePolicy:
                 return GovernanceDecision(
                     action=GovernanceAction(rule.action.value),
                     reason=rule.reason,
+                    findings=findings or None,
+                    source="builtin-rules",
                 )
 
-        # ── Step 2: user_rules ──
         for rule in self.user_rules:
             if rule.matches_tool_call(
                 tc_spec,
@@ -560,17 +639,108 @@ class GovernancePolicy:
                 return GovernanceDecision(
                     action=GovernanceAction(rule.action.value),
                     reason=rule.reason,
+                    findings=findings or None,
+                    source="user-rules",
                 )
 
-        # ── Step 3: Global fallback ──
+        # ── Phase 3: Fallback + execution_level threshold ──
         if tool_type == "shell":
             return GovernanceDecision(
                 action=GovernanceAction.SANDBOX_FALLBACK,
                 reason="sandbox fallback",
+                findings=findings or None,
+                source="sandbox",
             )
+        return self._apply_execution_level_fallback(tc_spec, findings)
+
+    def _deep_security_scan(
+        self,
+        tc_spec: ToolCallSpec,
+        tool_type: str,
+    ) -> list[Any]:
+        """Run deep security detectors (Phase 1).
+
+        Delegates to governance.detectors module.
+        Returns a list of GuardFinding objects.
+        """
+        try:
+            from .detectors import run_deep_scan
+
+            return run_deep_scan(
+                tool_name=tc_spec.tool_name,
+                target=tc_spec.target,
+                tool_type=tool_type,
+                sensitive_paths=self.sensitive_paths,
+                detection_rules=self.detection_rules,
+                shell_evasion_checks=self.shell_evasion_checks,
+            )
+        except Exception as exc:
+            logger.warning(
+                "deep_security_scan failed: %s; continuing without",
+                exc,
+            )
+            return []
+
+    def _apply_execution_level_fallback(
+        self,
+        tc_spec: ToolCallSpec,  # pylint: disable=unused-argument
+        findings: list[Any],
+    ) -> GovernanceDecision:
+        """Apply execution_level threshold to determine final decision.
+
+        - OFF: should not reach here (scan skipped, but rules didn't match)
+        - AUTO: ASK for guarded tools, ALLOW for others
+        - SMART: LOW/INFO findings → ALLOW; MEDIUM+ → ASK
+        - STRICT: any findings → ASK
+        """
+        level = self.execution_level
+
+        if not findings:
+            # No findings and no rule hit
+            if level == "strict":
+                return GovernanceDecision(
+                    action=GovernanceAction.ASK,
+                    reason="STRICT mode: all tool calls require approval",
+                    source="STRICT mode",
+                )
+            return GovernanceDecision(
+                action=GovernanceAction.ASK,
+                reason="No rule hit",
+                source="No rule hit",
+            )
+
+        # Has findings — decide based on execution_level
+        max_sev = _max_severity(findings)
+
+        if level == "strict":
+            return GovernanceDecision(
+                action=GovernanceAction.ASK,
+                reason=f"STRICT mode: findings detected (max={max_sev})",
+                findings=findings,
+                source=_findings_source(findings),
+            )
+
+        if level == "smart":
+            if max_sev in ("INFO", "LOW"):
+                return GovernanceDecision(
+                    action=GovernanceAction.ALLOW,
+                    reason=f"SMART mode: auto-allowed ({max_sev})",
+                    findings=findings,
+                    source=_findings_source(findings),
+                )
+            return GovernanceDecision(
+                action=GovernanceAction.ASK,
+                reason=f"SMART mode: {max_sev} finding requires approval",
+                findings=findings,
+                source=_findings_source(findings),
+            )
+
+        # AUTO / OFF fallback
         return GovernanceDecision(
             action=GovernanceAction.ASK,
             reason="No rule hit",
+            findings=findings or None,
+            source=_findings_source(findings),
         )
 
     def evaluate_source(self, tc_spec: ToolCallSpec) -> str:
@@ -690,6 +860,41 @@ def _parse_match(match_str: str) -> tuple[str, str]:
     return tool_name, pattern
 
 
+_SEVERITY_ORDER = ["CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO"]
+
+
+def _max_severity(findings: list[Any]) -> str:
+    """Return the highest severity string from a list of findings."""
+    if not findings:
+        return "SAFE"
+    for sev in _SEVERITY_ORDER:
+        if any(getattr(f, "severity", "") == sev for f in findings):
+            return sev
+    return "SAFE"
+
+
+def _findings_source(findings: list[Any]) -> str:
+    """Pick the approval-card ``source`` for a finding-driven decision.
+
+    Returns the threat category of the highest-severity finding (e.g.
+    ``"command_injection"``), falling back to ``"builtin-rules"`` when no
+    finding carries a category.
+    """
+    if not findings:
+        return "builtin-rules"
+    for sev in _SEVERITY_ORDER:
+        for f in findings:
+            if getattr(f, "severity", "") == sev:
+                category = getattr(f, "category", None)
+                if category:
+                    return (
+                        category.value
+                        if hasattr(category, "value")
+                        else str(category)
+                    )
+    return "builtin-rules"
+
+
 # ---------------------------------------------------------------------------
 # Load / persist
 # ---------------------------------------------------------------------------
@@ -705,16 +910,7 @@ def load_governance_policy(
         policy_dir: directory containing policy.yaml
         workspace_dir: used to replace WORKSPACE_DIR placeholders in rules
 
-    YAML format:
-        version: "1.0"
-        audit_level: "all"
-        builtin_rules:
-          - match: "*(.env*)"
-            action: ask
-            reason: "Env file may contain secrets/credentials"
-        user_rules:
-          - match: "Read(WORKSPACE_DIR/*)"
-            action: allow
+    Supports both v1.0 and v2.0 YAML formats.
     """
     path = Path(policy_dir) / "policy.yaml"
     if not path.exists():
@@ -761,6 +957,28 @@ def load_governance_policy(
     if not env_blacklist:
         env_blacklist = list(DEFAULT_ENV_BLACKLIST)
 
+    # ── v2.0 fields ──
+    execution_level = data.get("execution_level", "smart")
+    if execution_level not in ("off", "auto", "smart", "strict"):
+        logger.warning(
+            "load_governance_policy: invalid execution_level '%s'; "
+            "defaulting to 'smart'.",
+            execution_level,
+        )
+        execution_level = "smart"
+
+    sensitive_paths = data.get("sensitive_paths", [])
+    if not isinstance(sensitive_paths, list):
+        sensitive_paths = []
+
+    shell_evasion_checks = data.get("shell_evasion_checks", {})
+    if not isinstance(shell_evasion_checks, dict):
+        shell_evasion_checks = {}
+
+    detection_rules = _parse_detection_rules(
+        data.get("detection_rules", []),
+    )
+
     # ── Replace WORKSPACE_DIR with actual path ──
     if workspace_dir:
         _resolve_workspace_dir(builtin_rules, workspace_dir)
@@ -772,6 +990,10 @@ def load_governance_policy(
         user_rules=user_rules,
         env_blacklist=env_blacklist,
         audit_level=audit_level,
+        execution_level=execution_level,
+        sensitive_paths=sensitive_paths,
+        shell_evasion_checks=shell_evasion_checks,
+        detection_rules=detection_rules,
     )
 
 
@@ -780,7 +1002,7 @@ def save_governance_policy(
     policy_dir: str,
     workspace_dir: str = "",
 ) -> None:
-    """Write policy.yaml.
+    """Write policy.yaml (v2.0 format).
 
     Args:
         policy: policy to persist
@@ -788,8 +1010,8 @@ def save_governance_policy(
         workspace_dir: workspace path, used to restore actual paths back to
                        WORKSPACE_DIR placeholders (keeps yaml portable)
     """
-    builtin_rules = list(policy.builtin_rules)
-    user_rules = list(policy.user_rules)
+    builtin_rules = copy.deepcopy(policy.builtin_rules)
+    user_rules = copy.deepcopy(policy.user_rules)
 
     # ── Restore actual paths to WORKSPACE_DIR placeholders ──
     if workspace_dir:
@@ -800,12 +1022,23 @@ def save_governance_policy(
     # NOTE: builtin_rules are NOT written to YAML. They are always loaded
     # from DEFAULT_BUILTIN_RULES in code. This prevents a tampered policy
     # file from weakening system-level protections.
-    data = {
+    data: dict[str, Any] = {
         "version": policy.version,
+        "execution_level": policy.execution_level,
         "audit_level": policy.audit_level,
         "env_blacklist": list(policy.env_blacklist),
         "user_rules": [_rule_to_dict(r) for r in user_rules],
     }
+
+    # v2.0 fields (only write when non-empty to keep YAML clean)
+    if policy.sensitive_paths:
+        data["sensitive_paths"] = list(policy.sensitive_paths)
+    if policy.shell_evasion_checks:
+        data["shell_evasion_checks"] = dict(policy.shell_evasion_checks)
+    if policy.detection_rules:
+        data["detection_rules"] = [
+            _detection_rule_to_dict(r) for r in policy.detection_rules
+        ]
 
     with open(path, "w", encoding="utf-8") as f:
         yaml.dump(
@@ -822,18 +1055,49 @@ def save_governance_policy(
 # ---------------------------------------------------------------------------
 
 
+# Default shell evasion checks (migrated from config.json)
+_DEFAULT_SHELL_EVASION_CHECKS: dict[str, bool] = {
+    "command_substitution": True,
+    "obfuscated_flags": True,
+    "backslash_escaped_whitespace": True,
+    "backslash_escaped_operators": True,
+    "newlines": True,
+    "comment_quote_desync": True,
+    "quoted_newline": True,
+}
+
+# Default sensitive paths (migrated from config.json)
+_DEFAULT_SENSITIVE_PATHS: List[str] = [
+    "~/.ssh/",
+    "~/.aws/",
+    "~/.gnupg/",
+    "~/.kube/",
+    "~/.config/gcloud/",
+    "~/.azure/",
+    "~/.docker/config.json",
+    "~/.env",
+    "~/.git-credentials",
+    "~/.netrc",
+    "~/.npmrc",
+    "~/.pypirc",
+]
+
+
 def _create_default_policy(workspace_dir: str = "") -> GovernancePolicy:
-    """Create a policy with full default rules (cold start)."""
+    """Create a policy with full default rules (cold start, v2.0)."""
     builtin_rules = copy.deepcopy(DEFAULT_BUILTIN_RULES)
     user_rules = copy.deepcopy(DEFAULT_USER_RULES)
     if workspace_dir:
         _resolve_workspace_dir(builtin_rules, workspace_dir)
         _resolve_workspace_dir(user_rules, workspace_dir)
     return GovernancePolicy(
-        version="1.0",
+        version="2.0",
         builtin_rules=builtin_rules,
         user_rules=user_rules,
         env_blacklist=list(DEFAULT_ENV_BLACKLIST),
+        execution_level="smart",
+        sensitive_paths=list(_DEFAULT_SENSITIVE_PATHS),
+        shell_evasion_checks=dict(_DEFAULT_SHELL_EVASION_CHECKS),
     )
 
 
@@ -894,3 +1158,57 @@ def _rule_to_dict(rule: GovernanceRule) -> dict[str, Any]:
     if rule.session_id:
         d["session_id"] = rule.session_id
     return d
+
+
+def _detection_rule_to_dict(rule: DetectionRuleConfig) -> dict[str, Any]:
+    """Serialize a DetectionRuleConfig to dict (for YAML output)."""
+    d: dict[str, Any] = {"id": rule.id}
+    if rule.tools:
+        d["tools"] = rule.tools
+    if rule.params:
+        d["params"] = rule.params
+    if rule.category != "command_injection":
+        d["category"] = rule.category
+    d["severity"] = rule.severity
+    if rule.patterns:
+        d["patterns"] = rule.patterns
+    if rule.exclude_patterns:
+        d["exclude_patterns"] = rule.exclude_patterns
+    if rule.description:
+        d["description"] = rule.description
+    if rule.remediation:
+        d["remediation"] = rule.remediation
+    return d
+
+
+def _parse_detection_rules(
+    items: list[dict[str, Any]] | None,
+) -> List[DetectionRuleConfig]:
+    """Parse detection_rules from YAML into DetectionRuleConfig."""
+    if not items:
+        return []
+    rules: List[DetectionRuleConfig] = []
+    for item in items:
+        if not isinstance(item, dict) or "id" not in item:
+            continue
+        try:
+            rules.append(
+                DetectionRuleConfig(
+                    id=item["id"],
+                    tools=item.get("tools", []),
+                    params=item.get("params", []),
+                    category=item.get("category", "command_injection"),
+                    severity=item.get("severity", "HIGH"),
+                    patterns=item.get("patterns", []),
+                    exclude_patterns=item.get("exclude_patterns", []),
+                    description=item.get("description", ""),
+                    remediation=item.get("remediation", ""),
+                ),
+            )
+        except Exception as exc:
+            logger.warning(
+                "Skipping invalid detection rule '%s': %s",
+                item.get("id", "?"),
+                exc,
+            )
+    return rules

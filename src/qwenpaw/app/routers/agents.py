@@ -316,6 +316,17 @@ async def create_agent(
         request.language or config.agents.language or "en",
     )
 
+    active_model = request.active_model
+    if not active_model or not active_model.provider_id:
+        try:
+            from ...providers import ProviderManager
+
+            global_model = ProviderManager.get_instance().get_active_model()
+            if global_model and global_model.provider_id:
+                active_model = global_model
+        except Exception:
+            pass
+
     agent_config = AgentProfileConfig(
         id=new_id,
         name=request.name,
@@ -326,7 +337,7 @@ async def create_agent(
         mcp=MCPConfig(),
         heartbeat=HeartbeatConfig(),
         tools=ToolsConfig(),
-        active_model=request.active_model,
+        active_model=active_model,
     )
 
     _initialize_agent_workspace(

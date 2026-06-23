@@ -256,7 +256,7 @@ def _build_spec_from_cli(
         "share_session": share_session,
         "max_concurrency": 1,
         "timeout_seconds": timeout_seconds,
-        "misfire_grace_seconds": 60,
+        "misfire_grace_seconds": 600,
     }
     if task_type == "text":
         if not (text and text.strip()):

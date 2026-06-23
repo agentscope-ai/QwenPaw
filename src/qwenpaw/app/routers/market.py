@@ -11,6 +11,7 @@ from ...market import (
     MarketResult,
     MarketSearchError,
     ProviderInfo,
+    list_categories,
     list_providers,
     search_market,
 )
@@ -25,6 +26,7 @@ class ProviderInfoSpec(BaseModel):
     label: str
     available: bool
     reason: str | None = None
+    supports_browse: bool = True
 
 
 class MarketResultSpec(BaseModel):
@@ -44,6 +46,11 @@ class MarketSearchErrorSpec(BaseModel):
     message: str
 
 
+class CategorySpec(BaseModel):
+    id: str
+    label: str
+
+
 class MarketSearchRequest(BaseModel):
     query: str = Field("", description="User-typed search string")
     provider_pages: dict[str, int] = Field(
@@ -52,6 +59,10 @@ class MarketSearchRequest(BaseModel):
     )
     limit: int = Field(10, ge=1, le=50)
     lang: str = Field("en", description="UI language for locale-aware fields")
+    category: str | None = Field(
+        None,
+        description="Logical category id to browse (see /market/categories)",
+    )
 
 
 class ProviderPageInfo(BaseModel):
@@ -68,6 +79,11 @@ class MarketSearchResponse(BaseModel):
 @router.get("/providers", response_model=list[ProviderInfoSpec])
 async def get_market_providers() -> list[ProviderInfoSpec]:
     return [_provider_info_to_spec(p) for p in list_providers()]
+
+
+@router.get("/categories", response_model=list[CategorySpec])
+async def get_market_categories(lang: str = "en") -> list[CategorySpec]:
+    return [CategorySpec(**c) for c in list_categories(lang)]
 
 
 @router.post("/search", response_model=MarketSearchResponse)
@@ -101,6 +117,7 @@ def _provider_info_to_spec(info: ProviderInfo) -> ProviderInfoSpec:
         label=info.label,
         available=info.available,
         reason=info.reason,
+        supports_browse=info.supports_browse,
     )
 
 

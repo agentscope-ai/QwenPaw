@@ -23,12 +23,15 @@ import zipfile
 from pathlib import Path
 from typing import Any
 
+import httpx
 import pytest
 
-_PLUGIN_HTTP_TIMEOUT = 30.0
-_LOADER_READY_TIMEOUT = 20.0
-_REPO_ROOT = Path(__file__).resolve().parents[2]
-_OFFICIAL_PLUGINS_DIR = _REPO_ROOT / "plugins"
+from tests.integration.helpers import (
+    LOADER_READY_TIMEOUT,
+    OFFICIAL_PLUGINS_DIR,
+    PLUGIN_HTTP_TIMEOUT,
+    wait_until_plugin_loader_ready,
+)
 
 
 # --------------------------------------------------------------------------- #
@@ -92,7 +95,7 @@ def _list_loaded_plugin_ids(app_server) -> set[str]:
     resp = app_server.api_request(
         "GET",
         "/api/plugins",
-        timeout=_PLUGIN_HTTP_TIMEOUT,
+        timeout=PLUGIN_HTTP_TIMEOUT,
     )
     assert resp.status_code == 200, app_server.logs_tail()
     payload = resp.json()
@@ -110,13 +113,13 @@ def _list_loaded_plugin_ids(app_server) -> set[str]:
 
 def _delete_plugin(app_server, plugin_id: str):
     """DELETE /api/plugins/{plugin_id} — retry on transient loader 503."""
-    deadline = time.time() + _LOADER_READY_TIMEOUT
+    deadline = time.time() + LOADER_READY_TIMEOUT
     while True:
-        _wait_until_plugin_loader_ready(app_server)
+        wait_until_plugin_loader_ready(app_server)
         resp = app_server.api_request(
             "DELETE",
             f"/api/plugins/{plugin_id}",
-            timeout=_PLUGIN_HTTP_TIMEOUT,
+            timeout=PLUGIN_HTTP_TIMEOUT,
         )
         if resp.status_code != 503 or time.time() >= deadline:
             return resp
@@ -128,65 +131,7 @@ def _delete_plugin_quietly(app_server, plugin_id: str) -> None:
     try:
         _delete_plugin(app_server, plugin_id)
     except AssertionError:
-        # finally cleanup must not mask the real test failure
         pass
-
-
-def _wait_until_plugin_loader_ready(
-    app_server,
-    *,
-    timeout: float = _LOADER_READY_TIMEOUT,
-) -> None:
-    """Poll a write endpoint until app.state.plugin_loader is set.
-
-    install_plugin checks the loader BEFORE validating the source, so
-    posting an invalid local path is a free readiness probe:
-      * 503 ``Plugin loader is not ready yet`` → not ready, keep polling
-      * 400 ``Path not found``                 → loader is up, return
-    GET /api/plugins is NOT used because list_plugins falls back to
-    on-disk scanning when the loader is absent and would mask the
-    real readiness state.
-
-    Per code review feedback, the readiness signal is now narrowed: we
-    only accept the exact 400 + "Path not found" detail. Any other
-    non-503 response (e.g. install_plugin code path changes that move
-    the source check) is logged as ``unexpected`` and treated as
-    fallback-ready (caller is the one that would then fail on the
-    real install/upload), so this stays resilient to future router
-    refactors without silently masking probe drift.
-    """
-    deadline = time.time() + timeout
-    last_status = None
-    last_detail = ""
-    while time.time() < deadline:
-        resp = app_server.api_request(
-            "POST",
-            "/api/plugins/install",
-            json={
-                "source": "/tmp/integ-loader-readiness-probe-not-a-path",
-                "force": False,
-            },
-            timeout=5.0,
-        )
-        last_status = resp.status_code
-        try:
-            last_detail = resp.json().get("detail", "")
-        except ValueError:
-            last_detail = resp.text[:200]
-
-        if resp.status_code == 400 and "Path not found" in last_detail:
-            return  # ready (expected probe response)
-        if resp.status_code == 503:
-            time.sleep(0.5)
-            continue
-        # Unexpected status (e.g. router behaviour drift). Fall through
-        # and let the caller's real request surface any real problem,
-        # rather than block here indefinitely.
-        return
-    raise AssertionError(
-        f"plugin_loader not ready in {timeout}s, "
-        f"last status={last_status} detail={last_detail!r}",
-    )
 
 
 def _install_local_official_plugin(
@@ -195,16 +140,22 @@ def _install_local_official_plugin(
 ) -> dict[str, Any]:
     """POST /api/plugins/install with a local-path source. Returns the
     install response payload (retries on transient 503)."""
-    deadline = time.time() + _LOADER_READY_TIMEOUT
+    deadline = time.time() + LOADER_READY_TIMEOUT
     resp = None
     while True:
-        _wait_until_plugin_loader_ready(app_server)
-        resp = app_server.api_request(
-            "POST",
-            "/api/plugins/install",
-            json={"source": str(source_path), "force": False},
-            timeout=_PLUGIN_HTTP_TIMEOUT,
-        )
+        wait_until_plugin_loader_ready(app_server)
+        try:
+            resp = app_server.api_request(
+                "POST",
+                "/api/plugins/install",
+                json={"source": str(source_path), "force": False},
+                timeout=PLUGIN_HTTP_TIMEOUT,
+            )
+        except httpx.TimeoutException:
+            if time.time() >= deadline:
+                raise
+            time.sleep(0.5)
+            continue
         if resp.status_code != 503 or time.time() >= deadline:
             break
         time.sleep(0.5)
@@ -232,19 +183,25 @@ def _upload_plugin_zip(
         "files": {
             "file": (f"{plugin_id}.zip", zip_bytes, "application/zip"),
         },
-        "timeout": _PLUGIN_HTTP_TIMEOUT,
+        "timeout": PLUGIN_HTTP_TIMEOUT,
     }
     if force:
         kwargs["params"] = {"force": "true"}
 
-    deadline = time.time() + _LOADER_READY_TIMEOUT
+    deadline = time.time() + LOADER_READY_TIMEOUT
     while True:
-        _wait_until_plugin_loader_ready(app_server)
-        resp = app_server.api_request(
-            "POST",
-            "/api/plugins/upload",
-            **kwargs,
-        )
+        wait_until_plugin_loader_ready(app_server)
+        try:
+            resp = app_server.api_request(
+                "POST",
+                "/api/plugins/upload",
+                **kwargs,
+            )
+        except httpx.TimeoutException:
+            if time.time() >= deadline:
+                raise
+            time.sleep(0.5)
+            continue
         if resp.status_code != 503 or time.time() >= deadline:
             return resp
         time.sleep(0.5)
@@ -274,7 +231,7 @@ def test_plugins_list_returns_empty_array_contract(app_server) -> None:
     resp = app_server.api_request(
         "GET",
         "/api/plugins",
-        timeout=_PLUGIN_HTTP_TIMEOUT,
+        timeout=PLUGIN_HTTP_TIMEOUT,
     )
     assert resp.status_code == 200, app_server.logs_tail()
     payload = resp.json()
@@ -308,7 +265,7 @@ def test_plugins_catalog_returns_200_with_plugins_field_contract(
     resp = app_server.api_request(
         "GET",
         "/api/plugins/catalog",
-        timeout=_PLUGIN_HTTP_TIMEOUT,
+        timeout=PLUGIN_HTTP_TIMEOUT,
     )
     assert resp.status_code == 200, app_server.logs_tail()
     payload = resp.json()
@@ -336,7 +293,7 @@ def test_plugins_status_returns_404_for_missing(app_server) -> None:
     resp = app_server.api_request(
         "GET",
         "/api/plugins/integ-missing-plugin-status/status",
-        timeout=_PLUGIN_HTTP_TIMEOUT,
+        timeout=PLUGIN_HTTP_TIMEOUT,
     )
     assert resp.status_code == 404, app_server.logs_tail()
 
@@ -392,7 +349,7 @@ def test_plugins_upload_rejects_non_zip_filename(app_server) -> None:
                 "text/plain",
             ),
         },
-        timeout=_PLUGIN_HTTP_TIMEOUT,
+        timeout=PLUGIN_HTTP_TIMEOUT,
     )
     assert resp.status_code == 400, app_server.logs_tail()
     assert ".zip" in resp.json().get("detail", "")
@@ -421,7 +378,7 @@ def test_plugins_install_rejects_invalid_source(app_server) -> None:
             "source": "/tmp/integ-nonexistent-plugin-source-xyz-0001",
             "force": False,
         },
-        timeout=_PLUGIN_HTTP_TIMEOUT,
+        timeout=PLUGIN_HTTP_TIMEOUT,
     )
     assert resp.status_code == 400, app_server.logs_tail()
     assert "Path not found" in resp.json().get("detail", "")
@@ -458,7 +415,7 @@ def test_plugins_install_official_cloudpaw_lifecycle(app_server) -> None:
     - DELETE /api/plugins/{plugin_id}
     """
     plugin_id = "cloudpaw"
-    source_path = _OFFICIAL_PLUGINS_DIR / "bundle" / "cloudpaw"
+    source_path = OFFICIAL_PLUGINS_DIR / "bundle" / "cloudpaw"
     assert source_path.is_dir(), f"missing source: {source_path}"
 
     try:
@@ -474,7 +431,7 @@ def test_plugins_install_official_cloudpaw_lifecycle(app_server) -> None:
         status_resp = app_server.api_request(
             "GET",
             f"/api/plugins/{plugin_id}/status",
-            timeout=_PLUGIN_HTTP_TIMEOUT,
+            timeout=PLUGIN_HTTP_TIMEOUT,
         )
         assert status_resp.status_code == 200, app_server.logs_tail()
         status = status_resp.json()
@@ -513,7 +470,7 @@ def test_plugins_install_official_gpt_image2_lifecycle(app_server) -> None:
     - DELETE /api/plugins/{plugin_id}
     """
     plugin_id = "gpt-image2-tool"
-    source_path = _OFFICIAL_PLUGINS_DIR / "tool" / "gpt-image2"
+    source_path = OFFICIAL_PLUGINS_DIR / "tool" / "gpt-image2"
     assert source_path.is_dir(), f"missing source: {source_path}"
 
     try:
@@ -528,7 +485,7 @@ def test_plugins_install_official_gpt_image2_lifecycle(app_server) -> None:
         status_resp = app_server.api_request(
             "GET",
             f"/api/plugins/{plugin_id}/status",
-            timeout=_PLUGIN_HTTP_TIMEOUT,
+            timeout=PLUGIN_HTTP_TIMEOUT,
         )
         assert status_resp.status_code == 200, app_server.logs_tail()
         assert status_resp.json().get("loaded") is True
@@ -586,7 +543,7 @@ def test_plugins_upload_sample_plugin_lifecycle(app_server) -> None:
         status_resp = app_server.api_request(
             "GET",
             f"/api/plugins/{plugin_id}/status",
-            timeout=_PLUGIN_HTTP_TIMEOUT,
+            timeout=PLUGIN_HTTP_TIMEOUT,
         )
         assert status_resp.status_code == 200, app_server.logs_tail()
         status = status_resp.json()
@@ -646,7 +603,7 @@ def test_plugins_upload_force_replaces_existing(app_server) -> None:
         status_resp = app_server.api_request(
             "GET",
             f"/api/plugins/{plugin_id}/status",
-            timeout=_PLUGIN_HTTP_TIMEOUT,
+            timeout=PLUGIN_HTTP_TIMEOUT,
         )
         assert status_resp.status_code == 200, app_server.logs_tail()
         assert status_resp.json().get("version") == "0.0.2"

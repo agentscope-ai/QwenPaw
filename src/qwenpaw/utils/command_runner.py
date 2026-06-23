@@ -65,6 +65,9 @@ class _ThreadedProcessStdout:
     def __init__(self, stream: Any) -> None:
         self._stream = stream
 
+    async def read(self, size: int = -1) -> bytes:
+        return await asyncio.to_thread(self._stream.read, size)
+
     async def readline(self) -> bytes:
         return await asyncio.to_thread(self._stream.readline)
 
@@ -196,19 +199,29 @@ def run_command(
     timeout: int | float | None = 10,
     cwd: str | Path | None = None,
     env: Mapping[str, str] | None = None,
+    encoding: str | None = None,
+    errors: str | None = None,
     check: bool = True,
 ) -> CommandResult:
     command_list = list(command)
+    run_kwargs: dict[str, Any] = {
+        "stdout": subprocess.PIPE,
+        "stderr": subprocess.PIPE,
+        "text": True,
+        "timeout": timeout,
+        "cwd": _coerce_subprocess_path(cwd),
+        "env": dict(env) if env is not None else None,
+    }
+    if encoding is not None:
+        run_kwargs["encoding"] = encoding
+    if errors is not None:
+        run_kwargs["errors"] = errors
+    run_kwargs.update(windows_hidden_subprocess_kwargs())
     try:
         result = subprocess.run(
             command_list,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            timeout=timeout,
             check=False,
-            cwd=_coerce_subprocess_path(cwd),
-            env=dict(env) if env is not None else None,
+            **run_kwargs,
         )
     except FileNotFoundError as exc:
         raise CommandExecutionError(
@@ -245,6 +258,8 @@ async def run_command_async(
     timeout: int | float | None = 10,
     cwd: str | Path | None = None,
     env: Mapping[str, str] | None = None,
+    encoding: str | None = None,
+    errors: str | None = None,
     check: bool = True,
 ) -> CommandResult:
     """Run a short-lived command without relying on asyncio subprocess APIs.
@@ -259,6 +274,8 @@ async def run_command_async(
         timeout=timeout,
         cwd=cwd,
         env=env,
+        encoding=encoding,
+        errors=errors,
         check=check,
     )
 
@@ -277,6 +294,8 @@ async def start_command_async(
         popen_kwargs["cwd"] = _coerce_subprocess_path(cwd)
     if env is not None:
         popen_kwargs["env"] = dict(env)
+    creationflags = int(popen_kwargs.get("creationflags", 0) or 0)
+    popen_kwargs.update(windows_hidden_subprocess_kwargs(creationflags))
     owns_process_group = bool(
         os.name != "nt" and popen_kwargs.get("start_new_session"),
     )
@@ -528,6 +547,18 @@ def _coerce_subprocess_path(
     if path is None:
         return None
     return os.fspath(path)
+
+
+def windows_hidden_subprocess_kwargs(
+    creationflags: int = 0,
+) -> dict[str, Any]:
+    """Return subprocess kwargs that suppress Windows console windows."""
+    if os.name != "nt":
+        return {}
+    flags = creationflags | getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    if not flags:
+        return {}
+    return {"creationflags": flags}
 
 
 def _supports_process_groups(process: ManagedProcess) -> bool:

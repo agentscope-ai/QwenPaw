@@ -15,6 +15,7 @@ from legacy plaintext and transparently migrate on first access.
 from __future__ import annotations
 
 import base64
+import hashlib
 import logging
 import os
 import secrets
@@ -22,7 +23,7 @@ import threading
 from pathlib import Path
 from typing import Optional
 
-from ..constant import EnvVarLoader
+from ..constant import EnvVarLoader, KEYRING_ACCOUNT_ENV
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +38,48 @@ def _get_secret_dir() -> Path:
     from ..constant import SECRET_DIR
 
     return SECRET_DIR
+
+
+def _keyring_account() -> str:
+    """Return the keychain account name for the current install.
+
+    The OS keychain is a single, machine-global namespace keyed by
+    ``(service, account)``.  Because the service/account pair used to be a
+    fixed constant, *every* install on the machine read and wrote the same
+    keychain item regardless of where its ``SECRET_DIR`` lived.  A
+    development checkout pointed at a separate working dir (e.g. ``.devdata``
+    via ``QWENPAW_WORKING_DIR``) would therefore share — and silently
+    overwrite — the stable install's master key, leaving the stable install
+    unable to decrypt its own secrets.
+
+    Resolution:
+
+    1. Explicit ``QWENPAW_KEYRING_ACCOUNT`` override always wins (useful for
+       CI or for naming a dev profile deterministically).
+    2. If the install has *not* relocated its config/secrets via env
+       override, keep the historical ``master_key`` account verbatim so that
+       existing default and auto-detected legacy installs are completely
+       unaffected (no new keychain entry, no re-prompt).
+    3. Otherwise the user has explicitly opted into a separate location, so
+       derive a per-install account from the resolved ``SECRET_DIR`` path.
+       Distinct secret dirs get distinct, stable keychain items and never
+       collide.
+    """
+    explicit = EnvVarLoader.get_str(KEYRING_ACCOUNT_ENV)
+    if explicit:
+        return explicit
+
+    relocated = bool(
+        EnvVarLoader.get_str("QWENPAW_WORKING_DIR")
+        or EnvVarLoader.get_str("QWENPAW_SECRET_DIR"),
+    )
+    if not relocated:
+        return _KEYRING_ACCOUNT
+
+    digest = hashlib.sha256(
+        str(_get_secret_dir()).encode("utf-8"),
+    ).hexdigest()[:16]
+    return f"{_KEYRING_ACCOUNT}:{digest}"
 
 
 # ---------------------------------------------------------------------------
@@ -135,17 +178,19 @@ def _try_keyring_get() -> Optional[str]:
     try:
         import keyring
 
+        account = _keyring_account()
+
         def _get():
             value = keyring.get_password(
                 _KEYRING_SERVICE,
-                _KEYRING_ACCOUNT,
+                account,
             )
             if value:
                 return value
             # Backward compatibility: read legacy CoPaw keyring entry.
             return keyring.get_password(
                 _KEYRING_SERVICE_LEGACY,
-                _KEYRING_ACCOUNT,
+                account,
             )
 
         result, timed_out = _call_with_timeout(_get, _KEYRING_TIMEOUT)
@@ -173,10 +218,12 @@ def _try_keyring_set(key_hex: str) -> bool:
     try:
         import keyring
 
+        account = _keyring_account()
+
         def _set():
             keyring.set_password(
                 _KEYRING_SERVICE,
-                _KEYRING_ACCOUNT,
+                account,
                 key_hex,
             )
 

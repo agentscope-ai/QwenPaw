@@ -18,6 +18,7 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 from typing import Optional
 
@@ -40,8 +41,12 @@ _MAX_MATCHES_CAP = 1000
 _MAX_SNIPPET_CHARS = 400
 _MAX_TOTAL_OUTPUT_CHARS = 80_000
 
-# Avoid CREATE_NO_WINDOW because it can trigger Windows Defender.
-_SUBPROCESS_FLAGS = 0
+# Hide the console window on Windows; no-op on POSIX.
+_SUBPROCESS_FLAGS = (
+    getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    if sys.platform == "win32"
+    else 0
+)
 
 
 # ---------------------------------------------------------------------

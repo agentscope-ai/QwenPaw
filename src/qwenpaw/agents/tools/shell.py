@@ -380,6 +380,72 @@ async def _execute_in_sandbox(
     return result
 
 
+_DANGER_NAMES = {
+    "python",
+    "pythonw",
+    "cmd",
+    "powershell",
+    "pwsh",
+    "conhost",
+}
+
+# Prefix: kill/taskkill at command start or after &&, ;, |
+_KILL_PREFIX = r"(?:^|[;&|]\s*)\s*"
+
+# Matches PID-based kills: taskkill /PID 123, kill -9 123, kill 123.
+_KILL_PID_RE = re.compile(
+    rf"{_KILL_PREFIX}(?:taskkill|kill|stop-process)\b"
+    rf".*(?:/PID|-p|-pid|\b)\s*(\d+)",
+    re.IGNORECASE,
+)
+
+# Matches dangerous process names as /IM targets or bare kill targets.
+_DANGER_NAME_RE = re.compile(
+    rf"{_KILL_PREFIX}(?:taskkill|kill|stop-process)\b"
+    rf".*?\b({'|'.join(_DANGER_NAMES)})(?:\.exe)?\b",
+    re.IGNORECASE,
+)
+
+# Shell variables that reference the current/parent PID.
+_SHELL_PID_VARS = {"$$", "$ppid", "$pid"}
+
+
+def _is_dangerous_self_kill(cmd: str) -> bool:
+    """Return True if *cmd* would kill the current process or its parent.
+
+    Uses token-based regex matching to avoid false positives from
+    substring matching (e.g. ``echo "do not kill python"`` is safe).
+
+    Blocks three patterns:
+    1. ``taskkill /IM <dangerous_name>`` — kills by image name.
+    2. ``kill <pid>`` / ``taskkill /PID <pid>`` targeting our PID or
+       parent.
+    3. Shell variable self-kill: ``kill -9 $$``, ``kill $PPID``.
+    """
+    lower = cmd.lower()
+
+    if _DANGER_NAME_RE.search(lower):
+        return True
+
+    if "kill" in lower or "stop-process" in lower:
+        if any(var in lower for var in _SHELL_PID_VARS):
+            return True
+
+    m = _KILL_PID_RE.search(lower)
+    if m:
+        try:
+            target_pid = int(m.group(1))
+            protected_pids = {os.getpid()}
+            if hasattr(os, "getppid"):
+                protected_pids.add(os.getppid())
+            if target_pid in protected_pids:
+                return True
+        except ValueError:
+            pass
+
+    return False
+
+
 # pylint: disable=too-many-branches, too-many-statements
 @tool_descriptor(requires_sandbox=("shell_exec",), async_execution=True)
 async def execute_shell_command(
@@ -420,6 +486,22 @@ async def execute_shell_command(
     """
 
     cmd = _collapse_embedded_newlines((command or "").strip())
+
+    if _is_dangerous_self_kill(cmd):
+        return ToolChunk(
+            is_last=True,
+            state=ToolResultState.ERROR,
+            content=[
+                TextBlock(
+                    type="text",
+                    text=(
+                        "Blocked: this command would terminate the "
+                        "QwenPaw process or its parent. "
+                        "Refusing to execute."
+                    ),
+                ),
+            ],
+        )
 
     if isinstance(timeout, str):
         try:

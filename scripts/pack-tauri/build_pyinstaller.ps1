@@ -168,12 +168,17 @@ Write-Host ""
 # Verify output
 $BACKEND_DIR = Join-Path $DIST "pyinstaller\qwenpaw-backend"
 $BACKEND_EXE = Join-Path $BACKEND_DIR "qwenpaw-backend.exe"
+$CLI_EXE = Join-Path $BACKEND_DIR "qwenpaw.exe"
 if (-not (Test-Path $BACKEND_DIR)) {
     Write-Host "ERROR: Backend bundle directory not found at $BACKEND_DIR" -ForegroundColor Red
     exit 1
 }
 if (-not (Test-Path $BACKEND_EXE)) {
     Write-Host "ERROR: Backend executable not found at $BACKEND_EXE" -ForegroundColor Red
+    exit 1
+}
+if (-not (Test-Path $CLI_EXE)) {
+    Write-Host "ERROR: CLI executable not found at $CLI_EXE" -ForegroundColor Red
     exit 1
 }
 
@@ -194,6 +199,14 @@ New-Item -ItemType Directory -Force -Path $DEST | Out-Null
 Get-ChildItem -LiteralPath $DEST -Force | Remove-Item -Recurse -Force
 Copy-Item -Recurse -Force (Join-Path $BACKEND_DIR "*") $DEST
 Write-Host "Copied to: $DEST" -ForegroundColor Green
+Write-Host ""
+
+# Stage a standalone CPython (same X.Y/arch as this build's interpreter) so the
+# frozen backend can install third-party plugin dependencies at runtime.
+Write-Host "== Staging bundled Python runtime ==" -ForegroundColor Yellow
+& $PYTHON_BIN (Join-Path $REPO_ROOT "scripts\pack-tauri\stage_python_runtime.py") `
+    --dest (Join-Path $BINARIES_DIR "python-runtime")
+Assert-LastExit "Failed to stage bundled Python runtime"
 Write-Host ""
 
 Write-Host "=========================================" -ForegroundColor Cyan

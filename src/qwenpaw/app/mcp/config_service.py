@@ -140,14 +140,38 @@ class MCPConfigService:
                 detail=f"Failed to query tools from MCP server: {exc}",
             ) from exc
 
+        whitelist = card.config.get("tools")
+        whitelist_set = set(whitelist) if whitelist is not None else None
         return [
             MCPToolInfo(
                 name=capability.name,
                 description=capability.description,
+                enabled=whitelist_set is None
+                or capability.name in whitelist_set,
                 input_schema=capability.input_schema,
             )
             for capability in capabilities
         ]
+
+    async def update_tool_whitelist(
+        self,
+        client_key: str,
+        tools: list[str] | None,
+    ) -> list[MCPToolInfo]:
+        """Update tool whitelist and return full tool list with enabled status.
+
+        Args:
+            client_key: The MCP client identifier.
+            tools: List of tool names to whitelist, or None to remove.
+        """
+        card = await self.load_card(client_key)
+        card.config = dict(card.config)
+        card.config["tools"] = tools
+        await self._driver_config.save_card(card)
+        try:
+            return await self.list_tools(client_key)
+        except HTTPException:
+            return []
 
     async def get_policy(self, client_key: str) -> MCPAccessPolicy:
         return mcp_access_policy_from_card(await self.load_card(client_key))

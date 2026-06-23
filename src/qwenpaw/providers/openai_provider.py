@@ -535,3 +535,58 @@ class OpenAIProvider(Provider):
             False,
             f"Model did not recognise video (answer={answer!r})",
         )
+
+
+class _FreeSuffixProviderMixin:
+    """Mixin for providers that mark models as free by suffix."""
+
+    _FREE_SUFFIX = "-free"
+
+    async def fetch_models(
+        self,
+        timeout: float = 5,
+    ) -> List[ModelInfo]:
+        """Fetch models and mark free ones by suffix."""
+        try:
+            client = self._client(timeout=timeout)
+            payload = await client.models.list(timeout=timeout)
+        except Exception:
+            return []
+
+        suffix = self._FREE_SUFFIX
+        models: List[ModelInfo] = []
+        seen: set[str] = set()
+        for row in getattr(payload, "data", []) or []:
+            model_id = str(
+                getattr(row, "id", "") or "",
+            ).strip()
+            if not model_id or model_id in seen:
+                continue
+            seen.add(model_id)
+            is_free = model_id.endswith(suffix)
+            display_name = (
+                model_id.removesuffix(suffix)
+                .replace("-", " ")
+                .replace("/", " - ")
+                .title()
+            )
+            models.append(
+                ModelInfo(
+                    id=model_id,
+                    name=display_name,
+                    is_free=is_free,
+                ),
+            )
+        return models
+
+
+class OpenCodeProvider(_FreeSuffixProviderMixin, OpenAIProvider):
+    """OpenCode provider with dynamic free model detection."""
+
+    _FREE_SUFFIX = "-free"
+
+
+class KiloProvider(_FreeSuffixProviderMixin, OpenAIProvider):
+    """Kilo Code provider with dynamic free model detection."""
+
+    _FREE_SUFFIX = ":free"

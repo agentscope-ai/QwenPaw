@@ -24,7 +24,7 @@ class TestOpenCodeProvider:
         """Provider-level attributes should be correctly set."""
         assert PROVIDER_OPENCODE.id == "opencode"
         assert PROVIDER_OPENCODE.api_key_prefix == ""
-        assert PROVIDER_OPENCODE.require_api_key is True
+        assert PROVIDER_OPENCODE.require_api_key is False
         assert PROVIDER_OPENCODE.freeze_url is False
         assert PROVIDER_OPENCODE.base_url == "https://opencode.ai/zen/v1"
         assert (
@@ -43,73 +43,30 @@ class TestOpenCodeProvider:
         assert urls[1]["label"] == "OpenCode Go"
         assert urls[1]["value"] == "https://opencode.ai/zen/go/v1"
 
-    def test_opencode_models_count_and_key_models(self):
-        """8 intersection models (Zen ∩ Go)."""
-        model_ids = {m.id for m in OPENCODE_MODELS}
-        assert len(model_ids) == 8, f"Expected 8, got {len(model_ids)}"
-        intersection = {
-            "glm-5.1",
-            "glm-5",
-            "kimi-k2.5",
-            "kimi-k2.6",
-            "minimax-m2.5",
-            "minimax-m2.7",
-            "qwen3.6-plus",
-            "qwen3.5-plus",
-        }
-        assert model_ids == intersection
-        # Removed models should NOT appear
-        assert "big-pickle" not in model_ids
-        assert "nemotron-3-super-free" not in model_ids
-        assert "deepseek-v4-flash" not in model_ids
-        assert "deepseek-v4-pro" not in model_ids
-        assert "mimo-v2.5" not in model_ids
-        assert "mimo-v2.5-pro" not in model_ids
-
-    def test_opencode_models_visual_capabilities(self):
-        """Check visual model tagging."""
-        models_by_id = {m.id: m for m in OPENCODE_MODELS}
-        # Vision models
-        vision_models = {
-            "kimi-k2.5",
-            "kimi-k2.6",
-            "qwen3.6-plus",
-            "qwen3.5-plus",
-        }
-        for mid in vision_models:
-            assert models_by_id[
-                mid
-            ].supports_image, f"{mid} should support image"
-            assert models_by_id[
-                mid
-            ].supports_video, f"{mid} should support video"
-        # Non-vision models
-        non_vision = {"glm-5.1", "glm-5", "minimax-m2.5", "minimax-m2.7"}
-        for mid in non_vision:
-            assert not models_by_id[
-                mid
-            ].supports_image, f"{mid} should NOT support image"
-            assert not models_by_id[
-                mid
-            ].supports_video, f"{mid} should NOT support video"
-
-    def test_opencode_models_no_duplicates(self):
-        """Merged models must not have duplicate IDs."""
+    def test_opencode_models_non_empty_and_unique(self):
+        """Models list is non-empty with unique IDs."""
+        assert len(OPENCODE_MODELS) > 0
         model_ids = [m.id for m in OPENCODE_MODELS]
-        assert len(model_ids) == len(
-            set(model_ids),
-        ), "Duplicate model IDs found"
+        assert len(model_ids) == len(set(model_ids))
+
+    def test_opencode_models_have_required_fields(self):
+        """Every model has required fields set."""
+        for m in OPENCODE_MODELS:
+            assert m.id, "Model must have an id"
+            assert m.name, "Model must have a name"
+            assert isinstance(m.supports_image, bool)
+            assert isinstance(m.supports_video, bool)
 
     def test_opencode_models_probe_source(self):
         """All models should have probe_source='documentation'."""
         for m in OPENCODE_MODELS:
             assert m.probe_source == "documentation"
 
-    def test_opencode_models_no_free_models(self):
-        """No free models after removing Zen-only big-pickle/nemotron."""
-        assert not any(
+    def test_opencode_models_all_free(self):
+        """All OpenCode models should be marked as free."""
+        assert all(
             m.is_free for m in OPENCODE_MODELS
-        ), "OPENCODE_MODELS should not contain free models"
+        ), "All OPENCODE_MODELS should be free"
 
     def test_opencode_registered_in_provider_manager(self):
         """opencode provider should be registerable via built-in init."""

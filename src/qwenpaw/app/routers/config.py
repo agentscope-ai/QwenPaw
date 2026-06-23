@@ -724,11 +724,13 @@ async def get_builtin_rules() -> List[ToolGuardRuleConfig]:
 class FileGuardResponse(BaseModel):
     enabled: bool = True
     paths: List[str] = []
+    allow_preview_outside_workspace: bool = False
 
 
 class FileGuardUpdateBody(BaseModel):
     enabled: Optional[bool] = None
     paths: Optional[List[str]] = None
+    allow_preview_outside_workspace: Optional[bool] = None
 
 
 @router.get(
@@ -744,7 +746,11 @@ async def get_file_guard() -> FileGuardResponse:
     )
 
     paths = ensure_file_guard_paths(fg.sensitive_files or [])
-    return FileGuardResponse(enabled=fg.enabled, paths=paths)
+    return FileGuardResponse(
+        enabled=fg.enabled,
+        paths=paths,
+        allow_preview_outside_workspace=fg.allow_preview_outside_workspace,
+    )
 
 
 @router.put(
@@ -766,6 +772,10 @@ async def put_file_guard(
         )
 
         fg.sensitive_files = ensure_file_guard_paths(body.paths)
+    if body.allow_preview_outside_workspace is not None:
+        fg.allow_preview_outside_workspace = (
+            body.allow_preview_outside_workspace
+        )
 
     save_config(config)
 
@@ -777,6 +787,7 @@ async def put_file_guard(
     return FileGuardResponse(
         enabled=fg.enabled,
         paths=fg.sensitive_files,
+        allow_preview_outside_workspace=fg.allow_preview_outside_workspace,
     )
 
 

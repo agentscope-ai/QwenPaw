@@ -216,6 +216,11 @@ async def _guarded_tool_check_permissions(
             message="Tool guard: no findings.",
         )
 
+    # Log findings so test assertions and operators can observe them.
+    from ..security.tool_guard.utils import log_findings
+
+    log_findings(tool_name, guard_result)
+
     # Auto-deny rules (HIGH-RISK rules flagged by config).
     if engine.should_auto_deny_result(guard_result):
         return PermissionDecision(

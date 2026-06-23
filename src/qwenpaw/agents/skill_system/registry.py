@@ -28,10 +28,13 @@ from .store import (
     default_workspace_manifest,
     extract_version,
     get_pool_skill_manifest_path,
+    get_skill_pool_dirs,
     get_skill_pool_dir,
     get_workspace_skill_manifest_path,
     get_workspace_skills_dir,
+    is_ignored_skill_entry,
     is_pool_builtin_entry,
+    is_primary_pool_skill_dir,
     mutate_json,
     normalize_skill_manifest_entry,
     read_frontmatter_safe_from_path,
@@ -216,6 +219,8 @@ def _iter_packaged_builtin_dirs() -> Iterator[Path]:
     if not builtin_dir.exists():
         return
     for skill_dir in sorted(builtin_dir.iterdir()):
+        if is_ignored_skill_entry(skill_dir.name):
+            continue
         if skill_dir.is_dir() and (skill_dir / "SKILL.md").exists():
             yield skill_dir
 
@@ -863,6 +868,89 @@ def ensure_skill_pool_initialized() -> bool:
 # ---------------------------------------------------------------------------
 
 
+def _discover_pool_skill_dirs() -> dict[str, Path]:
+    """Scan pool roots in priority order, mapping skill name to its dir.
+
+    The primary pool is scanned first, then configured read-only roots in
+    order. The first occurrence of a name wins (the pool wins over extras);
+    shadowed duplicates are skipped with a warning.
+    """
+    discovered: dict[str, Path] = {}
+    for root in get_skill_pool_dirs():
+        if not root.is_dir():
+            continue
+        for path in sorted(root.iterdir()):
+            if is_ignored_skill_entry(path.name):
+                continue
+            if not (path.is_dir() and (path / "SKILL.md").exists()):
+                continue
+            if path.name in discovered:
+                logger.warning(
+                    "Skill '%s' in '%s' is shadowed by '%s'; skipping",
+                    path.name,
+                    root,
+                    discovered[path.name].parent,
+                )
+                continue
+            discovered[path.name] = path
+    return discovered
+
+
+def _build_reconciled_pool_entry(
+    skill_name: str,
+    skill_dir: Path,
+    existing: dict[str, Any],
+    *,
+    registry: dict[str, dict[str, BuiltinSkillVariant]],
+    builtin_names: list[str],
+    preferred_language: str,
+) -> dict[str, Any]:
+    """Build one pool manifest entry from a discovered skill directory."""
+    is_external = not is_primary_pool_skill_dir(skill_dir)
+    if is_external:
+        # External roots live outside the pool and never hold packaged
+        # builtins; always classify as customized.
+        source, protected = "customized", False
+    else:
+        source, protected = classify_pool_skill_source(
+            skill_name,
+            skill_dir,
+            existing,
+            builtin_names,
+        )
+    new_entry = build_skill_metadata(
+        skill_name,
+        skill_dir,
+        source=source,
+        protected=protected,
+    )
+    new_entry["external"] = is_external
+    if not is_external and (
+        source == "builtin" or is_pool_builtin_entry(existing)
+    ):
+        language = _resolve_pool_builtin_language(
+            skill_name,
+            existing or new_entry,
+            registry,
+            preferred_language=preferred_language,
+        )
+        if language:
+            new_entry["builtin_language"] = language
+            if language in (registry.get(skill_name) or {}):
+                new_entry["builtin_source_name"] = registry[skill_name][
+                    language
+                ].source_name
+    if "config" in existing:
+        new_entry["config"] = existing.get("config")
+    existing_tags = existing.get("tags")
+    if existing_tags is not None:
+        new_entry["tags"] = existing_tags
+    existing_installed_from = existing.get("installed_from")
+    if existing_installed_from:
+        new_entry["installed_from"] = existing_installed_from
+    return new_entry
+
+
 def reconcile_pool_manifest() -> dict[str, Any]:
     """Reconcile shared pool metadata with the filesystem.
 
@@ -890,12 +978,7 @@ def reconcile_pool_manifest() -> dict[str, Any]:
         payload.setdefault("builtin_skill_names", [])
         skills = payload["skills"]
 
-        discovered = {
-            path.name: path
-            for path in pool_dir.iterdir()
-            if path.is_dir() and (path / "SKILL.md").exists()
-        }
-
+        discovered = _discover_pool_skill_dirs()
         for skill_name, skill_dir in sorted(discovered.items()):
             raw_existing = skills.get(skill_name)
             existing = normalize_skill_manifest_entry(raw_existing)
@@ -908,42 +991,14 @@ def reconcile_pool_manifest() -> dict[str, Any]:
                     skill_name,
                 )
             try:
-                source, protected = classify_pool_skill_source(
+                skills[skill_name] = _build_reconciled_pool_entry(
                     skill_name,
                     skill_dir,
                     existing,
-                    builtin_names,
+                    registry=registry,
+                    builtin_names=builtin_names,
+                    preferred_language=pref,
                 )
-                has_config = "config" in existing
-                config = existing.get("config") if has_config else None
-                existing_tags = existing.get("tags")
-                new_entry = build_skill_metadata(
-                    skill_name,
-                    skill_dir,
-                    source=source,
-                    protected=protected,
-                )
-                if source == "builtin" or is_pool_builtin_entry(existing):
-                    language = _resolve_pool_builtin_language(
-                        skill_name,
-                        existing or new_entry,
-                        registry,
-                        preferred_language=pref,
-                    )
-                    if language:
-                        new_entry["builtin_language"] = language
-                        if language in (registry.get(skill_name) or {}):
-                            new_entry["builtin_source_name"] = registry[
-                                skill_name
-                            ][language].source_name
-                if has_config:
-                    new_entry["config"] = config
-                if existing_tags is not None:
-                    new_entry["tags"] = existing_tags
-                existing_installed_from = existing.get("installed_from")
-                if existing_installed_from:
-                    new_entry["installed_from"] = existing_installed_from
-                skills[skill_name] = new_entry
             except Exception:
                 logger.warning(
                     "Skipping pool skill '%s' during reconcile",
@@ -997,7 +1052,9 @@ def reconcile_workspace_manifest(workspace_dir: Path) -> dict[str, Any]:
         discovered = {
             path.name: path
             for path in workspace_skills_dir.iterdir()
-            if path.is_dir() and (path / "SKILL.md").exists()
+            if not is_ignored_skill_entry(path.name)
+            and path.is_dir()
+            and (path / "SKILL.md").exists()
         }
 
         for skill_name, skill_dir in sorted(discovered.items()):

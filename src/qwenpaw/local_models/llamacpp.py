@@ -29,6 +29,7 @@ from .download_manager import (
     ProcessDownloadTaskSpec,
 )
 from ..utils.command_runner import (
+    CommandExecutionError,
     ManagedProcess,
     run_command_async,
     shutdown_process,
@@ -334,14 +335,23 @@ class LlamaCppBackend:
         if not installed:
             raise RuntimeError(message or "llama.cpp server is not installed")
 
-        result = await run_command_async(
-            [str(self.executable), "--version"],
-            timeout=30,
-        )
+        try:
+            result = await run_command_async(
+                [str(self.executable), "--version"],
+                timeout=30,
+            )
+        except CommandExecutionError as exc:
+            raise RuntimeError(str(exc)) from exc
         lines = result.stderr_lines
+        prefix = "version:"
         for line in lines:
-            if line.startswith("version:"):
-                return line[9:13]
+            if line.startswith(prefix):
+                # Output looks like "version: 8514 (406f4e3f6)"; take the
+                # first whitespace-delimited token instead of a fixed-width
+                # slice, which breaks once the build number is not 4 digits.
+                tokens = line.removeprefix(prefix).split()
+                if tokens:
+                    return tokens[0]
         raise RuntimeError(
             "Unexpected version output from llama.cpp server: "
             f"{result.combined_output}",

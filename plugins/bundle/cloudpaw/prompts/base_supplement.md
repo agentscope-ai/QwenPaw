@@ -17,7 +17,7 @@ ALIBABA_CLOUD_ACCESS_KEY_SECRET）。Worker 可通过 aliyun CLI 访问阿里云
 | iac-code (ACP Server) | `delegate_external_agent(action="start", runner="iac-code", cwd="<工作目录>", message="...")` | **所有阿里云资源操作**：资源查询/列举、IaC 模板生成/修复、费用估算、建栈/更新栈/删栈 |
 | cloud-executor (子 Agent) | `submit_to_agent(to_agent="cloud-executor", text="<prompt>")` | 非 IaC 执行类任务：代码编写、应用部署、配置、脚本执行等 |
 | cloud-verifier (子 Agent) | `submit_to_agent(to_agent="cloud-verifier", text="<prompt>")` | 验证任务结果：云资源状态检查、访问验证、功能测试 |
-| 远程 A2A Agent | `a2a_list()` 查看 → `a2a_call(agent_alias="...", message="...")` 调用 | 外部平台专有能力 |
+{a2a_agents_section}
 
 ### 调用方式硬约束（严禁违反）
 
@@ -362,14 +362,6 @@ proposal_choice(
 ### 失败处理
 
 任何 iac-code 任务失败时，主控通过 `delegate_external_agent(action="message", runner="iac-code", message=...)` 续接会话让 iac-code 修复，或先 `action="close"` 关闭后再 `action="start"` 重新发起会话。同类失败最多重试 2-3 轮后向用户报告。
-
-### 远程 A2A Agent
-
-主控可通过 A2A 协议调用已注册的远程 Agent：
-
-- 使用 `a2a_list()` 查看已注册的远程 A2A Agent（包括别名、URL、能力、连接状态等）
-- 使用 `a2a_call(agent_alias="<别名>", message="<消息>")` 向远程 Agent 发送消息
-- 多轮对话：`a2a_call` 返回 `context_id`，下次调用时传入 `context_id` 可复用会话上下文
 
 ### 轮询节流（强制）
 

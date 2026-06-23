@@ -43,6 +43,8 @@ export interface MCPClientInfo {
   env: Record<string, string>;
   /** Working directory for stdio command */
   cwd: string;
+  /** Tool whitelist (null means all tools enabled) */
+  tools: string[] | null;
   /** OAuth status (null if OAuth not configured) */
   oauth_status: MCPClientOAuthStatus | null;
   /** Summarised MCP access policy */
@@ -108,6 +110,8 @@ export interface MCPToolInfo {
   name: string;
   /** Tool description */
   description: string;
+  /** Whether this tool is enabled (passes the whitelist) */
+  enabled: boolean;
   /** JSON Schema for the tool's input parameters */
   input_schema: Record<string, unknown>;
 }

@@ -43,9 +43,9 @@ class ResourceGovernor:
     """ResourceGovernor — core of policy and audit.
 
     Responsibilities:
-        1. Policy evaluation: assert_and_audit(tool_call) → GovernanceDecision
-        2. Sandbox config compilation: compile_sandbox_config() → SandboxConfig
-        3. Audit logging: each assert_and_audit records an audit log entry
+        1. Policy evaluation: assert_policy(tool_call) → GovernanceDecision
+        2. Audit logging: audit(tool_call, decision) records an audit log entry
+        3. Sandbox config compilation: compile_sandbox_config() → SandboxConfig
         4. Dynamic rule addition: add_rule(...) after user approval
 
     NOT responsible for (TBD):
@@ -53,18 +53,26 @@ class ResourceGovernor:
         - Runtime/Agent scheduling → TBD
     """
 
-    def __init__(self, workspace_dir: str):
+    def __init__(
+        self,
+        workspace_dir: str,
+        governance_dir: Optional[str] = None,
+    ):
         self.workspace_dir = Path(workspace_dir)
         # Policy is stored outside the workspace to prevent agent tampering.
         # Use ``<basename>_<hash>`` so two workspaces with the same basename
         # but different absolute paths (e.g. ``/Users/a/project`` vs
         # ``/Users/b/project``) do not share the same policy directory.
+        if governance_dir is not None:
+            self._governance_dir = Path(governance_dir)
+        else:
+            self._governance_dir = WORKING_DIR / "governance"
         ws_resolved = str(self.workspace_dir.resolve())
         ws_hash = hashlib.sha256(
             ws_resolved.encode("utf-8"),
         ).hexdigest()[:12]
         self._policy_dir = (
-            WORKING_DIR / "governance" / f"{self.workspace_dir.name}_{ws_hash}"
+            self._governance_dir / f"{self.workspace_dir.name}_{ws_hash}"
         )
         self._policy: Optional[GovernancePolicy] = None
         self._sandbox_available: bool = False
@@ -122,23 +130,26 @@ class ResourceGovernor:
         # closed on interpreter exit (best-effort) which is fragile
         # under supervised restarts and may leak WAL frames.
         try:
-            AuditLog.get_instance().close()
+            self.audit_log.close()
         except Exception:
             logger.exception(
                 "ResourceGovernor.stop: failed to close AuditLog",
             )
 
     # ------------------------------------------------------------------
-    # Core interface 1: Policy evaluation + audit
+    # Core interface 1: Policy evaluation
     # ------------------------------------------------------------------
 
-    def assert_and_audit(self, tc_spec: ToolCallSpec) -> GovernanceDecision:
-        """Evaluate policy for a tool call and record an audit log entry.
+    def assert_policy(self, tc_spec: ToolCallSpec) -> GovernanceDecision:
+        """Evaluate policy for a tool call.
 
         Flow:
             1. policy.evaluate(tc_spec) → GovernanceDecision
-            2. audit_log.append(tc_spec, decision)
-            3. return decision
+            2. Sandbox degradation: if SANDBOX_FALLBACK and sandbox
+               unavailable → escalate to ASK
+            3. If SANDBOX_FALLBACK → compile sandbox config and attach
+            4. Log the governance decision (observability)
+            5. Return decision (does NOT record audit)
 
         Returns GovernanceDecision:
             ALLOW            → explicit resource tool executes directly;
@@ -172,27 +183,55 @@ class ResourceGovernor:
         # compile sandbox config
         if decision.action is GovernanceAction.SANDBOX_FALLBACK:
             decision.sandbox_config = self.compile_sandbox_config(tc_spec)
-        # Audit record
-        AuditLog.get_instance().record(
-            str(self.workspace_dir),
-            tc_spec,
-            decision,
-        )
+
         # Observability: log every governance decision so operators can
         # trace policy evaluation results without querying audit.db.
         # ``target`` is truncated to keep log lines bounded.
         target_repr = (tc_spec.target or "")[:120]
+        # sandbox backend actually used for this call: the compiled
+        # config's mode (bubblewrap/landlock/...), or "-" when the
+        # decision does not route through a sandbox.
+        sandbox_mode = (
+            decision.sandbox_config.mode.value
+            if decision.sandbox_config is not None
+            else "-"
+        )
         logger.info(
-            "governance decision: tool=%s target=%r action=%s reason=%s",
+            "governance decision: tool=%s target=%r action=%s sandbox=%s "
+            "reason=%s",
             tc_spec.tool_name,
             target_repr,
             decision.action.value,
+            sandbox_mode,
             decision.reason,
         )
         return decision
 
     # ------------------------------------------------------------------
-    # Core interface 2: Compile sandbox config
+    # Core interface 2: Audit logging
+    # ------------------------------------------------------------------
+
+    def audit(
+        self,
+        tc_spec: ToolCallSpec,
+        decision: GovernanceDecision,
+    ) -> None:
+        """Record a governance decision to the audit log.
+
+        Callers should invoke this after ``assert_policy()`` to persist
+        the decision for compliance / forensics:
+
+            decision = governor.assert_policy(tc_spec)
+            governor.audit(tc_spec, decision)
+        """
+        self.audit_log.record(
+            str(self.workspace_dir),
+            tc_spec,
+            decision,
+        )
+
+    # ------------------------------------------------------------------
+    # Core interface 3: Compile sandbox config
     # ------------------------------------------------------------------
 
     def compile_sandbox_config(  # pylint: disable=unused-argument
@@ -296,7 +335,7 @@ class ResourceGovernor:
         return str(Path(workspace_dir) / p)
 
     # ------------------------------------------------------------------
-    # Core interface 3: Dynamic rule addition
+    # Core interface 4: Dynamic rule addition
     # ------------------------------------------------------------------
 
     def add_rule(self, rule: GovernanceRule) -> None:
@@ -315,25 +354,57 @@ class ResourceGovernor:
                 str(self.workspace_dir),
             )
 
-    def record_approval(self, tc_spec: ToolCallSpec, approved: bool) -> None:
-        """Record the user's approve/deny result to the audit log.
+    def add_approved_rule(self, tc_spec: ToolCallSpec) -> bool:
+        """Add an ALLOW rule for a user-approved tool call.
 
-        Called when the user confirms after an ASK decision, completing
-        the audit chain:
-            assert_and_audit → ASK (already recorded)
-            record_approval  → ALLOW/DENY (supplementary entry)
+        Handles rule generalization and empty-pattern guard internally
+        so callers (tool_adapter) don't need to know policy details.
+
+        Returns True if a rule was actually added, False if skipped
+        (e.g. builtin ask, empty target pattern).
         """
-        decision = GovernanceDecision(
-            action=(
-                GovernanceAction.ALLOW if approved else GovernanceAction.DENY
-            ),
-            reason="User Approve" if approved else "User Deny",
-        )
-        AuditLog.get_instance().record(
-            str(self.workspace_dir),
-            tc_spec,
-            decision,
-        )
+        if self.is_builtin_ask(tc_spec):
+            return False
+
+        try:
+            from .policy import generalize_rule_match
+
+            generalized = generalize_rule_match(
+                tc_spec.tool_name,
+                tc_spec.target,
+            )
+            _, rule_pattern = generalized.split("(", 1)
+            rule_pattern = rule_pattern.rstrip(")")
+
+            if not rule_pattern:
+                logger.debug(
+                    "ResourceGovernor: empty pattern, skipping rule "
+                    "for tool=%s target=%s",
+                    tc_spec.tool_name,
+                    tc_spec.target,
+                )
+                return False
+
+            rule = GovernanceRule(
+                match=generalized,
+                action=GovernanceAction.ALLOW,
+                reason="user approved",
+                grantee=tc_spec.agent_id or "*",
+                duration="session",
+                session_id=tc_spec.session_id,
+            )
+            self.add_rule(rule)
+            logger.info(
+                "ResourceGovernor: added approved rule: %s",
+                rule.match,
+            )
+            return True
+        except Exception:
+            logger.debug(
+                "ResourceGovernor: failed to persist approved rule",
+                exc_info=True,
+            )
+            return False
 
     def is_builtin_ask(self, tc_spec: ToolCallSpec) -> bool:
         """Determine whether a tool call's ASK comes from builtin_rules.
@@ -362,4 +433,6 @@ class ResourceGovernor:
     @property
     def audit_log(self) -> AuditLog:
         """Get the global AuditLog singleton."""
-        return AuditLog.get_instance()
+        return AuditLog.get_instance(
+            db_dir=self._governance_dir,
+        )

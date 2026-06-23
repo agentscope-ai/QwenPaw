@@ -34,12 +34,15 @@ class ContextVarsSetupHook(LifecycleHook):
         from ...app.agent_context import (
             set_current_agent_id,
             set_current_root_session_id,
+            set_current_session_id as _set_app_session_id,
         )
 
         if ctx.workspace_dir is not None:
             set_current_workspace_dir(ctx.workspace_dir)
         set_current_agent_id(ctx.agent_id or "default")
-        set_current_session_id(ctx.session_id or "")
+        _session_id = ctx.session_id or ""
+        set_current_session_id(_session_id)
+        _set_app_session_id(_session_id)
         set_current_root_session_id(
             ctx.root_session_id or ctx.session_id or "",
         )

@@ -609,6 +609,7 @@ export function ProviderConfigModal({
   return (
     <Modal
       width={800}
+      className={styles.modelManageModal}
       title={t("models.configureProvider", { name: provider.name })}
       open={open}
       onCancel={onClose}

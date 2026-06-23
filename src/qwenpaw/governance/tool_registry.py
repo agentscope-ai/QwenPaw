@@ -14,6 +14,7 @@ Relationship with policy.yaml:
 """
 
 from __future__ import annotations
+import os
 from typing import Any, Dict, List
 
 
@@ -24,12 +25,17 @@ class ToolRegistry:
         self._types: Dict[str, str] = {}
         self._target_params: Dict[str, str] = {}
         self._python_name_map: Dict[str, str] = {}
+        # Tools whose target should combine path + pattern
+        # (e.g. Glob: pattern is a file glob, so path+pattern
+        # forms a complete filesystem path pattern for rule matching).
+        self._pattern_params: Dict[str, str] = {}
 
     def register(
         self,
         tool_name: str,
         tool_type: str,
         target_param: str,
+        pattern_param: str = "",
     ) -> None:
         """Register a tool.
 
@@ -37,9 +43,14 @@ class ToolRegistry:
             tool_name: policy-layer tool name, e.g. "Read"
             tool_type: "file" | "network" | "shell" | "internal"
             target_param: target parameter name, e.g. "file_path", "command"
+            pattern_param: for file-search tools (e.g. Glob), the parameter
+                name holding the glob pattern. When set, ``extract_target``
+                combines path + pattern into a single filesystem path pattern.
         """
         self._types[tool_name] = tool_type
         self._target_params[tool_name] = target_param
+        if pattern_param:
+            self._pattern_params[tool_name] = pattern_param
 
     def register_python_name(self, python_name: str, policy_name: str) -> None:
         """Register a python function name → policy tool name mapping."""
@@ -72,13 +83,34 @@ class ToolRegistry:
         self,
         tool_name: str,
         input_data: dict[str, Any],
+        workspace_dir: str = "",
     ) -> str:
         """Extract the target from tool call arguments."""
         param = self.get_target_param(tool_name)
         if not param:
             return ""
-        target = input_data.get(param, "")
-        return str(target) if target else ""
+
+        # 1) Get base path from input
+        path = input_data.get(param, "")
+        path = str(path) if path else ""
+
+        # 2) For file tools, resolve empty/relative path using workspace_dir
+        if self._types.get(tool_name) == "file" and workspace_dir:
+            if not path:
+                path = workspace_dir
+            elif not os.path.isabs(path):
+                path = os.path.join(workspace_dir, path)
+
+        # 3) Append pattern for file-search tools (e.g. Glob)
+        pattern_param = self._pattern_params.get(tool_name)
+        if pattern_param:
+            pattern = input_data.get(pattern_param, "")
+            if pattern:
+                path = (
+                    os.path.join(path, str(pattern)) if path else str(pattern)
+                )
+
+        return path
 
     def get_all_tool_names(self) -> List[str]:
         """Return all registered tool names."""
@@ -100,11 +132,10 @@ def _create_default_registry() -> ToolRegistry:
     registry.register("Edit", "file", "file_path")
     registry.register("Append", "file", "file_path")
     registry.register("Grep", "file", "path")
-    registry.register("Glob", "file", "path")
+    registry.register("Glob", "file", "path", pattern_param="pattern")
     registry.register("SendFileToUser", "file", "file_path")
-    registry.register("ViewImage", "file", "file_path")
-    registry.register("ViewVideo", "file", "file_path")
-    registry.register("MaterializeSkill", "file", "")
+    registry.register("ViewImage", "file", "image_path")
+    registry.register("ViewVideo", "file", "video_path")
     registry.register("DesktopScreenshot", "file", "path")
     registry.register("SetUserTimezone", "file", "timezone")
 
@@ -118,6 +149,7 @@ def _create_default_registry() -> ToolRegistry:
     registry.register("GetCurrentTime", "internal", "")
     registry.register("GetTokenUsage", "internal", "")
     registry.register("ListAgents", "internal", "")
+    registry.register("MaterializeSkill", "internal", "")
     registry.register("ChatWithAgent", "internal", "agent_id")
     registry.register("SubmitToAgent", "internal", "agent_id")
     registry.register("CheckAgentTask", "internal", "task_id")

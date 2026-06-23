@@ -12,6 +12,7 @@ proactive send arrives, it is pretty-printed to the terminal.
 from __future__ import annotations
 
 import copy
+import json as _json
 import logging
 import os
 import sys
@@ -28,6 +29,7 @@ from qwenpaw.schemas import (
 from ....config.config import ConsoleConfig as ConsoleChannelConfig
 from ...console_push_store import append as push_store_append
 from ....constant import DEFAULT_MEDIA_DIR
+from ....exceptions import ModelQuotaExceededException
 from ..base import (
     BaseChannel,
     AudioContent,
@@ -262,7 +264,6 @@ class ConsoleChannel(BaseChannel):
         channel_id = payload.get("channel_id") or self.channel
         sender_id = payload.get("sender_id") or ""
         content_parts = payload.get("content_parts") or []
-        content_parts = self._resolve_console_upload_refs(content_parts)
         meta = payload.get("meta") or {}
         session_id = self.resolve_session_id(sender_id, meta)
         request = self.build_agent_request_from_user_content(
@@ -318,18 +319,50 @@ class ConsoleChannel(BaseChannel):
                 media_message.object = "message"
         return media_message
 
-    def _extract_token_usage(
-        self,
-        session_id: Optional[str] = None,
-    ) -> Optional[Dict[str, Any]]:
-        from ....token_usage import TokenRecordingModelWrapper
+    def _build_trailing_usage_sse(self, session_id: str) -> str | None:
+        """Return one trailing turn_usage SSE block for the console UI."""
+        from ....token_usage import get_pending_usage_for_stream
 
-        if not session_id:
+        turn, ctx = get_pending_usage_for_stream(session_id)
+        if turn is None and ctx is None:
             return None
 
-        usage = TokenRecordingModelWrapper.pop_usage_for_session(session_id)
-        logger.info("Usage for session %s (cleaned up): %s", session_id, usage)
-        return usage
+        if turn:
+            logger.info("Usage for session %s: %s", session_id, turn)
+            if ctx:
+                self._print_status_line(turn, ctx)
+
+        payload: Dict[str, Any] = {
+            "type": "turn_usage",
+            "session_id": session_id,
+            "usage": turn,
+            "context_usage": ctx,
+        }
+        return f"data: {_json.dumps(payload, ensure_ascii=False)}\n\n"
+
+    def _print_status_line(
+        self,
+        turn: Dict[str, Any],
+        ctx: Dict[str, Any],
+    ) -> None:
+        """Print a one-line terminal summary of turn + context usage."""
+        from ....token_usage import fmt_tokens
+
+        pt = turn.get("prompt_tokens", 0)
+        ct = turn.get("completion_tokens", 0)
+        tt = turn.get("total_tokens", 0)
+        est = int(ctx.get("estimated_tokens", 0) or 0)
+        mx = int(ctx.get("max_input_length", 0) or 0)
+        ratio = ctx.get("context_usage_ratio", 0) or 0
+        turn_line = (
+            f"{_GREEN}Turn {_BOLD}{fmt_tokens(tt)}{_RESET} "
+            f"(in {fmt_tokens(pt)} · out {fmt_tokens(ct)})"
+        )
+        ctx_line = (
+            f" · Context {_BOLD}{fmt_tokens(est)}{_RESET} / "
+            f"{fmt_tokens(mx)} ({ratio:.1f}%)"
+        )
+        self._safe_print(f"📝 {turn_line}{ctx_line}")
 
     async def stream_one(self, payload: Any) -> AsyncGenerator[str, None]:
         """Process one payload and yield SSE-formatted events"""
@@ -362,7 +395,16 @@ class ConsoleChannel(BaseChannel):
                     return
                 if merged and hasattr(request.input[0], "content"):
                     request.input[0].content = merged
+        session_id = getattr(request, "session_id", "") or session_id
+        user_id = getattr(request, "user_id", "") or ""
+        channel_name = getattr(request, "channel", "") or self.channel
         try:
+            from ....token_usage import (
+                finalize_console_turn_usage,
+                reset_pending_usage_for_stream,
+            )
+
+            reset_pending_usage_for_stream(session_id)
             send_meta = getattr(request, "channel_meta", None) or {}
             send_meta.setdefault("bot_prefix", self.bot_prefix)
             last_response = None
@@ -391,33 +433,35 @@ class ConsoleChannel(BaseChannel):
                     if event_output is not None:
                         for message in event_output:
                             event.output.append(message)
-                            media_message = await self._extract_media_message(
-                                message,
-                            )
-                            if media_message:
-                                event.output.append(media_message)
-
-                if obj == "response":
-                    usage_data = self._extract_token_usage(session_id)
-                    if usage_data and hasattr(event, "usage"):
-                        setattr(event, "usage", usage_data)
 
                 data = self._serialize_event_for_sse(event)
                 yield f"data: {data}\n\n"
 
                 if obj == "message" and status == RunStatus.Completed:
-                    media_message = await self._extract_media_message(event)
-                    if media_message:
-                        media_json = self._serialize_event_for_sse(
-                            media_message,
-                        )
-                        yield f"data: {media_json}\n\n"
-
                     parts = self._message_to_content_parts(event)
                     self._print_parts(parts, ev_type)
 
                 elif obj == "response":
                     last_response = event
+
+            runner = getattr(self._workspace, "runner", None)
+            session = getattr(runner, "session", None) if runner else None
+            agent_id = (
+                getattr(self._workspace, "agent_id", "default")
+                if self._workspace is not None
+                else "default"
+            )
+            if session is not None and session_id:
+                await finalize_console_turn_usage(
+                    session=session,
+                    session_id=session_id,
+                    user_id=user_id,
+                    channel=channel_name,
+                    agent_id=agent_id,
+                )
+
+            if trailing := self._build_trailing_usage_sse(session_id):
+                yield trailing
 
             logger.info(
                 "console stream done: event_count=%s has_response=%s",
@@ -437,6 +481,18 @@ class ConsoleChannel(BaseChannel):
                     request.session_id or f"{self.channel}:{to_handle}",
                 )
 
+        except ModelQuotaExceededException as e:
+            logger.warning("rate limit hit: %s", e)
+            alternatives = self._get_free_model_alternatives()
+            rl_event = _json.dumps(
+                {
+                    "type": "rate_limited",
+                    "error": str(e).strip(),
+                    "alternatives": alternatives,
+                },
+            )
+            yield f"data: {rl_event}\n\n"
+            self._print_error(str(e).strip())
         except Exception as e:
             logger.exception("console process/reply failed")
             err_msg = str(e).strip() or "An error occurred while processing."
@@ -510,6 +566,38 @@ class ConsoleChannel(BaseChannel):
                 self._safe_print(f"{_YELLOW}📎 [File: {url}]{_RESET}")
         self._safe_print("")
 
+    def _get_free_model_alternatives(self) -> list:
+        """Return a list of alternative free models."""
+        try:
+            from ....providers.provider_manager import (
+                ProviderManager,
+            )
+
+            pm = ProviderManager.get_instance()
+            if pm is None:
+                return []
+            alternatives = []
+            all_providers = list(
+                pm.builtin_providers.values(),
+            ) + list(pm.custom_providers.values())
+            for p in all_providers:
+                meta = getattr(p, "meta", None) or {}
+                if not meta.get("is_free_tier"):
+                    continue
+                for m in p.models:
+                    if getattr(m, "is_free", False):
+                        alternatives.append(
+                            {
+                                "provider_id": p.id,
+                                "provider_name": p.name,
+                                "model_id": m.id,
+                                "model_name": m.name or m.id,
+                            },
+                        )
+            return alternatives[:8]
+        except Exception:
+            return []
+
     def _print_error(self, err: str) -> None:
         ts = _ts()
         self._safe_print(
@@ -555,7 +643,11 @@ class ConsoleChannel(BaseChannel):
             f"{prefix}{text}\n",
         )
         sid = (meta or {}).get("session_id")
-        if sid and text.strip():
+        if (
+            sid
+            and text.strip()
+            and not (meta or {}).get("suppress_console_push")
+        ):
             await push_store_append(sid, text.strip())
 
     async def send_content_parts(
@@ -569,7 +661,7 @@ class ConsoleChannel(BaseChannel):
         """
         self._print_parts(parts)
         sid = (meta or {}).get("session_id")
-        if sid:
+        if sid and not (meta or {}).get("suppress_console_push"):
             body = self._parts_to_text(parts, meta)
             if body.strip():
                 await push_store_append(sid, body.strip())

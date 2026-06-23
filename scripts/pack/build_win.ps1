@@ -113,13 +113,71 @@ if (Test-Path $CondaUnpack) {
     
     # Verify the fix worked
     Write-Host "[build_win] Verifying fix..."
-    & $pythonExe -c "from huggingface_hub import file_download; print('✓ huggingface_hub import OK')"
-    if ($LASTEXITCODE -ne 0) {
-      throw "CRITICAL: huggingface_hub still has import errors after reinstall. See issue.md"
-    }
-    & $pythonExe -c "import discord; print('✓ discord.py import OK')"
-    if ($LASTEXITCODE -ne 0) {
-      throw "CRITICAL: discord.py still has import errors after reinstall."
+    
+    # Create a verification script that handles SSL certificate store issues on Windows
+    $verifyScript = @"
+import sys
+import ssl
+import os
+
+# Set SSL certificate paths before importing anything that uses SSL
+try:
+    import certifi
+    cert_path = certifi.where()
+    os.environ['SSL_CERT_FILE'] = cert_path
+    os.environ['REQUESTS_CA_BUNDLE'] = cert_path
+    os.environ['CURL_CA_BUNDLE'] = cert_path
+except ImportError:
+    print("WARNING: certifi not available, using system certificates")
+
+# Monkey-patch ssl.SSLContext.load_default_certs to handle Windows certificate store issues
+# This prevents SSL errors when the Windows certificate store contains corrupted certificates
+_original_load_default_certs = ssl.SSLContext.load_default_certs
+
+def _safe_load_default_certs(self, purpose=ssl.Purpose.SERVER_AUTH):
+    try:
+        # Try loading from Windows certificate store first
+        _original_load_default_certs(self, purpose)
+    except ssl.SSLError as e:
+        # If Windows store fails, fall back to certifi CA bundle
+        print(f"WARNING: Windows certificate store load failed ({e}), using certifi CA bundle")
+        try:
+            import certifi
+            self.load_verify_locations(cafile=certifi.where())
+        except Exception as cert_err:
+            print(f"ERROR: Failed to load certifi CA bundle: {cert_err}")
+            raise
+
+ssl.SSLContext.load_default_certs = _safe_load_default_certs
+
+# Now verify imports
+try:
+    from huggingface_hub import file_download
+    print('✓ huggingface_hub import OK')
+except Exception as e:
+    print(f'✗ huggingface_hub import failed: {e}')
+    sys.exit(1)
+
+try:
+    import discord
+    print('✓ discord.py import OK')
+except Exception as e:
+    print(f'✗ discord.py import failed: {e}')
+    sys.exit(1)
+"@
+    
+    $verifyScriptPath = Join-Path $EnvRoot "verify_imports.py"
+    Set-Content -Path $verifyScriptPath -Value $verifyScript -Encoding UTF8
+    
+    $pythonExe = Join-Path $EnvRoot "python.exe"
+    & $pythonExe $verifyScriptPath
+    $verifyExitCode = $LASTEXITCODE
+    
+    # Clean up verification script
+    Remove-Item -Path $verifyScriptPath -Force -ErrorAction SilentlyContinue
+    
+    if ($verifyExitCode -ne 0) {
+        throw "CRITICAL: Package verification failed after reinstall. See output above for details."
     }
     Write-Host "[build_win] ✓ conda-unpack corruption fixed successfully."
   } else {

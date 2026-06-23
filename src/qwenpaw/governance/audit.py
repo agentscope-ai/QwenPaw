@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""AuditLog — Audit records for each assert_and_audit call.
+"""AuditLog — Audit records for each assert_policy + audit call.
 
 Storage: single-file SQLite (~/.qwenpaw/audit.db), global singleton.
 - record() writes immediately, no in-memory buffer
@@ -90,8 +90,9 @@ def _event_from_row(row: sqlite3.Row) -> AuditEvent:
 class AuditLog:
     """Append-only audit log, SQLite-backed, global singleton.
 
-    Shared by multiple ResourceGovernor instances; each assert_and_audit
-    call invokes record() which writes to the database immediately.
+    Shared by multiple ResourceGovernor instances; each audit()
+    call (typically after assert_policy()) invokes record() which writes
+    to the database immediately.
 
     .. note:: Threading & async
 
@@ -114,11 +115,24 @@ class AuditLog:
     _lock: threading.Lock
 
     @classmethod
-    def get_instance(cls) -> AuditLog:
-        """Get the global singleton, initializing on first call."""
+    def get_instance(
+        cls,
+        db_dir: Optional[Path] = None,
+    ) -> AuditLog:
+        """Get the global singleton, initializing on first call.
+
+        Args:
+            db_dir: Optional directory to place ``audit.db`` in. Only
+                honored on first creation; if the singleton already
+                exists in a different directory, the request is logged
+                and ignored (the singleton stays shared).
+        """
         if cls._instance is None:
-            db_path = WORKING_DIR / "governance" / "audit.db"
-            cls._instance = cls._create(db_path)
+            if db_dir is not None:
+                resolved_dir = Path(db_dir)
+            else:
+                resolved_dir = WORKING_DIR / "governance"
+            cls._instance = cls._create(resolved_dir / "audit.db")
         return cls._instance
 
     @classmethod
@@ -183,7 +197,7 @@ class AuditLog:
             tc_spec: ToolCallSpec instance
             decision: GovernanceDecision instance (action + reason)
         Errors are caught and logged: an audit-write failure must NOT
-        propagate into ``assert_and_audit`` and disrupt the policy
+        propagate into ``assert_policy`` and disrupt the policy
         decision returned to the caller.
 
         TODO: honor ``GovernancePolicy.audit_level`` here.  The field

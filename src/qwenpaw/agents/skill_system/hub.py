@@ -43,6 +43,7 @@ InstallOrigin = Literal[
     "skills-sh",
     "github",
     "lobehub",
+    "qwenpaw",
     "modelscope",
     "aliyun",
     "skillsmp",
@@ -99,9 +100,9 @@ RETRYABLE_HTTP_STATUS = {
     504,
 }
 
-LOBEHUB_MAX_ZIP_ENTRIES = 256
-LOBEHUB_MAX_ZIP_BYTES = 5 * 1024 * 1024
-HTTP_READ_CHUNK_BYTES = 64 * 1024
+SKILL_PACKAGE_MAX_ENTRIES = 4096
+SKILL_PACKAGE_MAX_BYTES = 200 * 1024 * 1024
+HTTP_READ_CHUNK_BYTES = 256 * 1024
 
 _GITHUB_CACHE_DEFAULT_TTL = 300  # 5 minutes
 _GITHUB_CACHE_MISS = object()
@@ -1014,6 +1015,34 @@ def _extract_modelscope_skill_spec(
     return owner, skill_name, version_hint
 
 
+def _extract_qwenpaw_skill_spec(
+    url: str,
+) -> tuple[str, str, str] | None:
+    """Parse a QwenPaw plaza skill URL into (owner, skill_name, version)."""
+    parsed = urlparse(url)
+    host = (parsed.netloc or "").lower()
+    if host != "platform.agentscope.io":
+        return None
+    parts = [unquote(p) for p in parsed.path.split("/") if p]
+    if len(parts) < 3 or parts[0] != "skills":
+        return None
+
+    # Owner kept verbatim (incl. any leading `@`); the archive endpoint
+    # accepts both `@agentscope` and `agentscope`.
+    owner = parts[1].strip()
+    skill_name = parts[2].strip()
+    if not owner or not skill_name:
+        return None
+
+    version_hint = ""
+    if len(parts) >= 6 and parts[3] == "archive" and parts[4] == "zip":
+        archive_name = parts[5].strip()
+        if archive_name.endswith(".zip"):
+            archive_name = archive_name[: -len(".zip")]
+        version_hint = archive_name
+    return owner, skill_name, version_hint
+
+
 def _extract_aliyun_skill_spec(url: str) -> str | None:
     """Parse an Aliyun AgentExplorer skill URL and return the skill id.
 
@@ -1235,7 +1264,7 @@ async def _github_collect_tree_files(
     repo: str,
     ref: str,
     root: str,
-    max_files: int = 200,
+    max_files: int = 4096,
 ) -> dict[str, str]:
     files: dict[str, str] = {}
     pending = [root] if root else [""]
@@ -1523,12 +1552,12 @@ def _lobehub_zip_to_bundle(identifier: str, payload: bytes) -> dict[str, Any]:
                 if info.is_dir():
                     continue
                 entry_count += 1
-                if entry_count > LOBEHUB_MAX_ZIP_ENTRIES:
+                if entry_count > SKILL_PACKAGE_MAX_ENTRIES:
                     raise SkillsError(
                         message="LobeHub skill package has too many files",
                     )
                 total_bytes += max(0, info.file_size)
-                if total_bytes > LOBEHUB_MAX_ZIP_BYTES:
+                if total_bytes > SKILL_PACKAGE_MAX_BYTES:
                     raise SkillsError(
                         message="LobeHub skill package is too large to import",
                     )
@@ -1588,7 +1617,7 @@ async def _fetch_bundle_from_lobehub_url(
             _lobehub_download_url(identifier),
             params=params,
             accept="application/zip, application/octet-stream, */*",
-            max_bytes=LOBEHUB_MAX_ZIP_BYTES,
+            max_bytes=SKILL_PACKAGE_MAX_BYTES,
         )
     except httpx.HTTPStatusError as e:
         raise SkillsError(
@@ -1624,12 +1653,12 @@ def _modelscope_archive_to_bundle(
             if info.is_dir():
                 continue
             entry_count += 1
-            if entry_count > LOBEHUB_MAX_ZIP_ENTRIES:
+            if entry_count > SKILL_PACKAGE_MAX_ENTRIES:
                 raise SkillsError(
                     message="ModelScope archive has too many files",
                 )
             total_bytes += max(0, info.file_size)
-            if total_bytes > LOBEHUB_MAX_ZIP_BYTES:
+            if total_bytes > SKILL_PACKAGE_MAX_BYTES:
                 raise SkillsError(
                     message="ModelScope archive is too large to import",
                 )
@@ -1658,6 +1687,42 @@ def _modelscope_archive_to_bundle(
     return {"name": name, "files": files}
 
 
+async def _fetch_bundle_from_qwenpaw_url(
+    bundle_url: str,
+    requested_version: str,
+) -> tuple[Any, str]:
+    spec = _extract_qwenpaw_skill_spec(bundle_url)
+    if spec is None:
+        raise ConfigurationException(
+            config_key="skills_hub.bundle_url",
+            message="Invalid QwenPaw URL format. Use URL like "
+            "https://platform.agentscope.io/skills/@owner/skill-name",
+        )
+    owner, skill_name, version_hint = spec
+    branch = requested_version.strip() or version_hint or "master"
+    archive_url = (
+        "https://platform.agentscope.io/skills/"
+        f"{quote(owner, safe='@')}/{quote(skill_name, safe='')}"
+        f"/archive/zip/{quote(branch, safe='')}"
+    )
+    try:
+        payload = await _http_bytes_get(
+            archive_url,
+            max_bytes=SKILL_PACKAGE_MAX_BYTES,
+        )
+    except httpx.HTTPStatusError as e:
+        raise SkillsError(
+            message=(
+                "QwenPaw archive download failed: "
+                f"{_format_http_error_body(e)}."
+            ),
+        ) from e
+    return (
+        _modelscope_archive_to_bundle(payload, fallback_name=skill_name),
+        bundle_url,
+    )
+
+
 async def _fetch_bundle_from_modelscope_url(
     bundle_url: str,
     requested_version: str,
@@ -1679,7 +1744,7 @@ async def _fetch_bundle_from_modelscope_url(
     try:
         payload = await _http_bytes_get(
             archive_url,
-            max_bytes=LOBEHUB_MAX_ZIP_BYTES,
+            max_bytes=SKILL_PACKAGE_MAX_BYTES,
         )
     except httpx.HTTPStatusError as e:
         raise SkillsError(
@@ -1969,6 +2034,11 @@ PROVIDERS: list[tuple[InstallOrigin, _ProviderMatcher, _ProviderFetcher]] = [
     ("skills-sh", _extract_skills_sh_spec, _fetch_bundle_from_skills_sh_url),
     ("github", _extract_github_spec, _fetch_bundle_from_github_url),
     ("lobehub", _extract_lobehub_identifier, _fetch_bundle_from_lobehub_url),
+    (
+        "qwenpaw",
+        _extract_qwenpaw_skill_spec,
+        _fetch_bundle_from_qwenpaw_url,
+    ),
     (
         "modelscope",
         _extract_modelscope_skill_spec,

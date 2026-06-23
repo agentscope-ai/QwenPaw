@@ -114,7 +114,9 @@ export function PoolSkillDrawer({
               {t("skillPool.installedFrom")}
             </div>
             <div className={styles.infoBlock}>
-              {deriveInstalledFromLabel(activeSkill.installed_from)}
+              {activeSkill.external && activeSkill.external_path
+                ? activeSkill.external_path
+                : deriveInstalledFromLabel(activeSkill.installed_from)}
             </div>
           </div>
         </div>

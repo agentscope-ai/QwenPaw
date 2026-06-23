@@ -5,9 +5,9 @@ import os
 from pathlib import Path
 from typing import Optional
 
-from agentscope.message import TextBlock
+import aiofiles
+from agentscope.message import TextBlock, ToolResultState
 from agentscope.tool import ToolChunk
-from agentscope.message import ToolResultState
 
 from .utils import (
     truncate_text_output,
@@ -254,8 +254,8 @@ async def write_file(
     encoding = _get_encoding_for_file(file_path)
 
     try:
-        with open(file_path, "w", encoding=encoding) as file:
-            file.write(content)
+        async with aiofiles.open(file_path, "w", encoding=encoding) as file:
+            await file.write(content)
         return ToolChunk(
             is_last=True,
             state=ToolResultState.SUCCESS,

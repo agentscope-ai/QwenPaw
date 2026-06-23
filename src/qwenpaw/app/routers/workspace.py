@@ -23,7 +23,7 @@ from fastapi.responses import ORJSONResponse, Response, StreamingResponse
 from watchfiles import awatch, Change
 from pydantic import BaseModel, Field
 
-from ..utils import safe_join, schedule_agent_reload
+from ..utils import check_upload_size, safe_join, schedule_agent_reload
 from ...config import (
     load_config,
     save_config,
@@ -871,21 +871,8 @@ async def post_transcribe_audio(
             },
         )
 
-    # Validate file size (25 MB max)
-    max_size_bytes = 25 * 1024 * 1024
     data = await file.read()
-    if len(data) > max_size_bytes:
-        size_mb = len(data) / 1024 / 1024
-        raise HTTPException(
-            status_code=400,
-            detail={
-                "code": "FILE_TOO_LARGE",
-                "message": (
-                    f"File too large ({size_mb:.1f}MB). "
-                    "Maximum allowed: 25MB."
-                ),
-            },
-        )
+    check_upload_size(data)
 
     # Save uploaded file to temp directory
     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:

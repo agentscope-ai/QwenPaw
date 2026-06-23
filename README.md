@@ -15,6 +15,7 @@
 [![Discord](https://img.shields.io/badge/Discord-Join_Us-blueviolet.svg?logo=discord)](https://discord.gg/eYMpfnkG8h)
 [![X](https://img.shields.io/badge/X-Follow_Us-black.svg?logo=x)](https://x.com/agentscope_ai)
 [![DingTalk](https://img.shields.io/badge/DingTalk-Join_Us-orange.svg)](https://qr.dingtalk.com/action/joingroup?code=v1,k1,OmDlBXpjW+I2vWjKDsjvI9dhcXjGZi3bQiojOq3dlDw=&_dt_no_comment=1&origin=11)
+[![AgentScope Platform](https://img.shields.io/badge/%E2%98%81_AgentScope_Platform-%F0%9F%90%BE_7%2F24_Online_%26_Free-FF6B2B.svg)](https://platform.agentscope.io/)
 
 [[Documentation](https://qwenpaw.agentscope.io/)] [[中文](README_zh.md)] [[日本語](README_ja.md)] [[Русский](README_ru.md)]
 
@@ -60,23 +61,25 @@ Your personal AI assistant — easy to install, deploy locally or in the cloud, 
 
 ## News
 
-- [2026-05-27] **v1.1.9 — Coding Mode** | Your agent just became a dev.
-
-  > **Coding Mode** brings a full IDE layout — file tree, tabbed editor with inline diff review, and a Git panel — directly into QwenPaw. [Read the docs →](https://qwenpaw.agentscope.io/docs/coding-mode)
-
-  <p align="center">
-    <a href="https://qwenpaw.agentscope.io/docs/coding-mode">
-      <img src="https://img.alicdn.com/imgextra/i4/O1CN014tF5921HlXCevvsBH_!!6000000000798-2-tps-3340-1678.png" width="720" alt="Coding Mode — three-panel IDE layout" />
-    </a>
-  </p>
+- [2026-06-17] **v1.1.12 — Models Page Overhaul & Simple Mode** | Redesigned Models page with provider aggregation; new Simple Mode for streamlined navigation.
 
   | Highlight | What's new |
   |-----------|------------|
-  | **Coding Mode** | Three-panel Web IDE with LSP jump-to-definition, AST search, and inline diff review. [Docs →](https://qwenpaw.agentscope.io/docs/coding-mode) |
-  | **Tauri Desktop App** | Native macOS & Windows app — no Python setup needed. [Download →](https://github.com/agentscope-ai/QwenPaw/releases) |
-  | **Unified Access Control** | Per-channel whitelist / blacklist / pending-approval with console UI. [Docs →](https://qwenpaw.agentscope.io/docs/channels) |
+  | **Models Page Overhaul** | Provider Aggregation, Unified Card UI & Layout Redesign. |
+  | **Simple Mode** | Flat nav and sorted session list by updated time. |
+  | **Non-blocking Flush** | Adaptive throttling for all channels. |
+  | **Per-Turn Token Usage** | Token and context usage popover per turn. |
+  | **Desktop Port Persistence** | Persist backend port across restarts. |
 
-  Also: background task timeout, isolated cron sessions, plugin manager redesign. [v1.1.9 Release Notes →](https://qwenpaw.agentscope.io/release-notes#v1.1.9)
+  Also: wide mode toggle, syntax highlighting, Langfuse agent loop grouping, Gemini tool schema fix. [v1.1.12 Release Notes →](https://qwenpaw.agentscope.io/release-notes#v1.1.12)
+
+- [2026-06-11] **AgentScope Platform is live** — Free QwenPaw deployment, plugin sharing, and Skill marketplace. [Try it now →](https://platform.agentscope.io/)
+
+- [2026-06-10] **v1.1.11** — Free Model OAuth, Plugin Market, MCP Tool Whitelisting. [v1.1.11 Release Notes →](https://qwenpaw.agentscope.io/release-notes#v1.1.11)
+
+- [2026-06-01] **v1.1.10** — Spawn Subagent, Open Directory, Tencent Yuanbao channel. [v1.1.10 Release Notes →](https://qwenpaw.agentscope.io/release-notes#v1.1.10)
+
+- [2026-05-27] **v1.1.9** — Coding Mode (three-panel Web IDE), Tauri desktop app, unified access control. [v1.1.9 Release Notes →](https://qwenpaw.agentscope.io/release-notes#v1.1.9)
 
 - [2026-05-19] **v1.1.8** — Official plugin distribution, QwenPaw Pet, streaming cards for DingTalk / Feishu / Telegram. [v1.1.8 Release Notes →](https://qwenpaw.agentscope.io/release-notes#v1.1.8)
 
@@ -420,25 +423,18 @@ Star QwenPaw on GitHub and be instantly notified of new releases.
 | ------------------------ | -------------------------------------------------------------------------------------------- | -------------------- |
 | **Horizontal Expansion** | More channels, models, skills, MCPs — **community contributions welcome**                  | Seeking Contributors |
 | **Existing Feature Extension** | Display optimization, download hints, Windows path compatibility, etc. — **community contributions welcome** | Seeking Contributors |
-| **Client Experience**    | Install, update, and packaging improvements                                                  | In Progress          |
-| **Models**               | Intelligent on-device / cloud model switching                                                | In Progress          |
-|                          | OAuth                                                                                        | Planned              |
+| **Infra**               | QwenPaw OS foundation                                                                         | In Progress          |
+| **Models**               | Multi-model switching                                                                         | In Progress          |
 |                          | Response API                                                                                 | Planned              |
-| **Proactivity**          | Cron jobs and heartbeat upgrades                                                             | In Progress          |
-|                          | Proactive briefings and custom push                                                          | In Progress          |
-|                          | Insight system: discover needs via conversation and interaction                            | Planned              |
-| **Workspace**            | File access control with Sandbox integration                                                 | In Progress          |
-|                          | Subfolder layout (config, production files, etc.)                                            | Planned              |
-| **Coding**               | LSP, dedicated prompts, workspace versioning, runtime, and supporting infra                  | Planned              |
-|                          | Lightweight native APIs                                                                      | Planned              |
-|                          | Tool self-evolution                                                                          | Planned              |
-|                          | Compatibility with existing agents (e.g. Claude Code)                                        | Planned              |
+| **Workspace**            | Subfolder layout (config, production files, etc.)                                            | Planned              |
+| **Coding**               | Compatibility with existing agents (e.g. Claude Code)                                        | Planned              |
 | **Multi-agent**          | Group chat                                                                                   | Planned              |
-|                          | Subagent                                                                                     | Planned              |
+|                          | Subagent visualization                                                                                 | Planned              |
 |                          | HiClaw enterprise capabilities                                                               | Planned              |
-| **Context Management**   | Intelligent context compression                                                              | In Progress          |
+| **Context Management**   | Personal knowledge base                                                             | In Progress          |
 |                          | User-selectable compression (fine-grained control)                                           | Planned              |
-
+| **QwenPaw Application**   | QwenPaw Creator                                                             | In Progress          |
+|                          | QwenPaw Insight                                           | In Progress              |
 
 _Status:_ **In Progress** — actively being worked on; **Planned** — queued or under design, also welcome contributions; **Seeking Contributors** — we strongly encourage community contributions.
 

@@ -3,9 +3,10 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Body, Path, Request
+from pydantic import BaseModel, Field
 
 from ..mcp.config_service import (
     MCPConfigService,
@@ -79,6 +80,39 @@ async def list_mcp_tools(
     """Query a running MCP server for its available tools."""
     agent = await _agent_for_request(request)
     return await _mcp_service(agent).list_tools(client_key)
+
+
+class MCPToolWhitelistRequest(BaseModel):
+    """Request body for updating tool whitelist."""
+
+    tools: Optional[List[str]] = Field(
+        default=None,
+        description="List of tool names to enable. "
+        "None means enable all tools (remove whitelist).",
+    )
+
+
+@router.put(
+    "/tools/{client_key:path}",
+    response_model=List[MCPToolInfo],
+    summary="Update tool whitelist for an MCP client",
+)
+async def update_mcp_tool_whitelist(
+    request: Request,
+    client_key: str = Path(...),
+    body: MCPToolWhitelistRequest = Body(...),
+) -> List[MCPToolInfo]:
+    """Update which tools are enabled for an MCP client.
+
+    Pass a list of tool names to enable only those tools, or null to remove
+    the whitelist and enable all tools. Returns the full tool list with
+    enabled status.
+    """
+    agent = await _agent_for_request(request)
+    return await _mcp_service(agent).update_tool_whitelist(
+        client_key,
+        body.tools,
+    )
 
 
 @router.get(

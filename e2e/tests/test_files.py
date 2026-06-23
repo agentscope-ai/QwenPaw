@@ -117,12 +117,13 @@ class TestFileListEditSave:
         first_file.click()
         page.wait_for_timeout(2000)
 
-        editor = page.locator(
-            '[class*="editor"], [class*="code"], textarea, .monaco-editor, [class*="preview"]'
+        content_area = page.locator(
+            '[class*="markdownViewer"], [class*="preview"], '
+            '[class*="editor"], textarea, .monaco-editor'
         ).first
-        expect(editor).to_be_visible(timeout=5000)
-        editor_content = editor.inner_text()
-        assert len(editor_content) > 0, "Editor content is empty"
+        expect(content_area).to_be_visible(timeout=5000)
+        editor_content = content_area.text_content() or ""
+        assert len(editor_content.strip()) > 0, "Editor/preview content is empty"
         logger.info(f"Editor opened; content length: {len(editor_content)} chars")
 
         # Step 7: Verify the toggle switch exists

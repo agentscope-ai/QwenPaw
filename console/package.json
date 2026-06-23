@@ -20,7 +20,7 @@
     "test:coverage": "NODE_OPTIONS=--max-old-space-size=4096 vitest run --coverage"
   },
   "dependencies": {
-    "@agentscope-ai/chat": "^1.1.64-beta.1779961389231",
+    "@agentscope-ai/chat": "^1.1.68",
     "@agentscope-ai/design": "^1.0.14",
     "@agentscope-ai/icons": "^1.0.67",
     "@ant-design/icons": "^5.0.1",
@@ -31,6 +31,7 @@
     "@dnd-kit/utilities": "^3.2.2",
     "@monaco-editor/react": "^4.7.0",
     "@tauri-apps/api": "^2.10.1",
+    "@tauri-apps/plugin-dialog": "^2.7.1",
     "@types/react-window": "^1.8.8",
     "@vvo/tzdb": "^6.198.0",
     "ahooks": "^3.9.6",
@@ -48,6 +49,7 @@
     "react-markdown": "^10.1.0",
     "react-resizable-panels": "^4.11.1",
     "react-router-dom": "^7.13.0",
+    "react-syntax-highlighter": "^16.1.1",
     "react-window": "^1.8.10",
     "remark-gfm": "^4.0.1",
     "zustand": "^5.0.3"
@@ -66,7 +68,9 @@
     "@types/node": "^25.0.3",
     "@types/react": "^18",
     "@types/react-dom": "^18",
+    "@types/react-syntax-highlighter": "^15.5.13",
     "@vitejs/plugin-react": "^4.4.1",
+    "@vitest/coverage-v8": "^4.1.6",
     "eslint": "^9.25.0",
     "eslint-plugin-react-hooks": "^5.2.0",
     "eslint-plugin-react-refresh": "^0.4.19",

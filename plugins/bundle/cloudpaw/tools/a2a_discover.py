@@ -13,7 +13,9 @@ from agentscope.message import TextBlock
 from agentscope.message import ToolResultState
 from agentscope.tool import ToolChunk
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("qwenpaw").getChild(
+    __name__.replace("plugin_cloudpaw.", ""),
+)
 
 
 async def a2a_discover(

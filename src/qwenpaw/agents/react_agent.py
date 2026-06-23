@@ -20,7 +20,6 @@ from agentscope.message import Msg, TextBlock
 from agentscope.state import AgentState
 from agentscope.tool import Toolkit
 
-from ..runtime import GuardedFunctionTool
 from .skill_system import get_workspace_skills_dir
 from ..modes.coding import CodingModeMixin
 from ..constant import (
@@ -44,7 +43,7 @@ class QwenPawAgent(CodingModeMixin, Agent):
     - Dynamic skill loading from working directory
     - Memory management with auto-compaction
     - Bootstrap guidance for first-time setup
-    - Tool-guard security (via ``GuardedFunctionTool.check_permissions``)
+    - Tool-guard security (via ``PolicyGuardedTool.check_permissions``)
     - Coding Mode features: Inline Diff (via CodingModeMixin)
     """
 
@@ -89,24 +88,15 @@ class QwenPawAgent(CodingModeMixin, Agent):
             memory_tools = self.memory_manager.list_memory_tools()
             basic_group = toolkit.tool_groups[0]
             for tool_fn in memory_tools:
-                if self._governor:
-                    from ..governance import PolicyGuardedTool
+                from ..governance import PolicyGuardedTool
 
-                    basic_group.tools.append(
-                        PolicyGuardedTool(
-                            tool_fn,
-                            governor=self._governor,
-                            request_context=self._request_context,
-                        ),
-                    )
-                else:
-                    basic_group.tools.append(
-                        GuardedFunctionTool(
-                            tool_fn,
-                            agent_id=self._agent_config.id,
-                            request_context=self._request_context,
-                        ),
-                    )
+                basic_group.tools.append(
+                    PolicyGuardedTool(
+                        tool_fn,
+                        governor=self._governor,
+                        request_context=self._request_context,
+                    ),
+                )
             logger.debug(
                 "Registered memory tools: %s",
                 [fn.__name__ for fn in memory_tools],
@@ -126,7 +116,7 @@ class QwenPawAgent(CodingModeMixin, Agent):
         super().__init__(**init_kwargs)
 
         # Bypass agentscope's built-in permission engine — qwenpaw uses
-        # its own GuardedFunctionTool.check_permissions for tool-guard.
+        # its own PolicyGuardedTool.check_permissions for tool-guard.
         from agentscope.permission import PermissionMode
 
         self.state.permission_context.mode = PermissionMode.BYPASS

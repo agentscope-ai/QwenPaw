@@ -605,7 +605,7 @@ function OpenDirTab({ onSelect }: { onSelect: (path: string) => void }) {
       </div>
 
       {/* Confirm button */}
-      {data && !loading && (
+      {data && !loading && data.selectable !== false && (
         <Button
           type="primary"
           onClick={() => onSelect(data.current)}

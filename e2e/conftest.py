@@ -83,6 +83,21 @@ agent_stats_page = pytest.fixture(scope="function", name="agent_stats_page")(
 acp_page = pytest.fixture(scope="function", name="acp_page")(
     _make_page_fixture("pages.acp_page", "ACPPage")
 )
+coding_page = pytest.fixture(scope="function", name="coding_page")(
+    _make_page_fixture("pages.coding_page", "CodingPage")
+)
+plugin_page = pytest.fixture(scope="function", name="plugin_page")(
+    _make_page_fixture("pages.plugin_page", "PluginPage")
+)
+memory_page = pytest.fixture(scope="function", name="memory_page")(
+    _make_page_fixture("pages.memory_page", "MemoryPage")
+)
+inbox_page = pytest.fixture(scope="function", name="inbox_page")(
+    _make_page_fixture("pages.inbox_page", "InboxPage")
+)
+plan_page = pytest.fixture(scope="function", name="plan_page")(
+    _make_page_fixture("pages.plan_page", "PlanPage")
+)
 
 
 # ========== Business / Data Fixtures ==========
@@ -138,6 +153,16 @@ def mock_api(page):
     register_all(page)
     yield page
 
+
+
+def pytest_collection_modifyitems(config, items):
+    """Auto-skip tests marked with @pytest.mark.requires_llm when no model key is configured."""
+    if os.getenv("QWENPAW_DASHSCOPE_API_KEY"):
+        return
+    skip_llm = pytest.mark.skip(reason="QWENPAW_DASHSCOPE_API_KEY not set — LLM tests skipped")
+    for item in items:
+        if "requires_llm" in item.keywords:
+            item.add_marker(skip_llm)
 
 
 @pytest.fixture(scope="session", autouse=True)

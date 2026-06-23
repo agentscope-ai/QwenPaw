@@ -29,6 +29,7 @@ interface FileListPanelProps {
   onRefresh: () => void;
   onFileClick: (file: MarkdownFile) => void;
   onDailyMemoryClick: (daily: DailyMemoryFile) => void;
+  onMemoryExpand?: () => void;
   onToggleEnabled: (filename: string) => void;
   onReorder: (newOrder: string[]) => void;
 }
@@ -42,6 +43,7 @@ export const FileListPanel: React.FC<FileListPanelProps> = ({
   onRefresh,
   onFileClick,
   onDailyMemoryClick,
+  onMemoryExpand,
   onToggleEnabled,
   onReorder,
 }) => {
@@ -110,6 +112,7 @@ export const FileListPanel: React.FC<FileListPanelProps> = ({
                       enabled={isEnabled}
                       onFileClick={onFileClick}
                       onDailyMemoryClick={onDailyMemoryClick}
+                      onMemoryExpand={onMemoryExpand}
                       onToggleEnabled={onToggleEnabled}
                     />
                   );

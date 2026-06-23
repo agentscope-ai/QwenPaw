@@ -29,6 +29,9 @@ class SkillsCommandHandler(BaseControlCommandHandler):
     """
 
     command_name = "/skills"
+    description = (
+        "List chat-available skills and expose explicit skill commands"
+    )
 
     @staticmethod
     def _truncate_description(

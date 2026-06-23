@@ -15,6 +15,7 @@
 [![Discord](https://img.shields.io/badge/Discord-Join_Us-blueviolet.svg?logo=discord)](https://discord.gg/eYMpfnkG8h)
 [![X](https://img.shields.io/badge/X-Follow_Us-black.svg?logo=x)](https://x.com/agentscope_ai)
 [![钉钉群](https://img.shields.io/badge/DingTalk-Join_Us-orange.svg)](https://qr.dingtalk.com/action/joingroup?code=v1,k1,OmDlBXpjW+I2vWjKDsjvI9dhcXjGZi3bQiojOq3dlDw=&_dt_no_comment=1&origin=11)
+[![AgentScope 体验平台](https://img.shields.io/badge/%E2%98%81_AgentScope_Platform-%F0%9F%90%BE_7%2F24_Online_%26_Free-FF6B2B.svg)](https://platform.agentscope.io/)
 
 [[文档](https://qwenpaw.agentscope.io/)] [[English](README.md)] [[日本語](README_ja.md)] [[Русский](README_ru.md)]
 
@@ -60,23 +61,25 @@
 
 ## 新闻
 
-- [2026-05-27] **v1.1.9 — Coding 模式** | Agent 变身开发者。
-
-  > **Coding 模式**将完整 IDE 布局（文件树 + 标签编辑器 + 内联 Diff + Git 面板）直接嵌入 QwenPaw。[查看文档 →](https://qwenpaw.agentscope.io/docs/coding-mode)
-
-  <p align="center">
-    <a href="https://qwenpaw.agentscope.io/docs/coding-mode">
-      <img src="https://img.alicdn.com/imgextra/i4/O1CN014tF5921HlXCevvsBH_!!6000000000798-2-tps-3340-1678.png" width="720" alt="Coding 模式 — 三面板 IDE 布局" />
-    </a>
-  </p>
+- [2026-06-17] **v1.1.12 — 模型页面大改版 & 简洁模式** | 全新模型页面 Provider 聚合设计；新增简洁模式，扁平化导航。
 
   | 亮点 | 更新内容 |
   |------|----------|
-  | **Coding 模式** | 三面板 Web IDE，支持 LSP 跳转定义、AST 结构搜索、内联 Diff 审查。[文档 →](https://qwenpaw.agentscope.io/docs/coding-mode) |
-  | **Tauri 桌面应用** | 原生 macOS & Windows 应用，无需配置 Python。[下载 →](https://github.com/agentscope-ai/QwenPaw/releases) |
-  | **统一访问控制** | 按渠道配置白名单/黑名单/待审批，Console 可视化管理。[文档 →](https://qwenpaw.agentscope.io/docs/channels) |
+  | **模型页面大改版** | Provider 聚合、统一卡片 UI 与布局重新设计。 |
+  | **简洁模式** | 扁平导航，会话列表按更新时间排序。 |
+  | **非阻塞消息发送** | 所有渠道自适应节流。 |
+  | **每轮 Token 用量** | 每轮 token 与上下文用量弹窗。 |
+  | **桌面端端口持久化** | 跨重启保持后端端口。 |
 
-  另有：后台任务超时、定时任务隔离执行、插件管理器改版。[v1.1.9 发布说明 →](https://qwenpaw.agentscope.io/release-notes#v1.1.9)
+  另有：宽屏模式、代码语法高亮、Langfuse agent loop 分组、Gemini 工具 schema 修复。[v1.1.12 发布说明 →](https://qwenpaw.agentscope.io/release-notes#v1.1.12)
+
+- [2026-06-11] **AgentScope 体验平台上线** — 支持免费部署 QwenPaw、插件分享与 Skill 市场。[立即体验 →](https://platform.agentscope.io/)
+
+- [2026-06-10] **v1.1.11** — 免费模型 OAuth、插件市场、MCP 工具白名单。[v1.1.11 发布说明 →](https://qwenpaw.agentscope.io/release-notes#v1.1.11)
+
+- [2026-06-01] **v1.1.10** — 子 Agent 派生、打开目录、腾讯元宝渠道。[v1.1.10 发布说明 →](https://qwenpaw.agentscope.io/release-notes#v1.1.10)
+
+- [2026-05-27] **v1.1.9** — Coding 模式（三面板 Web IDE）、Tauri 桌面应用、统一访问控制。[v1.1.9 发布说明 →](https://qwenpaw.agentscope.io/release-notes#v1.1.9)
 
 - [2026-05-19] **v1.1.8** — 官方插件分发、QwenPaw Pet 桌面宠物、钉钉/飞书/Telegram 流式卡片。[v1.1.8 发布说明 →](https://qwenpaw.agentscope.io/release-notes#v1.1.8)
 
@@ -486,24 +489,18 @@ QwenPaw 内置多层安全防护机制，保障你的数据与系统安全：
 | ------------------------ | ----------------------------------------------------------------------------------------- | ------ |
 | **横向拓展**             | 更多频道、模型、技能、MCP 等 — **欢迎社区贡献**                                           | 征集中 |
 | **已有功能扩展与完善**   | 展示优化、下载提示、Windows 路径兼容等 — **欢迎社区贡献**                                 | 征集中 |
-| **客户端体验**           | 安装、更新、打包优化                                                                      | 进行中 |
-| **模型**                 | 端云模型智能切换                                                                          | 进行中 |
-|                          | OAuth                                                                                     | 计划中 |
+| **基础设施**             | QwenPaw OS 基础                                                                           | 进行中 |
+| **模型**                 | 多模型切换                                                                                | 进行中 |
 |                          | Response API                                                                              | 计划中 |
-| **主动性**               | 定时任务与心跳升级                                                                        | 进行中 |
-|                          | 主动式简报、定制推送                                                                      | 进行中 |
-|                          | 洞察系统：对话与交互挖掘需求                                                              | 计划中 |
-| **工作区**               | 结合 Sandbox 的文件权限管控                                                               | 进行中 |
-|                          | 子目录划分（配置、生产文件等）                                                            | 计划中 |
-| **Coding 能力**          | LSP、专用 Prompt、工作区版本控制、执行环境等配套 infra                                    | 计划中 |
-|                          | 轻量原生接口                                                                              | 计划中 |
-|                          | 工具自进化                                                                                | 计划中 |
-|                          | 兼容 Claude Code 等既有 Agent                                                             | 计划中 |
+| **工作区**               | 子目录划分（配置、生产文件等）                                                            | 计划中 |
+| **Coding 能力**          | 兼容 Claude Code 等既有 Agent                                                             | 计划中 |
 | **多智能体**             | 群聊                                                                                      | 计划中 |
-|                          | Subagent                                                                                  | 计划中 |
+|                          | Subagent 可视化                                                                           | 计划中 |
 |                          | HiClaw 企业级能力                                                                         | 计划中 |
-| **上下文管理**           | 上下文智能压缩                                                                            | 进行中 |
+| **上下文管理**           | 个人知识库                                                                                | 进行中 |
 |                          | 用户可选压缩（细粒度控制）                                                                | 计划中 |
+| **QwenPaw 应用**         | QwenPaw Creator                                                                           | 进行中 |
+|                          | QwenPaw Insight                                                                           | 进行中 |
 
 _状态说明：**进行中** — 正在积极开发；**计划中** — 已排队或设计中，也欢迎贡献；**征集中** — 我们强烈鼓励社区参与。_
 

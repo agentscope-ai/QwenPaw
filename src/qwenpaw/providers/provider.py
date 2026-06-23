@@ -161,6 +161,30 @@ class ProviderInfo(BaseModel):
             "Only applies to Anthropic-compatible providers."
         ),
     )
+    supports_oauth: bool = Field(
+        default=False,
+        description="Whether this provider supports OAuth login",
+    )
+    oauth_connected: bool = Field(
+        default=False,
+        description="Whether OAuth is currently connected",
+    )
+    is_free_tier: bool = Field(
+        default=False,
+        description="Whether this provider offers a free tier",
+    )
+    provider_group: str = Field(
+        default="",
+        description="Group key for same-brand providers",
+    )
+    provider_group_name: str = Field(
+        default="",
+        description="Display name for the provider group",
+    )
+    provider_variant: str = Field(
+        default="",
+        description="Variant identifier within a group",
+    )
     meta: Dict[str, Any] = Field(
         default_factory=dict,
         description="Additional metadata for the provider "
@@ -420,6 +444,7 @@ class Provider(ProviderInfo, ABC):
         # the class in its own module scope.  This avoids pydantic
         # class-identity mismatches when the same module is loaded
         # via two different import paths (e.g. PYTHONPATH + pip install).
+        meta = self.meta or {}
         return ProviderInfo(
             id=self.id,
             name=self.name,
@@ -432,7 +457,6 @@ class Provider(ProviderInfo, ABC):
             is_local=self.is_local,
             is_custom=self.is_custom,
             support_model_discovery=self.support_model_discovery,
-            # custom providers are assumed to not support connection check
             support_connection_check=self.support_connection_check
             and not self.is_custom,
             freeze_url=self.freeze_url,
@@ -440,5 +464,13 @@ class Provider(ProviderInfo, ABC):
             generate_kwargs=self.generate_kwargs,
             custom_headers=self.custom_headers,
             auth_mode=self.auth_mode,
-            meta=self.meta or {},
+            supports_oauth=meta.get("supports_oauth", False),
+            oauth_connected=bool(
+                meta.get("supports_oauth") and self.api_key,
+            ),
+            is_free_tier=meta.get("is_free_tier", False),
+            provider_group=self.provider_group,
+            provider_group_name=self.provider_group_name,
+            provider_variant=self.provider_variant,
+            meta=meta,
         )

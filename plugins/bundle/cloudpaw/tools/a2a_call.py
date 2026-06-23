@@ -19,7 +19,9 @@ from collections.abc import AsyncGenerator
 from agentscope.message import TextBlock, ToolResultState
 from agentscope.tool import ToolChunk
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("qwenpaw").getChild(
+    __name__.replace("plugin_cloudpaw.", ""),
+)
 
 
 async def a2a_call(  # pylint: disable=too-many-branches,too-many-statements

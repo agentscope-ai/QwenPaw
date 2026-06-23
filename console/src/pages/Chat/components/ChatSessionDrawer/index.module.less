@@ -101,17 +101,6 @@
   }
 }
 
-/* Background loading indicator — visible through unrendered gaps during fast scroll */
-.virtualListBackground {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 0;
-  pointer-events: none;
-}
-
 /* Top fade gradient overlay */
 .topGradient {
   position: absolute;
@@ -158,8 +147,39 @@
   color: var(--colorText, rgba(0, 0, 0, 0.88));
 }
 
+/* Embedded panel mode (inline, no Drawer wrapper) */
+.embeddedPanel {
+  display: flex;
+  flex-direction: column;
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  overflow: hidden;
+  background-color: var(--colorBgBase, #fff);
+  border-left: 1px solid var(--colorBorderSecondary, rgba(0, 0, 0, 0.06));
+
+  .createSection {
+    padding: 0 16px 12px;
+  }
+
+  .list {
+    padding: 0 16px;
+  }
+
+  .header {
+    padding: 16px;
+  }
+}
+
 /* Dark mode */
 :global(.dark-mode) {
+  .embeddedPanel {
+    background-color: #1f1f1f;
+    border-left-color: rgba(255, 255, 255, 0.08);
+  }
+
   .drawer {
     :global {
       .qwenpaw-drawer-body {

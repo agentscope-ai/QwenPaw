@@ -42,6 +42,8 @@ interface CodingTabsState {
   setTabContent: (agentId: string, path: string, content: string) => void;
   setTabDirty: (agentId: string, path: string, dirty: boolean) => void;
 
+  clearAgent: (agentId: string) => void;
+
   setDiff: (agentId: string, path: string, diff: PendingDiff) => void;
   removeDiff: (agentId: string, path: string) => void;
   updateDiffModified: (agentId: string, path: string, modified: string) => void;
@@ -61,6 +63,13 @@ export const useCodingTabsStore = create<CodingTabsState>()(
       tabsByAgent: {},
       activeTabByAgent: {},
       diffsByAgent: {},
+
+      clearAgent: (agentId) =>
+        set((state) => ({
+          tabsByAgent: { ...state.tabsByAgent, [agentId]: [] },
+          activeTabByAgent: { ...state.activeTabByAgent, [agentId]: "" },
+          diffsByAgent: { ...state.diffsByAgent, [agentId]: {} },
+        })),
 
       openTab: (agentId, tab) =>
         set((state) => {

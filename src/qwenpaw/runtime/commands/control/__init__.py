@@ -127,6 +127,15 @@ def is_control_command(query: str | None) -> bool:
     return _extract_command_token(query) in _COMMAND_REGISTRY
 
 
+def iter_commands() -> list[BaseControlCommandHandler]:
+    """Return the registered control-command handlers.
+
+    Useful for advertising the available commands to clients (e.g. the
+    ACP ``available_commands_update`` notification) or building help text.
+    """
+    return list(_COMMAND_REGISTRY.values())
+
+
 def parse_args(query: str, command_prefix: str) -> Dict[str, Any]:
     """Parse command arguments from query.
 
@@ -237,6 +246,7 @@ __all__ = [
     "StopCommandHandler",
     "is_control_command",
     "handle_control_command",
+    "iter_commands",
     "register_command",
     "unregister_command",
 ]

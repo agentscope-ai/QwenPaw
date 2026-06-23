@@ -13,8 +13,6 @@ from __future__ import annotations
 import logging
 from typing import Any, Iterable
 
-from .tool_guard import GuardedFunctionTool
-
 _logger = logging.getLogger(__name__)
 
 
@@ -43,6 +41,7 @@ class AgentBuilder:
         enabled_features: Iterable[str] | None = None,
         extra_tools: Iterable[Any] | None = None,
         memory_tools: Iterable[Any] | None = None,
+        governor: Any = None,
         ctx: Any = None,
     ) -> Any:
         """Build a populated ``Toolkit`` for one agent invocation.
@@ -71,11 +70,13 @@ class AgentBuilder:
             tools.extend(extra_tools)
 
         if memory_tools:
+            from ..governance import PolicyGuardedTool
+
             for fn in memory_tools:
                 tools.append(
-                    GuardedFunctionTool(
+                    PolicyGuardedTool(
                         fn,
-                        agent_id=agent_id,
+                        governor=governor,
                         request_context=request_context,
                     ),
                 )
@@ -142,9 +143,9 @@ class AgentBuilder:
         governor = self._init_governor(workspace_dir)
 
         # Inject governor into local_workspace so list_tools() can
-        # wrap tools with PolicyGuardedTool instead of GuardedFunctionTool.
+        # wrap tools with PolicyGuardedTool.
         local_ws = self._get_local_workspace(ctx) if ctx else None
-        if local_ws is not None and governor is not None:
+        if local_ws is not None:
             local_ws.set_governor(governor)
 
         # Toolkit.
@@ -153,6 +154,7 @@ class AgentBuilder:
             workspace_dir,
             agent_id,
             request_context,
+            governor,
         )
         (
             driver_tools,
@@ -173,6 +175,7 @@ class AgentBuilder:
             active_modes=active_modes,
             effective_skills=effective_skills,
             extra_tools=extra_tools,
+            governor=governor,
             ctx=ctx,
         )
 
@@ -301,8 +304,8 @@ class AgentBuilder:
             return governor
         except Exception:
             _logger.error(
-                "Failed to start governance; falling back to "
-                "GuardedFunctionTool (governance layer DISABLED)",
+                "Failed to start governance; tool calls will be "
+                "fail-closed (governance layer DISABLED)",
                 exc_info=True,
             )
             return None
@@ -398,6 +401,7 @@ class AgentBuilder:
         workspace_dir: Any,
         agent_id: str,
         request_context: dict[str, Any],
+        governor: Any = None,
     ) -> list[Any]:
         from ..modes.coding import collect_coding_tools
 
@@ -406,6 +410,7 @@ class AgentBuilder:
             workspace_dir,
             agent_id=agent_id,
             request_context=request_context,
+            governor=governor,
         )
 
     @staticmethod

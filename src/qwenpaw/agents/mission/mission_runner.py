@@ -30,6 +30,7 @@ Portions of the prompt-driven workflow are adapted from snarktank/ralph
 """
 from __future__ import annotations
 
+import json
 import logging
 from pathlib import Path
 from typing import Any, AsyncGenerator
@@ -72,6 +73,8 @@ _MESSAGES = {
         "mission_complete": "**Mission 完成** — {passed}/{total} stories 通过 ✅\n",
         "mission_max_iterations": "⚠️ **Mission 已达到最大迭代次数** ({max_iter})。已完成 {passed}/{total} 个 story。\n\n你可以使用 `/mission status` 查看剩余内容，然后启动一个新的 mission，或手动完成剩余工作。",
         "prd_no_stories": "⚠️ prd.json 缺失 user stories. 循环终止.",
+        "prd_corrupted": "⚠️ **prd.json 已损坏**，无法解析。请重新生成或修复该文件。",
+        "config_corrupted": "⚠️ **loop_config.json 已损坏**，无法解析。请重新生成或修复该文件。",
     },
     "en": {
         "phase2_no_prd": "⚠️ **Cannot enter Phase 2**: prd.json not found or empty.\nPlease generate a valid PRD first.",
@@ -82,6 +85,8 @@ _MESSAGES = {
         "mission_complete": "**Mission Complete** — {passed}/{total} stories passed ✅\n",
         "mission_max_iterations": "⚠️ **Mission reached max iterations** ({max_iter}). {passed}/{total} stories passed.\n\nYou can check with `/mission status` to see what remains, then start a new mission or manually complete the work.",
         "prd_no_stories": "⚠️ prd.json has no user stories. Loop aborted.",
+        "prd_corrupted": "⚠️ **prd.json is corrupted** and could not be parsed. Please regenerate or repair this file.",
+        "config_corrupted": "⚠️ **loop_config.json is corrupted** and could not be parsed. Please regenerate or repair this file.",
     },
 }
 
@@ -109,7 +114,22 @@ def _get_message(key: str, agent_id: str, **kwargs) -> str:
     return template.format(**kwargs) if kwargs else template
 
 
-# ── Tool-group name used for implementation tools ────────────────────────
+def _is_json_corrupted(
+    loop_dir: Path,
+    filename: str,
+) -> bool:
+    """Return True if file exists but contains invalid JSON."""
+    p = loop_dir / filename
+    if not p.exists():
+        return False
+    try:
+        json.loads(p.read_text(encoding="utf-8"))
+        return False
+    except json.JSONDecodeError:
+        return True
+
+
+# ── Tool-group name used for implementation tools ──────────
 MISSION_IMPL_GROUP = "mission_impl"
 
 # Tools restricted in Phase 2 — the master agent must *not* directly
@@ -334,6 +354,14 @@ async def run_mission_phase1(
 
     # Check if agent signaled Phase 2 confirmation
     cfg = read_loop_config(loop_dir)
+    if not cfg and _is_json_corrupted(loop_dir, "loop_config.json"):
+        await agent.memory.add(
+            Msg(
+                "assistant",
+                _get_message("config_corrupted", agent_id),
+                "assistant",
+            ),
+        )
     if cfg.get("current_phase") == "execution_confirmed":
         # Validate PRD before transitioning to Phase 2
         prd = read_prd(loop_dir)
@@ -558,6 +586,15 @@ async def run_mission_phase2(
 
             # Code-level completion check
             prd = read_prd(loop_dir)
+            if not prd and _is_json_corrupted(loop_dir, "prd.json"):
+                await agent.memory.add(
+                    Msg(
+                        "assistant",
+                        _get_message("prd_corrupted", agent_id),
+                        "assistant",
+                    ),
+                )
+                continue
             stories = prd.get("userStories", [])
 
             if not stories:

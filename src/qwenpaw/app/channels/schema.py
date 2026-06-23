@@ -40,6 +40,7 @@ BUILTIN_CHANNEL_TYPES = (
     "voice",
     "sip",
     "xiaoyi",
+    "yuanbao",
 )
 
 # ChannelType is str to allow plugin channels; built-in set above.

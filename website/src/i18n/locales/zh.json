@@ -7,14 +7,14 @@
     "download": "下载",
     "github": "GitHub",
     "githubComingSoon": "Coming Soon",
-    "lang": "EN",
+    "lang": "ENG",
     "agentscopeTeam": "AgentScope"
   },
   "hero": {
     "titleleft": "欢迎使用你的",
     "titleright": "专业AI助手",
     "slogan": "懂你所需，伴你左右",
-    "sub": "v1.1.5 四大方面能力升级：",
+    "sub": "{{version}} 四大方面能力升级：",
     "sub1": "为 QwenPaw 量身定制的小模型、安全机制、多智能体协同、以及记忆管理",
     "releaseNote": "QwenPaw {{version}}版本全新发布",
     "cta": "查看文档",
@@ -181,8 +181,10 @@
       "hub": "Docker Hub"
     },
     "cloud": {
+      "agentscope": "AgentScope 体验平台",
       "aliyun": "阿里云",
       "modelscope": "魔搭",
+      "agentscopeGo": "前往 AgentScope 体验平台",
       "aliyunDeploy": "前往阿里云一键部署",
       "aliyunDoc": "查看说明文档",
       "modelscopeGo": "前往魔搭创空间"
@@ -297,7 +299,8 @@
     "demoVideos": {
       "skill": "/skills：智能体技能的按需调用",
       "doctor": "QwenPaw Doctor：一键全面系统诊断",
-      "missionMode": "QwenPaw 任务模式：复杂任务的自主执行"
+      "missionMode": "QwenPaw 任务模式：复杂任务的自主执行",
+      "autoContinue": "纯文本步骤自动续跑功能介绍"
     },
     "textVersion": "查看文字版文档",
     "backToTop": "返回顶部",

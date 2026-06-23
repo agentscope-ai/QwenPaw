@@ -1484,6 +1484,7 @@ class QQChannel(BaseChannel):
             "message_type": spec.message_type,
             "message_id": msg_id,
             "sender_id": sender,
+            "user_name": author.get("username", ""),
             "is_group": is_group,
             "incoming_raw": d,
             "attachments": att,

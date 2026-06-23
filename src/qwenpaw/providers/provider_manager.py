@@ -23,7 +23,11 @@ from .anthropic_provider import AnthropicProvider
 from .dashscope_provider import DashScopeProvider
 from .gemini_provider import GeminiProvider
 from .ollama_provider import OllamaProvider
-from .openai_provider import OpenAIProvider
+from .openai_provider import (
+    OpenAIProvider,
+    OpenCodeProvider,
+    KiloProvider,
+)
 from .lmstudio_provider import LMStudioProvider
 from .provider import (
     ModelInfo,
@@ -81,6 +85,23 @@ DASHSCOPE_MODELS: List[ModelInfo] = [
         name="DeepSeek-V3.2",
         supports_image=False,
         supports_video=False,
+        probe_source="documentation",
+    ),
+]
+
+MIMO_TOKENPLAN_MODELS: List[ModelInfo] = [
+    ModelInfo(
+        id="mimo-v2.5-pro",
+        name="MiMo V2.5 Pro",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="mimo-v2.5",
+        name="MiMo V2.5",
+        supports_image=True,
+        supports_video=True,
         probe_source="documentation",
     ),
 ]
@@ -191,6 +212,14 @@ ALIYUN_CODINGPLAN_MODELS: List[ModelInfo] = [
 
 ZHIPU_MODELS: List[ModelInfo] = [
     ModelInfo(
+        id="glm-4.7-flash",
+        name="GLM-4.7-Flash",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+        is_free=True,
+    ),
+    ModelInfo(
         id="glm-5",
         name="glm-5",
         supports_image=False,
@@ -300,62 +329,97 @@ OPENAI_MODELS: List[ModelInfo] = [
     ),
 ]
 
+KILO_MODELS: List[ModelInfo] = [
+    ModelInfo(
+        id="kilo-auto/free",
+        name="Kilo Auto (Free Router)",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+        is_free=True,
+    ),
+    ModelInfo(
+        id="nvidia/nemotron-3-ultra-550b-a55b:free",
+        name="Nemotron 3 Ultra 550B",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+        is_free=True,
+    ),
+    ModelInfo(
+        id="nvidia/nemotron-3-super-120b-a12b:free",
+        name="Nemotron 3 Super 120B",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+        is_free=True,
+    ),
+    ModelInfo(
+        id="poolside/laguna-m.1:free",
+        name="Poolside Laguna M.1",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+        is_free=True,
+    ),
+    ModelInfo(
+        id="poolside/laguna-xs.2:free",
+        name="Poolside Laguna XS.2",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+        is_free=True,
+    ),
+    ModelInfo(
+        id="stepfun/step-3.7-flash:free",
+        name="Step 3.7 Flash",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+        is_free=True,
+    ),
+    ModelInfo(
+        id="nex-agi/nex-n2-pro:free",
+        name="Nex N2 Pro",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+        is_free=True,
+    ),
+]
+
 OPENCODE_MODELS: List[ModelInfo] = [
     ModelInfo(
-        id="glm-5.1",
-        name="GLM-5.1",
+        id="deepseek-v4-flash-free",
+        name="DeepSeek V4 Flash",
         supports_image=False,
         supports_video=False,
         probe_source="documentation",
+        is_free=True,
     ),
     ModelInfo(
-        id="glm-5",
-        name="GLM-5",
+        id="mimo-v2.5-free",
+        name="Mimo V2.5",
         supports_image=False,
         supports_video=False,
         probe_source="documentation",
+        is_free=True,
     ),
     ModelInfo(
-        id="kimi-k2.5",
-        name="Kimi K2.5",
-        supports_image=True,
-        supports_video=True,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="kimi-k2.6",
-        name="Kimi K2.6",
-        supports_image=True,
-        supports_video=True,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="minimax-m2.5",
-        name="MiniMax-M2.5",
+        id="nemotron-3-ultra-free",
+        name="Nemotron 3 Ultra",
         supports_image=False,
         supports_video=False,
         probe_source="documentation",
+        is_free=True,
     ),
     ModelInfo(
-        id="minimax-m2.7",
-        name="MiniMax-M2.7",
+        id="nemotron-3-super-free",
+        name="Nemotron 3 Super",
         supports_image=False,
         supports_video=False,
         probe_source="documentation",
-    ),
-    ModelInfo(
-        id="qwen3.6-plus",
-        name="Qwen3.6 Plus",
-        supports_image=True,
-        supports_video=True,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="qwen3.5-plus",
-        name="Qwen3.5 Plus",
-        supports_image=True,
-        supports_video=True,
-        probe_source="documentation",
+        is_free=True,
     ),
 ]
 
@@ -733,6 +797,9 @@ PROVIDER_DASHSCOPE = DashScopeProvider(
     base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
     api_key_prefix="sk",
     models=DASHSCOPE_MODELS,
+    provider_group="aliyun",
+    provider_group_name="Aliyun",
+    provider_variant="dashscope",
     meta={
         "base_url_options": [
             {
@@ -760,9 +827,11 @@ PROVIDER_ALIYUN_CODINGPLAN = OpenAIProvider(
     base_url="https://coding.dashscope.aliyuncs.com/v1",
     api_key_prefix="sk-sp",
     models=ALIYUN_CODINGPLAN_MODELS,
-    # This provider doesn't support connection check without model config
     support_connection_check=False,
     freeze_url=True,
+    provider_group="aliyun",
+    provider_group_name="Aliyun",
+    provider_variant="coding_plan_cn",
 )
 
 PROVIDER_ALIYUN_CODINGPLAN_INTL = OpenAIProvider(
@@ -771,21 +840,42 @@ PROVIDER_ALIYUN_CODINGPLAN_INTL = OpenAIProvider(
     base_url="https://coding-intl.dashscope.aliyuncs.com/v1",
     api_key_prefix="sk-sp",
     models=ALIYUN_CODINGPLAN_MODELS,
-    # This provider doesn't support connection check without model config
     support_connection_check=False,
     freeze_url=True,
+    provider_group="aliyun",
+    provider_group_name="Aliyun",
+    provider_variant="coding_plan_intl",
 )
 
 PROVIDER_ALIYUN_TOKENPLAN = OpenAIProvider(
     id="aliyun-tokenplan",
     name="Aliyun Token Plan",
     base_url=(
-        "https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1"
+        "https://token-plan.cn-beijing.maas.aliyuncs.com/" "compatible-mode/v1"
     ),
     api_key_prefix="sk-sp",
     models=ALIYUN_TOKENPLAN_MODELS,
     support_connection_check=False,
     freeze_url=True,
+    provider_group="aliyun",
+    provider_group_name="Aliyun",
+    provider_variant="token_plan",
+)
+
+PROVIDER_ALIYUN_TOKENPLAN_INTL = OpenAIProvider(
+    id="aliyun-tokenplan-intl",
+    name="Aliyun Token Plan (International)",
+    base_url=(
+        "https://token-plan.ap-southeast-1.maas.aliyuncs.com/"
+        "compatible-mode/v1"
+    ),
+    api_key_prefix="sk-sp",
+    models=ALIYUN_TOKENPLAN_MODELS,
+    support_connection_check=False,
+    freeze_url=True,
+    provider_group="aliyun",
+    provider_group_name="Aliyun",
+    provider_variant="token_plan_intl",
 )
 
 PROVIDER_ZHIPU_CN = OpenAIProvider(
@@ -795,6 +885,10 @@ PROVIDER_ZHIPU_CN = OpenAIProvider(
     api_key_prefix="",
     models=ZHIPU_MODELS,
     freeze_url=True,
+    provider_group="zhipu",
+    provider_group_name="Zhipu",
+    provider_variant="open_platform_cn",
+    meta={"is_free_tier": True},
 )
 
 PROVIDER_ZHIPU_CN_CODINGPLAN = OpenAIProvider(
@@ -805,6 +899,9 @@ PROVIDER_ZHIPU_CN_CODINGPLAN = OpenAIProvider(
     models=ZHIPU_MODELS,
     freeze_url=True,
     support_connection_check=False,
+    provider_group="zhipu",
+    provider_group_name="Zhipu",
+    provider_variant="coding_plan_cn",
 )
 
 PROVIDER_ZHIPU_INTL = OpenAIProvider(
@@ -814,6 +911,9 @@ PROVIDER_ZHIPU_INTL = OpenAIProvider(
     api_key_prefix="",
     models=ZHIPU_MODELS,
     freeze_url=True,
+    provider_group="zhipu",
+    provider_group_name="Zhipu",
+    provider_variant="open_platform_intl",
 )
 
 PROVIDER_ZHIPU_INTL_CODINGPLAN = OpenAIProvider(
@@ -824,6 +924,9 @@ PROVIDER_ZHIPU_INTL_CODINGPLAN = OpenAIProvider(
     models=ZHIPU_MODELS,
     freeze_url=True,
     support_connection_check=False,
+    provider_group="zhipu",
+    provider_group_name="Zhipu",
+    provider_variant="coding_plan_intl",
 )
 
 PROVIDER_QWENPAW = OpenAIProvider(
@@ -842,19 +945,32 @@ PROVIDER_OPENAI = OpenAIProvider(
     freeze_url=True,
 )
 
-PROVIDER_OPENCODE = OpenAIProvider(
+PROVIDER_OPENCODE = OpenCodeProvider(
     id="opencode",
     name="OpenCode",
     base_url="https://opencode.ai/zen/v1",
     api_key_prefix="",
     models=OPENCODE_MODELS,
+    require_api_key=False,
     meta={
         "base_url_options": [
             {"label": "OpenCode", "value": "https://opencode.ai/zen/v1"},
             {"label": "OpenCode Go", "value": "https://opencode.ai/zen/go/v1"},
         ],
+        "is_free_tier": True,
     },
     freeze_url=False,
+)
+
+PROVIDER_KILO = KiloProvider(
+    id="kilo",
+    name="Kilo Code",
+    base_url="https://api.kilo.ai/api/gateway",
+    api_key_prefix="",
+    models=KILO_MODELS,
+    require_api_key=False,
+    meta={"is_free_tier": True},
+    freeze_url=True,
 )
 
 PROVIDER_AZURE_OPENAI = OpenAIProvider(
@@ -871,8 +987,10 @@ PROVIDER_MINIMAX = AnthropicProvider(
     models=MINIMAX_MODELS,
     chat_model="AnthropicChatModel",
     freeze_url=True,
-    # This provider doesn't support connection check without model config
     support_connection_check=False,
+    provider_group="minimax",
+    provider_group_name="MiniMax",
+    provider_variant="open_platform_intl",
 )
 
 PROVIDER_MINIMAX_CN = AnthropicProvider(
@@ -882,8 +1000,10 @@ PROVIDER_MINIMAX_CN = AnthropicProvider(
     models=MINIMAX_MODELS,
     chat_model="AnthropicChatModel",
     freeze_url=True,
-    # This provider doesn't support connection check without model config
     support_connection_check=False,
+    provider_group="minimax",
+    provider_group_name="MiniMax",
+    provider_variant="open_platform_cn",
 )
 
 PROVIDER_KIMI_CN = OpenAIProvider(
@@ -893,6 +1013,9 @@ PROVIDER_KIMI_CN = OpenAIProvider(
     api_key_prefix="",
     models=KIMI_MODELS,
     freeze_url=True,
+    provider_group="kimi",
+    provider_group_name="Kimi",
+    provider_variant="open_platform_cn",
 )
 
 PROVIDER_KIMI_INTL = OpenAIProvider(
@@ -902,6 +1025,32 @@ PROVIDER_KIMI_INTL = OpenAIProvider(
     api_key_prefix="",
     models=KIMI_MODELS,
     freeze_url=True,
+    provider_group="kimi",
+    provider_group_name="Kimi",
+    provider_variant="open_platform_intl",
+)
+
+KIMI_CODINGPLAN_MODELS: List[ModelInfo] = [
+    ModelInfo(
+        id="kimi-for-coding",
+        name="Kimi for Coding",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+    ),
+]
+
+PROVIDER_KIMI_CODINGPLAN = OpenAIProvider(
+    id="kimi-codingplan",
+    name="Kimi Coding Plan",
+    base_url="https://api.kimi.com/coding/v1",
+    api_key_prefix="sk-kimi-",
+    models=KIMI_CODINGPLAN_MODELS,
+    freeze_url=True,
+    support_connection_check=False,
+    provider_group="kimi",
+    provider_group_name="Kimi",
+    provider_variant="coding_plan",
 )
 
 PROVIDER_DEEPSEEK = OpenAIProvider(
@@ -931,6 +1080,9 @@ PROVIDER_GEMINI = GeminiProvider(
     models=GEMINI_MODELS,
     chat_model="GeminiChatModel",
     freeze_url=True,
+    meta={
+        "is_free_tier": True,
+    },
 )
 
 PROVIDER_OLLAMA = OllamaProvider(
@@ -949,7 +1101,59 @@ PROVIDER_OPENROUTER = OpenRouterProvider(
     api_key_prefix="sk-or-v1-",
     models=[],
     freeze_url=True,
+    meta={
+        "supports_oauth": True,
+        "is_free_tier": True,
+    },
 )
+
+GITHUB_MODELS_MODELS: List[ModelInfo] = [
+    ModelInfo(
+        id="gpt-4o-mini",
+        name="GPT-4o Mini",
+        supports_image=True,
+        supports_video=False,
+        probe_source="documentation",
+        is_free=True,
+    ),
+    ModelInfo(
+        id="gpt-4o",
+        name="GPT-4o",
+        supports_image=True,
+        supports_video=False,
+        probe_source="documentation",
+        is_free=True,
+    ),
+    ModelInfo(
+        id="Meta-Llama-3.1-405B-Instruct",
+        name="Llama 3.1 405B",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+        is_free=True,
+    ),
+    ModelInfo(
+        id="Meta-Llama-3.1-8B-Instruct",
+        name="Llama 3.1 8B",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+        is_free=True,
+    ),
+]
+
+PROVIDER_GITHUB_MODELS = OpenAIProvider(
+    id="github-models",
+    name="GitHub Models",
+    base_url="https://models.inference.ai.azure.com",
+    api_key_prefix="ghp_",
+    models=GITHUB_MODELS_MODELS,
+    freeze_url=True,
+    meta={
+        "is_free_tier": True,
+    },
+)
+
 
 PROVIDER_LMSTUDIO = LMStudioProvider(
     id="lmstudio",
@@ -970,6 +1174,12 @@ PROVIDER_SILICONFLOW_CN = OpenAIProvider(
     models=[],
     freeze_url=True,
     require_api_key=True,
+    provider_group="siliconflow",
+    provider_group_name="SiliconFlow",
+    provider_variant="china",
+    meta={
+        "is_free_tier": True,
+    },
 )
 
 PROVIDER_SILICONFLOW_INTL = OpenAIProvider(
@@ -980,6 +1190,12 @@ PROVIDER_SILICONFLOW_INTL = OpenAIProvider(
     models=[],
     freeze_url=True,
     require_api_key=True,
+    provider_group="siliconflow",
+    provider_group_name="SiliconFlow",
+    provider_variant="international",
+    meta={
+        "is_free_tier": True,
+    },
 )
 
 PROVIDER_VOLCENGINE_CN = OpenAIProvider(
@@ -990,6 +1206,9 @@ PROVIDER_VOLCENGINE_CN = OpenAIProvider(
     models=VOLCENGINE_MODELS,
     freeze_url=True,
     support_model_discovery=False,
+    provider_group="volcengine",
+    provider_group_name="Volcano Engine",
+    provider_variant="open_platform",
 )
 
 PROVIDER_VOLCENGINE_CN_CODINGPLAN = OpenAIProvider(
@@ -1001,6 +1220,18 @@ PROVIDER_VOLCENGINE_CN_CODINGPLAN = OpenAIProvider(
     support_connection_check=False,
     freeze_url=True,
     support_model_discovery=False,
+    provider_group="volcengine",
+    provider_group_name="Volcano Engine",
+    provider_variant="coding_plan",
+)
+
+PROVIDER_MIMO_TOKENPLAN = OpenAIProvider(
+    id="mimo-tokenplan",
+    name="Xiaomi MiMo Token Plan",
+    base_url="https://token-plan-cn.xiaomimimo.com/v1",
+    api_key_prefix="",
+    models=MIMO_TOKENPLAN_MODELS,
+    freeze_url=True,
 )
 
 
@@ -1049,12 +1280,15 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
         self._add_builtin(PROVIDER_OLLAMA)
         self._add_builtin(PROVIDER_LMSTUDIO)
         self._add_builtin(PROVIDER_OPENROUTER)
+        self._add_builtin(PROVIDER_GITHUB_MODELS)
         self._add_builtin(PROVIDER_MODELSCOPE)
         self._add_builtin(PROVIDER_DASHSCOPE)
         self._add_builtin(PROVIDER_ALIYUN_CODINGPLAN)
         self._add_builtin(PROVIDER_ALIYUN_CODINGPLAN_INTL)
         self._add_builtin(PROVIDER_ALIYUN_TOKENPLAN)
+        self._add_builtin(PROVIDER_ALIYUN_TOKENPLAN_INTL)
         self._add_builtin(PROVIDER_OPENCODE)
+        self._add_builtin(PROVIDER_KILO)
         self._add_builtin(PROVIDER_OPENAI)
         self._add_builtin(PROVIDER_AZURE_OPENAI)
         self._add_builtin(PROVIDER_ANTHROPIC)
@@ -1062,6 +1296,7 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
         self._add_builtin(PROVIDER_DEEPSEEK)
         self._add_builtin(PROVIDER_KIMI_CN)
         self._add_builtin(PROVIDER_KIMI_INTL)
+        self._add_builtin(PROVIDER_KIMI_CODINGPLAN)
         self._add_builtin(PROVIDER_MINIMAX_CN)
         self._add_builtin(PROVIDER_MINIMAX)
         self._add_builtin(PROVIDER_ZHIPU_CN)
@@ -1072,6 +1307,7 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
         self._add_builtin(PROVIDER_SILICONFLOW_INTL)
         self._add_builtin(PROVIDER_VOLCENGINE_CN)
         self._add_builtin(PROVIDER_VOLCENGINE_CN_CODINGPLAN)
+        self._add_builtin(PROVIDER_MIMO_TOKENPLAN)
 
     def _add_builtin(self, provider: Provider):
         self.builtin_providers[provider.id] = provider

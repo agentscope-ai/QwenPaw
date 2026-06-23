@@ -25,9 +25,14 @@ async def _get_store(request: Request):
 # ── Request / Response schemas ──────────────────────────────────────────────
 
 
+class UserInfoResponse(BaseModel):
+    remark: str = ""
+    username: str = ""
+
+
 class ACLResponse(BaseModel):
-    whitelist: Dict[str, str] = Field(default_factory=dict)
-    blacklist: Dict[str, str] = Field(default_factory=dict)
+    whitelist: Dict[str, UserInfoResponse] = Field(default_factory=dict)
+    blacklist: Dict[str, UserInfoResponse] = Field(default_factory=dict)
     pending: List[dict] = Field(default_factory=list)
 
 
@@ -37,6 +42,7 @@ class ACLActionEntry(BaseModel):
     channel: str
     user_id: str
     remark: str = ""
+    username: str = ""
 
 
 class ACLActionBody(BaseModel):
@@ -51,11 +57,19 @@ class UpdateRemarkBody(BaseModel):
     remark: str
 
 
+class UpdateUsernameBody(BaseModel):
+    channel: str
+    user_id: str
+    username: str
+
+
 class PendingEntry(BaseModel):
     user_id: str
     channel: str
     timestamp: float
     first_message: str = ""
+    remark: str = ""
+    username: str = ""
 
 
 # ── Endpoints ───────────────────────────────────────────────────────────────
@@ -193,6 +207,7 @@ async def add_to_whitelist(request: Request, body: ACLActionBody):
             entry.channel,
             entry.user_id,
             entry.remark,
+            username=entry.username,
         )
     return {"status": "ok", "count": len(body.entries)}
 
@@ -222,6 +237,7 @@ async def add_to_blacklist(request: Request, body: ACLActionBody):
             entry.channel,
             entry.user_id,
             entry.remark,
+            username=entry.username,
         )
     return {"status": "ok", "count": len(body.entries)}
 
@@ -250,6 +266,25 @@ async def update_remark(request: Request, body: UpdateRemarkBody):
         body.channel,
         body.user_id,
         body.remark,
+    )
+    if not found:
+        raise HTTPException(
+            status_code=404,
+            detail="User not found in any list",
+        )
+    return {"status": "ok"}
+
+
+@router.post(
+    "/username",
+    summary="Update username for a user in any list",
+)
+async def update_username(request: Request, body: UpdateUsernameBody):
+    store = await _get_store(request)
+    found = store.update_username(
+        body.channel,
+        body.user_id,
+        body.username,
     )
     if not found:
         raise HTTPException(

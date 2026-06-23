@@ -37,6 +37,7 @@ from .agent_management import (
     chat_with_agent,
     submit_to_agent,
     check_agent_task,
+    spawn_subagent,
 )
 from .delegate_external_agent import delegate_external_agent
 from .make_skill_tools import materialize_skill
@@ -78,6 +79,7 @@ __all__ = [
     "chat_with_agent",
     "submit_to_agent",
     "check_agent_task",
+    "spawn_subagent",
     "materialize_skill",
     "ast_search",
 ]

@@ -1,9 +1,6 @@
 //! Backend command construction for development and packaged builds.
 
-use std::path::PathBuf;
-
-#[cfg(debug_assertions)]
-use std::path::Path;
+use std::path::{Path, PathBuf};
 #[cfg(debug_assertions)]
 use std::process::{Command as StdCommand, Stdio};
 
@@ -58,7 +55,43 @@ pub(super) fn create(app: &tauri::AppHandle) -> Result<Command, String> {
         backend.display(),
         backend_dir.display(),
     );
-    Ok(app.shell().command(backend).current_dir(backend_dir))
+    let mut command = app
+        .shell()
+        .command(backend)
+        .current_dir(&backend_dir)
+        .env(path_env_key(), path_with_backend_dir(&backend_dir)?);
+    // Bundled standalone Python used by the backend to install third-party
+    // plugin dependencies (sys.executable is the frozen backend, not Python).
+    if let Some(python) = packaged_python_runtime(app) {
+        log::info!("[backend] bundled python runtime: {}", python.display());
+        command = command.env(
+            "QWENPAW_DESKTOP_PY_RUNTIME",
+            python.to_string_lossy().to_string(),
+        );
+    } else {
+        log::warn!(
+            "[backend] bundled python runtime not found; plugin dependency \
+             installation will be unavailable"
+        );
+    }
+    Ok(command)
+}
+
+#[cfg(not(debug_assertions))]
+fn packaged_python_runtime(app: &tauri::AppHandle) -> Option<PathBuf> {
+    let base = app
+        .path()
+        .resource_dir()
+        .ok()?
+        .join("binaries")
+        .join("python-runtime")
+        .join("python");
+    let candidates = if cfg!(windows) {
+        vec![base.join("python.exe")]
+    } else {
+        vec![base.join("bin").join("python3"), base.join("bin").join("python")]
+    };
+    candidates.into_iter().find(|path| path.is_file())
 }
 
 #[cfg(not(debug_assertions))]
@@ -84,6 +117,29 @@ fn packaged_backend_executable(app: &tauri::AppHandle) -> Result<PathBuf, String
             path.display()
         ))
     }
+}
+
+#[cfg(not(debug_assertions))]
+fn path_with_backend_dir(backend_dir: &Path) -> Result<String, String> {
+    let mut paths = vec![backend_dir.to_path_buf()];
+    if let Some(existing) = std::env::var_os(path_env_key()) {
+        paths.extend(std::env::split_paths(&existing));
+    }
+
+    std::env::join_paths(paths)
+        .map_err(|err| format!("failed to join backend PATH entries: {err}"))?
+        .into_string()
+        .map_err(|_| "backend PATH contains non-Unicode data".to_string())
+}
+
+#[cfg(all(not(debug_assertions), windows))]
+fn path_env_key() -> &'static str {
+    "Path"
+}
+
+#[cfg(all(not(debug_assertions), not(windows)))]
+fn path_env_key() -> &'static str {
+    "PATH"
 }
 
 #[cfg(debug_assertions)]

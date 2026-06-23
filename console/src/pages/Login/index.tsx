@@ -59,13 +59,17 @@ export default function LoginPage() {
         }
       }
     } catch (err) {
-      message.error(
-        isRegister
-          ? err instanceof Error
-            ? err.message
-            : t("login.registerFailed")
-          : t("login.failed"),
-      );
+      let errorMsg = t("login.failed");
+
+      // Check if it's an Error object and use the backend message directly
+      if (err instanceof Error) {
+        // Use the backend message directly without complex parsing
+        errorMsg = err.message;
+      } else if (isRegister) {
+        errorMsg = t("login.registerFailed");
+      }
+
+      message.error(errorMsg);
     } finally {
       setLoading(false);
     }

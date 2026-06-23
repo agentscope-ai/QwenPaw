@@ -7,8 +7,18 @@
  * Delete calls the API directly and triggers onRefresh on success.
  * Restore delegates to the parent via onRestore (handled by useRestoreFlow).
  */
-import { useMemo } from "react";
-import { Button, Card, Empty, Modal, Popconfirm, Table, Tooltip } from "antd";
+import { useEffect, useMemo, useState } from "react";
+import {
+  Button,
+  Card,
+  Empty,
+  Modal,
+  Pagination,
+  Popconfirm,
+  Table,
+  Tooltip,
+  Typography,
+} from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { useTranslation } from "react-i18next";
 import dayjs from "dayjs";
@@ -49,6 +59,28 @@ export default function BackupTable({
       (s) => s.name.toLowerCase().includes(q) || s.id.toLowerCase().includes(q),
     );
   }, [backups, searchQuery]);
+
+  const [page, setPage] = useState(1);
+
+  // Keep mobile cards sorted by created time (desc) to match the desktop table default.
+  const sortedFilteredBackups = useMemo(() => {
+    return [...filteredBackups].sort(
+      (a, b) => dayjs(b.created_at).unix() - dayjs(a.created_at).unix(),
+    );
+  }, [filteredBackups]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [searchQuery]);
+
+  const totalBackups = sortedFilteredBackups.length;
+  const maxPage = Math.max(1, Math.ceil(totalBackups / PAGE_SIZE));
+  const currentPage = Math.min(page, maxPage);
+  const startIndex = (currentPage - 1) * PAGE_SIZE;
+  const paginatedBackups = sortedFilteredBackups.slice(
+    startIndex,
+    startIndex + PAGE_SIZE,
+  );
 
   /** Deletes a single backup by ID and refreshes the list on success. */
   const handleDelete = async (id: string) => {
@@ -149,27 +181,124 @@ export default function BackupTable({
     },
   ];
 
-  return (
-    <Card className={styles.tableCard}>
-      {backups.length === 0 ? (
-        <Empty
-          description={t("backup.noBackups")}
-          style={{ padding: "40px 0" }}
+  const renderMobileCard = (backup: BackupMeta) => (
+    <Card
+      key={backup.id}
+      className={styles.mobileCard}
+      size="small"
+      title={
+        <div className={styles.mobileCardHeader}>
+          <Typography.Text
+            ellipsis={{ tooltip: true }}
+            className={styles.mobileId}
+          >
+            {backup.id}
+          </Typography.Text>
+          <span className={styles.mobileTime}>
+            {dayjs(backup.created_at).format("YYYY-MM-DD HH:mm")}
+          </span>
+        </div>
+      }
+    >
+      <div className={styles.mobileRow}>
+        <span className={styles.mobileLabel}>{t("backup.name")}</span>
+        <Typography.Text
+          ellipsis={{ tooltip: true }}
+          className={styles.mobileValue}
+        >
+          {backup.name}
+        </Typography.Text>
+      </div>
+      {backup.description ? (
+        <div className={styles.mobileRow}>
+          <span className={styles.mobileLabel}>
+            {t("backup.descriptionLabel")}
+          </span>
+          <Typography.Text
+            ellipsis={{ tooltip: true }}
+            className={styles.mobileValue}
+          >
+            {backup.description}
+          </Typography.Text>
+        </div>
+      ) : null}
+      <div className={styles.mobileRow}>
+        <span className={styles.mobileLabel}>{t("backup.scopeSummary")}</span>
+        <ScopeTags
+          scope={backup.scope}
+          agentCount={backup.agent_count}
+          compact
         />
-      ) : (
-        <Table<BackupMeta>
-          rowKey="id"
-          dataSource={filteredBackups}
-          columns={columns}
-          size="middle"
-          pagination={{
-            pageSize: PAGE_SIZE,
-            showSizeChanger: true,
-            showTotal: (total) => t("backup.total", { count: total }),
-            pageSizeOptions: ["10", "20", "50"],
-          }}
-        />
-      )}
+      </div>
+      <div className={styles.mobileActions}>
+        <Button
+          type="primary"
+          size="small"
+          ghost
+          onClick={() => onRestore(backup)}
+        >
+          {t("backup.restore")}
+        </Button>
+        <Button size="small" onClick={() => handleExport(backup)}>
+          {t("backup.export")}
+        </Button>
+        <Popconfirm
+          title={t("backup.deleteConfirm")}
+          onConfirm={() => handleDelete(backup.id)}
+        >
+          <Button size="small" danger>
+            {t("backup.delete")}
+          </Button>
+        </Popconfirm>
+      </div>
     </Card>
+  );
+
+  return (
+    <>
+      <Card className={styles.tableCard}>
+        {backups.length === 0 ? (
+          <Empty
+            description={t("backup.noBackups")}
+            style={{ padding: "40px 0" }}
+          />
+        ) : (
+          <Table<BackupMeta>
+            rowKey="id"
+            dataSource={filteredBackups}
+            columns={columns}
+            size="middle"
+            pagination={{
+              pageSize: PAGE_SIZE,
+              showSizeChanger: true,
+              showTotal: (total) => t("backup.total", { count: total }),
+              pageSizeOptions: ["10", "20", "50"],
+            }}
+          />
+        )}
+      </Card>
+      <div className={styles.mobileCards}>
+        {totalBackups === 0 ? (
+          <Empty
+            description={t("backup.noBackups")}
+            style={{ padding: "40px 0" }}
+          />
+        ) : (
+          <>
+            {paginatedBackups.map(renderMobileCard)}
+            <div className={styles.mobilePagination}>
+              <Pagination
+                current={currentPage}
+                pageSize={PAGE_SIZE}
+                total={totalBackups}
+                size="small"
+                simple
+                onChange={(p) => setPage(p)}
+              />
+            </div>
+          </>
+        )}
+      </div>
+    </>
   );
 }

@@ -1,8 +1,37 @@
 # -*- coding: utf-8 -*-
-"""Sandbox configuration and result types."""
+"""Sandbox — configuration, capability probing, and factory (entry point).
+
+This is the natural entry point into the :mod:`qwenpaw.sandbox` package:
+it defines the constraint vocabulary (modes, mounts, ports), probes what
+the current platform actually supports, and ships the factory that maps a
+``SandboxConfig`` to a concrete backend.
+
+Backend layout (``create_sandbox`` dispatches to these by ``SandboxMode``):
+  - SEATBELT   → :mod:`qwenpaw.sandbox.macos_sandbox`      (MacOSSandbox)
+  - BUBBLEWRAP → :mod:`qwenpaw.sandbox.bubblewrap_sandbox` (BubblewrapSandbox)
+  - LANDLOCK   → :mod:`qwenpaw.sandbox.linux_sandbox`      (LinuxSandbox)
+  - WSL2       → :mod:`qwenpaw.sandbox.windows_sandbox`    (WindowsSandbox)
+  - NONE       → :mod:`qwenpaw.sandbox.local_sandbox`      (NoneSandbox)
+
+Shared base class for all backends:
+  - :class:`qwenpaw.sandbox.local_sandbox.LocalSandbox`
+
+Typical usage:
+    from .sandbox import create_sandbox, SandboxConfig, SandboxMode, MountSpec
+    config = SandboxConfig(
+        mode=SandboxMode.BUBBLEWRAP,
+        workspace_dir="/path/to/project",
+        mounts=[MountSpec(path="/path/to/project", writable=True)],
+    )
+    async with create_sandbox(config) as sandbox:
+        result = await sandbox.execute("echo hello")
+        print(result.stdout)
+"""
 
 from __future__ import annotations
 
+import shutil
+import subprocess
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Dict, List, Optional
@@ -12,7 +41,8 @@ class SandboxMode(str, Enum):
     """Sandbox isolation mode."""
 
     SEATBELT = "seatbelt"  # macOS sandbox-exec
-    LANDLOCK = "landlock"  # Linux (future)
+    BUBBLEWRAP = "bubblewrap"  # Linux bubblewrap (preferred)
+    LANDLOCK = "landlock"  # Linux Landlock LSM (fallback)
     WSL2 = "wsl2"  # Windows (future)
     NONE = "none"  # No isolation, direct execution
 
@@ -247,8 +277,6 @@ def _probe_linux_landlock() -> (
 
 def _probe_macos_seatbelt() -> SandboxCapability:
     """Probe macOS Seatbelt (sandbox-exec) support."""
-    import shutil
-
     if shutil.which("sandbox-exec"):
         return SandboxCapability(
             supported=True,
@@ -315,18 +343,87 @@ def _probe_windows_wsl2() -> SandboxCapability:
     )
 
 
+def _probe_linux_bubblewrap() -> SandboxCapability:
+    """Probe bubblewrap (bwrap) availability on Linux.
+
+    Detection steps:
+        1. bwrap binary exists on PATH
+        2. User namespaces work (test run with --unshare-user)
+    """
+    bwrap = shutil.which("bwrap")
+    if not bwrap:
+        return SandboxCapability(
+            supported=False,
+            mode=SandboxMode.NONE,
+            reason="bwrap not found on PATH",
+        )
+    # Probe: attempt a trivial sandboxed execution to confirm
+    # user namespace and mount namespace work.
+    try:
+        result = subprocess.run(  # noqa: S603, pylint: disable=W1510
+            [
+                bwrap,
+                "--ro-bind",
+                "/",
+                "/",
+                "--dev",
+                "/dev",
+                "--unshare-user",
+                "--unshare-pid",
+                "--proc",
+                "/proc",
+                "--",
+                "/bin/true",
+            ],
+            capture_output=True,
+            timeout=5,
+        )
+        if result.returncode == 0:
+            return SandboxCapability(
+                supported=True,
+                mode=SandboxMode.BUBBLEWRAP,
+                reason="bubblewrap available with user namespaces",
+            )
+        stderr = result.stderr.decode("utf-8", errors="replace")
+        return SandboxCapability(
+            supported=False,
+            mode=SandboxMode.NONE,
+            reason=(
+                f"bwrap probe failed (rc={result.returncode}): "
+                f"{stderr[:200]}"
+            ),
+        )
+    except subprocess.TimeoutExpired:
+        return SandboxCapability(
+            supported=False,
+            mode=SandboxMode.NONE,
+            reason="bwrap probe timed out",
+        )
+    except (FileNotFoundError, OSError) as e:
+        return SandboxCapability(
+            supported=False,
+            mode=SandboxMode.NONE,
+            reason=f"bwrap probe error: {e}",
+        )
+
+
 def probe_sandbox_support() -> SandboxCapability:
     """Probe current platform sandbox support at startup.
 
     Returns a SandboxCapability describing whether sandbox isolation is
     available. If unsupported, mode is NONE and callers should block
     the SANDBOX_FALLBACK path.
+
+    On Linux the priority is: bubblewrap > Landlock > NONE.
     """
     import sys
 
     if sys.platform == "darwin":
         return _probe_macos_seatbelt()
     elif sys.platform == "linux":
+        cap = _probe_linux_bubblewrap()
+        if cap.supported:
+            return cap
         return _probe_linux_landlock()
     elif sys.platform == "win32":
         # Windows sandbox (WSL2 + Landlock) is currently disabled because the
@@ -356,3 +453,44 @@ def detect_platform_mode() -> SandboxMode:
     """
     cap = probe_sandbox_support()
     return cap.mode
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Factory
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+def create_sandbox(config: SandboxConfig) -> Any:
+    """Create a sandbox instance based on ``config.mode``.
+
+    Supported modes:
+      - SEATBELT    → MacOSSandbox
+      - BUBBLEWRAP  → BubblewrapSandbox (Linux preferred)
+      - LANDLOCK    → LinuxSandbox (Linux fallback)
+      - NONE        → NoneSandbox
+      - WSL2        → WindowsSandbox (currently disabled at probe time;
+                     Re-enable in ``probe_sandbox_support`` when the
+                     Windows sandbox path is production-ready.)
+    """
+    if config.mode == SandboxMode.SEATBELT:
+        from .macos_sandbox import MacOSSandbox
+
+        return MacOSSandbox(config)
+    elif config.mode == SandboxMode.NONE:
+        from .local_sandbox import NoneSandbox
+
+        return NoneSandbox(config)
+    elif config.mode == SandboxMode.BUBBLEWRAP:
+        from .bubblewrap_sandbox import BubblewrapSandbox
+
+        return BubblewrapSandbox(config)
+    elif config.mode == SandboxMode.LANDLOCK:
+        from .linux_sandbox import LinuxSandbox
+
+        return LinuxSandbox(config)
+    elif config.mode == SandboxMode.WSL2:
+        from .windows_sandbox import WindowsSandbox
+
+        return WindowsSandbox(config)
+    else:
+        raise ValueError(f"Unknown sandbox mode: {config.mode}")

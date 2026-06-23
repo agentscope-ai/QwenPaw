@@ -24,7 +24,9 @@ from agentscope.tool import ToolChunk
 from qwenpaw.app.interaction import InteractionManager
 from qwenpaw.app.agent_context import get_current_session_id
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("qwenpaw").getChild(
+    __name__.replace("plugin_cloudpaw.", ""),
+)
 
 _INTERACTION_TIMEOUT = 3600  # 1 hour
 

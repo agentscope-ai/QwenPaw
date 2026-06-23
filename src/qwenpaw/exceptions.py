@@ -576,6 +576,41 @@ class LspError(AgentRuntimeErrorException):
 
 # ==================== LLM API Exception Converter ====================
 
+_ERROR_SUMMARY_MAX_LEN = 200
+
+
+def _extract_error_summary(exc: Exception) -> str:
+    """Extract a short, user-friendly summary from an API exception.
+
+    Tries the provider's structured error message first, then
+    falls back to the first meaningful line of ``str(exc)``.
+    """
+    body = getattr(exc, "body", None)
+    if isinstance(body, dict):
+        err = body.get("error", body)
+        if isinstance(err, dict):
+            msg = err.get("message")
+            if msg and isinstance(msg, str):
+                return msg[:_ERROR_SUMMARY_MAX_LEN]
+
+    raw = str(exc)
+    for line in raw.splitlines():
+        first_line = line.strip()
+        if first_line:
+            return first_line[:_ERROR_SUMMARY_MAX_LEN]
+    return raw.strip()[:_ERROR_SUMMARY_MAX_LEN]
+
+
+def _append_error_detail(
+    converted: "AgentRuntimeErrorException",
+    exc: Exception,
+) -> "AgentRuntimeErrorException":
+    """Append original error summary to *converted*.message."""
+    summary = _extract_error_summary(exc)
+    if summary:
+        converted.message = f"{converted.message}. Reason: {summary}"
+    return converted
+
 
 def _is_model_related_error(exc: Exception) -> bool:
     """Check if exception is likely related to LLM model execution.
@@ -671,7 +706,10 @@ def convert_model_exception(  # pylint: disable=too-many-return-statements
     ):
         model = model_name or "unknown"
         details["model_name"] = model
-        return ModelExecutionException(model, details=details)
+        return _append_error_detail(
+            ModelExecutionException(model, details=details),
+            exc,
+        )
 
     # Extract information for model errors
     status_code = getattr(exc, "status_code", None)
@@ -684,10 +722,16 @@ def convert_model_exception(  # pylint: disable=too-many-return-statements
 
     # Level 1: Status code mapping (most reliable)
     if status_code in (401, 403):
-        return UnauthorizedModelAccessException(model, details=details)
+        return _append_error_detail(
+            UnauthorizedModelAccessException(model, details=details),
+            exc,
+        )
 
     if status_code == 429:
-        return ModelQuotaExceededException(model, details=details)
+        return _append_error_detail(
+            ModelQuotaExceededException(model, details=details),
+            exc,
+        )
 
     # Level 2: Keyword mapping
     if any(
@@ -700,7 +744,13 @@ def convert_model_exception(  # pylint: disable=too-many-return-statements
             "forbidden",
         ]
     ):
-        return UnauthorizedModelAccessException(model, details=details)
+        return _append_error_detail(
+            UnauthorizedModelAccessException(
+                model,
+                details=details,
+            ),
+            exc,
+        )
 
     if any(
         kw in error_message
@@ -710,7 +760,10 @@ def convert_model_exception(  # pylint: disable=too-many-return-statements
             "too many requests",
         ]
     ):
-        return ModelQuotaExceededException(model, details=details)
+        return _append_error_detail(
+            ModelQuotaExceededException(model, details=details),
+            exc,
+        )
 
     if any(
         kw in error_message
@@ -720,7 +773,14 @@ def convert_model_exception(  # pylint: disable=too-many-return-statements
             "deadline exceeded",
         ]
     ):
-        return ModelTimeoutException(model, timeout=60, details=details)
+        return _append_error_detail(
+            ModelTimeoutException(
+                model,
+                timeout=60,
+                details=details,
+            ),
+            exc,
+        )
 
     if any(
         kw in error_message
@@ -731,7 +791,16 @@ def convert_model_exception(  # pylint: disable=too-many-return-statements
             "too many tokens",
         ]
     ):
-        return ModelContextLengthExceededException(model, details=details)
+        return _append_error_detail(
+            ModelContextLengthExceededException(
+                model,
+                details=details,
+            ),
+            exc,
+        )
 
     # Level 3: Model-related default catch-all
-    return ModelExecutionException(model, details=details)
+    return _append_error_detail(
+        ModelExecutionException(model, details=details),
+        exc,
+    )

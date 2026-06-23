@@ -34,6 +34,15 @@ logger = logging.getLogger(__name__)
 
 MISSION_COMMANDS = frozenset({"/mission"})
 
+# User-facing mission commands and their summaries, used when advertising
+# commands to clients (e.g. the ACP ``available_commands_update``).
+MISSION_COMMAND_DESCRIPTIONS: dict[str, str] = {
+    "mission": (
+        "Launch mission mode — automatically decompose, implement, and "
+        "verify complex tasks (bypasses tool guardrails)"
+    ),
+}
+
 # Defaults and limits for --max-iterations
 _DEFAULT_MAX_ITERATIONS = 20
 _MIN_MAX_ITERATIONS = 1

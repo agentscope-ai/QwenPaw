@@ -5,7 +5,8 @@ import logging
 from abc import ABC, abstractmethod
 from collections.abc import Callable
 from datetime import datetime
-from typing import Any
+from pathlib import Path
+from typing import Any, Optional
 
 from agentscope.message import Msg
 from agentscope.middleware import MiddlewareBase
@@ -110,6 +111,20 @@ class BaseMemoryManager(ABC):
 
         Runs a lightweight ReAct agent with file-editing tools to
         consolidate redundant or outdated memory entries.
+
+        The signature mirrors ``run_heartbeat_once`` so cron callbacks
+        can pass the same set of runner-derived values to either entry.
+
+        Args:
+            runner: Agent runner instance (typically supplied by the cron
+                callback).
+            channel_manager: Optional channel manager for dispatching
+                results (reserved for future use).
+            agent_id: Agent ID for loading config. Subclasses may fall
+                back to ``self.agent_id`` when omitted.
+            workspace_dir: Workspace directory used to locate memory
+                files. Subclasses may fall back to ``self.working_dir``
+                when omitted.
         """
         return None
 

@@ -129,7 +129,12 @@ pub(crate) fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Erro
     app.handle().plugin(
         tauri_plugin_log::Builder::default()
             .clear_targets()
-            .targets([Target::new(TargetKind::Stdout)])
+            .targets([
+                Target::new(TargetKind::Stdout),
+                Target::new(TargetKind::LogDir {
+                    file_name: Some("qwenpaw-desktop".into()),
+                }),
+            ])
             .level(log::LevelFilter::Info)
             .build(),
     )?;

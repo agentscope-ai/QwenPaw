@@ -8,6 +8,7 @@ import { useTranslation } from "react-i18next";
 import { useAgentStore } from "../../../stores/agentStore";
 import { useAppMessage } from "../../../hooks/useAppMessage";
 import api from "../../../api";
+import { useUploadLimitStore } from "../../../stores/uploadLimitStore";
 import { invalidateSkillCache } from "../../../api/modules/skill";
 import type { SecurityScanErrorResponse } from "../../../api/modules/security";
 import { parseErrorDetail } from "../../../utils/error";
@@ -34,8 +35,6 @@ export type DownloadConflict =
       source_language: string;
       current_language: string;
     };
-
-const MAX_UPLOAD_SIZE_MB = 100;
 
 // ─── Hook ───────────────────────────────────────────────────────────────────
 
@@ -177,10 +176,11 @@ export function useSkillsPage() {
       return;
     }
     const sizeMB = file.size / (1024 * 1024);
-    if (sizeMB > MAX_UPLOAD_SIZE_MB) {
+    const uploadLimit = useUploadLimitStore.getState().uploadMaxSizeMb;
+    if (uploadLimit !== null && sizeMB > uploadLimit) {
       message.warning(
         t("skills.fileSizeExceeded", {
-          limit: MAX_UPLOAD_SIZE_MB,
+          limit: uploadLimit,
           size: sizeMB.toFixed(1),
         }),
       );

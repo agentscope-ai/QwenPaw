@@ -59,6 +59,11 @@ class MCPClientInfo(BaseModel):
         default="",
         description="Working directory for stdio MCP command",
     )
+    tools: Optional[List[str]] = Field(
+        default=None,
+        description="Tool whitelist. Only listed tools will be loaded. "
+        "None means load all tools.",
+    )
     oauth_status: Optional[MCPClientOAuthStatus] = Field(
         default=None,
         description="OAuth token status (None if OAuth not configured)",
@@ -106,6 +111,11 @@ class MCPClientCreateRequest(BaseModel):
         default="",
         description="Working directory for stdio MCP command",
     )
+    tools: Optional[List[str]] = Field(
+        default=None,
+        description="Tool whitelist. Only listed tools will be loaded. "
+        "None means load all tools.",
+    )
 
 
 class MCPClientUpdateRequest(BaseModel):
@@ -144,6 +154,11 @@ class MCPClientUpdateRequest(BaseModel):
     cwd: Optional[str] = Field(
         None,
         description="Working directory for stdio MCP command",
+    )
+    tools: Optional[List[str]] = Field(
+        None,
+        description="Tool whitelist (omit to leave unchanged). "
+        "Set to null to remove the whitelist.",
     )
 
 
@@ -218,6 +233,10 @@ class MCPToolInfo(BaseModel):
 
     name: str = Field(..., description="Tool name")
     description: str = Field(default="", description="Tool description")
+    enabled: bool = Field(
+        default=True,
+        description="Whether this tool is enabled (passes the whitelist)",
+    )
     input_schema: Dict[str, Any] = Field(
         default_factory=dict,
         description="JSON Schema for the tool's input parameters",

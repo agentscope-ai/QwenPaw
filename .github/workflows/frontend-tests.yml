@@ -46,10 +46,8 @@ jobs:
       - name: Run unit tests
         run: npm run test:run
 
-      - name: Generate coverage report
+      - name: Coverage ratchet (blocks PR on regression)
         run: npm run test:coverage
-        # 当前阶段仅报告，不卡 PR（覆盖率基线建立中）
-        continue-on-error: true
 
       - name: Upload coverage report
         if: always()

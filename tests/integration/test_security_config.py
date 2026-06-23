@@ -46,7 +46,11 @@ def test_global_file_guard_put_get_roundtrip(app_server) -> None:
             "/api/config/security/file-guard",
         )
         assert get_after.status_code == 200, app_server.logs_tail()
-        assert bool(get_after.json().get("enabled")) == updated_enabled
+        after = get_after.json()
+        assert bool(after.get("enabled")) == updated_enabled
+        for k, v in before.items():
+            if k != "enabled":
+                assert after.get(k) == v, f"side-effect on {k}"
     finally:
         restore = app_server.api_request(
             "PUT",
@@ -98,7 +102,11 @@ def test_global_tool_guard_put_get_roundtrip(app_server) -> None:
             "/api/config/security/tool-guard",
         )
         assert get_after.status_code == 200, app_server.logs_tail()
-        assert bool(get_after.json().get("enabled")) == updated["enabled"]
+        after = get_after.json()
+        assert bool(after.get("enabled")) == updated["enabled"]
+        for k, v in before.items():
+            if k != "enabled":
+                assert after.get(k) == v, f"side-effect on {k}"
     finally:
         restore = app_server.api_request(
             "PUT",
@@ -151,7 +159,11 @@ def test_global_skill_scanner_put_get_roundtrip(app_server) -> None:
             "/api/config/security/skill-scanner",
         )
         assert get_after.status_code == 200, app_server.logs_tail()
-        assert get_after.json().get("mode") == updated["mode"]
+        after = get_after.json()
+        assert after.get("mode") == updated["mode"]
+        for k, v in before.items():
+            if k != "mode":
+                assert after.get(k) == v, f"side-effect on {k}"
     finally:
         restore = app_server.api_request(
             "PUT",
@@ -214,7 +226,11 @@ def test_agent_scoped_skill_scanner_put_get_roundtrip(app_server) -> None:
 
         get_after = app_server.api_request("GET", endpoint)
         assert get_after.status_code == 200, app_server.logs_tail()
-        assert get_after.json().get("mode") == updated["mode"]
+        after = get_after.json()
+        assert after.get("mode") == updated["mode"]
+        for k, v in baseline.items():
+            if k != "mode":
+                assert after.get(k) == v, f"side-effect on {k}"
     finally:
         if isinstance(baseline, dict):
             restore = app_server.api_request("PUT", endpoint, json=baseline)
@@ -399,7 +415,11 @@ def test_agent_scoped_file_guard_put_get_roundtrip(app_server) -> None:
 
         get_after = app_server.api_request("GET", endpoint)
         assert get_after.status_code == 200, app_server.logs_tail()
-        assert bool(get_after.json().get("enabled")) == updated_enabled
+        after = get_after.json()
+        assert bool(after.get("enabled")) == updated_enabled
+        for k, v in before.items():
+            if k != "enabled":
+                assert after.get(k) == v, f"side-effect on {k}"
     finally:
         if isinstance(before, dict):
             restore = app_server.api_request(
@@ -461,7 +481,11 @@ def test_agent_scoped_tool_guard_put_get_roundtrip(app_server) -> None:
 
         get_after = app_server.api_request("GET", endpoint)
         assert get_after.status_code == 200, app_server.logs_tail()
-        assert bool(get_after.json().get("enabled")) == updated["enabled"]
+        after = get_after.json()
+        assert bool(after.get("enabled")) == updated["enabled"]
+        for k, v in before.items():
+            if k != "enabled":
+                assert after.get(k) == v, f"side-effect on {k}"
     finally:
         if isinstance(before, dict):
             restore = app_server.api_request("PUT", endpoint, json=before)

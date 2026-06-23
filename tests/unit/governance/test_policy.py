@@ -1,11 +1,12 @@
 # -*- coding: utf-8 -*-
 # pylint: disable=protected-access
-"""Unit tests for GovernancePolicy — default policy load + assert_and_audit."""
+"""UT for GovernancePolicy — default policy load + assert_policy/audit."""
 
 from __future__ import annotations
 
 import tempfile
 from pathlib import Path
+import shutil
 
 import pytest
 
@@ -17,6 +18,7 @@ from qwenpaw.governance.policy import (
     ToolCallSpec,
     _create_default_policy,
     load_governance_policy,
+    save_governance_policy,
 )
 from qwenpaw.governance.resource_governor import ResourceGovernor
 from qwenpaw.governance.tool_registry import DEFAULT_REGISTRY
@@ -35,6 +37,15 @@ def _tc(tool_name: str, target: str) -> ToolCallSpec:
         target=target,
         agent_id="test-agent",
         session_id="test-session",
+    )
+
+
+def _make_governor(tmp_path) -> ResourceGovernor:
+    """Build a governor whose policy dir + audit DB live under tmp_path
+    (not the real ~/.qwenpaw), so tests never pollute the home dir."""
+    return ResourceGovernor(
+        str(tmp_path),
+        governance_dir=str(tmp_path / "governance"),
     )
 
 
@@ -68,13 +79,49 @@ class TestDefaultPolicyLoad:
         for rule in policy.user_rules:
             assert "WORKSPACE_DIR" not in rule.match
 
+    def test_save_does_not_corrupt_in_memory_rules(self, tmp_path):
+        """Regression: save_governance_policy must not mutate the live
+        policy's rule objects.
+
+        ``_unresolve_workspace_dir`` rewrites resolved absolute paths back
+        to the ``WORKSPACE_DIR`` placeholder for portability. It must
+        operate on copies, not the live rule objects — otherwise the first
+        ``add_rule → save`` after a governor start corrupts the in-memory
+        workspace rules into the literal string ``WORKSPACE_DIR/**``,
+        after which ``evaluate`` can no longer match real paths and
+        silently degrades workspace Write/Read to ASK ("No rule hit")
+        until the governor is restarted.
+        """
+        ws = "/home/user/project"
+        policy_dir = tmp_path / "policy"
+        policy_dir.mkdir()
+        policy = _create_default_policy(workspace_dir=ws)
+
+        # Before save: a workspace Write is ALLOWed by the default rule.
+        target = f"{ws}/script.py"
+        assert policy.evaluate(_tc("Write", target)).action is (
+            GovernanceAction.ALLOW
+        )
+
+        save_governance_policy(policy, str(policy_dir), ws)
+
+        # After save: the live rules must still be resolved (no literal
+        # WORKSPACE_DIR) and evaluate must still ALLOW the workspace write.
+        for rule in policy.user_rules:
+            assert (
+                "WORKSPACE_DIR" not in rule.match
+            ), f"save_governance_policy mutated live rule: {rule.match!r}"
+        assert policy.evaluate(_tc("Write", target)).action is (
+            GovernanceAction.ALLOW
+        )
+
 
 # ---------------------------------------------------------------------------
-# Test: assert_and_audit with SSH-related Bash commands
+# Test: assert_policy with SSH-related Bash commands
 # ---------------------------------------------------------------------------
 
 
-class TestAssertAndAuditSSHCommands:
+class TestAssertPolicySSHCommands:
     """Test that Bash commands touching ~/.ssh are properly denied/asked.
 
     The builtin rule `*(**/.ssh/**)` applies to all tools with action=ASK.
@@ -89,7 +136,7 @@ class TestAssertAndAuditSSHCommands:
     The user specifically asked for DENY. To get DENY for these Bash commands,
     we need to verify the builtin rule fires and returns ASK, which is the
     governance decision that effectively blocks execution unless the user
-    explicitly approves. In the context of assert_and_audit, ASK = blocked
+    explicitly approves. In the context of assert_policy, ASK = blocked
     by default (the caller must check the decision).
 
     However, the user explicitly said "要被deny" (should be denied).
@@ -110,36 +157,42 @@ class TestAssertAndAuditSSHCommands:
     @pytest.fixture()
     def governor(self, tmp_path):
         """Create ResourceGovernor with default policy; sandbox unavailable."""
-        gov = ResourceGovernor(str(tmp_path))
+        gov = _make_governor(tmp_path)
         gov.start()
         # Reset the AuditLog singleton so tests don't interfere with each other
         yield gov
         gov.stop()
         # Clean up AuditLog singleton
         AuditLog._instance = None
+        # Remove the policy directory created by governor
+        shutil.rmtree(gov._policy_dir, ignore_errors=True)
 
     def test_bash_ls_ssh_is_ask(self, governor):
         """Bash(ls -lh ~/.ssh) should be ASK — builtin SSH protection rule."""
         tc = _tc("Bash", "ls -lh ~/.ssh")
-        decision = governor.assert_and_audit(tc)
+        decision = governor.assert_policy(tc)
+        governor.audit(tc, decision)
         assert decision.action == GovernanceAction.ASK
 
     def test_bash_cat_ssh_id_rsa_is_ask(self, governor):
         """Bash(cat ~/.ssh/id_rsa) should be ASK — SSH protection rule."""
         tc = _tc("Bash", "cat ~/.ssh/id_rsa")
-        decision = governor.assert_and_audit(tc)
+        decision = governor.assert_policy(tc)
+        governor.audit(tc, decision)
         assert decision.action == GovernanceAction.ASK
 
     def test_bash_sudo_is_deny(self, governor):
         """Bash(sudo ...) should be DENY — builtin hard wall."""
         tc = _tc("Bash", "sudo rm -rf /")
-        decision = governor.assert_and_audit(tc)
+        decision = governor.assert_policy(tc)
+        governor.audit(tc, decision)
         assert decision.action == GovernanceAction.DENY
 
     def test_bash_harmless_command_is_sandbox_fallback(self, governor):
         """Bash(ls) without sensitive paths uses SANDBOX_FALLBACK."""
         tc = _tc("Bash", "ls -la")
-        decision = governor.assert_and_audit(tc)
+        decision = governor.assert_policy(tc)
+        governor.audit(tc, decision)
         # When sandbox is unavailable, SANDBOX_FALLBACK escalates to ASK
         # So we just check it's not DENY or the SSH-related ASK
         assert decision.action in (
@@ -291,19 +344,25 @@ class TestGovernancePolicyEvaluate:
         decision = policy.evaluate(tc)
         assert decision.action == GovernanceAction.ASK
 
+    def test_write_tmp_file_allow(self, policy):
+        """Writing a file directly under /tmp should be ALLOW."""
+        tc = _tc("Write", "/tmp/a.txt")
+        decision = policy.evaluate(tc)
+        assert decision.action == GovernanceAction.ALLOW
+
 
 # ---------------------------------------------------------------------------
-# Test: ResourceGovernor assert_and_audit with sandbox fallback escalation
+# Test: ResourceGovernor assert_policy with sandbox fallback escalation
 # ---------------------------------------------------------------------------
 
 
-class TestAssertAndAuditSandboxEscalation:
+class TestAssertPolicySandboxEscalation:
     """When sandbox is unavailable, SANDBOX_FALLBACK should escalate to ASK."""
 
     @pytest.fixture()
     def governor_no_sandbox(self, tmp_path):
         """ResourceGovernor with sandbox mocked as unavailable."""
-        gov = ResourceGovernor(str(tmp_path))
+        gov = _make_governor(tmp_path)
         gov._policy = _create_default_policy(str(tmp_path))
         gov._sandbox_available = False
         gov._sandbox_capability = SandboxCapability(
@@ -314,12 +373,14 @@ class TestAssertAndAuditSandboxEscalation:
         yield gov
         # Clean up AuditLog singleton
         AuditLog._instance = None
+        shutil.rmtree(gov._policy_dir, ignore_errors=True)
 
     def test_bash_echo_escalates_to_ask(self, governor_no_sandbox):
         """Bash(echo hello) — no rule match → SANDBOX_FALLBACK, but sandbox
         unavailable → escalate to ASK."""
         tc = _tc("Bash", "echo hello")
-        decision = governor_no_sandbox.assert_and_audit(tc)
+        decision = governor_no_sandbox.assert_policy(tc)
+        governor_no_sandbox.audit(tc, decision)
         assert decision.action == GovernanceAction.ASK
 
 
@@ -335,7 +396,7 @@ class TestBuiltinRulePriority:
     @pytest.fixture()
     def governor_with_deny(self, tmp_path):
         """Governor with user DENY rule for Bash + .ssh (lower priority)."""
-        gov = ResourceGovernor(str(tmp_path))
+        gov = _make_governor(tmp_path)
         gov.start()
         gov.add_rule(
             GovernanceRule(
@@ -347,17 +408,20 @@ class TestBuiltinRulePriority:
         yield gov
         gov.stop()
         AuditLog._instance = None
+        shutil.rmtree(gov._policy_dir, ignore_errors=True)
 
     def test_bash_ls_ssh_builtin_ask_wins(self, governor_with_deny):
         """Builtin ASK fires before user DENY — builtin has higher priority."""
         tc = _tc("Bash", "ls -lh ~/.ssh")
-        decision = governor_with_deny.assert_and_audit(tc)
+        decision = governor_with_deny.assert_policy(tc)
+        governor_with_deny.audit(tc, decision)
         assert decision.action == GovernanceAction.ASK
 
     def test_bash_cat_ssh_id_rsa_builtin_ask_wins(self, governor_with_deny):
         """Builtin ASK fires before user DENY — builtin has higher priority."""
         tc = _tc("Bash", "cat ~/.ssh/id_rsa")
-        decision = governor_with_deny.assert_and_audit(tc)
+        decision = governor_with_deny.assert_policy(tc)
+        governor_with_deny.audit(tc, decision)
         assert decision.action == GovernanceAction.ASK
 
 
@@ -372,19 +436,20 @@ class TestAddRulePrepend:
 
     @pytest.fixture()
     def governor(self, tmp_path):
-        gov = ResourceGovernor(str(tmp_path))
+        gov = _make_governor(tmp_path)
         gov.start()
         yield gov
         gov.stop()
         AuditLog._instance = None
+
+        shutil.rmtree(gov._policy_dir, ignore_errors=True)
 
     def test_browser_deny_overrides_default_allow(self, governor):
         """add_rule(Browser DENY) overrides default Browser(**) ALLOW."""
         # Default policy has Browser(**) → ALLOW in user_rules
         tc_allow = _tc("Browser", "https://example.com")
         assert (
-            governor.assert_and_audit(tc_allow).action
-            == GovernanceAction.ALLOW
+            governor.assert_policy(tc_allow).action == GovernanceAction.ALLOW
         )
 
         # Add a DENY rule for a specific site
@@ -396,9 +461,7 @@ class TestAddRulePrepend:
             ),
         )
         tc_deny = _tc("Browser", "https://evil.com/page")
-        assert (
-            governor.assert_and_audit(tc_deny).action == GovernanceAction.DENY
-        )
+        assert governor.assert_policy(tc_deny).action == GovernanceAction.DENY
 
 
 # ---------------------------------------------------------------------------
@@ -425,7 +488,9 @@ class TestFileTargetResolution:
 
         target = "src/main.py"
         resolved = os.path.normpath(os.path.join(ws, target))
-        assert resolved == os.path.join(ws, target)
+        # normpath normalizes separators (e.g. / -> \ on Windows),
+        # so compare with normpath on both sides.
+        assert resolved == os.path.normpath(os.path.join(ws, target))
         assert os.path.isabs(resolved)
 
     def test_absolute_path_unchanged(self):
@@ -455,12 +520,12 @@ class TestToolRegistryGrepGlob:
         )
         assert target == "src/"
 
-    def test_glob_extracts_path_not_pattern(self):
+    def test_glob_extracts_path_plus_pattern(self):
         target = DEFAULT_REGISTRY.extract_target(
             "Glob",
             {"pattern": "*.py", "path": "lib/"},
         )
-        assert target == "lib/"
+        assert target == "lib/*.py"
 
     def test_grep_empty_path_returns_empty(self):
         """When path is omitted, extract_target returns empty string."""
@@ -470,9 +535,9 @@ class TestToolRegistryGrepGlob:
         )
         assert target == ""
 
-    def test_glob_empty_path_returns_empty(self):
+    def test_glob_empty_path_returns_pattern(self):
         target = DEFAULT_REGISTRY.extract_target(
             "Glob",
             {"pattern": "*.py"},
         )
-        assert target == ""
+        assert target == "*.py"

@@ -15,11 +15,13 @@ const tools: MCPToolInfo[] = [
   {
     name: "echo",
     description: "Echo text",
+    enabled: true,
     input_schema: { type: "object" },
   },
   {
     name: "search",
     description: "Search",
+    enabled: true,
     input_schema: {},
   },
 ];

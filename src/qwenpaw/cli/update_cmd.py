@@ -90,8 +90,8 @@ def _is_newer_version(latest: str, current: str) -> bool | None:
     return parsed_latest > parsed_current
 
 
-def _fetch_latest_version() -> str:
-    """Fetch the latest published QwenPaw version from PyPI."""
+def _fetch_pypi_release_data() -> dict[str, Any]:
+    """Fetch qwenpaw release metadata from PyPI."""
     try:
         resp = httpx.get(
             _PYPI_JSON_URL,
@@ -109,12 +109,55 @@ def _fetch_latest_version() -> str:
             "Received an invalid response from PyPI when checking for the "
             f"latest QwenPaw version: {exc}",
         ) from exc
-    version = str(data.get("info", {}).get("version", "")).strip()
-    if not version:
+    if not isinstance(data, dict):
         raise click.ClickException(
-            "Unable to determine the latest QwenPaw version.",
+            "Received an invalid response from PyPI when checking for the "
+            "latest QwenPaw version.",
         )
-    return version
+    return data
+
+
+def _select_latest_version(
+    data: dict[str, Any],
+    *,
+    include_prerelease: bool,
+) -> str:
+    """Return the newest published version from PyPI metadata."""
+    if include_prerelease:
+        version = str(data.get("info", {}).get("version", "")).strip()
+        if not version:
+            raise click.ClickException(
+                "Unable to determine the latest QwenPaw version.",
+            )
+        return version
+
+    releases = data.get("releases") or {}
+    candidates: list[Version] = []
+    for version_str, files in releases.items():
+        if not files:
+            continue
+        try:
+            parsed = Version(version_str)
+        except InvalidVersion:
+            continue
+        if parsed.is_prerelease:
+            continue
+        candidates.append(parsed)
+
+    if not candidates:
+        raise click.ClickException(
+            "Unable to determine the latest stable QwenPaw version.",
+        )
+    return str(max(candidates))
+
+
+def _fetch_latest_version(*, include_prerelease: bool = False) -> str:
+    """Fetch the latest published QwenPaw version from PyPI."""
+    data = _fetch_pypi_release_data()
+    return _select_latest_version(
+        data,
+        include_prerelease=include_prerelease,
+    )
 
 
 def _detect_source_type(
@@ -348,24 +391,25 @@ def _run_shutdown_for_update(
 def _build_upgrade_command(
     info: InstallInfo,
     latest_version: str,
+    *,
+    include_prerelease: bool = False,
 ) -> tuple[list[str], str]:
     """Build the installer command used by the detached update worker."""
     package_spec = f"qwenpaw=={latest_version}"
     installer = info.installer.lower()
     if installer.startswith("uv") and shutil.which("uv"):
-        return (
-            [
-                "uv",
-                "pip",
-                "install",
-                "--python",
-                info.python_executable,
-                "--upgrade",
-                package_spec,
-                "--prerelease=allow",
-            ],
-            "uv pip",
-        )
+        command = [
+            "uv",
+            "pip",
+            "install",
+            "--python",
+            info.python_executable,
+            "--upgrade",
+            package_spec,
+        ]
+        if include_prerelease:
+            command.append("--prerelease=allow")
+        return command, "uv pip"
     return (
         [
             info.python_executable,
@@ -635,11 +679,16 @@ def _confirm_source_override(info: InstallInfo, yes: bool) -> bool:
     is_flag=True,
     help="Do not prompt before starting the update",
 )
+@click.option(
+    "--prerelease",
+    is_flag=True,
+    help="Upgrade to the latest pre-release if it is newer than stable.",
+)
 @click.pass_context
-def update_cmd(ctx: click.Context, yes: bool) -> None:
+def update_cmd(ctx: click.Context, yes: bool, prerelease: bool) -> None:
     """Upgrade QwenPaw in the current Python environment."""
     info = _detect_installation()
-    latest_version = _fetch_latest_version()
+    latest_version = _fetch_latest_version(include_prerelease=prerelease)
 
     _echo_install_summary(info, latest_version)
 
@@ -702,7 +751,11 @@ def update_cmd(ctx: click.Context, yes: bool) -> None:
         click.echo("Cancelled.")
         return
 
-    command, installer_label = _build_upgrade_command(info, latest_version)
+    command, installer_label = _build_upgrade_command(
+        info,
+        latest_version,
+        include_prerelease=prerelease,
+    )
     plan = {
         "current_version": __version__,
         "latest_version": latest_version,

@@ -188,6 +188,31 @@ def setup_logger(level: int | str = logging.INFO):
     return logger
 
 
+def _attach_logger_file_handler(
+    logger_name: str,
+    file_handler: logging.Handler,
+    *,
+    level: int,
+) -> None:
+    """Attach a shared file handler to another logger namespace.
+
+    Keeps ``propagate`` enabled so records still reach the root logger
+    (stderr / journald) while also being written to ``qwenpaw.log``.
+    """
+    target = logging.getLogger(logger_name)
+    target.setLevel(level)
+    base = getattr(file_handler, "baseFilename", None)
+    for handler in target.handlers:
+        handler_base = getattr(handler, "baseFilename", None)
+        if (
+            base is not None
+            and handler_base is not None
+            and Path(handler_base).resolve() == Path(base).resolve()
+        ):
+            return
+    target.addHandler(file_handler)
+
+
 def add_project_file_handler(log_path: Path) -> None:
     """Add a rotating file handler to the project logger for daemon logs.
 
@@ -208,6 +233,11 @@ def add_project_file_handler(log_path: Path) -> None:
     for handler in logger.handlers:
         base = getattr(handler, "baseFilename", None)
         if base is not None and Path(base).resolve() == log_path:
+            _attach_logger_file_handler(
+                "apscheduler",
+                handler,
+                level=logging.WARNING,
+            )
             return
 
     file_handler = _SafeRotatingFileHandler(
@@ -223,3 +253,8 @@ def add_project_file_handler(log_path: Path) -> None:
         PlainFormatter("%(asctime)s | %(message)s", "%Y-%m-%d %H:%M:%S"),
     )
     logger.addHandler(file_handler)
+    _attach_logger_file_handler(
+        "apscheduler",
+        file_handler,
+        level=logging.WARNING,
+    )

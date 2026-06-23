@@ -102,12 +102,17 @@ echo ""
 # Verify output
 BACKEND_DIR="${DIST}/pyinstaller/qwenpaw-backend"
 BACKEND_EXE="${BACKEND_DIR}/qwenpaw-backend"
+CLI_EXE="${BACKEND_DIR}/qwenpaw"
 if [ ! -d "${BACKEND_DIR}" ]; then
     echo "ERROR: Backend bundle directory not found at ${BACKEND_DIR}"
     exit 1
 fi
 if [ ! -f "${BACKEND_EXE}" ]; then
     echo "ERROR: Backend executable not found at ${BACKEND_EXE}"
+    exit 1
+fi
+if [ ! -f "${CLI_EXE}" ]; then
+    echo "ERROR: CLI executable not found at ${CLI_EXE}"
     exit 1
 fi
 
@@ -128,7 +133,15 @@ mkdir -p "${DEST}"
 find "${DEST}" -mindepth 1 -exec rm -rf {} +
 cp -R "${BACKEND_DIR}/." "${DEST}/"
 chmod +x "${DEST}/qwenpaw-backend"
+chmod +x "${DEST}/qwenpaw"
 echo "Copied to: ${DEST}"
+echo ""
+
+# Stage a standalone CPython (same X.Y/arch as this build's interpreter) so the
+# frozen backend can install third-party plugin dependencies at runtime.
+echo "== Staging bundled Python runtime =="
+"$PYTHON_BIN" "${REPO_ROOT}/scripts/pack-tauri/stage_python_runtime.py" \
+    --dest "${BINARIES_DIR}/python-runtime"
 echo ""
 
 echo "========================================="

@@ -4,7 +4,10 @@
 
 from __future__ import annotations
 
+import sys
 from unittest.mock import MagicMock, mock_open, patch
+
+import pytest
 
 from qwenpaw.sandbox import (
     MountSpec,
@@ -17,6 +20,15 @@ from qwenpaw.sandbox.config import (
     _probe_linux_landlock,
     _probe_macos_seatbelt,
     detect_platform_mode,
+)
+
+# os.uname is Linux/macOS only; skip entirely on Windows.
+pytestmark = pytest.mark.skipif(
+    sys.platform == "win32",
+    reason=(
+        "Linux sandbox tests require os.uname"
+        " which is unavailable on Windows"
+    ),
 )
 
 # ============================================================================
@@ -35,9 +47,10 @@ class TestProbeSandboxSupport:
         assert result.mode == SandboxMode.SEATBELT
 
     @patch("sys.platform", "linux")
+    @patch("shutil.which", return_value=None)  # bwrap not found
     @patch("os.uname")
-    def test_linux_delegates_to_landlock(self, mock_uname):
-        # Will fail kernel check but that's fine — we just verify routing
+    def test_linux_delegates_to_landlock(self, mock_uname, mock_which):
+        # bwrap not found → falls through to Landlock → kernel too old
         mock_uname.return_value = MagicMock(release="4.0.0")
         result = probe_sandbox_support()
         # Should go through _probe_linux_landlock and fail on kernel version

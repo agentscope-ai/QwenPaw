@@ -24,6 +24,7 @@ from .store import (
     get_workspace_skill_manifest_path,
     get_workspace_skills_dir,
     import_skill_dir,
+    is_ignored_skill_entry,
     mutate_json,
     normalize_skill_dir_name,
     read_skill_from_dir,
@@ -258,7 +259,11 @@ class SkillService:
         target_dir = safe_skill_dir(skill_root, final_name)
         if target_dir.exists() and not overwrite:
             existing = (
-                {p.name for p in skill_root.iterdir() if p.is_dir()}
+                {
+                    p.name
+                    for p in skill_root.iterdir()
+                    if p.is_dir() and not is_ignored_skill_entry(p.name)
+                }
                 if skill_root.exists()
                 else set()
             )
@@ -466,7 +471,11 @@ class SkillService:
                 for d, n in found
             ]
             existing_on_disk = (
-                {p.name for p in skill_root.iterdir() if p.is_dir()}
+                {
+                    p.name
+                    for p in skill_root.iterdir()
+                    if p.is_dir() and not is_ignored_skill_entry(p.name)
+                }
                 if skill_root.exists()
                 else set()
             )

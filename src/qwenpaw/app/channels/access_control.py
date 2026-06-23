@@ -23,7 +23,14 @@ ACCESS_CONTROL_FILE = "access_control.json"
 class PendingEntry:
     """A user who messaged the bot but is not yet on any list."""
 
-    __slots__ = ("user_id", "channel", "timestamp", "first_message", "remark")
+    __slots__ = (
+        "user_id",
+        "channel",
+        "timestamp",
+        "first_message",
+        "remark",
+        "username",
+    )
 
     def __init__(
         self,
@@ -32,12 +39,14 @@ class PendingEntry:
         timestamp: float,
         first_message: str = "",
         remark: str = "",
+        username: str = "",
     ):
         self.user_id = user_id
         self.channel = channel
         self.timestamp = timestamp
         self.first_message = first_message
         self.remark = remark
+        self.username = username
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -46,6 +55,7 @@ class PendingEntry:
             "timestamp": self.timestamp,
             "first_message": self.first_message,
             "remark": self.remark,
+            "username": self.username,
         }
 
     @classmethod
@@ -56,48 +66,88 @@ class PendingEntry:
             timestamp=data.get("timestamp", 0.0),
             first_message=data.get("first_message", ""),
             remark=data.get("remark", ""),
+            username=data.get("username", ""),
         )
+
+
+class UserInfo:
+    """Per-user metadata stored in whitelist/blacklist."""
+
+    __slots__ = ("remark", "username")
+
+    def __init__(self, remark: str = "", username: str = ""):
+        self.remark = remark
+        self.username = username
+
+    def to_dict(self) -> Dict[str, str]:
+        return {"remark": self.remark, "username": self.username}
+
+    @classmethod
+    def from_dict(cls, data: Any) -> UserInfo:
+        if isinstance(data, dict):
+            return cls(
+                remark=str(data.get("remark", "")),
+                username=str(data.get("username", "")),
+            )
+        # Legacy format: plain string = remark only
+        return cls(remark=str(data) if data else "")
+
+
+# Type alias for whitelist / blacklist: user_id -> UserInfo
+UserMap = Dict[str, UserInfo]
 
 
 class ChannelACL:
     """Access control data for a single channel.
 
-    whitelist / blacklist are stored as Dict[str, str] mapping
-    user_id -> remark for human-readable identification.
+    whitelist / blacklist map user_id -> UserInfo (remark + username).
     """
 
     def __init__(
         self,
-        whitelist: Optional[Dict[str, str]] = None,
-        blacklist: Optional[Dict[str, str]] = None,
+        whitelist: Optional[UserMap] = None,
+        blacklist: Optional[UserMap] = None,
         pending: Optional[List[PendingEntry]] = None,
     ):
-        self.whitelist: Dict[str, str] = whitelist or {}
-        self.blacklist: Dict[str, str] = blacklist or {}
+        self.whitelist: UserMap = whitelist or {}
+        self.blacklist: UserMap = blacklist or {}
         self.pending: List[PendingEntry] = pending or []
 
     def to_dict(self) -> Dict[str, Any]:
         return {
-            "whitelist": self.whitelist,
-            "blacklist": self.blacklist,
+            "whitelist": {k: v.to_dict() for k, v in self.whitelist.items()},
+            "blacklist": {k: v.to_dict() for k, v in self.blacklist.items()},
             "pending": [p.to_dict() for p in self.pending],
         }
 
     @classmethod
-    def _parse_list_or_dict(cls, raw: Any) -> Dict[str, str]:
-        """Parse whitelist/blacklist — supports legacy list format."""
-        if isinstance(raw, dict):
-            return {str(k): str(v) for k, v in raw.items()}
+    def _parse_user_map(cls, raw: Any) -> UserMap:
+        """Parse whitelist/blacklist with backward compatibility.
+
+        Supported formats:
+        - dict with string values (legacy): {"user1": "remark"}
+        - dict with dict values (current):
+          {"user1": {"remark": "", "username": ""}}
+        """
         if isinstance(raw, list):
-            # Legacy format: ["user1", "user2"] -> {"user1": "", "user2": ""}
-            return {str(item): "" for item in raw}
-        return {}
+            return {str(item): UserInfo() for item in raw}
+        if not isinstance(raw, dict):
+            return {}
+        result: UserMap = {}
+        for key, value in raw.items():
+            if isinstance(value, dict):
+                result[str(key)] = UserInfo.from_dict(value)
+            else:
+                result[str(key)] = UserInfo(
+                    remark=str(value) if value else "",
+                )
+        return result
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> ChannelACL:
         return cls(
-            whitelist=cls._parse_list_or_dict(data.get("whitelist", {})),
-            blacklist=cls._parse_list_or_dict(data.get("blacklist", {})),
+            whitelist=cls._parse_user_map(data.get("whitelist", {})),
+            blacklist=cls._parse_user_map(data.get("blacklist", {})),
             pending=[
                 PendingEntry.from_dict(p) for p in data.get("pending", [])
             ],
@@ -193,10 +243,15 @@ class AccessControlStore:
         channel: str,
         user_id: str,
         remark: str = "",
+        username: str = "",
     ) -> None:
         with self._lock:
             acl = self._acl(channel)
-            acl.whitelist[user_id] = remark
+            existing = acl.whitelist.get(user_id)
+            acl.whitelist[user_id] = UserInfo(
+                remark=remark or (existing.remark if existing else ""),
+                username=username or (existing.username if existing else ""),
+            )
             acl.blacklist.pop(user_id, None)
             acl.pending = [
                 p
@@ -213,8 +268,9 @@ class AccessControlStore:
     def set_whitelist(self, channel: str, user_ids: List[str]) -> None:
         with self._lock:
             acl = self._acl(channel)
-            # Preserve existing remarks for users that stay
-            new_wl = {uid: acl.whitelist.get(uid, "") for uid in user_ids}
+            new_wl = {
+                uid: acl.whitelist.get(uid, UserInfo()) for uid in user_ids
+            }
             acl.whitelist = new_wl
             self._save()
 
@@ -228,14 +284,39 @@ class AccessControlStore:
         with self._lock:
             acl = self._acl(channel)
             if user_id in acl.whitelist:
-                acl.whitelist[user_id] = remark
+                acl.whitelist[user_id].remark = remark
                 self._save()
                 return True
             if user_id in acl.blacklist:
-                acl.blacklist[user_id] = remark
+                acl.blacklist[user_id].remark = remark
                 self._save()
                 return True
             return False
+
+    def update_username(
+        self,
+        channel: str,
+        user_id: str,
+        username: str,
+    ) -> bool:
+        """Update the username for a user (whitelist, blacklist or pending)."""
+        with self._lock:
+            acl = self._acl(channel)
+            found = False
+            if user_id in acl.whitelist:
+                acl.whitelist[user_id].username = username
+                found = True
+            if user_id in acl.blacklist:
+                acl.blacklist[user_id].username = username
+                found = True
+            for entry in acl.pending:
+                if entry.user_id == user_id and entry.channel == channel:
+                    entry.username = username
+                    found = True
+            if not found:
+                return False
+            self._save()
+            return True
 
     # ── Blacklist ───────────────────────────────────────────────────────
 
@@ -244,10 +325,15 @@ class AccessControlStore:
         channel: str,
         user_id: str,
         remark: str = "",
+        username: str = "",
     ) -> None:
         with self._lock:
             acl = self._acl(channel)
-            acl.blacklist[user_id] = remark
+            existing = acl.blacklist.get(user_id)
+            acl.blacklist[user_id] = UserInfo(
+                remark=remark or (existing.remark if existing else ""),
+                username=username or (existing.username if existing else ""),
+            )
             acl.whitelist.pop(user_id, None)
             acl.pending = [
                 p
@@ -264,7 +350,9 @@ class AccessControlStore:
     def set_blacklist(self, channel: str, user_ids: List[str]) -> None:
         with self._lock:
             acl = self._acl(channel)
-            new_bl = {uid: acl.blacklist.get(uid, "") for uid in user_ids}
+            new_bl = {
+                uid: acl.blacklist.get(uid, UserInfo()) for uid in user_ids
+            }
             acl.blacklist = new_bl
             self._save()
 
@@ -275,6 +363,7 @@ class AccessControlStore:
         channel: str,
         user_id: str,
         first_message: str = "",
+        username: str = "",
     ) -> None:
         with self._lock:
             acl = self._acl(channel)
@@ -287,6 +376,7 @@ class AccessControlStore:
                     channel=channel,
                     timestamp=time.time(),
                     first_message=first_message[:200],
+                    username=username,
                 ),
             )
             self._save()
@@ -324,22 +414,27 @@ class AccessControlStore:
         """Move a pending user to the whitelist.
 
         If no remark is provided, carry over the remark from the pending entry.
+        Username is always carried over from the pending entry.
         """
         with self._lock:
             acl = self._acl(channel)
-            # Find existing remark from pending entry as fallback
             effective_remark = remark
-            if not effective_remark:
-                for entry in acl.pending:
-                    if entry.user_id == user_id and entry.channel == channel:
+            username = ""
+            for entry in acl.pending:
+                if entry.user_id == user_id and entry.channel == channel:
+                    if not effective_remark:
                         effective_remark = entry.remark
-                        break
+                    username = entry.username
+                    break
             acl.pending = [
                 p
                 for p in acl.pending
                 if not (p.user_id == user_id and p.channel == channel)
             ]
-            acl.whitelist[user_id] = effective_remark
+            acl.whitelist[user_id] = UserInfo(
+                remark=effective_remark,
+                username=username,
+            )
             acl.blacklist.pop(user_id, None)
             self._save()
             return True
@@ -353,21 +448,27 @@ class AccessControlStore:
         """Move a pending user to the blacklist.
 
         If no remark is provided, carry over the remark from the pending entry.
+        Username is always carried over from the pending entry.
         """
         with self._lock:
             acl = self._acl(channel)
             effective_remark = remark
-            if not effective_remark:
-                for entry in acl.pending:
-                    if entry.user_id == user_id and entry.channel == channel:
+            username = ""
+            for entry in acl.pending:
+                if entry.user_id == user_id and entry.channel == channel:
+                    if not effective_remark:
                         effective_remark = entry.remark
-                        break
+                    username = entry.username
+                    break
             acl.pending = [
                 p
                 for p in acl.pending
                 if not (p.user_id == user_id and p.channel == channel)
             ]
-            acl.blacklist[user_id] = effective_remark
+            acl.blacklist[user_id] = UserInfo(
+                remark=effective_remark,
+                username=username,
+            )
             acl.whitelist.pop(user_id, None)
             self._save()
             return True
@@ -405,7 +506,7 @@ class AccessControlStore:
             acl = self._acl(channel)
             for uid in allow_from:
                 if uid not in acl.whitelist:
-                    acl.whitelist[uid] = ""
+                    acl.whitelist[uid] = UserInfo()
             self._save()
             logger.info(
                 "Imported %d allow_from entries to whitelist for channel %s",

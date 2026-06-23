@@ -19,6 +19,7 @@ export interface DiscordConfig extends BaseChannelConfig {
   http_proxy: string;
   http_proxy_auth: string;
   accept_bot_messages?: boolean;
+  streaming_enabled?: boolean;
 }
 
 export interface DingTalkConfig extends BaseChannelConfig {
@@ -41,12 +42,14 @@ export interface FeishuConfig extends BaseChannelConfig {
   media_dir: string;
   domain?: "feishu" | "lark";
   streaming_enabled?: boolean;
+  share_session_in_group?: boolean;
 }
 
 export interface QQConfig extends BaseChannelConfig {
   app_id: string;
   client_secret: string;
   ack_message?: string;
+  user_openid?: string;
 }
 
 export interface TelegramConfig extends BaseChannelConfig {
@@ -139,7 +142,6 @@ export interface XiaoYiConfig extends BaseChannelConfig {
   ak: string;
   sk: string;
   agent_id: string;
-  ws_url: string;
   task_timeout_ms?: number;
 }
 
@@ -150,6 +152,14 @@ export interface WeChatConfig extends BaseChannelConfig {
   media_dir?: string;
   message_merge_enabled?: boolean;
   message_merge_delay_ms?: number;
+}
+
+export interface YuanbaoConfig extends BaseChannelConfig {
+  app_id: string;
+  app_secret: string;
+  api_domain: string;
+  media_dir?: string;
+  accept_bot_messages?: boolean;
 }
 
 export interface OneBotConfig extends BaseChannelConfig {
@@ -174,6 +184,7 @@ export interface ChannelConfig {
   voice: VoiceChannelConfig;
   sip: SIPChannelConfig;
   xiaoyi: XiaoYiConfig;
+  yuanbao: YuanbaoConfig;
   wechat: WeChatConfig;
   onebot: OneBotConfig;
 }
@@ -194,4 +205,5 @@ export type SingleChannelConfig =
   | VoiceChannelConfig
   | SIPChannelConfig
   | XiaoYiConfig
+  | YuanbaoConfig
   | OneBotConfig;

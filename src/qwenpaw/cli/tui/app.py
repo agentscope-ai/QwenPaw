@@ -1111,10 +1111,27 @@ def _embedded_file_references(text: str) -> list[_PasteFileReference]:
 
 
 def _looks_like_path_start(text: str, index: int) -> bool:
+    # Windows: drive-letter path like C:\ or C:/
+    _win_drive = (
+        len(text) > index + 2
+        and text[index].isalpha()
+        and text[index + 1] == ":"
+        and text[index + 2] in ("/", "\\")
+    )
+    # Quoted Windows path: "C:\..." or 'C:\...'
+    _quoted_win = (
+        text[index] in ('"', "'")
+        and len(text) > index + 3
+        and text[index + 1].isalpha()
+        and text[index + 2] == ":"
+        and text[index + 3] in ("/", "\\")
+    )
     return (
         text[index] == "/"
         or (text[index] == "~" and text[index : index + 2] == "~/")
         or text.startswith("file://", index)
+        or _win_drive
+        or _quoted_win
     )
 
 

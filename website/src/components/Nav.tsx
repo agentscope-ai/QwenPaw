@@ -38,6 +38,15 @@ const navLinkBaseClass =
 const navLinkOrangeClass = `${navLinkBaseClass} hover:!text-orange-400 focus-visible:outline-orange-400`;
 const navLinkBlueClass = `${navLinkBaseClass} hover:!text-[#0064FD] focus-visible:outline-[#0064FD]`;
 
+const navReleaseNotesClass = (isZh: boolean) =>
+  `${navLinkOrangeClass} w-[8rem] shrink-0 justify-center gap-1 ${
+    isZh ? "" : "!px-0"
+  }`;
+const navDownloadBtnClass = (isZh: boolean) =>
+  `inline-flex w-[6.5rem] shrink-0 items-center justify-center gap-1 rounded-md ${
+    isZh ? "px-3" : "px-1.5"
+  } py-1.5 text-sm font-medium text-neutral-800 no-underline transition-colors cursor-pointer border border-[#F3F1F0] bg-(--color-card-fill) hover:bg-(--color-secondary)`;
+
 const navIconStroke = 1.5;
 
 export function Nav() {
@@ -110,7 +119,7 @@ export function Nav() {
           <button
             type="button"
             onClick={toggleLang}
-            className={`${navLinkOrangeClass} cursor-pointer border-0 bg-transparent`}
+            className={`${navLinkOrangeClass} w-[4.2rem] cursor-pointer border-0 bg-transparent`}
             aria-label={t("nav.lang")}
           >
             <Globe size={18} strokeWidth={navIconStroke} aria-hidden />
@@ -119,17 +128,14 @@ export function Nav() {
           <Link
             to="/release-notes"
             role="menuitem"
-            className={navLinkOrangeClass}
+            className={navReleaseNotesClass(isZh)}
           >
             <NoteIcon />
-            <span>{t("nav.releaseNotes")}</span>
+            <span className="truncate">{t("nav.releaseNotes")}</span>
           </Link>
-          <Link
-            to="/downloads"
-            className="inline-flex items-center gap-2 rounded-md px-3 py-1.5 text-sm font-medium text-neutral-800 no-underline transition-colors cursor-pointer border border-[#F3F1F0] bg-(--color-card-fill) hover:bg-(--color-secondary)"
-          >
-            <Download size={18} strokeWidth={navIconStroke} />{" "}
-            {t("nav.download")}
+          <Link to="/downloads" className={navDownloadBtnClass(isZh)}>
+            <Download size={18} strokeWidth={navIconStroke} aria-hidden />
+            <span className="truncate">{t("nav.download")}</span>
           </Link>
         </div>
 

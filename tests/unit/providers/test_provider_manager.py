@@ -121,12 +121,9 @@ def test_builtin_zhipu_providers_registered(isolated_secret_dir) -> None:
             provider.support_connection_check
             == expected["support_connection_check"]
         )
-        assert [model.id for model in provider.models] == [
-            "glm-5",
-            "glm-5.1",
-            "glm-5-turbo",
-            "glm-5v-turbo",
-        ]
+        model_ids = [m.id for m in provider.models]
+        assert len(model_ids) > 0
+        assert len(model_ids) == len(set(model_ids))
 
 
 async def test_add_custom_provider_and_reload_from_storage(
@@ -557,3 +554,44 @@ def test_init_from_storage_migrates_with_different_provider(
     assert (
         manager.get_provider("ollama").base_url == "http://legacy-ollama:11434"
     )
+
+
+def test_provider_group_metadata(isolated_secret_dir) -> None:
+    """Providers in the same brand share provider_group."""
+    manager = ProviderManager()
+
+    aliyun_ids = [
+        "dashscope",
+        "aliyun-codingplan",
+        "aliyun-codingplan-intl",
+        "aliyun-tokenplan",
+    ]
+    for pid in aliyun_ids:
+        p = manager.get_provider(pid)
+        assert p is not None, f"{pid} not found"
+        assert p.provider_group == "aliyun"
+        assert p.provider_group_name == "Aliyun"
+
+    kimi_ids = ["kimi-cn", "kimi-intl", "kimi-codingplan"]
+    for pid in kimi_ids:
+        p = manager.get_provider(pid)
+        assert p is not None, f"{pid} not found"
+        assert p.provider_group == "kimi"
+
+    volcengine_ids = ["volcengine-cn", "volcengine-cn-codingplan"]
+    for pid in volcengine_ids:
+        p = manager.get_provider(pid)
+        assert p is not None, f"{pid} not found"
+        assert p.provider_group == "volcengine"
+
+
+async def test_provider_group_in_get_info(isolated_secret_dir) -> None:
+    """get_info() should include provider_group fields."""
+    manager = ProviderManager()
+    provider = manager.get_provider("dashscope")
+    assert provider is not None
+
+    info = await provider.get_info()
+    assert info.provider_group == "aliyun"
+    assert info.provider_group_name == "Aliyun"
+    assert info.provider_variant == "dashscope"

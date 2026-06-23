@@ -78,6 +78,15 @@ export const mcpApi = {
     }),
 
   /**
+   * Update tool whitelist for an MCP client
+   */
+  updateMCPToolWhitelist: (clientKey: string, tools: string[] | null) =>
+    request<MCPToolInfo[]>(`/mcp/tools/${encodeURIComponent(clientKey)}`, {
+      method: "PUT",
+      body: JSON.stringify({ tools }),
+    }),
+
+  /**
    * Start an OAuth 2.1 PKCE flow for a remote MCP client.
    * Returns the authorization URL to open in a popup.
    */

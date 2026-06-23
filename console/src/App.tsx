@@ -32,6 +32,7 @@ import { lazyImportWithRetry } from "./utils/lazyWithRetry";
 const LoginPage = lazyImportWithRetry("./pages/Login/index");
 import { authApi } from "./api/modules/auth";
 import { languageApi } from "./api/modules/language";
+import { useUploadLimitStore } from "./stores/uploadLimitStore";
 import { getApiUrl, getApiToken, clearAuthToken } from "./api/config";
 import "./styles/layout.css";
 import "./styles/form-override.css";
@@ -145,6 +146,7 @@ function AppInner() {
           console.error("Failed to fetch language preference:", err),
         );
     }
+    useUploadLimitStore.getState().fetch();
   }, []);
 
   useEffect(() => {

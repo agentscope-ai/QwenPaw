@@ -68,6 +68,7 @@ def navigate_to_chat(page: Page):
 @pytest.mark.integration
 @pytest.mark.p1
 @pytest.mark.cross_module
+@pytest.mark.requires_llm
 class TestSkillAgentChatFlow:
     """
     CROSS-001: Skill full-chain verification.
@@ -252,6 +253,7 @@ When invoked, respond with: "Cross-module test skill executed successfully."
 @pytest.mark.integration
 @pytest.mark.p1
 @pytest.mark.cross_module
+@pytest.mark.requires_llm
 class TestModelSwitchInChat:
     """
     CROSS-002: Model switching linkage verification.
@@ -353,6 +355,7 @@ class TestModelSwitchInChat:
 @pytest.mark.integration
 @pytest.mark.p1
 @pytest.mark.cross_module
+@pytest.mark.requires_llm
 class TestSecurityInterceptionInChat:
     """
     CROSS-003: Security interception linkage verification.
@@ -486,6 +489,7 @@ class TestSecurityInterceptionInChat:
 @pytest.mark.integration
 @pytest.mark.p1
 @pytest.mark.cross_module
+@pytest.mark.requires_llm
 class TestWorkspaceFileChatFlow:
     """
     CROSS-004: Workspace file linkage verification.

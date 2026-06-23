@@ -110,6 +110,9 @@ SECRET_DIR = (
     .resolve()
 )
 
+# Env key for overriding the OS keychain account used for the master key.
+KEYRING_ACCOUNT_ENV = "QWENPAW_KEYRING_ACCOUNT"
+
 PROJECT_NAME = "QwenPaw"
 
 # Subdirectory name inside each agent's workspace that holds cloned / imported
@@ -199,6 +202,10 @@ MAX_LOAD_HISTORY_COUNT = 10000
 # Env key for app log level (used by CLI and app load for reload child).
 LOG_LEVEL_ENV = "QWENPAW_LOG_LEVEL"
 
+# Fixed desktop backend port. When set, get_stable_port() uses this port
+# instead of auto-assigning.
+QWENPAW_DESKTOP_PORT = _get_env("QWENPAW_DESKTOP_PORT")
+
 # Env to indicate running inside a container (e.g. Docker). Set to 1/true/yes.
 RUNNING_IN_CONTAINER = EnvVarLoader.get_bool(
     "QWENPAW_RUNNING_IN_CONTAINER",
@@ -263,6 +270,15 @@ MEMORY_COMPACT_RATIO = EnvVarLoader.get_float(
 # Example: QWENPAW_CORS_ORIGINS="http://localhost:5173,http://127.0.0.1:5173"
 # When unset, CORS middleware is not applied.
 CORS_ORIGINS = EnvVarLoader.get_str("QWENPAW_CORS_ORIGINS", "").strip()
+
+# Upload size limit (MB).  None = no limit.
+UPLOAD_MAX_SIZE_MB: int | None = (
+    int(v)
+    if (v := EnvVarLoader.get_str("QWENPAW_UPLOAD_MAX_SIZE_MB", ""))
+    .strip()
+    .isdigit()
+    else None
+)
 
 # LLM API retry configuration
 LLM_MAX_RETRIES = EnvVarLoader.get_int(

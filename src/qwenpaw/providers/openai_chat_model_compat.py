@@ -405,7 +405,6 @@ class OpenAIChatModelCompat(OpenAIChatModel):
         self,
         start_datetime: datetime,
         response: Any,
-        audio_format: str = "wav",
     ) -> AsyncGenerator[ChatResponse, None]:
         sanitized_response = _SanitizedStream(response)
 
@@ -415,7 +414,6 @@ class OpenAIChatModelCompat(OpenAIChatModel):
         async for parsed in super()._parse_stream_response(
             start_datetime=start_datetime,
             response=sanitized_response,
-            audio_format=audio_format,
         ):
             # Filter out malformed tool_use blocks (null id or empty name)
             # emitted by some OpenAI-compatible models, to prevent bad entries

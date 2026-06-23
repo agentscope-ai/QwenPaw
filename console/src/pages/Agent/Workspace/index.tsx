@@ -3,10 +3,13 @@ import styles from "./index.module.less";
 import { UploadOutlined, DownloadOutlined } from "@ant-design/icons";
 import { Button, Tooltip } from "@agentscope-ai/design";
 import { workspaceApi } from "../../../api/modules/workspace";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { PageHeader } from "@/components/PageHeader";
 import { useAppMessage } from "../../../hooks/useAppMessage";
+import { useUploadLimitStore } from "../../../stores/uploadLimitStore";
+import { DownloadCancelledError } from "../../../utils/downloadFileFromUrl";
+import type { MarkdownFile, DailyMemoryFile } from "../../../api/types";
 
 export default function WorkspacePage() {
   const { t } = useTranslation();
@@ -17,7 +20,6 @@ export default function WorkspacePage() {
     dailyMemories,
     expandedMemory,
     fileContent,
-    loading,
     workspacePath,
     hasChanges,
     enabledFiles,
@@ -25,6 +27,7 @@ export default function WorkspacePage() {
     fetchFiles,
     handleFileClick,
     handleDailyMemoryClick,
+    toggleExpandedMemory,
     handleSave,
     handleReset,
     handleToggleFileEnabled,
@@ -33,6 +36,50 @@ export default function WorkspacePage() {
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [downloading, setDownloading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
+  const [mobileShowEditor, setMobileShowEditor] = useState(false);
+
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 768px)");
+    const update = () => setIsMobile(mq.matches);
+    update();
+    mq.addEventListener("change", update);
+    return () => mq.removeEventListener("change", update);
+  }, []);
+
+  useEffect(() => {
+    if (!isMobile) {
+      setMobileShowEditor(false);
+    }
+  }, [isMobile]);
+
+  const handleFileClickMobile = (file: MarkdownFile) => {
+    void handleFileClick(file);
+    if (isMobile) {
+      setMobileShowEditor(true);
+    }
+  };
+
+  const handleDailyMemoryClickMobile = (daily: DailyMemoryFile) => {
+    void handleDailyMemoryClick(daily);
+    if (isMobile) {
+      setMobileShowEditor(true);
+    }
+  };
+
+  const handleBackToFileList = () => {
+    setMobileShowEditor(false);
+  };
+
+  const handleSaveWithState = async () => {
+    setSaving(true);
+    try {
+      await handleSave();
+    } finally {
+      setSaving(false);
+    }
+  };
 
   const handleDownload = async () => {
     if (downloading) return;
@@ -43,20 +90,16 @@ export default function WorkspacePage() {
       duration: 0,
     });
     try {
-      const { blob, filename } = await workspaceApi.downloadWorkspace();
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = filename;
-      document.body.appendChild(a);
-      a.click();
-      window.URL.revokeObjectURL(url);
-      document.body.removeChild(a);
+      await workspaceApi.downloadWorkspace();
       message.success({
         content: t("workspace.downloadSuccess"),
         key: "workspace-download",
       });
     } catch (error) {
+      if (error instanceof DownloadCancelledError) {
+        message.destroy("workspace-download");
+        return;
+      }
       console.error("Download failed:", error);
       message.error({
         content:
@@ -83,12 +126,11 @@ export default function WorkspacePage() {
       return;
     }
 
-    const maxSizeMb = 100;
-    const maxSize = maxSizeMb * 1024 * 1024;
-    if (file.size > maxSize) {
+    const uploadLimit = useUploadLimitStore.getState().uploadMaxSizeMb;
+    if (uploadLimit !== null && file.size > uploadLimit * 1024 * 1024) {
       message.error(
         t("workspace.fileSizeExceeded", {
-          limit: maxSizeMb,
+          limit: uploadLimit,
           size: (file.size / (1024 * 1024)).toFixed(2),
         }),
       );
@@ -125,6 +167,7 @@ export default function WorkspacePage() {
   return (
     <div className={styles.workspacePage}>
       <PageHeader
+        className={styles.pageHeader}
         items={[{ title: t("nav.agent") }, { title: t("workspace.title") }]}
         afterBreadcrumb={
           <p className={styles.workspacePath}>
@@ -143,10 +186,16 @@ export default function WorkspacePage() {
                 onChange={handleFileUpload}
                 style={{ display: "none" }}
                 accept=".zip"
-                title="Select a ZIP file (max 100MB)"
+                title=""
               />
               <Tooltip
-                title={t("workspace.uploadTooltip")}
+                title={`${t("workspace.coreFilesDesc")} (${
+                  useUploadLimitStore.getState().uploadMaxSizeMb !== null
+                    ? t("workspace.uploadTooltipWithLimit", {
+                        limit: useUploadLimitStore.getState().uploadMaxSizeMb,
+                      })
+                    : t("workspace.uploadTooltip")
+                })`}
                 placement="top"
                 mouseEnterDelay={0.5}
               >
@@ -172,7 +221,13 @@ export default function WorkspacePage() {
         }
       />
 
-      <div className={styles.content}>
+      <div
+        className={
+          mobileShowEditor
+            ? `${styles.content} ${styles.mobileShowEditor}`
+            : styles.content
+        }
+      >
         <FileListPanel
           files={files}
           selectedFile={selectedFile}
@@ -181,8 +236,9 @@ export default function WorkspacePage() {
           workspacePath={workspacePath}
           enabledFiles={enabledFiles}
           onRefresh={fetchFiles}
-          onFileClick={handleFileClick}
-          onDailyMemoryClick={handleDailyMemoryClick}
+          onFileClick={handleFileClickMobile}
+          onDailyMemoryClick={handleDailyMemoryClickMobile}
+          onMemoryExpand={toggleExpandedMemory}
           onToggleEnabled={handleToggleFileEnabled}
           onReorder={handleReorderFiles}
         />
@@ -190,11 +246,13 @@ export default function WorkspacePage() {
         <FileEditor
           selectedFile={selectedFile}
           fileContent={fileContent}
-          loading={loading}
           hasChanges={hasChanges}
           onContentChange={setFileContent}
-          onSave={handleSave}
+          onSave={handleSaveWithState}
           onReset={handleReset}
+          onBack={isMobile ? handleBackToFileList : undefined}
+          compact={isMobile}
+          saving={saving}
         />
       </div>
     </div>

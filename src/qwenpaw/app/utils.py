@@ -133,3 +133,24 @@ def schedule_agent_reload(request: "Request", agent_id: str) -> None:
             )
 
     asyncio.create_task(reload_in_background())
+
+
+def check_upload_size(data: bytes) -> None:
+    """Raise HTTP 400 if *data* exceeds the configured upload size limit.
+
+    Reads ``UPLOAD_MAX_SIZE_MB`` from ``constant.py``; when ``None``
+    (the default), no check is performed.
+    """
+    from ..constant import UPLOAD_MAX_SIZE_MB
+
+    if UPLOAD_MAX_SIZE_MB is None:
+        return
+    max_bytes = UPLOAD_MAX_SIZE_MB * 1024 * 1024
+    if len(data) > max_bytes:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"File too large ({len(data) // (1024 * 1024)} MB). "
+                f"Maximum is {UPLOAD_MAX_SIZE_MB} MB."
+            ),
+        )

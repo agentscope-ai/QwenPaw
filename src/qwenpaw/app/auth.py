@@ -55,6 +55,7 @@ _PUBLIC_PATHS: frozenset[str] = frozenset(
         "/api/auth/register",
         "/api/version",
         "/api/settings/language",
+        "/api/settings/upload-limit",
         "/api/frontend_plugin",
     },
 )
@@ -578,6 +579,31 @@ def _resolve_client_ip(request: Request) -> str:
     return request.client.host if request.client else ""
 
 
+# Make this function available at module level so it can be
+# imported from routers
+resolve_client_ip = _resolve_client_ip
+
+
+# Cached config for hot-path auth checks (avoids disk read per request)
+_auth_config_cache: tuple = (0, None)  # (mtime_ns, config)
+
+
+def _get_config_cached():
+    """Return config with mtime-based cache (stat is ~1us vs read ~1ms)."""
+    global _auth_config_cache  # noqa: PLW0603
+    from ..config import load_config
+    from ..config.utils import get_config_path
+
+    config_path = get_config_path()
+    try:
+        mtime_ns = config_path.stat().st_mtime_ns
+    except OSError:
+        mtime_ns = 0
+    if mtime_ns != _auth_config_cache[0] or _auth_config_cache[1] is None:
+        _auth_config_cache = (mtime_ns, load_config())
+    return _auth_config_cache[1]
+
+
 class AuthMiddleware(BaseHTTPMiddleware):
     """Middleware that checks Bearer token on protected routes."""
 
@@ -632,10 +658,8 @@ class AuthMiddleware(BaseHTTPMiddleware):
             return True
 
         # Check if client host is in allow_no_auth_hosts whitelist
-        from ..config import load_config
-
-        client_host = _resolve_client_ip(request)
-        config = load_config()
+        client_host = resolve_client_ip(request)
+        config = _get_config_cached()
         allowed_hosts = config.security.allow_no_auth_hosts
         return client_host in allowed_hosts
 

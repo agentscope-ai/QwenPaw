@@ -13,6 +13,7 @@ import asyncio
 import io
 import json
 import logging
+import sys
 import zipfile
 from pathlib import Path
 
@@ -23,6 +24,7 @@ from pydantic import BaseModel
 from ..agent_context import get_agent_for_request, get_coding_dir
 from ..utils import safe_project_dest
 from ...constant import CODING_PROJECT_SUBDIR
+from ...utils.command_runner import run_command_async, start_command_async
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +34,29 @@ router = APIRouter(prefix="/workspace/coding-project", tags=["coding-project"])
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+def _list_windows_drives_response() -> dict:
+    """Return a browse-dirs response listing drives."""
+    import ctypes
+
+    bitmask = ctypes.windll.kernel32.GetLogicalDrives()
+    dirs: list[dict] = []
+    for i in range(26):
+        if bitmask & (1 << i):
+            letter = chr(ord("A") + i)
+            dirs.append(
+                {
+                    "name": f"{letter}:",
+                    "path": f"{letter}:\\",
+                },
+            )
+    return {
+        "current": "/",
+        "parent": None,
+        "dirs": dirs,
+        "selectable": False,
+    }
 
 
 def _projects_base(workspace_dir: Path) -> Path:
@@ -153,15 +178,12 @@ async def create_project(body: CreateProjectRequest, request: Request) -> dict:
 
     project_path = await asyncio.to_thread(_make_dir)
 
-    # git init
-    proc = await asyncio.create_subprocess_exec(
-        "git",
-        "init",
+    await run_command_async(
+        ["git", "init"],
         cwd=str(project_path),
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
+        check=False,
+        timeout=None,
     )
-    await proc.communicate()
 
     # Set as active project
     await asyncio.to_thread(
@@ -221,12 +243,8 @@ async def clone_project(
         try:
             base.mkdir(parents=True, exist_ok=True)
 
-            proc = await asyncio.create_subprocess_exec(
-                "git",
-                "clone",
-                "--progress",
-                url,
-                str(target),
+            proc = await start_command_async(
+                ["git", "clone", "--progress", url, str(target)],
                 stdout=asyncio.subprocess.PIPE,
                 # git writes progress to stderr
                 stderr=asyncio.subprocess.STDOUT,
@@ -460,7 +478,17 @@ async def browse_dirs(
         description="Include hidden directories",
     ),
 ) -> dict:
-    """Return subdirectories at *path* for the file browser UI."""
+    """Return subdirectories at *path* for the file browser UI.
+
+    On Windows, ``"/"`` is treated as a virtual root that
+    lists all available drive letters (C:, D:, ...).
+    """
+    # Windows virtual root: list all drive letters
+    if sys.platform == "win32" and path in ("/", "\\"):
+        return await asyncio.to_thread(
+            _list_windows_drives_response,
+        )
+
     target = await asyncio.to_thread(
         lambda: Path(path).expanduser().resolve(),
     )
@@ -508,9 +536,15 @@ async def browse_dirs(
                 detail=f"Failed to list directory: {target}",
             ) from exc
         parent = target.parent
+        # On Windows drive root, parent points to
+        # the virtual drives listing.
+        if sys.platform == "win32" and parent == target:
+            parent_str: str | None = "/"
+        else:
+            parent_str = str(parent) if parent != target else None
         return {
             "current": str(target),
-            "parent": (str(parent) if parent != target else None),
+            "parent": parent_str,
             "dirs": dirs,
         }
 

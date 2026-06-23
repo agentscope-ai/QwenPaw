@@ -8,66 +8,6 @@ export const GITHUB_URL = "https://github.com/agentscope-ai/QwenPaw" as const;
 
 export const ONE_HOUR_MS = 60 * 60 * 1000;
 
-// ── Navigation ────────────────────────────────────────────────────────────
-
-export const DEFAULT_OPEN_KEYS = [
-  "chat-group",
-  "control-group",
-  "agent-group",
-  "settings-group",
-];
-
-export const KEY_TO_PATH: Record<string, string> = {
-  chat: "/chat",
-  channels: "/channels",
-  sessions: "/sessions",
-  inbox: "/inbox",
-  "cron-jobs": "/cron-jobs",
-  heartbeat: "/heartbeat",
-  skills: "/skills",
-  "skill-pool": "/skill-pool",
-  market: "/market",
-  tools: "/tools",
-  mcp: "/mcp",
-  acp: "/acp",
-  workspace: "/workspace",
-  agents: "/agents",
-  models: "/models",
-  environments: "/environments",
-  "agent-config": "/agent-config",
-  security: "/security",
-  "token-usage": "/token-usage",
-  "agent-stats": "/agent-stats",
-  "voice-transcription": "/voice-transcription",
-  debug: "/debug",
-  backups: "/backups",
-  "plugin-manager": "/plugin-manager",
-};
-
-export const KEY_TO_LABEL: Record<string, string> = {
-  chat: "nav.chat",
-  channels: "nav.channels",
-  sessions: "nav.sessions",
-  inbox: "nav.inbox",
-  "cron-jobs": "nav.cronJobs",
-  heartbeat: "nav.heartbeat",
-  skills: "nav.skills",
-  "skill-pool": "nav.skillPool",
-  market: "nav.market",
-  tools: "nav.tools",
-  mcp: "nav.mcp",
-  acp: "nav.acp",
-  "agent-config": "nav.agentConfig",
-  workspace: "nav.workspace",
-  models: "nav.models",
-  environments: "nav.environments",
-  security: "nav.security",
-  "token-usage": "nav.tokenUsage",
-  agents: "nav.agents",
-  debug: "nav.debug",
-  backups: "nav.backups",
-};
-
 // ── URL helpers ───────────────────────────────────────────────────────────
 
 export const getWebsiteLang = (lang: string): string =>

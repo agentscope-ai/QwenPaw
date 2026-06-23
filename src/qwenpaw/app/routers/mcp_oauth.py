@@ -157,7 +157,7 @@ async def _resolve_auth_server_url(
     rm_url = await _probe_resource_metadata_url(client, mcp_url)
     if rm_url:
         prm = await _fetch_json(client, rm_url)
-        if prm and "authorization_servers" in prm:
+        if prm and prm.get("authorization_servers"):
             return prm["authorization_servers"][0]
 
     # Fall back to well-known PRM paths
@@ -176,7 +176,7 @@ async def _resolve_auth_server_url(
         if not url:
             continue
         prm = await _fetch_json(client, url)
-        if prm and "authorization_servers" in prm:
+        if prm and prm.get("authorization_servers"):
             return prm["authorization_servers"][0]
     return None
 

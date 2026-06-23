@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """CLI command: run QwenPaw app on a free port in a native webview window."""
+
 # pylint:disable=too-many-branches,too-many-statements,consider-using-with
 from __future__ import annotations
 
@@ -12,11 +13,13 @@ import threading
 import time
 import traceback
 import webbrowser
+from collections.abc import Mapping
 
 import click
 
-from ..constant import LOG_LEVEL_ENV
+from ..constant import LOG_LEVEL_ENV, WORKING_DIR
 from ..utils.logging import setup_logger
+from ..utils.port import get_stable_port
 
 try:
     import webview
@@ -35,7 +38,12 @@ class WebViewAPI:
             return
         webbrowser.open(url)
 
-    def save_file(self, url: str, filename: str) -> bool:
+    def save_file(
+        self,
+        url: str,
+        filename: str,
+        headers: Mapping[str, str] | None = None,
+    ) -> bool:
         """Download a file from *url* and save it via a native save dialog.
 
         Shows the OS "Save As" dialog so the user can pick a destination,
@@ -46,6 +54,7 @@ class WebViewAPI:
         Args:
             url: Full HTTP(S) URL of the file to download.
             filename: Default filename shown in the save dialog.
+            headers: Optional request headers supplied by the web console.
 
         Returns:
             True if the file was saved successfully, False if the user
@@ -74,8 +83,17 @@ class WebViewAPI:
 
             dest_path = result if isinstance(result, str) else result[0]
 
+            request = urllib.request.Request(
+                url,
+                headers={
+                    str(key): str(value)
+                    for key, value in (headers or {}).items()
+                    if value is not None
+                },
+            )
+
             # Download from the local backend and write to chosen path
-            with urllib.request.urlopen(url) as response:
+            with urllib.request.urlopen(request) as response:
                 with open(dest_path, "wb") as f:
                     shutil.copyfileobj(response, f)
 
@@ -83,14 +101,6 @@ class WebViewAPI:
         except Exception:
             logger.exception("save_file failed")
             return False
-
-
-def _find_free_port(host: str = "127.0.0.1") -> int:
-    """Bind to port 0 and return the OS-assigned free port."""
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        sock.bind((host, 0))
-        sock.listen(1)
-        return sock.getsockname()[1]
 
 
 def _wait_for_http(host: str, port: int, timeout_sec: float = 300.0) -> bool:
@@ -158,7 +168,12 @@ def desktop_cmd(
     # Setup logger for desktop command (separate from backend subprocess)
     setup_logger(log_level)
 
-    port = _find_free_port(host)
+    # get_stable_port() returns (port, socket) — the socket is kept open
+    # to hold the port until the subprocess is about to bind it, minimizing
+    # the TOCTOU window.  We close it just before Popen so the child can
+    # bind the same port.
+    port_file = str(WORKING_DIR / "desktop_port")
+    port, held_socket = get_stable_port(port_file, host)
     url = f"http://{host}:{port}"
     click.echo(f"Starting QwenPaw app on {url} (port {port})")
     logger.info("Server subprocess starting...")
@@ -183,6 +198,12 @@ def desktop_cmd(
         False  # Track if we intentionally terminated the process
     )
     try:
+        # Release the held socket just before spawning the subprocess so
+        # the child can bind the same port.  This keeps the TOCTOU window
+        # as small as possible (only between close() and the child's bind).
+        if held_socket:
+            held_socket.close()
+
         proc = subprocess.Popen(
             [
                 sys.executable,
@@ -232,8 +253,14 @@ def desktop_cmd(
                 logger.info(
                     "Calling webview.start() (blocks until closed)...",
                 )
+                # Persist localStorage/cookies across restarts so the
+                # user's agent selection, chat history, and preferences
+                # survive window close.  Without storage_path, WebView2
+                # may use a temp directory that is discarded on restart.
+                webview_storage = str(WORKING_DIR / "webview_data")
                 webview.start(
                     private_mode=False,
+                    storage_path=webview_storage,
                 )  # blocks until user closes the window
                 logger.info("webview.start() returned (window closed).")
             else:

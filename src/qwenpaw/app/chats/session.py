@@ -4,58 +4,54 @@ compatibility.
 
 Windows filenames cannot contain: \\ / : * ? " < > |
 """
+import asyncio
 import os
 import re
 import json
 import logging
 import shutil
+import tempfile
 
 from typing import Union, Sequence
 
 import aiofiles
 from qwenpaw.exceptions import ConfigurationException
 from ...exceptions import AgentStateError
+from ...utils.json_utils import safe_json_loads as _safe_json_loads
 
 logger = logging.getLogger(__name__)
 
 
-def _safe_json_loads(content: str, filepath: str = "") -> dict:
-    """Parse JSON with corruption recovery.
+def _atomic_write_json(path: str, payload: dict) -> None:
+    """Atomically write JSON to *path* (tmp → os.replace).
 
-    Attempts standard ``json.loads`` first.  If that fails due to
-    trailing garbage (a common symptom of concurrent-write race
-    conditions), falls back to ``raw_decode`` to extract the first
-    valid JSON object.  If the file is completely unparseable, returns
-    an empty dict and logs a warning so callers never crash.
-
-    Args:
-        content: Raw file content.
-        filepath: Used only for log messages.
-
-    Returns:
-        Parsed dict, or ``{}`` when the content is beyond recovery.
+    This prevents session corruption on crash/power-loss mid-write.
     """
+    parent = os.path.dirname(path)
+    if parent:
+        os.makedirs(parent, exist_ok=True)
+    tmp_path: str | None = None
     try:
-        return json.loads(content)
-    except json.JSONDecodeError:
-        pass
-
-    # Try to extract the first valid JSON object.
-    try:
-        result, _ = json.JSONDecoder().raw_decode(content)
-        logger.warning(
-            "Session file %s had corrupted JSON. "
-            "Recovered first valid object via raw_decode.",
-            filepath,
-        )
-        return result
-    except json.JSONDecodeError:
-        logger.warning(
-            "Session file %s is completely corrupted and could not "
-            "be recovered. Returning empty dict.",
-            filepath,
-        )
-        return {}
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            dir=parent or None,
+            prefix=f".{os.path.basename(path)}.",
+            suffix=".tmp",
+            delete=False,
+            encoding="utf-8",
+            newline="\n",
+        ) as f:
+            tmp_path = f.name
+            f.write(json.dumps(payload, ensure_ascii=False))
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp_path, path)
+    finally:
+        if tmp_path and os.path.exists(tmp_path):
+            try:
+                os.remove(tmp_path)
+            except OSError:
+                pass
 
 
 # Characters forbidden in Windows filenames
@@ -204,6 +200,15 @@ class SafeJSONSession:
                 The directory to save the session state.
         """
         self.save_dir = save_dir
+        self._write_locks: dict[str, asyncio.Lock] = {}
+
+    def _get_write_lock(self, path: str) -> asyncio.Lock:
+        """Per-path lock to serialize read-modify-write cycles."""
+        lock = self._write_locks.get(path)
+        if lock is None:
+            lock = asyncio.Lock()
+            self._write_locks[path] = lock
+        return lock
 
     def _get_save_path(
         self,
@@ -225,8 +230,20 @@ class SafeJSONSession:
             Full path to the session file. If channel is provided,
             uses channels/{channel}/ subdirectory structure.
         """
+        if not session_id:
+            logger.error(
+                "session_id is None or empty, cannot construct save path",
+            )
+            raise ValueError("session_id must not be None or empty")
+
         safe_sid = sanitize_filename(session_id)
         safe_uid = sanitize_filename(user_id) if user_id else ""
+
+        # Guard against user_id == session_id (e.g. when upstream falls back
+        # to session_id as user_id).  Duplicating the same token doubles the
+        # filename length and can exceed Windows MAX_PATH (260 chars).
+        if safe_uid and safe_uid == safe_sid:
+            safe_uid = ""
 
         if safe_uid:
             filename = f"{safe_uid}_{safe_sid}.json"
@@ -278,12 +295,12 @@ class SafeJSONSession:
             user_id=user_id,
             channel=channel,
         )
-        with open(
-            session_save_path,
-            "w",
-            encoding="utf-8",
-        ) as f:
-            f.write(json.dumps(state_dicts, ensure_ascii=False))
+        async with self._get_write_lock(session_save_path):
+            await asyncio.to_thread(
+                _atomic_write_json,
+                session_save_path,
+                state_dicts,
+            )
 
         logger.info(
             "Saved session state to %s successfully.",
@@ -352,24 +369,6 @@ class SafeJSONSession:
             channel=channel,
         )
 
-        if os.path.exists(session_save_path):
-            async with aiofiles.open(
-                session_save_path,
-                "r",
-                encoding="utf-8",
-                errors="surrogatepass",
-            ) as f:
-                content = await f.read()
-                states = _safe_json_loads(content, session_save_path)
-
-        else:
-            if not create_if_not_exist:
-                raise AgentStateError(
-                    session_id=session_id,
-                    message=f"Session file {session_save_path} does not exist",
-                )
-            states = {}
-
         path = key.split(".") if isinstance(key, str) else list(key)
         if not path:
             raise ConfigurationException(
@@ -377,20 +376,43 @@ class SafeJSONSession:
                 message="key path is empty",
             )
 
-        cur = states
-        for k in path[:-1]:
-            if k not in cur or not isinstance(cur[k], dict):
-                cur[k] = {}
-            cur = cur[k]
+        async with self._get_write_lock(session_save_path):
+            if os.path.exists(session_save_path):
+                async with aiofiles.open(
+                    session_save_path,
+                    "r",
+                    encoding="utf-8",
+                    errors="surrogatepass",
+                ) as f:
+                    content = await f.read()
+                    states = _safe_json_loads(
+                        content,
+                        session_save_path,
+                    )
+            else:
+                if not create_if_not_exist:
+                    raise AgentStateError(
+                        session_id=session_id,
+                        message=(
+                            f"Session file {session_save_path}"
+                            f" does not exist"
+                        ),
+                    )
+                states = {}
 
-        cur[path[-1]] = value
+            cur = states
+            for k in path[:-1]:
+                if k not in cur or not isinstance(cur[k], dict):
+                    cur[k] = {}
+                cur = cur[k]
 
-        with open(
-            session_save_path,
-            "w",
-            encoding="utf-8",
-        ) as f:
-            f.write(json.dumps(states, ensure_ascii=False))
+            cur[path[-1]] = value
+
+            await asyncio.to_thread(
+                _atomic_write_json,
+                session_save_path,
+                states,
+            )
 
         logger.info(
             "Updated session state key '%s' in %s successfully.",
