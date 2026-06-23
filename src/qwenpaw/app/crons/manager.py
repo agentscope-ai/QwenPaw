@@ -7,6 +7,12 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Literal, Optional, Union
 
+from apscheduler.events import (
+    EVENT_JOB_MAX_INSTANCES,
+    EVENT_JOB_MISSED,
+    JobExecutionEvent,
+    JobSubmissionEvent,
+)
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.date import DateTrigger
@@ -29,6 +35,7 @@ from .repo.base import BaseJobRepository
 
 HEARTBEAT_JOB_ID = "_heartbeat"
 DREAM_JOB_ID = "_dream"
+INTERNAL_JOB_IDS = frozenset({HEARTBEAT_JOB_ID, DREAM_JOB_ID})
 CRON_HISTORY_LIMIT = 50
 
 logger = logging.getLogger(__name__)
@@ -75,6 +82,7 @@ class CronManager:
             }
             await self._repo.prune_orphan_history(valid_job_ids)
 
+            self._register_scheduler_listeners()
             self._scheduler.start()
             for job in jobs_file.jobs:
                 try:
@@ -340,6 +348,95 @@ class CronManager:
                 )
 
     # ----- internal -----
+
+    def _register_scheduler_listeners(self) -> None:
+        mask = EVENT_JOB_MISSED | EVENT_JOB_MAX_INSTANCES
+        self._scheduler.add_listener(self._on_scheduler_event, mask=mask)
+
+    def _on_scheduler_event(self, event) -> None:
+        if event.code == EVENT_JOB_MISSED:
+            asyncio.ensure_future(self._handle_job_missed(event))
+        elif event.code == EVENT_JOB_MAX_INSTANCES:
+            asyncio.ensure_future(self._handle_job_max_instances(event))
+
+    async def _handle_job_missed(self, event: JobExecutionEvent) -> None:
+        job_id = event.job_id
+        if job_id in INTERNAL_JOB_IDS:
+            return
+
+        job = await self._repo.get_job(job_id)
+        if not job:
+            return
+
+        scheduled = event.scheduled_run_time
+        if scheduled.tzinfo is None:
+            scheduled = scheduled.replace(tzinfo=timezone.utc)
+        late_seconds = max(
+            0,
+            int((datetime.now(timezone.utc) - scheduled).total_seconds()),
+        )
+        grace = job.runtime.misfire_grace_seconds
+        error_msg = (
+            f"missed scheduled run at {scheduled.isoformat()}: "
+            f"late by {late_seconds}s, grace={grace}s"
+        )
+        await self._record_skipped(job, error_msg)
+
+    async def _handle_job_max_instances(
+        self,
+        event: JobSubmissionEvent,
+    ) -> None:
+        job_id = event.job_id
+        if job_id in INTERNAL_JOB_IDS:
+            return
+
+        job = await self._repo.get_job(job_id)
+        if not job:
+            return
+
+        scheduled_times = event.scheduled_run_times or []
+        if scheduled_times:
+            scheduled = scheduled_times[-1]
+            if scheduled.tzinfo is None:
+                scheduled = scheduled.replace(tzinfo=timezone.utc)
+            scheduled_text = scheduled.isoformat()
+        else:
+            scheduled_text = "unknown"
+        error_msg = (
+            f"skipped scheduled run at {scheduled_text}: "
+            f"maximum running instances reached "
+            f"({job.runtime.max_concurrency})"
+        )
+        await self._record_skipped(job, error_msg)
+
+    async def _record_skipped(self, job: CronJobSpec, error_msg: str) -> None:
+        assert job.id is not None
+        logger.warning(
+            "cron job skipped: job_id=%s name=%s %s",
+            job.id,
+            job.name,
+            error_msg,
+        )
+
+        st = self._states.get(job.id, CronJobState())
+        st.last_status = "skipped"
+        st.last_error = error_msg
+        aps_job = self._scheduler.get_job(job.id)
+        st.next_run_at = aps_job.next_run_time if aps_job else st.next_run_at
+        self._states[job.id] = st
+
+        record = CronExecutionRecord(
+            run_at=datetime.now(timezone.utc),
+            status="skipped",
+            error=error_msg,
+            trigger="scheduled",
+        )
+        records = await self._repo.append_history(
+            job.id,
+            record,
+            limit=CRON_HISTORY_LIMIT,
+        )
+        self._history[job.id] = records
 
     async def _register_or_update(self, spec: CronJobSpec) -> None:
         # Validate and build trigger first. If schedule is invalid, fail fast
