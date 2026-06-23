@@ -48,7 +48,7 @@ class MemoryMiddleware(MiddlewareBase):
 
     def __init__(self, *, memory_manager: Any) -> None:
         self._memory_manager = memory_manager
-        self._searched_reply_ids: set[str] = set()
+        self._searched_reply_id: str | None = None
         self._persisted_reply_ids: set[str] = set()
 
     async def on_system_prompt(
@@ -56,8 +56,7 @@ class MemoryMiddleware(MiddlewareBase):
         agent: "Agent",
         current_prompt: str,
     ) -> str:
-        language = getattr(agent, "_language", "zh")
-        prompt = self._memory_manager.get_memory_prompt(language)
+        prompt = self._memory_manager.get_memory_prompt()
         if not prompt or prompt in current_prompt:
             return current_prompt
         if current_prompt.strip():
@@ -71,9 +70,45 @@ class MemoryMiddleware(MiddlewareBase):
         next_handler: Callable[..., Any],
     ) -> Any:
         reply_id = getattr(agent.state, "reply_id", "") or ""
-        if reply_id and reply_id not in self._searched_reply_ids:
-            self._searched_reply_ids.add(reply_id)
-            await self._inject_memory_context(agent, input_kwargs)
+        if reply_id and reply_id != self._searched_reply_id:
+            self._searched_reply_id = reply_id
+            try:
+                result = await self._memory_manager.auto_memory_search(
+                    list(agent.state.context),
+                    agent_name=getattr(agent, "name", ""),
+                    session_id=getattr(agent.state, "session_id", ""),
+                    reply_id=getattr(agent.state, "reply_id", ""),
+                )
+            except Exception:
+                logger.exception(
+                    "MemoryMiddleware auto_memory_search failed",
+                )
+            else:
+                messages = list(input_kwargs.get("messages") or [])
+                memory_msgs = self._extract_memory_messages(
+                    result,
+                    context_len=len(agent.state.context),
+                )
+                if memory_msgs:
+                    messages.extend(memory_msgs)
+                    input_kwargs["messages"] = messages
+                else:
+                    text = self._extract_memory_text(result)
+                    if text:
+                        memory_msg = SystemMsg(
+                            name="memory",
+                            content=(
+                                "Relevant long-term memory retrieved "
+                                "for this turn:\n\n"
+                                f"{text}"
+                            ),
+                        )
+
+                        # Keep the original system prompt first, then add
+                        # transient memory context before conversation messages.
+                        insert_at = 1 if messages else 0
+                        messages.insert(insert_at, memory_msg)
+                        input_kwargs["messages"] = messages
         return await next_handler(**input_kwargs)
 
     async def on_reply(
@@ -100,40 +135,28 @@ class MemoryMiddleware(MiddlewareBase):
         except Exception:
             logger.exception("MemoryMiddleware auto_memory failed")
 
-    async def _inject_memory_context(
-        self,
-        agent: "Agent",
-        input_kwargs: dict[str, Any],
-    ) -> None:
-        try:
-            result = await self._memory_manager.auto_memory_search(
-                list(agent.state.context),
-                agent_name=getattr(agent, "name", ""),
-                session_id=getattr(agent.state, "session_id", ""),
-                reply_id=getattr(agent.state, "reply_id", ""),
+    @staticmethod
+    def _extract_memory_messages(
+        result: Any,
+        *,
+        context_len: int,
+    ) -> list["Msg"]:
+        if not isinstance(result, dict):
+            return []
+        msgs = result.get("msg") or result.get("messages")
+        if not isinstance(msgs, list):
+            return []
+
+        injected = msgs[context_len:] if len(msgs) > context_len else msgs
+        return [
+            msg
+            for msg in injected
+            if hasattr(msg, "has_content_blocks")
+            and (
+                msg.has_content_blocks("tool_call")
+                or msg.has_content_blocks("tool_result")
             )
-        except Exception:
-            logger.exception("MemoryMiddleware auto_memory_search failed")
-            return
-
-        text = self._extract_memory_text(result)
-        if not text:
-            return
-
-        messages = list(input_kwargs.get("messages") or [])
-        memory_msg = SystemMsg(
-            name="memory",
-            content=(
-                "Relevant long-term memory retrieved for this turn:\n\n"
-                f"{text}"
-            ),
-        )
-
-        # Keep the original system prompt first, then add transient memory
-        # context before the conversation messages.
-        insert_at = 1 if messages else 0
-        messages.insert(insert_at, memory_msg)
-        input_kwargs["messages"] = messages
+        ]
 
     @staticmethod
     def _extract_memory_text(result: Any) -> str:
