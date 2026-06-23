@@ -788,6 +788,7 @@ class QwenPawACPAgent(Agent):
                         f"({pending.severity})"
                     ),
                     kind=self._approval_tool_kind(pending.tool_name),
+                    raw_input=self._approval_tool_input(pending),
                 ),
                 options=[
                     PermissionOption(
@@ -819,6 +820,18 @@ class QwenPawACPAgent(Agent):
             else ApprovalDecision.DENIED
         )
         await svc.resolve_request(pending.request_id, decision)
+
+    @staticmethod
+    def _approval_tool_input(pending: Any) -> dict[str, Any] | None:
+        """Return the original guarded tool parameters for ACP display."""
+        extra = getattr(pending, "extra", None)
+        if not isinstance(extra, dict):
+            return None
+        tool_call = extra.get("tool_call")
+        if not isinstance(tool_call, dict):
+            return None
+        raw_input = tool_call.get("input")
+        return raw_input if isinstance(raw_input, dict) else None
 
     @staticmethod
     def _permission_option_id(response: Any) -> str | None:

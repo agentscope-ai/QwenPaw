@@ -224,6 +224,13 @@ async def test_approval_bridge_resolves_pending_approval(monkeypatch):
         agent_id="default",
         tool_name="execute_shell_command",
         result=result,
+        extra={
+            "tool_call": {
+                "id": "tool-1",
+                "name": "execute_shell_command",
+                "input": {"command": "ls"},
+            },
+        },
     )
 
     bridge = asyncio.create_task(
@@ -246,6 +253,7 @@ async def test_approval_bridge_resolves_pending_approval(monkeypatch):
         "execute_shell_command requires approval (MEDIUM)"
     )
     assert tool_call.kind == "execute"
+    assert tool_call.raw_input == {"command": "ls"}
 
 
 def test_acp_bootstrap_includes_runtime_slash_commands():

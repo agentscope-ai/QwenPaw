@@ -173,6 +173,7 @@ class FakeAgent(Agent):
                 tool_call=ToolCallUpdate(
                     tool_call_id="t1",
                     title="dangerous_tool",
+                    raw_input={"command": "rm -rf /tmp/nope"},
                 ),
             )
             chosen = getattr(

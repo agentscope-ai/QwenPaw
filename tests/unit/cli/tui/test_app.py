@@ -40,7 +40,7 @@ from qwenpaw.cli.tui.widgets import (
     ErrorMessage,
     FileLinkBox,
     InfoMessage,
-    PermissionModal,
+    PermissionOverlay,
     QueuedMessage,
     SessionPicker,
     StatusBar,
@@ -91,6 +91,7 @@ class FakeTransport:
                 PermissionRequest(
                     request_id="r1",
                     title="dangerous_tool",
+                    params="command: rm -rf /tmp/nope",
                     options=[
                         PermissionOption("allow", "Allow", "allow_once"),
                         PermissionOption("deny", "Deny", "reject_once"),
@@ -503,7 +504,7 @@ async def test_activity_line_stops_thinking_when_answer_streams():
 
 
 @pytest.mark.asyncio
-async def test_permission_modal_resolves():
+async def test_permission_overlay_resolves_with_keyboard_selection():
     transport = FakeTransport()
     app = PawApp(transport)
     async with app.run_test() as pilot:
@@ -512,19 +513,30 @@ async def test_permission_modal_resolves():
         prompt.value = "do permission thing"
         await pilot.press("enter")
 
-        # The modal should appear; pick the first (Allow) button.
+        # The overlay should appear above the input with the tool parameters.
+        overlay = app.query_one(PermissionOverlay)
         for _ in range(10):
             await pilot.pause()
-            if isinstance(app.screen, PermissionModal):
+            if overlay.display:
                 break
-        assert isinstance(app.screen, PermissionModal)
-        await pilot.press("enter")  # default-focused first button = Allow
+        assert overlay.display
+        option_text = "\n".join(
+            getattr(overlay.get_option_at_index(index).prompt, "plain", "")
+            for index in range(len(overlay.options))
+        )
+        assert "command: rm -rf /tmp/nope" in option_text
+
+        # Down selects Deny, then Enter resolves the highlighted option.
+        await pilot.press("down")
+        await pilot.pause()
+        assert overlay.selected == "deny"
+        await pilot.press("enter")
         for _ in range(10):
             await pilot.pause()
             if transport.resolved:
                 break
 
-        assert transport.resolved == [("r1", "allow")]
+        assert transport.resolved == [("r1", "deny")]
 
 
 @pytest.mark.asyncio
@@ -1055,10 +1067,7 @@ async def test_interrupt_action():
         )
         await pilot.press("enter")
         await pilot.pause()
-        # dismiss modal if present so escape hits the app
-        if isinstance(app.screen, PermissionModal):
-            app.screen.dismiss(None)
-            await pilot.pause()
+        app.query_one(PermissionOverlay).clear_request()
         app._busy = True
         await app.action_interrupt()
         assert transport.interrupted
