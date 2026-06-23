@@ -103,7 +103,7 @@ jobs:
             pytest tests/unit -v \
               --cov=src/qwenpaw \
               --cov-report=xml:coverage.unit.xml \
-              --cov-fail-under=0
+              --cov-fail-under=38
           else
             pytest tests/unit -v
           fi
