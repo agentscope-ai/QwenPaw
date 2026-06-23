@@ -394,9 +394,9 @@ class HistoryStore:
         tool output (the bulk of the bloat) while keeping the conversation
         turns. The FTS index is kept in sync (each purged row is removed from
         it first). Rows with a NULL/empty ``created_at`` are never matched, so
-        they are retained. This is the retention/clear path — by default
-        nothing calls it (history is kept forever); a caller opts in by
-        supplying a cutoff.
+        they are retained. This is the retention/clear path — driven on
+        teardown by ``history_retention_days`` (default 90; set 0 to keep
+        history forever, which calls nothing here).
 
         Note: this DELETEs but does not ``VACUUM``, so freed pages are reused
         but the file does not shrink on disk until a separate vacuum.

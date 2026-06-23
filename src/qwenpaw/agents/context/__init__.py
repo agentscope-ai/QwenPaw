@@ -109,14 +109,12 @@ def _warn_db_size(db_path: Path) -> None:
         return
     _DB_SIZE_WARNED.add(key)
     logger.warning(
-        "scroll history at %s is %.1f GiB and has no retention limit "
-        "(history_retention_days=0 keeps everything). To trim it, run "
-        "'qwenpaw history purge --days 90 --dry-run' to preview, then again "
-        "with --vacuum to delete and reclaim disk; add --tool-output-only to "
-        "drop just the bulky tool output and keep the conversation. "
-        "(Optional: set running.light_context_config.scroll_config."
-        "history_retention_days to a non-zero number of days to auto-purge "
-        "old rows on teardown.)",
+        "scroll history at %s is %.1f GiB (history_retention_days=0 keeps "
+        "everything; otherwise old rows auto-purge on teardown). To trim it "
+        "now, run 'qwenpaw history purge --days 30 --dry-run' to preview, "
+        "then again with --vacuum to delete and reclaim disk; add "
+        "--tool-output-only to drop just the bulky tool output and keep the "
+        "conversation.",
         db_path,
         total / 1024**3,
     )

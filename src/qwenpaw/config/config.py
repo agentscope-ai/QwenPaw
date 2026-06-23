@@ -830,15 +830,15 @@ class ScrollContextConfig(BaseModel):
     )
 
     history_retention_days: int = Field(
-        default=0,
+        default=90,
         ge=0,
         description=(
             "Days of durable history to keep; rows older than this are "
-            "purged on agent teardown. 0 (default) keeps history forever. "
-            "Scroll writes full tool output through to history.db, so a "
-            "long-running agent's store can grow without bound at the "
-            "default — set a window (e.g. 90) to cap it. See the scroll "
-            "context docs for capacity sizing and the purge/VACUUM caveat."
+            "purged on agent teardown. Defaults to 90 so a long-running "
+            "agent's store stays bounded (scroll writes full tool output "
+            "through to history.db, which would otherwise grow without "
+            "bound). Set 0 to keep history forever. See the scroll context "
+            "docs for capacity sizing and the purge/VACUUM caveat."
         ),
     )
 

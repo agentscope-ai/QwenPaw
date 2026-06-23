@@ -77,7 +77,7 @@ def _size_records(caplog) -> list[logging.LogRecord]:
     return [
         r
         for r in caplog.records
-        if r.levelno == logging.WARNING and "no retention limit" in r.msg
+        if r.levelno == logging.WARNING and "history_retention_days" in r.msg
     ]
 
 
@@ -99,7 +99,9 @@ def test_large_existing_db_warns_about_retention(tmp_path: Path, caplog):
             _build(tmp_path)
             records = _size_records(caplog)
             assert len(records) == 1
-            assert "history_retention_days" in records[0].getMessage()
+            assert "qwenpaw history purge --days 30" in (
+                records[0].getMessage()
+            )
             # Deduped: a second build in the same process does not re-warn.
             caplog.clear()
             _build(tmp_path)
