@@ -755,6 +755,23 @@ async def _wait_for_cdp_ready(
     )
 
 
+async def _ensure_initial_page(state, context, session_id):
+    """Register existing context pages or create one if none exist."""
+    for page in context.pages:
+        page_id = _next_page_id(state)
+        _register_page(state, page, page_id)
+        _session_add_page(state, page_id, session_id)
+    if not state["pages"]:
+        state["_creating_page"] = True
+        try:
+            page = await context.new_page()
+        finally:
+            state["_creating_page"] = False
+        page_id = _next_page_id(state)
+        _register_page(state, page, page_id)
+        _session_add_page(state, page_id, session_id)
+
+
 async def _start_managed_cdp_browser(  # pylint: disable=too-many-statements
     state: dict,
     cdp_port: int = 0,
@@ -818,19 +835,7 @@ async def _start_managed_cdp_browser(  # pylint: disable=too-many-statements
         state["browser_pid"] = proc.pid
         state["browser_process"] = proc
         if ensure_pages:
-            for page in context.pages:
-                page_id = _next_page_id(state)
-                _register_page(state, page, page_id)
-                _session_add_page(state, page_id, session_id)
-            if not state["pages"]:
-                state["_creating_page"] = True
-                try:
-                    page = await context.new_page()
-                finally:
-                    state["_creating_page"] = False
-                page_id = _next_page_id(state)
-                _register_page(state, page, page_id)
-                _session_add_page(state, page_id, session_id)
+            await _ensure_initial_page(state, context, session_id)
     except Exception:
         await _stop_playwright_instance(pw)
         try:
@@ -4464,20 +4469,7 @@ async def _action_connect_cdp(
         state["owned_browser_process"] = False
         state["browser_pid"] = None
         state["browser_process"] = None
-        # Register existing pages
-        for page in context.pages:
-            page_id = _next_page_id(state)
-            _register_page(state, page, page_id)
-            _session_add_page(state, page_id, session_id)
-        if not state["pages"]:
-            state["_creating_page"] = True
-            try:
-                page = await context.new_page()
-            finally:
-                state["_creating_page"] = False
-            page_id = _next_page_id(state)
-            _register_page(state, page, page_id)
-            _session_add_page(state, page_id, session_id)
+        await _ensure_initial_page(state, context, session_id)
         _touch_activity(state)
         _start_idle_watchdog(state)
         await _configure_download_behavior(state)
