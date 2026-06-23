@@ -312,6 +312,9 @@ export function ChannelDrawer({
             >
               <Switch />
             </Form.Item>
+            <Form.Item name="media_dir" label={t("channels.wechatMediaDir")}>
+              <Input placeholder={defaultMediaDir} />
+            </Form.Item>
           </>
         );
 
