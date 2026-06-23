@@ -757,6 +757,11 @@ async def test_resume_opens_picker_and_replays_selected_session():
                 break
 
         assert transport.loaded == ["old-1"]
+        # Give the UI time to render all replayed events.
+        for _ in range(20):
+            await pilot.pause()
+            if len(app.query(UserMessage)) >= 2:
+                break
         # Welcome banner is cleared; the replayed transcript renders instead.
         assert not list(app.query(WelcomeMessage))
         user_msgs = [u.content.plain for u in app.query(UserMessage)]
