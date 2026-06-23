@@ -25,8 +25,13 @@ pub fn run() {
             // The app currently has a single "main" window, so closing it
             // is equivalent to quitting. If a multi-window mode is introduced,
             // make this window-count aware and keep the exit-event fallback.
-            if matches!(event, WindowEvent::CloseRequested { .. }) {
-                backend::stop(window.app_handle());
+            if let WindowEvent::CloseRequested { api, .. } = event {
+                api.prevent_close();
+                let app_handle = window.app_handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    backend::stop(&app_handle).await;
+                    app_handle.exit(0);
+                });
             }
         })
         .build(tauri::generate_context!());
@@ -35,7 +40,7 @@ pub fn run() {
         Ok(app) => {
             app.run(|app_handle, event| {
                 if let RunEvent::ExitRequested { .. } = event {
-                    backend::stop(app_handle);
+                    tauri::async_runtime::block_on(backend::stop(app_handle));
                 }
             });
         }

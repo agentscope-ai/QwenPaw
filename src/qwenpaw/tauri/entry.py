@@ -297,8 +297,10 @@ def _run_backend_server(log_level: str) -> None:
     port_file = str(WORKING_DIR / "desktop_port")
     port, reused_socket = get_stable_port(port_file, host)
 
+    from qwenpaw.app._app import app as fastapi_app
+
     config = uvicorn.Config(
-        "qwenpaw.app._app:app",
+        fastapi_app,
         host=host,
         port=0,
         reload=False,
@@ -316,7 +318,9 @@ def _run_backend_server(log_level: str) -> None:
         write_port_file(port_file, port)
         write_last_api(host, port)
         _emit_backend_ready(port)
-        uvicorn.Server(config).run(sockets=[backend_socket])
+        server = uvicorn.Server(config)
+        fastapi_app.state.uvicorn_server = server
+        server.run(sockets=[backend_socket])
     except Exception:
         backend_socket.close()
         raise

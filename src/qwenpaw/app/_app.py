@@ -1,7 +1,8 @@
 # -*- coding: utf-8 -*-
 # pylint: disable=redefined-outer-name,unused-argument
-import inspect
 import asyncio
+import hmac
+import inspect
 import mimetypes
 import os
 import sys
@@ -11,7 +12,7 @@ from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, FastAPI, HTTPException
+from fastapi import APIRouter, FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
@@ -27,6 +28,7 @@ from ..constant import (
 )
 from ..__version__ import __version__
 from ..backup._utils.safe_swap import cleanup_startup_restore_artifacts
+from ..tauri.env import DESKTOP_APP_ENV, DESKTOP_SHUTDOWN_TOKEN_ENV
 from ..utils.logging import (
     setup_logger,
     add_project_file_handler,
@@ -154,6 +156,118 @@ class DynamicMultiAgentRunner:
 runner = DynamicMultiAgentRunner()
 
 _agent_router = APIRouter()
+
+
+# pylint: disable-next=too-many-statements,too-many-branches
+async def _shutdown_app_state(
+    app: FastAPI,
+) -> None:
+    """Stop app-managed services once, from lifespan or desktop shutdown."""
+    shutdown_lock = getattr(app.state, "shutdown_lock", None)
+    if shutdown_lock is None:
+        shutdown_lock = asyncio.Lock()
+        app.state.shutdown_lock = shutdown_lock
+
+    async with shutdown_lock:
+        if getattr(app.state, "shutdown_complete", False):
+            return
+
+        # Cancel background startup if still in progress
+        bg_task = getattr(app.state, "background_startup_task", None)
+        if bg_task is not None and not bg_task.done():
+            bg_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await bg_task
+        app.state.background_startup_task = None
+
+        # ==================== Execute Shutdown Hooks ====================
+        plugin_registry = getattr(app.state, "plugin_registry", None)
+        if plugin_registry is not None:
+            logger.info("Executing plugin shutdown hooks...")
+            shutdown_hooks = plugin_registry.get_shutdown_hooks()
+            for hook in shutdown_hooks:
+                try:
+                    logger.info(
+                        f"Executing shutdown hook '{hook.hook_name}' "
+                        f"from plugin '{hook.plugin_id}' (priority"
+                        f"={hook.priority})",
+                    )
+
+                    result = hook.callback()
+                    if inspect.iscoroutine(result) or inspect.isawaitable(
+                        result,
+                    ):
+                        await result
+
+                    logger.info(
+                        f"Completed shutdown hook '{hook.hook_name}' "
+                        f"from plugin '{hook.plugin_id}'",
+                    )
+                except Exception as e:
+                    logger.error(
+                        f"Failed to execute shutdown hook "
+                        f"'{hook.hook_name}' "
+                        f"from plugin '{hook.plugin_id}': {e}",
+                        exc_info=True,
+                    )
+
+        local_model_mgr = getattr(app.state, "local_model_manager", None)
+        if local_model_mgr is not None:
+            logger.info("Stopping local model server...")
+            try:
+                await local_model_mgr.shutdown_server()
+            except Exception as exc:
+                logger.error(
+                    "Error shutting down local model server gracefully: %s",
+                    exc,
+                )
+                with suppress(OSError, RuntimeError, ValueError):
+                    local_model_mgr.shutdown_server_sync()
+
+        # Stop AppServiceManager (ToolCoordinator shutdown, etc.)
+        app_svc = getattr(app.state, "app_services", None)
+        if app_svc is not None:
+            try:
+                await app_svc.stop()
+            except Exception as e:
+                logger.error(f"Error stopping AppServiceManager: {e}")
+
+        # Stop multi-agent manager (stops all agents and their components)
+        multi_agent_mgr = getattr(app.state, "multi_agent_manager", None)
+        if multi_agent_mgr is not None:
+            logger.info("Stopping MultiAgentManager...")
+            try:
+                await multi_agent_mgr.stop_all()
+            except Exception as e:
+                logger.error(f"Error stopping MultiAgentManager: {e}")
+
+        # Stop token usage manager (drain queue and final flush)
+        token_usage_manager = getattr(app.state, "token_usage_manager", None)
+        if token_usage_manager is not None:
+            logger.info("Stopping TokenUsageManager...")
+            try:
+                await token_usage_manager.stop()
+            except Exception as e:
+                logger.error(f"Error stopping TokenUsageManager: {e}")
+
+        # Stop all browser instances
+        from ..agents.tools.browser_control import stop_all_browsers
+
+        try:
+            await stop_all_browsers()
+        except Exception as e:
+            logger.error(f"Error stopping browsers during shutdown: {e}")
+
+        # Close the shared httpx client owned by the skills hub module.
+        from ..agents.skill_system.hub import aclose_hub_client
+
+        try:
+            await aclose_hub_client()
+        except Exception as e:
+            logger.error(f"Error closing skills hub HTTP client: {e}")
+
+        app.state.shutdown_complete = True
+        logger.info("Application shutdown complete")
 
 
 @asynccontextmanager
@@ -415,6 +529,7 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
     app.state.local_model_manager = local_model_manager
     app.state.plugin_loader = None
     app.state.plugin_registry = None
+    app.state.token_usage_manager = token_usage_manager
 
     if isinstance(runner, DynamicMultiAgentRunner):
         if app_services is not None:
@@ -595,102 +710,14 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
                 exc_info=True,
             )
 
-    _bg_task = asyncio.create_task(_background_startup())
+    app.state.background_startup_task = asyncio.create_task(
+        _background_startup(),
+    )
 
     try:
         yield
     finally:
-        # Cancel background startup if still in progress
-        if not _bg_task.done():
-            _bg_task.cancel()
-            with suppress(asyncio.CancelledError):
-                await _bg_task
-
-        # ==================== Execute Shutdown Hooks ====================
-        plugin_registry = getattr(app.state, "plugin_registry", None)
-        if plugin_registry is not None:
-            logger.info("Executing plugin shutdown hooks...")
-            shutdown_hooks = plugin_registry.get_shutdown_hooks()
-            for hook in shutdown_hooks:
-                try:
-                    logger.info(
-                        f"Executing shutdown hook '{hook.hook_name}' "
-                        f"from plugin '{hook.plugin_id}' (priority"
-                        f"={hook.priority})",
-                    )
-
-                    result = hook.callback()
-                    if inspect.iscoroutine(result) or inspect.isawaitable(
-                        result,
-                    ):
-                        await result
-
-                    logger.info(
-                        f"✓ Completed shutdown hook '{hook.hook_name}' "
-                        f"from plugin '{hook.plugin_id}'",
-                    )
-                except Exception as e:
-                    logger.error(
-                        f"✗ Failed to execute shutdown hook "
-                        f"'{hook.hook_name}' "
-                        f"from plugin '{hook.plugin_id}': {e}",
-                        exc_info=True,
-                    )
-
-        local_model_mgr = getattr(app.state, "local_model_manager", None)
-        if local_model_mgr is not None:
-            logger.info("Stopping local model server...")
-            try:
-                await local_model_mgr.shutdown_server()
-            except Exception as exc:
-                logger.error(
-                    "Error shutting down local model server gracefully: %s",
-                    exc,
-                )
-                with suppress(OSError, RuntimeError, ValueError):
-                    local_model_mgr.shutdown_server_sync()
-
-        # Stop AppServiceManager (ToolCoordinator shutdown, etc.)
-        _app_svc = getattr(app.state, "app_services", None)
-        if _app_svc is not None:
-            try:
-                await _app_svc.stop()
-            except Exception as e:
-                logger.error(f"Error stopping AppServiceManager: {e}")
-
-        # Stop multi-agent manager (stops all agents and their components)
-        multi_agent_mgr = getattr(app.state, "multi_agent_manager", None)
-        if multi_agent_mgr is not None:
-            logger.info("Stopping MultiAgentManager...")
-            try:
-                await multi_agent_mgr.stop_all()
-            except Exception as e:
-                logger.error(f"Error stopping MultiAgentManager: {e}")
-
-        # Stop token usage manager (drain queue and final flush)
-        logger.info("Stopping TokenUsageManager...")
-        try:
-            await token_usage_manager.stop()
-        except Exception as e:
-            logger.error(f"Error stopping TokenUsageManager: {e}")
-
-        # Stop all browser instances
-        from ..agents.tools.browser_control import stop_all_browsers
-
-        try:
-            await stop_all_browsers()
-        except Exception as e:
-            logger.error(f"Error stopping browsers during shutdown: {e}")
-
-        # Close the shared httpx client owned by the skills hub module.
-        from ..agents.skill_system.hub import aclose_hub_client
-
-        try:
-            await aclose_hub_client()
-        except Exception as e:
-            logger.error(f"Error closing skills hub HTTP client: {e}")
-
-        logger.info("Application shutdown complete")
+        await _shutdown_app_state(app)
 
 
 app = FastAPI(
@@ -790,6 +817,33 @@ def get_doctor_runtime():
         "python_executable": sys.executable,
         "python_environment": summarize_python_environment(),
     }
+
+
+@app.post("/api/desktop/shutdown")
+async def post_desktop_shutdown(
+    x_qwenpaw_desktop_token: str = Header(
+        default="",
+        alias="X-QwenPaw-Desktop-Token",
+    ),
+):
+    """Gracefully stop the desktop sidecar before the Tauri app exits."""
+    if os.environ.get(DESKTOP_APP_ENV) != "1":
+        raise HTTPException(status_code=404, detail="Not Found")
+
+    expected_token = os.environ.get(DESKTOP_SHUTDOWN_TOKEN_ENV, "")
+    if not expected_token or not hmac.compare_digest(
+        x_qwenpaw_desktop_token,
+        expected_token,
+    ):
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    await _shutdown_app_state(app)
+
+    server = getattr(app.state, "uvicorn_server", None)
+    if server is not None:
+        server.should_exit = True
+
+    return {"ok": True}
 
 
 app.include_router(api_router, prefix="/api")
