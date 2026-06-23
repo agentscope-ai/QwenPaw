@@ -353,11 +353,14 @@ class CronManager:
         mask = EVENT_JOB_MISSED | EVENT_JOB_MAX_INSTANCES
         self._scheduler.add_listener(self._on_scheduler_event, mask=mask)
 
-    def _on_scheduler_event(self, event) -> None:
+    def _on_scheduler_event(
+        self,
+        event: JobExecutionEvent | JobSubmissionEvent,
+    ) -> None:
         if event.code == EVENT_JOB_MISSED:
-            asyncio.ensure_future(self._handle_job_missed(event))
+            asyncio.create_task(self._handle_job_missed(event))
         elif event.code == EVENT_JOB_MAX_INSTANCES:
-            asyncio.ensure_future(self._handle_job_max_instances(event))
+            asyncio.create_task(self._handle_job_max_instances(event))
 
     async def _handle_job_missed(self, event: JobExecutionEvent) -> None:
         job_id = event.job_id
@@ -396,6 +399,8 @@ class CronManager:
 
         scheduled_times = event.scheduled_run_times or []
         if scheduled_times:
+            # coalesce may queue multiple due times;
+            # [-1] is the latest skipped slot.
             scheduled = scheduled_times[-1]
             if scheduled.tzinfo is None:
                 scheduled = scheduled.replace(tzinfo=timezone.utc)
@@ -410,7 +415,11 @@ class CronManager:
         await self._record_skipped(job, error_msg)
 
     async def _record_skipped(self, job: CronJobSpec, error_msg: str) -> None:
-        assert job.id is not None
+        if job.id is None:
+            logger.error(
+                "cron _record_skipped: job.id is None, skipping record",
+            )
+            return
         logger.warning(
             "cron job skipped: job_id=%s name=%s %s",
             job.id,

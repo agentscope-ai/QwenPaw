@@ -194,10 +194,13 @@ def _attach_logger_file_handler(
     *,
     level: int,
 ) -> None:
-    """Attach a shared file handler to another logger namespace."""
+    """Attach a shared file handler to another logger namespace.
+
+    Keeps ``propagate`` enabled so records still reach the root logger
+    (stderr / journald) while also being written to ``qwenpaw.log``.
+    """
     target = logging.getLogger(logger_name)
     target.setLevel(level)
-    target.propagate = False
     base = getattr(file_handler, "baseFilename", None)
     for handler in target.handlers:
         handler_base = getattr(handler, "baseFilename", None)
