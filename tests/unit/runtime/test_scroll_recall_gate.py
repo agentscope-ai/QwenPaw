@@ -32,8 +32,11 @@ def test_runnable_when_governor_present():
     assert AgentBuilder._scroll_recall_runnable(cfg, governor=object()) is True
 
 
-def test_runnable_when_unsandboxed_opt_in():
-    # No governor, but the operator opted into unsandboxed recall.
+def test_runnable_when_unsandboxed_opt_in(monkeypatch):
+    # No governor, but the deployment opted into unsandboxed recall — which
+    # needs BOTH the env var and the per-agent flag (agent.json alone can't
+    # bypass the sandbox).
+    monkeypatch.setenv("QWENPAW_ALLOW_UNSANDBOXED_RECALL", "1")
     cfg = _agent_config(allow_unsandboxed=True)
     assert AgentBuilder._scroll_recall_runnable(cfg, governor=None) is True
 
