@@ -18,8 +18,7 @@ function isMultimodalModel(m: ModelInfo): boolean {
 }
 
 function isProviderConfigured(provider: ProviderInfo): boolean {
-  const hasModels =
-    provider.models.length + provider.extra_models.length > 0;
+  const hasModels = provider.models.length + provider.extra_models.length > 0;
   if (!hasModels) return false;
   if (provider.id === "qwenpaw-local") return true;
   if (provider.require_api_key === false) return !!provider.base_url;
@@ -106,7 +105,9 @@ export const VisualModelSection = React.memo(function VisualModelSection({
           agentName: agentDisplayName,
         })}
       </p>
-      <p className={styles.slotDescription}>{t("models.visualModelBillingHint")}</p>
+      <p className={styles.slotDescription}>
+        {t("models.visualModelBillingHint")}
+      </p>
       <div className={styles.slotForm}>
         <div className={styles.slotField}>
           <label className={styles.slotLabel}>{t("models.provider")}</label>

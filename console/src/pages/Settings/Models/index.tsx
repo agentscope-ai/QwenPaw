@@ -344,9 +344,7 @@ function ModelsPage() {
                   >
                     <span
                       className={
-                        visualModel
-                          ? styles.llmPillDot
-                          : styles.llmPillDotOff
+                        visualModel ? styles.llmPillDot : styles.llmPillDotOff
                       }
                     />
                     <span className={styles.llmPillLabel}>
