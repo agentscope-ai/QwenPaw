@@ -362,3 +362,70 @@ def test_sanitize_suffix():
     assert sanitize_suffix(None) == "scratch"
     assert sanitize_suffix("a-b.c/d") == "a_b_c_d"
     assert sanitize_suffix("ok_123") == "ok_123"
+
+
+# -- SQL values are bound, not f-string-concatenated ------------------------
+
+
+def test_recall_values_with_sql_metacharacters_are_bound(tmp_path: Path):
+    """Recall must bind ``session_id``/``agent_id``/``tool_call_id`` as SQL
+    parameters, never f-string them in. A value carrying a single quote (e.g.
+    ``O'Brien's task``) would otherwise break the WHERE clause or open an
+    injection; here it must round-trip cleanly and match only its own row."""
+    quoted_session = "O'Brien's task"
+    quoted_agent = "ag'1"
+    quoted_tcid = "tc'1"
+    h = HistoryStore(tmp_path / "history.db")
+    h.append(
+        session_id=quoted_session,
+        agent_id=quoted_agent,
+        dedup_key="m1",
+        entry=LogEntry(
+            kind="tool_result",
+            role="assistant",
+            content="briefing for the quoted session",
+            tool_call_id=quoted_tcid,
+        ),
+    )
+    # A decoy under a different agent the scoped recall must NOT return.
+    h.append(
+        session_id=quoted_session,
+        agent_id="ag2",
+        dedup_key="m2",
+        entry=LogEntry(
+            kind="model_turn",
+            role="assistant",
+            content="other agent same session name",
+        ),
+    )
+    h.close()
+    space = MemorySpace(
+        history_db_path=str(tmp_path / "history.db"),
+        session_id=quoted_session,
+        agent_id=quoted_agent,
+    )
+    try:
+        # session(): the path ekzhu flagged — agent-scoped, value bound.
+        rows = space.session(quoted_session)
+        assert [r["content"] for r in rows] == [
+            "briefing for the quoted session",
+        ]
+        # recall_tool(): tool_call_id bound, not concatenated.
+        rows = space.recall_tool(quoted_tcid)
+        assert [r["content"] for r in rows] == [
+            "briefing for the quoted session",
+        ]
+        # search() with an explicit quoted agent_id pin — both MATCH arg and
+        # the lineage filter are bound.
+        rows = space.search("briefing", agent_id=quoted_agent)
+        assert [r["content"] for r in rows] == [
+            "briefing for the quoted session",
+        ]
+        # LIKE fallback path takes the same bound (col, value) filters.
+        space._fts_ok = False
+        rows = space.search("briefing", agent_id=quoted_agent)
+        assert [r["content"] for r in rows] == [
+            "briefing for the quoted session",
+        ]
+    finally:
+        space.close()
