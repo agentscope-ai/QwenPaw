@@ -2,11 +2,18 @@
 """Linux bubblewrap sandbox implementation.
 
 Uses bubblewrap (bwrap) to construct a mount-namespace-based filesystem view.
-This provides stronger isolation than Landlock alone:
+This provides stronger filesystem isolation than Landlock alone:
   - deny_paths are truly invisible (not mounted at all)
   - /dev is a minimal synthetic devtmpfs (null, zero, urandom, tty, etc.)
   - PID namespace isolation via --unshare-pid
   - No HOME enumeration hacks needed for deny_paths
+
+Limitations (current version):
+  - Network is NOT isolated (no --unshare-net). Sandboxed processes have
+    full network access. Network namespace isolation is planned for a
+    future iteration.
+  - deny_paths for individual files uses --ro-bind /dev/null (file appears
+    empty rather than ENOENT). Directory-level deny uses --tmpfs (invisible).
 
 Architecture:
     bwrap constructs the filesystem view, then execs the user command.
@@ -149,7 +156,11 @@ class BubblewrapSandbox(LocalSandbox):
                         )
 
         # --- Namespace isolation ---
-        args.extend(["--unshare-user", "--unshare-pid"])
+        # --unshare-user creates a user namespace; bwrap automatically
+        # maps the calling uid/gid to uid 0/gid 0 inside the sandbox.
+        # We add explicit --uid/--gid for clarity and cross-distro safety.
+        args.extend(["--unshare-user", "--uid", "0", "--gid", "0"])
+        args.extend(["--unshare-pid"])
 
         # --- Fresh /proc ---
         args.extend(["--proc", "/proc"])
@@ -159,10 +170,9 @@ class BubblewrapSandbox(LocalSandbox):
             args.extend(["--chdir", cwd])
 
         # --- Command ---
-        shell = os.environ.get("SHELL", "/bin/sh")
-        if not os.path.exists(shell):
-            shell = "/bin/sh"
-        args.extend(["--", shell, "-c", cmd])
+        # Hardcode /bin/sh (POSIX-guaranteed) to avoid injection via
+        # SHELL env var and ensure consistent cross-shell semantics.
+        args.extend(["--", "/bin/sh", "-c", cmd])
 
         return args
 
@@ -247,12 +257,16 @@ class BubblewrapSandbox(LocalSandbox):
             )
 
     async def stop(self) -> None:
-        """Kill any running subprocess."""
+        """Kill any running subprocess and reap zombie."""
         if self._process and self._process.returncode is None:
             try:
                 os.killpg(
                     os.getpgid(self._process.pid),
                     signal.SIGKILL,
                 )
+            except (ProcessLookupError, OSError):
+                pass
+            try:
+                await self._process.wait()
             except (ProcessLookupError, OSError):
                 pass

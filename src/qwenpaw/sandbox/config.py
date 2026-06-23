@@ -30,6 +30,8 @@ Typical usage:
 
 from __future__ import annotations
 
+import shutil
+import subprocess
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Dict, List, Optional
@@ -275,8 +277,6 @@ def _probe_linux_landlock() -> (
 
 def _probe_macos_seatbelt() -> SandboxCapability:
     """Probe macOS Seatbelt (sandbox-exec) support."""
-    import shutil
-
     if shutil.which("sandbox-exec"):
         return SandboxCapability(
             supported=True,
@@ -350,9 +350,6 @@ def _probe_linux_bubblewrap() -> SandboxCapability:
         1. bwrap binary exists on PATH
         2. User namespaces work (test run with --unshare-user)
     """
-    import shutil
-    import subprocess
-
     bwrap = shutil.which("bwrap")
     if not bwrap:
         return SandboxCapability(
