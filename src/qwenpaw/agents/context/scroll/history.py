@@ -328,23 +328,89 @@ class HistoryStore:
         )
         return int(cur.fetchone()["n"])
 
-    def purge(self, *, before: str) -> int:
+    @staticmethod
+    def _purge_where(
+        before: str,
+        kinds: tuple[str, ...] | None,
+    ) -> tuple[str, list]:
+        """Build the shared ``WHERE`` for purge/estimate so they can't drift.
+
+        Always bounds by ``created_at < before`` (NULL ``created_at`` is never
+        matched, so unstamped rows are retained). When ``kinds`` is given, also
+        restricts to those row kinds (e.g. ``("tool_result",)`` to drop only
+        tool output and keep the conversation). Values are bound, never
+        interpolated.
+        """
+        clause = "created_at IS NOT NULL AND created_at < ?"
+        params: list = [before]
+        if kinds:
+            placeholders = ", ".join("?" for _ in kinds)
+            clause += f" AND kind IN ({placeholders})"
+            params.extend(kinds)
+        return clause, params
+
+    def estimate_purge(
+        self,
+        *,
+        before: str,
+        kinds: tuple[str, ...] | None = None,
+    ) -> dict:
+        """How much ``purge(before=...)`` would remove — WITHOUT removing it.
+
+        Returns ``{"rows": n, "content_bytes": b}`` where ``content_bytes`` is
+        the summed length of the ``content`` column for the matched rows (the
+        bulk of the on-disk weight; the FTS index roughly mirrors it, so true
+        reclaim is larger). ``kinds`` narrows to specific row kinds (e.g.
+        ``("tool_result",)`` to size only tool output). A dry-run estimate to
+        show before an operator commits a purge, so they never delete blindly.
+        """
+        where, params = self._purge_where(before, kinds)
+        with self._conn:
+            row = self._conn.execute(
+                "SELECT COUNT(*) AS rows, "
+                "COALESCE(SUM(LENGTH(content)), 0) AS content_bytes "
+                "FROM conversation_history WHERE " + where,
+                params,
+            ).fetchone()
+        return {
+            "rows": int(row["rows"]),
+            "content_bytes": int(row["content_bytes"]),
+        }
+
+    def purge(
+        self,
+        *,
+        before: str,
+        dry_run: bool = False,
+        kinds: tuple[str, ...] | None = None,
+    ) -> int:
         """Delete history rows with ``created_at < before`` (ISO-8601).
 
-        Returns the number of rows removed. The FTS index is kept in sync (each
-        purged row is removed from it first). Rows with a NULL/empty
-        ``created_at`` are never matched, so they are retained. This is the
-        retention/clear path — by default nothing calls it (history is kept
-        forever); a caller opts in by supplying a cutoff.
+        Returns the number of rows that match (and, unless ``dry_run``, were
+        removed). With ``dry_run=True`` nothing is deleted — the count is
+        computed and returned so a caller can preview the blast radius (pair
+        with :meth:`estimate_purge` for the byte estimate). ``kinds`` narrows
+        the delete to specific row kinds — e.g. ``("tool_result",)`` drops only
+        tool output (the bulk of the bloat) while keeping the conversation
+        turns. The FTS index is kept in sync (each purged row is removed from
+        it first). Rows with a NULL/empty ``created_at`` are never matched, so
+        they are retained. This is the retention/clear path — by default
+        nothing calls it (history is kept forever); a caller opts in by
+        supplying a cutoff.
+
+        Note: this DELETEs but does not ``VACUUM``, so freed pages are reused
+        but the file does not shrink on disk until a separate vacuum.
         """
+        where, params = self._purge_where(before, kinds)
         with self._conn:
             doomed = self._conn.execute(
-                "SELECT seq, content FROM conversation_history "
-                "WHERE created_at IS NOT NULL AND created_at < ?",
-                (before,),
+                "SELECT seq, content FROM conversation_history WHERE " + where,
+                params,
             ).fetchall()
             if not doomed:
                 return 0
+            if dry_run:
+                return len(doomed)
             if self._fts:
                 for row in doomed:
                     self._conn.execute(
@@ -354,11 +420,24 @@ class HistoryStore:
                         (row["seq"], row["content"] or ""),
                     )
             self._conn.execute(
-                "DELETE FROM conversation_history "
-                "WHERE created_at IS NOT NULL AND created_at < ?",
-                (before,),
+                "DELETE FROM conversation_history WHERE " + where,
+                params,
             )
             return len(doomed)
+
+    def vacuum(self) -> None:
+        """Rebuild the database file to reclaim space freed by ``purge``.
+
+        ``purge`` only DELETEs rows, so freed pages are reused but the file
+        does not shrink on disk. VACUUM rewrites it compactly. It is O(db size)
+        and briefly needs extra scratch space, so it is an explicit, separate
+        step (e.g. driven by the ``history purge --vacuum`` CLI) rather than
+        run inline on the teardown path.
+        """
+        # VACUUM cannot run inside an open transaction; sqlite3 in its default
+        # isolation mode opens one implicitly on writes, so commit first.
+        self._conn.commit()
+        self._conn.execute("VACUUM")
 
     def note_write_failure(self, exc: BaseException) -> None:
         """Record a write-through failure — durability is now degraded.

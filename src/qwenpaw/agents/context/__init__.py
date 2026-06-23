@@ -28,6 +28,13 @@ __all__ = [
     "build_scroll_components",
 ]
 
+# history.db has no retention by default (keep-forever), so a long-running
+# agent's store can grow without bound. Warn when it crosses this size so the
+# operator can opt into a retention window. Process-level dedupe keeps a
+# long-lived server from re-warning on every agent build.
+_DB_SIZE_WARN_BYTES = 10 * 1024**3  # 10 GiB
+_DB_SIZE_WARNED: set[str] = set()
+
 
 @dataclass
 class ScrollComponents:
@@ -36,6 +43,57 @@ class ScrollComponents:
     context_manager: Any  # ScrollContextManager (delegated agent hooks)
     cap_middleware: Any  # ToolResultCapMiddleware (on_acting)
     repl_tool: Any  # raw recall_history_python fn w/ a ``_tool_descriptor``
+
+
+def _warn_first_run(db_path: Path) -> None:
+    """Emit the one-time scroll first-run notice for a workspace.
+
+    Logged (not raised) so it never blocks startup. Fires only when
+    ``history.db`` does not yet exist, i.e. the first time scroll wires in
+    this workspace — the file's presence suppresses it on every later run.
+    """
+    logger.warning(
+        "scroll is now the DEFAULT context strategy. A durable history "
+        "store is being created at %s (this workspace had none). Conversation "
+        "turns evicted from the live window are persisted there and recalled "
+        "on demand instead of being summarized in place. To restore the "
+        "previous behavior, set running.light_context_config.strategy to "
+        '"native" in this agent\'s config (agent.json) and restart.',
+        db_path,
+    )
+
+
+def _warn_db_size(db_path: Path) -> None:
+    """Warn once per process when ``history.db`` has grown past the threshold.
+
+    Sums the main db and its ``-wal`` sidecar (the bulk of uncommitted growth).
+    Log-only and best-effort: a stat failure must never block wiring.
+    """
+    key = str(db_path)
+    if key in _DB_SIZE_WARNED:
+        return
+    try:
+        total = db_path.stat().st_size
+        wal = db_path.with_name(db_path.name + "-wal")
+        if wal.exists():
+            total += wal.stat().st_size
+    except OSError:
+        return
+    if total < _DB_SIZE_WARN_BYTES:
+        return
+    _DB_SIZE_WARNED.add(key)
+    logger.warning(
+        "scroll history at %s is %.1f GiB and has no retention limit "
+        "(history_retention_days=0 keeps everything). To trim it, run "
+        "'qwenpaw history purge --days 90 --dry-run' to preview, then again "
+        "with --vacuum to delete and reclaim disk; add --tool-output-only to "
+        "drop just the bulky tool output and keep the conversation. "
+        "(Optional: set running.light_context_config.scroll_config."
+        "history_retention_days to a non-zero number of days to auto-purge "
+        "old rows on teardown.)",
+        db_path,
+        total / 1024**3,
+    )
 
 
 def build_scroll_components(
@@ -78,7 +136,18 @@ def build_scroll_components(
     from .scroll.repl import make_recall_history_python
 
     sc = lcc.scroll_config
-    history = HistoryStore(Path(workspace_dir) / sc.db_filename)
+    db_path = Path(workspace_dir) / sc.db_filename
+    # First-run notice: scroll is the default as of this release, so agents
+    # that never set ``strategy`` are switched to it silently. The first time
+    # we wire scroll in a workspace we create ``history.db`` there; warn once
+    # (the file's absence is the first-run signal — it never repeats) so the
+    # switch, the new on-disk file, and the rollback path are all discoverable.
+    if not db_path.exists():
+        _warn_first_run(db_path)
+    else:
+        # Existing store: nudge toward a retention window if it grew large.
+        _warn_db_size(db_path)
+    history = HistoryStore(db_path)
     scratch_root = str(Path(workspace_dir) / ".scroll")
 
     # Shared {tool_call_id -> seq} of results the cap middleware already

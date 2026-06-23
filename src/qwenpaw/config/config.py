@@ -834,16 +834,11 @@ class ScrollContextConfig(BaseModel):
         ge=0,
         description=(
             "Days of durable history to keep; rows older than this are "
-            "purged on agent teardown. 0 (default) keeps history forever "
-            "— the memory is never dropped unless an operator opts into a "
-            "retention window. CAPACITY: scroll writes full tool output "
-            "(code files, command logs) through to history.db, and the FTS "
-            "index roughly mirrors that content, so on-disk size is ~2x the "
-            "raw text. For a long-running agent (cron jobs, persistent "
-            "coding sessions) the store grows without bound at the default; "
-            "set a window (e.g. 90) to cap it. Note: purge DELETEs rows but "
-            "does not VACUUM, so freed pages are reused without shrinking the "
-            "file until a separate vacuum."
+            "purged on agent teardown. 0 (default) keeps history forever. "
+            "Scroll writes full tool output through to history.db, so a "
+            "long-running agent's store can grow without bound at the "
+            "default — set a window (e.g. 90) to cap it. See the scroll "
+            "context docs for capacity sizing and the purge/VACUUM caveat."
         ),
     )
 

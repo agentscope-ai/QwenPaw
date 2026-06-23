@@ -166,6 +166,71 @@ def test_purge_drops_old_rows_and_keeps_recent(store: HistoryStore):
     assert store.count("s") == 1
 
 
+def test_purge_dry_run_reports_count_without_deleting(store: HistoryStore):
+    store.append(
+        session_id="s",
+        dedup_key="old",
+        entry=_entry("ancient", created_at="2020-01-01T00:00:00+00:00"),
+    )
+    store.append(
+        session_id="s",
+        dedup_key="new",
+        entry=_entry("fresh", created_at="2030-01-01T00:00:00+00:00"),
+    )
+    would = store.purge(before="2025-01-01T00:00:00+00:00", dry_run=True)
+    assert would == 1
+    assert store.count("s") == 2  # nothing actually removed
+    # A real purge then matches the previewed count.
+    assert store.purge(before="2025-01-01T00:00:00+00:00") == 1
+    assert store.count("s") == 1
+
+
+def test_estimate_purge_reports_rows_and_bytes(store: HistoryStore):
+    store.append(
+        session_id="s",
+        dedup_key="old",
+        entry=_entry("ancient", created_at="2020-01-01T00:00:00+00:00"),
+    )
+    store.append(
+        session_id="s",
+        dedup_key="new",
+        entry=_entry("fresh", created_at="2030-01-01T00:00:00+00:00"),
+    )
+    est = store.estimate_purge(before="2025-01-01T00:00:00+00:00")
+    assert est["rows"] == 1
+    assert est["content_bytes"] == len("ancient")
+    # Estimating never deletes.
+    assert store.count("s") == 2
+
+
+def test_purge_kinds_drops_only_tool_output(store: HistoryStore):
+    old = "2020-01-01T00:00:00+00:00"
+    store.append(
+        session_id="s",
+        dedup_key="turn",
+        entry=_entry("conversation", kind="model_turn", created_at=old),
+    )
+    store.append(
+        session_id="s",
+        dedup_key="result",
+        entry=_entry("big tool output", kind="tool_result", created_at=old),
+    )
+    # Both rows are old, but kinds restricts the delete to tool output.
+    est = store.estimate_purge(
+        before="2025-01-01T00:00:00+00:00",
+        kinds=("tool_result",),
+    )
+    assert est["rows"] == 1
+    assert est["content_bytes"] == len("big tool output")
+
+    removed = store.purge(
+        before="2025-01-01T00:00:00+00:00",
+        kinds=("tool_result",),
+    )
+    assert removed == 1
+    assert store.count("s") == 1  # the conversation turn survives
+
+
 def test_purge_retains_null_created_at(store: HistoryStore):
     # Force a NULL created_at row by writing directly (append always stamps).
     with store._conn:
