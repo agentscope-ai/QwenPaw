@@ -11,6 +11,7 @@ from qwenpaw.agents.acp.server import QwenPawACPAgent
 
 class _FakeConn:
     async def session_update(self, session_id, update):  # noqa: ANN001
+        del session_id, update
         return None
 
 
@@ -20,16 +21,23 @@ class _FakeWorkspace:
 
     async def stream_query(self, request):  # noqa: ANN001
         self.requests.append(request)
-        if False:
-            yield None
+        for event in ():
+            yield event
+
+
+class _TestACPAgent(QwenPawACPAgent):
+    def __init__(self, workspace: _FakeWorkspace) -> None:
+        super().__init__(agent_id="default")
+        self._fake_workspace = workspace
+
+    async def _ensure_workspace(self):
+        return self._fake_workspace
 
 
 async def test_acp_project_metadata_flows_to_request_context(tmp_path):
     project_dir = str(tmp_path)
-    agent = QwenPawACPAgent(agent_id="default")
     workspace = _FakeWorkspace()
-    agent._workspace = workspace
-    agent._workspace_ready = True
+    agent = _TestACPAgent(workspace)
     agent.on_connect(_FakeConn())
 
     response = await agent.new_session(
@@ -43,6 +51,7 @@ async def test_acp_project_metadata_flows_to_request_context(tmp_path):
     )
 
     assert workspace.requests
-    assert workspace.requests[0].request_context[
-        ACP_CODING_PROJECT_META_KEY
-    ] == project_dir
+    assert (
+        workspace.requests[0].request_context[ACP_CODING_PROJECT_META_KEY]
+        == project_dir
+    )

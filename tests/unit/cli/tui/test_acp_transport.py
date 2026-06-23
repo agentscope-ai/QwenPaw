@@ -3,6 +3,9 @@
 
 from __future__ import annotations
 
+# Tests assert on transport internals for focused coverage.
+# pylint: disable=protected-access
+
 import asyncio
 import os
 import sys

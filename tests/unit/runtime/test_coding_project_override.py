@@ -3,6 +3,9 @@
 
 from __future__ import annotations
 
+# Tests target request-scope helpers directly.
+# pylint: disable=protected-access
+
 from qwenpaw.agents.acp.meta import ACP_CODING_PROJECT_META_KEY
 from qwenpaw.config.config import AgentProfileConfig
 from qwenpaw.runtime.builder import AgentBuilder

@@ -132,6 +132,17 @@ Do NOT read or write here unless the user explicitly asks.
 """
 
 
+def _project_dir_from_config(agent_config: object | None) -> str | None:
+    """Extract a configured Coding Mode project dir from an agent config."""
+    if agent_config is None:
+        return None
+    if isinstance(agent_config, dict):
+        cm_dict = agent_config.get("coding_mode") or {}
+        return cm_dict.get("project_dir") or None
+    cm_obj = getattr(agent_config, "coding_mode", None)
+    return getattr(cm_obj, "project_dir", None) or None
+
+
 class CodingModeMixin:
     """Mixin that adds Coding Mode features to a ReActAgent.
 
@@ -162,15 +173,9 @@ class CodingModeMixin:
         if not agent_id:
             return None
 
-        if agent_config is not None:
-            if isinstance(agent_config, dict):
-                cm_dict = agent_config.get("coding_mode") or {}
-                project_dir = cm_dict.get("project_dir")
-            else:
-                cm_obj = getattr(agent_config, "coding_mode", None)
-                project_dir = getattr(cm_obj, "project_dir", None)
-            if project_dir:
-                return project_dir
+        project_dir = _project_dir_from_config(agent_config)
+        if project_dir:
+            return project_dir
 
         try:
             config = load_agent_config(agent_id)
@@ -180,13 +185,7 @@ class CodingModeMixin:
         except Exception:
             pass
 
-        if agent_config is None:
-            return None
-        if isinstance(agent_config, dict):
-            cm_dict = agent_config.get("coding_mode") or {}
-            return cm_dict.get("project_dir") or None
-        cm_obj = getattr(agent_config, "coding_mode", None)
-        return getattr(cm_obj, "project_dir", None) or None
+        return _project_dir_from_config(agent_config)
 
     def _coding_mode_enabled(self) -> bool:
         """Return ``True`` when Coding Mode is active."""
