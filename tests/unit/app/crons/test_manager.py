@@ -2,10 +2,13 @@
 # pylint: disable=redefined-outer-name,protected-access
 """Unit tests for CronManager.
 
-Issue-driven:
-- #4835: jobs.json corruption → manager.start() must not raise
-- #4957: stale task status → get_state() reflects latest execution record
-- #4232: concurrent writes → create_or_replace_job serializes via _lock
+Covers: lifecycle, CRUD, state cleanup, concurrent write serialization,
+and manager-level tolerance for failed job registration during start.
+
+Note: the tests here exercise CronManager behavior only. They do NOT
+verify fixes for #4835 (load-layer corruption), #4957 (TaskEngineMixin
+stale status — in agentscope-runtime), or #4232 (SafeJSONSession
+concurrent writes — already fixed upstream).
 """
 from __future__ import annotations
 
@@ -68,7 +71,7 @@ async def test_start_loads_existing_jobs(repo: InMemoryJobRepository):
 
 
 # ---------------------------------------------------------------------------
-# #4835 — jobs.json 容错: corrupt file must not crash start()
+# start() tolerance — single bad job must not crash the entire start()
 # ---------------------------------------------------------------------------
 
 
@@ -196,7 +199,7 @@ async def test_get_state_returns_default_for_unknown_job(manager: CronManager):
 
 
 # ---------------------------------------------------------------------------
-# #4957 — stale task status: delete cleans up in-memory state
+# delete_job cleans up in-memory state
 # ---------------------------------------------------------------------------
 
 
@@ -218,7 +221,7 @@ async def test_delete_job_clears_in_memory_state(manager: CronManager):
 
 
 # ---------------------------------------------------------------------------
-# #4232 — concurrent create_or_replace_job serialized by _lock
+# concurrent create_or_replace_job serialized by _lock
 # ---------------------------------------------------------------------------
 
 
