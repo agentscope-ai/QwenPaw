@@ -23,7 +23,6 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-<<<<<<< HEAD
 # User-facing conversation commands and their summaries, used when
 # advertising commands to clients (e.g. the ACP
 # ``available_commands_update`` notification). Intentionally a small,
@@ -46,7 +45,6 @@ SYSTEM_COMMAND_DESCRIPTIONS: dict[str, str] = {
         "Compact the conversation context; optional instruction supported"
     ),
 }
-=======
 # Manual ``/compact`` skips the auto ``trigger_ratio`` gate and runs compaction
 # directly; the field is constrained ``gt=0``, so we use a negligible value
 # rather than zero.
@@ -60,7 +58,6 @@ _FORCE_TRIGGER_RATIO = 1e-6
 # of recent turns for continuity (eviction is lossless under scroll — the rest
 # stays recallable).
 _FORCE_RESERVE_RATIO = 0.02
->>>>>>> b063fae2 (fix(context): harden scroll recall — robustness, manual /compact, anti-pollution)
 
 
 def _fmt_tokens(n: int) -> str:

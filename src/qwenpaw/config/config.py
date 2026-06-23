@@ -34,12 +34,9 @@ from ..constant import (
     WORKING_DIR,
 )
 
-<<<<<<< HEAD
 logger = logging.getLogger(__name__)
 
 
-=======
->>>>>>> 66d5f1b6 (feat(context): scroll-aware magic commands + opt-in dialog offloader)
 # ============================================================================
 # Core config models (moved here to avoid circular imports)
 # ============================================================================
@@ -793,7 +790,7 @@ class ScrollContextConfig(BaseModel):
     Only consulted when ``LightContextConfig.strategy == "scroll"``. The
     durable history lives at ``{working_dir}/{db_filename}``; evicted turns
     fold into an in-context eviction index recallable from the sandboxed
-    ``recall_history_python`` REPL.
+    ``execute_python`` REPL.
     """
 
     model_config = ConfigDict(extra="ignore")
@@ -824,53 +821,41 @@ class ScrollContextConfig(BaseModel):
     repl_timeout_s: int = Field(
         default=300,
         ge=1,
-        description=(
-            "Per-call timeout for the recall_history_python REPL tool."
-        ),
+        description="Per-call timeout for the execute_python REPL tool.",
     )
 
     history_retention_days: int = Field(
-        default=90,
+        default=0,
         ge=0,
         description=(
             "Days of durable history to keep; rows older than this are "
-            "purged on agent teardown. Defaults to 90 so a long-running "
-            "agent's store stays bounded (scroll writes full tool output "
-            "through to history.db, which would otherwise grow without "
-            "bound). Set 0 to keep history forever. See the scroll context "
-            "docs for capacity sizing and the purge/VACUUM caveat."
+            "purged on agent teardown. 0 (default) keeps history forever "
+            "— the memory is never dropped unless an operator opts into a "
+            "retention window."
         ),
     )
 
     allow_unsandboxed: bool = Field(
         default=False,
         description=(
-            "HIGH RISK escape hatch. The recall_history_python REPL runs "
+            "UNSAFE escape hatch. The execute_python recall REPL runs "
             "model-authored Python and is only isolated by the sandbox; the "
             "sandbox config is injected by the governance layer. When that "
-            "layer is degraded the tool fails closed and refuses to run. "
-            "Setting this true requests running the REPL with NO isolation "
-            "(arbitrary host code as the agent user). SECURITY: this flag is "
-            "NOT trusted on its own — to take effect the deployment/operator "
-            "must ALSO set the QWENPAW_ALLOW_UNSANDBOXED_RECALL env var, so "
-            "an untrusted agent.json / API payload can never bypass the "
-            "sandbox in a multi-tenant deployment. Trusted local/dev only."
+            "layer is degraded the tool fails closed and refuses to run. Set "
+            "this to true to run the REPL with NO isolation (arbitrary host "
+            "code as the agent user) — trusted local/dev use only."
         ),
     )
 
     offload_dialog: bool = Field(
-        default=True,
+        default=False,
         description=(
-            "Also archive evicted turns to ``dialog/{date}.jsonl`` files. "
-            "On by default so scroll keeps the same human-readable dialog "
-            "timeline the native manager always wrote (for analytics, backup, "
-            "external consumers). When on, dialog is written on each eviction "
-            "AND on /clear, /new, /compact; set false to skip it entirely and "
-            "rely solely on the durable ``history.db`` (the source of truth). "
-            "Note: dialog files are a redundant second copy of the "
-            "conversation, so this roughly doubles on-disk text, and dialog "
-            "has no retention sweep of its own — it grows until pruned "
-            "externally."
+            "Also archive evicted turns to legacy ``dialog/{date}.jsonl`` "
+            "files. Off by default: under scroll the durable ``history.db`` "
+            "is already the full record, so dialog files are a redundant "
+            "opt-in for external consumers (analytics, backup). When on, "
+            "dialog is written on every eviction AND on /clear, /new, "
+            "/compact; when off, scroll never writes dialog anywhere."
         ),
     )
 
@@ -885,7 +870,7 @@ class LightContextConfig(BaseModel):
         description=(
             "Context management strategy. 'native' = AgentScope compression; "
             "'scroll' = retrieval-driven history.db + eviction index with a "
-            "sandboxed recall_history_python recall REPL (the default)."
+            "sandboxed execute_python recall REPL (the default)."
         ),
     )
 
