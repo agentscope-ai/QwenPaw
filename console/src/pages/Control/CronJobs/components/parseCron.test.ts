@@ -11,11 +11,19 @@ describe("parseCron", () => {
   });
 
   it('"0 9 * * *" parses as daily at 09:00', () => {
-    expect(parseCron("0 9 * * *")).toEqual({ type: "daily", hour: 9, minute: 0 });
+    expect(parseCron("0 9 * * *")).toEqual({
+      type: "daily",
+      hour: 9,
+      minute: 0,
+    });
   });
 
   it('"30 14 * * *" parses as daily at 14:30', () => {
-    expect(parseCron("30 14 * * *")).toEqual({ type: "daily", hour: 14, minute: 30 });
+    expect(parseCron("30 14 * * *")).toEqual({
+      type: "daily",
+      hour: 14,
+      minute: 30,
+    });
   });
 
   it('"0 9 * * mon,wed,fri" parses as weekly with named days', () => {
@@ -47,10 +55,14 @@ describe("serializeCron", () => {
   });
 
   it("daily type with hour and minute serializes correctly", () => {
-    expect(serializeCron({ type: "daily", hour: 9, minute: 30 })).toBe("30 9 * * *");
+    expect(serializeCron({ type: "daily", hour: 9, minute: 30 })).toBe(
+      "30 9 * * *",
+    );
   });
 
   it("custom type preserves rawCron verbatim", () => {
-    expect(serializeCron({ type: "custom", rawCron: "*/15 * * * *" })).toBe("*/15 * * * *");
+    expect(serializeCron({ type: "custom", rawCron: "*/15 * * * *" })).toBe(
+      "*/15 * * * *",
+    );
   });
 });

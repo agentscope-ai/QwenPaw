@@ -34,7 +34,9 @@ describe("useSessions", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    (api.listSessions as ReturnType<typeof vi.fn>).mockResolvedValue(mockSessions);
+    (api.listSessions as ReturnType<typeof vi.fn>).mockResolvedValue(
+      mockSessions,
+    );
   });
 
   // 1. 初始 loading=true，fetchSessions 成功后 loading=false
@@ -63,7 +65,9 @@ describe("useSessions", () => {
   // 3. updateSession 成功时更新 sessions 列表并调用 message.success
   it("updateSession 成功时更新 sessions 列表并调用 message.success", async () => {
     const updatedSession: Session = { id: "s1", name: "Updated Session 1" };
-    (api.updateSession as ReturnType<typeof vi.fn>).mockResolvedValue(updatedSession);
+    (api.updateSession as ReturnType<typeof vi.fn>).mockResolvedValue(
+      updatedSession,
+    );
 
     const { result } = renderHook(() => useSessions());
 
@@ -74,7 +78,9 @@ describe("useSessions", () => {
 
     let returnValue: boolean | undefined;
     await act(async () => {
-      returnValue = await result.current.updateSession("s1", { name: "Updated Session 1" });
+      returnValue = await result.current.updateSession("s1", {
+        name: "Updated Session 1",
+      });
     });
 
     expect(returnValue).toBe(true);
@@ -85,7 +91,9 @@ describe("useSessions", () => {
 
   // 4. updateSession 失败时调用 message.error，返回 false
   it("updateSession 失败时调用 message.error，返回 false", async () => {
-    (api.updateSession as ReturnType<typeof vi.fn>).mockRejectedValue(new Error("update failed"));
+    (api.updateSession as ReturnType<typeof vi.fn>).mockRejectedValue(
+      new Error("update failed"),
+    );
 
     const { result } = renderHook(() => useSessions());
 
@@ -104,7 +112,9 @@ describe("useSessions", () => {
 
   // 5. deleteSession 成功时从 sessions 移除并调用 message.success
   it("deleteSession 成功时从 sessions 移除并调用 message.success", async () => {
-    (api.deleteSession as ReturnType<typeof vi.fn>).mockResolvedValue(undefined);
+    (api.deleteSession as ReturnType<typeof vi.fn>).mockResolvedValue(
+      undefined,
+    );
 
     const { result } = renderHook(() => useSessions());
 
@@ -125,7 +135,9 @@ describe("useSessions", () => {
 
   // 6. deleteSession 失败时调用 message.error，返回 false
   it("deleteSession 失败时调用 message.error，返回 false", async () => {
-    (api.deleteSession as ReturnType<typeof vi.fn>).mockRejectedValue(new Error("delete failed"));
+    (api.deleteSession as ReturnType<typeof vi.fn>).mockRejectedValue(
+      new Error("delete failed"),
+    );
 
     const { result } = renderHook(() => useSessions());
 
@@ -144,7 +156,9 @@ describe("useSessions", () => {
 
   // 7. batchDeleteSessions 成功时批量移除并调用 message.success
   it("batchDeleteSessions 成功时批量移除并调用 message.success", async () => {
-    (api.batchDeleteSessions as ReturnType<typeof vi.fn>).mockResolvedValue(undefined);
+    (api.batchDeleteSessions as ReturnType<typeof vi.fn>).mockResolvedValue(
+      undefined,
+    );
 
     const { result } = renderHook(() => useSessions());
 
@@ -160,12 +174,16 @@ describe("useSessions", () => {
     expect(returnValue).toBe(true);
     expect(result.current.sessions).toHaveLength(1);
     expect(result.current.sessions[0].id).toBe("s2");
-    expect(mockMessage.success).toHaveBeenCalledWith("sessions.batchDeleteSuccess");
+    expect(mockMessage.success).toHaveBeenCalledWith(
+      "sessions.batchDeleteSuccess",
+    );
   });
 
   // 8. batchDeleteSessions 失败时调用 message.error，返回 false
   it("batchDeleteSessions 失败时调用 message.error，返回 false", async () => {
-    (api.batchDeleteSessions as ReturnType<typeof vi.fn>).mockRejectedValue(new Error("batch delete failed"));
+    (api.batchDeleteSessions as ReturnType<typeof vi.fn>).mockRejectedValue(
+      new Error("batch delete failed"),
+    );
 
     const { result } = renderHook(() => useSessions());
 
@@ -179,6 +197,8 @@ describe("useSessions", () => {
     });
 
     expect(returnValue).toBe(false);
-    expect(mockMessage.error).toHaveBeenCalledWith("sessions.batchDeleteFailed");
+    expect(mockMessage.error).toHaveBeenCalledWith(
+      "sessions.batchDeleteFailed",
+    );
   });
 });

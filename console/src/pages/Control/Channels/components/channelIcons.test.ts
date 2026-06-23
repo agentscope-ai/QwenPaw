@@ -2,7 +2,6 @@ import { describe, it, expect } from "vitest";
 import {
   getChannelIconUrl,
   getChannelLetterColor,
-  getChannelLetter,
   CHANNEL_DEFAULT_ICON_URL,
 } from "./channelIcons";
 
@@ -11,14 +10,14 @@ describe("getChannelIconUrl", () => {
     const url = getChannelIconUrl("dingtalk");
     expect(url).toMatch(/^https:\/\/gw\.alicdn\.com/);
     expect(url).toBe(
-      "https://gw.alicdn.com/imgextra/i4/O1CN01g1u9vB1KdEreWzDdv_!!6000000001186-2-tps-400-400.png"
+      "https://gw.alicdn.com/imgextra/i4/O1CN01g1u9vB1KdEreWzDdv_!!6000000001186-2-tps-400-400.png",
     );
   });
 
   it("returns specific CDN URL for known channel 'discord'", () => {
     const url = getChannelIconUrl("discord");
     expect(url).toBe(
-      "https://gw.alicdn.com/imgextra/i4/O1CN01BQFnBu21PWTtKbPmU_!!6000000006977-2-tps-400-400.png"
+      "https://gw.alicdn.com/imgextra/i4/O1CN01BQFnBu21PWTtKbPmU_!!6000000006977-2-tps-400-400.png",
     );
   });
 

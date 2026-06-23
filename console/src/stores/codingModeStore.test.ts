@@ -1,6 +1,10 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { renderHook } from "@testing-library/react";
-import { useCodingModeStore, useCodingMode, useProjectDir } from "./codingModeStore";
+import {
+  useCodingModeStore,
+  useCodingMode,
+  useProjectDir,
+} from "./codingModeStore";
 import { useAgentStore } from "./agentStore";
 
 beforeEach(() => {
@@ -14,7 +18,8 @@ describe("codingModeStore", () => {
   // ---------------------------------------------------------------------------
 
   it("both codingModeByAgent and projectDirByAgent start empty", () => {
-    const { codingModeByAgent, projectDirByAgent } = useCodingModeStore.getState();
+    const { codingModeByAgent, projectDirByAgent } =
+      useCodingModeStore.getState();
     expect(codingModeByAgent).toEqual({});
     expect(projectDirByAgent).toEqual({});
   });
@@ -39,7 +44,9 @@ describe("codingModeStore", () => {
 
   it("setProjectDir stores the path string correctly", () => {
     useCodingModeStore.getState().setProjectDir("a1", "/path/to/project");
-    expect(useCodingModeStore.getState().projectDirByAgent["a1"]).toBe("/path/to/project");
+    expect(useCodingModeStore.getState().projectDirByAgent["a1"]).toBe(
+      "/path/to/project",
+    );
   });
 
   it("setProjectDir(null) stores null (user chose default workspace)", () => {
@@ -60,7 +67,10 @@ describe("codingModeStore", () => {
 
   it("useCodingMode: agent in store with false → codingMode false, initialized TRUE", () => {
     useAgentStore.setState({ selectedAgent: "a1", agents: [] });
-    useCodingModeStore.setState({ codingModeByAgent: { a1: false }, projectDirByAgent: {} });
+    useCodingModeStore.setState({
+      codingModeByAgent: { a1: false },
+      projectDirByAgent: {},
+    });
     const { result } = renderHook(() => useCodingMode());
     expect(result.current.codingMode).toBe(false);
     expect(result.current.initialized).toBe(true);

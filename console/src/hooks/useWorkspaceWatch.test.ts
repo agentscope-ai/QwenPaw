@@ -45,7 +45,9 @@ describe("useWorkspaceWatch", () => {
     vi.resetModules();
 
     vi.doMock("../api/modules/workspace", () => ({
-      workspaceApi: { getWatchUrl: vi.fn().mockReturnValue("http://test/watch") },
+      workspaceApi: {
+        getWatchUrl: vi.fn().mockReturnValue("http://test/watch"),
+      },
     }));
     vi.doMock("../api/authHeaders", () => ({
       buildAuthHeaders: vi.fn().mockReturnValue({}),
@@ -64,9 +66,7 @@ describe("useWorkspaceWatch", () => {
     const mockFetch = makePendingFetchMock();
     vi.stubGlobal("fetch", mockFetch);
 
-    const { unmount } = renderHook(() =>
-      useWorkspaceWatch(vi.fn(), false),
-    );
+    const { unmount } = renderHook(() => useWorkspaceWatch(vi.fn(), false));
 
     // 等一个 tick，确保 effect 已执行
     await act(async () => {});
@@ -80,9 +80,7 @@ describe("useWorkspaceWatch", () => {
     const mockFetch = makePendingFetchMock();
     vi.stubGlobal("fetch", mockFetch);
 
-    const { unmount } = renderHook(() =>
-      useWorkspaceWatch(vi.fn(), true),
-    );
+    const { unmount } = renderHook(() => useWorkspaceWatch(vi.fn(), true));
 
     await waitFor(() => {
       expect(mockFetch).toHaveBeenCalledWith(
@@ -100,9 +98,7 @@ describe("useWorkspaceWatch", () => {
     vi.stubGlobal("fetch", mockFetch);
 
     const onFileChange = vi.fn();
-    const { unmount } = renderHook(() =>
-      useWorkspaceWatch(onFileChange, true),
-    );
+    const { unmount } = renderHook(() => useWorkspaceWatch(onFileChange, true));
 
     // 等 fetch 被调用
     await waitFor(() => expect(mockFetch).toHaveBeenCalled());
@@ -133,9 +129,7 @@ describe("useWorkspaceWatch", () => {
     vi.stubGlobal("fetch", mockFetch);
 
     const onFileChange = vi.fn();
-    const { unmount } = renderHook(() =>
-      useWorkspaceWatch(onFileChange, true),
-    );
+    const { unmount } = renderHook(() => useWorkspaceWatch(onFileChange, true));
 
     await waitFor(() => expect(mockFetch).toHaveBeenCalled());
 
@@ -160,9 +154,7 @@ describe("useWorkspaceWatch", () => {
     vi.stubGlobal("fetch", mockFetch);
 
     const onFileChange = vi.fn();
-    const { unmount } = renderHook(() =>
-      useWorkspaceWatch(onFileChange, true),
-    );
+    const { unmount } = renderHook(() => useWorkspaceWatch(onFileChange, true));
 
     await waitFor(() => expect(mockFetch).toHaveBeenCalled());
 
@@ -234,9 +226,7 @@ describe("useWorkspaceWatch", () => {
 
     const abortSpy = vi.spyOn(AbortController.prototype, "abort");
 
-    const { unmount } = renderHook(() =>
-      useWorkspaceWatch(vi.fn(), true),
-    );
+    const { unmount } = renderHook(() => useWorkspaceWatch(vi.fn(), true));
 
     await waitFor(() => expect(mockFetch).toHaveBeenCalled());
 

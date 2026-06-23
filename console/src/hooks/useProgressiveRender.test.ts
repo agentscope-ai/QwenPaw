@@ -3,7 +3,9 @@ import { vi, describe, it, expect, beforeEach } from "vitest";
 import { useProgressiveRender } from "./useProgressiveRender";
 
 // Capture the IntersectionObserver callback so we can fire it manually in tests
-let intersectionCallback: ((entries: IntersectionObserverEntry[]) => void) | null = null;
+let intersectionCallback:
+  | ((entries: IntersectionObserverEntry[]) => void)
+  | null = null;
 
 beforeEach(() => {
   intersectionCallback = null;
@@ -24,7 +26,9 @@ beforeEach(() => {
 
 // Helper: fire the captured IntersectionObserver as if sentinel is intersecting
 function triggerIntersection() {
-  intersectionCallback?.([{ isIntersecting: true } as IntersectionObserverEntry]);
+  intersectionCallback?.([
+    { isIntersecting: true } as IntersectionObserverEntry,
+  ]);
 }
 
 describe("useProgressiveRender", () => {

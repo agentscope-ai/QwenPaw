@@ -22,14 +22,19 @@ describe("CRON_TEMPLATES", () => {
 
     for (const template of CRON_TEMPLATES) {
       for (const field of requiredFields) {
-        expect(template, `template "${template.id}" missing field "${field}"`).toHaveProperty(field);
+        expect(
+          template,
+          `template "${template.id}" missing field "${field}"`,
+        ).toHaveProperty(field);
       }
     }
   });
 
-  it("every template's source is \"builtin\"", () => {
+  it('every template\'s source is "builtin"', () => {
     for (const template of CRON_TEMPLATES) {
-      expect(template.source, `template "${template.id}" source`).toBe("builtin");
+      expect(template.source, `template "${template.id}" source`).toBe(
+        "builtin",
+      );
     }
   });
 
@@ -48,20 +53,31 @@ describe("CRON_TEMPLATES", () => {
     const onceTemplate = CRON_TEMPLATES[4];
     expect(onceTemplate.category).toBe("once");
 
-    const values = onceTemplate.toFormValues("America/New_York") as Record<string, unknown>;
+    const values = onceTemplate.toFormValues("America/New_York") as Record<
+      string,
+      unknown
+    >;
     expect(values.scheduleType).toBe("once");
-    expect((values.schedule as Record<string, unknown>).timezone).toBe("America/New_York");
+    expect((values.schedule as Record<string, unknown>).timezone).toBe(
+      "America/New_York",
+    );
   });
 
   it("agent-type template has task_type 'agent' and a request object; text-type has a different task_type and a text string", () => {
     // CRON_TEMPLATES[0] = daily_tech_news_brief, agent type
-    const agentValues = CRON_TEMPLATES[0].toFormValues("UTC") as Record<string, unknown>;
+    const agentValues = CRON_TEMPLATES[0].toFormValues("UTC") as Record<
+      string,
+      unknown
+    >;
     expect(agentValues.task_type).toBe("agent");
     expect(agentValues.request).toBeDefined();
     expect(typeof agentValues.request).toBe("object");
 
     // CRON_TEMPLATES[2] = pomodoro_break_reminder, text type
-    const textValues = CRON_TEMPLATES[2].toFormValues("UTC") as Record<string, unknown>;
+    const textValues = CRON_TEMPLATES[2].toFormValues("UTC") as Record<
+      string,
+      unknown
+    >;
     expect(textValues.task_type).not.toBe("agent");
     expect(typeof textValues.text).toBe("string");
   });

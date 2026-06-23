@@ -65,7 +65,9 @@ describe("useCronJobs", () => {
 
     let returnValue: boolean | undefined;
     await act(async () => {
-      returnValue = await result.current.createJob(newJob as unknown as Parameters<typeof result.current.createJob>[0]);
+      returnValue = await result.current.createJob(
+        newJob as unknown as Parameters<typeof result.current.createJob>[0],
+      );
     });
 
     expect(returnValue).toBe(true);
@@ -75,14 +77,18 @@ describe("useCronJobs", () => {
 
   // 3. createJob 失败：message.error 被调用，返回 false
   it("createJob 失败：message.error 被调用，返回 false", async () => {
-    (api.createCronJob as ReturnType<typeof vi.fn>).mockRejectedValue(new Error("server error"));
+    (api.createCronJob as ReturnType<typeof vi.fn>).mockRejectedValue(
+      new Error("server error"),
+    );
 
     const { result } = renderHook(() => useCronJobs());
     await waitFor(() => expect(result.current.loading).toBe(false));
 
     let returnValue: boolean | undefined;
     await act(async () => {
-      returnValue = await result.current.createJob({} as unknown as Parameters<typeof result.current.createJob>[0]);
+      returnValue = await result.current.createJob(
+        {} as unknown as Parameters<typeof result.current.createJob>[0],
+      );
     });
 
     expect(returnValue).toBe(false);
@@ -92,14 +98,19 @@ describe("useCronJobs", () => {
   // 4. updateJob 成功：optimistic update 后替换为 API 返回值，message.success
   it("updateJob 成功：乐观更新后用 API 返回值替换，message.success 被调用", async () => {
     const updatedJob = { id: "j1", enabled: true, name: "Job 1 Updated" };
-    (api.replaceCronJob as ReturnType<typeof vi.fn>).mockResolvedValue(updatedJob);
+    (api.replaceCronJob as ReturnType<typeof vi.fn>).mockResolvedValue(
+      updatedJob,
+    );
 
     const { result } = renderHook(() => useCronJobs());
     await waitFor(() => expect(result.current.loading).toBe(false));
 
     let returnValue: boolean | undefined;
     await act(async () => {
-      returnValue = await result.current.updateJob("j1", updatedJob as unknown as Parameters<typeof result.current.updateJob>[1]);
+      returnValue = await result.current.updateJob(
+        "j1",
+        updatedJob as unknown as Parameters<typeof result.current.updateJob>[1],
+      );
     });
 
     expect(returnValue).toBe(true);
@@ -109,7 +120,9 @@ describe("useCronJobs", () => {
 
   // 5. updateJob 失败：回滚到 original，message.error，返回 false
   it("updateJob 失败：回滚到原始数据，message.error 被调用，返回 false", async () => {
-    (api.replaceCronJob as ReturnType<typeof vi.fn>).mockRejectedValue(new Error("update failed"));
+    (api.replaceCronJob as ReturnType<typeof vi.fn>).mockRejectedValue(
+      new Error("update failed"),
+    );
 
     const { result } = renderHook(() => useCronJobs());
     await waitFor(() => expect(result.current.loading).toBe(false));
@@ -118,10 +131,11 @@ describe("useCronJobs", () => {
 
     let returnValue: boolean | undefined;
     await act(async () => {
-      returnValue = await result.current.updateJob(
-        "j1",
-        { id: "j1", enabled: false, name: "Changed" } as unknown as Parameters<typeof result.current.updateJob>[1],
-      );
+      returnValue = await result.current.updateJob("j1", {
+        id: "j1",
+        enabled: false,
+        name: "Changed",
+      } as unknown as Parameters<typeof result.current.updateJob>[1]);
     });
 
     expect(returnValue).toBe(false);
@@ -131,7 +145,9 @@ describe("useCronJobs", () => {
 
   // 6. deleteJob 成功：optimistic delete，message.success
   it("deleteJob 成功：乐观删除 job，message.success 被调用", async () => {
-    (api.deleteCronJob as ReturnType<typeof vi.fn>).mockResolvedValue(undefined);
+    (api.deleteCronJob as ReturnType<typeof vi.fn>).mockResolvedValue(
+      undefined,
+    );
 
     const { result } = renderHook(() => useCronJobs());
     await waitFor(() => expect(result.current.loading).toBe(false));
@@ -148,7 +164,9 @@ describe("useCronJobs", () => {
 
   // 7. deleteJob 失败：恢复 original，message.error，返回 false
   it("deleteJob 失败：恢复原始 job，message.error 被调用，返回 false", async () => {
-    (api.deleteCronJob as ReturnType<typeof vi.fn>).mockRejectedValue(new Error("delete failed"));
+    (api.deleteCronJob as ReturnType<typeof vi.fn>).mockRejectedValue(
+      new Error("delete failed"),
+    );
 
     const { result } = renderHook(() => useCronJobs());
     await waitFor(() => expect(result.current.loading).toBe(false));
@@ -174,18 +192,25 @@ describe("useCronJobs", () => {
 
     let returnValue: boolean | undefined;
     await act(async () => {
-      returnValue = await result.current.toggleEnabled(job as unknown as Parameters<typeof result.current.toggleEnabled>[0]);
+      returnValue = await result.current.toggleEnabled(
+        job as unknown as Parameters<typeof result.current.toggleEnabled>[0],
+      );
     });
 
     expect(returnValue).toBe(true);
-    expect(api.replaceCronJob).toHaveBeenCalledWith(job.id, expect.objectContaining({ enabled: false }));
+    expect(api.replaceCronJob).toHaveBeenCalledWith(
+      job.id,
+      expect.objectContaining({ enabled: false }),
+    );
     expect(result.current.jobs.find((j) => j.id === job.id)).toEqual(toggled);
     expect(mockMessage.success).toHaveBeenCalledWith("Disabled");
   });
 
   // 9. executeNow 成功：triggerCronJob 调用，message.success
   it("executeNow 成功：调用 triggerCronJob，message.success 被调用", async () => {
-    (api.triggerCronJob as ReturnType<typeof vi.fn>).mockResolvedValue(undefined);
+    (api.triggerCronJob as ReturnType<typeof vi.fn>).mockResolvedValue(
+      undefined,
+    );
 
     const { result } = renderHook(() => useCronJobs());
     await waitFor(() => expect(result.current.loading).toBe(false));
@@ -197,12 +222,16 @@ describe("useCronJobs", () => {
 
     expect(returnValue).toBe(true);
     expect(api.triggerCronJob).toHaveBeenCalledWith("j1");
-    expect(mockMessage.success).toHaveBeenCalledWith("Task triggered successfully");
+    expect(mockMessage.success).toHaveBeenCalledWith(
+      "Task triggered successfully",
+    );
   });
 
   // 10. executeNow 失败：message.error，返回 false
   it("executeNow 失败：message.error 被调用，返回 false", async () => {
-    (api.triggerCronJob as ReturnType<typeof vi.fn>).mockRejectedValue(new Error("trigger failed"));
+    (api.triggerCronJob as ReturnType<typeof vi.fn>).mockRejectedValue(
+      new Error("trigger failed"),
+    );
 
     const { result } = renderHook(() => useCronJobs());
     await waitFor(() => expect(result.current.loading).toBe(false));
@@ -222,16 +251,22 @@ describe("useCronJobs", () => {
       (parseErrorDetail as ReturnType<typeof vi.fn>).mockReturnValue(
         "schedule.type is cron but cron is empty",
       );
-      (api.createCronJob as ReturnType<typeof vi.fn>).mockRejectedValue(new Error("validation error"));
+      (api.createCronJob as ReturnType<typeof vi.fn>).mockRejectedValue(
+        new Error("validation error"),
+      );
 
       const { result } = renderHook(() => useCronJobs());
       await waitFor(() => expect(result.current.loading).toBe(false));
 
       await act(async () => {
-        await result.current.createJob({} as unknown as Parameters<typeof result.current.createJob>[0]);
+        await result.current.createJob(
+          {} as unknown as Parameters<typeof result.current.createJob>[0],
+        );
       });
 
-      expect(mockMessage.error).toHaveBeenCalledWith("cronJobs.validation.cronRequired");
+      expect(mockMessage.error).toHaveBeenCalledWith(
+        "cronJobs.validation.cronRequired",
+      );
     });
 
     // 12. detail 是 [{msg: "Value error, cron must have 5 fields"}]
@@ -239,16 +274,22 @@ describe("useCronJobs", () => {
       (parseErrorDetail as ReturnType<typeof vi.fn>).mockReturnValue([
         { msg: "Value error, cron must have 5 fields" },
       ]);
-      (api.createCronJob as ReturnType<typeof vi.fn>).mockRejectedValue(new Error("validation error"));
+      (api.createCronJob as ReturnType<typeof vi.fn>).mockRejectedValue(
+        new Error("validation error"),
+      );
 
       const { result } = renderHook(() => useCronJobs());
       await waitFor(() => expect(result.current.loading).toBe(false));
 
       await act(async () => {
-        await result.current.createJob({} as unknown as Parameters<typeof result.current.createJob>[0]);
+        await result.current.createJob(
+          {} as unknown as Parameters<typeof result.current.createJob>[0],
+        );
       });
 
-      expect(mockMessage.error).toHaveBeenCalledWith("cronJobs.validation.invalidCronExpression");
+      expect(mockMessage.error).toHaveBeenCalledWith(
+        "cronJobs.validation.invalidCronExpression",
+      );
     });
   });
 });

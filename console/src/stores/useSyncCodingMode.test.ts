@@ -26,6 +26,7 @@ describe("useSyncCodingMode", () => {
     vi.mocked(codingModeApi.get).mockResolvedValue({
       enabled: false,
       project_dir: null,
+      agent_id: "agent-1",
     });
 
     renderHook(() => useSyncCodingMode());
@@ -42,14 +43,15 @@ describe("useSyncCodingMode", () => {
     vi.mocked(codingModeApi.get).mockResolvedValue({
       enabled: true,
       project_dir: "/my/project",
+      agent_id: "agent-1",
     });
 
     renderHook(() => useSyncCodingMode());
 
     await waitFor(() => {
-      expect(
-        useCodingModeStore.getState().codingModeByAgent["agent-1"],
-      ).toBe(true);
+      expect(useCodingModeStore.getState().codingModeByAgent["agent-1"]).toBe(
+        true,
+      );
     });
   });
 
@@ -60,14 +62,15 @@ describe("useSyncCodingMode", () => {
     vi.mocked(codingModeApi.get).mockResolvedValue({
       enabled: true,
       project_dir: "/my/project",
+      agent_id: "agent-1",
     });
 
     renderHook(() => useSyncCodingMode());
 
     await waitFor(() => {
-      expect(
-        useCodingModeStore.getState().projectDirByAgent["agent-1"],
-      ).toBe("/my/project");
+      expect(useCodingModeStore.getState().projectDirByAgent["agent-1"]).toBe(
+        "/my/project",
+      );
     });
   });
 
@@ -80,9 +83,9 @@ describe("useSyncCodingMode", () => {
     renderHook(() => useSyncCodingMode());
 
     await waitFor(() => {
-      expect(
-        useCodingModeStore.getState().codingModeByAgent["agent-1"],
-      ).toBe(false);
+      expect(useCodingModeStore.getState().codingModeByAgent["agent-1"]).toBe(
+        false,
+      );
       expect(
         useCodingModeStore.getState().projectDirByAgent["agent-1"],
       ).toBeNull();
@@ -94,8 +97,16 @@ describe("useSyncCodingMode", () => {
   // ---------------------------------------------------------------------------
   it("fires a new fetch when selectedAgent changes", async () => {
     vi.mocked(codingModeApi.get)
-      .mockResolvedValueOnce({ enabled: false, project_dir: null })
-      .mockResolvedValueOnce({ enabled: true, project_dir: "/agent2/project" });
+      .mockResolvedValueOnce({
+        enabled: false,
+        project_dir: null,
+        agent_id: "agent-1",
+      })
+      .mockResolvedValueOnce({
+        enabled: true,
+        project_dir: "/agent2/project",
+        agent_id: "agent-2",
+      });
 
     const { rerender } = renderHook(() => useSyncCodingMode());
 
@@ -118,12 +129,12 @@ describe("useSyncCodingMode", () => {
 
     // Final state should reflect agent-2's data
     await waitFor(() => {
-      expect(
-        useCodingModeStore.getState().codingModeByAgent["agent-2"],
-      ).toBe(true);
-      expect(
-        useCodingModeStore.getState().projectDirByAgent["agent-2"],
-      ).toBe("/agent2/project");
+      expect(useCodingModeStore.getState().codingModeByAgent["agent-2"]).toBe(
+        true,
+      );
+      expect(useCodingModeStore.getState().projectDirByAgent["agent-2"]).toBe(
+        "/agent2/project",
+      );
     });
   });
 });

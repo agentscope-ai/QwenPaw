@@ -38,11 +38,18 @@ describe("useChannels", () => {
   });
 
   it("fetchChannels 调用后设置 channels 和 channelTypes", async () => {
-    const mockChannels = { console: { isBuiltin: true }, dingtalk: { isBuiltin: true } };
+    const mockChannels = {
+      console: { isBuiltin: true },
+      dingtalk: { isBuiltin: true },
+    };
     const mockTypes = ["console", "dingtalk"];
 
-    (api.listChannels as ReturnType<typeof vi.fn>).mockResolvedValue(mockChannels);
-    (api.listChannelTypes as ReturnType<typeof vi.fn>).mockResolvedValue(mockTypes);
+    (api.listChannels as ReturnType<typeof vi.fn>).mockResolvedValue(
+      mockChannels,
+    );
+    (api.listChannelTypes as ReturnType<typeof vi.fn>).mockResolvedValue(
+      mockTypes,
+    );
 
     const { result } = renderHook(() => useChannels());
 
@@ -57,7 +64,9 @@ describe("useChannels", () => {
   it("orderedKeys 按 builtinOrder 排序：builtin 在前，custom 在后", async () => {
     (api.listChannels as ReturnType<typeof vi.fn>).mockResolvedValue({});
     (api.listChannelTypes as ReturnType<typeof vi.fn>).mockResolvedValue([
-      "dingtalk", "my-custom", "console",
+      "dingtalk",
+      "my-custom",
+      "console",
     ]);
 
     const { result } = renderHook(() => useChannels());
@@ -66,13 +75,20 @@ describe("useChannels", () => {
       expect(result.current.loading).toBe(false);
     });
 
-    expect(result.current.orderedKeys).toEqual(["console", "dingtalk", "my-custom"]);
+    expect(result.current.orderedKeys).toEqual([
+      "console",
+      "dingtalk",
+      "my-custom",
+    ]);
   });
 
   it("orderedKeys 中不在 builtinOrder 的 key 出现在末尾", async () => {
     (api.listChannels as ReturnType<typeof vi.fn>).mockResolvedValue({});
     (api.listChannelTypes as ReturnType<typeof vi.fn>).mockResolvedValue([
-      "alpha-custom", "feishu", "beta-custom", "telegram",
+      "alpha-custom",
+      "feishu",
+      "beta-custom",
+      "telegram",
     ]);
 
     const { result } = renderHook(() => useChannels());
@@ -86,8 +102,12 @@ describe("useChannels", () => {
     const customKeys = ["alpha-custom", "beta-custom"];
 
     // builtin keys 全部出现在 custom keys 之前
-    const lastBuiltinIndex = Math.max(...builtinKeys.map((k) => keys.indexOf(k)));
-    const firstCustomIndex = Math.min(...customKeys.map((k) => keys.indexOf(k)));
+    const lastBuiltinIndex = Math.max(
+      ...builtinKeys.map((k) => keys.indexOf(k)),
+    );
+    const firstCustomIndex = Math.min(
+      ...customKeys.map((k) => keys.indexOf(k)),
+    );
 
     expect(lastBuiltinIndex).toBeLessThan(firstCustomIndex);
     // custom keys 都在末尾
@@ -95,10 +115,18 @@ describe("useChannels", () => {
   });
 
   it("isBuiltin 返回 true 当 channels[key].isBuiltin === true", async () => {
-    const mockChannels = { console: { isBuiltin: true }, dingtalk: { isBuiltin: false } };
+    const mockChannels = {
+      console: { isBuiltin: true },
+      dingtalk: { isBuiltin: false },
+    };
 
-    (api.listChannels as ReturnType<typeof vi.fn>).mockResolvedValue(mockChannels);
-    (api.listChannelTypes as ReturnType<typeof vi.fn>).mockResolvedValue(["console", "dingtalk"]);
+    (api.listChannels as ReturnType<typeof vi.fn>).mockResolvedValue(
+      mockChannels,
+    );
+    (api.listChannelTypes as ReturnType<typeof vi.fn>).mockResolvedValue([
+      "console",
+      "dingtalk",
+    ]);
 
     const { result } = renderHook(() => useChannels());
 
@@ -110,10 +138,18 @@ describe("useChannels", () => {
   });
 
   it("isBuiltin 返回 false 当 key 不存在或 isBuiltin === false", async () => {
-    const mockChannels = { dingtalk: { isBuiltin: false }, feishu: { isBuiltin: true } };
+    const mockChannels = {
+      dingtalk: { isBuiltin: false },
+      feishu: { isBuiltin: true },
+    };
 
-    (api.listChannels as ReturnType<typeof vi.fn>).mockResolvedValue(mockChannels);
-    (api.listChannelTypes as ReturnType<typeof vi.fn>).mockResolvedValue(["dingtalk", "feishu"]);
+    (api.listChannels as ReturnType<typeof vi.fn>).mockResolvedValue(
+      mockChannels,
+    );
+    (api.listChannelTypes as ReturnType<typeof vi.fn>).mockResolvedValue([
+      "dingtalk",
+      "feishu",
+    ]);
 
     const { result } = renderHook(() => useChannels());
 

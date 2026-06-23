@@ -23,7 +23,10 @@ describe("getChannelLabel", () => {
   });
 
   it("calls t with the correct key and defaultValue when t is provided", () => {
-    const t = vi.fn<[string, object?], string>((key, opts) => opts?.defaultValue ?? key);
+    const t = vi.fn(
+      (key: string, opts?: { defaultValue?: string }) =>
+        opts?.defaultValue ?? key,
+    );
     getChannelLabel("discord", t as any);
     expect(t).toHaveBeenCalledWith("channels.channelNames.discord", {
       defaultValue: "Discord",

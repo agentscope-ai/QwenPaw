@@ -9,7 +9,9 @@ vi.mock("../api/modules/language", () => ({
 import { useUploadLimitStore } from "./uploadLimitStore";
 import { settingsApi } from "../api/modules/language";
 
-const mockGetUploadLimit = settingsApi.getUploadLimit as ReturnType<typeof vi.fn>;
+const mockGetUploadLimit = settingsApi.getUploadLimit as ReturnType<
+  typeof vi.fn
+>;
 
 describe("uploadLimitStore", () => {
   beforeEach(() => {
