@@ -25,7 +25,7 @@ def _make_concrete_class():
         async def close(self):
             return True
 
-        def get_memory_prompt(self, language: str = "zh") -> str:
+        def get_memory_prompt(self) -> str:
             return ""
 
         def list_memory_tools(self):

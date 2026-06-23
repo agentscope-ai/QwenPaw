@@ -195,9 +195,7 @@ class PromptBuilder:
 
         # Get memory prompt from manager or fallback
         if self.memory_manager:
-            memory_section = self.memory_manager.get_memory_prompt(
-                self.language,
-            )
+            memory_section = self.memory_manager.get_memory_prompt()
         else:
             memory_section = ""
 
