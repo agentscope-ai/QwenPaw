@@ -107,7 +107,7 @@ describe("ModelSelector", () => {
 
   it("displays current active model name on trigger button after loading", async () => {
     renderWithProviders(<ModelSelector />);
-    expect(await screen.findByText("GPT-4")).toBeInTheDocument();
+    expect((await screen.findAllByText("GPT-4"))[0]).toBeInTheDocument();
   });
 
   it("displays i18n key when there is no active model", async () => {
@@ -116,7 +116,7 @@ describe("ModelSelector", () => {
     });
     renderWithProviders(<ModelSelector />);
     expect(
-      await screen.findByText("modelSelector.selectModel"),
+      (await screen.findAllByText("modelSelector.selectModel"))[0],
     ).toBeInTheDocument();
   });
 
@@ -126,12 +126,12 @@ describe("ModelSelector", () => {
       { ...mockProvider, api_key: "" },
     ]);
     renderWithProviders(<ModelSelector />);
-    expect(await screen.findByText("gpt-4")).toBeInTheDocument();
+    expect((await screen.findAllByText("gpt-4"))[0]).toBeInTheDocument();
   });
 
   it("calls listProviders and getActiveModels on mount", async () => {
     renderWithProviders(<ModelSelector />);
-    await screen.findByText("GPT-4");
+    await screen.findAllByText("GPT-4");
     expect(providerApi.listProviders).toHaveBeenCalledOnce();
     expect(providerApi.getActiveModels).toHaveBeenCalledWith({
       scope: "effective",
@@ -142,9 +142,9 @@ describe("ModelSelector", () => {
   it("clicking trigger button opens dropdown and shows provider list", async () => {
     const user = userEvent.setup();
     renderWithProviders(<ModelSelector />);
-    await screen.findByText("GPT-4");
+    await screen.findAllByText("GPT-4");
 
-    await user.click(screen.getByText("GPT-4"));
+    await user.click(screen.getAllByText("GPT-4")[0]);
 
     expect(await screen.findByText("OpenAI")).toBeInTheDocument();
   });
@@ -152,9 +152,9 @@ describe("ModelSelector", () => {
   it("clicking a model calls setActiveLlm with correct parameters", async () => {
     const user = userEvent.setup();
     renderWithProviders(<ModelSelector />);
-    await screen.findByText("GPT-4");
+    await screen.findAllByText("GPT-4");
 
-    await user.click(screen.getByText("GPT-4"));
+    await user.click(screen.getAllByText("GPT-4")[0]);
     const gpt35 = await screen.findByText("GPT-3.5 Turbo");
     await user.click(gpt35);
 
@@ -169,9 +169,9 @@ describe("ModelSelector", () => {
   it("clicking the already active model does not call setActiveLlm", async () => {
     const user = userEvent.setup();
     renderWithProviders(<ModelSelector />);
-    await screen.findByText("GPT-4");
+    await screen.findAllByText("GPT-4");
 
-    await user.click(screen.getByText("GPT-4"));
+    await user.click(screen.getAllByText("GPT-4")[0]);
     const gpt4Items = await screen.findAllByText("GPT-4");
     await user.click(gpt4Items[gpt4Items.length - 1]);
 
@@ -185,9 +185,9 @@ describe("ModelSelector", () => {
     });
     const user = userEvent.setup();
     renderWithProviders(<ModelSelector />);
-    await screen.findByText("modelSelector.selectModel");
+    await screen.findAllByText("modelSelector.selectModel");
 
-    await user.click(screen.getByText("modelSelector.selectModel"));
+    await user.click(screen.getAllByText("modelSelector.selectModel")[0]);
 
     expect(
       await screen.findByText("modelSelector.noConfiguredModels"),
@@ -200,9 +200,9 @@ describe("ModelSelector", () => {
     );
     const user = userEvent.setup();
     renderWithProviders(<ModelSelector />);
-    await screen.findByText("GPT-4");
+    await screen.findAllByText("GPT-4");
 
-    await user.click(screen.getByText("GPT-4"));
+    await user.click(screen.getAllByText("GPT-4")[0]);
     const gpt35 = await screen.findByText("GPT-3.5 Turbo");
     await user.click(gpt35);
 
