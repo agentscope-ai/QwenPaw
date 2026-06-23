@@ -154,7 +154,7 @@ class MCPClientManager:
         """
         # 1. Create and connect new client outside lock (may be slow)
         logger.debug(f"Connecting new MCP client: {key}")
-        new_client = self._build_client(client_config)
+        new_client = self._build_client(client_config, client_key=key)
 
         try:
             # Add timeout to prevent indefinite blocking
@@ -273,7 +273,7 @@ class MCPClientManager:
             client_config: Client configuration
             timeout: Connection timeout in seconds (default 60s)
         """
-        client = self._build_client(client_config)
+        client = self._build_client(client_config, client_key=key)
 
         try:
             await asyncio.wait_for(client.connect(), timeout=timeout)
@@ -336,7 +336,10 @@ class MCPClientManager:
         return result
 
     @staticmethod
-    def _build_client(client_config: "MCPClientConfig") -> Any:
+    def _build_client(
+        client_config: "MCPClientConfig",
+        client_key: str = "",
+    ) -> Any:
         """Build MCP client instance by configured transport."""
         rebuild_info = {
             "name": client_config.name,
@@ -365,6 +368,7 @@ class MCPClientManager:
                 tool_whitelist=whitelist,
             )
             setattr(client, "_qwenpaw_rebuild_info", rebuild_info)
+            setattr(client, "_qwenpaw_mcp_client_key", client_key or "")
             return client
 
         headers: dict = dict(client_config.headers or {})
@@ -384,4 +388,5 @@ class MCPClientManager:
             tool_whitelist=whitelist,
         )
         setattr(client, "_qwenpaw_rebuild_info", rebuild_info)
+        setattr(client, "_qwenpaw_mcp_client_key", client_key or "")
         return client
