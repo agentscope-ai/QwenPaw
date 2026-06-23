@@ -845,12 +845,16 @@ class ScrollContextConfig(BaseModel):
     allow_unsandboxed: bool = Field(
         default=False,
         description=(
-            "UNSAFE escape hatch. The recall_history_python recall REPL runs "
+            "HIGH RISK escape hatch. The recall_history_python REPL runs "
             "model-authored Python and is only isolated by the sandbox; the "
             "sandbox config is injected by the governance layer. When that "
-            "layer is degraded the tool fails closed and refuses to run. Set "
-            "this to true to run the REPL with NO isolation (arbitrary host "
-            "code as the agent user) — trusted local/dev use only."
+            "layer is degraded the tool fails closed and refuses to run. "
+            "Setting this true requests running the REPL with NO isolation "
+            "(arbitrary host code as the agent user). SECURITY: this flag is "
+            "NOT trusted on its own — to take effect the deployment/operator "
+            "must ALSO set the QWENPAW_ALLOW_UNSANDBOXED_RECALL env var, so "
+            "an untrusted agent.json / API payload can never bypass the "
+            "sandbox in a multi-tenant deployment. Trusted local/dev only."
         ),
     )
 

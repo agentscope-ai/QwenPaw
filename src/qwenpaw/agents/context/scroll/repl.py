@@ -124,9 +124,14 @@ def make_recall_history_python(
     ``PolicyGuardedTool``. When governance is degraded (e.g. the governor
     fails to start and the tool is wrapped in a plain ``GuardedFunctionTool``)
     no config is injected — so the tool **fails closed**: with ``sandbox_config
-    is None`` it refuses to run unless ``allow_unsandboxed=True`` is explicitly
-    set. Enabling that opt-in runs arbitrary host code as the agent user with
-    zero isolation; use it only for trusted local/dev setups.
+    is None`` it refuses to run unless ``allow_unsandboxed=True``. That flag is
+    the resolved escape-hatch decision, NOT the raw per-agent config: the
+    caller (``build_scroll_components``) only passes ``True`` when the
+    deployment-layer ``QWENPAW_ALLOW_UNSANDBOXED_RECALL`` env var AND the agent
+    config both opt in (see ``scroll_unsandboxed_allowed``), so an untrusted
+    agent.json can never reach this branch on its own. Enabling it runs
+    arbitrary host code as the agent user with zero isolation; trusted
+    local/dev only.
     """
     scratch_db = str(Path(scratch_root) / "repl" / "scratch.db")
     cells_dir = Path(scratch_root) / "cells"
@@ -174,9 +179,10 @@ def make_recall_history_python(
                             "(sandbox_config is None). This tool runs "
                             "model-authored Python and only executes inside "
                             "the sandbox. The governance layer may be "
-                            "degraded. Set scroll_config.allow_unsandboxed="
-                            "true to run without isolation (UNSAFE; trusted "
-                            "local use only)."
+                            "degraded. To run without isolation (UNSAFE; "
+                            "trusted local use only) an operator must set the "
+                            "QWENPAW_ALLOW_UNSANDBOXED_RECALL env var AND "
+                            "scroll_config.allow_unsandboxed=true."
                         ),
                     ),
                 ],

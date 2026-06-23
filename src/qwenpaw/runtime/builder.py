@@ -614,16 +614,20 @@ class AgentBuilder:
         injected only by the governor (via ``PolicyGuardedTool``); the
         ``GuardedFunctionTool`` fallback used when the governor is absent never
         supplies one. So recall is runnable iff the governor is present, or the
-        operator has explicitly opted into unsandboxed recall via
-        ``scroll_config.allow_unsandboxed``. When neither holds, wiring scroll
-        would evict history that nothing can read back, so the caller degrades
-        to native context management.
+        deployment has opted into unsandboxed recall — which requires BOTH the
+        ``QWENPAW_ALLOW_UNSANDBOXED_RECALL`` env var and
+        ``scroll_config.allow_unsandboxed`` (see ``scroll_unsandboxed_allowed``
+        — agent.json alone can never bypass the sandbox). When neither holds,
+        wiring scroll would evict history that nothing can read back, so the
+        caller degrades to native context management.
         """
         if governor is not None:
             return True
         try:
+            from ..agents.context import scroll_unsandboxed_allowed
+
             sc = agent_config.running.light_context_config.scroll_config
-            return bool(sc.allow_unsandboxed)
+            return scroll_unsandboxed_allowed(sc)
         except Exception:
             return False
 

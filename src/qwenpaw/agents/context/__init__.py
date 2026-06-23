@@ -14,6 +14,7 @@ returns ``None`` for any non-scroll strategy, so the feature is fully opt-in.
 from __future__ import annotations
 
 import logging
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -26,7 +27,32 @@ __all__ = [
     "ContextManager",
     "ScrollComponents",
     "build_scroll_components",
+    "scroll_unsandboxed_allowed",
 ]
+
+# Deployment-layer gate for the unsandboxed-recall escape hatch. Only an
+# operator who can set process env vars may flip this on — never an agent.json
+# / API payload. See scroll_unsandboxed_allowed.
+_UNSANDBOXED_ENV = "QWENPAW_ALLOW_UNSANDBOXED_RECALL"
+_TRUTHY = {"1", "true", "yes", "on"}
+
+
+def scroll_unsandboxed_allowed(scroll_config: Any) -> bool:
+    """Whether scroll's recall REPL may run WITHOUT a sandbox.
+
+    SECURITY: running recall unsandboxed executes model-authored Python as the
+    agent user with zero isolation. In a multi-tenant deployment an untrusted
+    ``agent.json`` / API payload must never be able to turn the sandbox off on
+    its own — that would be a privilege-escalation path. So this escape hatch
+    is gated by the deployment-layer ``QWENPAW_ALLOW_UNSANDBOXED_RECALL`` env
+    var; the per-agent ``scroll_config.allow_unsandboxed`` flag is honored ONLY
+    when that env var also grants it. Default-deny: if either is missing,
+    recall stays sandboxed (or, with no sandbox available, refuses to run).
+    """
+    if os.environ.get(_UNSANDBOXED_ENV, "").strip().lower() not in _TRUTHY:
+        return False
+    return bool(getattr(scroll_config, "allow_unsandboxed", False))
+
 
 # history.db has no retention by default (keep-forever), so a long-running
 # agent's store can grow without bound. Warn when it crosses this size so the
@@ -181,7 +207,7 @@ def build_scroll_components(
         agent_id=agent_id,
         scratch_root=scratch_root,
         timeout_s=sc.repl_timeout_s,
-        allow_unsandboxed=sc.allow_unsandboxed,
+        allow_unsandboxed=scroll_unsandboxed_allowed(sc),
     )
     return ScrollComponents(
         context_manager=manager,
