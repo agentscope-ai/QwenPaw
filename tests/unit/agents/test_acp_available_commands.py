@@ -161,13 +161,15 @@ async def test_prompt_passes_resolved_agent_id_to_runtime(monkeypatch):
 
 
 async def test_report_prompt_error_is_sent_to_client():
+    from qwenpaw.exceptions import AppBaseException
+
     agent = QwenPawACPAgent(agent_id="default")
     conn = _FakeConn()
     agent.on_connect(conn)
 
     await agent._report_prompt_error(
         "sess-err",
-        RuntimeError("boom: invalid api key"),
+        AppBaseException("Model configuration is invalid"),
     )
 
     assert conn.updates
@@ -175,8 +177,28 @@ async def test_report_prompt_error_is_sent_to_client():
     assert session_id == "sess-err"
     # Delivered as a visible assistant message chunk with the error text...
     assert update.session_update == "agent_message_chunk"
-    assert "boom: invalid api key" in update.content.text
+    assert update.content.text == "Error: Model configuration is invalid"
     # ...tagged via _meta so clients can render it as an error.
+    assert update.field_meta == {ACP_ERROR_META_KEY: True}
+
+
+async def test_report_prompt_error_hides_unexpected_exception_details():
+    agent = QwenPawACPAgent(agent_id="default")
+    conn = _FakeConn()
+    agent.on_connect(conn)
+
+    await agent._report_prompt_error(
+        "sess-err",
+        RuntimeError("boom: invalid api key secret-token"),
+    )
+
+    _, update = conn.updates[0]
+    assert "invalid api key" not in update.content.text
+    assert "secret-token" not in update.content.text
+    assert update.content.text == (
+        "Error: QwenPaw failed to process the request. "
+        "Check server logs for details."
+    )
     assert update.field_meta == {ACP_ERROR_META_KEY: True}
 
 

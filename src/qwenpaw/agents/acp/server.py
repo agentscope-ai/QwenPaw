@@ -72,6 +72,7 @@ from qwenpaw.schemas import (
 from ...__version__ import __version__
 from ...constant import WORKING_DIR
 from ...config.config import ModelSlotConfig
+from ...exceptions import AppBaseException
 from ...providers.provider_manager import ProviderManager
 from ...agents.command_handler import SYSTEM_COMMAND_DESCRIPTIONS
 
@@ -97,6 +98,10 @@ _ACP_REDUNDANT_COMMANDS = frozenset(
         "new",
         "stop",
     },
+)
+
+_GENERIC_PROMPT_ERROR = (
+    "QwenPaw failed to process the request. Check server logs for details."
 )
 
 
@@ -974,7 +979,9 @@ class QwenPawACPAgent(Agent):
                 session_id=session_id,
                 update=AgentMessageChunk(
                     sessionUpdate="agent_message_chunk",
-                    content=text_block(f"Error: {exc}"),
+                    content=text_block(
+                        f"Error: {self._safe_prompt_error_text(exc)}",
+                    ),
                     field_meta={ACP_ERROR_META_KEY: True},
                 ),
             )
@@ -983,6 +990,13 @@ class QwenPawACPAgent(Agent):
                 "ACP: failed to report prompt error to client (session=%s)",
                 session_id,
             )
+
+    @staticmethod
+    def _safe_prompt_error_text(exc: BaseException) -> str:
+        """Return a client-safe prompt error message."""
+        if isinstance(exc, AppBaseException) and exc.message:
+            return str(exc.message)
+        return _GENERIC_PROMPT_ERROR
 
     async def _advertise_commands(self, session_id: str) -> None:
         """Send the ``available_commands_update`` for a session."""
