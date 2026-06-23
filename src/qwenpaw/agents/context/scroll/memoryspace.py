@@ -453,10 +453,38 @@ class MemorySpace:
             "WHERE " + " AND ".join(where) + " ORDER BY seq DESC LIMIT ?"
         )
         params.append(k)
-        return [
+        rows = [
             {kk: r[kk] for kk in r.keys()}
             for r in self._conn.execute(sql, params)
         ]
+        # If this is the *FTS-unavailable* fallback (not just an
+        # all-punctuation query on an FTS-capable build), tell the model its
+        # search degraded:
+        # LIKE is a literal substring scan with no ranking and no boolean/OR
+        # grammar, so it must query one term at a time. The notice shares the
+        # row schema so a ``r["content"]`` loop over results never breaks.
+        if not self._fts_available():
+            rows.insert(0, self._like_notice())
+        return rows
+
+    @staticmethod
+    def _like_notice() -> dict:
+        """A schema-compatible leading row flagging LIKE-degraded search."""
+        return {
+            "seq": -1,
+            "session_id": None,
+            "kind": "_notice",
+            "role": None,
+            "name": None,
+            "headline": "search degraded to LIKE (this SQLite lacks FTS5)",
+            "content": (
+                "NOTE: full-text search is unavailable (no FTS5 in this "
+                "SQLite build), so this is a literal substring (LIKE) scan — "
+                "no relevance ranking, and boolean/OR syntax is NOT supported "
+                "(it would be matched literally). Search a single term at a "
+                "time and scan the rows yourself."
+            ),
+        }
 
     def days_between(
         self,

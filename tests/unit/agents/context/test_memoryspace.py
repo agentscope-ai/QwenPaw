@@ -277,15 +277,39 @@ def test_row_cap_truncates_with_marker(history_db: Path):
         space.close()
 
 
+def _hits(rows: list[dict]) -> set:
+    """Result contents minus the LIKE-degraded notice row."""
+    return {r["content"] for r in rows if r["kind"] != "_notice"}
+
+
 def test_like_fallback_respects_scope(ms: MemorySpace):
     """Force the no-FTS path; scope + explicit targeting still hold."""
     ms._fts_ok = False
-    contents = {r["content"] for r in ms.search("tanks")}
+    contents = _hits(ms.search("tanks"))
     assert "tanks of another agent" not in contents
     assert "tanks rolled in" in contents
     # explicit targeting works on the LIKE path too
-    pinned = {r["content"] for r in ms.search("tanks", agent_id="ag2")}
+    pinned = _hits(ms.search("tanks", agent_id="ag2"))
     assert pinned == {"tanks of another agent"}
+
+
+def test_like_fallback_emits_degradation_notice(ms: MemorySpace):
+    """Without FTS5 the model must be told search degraded to a LIKE scan, so
+    it stops using OR/boolean grammar that silently matches nothing."""
+    ms._fts_ok = False
+    rows = ms.search("tanks")
+    assert rows[0]["kind"] == "_notice"
+    assert "FTS5" in rows[0]["content"]
+    # The notice shares the row schema, so a content-iterating loop is safe.
+    assert set(rows[0].keys()) >= {"seq", "kind", "role", "content"}
+
+
+def test_no_notice_when_fts_available(ms: MemorySpace):
+    """The notice is FTS-unavailable-only — a normal FTS build never sees it,
+    even when a query degrades to LIKE for lack of word tokens."""
+    # All-punctuation query falls back to LIKE, but FTS5 *is* available here.
+    rows = ms.search("!!!")
+    assert all(r["kind"] != "_notice" for r in rows)
 
 
 # -- intent-named recall helpers --------------------------------------------
@@ -422,9 +446,10 @@ def test_recall_values_with_sql_metacharacters_are_bound(tmp_path: Path):
             "briefing for the quoted session",
         ]
         # LIKE fallback path takes the same bound (col, value) filters.
+        # (Drop the leading FTS-unavailable notice row the LIKE path adds.)
         space._fts_ok = False
         rows = space.search("briefing", agent_id=quoted_agent)
-        assert [r["content"] for r in rows] == [
+        assert [r["content"] for r in rows if r["kind"] != "_notice"] == [
             "briefing for the quoted session",
         ]
     finally:
