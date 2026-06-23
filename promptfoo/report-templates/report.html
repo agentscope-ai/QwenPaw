@@ -589,6 +589,17 @@
       color: var(--info);
       background: var(--info-soft);
     }
+    .export-button {
+      font-weight: 650;
+      color: var(--info);
+      border-color: #bfdbfe;
+      background: #eff6ff;
+    }
+    .export-button:hover {
+      color: #1d4ed8;
+      border-color: #93c5fd;
+      background: #dbeafe;
+    }
     .tabs .tab-button {
       border: 0;
       background: transparent;
@@ -809,6 +820,8 @@
           <option value="200">每页 200 条</option>
         </select>
         <input id="searchInput" placeholder="搜索测试输入 / 判定原因 / 模型输出" />
+        <button class="export-button" id="exportCasesCsv" type="button">导出 CSV</button>
+        <button class="export-button" id="exportCasesExcel" type="button">导出 Excel</button>
       </div>
       <div id="caseTable"></div>
       <div class="pagination">
@@ -1748,7 +1761,98 @@
       byId('caseDialog').showModal();
     }
 
+    function exportFileName(ext) {
+      const date = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+      return `qwenpaw-promptfoo-cases-${date}.${ext}`;
+    }
+
+    function tokenUsageText(value) {
+      if (!value) return '';
+      if (typeof value === 'string') return value;
+      try {
+        return JSON.stringify(value);
+      } catch {
+        return String(value);
+      }
+    }
+
+    function caseExportRows() {
+      return REPORT_DATA.cases.map((item, index) => ({
+        序号: index + 1,
+        状态: STATUS_LABELS[item.status] || item.status || '',
+        状态编码: item.status || '',
+        测试套件: item.suite || '',
+        测试套件中文名: item.suiteNameZh || '',
+        分类: item.category || '',
+        分类中文名: item.categoryNameZh || '',
+        插件: item.plugin || '',
+        策略: item.strategy || '',
+        用例描述: item.description || '',
+        测试输入: item.prompt || '',
+        Agent输出: item.output || '',
+        判定原因: item.reason || '',
+        分数: item.score ?? '',
+        耗时毫秒: item.latencyMs ?? '',
+        Token用量: tokenUsageText(item.tokenUsage),
+        来源文件: item.sourceFile || '',
+        用例ID: item.id || '',
+      }));
+    }
+
+    function csvCell(value) {
+      const normalized = text(value).replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+      return `"${normalized.replace(/"/g, '""')}"`;
+    }
+
+    function htmlCell(value) {
+      return text(value)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/\r?\n/g, '<br>');
+    }
+
+    function downloadBlob(content, mimeType, fileName) {
+      const blob = new Blob([content], { type: mimeType });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = fileName;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    }
+
+    function exportCasesCsv() {
+      const rows = caseExportRows();
+      const headers = Object.keys(rows[0] || { 序号: '' });
+      const lines = [
+        headers.map(csvCell).join(','),
+        ...rows.map((row) => headers.map((header) => csvCell(row[header])).join(',')),
+      ];
+      downloadBlob(`\uFEFF${lines.join('\r\n')}`, 'text/csv;charset=utf-8', exportFileName('csv'));
+    }
+
+    function exportCasesExcel() {
+      const rows = caseExportRows();
+      const headers = Object.keys(rows[0] || { 序号: '' });
+      const table = [
+        '<table>',
+        `<thead><tr>${headers.map((header) => `<th>${htmlCell(header)}</th>`).join('')}</tr></thead>`,
+        '<tbody>',
+        ...rows.map((row) => `<tr>${headers.map((header) => `<td>${htmlCell(row[header])}</td>`).join('')}</tr>`),
+        '</tbody>',
+        '</table>',
+      ].join('');
+      const html = `<!doctype html><html><head><meta charset="utf-8"></head><body>${table}</body></html>`;
+      downloadBlob(`\uFEFF${html}`, 'application/vnd.ms-excel;charset=utf-8', exportFileName('xls'));
+    }
+
     byId('closeDialog').addEventListener('click', () => byId('caseDialog').close());
+    byId('exportCasesCsv').addEventListener('click', exportCasesCsv);
+    byId('exportCasesExcel').addEventListener('click', exportCasesExcel);
     ['statusFilter', 'suiteFilter', 'categoryFilter', 'searchInput'].forEach((id) => {
       const resetAndRender = () => {
         pageState.page = 1;

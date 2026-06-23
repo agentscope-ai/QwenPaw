@@ -1,7 +1,7 @@
 const DEFAULT_BASE_URL = 'https://api.deepseek.com/v1';
 const DEFAULT_MODEL = 'deepseek-chat';
 const DEFAULT_TIMEOUT_MS = 180000;
-const DEFAULT_MAX_TOKENS = 12000;
+const DEFAULT_MAX_TOKENS = 32000;
 const DEFAULT_TEMPERATURE = 0.3;
 
 class OpenAiCompatibleProvider {
