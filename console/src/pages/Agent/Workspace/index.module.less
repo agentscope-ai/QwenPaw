@@ -238,9 +238,7 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 8px;
   height: 20px;
-  white-space: nowrap;
 }
 
 .markdownViewer {
@@ -367,21 +365,10 @@
   cursor: pointer;
   background-color: #fff;
   transition: all 0.2s;
-  touch-action: manipulation;
-
-  &,
-  * {
-    -webkit-tap-highlight-color: transparent !important;
-    outline: none;
-  }
 
   &:hover:not(.selected) {
     border-color: #d9d9d9;
     background-color: #fafafa;
-  }
-
-  &:active:not(.selected) {
-    background-color: #f0f0f0;
   }
 
   &.selected {
@@ -462,18 +449,10 @@
   font-size: 12px;
   color: #999;
   margin-left: 8px;
+  background: transparent;
+  border: none;
+  padding: 0;
   cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
-  border-radius: 4px;
-  transition: background-color 0.2s;
-
-  &:active {
-    background-color: rgba(0, 0, 0, 0.08);
-  }
 }
 
 .dailyMemoryList {
@@ -490,21 +469,10 @@
   cursor: pointer;
   background-color: #fff;
   transition: all 0.2s;
-  touch-action: manipulation;
-
-  &,
-  * {
-    -webkit-tap-highlight-color: transparent !important;
-    outline: none;
-  }
 
   &:hover:not(.selected) {
     border-color: #d9d9d9;
     background-color: #fafafa;
-  }
-
-  &:active:not(.selected) {
-    background-color: #f0f0f0;
   }
 
   &.selected {
@@ -567,10 +535,6 @@
       background-color: #333;
     }
 
-    &:active:not(.selected) {
-      background-color: #3a3a3a;
-    }
-
     &.selected {
       border-color: #ff7f16;
       background-color: rgba(97, 92, 237, 0.15);
@@ -611,10 +575,6 @@
     &:hover:not(.selected) {
       border-color: rgba(255, 255, 255, 0.2);
       background-color: #333;
-    }
-
-    &:active:not(.selected) {
-      background-color: #3a3a3a;
     }
 
     &.selected {
@@ -776,6 +736,18 @@
     align-items: center;
   }
 
+  .fileItem {
+    touch-action: manipulation;
+
+    &:active:not(.selected) {
+      background-color: #f0f0f0;
+    }
+
+    :global(.dark-mode) &:active:not(.selected) {
+      background-color: #3a3a3a;
+    }
+  }
+
   .fileItemActions {
     align-self: center;
     display: flex;
@@ -811,6 +783,18 @@
       &:active {
         color: rgba(255, 255, 255, 0.85);
       }
+    }
+  }
+
+  .dailyMemoryItem {
+    touch-action: manipulation;
+
+    &:active:not(.selected) {
+      background-color: #f0f0f0;
+    }
+
+    :global(.dark-mode) &:active:not(.selected) {
+      background-color: #3a3a3a;
     }
   }
 
@@ -880,6 +864,8 @@
 
   .contentLabel {
     flex-wrap: nowrap;
+    gap: 8px;
+    white-space: nowrap;
 
     .buttonGroup {
       width: auto;
