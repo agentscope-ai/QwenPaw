@@ -1607,9 +1607,7 @@ export default function ChatPage() {
         queue: {
           maxSize: 50,
           getSessionId: (sessionId?: string) =>
-            sessionApi.getRealIdForSession(sessionId || "") ||
-            chatIdRef.current ||
-            sessionId,
+            sessionApi.getQueueSessionId(sessionId || chatIdRef.current || ""),
           onFull: (maxSize: number) => {
             message.warning(t("chat.queue.queueFull", { max: maxSize }));
           },

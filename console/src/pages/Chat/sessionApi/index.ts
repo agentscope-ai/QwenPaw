@@ -9,6 +9,7 @@ import api, {
   type ChatStatus,
   type Message,
 } from "../../../api";
+import { migrateInputQueueStorage } from "../inputQueueStorage";
 import { toDisplayUrl } from "../utils";
 import { extractTurnUsageFromOutputMessages } from "../turnUsage";
 
@@ -19,6 +20,8 @@ import { extractTurnUsageFromOutputMessages } from "../turnUsage";
 const DEFAULT_USER_ID = "default";
 const DEFAULT_CHANNEL = "console";
 const DEFAULT_SESSION_NAME = "New Chat";
+const REAL_ID_RESOLVE_RETRY_COUNT = 12;
+const REAL_ID_RESOLVE_RETRY_DELAY_MS = 500;
 const ROLE_TOOL = "tool";
 const ROLE_USER = "user";
 const ROLE_ASSISTANT = "assistant";
@@ -413,6 +416,7 @@ function clearPendingUserMessage(sessionId: string): void {
 
 class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
   private sessionList: IAgentScopeRuntimeWebUISession[] = [];
+  private realIdResolutionTasks: Set<string> = new Set();
 
   /**
    * Pending resolvers waiting for a specific session's realId.
@@ -677,6 +681,24 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     return s?.sessionId || id;
   }
 
+  /**
+   * Returns the canonical chat-level id used by the SDK input queue.
+   * Local timestamp sessions use the temporary id until they resolve; after
+   * resolution the queue moves to the real backend chat UUID so another tab
+   * opened from `/chat/<realId>` reads the same queue.
+   */
+  getQueueSessionId(id: string): string {
+    if (!id) return "";
+    const s = this.sessionList.find((x) => x.id === id) as
+      | ExtendedSession
+      | undefined;
+    if (s?.realId) {
+      migrateInputQueueStorage(id, s.realId);
+      return s.realId;
+    }
+    return id;
+  }
+
   /** Apply listChats to sessionList; merge realId and generating by session_id. */
   private applyChatsToSessionList(
     chats: ChatSpec[],
@@ -876,9 +898,31 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     const { list, realId } = resolveRealId(this.sessionList, tempId);
     this.sessionList = list;
     if (realId) {
+      migrateInputQueueStorage(tempId, realId);
       this.notifyRealIdResolved(tempId);
       this.onSessionIdResolved?.(tempId, realId);
     }
+  }
+
+  private scheduleResolveAndNotify(tempId: string): void {
+    if (!tempId || this.realIdResolutionTasks.has(tempId)) return;
+
+    this.realIdResolutionTasks.add(tempId);
+    void (async () => {
+      try {
+        for (let attempt = 0; attempt < REAL_ID_RESOLVE_RETRY_COUNT; attempt++) {
+          await this.getSessionList();
+          this.resolveAndNotify(tempId);
+          if (this.getRealIdForSession(tempId)) return;
+
+          await new Promise((resolve) =>
+            setTimeout(resolve, REAL_ID_RESOLVE_RETRY_DELAY_MS),
+          );
+        }
+      } finally {
+        this.realIdResolutionTasks.delete(tempId);
+      }
+    })();
   }
 
   async updateSession(session: Partial<IAgentScopeRuntimeWebUISession>) {
@@ -891,11 +935,11 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
       const existing = this.sessionList[index] as ExtendedSession;
       if (isLocalTimestamp(existing.id) && !existing.realId) {
         const tempId = existing.id;
-        this.getSessionList().then(() => this.resolveAndNotify(tempId));
+        this.scheduleResolveAndNotify(tempId);
       }
     } else {
       const tempId = session.id!;
-      await this.getSessionList().then(() => this.resolveAndNotify(tempId));
+      this.scheduleResolveAndNotify(tempId);
     }
 
     return [...this.sessionList];
@@ -906,14 +950,21 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
 
     const extended: ExtendedSession = {
       ...session,
+      name: session.name || DEFAULT_SESSION_NAME,
+      messages: session.messages || [],
       sessionId: session.id,
       userId: DEFAULT_USER_ID,
       channel: DEFAULT_CHANNEL,
+      meta: {},
     } as ExtendedSession;
 
+    this.sessionList = [
+      extended,
+      ...this.sessionList.filter((item) => item.id !== extended.id),
+    ];
     this.updateWindowVariables(extended);
     this.onSessionCreated?.(session.id);
-    return this.sessionList;
+    return [...this.sessionList];
   }
 
   async removeSession(session: Partial<IAgentScopeRuntimeWebUISession>) {
