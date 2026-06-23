@@ -21,6 +21,7 @@ interface FileItemProps {
   enabled?: boolean;
   onFileClick: (file: MarkdownFile) => void;
   onDailyMemoryClick: (daily: DailyMemoryFile) => void;
+  onMemoryExpand?: () => void;
   onToggleEnabled: (filename: string) => void;
 }
 
@@ -32,6 +33,7 @@ export const FileItem: React.FC<FileItemProps> = ({
   enabled = false,
   onFileClick,
   onDailyMemoryClick,
+  onMemoryExpand,
   onToggleEnabled,
 }) => {
   const { t } = useTranslation();
@@ -87,6 +89,20 @@ export const FileItem: React.FC<FileItemProps> = ({
               <HolderOutlined />
             </div>
           )}
+          {isMemoryFile && (
+            <button
+              type="button"
+              className={styles.expandIcon}
+              aria-label={expandedMemory ? "collapse" : "expand"}
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                onMemoryExpand?.();
+              }}
+            >
+              {expandedMemory ? <CaretDownOutlined /> : <CaretRightOutlined />}
+            </button>
+          )}
           <div className={styles.fileInfo}>
             <div className={styles.fileItemName}>
               {enabled && <span className={styles.enabledBadge}>●</span>}
@@ -104,15 +120,6 @@ export const FileItem: React.FC<FileItemProps> = ({
                 onClick={handleToggleClick}
               />
             </Tooltip>
-            {isMemoryFile && (
-              <span className={styles.expandIcon}>
-                {expandedMemory ? (
-                  <CaretDownOutlined />
-                ) : (
-                  <CaretRightOutlined />
-                )}
-              </span>
-            )}
           </div>
         </div>
       </div>

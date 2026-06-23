@@ -25,6 +25,7 @@
     "contentPlaceholder": "Enter content...",
     "help": "Help",
     "close": "Close",
+    "back": "Back",
     "actions": "Actions",
     "total": "Total {{count}}",
     "clear": "Clear",
@@ -392,7 +393,10 @@
     "configUpdateFailed": "Failed to update system prompt configuration",
     "attribution": "Workspace design partly inspired by the OpenClaw project — thank you! 🐾",
     "saveSuccess": "Saved successfully",
-    "saveFailed": "Save failed"
+    "saveFailed": "Save failed",
+    "saving": "Saving...",
+    "saved": "Saved",
+    "unsaved": "Unsaved"
   },
   "agent": {
     "parent": "Settings",

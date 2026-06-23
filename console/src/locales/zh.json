@@ -25,6 +25,7 @@
     "contentPlaceholder": "输入内容...",
     "help": "帮助",
     "close": "关闭",
+    "back": "返回",
     "actions": "操作",
     "total": "共 {{count}} 条",
     "clear": "清除",
@@ -195,7 +196,10 @@
     "configUpdateFailed": "更新系统提示词配置失败",
     "attribution": "工作区设计部分灵感源自 OpenClaw 项目，在此表示感谢 🐾",
     "saveSuccess": "保存成功",
-    "saveFailed": "保存失败"
+    "saveFailed": "保存失败",
+    "saving": "保存中...",
+    "saved": "已保存",
+    "unsaved": "未保存"
   },
   "agent": {
     "parent": "设置",
