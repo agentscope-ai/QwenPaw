@@ -1157,8 +1157,94 @@
     align-items: stretch;
   }
 
+  .headerRight {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+    width: 100%;
+  }
+
   .headerActionsLeft,
-  .headerActionsRight {
+  .headerActionsRight,
+  .batchActions {
     flex-wrap: wrap;
+    width: 100%;
+
+    > * {
+      flex: 1 0 auto;
+      min-width: 0;
+    }
+
+    :global(.qwenpaw-btn) {
+      min-width: 0;
+    }
+  }
+
+  .primaryTransferButton,
+  .primaryActionButton {
+    min-width: 0;
+  }
+
+  .importToolbar {
+    flex-wrap: wrap;
+    justify-content: flex-start;
+  }
+
+  .toolbar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
+
+  .searchContainer {
+    max-width: none;
+    width: 100%;
+  }
+
+  .searchInput {
+    :global(input) {
+      text-align: center;
+    }
+  }
+
+  .tagSelect {
+    :global {
+      .qwenpaw-select-selection-placeholder,
+      .ant-select-selection-placeholder {
+        text-align: center;
+      }
+
+      .qwenpaw-select-selection-overflow,
+      .ant-select-selection-overflow {
+        justify-content: center;
+      }
+    }
+  }
+
+  .toolbarRight {
+    justify-content: space-between;
+    width: 100%;
+  }
+
+  .skillsGrid {
+    grid-template-columns: 1fr;
+    gap: 12px;
+    padding: 12px;
+  }
+
+  .skillCard {
+    min-height: auto;
+  }
+
+  .cardTopRight {
+    gap: 6px;
+  }
+
+  .metaInfoRow {
+    flex-wrap: wrap;
+
+    .metaInfoLabel {
+      min-width: 64px;
+    }
   }
 }
