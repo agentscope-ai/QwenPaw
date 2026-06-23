@@ -498,10 +498,7 @@ class SlackSender:
             elif kind == "dm" and len(parts) >= 3:
                 # Prefer the DM channel ID stored in meta if available;
                 # otherwise fall back to the user ID (Slack accepts it).
-                channel_id = (
-                    meta.get("slack_channel_id")
-                    or parts[2]
-                )
+                channel_id = meta.get("slack_channel_id") or parts[2]
             elif kind == "ch" and len(parts) >= 3:
                 channel_id = parts[2]
         elif to_handle and ":" in to_handle:

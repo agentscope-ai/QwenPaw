@@ -83,8 +83,7 @@ def is_slack_host(url: str) -> bool:
     if not host:
         return False
     return any(
-        host == s[1:] or host.endswith(s)
-        for s in SLACK_SSRF_ALLOWED_SUFFIXES
+        host == s[1:] or host.endswith(s) for s in SLACK_SSRF_ALLOWED_SUFFIXES
     )
 
 

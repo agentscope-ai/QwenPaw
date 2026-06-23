@@ -1644,14 +1644,20 @@ class TestSlackChannelBuildAgentRequest:
         assert handle3 == "slack:ch:C123"
 
     def test_to_handle_from_target(self, slack_channel):
-        assert slack_channel.to_handle_from_target(
-            user_id="U123",
-            session_id="slack:ch:C123",
-        ) == "slack:ch:C123"
-        assert slack_channel.to_handle_from_target(
-            user_id="U123",
-            session_id="",
-        ) == "U123"
+        assert (
+            slack_channel.to_handle_from_target(
+                user_id="U123",
+                session_id="slack:ch:C123",
+            )
+            == "slack:ch:C123"
+        )
+        assert (
+            slack_channel.to_handle_from_target(
+                user_id="U123",
+                session_id="",
+            )
+            == "U123"
+        )
 
 
 # =============================================================================
@@ -2331,7 +2337,10 @@ class TestSlackEventHandlerUserResolution:
         )
         assert name == "Real Name"
 
-    async def test_resolve_user_name_fallback_to_empty(self, slack_event_handler):
+    async def test_resolve_user_name_fallback_to_empty(
+        self,
+        slack_event_handler,
+    ):
         mock_client = AsyncMock()
         mock_client.users_info.side_effect = Exception("api error")
         name = await slack_event_handler._resolve_user_name(

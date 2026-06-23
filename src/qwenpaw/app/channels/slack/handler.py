@@ -78,6 +78,7 @@ _ALLOWED_SUBTYPES: frozenset[str] = frozenset(
     {"file_share", "thread_broadcast"},
 )
 
+
 class SlackEventHandler:
     """Convert Slack events to native dicts and enqueue for processing."""
 
@@ -339,9 +340,17 @@ class SlackEventHandler:
                     proxy=self._channel.proxy_url or None,
                 ) as resp:
                     if resp.status != 200:
-                        if resp.status in (
-                            429, 500, 502, 503, 504
-                        ) and attempt < 2:
+                        if (
+                            resp.status
+                            in (
+                                429,
+                                500,
+                                502,
+                                503,
+                                504,
+                            )
+                            and attempt < 2
+                        ):
                             await asyncio.sleep(1.5 * (attempt + 1))
                             continue
                         logger.warning(
@@ -388,8 +397,7 @@ class SlackEventHandler:
         # Cache locally
         suffix = os.path.splitext(filename)[1] or ""
         path = str(
-            self._channel.media_dir
-            / f"slack_{os.urandom(8).hex()}{suffix}",
+            self._channel.media_dir / f"slack_{os.urandom(8).hex()}{suffix}",
         )
         with open(path, "wb") as fh:
             fh.write(data)
