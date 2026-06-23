@@ -88,8 +88,9 @@ def test_workspace_prompt_files_skips_parent_traversal(tmp_path):
     )
 
     assert fragment is not None
-    assert "secret body" not in fragment
-    assert "agents body" in fragment
+    body = str(fragment)
+    assert "secret body" not in body
+    assert "agents body" in body
 
 
 def test_workspace_prompt_files_skips_symlink_escape(tmp_path):
