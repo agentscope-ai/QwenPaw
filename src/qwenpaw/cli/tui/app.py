@@ -221,7 +221,7 @@ class PawApp(App):
             placeholder=(
                 "type a message  "
                 "(/ commands · enter send/queue · shift+enter newline · "
-                "paste files/long text)"
+                "esc interrupt/cancel input · paste files/long text)"
             ),
             id="prompt",
             show_line_numbers=False,
