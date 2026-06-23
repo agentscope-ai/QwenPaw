@@ -6,7 +6,10 @@ import React, {
   useState,
 } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
-import { buildSessionPath } from "../../../../utils/sessionRoute";
+import {
+  buildSessionPath,
+  getSessionIdFromPath,
+} from "../../../../utils/sessionRoute";
 import { Drawer, Spin, Tooltip } from "antd";
 import { FixedSizeList, type ListChildComponentProps } from "react-window";
 import { IconButton } from "@agentscope-ai/design";
@@ -32,6 +35,10 @@ import {
   useContextMenu,
   type ContextMenuItem,
 } from "../../../../components/ContextMenu";
+import {
+  syncSessionsGlobal,
+  type ExtendedSession,
+} from "../../../../stores/sessionListStore";
 import styles from "./index.module.less";
 
 /** Fixed height of each session item in pixels (matches CSS min-height) */
@@ -395,26 +402,29 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
         await chatApi.deleteChat(backendId);
       }
 
-      if (currentSessionId === sessionId) {
-        if (props.embedded) {
-          // In embedded mode, create a new chat via DOM event
-          // since we can't directly set the session from outside the context tree.
+      // Fetch the updated session list after deletion
+      const freshList =
+        (await sessionApi.getSessionList()) as ExtendedChatSession[];
+      setSessions(freshList);
+      syncSessionsGlobal(freshList as unknown as ExtendedSession[]);
+
+      // Post-deletion check: if the URL's chatId no longer exists in the
+      // refreshed list, the deleted session was the one being viewed.
+      // This approach avoids all ID-format mismatch issues (timestamp vs UUID,
+      // realId vs id, multiple backend UUIDs for the same session).
+      const urlChatId = getSessionIdFromPath(location.pathname);
+      if (urlChatId) {
+        const stillExists = freshList.some(
+          (s) =>
+            s.id === urlChatId ||
+            (s as ExtendedChatSession).realId === urlChatId,
+        );
+        if (!stillExists) {
           window.dispatchEvent(new CustomEvent("qwenpaw:sidebar-new-chat"));
-        } else {
-          const next = sessions.filter((s) => s.id !== sessionId);
-          setCurrentSessionId(next[0]?.id);
         }
       }
-
-      await refreshSessions();
     },
-    [
-      sessions,
-      currentSessionId,
-      setCurrentSessionId,
-      refreshSessions,
-      props.embedded,
-    ],
+    [sessions, setSessions, location.pathname],
   );
 
   /** Enter rename mode for a session */

@@ -32,7 +32,10 @@ import ChatActionGroup from "./components/ChatActionGroup";
 import ChatSessionDrawer from "./components/ChatSessionDrawer";
 import { useSidebarModeStore } from "../../stores/sidebarModeStore";
 import TurnUsageAction from "./components/TurnUsageAction";
-import { wrapChatResponseUsageStream } from "./turnUsage";
+import {
+  patchContextMaxInputLength,
+  wrapChatResponseUsageStream,
+} from "./turnUsage";
 import ChatHeaderTitle from "./components/ChatHeaderTitle";
 import ChatSessionInitializer from "./components/ChatSessionInitializer";
 import { ApprovalCard } from "../../components/ApprovalCard/ApprovalCard";
@@ -133,17 +136,34 @@ function stopBackgroundQueue(queueKey?: string) {
  *
  * Returns true when the chat became idle (or status is unknown / 404, which
  * we treat as idle to avoid blocking the queue forever); false if aborted.
+ *
+ * @param agentId - If provided, overrides X-Agent-Id in the status request
+ *   so that switching agents does not cause a spurious "idle" result.
  */
 async function waitForChatIdle(
   chatIdForStatus: string,
   signal: AbortSignal,
+  agentId?: string,
 ): Promise<boolean> {
   if (!chatIdForStatus) return true;
   while (!signal.aborted) {
     try {
-      const chat = await chatApi.getChat(chatIdForStatus);
+      // Use direct fetch with the correct agent ID header to avoid
+      // cross-agent status misreads when the user has switched agents.
+      const headers = buildAuthHeaders();
+      if (agentId) {
+        headers["X-Agent-Id"] = agentId;
+      }
+      const res = await fetch(
+        getApiUrl(`/chats/${encodeURIComponent(chatIdForStatus)}`),
+        { headers, signal },
+      );
+      if (!res.ok) return true; // 404 / error → treat as idle
+      const chat = await res.json();
       if (chat?.status !== "running") return true;
     } catch {
+      // If aborted, return false (not idle) so the caller breaks cleanly.
+      if (signal.aborted) return false;
       // Backend unreachable / 404 (e.g. id is still a local timestamp).
       // Treat as idle so we don't block forever.
       return true;
@@ -236,7 +256,11 @@ async function startBackgroundQueue(
       // Wait until the backend finishes the currently running task before
       // sending the next one. This preserves order task1 → task2 → task3
       // and prevents firing while task1 is still generating.
-      const idle = await waitForChatIdle(chatIdForStatus, ctrl.signal);
+      const idle = await waitForChatIdle(
+        chatIdForStatus,
+        ctrl.signal,
+        item.agentId,
+      );
       if (!idle) break;
 
       // Mark as sending — visible to other tabs and to the foreground page
@@ -266,16 +290,25 @@ async function startBackgroundQueue(
       let fetchSucceeded = false;
       // True once fetch() has resolved with an HTTP response. For a streaming
       // chat endpoint, this means the backend has already accepted the
-      // request and started generating — a subsequent abort only severs
-      // OUR read stream; the backend keeps producing the turn and the
-      // foreground SDK's reconnect will pick it up.
+      // request and started generating — the backend keeps producing the turn
+      // and the foreground SDK's reconnect will pick it up.
       let fetchStarted = false;
       try {
+        const authHeaders = buildAuthHeaders();
+        // Use the agent ID captured at enqueue time to prevent cross-agent
+        // delivery when the user switches agents after queueing.
+        if (item.agentId) {
+          authHeaders["X-Agent-Id"] = item.agentId;
+        }
+        // Intentionally do NOT pass ctrl.signal to fetch. This keeps the
+        // HTTP connection alive even when the queue loop is aborted (e.g.
+        // foreground takes over). The server finishes generating and
+        // persists the turn so no message is lost and no re-send occurs.
         const res = await fetch(getApiUrl("/console/chat"), {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            ...buildAuthHeaders(),
+            ...authHeaders,
           },
           body: JSON.stringify({
             input: [
@@ -287,12 +320,11 @@ async function startBackgroundQueue(
                 ],
               },
             ],
-            session_id: backendSessionId,
-            user_id: DEFAULT_USER_ID,
-            channel: DEFAULT_CHANNEL,
+            session_id: item.backendSessionId || backendSessionId,
+            user_id: item.userId || DEFAULT_USER_ID,
+            channel: item.channel || DEFAULT_CHANNEL,
             stream: true,
           }),
-          signal: ctrl.signal,
         });
 
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -314,9 +346,9 @@ async function startBackgroundQueue(
 
       if (ctrl.signal.aborted) {
         if (fetchStarted) {
-          // Backend already accepted and is generating this turn. The
-          // foreground SDK will reconnect and render the stream — keeping
-          // the item in the queue would double-show it (queue + bubble).
+          // Server connection was NOT aborted (no signal on fetch), so the
+          // backend will finish generating and persist this turn. Safe to
+          // remove — the foreground SDK will see it in history on reconnect.
           useMessageQueueStore.getState().remove(queueKey, item.id);
         } else {
           // Request never made it out (aborted while waiting for status idle
@@ -386,8 +418,27 @@ function startAllBackgroundQueues(excludeSessionId?: string) {
     }
     // For background sending, resolve the actual session_id the backend
     // expects (chat.session_id), which may differ from the localStorage key
-    // (chat.id). Fall back to the key itself for locally-created sessions.
-    const backendSessionId = sessionApi.getBackendSessionId(sessionId);
+    // (chat.id). Prefer the snapshot stored in the queue item (captured at
+    // enqueue time) because the session list may have been cleared after an
+    // agent switch. Fall back to sessionApi lookup, then to the key itself.
+    let backendSessionId: string | undefined;
+    try {
+      const raw2 = localStorage.getItem(key);
+      if (raw2) {
+        const parsed2 = JSON.parse(raw2);
+        const itemsArr: Array<{ backendSessionId?: string }> = Array.isArray(
+          parsed2,
+        )
+          ? parsed2
+          : parsed2.items;
+        backendSessionId = itemsArr?.[0]?.backendSessionId || undefined;
+      }
+    } catch {
+      // ignore
+    }
+    if (!backendSessionId) {
+      backendSessionId = sessionApi.getBackendSessionId(sessionId);
+    }
     const chatIdForStatus =
       sessionApi.getRealIdForSession(sessionId) || sessionId;
     startBackgroundQueue(sessionId, backendSessionId, chatIdForStatus);
@@ -648,16 +699,7 @@ function useMultimodalCapabilities(
     }
   }, [locationPathname, fetchMultimodalCaps]);
 
-  // Listen for model-switched event from ModelSelector
-  useEffect(() => {
-    const handler = () => {
-      fetchMultimodalCaps();
-    };
-    window.addEventListener("model-switched", handler);
-    return () => window.removeEventListener("model-switched", handler);
-  }, [fetchMultimodalCaps]);
-
-  return multimodalCaps;
+  return { multimodalCaps, fetchMultimodalCaps };
 }
 
 function useMessageHistoryNavigation(
@@ -1179,6 +1221,14 @@ export default function ChatPage() {
         if (fresh.length === 0 || fresh[0].id !== next.id) return;
         useMessageQueueStore.getState().setCurrentSendingId(next.id);
         useMessageQueueStore.getState().remove(queueSessionId, next.id);
+        // Force-set window.currentSessionId from the queue item's snapshot
+        // so customFetch uses the correct session_id, even if the global
+        // was overwritten by a recent agent switch.
+        if (next.backendSessionId) {
+          (
+            window as unknown as { currentSessionId?: string }
+          ).currentSessionId = next.backendSessionId;
+        }
         chatRef.current?.input.submit({
           query: next.text,
           fileList: buildFileList(next),
@@ -1478,7 +1528,7 @@ export default function ChatPage() {
 
   // Use custom hooks for better separation of concerns
   const isComposingRef = useIMEComposition(isChatActive);
-  const multimodalCaps = useMultimodalCapabilities(
+  const { multimodalCaps, fetchMultimodalCaps } = useMultimodalCapabilities(
     refreshKey,
     location.pathname,
     isChatActive,
@@ -1491,6 +1541,20 @@ export default function ChatPage() {
   const chatIdRef = useRef(chatId);
   const navigateRef = useRef(navigate);
   const chatRef = useRef<IAgentScopeRuntimeWebUIRef>(null);
+
+  useEffect(() => {
+    const handler = (e: Event) => {
+      void fetchMultimodalCaps();
+      const maxInputLength = (e as CustomEvent<{ maxInputLength?: number }>)
+        .detail?.maxInputLength;
+      if (typeof maxInputLength === "number") {
+        patchContextMaxInputLength(chatRef, maxInputLength);
+      }
+    };
+    window.addEventListener("model-switched", handler);
+    return () => window.removeEventListener("model-switched", handler);
+  }, [fetchMultimodalCaps]);
+
   const pendingClearHistoryRef = useRef(false);
   const whisperSpeechRef = useRef<WhisperSpeechButtonRef>(null);
   const [whisperEnabled, setWhisperEnabled] = useState(false);
@@ -1649,6 +1713,8 @@ export default function ChatPage() {
                 size: f.size,
               }))
             : undefined,
+        userId: window.currentUserId || DEFAULT_USER_ID,
+        channel: window.currentChannel || DEFAULT_CHANNEL,
       });
       // Clear tracked attachments after enqueuing
       pendingFileListRef.current = [];
@@ -1948,6 +2014,13 @@ export default function ChatPage() {
   useEffect(() => {
     const prevAgent = prevSelectedAgentRef.current;
     if (prevAgent !== selectedAgent && prevAgent !== undefined) {
+      // Immediately block the queue sender. window.currentSessionId is a
+      // global that still holds the PREVIOUS agent's session_id until the
+      // SDK finishes reloading. Without this guard, scheduleNextSend could
+      // fire during the reload window and send a queued item to the wrong
+      // agent's conversation.
+      setChatLoading(true);
+
       // Save current chat ID for the agent we're leaving
       const currentChatId =
         chatIdRef.current || lastSessionIdRef.current || undefined;
@@ -2216,6 +2289,8 @@ export default function ChatPage() {
                   size: f.size,
                 }))
               : undefined,
+          userId: window.currentUserId || DEFAULT_USER_ID,
+          channel: window.currentChannel || DEFAULT_CHANNEL,
         });
         pendingFileListRef.current = [];
         if (textarea) setTextareaValue(textarea, "");

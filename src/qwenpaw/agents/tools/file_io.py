@@ -4,6 +4,7 @@
 import os
 from pathlib import Path
 from typing import Optional
+from urllib.parse import quote
 
 import aiofiles
 from agentscope.message import TextBlock
@@ -19,6 +20,26 @@ from ...config.context import (
     get_current_recent_max_bytes,
 )
 from ...constant import WORKING_DIR, TRUNCATION_NOTICE_MARKER
+
+
+def _path_to_file_url(path: str) -> str:
+    """Convert a local file path to a proper file:// URL (RFC 8089).
+
+    Non-ASCII characters and ``%`` are percent-encoded so the URL is
+    always valid ASCII and round-trips correctly through url2pathname.
+    """
+    abs_path = os.path.abspath(path)
+
+    if os.name == "nt":
+        abs_path = abs_path.replace("\\", "/")
+
+    encoded_path = quote(abs_path, safe="/:@")
+
+    if os.name == "nt":
+        if encoded_path.startswith("//"):
+            return f"file:{encoded_path}"
+        return f"file:///{encoded_path}"
+    return f"file://{encoded_path}"
 
 
 def _resolve_file_path(file_path: str) -> str:

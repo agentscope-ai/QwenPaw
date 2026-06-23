@@ -195,9 +195,29 @@ export function useSessionListData(
       const session = sessions.find((s) => s.id === sessionId);
       const backendId = session ? getBackendId(session) : null;
       if (backendId) await chatApi.deleteChat(backendId);
-      await refreshSessions();
+
+      // Fetch fresh session list after deletion
+      const freshList =
+        (await sessionApi.getSessionList()) as ExtendedChatSession[];
+      setSessions(freshList);
+      syncSessionsGlobal(freshList);
+
+      // Post-deletion check: if the currently displayed session no longer
+      // exists in the refreshed list, navigate to a new blank chat.
+      // This avoids all ID-format mismatch issues between URL chatId,
+      // session.id, and session.realId.
+      if (currentSessionId) {
+        const stillExists = freshList.some(
+          (s) =>
+            s.id === currentSessionId ||
+            (s as ExtendedChatSession).realId === currentSessionId,
+        );
+        if (!stillExists) {
+          window.dispatchEvent(new CustomEvent("qwenpaw:sidebar-new-chat"));
+        }
+      }
     },
-    [sessions, refreshSessions],
+    [sessions, currentSessionId, setSessions],
   );
 
   const handleEditStart = useCallback(
