@@ -1,0 +1,12 @@
+# Dependencies for scripts/verify/desktop_verify.py UI drivers.
+# Installed by .github/workflows/desktop-release.yml on each runner before
+# the verify step runs. The verifier itself only needs stdlib for the API
+# layer; the drivers below are imported lazily so callers using --skip-ui
+# don't have to install them.
+
+# Legacy Win/Mac: Playwright + Chromium for headless browser automation.
+playwright>=1.40
+
+# Tauri Win/Mac: Selenium drives platform webviews (msedgedriver via
+# tauri-driver on Windows, safaridriver on macOS).
+selenium>=4.20
