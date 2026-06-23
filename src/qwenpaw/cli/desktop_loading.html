@@ -1,135 +1,285 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>QwenPaw Desktop</title>
-<style>
-*,*::before,*::after{margin:0;padding:0;box-sizing:border-box}
-@keyframes fadein{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
-body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;overflow:hidden}
-.page{height:100vh;display:flex;align-items:center;justify-content:center;
-  background:linear-gradient(135deg,#f5f7fa 0%,#c3cfe2 100%)}
-.card{width:400px;padding:40px;border-radius:12px;text-align:center;
-  background:#fff;box-shadow:0 4px 24px rgba(0,0,0,.1);animation:fadein .6s ease-out}
-.logo{font-size:28px;font-weight:700;color:#ff7f16;margin-bottom:28px;letter-spacing:-.5px}
-.progress-wrap{position:relative;display:inline-block}
-.progress-label{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);
-  font-size:24px;font-weight:500;color:#333}
-.trail{stroke:rgba(0,0,0,.04)}
-.arc{stroke:#ff7f16;transition:stroke-dasharray .3s ease}
-.arc.failed{stroke:#ff4d4f}
-.status{color:#333;font-size:16px;font-weight:500;margin:16px 0 0}
-.status.failed{color:#ff4d4f!important}
-.hint{color:#888;font-size:13px;margin:8px 0 24px}
-.err-box{margin:0 0 24px;padding:12px;border-radius:8px;background:rgba(0,0,0,.04);text-align:left}
-.err-box summary{cursor:pointer;color:#888;font-size:12px;line-height:1.5}
-.err-box pre{max-height:96px;overflow:auto;margin:8px 0 0;color:#888;
-  font-size:12px;line-height:1.5;white-space:pre-wrap;word-break:break-word}
-.retry-btn{height:40px;padding:0 32px;border-radius:8px;border:0;
-  background:#ff7f16;color:#fff;font-size:14px;font-weight:500;cursor:pointer}
-.retry-btn:hover{opacity:.9}
-.hidden{display:none}
-@media(prefers-color-scheme:dark){
-  .page{background:linear-gradient(135deg,#0f0c29 0%,#302b63 50%,#24243e 100%)}
-  .card{background:#1f1f1f;box-shadow:0 4px 24px rgba(0,0,0,.4)}
-  .progress-label,.status{color:rgba(255,255,255,.85)}
-  .hint,.err-box summary,.err-box pre{color:rgba(255,255,255,.45)}
-  .err-box{background:rgba(255,255,255,.06)}
-  .trail{stroke:rgba(255,255,255,.06)}
-}
-</style>
-</head>
-<body>
-<div class="page">
-  <div class="card">
-    <div class="logo">QwenPaw</div>
-    <div class="progress-wrap">
-      <svg width="160" height="160" viewBox="0 0 160 160">
-        <circle class="trail" cx="80" cy="80" r="70" fill="none"
-          stroke-width="8" stroke-linecap="round"
-          stroke-dasharray="329.87 440" transform="rotate(135 80 80)"/>
-        <circle id="arc" class="arc" cx="80" cy="80" r="70" fill="none"
-          stroke-width="8" stroke-linecap="round"
-          stroke-dasharray="0 440" transform="rotate(135 80 80)"/>
-      </svg>
-      <div id="label" class="progress-label">0s</div>
-    </div>
-    <p id="statusText" class="status">Starting backend...</p>
-    <div id="failArea" class="hidden">
-      <p id="hintText" class="hint"></p>
-      <div id="errBox" class="err-box hidden">
-        <details>
-          <summary>Show error details</summary>
-          <pre id="errPre"></pre>
-        </details>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>QwenPaw Desktop</title>
+    <style>
+      *,
+      *::before,
+      *::after {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      @keyframes fadein {
+        from {
+          opacity: 0;
+          transform: translateY(12px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+          sans-serif;
+        overflow: hidden;
+      }
+      .page {
+        height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+      }
+      .card {
+        width: 400px;
+        padding: 40px;
+        border-radius: 12px;
+        text-align: center;
+        background: #fff;
+        box-shadow: 0 4px 24px rgba(0, 0, 0, 0.1);
+        animation: fadein 0.6s ease-out;
+      }
+      .logo {
+        font-size: 28px;
+        font-weight: 700;
+        color: #ff7f16;
+        margin-bottom: 28px;
+        letter-spacing: -0.5px;
+      }
+      .progress-wrap {
+        position: relative;
+        display: inline-block;
+      }
+      .progress-label {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        font-size: 24px;
+        font-weight: 500;
+        color: #333;
+      }
+      .trail {
+        stroke: rgba(0, 0, 0, 0.04);
+      }
+      .arc {
+        stroke: #ff7f16;
+        transition: stroke-dasharray 0.3s ease;
+      }
+      .arc.failed {
+        stroke: #ff4d4f;
+      }
+      .status {
+        color: #333;
+        font-size: 16px;
+        font-weight: 500;
+        margin: 16px 0 0;
+      }
+      .status.failed {
+        color: #ff4d4f !important;
+      }
+      .hint {
+        color: #888;
+        font-size: 13px;
+        margin: 8px 0 24px;
+      }
+      .err-box {
+        margin: 0 0 24px;
+        padding: 12px;
+        border-radius: 8px;
+        background: rgba(0, 0, 0, 0.04);
+        text-align: left;
+      }
+      .err-box summary {
+        cursor: pointer;
+        color: #888;
+        font-size: 12px;
+        line-height: 1.5;
+      }
+      .err-box pre {
+        max-height: 96px;
+        overflow: auto;
+        margin: 8px 0 0;
+        color: #888;
+        font-size: 12px;
+        line-height: 1.5;
+        white-space: pre-wrap;
+        word-break: break-word;
+      }
+      .retry-btn {
+        height: 40px;
+        padding: 0 32px;
+        border-radius: 8px;
+        border: 0;
+        background: #ff7f16;
+        color: #fff;
+        font-size: 14px;
+        font-weight: 500;
+        cursor: pointer;
+      }
+      .retry-btn:hover {
+        opacity: 0.9;
+      }
+      .hidden {
+        display: none;
+      }
+      @media (prefers-color-scheme: dark) {
+        .page {
+          background: linear-gradient(
+            135deg,
+            #0f0c29 0%,
+            #302b63 50%,
+            #24243e 100%
+          );
+        }
+        .card {
+          background: #1f1f1f;
+          box-shadow: 0 4px 24px rgba(0, 0, 0, 0.4);
+        }
+        .progress-label,
+        .status {
+          color: rgba(255, 255, 255, 0.85);
+        }
+        .hint,
+        .err-box summary,
+        .err-box pre {
+          color: rgba(255, 255, 255, 0.45);
+        }
+        .err-box {
+          background: rgba(255, 255, 255, 0.06);
+        }
+        .trail {
+          stroke: rgba(255, 255, 255, 0.06);
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="page">
+      <div class="card">
+        <div class="logo">QwenPaw</div>
+        <div class="progress-wrap">
+          <svg width="160" height="160" viewBox="0 0 160 160">
+            <circle
+              class="trail"
+              cx="80"
+              cy="80"
+              r="70"
+              fill="none"
+              stroke-width="8"
+              stroke-linecap="round"
+              stroke-dasharray="329.87 440"
+              transform="rotate(135 80 80)"
+            />
+            <circle
+              id="arc"
+              class="arc"
+              cx="80"
+              cy="80"
+              r="70"
+              fill="none"
+              stroke-width="8"
+              stroke-linecap="round"
+              stroke-dasharray="0 440"
+              transform="rotate(135 80 80)"
+            />
+          </svg>
+          <div id="label" class="progress-label">0s</div>
+        </div>
+        <p id="statusText" class="status">Starting backend...</p>
+        <div id="failArea" class="hidden">
+          <p id="hintText" class="hint"></p>
+          <div id="errBox" class="err-box hidden">
+            <details>
+              <summary>Show error details</summary>
+              <pre id="errPre"></pre>
+            </details>
+          </div>
+          <button class="retry-btn" onclick="doRetry()">Retry</button>
+        </div>
       </div>
-      <button class="retry-btn" onclick="doRetry()">Retry</button>
     </div>
-  </div>
-</div>
-<script>
-(function(){
-  var TIMEOUT=300, POLL=1000, ARC=329.87;
-  var elapsed=0, status='checking', errMsg='';
-  var arc=document.getElementById('arc');
-  var label=document.getElementById('label');
-  var st=document.getElementById('statusText');
-  var fail=document.getElementById('failArea');
-  var hint=document.getElementById('hintText');
-  var errBox=document.getElementById('errBox');
-  var errPre=document.getElementById('errPre');
+    <script>
+      (function () {
+        var TIMEOUT = 300,
+          POLL = 1000,
+          ARC = 329.87;
+        var hash = location.hash || "";
+        var hm = hash.match(/_ls=(\d+)/);
+        var elapsed = hm ? parseInt(hm[1], 10) : 0;
+        var status = "checking",
+          errMsg = "";
+        var arc = document.getElementById("arc");
+        var label = document.getElementById("label");
+        var st = document.getElementById("statusText");
+        var fail = document.getElementById("failArea");
+        var hint = document.getElementById("hintText");
+        var errBox = document.getElementById("errBox");
+        var errPre = document.getElementById("errPre");
 
-  function ui(){
-    var pct=Math.min(Math.round(elapsed/TIMEOUT*100),100);
-    arc.setAttribute('stroke-dasharray', (pct/100*ARC)+' 440');
-    label.textContent=elapsed+'s';
-    var bad=status==='timeout'||status==='error';
-    arc.classList.toggle('failed',bad);
-    st.classList.toggle('failed',bad);
-    if(status==='error') st.textContent='Backend failed to start.';
-    else if(status==='checking') st.textContent=elapsed===0?'Starting backend...':'Connecting to backend...';
-    else if(status==='timeout') st.textContent='Backend failed to start within '+elapsed+' seconds.';
-    if(bad){
-      fail.classList.remove('hidden');
-      hint.textContent=status==='error'
-        ?'The backend process could not be launched. Check application logs for details.'
-        :'Backend failed to start. Please retry, or check application logs for details.';
-      if(errMsg){errBox.classList.remove('hidden');errPre.textContent=errMsg;}
-      else errBox.classList.add('hidden');
-    }else{
-      fail.classList.add('hidden');
-    }
-  }
+        function ui() {
+          var pct = Math.min(Math.round((elapsed / TIMEOUT) * 100), 100);
+          arc.setAttribute("stroke-dasharray", (pct / 100) * ARC + " 440");
+          label.textContent = elapsed + "s";
+          var bad = status === "timeout" || status === "error";
+          arc.classList.toggle("failed", bad);
+          st.classList.toggle("failed", bad);
+          if (status === "error") st.textContent = "Backend failed to start.";
+          else if (status === "checking")
+            st.textContent =
+              elapsed === 0
+                ? "Starting backend..."
+                : "Connecting to backend...";
+          else if (status === "timeout")
+            st.textContent =
+              "Backend failed to start within " + elapsed + " seconds.";
+          if (bad) {
+            fail.classList.remove("hidden");
+            hint.textContent =
+              status === "error"
+                ? "The backend process could not be launched. Check application logs for details."
+                : "Backend failed to start. Please retry, or check application logs for details.";
+            if (errMsg) {
+              errBox.classList.remove("hidden");
+              errPre.textContent = errMsg;
+            } else errBox.classList.add("hidden");
+          } else {
+            fail.classList.add("hidden");
+          }
+        }
 
-  function tick(){
-    elapsed++;
-    if(elapsed>=TIMEOUT){
-      status='timeout';
-      ui();
-      return;
-    }
-    ui();
-    setTimeout(tick,POLL);
-  }
+        function tick() {
+          elapsed++;
+          if (elapsed >= TIMEOUT) {
+            status = "timeout";
+            ui();
+            return;
+          }
+          ui();
+          setTimeout(tick, POLL);
+        }
 
-  window.setError=function(msg){
-    status='error';
-    errMsg=msg||'';
-    ui();
-  };
+        window.setError = function (msg) {
+          status = "error";
+          errMsg = msg || "";
+          ui();
+        };
 
-  window.setReady=function(){
-    status='ready';
-    st.textContent='Ready! Loading console...';
-    arc.setAttribute('stroke-dasharray',ARC+' 440');
-  };
+        window.setReady = function () {
+          status = "ready";
+          st.textContent = "Ready! Loading console...";
+          arc.setAttribute("stroke-dasharray", ARC + " 440");
+        };
 
-  window.doRetry=function(){};
+        window.doRetry = function () {};
 
-  ui();
-  setTimeout(tick,POLL);
-})();
-</script>
-</body>
+        ui();
+        setTimeout(tick, POLL);
+      })();
+    </script>
+  </body>
 </html>

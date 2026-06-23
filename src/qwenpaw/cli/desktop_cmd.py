@@ -15,6 +15,7 @@ import traceback
 import webbrowser
 from collections.abc import Mapping
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import click
 
@@ -22,10 +23,10 @@ from ..constant import LOG_LEVEL_ENV, WORKING_DIR
 from ..utils.logging import setup_logger
 from ..utils.port import get_stable_port
 
-try:
-    import webview
-except ImportError:
-    webview = None  # type: ignore[assignment]
+if TYPE_CHECKING:
+    import webview as webview_mod
+
+webview = None  # type: ignore[assignment]
 
 logger = logging.getLogger(__name__)
 
@@ -75,8 +76,10 @@ class WebViewAPI:
 
         try:
             # Show native OS save dialog via pywebview
-            result = webview.windows[0].create_file_dialog(
-                webview.SAVE_DIALOG,
+            import webview as _wv
+
+            result = _wv.windows[0].create_file_dialog(
+                _wv.SAVE_DIALOG,
                 save_filename=safe_name,
             )
             if not result:
@@ -123,6 +126,137 @@ def _stream_reader(in_stream, out_stream) -> None:
             in_stream.close()
         except Exception:
             pass
+
+
+def _show_splash():
+    """Show a lightweight tkinter splash while heavy imports load.
+
+    Returns (root, update_fn, get_elapsed) where:
+      - root: the Tk instance (call .destroy() to close)
+      - update_fn: call periodically to refresh the UI and timer
+      - get_elapsed: callable returning seconds since splash shown
+    """
+    import tkinter as tk
+
+    root = tk.Tk()
+    root.title("QwenPaw Desktop")
+    root.configure(bg="#f5f7fa")
+    root.overrideredirect(True)
+    root.attributes("-topmost", True)
+
+    w, h = 400, 360
+    sx = (root.winfo_screenwidth() - w) // 2
+    sy = (root.winfo_screenheight() - h) // 2
+    root.geometry(f"{w}x{h}+{sx}+{sy}")
+
+    canvas = tk.Canvas(
+        root,
+        width=w,
+        height=h,
+        highlightthickness=0,
+        bg="#f5f7fa",
+    )
+    canvas.pack()
+
+    # White card background
+    card_x, card_y, card_w, card_h = 40, 20, 320, 320
+    canvas.create_rectangle(
+        card_x,
+        card_y,
+        card_x + card_w,
+        card_y + card_h,
+        fill="white",
+        outline="#e0e0e0",
+        width=1,
+    )
+
+    # Brand text
+    canvas.create_text(
+        w // 2,
+        card_y + 55,
+        text="QwenPaw",
+        font=("Segoe UI", 26, "bold"),
+        fill="#ff7f16",
+    )
+
+    # Orange arc (270 degree trail)
+    arc_size = 120
+    arc_cx, arc_cy = w // 2, card_y + 170
+    canvas.create_arc(
+        arc_cx - arc_size // 2,
+        arc_cy - arc_size // 2,
+        arc_cx + arc_size // 2,
+        arc_cy + arc_size // 2,
+        start=225,
+        extent=270,
+        style="arc",
+        outline="#f0f0f0",
+        width=7,
+    )
+    active_arc = canvas.create_arc(
+        arc_cx - arc_size // 2,
+        arc_cy - arc_size // 2,
+        arc_cx + arc_size // 2,
+        arc_cy + arc_size // 2,
+        start=225,
+        extent=0,
+        style="arc",
+        outline="#ff7f16",
+        width=7,
+    )
+
+    # Timer label
+    timer_id = canvas.create_text(
+        w // 2,
+        arc_cy,
+        text="0s",
+        font=("Segoe UI", 22),
+        fill="#333333",
+    )
+
+    # Status text
+    canvas.create_text(
+        w // 2,
+        card_y + 280,
+        text="Starting...",
+        font=("Segoe UI", 12),
+        fill="#888888",
+    )
+
+    t0 = time.monotonic()
+    _after_id: list[str | None] = [None]  # mutable container for after() ID
+
+    def get_elapsed():
+        return int(time.monotonic() - t0)
+
+    def _tick():
+        elapsed = get_elapsed()
+        extent = min(elapsed / 300 * 270, 270)
+        canvas.itemconfigure(active_arc, extent=extent)
+        canvas.itemconfigure(timer_id, text=f"{elapsed}s")
+        _after_id[0] = root.after(1000, _tick)
+
+    _tick()  # start auto-updating
+    root.update()
+
+    def update():
+        """One-shot refresh (call before destroy)."""
+        elapsed = get_elapsed()
+        extent = min(elapsed / 300 * 270, 270)
+        canvas.itemconfigure(active_arc, extent=extent)
+        canvas.itemconfigure(timer_id, text=f"{elapsed}s")
+        root.update()
+
+    def destroy():
+        """Cancel pending callbacks and destroy the window."""
+        if _after_id[0] is not None:
+            try:
+                root.after_cancel(_after_id[0])
+            except Exception:
+                pass
+        root.destroy()
+
+    return root, update, get_elapsed, destroy
 
 
 def _wait_for_backend(
@@ -211,6 +345,17 @@ def desktop_cmd(
     native webview window loading that URL. Use for a dedicated desktop
     window without conflicting with an existing QwenPaw app instance.
     """
+    # Phase 0: show lightweight tkinter splash immediately
+    # (before heavy imports like `import webview`)
+    logger.info("Showing tkinter splash (Phase 0)...")
+    (
+        _splash_root,
+        splash_update,
+        get_splash_elapsed,
+        splash_destroy,
+    ) = _show_splash()
+    phase0_start = time.monotonic()
+
     setup_logger(log_level)
 
     port_file = str(WORKING_DIR / "desktop_port")
@@ -276,15 +421,28 @@ def desktop_cmd(
                 )
                 t.start()
 
-        # ---- Show loading page immediately in webview ----
+        # ---- Phase 1: import webview while splash is visible ----
+        logger.info("Importing webview (heavy import)...")
+        splash_update()
+        global webview  # pylint: disable=global-statement
+        import webview  # noqa: F811
+
         loading_html = (
             Path(__file__).parent / "desktop_loading.html"
         ).resolve()
         loading_url = loading_html.as_uri()
+
+        # Pass Phase 0 elapsed time to Phase 1 via URL hash
+        phase0_elapsed = get_splash_elapsed()
+        loading_url = f"{loading_url}#_ls={phase0_elapsed}"
         logger.info(
-            "Creating webview window with loading page: %s",
+            "Creating webview window (Phase 0 took %ds): %s",
+            phase0_elapsed,
             loading_url,
         )
+
+        # Destroy splash before creating webview (same process)
+        splash_destroy()
 
         api = WebViewAPI()
         win = webview.create_window(
@@ -295,8 +453,6 @@ def desktop_cmd(
             text_select=True,
             js_api=api,
         )
-
-        start_time = time.monotonic()
 
         def _backend_monitor() -> None:
             """Wait for backend HTTP ready, then navigate to it."""
@@ -312,7 +468,8 @@ def desktop_cmd(
                     pass
                 return
 
-            elapsed = int(time.monotonic() - start_time)
+            # Total elapsed since Phase 0 (tkinter splash) started
+            elapsed = int(time.monotonic() - phase0_start)
             console_url = f"{url}/#_ls={elapsed}"
             logger.info(
                 "Backend ready after %ds, navigating to %s",
@@ -321,7 +478,7 @@ def desktop_cmd(
             )
             try:
                 # Store elapsed seconds in sessionStorage for
-                # the Console overlay to pick up
+                # the Console overlay to pick up (Phase 2)
                 win.evaluate_js(
                     f"try{{sessionStorage.setItem("
                     f"'qp_ls','{elapsed}')"
