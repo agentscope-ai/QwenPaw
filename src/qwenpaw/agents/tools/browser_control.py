@@ -269,6 +269,7 @@ def _make_fresh_state(workspace_id: str, workspace_dir: str) -> dict[str, Any]:
         "headless": True,
         "session_pages": {},
         "_active_session_id": None,
+        "_creating_page": False,
         "_lock": asyncio.Lock(),
         "page_counter": 0,
         "last_activity_time": 0.0,  # monotonic timestamp of last browser activity
@@ -822,7 +823,11 @@ async def _start_managed_cdp_browser(  # pylint: disable=too-many-statements
                 _register_page(state, page, page_id)
                 _session_add_page(state, page_id, session_id)
             if not state["pages"]:
-                page = await context.new_page()
+                state["_creating_page"] = True
+                try:
+                    page = await context.new_page()
+                finally:
+                    state["_creating_page"] = False
                 page_id = _next_page_id(state)
                 _register_page(state, page, page_id)
                 _session_add_page(state, page_id, session_id)
@@ -1089,6 +1094,8 @@ def _attach_context_listeners(state: dict, context) -> None:
     register it and set as current."""
 
     def on_page(page):
+        if state.get("_creating_page"):
+            return
         new_id = _next_page_id(state)
         _register_page(state, page, new_id)
         vid = _session_add_page(state, new_id)
@@ -1670,14 +1677,18 @@ async def _action_open(
             ),
         )
     try:
-        if _USE_SYNC_PLAYWRIGHT:
-            loop = asyncio.get_event_loop()
-            page = await loop.run_in_executor(
-                _get_executor(),
-                state["_sync_context"].new_page,
-            )
-        else:
-            page = await state["context"].new_page()
+        state["_creating_page"] = True
+        try:
+            if _USE_SYNC_PLAYWRIGHT:
+                loop = asyncio.get_event_loop()
+                page = await loop.run_in_executor(
+                    _get_executor(),
+                    state["_sync_context"].new_page,
+                )
+            else:
+                page = await state["context"].new_page()
+        finally:
+            state["_creating_page"] = False
 
         _register_page(state, page, page_id)
         _session_add_page(state, page_id, session_id)
@@ -3762,10 +3773,14 @@ async def _action_tabs(  # pylint: disable=too-many-return-statements
                         ),
                     )
         try:
-            if _USE_SYNC_PLAYWRIGHT:
-                page = await _run_sync(state["_sync_context"].new_page)
-            else:
-                page = await state["context"].new_page()
+            state["_creating_page"] = True
+            try:
+                if _USE_SYNC_PLAYWRIGHT:
+                    page = await _run_sync(state["_sync_context"].new_page)
+                else:
+                    page = await state["context"].new_page()
+            finally:
+                state["_creating_page"] = False
             new_id = _next_page_id(state)
             _register_page(state, page, new_id)
             vid = _session_add_page(state, new_id, session_id)
@@ -4455,7 +4470,11 @@ async def _action_connect_cdp(
             _register_page(state, page, page_id)
             _session_add_page(state, page_id, session_id)
         if not state["pages"]:
-            page = await context.new_page()
+            state["_creating_page"] = True
+            try:
+                page = await context.new_page()
+            finally:
+                state["_creating_page"] = False
             page_id = _next_page_id(state)
             _register_page(state, page, page_id)
             _session_add_page(state, page_id, session_id)
