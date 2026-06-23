@@ -14,15 +14,12 @@ Currently provided:
   outputs so oversized results don't exhaust the context budget.
 """
 
-from __future__ import annotations
-
 import logging
 import uuid
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, AsyncGenerator, Callable, Set
 
 from agentscope.middleware import MiddlewareBase
-from agentscope.message import SystemMsg
 
 from .tools.utils import truncate_text_output, DEFAULT_MAX_BYTES
 from ..constant import TRUNCATION_NOTICE_MARKER
@@ -32,6 +29,7 @@ if TYPE_CHECKING:
     from agentscope.message import Msg
 
 logger = logging.getLogger(__name__)
+MAX_AUTO_MEMORY_REPLY_IDS = 1000
 
 
 class MemoryMiddleware(MiddlewareBase):
@@ -49,7 +47,8 @@ class MemoryMiddleware(MiddlewareBase):
     def __init__(self, *, memory_manager: Any) -> None:
         self._memory_manager = memory_manager
         self._searched_reply_id: str | None = None
-        self._persisted_reply_ids: set[str] = set()
+        self._pending_auto_memory_reply_ids: list[str] = []
+        self._seen_auto_memory_reply_ids: dict[str, None] = {}
 
     async def on_system_prompt(
         self,
@@ -69,15 +68,15 @@ class MemoryMiddleware(MiddlewareBase):
         input_kwargs: dict[str, Any],
         next_handler: Callable[..., Any],
     ) -> Any:
-        reply_id = getattr(agent.state, "reply_id", "") or ""
-        if reply_id and reply_id != self._searched_reply_id:
+        reply_id = agent.state.reply_id
+        if reply_id != self._searched_reply_id:
             self._searched_reply_id = reply_id
             try:
                 result = await self._memory_manager.auto_memory_search(
                     list(agent.state.context),
-                    agent_name=getattr(agent, "name", ""),
-                    session_id=getattr(agent.state, "session_id", ""),
-                    reply_id=getattr(agent.state, "reply_id", ""),
+                    agent_name=agent.name,
+                    session_id=agent.state.session_id,
+                    reply_id=reply_id,
                 )
             except Exception:
                 logger.exception(
@@ -92,23 +91,6 @@ class MemoryMiddleware(MiddlewareBase):
                 if memory_msgs:
                     messages.extend(memory_msgs)
                     input_kwargs["messages"] = messages
-                else:
-                    text = self._extract_memory_text(result)
-                    if text:
-                        memory_msg = SystemMsg(
-                            name="memory",
-                            content=(
-                                "Relevant long-term memory retrieved "
-                                "for this turn:\n\n"
-                                f"{text}"
-                            ),
-                        )
-
-                        # Keep the original system prompt first, then add
-                        # transient memory context before conversation messages.
-                        insert_at = 1 if messages else 0
-                        messages.insert(insert_at, memory_msg)
-                        input_kwargs["messages"] = messages
         return await next_handler(**input_kwargs)
 
     async def on_reply(
@@ -120,20 +102,85 @@ class MemoryMiddleware(MiddlewareBase):
         async for item in next_handler(**input_kwargs):
             yield item
 
-        reply_id = getattr(agent.state, "reply_id", "") or ""
-        if reply_id and reply_id in self._persisted_reply_ids:
+        reply_id = agent.state.reply_id
+        if not reply_id or reply_id in self._seen_auto_memory_reply_ids:
             return
-        if reply_id:
-            self._persisted_reply_ids.add(reply_id)
+        self._seen_auto_memory_reply_ids[reply_id] = None
+        if len(self._seen_auto_memory_reply_ids) > MAX_AUTO_MEMORY_REPLY_IDS:
+            self._seen_auto_memory_reply_ids.pop(
+                next(iter(self._seen_auto_memory_reply_ids)),
+            )
+        self._pending_auto_memory_reply_ids.append(reply_id)
+
+        interval = self._auto_memory_interval()
+        if interval <= 0:
+            self._pending_auto_memory_reply_ids.clear()
+            return
+        if len(self._pending_auto_memory_reply_ids) < interval:
+            return
+
+        await self._flush_auto_memory(agent, count=interval)
+
+    async def on_compress_context(
+        self,
+        agent: "Agent",
+        input_kwargs: dict[str, Any],
+        next_handler: Callable[..., Any],
+    ) -> None:
+        cfg = self._memory_config()
+        if (
+            cfg.summarize_when_compact
+            and self._pending_auto_memory_reply_ids
+            and await self._will_compress_context(agent, input_kwargs)
+        ):
+            await self._flush_auto_memory(agent)
+
+        await next_handler(**input_kwargs)
+
+    async def _flush_auto_memory(
+        self,
+        agent: "Agent",
+        *,
+        count: int | None = None,
+    ) -> None:
+        if not self._pending_auto_memory_reply_ids:
+            return
+
+        if count is None:
+            reply_ids = list(self._pending_auto_memory_reply_ids)
+            self._pending_auto_memory_reply_ids.clear()
+        else:
+            reply_ids = self._pending_auto_memory_reply_ids[:count]
+            del self._pending_auto_memory_reply_ids[:count]
+
+        messages = self._messages_for_reply_ids(
+            list(agent.state.context),
+            reply_ids=reply_ids,
+            agent_name=agent.name,
+        )
+        if not messages:
+            return
 
         try:
             await self._memory_manager.auto_memory(
-                list(agent.state.context),
-                session_id=getattr(agent.state, "session_id", ""),
-                reply_id=reply_id,
+                messages,
+                session_id=agent.state.session_id,
+                reply_id=reply_ids[-1],
+                reply_ids=reply_ids,
             )
         except Exception:
             logger.exception("MemoryMiddleware auto_memory failed")
+
+    @staticmethod
+    async def _will_compress_context(
+        agent: "Agent",
+        input_kwargs: dict[str, Any],
+    ) -> bool:
+        cfg = input_kwargs.get("context_config") or agent.context_config
+        kwargs = await agent._prepare_model_input()
+        estimated_tokens = await agent.model.count_tokens(**kwargs)
+        threshold = cfg.trigger_ratio * agent.model.context_size
+        return estimated_tokens >= threshold
 
     @staticmethod
     def _extract_memory_messages(
@@ -158,24 +205,53 @@ class MemoryMiddleware(MiddlewareBase):
             )
         ]
 
+    def _auto_memory_interval(self) -> int:
+        interval = self._memory_config().auto_memory_interval
+
+        if interval is None:
+            return 0
+        return int(interval)
+
+    def _memory_config(self) -> Any:
+        from ..config.config import load_agent_config
+
+        agent_config = load_agent_config(self._memory_manager.agent_id)
+        return agent_config.running.reme_light_memory_config
+
     @staticmethod
-    def _extract_memory_text(result: Any) -> str:
-        if result is None:
-            return ""
-        if isinstance(result, str):
-            return result.strip()
-        if isinstance(result, dict):
-            text = result.get("text") or result.get("content")
-            if isinstance(text, str) and text.strip():
-                return text.strip()
-            msgs = result.get("msg")
-            if isinstance(msgs, list):
-                parts = [
-                    getattr(msg, "get_text_content", lambda: "")()
-                    for msg in msgs
-                ]
-                return "\n".join(p for p in parts if p).strip()
-        return ""
+    def _messages_for_reply_ids(
+        messages: list["Msg"],
+        *,
+        reply_ids: list[str],
+        agent_name: str,
+    ) -> list["Msg"]:
+        targets = set(reply_ids)
+        if not targets:
+            return []
+
+        first_idx: int | None = None
+        last_idx: int | None = None
+        for idx, msg in enumerate(messages):
+            if (
+                msg.role == "assistant"
+                and msg.name == agent_name
+                and msg.id in targets
+            ):
+                if first_idx is None:
+                    first_idx = idx
+                last_idx = idx
+
+        if first_idx is None or last_idx is None:
+            return []
+
+        start_idx = 0
+        for idx in range(first_idx - 1, -1, -1):
+            msg = messages[idx]
+            if msg.role == "assistant" and msg.name == agent_name:
+                start_idx = idx + 1
+                break
+
+        return messages[start_idx : last_idx + 1]
 
 
 class ToolResultPruningMiddleware(MiddlewareBase):

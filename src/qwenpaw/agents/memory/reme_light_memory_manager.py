@@ -26,11 +26,11 @@ from ...config.config import load_agent_config, AgentProfileConfig
 
 if TYPE_CHECKING:
     from reme import ReMe
+    from reme.application import Response
 
 logger = logging.getLogger(__name__)
 
 MAX_QUERY_CHARS = 50
-MAX_PERSISTED_REPLY_IDS = 1000
 NO_MEMORY_RESULTS = "(no memory results)"
 
 
@@ -54,7 +54,6 @@ class ReMeLightMemoryManager(BaseMemoryManager):
     def __init__(self, working_dir: str, agent_id: str):
         super().__init__(working_dir=working_dir, agent_id=agent_id)
         self._reme: "ReMe | None" = None
-        self._persisted_reply_ids: dict[str, None] = {}
         logger.info(
             "ReMeLightMemoryManager init: agent_id=%s working_dir=%s",
             agent_id,
@@ -159,7 +158,7 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         *,
         needs_llm: bool = False,
         **kwargs: Any,
-    ) -> Any | None:
+    ) -> "Response | None":
         if self._reme is None or not getattr(self._reme, "is_started", False):
             logger.debug("ReMe job skipped; app not started: %s", name)
             return None
@@ -191,11 +190,10 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         if response is None:
             return _tool_chunk("ReMe is not started.", ok=False)
 
-        answer = str(getattr(response, "answer", "") or "").strip()
+        answer = str(response.answer or "").strip()
         if not answer:
             answer = NO_MEMORY_RESULTS
-        ok = bool(getattr(response, "success", True))
-        return _tool_chunk(answer, ok=ok)
+        return _tool_chunk(answer, ok=response.success)
 
     async def summarize(
         self,
@@ -215,38 +213,46 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         )
         if response is None:
             return ""
-        return str(getattr(response, "answer", "") or "")
+        return str(response.answer or "")
 
-    async def retrieve(
+    async def auto_memory_search(
         self,
         messages: list[Msg] | Msg,
         agent_name: str = "",
-        **_kwargs: Any,
+        **kwargs: Any,
     ) -> dict | None:
-        """Retrieve memory and expose it as a completed tool interaction."""
+        """Auto-search memory and expose it as a completed tool interaction."""
+        del kwargs
+        agent_config = load_agent_config(self.agent_id)
+        memory_cfg = agent_config.running.reme_light_memory_config
+        if not memory_cfg.auto_memory_search_config.enabled:
+            return None
+
         msgs = [messages] if isinstance(messages, Msg) else list(messages)
         query = self._build_query(msgs)
         if not query:
             return None
 
-        agent_config = load_agent_config(self.agent_id)
-        search_cfg = agent_config.running.reme_light_memory_config
-        ms = search_cfg.auto_memory_search_config
+        search_cfg = memory_cfg.auto_memory_search_config
 
-        result = await self.memory_search(
+        response = await self._run_reme_job(
+            "search",
             query=query,
-            max_results=ms.max_results,
-            min_score=ms.min_score,
+            limit=max(1, search_cfg.max_results),
+            min_score=max(0.0, search_cfg.min_score),
         )
-        text = self._chunk_text(result)
-        if not text or text == NO_MEMORY_RESULTS:
+        if response is None or not response.success:
+            return None
+
+        text = str(response.answer or "").strip()
+        if not text:
             return None
 
         tool_call_id = uuid.uuid4().hex
         tool_input = {
             "query": query,
-            "max_results": ms.max_results,
-            "min_score": ms.min_score,
+            "max_results": search_cfg.max_results,
+            "min_score": search_cfg.min_score,
         }
         assistant_msg = Msg(
             name=agent_name or self.agent_id,
@@ -279,66 +285,17 @@ class ReMeLightMemoryManager(BaseMemoryManager):
             "msg": msgs + [assistant_msg, tool_result_msg],
         }
 
-    async def auto_memory_search(
-        self,
-        messages: list[Msg] | Msg,
-        agent_name: str = "",
-        **kwargs: Any,
-    ) -> dict | None:
-        """Auto-search memory if configured."""
-        del kwargs
-        agent_config = load_agent_config(self.agent_id)
-        ms = agent_config.running.reme_light_memory_config
-        if not ms.auto_memory_search_config.enabled:
-            return None
-        return await self.retrieve(messages, agent_name=agent_name)
-
-    async def summarize_when_compact(
-        self,
-        messages: list[Msg],
-        **kwargs: Any,
-    ) -> None:
-        """Schedule memory extraction when compaction occurs."""
-        if not messages:
-            return
-        agent_config = load_agent_config(self.agent_id)
-        cfg = agent_config.running.reme_light_memory_config
-        if cfg.summarize_when_compact:
-            self.add_summarize_task(messages=messages, **kwargs)
-
     async def auto_memory(
         self,
         all_messages: list[Msg],
         **kwargs: Any,
     ) -> None:
-        """Auto-extract memory every configured N user messages."""
-        agent_config = load_agent_config(self.agent_id)
-        cfg = agent_config.running.reme_light_memory_config
-        interval = cfg.auto_memory_interval
-        if interval is None or interval <= 0:
+        """Auto-extract memory for a prepared reply batch."""
+        if not kwargs.get("reply_ids") or not all_messages:
             return
 
-        reply_id = str(kwargs.get("reply_id") or "")
-        if reply_id and reply_id in self._persisted_reply_ids:
-            return
-
-        user_count = sum(1 for msg in all_messages if msg.role == "user")
-        if user_count < interval or user_count % interval != 0:
-            return
-
-        recent_messages = self._recent_interval_messages(
-            all_messages,
-            interval,
-        )
-        if not recent_messages:
-            return
-
-        if reply_id:
-            if len(self._persisted_reply_ids) >= MAX_PERSISTED_REPLY_IDS:
-                self._persisted_reply_ids.pop(next(iter(self._persisted_reply_ids)))
-            self._persisted_reply_ids[reply_id] = None
         self.add_summarize_task(
-            messages=recent_messages,
+            messages=all_messages,
             session_id=str(kwargs.get("session_id") or ""),
         )
 
@@ -350,8 +307,8 @@ class ReMeLightMemoryManager(BaseMemoryManager):
             date=str(kwargs.get("date") or ""),
             hint=str(kwargs.get("hint") or ""),
         )
-        if response is not None and not getattr(response, "success", True):
-            raise RuntimeError(str(getattr(response, "answer", "")))
+        if response is not None and not response.success:
+            raise RuntimeError(str(response.answer))
 
     @staticmethod
     def _build_query(messages: list[Msg]) -> str:
@@ -369,28 +326,3 @@ class ReMeLightMemoryManager(BaseMemoryManager):
             parts.insert(0, text[-remaining:])
             total += min(len(text), remaining) + (1 if len(parts) > 1 else 0)
         return " ".join(parts).strip()
-
-    @staticmethod
-    def _chunk_text(chunk: ToolChunk) -> str:
-        parts: list[str] = []
-        for block in chunk.content:
-            if isinstance(block, dict):
-                text = block.get("text")
-            else:
-                text = getattr(block, "text", None)
-            if text:
-                parts.append(str(text))
-        return "\n".join(parts).strip()
-
-    @staticmethod
-    def _recent_interval_messages(
-        messages: list[Msg],
-        interval: int,
-    ) -> list[Msg]:
-        seen = 0
-        for idx in range(len(messages) - 1, -1, -1):
-            if messages[idx].role == "user":
-                seen += 1
-                if seen == interval:
-                    return messages[idx:]
-        return messages

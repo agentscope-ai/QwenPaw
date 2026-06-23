@@ -101,28 +101,6 @@ class BaseMemoryManager(ABC):
         return ""
 
     # pylint: disable=unused-argument
-    async def retrieve(
-        self,
-        messages: list[Msg] | Msg,
-        **kwargs,
-    ) -> dict | None:
-        """Retrieve relevant memory based on the given messages.
-
-        NOTE: This method is optional. Subclasses may override this method
-        to implement actual retrieval. Base implementation returns None,
-        indicating no retrieval support or no relevant memory found.
-
-        Args:
-            messages: One or more conversation messages used as the query.
-            **kwargs: Implementation-specific options.
-
-        Returns:
-            Dict with memory context to merge with kwargs, or None if
-            not implemented or no relevant memory found.
-        """
-        return None
-
-    # pylint: disable=unused-argument
     async def dream(self, **kwargs) -> None:
         """Optimize memory files via a background agent pass.
 
@@ -153,21 +131,6 @@ class BaseMemoryManager(ABC):
         Returns:
             None if auto-search is disabled or no relevant memory found.
             dict with updated kwargs if memory context should be merged.
-        """
-        return None
-
-    async def summarize_when_compact(
-        self,
-        messages: list[Msg],
-        **kwargs,
-    ) -> None:
-        """Trigger memory summarization when context compaction occurs.
-
-        Called during pre_reasoning after compaction. Implementations should
-        check internal config and schedule a summarize task if appropriate.
-
-        Args:
-            messages: The messages that were compacted.
         """
         return None
 

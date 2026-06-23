@@ -37,7 +37,6 @@ def build_reme_app_config(
         },
     )
 
-    _configure_embedding(cfg, agent_config, enabled=False)
     return cfg
 
 
@@ -517,64 +516,6 @@ def _base_components() -> dict[str, Any]:
             },
         },
     }
-
-
-def _configure_embedding(
-    config: dict[str, Any],
-    agent_config: Any,
-    *,
-    enabled: bool,
-) -> None:
-    """Add optional ReMe embedding config.
-
-    QwenPaw keeps embedding settings in the generated ReMe config, but does
-    not wire them into ``file_store`` by default.  This keeps ReMe memory
-    usable via BM25 when embedding is unavailable or the ReMe/AgentScope
-    embedding APIs are out of sync.
-    """
-    reme_cfg = agent_config.running.reme_light_memory_config
-    emb = reme_cfg.embedding_model_config
-
-    api_key = emb.api_key or ""
-    base_url = emb.base_url or ""
-    model_name = emb.model_name or ""
-
-    # Embedding is optional.  If the provider config is incomplete, ReMe uses
-    # keyword/BM25 search only and does not start embedding components.
-    if not api_key or not base_url or not model_name:
-        return
-
-    components = config["components"]
-    embedding_components = {
-        "as_embedding": {
-            "default": {
-                "backend": emb.backend,
-                "model": model_name,
-                "credential": {
-                    "api_key": api_key,
-                    "base_url": base_url,
-                },
-                "parameters": {
-                    "dimensions": emb.dimensions,
-                },
-            },
-        },
-        "embedding_store": {
-            "default": {
-                "backend": "local",
-                "as_embedding": "default",
-                "enable_cache": emb.enable_cache,
-                "max_cache_size": emb.max_cache_size,
-            },
-        },
-    }
-    if not enabled:
-        config.setdefault("_qwenpaw_optional_embedding", embedding_components)
-        return
-
-    components["as_embedding"] = embedding_components["as_embedding"]
-    components["embedding_store"] = embedding_components["embedding_store"]
-    components["file_store"]["default"]["embedding_store"] = "default"
 
 
 def get_reme_app_config(

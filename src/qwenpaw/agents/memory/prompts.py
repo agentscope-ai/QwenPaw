@@ -98,6 +98,11 @@ Before answering questions about past work, decisions, dates, people, preference
 1. Run memory_search on MEMORY.md and files in {daily_dir}/*.md.
 2. If you need to read daily notes from {daily_dir}/YYYY-MM-DD.md, you can directly access them using `read_file`."""
 
+MEMORY_GUIDANCE_TEMPLATES = {
+    "zh": MEMORY_GUIDANCE_ZH_TEMPLATE,
+    "en": MEMORY_GUIDANCE_EN_TEMPLATE,
+}
+
 
 def build_memory_guidance_prompt(
     language: str = "zh",
@@ -105,9 +110,7 @@ def build_memory_guidance_prompt(
     daily_dir: str,
 ) -> str:
     """Build memory guidance using the configured daily memory directory."""
-    template = (
-        MEMORY_GUIDANCE_ZH_TEMPLATE
-        if language == "zh"
-        else MEMORY_GUIDANCE_EN_TEMPLATE
-    )
-    return template.format(daily_dir=daily_dir)
+    return MEMORY_GUIDANCE_TEMPLATES.get(
+        language,
+        MEMORY_GUIDANCE_EN_TEMPLATE,
+    ).format(daily_dir=daily_dir)
