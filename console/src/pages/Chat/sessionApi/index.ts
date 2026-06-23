@@ -910,7 +910,11 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     this.realIdResolutionTasks.add(tempId);
     void (async () => {
       try {
-        for (let attempt = 0; attempt < REAL_ID_RESOLVE_RETRY_COUNT; attempt++) {
+        for (
+          let attempt = 0;
+          attempt < REAL_ID_RESOLVE_RETRY_COUNT;
+          attempt++
+        ) {
           await this.getSessionList();
           this.resolveAndNotify(tempId);
           if (this.getRealIdForSession(tempId)) return;

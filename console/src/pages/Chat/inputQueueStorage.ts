@@ -107,7 +107,10 @@ function mergeState(
   );
 }
 
-export function migrateInputQueueStorage(fromSessionId: string, toSessionId: string) {
+export function migrateInputQueueStorage(
+  fromSessionId: string,
+  toSessionId: string,
+) {
   if (!fromSessionId || !toSessionId || fromSessionId === toSessionId) {
     return false;
   }
@@ -116,7 +119,9 @@ export function migrateInputQueueStorage(fromSessionId: string, toSessionId: str
   if (isEmptyState(source)) return false;
 
   const target = readState(toSessionId);
-  const next = isEmptyState(target) ? normalizeState(source) : mergeState(source, target);
+  const next = isEmptyState(target)
+    ? normalizeState(source)
+    : mergeState(source, target);
 
   writeState(toSessionId, next);
   removeState(fromSessionId);
