@@ -268,7 +268,6 @@ def _make_fresh_state(workspace_id: str, workspace_dir: str) -> dict[str, Any]:
         "pending_file_choosers": {},  # page_id -> FileChooser list
         "headless": True,
         "session_pages": {},
-        "_active_session_id": None,
         "_lock": asyncio.Lock(),
         "page_counter": 0,
         "last_activity_time": 0.0,  # monotonic timestamp of last browser activity
@@ -299,28 +298,39 @@ def _get_workspace_state(
     return _workspace_states[workspace_id]
 
 
-def _get_active_session_id(state: dict) -> str:
-    return str(state.get("_active_session_id") or "default")
-
-
 def _get_session_data(state: dict, session_id: str | None = None) -> dict:
-    session_id = session_id or _get_active_session_id(state)
+    session_id = session_id or "default"
     sp = state.setdefault("session_pages", {})
-    return sp.setdefault(session_id, {"map": {}, "counter": 0, "current": None})
+    return sp.setdefault(
+        session_id,
+        {"map": {}, "counter": 0, "current": None},
+    )
 
 
-def _resolve_page(state: dict, virtual_id: str, session_id: str | None = None) -> str | None:
+def _resolve_page(
+    state: dict,
+    virtual_id: str,
+    session_id: str | None = None,
+) -> str | None:
     return _get_session_data(state, session_id)["map"].get(virtual_id)
 
 
-def _virtual_page_id(state: dict, real_id: str, session_id: str | None = None) -> str | None:
+def _virtual_page_id(
+    state: dict,
+    real_id: str,
+    session_id: str | None = None,
+) -> str | None:
     for v, r in _get_session_data(state, session_id)["map"].items():
         if r == real_id:
             return v
     return None
 
 
-def _session_add_page(state: dict, real_id: str, session_id: str | None = None) -> str:
+def _session_add_page(
+    state: dict,
+    real_id: str,
+    session_id: str | None = None,
+) -> str:
     sd = _get_session_data(state, session_id)
     existing = _virtual_page_id(state, real_id, session_id)
     if existing:
@@ -333,7 +343,11 @@ def _session_add_page(state: dict, real_id: str, session_id: str | None = None) 
     return vid
 
 
-def _session_remove_page(state: dict, real_id: str, session_id: str | None = None) -> str | None:
+def _session_remove_page(
+    state: dict,
+    real_id: str,
+    session_id: str | None = None,
+) -> str | None:
     sd = _get_session_data(state, session_id)
     vid = _virtual_page_id(state, real_id, session_id)
     if not vid:
@@ -353,8 +367,17 @@ def _real_page_is_referenced(state: dict, real_page_id: str) -> bool:
     return False
 
 
+def _find_session_for_real_page(state: dict, real_page_id: str) -> str | None:
+    for sid, sd in state.get("session_pages", {}).items():
+        if real_page_id in sd.get("map", {}).values():
+            return sid
+    return None
+
+
 def _replace_page_id_values(
-    value: Any, state: dict, session_id: str | None = None,
+    value: Any,
+    state: dict,
+    session_id: str | None = None,
     drop_unmapped_dict: bool = False,
 ) -> Any:
     if isinstance(value, str):
@@ -365,7 +388,12 @@ def _replace_page_id_values(
     if isinstance(value, list):
         out = []
         for item in value:
-            r = _replace_page_id_values(item, state, session_id, drop_unmapped_dict)
+            r = _replace_page_id_values(
+                item,
+                state,
+                session_id,
+                drop_unmapped_dict,
+            )
             if r is not None:
                 out.append(r)
         return out
@@ -377,10 +405,19 @@ def _replace_page_id_values(
                 if v is None:
                     return None if drop_unmapped_dict else {}
                 out[k] = v
-            elif k in {"tabs", "pages", "tab_list", "current_page_id",
-                        "session_current_page_id", "results"}:
+            elif k in {
+                "tabs",
+                "pages",
+                "tab_list",
+                "current_page_id",
+                "session_current_page_id",
+                "results",
+            }:
                 out[k] = _replace_page_id_values(
-                    v, state, session_id, drop_unmapped_dict=(k == "tab_list"),
+                    v,
+                    state,
+                    session_id,
+                    drop_unmapped_dict=(k == "tab_list"),
                 )
             else:
                 out[k] = v
@@ -389,7 +426,9 @@ def _replace_page_id_values(
 
 
 def _localize_tool_response(
-    state: dict, resp: ToolChunk, session_id: str | None = None,
+    state: dict,
+    resp: ToolChunk,
+    session_id: str | None = None,
 ) -> ToolChunk:
     try:
         block = resp.content[0]
@@ -442,7 +481,6 @@ def _reset_browser_state(state: dict) -> None:
     state["pending_dialogs"].clear()
     state["pending_file_choosers"].clear()
     state["session_pages"].clear()
-    state["_active_session_id"] = None
     state["page_counter"] = 0
     state["last_activity_time"] = 0.0
     state["headless"] = True
@@ -929,7 +967,10 @@ async def _get_tab_info_list(state: dict) -> list[dict[str, str]]:
     return tab_list
 
 
-async def _get_session_tab_info_list(state: dict, session_id: str | None = None) -> list[dict[str, str]]:
+async def _get_session_tab_info_list(
+    state: dict,
+    session_id: str | None = None,
+) -> list[dict[str, str]]:
     real_tabs = await _get_tab_info_list(state)
     out: list[dict[str, str]] = []
     for item in real_tabs:
@@ -1051,10 +1092,26 @@ def _attach_context_listeners(state: dict, context) -> None:
     def on_page(page):
         new_id = _next_page_id(state)
         _register_page(state, page, new_id)
-        vid = _session_add_page(state, new_id)
+        session_id = None
+        try:
+            opener = page.opener
+            if callable(opener):
+                opener = opener()
+            if opener:
+                for rid, p in state.get("pages", {}).items():
+                    if p is opener:
+                        session_id = _find_session_for_real_page(state, rid)
+                        break
+        except Exception:
+            pass
+        if not session_id:
+            session_id = "default"
+        vid = _session_add_page(state, new_id, session_id)
         logger.debug(
             "New tab opened by page, real_id=%s, virtual_id=%s, session=%s",
-            new_id, vid, _get_active_session_id(state),
+            new_id,
+            vid,
+            session_id,
         )
 
     context.on("page", on_page)
@@ -1245,11 +1302,18 @@ async def _action_start(
             cur = sd.get("current")
             result: dict[str, Any] = {
                 "ok": True,
-                "message": "Browser already running. If the current browser state meets your requirements, please proceed with actions on it directly.",
+                "message": (
+                    "Browser already running. If the current browser"
+                    " state meets your requirements, please proceed"
+                    " with actions on it directly."
+                ),
                 "headed": not current_headless,
                 "tabs": tabs,
                 "current_page_id": cur,
-                "tab_list": await _get_session_tab_info_list(state, session_id),
+                "tab_list": await _get_session_tab_info_list(
+                    state,
+                    session_id,
+                ),
             }
             if current_headless:
                 result["headless_warning"] = _HEADLESS_VERIFICATION_WARNING
@@ -1423,11 +1487,17 @@ async def _action_start(
         )
 
 
-async def _action_stop(state: dict, *, force: bool = False, session_id: str | None = None) -> ToolChunk:
+async def _action_stop(
+    state: dict,
+    *,
+    force: bool = False,
+    session_id: str | None = None,
+) -> ToolChunk:
     session_id = session_id or _get_active_session_id(state)
     sd = _get_session_data(state, session_id)
     other_sessions = [
-        sid for sid, sdata in state.get("session_pages", {}).items()
+        sid
+        for sid, sdata in state.get("session_pages", {}).items()
         if sid != session_id and sdata.get("map")
     ]
     if other_sessions and _is_browser_running(state) and not force:
@@ -1435,21 +1505,28 @@ async def _action_stop(state: dict, *, force: bool = False, session_id: str | No
         for vid, real in list(sd["map"].items()):
             _session_remove_page(state, real, session_id)
             closed_vids.append(vid)
-            if not _real_page_is_referenced(state, real):
-                page = _get_page(state, real)
-                if page:
-                    try:
-                        if _USE_SYNC_PLAYWRIGHT:
-                            await _run_sync(page.close)
-                        else:
-                            await page.close()
-                    except Exception:
-                        pass
-                    state["pages"].pop(real, None)
-                    for key in ("refs", "refs_frame", "console_logs",
-                                "network_requests", "pending_dialogs",
-                                "pending_file_choosers"):
-                        state[key].pop(real, None)
+            if _real_page_is_referenced(state, real):
+                continue
+            page = _get_page(state, real)
+            if not page:
+                continue
+            try:
+                if _USE_SYNC_PLAYWRIGHT:
+                    await _run_sync(page.close)
+                else:
+                    await page.close()
+            except Exception:
+                pass
+            state["pages"].pop(real, None)
+            for key in (
+                "refs",
+                "refs_frame",
+                "console_logs",
+                "network_requests",
+                "pending_dialogs",
+                "pending_file_choosers",
+            ):
+                state[key].pop(real, None)
         return _tool_response(
             json.dumps(
                 {
@@ -1583,7 +1660,12 @@ async def _action_stop(state: dict, *, force: bool = False, session_id: str | No
     )
 
 
-async def _action_open(state: dict, url: str, page_id: str, session_id: str | None = None) -> ToolChunk:
+async def _action_open(
+    state: dict,
+    url: str,
+    page_id: str,
+    session_id: str | None = None,
+) -> ToolChunk:
     url = (url or "").strip()
     if not url:
         return _tool_response(
@@ -1607,7 +1689,7 @@ async def _action_open(state: dict, url: str, page_id: str, session_id: str | No
             loop = asyncio.get_event_loop()
             page = await loop.run_in_executor(
                 _get_executor(),
-                lambda: state["_sync_context"].new_page(),
+                state["_sync_context"].new_page,
             )
         else:
             page = await state["context"].new_page()
@@ -2214,7 +2296,11 @@ async def _action_pdf(state: dict, page_id: str, path: str) -> ToolChunk:
         )
 
 
-async def _action_close(state: dict, page_id: str, session_id: str | None = None) -> ToolChunk:
+async def _action_close(
+    state: dict,
+    page_id: str,
+    session_id: str | None = None,
+) -> ToolChunk:
     page = _get_page(state, page_id)
     if not page:
         return _tool_response(
@@ -2235,8 +2321,12 @@ async def _action_close(state: dict, page_id: str, session_id: str | None = None
                 await page.close()
             del state["pages"][page_id]
             for key in (
-                "refs", "refs_frame", "console_logs", "network_requests",
-                "pending_dialogs", "pending_file_choosers",
+                "refs",
+                "refs_frame",
+                "console_logs",
+                "network_requests",
+                "pending_dialogs",
+                "pending_file_choosers",
             ):
                 state[key].pop(page_id, None)
             closed_real = True
@@ -3625,7 +3715,10 @@ async def _action_tabs(  # pylint: disable=too-many-return-statements
     if not tab_action:
         return _tool_response(
             json.dumps(
-                {"ok": False, "error": "tab_action required (list, new, close, select)"},
+                {
+                    "ok": False,
+                    "error": "tab_action required (list, new, close, select)",
+                },
                 ensure_ascii=False,
                 indent=2,
             ),
@@ -3640,7 +3733,10 @@ async def _action_tabs(  # pylint: disable=too-many-return-statements
                 {
                     "ok": True,
                     "tabs": vids,
-                    "tab_list": await _get_session_tab_info_list(state, session_id),
+                    "tab_list": await _get_session_tab_info_list(
+                        state,
+                        session_id,
+                    ),
                     "count": len(vids),
                     "current_page_id": cur,
                     "session_current_page_id": cur,
@@ -3654,17 +3750,31 @@ async def _action_tabs(  # pylint: disable=too-many-return-statements
             if not state["_sync_context"]:
                 ok = await _ensure_browser(state, session_id)
                 if not ok:
-                    err = state.get("_last_browser_error") or "Browser not started"
+                    err = (
+                        state.get("_last_browser_error")
+                        or "Browser not started"
+                    )
                     return _tool_response(
-                        json.dumps({"ok": False, "error": err}, ensure_ascii=False, indent=2),
+                        json.dumps(
+                            {"ok": False, "error": err},
+                            ensure_ascii=False,
+                            indent=2,
+                        ),
                     )
         else:
             if not state["context"]:
                 ok = await _ensure_browser(state, session_id)
                 if not ok:
-                    err = state.get("_last_browser_error") or "Browser not started"
+                    err = (
+                        state.get("_last_browser_error")
+                        or "Browser not started"
+                    )
                     return _tool_response(
-                        json.dumps({"ok": False, "error": err}, ensure_ascii=False, indent=2),
+                        json.dumps(
+                            {"ok": False, "error": err},
+                            ensure_ascii=False,
+                            indent=2,
+                        ),
                     )
         try:
             if _USE_SYNC_PLAYWRIGHT:
@@ -3680,8 +3790,15 @@ async def _action_tabs(  # pylint: disable=too-many-return-statements
                     {
                         "ok": True,
                         "page_id": vid,
-                        "tabs": [v for v, r in sd["map"].items() if r in state.get("pages", {})],
-                        "tab_list": await _get_session_tab_info_list(state, session_id),
+                        "tabs": [
+                            v
+                            for v, r in sd["map"].items()
+                            if r in state.get("pages", {})
+                        ],
+                        "tab_list": await _get_session_tab_info_list(
+                            state,
+                            session_id,
+                        ),
                     },
                     ensure_ascii=False,
                     indent=2,
@@ -3713,7 +3830,8 @@ async def _action_tabs(  # pylint: disable=too-many-return-statements
             return _tool_response(
                 json.dumps(
                     {"ok": False, "error": "Page not found"},
-                    ensure_ascii=False, indent=2,
+                    ensure_ascii=False,
+                    indent=2,
                 ),
             )
         sd["current"] = target_vid
@@ -4732,13 +4850,19 @@ async def browser_use(  # pylint: disable=R0911,R0912
     requested_page_id = page_id
 
     _NO_PAGE_ACTIONS = {
-        "start", "stop", "connect_cdp", "list_cdp_targets",
-        "tabs", "install", "cookies_get", "cookies_set",
-        "cookies_clear", "clear_browser_cache",
+        "start",
+        "stop",
+        "connect_cdp",
+        "list_cdp_targets",
+        "tabs",
+        "install",
+        "cookies_get",
+        "cookies_set",
+        "cookies_clear",
+        "clear_browser_cache",
     }
 
     async with state["_lock"]:
-        state["_active_session_id"] = _session_id
         if action in _NO_PAGE_ACTIONS:
             pass
         elif action == "open":
@@ -4746,7 +4870,11 @@ async def browser_use(  # pylint: disable=R0911,R0912
         else:
             sd = _get_session_data(state, _session_id)
             if requested_page_id == "default":
-                page_id = _resolve_page(state, sd.get("current", ""), _session_id)
+                page_id = _resolve_page(
+                    state,
+                    sd.get("current", ""),
+                    _session_id,
+                )
             else:
                 page_id = _resolve_page(state, requested_page_id, _session_id)
             if not page_id:
@@ -4756,7 +4884,9 @@ async def browser_use(  # pylint: disable=R0911,R0912
                         {
                             "ok": False,
                             "error": f"Page '{requested_page_id}' not found in this session",
-                            "tabs": [v for v, r in sd["map"].items() if r in pages],
+                            "tabs": [
+                                v for v, r in sd["map"].items() if r in pages
+                            ],
                             "current_page_id": sd.get("current"),
                         },
                         ensure_ascii=False,
@@ -4788,7 +4918,12 @@ async def browser_use(  # pylint: disable=R0911,R0912
         if action == "open":
             return await _action_open(state, url, page_id, _session_id)
         if action == "navigate":
-            return await _action_navigate(state, url, page_id, session_id=_session_id)
+            return await _action_navigate(
+                state,
+                url,
+                page_id,
+                session_id=_session_id,
+            )
         if action == "navigate_back":
             return await _action_navigate_back(state, page_id)
         if action in ("screenshot", "take_screenshot"):
@@ -4920,7 +5055,13 @@ async def browser_use(  # pylint: disable=R0911,R0912
                 frame_selector,
             )
         if action == "tabs":
-            return await _action_tabs(state, page_id, tab_action, index, session_id=_session_id)
+            return await _action_tabs(
+                state,
+                page_id,
+                tab_action,
+                index,
+                session_id=_session_id,
+            )
         if action == "wait_for":
             return await _action_wait_for(
                 state,
@@ -5065,7 +5206,12 @@ async def browser_use(  # pylint: disable=R0911,R0912
                     ),
                 )
         if action == "batch":
-            return await _action_batch(state, page_id, actions_json, session_id=_session_id)
+            return await _action_batch(
+                state,
+                page_id,
+                actions_json,
+                session_id=_session_id,
+            )
         if action == "clear_browser_cache":
             return await _action_clear_browser_cache(state)
         return _tool_response(
