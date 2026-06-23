@@ -4,9 +4,10 @@
 
 A lightweight channel that prints all agent responses to stdout.
 
-Messages are sent to the agent via POST /api/console/chat. This channel
-handles the **output** side: whenever a completed message event or a
-proactive send arrives, it is pretty-printed to the terminal.
+Messages are sent to the agent via the standard AgentApp ``/agent/process``
+endpoint or via POST /console/chat. This channel handles the **output** side:
+whenever a completed message event or a proactive send arrives, it is
+pretty-printed to the terminal.
 """
 
 from __future__ import annotations
@@ -20,16 +21,18 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, AsyncGenerator, Dict, List, Optional, Union
 
-from qwenpaw.schemas import (
+from agentscope_runtime.engine.schemas.agent_schemas import (
     MessageType,
     Message,
     RunStatus,
+    AgentResponse,
+    Error,
 )
 
 from ....config.config import ConsoleConfig as ConsoleChannelConfig
 from ...console_push_store import append as push_store_append
 from ....constant import DEFAULT_MEDIA_DIR
-from ....exceptions import ModelQuotaExceededException
+from ....exceptions import ModelQuotaExceededException, convert_model_exception
 from ..base import (
     BaseChannel,
     AudioContent,
@@ -64,8 +67,8 @@ def _ts() -> str:
 class ConsoleChannel(BaseChannel):
     """Console Channel: prints agent responses to stdout.
 
-    Input is handled by ``POST /api/console/chat``; this channel only
-    takes care of output (printing to the terminal).
+    Input is handled by AgentApp's ``/agent/process`` endpoint; this
+    channel only takes care of output (printing to the terminal).
 
     Supports filtering options via config:
         - show_tool_details: Display tool execution details
@@ -314,9 +317,7 @@ class ConsoleChannel(BaseChannel):
                     type=MessageType.MESSAGE,
                     role="assistant",
                     content=new_parts,
-                    status=RunStatus.Completed,
                 )
-                media_message.object = "message"
         return media_message
 
     def _build_trailing_usage_sse(self, session_id: str) -> str | None:
@@ -493,10 +494,57 @@ class ConsoleChannel(BaseChannel):
             )
             yield f"data: {rl_event}\n\n"
             self._print_error(str(e).strip())
+
+            # Yield failed response to avoid stuck UI
+            error_obj = Error(
+                code="MODEL_QUOTA_EXCEEDED",
+                message=str(e).strip(),
+            )
+            req_id = getattr(request, "id", None)
+            failed_resp = AgentResponse(
+                id=req_id,
+                session_id=session_id,
+            ).failed(error_obj)
+            data = self._serialize_event_for_sse(failed_resp)
+            yield f"data: {data}\n\n"
+
         except Exception as e:
             logger.exception("console process/reply failed")
             err_msg = str(e).strip() or "An error occurred while processing."
             self._print_error(err_msg)
+
+            # Yield failed response to avoid stuck UI
+            from agentscope_runtime.engine.schemas.exception import (
+                AgentRuntimeErrorException,
+            )
+
+            if isinstance(e, AgentRuntimeErrorException):
+                converted = e
+            else:
+                model_name = None
+                if self._workspace is not None and hasattr(
+                    self._workspace,
+                    "runner",
+                ):
+                    runner = self._workspace.runner
+                    if runner is not None:
+                        agent = getattr(runner, "agent", None)
+                        if agent and hasattr(agent, "model"):
+                            model_name = getattr(
+                                agent.model,
+                                "model_name",
+                                None,
+                            )
+                converted = convert_model_exception(e, model_name)
+
+            error_obj = Error(code=converted.code, message=converted.message)
+            req_id = getattr(request, "id", None)
+            failed_resp = AgentResponse(
+                id=req_id,
+                session_id=session_id,
+            ).failed(error_obj)
+            data = self._serialize_event_for_sse(failed_resp)
+            yield f"data: {data}\n\n"
 
     async def consume_one(self, payload: Any) -> None:
         """Process one payload; drain stream_one (queue/terminal)."""
