@@ -751,9 +751,18 @@ async def test_resume_opens_picker_and_replays_selected_session():
 
         # Pick the only session.
         app.screen.dismiss("old-1")
-        for _ in range(10):
+        # ``FakeTransport.load_session`` sets ``transport.loaded`` BEFORE
+        # pushing replay events, so polling that flag races the consume
+        # worker on event loops with different scheduling
+        # (ProactorEventLoop on Windows vs. SelectorEventLoop elsewhere).
+        # Poll the final observable state instead: the last replayed
+        # user turn has been mounted as a UserMessage.
+        for _ in range(20):
             await pilot.pause()
-            if transport.loaded:
+            rendered = " ".join(
+                u.content.plain for u in app.query(UserMessage)
+            )
+            if "Thanks!" in rendered:
                 break
 
         assert transport.loaded == ["old-1"]
@@ -889,9 +898,15 @@ async def test_resume_flag_skips_welcome_and_replays_at_start():
     transport = FakeTransport(resume_session_id="old-1")
     app = PawApp(transport, resume_session_id="old-1")
     async with app.run_test() as pilot:
-        for _ in range(10):
+        # Wait until the final replayed user turn is rendered. Polling
+        # ``transport.loaded`` races the consume worker on event loops
+        # with different scheduling (see twin test above).
+        for _ in range(20):
             await pilot.pause()
-            if transport.loaded:
+            rendered = " ".join(
+                u.content.plain for u in app.query(UserMessage)
+            )
+            if "Thanks!" in rendered:
                 break
         # No welcome banner; the resumed transcript renders instead.
         assert not list(app.query(WelcomeMessage))
