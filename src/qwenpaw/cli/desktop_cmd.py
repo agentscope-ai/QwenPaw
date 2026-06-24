@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """CLI command: run QwenPaw app on a free port in a native webview window."""
 
-# pylint:disable=too-many-branches,too-many-statements,consider-using-with
+# pylint:disable=too-many-branches,too-many-statements,consider-using-with,too-many-locals
 from __future__ import annotations
 
 import logging
@@ -29,6 +29,12 @@ if TYPE_CHECKING:
 webview = None  # type: ignore[assignment]
 
 logger = logging.getLogger(__name__)
+
+# Shared state from desktop_preloader.py (if launched via preloader).
+# When the preloader runs, it creates the tkinter splash *before*
+# importing this module, so the splash is already visible by the
+# time desktop_cmd() executes.
+preloader_splash: dict = {}
 
 
 class WebViewAPI:
@@ -345,16 +351,30 @@ def desktop_cmd(
     native webview window loading that URL. Use for a dedicated desktop
     window without conflicting with an existing QwenPaw app instance.
     """
-    # Phase 0: show lightweight tkinter splash immediately
-    # (before heavy imports like `import webview`)
-    logger.info("Showing tkinter splash (Phase 0)...")
-    (
-        _splash_root,
-        splash_update,
-        get_splash_elapsed,
-        splash_destroy,
-    ) = _show_splash()
-    phase0_start = time.monotonic()
+    # Phase 0: get or create tkinter splash
+    if preloader_splash:
+        # Launched via desktop_preloader.py – reuse existing splash
+        (
+            _splash_root,
+            splash_update,
+            get_splash_elapsed,
+            splash_destroy,
+        ) = preloader_splash["callbacks"]
+        phase0_start = preloader_splash["start_time"]
+        logger.info(
+            "Reusing preloader splash (already %ds old)",
+            get_splash_elapsed(),
+        )
+    else:
+        # Direct `python -m qwenpaw desktop` – create our own splash
+        logger.info("Showing tkinter splash (Phase 0)...")
+        (
+            _splash_root,
+            splash_update,
+            get_splash_elapsed,
+            splash_destroy,
+        ) = _show_splash()
+        phase0_start = time.monotonic()
 
     setup_logger(log_level)
 
@@ -441,9 +461,6 @@ def desktop_cmd(
             loading_url,
         )
 
-        # Destroy splash before creating webview (same process)
-        splash_destroy()
-
         api = WebViewAPI()
         win = webview.create_window(
             "QwenPaw Desktop",
@@ -478,13 +495,17 @@ def desktop_cmd(
             )
             try:
                 # Store elapsed seconds in sessionStorage for
-                # the Console overlay to pick up (Phase 2)
-                win.evaluate_js(
-                    f"try{{sessionStorage.setItem("
+                # the Console overlay to pick up (Phase 2).
+                # Use evaluate_js synchronously and wait for it
+                # to complete before navigating.
+                js_set = (
+                    "try{sessionStorage.setItem("
                     f"'qp_ls','{elapsed}')"
-                    f"}}catch(e){{}}",
+                    "}catch(e){}"
                 )
-                time.sleep(0.15)
+                win.evaluate_js(js_set)
+                # Give WebView2 a moment to execute the JS
+                time.sleep(0.3)
                 win.load_url(console_url)
             except Exception as exc:
                 logger.error("load_url failed: %s", exc)
@@ -498,6 +519,11 @@ def desktop_cmd(
 
         mon = threading.Thread(target=_backend_monitor, daemon=True)
         mon.start()
+
+        # Destroy splash right before webview takes over so the user
+        # never sees a blank window between the tkinter splash and the
+        # webview loading page.
+        splash_destroy()
 
         # webview.start() blocks until the window is closed
         logger.info(

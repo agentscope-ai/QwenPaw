@@ -16,62 +16,112 @@
         display: flex;
         align-items: center;
         justify-content: center;
-        background: #fff;
+        background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
         transition: opacity 0.3s;
       }
-      #app-loading-overlay .brand {
-        font-size: 2.5rem;
+      #app-loading-overlay .card {
+        width: 400px;
+        padding: 40px;
+        border-radius: 12px;
+        text-align: center;
+        background: #fff;
+        box-shadow: 0 4px 24px rgba(0, 0, 0, 0.1);
+      }
+      #app-loading-overlay .logo {
+        font-size: 28px;
         font-weight: 700;
-        color: #404040;
-        margin-bottom: 1.5rem;
+        color: #ff7f16;
+        margin-bottom: 28px;
+        letter-spacing: -0.5px;
       }
-      #app-loading-overlay .spinner {
-        width: 40px;
-        height: 40px;
-        border: 4px solid rgba(0, 0, 0, 0.08);
-        border-top-color: #4a9eff;
-        border-radius: 50%;
-        animation: _alo_spin 1s linear infinite;
-        margin: 0 auto 1rem;
+      #app-loading-overlay .progress-wrap {
+        position: relative;
+        display: inline-block;
       }
-      #app-loading-overlay .text {
-        color: #808080;
-        font-size: 1rem;
+      #app-loading-overlay .progress-label {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        font-size: 24px;
+        font-weight: 500;
+        color: #333;
       }
-      @keyframes _alo_spin {
-        to {
-          transform: rotate(360deg);
-        }
+      #app-loading-overlay .trail {
+        stroke: rgba(0, 0, 0, 0.04);
+      }
+      #app-loading-overlay .arc {
+        stroke: #ff7f16;
+        transition: stroke-dasharray 0.3s ease;
+      }
+      #app-loading-overlay .status {
+        color: #333;
+        font-size: 16px;
+        font-weight: 500;
+        margin: 16px 0 0;
       }
       @media (prefers-color-scheme: dark) {
         #app-loading-overlay {
-          background: #1e1e1e;
+          background: linear-gradient(
+            135deg,
+            #0f0c29 0%,
+            #302b63 50%,
+            #24243e 100%
+          );
         }
-        #app-loading-overlay .brand {
-          color: #e0e0e0;
+        #app-loading-overlay .card {
+          background: #1f1f1f;
+          box-shadow: 0 4px 24px rgba(0, 0, 0, 0.4);
         }
-        #app-loading-overlay .spinner {
-          border-color: rgba(255, 255, 255, 0.1);
-          border-top-color: #7eb8f7;
+        #app-loading-overlay .progress-label,
+        #app-loading-overlay .status {
+          color: rgba(255, 255, 255, 0.85);
         }
-        #app-loading-overlay .text {
-          color: #a0a0a0;
+        #app-loading-overlay .trail {
+          stroke: rgba(255, 255, 255, 0.06);
         }
       }
     </style>
   </head>
   <body>
     <div id="app-loading-overlay">
-      <div style="text-align: center">
-        <div class="brand">QwenPaw</div>
-        <div class="spinner"></div>
-        <div class="text" id="alo-status">加载中...</div>
+      <div class="card">
+        <div class="logo">QwenPaw</div>
+        <div class="progress-wrap">
+          <svg width="160" height="160" viewBox="0 0 160 160">
+            <circle
+              class="trail"
+              cx="80"
+              cy="80"
+              r="70"
+              fill="none"
+              stroke-width="8"
+              stroke-linecap="round"
+              stroke-dasharray="329.87 440"
+              transform="rotate(135 80 80)"
+            />
+            <circle
+              id="alo-arc"
+              class="arc"
+              cx="80"
+              cy="80"
+              r="70"
+              fill="none"
+              stroke-width="8"
+              stroke-linecap="round"
+              stroke-dasharray="0 440"
+              transform="rotate(135 80 80)"
+            />
+          </svg>
+          <div id="alo-label" class="progress-label">0s</div>
+        </div>
+        <p id="alo-status" class="status">Loading console...</p>
       </div>
     </div>
     <script>
       (function () {
-        var el = document.getElementById("alo-status");
-        if (!el) return;
+        var TIMEOUT = 300,
+          ARC = 329.87;
         var base = 0;
         try {
           var v = sessionStorage.getItem("qp_ls");
@@ -80,14 +130,27 @@
             sessionStorage.removeItem("qp_ls");
           }
         } catch (e) {}
+        // Fallback: read elapsed from URL hash if sessionStorage missed it
+        if (!base) {
+          try {
+            var hm = (location.hash || "").match(/_ls=(\d+)/);
+            if (hm) {
+              base = parseInt(hm[1], 10) || 0;
+            }
+          } catch (e) {}
+        }
+        var arc = document.getElementById("alo-arc");
+        var label = document.getElementById("alo-label");
+        var st = document.getElementById("alo-status");
         var t0 = Date.now();
-        setInterval(function () {
-          var s = base + Math.floor((Date.now() - t0) / 1000);
-          el.textContent =
-            s > 0
-              ? "\u52A0\u8F7D\u4E2D... (" + s + "s)"
-              : "\u52A0\u8F7D\u4E2D...";
-        }, 1000);
+        function ui() {
+          var elapsed = base + Math.floor((Date.now() - t0) / 1000);
+          var pct = Math.min(Math.round((elapsed / TIMEOUT) * 100), 100);
+          arc.setAttribute("stroke-dasharray", (pct / 100) * ARC + " 440");
+          label.textContent = elapsed + "s";
+        }
+        ui();
+        setInterval(ui, 1000);
       })();
     </script>
     <div id="root"></div>
