@@ -695,13 +695,11 @@ function CronJobsPage() {
                         {
                           key: "edit",
                           label: t("cronJobs.edit"),
-                          disabled: job.enabled,
                           onClick: () => handleEdit(job),
                         },
                         {
                           key: "delete",
                           label: t("cronJobs.delete"),
-                          disabled: job.enabled,
                           danger: true,
                           onClick: () => handleDelete(job.id as string),
                         },
