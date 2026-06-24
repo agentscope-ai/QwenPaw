@@ -294,9 +294,17 @@ def detect_sensitive_paths(
 # Detector 2: Pattern-based dangerous command detection
 # ---------------------------------------------------------------------------
 
-# Compiled rule cache (object id → compiled patterns)
+# Compiled rule cache. Keyed on the rule's pattern *contents*: only
+# patterns/exclude_patterns affect the compiled regex, so the cache is
+# sound as long as the key reflects them. Keying on id(rule) is unsafe —
+# CPython may reuse a freed object's address for a new object, surfacing
+# another rule's stale compiled patterns; keying on rule.id alone collides
+# when two rules share an id but differ in patterns (e.g. hot-reload).
+# Content keys are plain tuples of str, so no dependency on object
+# weak-referenceability, and entries survive their source object (acceptable
+# — rules are a small static config set).
 _COMPILED_CACHE: dict[
-    int,
+    tuple[tuple[str, ...], tuple[str, ...]],
     tuple[
         list[re.Pattern[str]],
         list[re.Pattern[str]],
@@ -308,9 +316,12 @@ def _get_compiled_patterns(
     rule: Any,
 ) -> tuple[list[re.Pattern[str]], list[re.Pattern[str]]]:
     """Get or compile regex patterns for a detection rule."""
-    # Use id(rule) as cache key to avoid stale cache with same rule_id
-    # but different patterns (e.g. in tests).
-    cache_key = id(rule)
+    # Cache key is the rule's pattern contents — the only inputs that shape
+    # the compiled regex. Stable across object identity and address reuse.
+    cache_key = (
+        tuple(rule.patterns),
+        tuple(rule.exclude_patterns),
+    )
     if cache_key in _COMPILED_CACHE:
         return _COMPILED_CACHE[cache_key]
 
