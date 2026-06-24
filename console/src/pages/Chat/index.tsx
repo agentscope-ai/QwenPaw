@@ -4,7 +4,7 @@ import {
   type IAgentScopeRuntimeWebUIRef,
 } from "@agentscope-ai/chat";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Alert, Button, Modal, Result, Tooltip } from "antd";
+import { Alert, Button, Image, Modal, Result, Tooltip } from "antd";
 import { useAppMessage } from "../../hooks/useAppMessage";
 import { useIsMobile } from "../../hooks/useIsMobile";
 import { ExclamationCircleOutlined, SettingOutlined } from "@ant-design/icons";
@@ -2230,6 +2230,36 @@ export default function ChatPage() {
     document.addEventListener("keydown", handleShortcut);
     return () => document.removeEventListener("keydown", handleShortcut);
   }, [isChatActive, whisperEnabled]);
+
+  // Left/right arrow keys switch images while the fullscreen image preview is
+  // open. antd's Image.PreviewGroup ships the on-screen ◀ ▶ buttons but no
+  // keyboard navigation, so we drive its own switch buttons — reusing antd's
+  // built-in bounds handling (the buttons are disabled at the first/last image).
+  useEffect(() => {
+    const handleArrows = (e: KeyboardEvent) => {
+      if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+      // Only act when a preview is actually open.
+      if (!document.querySelector(".ant-image-preview-wrap")) return;
+      const selector =
+        e.key === "ArrowLeft"
+          ? ".ant-image-preview-switch-left"
+          : ".ant-image-preview-switch-right";
+      const btn = document.querySelector<HTMLElement>(selector);
+      // Skip disabled edges so the keypress is a no-op at the ends.
+      if (
+        !btn ||
+        btn.className.includes("ant-image-preview-switch-left-disabled") ||
+        btn.className.includes("ant-image-preview-switch-right-disabled")
+      ) {
+        return;
+      }
+      e.preventDefault();
+      btn.click();
+    };
+    document.addEventListener("keydown", handleArrows);
+    return () => document.removeEventListener("keydown", handleArrows);
+  }, []);
+
   chatIdRef.current = chatId;
   navigateRef.current = navigate;
 
@@ -3572,17 +3602,22 @@ export default function ChatPage() {
               : styles.chatMessagesArea
           }
         >
-          <RichFileReferenceInputProvider
-            onOpenReference={(reference, trigger) =>
-              void openInlineFileReference(reference, trigger)
-            }
-          >
-            <AgentScopeRuntimeWebUI
-              ref={chatRef}
-              key={refreshKey}
-              options={options}
-            />
-          </RichFileReferenceInputProvider>
+          {/* PreviewGroup bundles every tool-card <Image> in the conversation
+              into one navigable gallery: click any image to open fullscreen,
+              then switch with the ◀ ▶ buttons or the left/right arrow keys. */}
+          <Image.PreviewGroup>
+            <RichFileReferenceInputProvider
+              onOpenReference={(reference, trigger) =>
+                void openInlineFileReference(reference, trigger)
+              }
+            >
+              <AgentScopeRuntimeWebUI
+                ref={chatRef}
+                key={refreshKey}
+                options={options}
+              />
+            </RichFileReferenceInputProvider>
+          </Image.PreviewGroup>
         </div>
 
         {/* Rate-limit guidance banner */}
