@@ -235,7 +235,6 @@ Configure in `running.reme_light_memory_config.auto_memory_search_config`:
 | ------------- | ------------------------------------------------------------- | ------- |
 | `enabled`     | Whether to auto search memory on every conversation turn      | `false` |
 | `max_results` | Maximum results for auto memory search                        | `1`     |
-| `min_score`   | Minimum relevance score threshold for auto search (0.0 ~ 1.0) | `0.1`   |
 | `timeout`     | Timeout in seconds for auto memory search                     | `10.0`  |
 
 ### Embedding Configuration (Optional)

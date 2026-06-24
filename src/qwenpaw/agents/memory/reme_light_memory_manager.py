@@ -260,7 +260,7 @@ class ReMeLightMemoryManager(BaseMemoryManager):
             "search",
             query=query,
             limit=max(1, search_cfg.max_results),
-            min_score=max(0.0, search_cfg.min_score),
+            min_score=0,
         )
         if response is None or not response.success:
             return None
@@ -273,7 +273,6 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         tool_input = {
             "query": query,
             "max_results": search_cfg.max_results,
-            "min_score": search_cfg.min_score,
         }
         assistant_msg = Msg(
             name=agent_name or self.agent_id,

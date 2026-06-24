@@ -8,7 +8,6 @@ import {
   Alert,
 } from "@agentscope-ai/design";
 import { useTranslation } from "react-i18next";
-import { SliderWithValue } from "./SliderWithValue";
 import styles from "../index.module.less";
 
 export function ReMeLightMemoryCard() {
@@ -122,29 +121,6 @@ export function ReMeLightMemoryCard() {
                   tooltip={t("agentConfig.autoMaxResultsTooltip")}
                 >
                   <InputNumber style={{ width: "100%" }} min={1} step={1} />
-                </Form.Item>
-
-                <Form.Item
-                  label={t("agentConfig.autoMinScore")}
-                  name={[
-                    "reme_light_memory_config",
-                    "auto_memory_search_config",
-                    "min_score",
-                  ]}
-                  rules={[
-                    {
-                      required: true,
-                      message: t("agentConfig.autoMinScoreRequired"),
-                    },
-                  ]}
-                  tooltip={t("agentConfig.autoMinScoreTooltip")}
-                >
-                  <SliderWithValue
-                    min={0}
-                    max={1}
-                    step={0.05}
-                    marks={{ 0: "0", 0.5: "0.5", 1: "1" }}
-                  />
                 </Form.Item>
               </>
             ),

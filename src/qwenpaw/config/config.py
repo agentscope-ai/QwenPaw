@@ -546,16 +546,6 @@ class AutoMemorySearchConfig(BaseModel):
         ),
     )
 
-    min_score: float = Field(
-        default=0,
-        ge=0.0,
-        le=1.0,
-        description=(
-            "Minimum relevance score for results when auto memory"
-            " search is enabled"
-        ),
-    )
-
     persist_to_context: bool = Field(
         default=True,
         description=(
