@@ -2830,6 +2830,8 @@ export default function ChatPage() {
     <div className={styles.chatPageRoot}>
       {/* Main chat area */}
       <div className={styles.chatMainArea}>
+        {/* User input thumbnail navigation (floating overlay) */}
+        <UserInputThumbnailSidebar />
         <div
           className={
             isWideMode
@@ -3000,9 +3002,6 @@ export default function ChatPage() {
         </Modal>
       </div>
       {/* End of main chat area */}
-
-      {/* Right-side user input thumbnail navigation */}
-      <UserInputThumbnailSidebar chatRef={chatRef} />
 
       {/* Right-side history panel (full mode only) */}
       {isFullMode && historyPanelOpen && (

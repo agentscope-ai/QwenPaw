@@ -1,62 +1,70 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { IAgentScopeRuntimeWebUIRef } from "@agentscope-ai/chat";
-import { extractTextFromMessage } from "../../utils";
 
 export interface UserMessageSnapshot {
-  /** Unique message id or generated key */
+  /** Unique key for React */
   id: string;
-  /** Extracted plain text from user input */
+  /** Extracted plain text from the bubble */
   text: string;
-  /** Unix timestamp (seconds or ms) */
-  createdAt?: number;
-  /** Index among all user messages in the session */
+  /** Formatted time string extracted from bubble footer */
+  timeLabel: string;
+  /** Index among visible user bubbles (0 = topmost) */
   index: number;
+  /** DOM element reference */
+  element: HTMLElement;
 }
 
-const POLL_INTERVAL_MS = 500;
+const USER_BUBBLE_SELECTOR = '[class*="bubble-list"] > [class*="bubble-end"]';
+const POLL_INTERVAL_MS = 800;
 
 /**
- * Hook that polls chatRef messages and returns a stable, memoized array
- * of user message snapshots. Only re-renders when the user message count changes.
+ * Hook that reads user message bubbles directly from the DOM.
+ * Only returns bubbles that are actually rendered (handles lazy loading).
  */
-export function useUserMessageSnapshot(
-  chatRef: React.RefObject<IAgentScopeRuntimeWebUIRef | null>,
-): { snapshots: UserMessageSnapshot[]; refresh: () => void } {
+export function useUserMessageSnapshot(): {
+  snapshots: UserMessageSnapshot[];
+  refresh: () => void;
+} {
   const [snapshots, setSnapshots] = useState<UserMessageSnapshot[]>([]);
   const prevCountRef = useRef(0);
 
   const derive = useCallback(() => {
-    const messagesApi = chatRef.current?.messages;
-    if (!messagesApi?.getMessages) return;
+    const area = document.querySelector('[class*="chatMessagesArea"]');
+    if (!area) return;
 
-    const allMessages = messagesApi.getMessages();
-    if (!Array.isArray(allMessages)) return;
+    const bubbles = Array.from(
+      area.querySelectorAll(USER_BUBBLE_SELECTOR),
+    ).sort(
+      (a, b) => a.getBoundingClientRect().top - b.getBoundingClientRect().top,
+    ) as HTMLElement[];
 
-    const userMessages = allMessages.filter((msg) => msg.role === "user");
-    // Only update state when user message count changes
-    if (userMessages.length === prevCountRef.current) return;
-    prevCountRef.current = userMessages.length;
+    // Only update when count changes
+    if (bubbles.length === prevCountRef.current) return;
+    prevCountRef.current = bubbles.length;
 
-    const next: UserMessageSnapshot[] = userMessages.map((msg, idx) => {
-      const text = extractTextFromMessage(msg);
-      const createdAt =
-        (msg as any)?.cards?.[0]?.data?.created_at ??
-        (msg as any)?.created_at ??
-        undefined;
+    const next: UserMessageSnapshot[] = bubbles.map((el, idx) => {
+      // Extract text from bubble content
+      const contentEl = el.querySelector('[class*="markdown"]');
+      const rawText = (contentEl?.textContent || el.textContent || "").trim();
+      const text = rawText.split("\n")[0]?.trim() || "";
+
+      // Extract time label from bubble footer
+      const footerEl = el.querySelector('[class*="bubble-footer"]');
+      const timeLabel = footerEl?.textContent?.trim() || "";
+
       return {
-        id: (msg as any).id || `user-msg-${idx}`,
+        id: el.id || `dom-bubble-${idx}`,
         text,
-        createdAt: createdAt as number | undefined,
+        timeLabel,
         index: idx,
+        element: el,
       };
     });
 
     setSnapshots(next);
-  }, [chatRef]);
+  }, []);
 
-  // Polling interval
   useEffect(() => {
-    derive(); // initial sync
+    derive();
     const timer = setInterval(derive, POLL_INTERVAL_MS);
     return () => clearInterval(timer);
   }, [derive]);

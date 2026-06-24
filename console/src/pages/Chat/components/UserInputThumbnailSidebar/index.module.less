@@ -1,19 +1,118 @@
 /* UserInputThumbnailSidebar styles */
 
+/* Container: fixed to right edge, vertically centered */
 .sidebarRoot {
-  width: 40px;
-  flex-shrink: 0;
-  align-self: stretch;
-  overflow-y: auto;
-  overflow-x: hidden;
-  border-left: 1px solid rgba(0, 0, 0, 0.06);
-  background: transparent;
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 10;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Collapsed: vertical icon group (always on the right) */
+.collapsedGroup {
   display: flex;
   flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 6px 4px;
+  border-radius: 20px;
+  background: var(--ant-color-bg-elevated, #fff);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.scrollBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: none;
+  background: transparent;
+  border-radius: 50%;
+  cursor: pointer;
+  color: rgba(0, 0, 0, 0.45);
+  font-size: 12px;
+  transition:
+    background-color 0.15s,
+    color 0.15s;
+
+  &:hover {
+    background: rgba(0, 0, 0, 0.06);
+    color: rgba(0, 0, 0, 0.85);
+  }
+}
+
+/* Hover area that covers both badge and popout list */
+.countBadgeArea {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.countBadge {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  width: 28px;
+  height: 28px;
+  cursor: pointer;
+  border-radius: 50%;
+  transition:
+    background-color 0.15s,
+    box-shadow 0.15s;
+
+  &:hover {
+    background: rgba(0, 0, 0, 0.06);
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.12);
+  }
+}
+
+.countIcon {
+  font-size: 16px;
+  color: rgba(0, 0, 0, 0.55);
+}
+
+.countNum {
+  position: absolute;
+  top: -2px;
+  right: -4px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: #ff7f16;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 16px;
+  text-align: center;
+}
+
+/* Wrapper around Anchor (appears to the left of icon group) */
+.anchorWrapper {
+  position: absolute;
+  right: 100%;
+  top: 50%;
+  transform: translateY(-50%);
+  margin-right: 8px;
+  border-radius: 12px;
+  width: 200px;
+  background: var(--ant-color-bg-elevated, #fff);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+  padding: 6px 4px;
+  max-height: 50vh;
+  overflow-y: auto;
+  overflow-x: hidden;
 
   /* Custom scrollbar */
   &::-webkit-scrollbar {
-    width: 4px;
+    width: 3px;
   }
 
   &::-webkit-scrollbar-track {
@@ -21,152 +120,187 @@
   }
 
   &::-webkit-scrollbar-thumb {
-    background: rgba(0, 0, 0, 0.15);
+    background: rgba(0, 0, 0, 0.1);
     border-radius: 2px;
-
-    &:hover {
-      background: rgba(0, 0, 0, 0.25);
-    }
   }
 
-  /* Firefox scrollbar */
   scrollbar-width: thin;
-  scrollbar-color: rgba(0, 0, 0, 0.15) transparent;
+  scrollbar-color: rgba(0, 0, 0, 0.1) transparent;
+
+  /* Override Anchor default styles */
+  :global {
+    .ant-anchor-wrapper,
+    [class*="anchor-wrapper"] {
+      background: transparent !important;
+      padding: 4px 6px !important;
+      margin: 0 !important;
+      max-height: none !important;
+    }
+
+    .ant-anchor,
+    [class*="anchor-fixed"] {
+      padding: 0 !important;
+      padding-inline-start: 0 !important;
+
+      /* Hide the vertical line (::before pseudo-element) */
+      &::before {
+        display: none !important;
+      }
+    }
+
+    /* Hide the default ink indicator bar */
+    .ant-anchor-ink,
+    [class*="anchor-ink"] {
+      display: none !important;
+    }
+
+    .ant-anchor-link,
+    [class*="anchor-link"] {
+      padding: 0 !important;
+      padding-block: 0 !important;
+      padding-inline: 0 !important;
+      margin: 8px 0 !important;
+    }
+
+    .ant-anchor-link-title,
+    [class*="anchor-link-title"] {
+      display: block;
+      padding: 0 !important;
+      color: inherit;
+      white-space: normal;
+      overflow: visible;
+      text-overflow: unset;
+
+      &:hover {
+        color: inherit;
+      }
+    }
+
+    .ant-anchor-link-title-active,
+    [class*="anchor-link-title-active"] {
+      color: inherit;
+    }
+  }
 }
 
-.thumbnailList {
-  display: flex;
-  flex-direction: column;
-  padding: 8px 0;
-}
-
-.thumbnailItem {
-  height: 48px;
-  padding: 4px 4px 4px 6px;
-  cursor: pointer;
-  border-left: 3px solid transparent;
+/* Inner container for each anchor item */
+.anchorItemInner {
   display: flex;
   align-items: center;
-  transition:
-    background-color 0.2s,
-    border-color 0.2s;
-  overflow: hidden;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background-color 0.15s;
 
   &:hover {
     background: rgba(0, 0, 0, 0.04);
   }
 }
 
-.thumbnailItemActive {
-  border-left-color: #ff7f16;
+/* Active item highlight (via Anchor's active class) */
+:global(.ant-anchor-link-title-active) .anchorItemInner,
+:global([class*="anchor-link-title-active"]) .anchorItemInner {
   background: rgba(255, 127, 22, 0.06);
 }
 
+/* Dot indicator */
+.thumbnailDot {
+  flex-shrink: 0;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.25);
+  transition: background-color 0.15s;
+}
+
+:global(.ant-anchor-link-title-active) .thumbnailDot,
+:global([class*="anchor-link-title-active"]) .thumbnailDot {
+  background: #ff7f16;
+}
+
+/* Expanded content (always visible in anchor panel) */
+.anchorItemContent {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow: hidden;
+}
+
 .thumbnailText {
-  font-size: 10px;
-  line-height: 1.3;
-  color: rgba(0, 0, 0, 0.65);
+  font-size: 12px;
+  line-height: 1.4;
+  color: rgba(0, 0, 0, 0.75);
   overflow: hidden;
   text-overflow: ellipsis;
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 3;
-  word-break: break-all;
-}
-
-.emptyState {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  height: 100%;
-  padding: 8px 4px;
-}
-
-.emptyText {
-  font-size: 10px;
-  color: rgba(0, 0, 0, 0.25);
-  writing-mode: vertical-rl;
-  text-orientation: mixed;
   white-space: nowrap;
+  max-width: 160px;
 }
 
-/* Popover content styles */
-.popoverContent {
-  width: 240px;
-  font-size: 13px;
-  line-height: 1.5;
-}
-
-.popoverHeader {
-  display: flex;
-  justify-content: space-between;
-  align-items: baseline;
-  margin-bottom: 6px;
-}
-
-.popoverTitle {
-  font-weight: 600;
-  color: rgba(0, 0, 0, 0.85);
-}
-
-.popoverTime {
-  font-size: 11px;
-  color: rgba(0, 0, 0, 0.45);
-}
-
-.popoverBody {
-  color: rgba(0, 0, 0, 0.65);
-  word-break: break-word;
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 4;
-  overflow: hidden;
+.thumbnailTime {
+  font-size: 10px;
+  line-height: 1.2;
+  color: rgba(0, 0, 0, 0.4);
+  margin-top: 1px;
 }
 
 /* Dark mode */
 :global(.dark-mode) {
-  .sidebarRoot {
-    border-left-color: rgba(255, 255, 255, 0.08);
-
-    &::-webkit-scrollbar-thumb {
-      background: rgba(255, 255, 255, 0.15);
-
-      &:hover {
-        background: rgba(255, 255, 255, 0.25);
-      }
-    }
-
-    scrollbar-color: rgba(255, 255, 255, 0.15) transparent;
+  .collapsedGroup {
+    background: var(--ant-color-bg-elevated, #1f1f1f);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
   }
 
-  .thumbnailItem {
+  .scrollBtn {
+    color: rgba(255, 255, 255, 0.45);
+
+    &:hover {
+      background: rgba(255, 255, 255, 0.08);
+      color: rgba(255, 255, 255, 0.85);
+    }
+  }
+
+  .countIcon {
+    color: rgba(255, 255, 255, 0.55);
+  }
+
+  .anchorWrapper {
+    background: var(--ant-color-bg-elevated, #1f1f1f);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+
+    &::-webkit-scrollbar-thumb {
+      background: rgba(255, 255, 255, 0.12);
+    }
+
+    scrollbar-color: rgba(255, 255, 255, 0.12) transparent;
+  }
+
+  .anchorItemInner {
     &:hover {
       background: rgba(255, 255, 255, 0.06);
     }
   }
 
-  .thumbnailItemActive {
+  :global(.ant-anchor-link-title-active) .anchorItemInner,
+  :global([class*="anchor-link-title-active"]) .anchorItemInner {
     background: rgba(255, 127, 22, 0.1);
   }
 
+  .thumbnailDot {
+    background: rgba(255, 255, 255, 0.3);
+  }
+
+  :global(.ant-anchor-link-title-active) .thumbnailDot,
+  :global([class*="anchor-link-title-active"]) .thumbnailDot {
+    background: #ff7f16;
+  }
+
   .thumbnailText {
-    color: rgba(255, 255, 255, 0.65);
+    color: rgba(255, 255, 255, 0.75);
   }
 
-  .emptyText {
-    color: rgba(255, 255, 255, 0.25);
-  }
-
-  .popoverTitle {
-    color: rgba(255, 255, 255, 0.85);
-  }
-
-  .popoverTime {
-    color: rgba(255, 255, 255, 0.45);
-  }
-
-  .popoverBody {
-    color: rgba(255, 255, 255, 0.65);
+  .thumbnailTime {
+    color: rgba(255, 255, 255, 0.4);
   }
 }
 

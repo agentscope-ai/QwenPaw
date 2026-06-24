@@ -419,6 +419,7 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [location.pathname]);
+
   /** Delete a session: call deleteChat API then refresh the list */
   const handleDelete = useCallback(
     async (sessionId: string) => {
