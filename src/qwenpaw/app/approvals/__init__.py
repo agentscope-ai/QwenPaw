@@ -6,9 +6,11 @@ from .service import (
     PendingApproval,
     get_approval_service,
 )
+from .models import ApprovalRequestSummary
 
 __all__ = [
     "ApprovalService",
+    "ApprovalRequestSummary",
     "PendingApproval",
     "get_approval_service",
 ]

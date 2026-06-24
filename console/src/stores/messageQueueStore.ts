@@ -42,6 +42,13 @@ export interface QueueItem {
   images?: QueueImage[];
   mentions?: QueueMention[];
   quote?: QueueQuote;
+  /** Agent ID captured at enqueue time to prevent cross-agent delivery */
+  agentId?: string;
+  /** Backend session_id captured at enqueue time so background sender uses
+   *  the correct session even after agent switch clears the session list. */
+  backendSessionId?: string;
+  userId?: string;
+  channel?: string;
   status: QueueItemStatus;
   retryCount: number;
   errorMessage?: string;
@@ -55,6 +62,8 @@ export interface QueueItemInput {
   images?: QueueImage[];
   mentions?: QueueMention[];
   quote?: QueueQuote;
+  userId?: string;
+  channel?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -340,6 +349,25 @@ export const useMessageQueueStore = create<MessageQueueStore>((set, get) => ({
       // Queue is full, reject
       return;
     }
+    // Capture the current selected agent at enqueue time so that
+    // background sending uses the correct X-Agent-Id even after switch.
+    let agentId: string | undefined;
+    try {
+      const agentStorage =
+        sessionStorage.getItem("qwenpaw-agent-storage") ||
+        localStorage.getItem("qwenpaw-agent-storage");
+      if (agentStorage) {
+        const parsed = JSON.parse(agentStorage);
+        agentId = parsed?.state?.selectedAgent || undefined;
+      }
+    } catch {
+      // ignore
+    }
+    // Capture backend session_id so background sender targets the correct
+    // session even if the session list is cleared after agent switch.
+    const backendSessionId =
+      (window as unknown as { currentSessionId?: string }).currentSessionId ||
+      undefined;
     const item: QueueItem = {
       id: nextQueueId(),
       text: input.text,
@@ -347,6 +375,10 @@ export const useMessageQueueStore = create<MessageQueueStore>((set, get) => ({
       images: input.images,
       mentions: input.mentions,
       quote: input.quote,
+      agentId,
+      backendSessionId,
+      userId: input.userId,
+      channel: input.channel,
       status: "pending",
       retryCount: 0,
       createdAt: Date.now(),

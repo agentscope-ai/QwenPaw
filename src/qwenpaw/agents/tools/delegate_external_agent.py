@@ -12,10 +12,11 @@ from pathlib import Path
 from typing import Any, AsyncGenerator, Optional
 
 from agentscope.message import TextBlock
-from agentscope.tool import ToolResponse
+from agentscope.tool import ToolChunk
 
 from ...config.context import get_current_workspace_dir
 from ...constant import WORKING_DIR
+from ...runtime.tool_registry import tool_descriptor
 from ..acp.tool_adapter import (
     format_close_response,
     format_final_assistant_response,
@@ -70,6 +71,10 @@ def _get_acp_service() -> Any:
     from ...app.agent_context import get_current_agent_id
     from ...config.config import ACPConfig
     from ...config.config import load_agent_config
+
+    # pylint: disable=no-name-in-module
+    # ``get_acp_service`` / ``init_acp_service`` are exposed via the
+    # ``qwenpaw.agents.acp.__getattr__`` lazy-loader; pylint can't see them.
     from ..acp import get_acp_service, init_acp_service
 
     agent_id = get_current_agent_id()
@@ -205,9 +210,11 @@ async def _set_runner_state_status(
 def _copy_content_text(blocks: list[TextBlock], limit: int = 12000) -> str:
     parts = [
         str(
-            block.get("text")
-            if isinstance(block, dict)
-            else getattr(block, "text", ""),
+            (
+                block.get("text")
+                if isinstance(block, dict)
+                else getattr(block, "text", "")
+            ),
         )
         for block in blocks
     ]
@@ -272,7 +279,7 @@ async def _get_runner_session_state(
     return "open"
 
 
-async def _format_acp_runner_states_response() -> ToolResponse:
+async def _format_acp_runner_states_response() -> ToolChunk:
     runners = _get_available_acp_runners()
     if not runners:
         return response_text(
@@ -315,7 +322,7 @@ async def _format_acp_runner_states_response() -> ToolResponse:
     return response_text("\n".join(lines))
 
 
-async def _format_runner_status_response(runner_name: str) -> ToolResponse:
+async def _format_runner_status_response(runner_name: str) -> ToolChunk:
     available_runners = _get_available_acp_runners()
     if runner_name not in available_runners:
         return response_text(
@@ -359,7 +366,7 @@ async def _format_runner_status_response(runner_name: str) -> ToolResponse:
     return response_text(f"{status_text}\n\n{permission_text}")
 
 
-async def _format_all_runner_status_response() -> ToolResponse:
+async def _format_all_runner_status_response() -> ToolChunk:
     return await _format_acp_runner_states_response()
 
 
@@ -490,9 +497,9 @@ async def _stream_action_responses(
     message_text: str,
     execution_cwd: Path,
     max_runtime: Optional[float] = None,
-) -> AsyncGenerator[ToolResponse, None]:
+) -> AsyncGenerator[ToolChunk, None]:
     # pylint: disable=too-many-branches,too-many-statements
-    response_queue: asyncio.Queue[ToolResponse] = asyncio.Queue()
+    response_queue: asyncio.Queue[ToolChunk] = asyncio.Queue()
     flush_interval = 1.0
     pending_items: list[str] = []
     seen_stream_items: set[str] = set()
@@ -580,11 +587,15 @@ async def _stream_action_responses(
         ),
     )
     loop = asyncio.get_running_loop()
-    deadline = (
-        loop.time() + max_runtime
-        if max_runtime is not None and max_runtime > 0
-        else None
-    )
+    from ...tool_calls import get_call_context
+
+    _tc_ctx = get_call_context()
+    if _tc_ctx is not None and _tc_ctx.remaining() is not None:
+        deadline = _tc_ctx.deadline
+    elif max_runtime is not None and max_runtime > 0:
+        deadline = loop.time() + max_runtime
+    else:
+        deadline = None
 
     try:
         while True:
@@ -626,7 +637,6 @@ async def _stream_action_responses(
                             f'runner="{runner_name}", '
                             'message="continue") with higher max_runtime.'
                         ),
-                        stream=True,
                         is_last=True,
                     )
                     return
@@ -704,7 +714,7 @@ async def _handle_immediate_action(
     *,
     action_name: str,
     runner_name: str,
-) -> Optional[ToolResponse]:
+) -> Optional[ToolChunk]:
     if action_name == "list":
         return await _format_acp_runner_states_response()
     if action_name == "status":
@@ -777,7 +787,7 @@ async def _validate_runner_start(
     action_name: str,
     chat_id: str,
     runner_name: str,
-) -> Optional[ToolResponse]:
+) -> Optional[ToolChunk]:
     if action_name != "start":
         return None
     start_error = await _validate_start_request(
@@ -792,7 +802,7 @@ async def _validate_runner_start(
         "failed",
         error=start_error,
     )
-    return response_text(start_error, stream=True)
+    return response_text(start_error)
 
 
 async def _cancel_runner_turn(
@@ -814,7 +824,7 @@ async def _cancel_runner_turn(
         )
 
 
-def _interrupted_response(runner_name: str) -> ToolResponse:
+def _interrupted_response(runner_name: str) -> ToolChunk:
     return response_text(
         (
             f"ACP conversation with runner '{runner_name}' was "
@@ -823,7 +833,6 @@ def _interrupted_response(runner_name: str) -> ToolResponse:
             f'delegate_external_agent(action="message", '
             f'runner="{runner_name}", message="continue").'
         ),
-        stream=True,
         is_last=True,
     )
 
@@ -835,7 +844,7 @@ async def _run_streaming_agent_action(
     message_text: str,
     execution_cwd: Path,
     timeout_seconds: Optional[float],
-) -> AsyncGenerator[ToolResponse, None]:
+) -> AsyncGenerator[ToolChunk, None]:
     service = None
     chat_id = ""
     state = None
@@ -890,22 +899,23 @@ async def _run_streaming_agent_action(
         raise
     except ImportError as e:
         await _set_failed_runner_state(state, e)
-        yield response_text(f"ACP mode not available: {e}.", stream=True)
+        yield response_text(f"ACP mode not available: {e}.")
     except ValueError as e:
         await _set_failed_runner_state(state, e)
-        yield response_text(f"Error: {e}", stream=True)
+        yield response_text(f"Error: {e}")
     except Exception as e:
         await _set_failed_runner_state(state, e)
-        yield response_text(f"ACP execution error: {e}", stream=True)
+        yield response_text(f"ACP execution error: {e}")
 
 
+@tool_descriptor(async_execution=True)
 async def delegate_external_agent(
     action: str,
     runner: str = "",
     message: str = "",
     cwd: str = "",
     max_runtime: Optional[float] = 300,
-) -> ToolResponse | AsyncGenerator[ToolResponse, None]:
+) -> ToolChunk | AsyncGenerator[ToolChunk, None]:
     # pylint: disable=too-many-return-statements
     """
     Open, talk to, respond to permissions for, or close an ACP agent session.
@@ -965,7 +975,7 @@ async def delegate_external_agent(
             `message="continue")`.
 
     Returns:
-        `AsyncGenerator[ToolResponse, None]`:
+        `AsyncGenerator[ToolChunk, None]`:
             Streaming tool responses for external agent progress, permission
             requests, status, or errors.
     """

@@ -2373,3 +2373,351 @@
     opacity: 0.8;
   }
 }
+
+/* ─── Mobile responsive ───────────────────────────────────────────────────── */
+@media (max-width: 768px) {
+  .pageHeader {
+    padding: 12px 16px;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .breadcrumbHeader {
+    flex-wrap: wrap;
+    gap: 4px 8px;
+  }
+
+  .breadcrumbParent {
+    font-size: 14px;
+  }
+
+  .breadcrumbSeparator {
+    margin: 0 4px;
+  }
+
+  .breadcrumbCurrent {
+    font-size: 16px;
+  }
+
+  .sectionHeaderRow {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+  }
+
+  .headerRight {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+    padding: 0 16px;
+  }
+
+  .providersPageHeader {
+    padding: 12px 16px;
+  }
+
+  .llmPill {
+    justify-content: space-between;
+    width: 100%;
+    padding: 6px 10px;
+    font-size: 13px;
+  }
+
+  .llmPillLabel {
+    font-size: 13px;
+  }
+
+  .llmPillValue {
+    font-size: 12px;
+    max-width: 120px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .searchRow {
+    margin: 0;
+    width: 100%;
+  }
+
+  .searchInput {
+    max-width: unset;
+    width: 100%;
+  }
+
+  .addProviderBtn {
+    margin-right: 0;
+    width: 100%;
+  }
+
+  .tabsNav {
+    margin: 0 12px 12px;
+    overflow-x: auto;
+    gap: 0;
+  }
+
+  .tabItem {
+    padding: 8px 14px;
+    font-size: 12px;
+    white-space: nowrap;
+  }
+
+  .section {
+    margin-bottom: 24px;
+  }
+
+  .sectionTitle {
+    font-size: 20px;
+  }
+
+  .sectionDesc {
+    margin: 0 0 16px;
+    font-size: 13px;
+  }
+
+  .providersBlock {
+    margin-top: 16px;
+  }
+
+  .providerGroup {
+    padding: 0 12px;
+  }
+
+  .providerGroupTitle {
+    font-size: 13px;
+    margin: 0 0 8px;
+  }
+
+  .providerCards {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+
+  .providerCard {
+    padding: 16px;
+    padding-bottom: 56px;
+    border-radius: 12px;
+  }
+
+  .cardName {
+    font-size: 14px;
+  }
+
+  .groupCardGlass {
+    padding: 16px;
+    border-radius: 12px;
+  }
+
+  .groupCardGlass,
+  .providerCard {
+    min-width: 0;
+  }
+
+  .groupCardHeader {
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 12px;
+  }
+
+  .groupCardName {
+    font-size: 15px;
+  }
+
+  .groupSegmented {
+    overflow-x: auto;
+    flex-wrap: nowrap;
+    gap: 0;
+    padding: 2px;
+  }
+
+  .groupSegBtn {
+    flex: 0 0 auto;
+    padding: 6px 10px;
+    font-size: 10px;
+  }
+
+  .groupCardContent {
+    gap: 8px;
+  }
+
+  .groupCardMono {
+    font-size: 11px;
+    padding: 6px 10px;
+    gap: 4px;
+  }
+
+  .groupCardKeyInput {
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .groupCardActions {
+    flex-wrap: wrap;
+    gap: 6px;
+    padding-top: 10px;
+  }
+
+  .groupCardActBtn {
+    flex: 1;
+    min-width: 0;
+    padding: 6px 10px;
+    font-size: 11px;
+    text-align: center;
+  }
+
+  .groupCardField {
+    gap: 3px;
+  }
+
+  .groupCardFieldValue {
+    font-size: 12px;
+  }
+
+  .availableGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .availableItem {
+    padding: 8px 12px;
+  }
+
+  .cardActions {
+    position: static;
+    padding-top: 12px;
+    border-top: 1px solid rgba(0, 0, 0, 0.06);
+    background: transparent;
+  }
+
+  .actionBtn {
+    height: 28px;
+    font-size: 12px;
+  }
+
+  .modalFooter {
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .modalFooterLeft {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .modalFooterRight {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .slotSection {
+    padding: 16px;
+  }
+
+  .slotHeader {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+
+  .slotActions {
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .emptyConfigured {
+    padding: 32px 16px;
+  }
+
+  .variantItem {
+    padding: 10px 12px;
+  }
+
+  .configFieldRow {
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .configFieldLabel {
+    min-width: unset;
+    width: 100%;
+  }
+
+  .configFieldValue {
+    width: 100%;
+  }
+
+  .inlineKeyInput {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .localModalIntro {
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .localModalTitle {
+    font-size: 16px;
+  }
+
+  .jsonEditorHighlight,
+  .jsonEditorTextarea {
+    padding: 8px 10px;
+    font-size: 12px;
+    min-height: 120px;
+  }
+
+  /* ─── Model Management Modal ─── */
+  .modelList {
+    max-height: 320px;
+  }
+
+  .modelListItem {
+    flex-direction: column;
+    align-items: stretch;
+    padding: 8px 12px;
+    gap: 6px;
+  }
+
+  .modelListItemInfo {
+    flex: none;
+    min-width: 0;
+    width: 100%;
+  }
+
+  .modelListItemName {
+    font-size: 13px;
+  }
+
+  .modelListItemId {
+    font-size: 11px;
+  }
+
+  .modelListItemActions {
+    gap: 4px;
+    flex-shrink: 0;
+    margin-left: 0;
+    justify-content: flex-start;
+  }
+
+  .modelListItemStatusButton {
+    height: 22px;
+    padding: 0 8px;
+    font-size: 11px;
+  }
+
+  .modelListCount {
+    font-size: 11px;
+  }
+
+  .modelManageModal {
+    :global {
+      .ant-modal {
+        max-width: calc(100vw - 32px);
+      }
+      .ant-modal-content {
+        max-height: 90vh;
+        overflow-y: auto;
+      }
+    }
+  }
+}

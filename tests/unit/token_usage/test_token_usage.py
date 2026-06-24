@@ -489,7 +489,7 @@ class TestTokenRecordingModelWrapper:
         )
 
         mock_model = MagicMock()
-        mock_model.model_name = "gpt-4"
+        mock_model.model = "gpt-4"
 
         wrapper = TokenRecordingModelWrapper(
             provider_id="openai",
@@ -498,7 +498,7 @@ class TestTokenRecordingModelWrapper:
 
         assert wrapper._provider_id == "openai"
         assert wrapper._model is mock_model
-        assert wrapper.model_name == "gpt-4"
+        assert wrapper.model == "gpt-4"
 
     def test_record_usage_with_valid_usage(self, tmp_path, monkeypatch):
         """Should record valid usage."""
@@ -512,7 +512,7 @@ class TestTokenRecordingModelWrapper:
         )
 
         mock_model = MagicMock()
-        mock_model.model_name = "gpt-4"
+        mock_model.model = "gpt-4"
 
         wrapper = TokenRecordingModelWrapper(
             provider_id="openai",

@@ -8,6 +8,7 @@ from typing import Literal, Optional
 from pydantic import BaseModel, Field
 
 from ._utils.meta import generate_backup_id
+from ..exceptions import BackupConflictError, BackupValidationError
 
 BackupTrustMode = Literal["legacy", "foreign"]
 
@@ -153,24 +154,10 @@ class BackupDetail(BackupMeta):
     )
 
 
-class BackupConflictError(Exception):
-    """Raised when an imported backup's ID already exists on disk."""
-
-    def __init__(self, existing_meta: BackupMeta) -> None:
-        self.existing_meta = existing_meta
-        super().__init__(f"backup_conflict: {existing_meta.id}")
-
-
-class BackupValidationError(ValueError):
-    """Raised for user-actionable backup validation failures."""
-
-    def __init__(
-        self,
-        code: str,
-        message: str,
-        details: dict[str, object] | None = None,
-    ) -> None:
-        self.code = code
-        self.message = message
-        self.details = details or {}
-        super().__init__(message)
+__all__ = [
+    "BackupConflictError",
+    "BackupMeta",
+    "BackupTrustMode",
+    "BackupValidationError",
+    "RestoreBackupRequest",
+]

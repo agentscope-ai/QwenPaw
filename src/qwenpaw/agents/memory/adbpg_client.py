@@ -23,11 +23,9 @@ try:
 except ImportError:
     psycopg2 = None  # type: ignore[assignment]
 
+from ...exceptions import ConfigurationException as ConfigurationError
+
 logger = logging.getLogger(__name__)
-
-
-class ConfigurationError(Exception):
-    """Raised when required configuration is missing or invalid."""
 
 
 @dataclass

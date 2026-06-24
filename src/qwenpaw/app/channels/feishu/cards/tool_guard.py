@@ -478,10 +478,7 @@ def _enqueue_approval_command(
     operator_open_id: str,
 ) -> None:
     """Inject ``/approval {action} {request_id}`` into the channel queue."""
-    from agentscope_runtime.engine.schemas.agent_schemas import (
-        ContentType,
-        TextContent,
-    )
+    from .....schemas import ContentType, TextContent
 
     enqueue = getattr(channel, "_enqueue", None)
     if enqueue is None:

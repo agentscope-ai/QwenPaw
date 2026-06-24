@@ -18,7 +18,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from agentscope_runtime.engine.schemas.exception import AppBaseException
+from qwenpaw.exceptions import AppBaseException
 from qwenpaw.app.routers.agents import router as agents_router
 from qwenpaw.config.config import AgentProfileConfig, AgentProfileRef
 

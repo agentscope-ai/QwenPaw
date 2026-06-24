@@ -12,7 +12,7 @@ Covers:
 - wait_all_done() returns True when idle, False on timeout
 - global status counters update via run lifecycle
 """
-# pylint: disable=protected-access,redefined-outer-name,unused-argument
+# pylint: disable=protected-access,redefined-outer-name,unused-argument,wrong-import-position,no-name-in-module
 from __future__ import annotations
 
 import asyncio
@@ -20,7 +20,13 @@ import json
 
 import pytest
 
-from qwenpaw.app.runner.task_tracker import TaskTracker
+# pylint: disable=no-name-in-module
+# flake8: noqa: E402,E501
+pytest.importorskip(
+    "qwenpaw.app.runner.task_tracker",
+    reason="qwenpaw.app.runner was removed in AgentScope 2.0",
+)
+from qwenpaw.app.runner.task_tracker import TaskTracker  # type: ignore[import]
 
 
 # ---------------------------------------------------------------------------

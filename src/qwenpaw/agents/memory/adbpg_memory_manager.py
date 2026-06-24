@@ -2,20 +2,20 @@
 """ADBPG Memory Manager for QwenPaw agents.
 
 Provides long-term memory backed by AnalyticDB for PostgreSQL (ADBPG).
-Context management (compaction, tool result pruning) is handled by
-LightContextManager — this class only manages long-term memory storage
-and retrieval.
+Context compaction is handled natively by AgentScope's
+``Agent.compress_context()``; tool result pruning is handled by
+``ToolResultPruningMiddleware``. This class only manages long-term
+memory storage and retrieval.
 """
 import asyncio
-import json
 import logging
 import threading
-import uuid
 from collections.abc import Callable
 from pathlib import Path
 
-from agentscope.message import Msg, TextBlock, ToolResultBlock, ToolUseBlock
-from agentscope.tool import ToolResponse
+from agentscope.message import Msg, TextBlock
+from agentscope.tool import ToolChunk
+from agentscope.message import ToolResultState
 
 from .adbpg_client import (
     ADBPGConfig,
@@ -35,7 +35,8 @@ class ADBPGMemoryManager(BaseMemoryManager):
     """ADBPG-backed long-term memory manager.
 
     Delegates storage and retrieval to AnalyticDB for PostgreSQL.
-    Context management is handled by LightContextManager.
+    Context compaction and tool result pruning are handled by the
+    agent's native compression and ``ToolResultPruningMiddleware``.
     """
 
     def __init__(self, working_dir: str, agent_id: str) -> None:
@@ -45,7 +46,6 @@ class ADBPGMemoryManager(BaseMemoryManager):
         self._effective_agent_id: str = "shared"
         self._effective_user_id: str = "shared"
         self._effective_run_id: str = "shared"
-        self._auto_retrieved: bool = False
         self._persisted_msg_ids: set[str] = set()
 
     # ------------------------------------------------------------------
@@ -141,15 +141,17 @@ class ADBPGMemoryManager(BaseMemoryManager):
         self._client = None
         return True
 
-    def get_memory_prompt(self, language: str = "zh") -> str:
+    def get_memory_prompt(self) -> str:
         """Return ADBPG memory guidance prompt."""
+        agent_config = load_agent_config(self.agent_id)
+        language = getattr(agent_config, "language", "zh") or "zh"
         prompts = {
             "zh": ADBPG_MEMORY_GUIDANCE_ZH,
             "en": ADBPG_MEMORY_GUIDANCE_EN,
         }
         return prompts.get(language, ADBPG_MEMORY_GUIDANCE_EN)
 
-    def list_memory_tools(self) -> list[Callable[..., ToolResponse]]:
+    def list_memory_tools(self) -> list[Callable[..., ToolChunk]]:
         """Return memory tools exposed to the agent."""
         return [self.memory_search]
 
@@ -171,133 +173,15 @@ class ADBPGMemoryManager(BaseMemoryManager):
             f"to ADBPG for agent '{self.agent_id}'."
         )
 
-    async def retrieve(
-        self,
-        messages: list[Msg] | Msg,
-        **_kwargs,
-    ) -> dict | None:
-        """Auto-retrieve relevant memories from ADBPG.
-
-        Returns a dict with injected tool_use/tool_result messages,
-        or None if no relevant memory found.
-        """
-        if self._client is None:
-            return None
-
-        msgs: list[Msg] = (
-            [messages] if isinstance(messages, Msg) else list(messages)
-        )
-
-        # Extract query from latest user message
-        query = ""
-        for msg in reversed(msgs):
-            if msg.role == "user":
-                query = (
-                    msg.get_text_content()
-                    if hasattr(msg, "get_text_content")
-                    else str(msg.content)
-                )
-                break
-
-        if not query or len(query.strip()) < 2:
-            return None
-
-        try:
-            loop = asyncio.get_event_loop()
-            results = await loop.run_in_executor(
-                None,
-                lambda: self._client.search_memory(
-                    query=query,
-                    user_id=self._effective_user_id,
-                    agent_id=self._effective_agent_id,
-                    limit=3,
-                ),
-            )
-            if not results:
-                return None
-
-            parts: list[str] = []
-            for item in results:
-                content = item.get("content", item.get("memory", ""))
-                if content:
-                    parts.append(f"- {content}")
-            if not parts:
-                return None
-
-            text_content = "[Long-term Memory from ADBPG]\n" + "\n".join(parts)
-
-            # Construct tool_use + tool_result message pair
-            _id = uuid.uuid4().hex
-            tool_input = {"query": query, "max_results": 3, "min_score": 0.1}
-            agent_name = _kwargs.get("agent_name", "")
-
-            assistant_msg = Msg(
-                name=agent_name,
-                role="assistant",
-                content=[
-                    TextBlock(
-                        type="text",
-                        text="Searching long-term memory...",
-                    ),
-                    ToolUseBlock(
-                        type="tool_use",
-                        id=_id,
-                        name="memory_search",
-                        input=tool_input,
-                        raw_input=json.dumps(tool_input, ensure_ascii=False),
-                    ),
-                ],
-            )
-
-            tool_result_msg = Msg(
-                name=agent_name,
-                role="system",
-                content=[
-                    ToolResultBlock(
-                        type="tool_result",
-                        id=_id,
-                        name="memory_search",
-                        output=[TextBlock(type="text", text=text_content)],
-                    ),
-                ],
-            )
-
-            return {"msg": msgs + [assistant_msg, tool_result_msg]}
-
-        except Exception as e:
-            logger.warning(f"Auto-retrieve ADBPG memories failed: {e}")
-            return None
-
-    # ------------------------------------------------------------------
-    # Auto-memory lifecycle methods (PR #4204 interface)
-    # ------------------------------------------------------------------
-
     async def auto_memory_search(
         self,
         messages: list[Msg] | Msg,
         agent_name: str = "",
         **kwargs,
     ) -> dict | None:
-        """Auto-search ADBPG memory before replying (pre_reply phase).
-
-        ADBPG backend always performs auto-retrieval when client is available.
-        """
-        if self._client is None:
-            return None
-        return await self.retrieve(messages, agent_name=agent_name)
-
-    async def summarize_when_compact(
-        self,
-        messages: list[Msg],
-        **kwargs,
-    ) -> None:
-        """Persist compacted messages to ADBPG.
-
-        Always triggers since ADBPG server-side handles fact extraction.
-        """
-        if not messages:
-            return
-        await self.summarize(messages)
+        """ADBPG memory is available through the explicit search tool."""
+        del messages, agent_name, kwargs
+        return None
 
     async def auto_memory(
         self,
@@ -338,7 +222,7 @@ class ADBPGMemoryManager(BaseMemoryManager):
         query: str,
         max_results: int = 5,
         min_score: float = 0.1,
-    ) -> ToolResponse:
+    ) -> ToolChunk:
         """Search memories from both ADBPG and local memory files.
 
         Combines results from two sources:
@@ -354,7 +238,7 @@ class ADBPGMemoryManager(BaseMemoryManager):
                 Minimum relevance score. Defaults to 0.1.
 
         Returns:
-            `ToolResponse`:
+            `ToolChunk`:
                 Search results with source and content.
         """
         parts: list[str] = []
@@ -397,28 +281,21 @@ class ADBPGMemoryManager(BaseMemoryManager):
             logger.warning("Local memory file search failed: %s", e)
 
         if not parts:
-            return ToolResponse(
+            return ToolChunk(
+                is_last=True,
+                state=ToolResultState.SUCCESS,
                 content=[
                     TextBlock(type="text", text="No relevant memories found."),
                 ],
             )
 
-        return ToolResponse(
+        return ToolChunk(
+            is_last=True,
+            state=ToolResultState.SUCCESS,
             content=[
                 TextBlock(type="text", text="\n\n".join(parts[:max_results])),
             ],
         )
-
-    # ------------------------------------------------------------------
-    # Session reset
-    # ------------------------------------------------------------------
-
-    def reset_turn_state(self) -> None:
-        """Reset per-turn state.
-
-        Call at the start of each conversation turn.
-        """
-        self._auto_retrieved = False
 
     # ------------------------------------------------------------------
     # Private helpers

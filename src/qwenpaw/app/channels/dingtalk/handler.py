@@ -9,7 +9,7 @@ from typing import Any, Callable, Dict, List, Optional
 
 import dingtalk_stream
 from dingtalk_stream import CallbackMessage, ChatbotMessage
-from agentscope_runtime.engine.schemas.agent_schemas import (
+from qwenpaw.schemas import (
     TextContent,
 )
 

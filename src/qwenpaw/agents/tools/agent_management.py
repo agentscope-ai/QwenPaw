@@ -11,11 +11,12 @@ from uuid import uuid4
 
 import httpx
 from agentscope.message import TextBlock
-from agentscope.tool import ToolResponse
+from agentscope.tool import ToolChunk
+from agentscope.message import ToolResultState
 
 from ...config.utils import read_last_api
+from ...runtime.tool_registry import tool_descriptor
 from ...utils.http import trust_env_for_url
-
 
 DEFAULT_AGENT_API_BASE_URL = "http://127.0.0.1:8088"
 DEFAULT_AGENT_API_TIMEOUT = 30.0
@@ -47,8 +48,12 @@ def _normalize_api_base_url(base_url: Optional[str]) -> str:
     return base
 
 
-def _tool_text_response(text: str) -> ToolResponse:
-    return ToolResponse(content=[TextBlock(type="text", text=text)])
+def _tool_text_response(text: str) -> ToolChunk:
+    return ToolChunk(
+        is_last=True,
+        state=ToolResultState.SUCCESS,
+        content=[TextBlock(type="text", text=text)],
+    )
 
 
 def _json_text(data: Any) -> str:
@@ -126,7 +131,7 @@ def ensure_agent_identity_prefix(
 
 
 def parse_agent_sse_line(line: str) -> Optional[Dict[str, Any]]:
-    """Parse a single SSE line emitted by /agent/process."""
+    """Parse a single SSE line emitted by /console/chat."""
     stripped = line.strip()
     if stripped.startswith("data: "):
         try:
@@ -266,7 +271,7 @@ def stream_agent_chat(
     with create_agent_api_client(base_url, default_timeout=timeout) as client:
         with client.stream(
             "POST",
-            "/agent/process",
+            "/console/chat",
             json=request_payload,
             headers=_request_headers(to_agent),
             timeout=timeout,
@@ -291,7 +296,7 @@ def collect_final_agent_chat_response(
     with create_agent_api_client(base_url) as client:
         with client.stream(
             "POST",
-            "/agent/process",
+            "/console/chat",
             json=request_payload,
             headers=_request_headers(to_agent),
             timeout=timeout,
@@ -318,7 +323,7 @@ def submit_agent_chat_task(
         payload["timeout"] = task_timeout
     with create_agent_api_client(base_url) as client:
         response = client.post(
-            "/agent/process/task",
+            "/console/chat/task",
             json=payload,
             headers=_request_headers(to_agent),
             timeout=timeout,
@@ -336,7 +341,7 @@ def get_agent_chat_task_status(
     """Get the current status for a background inter-agent chat task."""
     with create_agent_api_client(base_url) as client:
         response = client.get(
-            f"/agent/process/task/{task_id}",
+            f"/console/chat/task/{task_id}",
             headers=_request_headers(to_agent),
             timeout=timeout,
         )
@@ -421,13 +426,14 @@ def format_background_status_text(
     return "\n".join(parts)
 
 
+@tool_descriptor(async_execution=True)
 async def list_agents(
     base_url: Optional[str] = None,
-) -> ToolResponse:
+) -> ToolChunk:
     """List all configured agents from the QwenPaw service.
 
     Returns:
-        `ToolResponse`:
+        `ToolChunk`:
             A tool response containing the agent list as json text. Each agent
             has its id, name, description and workspace directory.
     """
@@ -435,12 +441,13 @@ async def list_agents(
     return _tool_text_response(_json_text(result))
 
 
+@tool_descriptor(async_execution=True)
 async def chat_with_agent(
     to_agent: str,
     text: str,
     session_id: Optional[str] = None,
     timeout: int = 300,
-) -> ToolResponse:
+) -> ToolChunk:
     """Send a foreground message to another configured agent.
 
     This tool waits for the target agent to finish and returns the final text
@@ -463,7 +470,7 @@ async def chat_with_agent(
             timeout failures.
 
     Returns:
-        `ToolResponse`:
+        `ToolChunk`:
             A text response containing the final agent reply. Successful
             responses include a ``[SESSION: ...]`` header followed by the reply
             text so the caller can reuse the same session in later turns.
@@ -518,12 +525,13 @@ async def chat_with_agent(
     )
 
 
+@tool_descriptor(async_execution=True)
 async def submit_to_agent(
     to_agent: str,
     text: str,
     session_id: Optional[str] = None,
     task_timeout: Optional[float] = None,
-) -> ToolResponse:
+) -> ToolChunk:
     """Submit a background message to another configured agent.
 
     This tool is the background-task counterpart to ``chat_with_agent``. It
@@ -544,7 +552,7 @@ async def submit_to_agent(
             default stream_task_timeout for this specific task.
 
     Returns:
-        `ToolResponse`:
+        `ToolChunk`:
             A text response containing ``[TASK_ID: ...]`` and
             ``[SESSION: ...]`` headers. The returned task ID can be passed to
             ``check_agent_task`` to inspect progress or fetch the final result.
@@ -601,9 +609,10 @@ async def submit_to_agent(
     )
 
 
+@tool_descriptor(async_execution=True)
 async def check_agent_task(
     task_id: str,
-) -> ToolResponse:
+) -> ToolChunk:
     """Check the status of a background inter-agent task.
 
     This tool queries a previously submitted background task by its task ID.
@@ -616,7 +625,7 @@ async def check_agent_task(
             The background task ID returned by ``submit_to_agent``.
 
     Returns:
-        `ToolResponse`:
+        `ToolChunk`:
             A text response containing a ``[TASK_ID: ...]`` header and current
             task status. Completed tasks also include the resolved session ID
             and final agent text when available.
@@ -649,7 +658,7 @@ async def spawn_subagent(
     fork: bool = False,
     background: bool = False,
     timeout: int = 600,
-) -> ToolResponse:
+) -> ToolChunk:
     """Spawn an ephemeral subagent within the CURRENT workspace.
 
     The subagent runs as a one-shot task and cannot be resumed.
@@ -824,7 +833,7 @@ async def _spawn_forked_subagent(
     subagent_session_id: str,
     background: bool,
     timeout: int,
-) -> ToolResponse:
+) -> ToolChunk:
     """Fork path: call /api/fork/agent then dispatch subagent."""
     from ...app.agent_context import (
         get_current_session_id,

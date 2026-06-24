@@ -64,17 +64,28 @@ class OllamaProvider(OpenAIProvider):
         return False, f"Model '{model_id}' not found"
 
     def get_chat_model_instance(self, model_id: str) -> ChatModelBase:
+        from agentscope.credential._openai import OpenAICredential
+        from agentscope.model import OpenAIChatModel
+
         from .openai_chat_model_compat import OpenAIChatModelCompat
 
-        client_kwargs: dict = {"base_url": self._openai_compatible_base_url()}
-        headers = self._build_default_headers()
-        if headers:
-            client_kwargs["default_headers"] = headers
+        credential = OpenAICredential(
+            id=f"qwenpaw-{self.id}",
+            api_key=self.api_key or "ollama",
+            base_url=self._openai_compatible_base_url(),
+        )
+        gen_kwargs = self.get_effective_generate_kwargs(model_id)
+        parameters = OpenAIChatModel.Parameters(
+            max_tokens=gen_kwargs.pop("max_tokens", None),
+            temperature=gen_kwargs.pop("temperature", None),
+            top_p=gen_kwargs.pop("top_p", None),
+        )
         return OpenAIChatModelCompat(
-            model_name=model_id,
+            credential=credential,
+            model=model_id,
+            parameters=parameters,
             stream=True,
-            api_key=self.api_key,
-            stream_tool_parsing=False,
-            client_kwargs=client_kwargs,
-            generate_kwargs=self.get_effective_generate_kwargs(model_id),
+            default_headers=self._build_default_headers() or None,
+            extra_generate_kwargs=gen_kwargs or None,
+            context_size=self._get_context_size(model_id),
         )

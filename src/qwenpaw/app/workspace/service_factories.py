@@ -15,55 +15,93 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-async def create_mcp_service(ws: "Workspace", mcp):
-    """Initialize MCP manager and attach to runner.
+async def create_driver_service(ws: "Workspace", _service):
+    """Create and initialize the per-workspace DriverManager.
 
-    Args:
-        ws: Workspace instance
-        mcp: MCPClientManager instance
+    DriverManager is the runtime for external capabilities.  MCP is wired as
+    the first concrete Driver protocol; legacy MCP config is migrated into
+    DriverCard storage and is not exposed through the old MCP runtime path.
     """
     # pylint: disable=protected-access
-    if ws._config.mcp:
-        try:
-            if getattr(ws, "defer_mcp_startup", False):
-                mcp.init_from_config_background(ws._config.mcp)
-                logger.debug(
-                    f"MCP initialization deferred for agent: {ws.agent_id}",
-                )
-            else:
-                await mcp.init_from_config(ws._config.mcp)
-                logger.debug(f"MCP initialized for agent: {ws.agent_id}")
-        except Exception as e:
-            logger.warning(f"Failed to init MCP: {e}")
-    ws._service_manager.services["runner"].set_mcp_manager(mcp)
+    from ...drivers.adapters.mcp_legacy_config import (
+        migrate_legacy_mcp_if_needed,
+    )
+    from ...drivers.credentials.store import AsyncCredentialStore
+    from ...drivers.handlers import MCPDriverHandler
+    from ...drivers.handlers.mcp import validate_mcp_endpoint
+    from ...drivers.manager import DriverManager
+    from ..approvals.driver_gate import QwenPawDriverApprovalGate
+
+    credential_store = AsyncCredentialStore(
+        ws.workspace_dir / "credentials.yaml",
+    )
+    driver_manager = DriverManager(
+        ws.workspace_dir / "drivers",
+        credential_store,
+        approval_gate=QwenPawDriverApprovalGate(),
+    )
+    driver_manager.register_handler_type(
+        "mcp",
+        MCPDriverHandler,
+        endpoint_validator=validate_mcp_endpoint,
+    )
+    # Future Driver protocols should be registered here together with their
+    # endpoint validator and tests.  This PR intentionally keeps the concrete
+    # runtime surface to MCP while leaving DriverManager protocol-neutral.
+    await migrate_legacy_mcp_if_needed(ws, driver_manager)
+    await driver_manager.start()
+    ws._service_manager.services["driver_manager"] = driver_manager
+    logger.debug(
+        "DriverManager external capability runtime initialized for agent: %s",
+        ws.agent_id,
+    )
+    return driver_manager
+    # pylint: enable=protected-access
+
+
+async def create_driver_config_watcher(ws: "Workspace", _service):
+    """Create watcher for manual DriverCard edits.
+
+    Console/API updates call ``DriverConfigService.reload_driver_best_effort``
+    immediately.  This watcher covers the manual-edit path and works for all
+    Driver protocols instead of only MCP.
+    """
+    # pylint: disable=protected-access
+    driver_manager = ws._service_manager.services.get("driver_manager")
+    if driver_manager is None:
+        return None
+
+    from ..driver_config_watcher import DriverConfigWatcher
+
+    watcher = DriverConfigWatcher(
+        driver_manager,
+        ws.workspace_dir / "drivers",
+    )
+    ws._service_manager.services["driver_config_watcher"] = watcher
+    return watcher
     # pylint: enable=protected-access
 
 
 async def create_chat_service(ws: "Workspace", service):
-    """Create and attach chat manager, or reuse existing one.
+    """Create chat manager, or reuse existing one.
 
     Args:
         ws: Workspace instance
         service: Existing ChatManager if reused, None if creating new
     """
     # pylint: disable=protected-access
-    from ..runner.manager import ChatManager
-    from ..runner.repo.json_repo import JsonChatRepository
+    from ..chats.manager import ChatManager
+    from ..chats.repo.json_repo import JsonChatRepository
 
     if service is not None:
-        # Reused ChatManager - just wire to new runner
         cm = service
         logger.info(f"Reusing ChatManager for {ws.agent_id}")
     else:
-        # Create new ChatManager
         chats_path = str(ws.workspace_dir / "chats.json")
         chat_repo = JsonChatRepository(chats_path)
         cm = ChatManager(repo=chat_repo)
         ws._service_manager.services["chat_manager"] = cm
         logger.info(f"ChatManager created: {chats_path}")
-
-    # Always wire to new runner
-    ws._service_manager.services["runner"].set_chat_manager(cm)
     # pylint: enable=protected-access
 
 
@@ -83,15 +121,11 @@ async def create_channel_service(ws: "Workspace", _):
 
     from ...config import Config, update_last_dispatch
     from ..channels.manager import ChannelManager
-    from ..channels.utils import make_process_from_runner
     from ..channels.access_control import init_access_control_store
 
-    # Initialise the access-control store for this workspace so that
-    # each workspace maintains its own access_control.json.
     init_access_control_store(ws.workspace_dir)
 
     temp_config = Config(channels=ws._config.channels)
-    runner = ws._service_manager.services["runner"]
 
     def on_last_dispatch(channel, user_id, session_id):
         update_last_dispatch(
@@ -102,23 +136,18 @@ async def create_channel_service(ws: "Workspace", _):
         )
 
     cm = ChannelManager.from_config(
-        process=make_process_from_runner(runner),
+        process=ws.stream_query,
         config=temp_config,
         on_last_dispatch=on_last_dispatch,
         workspace_dir=ws.workspace_dir,
     )
     ws._service_manager.services["channel_manager"] = cm
 
-    # Inject workspace into ChannelManager and all channels
     cm.set_workspace(ws)
 
-    # Propagate agent language to channels for i18n deny messages
     agent_language = getattr(ws._config, "language", "zh") or "zh"
     for ch in cm.channels:
         ch._language = agent_language
-
-    # Inject workspace into runner for control command handlers
-    runner.set_workspace(ws)
 
     return cm
     # pylint: enable=protected-access
@@ -155,37 +184,5 @@ async def create_agent_config_watcher(ws: "Workspace", _):
         workspace=ws,
     )
     ws._service_manager.services["agent_config_watcher"] = watcher
-    return watcher
-    # pylint: enable=protected-access
-
-
-async def create_mcp_config_watcher(ws: "Workspace", _):
-    """Create MCP config watcher if MCP manager exists.
-
-    Args:
-        ws: Workspace instance
-        _: Unused service parameter
-
-    Returns:
-        MCPConfigWatcher instance or None if not needed
-    """
-    # pylint: disable=protected-access
-    mcp_mgr = ws._service_manager.services.get("mcp_manager")
-    if not mcp_mgr:
-        return None
-
-    from ..mcp.watcher import MCPConfigWatcher
-    from ...config.config import load_agent_config
-
-    def mcp_config_loader():
-        agent_config = load_agent_config(ws.agent_id)
-        return agent_config.mcp
-
-    watcher = MCPConfigWatcher(
-        mcp_manager=mcp_mgr,
-        config_loader=mcp_config_loader,
-        config_path=ws.workspace_dir / "agent.json",
-    )
-    ws._service_manager.services["mcp_config_watcher"] = watcher
     return watcher
     # pylint: enable=protected-access

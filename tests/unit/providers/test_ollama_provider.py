@@ -116,25 +116,23 @@ def test_get_chat_model_instance_uses_single_v1_suffix(
     monkeypatch,
     base_url: str,
 ) -> None:
-    captured: dict[str, object] = {}
+    captured: list[dict] = []
 
-    class FakeOpenAIChatModelCompat:
-        def __init__(self, **kwargs) -> None:
-            captured.update(kwargs)
+    class FakeCompat:
+        def __init__(self, **kwargs):
+            captured.append(kwargs)
 
     monkeypatch.setattr(
         "qwenpaw.providers.openai_chat_model_compat.OpenAIChatModelCompat",
-        FakeOpenAIChatModelCompat,
+        FakeCompat,
     )
 
     provider = _make_provider(base_url=base_url)
     provider.get_chat_model_instance("llama3.1")
 
-    assert captured["model_name"] == "llama3.1"
-    assert captured["api_key"] == "EMPTY"
-    assert captured["stream"] is True
-    assert captured["stream_tool_parsing"] is False
-    assert captured["client_kwargs"] == {
-        "base_url": "http://localhost:11434/v1",
-    }
-    assert captured["generate_kwargs"] == {}
+    assert captured[0]["model"] == "llama3.1"
+    assert captured[0]["credential"].api_key.get_secret_value() == "EMPTY"
+    assert captured[0]["stream"] is True
+    assert str(captured[0]["credential"].base_url).rstrip("/") == (
+        "http://localhost:11434/v1"
+    )

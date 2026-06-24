@@ -18,6 +18,7 @@ import {
   stringifyEnv,
 } from "./components/ACPDrawer";
 import styles from "../../Control/Channels/index.module.less";
+import stylesACP from "./index.module.less";
 
 const BUILTIN_ACP_ORDER = [
   "opencode",
@@ -220,6 +221,7 @@ function ACPPage() {
   return (
     <div className={styles.channelsPage}>
       <PageHeader
+        className={stylesACP.pageHeader}
         items={[{ title: t("nav.agent") }, { title: t("acp.title") }]}
         center={
           <div className={styles.filterTabs}>
@@ -248,7 +250,9 @@ function ACPPage() {
             <span className={styles.loadingText}>{t("acp.loading")}</span>
           </div>
         ) : (
-          <div className={styles.channelsGrid}>
+          <div
+            className={`${styles.channelsGrid} ${stylesACP.channelsGridMobile}`}
+          >
             {cards.map(({ key, config }) => (
               <ACPCard
                 key={key}

@@ -11,7 +11,7 @@ from fastapi import APIRouter, Body, HTTPException, Request
 from fastapi import Path as PathParam
 from pydantic import BaseModel, field_validator
 
-from agentscope_runtime.engine.schemas.exception import (
+from qwenpaw.exceptions import (
     AppBaseException,
 )
 

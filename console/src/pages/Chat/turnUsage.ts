@@ -194,6 +194,48 @@ export function schedulePatchLastResponseCardUsage(
   window.setTimeout(retry, 0);
 }
 
+/** Re-calculate context ring denominator after model switch. */
+export function patchContextMaxInputLength(
+  chatRef: React.RefObject<IAgentScopeRuntimeWebUIRef | null>,
+  newMaxInputLength: number,
+): void {
+  const messagesApi = chatRef.current?.messages;
+  if (!messagesApi || newMaxInputLength <= 0) return;
+
+  const allMessages = messagesApi.getMessages() ?? [];
+  for (let i = allMessages.length - 1; i >= 0; i--) {
+    const msg = allMessages[i];
+    if (msg.role !== "assistant") continue;
+    const data = getResponseCardData(msg.cards);
+    if (!data) continue;
+    const snap = readTurnUsageFromResponseCardData(data);
+    if (!snap?.context_usage) continue;
+
+    const estimatedTokens = readNumber(snap.context_usage, "estimated_tokens");
+    if (
+      readNumber(snap.context_usage, "max_input_length") === newMaxInputLength
+    ) {
+      return;
+    }
+
+    const newRatio = Math.min((estimatedTokens / newMaxInputLength) * 100, 100);
+    const updatedMsg = JSON.parse(
+      JSON.stringify(msg),
+    ) as IAgentScopeRuntimeWebUIMessage;
+    const updatedData = getResponseCardData(updatedMsg.cards);
+    if (!updatedData) return;
+    updatedData.context_usage = {
+      estimated_tokens: estimatedTokens,
+      max_input_length: newMaxInputLength,
+      context_usage_ratio: newRatio,
+    };
+    ReactDOM.flushSync(() => {
+      messagesApi.updateMessage(updatedMsg);
+    });
+    return;
+  }
+}
+
 function parseSseDataLines(buffer: string): {
   events: string[];
   rest: string;

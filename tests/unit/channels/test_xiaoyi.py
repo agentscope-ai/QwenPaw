@@ -867,7 +867,7 @@ class TestXiaoYiChannelMedia:
         xiaoyi_channel._connected = True
         xiaoyi_channel._session_task_map["session_123"] = "task_123"
 
-        from agentscope_runtime.engine.schemas.agent_schemas import (
+        from qwenpaw.schemas import (
             ImageContent,
             ContentType,
         )
@@ -1102,7 +1102,7 @@ class TestXiaoYiChannelPartsExtraction:
         mock_message = MagicMock()
         mock_message.type = "message"
 
-        from agentscope_runtime.engine.schemas.agent_schemas import (
+        from qwenpaw.schemas import (
             TextContent,
             ContentType,
         )

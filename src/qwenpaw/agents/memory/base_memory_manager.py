@@ -5,11 +5,11 @@ import logging
 from abc import ABC, abstractmethod
 from collections.abc import Callable
 from datetime import datetime
-from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 from agentscope.message import Msg
-from agentscope.tool import ToolResponse
+from agentscope.middleware import MiddlewareBase
+from agentscope.tool import ToolChunk
 
 from ..utils.registry import Registry
 
@@ -53,28 +53,35 @@ class BaseMemoryManager(ABC):
         """
 
     @abstractmethod
-    def get_memory_prompt(self, language: str = "zh") -> str:
+    def get_memory_prompt(self) -> str:
         """Return the memory guidance prompt for inclusion
         in the system prompt.
-
-        Args:
-            language: Language code (``"zh"`` or ``"en"``).
 
         Returns:
             Formatted memory guidance string.
         """
 
     @abstractmethod
-    def list_memory_tools(self) -> list[Callable[..., ToolResponse]]:
+    def list_memory_tools(self) -> list[Callable[..., ToolChunk]]:
         """Return tool functions exposed to the agent for memory access.
 
         Each returned callable may have any signature but must return a
-        ``ToolResponse``.  Implementations register whatever memory-related
+        ``ToolChunk``.  Implementations register whatever memory-related
         tools make sense for the backend (e.g. semantic search, listing).
 
         Returns:
             Ordered list of tool functions to register with the agent toolkit.
         """
+
+    def build_middlewares(self) -> list[MiddlewareBase]:
+        """Return AgentScope middlewares contributed by this manager.
+
+        Tool registration remains a toolkit construction concern.  This hook
+        is only for prompt/model-call/reply lifecycle behavior.
+        """
+        from ..middlewares import MemoryMiddleware
+
+        return [MemoryMiddleware(memory_manager=self)]
 
     # pylint: disable=unused-argument
     async def summarize(self, messages: list[Msg], **kwargs) -> str:
@@ -94,37 +101,7 @@ class BaseMemoryManager(ABC):
         return ""
 
     # pylint: disable=unused-argument
-    async def retrieve(
-        self,
-        messages: list[Msg] | Msg,
-        **kwargs,
-    ) -> dict | None:
-        """Retrieve relevant memory based on the given messages.
-
-        NOTE: This method is optional. Subclasses may override this method
-        to implement actual retrieval. Base implementation returns None,
-        indicating no retrieval support or no relevant memory found.
-
-        Args:
-            messages: One or more conversation messages used as the query.
-            **kwargs: Implementation-specific options.
-
-        Returns:
-            Dict with memory context to merge with kwargs, or None if
-            not implemented or no relevant memory found.
-        """
-        return None
-
-    # pylint: disable=unused-argument
-    async def dream(
-        self,
-        *,
-        runner: Any = None,
-        channel_manager: Any = None,
-        agent_id: Optional[str] = None,
-        workspace_dir: Optional[Path] = None,
-        **kwargs,
-    ) -> None:
+    async def dream(self, **kwargs) -> None:
         """Optimize memory files via a background agent pass.
 
         NOTE: This method is optional. Subclasses may override this method
@@ -133,20 +110,6 @@ class BaseMemoryManager(ABC):
 
         Runs a lightweight ReAct agent with file-editing tools to
         consolidate redundant or outdated memory entries.
-
-        The signature mirrors ``run_heartbeat_once`` so cron callbacks
-        can pass the same set of runner-derived values to either entry.
-
-        Args:
-            runner: Agent runner instance (typically supplied by the cron
-                callback).
-            channel_manager: Optional channel manager for dispatching
-                results (reserved for future use).
-            agent_id: Agent ID for loading config. Subclasses may fall
-                back to ``self.agent_id`` when omitted.
-            workspace_dir: Workspace directory used to locate memory
-                files. Subclasses may fall back to ``self.working_dir``
-                when omitted.
         """
         return None
 
@@ -168,21 +131,6 @@ class BaseMemoryManager(ABC):
         Returns:
             None if auto-search is disabled or no relevant memory found.
             dict with updated kwargs if memory context should be merged.
-        """
-        return None
-
-    async def summarize_when_compact(
-        self,
-        messages: list[Msg],
-        **kwargs,
-    ) -> None:
-        """Trigger memory summarization when context compaction occurs.
-
-        Called during pre_reasoning after compaction. Implementations should
-        check internal config and schedule a summarize task if appropriate.
-
-        Args:
-            messages: The messages that were compacted.
         """
         return None
 

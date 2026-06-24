@@ -392,6 +392,18 @@ class Provider(ProviderInfo, ABC):
                 return model
         return None
 
+    def _get_context_size(self, model_id: str) -> int:
+        """Return the context size for *model_id* from ``ModelInfo``.
+
+        Used when constructing AgentScope chat model instances so that
+        ``model.context_size`` (which drives automatic context compression)
+        matches the user-configured ``max_input_length``.
+        """
+        model_info = self.get_model_info(model_id)
+        if model_info is not None:
+            return model_info.max_input_length
+        return ModelInfo.model_fields["max_input_length"].default
+
     @abstractmethod
     def get_chat_model_instance(self, model_id: str) -> ChatModelBase:
         """Return an instance of the chat model associated with this

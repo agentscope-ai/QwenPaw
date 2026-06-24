@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any, Dict, Optional, Union
 
 import httpx
-from agentscope_runtime.engine.schemas.agent_schemas import (
+from qwenpaw.schemas import (
     ContentType,
     FileContent,
     ImageContent,

@@ -84,3 +84,91 @@ def test_local_models_delete_unknown_model_returns_404(app_server) -> None:
     )
     assert resp.status_code == 404, app_server.logs_tail()
     assert isinstance(resp.json().get("detail"), str) and resp.json()["detail"]
+
+
+# ------------------------------------------------------------------ #
+# Sprint 3.1-D additions
+# ------------------------------------------------------------------ #
+
+
+@pytest.mark.integration
+@pytest.mark.p2
+def test_local_models_config_roundtrip(app_server) -> None:
+    """Test purpose:
+    - Verify PUT /api/local-models/config persists max_context_length and
+      GET returns the updated value.
+
+    Test flow:
+    1. GET baseline config.
+    2. PUT a new max_context_length (must be >= 32768 per validator).
+    3. GET and assert the new value is returned.
+    4. Restore baseline.
+
+    API endpoints:
+    - GET /api/local-models/config
+    - PUT /api/local-models/config
+    """
+    get_resp = app_server.api_request(
+        "GET",
+        "/api/local-models/config",
+        timeout=_LOCAL_MODELS_HTTP_TIMEOUT,
+    )
+    assert get_resp.status_code == 200, app_server.logs_tail()
+    baseline = get_resp.json()
+    assert isinstance(baseline, dict), baseline
+    original_ctx = baseline.get("max_context_length")
+
+    new_ctx = 65536 if original_ctx != 65536 else 98304
+    try:
+        put_resp = app_server.api_request(
+            "PUT",
+            "/api/local-models/config",
+            json={"max_context_length": new_ctx},
+            timeout=_LOCAL_MODELS_HTTP_TIMEOUT,
+        )
+        assert put_resp.status_code == 200, app_server.logs_tail()
+        assert put_resp.json().get("status") == "ok", put_resp.json()
+
+        get_after = app_server.api_request(
+            "GET",
+            "/api/local-models/config",
+            timeout=_LOCAL_MODELS_HTTP_TIMEOUT,
+        )
+        body = get_after.json()
+        assert (
+            body.get("max_context_length") == new_ctx
+        ), f"max_context_length not persisted: {body}"
+    finally:
+        if original_ctx is not None:
+            app_server.api_request(
+                "PUT",
+                "/api/local-models/config",
+                json={"max_context_length": original_ctx},
+                timeout=_LOCAL_MODELS_HTTP_TIMEOUT,
+            )
+
+
+@pytest.mark.integration
+@pytest.mark.p2
+def test_local_models_server_update_info_contract(app_server) -> None:
+    """Test purpose:
+    - Verify GET /api/local-models/server/update returns a structured
+      response so Console can decide whether to prompt the user about
+      a server upgrade. Endpoint must respond 200 even when no update is
+      pending.
+
+    Test flow:
+    1. GET /api/local-models/server/update.
+    2. Assert 200 and the response is a dict.
+
+    API endpoints:
+    - GET /api/local-models/server/update
+    """
+    resp = app_server.api_request(
+        "GET",
+        "/api/local-models/server/update",
+        timeout=_LOCAL_MODELS_HTTP_TIMEOUT,
+    )
+    assert resp.status_code == 200, app_server.logs_tail()
+    body = resp.json()
+    assert isinstance(body, dict), body

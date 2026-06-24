@@ -4,18 +4,21 @@
 import json
 import os
 import platform
-import subprocess
 import time
 
 from agentscope.message import TextBlock
-from agentscope.tool import ToolResponse
+from agentscope.tool import ToolChunk
+from agentscope.message import ToolResultState
 
 from ...config.context import get_current_workspace_dir
 from ...constant import WORKING_DIR
+from ...runtime.tool_registry import tool_descriptor
 
 
-def _tool_error(msg: str) -> ToolResponse:
-    return ToolResponse(
+def _tool_error(msg: str) -> ToolChunk:
+    return ToolChunk(
+        is_last=True,
+        state=ToolResultState.SUCCESS,
         content=[
             TextBlock(
                 type="text",
@@ -29,8 +32,10 @@ def _tool_error(msg: str) -> ToolResponse:
     )
 
 
-def _tool_ok(path: str, message: str) -> ToolResponse:
-    return ToolResponse(
+def _tool_ok(path: str, message: str) -> ToolChunk:
+    return ToolChunk(
+        is_last=True,
+        state=ToolResultState.SUCCESS,
         content=[
             TextBlock(
                 type="text",
@@ -48,7 +53,7 @@ def _tool_ok(path: str, message: str) -> ToolResponse:
     )
 
 
-def _capture_mss(path: str) -> ToolResponse:
+def _capture_mss(path: str) -> ToolChunk:
     """Full-screen capture using mss (Windows, Linux, macOS)."""
     try:
         import mss
@@ -68,31 +73,37 @@ def _capture_mss(path: str) -> ToolResponse:
         return _tool_error(f"desktop_screenshot (mss) failed: {e!s}")
 
 
-def _capture_macos_screencapture(
+async def _capture_macos_screencapture(
     path: str,
     capture_window: bool,
-) -> ToolResponse:
+) -> ToolChunk:
     """macOS: screencapture (supports window selection with -w)."""
+    import asyncio
+
+    from ...tool_calls import cancellable_wait
+
     cmd = ["screencapture", "-x", path]
     if capture_window:
         cmd.insert(-1, "-w")
     try:
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=30,
-            check=False,
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
         )
-        if result.returncode != 0:
-            stderr = (result.stderr or "").strip() or "Unknown error"
-            return _tool_error(f"screencapture failed: {stderr}")
+        _, stderr = await cancellable_wait(
+            proc.communicate(),
+            fallback_secs=30,
+        )
+        if proc.returncode != 0:
+            stderr_str = (stderr or b"").decode().strip() or "Unknown error"
+            return _tool_error(f"screencapture failed: {stderr_str}")
         if not os.path.isfile(path):
             return _tool_error(
                 "screencapture reported success but file was not created",
             )
         return _tool_ok(path, f"Desktop screenshot saved to {path}")
-    except subprocess.TimeoutExpired:
+    except (asyncio.TimeoutError, asyncio.CancelledError):
         return _tool_error(
             "screencapture timed out (e.g. window selection cancelled)",
         )
@@ -100,10 +111,11 @@ def _capture_macos_screencapture(
         return _tool_error(f"desktop_screenshot failed: {e!s}")
 
 
+@tool_descriptor(requires_sandbox=("file_write",), async_execution=True)
 async def desktop_screenshot(
     path: str = "",
     capture_window: bool = False,
-) -> ToolResponse:
+) -> ToolChunk:
     """Capture a screenshot of the entire desktop (all monitors)
         or a single window.
 
@@ -122,7 +134,7 @@ async def desktop_screenshot(
             (capture_window is ignored).
 
     Returns:
-        `ToolResponse`:
+        `ToolChunk`:
             JSON with "ok", "path" (saved file path), and optional "message"
             or "error".
     """
@@ -137,7 +149,7 @@ async def desktop_screenshot(
 
     # macOS: optional window selection via screencapture -w
     if system == "Darwin" and capture_window:
-        return _capture_macos_screencapture(path, capture_window=True)
+        return await _capture_macos_screencapture(path, capture_window=True)
 
     # Full-screen on all platforms (macOS, Linux, Windows) via mss
     return _capture_mss(path)

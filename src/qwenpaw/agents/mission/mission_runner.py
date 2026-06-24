@@ -36,12 +36,30 @@ from pathlib import Path
 from typing import Any, AsyncGenerator
 
 from agentscope.message import Msg, TextBlock
-from agentscope.pipeline import stream_printing_messages
 
 from .state import read_loop_config, read_prd, write_loop_config
 from ...config.config import load_agent_config
 
 logger = logging.getLogger(__name__)
+
+
+async def _stream_agent_reply(
+    agent: Any,
+    msgs: list,
+) -> AsyncGenerator[tuple[Msg, bool], None]:
+    """Iterate ``agent._reply`` and yield ``(Msg, last)`` tuples."""
+    prev_msg: Msg | None = None
+    # pylint: disable=protected-access
+    async for item in agent._reply(
+        inputs=msgs,
+    ):
+        if isinstance(item, Msg):
+            if prev_msg is not None:
+                yield prev_msg, False
+            prev_msg = item
+    if prev_msg is not None:
+        yield prev_msg, True
+
 
 # ── Internationalization ──────────────────────────────────────────────────
 
@@ -140,10 +158,6 @@ _REQUIRED_STORY_FIELDS = {
 
 
 # ── PRD validation ───────────────────────────────────────────────────────
-
-
-class PrdValidationError(ValueError):
-    """Raised when prd.json does not conform to the expected schema."""
 
 
 def validate_prd(prd: dict[str, Any]) -> list[str]:
@@ -335,10 +349,7 @@ async def run_mission_phase1(
       in loop_config.json → seamlessly transition to Phase 2.
     - Otherwise → return control to the user.
     """
-    async for msg, last in stream_printing_messages(
-        agents=[agent],
-        coroutine_task=agent(msgs),
-    ):
+    async for msg, last in _stream_agent_reply(agent, msgs):
         yield msg, last
 
     # Check if agent signaled Phase 2 confirmation
@@ -444,10 +455,7 @@ async def run_mission_phase1(
             ),
         ]
 
-        async for msg, last in stream_printing_messages(
-            agents=[agent],
-            coroutine_task=agent(fix_msgs),
-        ):
+        async for msg, last in _stream_agent_reply(agent, fix_msgs):
             yield msg, last
 
         # Re-check after agent's fix attempt
@@ -573,10 +581,7 @@ async def run_mission_phase2(
                 max_iterations,
             )
 
-            async for msg, last in stream_printing_messages(
-                agents=[agent],
-                coroutine_task=agent(msgs),
-            ):
+            async for msg, last in _stream_agent_reply(agent, msgs):
                 yield msg, last
 
             # Code-level completion check

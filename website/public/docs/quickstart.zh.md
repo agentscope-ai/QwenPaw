@@ -248,10 +248,10 @@ docker run -p 127.0.0.1:8088:8088 \
 
 ## 验证安装（可选）
 
-服务启动后,可通过 HTTP 调用 Agent 接口以确认环境正常。接口为 **POST** `/api/agent/process`,请求体为 JSON,支持 SSE 流式响应。单轮请求示例:
+服务启动后,可通过 HTTP 调用 Agent 接口以确认环境正常。接口为 **POST** `/api/console/chat`,请求体为 JSON,支持 SSE 流式响应。单轮请求示例:
 
 ```bash
-curl -N -X POST "http://localhost:8088/api/agent/process" \
+curl -N -X POST "http://localhost:8088/api/console/chat" \
   -H "Content-Type: application/json" \
   -d '{"input":[{"role":"user","content":[{"type":"text","text":"你好"}]}],"session_id":"session123"}'
 ```

@@ -94,6 +94,7 @@ class LazyGroup(click.Group):
 
 @click.group(
     cls=LazyGroup,
+    invoke_without_command=True,
     context_settings={"help_option_names": ["-h", "--help"]},
     lazy_subcommands={
         "acp": ("qwenpaw.cli.acp_cmd", "acp_cmd", ".acp_cmd"),
@@ -121,6 +122,7 @@ class LazyGroup(click.Group):
             ".providers_cmd",
         ),
         "skills": ("qwenpaw.cli.skills_cmd", "skills_group", ".skills_cmd"),
+        "tui": ("qwenpaw.cli.tui.launch", "tui_cmd", ".tui.launch"),
         "uninstall": (
             "qwenpaw.cli.uninstall_cmd",
             "uninstall_cmd",
@@ -143,6 +145,7 @@ class LazyGroup(click.Group):
         ),
         "task": ("qwenpaw.cli.task_cmd", "task_cmd", ".task_cmd"),
         "doctor": ("qwenpaw.cli.doctor_cmd", "doctor_cmd", ".doctor_cmd"),
+        "auto": ("qwenpaw.cli.auto", "auto_group", ".auto"),
     },
 )
 @click.version_option(version=__version__, prog_name="QwenPaw")
@@ -170,3 +173,12 @@ def cli(ctx: click.Context, host: str | None, port: int | None) -> None:
     ctx.ensure_object(dict)
     ctx.obj["host"] = host
     ctx.obj["port"] = port
+
+    # Bare ``qwenpaw`` (no subcommand) opens the interactive terminal chat UI.
+    # ``--help`` is handled by Click before this callback runs, and every other
+    # entry point is an explicit subcommand, so this only fires for a bare
+    # invocation.
+    if ctx.invoked_subcommand is None:
+        from .tui.launch import run_tui
+
+        run_tui()
