@@ -66,6 +66,54 @@ mimetypes.add_type("text/css", ".css")
 mimetypes.add_type("application/wasm", ".wasm")
 mimetypes.add_type("image/svg+xml", ".svg")
 
+
+def _patch_uvicorn_addr_handlers() -> None:
+    """Patch uvicorn address helpers for Windows socket compatibility.
+
+    On Windows, ``transport.get_extra_info("peername")`` can occasionally
+    return malformed data (e.g. a bytes object instead of an int for the
+    port field), which crashes ``get_remote_addr`` / ``get_local_addr`` with
+    a ``ValueError`` or ``TypeError``.  This patch wraps both helpers so
+    they return ``None`` on failure instead of propagating the exception.
+
+    The patch is applied at import time so it also takes effect in uvicorn
+    reload child processes, which re-import this module but do not run the
+    CLI entry point again.
+    """
+    if sys.platform != "win32":
+        return
+
+    try:
+        import uvicorn.protocols.utils as _utils  # noqa: WPS433
+    except Exception:
+        return
+
+    _orig_remote = getattr(_utils, "get_remote_addr", None)
+    _orig_local = getattr(_utils, "get_local_addr", None)
+
+    if _orig_remote is None or _orig_local is None:
+        return
+
+    def _safe_get_remote_addr(transport):  # type: ignore[no-untyped-def]
+        try:
+            return _orig_remote(transport)
+        except (ValueError, TypeError, OSError):
+            return None
+
+    def _safe_get_local_addr(transport):  # type: ignore[no-untyped-def]
+        try:
+            return _orig_local(transport)
+        except (ValueError, TypeError, OSError):
+            return None
+
+    _utils.get_remote_addr = _safe_get_remote_addr
+    _utils.get_local_addr = _safe_get_local_addr
+
+
+# Apply the uvicorn compatibility patch immediately so it is active in both
+# the parent process and any reload/spawn child processes.
+_patch_uvicorn_addr_handlers()
+
 # Load persisted env vars into os.environ at module import time
 # so they are available before the lifespan starts.
 load_envs_into_environ()

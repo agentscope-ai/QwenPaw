@@ -260,7 +260,6 @@ def _emit_backend_ready(port: int) -> None:
 def _run_backend_server(log_level: str) -> None:
     import uvicorn
 
-    from qwenpaw.cli.app_cmd import _patch_uvicorn_addr_handlers
     from qwenpaw.config.utils import write_last_api
     from qwenpaw.constant import LOG_LEVEL_ENV, WORKING_DIR
     from qwenpaw.utils.logging import (
@@ -292,9 +291,6 @@ def _run_backend_server(log_level: str) -> None:
     logging.getLogger("uvicorn.access").addFilter(
         SuppressPathAccessLogFilter(["/console/push-messages"]),
     )
-
-    # Guard against corrupted peername on Windows ProactorEventLoop
-    _patch_uvicorn_addr_handlers()
 
     # Reuse the previous port so localStorage origin stays stable across
     # restarts, preserving user preferences (selected agent, etc.).

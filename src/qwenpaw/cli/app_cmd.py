@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import logging
 import os
-import sys
 
 import click
 import uvicorn
@@ -16,39 +15,6 @@ from ..utils.logging import setup_logger, SuppressPathAccessLogFilter
 
 
 logger = logging.getLogger(__name__)
-
-
-def _patch_uvicorn_addr_handlers() -> None:
-    """Patch uvicorn address helpers for Windows ProactorEventLoop.
-
-    On Windows, ``transport.get_extra_info("peername")`` can occasionally
-    return corrupted data (bytes instead of int for the port field),
-    which crashes ``get_remote_addr`` / ``get_local_addr`` with a
-    ``ValueError``.  This patch wraps both helpers so they return
-    ``None`` on failure instead of propagating the exception.
-    """
-    if sys.platform != "win32":
-        return
-
-    import uvicorn.protocols.utils as _utils  # noqa: WPS433
-
-    _orig_remote = _utils.get_remote_addr
-    _orig_local = _utils.get_local_addr
-
-    def _safe_get_remote_addr(transport):  # type: ignore[no-untyped-def]
-        try:
-            return _orig_remote(transport)
-        except (ValueError, TypeError, OSError):
-            return None
-
-    def _safe_get_local_addr(transport):  # type: ignore[no-untyped-def]
-        try:
-            return _orig_local(transport)
-        except (ValueError, TypeError, OSError):
-            return None
-
-    _utils.get_remote_addr = _safe_get_remote_addr
-    _utils.get_local_addr = _safe_get_local_addr
 
 
 def _format_bind_address(host: str, port: int) -> str:
@@ -173,7 +139,6 @@ def app_cmd(
         )
 
     _warn_if_auth_off_non_loopback_bind(host, port)
-    _patch_uvicorn_addr_handlers()
 
     uvicorn.run(
         "qwenpaw.app._app:app",
