@@ -29,9 +29,11 @@ from helpers import (
     MOCK_LLM_PROVIDER_ID,
     MockLLMHandler,
     clean_inbox,
+    poll_history as _poll_history,
     register_mock_provider,
     scoped,
     unregister_mock_provider,
+    wait_cron_executed as _wait_cron_executed,
 )
 
 _HTTP_TIMEOUT = 15.0
@@ -185,62 +187,6 @@ def _delete_job(app_server, job_id):
         )
     except Exception:
         pass
-
-
-def _poll_history(app_server, job_id, deadline, *, min_count=1):
-    while time.time() < deadline:
-        resp = app_server.api_request(
-            "GET",
-            f"/api/cron/jobs/{job_id}/history",
-            timeout=_HTTP_TIMEOUT,
-        )
-        if resp.status_code == 200:
-            records = resp.json()
-            if isinstance(records, list) and len(records) >= min_count:
-                return records
-        time.sleep(1.0)
-    return []
-
-
-def _wait_cron_executed(app_server, job_id, deadline):
-    """Wait for cron job to execute, with log-based fallback.
-
-    Upstream has a known race in ``CronManager.get_history``: when an
-    agent reload swaps in a new ``CronManager`` instance, the new
-    instance's per-job in-memory cache may store an empty list before
-    the (still-running) cron task on the old instance writes to disk;
-    subsequent GETs hit the cache and return ``[]`` forever even though
-    the cron actually succeeded. See
-    ``localfile/bug_report_cron_history_cache.md`` for the full report.
-
-    The integration tests assert end-to-end ACP behaviour, not the cron
-    history endpoint specifically. When the HTTP poll path is poisoned
-    by the cache race, fall back to scanning the server logs for the
-    cron executor's ``_execute_once: job_id=<id> status=success`` line:
-    that line is emitted in the cron task's try-block before history
-    persistence and is unaffected by the GET-side cache race.
-
-    Returns:
-        - list of history records when the HTTP path works (preferred);
-        - ``[{"status": "<status>", "_via": "logs"}]`` synthetic record
-          when only the log fallback succeeds;
-        - ``[]`` when neither signal arrives before ``deadline``.
-    """
-    records = _poll_history(app_server, job_id, deadline)
-    if records:
-        return records
-    logs = app_server.logs_tail(40000)
-    success_marker = f"_execute_once: job_id={job_id} status=success"
-    failure_marker = f"_execute_once: job_id={job_id} status="
-    if success_marker in logs:
-        return [{"status": "success", "_via": "logs"}]
-    if failure_marker in logs:
-        # Parse whatever status the executor logged (error/cancelled/...).
-        idx = logs.find(failure_marker)
-        tail = logs[idx + len(failure_marker) :]
-        status = tail.split()[0] if tail else "error"
-        return [{"status": status, "_via": "logs"}]
-    return []
 
 
 # ------------------------------------------------------------------ #
