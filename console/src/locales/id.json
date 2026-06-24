@@ -674,6 +674,9 @@
     "title": "Klien MCP",
     "create": "Buat Klien",
     "formatSupport": "Format yang didukung",
+    "standardFormat": "Standar (pembungkus mcpServers)",
+    "directFormat": "Langsung (key → objek konfigurasi)",
+    "singleFormat": "Satu klien (field datar)",
     "emptyState": "Belum ada klien MCP yang dikonfigurasi",
     "loadError": "Gagal memuat klien MCP",
     "createSuccess": "Klien MCP berhasil dibuat",
@@ -686,9 +689,88 @@
     "deleteConfirm": "Yakin ingin menghapus klien MCP ini?",
     "deleteSuccess": "Klien MCP berhasil dihapus",
     "deleteError": "Gagal menghapus klien MCP",
+    "maskedFieldHint": "Field sensitif disamarkan dengan ***. Edit langsung pada nilai tersamarkan tidak didukung — ganti dengan nilai lengkap yang baru untuk mengubahnya.",
     "tools": "Tool",
     "noTools": "Tidak ada tool tersedia dari server MCP ini",
+    "toolsLoadError": "Gagal memuat tool dari server MCP",
+    "toolsConnecting": "Server MCP masih tersambung, coba lagi sebentar lagi",
     "toolSchema": "Skema Input",
+    "access": {
+      "title": "Akses",
+      "button": "Akses",
+      "summary": "Kebijakan akses MCP",
+      "clientSection": "Akses keseluruhan",
+      "toolSection": "Akses tool",
+      "default": "Default",
+      "sourceType": "Sumber",
+      "sourceValue": "Nilai sumber",
+      "sourceValueAllChannels": "Semua saluran",
+      "subjectType": "Objek",
+      "subjectValue": "Nilai objek",
+      "effectLabel": "Kebijakan",
+      "source": {
+        "channel": "Saluran"
+      },
+      "subjectTypeOption": {
+        "all": "Semua",
+        "user": "Pengguna"
+      },
+      "sourceValuePlaceholder": {
+        "channel": "console / dingtalk"
+      },
+      "subjectValuePlaceholder": "mis. alice",
+      "subjectValuePlaceholderSelectedSource": "ID pengguna di sumber yang dipilih",
+      "subjectValuePlaceholderScoped": "ID pengguna {{source}}",
+      "subjectValueAll": "Semua",
+      "recentUserPlaceholder": "Pilih atau ketik ID pengguna yang ada",
+      "noRecentUsers": "Tidak ada pengguna yang tersedia",
+      "ambiguousUserSourceWarning": "ID pengguna hanya unik di dalam sumber. Pilih saluran tertentu untuk menghindari kecocokan lintas saluran.",
+      "validation": {
+        "missingUserValue": "Pilih sumber tertentu dan masukkan ID pengguna yang valid.",
+        "ambiguousUserSource": "Aturan pengguna harus menargetkan saluran tertentu, bukan semua saluran.",
+        "unknownUserValue": "ID pengguna ini tidak ada di sumber yang dipilih."
+      },
+      "addRule": "Tambah aturan",
+      "deleteRule": "Hapus aturan",
+      "noClientRules": "Tidak ada aturan",
+      "noRules": "Tidak ada aturan, menggunakan kebijakan default",
+      "inherit": "Ikuti ({{effect}})",
+      "stale": "Tidak ditemukan",
+      "disabledTools": "Klien MCP ini dinonaktifkan; aturan akses yang tersimpan tetap dapat diedit.",
+      "discardTitle": "Buang perubahan yang belum disimpan?",
+      "discardContent": "Perubahan kebijakan akses yang belum disimpan akan hilang.",
+      "loadError": "Gagal memuat kebijakan akses MCP",
+      "saveSuccess": "Kebijakan akses MCP tersimpan",
+      "saveError": "Gagal menyimpan kebijakan akses MCP",
+      "unmanagedRules": "{{count}} aturan lanjutan",
+      "effect": {
+        "allow": "Izinkan",
+        "ask": "Tanya",
+        "deny": "Tolak"
+      }
+    },
+    "tab": {
+      "json": "Impor JSON",
+      "form": "Mode Form"
+    },
+    "form": {
+      "key": "Kunci klien",
+      "keyPlaceholder": "my-mcp-server",
+      "keyRequired": "Kunci klien wajib diisi",
+      "name": "Nama tampilan",
+      "namePlaceholder": "My MCP Server",
+      "nameRequired": "Nama tampilan wajib diisi",
+      "transport": "Transport",
+      "url": "URL server",
+      "urlRequired": "URL wajib diisi untuk server MCP jarak jauh",
+      "command": "Perintah",
+      "commandRequired": "Perintah wajib diisi untuk transport stdio",
+      "args": "Argumen (dipisahkan spasi atau baris baru)",
+      "description": "Deskripsi",
+      "descriptionPlaceholder": "Deskripsi opsional",
+      "env": "Variabel lingkungan",
+      "envPlaceholder": "KEY=VALUE (satu per baris)"
+    },
     "oauth": {
       "enableOAuth": "Gunakan Otorisasi OAuth",
       "manage": "OAuth",

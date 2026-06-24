@@ -639,6 +639,82 @@
     "toolsLoadError": "Failed to load tools from MCP server",
     "toolsConnecting": "MCP server is still connecting, please try again in a moment",
     "toolSchema": "Input Schema",
+    "access": {
+      "title": "Acesso",
+      "button": "Acesso",
+      "summary": "Política de acesso MCP",
+      "clientSection": "Acesso geral",
+      "toolSection": "Acesso à ferramenta",
+      "default": "Padrão",
+      "sourceType": "Origem",
+      "sourceValue": "Valor da origem",
+      "sourceValueAllChannels": "Todos os canais",
+      "subjectType": "Objeto",
+      "subjectValue": "Valor do objeto",
+      "effectLabel": "Política",
+      "source": {
+        "channel": "Canal"
+      },
+      "subjectTypeOption": {
+        "all": "Todos",
+        "user": "Usuário"
+      },
+      "sourceValuePlaceholder": {
+        "channel": "console / dingtalk"
+      },
+      "subjectValuePlaceholder": "ex.: alice",
+      "subjectValuePlaceholderSelectedSource": "ID de usuário na origem selecionada",
+      "subjectValuePlaceholderScoped": "ID de usuário de {{source}}",
+      "subjectValueAll": "Todos",
+      "recentUserPlaceholder": "Selecionar ou digitar ID de usuário existente",
+      "noRecentUsers": "Nenhum usuário disponível",
+      "ambiguousUserSourceWarning": "IDs de usuário são únicos apenas dentro da origem. Selecione um canal específico para evitar correspondência entre canais.",
+      "validation": {
+        "missingUserValue": "Selecione uma origem específica e informe um ID de usuário válido.",
+        "ambiguousUserSource": "Regras de usuário devem mirar um canal específico, não todos os canais.",
+        "unknownUserValue": "Este ID de usuário não existe na origem selecionada."
+      },
+      "addRule": "Adicionar regra",
+      "deleteRule": "Excluir regra",
+      "noClientRules": "Nenhuma regra",
+      "noRules": "Nenhuma regra, usa a política padrão",
+      "inherit": "Herdar ({{effect}})",
+      "stale": "Não encontrado",
+      "disabledTools": "Este cliente MCP está desativado; as regras de acesso salvas ainda podem ser editadas.",
+      "discardTitle": "Descartar alterações não salvas?",
+      "discardContent": "As alterações não salvas da política de acesso serão perdidas.",
+      "loadError": "Falha ao carregar política de acesso MCP",
+      "saveSuccess": "Política de acesso MCP salva",
+      "saveError": "Falha ao salvar política de acesso MCP",
+      "unmanagedRules": "{{count}} regra(s) avançada(s)",
+      "effect": {
+        "allow": "Permitir",
+        "ask": "Perguntar",
+        "deny": "Negar"
+      }
+    },
+    "tab": {
+      "json": "Importação JSON",
+      "form": "Modo formulário"
+    },
+    "form": {
+      "key": "Chave do cliente",
+      "keyPlaceholder": "my-mcp-server",
+      "keyRequired": "A chave do cliente é obrigatória",
+      "name": "Nome de exibição",
+      "namePlaceholder": "My MCP Server",
+      "nameRequired": "O nome de exibição é obrigatório",
+      "transport": "Transporte",
+      "url": "URL do servidor",
+      "urlRequired": "A URL é obrigatória para servidores MCP remotos",
+      "command": "Comando",
+      "commandRequired": "O comando é obrigatório para transporte stdio",
+      "args": "Argumentos (separados por espaço ou nova linha)",
+      "description": "Descrição",
+      "descriptionPlaceholder": "Descrição opcional",
+      "env": "Variáveis de ambiente",
+      "envPlaceholder": "KEY=VALUE (uma por linha)"
+    },
     "oauth": {
       "enableOAuth": "Usar autorização OAuth",
       "manage": "OAuth",

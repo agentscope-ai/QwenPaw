@@ -436,6 +436,82 @@
     "toolsLoadError": "Не удалось загрузить инструменты с MCP сервера",
     "toolsConnecting": "MCP сервер подключается, попробуйте через некоторое время",
     "toolSchema": "Схема ввода",
+    "access": {
+      "title": "Доступ",
+      "button": "Доступ",
+      "summary": "Политика доступа MCP",
+      "clientSection": "Общий доступ",
+      "toolSection": "Доступ к инструменту",
+      "default": "По умолчанию",
+      "sourceType": "Источник",
+      "sourceValue": "Значение источника",
+      "sourceValueAllChannels": "Все каналы",
+      "subjectType": "Объект",
+      "subjectValue": "Значение объекта",
+      "effectLabel": "Политика",
+      "source": {
+        "channel": "Канал"
+      },
+      "subjectTypeOption": {
+        "all": "Все",
+        "user": "Пользователь"
+      },
+      "sourceValuePlaceholder": {
+        "channel": "console / dingtalk"
+      },
+      "subjectValuePlaceholder": "например, alice",
+      "subjectValuePlaceholderSelectedSource": "ID пользователя в выбранном источнике",
+      "subjectValuePlaceholderScoped": "ID пользователя в {{source}}",
+      "subjectValueAll": "Все",
+      "recentUserPlaceholder": "Выберите или введите существующий ID пользователя",
+      "noRecentUsers": "Нет доступных пользователей",
+      "ambiguousUserSourceWarning": "ID пользователя уникален только внутри источника. Выберите конкретный канал, чтобы избежать совпадений между каналами.",
+      "validation": {
+        "missingUserValue": "Выберите конкретный источник и введите корректный ID пользователя.",
+        "ambiguousUserSource": "Правила для пользователя должны указывать конкретный канал, а не все каналы.",
+        "unknownUserValue": "Этот ID пользователя не существует в выбранном источнике."
+      },
+      "addRule": "Добавить правило",
+      "deleteRule": "Удалить правило",
+      "noClientRules": "Нет правил",
+      "noRules": "Нет правил, используется политика по умолчанию",
+      "inherit": "Наследовать ({{effect}})",
+      "stale": "Не найдено",
+      "disabledTools": "Этот MCP клиент отключен; сохранённые правила доступа всё ещё можно редактировать.",
+      "discardTitle": "Отменить несохранённые изменения?",
+      "discardContent": "Несохранённые изменения политики доступа будут потеряны.",
+      "loadError": "Не удалось загрузить политику доступа MCP",
+      "saveSuccess": "Политика доступа MCP сохранена",
+      "saveError": "Не удалось сохранить политику доступа MCP",
+      "unmanagedRules": "{{count}} расширенных правил",
+      "effect": {
+        "allow": "Разрешить",
+        "ask": "Спрашивать",
+        "deny": "Запретить"
+      }
+    },
+    "tab": {
+      "json": "Импорт JSON",
+      "form": "Режим формы"
+    },
+    "form": {
+      "key": "Ключ клиента",
+      "keyPlaceholder": "my-mcp-server",
+      "keyRequired": "Ключ клиента обязателен",
+      "name": "Отображаемое имя",
+      "namePlaceholder": "My MCP Server",
+      "nameRequired": "Отображаемое имя обязательно",
+      "transport": "Транспорт",
+      "url": "URL сервера",
+      "urlRequired": "URL обязателен для удалённых MCP серверов",
+      "command": "Команда",
+      "commandRequired": "Команда обязательна для транспорта stdio",
+      "args": "Аргументы (через пробел или с новой строки)",
+      "description": "Описание",
+      "descriptionPlaceholder": "Необязательное описание",
+      "env": "Переменные окружения",
+      "envPlaceholder": "KEY=VALUE (по одной на строку)"
+    },
     "oauth": {
       "enableOAuth": "Использовать OAuth авторизацию",
       "manage": "OAuth",

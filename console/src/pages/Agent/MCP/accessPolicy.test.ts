@@ -1,14 +1,24 @@
 import { describe, expect, it } from "vitest";
-import type { MCPAccessPolicy, MCPToolInfo } from "../../../api/types";
+import type {
+  MCPAccessPolicy,
+  MCPAccessPrincipalOption,
+  MCPToolInfo,
+} from "../../../api/types";
 import {
   addClientRule,
   addToolRule,
+  applyPrincipalOptionToRule,
+  buildSubjectValueOptions,
   buildMCPAccessToolGroups,
+  filterPrincipalOptionsForRule,
+  ruleHasAmbiguousUserSource,
   removeClientRule,
   removeToolRule,
+  sourceScopedSubjectPlaceholder,
   upsertClientRule,
   upsertToolDefault,
   upsertToolRule,
+  validateMCPAccessPolicy,
 } from "./accessPolicy";
 
 const tools: MCPToolInfo[] = [
@@ -66,6 +76,28 @@ const policy: MCPAccessPolicy = {
     dingtalkSearchRule,
   ],
   unmanaged_rules_count: 1,
+};
+
+const principal: MCPAccessPrincipalOption = {
+  source_type: "channel",
+  source_value: "dingtalk",
+  subject_type: "user",
+  subject_value: "alice",
+  label: "DingTalk / Alice",
+  chat_id: "chat-1",
+  chat_name: "Alice chat",
+  session_id: "dingtalk:alice",
+  updated_at: "2026-01-01T00:00:00Z",
+};
+
+const consolePrincipal: MCPAccessPrincipalOption = {
+  ...principal,
+  source_value: "console",
+  subject_value: "default",
+  label: "Console / default",
+  chat_id: "chat-console",
+  chat_name: "Console chat",
+  session_id: "console:default",
 };
 
 describe("MCP access policy helpers", () => {
@@ -263,5 +295,156 @@ describe("MCP access policy helpers", () => {
 
     expect(next.tool_overrides).not.toContainEqual(consoleEchoRule);
     expect(next.tool_overrides).toContainEqual(dingtalkSearchRule);
+  });
+
+  it("applies a recent principal option to the complete rule scope", () => {
+    expect(applyPrincipalOptionToRule(principal)).toEqual({
+      source_type: "channel",
+      source_value: "dingtalk",
+      subject_type: "user",
+      subject_value: "alice",
+    });
+  });
+
+  it("filters user principal options by the selected source", () => {
+    const principals = [consolePrincipal, principal];
+
+    expect(
+      filterPrincipalOptionsForRule(principals, {
+        source_type: "channel",
+        source_value: "console",
+        subject_type: "user",
+        subject_value: "",
+        effect: "allow",
+      }).map((item) => item.subject_value),
+    ).toEqual(["default"]);
+    expect(
+      filterPrincipalOptionsForRule(principals, {
+        source_type: "channel",
+        source_value: "feishu",
+        subject_type: "user",
+        subject_value: "",
+        effect: "allow",
+      }),
+    ).toEqual([]);
+  });
+
+  it("uses concise user IDs as subject value option labels", () => {
+    expect(
+      buildSubjectValueOptions([consolePrincipal], {
+        source_type: "channel",
+        source_value: "console",
+        subject_type: "user",
+        subject_value: "",
+        effect: "allow",
+      }),
+    ).toEqual([{ label: "default", value: "default" }]);
+  });
+
+  it("flags user rules that target all channel sources", () => {
+    expect(
+      ruleHasAmbiguousUserSource({
+        source_type: "channel",
+        source_value: "*",
+        subject_type: "user",
+        subject_value: "alice",
+        effect: "allow",
+      }),
+    ).toBe(true);
+    expect(
+      ruleHasAmbiguousUserSource({
+        source_type: "channel",
+        source_value: "dingtalk",
+        subject_type: "user",
+        subject_value: "alice",
+        effect: "allow",
+      }),
+    ).toBe(false);
+  });
+
+  it("builds source-scoped user placeholders", () => {
+    expect(
+      sourceScopedSubjectPlaceholder({
+        source_type: "channel",
+        source_value: "dingtalk",
+        subject_type: "user",
+        subject_value: "",
+        effect: "allow",
+      }),
+    ).toBe("dingtalk user ID");
+    expect(
+      sourceScopedSubjectPlaceholder({
+        source_type: "channel",
+        source_value: "*",
+        subject_type: "user",
+        subject_value: "",
+        effect: "allow",
+      }),
+    ).toBe("user ID in selected source");
+  });
+
+  it("validates user rules before saving", () => {
+    expect(
+      validateMCPAccessPolicy({
+        ...policy,
+        client_overrides: [
+          {
+            source_type: "channel",
+            source_value: "dingtalk",
+            subject_type: "user",
+            subject_value: "",
+            effect: "allow",
+          },
+        ],
+      })?.reason,
+    ).toBe("missingUserValue");
+    expect(
+      validateMCPAccessPolicy({
+        ...policy,
+        client_overrides: [
+          {
+            source_type: "channel",
+            source_value: "*",
+            subject_type: "user",
+            subject_value: "alice",
+            effect: "allow",
+          },
+        ],
+      })?.reason,
+    ).toBe("ambiguousUserSource");
+    expect(
+      validateMCPAccessPolicy(
+        {
+          ...policy,
+          client_overrides: [
+            {
+              source_type: "channel",
+              source_value: "feishu",
+              subject_type: "user",
+              subject_value: "manual-user",
+              effect: "allow",
+            },
+          ],
+        },
+        [],
+      )?.reason,
+    ).toBe("unknownUserValue");
+    expect(
+      validateMCPAccessPolicy(
+        {
+          ...policy,
+          client_overrides: [
+            {
+              source_type: "channel",
+              source_value: "console",
+              subject_type: "user",
+              subject_value: "default",
+              effect: "allow",
+            },
+          ],
+        },
+        [consolePrincipal],
+      ),
+    ).toBeNull();
   });
 });

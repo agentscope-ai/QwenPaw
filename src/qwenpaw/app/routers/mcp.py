@@ -15,6 +15,7 @@ from ..mcp.config_service import (
 )
 from ..mcp.schemas import (
     MCPAccessPolicy,
+    MCPAccessPrincipalOption,
     MCPAccessRule,
     MCPClientCreateRequest,
     MCPClientInfo,
@@ -28,6 +29,7 @@ router = APIRouter(prefix="/mcp", tags=["mcp"])
 
 __all__ = [
     "MCPAccessPolicy",
+    "MCPAccessPrincipalOption",
     "MCPAccessRule",
     "MCPClientCreateRequest",
     "MCPClientInfo",
@@ -142,6 +144,19 @@ async def update_mcp_policy(
     """Update console-managed MCP policy without querying the MCP server."""
     agent = await _agent_for_request(request)
     return await _mcp_service(agent).update_policy(client_key, access)
+
+
+@router.get(
+    "/access-principals",
+    response_model=List[MCPAccessPrincipalOption],
+    summary="List recent source-scoped principals for MCP access rules",
+)
+async def list_mcp_access_principals(
+    request: Request,
+) -> List[MCPAccessPrincipalOption]:
+    """Return recent users with their source scope for policy editing."""
+    agent = await _agent_for_request(request)
+    return await _mcp_service(agent).list_access_principals()
 
 
 @router.get(

@@ -4,6 +4,7 @@ import type {
   MCPClientCreateRequest,
   MCPClientUpdateRequest,
   MCPToolInfo,
+  MCPAccessPrincipalOption,
   MCPAccessPolicy,
   MCPOAuthStartRequest,
   MCPOAuthStartResponse,
@@ -61,6 +62,12 @@ export const mcpApi = {
    */
   listMCPTools: (clientKey: string) =>
     request<MCPToolInfo[]>(`/mcp/tools/${encodeURIComponent(clientKey)}`),
+
+  /**
+   * List recent source-scoped principals for MCP access rules.
+   */
+  listMCPAccessPrincipals: () =>
+    request<MCPAccessPrincipalOption[]>("/mcp/access-principals"),
 
   /**
    * Get saved MCP access policy. Does not require the MCP server to be online.

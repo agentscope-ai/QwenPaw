@@ -7,6 +7,26 @@ vi.mock("../request", () => ({ request: vi.fn() }));
 describe("mcpApi policy endpoints", () => {
   afterEach(() => vi.clearAllMocks());
 
+  it("lists recent access principals from the MCP endpoint", async () => {
+    vi.mocked(request).mockResolvedValue([
+      {
+        source_type: "channel",
+        source_value: "dingtalk",
+        subject_type: "user",
+        subject_value: "alice",
+        label: "DingTalk / Alice",
+        chat_id: "chat-1",
+        chat_name: "Alice chat",
+        session_id: "dingtalk:alice",
+        updated_at: "2026-01-01T00:00:00Z",
+      },
+    ]);
+
+    await mcpApi.listMCPAccessPrincipals();
+
+    expect(request).toHaveBeenCalledWith("/mcp/access-principals");
+  });
+
   it("gets MCP policy from the policy endpoint", async () => {
     vi.mocked(request).mockResolvedValue({
       default_effect: "ask",

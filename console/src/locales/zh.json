@@ -573,22 +573,32 @@
       "default": "默认策略",
       "sourceType": "调用来源",
       "sourceValue": "来源值",
-      "sourceValueAllChannels": "所有 Channel",
+      "sourceValueAllChannels": "所有频道",
       "subjectType": "对象",
       "subjectValue": "对象值",
       "effectLabel": "策略",
       "source": {
-        "channel": "Channel"
+        "channel": "频道"
       },
       "subjectTypeOption": {
         "all": "全部",
         "user": "用户"
       },
       "sourceValuePlaceholder": {
-        "channel": "console / dingtalk"
+        "channel": "控制台 / 钉钉"
       },
       "subjectValuePlaceholder": "例如 alice",
+      "subjectValuePlaceholderSelectedSource": "所选频道内的用户 ID",
+      "subjectValuePlaceholderScoped": "{{source}} 内的用户 ID",
       "subjectValueAll": "全部",
+      "recentUserPlaceholder": "选择或输入已存在的用户 ID",
+      "noRecentUsers": "暂无可选用户",
+      "ambiguousUserSourceWarning": "用户 ID 仅在来源内唯一，请选择具体频道以避免跨频道误匹配。",
+      "validation": {
+        "missingUserValue": "请选择具体来源并填写有效的用户 ID。",
+        "ambiguousUserSource": "用户规则必须指定具体频道，不能选择所有频道。",
+        "unknownUserValue": "该用户 ID 在当前来源下不存在。"
+      },
       "addRule": "新增规则",
       "deleteRule": "删除规则",
       "noClientRules": "暂无规则",
@@ -918,11 +928,20 @@
       "console": "控制台",
       "dingtalk": "钉钉",
       "feishu": "飞书",
+      "discord": "Discord",
+      "telegram": "Telegram",
+      "qq": "QQ",
+      "imessage": "iMessage",
+      "mattermost": "Mattermost",
+      "matrix": "Matrix",
+      "onebot": "OneBot",
+      "mqtt": "MQTT",
+      "voice": "语音",
+      "sip": "SIP",
       "wecom": "企业微信",
       "wechat": "微信",
       "xiaoyi": "小艺",
-      "yuanbao": "元宝",
-      "onebot": "OneBot"
+      "yuanbao": "元宝"
     },
     "pleaseInputDbPath": "请输入数据库路径",
     "pleaseInputPollInterval": "请输入轮询间隔",
@@ -1056,8 +1075,7 @@
     "addUser": "添加用户",
     "addUserPlaceholder": "输入用户 ID",
     "userId": "用户 ID",
-    "username": "用户名称",
-    "channel": "渠道",
+    "channel": "频道",
     "firstMessage": "首条消息",
     "time": "时间",
     "actions": "操作",
@@ -1177,7 +1195,7 @@
     "completionTokens": "输出 Token",
     "llmCalls": "LLM 调用",
     "toolCalls": "工具调用",
-    "channel": "渠道",
+    "channel": "频道",
     "sessionCount": "会话数",
     "sessions": "会话",
     "newSessions": "新建会话",

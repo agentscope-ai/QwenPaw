@@ -436,6 +436,82 @@
     "toolsLoadError": "MCPサーバーからツール一覧の取得に失敗しました",
     "toolsConnecting": "MCPサーバーに接続中です。しばらくしてから再度お試しください",
     "toolSchema": "入力スキーマ",
+    "access": {
+      "title": "アクセス",
+      "button": "アクセス",
+      "summary": "MCPアクセスポリシー",
+      "clientSection": "全体アクセス",
+      "toolSection": "ツールアクセス",
+      "default": "デフォルト",
+      "sourceType": "ソース",
+      "sourceValue": "ソース値",
+      "sourceValueAllChannels": "すべてのチャンネル",
+      "subjectType": "対象",
+      "subjectValue": "対象値",
+      "effectLabel": "ポリシー",
+      "source": {
+        "channel": "チャンネル"
+      },
+      "subjectTypeOption": {
+        "all": "すべて",
+        "user": "ユーザー"
+      },
+      "sourceValuePlaceholder": {
+        "channel": "console / dingtalk"
+      },
+      "subjectValuePlaceholder": "例: alice",
+      "subjectValuePlaceholderSelectedSource": "選択したソース内のユーザーID",
+      "subjectValuePlaceholderScoped": "{{source}} のユーザーID",
+      "subjectValueAll": "すべて",
+      "recentUserPlaceholder": "既存のユーザーIDを選択または入力",
+      "noRecentUsers": "利用可能なユーザーはありません",
+      "ambiguousUserSourceWarning": "ユーザーIDはソース内でのみ一意です。チャンネルを指定して、別チャンネルのユーザーと誤って一致しないようにしてください。",
+      "validation": {
+        "missingUserValue": "具体的なソースを選択し、有効なユーザーIDを入力してください。",
+        "ambiguousUserSource": "ユーザールールは、すべてのチャンネルではなく特定のチャンネルを対象にしてください。",
+        "unknownUserValue": "このユーザーIDは選択したソースに存在しません。"
+      },
+      "addRule": "ルールを追加",
+      "deleteRule": "ルールを削除",
+      "noClientRules": "ルールなし",
+      "noRules": "ルールなし。デフォルトポリシーを使用します",
+      "inherit": "継承（{{effect}}）",
+      "stale": "見つかりません",
+      "disabledTools": "このMCPクライアントは無効です。保存済みのアクセスルールは引き続き編集できます。",
+      "discardTitle": "未保存の変更を破棄しますか？",
+      "discardContent": "未保存のアクセスポリシー変更は失われます。",
+      "loadError": "MCPアクセスポリシーの読み込みに失敗しました",
+      "saveSuccess": "MCPアクセスポリシーを保存しました",
+      "saveError": "MCPアクセスポリシーの保存に失敗しました",
+      "unmanagedRules": "{{count}} 件の詳細ルール",
+      "effect": {
+        "allow": "許可",
+        "ask": "確認",
+        "deny": "拒否"
+      }
+    },
+    "tab": {
+      "json": "JSONインポート",
+      "form": "フォームモード"
+    },
+    "form": {
+      "key": "クライアントキー",
+      "keyPlaceholder": "my-mcp-server",
+      "keyRequired": "クライアントキーは必須です",
+      "name": "表示名",
+      "namePlaceholder": "My MCP Server",
+      "nameRequired": "表示名は必須です",
+      "transport": "トランスポート",
+      "url": "サーバーURL",
+      "urlRequired": "リモートMCPサーバーにはURLが必要です",
+      "command": "コマンド",
+      "commandRequired": "stdioトランスポートにはコマンドが必要です",
+      "args": "引数（スペースまたは改行区切り）",
+      "description": "説明",
+      "descriptionPlaceholder": "任意の説明",
+      "env": "環境変数",
+      "envPlaceholder": "KEY=VALUE（1行に1つ）"
+    },
     "oauth": {
       "enableOAuth": "OAuth 認証を使用する",
       "manage": "OAuth",

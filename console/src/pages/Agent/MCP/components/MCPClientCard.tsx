@@ -262,67 +262,79 @@ export const MCPClientCard = React.memo(function MCPClientCard({
           >
             {t("mcp.tools")}
           </Button>
-          {isRemote && (
+          <div
+            className={`${styles.cardSecondaryActions} ${
+              isRemote
+                ? styles.cardSecondaryActionsThree
+                : styles.cardSecondaryActionsTwo
+            }`}
+          >
+            {isRemote && (
+              <Button
+                className={styles.toggleButton}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setOauthModalOpen(true);
+                }}
+                style={
+                  isOauthAuthorized
+                    ? {
+                        color: "#27ae60",
+                        borderColor: "#27ae60",
+                        background: "rgba(39,174,96,0.06)",
+                      }
+                    : isOauthExpired
+                    ? {
+                        color: "#e67e22",
+                        borderColor: "#e67e22",
+                        background: "rgba(230,126,34,0.06)",
+                      }
+                    : undefined
+                }
+              >
+                <span
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 4,
+                  }}
+                >
+                  {isOauthAuthorized ? (
+                    <ShieldCheck size={13} />
+                  ) : isOauthExpired ? (
+                    <ShieldAlert size={13} />
+                  ) : (
+                    <KeyRound size={13} />
+                  )}
+                  {isOauthAuthorized
+                    ? t("mcp.oauth.authorized")
+                    : isOauthExpired
+                    ? t("mcp.oauth.expired")
+                    : t("mcp.oauth.authorize")}
+                </span>
+              </Button>
+            )}
             <Button
               className={styles.toggleButton}
               onClick={(e) => {
                 e.stopPropagation();
-                setOauthModalOpen(true);
+                handleToggleClick(e);
               }}
-              style={
-                isOauthAuthorized
-                  ? {
-                      color: "#27ae60",
-                      borderColor: "#27ae60",
-                      background: "rgba(39,174,96,0.06)",
-                    }
-                  : isOauthExpired
-                  ? {
-                      color: "#e67e22",
-                      borderColor: "#e67e22",
-                      background: "rgba(230,126,34,0.06)",
-                    }
-                  : undefined
-              }
+              icon={client.enabled ? <EyeInvisibleOutlined /> : <EyeOutlined />}
             >
-              <span
-                style={{ display: "inline-flex", alignItems: "center", gap: 4 }}
-              >
-                {isOauthAuthorized ? (
-                  <ShieldCheck size={13} />
-                ) : isOauthExpired ? (
-                  <ShieldAlert size={13} />
-                ) : (
-                  <KeyRound size={13} />
-                )}
-                {isOauthAuthorized
-                  ? t("mcp.oauth.authorized")
-                  : isOauthExpired
-                  ? t("mcp.oauth.expired")
-                  : t("mcp.oauth.authorize")}
-              </span>
+              {client.enabled ? t("common.disable") : t("common.enable")}
             </Button>
-          )}
-          <Button
-            className={styles.toggleButton}
-            onClick={(e) => {
-              e.stopPropagation();
-              handleToggleClick(e);
-            }}
-            icon={client.enabled ? <EyeInvisibleOutlined /> : <EyeOutlined />}
-          >
-            {client.enabled ? t("common.disable") : t("common.enable")}
-          </Button>
-          <Button
-            className={styles.deleteButton}
-            danger
-            onClick={(e) => {
-              e.stopPropagation();
-              handleDeleteClick(e);
-            }}
-          >
-            {t("common.delete")}
-          </Button>
+            <Button
+              className={styles.deleteButton}
+              danger
+              onClick={(e) => {
+                e.stopPropagation();
+                handleDeleteClick(e);
+              }}
+            >
+              {t("common.delete")}
+            </Button>
+          </div>
         </div>
       </Card>
 
