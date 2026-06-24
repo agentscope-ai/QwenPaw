@@ -338,6 +338,22 @@ class TestRepairEmptyToolInputs:
         result = _repair_empty_tool_inputs([msg])
         assert json.loads(result[0].content[0]["input"]) == {"key": "value"}
 
+    def test_non_dict_raw_decode_does_not_repair(self):
+        """raw_decode recovering a non-dict should not overwrite input."""
+        msg = _msg(
+            [
+                {
+                    "type": "tool_use",
+                    "id": "id1",
+                    "name": "t",
+                    "input": {},
+                    "raw_input": "42trailing",
+                },
+            ],
+        )
+        result = _repair_empty_tool_inputs([msg])
+        assert result[0].content[0]["input"] == {}
+
     def test_returns_original_when_no_change(self):
         msgs = [_msg([_tool_use("id1")])]
         result = _repair_empty_tool_inputs(msgs)
@@ -409,6 +425,24 @@ class TestCoerceToolInputsRawDecode:
         )
         result = _coerce_tool_inputs_to_json([msg])
         assert len(result[0].content) == 0
+
+    def test_non_dict_recovered_value_drops_block(self):
+        """raw_decode recovering a non-dict (int, list, string) should drop."""
+        for bad_input in ["42trailing", '"hello"garbage', "[1,2,3]extra"]:
+            msg = _msg(
+                [
+                    {
+                        "type": "tool_use",
+                        "id": "id1",
+                        "name": "t",
+                        "input": bad_input,
+                    },
+                ],
+            )
+            result = _coerce_tool_inputs_to_json([msg])
+            assert (
+                len(result[0].content) == 0
+            ), f"Expected block to be dropped for input: {bad_input!r}"
 
 
 # ---------------------------------------------------------------------------

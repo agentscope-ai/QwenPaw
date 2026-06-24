@@ -383,7 +383,7 @@ def _coerce_tool_inputs_to_json(msgs: list) -> list:
                 try:
                     json.loads(raw)
                     coerced_input = raw  # already a valid JSON string
-                except (json.JSONDecodeError, ValueError):
+                except (json.JSONDecodeError, ValueError) as exc:
                     if raw == "":
                         coerced_input = "{}"
                     else:
@@ -393,6 +393,12 @@ def _coerce_tool_inputs_to_json(msgs: list) -> list:
                         # raw_decode can recover the leading valid object.
                         try:
                             recovered, _ = _json_decoder.raw_decode(raw)
+                            if not isinstance(recovered, dict):
+                                raise json.JSONDecodeError(
+                                    "recovered value is not a JSON object",
+                                    raw,
+                                    0,
+                                ) from exc
                             coerced_input = json.dumps(
                                 recovered,
                                 ensure_ascii=False,
