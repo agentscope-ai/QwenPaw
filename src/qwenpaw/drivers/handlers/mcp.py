@@ -358,6 +358,8 @@ def _mcp_tool_to_capability(
     input_schema.setdefault("properties", {})
     input_schema.setdefault("required", [])
     return DriverCapability(
+        # capability_id keeps the original MCP tool name (URL-encoded) so
+        # invoke routing always resolves to the server-side name.
         capability_id=format_capability_id(
             PROTOCOL_MCP,
             driver_name,
@@ -372,6 +374,8 @@ def _mcp_tool_to_capability(
         name=name,
         description=description,
         input_schema=input_schema,
+        # tool_name is sanitized to satisfy OpenAI's ^[a-zA-Z0-9_-]+$
+        # constraint.
         exposure=CapabilityExposure(
             as_tool=True,
             namespace=display_namespace,
@@ -384,8 +388,12 @@ def _mcp_tool_to_capability(
     )
 
 
+# _TOOL_NAME_SAFE_CHARS matches characters *outside* the allowed set (for
+# replacement);
+# _TOOL_NAME_ALLOWED matches a string composed *entirely* of allowed
+# characters (for fast-path check).
 _TOOL_NAME_SAFE_CHARS = re.compile(r"[^A-Za-z0-9_-]+")
-_TOOL_NAME_ALLOWED = re.compile(r"^[a-zA-Z0-9_-]+$")
+_TOOL_NAME_ALLOWED = re.compile(r"[a-zA-Z0-9_-]+")
 
 
 def _sanitize_tool_name(name: str) -> str:
@@ -396,7 +404,7 @@ def _sanitize_tool_name(name: str) -> str:
     trailing underscores are stripped.  An empty result falls back to
     ``"tool"``.
     """
-    if _TOOL_NAME_ALLOWED.match(name):
+    if _TOOL_NAME_ALLOWED.fullmatch(name):
         return name
     return _TOOL_NAME_SAFE_CHARS.sub("_", name).strip("_") or "tool"
 
