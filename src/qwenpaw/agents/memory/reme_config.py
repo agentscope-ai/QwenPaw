@@ -584,7 +584,9 @@ def _apply_embedding_config(
             "max_batch_size": embedding_config.max_batch_size,
         },
     )
-    components["file_store"]["default"]["embedding_store"] = embedding_store_name
+    components["file_store"]["default"][
+        "embedding_store"
+    ] = embedding_store_name
 
 
 def get_reme_app_config(
