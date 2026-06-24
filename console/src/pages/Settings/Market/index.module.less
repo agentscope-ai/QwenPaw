@@ -276,3 +276,34 @@
     color: rgba(255, 255, 255, 0.88);
   }
 }
+
+/* ─── Mobile ─────────────────────────────────────────────────────────────── */
+@media (max-width: 768px) {
+  .toolbar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
+
+  .categoryTabs {
+    width: 100%;
+  }
+
+  .searchInput {
+    width: 100%;
+
+    :global(input) {
+      text-align: center;
+    }
+  }
+
+  .resultsGrid {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+
+  .queueDrawer {
+    left: 16px;
+    width: auto;
+  }
+}
