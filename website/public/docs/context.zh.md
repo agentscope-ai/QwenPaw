@@ -281,12 +281,11 @@ graph TB
 
 **`running.light_context_config.context_compact_config` 字段：**
 
-| 参数                          | 默认值 | 说明                                                             |
-| ----------------------------- | ------ | ---------------------------------------------------------------- |
-| `enabled`                     | `true` | 是否启用自动上下文压缩                                           |
-| `compact_threshold_ratio`     | `0.8`  | 触发压缩的阈值比例，达到 `max_input_length * ratio` 时压缩       |
-| `reserve_threshold_ratio`     | `0.1`  | 压缩时保留的最近消息比例，保留 `max_input_length * ratio` tokens |
-| `compact_with_thinking_block` | `true` | 压缩时是否包含 thinking block                                    |
+| 参数                      | 默认值 | 说明                                                             |
+| ------------------------- | ------ | ---------------------------------------------------------------- |
+| `enabled`                 | `true` | 是否启用自动上下文压缩                                           |
+| `compact_threshold_ratio` | `0.8`  | 触发压缩的阈值比例，达到 `max_input_length * ratio` 时压缩       |
+| `reserve_threshold_ratio` | `0.1`  | 压缩时保留的最近消息比例，保留 `max_input_length * ratio` tokens |
 
 **`running.light_context_config.tool_result_pruning_config` 字段：**
 

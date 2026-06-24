@@ -162,12 +162,14 @@ def _create_default_registry() -> ToolRegistry:
     # sandbox stops being injected. target_param="source" exposes the code to
     # danger-keyword detection and audit logging.
     registry.register("RecallHistoryPython", "shell", "source")
+    registry.register("MemorySearch", "internal", "")
 
     # ── Python function name mappings ──
     registry.register_python_name("execute_shell_command", "Bash")
     registry.register_python_name("read_file", "Read")
     registry.register_python_name("write_file", "Write")
     registry.register_python_name("edit_file", "Edit")
+    registry.register_python_name("memory_search", "MemorySearch")
     registry.register_python_name("append_file", "Append")
     registry.register_python_name("grep_search", "Grep")
     registry.register_python_name("glob_search", "Glob")

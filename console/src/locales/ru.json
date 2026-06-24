@@ -1460,8 +1460,6 @@
     "tokenCountEstimateDivisorTooltip": "Делитель для оценки токенов на основе байтов (токены ≈ байты / делитель). Рекомендуемое значение: 3.75–4.",
     "tokenCountEstimateDivisorRequired": "Требуется указать делитель оценки",
     "tokenCountEstimateDivisorMin": "Делитель оценки должен быть от 2 до 5",
-    "compactWithThinkingBlock": "Включать блоки размышлений",
-    "compactWithThinkingBlockTooltip": "Включать ли блоки размышлений модели при сжатии контекста",
     "toolResultCompactTitle": "Настройки сжатия результатов инструментов",
     "toolResultCompactEnabled": "Включить сжатие результатов инструментов",
     "toolResultCompactEnabledTooltip": "Сжимать слишком длинные результаты вызовов инструментов для экономии пространства контекста",

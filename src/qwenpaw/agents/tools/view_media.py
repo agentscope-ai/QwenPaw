@@ -15,6 +15,7 @@ from agentscope.tool import ToolChunk
 from agentscope.message import ToolResultState
 
 from ...runtime.tool_registry import tool_descriptor
+from .file_io import _path_to_file_url, _resolve_file_path
 
 logger = logging.getLogger(__name__)
 
@@ -107,7 +108,7 @@ def _validate_media_path(
         "NFC",
         os.path.expanduser(file_path),
     )
-    resolved = Path(file_path).resolve()
+    resolved = Path(_resolve_file_path(file_path))
 
     if not resolved.exists() or not resolved.is_file():
         return resolved, ToolChunk(
@@ -380,6 +381,8 @@ async def view_image(image_path: str) -> ToolChunk:
     if err is not None:
         return err
 
+    file_url = _path_to_file_url(str(resolved))
+
     text_msg = (
         fallback_hint if fallback_hint else f"Image loaded: {resolved.name}"
     )
@@ -387,7 +390,7 @@ async def view_image(image_path: str) -> ToolChunk:
         is_last=True,
         state=ToolResultState.SUCCESS,
         content=[
-            _media_data_block("file://" + str(resolved), "image"),
+            _media_data_block(file_url, "image"),
             TextBlock(type="text", text=text_msg),
         ],
     )
@@ -449,6 +452,7 @@ async def view_video(video_path: str) -> ToolChunk:
     if err is not None:
         return err
 
+    file_url = _path_to_file_url(str(resolved))
     text_msg = (
         fallback_hint if fallback_hint else f"Video loaded: {resolved.name}"
     )
@@ -456,7 +460,7 @@ async def view_video(video_path: str) -> ToolChunk:
         is_last=True,
         state=ToolResultState.SUCCESS,
         content=[
-            _media_data_block("file://" + str(resolved), "video"),
+            _media_data_block(file_url, "video"),
             TextBlock(type="text", text=text_msg),
         ],
     )

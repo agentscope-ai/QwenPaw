@@ -5,14 +5,15 @@ import json
 import os
 import platform
 import time
-
-from agentscope.message import TextBlock
+import mimetypes
+from agentscope.message import DataBlock, TextBlock, URLSource
 from agentscope.tool import ToolChunk
 from agentscope.message import ToolResultState
 
 from ...config.context import get_current_workspace_dir
 from ...constant import WORKING_DIR
 from ...runtime.tool_registry import tool_descriptor
+from .file_io import _path_to_file_url
 
 
 def _tool_error(msg: str) -> ToolChunk:
@@ -33,10 +34,21 @@ def _tool_error(msg: str) -> ToolChunk:
 
 
 def _tool_ok(path: str, message: str) -> ToolChunk:
+    file_url = _path_to_file_url(path)
+    mime_type, _ = mimetypes.guess_type(path)
+    if mime_type is None:
+        mime_type = "image/*"
     return ToolChunk(
         is_last=True,
         state=ToolResultState.SUCCESS,
         content=[
+            DataBlock(
+                source=URLSource(
+                    url=file_url,
+                    media_type=mime_type,
+                ),
+                name=os.path.basename(path),
+            ),
             TextBlock(
                 type="text",
                 text=json.dumps(

@@ -201,7 +201,7 @@ export default function CodingPage() {
             id="center"
             defaultSize={
               leftOpen && rightOpen
-                ? "55%"
+                ? "35%"
                 : leftOpen || rightOpen
                 ? "70%"
                 : "100%"
@@ -221,7 +221,7 @@ export default function CodingPage() {
           {rightOpen && (
             <>
               <Separator className={styles.sep} />
-              <Panel id="right" defaultSize="30%" className={styles.rightPanel}>
+              <Panel id="right" defaultSize="50%" className={styles.rightPanel}>
                 <div className={styles.chatHeader}>
                   <span className={styles.chatTitle}>
                     <MessageSquare size={13} style={{ marginRight: 5 }} />
