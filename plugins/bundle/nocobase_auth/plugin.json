@@ -1,0 +1,22 @@
+{
+  "id": "nocobase-auth",
+  "name": "NocoBase Auth",
+  "version": "0.1.0",
+  "type": "general",
+  "description": "Sync NocoBase users and roles to QwenPaw channel access control. NocoBase is the source of truth; local whitelist/blacklist is used as fallback when NocoBase is unreachable.",
+  "description_i18n": {
+    "zh-CN": "将 NocoBase 的用户和角色同步到 QwenPaw 频道访问控制。NocoBase 为权威源；NocoBase 不可达时回退到本地白名单/黑名单。",
+    "en-US": "Sync NocoBase users and roles to QwenPaw channel access control. NocoBase is the source of truth; local whitelist/blacklist is used as fallback when NocoBase is unreachable."
+  },
+  "author": "QwenPaw",
+  "entry": {
+    "frontend": "frontend/dist/index.js",
+    "backend": "plugin.py"
+  },
+  "dependencies": ["httpx"],
+  "min_version": "1.1.7",
+  "meta": {
+    "category": "auth",
+    "features": ["nocobase-sync", "channel-access-control", "role-mapping"]
+  }
+}
