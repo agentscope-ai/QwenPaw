@@ -84,13 +84,12 @@ def _process_heartbeat_section(content: str, enabled: bool) -> str:
 def _process_memory_section(
     content: str,
     memory_manager: Any | None,
-    language: str,
 ) -> str:
     if "<!-- memory:start -->" in content:
         content = _MEMORY_PATTERN.sub("", content).strip()
     memory_section = ""
     if memory_manager is not None:
-        memory_section = memory_manager.get_memory_prompt(language)
+        memory_section = memory_manager.get_memory_prompt()
     if content and memory_section:
         return (content + "\n\n" + memory_section).strip()
     return (content or memory_section).strip()
@@ -138,12 +137,10 @@ class AgentsMdContributor(SyncPromptContributor):
         except Exception as e:
             logger.warning("Failed to process heartbeat: %s", e)
         memory_manager = extras.get("memory_manager")
-        language = extras.get("language", "zh")
         try:
             content = _process_memory_section(
                 content,
                 memory_manager,
-                language,
             )
         except Exception as e:
             logger.warning("Failed to process memory section: %s", e)

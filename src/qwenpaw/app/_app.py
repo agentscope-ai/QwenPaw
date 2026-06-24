@@ -667,28 +667,40 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
             except Exception as e:
                 logger.error(f"Error stopping MultiAgentManager: {e}")
 
-        # Stop token usage manager (drain queue and final flush)
-        logger.info("Stopping TokenUsageManager...")
-        try:
-            await token_usage_manager.stop()
-        except Exception as e:
-            logger.error(f"Error stopping TokenUsageManager: {e}")
-
-        # Stop all browser instances
+        # These three cleanup tasks are independent; run in parallel.
         from ..agents.tools.browser_control import stop_all_browsers
-
-        try:
-            await stop_all_browsers()
-        except Exception as e:
-            logger.error(f"Error stopping browsers during shutdown: {e}")
-
-        # Close the shared httpx client owned by the skills hub module.
         from ..agents.skill_system.hub import aclose_hub_client
 
-        try:
-            await aclose_hub_client()
-        except Exception as e:
-            logger.error(f"Error closing skills hub HTTP client: {e}")
+        async def _stop_token_usage():
+            logger.info("Stopping TokenUsageManager...")
+            try:
+                await token_usage_manager.stop()
+            except Exception as e:
+                logger.error(
+                    f"Error stopping TokenUsageManager: {e}",
+                )
+
+        async def _stop_browsers():
+            try:
+                await stop_all_browsers()
+            except Exception as e:
+                logger.error(
+                    f"Error stopping browsers: {e}",
+                )
+
+        async def _close_hub():
+            try:
+                await aclose_hub_client()
+            except Exception as e:
+                logger.error(
+                    f"Error closing skills hub HTTP client: {e}",
+                )
+
+        await asyncio.gather(
+            _stop_token_usage(),
+            _stop_browsers(),
+            _close_hub(),
+        )
 
         logger.info("Application shutdown complete")
 

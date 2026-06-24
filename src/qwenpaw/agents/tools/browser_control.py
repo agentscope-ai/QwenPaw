@@ -4198,17 +4198,24 @@ async def stop_all_browsers() -> None:
         return
 
     logger.info("Stopping all browser instances...")
-    # Use list() to avoid mutation during iteration if stop resets state
-    for state in list(_workspace_states.values()):
-        if _is_browser_running(state):
-            try:
-                await _action_stop(state)
-            except Exception as e:
-                logger.error(
-                    "Failed to stop browser for workspace %s: %s",
-                    state.get("workspace_id", "unknown"),
-                    e,
-                )
+
+    async def _stop_one(state: dict) -> None:
+        try:
+            await _action_stop(state)
+        except Exception as e:
+            logger.error(
+                "Failed to stop browser for workspace %s: %s",
+                state.get("workspace_id", "unknown"),
+                e,
+            )
+
+    await asyncio.gather(
+        *(
+            _stop_one(s)
+            for s in list(_workspace_states.values())
+            if _is_browser_running(s)
+        ),
+    )
 
 
 async def stop_browsers_for_workspace_dirs(
