@@ -420,15 +420,15 @@ Controls agent runtime behavior, retry strategies, context management, and memor
 
 **ReMeLight Memory Configuration (`reme_light_memory_config` object):**
 
-| Field                           | Type        | Default        | Description                                                            |
-| ------------------------------- | ----------- | -------------- | ---------------------------------------------------------------------- |
-| `summarize_when_compact`        | bool        | `true`         | Whether to enable memory summarization during compaction               |
-| `auto_memory_interval`          | int \| null | `null`         | Auto memory every N user queries. null disables periodic auto memory   |
-| `dream_cron`                    | string      | `"0 23 * * *"` | Cron expression for dream-based memory optimization (empty to disable) |
-| `rebuild_memory_index_on_start` | bool        | `false`        | Whether to rebuild memory search index on startup                      |
-| `recursive_file_watcher`        | bool        | `false`        | Whether to watch memory directory recursively                          |
-| `auto_memory_search_config`     | object      | _(see below)_  | Auto memory search configuration                                       |
-| `embedding_model_config`        | object      | _(see below)_  | Embedding model configuration                                          |
+| Field                           | Type        | Default        | Description                                                                           |
+| ------------------------------- | ----------- | -------------- | ------------------------------------------------------------------------------------- |
+| `summarize_when_compact`        | bool        | `true`         | Whether to enable memory summarization during compaction                              |
+| `auto_memory_interval`          | int \| null | `1`            | Auto memory every N user queries. `1` runs after every user message; null disables it |
+| `dream_cron`                    | string      | `"0 23 * * *"` | Cron expression for dream-based memory optimization (empty to disable)                |
+| `rebuild_memory_index_on_start` | bool        | `false`        | Whether to rebuild memory search index on startup                                     |
+| `recursive_file_watcher`        | bool        | `false`        | Whether to watch memory directory recursively                                         |
+| `auto_memory_search_config`     | object      | _(see below)_  | Auto memory search configuration                                                      |
+| `embedding_model_config`        | object      | _(see below)_  | Embedding model configuration                                                         |
 
 **Auto Memory Search Configuration (`reme_light_memory_config.auto_memory_search_config` object):**
 
@@ -706,7 +706,7 @@ Recommended to configure in `agent.json` under `running.reme_light_memory_config
 - Agent personality is defined by Markdown files in the workspace directory. See [Agent Persona](./persona) for details.
 - LLM providers are globally configured via `qwenpaw init` or the Console.
 - Config changes are **auto-reloaded** without restart (polled every 2 seconds).
-- Call the Agent API: **POST** `/api/agent/process` with `X-Agent-Id` header, JSON body, SSE streaming; see [Quick start — Verify install](./quickstart#verify-install-optional) for examples.
+- Call the Agent API: **POST** `/api/console/chat` with JSON body, SSE streaming; see [Quick start — Verify install](./quickstart#verify-install-optional) for examples.
 
 ---
 

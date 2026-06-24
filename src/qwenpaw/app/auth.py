@@ -579,6 +579,11 @@ def _resolve_client_ip(request: Request) -> str:
     return request.client.host if request.client else ""
 
 
+# Make this function available at module level so it can be
+# imported from routers
+resolve_client_ip = _resolve_client_ip
+
+
 # Cached config for hot-path auth checks (avoids disk read per request)
 _auth_config_cache: tuple = (0, None)  # (mtime_ns, config)
 
@@ -653,7 +658,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
             return True
 
         # Check if client host is in allow_no_auth_hosts whitelist
-        client_host = _resolve_client_ip(request)
+        client_host = resolve_client_ip(request)
         config = _get_config_cached()
         allowed_hosts = config.security.allow_no_auth_hosts
         return client_host in allowed_hosts

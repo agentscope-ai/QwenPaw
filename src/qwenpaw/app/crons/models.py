@@ -154,7 +154,7 @@ class DispatchSpec(BaseModel):
 class JobRuntimeSpec(BaseModel):
     max_concurrency: int = Field(default=1, ge=1)
     timeout_seconds: int = Field(default=120, ge=1)
-    misfire_grace_seconds: int = Field(default=60, ge=0)
+    misfire_grace_seconds: int = Field(default=600, ge=0)
     share_session: bool = Field(
         default=True,
         description=(
@@ -165,7 +165,7 @@ class JobRuntimeSpec(BaseModel):
 
 
 class CronJobRequest(BaseModel):
-    """Passthrough payload to runner.stream_query(request=...).
+    """Passthrough payload to workspace.stream_query(request=...).
 
     This is aligned with AgentRequest(extra="allow"). We keep it permissive.
     """

@@ -100,7 +100,6 @@ async def market_search(body: MarketSearchRequest) -> MarketSearchResponse:
         provider_pages=body.provider_pages,
         limit=body.limit,
         lang=body.lang,
-        category=body.category,
     )
     return MarketSearchResponse(
         results=[_result_to_spec(r) for r in results],

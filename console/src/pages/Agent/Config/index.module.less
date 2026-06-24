@@ -259,3 +259,66 @@
     }
   }
 }
+
+/* ─── Mobile responsive ─────────────────────────────────────────────────────── */
+@media (max-width: 768px) {
+  .pageHeader {
+    padding: 12px 16px;
+  }
+
+  .breadcrumbCurrent {
+    font-size: 16px;
+  }
+
+  .tabContent {
+    padding: 0 12px;
+  }
+
+  .reactAgentRow {
+    grid-template-columns: 1fr;
+    gap: 0;
+  }
+
+  .reactAgentField {
+    margin-bottom: 12px !important;
+  }
+
+  .llmRetryRow {
+    grid-template-columns: 1fr;
+    gap: 0;
+  }
+
+  .llmRetryField {
+    margin-bottom: 12px !important;
+  }
+
+  .formCard {
+    margin-bottom: 16px;
+  }
+
+  .footerActions {
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 12px 16px;
+    justify-content: center;
+  }
+
+  .footerActions :global(.ant-btn) {
+    flex: 1;
+    min-width: 120px;
+    max-width: 200px;
+  }
+
+  .mainTabs {
+    :global(.qwenpaw-tabs-nav) {
+      overflow-x: auto;
+      white-space: nowrap;
+      -webkit-overflow-scrolling: touch;
+    }
+    :global(.qwenpaw-tabs-nav-list) {
+      display: inline-flex;
+      white-space: nowrap;
+    }
+  }
+}

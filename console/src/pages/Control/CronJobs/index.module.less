@@ -551,10 +551,182 @@
   align-items: center;
 }
 
+/* Mobile card list */
+.mobileCardList {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 16px 0;
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.mobileJobCard {
+  border-radius: var(--border-radius, 8px);
+  background: #ffffff;
+  border: 1px solid #eae8e7;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+  transition: all 0.2s ease-in-out;
+
+  &:hover {
+    border-color: #d9d9d9;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+  }
+}
+
+.mobileJobHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 18px;
+  gap: 12px;
+}
+
+.mobileJobName {
+  font-weight: 600;
+  font-size: 17px;
+  color: rgba(20, 20, 19, 0.88);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+  line-height: 26px;
+}
+
+.mobileJobStatus {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+  color: rgba(20, 20, 19, 0.45);
+  flex-shrink: 0;
+  line-height: 26px;
+
+  &.enabled {
+    color: rgba(20, 184, 166, 1);
+  }
+}
+
+.mobileJobSchedule {
+  font-size: 14px;
+  color: rgba(20, 20, 19, 0.55);
+  margin-bottom: 22px;
+  line-height: 22px;
+}
+
+.mobileJobActions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid #f0f0f0;
+
+  .mobileActionBtn {
+    font-size: 13px;
+    height: 28px;
+    padding: 0 10px;
+    color: #666;
+    background: transparent;
+    border: 1px solid #d9d9d9;
+    border-radius: 7px;
+
+    &:hover:not(:disabled) {
+      color: #333;
+      border-color: #bfbfbf;
+    }
+
+    &:disabled {
+      color: #d9d9d9;
+      cursor: not-allowed;
+    }
+  }
+
+  .mobileMoreBtn {
+    font-size: 13px;
+    width: 28px;
+    height: 28px;
+    color: #666;
+    background: transparent;
+    border: 1px solid #d9d9d9;
+    border-radius: 7px;
+
+    &:hover:not(:disabled) {
+      color: #333;
+      border-color: #bfbfbf;
+      background: rgba(0, 0, 0, 0.04);
+    }
+  }
+}
+
+@media (max-width: 768px) {
+  .cronJobsPage {
+    padding: 0 16px 16px;
+  }
+
+  .headerActions {
+    gap: 6px;
+    flex-wrap: wrap;
+
+    :global(.ant-select) {
+      flex: 1;
+      min-width: 120px;
+      max-width: 150px;
+    }
+
+    :global(.ant-btn) {
+      flex-shrink: 0;
+    }
+  }
+
+  .viewToggleBtn {
+    width: 28px;
+    height: 28px;
+    font-size: 14px;
+  }
+
+  .cronJobsPage {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .tableCard,
+  .calendarCard {
+    flex: 1;
+    overflow: hidden;
+
+    :global(.ant-card-body) {
+      height: 100%;
+    }
+  }
+
+  .calendarCard {
+    overflow: auto;
+  }
+}
+
 /* ─── Dark mode ─────────────────────────────────────────────────────────────── */
 :global(.dark-mode) {
   .pageHeader {
     border-bottom-color: rgba(255, 255, 255, 0.12);
+  }
+
+  /* Override the light-mode table header background */
+  .cronJobsPage {
+    :global {
+      .qwenpaw-table-wrapper
+        .qwenpaw-table-container
+        .qwenpaw-table-thead
+        > tr
+        > th {
+        background: #2a2a2a !important;
+      }
+    }
   }
 
   .breadcrumbParent {
@@ -753,5 +925,64 @@
   .dayJobPopoverDay,
   .dayJobPopoverWeek {
     color: #7ea5ff;
+  }
+
+  .mobileJobCard {
+    background: #2d2d2d;
+    border-color: rgba(255, 255, 255, 0.08);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+
+    &:hover {
+      border-color: rgba(255, 255, 255, 0.2);
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+    }
+  }
+
+  .mobileJobName {
+    color: rgba(255, 255, 255, 0.85);
+  }
+
+  .mobileJobStatus {
+    color: rgba(255, 255, 255, 0.45);
+
+    &.enabled {
+      color: rgba(20, 184, 166, 1);
+    }
+  }
+
+  .mobileJobSchedule {
+    color: rgba(255, 255, 255, 0.45);
+  }
+
+  .mobileJobActions {
+    border-top-color: rgba(255, 255, 255, 0.08);
+
+    .mobileActionBtn {
+      color: rgba(255, 255, 255, 0.65);
+      background: transparent;
+      border-color: rgba(255, 255, 255, 0.2);
+
+      &:hover:not(:disabled) {
+        color: rgba(255, 255, 255, 0.85);
+        border-color: rgba(255, 255, 255, 0.35);
+      }
+
+      &:disabled {
+        color: rgba(255, 255, 255, 0.25);
+        border-color: rgba(255, 255, 255, 0.1);
+      }
+    }
+
+    .mobileMoreBtn {
+      color: rgba(255, 255, 255, 0.65);
+      background: transparent;
+      border-color: rgba(255, 255, 255, 0.2);
+
+      &:hover:not(:disabled) {
+        color: rgba(255, 255, 255, 0.85);
+        border-color: rgba(255, 255, 255, 0.35);
+        background: rgba(255, 255, 255, 0.08);
+      }
+    }
   }
 }

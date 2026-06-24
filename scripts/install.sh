@@ -274,7 +274,7 @@ else
     fi
 
     info "Installing ${PACKAGE}${EXTRAS_SUFFIX} from PyPI..."
-    uv pip install "${PACKAGE}${EXTRAS_SUFFIX}" --python "$QWENPAW_VENV/bin/python" --quiet --index-url "$PYPI_MIRROR" --refresh-package qwenpaw "${PRERELEASE_ARGS[@]}"
+    uv pip install "${PACKAGE}${EXTRAS_SUFFIX}" --python "$QWENPAW_VENV/bin/python" --quiet --index-url "$PYPI_MIRROR" --refresh-package qwenpaw ${PRERELEASE_ARGS[@]+"${PRERELEASE_ARGS[@]}"}
 fi
 
 # Verify the CLI entry point exists

@@ -4,7 +4,11 @@
 Provides helpers to persist and reuse the backend port across restarts
 so that the browser origin (http://127.0.0.1:{port}) stays stable and
 localStorage data (selected agent, plugin flags, etc.) survives.
+
+Supports user-configured fixed ports via the
+QWENPAW_DESKTOP_PORT environment variable.
 """
+
 from __future__ import annotations
 
 import logging
@@ -12,6 +16,8 @@ import secrets
 import socket
 import sys
 from pathlib import Path
+
+from ..constant import QWENPAW_DESKTOP_PORT
 
 logger = logging.getLogger(__name__)
 
@@ -112,7 +118,43 @@ def get_stable_port(
     the OS-assigned port is obtained via a throw-away socket).
 
     The chosen port is always persisted back to *port_file*.
+
+    If QWENPAW_DESKTOP_PORT environment variable is set, it takes priority
+    and the port is fixed (not persisted).
     """
+    # Check for user-configured port via environment variable
+    if QWENPAW_DESKTOP_PORT:
+        try:
+            port = int(QWENPAW_DESKTOP_PORT)
+        except (TypeError, ValueError):
+            logger.warning(
+                "QWENPAW_DESKTOP_PORT=%r is not a valid "
+                "integer, falling back to auto-assign",
+                QWENPAW_DESKTOP_PORT,
+            )
+            port = None
+        if port is not None:
+            if not 1024 <= port <= 65535:
+                logger.warning(
+                    "QWENPAW_DESKTOP_PORT=%d out of range "
+                    "1024-65535, falling back to auto-assign",
+                    port,
+                )
+            else:
+                sock = try_bind_port(host, port)
+                if sock:
+                    logger.info(
+                        "Using QWENPAW_DESKTOP_PORT: %d",
+                        port,
+                    )
+                    return port, sock
+                logger.warning(
+                    "QWENPAW_DESKTOP_PORT=%d is "
+                    "unavailable, falling back "
+                    "to auto-assign",
+                    port,
+                )
+
     last_port = read_last_port(port_file)
     reused_socket: socket.socket | None = None
 

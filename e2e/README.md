@@ -33,6 +33,35 @@ tests/
 
 ## Quick Start
 
+> **WARNING — Test Isolation Required**
+>
+> E2E tests write seed data (inbox events, plan state, workspace
+> files) into the backend's working directory. If that directory is
+> your real `~/.qwenpaw` you will **corrupt your actual QwenPaw data**.
+>
+> The framework enforces this rule: if `QWENPAW_WORKING_DIR` is unset
+> or points inside your home directory, pytest will **refuse to start**
+> with a clear RuntimeError.
+
+### 0. Start the isolated test server (REQUIRED)
+
+```bash
+# From the repo root:
+source e2e/scripts/start_test_server.sh --bg
+
+# This starts QwenPaw on port 7077 with:
+#   QWENPAW_WORKING_DIR=/tmp/qwenpaw-e2e-test-work-dir/working
+# The env var is exported so pytest inherits it automatically.
+```
+
+If you prefer manual setup:
+
+```bash
+export QWENPAW_WORKING_DIR=/tmp/my-e2e-workdir
+mkdir -p "$QWENPAW_WORKING_DIR"
+QWENPAW_WORKING_DIR="$QWENPAW_WORKING_DIR" python -m qwenpaw app --port 7077 &
+```
+
 ### 1. Install dependencies
 
 ```bash
@@ -97,7 +126,8 @@ PLAYWRIGHT_SLOW_MO=1000 pytest tests/tests/test_chat_p0.py -v
 
 | Name | Default | Description |
 |------|---------|-------------|
-| `QWENPAW_BASE_URL` | `http://localhost:8088` | QwenPaw service URL |
+| `QWENPAW_WORKING_DIR` | **(required)** | Backend working directory for seed data. Must be outside `$HOME`. |
+| `QWENPAW_BASE_URL` | `http://localhost:7077` | QwenPaw service URL |
 | `QWENPAW_HEADLESS` | `true` | Headless mode (`true`/`false`) |
 | `QWENPAW_TIMEOUT` | `30000` | Timeout (milliseconds) |
 | `QWENPAW_USER_ID` | `default` | User ID |

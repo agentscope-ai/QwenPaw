@@ -723,7 +723,7 @@ export function JobDrawer({
           label={t("cronJobs.runtimeMisfireGraceSeconds")}
           tooltip={t("cronJobs.misfireGraceSecondsTooltip")}
         >
-          <InputNumber min={0} style={{ width: "100%" }} placeholder="60" />
+          <InputNumber min={0} style={{ width: "100%" }} placeholder="600" />
         </Form.Item>
       </Form>
     </Drawer>

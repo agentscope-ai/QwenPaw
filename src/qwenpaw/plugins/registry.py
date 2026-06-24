@@ -2,7 +2,7 @@
 # pylint:disable=too-many-nested-blocks
 """Central plugin registry."""
 
-from typing import Any, Callable, Dict, List, Optional, Set, Type
+from typing import Any, Callable, Dict, List, Optional, Type
 from dataclasses import dataclass, field
 import logging
 
@@ -138,7 +138,7 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
         self._http_router_registrations: List[HttpRouterRegistration] = []
         self._http_prefix_to_plugin: Dict[str, str] = {}
         self._prompt_sections: List[PromptSectionRegistration] = []
-        self._prompt_section_names: Set[str] = set()
+        self._prompt_section_names: set = set()
 
         self._initialized = True
 
@@ -495,6 +495,39 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
         """
         return self._workspace_created_hooks.copy()
 
+    def remove_hooks_by_name(
+        self,
+        plugin_id: str,
+        hook_names: List[str],
+    ) -> None:
+        """Remove specific hooks registered by a plugin.
+
+        Removes hooks matching the given ``hook_names`` from all hook
+        lists (startup, shutdown, uninstall, workspace_created).
+
+        Args:
+            plugin_id: Plugin identifier that owns the hooks.
+            hook_names: Hook names to remove.
+        """
+        names_set = set(hook_names)
+
+        def _filter(hooks: list) -> list:
+            return [
+                h
+                for h in hooks
+                if not (h.plugin_id == plugin_id and h.hook_name in names_set)
+            ]
+
+        self._startup_hooks = _filter(self._startup_hooks)
+        self._shutdown_hooks = _filter(self._shutdown_hooks)
+        self._uninstall_hooks = _filter(self._uninstall_hooks)
+        self._workspace_created_hooks = _filter(
+            self._workspace_created_hooks,
+        )
+        logger.info(
+            f"Removed hooks {hook_names} for plugin '{plugin_id}'",
+        )
+
     def register_prompt_section(
         self,
         plugin_id: str,
@@ -510,31 +543,27 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
             name: Unique section name.
             after: Host anchor this section follows.
             agent_id: Optional agent id filter; ``None`` applies globally.
-            provider: Callable receiving the agent and returning section text.
+            provider: Callable receiving the agent and returning text.
 
         Raises:
-            ValueError: If *name* has already been registered or *after*
-                does not reference a host prompt anchor.
+            ValueError: If *name* is already registered or *after* is not
+                a valid host prompt anchor.
         """
         normalized_name = name.strip()
         if not normalized_name:
             raise ValueError("Prompt section name must not be empty")
-
         if normalized_name in self._prompt_section_names:
             raise ValueError(
                 f"Prompt section '{normalized_name}' is already registered",
             )
-
         normalized_after = after.strip() or "workspace"
         from ..agents.prompt_builder import PromptBuilder
 
         if normalized_after not in PromptBuilder.HOST_ANCHORS:
-            msg = (
-                f"Prompt section after='{after}'"
-                " must reference a host anchor"
+            raise ValueError(
+                f"Prompt section after='{after}' must reference a"
+                " host anchor",
             )
-            raise ValueError(msg)
-
         registration = PromptSectionRegistration(
             plugin_id=plugin_id,
             name=normalized_name,
@@ -545,10 +574,8 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
         self._prompt_sections.append(registration)
         self._prompt_section_names.add(normalized_name)
         logger.info(
-            "Registered prompt section '%s' from plugin '%s' after '%s'",
-            registration.name,
-            plugin_id,
-            normalized_after,
+            f"Registered prompt section '{normalized_name}' from plugin"
+            f" '{plugin_id}' after '{normalized_after}'",
         )
 
     def get_prompt_sections(self) -> List[PromptSectionRegistration]:
@@ -665,13 +692,14 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
         self._control_commands = [
             c for c in self._control_commands if c.plugin_id != plugin_id
         ]
-        removed_names = {
-            s.name for s in self._prompt_sections if s.plugin_id == plugin_id
-        }
-        self._prompt_section_names -= removed_names
+        removed_sections = [
+            s for s in self._prompt_sections if s.plugin_id == plugin_id
+        ]
         self._prompt_sections = [
             s for s in self._prompt_sections if s.plugin_id != plugin_id
         ]
+        for s in removed_sections:
+            self._prompt_section_names.discard(s.name)
         logger.info(
             f"Unregistered all entries for plugin '{plugin_id}'",
         )

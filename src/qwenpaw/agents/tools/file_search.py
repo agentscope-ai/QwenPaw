@@ -13,10 +13,12 @@ from pathlib import Path
 from typing import Optional
 
 from agentscope.message import TextBlock
-from agentscope.tool import ToolResponse
+from agentscope.tool import ToolChunk
+from agentscope.message import ToolResultState
 
 from ...constant import WORKING_DIR
 from ...config.context import get_current_workspace_dir
+from ...runtime.tool_registry import tool_descriptor
 from .file_io import _resolve_file_path
 
 # ---------------------------------------------------------------------------
@@ -127,17 +129,21 @@ def _relative_display(target: Path, root: Path) -> str:
         return str(target).replace(os.sep, "/")
 
 
-def _make_response(text: str) -> ToolResponse:
-    return ToolResponse(content=[TextBlock(type="text", text=text)])
+def _make_response(text: str) -> ToolChunk:
+    return ToolChunk(
+        is_last=True,
+        state=ToolResultState.SUCCESS,
+        content=[TextBlock(type="text", text=text)],
+    )
 
 
 def _resolve_search_root(
     path: Optional[str],
     require_dir: bool = False,
-) -> "Path | ToolResponse":
+) -> "Path | ToolChunk":
     """Resolve and validate a search root path.
 
-    Returns a ``Path`` on success or a ``ToolResponse`` error.
+    Returns a ``Path`` on success or a ``ToolChunk`` error.
     """
     search_root = (
         Path(_resolve_file_path(path))
@@ -475,6 +481,7 @@ def _walk_and_glob(
 # ---------------------------------------------------------------------------
 
 
+@tool_descriptor(requires_sandbox=("file_read",), async_execution=True)
 async def grep_search(
     pattern: str,
     path: Optional[str] = None,
@@ -482,7 +489,7 @@ async def grep_search(
     case_sensitive: bool = True,
     context_lines: int = 0,
     include_pattern: Optional[str] = None,
-) -> ToolResponse:
+) -> ToolChunk:
     """Search file contents by pattern, recursively. Relative paths resolve
     from WORKING_DIR. Output format: ``path:line_number: content``.
 
@@ -506,7 +513,7 @@ async def grep_search(
         return _make_response("Error: No search `pattern` provided.")
 
     root_or_err = _resolve_search_root(path)
-    if isinstance(root_or_err, ToolResponse):
+    if isinstance(root_or_err, ToolChunk):
         return root_or_err
     search_root: Path = root_or_err
 
@@ -534,11 +541,13 @@ async def grep_search(
             return [], f"error: {exc}"
 
     try:
-        match_lines, status = await asyncio.wait_for(
+        from ...tool_calls import cancellable_wait
+
+        match_lines, status = await cancellable_wait(
             asyncio.to_thread(_worker),
-            timeout=_GREP_TIMEOUT,
+            fallback_secs=_GREP_TIMEOUT,
         )
-    except asyncio.TimeoutError:
+    except (asyncio.TimeoutError, asyncio.CancelledError):
         cancel.set()
         await asyncio.sleep(0.05)
         return _make_response(
@@ -576,10 +585,11 @@ async def grep_search(
     return _make_response(result)
 
 
+@tool_descriptor(requires_sandbox=("file_read",), async_execution=True)
 async def glob_search(
     pattern: str,
     path: Optional[str] = None,
-) -> ToolResponse:
+) -> ToolChunk:
     """Find files matching a glob pattern (e.g. ``"*.py"``, ``"**/*.json"``).
     Relative paths resolve from WORKING_DIR.
 
@@ -593,7 +603,7 @@ async def glob_search(
         return _make_response("Error: No glob `pattern` provided.")
 
     root_or_err = _resolve_search_root(path, require_dir=True)
-    if isinstance(root_or_err, ToolResponse):
+    if isinstance(root_or_err, ToolChunk):
         return root_or_err
     search_root: Path = root_or_err
 
@@ -606,11 +616,13 @@ async def glob_search(
             return [], False
 
     try:
-        results, truncated = await asyncio.wait_for(
+        from ...tool_calls import cancellable_wait
+
+        results, truncated = await cancellable_wait(
             asyncio.to_thread(_worker),
-            timeout=_GLOB_TIMEOUT,
+            fallback_secs=_GLOB_TIMEOUT,
         )
-    except asyncio.TimeoutError:
+    except (asyncio.TimeoutError, asyncio.CancelledError):
         cancel.set()
         await asyncio.sleep(0.05)
         return _make_response(

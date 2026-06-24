@@ -343,14 +343,19 @@ class OpenRouterProvider(Provider):
             return False, str(e)
 
     def get_chat_model_instance(self, model_id: str) -> ChatModelBase:
+        from agentscope.credential._openai import OpenAICredential
+
         from .openai_chat_model_compat import OpenAIChatModelCompat
 
-        return OpenAIChatModelCompat(
-            model_name=model_id,
-            stream=True,
+        credential = OpenAICredential(
+            id=f"qwenpaw-{self.id}",
             api_key=self.api_key,
-            client_kwargs={
-                "base_url": self.base_url,
-                "default_headers": self._build_default_headers(),
-            },
+            base_url=self.base_url,
+        )
+        return OpenAIChatModelCompat(
+            credential=credential,
+            model=model_id,
+            stream=True,
+            default_headers=self._build_default_headers() or None,
+            context_size=self._get_context_size(model_id),
         )

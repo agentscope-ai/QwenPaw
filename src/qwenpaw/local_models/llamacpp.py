@@ -29,6 +29,7 @@ from .download_manager import (
     ProcessDownloadTaskSpec,
 )
 from ..utils.command_runner import (
+    CommandExecutionError,
     ManagedProcess,
     run_command_async,
     shutdown_process,
@@ -334,10 +335,13 @@ class LlamaCppBackend:
         if not installed:
             raise RuntimeError(message or "llama.cpp server is not installed")
 
-        result = await run_command_async(
-            [str(self.executable), "--version"],
-            timeout=30,
-        )
+        try:
+            result = await run_command_async(
+                [str(self.executable), "--version"],
+                timeout=30,
+            )
+        except CommandExecutionError as exc:
+            raise RuntimeError(str(exc)) from exc
         lines = result.stderr_lines
         prefix = "version:"
         for line in lines:

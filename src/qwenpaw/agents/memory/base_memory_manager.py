@@ -9,7 +9,8 @@ from pathlib import Path
 from typing import Any, Optional
 
 from agentscope.message import Msg
-from agentscope.tool import ToolResponse
+from agentscope.middleware import MiddlewareBase
+from agentscope.tool import ToolChunk
 
 from ..utils.registry import Registry
 
@@ -65,16 +66,26 @@ class BaseMemoryManager(ABC):
         """
 
     @abstractmethod
-    def list_memory_tools(self) -> list[Callable[..., ToolResponse]]:
+    def list_memory_tools(self) -> list[Callable[..., ToolChunk]]:
         """Return tool functions exposed to the agent for memory access.
 
         Each returned callable may have any signature but must return a
-        ``ToolResponse``.  Implementations register whatever memory-related
+        ``ToolChunk``.  Implementations register whatever memory-related
         tools make sense for the backend (e.g. semantic search, listing).
 
         Returns:
             Ordered list of tool functions to register with the agent toolkit.
         """
+
+    def build_middlewares(self) -> list[MiddlewareBase]:
+        """Return AgentScope middlewares contributed by this manager.
+
+        Tool registration remains a toolkit construction concern.  This hook
+        is only for prompt/model-call/reply lifecycle behavior.
+        """
+        from ..middlewares import MemoryMiddleware
+
+        return [MemoryMiddleware(memory_manager=self)]
 
     # pylint: disable=unused-argument
     async def summarize(self, messages: list[Msg], **kwargs) -> str:

@@ -322,38 +322,6 @@ class PluginApi:
                 f"'{handler.command_name}' (priority={priority_level})",
             )
 
-    def register_prompt_section(
-        self,
-        name: str,
-        provider: Callable[[Any], str],
-        *,
-        after: str = "workspace",
-        agent_id: Optional[str] = None,
-    ) -> None:
-        """Register a system-prompt section provider.
-
-        Args:
-            name: Unique prompt section name, e.g. ``"datapaw.master"``.
-            provider: Callable receiving the agent instance and returning text.
-            after: Host anchor this section follows.
-                Valid: ``"workspace"``, ``"multimodal"``, ``"env_context"``.
-            agent_id: Optional agent id filter; ``None`` applies to all agents.
-        """
-        if self._registry:
-            self._registry.register_prompt_section(
-                plugin_id=self.plugin_id,
-                name=name,
-                after=after,
-                agent_id=agent_id,
-                provider=provider,
-            )
-            logger.info(
-                "Plugin '%s' registered prompt section '%s' after '%s'",
-                self.plugin_id,
-                name,
-                after,
-            )
-
     @property
     def runtime(self):
         """Access runtime helper functions.
@@ -598,6 +566,41 @@ class PluginApi:
             callback=_uninstall_skills,
         )
 
+    def unregister_skill_provider(self) -> None:
+        """Unregister this plugin as a skill provider.
+
+        Removes the startup, workspace_created, and uninstall hooks
+        that were registered by ``register_skill_provider()``, and
+        cleans up skills sourced from this plugin across all existing
+        workspaces.
+
+        This allows plugins to dynamically disable their skill
+        provider without requiring a full plugin uninstall.
+
+        Example:
+            >>> api.unregister_skill_provider()
+        """
+        source_tag = f"plugin:{self.plugin_id}"
+        hook_names = [
+            f"install_skills_{self.plugin_id}",
+            f"provision_skills_{self.plugin_id}",
+            f"uninstall_skills_{self.plugin_id}",
+        ]
+
+        # Remove the hooks from registry
+        if self._registry:
+            self._registry.remove_hooks_by_name(
+                self.plugin_id,
+                hook_names,
+            )
+
+        # Clean up already-installed skills
+        self._do_uninstall_skills(self.plugin_id, source_tag)
+
+        logger.info(
+            f"Plugin '{self.plugin_id}' unregistered as skill provider",
+        )
+
     def _get_skill_names(self, skills_dir: Path) -> List[str]:
         """Return sub-directory names that contain a SKILL.md file."""
         if not skills_dir.exists() or not skills_dir.is_dir():
@@ -670,9 +673,10 @@ class PluginApi:
                     entry = skills.get(name)
                     if entry is None:
                         continue
+                    if entry.get("source") != _src:
+                        entry["enabled"] = _enabled
+                        entry["channels"] = list(_channels)
                     entry["source"] = _src
-                    entry["enabled"] = _enabled
-                    entry["channels"] = _channels
                 return payload
 
             mutate_json(

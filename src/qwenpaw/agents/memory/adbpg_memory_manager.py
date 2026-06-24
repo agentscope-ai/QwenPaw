@@ -2,20 +2,20 @@
 """ADBPG Memory Manager for QwenPaw agents.
 
 Provides long-term memory backed by AnalyticDB for PostgreSQL (ADBPG).
-Context management (compaction, tool result pruning) is handled by
-LightContextManager — this class only manages long-term memory storage
-and retrieval.
+Context compaction is handled natively by AgentScope's
+``Agent.compress_context()``; tool result pruning is handled by
+``ToolResultPruningMiddleware``. This class only manages long-term
+memory storage and retrieval.
 """
 import asyncio
-import json
 import logging
 import threading
-import uuid
 from collections.abc import Callable
 from pathlib import Path
 
-from agentscope.message import Msg, TextBlock, ToolResultBlock, ToolUseBlock
-from agentscope.tool import ToolResponse
+from agentscope.message import Msg, TextBlock
+from agentscope.tool import ToolChunk
+from agentscope.message import ToolResultState
 
 from .adbpg_client import (
     ADBPGConfig,
@@ -35,7 +35,8 @@ class ADBPGMemoryManager(BaseMemoryManager):
     """ADBPG-backed long-term memory manager.
 
     Delegates storage and retrieval to AnalyticDB for PostgreSQL.
-    Context management is handled by LightContextManager.
+    Context compaction and tool result pruning are handled by the
+    agent's native compression and ``ToolResultPruningMiddleware``.
     """
 
     def __init__(self, working_dir: str, agent_id: str) -> None:
@@ -149,7 +150,7 @@ class ADBPGMemoryManager(BaseMemoryManager):
         }
         return prompts.get(language, ADBPG_MEMORY_GUIDANCE_EN)
 
-    def list_memory_tools(self) -> list[Callable[..., ToolResponse]]:
+    def list_memory_tools(self) -> list[Callable[..., ToolChunk]]:
         """Return memory tools exposed to the agent."""
         return [self.memory_search]
 
@@ -225,44 +226,7 @@ class ADBPGMemoryManager(BaseMemoryManager):
                 return None
 
             text_content = "[Long-term Memory from ADBPG]\n" + "\n".join(parts)
-
-            # Construct tool_use + tool_result message pair
-            _id = uuid.uuid4().hex
-            tool_input = {"query": query, "max_results": 3, "min_score": 0.1}
-            agent_name = _kwargs.get("agent_name", "")
-
-            assistant_msg = Msg(
-                name=agent_name,
-                role="assistant",
-                content=[
-                    TextBlock(
-                        type="text",
-                        text="Searching long-term memory...",
-                    ),
-                    ToolUseBlock(
-                        type="tool_use",
-                        id=_id,
-                        name="memory_search",
-                        input=tool_input,
-                        raw_input=json.dumps(tool_input, ensure_ascii=False),
-                    ),
-                ],
-            )
-
-            tool_result_msg = Msg(
-                name=agent_name,
-                role="system",
-                content=[
-                    ToolResultBlock(
-                        type="tool_result",
-                        id=_id,
-                        name="memory_search",
-                        output=[TextBlock(type="text", text=text_content)],
-                    ),
-                ],
-            )
-
-            return {"msg": msgs + [assistant_msg, tool_result_msg]}
+            return {"query": query, "text": text_content}
 
         except Exception as e:
             logger.warning(f"Auto-retrieve ADBPG memories failed: {e}")
@@ -338,7 +302,7 @@ class ADBPGMemoryManager(BaseMemoryManager):
         query: str,
         max_results: int = 5,
         min_score: float = 0.1,
-    ) -> ToolResponse:
+    ) -> ToolChunk:
         """Search memories from both ADBPG and local memory files.
 
         Combines results from two sources:
@@ -354,7 +318,7 @@ class ADBPGMemoryManager(BaseMemoryManager):
                 Minimum relevance score. Defaults to 0.1.
 
         Returns:
-            `ToolResponse`:
+            `ToolChunk`:
                 Search results with source and content.
         """
         parts: list[str] = []
@@ -397,13 +361,17 @@ class ADBPGMemoryManager(BaseMemoryManager):
             logger.warning("Local memory file search failed: %s", e)
 
         if not parts:
-            return ToolResponse(
+            return ToolChunk(
+                is_last=True,
+                state=ToolResultState.SUCCESS,
                 content=[
                     TextBlock(type="text", text="No relevant memories found."),
                 ],
             )
 
-        return ToolResponse(
+        return ToolChunk(
+            is_last=True,
+            state=ToolResultState.SUCCESS,
             content=[
                 TextBlock(type="text", text="\n\n".join(parts[:max_results])),
             ],

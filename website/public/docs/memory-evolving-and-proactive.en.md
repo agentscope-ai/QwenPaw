@@ -73,14 +73,15 @@ If there's nothing new to store or reflect on, Auto-Memory silently skips (respo
 
 | Trigger    | Config                   | Description                            | Default |
 | ---------- | ------------------------ | -------------------------------------- | ------- |
-| Periodic   | `auto_memory_interval`   | Auto-summarize every N user messages   | Off     |
+| Periodic   | `auto_memory_interval`   | Auto-summarize every N user messages   | 1       |
 | On compact | `summarize_when_compact` | Save memory before context compression | On      |
 
-**Disabled by default**, as periodic triggering incurs additional high-frequency token consumption. Enable manually:
+Periodic Auto-Memory is enabled by default with interval `1`. Set it to `null`
+or `0` to disable periodic extraction:
 
 > **Config path**: Workspace → Running Config → Long-term Memory → Auto Memory Interval
 
-**Recommendation**: Set to 3–10 for a reflection summary every 3–10 conversation turns. For more aggressive experience accumulation, set to 1—the Agent will summarize after every user query. Higher frequency means faster experience accumulation but higher token cost. This process runs in the background and doesn't affect the current conversation.
+**Recommendation**: Keep `1` for aggressive experience accumulation, or set to 3–10 for a reflection summary every 3–10 conversation turns. Higher frequency means faster experience accumulation but higher token cost. This process runs in the background and doesn't affect the current conversation.
 
 ---
 

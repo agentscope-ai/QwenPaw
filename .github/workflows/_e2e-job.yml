@@ -49,10 +49,10 @@ jobs:
           cp -R console/dist/* src/qwenpaw/console/
 
       # ---- Install Python dependencies ----
-      - name: Set up Python 3.10
+      - name: Set up Python 3.11
         uses: actions/setup-python@v5
         with:
-          python-version: '3.10'
+          python-version: '3.11'
           cache: 'pip'
 
       - name: Install backend + E2E dependencies
@@ -89,6 +89,14 @@ jobs:
           mkdir -p "$QWENPAW_E2E_DIR/working" \
                    "$QWENPAW_E2E_DIR/secret" \
                    "$QWENPAW_E2E_DIR/backups"
+
+          # Export working dirs so subsequent steps (notably the pytest
+          # step) can write seed files into the same paths the backend
+          # is reading from. Without this, pytest's os.getenv lookup
+          # falls back to ~/.qwenpaw and seeds land in the wrong place.
+          echo "QWENPAW_WORKING_DIR=$QWENPAW_E2E_DIR/working" >> "$GITHUB_ENV"
+          echo "QWENPAW_SECRET_DIR=$QWENPAW_E2E_DIR/secret" >> "$GITHUB_ENV"
+          echo "QWENPAW_BACKUP_DIR=$QWENPAW_E2E_DIR/backups" >> "$GITHUB_ENV"
 
           QWENPAW_WORKING_DIR="$QWENPAW_E2E_DIR/working" \
           QWENPAW_SECRET_DIR="$QWENPAW_E2E_DIR/secret" \

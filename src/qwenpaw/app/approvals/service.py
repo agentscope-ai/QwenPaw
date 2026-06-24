@@ -5,6 +5,7 @@ The ``ApprovalService`` is the single central store for pending /
 completed approval records.  Approval is granted exclusively via
 the ``/daemon approve`` command in the chat interface.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -16,6 +17,7 @@ from typing import TYPE_CHECKING, Any
 
 from ...constant import TOOL_GUARD_APPROVAL_TIMEOUT_SECONDS
 from ...security.tool_guard.approval import ApprovalDecision
+from .models import ApprovalRequestSummary
 
 if TYPE_CHECKING:
     from ...security.tool_guard.models import ToolGuardResult
@@ -134,6 +136,59 @@ class ApprovalService:
             root_session_id[:8],
         )
 
+        return pending
+
+    async def create_pending_summary(
+        self,
+        *,
+        session_id: str,
+        root_session_id: str,
+        owner_agent_id: str,
+        user_id: str,
+        channel: str,
+        agent_id: str,
+        summary: ApprovalRequestSummary,
+        timeout_seconds: float = TOOL_GUARD_APPROVAL_TIMEOUT_SECONDS,
+        extra: dict[str, Any] | None = None,
+    ) -> PendingApproval:
+        """Create a pending approval from a generic summary."""
+        request_id = str(uuid.uuid4())
+        loop = asyncio.get_running_loop()
+        merged_extra = {
+            "source_type": summary.source_type,
+            **summary.payload,
+            **dict(extra or {}),
+        }
+        pending = PendingApproval(
+            request_id=request_id,
+            session_id=session_id,
+            root_session_id=root_session_id,
+            owner_agent_id=owner_agent_id,
+            user_id=user_id,
+            channel=channel,
+            agent_id=agent_id,
+            tool_name=summary.name,
+            created_at=time.time(),
+            future=loop.create_future(),
+            timeout_seconds=timeout_seconds,
+            result_summary=summary.result_summary,
+            findings_count=summary.findings_count,
+            severity=summary.severity,
+            extra=merged_extra,
+        )
+        async with self._lock:
+            self._pending[request_id] = pending
+            self._gc_pending_locked()
+        logger.info(
+            "Generic approval pending created: request_id=%s agent_id=%s "
+            "name=%s source=%s session=%s root=%s",
+            request_id[:8],
+            agent_id,
+            summary.name,
+            summary.source_type,
+            session_id[:8],
+            root_session_id[:8],
+        )
         return pending
 
     async def resolve_request(

@@ -9,7 +9,7 @@ Covers:
 - ``migrate_legacy_weixin_session_files`` weixin -> wechat rename
 - ``AgentStateError`` raised for missing-file ``allow_not_exist=False``
 """
-# pylint: disable=protected-access,redefined-outer-name,unused-argument
+# pylint: disable=protected-access,redefined-outer-name,unused-argument,wrong-import-position,no-name-in-module
 from __future__ import annotations
 
 import json
@@ -17,8 +17,17 @@ from pathlib import Path
 
 import pytest
 
-from qwenpaw.app.runner import session as session_mod
-from qwenpaw.app.runner.session import (
+# pylint: disable=no-name-in-module
+# flake8: noqa: E402,E501
+pytest.importorskip(
+    "qwenpaw.app.runner.session",
+    reason="qwenpaw.app.runner was removed in AgentScope 2.0",
+)
+session_mod = pytest.importorskip(  # type: ignore[assignment]
+    "qwenpaw.app.runner.session",
+    reason="qwenpaw.app.runner was removed in AgentScope 2.0",
+)
+from qwenpaw.app.runner.session import (  # type: ignore[import]
     SafeJSONSession,
     _safe_json_loads,
     migrate_legacy_weixin_session_files,
@@ -203,9 +212,7 @@ async def test_update_session_state_empty_key_path_rejected(session, tmp_path):
     # exercise deterministic).
     (tmp_path / "u_sess-4.json").write_text("{}", encoding="utf-8")
 
-    from agentscope_runtime.engine.schemas.exception import (
-        ConfigurationException,
-    )
+    from qwenpaw.exceptions import ConfigurationException
 
     with pytest.raises(ConfigurationException):
         await session.update_session_state(

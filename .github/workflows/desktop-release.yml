@@ -53,7 +53,7 @@ jobs:
         uses: conda-incubator/setup-miniconda@v3
         with:
           auto-update-conda: true
-          python-version: "3.10"
+          python-version: "3.11"
           activate-environment: "qwenpaw-build"
           condarc-file: .github/condarc
           conda-remove-defaults: false
@@ -113,7 +113,7 @@ jobs:
         uses: conda-incubator/setup-miniconda@v3
         with:
           auto-update-conda: true
-          python-version: "3.10"
+          python-version: "3.11"
           activate-environment: "qwenpaw-build"
           condarc-file: .github/condarc
           conda-remove-defaults: false
@@ -159,7 +159,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.10"
+          python-version: "3.11"
 
       - name: Set up uv
         uses: astral-sh/setup-uv@v5
@@ -232,7 +232,7 @@ jobs:
         env:
           PIP_NO_CACHE_DIR: "1"
         with:
-          python-version: "3.10"
+          python-version: "3.11"
 
       - name: Set up uv
         uses: astral-sh/setup-uv@v5
@@ -312,7 +312,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.10"
+          python-version: "3.11"
 
       - name: Get version
         id: version

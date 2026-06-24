@@ -11,7 +11,7 @@ from typing import Any, Dict, Optional, Union
 import paho.mqtt.client as mqtt
 from paho.mqtt import MQTTException
 
-from agentscope_runtime.engine.schemas.agent_schemas import (
+from qwenpaw.schemas import (
     TextContent,
     ContentType,
 )

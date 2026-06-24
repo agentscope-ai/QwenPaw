@@ -32,7 +32,7 @@ from typing import Any, AsyncGenerator
 
 from agentscope.model import ChatModelBase
 from agentscope.model._model_response import ChatResponse
-from agentscope_runtime.engine.schemas.exception import (
+from qwenpaw.exceptions import (
     RateLimitExceededException,
 )
 
@@ -294,7 +294,17 @@ class RetryChatModel(ChatModelBase):
         retry_config: RetryConfig | None = None,
         rate_limit_config: RateLimitConfig | None = None,
     ) -> None:
-        super().__init__(model_name=inner.model_name, stream=inner.stream)
+        # agentscope 2.0 ChatModelBase requires credential/model/parameters;
+        # forward the inner wrapper's own values so attribute access stays
+        # transparent.
+        super().__init__(
+            credential=getattr(inner, "credential", None),
+            model=getattr(inner, "model", "unknown"),
+            parameters=getattr(inner, "parameters", None)
+            or ChatModelBase.Parameters(),
+            stream=getattr(inner, "stream", True),
+            context_size=getattr(inner, "context_size", 32768),
+        )
         self._inner = inner
         self._retry_config = _normalize_retry_config(retry_config)
         self._rate_limit_config = _normalize_rate_limit_config(
@@ -311,7 +321,7 @@ class RetryChatModel(ChatModelBase):
     def model_key(self) -> str:
         """Stable key for the underlying model: ``provider_id:model_name``."""
         provider_id = getattr(self._inner, "_provider_id", None)
-        name = self._inner.model_name
+        name = self._inner.model
         return f"{provider_id}:{name}" if provider_id else name
 
     @staticmethod
@@ -381,6 +391,13 @@ class RetryChatModel(ChatModelBase):
                 # Stream failed before producing any chunk;
                 # slot not yet released.
                 limiter.release()
+
+    async def generate_structured_output(
+        self,
+        *args: Any,
+        **kwargs: Any,
+    ) -> Any:
+        return await self._inner.generate_structured_output(*args, **kwargs)
 
     async def __call__(
         self,

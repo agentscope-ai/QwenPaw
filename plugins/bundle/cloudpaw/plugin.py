@@ -185,7 +185,7 @@ def _init_a2a_manager() -> None:
 def _register_a2a_command() -> None:
     """Register /a2a as a control command."""
     try:
-        from qwenpaw.app.runner.control_commands import register_command
+        from qwenpaw.runtime.commands.control import register_command
         from .tools.a2a_command import A2AListCommandHandler
 
         register_command(A2AListCommandHandler())
@@ -496,27 +496,14 @@ class CloudPawPlugin:
         inject_interaction_module()
         logger.info("CloudPaw: injected synthetic modules")
 
-        # Register HTTP routers via the official PluginApi — no manual
-        # app mounting needed. The registry already has the FastAPI app
-        # set via set_plugin_http_app() before load_all_plugins().
+        # Mount HTTP routers directly onto the FastAPI app.
         try:
-            from .routers_setup import build_plugin_routers
+            from .routers_setup import mount_routers
 
-            routers = build_plugin_routers()
-            logger.info(
-                "CloudPaw: got %d HTTP routers: %s",
-                len(routers),
-                [(r.prefix, p) for r, p in routers],
-            )
-            for router, prefix in routers:
-                logger.info(
-                    "CloudPaw: registering router at prefix '/api%s'",
-                    prefix,
-                )
-                api.register_http_router(router, prefix=prefix)
+            mount_routers()
         except Exception as e:
             logger.warning(
-                "Failed to register HTTP routers: %s",
+                "Failed to mount HTTP routers: %s",
                 e,
                 exc_info=True,
             )

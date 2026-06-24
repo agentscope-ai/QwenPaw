@@ -61,17 +61,21 @@
 
 ## 新闻
 
-- [2026-06-11] **AgentScope 体验平台上线** — 支持免费部署 QwenPaw、插件分享与 Skill 市场。[立即体验 →](https://platform.agentscope.io/)
-
-- [2026-06-10] **v1.1.11 — 免费模型 OAuth & 插件市场** | 零配置免费模型一键 OAuth 认证；插件市场集成 AgentScope 平台。
+- [2026-06-17] **v1.1.12 — 模型页面大改版 & 简洁模式** | 全新模型页面 Provider 聚合设计；新增简洁模式，扁平化导航。
 
   | 亮点 | 更新内容 |
   |------|----------|
-  | **免费模型 OAuth** | 零配置免费模型，一键 OAuth 认证即可使用。 |
-  | **插件市场** | 新增插件市场标签页，集成 AgentScope 平台。 |
-  | **MCP 工具白名单** | 支持按 MCP 服务器配置工具白名单，含前端开关 UI。 |
+  | **模型页面大改版** | Provider 聚合、统一卡片 UI 与布局重新设计。 |
+  | **简洁模式** | 扁平导航，会话列表按更新时间排序。 |
+  | **非阻塞消息发送** | 所有渠道自适应节流。 |
+  | **每轮 Token 用量** | 每轮 token 与上下文用量弹窗。 |
+  | **桌面端端口持久化** | 跨重启保持后端端口。 |
 
-  另有：自进化技能创建、后端启动优化、飞书群会话共享、QQ 二维码授权。[v1.1.11 发布说明 →](https://qwenpaw.agentscope.io/release-notes#v1.1.11)
+  另有：宽屏模式、代码语法高亮、Langfuse agent loop 分组、Gemini 工具 schema 修复。[v1.1.12 发布说明 →](https://qwenpaw.agentscope.io/release-notes#v1.1.12)
+
+- [2026-06-11] **AgentScope 体验平台上线** — 支持免费部署 QwenPaw、插件分享与 Skill 市场。[立即体验 →](https://platform.agentscope.io/)
+
+- [2026-06-10] **v1.1.11** — 免费模型 OAuth、插件市场、MCP 工具白名单。[v1.1.11 发布说明 →](https://qwenpaw.agentscope.io/release-notes#v1.1.11)
 
 - [2026-06-01] **v1.1.10** — 子 Agent 派生、打开目录、腾讯元宝渠道。[v1.1.10 发布说明 →](https://qwenpaw.agentscope.io/release-notes#v1.1.10)
 

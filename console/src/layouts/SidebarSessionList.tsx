@@ -196,7 +196,10 @@ export default function SidebarSessionList({
         chatStatus={session.status}
         generating={session.generating}
         pinned={session.pinned}
-        active={session.id === currentSessionId}
+        active={
+          session.id === currentSessionId ||
+          (!!currentSessionId && session.realId === currentSessionId)
+        }
         disabled={isDisabled}
         editing={isEditing}
         editValue={isEditing ? editValue : undefined}

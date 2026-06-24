@@ -25,6 +25,7 @@
     "contentPlaceholder": "Enter content...",
     "help": "Help",
     "close": "Close",
+    "back": "Back",
     "actions": "Actions",
     "total": "Total {{count}}",
     "clear": "Clear",
@@ -52,7 +53,7 @@
     "skills": "Skills",
     "skillPool": "Skill Pool",
     "market": "Skill Market",
-    "tools": "Tools",
+    "tools": "Tools & Permissions",
     "mcp": "MCP",
     "acp": "ACP",
     "agentConfig": "Configuration",
@@ -392,7 +393,10 @@
     "configUpdateFailed": "Failed to update system prompt configuration",
     "attribution": "Workspace design partly inspired by the OpenClaw project — thank you! 🐾",
     "saveSuccess": "Saved successfully",
-    "saveFailed": "Save failed"
+    "saveFailed": "Save failed",
+    "saving": "Saving...",
+    "saved": "Saved",
+    "unsaved": "Unsaved"
   },
   "agent": {
     "parent": "Settings",
@@ -716,11 +720,55 @@
     "deleteSuccess": "MCP client deleted successfully",
     "deleteError": "Failed to delete MCP client",
     "maskedFieldHint": "Sensitive fields are masked with ***. In-place edits on masked values are not supported — replace with the full new value to modify.",
-    "tools": "Tools",
+    "tools": "Tools & Permissions",
     "noTools": "No tools available from this MCP server",
     "toolsLoadError": "Failed to load tools from MCP server",
     "toolsConnecting": "MCP server is still connecting, please try again in a moment",
-    "toolSchema": "Input Schema",
+    "toolSchema": "Description & Parameters",
+    "access": {
+      "title": "Access",
+      "button": "Access",
+      "summary": "MCP access policy",
+      "clientSection": "Client Access",
+      "toolSection": "Tool Access",
+      "default": "Default",
+      "sourceType": "Source",
+      "sourceValue": "Source Value",
+      "sourceValueAllChannels": "All Channels",
+      "subjectType": "Object",
+      "subjectValue": "Object Value",
+      "effectLabel": "Policy",
+      "source": {
+        "channel": "Channel"
+      },
+      "subjectTypeOption": {
+        "all": "All",
+        "user": "User"
+      },
+      "sourceValuePlaceholder": {
+        "channel": "console / dingtalk"
+      },
+      "subjectValuePlaceholder": "e.g. alice",
+      "subjectValueAll": "All",
+      "addRule": "Add Rule",
+      "deleteRule": "Delete Rule",
+      "noClientRules": "No rules",
+      "noRules": "No rules, uses default policy",
+      "inherit": "Inherit ({{effect}})",
+      "stale": "Not found",
+      "disabledTools": "This MCP client is disabled; saved access rules can still be edited.",
+      "discardTitle": "Discard unsaved changes?",
+      "discardContent": "Unsaved access policy changes will be lost.",
+      "loadError": "Failed to load MCP access policy",
+      "saveSuccess": "MCP access policy saved",
+      "saveError": "Failed to save MCP access policy",
+      "unmanagedRules": "{{count}} advanced rule(s)",
+      "effect": {
+        "allow": "Allow",
+        "ask": "Ask",
+        "deny": "Deny"
+      }
+    },
     "tab": {
       "json": "JSON Import",
       "form": "Form Mode"
@@ -2339,6 +2387,7 @@
     "approve": "Approve",
     "deny": "Deny",
     "source": "Source",
+    "builtinSource": "Built-in",
     "subSession": "Sub-Agent",
     "approved": "Tool call approved",
     "denied": "Tool call denied",
@@ -2643,7 +2692,7 @@
       "SENSITIVE_FILE_BLOCKED": "This file is blocked by File Guard (sensitive file protection).",
       "OUTSIDE_WORKSPACE": "This file is outside the workspace scope. Enable \"Allow Console Preview Outside Workspace\" in Settings → Security → File Guard.",
       "FORBIDDEN": "Access denied: insufficient permissions to preview this file.",
-      "NOT_FOUND": "File not found. It may have been moved or deleted.",
+      "NOT_FOUND": "File not found. It may have been moved or deleted. If a relative path was used, please try using an absolute path instead.",
       "LOAD_FAILED": "Failed to load file preview.",
       "LOAD_FAILED_DETAIL": "Failed to load file preview: {{detail}}"
     }

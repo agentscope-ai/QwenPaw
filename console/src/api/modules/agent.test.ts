@@ -33,7 +33,7 @@ describe("agentApi", () => {
   it("agentApi sends POST to /agent/process with body", async () => {
     const body = { message: "hello", session_id: "s1" };
     await agentApi.agentApi(body as any);
-    expect(request).toHaveBeenCalledWith("/agent/process", {
+    expect(request).toHaveBeenCalledWith("/console/chat", {
       method: "POST",
       body: JSON.stringify(body),
     });

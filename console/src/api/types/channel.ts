@@ -19,6 +19,7 @@ export interface DiscordConfig extends BaseChannelConfig {
   http_proxy: string;
   http_proxy_auth: string;
   accept_bot_messages?: boolean;
+  streaming_enabled?: boolean;
 }
 
 export interface DingTalkConfig extends BaseChannelConfig {
@@ -141,7 +142,6 @@ export interface XiaoYiConfig extends BaseChannelConfig {
   ak: string;
   sk: string;
   agent_id: string;
-  ws_url: string;
   task_timeout_ms?: number;
 }
 

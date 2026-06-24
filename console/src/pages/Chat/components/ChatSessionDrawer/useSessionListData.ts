@@ -32,8 +32,8 @@ export interface ExtendedChatSession extends IAgentScopeRuntimeWebUISession {
 export const getBackendId = (session: ExtendedChatSession): string | null => {
   if (session.realId) return session.realId;
   const id = session.id;
-  if (!/^\d+$/.test(id)) return id;
-  return null;
+  if (/^\d+-[a-z0-9]+$/.test(id)) return null;
+  return id;
 };
 
 /** Format an ISO 8601 timestamp to YYYY-MM-DD HH:mm:ss */
@@ -163,16 +163,22 @@ export function useSessionListData(
   }, [active, setSessions]);
 
   const sortedSessions = useMemo(() => {
-    return [...sessions].sort((a, b) => {
-      if (a.pinned && !b.pinned) return -1;
-      if (!a.pinned && b.pinned) return 1;
-      const aTime = a.updatedAt ?? a.createdAt;
-      const bTime = b.updatedAt ?? b.createdAt;
-      if (!aTime && !bTime) return 0;
-      if (!aTime) return 1;
-      if (!bTime) return -1;
-      return new Date(bTime).getTime() - new Date(aTime).getTime();
-    });
+    return [...sessions]
+      .filter((s) => {
+        const id = s.id ?? "";
+        // Inline check: local timestamp format without realId = unresolved
+        return !(/^\d+-[a-z0-9]+$/.test(id) && !s.realId);
+      })
+      .sort((a, b) => {
+        if (a.pinned && !b.pinned) return -1;
+        if (!a.pinned && b.pinned) return 1;
+        const aTime = a.updatedAt ?? a.createdAt;
+        const bTime = b.updatedAt ?? b.createdAt;
+        if (!aTime && !bTime) return 0;
+        if (!aTime) return 1;
+        if (!bTime) return -1;
+        return new Date(bTime).getTime() - new Date(aTime).getTime();
+      });
   }, [sessions]);
 
   const handleSessionClick = useCallback(
@@ -195,9 +201,29 @@ export function useSessionListData(
       const session = sessions.find((s) => s.id === sessionId);
       const backendId = session ? getBackendId(session) : null;
       if (backendId) await chatApi.deleteChat(backendId);
-      await refreshSessions();
+
+      // Fetch fresh session list after deletion
+      const freshList =
+        (await sessionApi.getSessionList()) as ExtendedChatSession[];
+      setSessions(freshList);
+      syncSessionsGlobal(freshList);
+
+      // Post-deletion check: if the currently displayed session no longer
+      // exists in the refreshed list, navigate to a new blank chat.
+      // This avoids all ID-format mismatch issues between URL chatId,
+      // session.id, and session.realId.
+      if (currentSessionId) {
+        const stillExists = freshList.some(
+          (s) =>
+            s.id === currentSessionId ||
+            (s as ExtendedChatSession).realId === currentSessionId,
+        );
+        if (!stillExists) {
+          window.dispatchEvent(new CustomEvent("qwenpaw:sidebar-new-chat"));
+        }
+      }
     },
-    [sessions, refreshSessions],
+    [sessions, currentSessionId, setSessions],
   );
 
   const handleEditStart = useCallback(

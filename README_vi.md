@@ -61,17 +61,21 @@ Trợ lý AI cá nhân của bạn — cài đặt dễ dàng, triển khai cụ
 
 ## Tin tức
 
-- [2026-06-11] **AgentScope Platform ra mắt** — Triển khai QwenPaw miễn phí, chia sẻ plugin và Chợ Skills. [Dùng thử ngay →](https://platform.agentscope.io/)
-
-- [2026-06-10] **v1.1.11 — OAuth Mô hình Miễn phí & Chợ Plugin** | Mô hình miễn phí không cấu hình với xác thực OAuth một chạm; Chợ Plugin tích hợp AgentScope Platform.
+- [2026-06-17] **v1.1.12 — Trang Mô hình Đổi mới & Chế độ Đơn giản** | Trang mô hình mới với tổng hợp nhà cung cấp; Chế độ Đơn giản với điều hướng phẳng.
 
   | Nổi bật | Nội dung mới |
   |-----------|------------|
-  | **OAuth Mô hình Miễn phí** | Mô hình miễn phí không cần cấu hình, xác thực OAuth một chạm. |
-  | **Chợ Plugin** | Thẻ Chợ Plugin mới tích hợp với AgentScope Platform. |
-  | **Danh sách trắng Công cụ MCP** | Danh sách trắng công cụ MCP theo từng máy chủ với giao diện bật/tắt trên frontend. |
+  | **Trang Mô hình Đổi mới** | Tổng hợp nhà cung cấp, UI thẻ thống nhất & thiết kế bố cục mới. |
+  | **Chế độ Đơn giản** | Điều hướng phẳng, danh sách phiên sắp xếp theo thời gian cập nhật. |
+  | **Gửi tin không chặn** | Điều tiết thích ứng cho tất cả kênh. |
+  | **Token mỗi lượt** | Cửa sổ hiển thị token và ngữ cảnh sử dụng mỗi lượt. |
+  | **Lưu cổng Desktop** | Giữ cổng backend qua các lần khởi động lại. |
 
-  Ngoài ra: tạo Skill tự tiến hóa, tối ưu khởi động backend, chia sẻ nhóm Feishu, xác thực mã QR QQ. [Ghi chú phát hành v1.1.11 →](https://qwenpaw.agentscope.io/release-notes#v1.1.11)
+  Ngoài ra: chế độ rộng, tô sáng cú pháp, nhóm Langfuse theo vòng lặp agent, sửa schema công cụ Gemini. [Ghi chú phát hành v1.1.12 →](https://qwenpaw.agentscope.io/release-notes#v1.1.12)
+
+- [2026-06-11] **AgentScope Platform ra mắt** — Triển khai QwenPaw miễn phí, chia sẻ plugin và Chợ Skills. [Dùng thử ngay →](https://platform.agentscope.io/)
+
+- [2026-06-10] **v1.1.11** — OAuth Mô hình Miễn phí, Chợ Plugin, Danh sách trắng MCP. [Ghi chú phát hành v1.1.11 →](https://qwenpaw.agentscope.io/release-notes#v1.1.11)
 
 - [2026-06-01] **v1.1.10** — Sinh tác nhân con (Spawn Subagent), Mở thư mục, kênh Tencent Yuanbao. [Ghi chú phát hành v1.1.10 →](https://qwenpaw.agentscope.io/release-notes#v1.1.10)
 

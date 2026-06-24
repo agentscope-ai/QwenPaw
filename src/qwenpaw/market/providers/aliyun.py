@@ -220,7 +220,7 @@ class AliyunProvider:
                 )
             except ImportError as exc:
                 raise RuntimeError(str(exc)) from exc
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 msg = getattr(exc, "message", None) or str(exc) or repr(exc)
                 raise RuntimeError(
                     f"Aliyun SearchSkills failed: {msg}",
