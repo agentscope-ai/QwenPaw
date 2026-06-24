@@ -1173,3 +1173,58 @@ html.dark-mode .debug-log-path strong {
   max-height: 250px !important;
   overflow-y: auto !important;
 }
+
+/* ─── Global responsive utilities ────────────────────────────────────────── */
+/*
+ * Use these utility classes instead of writing per-page @media queries.
+ * All mobile-only rules are scoped to <= 768px so desktop layouts are untouched.
+ */
+
+/* Flex container that stacks vertically on mobile */
+@media (max-width: 768px) {
+  .mobile-stack {
+    flex-direction: column !important;
+    align-items: stretch !important;
+  }
+}
+
+/* Force 100% width on mobile */
+@media (max-width: 768px) {
+  .mobile-full-width {
+    width: 100% !important;
+  }
+}
+
+/* Horizontal scroll container for wide tables on mobile */
+@media (max-width: 768px) {
+  .mobile-scroll-x {
+    overflow-x: auto;
+  }
+
+  .mobile-scroll-x > .qwenpaw-table,
+  .mobile-scroll-x > .ant-table,
+  .mobile-scroll-x table {
+    min-width: 600px;
+  }
+}
+
+/* Single-column grid on mobile */
+@media (max-width: 768px) {
+  .mobile-grid-1 {
+    grid-template-columns: 1fr !important;
+  }
+}
+
+/* Responsive card grid: auto-wrap, single column on mobile */
+.responsive-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 320px), 1fr));
+  gap: 16px;
+}
+
+@media (max-width: 768px) {
+  .responsive-grid {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+}
