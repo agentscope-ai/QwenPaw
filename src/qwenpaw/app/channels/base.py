@@ -624,7 +624,7 @@ class BaseChannel(ABC):
                 msg_id_to_stream_type,
                 streaming_buffers,
             )
-        if obj == "content" and status == RunStatus.InProgress:
+        if obj == "content":
             return await self._on_stream_content_delta(
                 request,
                 to_handle,
