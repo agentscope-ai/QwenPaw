@@ -11,26 +11,7 @@ from agentscope.message import ToolResultState
 from agentscope.message import TextBlock, DataBlock, URLSource
 
 from ...runtime.tool_registry import tool_descriptor
-from .file_io import _resolve_file_path
-
-
-def _path_to_file_url(path: str) -> str:
-    """Convert a local file path to a ``file://`` URL.
-
-    Does NOT percent-encode non-ASCII characters because agentscope's
-    DashScope formatter extracts the local path from the URL without
-    ``unquote()``, causing ``FileNotFoundError`` for files with
-    non-ASCII names (e.g. Chinese characters).
-    """
-    abs_path = os.path.abspath(path)
-    if os.name == "nt":
-        abs_path = abs_path.replace("\\", "/")
-
-    if os.name == "nt":
-        if abs_path.startswith("//"):
-            return f"file:{abs_path}"
-        return f"file:///{abs_path}"
-    return f"file://{abs_path}"
+from .file_io import _resolve_file_path, _path_to_file_url
 
 
 @tool_descriptor(requires_sandbox=("file_read",), async_execution=True)
