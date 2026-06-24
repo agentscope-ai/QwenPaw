@@ -11,7 +11,7 @@ from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
@@ -152,8 +152,6 @@ class DynamicMultiAgentRunner:
 
 
 runner = DynamicMultiAgentRunner()
-
-_agent_router = APIRouter()
 
 
 @asynccontextmanager
@@ -817,12 +815,6 @@ app.include_router(coding_mode_router, prefix="/api")
 # Agent-scoped router: /api/agents/{agentId}/chats, etc.
 agent_scoped_router = create_agent_scoped_router()
 app.include_router(agent_scoped_router, prefix="/api")
-
-app.include_router(
-    _agent_router,
-    prefix="/api/agent",
-    tags=["agent"],
-)
 
 # Voice channel: Twilio-facing endpoints at root level (not under /api/).
 # POST /voice/incoming, WS /voice/ws, POST /voice/status-callback
