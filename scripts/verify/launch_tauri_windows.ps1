@@ -19,50 +19,53 @@ if ($proc.ExitCode -ne 0) {
 Start-Sleep -Seconds 5
 
 # 2. Locate the installed Tauri exe.
-#    Tauri NSIS may install to versioned subdirs, so search recursively
-#    inside each candidate root.
-$candidateRoots = @(
-  (Join-Path $env:LOCALAPPDATA "QwenPaw Desktop"),
-  (Join-Path $env:LOCALAPPDATA "Programs\QwenPaw Desktop"),
-  (Join-Path $env:ProgramFiles "QwenPaw Desktop"),
-  (Join-Path ${env:ProgramFiles(x86)} "QwenPaw Desktop")
-)
+#    Priority: registry InstallLocation (canonical) → known candidate dirs.
 $tauriExe = $null
-foreach ($root in $candidateRoots) {
-  if (Test-Path $root) {
-    $found = Get-ChildItem -Path $root -Filter "qwenpaw-desktop.exe" `
-      -Recurse -Depth 3 -ErrorAction SilentlyContinue |
-      Select-Object -First 1
-    if ($found) { $tauriExe = $found.FullName; break }
-  }
-}
-if (-not $tauriExe) {
-  foreach ($hive in @("HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall",
-                      "HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall",
-                      "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall")) {
-    $reg = Get-ChildItem $hive -ErrorAction SilentlyContinue |
-      Where-Object { (Get-ItemProperty $_.PSPath -ErrorAction SilentlyContinue).DisplayName -match "QwenPaw" } |
-      Select-Object -First 1
-    if ($reg) {
-      $loc = (Get-ItemProperty $reg.PSPath).InstallLocation
-      if ($loc -and (Test-Path $loc)) {
-        $found = Get-ChildItem -Path $loc -Filter "qwenpaw-desktop.exe" `
-          -Recurse -Depth 3 -ErrorAction SilentlyContinue |
-          Select-Object -First 1
-        if ($found) { $tauriExe = $found.FullName; break }
-      }
+
+# Try registry first — Tauri NSIS always writes InstallLocation.
+foreach ($hive in @("HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall",
+                    "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall",
+                    "HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall")) {
+  $reg = Get-ChildItem $hive -ErrorAction SilentlyContinue |
+    Where-Object { (Get-ItemProperty $_.PSPath -ErrorAction SilentlyContinue).DisplayName -match "QwenPaw" } |
+    Select-Object -First 1
+  if ($reg) {
+    $loc = (Get-ItemProperty $reg.PSPath).InstallLocation
+    if ($loc -and (Test-Path $loc)) {
+      $found = Get-ChildItem -Path $loc -Filter "qwenpaw-desktop.exe" `
+        -Recurse -Depth 3 -ErrorAction SilentlyContinue |
+        Select-Object -First 1
+      if ($found) { $tauriExe = $found.FullName; break }
     }
   }
 }
+
+# Fallback: search known install candidate directories.
+if (-not $tauriExe) {
+  $candidateRoots = @(
+    (Join-Path $env:LOCALAPPDATA "QwenPaw Desktop"),
+    (Join-Path $env:LOCALAPPDATA "Programs\QwenPaw Desktop"),
+    (Join-Path $env:ProgramFiles "QwenPaw Desktop"),
+    (Join-Path ${env:ProgramFiles(x86)} "QwenPaw Desktop")
+  )
+  foreach ($root in $candidateRoots) {
+    if (Test-Path $root) {
+      $found = Get-ChildItem -Path $root -Filter "qwenpaw-desktop.exe" `
+        -Recurse -Depth 3 -ErrorAction SilentlyContinue |
+        Select-Object -First 1
+      if ($found) { $tauriExe = $found.FullName; break }
+    }
+  }
+}
+
 if (-not $tauriExe) {
   Write-Host "=== DEBUG: install location not found ==="
-  foreach ($root in $candidateRoots) {
-    Write-Host "Candidate: $root  exists=$([bool](Test-Path $root))"
-    if (Test-Path $root) {
-      Write-Host "  Contents (depth 2):"
-      Get-ChildItem -Path $root -Recurse -Depth 2 -ErrorAction SilentlyContinue |
-        Select-Object -First 30 | ForEach-Object { Write-Host "    $($_.FullName)" }
-    }
+  Write-Host "Registry entries matching QwenPaw:"
+  foreach ($hive in @("HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall",
+                      "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall")) {
+    Get-ChildItem $hive -ErrorAction SilentlyContinue |
+      Where-Object { (Get-ItemProperty $_.PSPath -ErrorAction SilentlyContinue).DisplayName -match "QwenPaw" } |
+      ForEach-Object { Write-Host "  $((Get-ItemProperty $_.PSPath).InstallLocation)" }
   }
   throw "Tauri exe not found after NSIS install"
 }

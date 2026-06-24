@@ -51,14 +51,12 @@ import sys
 import time
 import urllib.error
 import urllib.request
-from typing import Optional
 
 DEFAULT_MODEL = "qwen3.6-plus"
 DEFAULT_PROVIDER = "dashscope"
 DEFAULT_TIMEOUT = 120
 SESSION_ID = "release-verify-session"
 USER_ID = "release-verify-user"
-TIGER_NAME = "Tiger"
 
 # Selectors come straight from e2e/pages/chat_page.py so they stay in sync
 # with what the real UI tests expect.
@@ -76,7 +74,7 @@ SEL_AI_BUBBLE = ".qwenpaw-bubble.qwenpaw-bubble-start"
 def _http(
     method: str,
     url: str,
-    body: Optional[dict] = None,
+    body: dict | None = None,
     timeout: int = 30,
 ) -> str:
     """Issue an HTTP request and return the decoded body text.
@@ -188,9 +186,21 @@ def ensure_model(
         )
         print(f"PASS  registered model '{model}' on '{provider_id}'")
     except RuntimeError as exc:
-        # Already-registered or duplicate add -> downgrade to info log
-        # because set_active_model below will surface any real failure.
-        print(f"INFO  add-model returned: {exc}")
+        # 4xx (e.g. 409 already-registered) is expected and downgraded
+        # to info; 5xx and others are likely real failures and surface
+        # as warnings so they show up in CI logs.
+        msg = str(exc)
+        is_4xx = (
+            any(
+                f" {code} " in f" {msg} " or f"HTTP {code}" in msg
+                for code in (400, 401, 403, 404, 409, 422)
+            )
+            or "already" in msg.lower()
+        )
+        if is_4xx:
+            print(f"INFO  add-model: {exc}")
+        else:
+            print(f"WARN  add-model unexpected: {exc}", file=sys.stderr)
 
 
 def set_active_model(
@@ -250,7 +260,7 @@ class PlaywrightDriver(UIDriver):
     def __init__(
         self,
         browser: str = "chromium",
-        screenshot_dir: Optional[str] = None,
+        screenshot_dir: str | None = None,
         headless: bool = True,
         cdp_url: str = "",
     ) -> None:
@@ -271,12 +281,17 @@ class PlaywrightDriver(UIDriver):
             self._pw = sync_playwright().start()
             if cdp_url:
                 self._browser = self._pw.chromium.connect_over_cdp(cdp_url)
-                for _ in range(60):
+                for i in range(60):
                     if (
                         self._browser.contexts
                         and self._browser.contexts[0].pages
                     ):
                         break
+                    if i and i % 10 == 0:
+                        print(
+                            f"  CDP: waiting for page "
+                            f"({i * 0.5:.0f}s elapsed)...",
+                        )
                     time.sleep(0.5)
                 if (
                     not self._browser.contexts
@@ -427,6 +442,9 @@ class PlaywrightDriver(UIDriver):
         if (cache.text !== raw) {
           window[key] = { text: raw, since: now };
         } else if ((now - cache.since) >= 2500) {
+          // 2500ms is empirical — long enough to ride out SSE chunk
+          // gaps on a busy CI runner, short enough to avoid extending
+          // the verify step. Revisit if streaming cadence changes.
           contentStable = true;
         }
       }
@@ -452,39 +470,36 @@ class PlaywrightDriver(UIDriver):
         if self._page.locator(SEL_USER_BUBBLE).count() == 0:
             return
         try:
-            _idle_js = (
-                "() => {\n"
-                "  const btn = document.querySelector("
-                "'button.qwenpaw-sender-actions-btn"
-                ".qwenpaw-btn-primary'"
-                ");\n"
-                "  if (btn) {\n"
-                "    const cls = btn.className || '';\n"
-                "    const disabledByCls = "
-                "/qwenpaw-btn-disabled|qwenpaw-btn-loading"
-                "|is-disabled|is-loading/.test(cls);\n"
-                "    const disabledByAttr = btn.disabled === true\n"
-                "      || btn.hasAttribute('disabled')\n"
-                "      || btn.getAttribute('aria-disabled')"
-                " === 'true';\n"
-                "    if (!disabledByAttr && !disabledByCls) "
-                "return true;\n"
-                "  }\n"
-                "  const aiMsgs = document.querySelectorAll("
-                "'.qwenpaw-bubble.qwenpaw-bubble-start');\n"
-                "  if (aiMsgs.length === 0) return true;\n"
-                "  const last = aiMsgs[aiMsgs.length - 1];\n"
-                "  const raw = (last.innerText || '').trim();\n"
-                "  const key = '__qwenpaw_send_idle_cache__';\n"
-                "  const now = Date.now();\n"
-                "  const cache = window[key] || {};\n"
-                "  if (cache.text !== raw) {\n"
-                "    window[key] = { text: raw, since: now };\n"
-                "    return false;\n"
-                "  }\n"
-                "  return (now - cache.since) >= 1500;\n"
-                "}"
-            )
+            _idle_js = """() => {
+  const btn = document.querySelector(
+    'button.qwenpaw-sender-actions-btn.qwenpaw-btn-primary',
+  );
+  if (btn) {
+    const cls = btn.className || '';
+    const disabledByCls =
+      /qwenpaw-btn-disabled|qwenpaw-btn-loading|is-disabled|is-loading/.test(cls);
+    const disabledByAttr = btn.disabled === true
+      || btn.hasAttribute('disabled')
+      || btn.getAttribute('aria-disabled') === 'true';
+    if (!disabledByAttr && !disabledByCls) return true;
+  }
+  const aiMsgs = document.querySelectorAll(
+    '.qwenpaw-bubble.qwenpaw-bubble-start',
+  );
+  if (aiMsgs.length === 0) return true;
+  const last = aiMsgs[aiMsgs.length - 1];
+  const raw = (last.innerText || '').trim();
+  const key = '__qwenpaw_send_idle_cache__';
+  const now = Date.now();
+  const cache = window[key] || {};
+  if (cache.text !== raw) {
+    window[key] = { text: raw, since: now };
+    return false;
+  }
+  // 1500ms is empirical — tuned against real CI runners. May need
+  // adjustment if SSE chunk cadence changes.
+  return (now - cache.since) >= 1500;
+}"""
             self._page.wait_for_function(_idle_js, timeout=8000)
         except Exception:  # noqa: BLE001
             pass
@@ -641,7 +656,7 @@ UI_MODES = ("legacy", "tauri-macos", "tauri-windows")
 
 def make_driver(
     ui_mode: str,
-    screenshot_dir: Optional[str] = None,
+    screenshot_dir: str | None = None,
     headless: bool = True,
     cdp_url: str = "",
 ) -> UIDriver:
@@ -730,7 +745,7 @@ def _run_llm_with_retry(
 ) -> int:
     """Run the LLM chat round with retries; return process exit code."""
     attempts = max(1, retries + 1)
-    last_err: Optional[BaseException] = None
+    last_err: BaseException | None = None
     for attempt in range(1, attempts + 1):
         try:
             verify_ui_chat(driver, timeout)
@@ -743,7 +758,9 @@ def _run_llm_with_retry(
                 file=sys.stderr,
             )
             if attempt < attempts:
-                time.sleep(5)
+                backoff = 5 * (2 ** (attempt - 1))
+                print(f"  retrying in {backoff}s...")
+                time.sleep(backoff)
     if allow_flaky:
         print(
             "::warning::LLM verification failed after "
@@ -842,9 +859,10 @@ def main() -> int:
     parser.add_argument(
         "--llm-retries",
         type=int,
-        default=2,
-        help="Retries for the single LLM round on transient "
-        "failures (DashScope 5xx / SSE jitter). Default: 2.",
+        default=3,
+        help="Retries for the LLM round on transient failures "
+        "(DashScope 5xx / SSE jitter). Uses exponential backoff "
+        "(5s, 10s, 20s, ...). Default: 3.",
     )
     parser.add_argument(
         "--allow-flaky-llm",
@@ -860,7 +878,7 @@ def main() -> int:
     skip_chat = args.skip_chat or not args.api_key
 
     started = time.monotonic()
-    driver: Optional[UIDriver] = None
+    driver: UIDriver | None = None
     try:
         # ---- API-level checks (always run, no key needed) ----
         health_check(base_url)

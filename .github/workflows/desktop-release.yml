@@ -25,6 +25,7 @@ jobs:
   # and emit a misleading "PASS". Forks / manual dispatch are allowed
   # to run without the secret (UI-load checks still execute).
   check-release-secrets:
+    name: Check release secrets (release only)
     if: github.event_name == 'release'
     runs-on: ubuntu-latest
     steps:
