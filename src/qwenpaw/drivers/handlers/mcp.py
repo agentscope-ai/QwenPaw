@@ -375,7 +375,7 @@ def _mcp_tool_to_capability(
         exposure=CapabilityExposure(
             as_tool=True,
             namespace=display_namespace,
-            tool_name=f"{display_namespace}__{name}",
+            tool_name=f"{display_namespace}__{_sanitize_tool_name(name)}",
         ),
         metadata={
             "driver_key": driver_name,
@@ -385,6 +385,20 @@ def _mcp_tool_to_capability(
 
 
 _TOOL_NAME_SAFE_CHARS = re.compile(r"[^A-Za-z0-9_-]+")
+_TOOL_NAME_ALLOWED = re.compile(r"^[a-zA-Z0-9_-]+$")
+
+
+def _sanitize_tool_name(name: str) -> str:
+    """Rewrite an MCP tool name to satisfy OpenAI's ``^[a-zA-Z0-9_-]+$``.
+
+    Names that already match the pattern are returned unchanged.
+    Characters outside the allowed set are replaced with ``_`` and leading/
+    trailing underscores are stripped.  An empty result falls back to
+    ``"tool"``.
+    """
+    if _TOOL_NAME_ALLOWED.match(name):
+        return name
+    return _TOOL_NAME_SAFE_CHARS.sub("_", name).strip("_") or "tool"
 
 
 def _tool_namespace_from_display_name(
