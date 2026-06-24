@@ -423,18 +423,14 @@ Star QwenPaw on GitHub and be instantly notified of new releases.
 | ------------------------ | -------------------------------------------------------------------------------------------- | -------------------- |
 | **Horizontal Expansion** | More channels, models, skills, MCPs — **community contributions welcome**                  | Seeking Contributors |
 | **Existing Feature Extension** | Display optimization, download hints, Windows path compatibility, etc. — **community contributions welcome** | Seeking Contributors |
-| **Infra**               | QwenPaw OS foundation                                                                         | In Progress          |
 | **Models**               | Multi-model switching                                                                         | In Progress          |
-|                          | Response API                                                                                 | Planned              |
-| **Workspace**            | Subfolder layout (config, production files, etc.)                                            | Planned              |
-| **Coding**               | Compatibility with existing agents (e.g. Claude Code)                                        | Planned              |
-| **Multi-agent**          | Group chat                                                                                   | Planned              |
-|                          | Subagent visualization                                                                                 | Planned              |
-|                          | HiClaw enterprise capabilities                                                               | Planned              |
-| **Context Management**   | Personal knowledge base                                                             | In Progress          |
-|                          | User-selectable compression (fine-grained control)                                           | Planned              |
+| **Browser-use**   | Support Chrome extension                                                             | In Progress          |
+| **Long-term Memory**   | Personal knowledge base                                                             | In Progress          |
 | **QwenPaw Application**   | QwenPaw Creator                                                             | In Progress          |
 |                          | QwenPaw Insight                                           | In Progress              |
+| **Multi-agent**               | Compatibility with existing agents (e.g. Claude Code)                                        | Planned              |
+|          | Group chat                                                                                   | Planned              |
+|                          | Subagent visualization                                                                                 | Planned              |
 
 _Status:_ **In Progress** — actively being worked on; **Planned** — queued or under design, also welcome contributions; **Seeking Contributors** — we strongly encourage community contributions.
 
