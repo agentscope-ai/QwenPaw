@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Optional
+from typing import Any, Dict, Optional
 
 import click
 
@@ -134,9 +134,7 @@ def _validate_and_apply_scheduled_repeat(
         raise click.UsageError(
             "--repeat-end-type requires --repeat-every-days",
         )
-    if repeat_until and (
-        repeat_end_type != "until" or repeat_every_days is None
-    ):
+    if repeat_until and (repeat_end_type != "until" or repeat_every_days is None):
         raise click.UsageError(
             "--repeat-until requires --repeat-every-days and "
             "--repeat-end-type until",
@@ -421,10 +419,7 @@ def _build_spec_from_cli(
 @click.option(
     "--target-session",
     default=None,
-    help=(
-        "Target session_id for the channel. "
-        "Required when not using -f/--file."
-    ),
+    help=("Target session_id for the channel. " "Required when not using -f/--file."),
 )
 @click.option(
     "--text",
@@ -581,6 +576,134 @@ def create_job(
         r = c.post("/cron/jobs", json=payload, headers=headers)
         r.raise_for_status()
         print_json(r.json())
+
+
+def _resolve_update_spec(
+    spec: Dict[str, Any],
+    task_type: Optional[str],
+    schedule_type: Optional[str],
+    name: Optional[str],
+    cron: Optional[str],
+    run_at: Optional[str],
+    repeat_every_days: Optional[int],
+    repeat_end_type: Optional[str],
+    repeat_until: Optional[str],
+    repeat_count: Optional[int],
+    channel: Optional[str],
+    target_user: Optional[str],
+    target_session: Optional[str],
+    text: Optional[str],
+    timezone: Optional[str],
+    enabled: Optional[bool],
+    mode: Optional[str],
+    save_result_to_inbox: Optional[bool],
+    share_session: Optional[bool],
+    timeout_seconds: Optional[int],
+) -> Dict[str, Any]:
+    """Merge CLI overrides with an existing cron-job spec.
+
+    Only fields provided as non-None by the CLI are applied; everything
+    else is retained from *spec*.  Returns a payload dict suitable for
+    PUT /cron/jobs/{id}.
+    """
+    ext_schedule = spec.get("schedule", {})
+    cli_schedule_type = schedule_type or ext_schedule.get("type", "cron")
+    if cli_schedule_type in ("scheduled", "once"):
+        cli_schedule_type_norm = "scheduled"
+    else:
+        cli_schedule_type_norm = cli_schedule_type
+
+    tz = timezone or ext_schedule.get("timezone", "UTC")
+
+    cli_cron = cron or ext_schedule.get("cron", "")
+    cli_run_at = run_at or ext_schedule.get("run_at")
+    cli_repeat_days = (
+        repeat_every_days
+        if repeat_every_days is not None
+        else ext_schedule.get("repeat_every_days")
+    )
+    cli_repeat_end = (
+        repeat_end_type
+        if repeat_end_type is not None
+        else ext_schedule.get("repeat_end_type")
+    )
+    cli_repeat_until = (  # fmt: skip
+        repeat_until
+        if repeat_until is not None
+        else ext_schedule.get("repeat_until")
+    )
+    cli_repeat_count = (  # fmt: skip
+        repeat_count
+        if repeat_count is not None
+        else ext_schedule.get("repeat_count")
+    )
+
+    # --- resolve other fields with CLI-override semantics ---
+    t_type = task_type or spec.get("task_type", "text")
+    t_name = name if name is not None else spec.get("name", "")
+    t_enabled = enabled if enabled is not None else spec.get("enabled", True)
+    t_mode = mode or spec.get("dispatch", {}).get("mode", "final")
+    t_save = (
+        save_result_to_inbox
+        if save_result_to_inbox is not None
+        else spec.get("save_result_to_inbox")
+    )
+    t_share = (
+        share_session
+        if share_session is not None
+        else spec.get("runtime", {}).get("share_session", True)
+    )
+    t_timeout = (
+        timeout_seconds
+        if timeout_seconds is not None
+        else spec.get("runtime", {}).get("timeout_seconds", 120)
+    )
+
+    ext_dispatch = spec.get("dispatch", {})
+    ext_target = ext_dispatch.get("target", {})
+    t_channel = channel or ext_dispatch.get("channel", DEFAULT_CHANNEL)
+    t_user = target_user or ext_target.get("user_id", "")
+    t_session = target_session or ext_target.get("session_id", "")
+    t_text = text
+    if t_text is None and spec.get("task_type") == "agent":
+        try:
+            t_text = spec["request"]["input"][0]["content"][0]["text"]
+        except (KeyError, IndexError, TypeError):
+            t_text = None
+    if t_text is None:
+        t_text = spec.get("text")
+
+    payload = _build_spec_from_cli(
+        task_type=t_type,
+        schedule_type=cli_schedule_type_norm,
+        name=t_name,
+        cron=cli_cron,
+        run_at=cli_run_at,
+        repeat_every_days=cli_repeat_days,
+        repeat_end_type=cli_repeat_end,
+        repeat_until=cli_repeat_until,
+        repeat_count=cli_repeat_count,
+        channel=t_channel,
+        target_user=t_user,
+        target_session=t_session,
+        text=t_text,
+        timezone=tz,
+        enabled=t_enabled,
+        mode=t_mode,
+        save_result_to_inbox=t_save,
+        share_session=t_share,
+        timeout_seconds=t_timeout,
+    )
+
+    # Preserve existing meta
+    existing_meta = spec.get("meta")
+    if existing_meta:
+        payload["meta"] = existing_meta
+    existing_dispatch_meta = spec.get("dispatch", {}).get("meta")
+    if existing_dispatch_meta:
+        payload["dispatch"]["meta"] = existing_dispatch_meta
+
+    return payload
 
 
 @cron_group.command("update")
@@ -756,114 +879,29 @@ def update_job(
 
     if file_ is not None:
         payload = json.loads(file_.read_text(encoding="utf-8"))
-        payload["id"] = job_id
     else:
-        spec = existing.get("spec", existing)
-
-        # --- build schedule dict from CLI overrides ---
-        ext_schedule = spec.get("schedule", {})
-        cli_schedule_type = schedule_type or ext_schedule.get("type", "cron")
-        # Normalise schedule type: the model uses 'once' or 'scheduled'
-        # but CLI exposes 'scheduled'.  Map both 'scheduled' and the
-        # existing 'once' so that downstream helpers receive a value
-        # they understand.
-        if cli_schedule_type in ("scheduled", "once"):
-            cli_schedule_type_norm = "scheduled"
-        else:
-            cli_schedule_type_norm = cli_schedule_type
-
-        # Use existing timezone if not overridden
-        tz = timezone or ext_schedule.get("timezone", "UTC")
-
-        cli_cron = cron or ext_schedule.get("cron", "")
-        cli_run_at = run_at or ext_schedule.get("run_at")
-        cli_repeat_days = (
-            repeat_every_days
-            if repeat_every_days is not None
-            else ext_schedule.get("repeat_every_days")
+        payload = _resolve_update_spec(
+            spec=existing.get("spec", existing),
+            task_type=task_type,
+            schedule_type=schedule_type,
+            name=name,
+            cron=cron,
+            run_at=run_at,
+            repeat_every_days=repeat_every_days,
+            repeat_end_type=repeat_end_type,
+            repeat_until=repeat_until,
+            repeat_count=repeat_count,
+            channel=channel,
+            target_user=target_user,
+            target_session=target_session,
+            text=text,
+            timezone=timezone,
+            enabled=enabled,
+            mode=mode,
+            save_result_to_inbox=save_result_to_inbox,
+            share_session=share_session,
+            timeout_seconds=timeout_seconds,
         )
-        cli_repeat_end = (
-            repeat_end_type
-            if repeat_end_type is not None
-            else ext_schedule.get("repeat_end_type")
-        )
-        cli_repeat_until = (
-            repeat_until
-            if repeat_until is not None
-            else ext_schedule.get("repeat_until")
-        )
-        cli_repeat_count = (
-            repeat_count
-            if repeat_count is not None
-            else ext_schedule.get("repeat_count")
-        )
-
-        # --- resolve other fields with CLI-override semantics ---
-        t_type = task_type or spec.get("task_type", "text")
-        t_name = name if name is not None else spec.get("name", "")
-        t_enabled = enabled if enabled is not None else spec.get("enabled", True)
-        t_mode = mode or spec.get("dispatch", {}).get("mode", "final")
-        t_save = (
-            save_result_to_inbox
-            if save_result_to_inbox is not None
-            else spec.get("save_result_to_inbox")
-        )
-        t_share = (
-            share_session
-            if share_session is not None
-            else spec.get("runtime", {}).get("share_session", True)
-        )
-        t_timeout = (
-            timeout_seconds
-            if timeout_seconds is not None
-            else spec.get("runtime", {}).get("timeout_seconds", 120)
-        )
-
-        ext_dispatch = spec.get("dispatch", {})
-        ext_target = ext_dispatch.get("target", {})
-        t_channel = channel or ext_dispatch.get("channel", DEFAULT_CHANNEL)
-        t_user = target_user or ext_target.get("user_id", "")
-        t_session = target_session or ext_target.get("session_id", "")
-        t_text = text
-        if t_text is None and spec.get("task_type") == "agent":
-            try:
-                t_text = spec["request"]["input"][0]["content"][0]["text"]
-            except (KeyError, IndexError, TypeError):
-                t_text = None
-        if t_text is None:
-            t_text = spec.get("text")
-
-        payload = _build_spec_from_cli(
-            task_type=t_type,
-            schedule_type=cli_schedule_type_norm,
-            name=t_name,
-            cron=cli_cron,
-            run_at=cli_run_at,
-            repeat_every_days=cli_repeat_days,
-            repeat_end_type=cli_repeat_end,
-            repeat_until=cli_repeat_until,
-            repeat_count=cli_repeat_count,
-            channel=t_channel,
-            target_user=t_user,
-            target_session=t_session,
-            text=t_text,
-            timezone=tz,
-            enabled=t_enabled,
-            mode=t_mode,
-            save_result_to_inbox=t_save,
-            share_session=t_share,
-            timeout_seconds=t_timeout,
-        )
-
-        # Preserve existing meta — _build_spec_from_cli always sets
-        # meta to {} so we must merge back any custom metadata that
-        # was attached to the job (both top-level and dispatch-level).
-        existing_meta = spec.get("meta")
-        if existing_meta:
-            payload["meta"] = existing_meta
-        existing_dispatch_meta = spec.get("dispatch", {}).get("meta")
-        if existing_dispatch_meta:
-            payload["dispatch"]["meta"] = existing_dispatch_meta
 
     payload["id"] = job_id
 
