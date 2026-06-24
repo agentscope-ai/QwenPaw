@@ -1,7 +1,26 @@
 import { useEffect, useState } from "react";
-import mermaid from "mermaid";
+import type { Mermaid } from "mermaid";
 
-let mermaidInitialized = false;
+/**
+ * mermaid is ~1MB+; load it on demand so docs pages without diagrams
+ * never download it. The promise is cached so it only loads once.
+ */
+let mermaidLoader: Promise<Mermaid> | null = null;
+
+function loadMermaid(): Promise<Mermaid> {
+  if (!mermaidLoader) {
+    mermaidLoader = import("mermaid").then(({ default: mermaid }) => {
+      mermaid.initialize({
+        startOnLoad: false,
+        theme: "neutral",
+        securityLevel: "loose",
+        fontFamily: "var(--font-inter)",
+      });
+      return mermaid;
+    });
+  }
+  return mermaidLoader;
+}
 
 const MERMAID_RENDER_CACHE_MAX_ENTRIES = 100;
 
@@ -34,17 +53,6 @@ const mermaidRenderCache = new BoundedMap<
 >(MERMAID_RENDER_CACHE_MAX_ENTRIES);
 
 const MERMAID_MIN_HEIGHT = 176;
-
-function ensureMermaidInit() {
-  if (mermaidInitialized) return;
-  mermaid.initialize({
-    startOnLoad: false,
-    theme: "neutral",
-    securityLevel: "loose",
-    fontFamily: "var(--font-inter)",
-  });
-  mermaidInitialized = true;
-}
 
 let idCounter = 0;
 
@@ -114,8 +122,6 @@ export function MermaidBlock({ chart }: MermaidBlockProps) {
       return;
     }
 
-    ensureMermaidInit();
-
     const cached = mermaidRenderCache.get(trimmedChart);
     if (cached) {
       setSvg(cached.svg);
@@ -133,8 +139,8 @@ export function MermaidBlock({ chart }: MermaidBlockProps) {
     setIsRendering(true);
     setReservedHeight(estimatedHeight);
 
-    mermaid
-      .render(id, trimmedChart)
+    loadMermaid()
+      .then((mermaid) => mermaid.render(id, trimmedChart))
       .then(({ svg: rendered }) => {
         const reserved = Math.max(
           estimatedHeight,

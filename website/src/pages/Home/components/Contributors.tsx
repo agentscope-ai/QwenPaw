@@ -1,6 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { ChevronLeft, ChevronRight } from "lucide-react";
 import { motion } from "motion/react";
 
 type Contributor = {
@@ -9,7 +8,12 @@ type Contributor = {
   html_url: string;
 };
 
-const ITEMS_PER_PAGE = 54;
+const ROW_COUNT = 3;
+const ROW_CONFIGS = [
+  { name: "qwenpaw-channels-marquee-left", duration: "80s" },
+  { name: "qwenpaw-channels-marquee-right", duration: "80s" },
+  { name: "qwenpaw-channels-marquee-left", duration: "80s" },
+] as const;
 
 const sectionVariants = {
   hidden: { opacity: 0, y: 16 },
@@ -34,11 +38,33 @@ const itemVariants = {
   },
 };
 
+function ContributorItem({ contributor }: { contributor: Contributor }) {
+  return (
+    <a
+      href={contributor.html_url}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="group flex w-20 shrink-0 flex-col items-center gap-1.5"
+      title={contributor.login}
+    >
+      <img
+        src={contributor.avatar_url}
+        alt={contributor.login}
+        className="h-11 w-11 rounded-full object-cover ring-1 ring-black/6 shadow-[0_1px_2px_rgba(0,0,0,0.06)] transition duration-250 ease-out group-hover:scale-112"
+        loading="lazy"
+      />
+      <span className="font-inter max-w-full truncate text-[11px] text-(--color-text-tertiary)">
+        {contributor.login}
+      </span>
+    </a>
+  );
+}
+
 export function Contributors() {
   const { t, i18n } = useTranslation();
   const isZh = i18n.language?.startsWith("zh");
   const [contributors, setContributors] = useState<Contributor[]>([]);
-  const [page, setPage] = useState(1);
+  const [hoveredRow, setHoveredRow] = useState<number | null>(null);
 
   useEffect(() => {
     let canceled = false;
@@ -62,21 +88,15 @@ export function Contributors() {
     };
   }, []);
 
-  const totalPages = Math.max(
-    1,
-    Math.ceil(contributors.length / ITEMS_PER_PAGE),
-  );
-  const currentPage = Math.min(page, totalPages);
-
-  useEffect(() => {
-    if (page > totalPages) setPage(totalPages);
-  }, [page, totalPages]);
-
-  const pageItems = useMemo(() => {
-    const start = (currentPage - 1) * ITEMS_PER_PAGE;
-    return contributors.slice(start, start + ITEMS_PER_PAGE);
-  }, [contributors, currentPage]);
-
+  const rows = useMemo(() => {
+    const result: Contributor[][] = [];
+    for (let i = 0; i < ROW_COUNT; i++) {
+      result.push(contributors.filter((_, idx) => idx % ROW_COUNT === i));
+    }
+    return result;
+  }, [contributors]);
+  const handleRowEnter = useCallback((idx: number) => setHoveredRow(idx), []);
+  const handleRowLeave = useCallback(() => setHoveredRow(null), []);
   return (
     <>
       <motion.section
@@ -138,60 +158,43 @@ export function Contributors() {
           >
             {t("contributors.sub")}
           </motion.p>
+        </div>
 
-          <motion.div
-            className="mt-12 grid grid-cols-6 gap-x-2 gap-y-6 sm:grid-cols-8 md:grid-cols-12 lg:grid-cols-18"
-            variants={itemVariants}
-          >
-            {pageItems.map((contributor) => (
-              <a
-                key={contributor.login}
-                href={contributor.html_url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="group flex min-w-0 flex-col items-center gap-1.5"
-                title={contributor.login}
+        <motion.div className="relative mt-12 w-full" variants={itemVariants}>
+          {rows.map((row, rowIdx) => {
+            const cfg = ROW_CONFIGS[rowIdx];
+            return (
+              <div
+                key={rowIdx}
+                className={`${rowIdx > 0 ? "mt-4" : ""} overflow-hidden`}
+                onMouseEnter={() => handleRowEnter(rowIdx)}
+                onMouseLeave={handleRowLeave}
               >
-                <img
-                  src={contributor.avatar_url}
-                  alt={contributor.login}
-                  className="h-11 w-11 rounded-full object-cover ring-1 ring-black/6 shadow-[0_1px_2px_rgba(0,0,0,0.06)] transition duration-250 ease-out group-hover:scale-112"
-                  loading="lazy"
-                />
-                <span className="font-inter max-w-full truncate text-[11px] text-(--color-text-tertiary)">
-                  {contributor.login}
-                </span>
-              </a>
-            ))}
-          </motion.div>
+                <div
+                  className="inline-flex w-max items-center whitespace-nowrap py-1 will-change-transform"
+                  style={{
+                    animation: `${cfg.name} ${cfg.duration} linear infinite`,
+                    animationPlayState:
+                      hoveredRow === rowIdx ? "paused" : "running",
+                  }}
+                >
+                  {[...row, ...row].map((contributor, idx) => (
+                    <ContributorItem
+                      key={`${contributor.login}-${idx}`}
+                      contributor={contributor}
+                    />
+                  ))}
+                </div>
+              </div>
+            );
+          })}
 
-          <motion.div
-            className="mt-6 flex items-center justify-center gap-4"
-            variants={itemVariants}
-          >
-            <button
-              type="button"
-              onClick={() => setPage((prev) => Math.max(1, prev - 1))}
-              disabled={currentPage <= 1}
-              className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-[#ece2d9] text-(--color-text-tertiary) transition hover:bg-[#f5efea] disabled:cursor-not-allowed disabled:opacity-40"
-              aria-label={t("contributors.prev")}
-            >
-              <ChevronLeft size={15} />
-            </button>
-            <span className="font-inter text-xs tracking-[0.12em] text-(--color-text-secondary)">
-              {String(currentPage).padStart(2, "0")}
-            </span>
-            <button
-              type="button"
-              onClick={() => setPage((prev) => Math.min(totalPages, prev + 1))}
-              disabled={currentPage >= totalPages}
-              className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-[#ece2d9] text-(--color-text-tertiary) transition hover:bg-[#f5efea] disabled:cursor-not-allowed disabled:opacity-40"
-              aria-label={t("contributors.next")}
-            >
-              <ChevronRight size={15} />
-            </button>
-          </motion.div>
+          {/* Fade edges */}
+          <div className="pointer-events-none absolute inset-y-0 left-0 w-24 bg-linear-to-r from-(--bg) to-transparent md:w-32" />
+          <div className="pointer-events-none absolute inset-y-0 right-0 w-24 bg-linear-to-l from-(--bg) to-transparent md:w-32" />
+        </motion.div>
 
+        <div className="mx-auto max-w-7xl text-center">
           <div
             className="pointer-events-none relative left-1/2 mt-10 h-px w-screen -translate-x-1/2 animate-[qwenpaw-dash-move-right_1s_linear_infinite]"
             style={{
