@@ -473,26 +473,30 @@ class MultiAgentManager:
         logger.info("All cleanup tasks cancelled/completed")
 
     async def stop_all(self):
-        """Stop all agent instances.
+        """Stop all agent instances concurrently.
 
         Called during application shutdown to clean up resources.
-        Cancels any pending delayed cleanup tasks and stops all agents.
+        Cancels any pending delayed cleanup tasks and stops all
+        agents in parallel via asyncio.gather.
         """
-        logger.info(f"Stopping all agents ({len(self.agents)} running)...")
+        logger.info(
+            f"Stopping all agents ({len(self.agents)} running)...",
+        )
 
-        # First, cancel pending cleanup tasks to avoid orphaned instances
         await self.cancel_all_cleanup_tasks()
 
-        # Create list of agent IDs to avoid modifying dict during iteration
-        agent_ids = list(self.agents.keys())
-
-        for agent_id in agent_ids:
+        async def _stop_one(agent_id: str, instance: Workspace):
             try:
-                instance = self.agents[agent_id]
                 await instance.stop()
                 logger.debug(f"Agent stopped: {agent_id}")
             except Exception as e:
-                logger.error(f"Error stopping agent {agent_id}: {e}")
+                logger.error(
+                    f"Error stopping agent {agent_id}: {e}",
+                )
+
+        await asyncio.gather(
+            *(_stop_one(aid, inst) for aid, inst in self.agents.items()),
+        )
 
         self.agents.clear()
         logger.info("All agents stopped")
