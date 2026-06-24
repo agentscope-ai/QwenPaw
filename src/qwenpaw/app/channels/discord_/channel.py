@@ -203,16 +203,6 @@ class DiscordChannel(BaseChannel):
                     )
                 if attachments:
                     for att in attachments:
-                        logger.info(
-                            "discord recv attachment: msg_id=%s att_id=%s "
-                            "filename=%s size=%s content_type=%s url=%s",
-                            message.id,
-                            att.id,
-                            att.filename,
-                            att.size,
-                            getattr(att, "content_type", None),
-                            att.url,
-                        )
                         local_path = await self._download_attachment(att)
                         if not local_path:
                             logger.warning(
