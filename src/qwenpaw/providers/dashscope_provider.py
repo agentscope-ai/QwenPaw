@@ -13,14 +13,15 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 from typing import Any, Dict
 
-from agentscope.formatter import DashScopeChatFormatter
-from agentscope.message import Base64Source, URLSource
 from agentscope.model import ChatModelBase
 from pydantic import Field
 
+from .capping_formatter import (
+    MAX_INLINE_MEDIA_BYTES as _MAX_INLINE_MEDIA_BYTES,
+)
+from .capping_formatter import _CappingDashScopeFormatter
 from .openai_provider import (
     CODING_DASHSCOPE_BASE_URL,
     DASHSCOPE_BASE_URLS,
@@ -29,17 +30,6 @@ from .openai_provider import (
 )
 
 logger = logging.getLogger(__name__)
-
-# Maximum size (in bytes) of a local media file that we are willing to
-# inline as base64 into the model request body.  agentscope's base
-# DashScope formatter reads every ``file://`` media source off disk and
-# base64-encodes the *entire* file on every API call — so a large file
-# persisted in conversation history (e.g. a 42 MB generated video) would
-# balloon the request body and cause the provider to drop the connection
-# on every subsequent turn.  The model does not need such large media
-# echoed back (it already has the surrounding text context), so anything
-# above this cap is substituted with a small text placeholder.
-_MAX_INLINE_MEDIA_BYTES = 2 * 1024 * 1024  # 2 MB
 
 
 class DashScopeProvider(OpenAIProvider):
@@ -154,72 +144,6 @@ class DashScopeProvider(OpenAIProvider):
                 max_bytes=self.max_inline_media_bytes,
             ),
         )
-
-
-class _CappingDashScopeFormatter(DashScopeChatFormatter):
-    """DashScope formatter that refuses to inline oversized local media.
-
-    Overrides the per-source formatters to substitute a text placeholder
-    when the underlying media would exceed ``max_bytes``.  Operates purely
-    on the ephemeral formatted output, so persisted conversation history
-    and UI media rendering are unaffected.  ``max_bytes <= 0`` disables
-    capping (everything is inlined, matching the base formatter).
-    """
-
-    max_bytes: int = Field(default=_MAX_INLINE_MEDIA_BYTES)
-
-    @staticmethod
-    def _inline_media_size(source: Any) -> int | None:
-        """Return the byte size of *source* if it would be inlined locally.
-
-        Returns ``None`` for remote URLs (not read from disk here) and for
-        unrecognised source types so the caller leaves them untouched.
-        """
-        if isinstance(source, URLSource):
-            url = str(source.url)
-            if url.startswith("file://"):
-                try:
-                    return os.path.getsize(url.removeprefix("file://"))
-                except OSError:
-                    return None
-            return None
-        if isinstance(source, Base64Source):
-            # base64 length -> approximate raw byte count.
-            return len(source.data or "") * 3 // 4
-        return None
-
-    def _maybe_cap(self, source: Any, kind: str) -> dict[str, Any] | None:
-        if self.max_bytes <= 0:
-            return None
-        size = self._inline_media_size(source)
-        if size is None or size <= self.max_bytes:
-            return None
-        return {
-            "type": "text",
-            "text": (
-                f"[{kind} omitted from model context: local file is "
-                f"{size} bytes, exceeds inline limit of "
-                f"{self.max_bytes} bytes]"
-            ),
-        }
-
-    def _format_video_source(self, source: Any) -> dict[str, Any]:
-        capped = self._maybe_cap(source, "video")
-        if capped is not None:
-            return capped
-        return super()._format_video_source(source)
-
-    def _format_image_source(self, source: Any) -> dict[str, Any]:
-        capped = self._maybe_cap(source, "image")
-        if capped is not None:
-            return capped
-        return super()._format_image_source(source)
-
-    def _format_audio_source(self, source: Any) -> dict[str, Any]:
-        capped = self._maybe_cap(source, "audio")
-        if capped is not None:
-            return capped
-        return super()._format_audio_source(source)
 
 
 class _DashScopeChatModelCompat:

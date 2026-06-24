@@ -14,11 +14,15 @@ import qwenpaw.providers.provider_manager as provider_manager_module
 from qwenpaw.exceptions import ProviderError
 from qwenpaw.providers.anthropic_provider import AnthropicProvider
 from qwenpaw.config.config import ModelSlotConfig
+from qwenpaw.providers.capping_formatter import (
+    _CappingAnthropicFormatter,
+    _CappingGeminiFormatter,
+    _CappingOpenAIFormatter,
+)
 from qwenpaw.providers.openai_provider import OpenAIProvider
 from qwenpaw.providers.provider import ModelInfo
 from qwenpaw.providers.provider_manager import ProviderManager
 from qwenpaw.local_models.llamacpp import LlamaCppServerSetupResult
-
 
 LEGACY_PROVIDER = {
     "providers": {
@@ -669,3 +673,125 @@ def test_dashscope_max_inline_media_bytes_defaults_when_absent(
         provider.get_chat_model_instance("qwen3-max").formatter.max_bytes
         == 2 * 1024 * 1024
     )
+
+
+# ---------------------------------------------------------------------------
+# Inline-media capping for the other providers (OpenAI / Anthropic / Gemini).
+# Same oversized-request bug as DashScope: their agentscope formatters read
+# every file:// media off disk and base64-inline the whole file on every
+# call. Each provider now wires a shared capping formatter and exposes the
+# same configurable ``max_inline_media_bytes`` field, restored by
+# ``_init_from_storage`` via the generic ``hasattr`` branch.
+# ---------------------------------------------------------------------------
+
+# (provider_id, chat_model, model_id, capping_formatter_cls)
+_CAPPING_PROVIDER_CASES = [
+    ("openai", "OpenAIChatModel", "gpt-4o", _CappingOpenAIFormatter),
+    (
+        "anthropic",
+        "AnthropicChatModel",
+        "claude-3-5-sonnet",
+        _CappingAnthropicFormatter,
+    ),
+    (
+        "gemini",
+        "GeminiChatModel",
+        "gemini-2.0-flash",
+        _CappingGeminiFormatter,
+    ),
+]
+
+
+def _write_builtin_provider_json(
+    isolated_secret_dir,
+    provider_id: str,
+    chat_model: str,
+    model_id: str,
+    *,
+    with_cap: bool,
+) -> None:
+    """Write a builtin <id>.json under providers/builtin/.
+
+    ``with_cap=True`` sets a 4096-byte ``max_inline_media_bytes``;
+    ``False`` omits the key (legacy JSON) to exercise the default fallback.
+    """
+    builtin_path = isolated_secret_dir / "providers" / "builtin"
+    builtin_path.mkdir(parents=True, exist_ok=True)
+
+    data = {
+        "id": provider_id,
+        "name": provider_id.title(),
+        "base_url": "https://example.test/v1",
+        "api_key": "sk-test",
+        "chat_model": chat_model,
+        "models": [{"id": model_id, "name": model_id}],
+    }
+    if with_cap:
+        data["max_inline_media_bytes"] = 4096
+    (builtin_path / f"{provider_id}.json").write_text(
+        json.dumps(data, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+
+
+@pytest.mark.parametrize(
+    "provider_id,chat_model,model_id,formatter_cls",
+    _CAPPING_PROVIDER_CASES,
+)
+def test_max_inline_media_bytes_loaded_from_json(
+    isolated_secret_dir,
+    provider_id,
+    chat_model,
+    model_id,
+    formatter_cls,
+) -> None:
+    """A user-set ``max_inline_media_bytes`` in <id>.json must be loaded by
+    ``_init_from_storage`` and reach the runtime capping formatter."""
+    _write_builtin_provider_json(
+        isolated_secret_dir,
+        provider_id,
+        chat_model,
+        model_id,
+        with_cap=True,
+    )
+
+    manager = ProviderManager()
+    provider = manager.get_provider(provider_id)
+    assert provider is not None
+    # Runtime builtin reflects the disk value, not the 2 MB default.
+    assert provider.max_inline_media_bytes == 4096
+
+    model = provider.get_chat_model_instance(model_id)
+    assert isinstance(model.formatter, formatter_cls)
+    assert model.formatter.max_bytes == 4096
+
+
+@pytest.mark.parametrize(
+    "provider_id,chat_model,model_id,formatter_cls",
+    _CAPPING_PROVIDER_CASES,
+)
+def test_max_inline_media_bytes_defaults_when_absent(
+    isolated_secret_dir,
+    provider_id,
+    chat_model,
+    model_id,
+    formatter_cls,
+) -> None:
+    """A legacy <id>.json without the key falls back to the 2 MB default
+    (upgrading must not silently cap at 0)."""
+    _write_builtin_provider_json(
+        isolated_secret_dir,
+        provider_id,
+        chat_model,
+        model_id,
+        with_cap=False,
+    )
+
+    manager = ProviderManager()
+    provider = manager.get_provider(provider_id)
+    assert provider is not None
+    assert provider.max_inline_media_bytes == 2 * 1024 * 1024
+
+    model = provider.get_chat_model_instance(model_id)
+    assert isinstance(model.formatter, formatter_cls)
+    assert model.formatter.max_bytes == 2 * 1024 * 1024

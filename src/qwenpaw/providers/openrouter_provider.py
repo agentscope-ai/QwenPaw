@@ -8,7 +8,9 @@ from typing import Any, List, Optional
 
 from agentscope.model import ChatModelBase
 from openai import APIError, AsyncOpenAI
+from pydantic import Field
 
+from qwenpaw.providers.capping_formatter import _CappingOpenAIFormatter
 from qwenpaw.providers.provider import (
     Provider,
     ExtendedModelInfo,
@@ -18,6 +20,18 @@ from qwenpaw.providers.provider import (
 
 class OpenRouterProvider(Provider):
     """OpenRouter provider with required HTTP-Referer and X-Title headers."""
+
+    max_inline_media_bytes: int = Field(
+        default=2 * 1024 * 1024,
+        ge=0,
+        description=(
+            "Maximum size (in bytes) of a local media file inlined as "
+            "base64 into the model request body. Media above this is "
+            "replaced with a text placeholder to avoid oversized requests "
+            "when large files (e.g. generated videos) persist in "
+            "conversation history. 0 disables capping."
+        ),
+    )
 
     _OPENROUTER_CATEGORIES = (
         "cli-agent,cloud-agent,programming-app,"
@@ -358,4 +372,7 @@ class OpenRouterProvider(Provider):
             stream=True,
             default_headers=self._build_default_headers() or None,
             context_size=self._get_context_size(model_id),
+            formatter=_CappingOpenAIFormatter(
+                max_bytes=self.max_inline_media_bytes,
+            ),
         )

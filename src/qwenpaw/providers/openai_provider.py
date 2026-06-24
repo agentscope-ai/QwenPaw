@@ -12,7 +12,9 @@ from typing import TYPE_CHECKING, Any, List
 
 from agentscope.model import ChatModelBase
 from openai import APIError
+from pydantic import Field
 
+from qwenpaw.providers.capping_formatter import _CappingOpenAIFormatter
 from qwenpaw.providers.provider import ModelInfo, Provider
 
 if TYPE_CHECKING:
@@ -45,6 +47,18 @@ else:
 
 class OpenAIProvider(Provider):
     """Provider implementation for OpenAI API and compatible endpoints."""
+
+    max_inline_media_bytes: int = Field(
+        default=2 * 1024 * 1024,
+        ge=0,
+        description=(
+            "Maximum size (in bytes) of a local media file inlined as "
+            "base64 into the model request body. Media above this is "
+            "replaced with a text placeholder to avoid oversized requests "
+            "when large files (e.g. generated videos) persist in "
+            "conversation history. 0 disables capping."
+        ),
+    )
 
     def _build_default_headers(self) -> dict:
         return dict(self.custom_headers) if self.custom_headers else {}
@@ -192,6 +206,9 @@ class OpenAIProvider(Provider):
             default_headers=merged_headers or None,
             extra_generate_kwargs=gen_kwargs or None,
             context_size=self._get_context_size(model_id),
+            formatter=_CappingOpenAIFormatter(
+                max_bytes=self.max_inline_media_bytes,
+            ),
         )
 
     async def probe_model_multimodal(
