@@ -300,11 +300,11 @@ function AgentStatsPage() {
           </div>
         ) : (
           <>
-            <div className={styles.filters}>
+            <div className={`${styles.filters} mobile-stack`}>
               <DatePicker.RangePicker
                 value={[startDate, endDate]}
                 onChange={handleDateChange}
-                className={styles.datePicker}
+                className={`${styles.datePicker} mobile-full-width`}
                 disabled={loading}
                 disabledDate={(current) =>
                   current && current.isAfter(dayjs(), "day")
@@ -348,7 +348,7 @@ function AgentStatsPage() {
                   />
                 </div>
 
-                <div className={styles.trendRow}>
+                <div className={`${styles.trendRow} mobile-grid-1`}>
                   <Card
                     className={styles.chartCard}
                     title={
@@ -423,7 +423,7 @@ function AgentStatsPage() {
                 </div>
 
                 {(chatPieConfig || messagePieConfig) && (
-                  <div className={styles.pieChartsRow}>
+                  <div className={`${styles.pieChartsRow} mobile-grid-1`}>
                     {chatPieConfig && (
                       <Card
                         className={styles.chartCard}

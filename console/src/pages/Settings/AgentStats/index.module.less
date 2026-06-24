@@ -28,10 +28,6 @@
 
 .datePicker {
   width: 260px;
-
-  @media (max-width: 480px) {
-    width: 100%;
-  }
 }
 
 .summaryCards {
@@ -83,10 +79,6 @@
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 16px;
   margin-bottom: 24px;
-
-  @media (max-width: 768px) {
-    grid-template-columns: minmax(0, 1fr);
-  }
 }
 
 .chartContainerShort {
@@ -99,16 +91,23 @@
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 16px;
   margin-bottom: 24px;
-
-  @media (max-width: 768px) {
-    grid-template-columns: minmax(0, 1fr);
-  }
 }
 
 .pieChartContainer {
   width: 100%;
   min-height: 300px;
   min-width: 200px;
+}
+
+/* Mobile: let charts breathe when rows collapse to a single column */
+@media (max-width: 768px) {
+  .chartContainerShort {
+    min-height: 220px;
+  }
+
+  .pieChartContainer {
+    min-height: 260px;
+  }
 }
 
 .chartTitle {
