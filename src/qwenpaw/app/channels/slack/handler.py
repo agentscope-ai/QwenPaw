@@ -31,7 +31,7 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, Optional
 
 import aiohttp
 
-from agentscope_runtime.engine.schemas.agent_schemas import (
+from qwenpaw.schemas import (
     AudioContent,
     FileContent,
     ImageContent,

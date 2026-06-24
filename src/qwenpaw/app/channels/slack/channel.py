@@ -43,17 +43,16 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from agentscope_runtime.engine.schemas.agent_schemas import (
-    ContentType,
-    TextContent,
-)
-
 from slack_bolt.adapter.socket_mode.async_handler import (
     AsyncSocketModeHandler,
 )
 from slack_bolt.app.async_app import AsyncApp
 from slack_sdk.web.async_client import AsyncWebClient
 
+from qwenpaw.schemas import (
+    ContentType,
+    TextContent,
+)
 from ....config.config import SlackConfig as SlackChannelConfig
 from ..base import BaseChannel, ProcessHandler, OnReplySent
 from .constants import (

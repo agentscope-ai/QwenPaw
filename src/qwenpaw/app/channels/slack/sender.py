@@ -19,7 +19,7 @@ from typing import TYPE_CHECKING, Any, Dict, Optional
 
 import aiohttp
 
-from agentscope_runtime.engine.schemas.agent_schemas import (
+from qwenpaw.schemas import (
     ContentType,
     ImageContent,
 )
