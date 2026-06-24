@@ -665,29 +665,40 @@ def make_driver(
 # =============================================================================
 
 
-def verify_ui_chat(
+def verify_ui_loaded(
     driver: UIDriver,
     base_url: str,
-    timeout: int,
     skip_navigate: bool = False,
 ) -> None:
-    """Drive the real SPA with one factual question to prove LLM works.
+    """Verify the SPA loads and the chat input becomes visible.
 
-    Uses a single-round factual question ("tallest mountain") rather
-    than multi-turn context retention. Reasons:
-
-    - One round eliminates multi-turn SPA timing races that plagued
-      earlier iterations (chat/stop cancellations, button-disabled
-      state-machine fights, etc.).
-    - A factual question with universally known answers (Everest /
-      珠穆朗玛峰 / 8848m / 8849m) gives a deterministic assertion
-      that any LLM will satisfy.
-    - Still proves the full UI path: SPA loaded -> textarea filled ->
-      send clicked -> backend received -> LLM invoked -> SSE streamed
-      -> AI bubble rendered with real content.
+    Runs without an API key — proves the desktop bundle's frontend
+    is wired up correctly. Catches broken Vite bundles, missing
+    asset paths, CSP misconfigurations, and Tauri webview load
+    failures even when LLM credentials are unavailable.
     """
-    # Any of these substrings in the reply proves the LLM answered
-    # correctly. Covers English, Chinese, altitude variants.
+    if skip_navigate:
+        print("--> CDP mode: waiting for SPA on existing page")
+        driver.wait_for_input()
+    else:
+        print(f"--> opening UI at {base_url}")
+        driver.open(base_url)
+    print("PASS  UI loaded, chat input visible")
+
+
+def verify_ui_chat(
+    driver: UIDriver,
+    timeout: int,
+) -> None:
+    """Drive the loaded SPA with one factual question to prove LLM works.
+
+    Assumes the SPA is already loaded by ``verify_ui_loaded``. Uses a
+    single-round factual question ("tallest mountain") to avoid
+    multi-turn SPA timing races. Any of Everest / 珠穆朗玛 / 8848 in
+    the reply proves the full path:
+    textarea filled -> send clicked -> backend received -> LLM
+    invoked -> SSE streamed -> AI bubble rendered with real content.
+    """
     expected_any = (
         "Everest",
         "everest",
@@ -696,14 +707,6 @@ def verify_ui_chat(
         "8848",
         "8849",
     )
-
-    if skip_navigate:
-        print("--> CDP mode: waiting for SPA on existing page")
-        driver.wait_for_input()
-    else:
-        print(f"--> opening UI at {base_url}")
-        driver.open(base_url)
-    print("PASS  UI loaded, chat input visible")
 
     question = "What is the tallest mountain in the world?"
     print(f"--> sending: {question!r}")
@@ -717,6 +720,43 @@ def verify_ui_chat(
             f"Got: {reply[:500]}",
         )
     print("PASS  LLM responded with correct factual answer")
+
+
+def _run_llm_with_retry(
+    driver: UIDriver,
+    timeout: int,
+    retries: int,
+    allow_flaky: bool,
+) -> int:
+    """Run the LLM chat round with retries; return process exit code."""
+    attempts = max(1, retries + 1)
+    last_err: Optional[BaseException] = None
+    for attempt in range(1, attempts + 1):
+        try:
+            verify_ui_chat(driver, timeout)
+            return 0
+        except Exception as exc:  # noqa: BLE001
+            last_err = exc
+            print(
+                f"WARN  LLM round attempt {attempt}/{attempts} "
+                f"failed: {exc}",
+                file=sys.stderr,
+            )
+            if attempt < attempts:
+                time.sleep(5)
+    if allow_flaky:
+        print(
+            "::warning::LLM verification failed after "
+            f"{attempts} attempts but --allow-flaky-llm is set; "
+            f"continuing. Last error: {last_err}",
+        )
+        return 0
+    print(
+        f"FAIL  LLM verification failed after {attempts} attempts: "
+        f"{last_err}",
+        file=sys.stderr,
+    )
+    return 1
 
 
 # =============================================================================
@@ -769,8 +809,9 @@ def main() -> int:
     parser.add_argument(
         "--skip-ui",
         action="store_true",
-        help="Skip only the UI driver portion (still configure provider "
-        "via API). Useful for environments without a browser.",
+        help="Skip the UI driver portion entirely (no SPA load "
+        "check, no chat round). API-level checks still run. "
+        "Useful for environments without a browser.",
     )
     parser.add_argument(
         "--timeout",
@@ -798,6 +839,21 @@ def main() -> int:
         "When set, connects to the existing WebView2 via CDP "
         "instead of launching a new Playwright browser.",
     )
+    parser.add_argument(
+        "--llm-retries",
+        type=int,
+        default=2,
+        help="Retries for the single LLM round on transient "
+        "failures (DashScope 5xx / SSE jitter). Default: 2.",
+    )
+    parser.add_argument(
+        "--allow-flaky-llm",
+        action="store_true",
+        help="If all LLM retries fail, emit a warning and exit 0 "
+        "instead of failing. Use for fork CI where a flaky LLM "
+        "should not block release. Release pipelines should NOT "
+        "set this — they need the assertion.",
+    )
     args = parser.parse_args()
 
     base_url = args.base_url.rstrip("/")
@@ -806,31 +862,15 @@ def main() -> int:
     started = time.monotonic()
     driver: Optional[UIDriver] = None
     try:
-        # ---- API-level checks (always run) ----
+        # ---- API-level checks (always run, no key needed) ----
         health_check(base_url)
         verify_frontend(base_url)
 
-        if skip_chat:
-            reason = (
-                "explicit --skip-chat"
-                if args.skip_chat
-                else "no DashScope API key provided"
-            )
-            print(f"SKIP  LLM verification ({reason})")
-            elapsed = time.monotonic() - started
-            print(
-                f"OK    desktop verification completed in {elapsed:.1f}s",
-            )
-            return 0
-
-        # ---- LLM provider setup via API ----
-        configure_provider(base_url, args.provider, args.api_key)
-        ensure_model(base_url, args.provider, args.model)
-        set_active_model(base_url, args.provider, args.model)
-
-        # ---- UI three-round conversation ----
+        # ---- UI load (always run unless --skip-ui, no key needed) ----
+        # This catches broken Vite bundles, missing assets, CSP issues,
+        # and Tauri webview load failures even without LLM credentials.
         if args.skip_ui:
-            print("SKIP  UI chat verification (--skip-ui)")
+            print("SKIP  UI verification (--skip-ui)")
         else:
             try:
                 ss_dir = (
@@ -850,12 +890,35 @@ def main() -> int:
             except UIDriverInitError as exc:
                 print(f"FAIL  UI driver init: {exc}", file=sys.stderr)
                 return 3
-            verify_ui_chat(
+            verify_ui_loaded(
                 driver,
                 base_url,
-                args.timeout,
                 skip_navigate=bool(args.cdp_url),
             )
+
+        # ---- LLM chat round (only when key is available) ----
+        if skip_chat:
+            reason = (
+                "explicit --skip-chat"
+                if args.skip_chat
+                else "no DashScope API key provided"
+            )
+            print(f"SKIP  LLM verification ({reason})")
+        elif driver is None:
+            # --skip-ui was set; nothing to drive.
+            print("SKIP  LLM verification (--skip-ui)")
+        else:
+            configure_provider(base_url, args.provider, args.api_key)
+            ensure_model(base_url, args.provider, args.model)
+            set_active_model(base_url, args.provider, args.model)
+            rc = _run_llm_with_retry(
+                driver,
+                args.timeout,
+                args.llm_retries,
+                args.allow_flaky_llm,
+            )
+            if rc != 0:
+                return rc
     except RuntimeError as exc:
         print(f"FAIL  {exc}", file=sys.stderr)
         return 1

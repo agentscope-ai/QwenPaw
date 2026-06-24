@@ -20,7 +20,30 @@ permissions:
   contents: read
 
 jobs:
+  # On release events, fail fast if the DashScope secret is missing.
+  # Without it, the verifier would silently skip the LLM chat round
+  # and emit a misleading "PASS". Forks / manual dispatch are allowed
+  # to run without the secret (UI-load checks still execute).
+  check-release-secrets:
+    if: github.event_name == 'release'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ensure DashScope secret is configured
+        env:
+          QWENPAW_DASHSCOPE_API_KEY: ${{ secrets.QWENPAW_DASHSCOPE_API_KEY }}
+        run: |
+          if [ -z "$QWENPAW_DASHSCOPE_API_KEY" ]; then
+            echo "::error::QWENPAW_DASHSCOPE_API_KEY is not set; release verification cannot validate the LLM chat round. Configure the repo secret before publishing."
+            exit 1
+          fi
+          echo "DashScope secret present"
+
   build-windows:
+    needs: [check-release-secrets]
+    if: |
+      always() &&
+      (needs.check-release-secrets.result == 'success' ||
+       needs.check-release-secrets.result == 'skipped')
     runs-on: windows-latest
     steps:
       - name: Checkout
@@ -251,6 +274,11 @@ jobs:
           path: dist/QwenPaw-Setup-*.exe
 
   build-macos:
+    needs: [check-release-secrets]
+    if: |
+      always() &&
+      (needs.check-release-secrets.result == 'success' ||
+       needs.check-release-secrets.result == 'skipped')
     runs-on: macos-14
     steps:
       - name: Checkout
@@ -415,6 +443,11 @@ jobs:
           path: dist/QwenPaw-*.zip
 
   build-tauri-windows:
+    needs: [check-release-secrets]
+    if: |
+      always() &&
+      (needs.check-release-secrets.result == 'success' ||
+       needs.check-release-secrets.result == 'skipped')
     runs-on: windows-latest
     steps:
       - name: Checkout
@@ -557,6 +590,11 @@ jobs:
           path: dist/QwenPaw-Tauri-*-Windows-setup.exe
 
   build-tauri-macos:
+    needs: [check-release-secrets]
+    if: |
+      always() &&
+      (needs.check-release-secrets.result == 'success' ||
+       needs.check-release-secrets.result == 'skipped')
     runs-on: macos-14
     steps:
       - name: Checkout
