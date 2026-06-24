@@ -558,6 +558,12 @@ def _apply_embedding_config(
     parameters: dict[str, Any] = {}
     if embedding_config.use_dimensions:
         parameters["dimensions"] = embedding_config.dimensions
+    embedding_store_name = (
+        "default"
+        if embedding_config.base_url.strip()
+        and embedding_config.model_name.strip()
+        else ""
+    )
 
     components["as_embedding"]["default"].update(
         {
@@ -578,6 +584,7 @@ def _apply_embedding_config(
             "max_batch_size": embedding_config.max_batch_size,
         },
     )
+    # components["file_store"]["default"]["embedding_store"] = embedding_store_name
 
 
 def get_reme_app_config(

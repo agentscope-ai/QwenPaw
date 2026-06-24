@@ -579,7 +579,7 @@ class EmbeddingModelConfig(BaseModel):
         default=False,
         description="Whether to use custom dimensions",
     )
-    max_cache_size: int = Field(default=3000, description="Maximum cache size")
+    max_cache_size: int = Field(default=10000, description="Maximum cache size")
     max_input_length: int = Field(
         default=8192,
         description="Maximum input length for embedding",
@@ -667,7 +667,7 @@ class ReMeLightMemoryConfig(BaseModel):
     )
 
     auto_memory_interval: int | None = Field(
-        default=1,
+        default=None,
         description="Auto memory every N user queries. 1 means auto "
         "memory after every user query, 2 means every 2 queries, etc. "
         "None or <= 0 disables periodic auto memory. WARNING: Setting "
