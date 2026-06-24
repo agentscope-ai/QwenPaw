@@ -25,10 +25,7 @@ const MemorySearchCard: React.FC<MemorySearchCardProps> = ({
   const queryShort = query.length > 20 ? query.slice(0, 20) + "…" : query;
   const limit = compactNumber(params.limit ?? params.max_results);
   const minScore = compactNumber(params.min_score);
-  const meta = [
-    limit && `limit=${limit}`,
-    minScore && `min_score=${minScore}`,
-  ]
+  const meta = [limit && `limit=${limit}`, minScore && `min_score=${minScore}`]
     .filter(Boolean)
     .join(" ");
   const baseTitle = queryShort
