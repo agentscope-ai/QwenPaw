@@ -108,6 +108,22 @@
   .pieChartContainer {
     min-height: 260px;
   }
+
+  .chartContainerShort,
+  .pieChartContainer {
+    /* Hint the browser to composite the chart layer on the GPU while
+       scrolling, which often reduces jank on mobile. */
+    transform: translateZ(0);
+    will-change: transform;
+  }
+
+  /* Low-end device fallback: skip rendering off-screen chart cards until
+     they approach the viewport. Keeps scrolling smooth when many charts
+     are stacked on a long mobile page. */
+  .chartCard {
+    content-visibility: auto;
+    contain-intrinsic-block-size: auto 320px;
+  }
 }
 
 .chartTitle {
