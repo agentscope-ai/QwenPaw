@@ -858,27 +858,6 @@ class GovernancePolicy:
 
 
 # ---------------------------------------------------------------------------
-# Rule generalization
-# ---------------------------------------------------------------------------
-
-
-def generalize_rule_match(tool_name: str, target: str) -> str:
-    """Construct a match string from an approved rule.
-
-    Current strategy: no generalization, always record exact match
-    to avoid security risks from wildcards.
-
-    Args:
-        tool_name: policy tool name, e.g. "Bash"
-        target: tool's target argument value
-
-    Returns:
-        match string, e.g. "Bash(git status)"
-    """
-    return f"{tool_name}({target})"
-
-
-# ---------------------------------------------------------------------------
 # Helper functions
 # ---------------------------------------------------------------------------
 
