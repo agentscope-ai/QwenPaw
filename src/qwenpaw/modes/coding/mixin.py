@@ -183,9 +183,12 @@ class CodingModeMixin:
             if cm and cm.project_dir:
                 return cm.project_dir
         except Exception:
-            pass
+            logger.debug(
+                "Failed to reload agent config for Coding Mode project",
+                exc_info=True,
+            )
 
-        return _project_dir_from_config(agent_config)
+        return None
 
     def _coding_mode_enabled(self) -> bool:
         """Return ``True`` when Coding Mode is active."""

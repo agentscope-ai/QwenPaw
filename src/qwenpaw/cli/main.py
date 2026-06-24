@@ -66,6 +66,7 @@ class LazyGroup(click.Group):
     def parse_args(self, ctx, args):
         """Treat ``qwenpaw .`` as bare TUI launch with a project dir."""
         args = list(args)
+        # Registered commands win; otherwise path-like first tokens launch TUI.
         if (
             args
             and args[0] not in self.list_commands(ctx)

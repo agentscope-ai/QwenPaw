@@ -256,8 +256,10 @@ class QwenPawACPAgent(Agent):
             "mode": QwenPawACPAgent.MODE_DEFAULT,
         }
         project_dir = meta.get(ACP_CODING_PROJECT_META_KEY)
-        if isinstance(project_dir, str) and project_dir.strip():
-            info[ACP_CODING_PROJECT_META_KEY] = project_dir
+        if isinstance(project_dir, str):
+            project_dir = project_dir.strip()
+            if project_dir:
+                info[ACP_CODING_PROJECT_META_KEY] = project_dir
         return info
 
     async def _ensure_workspace(self) -> Any:
@@ -409,8 +411,10 @@ class QwenPawACPAgent(Agent):
         if session_mode == self.MODE_BYPASS:
             request_context["_headless_tool_guard"] = "false"
         project_dir = session_info.get(ACP_CODING_PROJECT_META_KEY)
-        if isinstance(project_dir, str) and project_dir:
-            request_context[ACP_CODING_PROJECT_META_KEY] = project_dir
+        if isinstance(project_dir, str):
+            project_dir = project_dir.strip()
+            if project_dir:
+                request_context[ACP_CODING_PROJECT_META_KEY] = project_dir
 
         request = AgentRequest(
             input=[
@@ -511,10 +515,12 @@ class QwenPawACPAgent(Agent):
         else:
             self._sessions[session_id]["cwd"] = cwd
             project_dir = kwargs.get(ACP_CODING_PROJECT_META_KEY)
-            if isinstance(project_dir, str) and project_dir.strip():
-                self._sessions[session_id][
-                    ACP_CODING_PROJECT_META_KEY
-                ] = project_dir
+            if isinstance(project_dir, str):
+                project_dir = project_dir.strip()
+                if project_dir:
+                    self._sessions[session_id][
+                        ACP_CODING_PROJECT_META_KEY
+                    ] = project_dir
         return ResumeSessionResponse()
 
     async def set_session_model(  # pylint: disable=unused-argument

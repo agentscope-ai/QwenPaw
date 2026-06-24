@@ -39,6 +39,21 @@ def test_request_coding_project_ignores_non_directory(tmp_path):
     assert config.coding_mode.enabled is False
 
 
+def test_request_coding_project_warns_for_unsupported_config(
+    caplog,
+    tmp_path,
+):
+    config = {}
+
+    updated = AgentBuilder._apply_request_coding_project(
+        config,
+        {ACP_CODING_PROJECT_META_KEY: str(tmp_path)},
+    )
+
+    assert updated is config
+    assert "unsupported config type: dict" in caplog.text
+
+
 def test_coding_prompt_prefers_request_project(monkeypatch, tmp_path):
     config = AgentProfileConfig(id="default", name="Default")
     config.coding_mode.enabled = True

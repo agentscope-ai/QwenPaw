@@ -383,11 +383,15 @@ class AgentBuilder:
             )
             return agent_config
 
-        if hasattr(agent_config, "model_copy"):
-            agent_config = agent_config.model_copy(deep=True)
-        else:
+        if not hasattr(agent_config, "model_copy"):
+            _logger.warning(
+                "Ignoring request Coding Mode project for unsupported config "
+                "type: %s",
+                type(agent_config).__name__,
+            )
             return agent_config
 
+        agent_config = agent_config.model_copy(deep=True)
         cm = getattr(agent_config, "coding_mode", None)
         if cm is None:
             from ..config.config import CodingModeConfig

@@ -239,7 +239,10 @@ class CodingModeContributor(SyncPromptContributor):
             if cm and cm.project_dir:
                 return cm.project_dir
         except Exception:
-            pass
+            logger.debug(
+                "Failed to reload agent config for Coding Mode prompt",
+                exc_info=True,
+            )
         return None
 
 
