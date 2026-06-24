@@ -83,15 +83,52 @@ def _configure_mock_runner(app_server, runner_name=_MOCK_RUNNER_NAME):
     assert resp.status_code == 200, app_server.logs_tail()
 
 
-def _enable_delegate_tool(app_server):
-    """Enable delegate_external_agent via tool toggle."""
+def _delegate_tool_enabled(app_server) -> bool:
+    """Return current enabled state of delegate_external_agent."""
     resp = app_server.api_request(
-        "PATCH",
-        scoped("default", "/tools/delegate_external_agent/toggle"),
-        json={"enabled": True},
+        "GET",
+        scoped("default", "/tools"),
         timeout=_HTTP_TIMEOUT,
     )
     assert resp.status_code == 200, app_server.logs_tail()
+    for tool in resp.json():
+        if tool.get("name") == "delegate_external_agent":
+            return bool(tool.get("enabled"))
+    return False
+
+
+def _set_delegate_tool(app_server, *, enabled: bool):
+    """Idempotently set delegate_external_agent enabled to ``enabled``.
+
+    ``PATCH /tools/{name}/toggle`` is a stateful toggle (flips current
+    value, ignores request body), so we first read the current state via
+    GET and only invoke the toggle when a flip is actually required.
+    Without this, two callers that both "want enabled=True" end up
+    cancelling each other out and the tool is unregistered for the
+    second invocation.
+    """
+    if _delegate_tool_enabled(app_server) == enabled:
+        return
+    resp = app_server.api_request(
+        "PATCH",
+        scoped("default", "/tools/delegate_external_agent/toggle"),
+        timeout=_HTTP_TIMEOUT,
+    )
+    assert resp.status_code == 200, app_server.logs_tail()
+
+
+def _enable_delegate_tool(app_server):
+    """Ensure delegate_external_agent is enabled (idempotent)."""
+    _set_delegate_tool(app_server, enabled=True)
+
+
+def _disable_delegate_tool(app_server):
+    """Ensure delegate_external_agent is disabled (idempotent).
+
+    Use in test finally blocks to restore baseline so subsequent tests
+    see a predictable initial state.
+    """
+    _set_delegate_tool(app_server, enabled=False)
 
 
 def _agent_input(text):
@@ -240,6 +277,7 @@ def test_acp_list_runners_includes_mock_runner(
     finally:
         _delete_job(app_server, job_id)
         srv.force_tool_call = False
+        _disable_delegate_tool(app_server)
         unregister_mock_provider(app_server, MOCK_LLM_PROVIDER_ID)
 
 
@@ -288,6 +326,7 @@ def test_acp_status_returns_runner_state(app_server, mock_llm) -> None:
     finally:
         _delete_job(app_server, job_id)
         srv.force_tool_call = False
+        _disable_delegate_tool(app_server)
         unregister_mock_provider(app_server, MOCK_LLM_PROVIDER_ID)
 
 
@@ -362,6 +401,7 @@ def test_acp_start_spawns_mock_runner(app_server, mock_llm) -> None:
     finally:
         _delete_job(app_server, job_id)
         srv.force_tool_call = False
+        _disable_delegate_tool(app_server)
         unregister_mock_provider(app_server, MOCK_LLM_PROVIDER_ID)
 
 
@@ -448,6 +488,7 @@ def test_acp_close_after_start(app_server, mock_llm) -> None:
     finally:
         _delete_job(app_server, job_start)
         srv.force_tool_call = False
+        _disable_delegate_tool(app_server)
         unregister_mock_provider(app_server, MOCK_LLM_PROVIDER_ID)
 
 
@@ -542,4 +583,5 @@ def test_acp_initialize_failure_records_error(
             timeout=_HTTP_TIMEOUT,
         )
         srv.force_tool_call = False
+        _disable_delegate_tool(app_server)
         unregister_mock_provider(app_server, MOCK_LLM_PROVIDER_ID)
