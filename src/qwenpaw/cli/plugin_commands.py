@@ -148,6 +148,85 @@ def _api_upload_plugin(zip_path: Path, force: bool = False) -> bool:
         return False
 
 
+def _api_install_pip_plugin(package: str, force: bool = False) -> bool:
+    """Send a pip install request to the running QwenPaw API.
+
+    Args:
+        package: PyPI package name or specifier
+        force: Force reinstall if already exists
+
+    Returns:
+        ``True`` on success, ``False`` otherwise
+    """
+    base = _get_api_base()
+    if base is None:
+        return False
+
+    url = f"{base}/plugins/install-pip"
+    payload = json.dumps({"package": package, "force": force}).encode()
+    req = urllib.request.Request(
+        url,
+        data=payload,
+        method="POST",
+        headers={"Content-Type": "application/json"},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=300) as resp:
+            body = json.loads(resp.read())
+        name = body.get("name", package)
+        click.echo(
+            f"Plugin '{name}' installed and loaded (hot reload).",
+        )
+        return True
+    except urllib.error.HTTPError as exc:
+        try:
+            detail = json.loads(exc.read()).get("detail", str(exc))
+        except Exception:
+            detail = str(exc)
+        click.echo(f"API pip install failed: {detail}", err=True)
+        return False
+    except Exception as exc:
+        click.echo(f"API request failed: {exc}", err=True)
+        return False
+
+
+def _api_uninstall_pip_plugin(plugin_id: str) -> bool:
+    """Send a pip uninstall request to the running QwenPaw API.
+
+    Args:
+        plugin_id: Plugin ID to uninstall
+
+    Returns:
+        ``True`` on success, ``False`` otherwise
+    """
+    base = _get_api_base()
+    if base is None:
+        return False
+
+    url = f"{base}/plugins/{plugin_id}/pip"
+    req = urllib.request.Request(url, method="DELETE")
+    try:
+        with urllib.request.urlopen(req, timeout=120) as resp:
+            body = json.loads(resp.read())
+        click.echo(
+            body.get(
+                "message",
+                f"Plugin '{plugin_id}' uninstalled.",
+            ),
+        )
+        return True
+    except urllib.error.HTTPError as exc:
+        try:
+            detail = json.loads(exc.read()).get("detail", str(exc))
+        except Exception:
+            detail = str(exc)
+        click.echo(f"API pip uninstall failed: {detail}", err=True)
+        return False
+    except Exception as exc:
+        click.echo(f"API request failed: {exc}", err=True)
+        return False
+
+
 def _api_uninstall_plugin(plugin_id: str) -> bool:
     """Send a hot-uninstall request to the running QwenPaw API.
 
@@ -839,6 +918,220 @@ def uninstall(plugin_id: str):
         click.echo(f"✅ Plugin '{plugin_id}' uninstalled successfully")
     except Exception as e:
         click.echo(f"❌ Failed to uninstall plugin: {e}", err=True)
+
+
+@plugin.command("install-pip")
+@click.argument("package")
+@click.option(
+    "--force",
+    is_flag=True,
+    help="Force reinstall if already exists",
+)
+def install_pip(package: str, force: bool):
+    """Install a plugin from a PyPI package.
+
+    The package must declare a ``qwenpaw.plugins`` entry point in its
+    ``pyproject.toml`` and ship a ``plugin.json`` manifest as package
+    data.
+
+    Examples:
+        qwenpaw plugin install-pip qwenpaw-plugin-xxx
+        qwenpaw plugin install-pip qwenpaw-plugin-xxx==1.0.0
+    """
+    if _is_running():
+        click.echo(
+            "QwenPaw is running — using hot-install via API...",
+        )
+        _api_install_pip_plugin(package, force=force)
+        return
+
+    click.echo(f"Installing pip package: {package}")
+
+    timeout = 300
+    try:
+        result = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "pip",
+                "install",
+                "--disable-pip-version-check",
+                "--no-input",
+                package,
+            ],
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+    except subprocess.TimeoutExpired:
+        click.echo("pip install timed out.", err=True)
+        return
+
+    if result.returncode != 0:
+        pip_missing = "No module named pip" in (
+            result.stderr + result.stdout
+        )
+        if pip_missing:
+            uv = _find_uv()
+            if uv:
+                click.echo("pip not found, retrying with uv...")
+                try:
+                    result = subprocess.run(
+                        [
+                            uv,
+                            "pip",
+                            "install",
+                            "--python",
+                            sys.executable,
+                            package,
+                        ],
+                        capture_output=True,
+                        text=True,
+                        timeout=timeout,
+                    )
+                except subprocess.TimeoutExpired:
+                    click.echo("uv install timed out.", err=True)
+                    return
+                if result.returncode != 0:
+                    click.echo(
+                        f"uv install failed: {result.stderr}",
+                        err=True,
+                    )
+                    return
+            else:
+                click.echo(
+                    "pip not available and uv not found.",
+                    err=True,
+                )
+                return
+        else:
+            click.echo(
+                f"pip install failed: {result.stderr}",
+                err=True,
+            )
+            return
+
+    click.echo(f"Package '{package}' installed.")
+
+    import importlib
+
+    importlib.invalidate_caches()
+
+    from importlib.metadata import entry_points as _entry_points
+    from qwenpaw.plugins.loader import ENTRY_POINT_GROUP
+
+    try:
+        eps = _entry_points(group=ENTRY_POINT_GROUP)
+    except Exception as exc:
+        click.echo(f"Failed to scan entry points: {exc}", err=True)
+        return
+
+    if not list(eps):
+        click.echo(
+            f"No qwenpaw.plugins entry points found after installing "
+            f"'{package}'. Ensure the package declares an entry point "
+            f"under '{ENTRY_POINT_GROUP}'.",
+            err=True,
+        )
+        return
+
+    click.echo(
+        f"Discovered {len(list(eps))} entry point(s). "
+        f"Plugin will be loaded on next QwenPaw start.",
+    )
+    click.echo(
+        f"\nPlugin package '{package}' installed successfully!",
+    )
+    click.echo("\nNext steps:")
+    click.echo("   1. Start QwenPaw to load the plugin")
+    click.echo("   2. Configure the plugin in the web UI")
+
+
+@plugin.command("uninstall-pip")
+@click.argument("plugin_id")
+def uninstall_pip(plugin_id: str):
+    """Uninstall a pip-installed plugin.
+
+    Unloads the plugin and runs ``pip uninstall`` for the underlying
+    package.
+
+    Examples:
+        qwenpaw plugin uninstall-pip my-tool-plugin
+    """
+    if _is_running():
+        click.echo(
+            "QwenPaw is running — using hot-uninstall via API...",
+        )
+        if not click.confirm(
+            f"Uninstall pip plugin '{plugin_id}'?",
+        ):
+            click.echo("Cancelled.")
+            return
+        _api_uninstall_pip_plugin(plugin_id)
+        return
+
+    from ..config.utils import get_plugins_dir
+
+    plugin_dir = get_plugins_dir() / plugin_id
+    if plugin_dir.exists():
+        click.echo(
+            f"Note: '{plugin_id}' also has a disk copy at {plugin_dir}. "
+            f"Use 'qwenpaw plugin uninstall {plugin_id}' to remove it.",
+        )
+
+    click.echo(f"Uninstalling pip package for plugin '{plugin_id}'...")
+
+    try:
+        result = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "pip",
+                "uninstall",
+                "-y",
+                "--disable-pip-version-check",
+                plugin_id,
+            ],
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+        if result.returncode == 0:
+            click.echo(
+                f"Package '{plugin_id}' uninstalled successfully.",
+            )
+        else:
+            uv = _find_uv()
+            if uv:
+                uv_result = subprocess.run(
+                    [
+                        uv,
+                        "pip",
+                        "uninstall",
+                        "--python",
+                        sys.executable,
+                        plugin_id,
+                    ],
+                    capture_output=True,
+                    text=True,
+                    timeout=120,
+                )
+                if uv_result.returncode == 0:
+                    click.echo(
+                        f"Package '{plugin_id}' uninstalled (via uv).",
+                    )
+                else:
+                    click.echo(
+                        f"Uninstall failed: {uv_result.stderr}",
+                        err=True,
+                    )
+            else:
+                click.echo(
+                    f"Uninstall failed: {result.stderr}",
+                    err=True,
+                )
+    except subprocess.TimeoutExpired:
+        click.echo("Uninstall timed out.", err=True)
 
 
 @plugin.command()

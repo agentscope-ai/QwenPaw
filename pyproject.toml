@@ -98,6 +98,13 @@ copaw = "qwenpaw.cli.main:cli"
 # [project.entry-points."qwenpaw.doctor"]
 # my_pkg = "my_pkg.doctor:doctor_notes"
 # Legacy group "copaw.doctor" is still loaded when present.
+#
+# Plugin entry points: third-party plugins installed via pip declare
+# themselves under this group.  The entry point value must point to a
+# module (or callable) inside a package that ships a ``plugin.json``
+# manifest as package data.
+# [project.entry-points."qwenpaw.plugins"]
+# my_plugin = "my_plugin_package:register"
 
 [project.optional-dependencies]
 dev = [

@@ -2,6 +2,7 @@
 """Plugin loader for discovering and loading plugins."""
 
 import asyncio
+import importlib
 import importlib.util
 import inspect
 import json
@@ -16,14 +17,17 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 from importlib.metadata import PackageNotFoundError
+from importlib.metadata import entry_points as _entry_points
 from importlib.metadata import version as _dist_version
 from packaging.requirements import Requirement
 
-from .architecture import PluginManifest, PluginRecord
+from .architecture import InstallSource, PluginManifest, PluginRecord
 from .api import PluginApi
 from .registry import PluginRegistry
 
 logger = logging.getLogger(__name__)
+
+ENTRY_POINT_GROUP = "qwenpaw.plugins"
 
 # Distribution name -> import name, for the common cases where they differ.
 _IMPORT_NAME_OVERRIDES = {
@@ -134,6 +138,425 @@ class PluginLoader:
                     )
 
         return discovered
+
+    def discover_pip_plugins(self) -> List[Tuple[PluginManifest, Path]]:
+        """Discover plugins installed via pip using entry points.
+
+        Scans the ``qwenpaw.plugins`` entry point group.  Each entry
+        point must point to a module (or callable) inside a pip-installed
+        package that also ships a ``plugin.json`` manifest as package
+        data.
+
+        Returns:
+            List of (manifest, package_root) tuples.
+        """
+        discovered: List[Tuple[PluginManifest, Path]] = []
+
+        try:
+            eps = _entry_points(group=ENTRY_POINT_GROUP)
+        except Exception as exc:
+            logger.debug("Entry point scan failed: %s", exc)
+            return discovered
+
+        for ep in eps:
+            try:
+                loaded = ep.load()
+            except Exception as exc:
+                logger.warning(
+                    "Failed to load entry point '%s': %s",
+                    ep.name,
+                    exc,
+                )
+                continue
+
+            module = loaded if inspect.ismodule(loaded) else None
+            if module is None:
+                module = inspect.getmodule(loaded)
+            if module is None:
+                logger.warning(
+                    "Entry point '%s' did not resolve to a module",
+                    ep.name,
+                )
+                continue
+
+            module_file = getattr(module, "__file__", None)
+            if module_file is None:
+                logger.warning(
+                    "Entry point '%s' module has no __file__",
+                    ep.name,
+                )
+                continue
+
+            package_dir = Path(module_file).parent.resolve()
+            manifest_path = package_dir / "plugin.json"
+            if not manifest_path.exists():
+                logger.warning(
+                    "pip plugin '%s': plugin.json not found at %s",
+                    ep.name,
+                    manifest_path,
+                )
+                continue
+
+            try:
+                manifest = self._load_manifest(manifest_path)
+                discovered.append((manifest, package_dir))
+                logger.info(
+                    "Discovered pip plugin: %s (from %s)",
+                    manifest.id,
+                    ep.name,
+                )
+            except Exception as exc:
+                logger.error(
+                    "Failed to load manifest for pip plugin '%s': %s",
+                    ep.name,
+                    exc,
+                    exc_info=True,
+                )
+
+        return discovered
+
+    async def load_pip_plugin(
+        self,
+        package_name: str,
+        config: Optional[Dict] = None,
+    ) -> PluginRecord:
+        """Install a pip package and load it as a plugin.
+
+        Runs ``pip install <package_name>`` (or ``uv pip install``),
+        then discovers the plugin via entry points and loads it.
+
+        Args:
+            package_name: PyPI package name (e.g. ``qwenpaw-plugin-xxx``).
+            config: Optional plugin configuration dict.
+
+        Returns:
+            Loaded PluginRecord.
+
+        Raises:
+            RuntimeError: If installation or loading fails.
+        """
+        await asyncio.to_thread(
+            self._pip_install_package,
+            package_name,
+        )
+
+        importlib.invalidate_caches()
+
+        discovered = self.discover_pip_plugins()
+        for manifest, package_dir in discovered:
+            if manifest.id in self._loaded_plugins:
+                continue
+            dist_name = package_name.lower().replace("_", "-")
+            try:
+                pkg_version = _dist_version(dist_name)
+            except PackageNotFoundError:
+                pkg_version = None
+
+            if pkg_version is not None or manifest.id not in self._loaded_plugins:
+                record = await self._load_pip_plugin_from_dir(
+                    manifest,
+                    package_dir,
+                    config,
+                )
+                return record
+
+        raise RuntimeError(
+            f"pip package '{package_name}' installed but no "
+            f"qwenpaw.plugins entry point found. Ensure the package "
+            f"declares an entry point under '{ENTRY_POINT_GROUP}'.",
+        )
+
+    async def _load_pip_plugin_from_dir(
+        self,
+        manifest: PluginManifest,
+        package_dir: Path,
+        config: Optional[Dict] = None,
+    ) -> PluginRecord:
+        """Load a pip-installed plugin from its package directory.
+
+        Unlike ``load_plugin_from_path``, this does NOT copy files or
+        install requirements (pip already handled both).
+
+        Args:
+            manifest: Parsed plugin manifest.
+            package_dir: Root directory of the installed package.
+            config: Optional plugin configuration dict.
+
+        Returns:
+            Loaded PluginRecord.
+        """
+        plugin_id = manifest.id
+
+        if plugin_id in self._loaded_plugins:
+            raise ValueError(
+                f"Plugin '{plugin_id}' is already loaded.",
+            )
+
+        backend_entry = manifest.entry.backend
+        if not backend_entry:
+            raise FileNotFoundError(
+                f"pip plugin '{plugin_id}' has no backend entry point",
+            )
+
+        backend_file = package_dir / backend_entry
+        if not backend_file.exists():
+            raise FileNotFoundError(
+                f"pip plugin '{plugin_id}' backend file not found: "
+                f"{backend_file}",
+            )
+
+        module_name = f"plugin_{plugin_id.replace('-', '_')}"
+        plugin_dir_str = str(package_dir)
+
+        spec = importlib.util.spec_from_file_location(
+            module_name,
+            backend_file,
+            submodule_search_locations=[plugin_dir_str],
+        )
+        if spec is None or spec.loader is None:
+            raise ImportError(
+                f"Failed to load module spec for {backend_file}",
+            )
+
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[module_name] = module
+        module.__package__ = module_name
+        module.__path__ = [plugin_dir_str]
+        spec.loader.exec_module(module)
+
+        if not hasattr(module, "plugin"):
+            raise AttributeError(
+                "Plugin module must export 'plugin' object",
+            )
+
+        plugin_def = module.plugin
+
+        manifest_dict = {
+            "id": manifest.id,
+            "name": manifest.name,
+            "version": manifest.version,
+            "description": manifest.description,
+            "author": manifest.author,
+            "dependencies": manifest.dependencies,
+            "min_version": manifest.min_version,
+            "meta": manifest.meta,
+        }
+        api = PluginApi(plugin_id, config or {}, manifest_dict)
+        api.set_registry(self.registry)
+
+        self.registry.register_plugin_manifest(plugin_id, manifest_dict)
+
+        if hasattr(plugin_def, "register"):
+            result = plugin_def.register(api)
+            if inspect.iscoroutine(result) or inspect.isawaitable(result):
+                await result
+        else:
+            raise AttributeError(
+                "Plugin must implement 'register(api)' method",
+            )
+
+        record = PluginRecord(
+            manifest=manifest,
+            source_path=package_dir,
+            enabled=True,
+            instance=plugin_def,
+            install_source=InstallSource.PIP,
+        )
+
+        self._loaded_plugins[plugin_id] = record
+        logger.info(
+            "Loaded pip plugin '%s' successfully",
+            plugin_id,
+        )
+        return record
+
+    def _pip_install_package(self, package_name: str) -> None:
+        """Install a pip package (blocking).
+
+        Tries ``python -m pip`` first, falls back to ``uv pip install``.
+
+        Args:
+            package_name: Package name or specifier to install.
+
+        Raises:
+            RuntimeError: If installation fails.
+        """
+        timeout = 300
+
+        try:
+            result = self._run_subprocess_with_streaming_log(
+                [
+                    sys.executable,
+                    "-m",
+                    "pip",
+                    "install",
+                    "--disable-pip-version-check",
+                    "--no-input",
+                    package_name,
+                ],
+                timeout=timeout,
+                plugin_id=package_name,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise RuntimeError(
+                f"pip install timed out for '{package_name}' "
+                f"(300 s limit exceeded)",
+            ) from exc
+
+        if result.returncode == 0:
+            logger.info(
+                "Package '%s' installed via pip",
+                package_name,
+            )
+            return
+
+        pip_missing = (
+            "No module named pip" in result.stderr
+            or "No module named pip" in result.stdout
+        )
+        if not pip_missing:
+            raise RuntimeError(
+                f"pip install failed for '{package_name}': "
+                f"{result.stdout}",
+            )
+
+        uv = self._find_uv()
+        if uv is None:
+            raise RuntimeError(
+                f"pip is not available and 'uv' was not found. "
+                f"Install '{package_name}' manually.",
+            )
+
+        logger.info(
+            "pip not available; retrying with uv for '%s'",
+            package_name,
+        )
+        try:
+            uv_result = self._run_subprocess_with_streaming_log(
+                [
+                    uv,
+                    "pip",
+                    "install",
+                    "--python",
+                    sys.executable,
+                    package_name,
+                ],
+                timeout=timeout,
+                plugin_id=package_name,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise RuntimeError(
+                f"uv pip install timed out for '{package_name}'",
+            ) from exc
+
+        if uv_result.returncode != 0:
+            raise RuntimeError(
+                f"uv pip install failed for '{package_name}': "
+                f"{uv_result.stdout}",
+            )
+        logger.info(
+            "Package '%s' installed via uv",
+            package_name,
+        )
+
+    async def uninstall_pip_plugin(self, plugin_id: str) -> None:
+        """Unload a pip-installed plugin and uninstall its package.
+
+        Args:
+            plugin_id: Plugin identifier to uninstall.
+
+        Raises:
+            KeyError: If the plugin is not loaded.
+        """
+        record = self._loaded_plugins.get(plugin_id)
+        if record is None:
+            raise KeyError(f"Plugin '{plugin_id}' is not loaded")
+
+        await self.unload_plugin(plugin_id, delete_files=False)
+
+        dist_name = self._guess_dist_name(record)
+        if dist_name:
+            await asyncio.to_thread(
+                self._pip_uninstall_package,
+                dist_name,
+            )
+
+    @staticmethod
+    def _guess_dist_name(record: PluginRecord) -> Optional[str]:
+        """Best-effort guess of the pip distribution name for a record."""
+        source = record.source_path
+        dist_info_dirs = list(source.parent.glob("*.dist-info"))
+        for d in dist_info_dirs:
+            metadata_file = d / "METADATA"
+            if metadata_file.exists():
+                for line in metadata_file.read_text(
+                    encoding="utf-8",
+                ).splitlines():
+                    if line.startswith("Name:"):
+                        return line.split(":", 1)[1].strip()
+        return None
+
+    def _pip_uninstall_package(self, package_name: str) -> None:
+        """Uninstall a pip package (blocking).
+
+        Args:
+            package_name: Distribution name to uninstall.
+
+        Raises:
+            RuntimeError: If uninstallation fails.
+        """
+        try:
+            result = self._run_subprocess_with_streaming_log(
+                [
+                    sys.executable,
+                    "-m",
+                    "pip",
+                    "uninstall",
+                    "-y",
+                    "--disable-pip-version-check",
+                    package_name,
+                ],
+                timeout=120,
+                plugin_id=package_name,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise RuntimeError(
+                f"pip uninstall timed out for '{package_name}'",
+            ) from exc
+
+        if result.returncode != 0:
+            uv = self._find_uv()
+            if uv is not None:
+                try:
+                    uv_result = self._run_subprocess_with_streaming_log(
+                        [
+                            uv,
+                            "pip",
+                            "uninstall",
+                            "--python",
+                            sys.executable,
+                            package_name,
+                        ],
+                        timeout=120,
+                        plugin_id=package_name,
+                    )
+                    if uv_result.returncode == 0:
+                        logger.info(
+                            "Package '%s' uninstalled via uv",
+                            package_name,
+                        )
+                        return
+                except subprocess.TimeoutExpired:
+                    pass
+
+            raise RuntimeError(
+                f"pip uninstall failed for '{package_name}': "
+                f"{result.stdout}",
+            )
+        logger.info(
+            "Package '%s' uninstalled via pip",
+            package_name,
+        )
 
     def _load_manifest(self, manifest_path: Path) -> PluginManifest:
         """Load plugin manifest from JSON file.
@@ -411,6 +834,9 @@ class PluginLoader:
     ) -> Dict[str, PluginRecord]:
         """Discover and load all plugins.
 
+        Scans both the file-system plugin directories and pip-installed
+        packages that declare ``qwenpaw.plugins`` entry points.
+
         Args:
             configs: Optional dictionary of plugin_id -> config
 
@@ -426,6 +852,24 @@ class PluginLoader:
                 await self.load_plugin(manifest, plugin_dir, config)
             except Exception as e:
                 logger.error(f"Failed to load plugin '{manifest.id}': {e}")
+
+        pip_discovered = self.discover_pip_plugins()
+        for manifest, package_dir in pip_discovered:
+            if manifest.id in self._loaded_plugins:
+                continue
+            config = configs.get(manifest.id) if configs else None
+            try:
+                await self._load_pip_plugin_from_dir(
+                    manifest,
+                    package_dir,
+                    config,
+                )
+            except Exception as e:
+                logger.error(
+                    "Failed to load pip plugin '%s': %s",
+                    manifest.id,
+                    e,
+                )
 
         return self._loaded_plugins
 

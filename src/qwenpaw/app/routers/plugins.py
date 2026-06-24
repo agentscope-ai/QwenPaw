@@ -472,6 +472,7 @@ async def list_plugins(request: Request):
                 "loaded": True,
                 "plugin_type": manifest.plugin_type,
                 "frontend_entry": manifest.entry.frontend,
+                "install_source": record.install_source.value,
             },
         )
 
@@ -615,6 +616,152 @@ async def install_plugin(
         "loaded": True,
         "message": (
             f"Plugin '{record.manifest.name}' installed successfully."
+        ),
+    }
+
+
+class InstallPipPluginRequest(BaseModel):
+    """Request body for installing a plugin from a PyPI package."""
+
+    package: str
+    force: bool = False
+
+
+@router.post(
+    "/install-pip",
+    summary="Install plugin from PyPI",
+    description=(
+        "Install a plugin from a pip package. The package must declare "
+        "a ``qwenpaw.plugins`` entry point and ship a ``plugin.json`` "
+        "manifest as package data."
+    ),
+)
+async def install_pip_plugin(
+    body: InstallPipPluginRequest,
+    request: Request,
+):
+    """Install and hot-load a plugin from a PyPI package."""
+    loader = getattr(request.app.state, "plugin_loader", None)
+    if loader is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Plugin loader is not ready yet. Try again shortly.",
+        )
+
+    package = body.package.strip()
+    if not package:
+        raise HTTPException(
+            status_code=400,
+            detail="Package name is required.",
+        )
+
+    try:
+        if body.force:
+            pip_discovered = loader.discover_pip_plugins()
+            for manifest, _dir in pip_discovered:
+                if manifest.id in loader._loaded_plugins:
+                    _f_pids, _f_cmds = _collect_plugin_runtime_ids(
+                        loader.registry,
+                        manifest.id,
+                    )
+                    await loader.unload_plugin(
+                        manifest.id,
+                        delete_files=False,
+                    )
+                    _post_unload_cleanup(
+                        request,
+                        manifest.id,
+                        _f_pids,
+                        _f_cmds,
+                    )
+
+        record = await loader.load_pip_plugin(package)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.error(
+            "pip plugin install failed: %s",
+            exc,
+            exc_info=True,
+        )
+        raise HTTPException(
+            status_code=500,
+            detail=f"pip plugin installation failed: {exc}",
+        ) from exc
+
+    await _post_load_setup(request, record.manifest.id)
+
+    return {
+        "id": record.manifest.id,
+        "name": record.manifest.name,
+        "version": record.manifest.version,
+        "description": record.manifest.description,
+        "author": record.manifest.author,
+        "loaded": True,
+        "install_source": "pip",
+        "message": (
+            f"Plugin '{record.manifest.name}' installed from pip."
+        ),
+    }
+
+
+@router.delete(
+    "/{plugin_id}/pip",
+    summary="Uninstall a pip-installed plugin",
+    description=(
+        "Unload a pip-installed plugin and uninstall its underlying "
+        "pip package."
+    ),
+)
+async def uninstall_pip_plugin(plugin_id: str, request: Request):
+    """Unload and pip-uninstall a plugin."""
+    loader = getattr(request.app.state, "plugin_loader", None)
+    if loader is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Plugin loader is not ready yet.",
+        )
+
+    record = loader.get_loaded_plugin(plugin_id)
+    if record is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Plugin '{plugin_id}' is not loaded.",
+        )
+
+    meta: dict = record.manifest.meta or {}
+
+    provider_ids, command_names = _collect_plugin_runtime_ids(
+        loader.registry,
+        plugin_id,
+    )
+
+    try:
+        await loader.uninstall_pip_plugin(plugin_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.error(
+            "pip plugin uninstall failed for '%s': %s",
+            plugin_id,
+            exc,
+            exc_info=True,
+        )
+        raise HTTPException(
+            status_code=500,
+            detail=f"pip plugin uninstallation failed: {exc}",
+        ) from exc
+
+    _post_unload_cleanup(request, plugin_id, provider_ids, command_names)
+    _remove_plugin_tools_from_agents(plugin_id, meta)
+    _schedule_all_agents_reload(request)
+
+    return {
+        "id": plugin_id,
+        "message": (
+            f"Plugin '{plugin_id}' uninstalled (pip package removed)."
         ),
     }
 
