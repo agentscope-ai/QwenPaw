@@ -1910,7 +1910,7 @@ class MatrixChannel(BaseChannel):
             return None
         if not self._client:
             logger.warning(
-                "MatrixChannel: _download_mxc called without client"
+                "MatrixChannel: _download_mxc called without client",
             )
             return None
         try:
