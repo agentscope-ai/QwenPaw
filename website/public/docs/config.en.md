@@ -401,12 +401,11 @@ Controls agent runtime behavior, retry strategies, context management, and memor
 
 **Light Context Compaction (`light_context_config.context_compact_config` object):**
 
-| Field                         | Type  | Default | Description                                                               |
-| ----------------------------- | ----- | ------- | ------------------------------------------------------------------------- |
-| `enabled`                     | bool  | `true`  | Whether to enable automatic context compaction                            |
-| `compact_threshold_ratio`     | float | `0.8`   | Threshold ratio (relative to `max_input_length`) that triggers compaction |
-| `reserve_threshold_ratio`     | float | `0.1`   | Ratio of recent context to preserve after compaction for continuity       |
-| `compact_with_thinking_block` | bool  | `true`  | Whether to include thinking blocks during compaction                      |
+| Field                     | Type  | Default | Description                                                               |
+| ------------------------- | ----- | ------- | ------------------------------------------------------------------------- |
+| `enabled`                 | bool  | `true`  | Whether to enable automatic context compaction                            |
+| `compact_threshold_ratio` | float | `0.8`   | Threshold ratio (relative to `max_input_length`) that triggers compaction |
+| `reserve_threshold_ratio` | float | `0.1`   | Ratio of recent context to preserve after compaction for continuity       |
 
 **Light Tool Result Pruning (`light_context_config.tool_result_pruning_config` object):**
 

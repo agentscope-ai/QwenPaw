@@ -166,7 +166,7 @@ class MacOSSandbox(LocalSandbox):
             # allow-list mode: only allow reading declared mounts
             for mount in config.mounts:
                 lines.append("(allow file-read*")
-                lines.append(f'  (subpath "{_san(mount.path)}")')
+                lines.append(f'  (subpath "{_san(mount.path)}"))')
 
         # Deny sensitive paths (read + write)
         if config.deny_paths:
@@ -175,9 +175,9 @@ class MacOSSandbox(LocalSandbox):
             for p in config.deny_paths:
                 expanded = _san(os.path.expanduser(p))
                 lines.append("(deny file-read*")
-                lines.append(f'  (subpath "{expanded}")')
+                lines.append(f'  (subpath "{expanded}"))')
                 lines.append("(deny file-write*")
-                lines.append(f'  (subpath "{expanded}")')
+                lines.append(f'  (subpath "{expanded}"))')
 
         # File write paths (whitelist)
         lines.append("")
@@ -198,7 +198,7 @@ class MacOSSandbox(LocalSandbox):
         for mount in config.mounts:
             if mount.writable:
                 lines.append("(allow file-write*")
-                lines.append(f'  (subpath "{_san(mount.path)}")')
+                lines.append(f'  (subpath "{_san(mount.path)}"))')
 
         # Executable control
         non_exec_mounts = [m for m in config.mounts if not m.executable]
@@ -207,7 +207,7 @@ class MacOSSandbox(LocalSandbox):
             lines.append("; Deny execution in specific paths")
             for mount in non_exec_mounts:
                 lines.append("(deny process-exec*")
-                lines.append(f'  (subpath "{_san(mount.path)}")')
+                lines.append(f'  (subpath "{_san(mount.path)}"))')
 
         # Platform hints: extra seatbelt rules
         # WARNING: seatbelt_extra_rules is an ADMIN-ONLY escape hatch.

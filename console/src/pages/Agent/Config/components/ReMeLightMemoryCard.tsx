@@ -72,10 +72,10 @@ export function ReMeLightMemoryCard() {
       </Form.Item>
 
       <Form.Item
-        label={t("agentConfig.recursiveFileWatcher")}
-        name={["reme_light_memory_config", "recursive_file_watcher"]}
+        label={t("agentConfig.enableSearchRawLog")}
+        name={["reme_light_memory_config", "enable_search_raw_log"]}
         valuePropName="checked"
-        tooltip={t("agentConfig.recursiveFileWatcherTooltip")}
+        tooltip={t("agentConfig.enableSearchRawLogTooltip")}
       >
         <Switch />
       </Form.Item>

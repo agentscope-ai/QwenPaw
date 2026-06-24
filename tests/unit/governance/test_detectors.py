@@ -1,13 +1,21 @@
 # -*- coding: utf-8 -*-
 """Tests for governance.detectors — deep security scan pure functions."""
 
+import pytest
+
 from qwenpaw.governance.detectors import (
     GuardFinding,
+    _COMPILED_CACHE,
     detect_dangerous_patterns,
     detect_sensitive_paths,
     detect_shell_evasion,
     run_deep_scan,
 )
+
+
+@pytest.fixture(autouse=True)
+def _clear_compiled_cache():
+    _COMPILED_CACHE.clear()
 
 
 # ---------------------------------------------------------------------------

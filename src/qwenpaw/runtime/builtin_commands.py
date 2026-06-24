@@ -272,6 +272,7 @@ _CONVERSATION_COMMANDS = frozenset(
         "load_history",
         "proactive",
         "plan",
+        "system_prompt",
     },
 )
 
@@ -392,6 +393,7 @@ def _make_conversation_adapter(name: str) -> CommandSpec:
             agent_id=agent_id,
             memory_manager=getattr(workspace, "memory_manager", None),
             offloader=offloader,
+            prompt_context=ctx,
         )
 
         full_query = f"/{name} {args}".strip() if args else f"/{name}"
