@@ -826,16 +826,23 @@ def test_heartbeat_resilient_to_llm_error(
 ) -> None:
     """Test purpose:
     - Verify that a heartbeat run against a failing LLM (422) does
-      not crash and still creates a heartbeat_result inbox event.
-      Runner.stream_query() swallows LLM errors internally, so the
-      heartbeat completes normally even when the LLM returns errors.
+      not deadlock and still writes a completion event to inbox.
+
+      Since the agentscope 2.0 migration (PR #4846),
+      ``Workspace.stream_query`` re-raises upstream exceptions instead
+      of swallowing them, so a forced LLM 422 surfaces as a
+      ``heartbeat_error`` inbox event (vs. ``heartbeat_result`` on the
+      success path). Either flavour proves the heartbeat coroutine
+      completed and the scheduler is unblocked, which is the actual
+      meaning of "resilient" here.
 
     Test flow:
     1. Set mock LLM to force 422 errors.
     2. Setup heartbeat with mock provider.
     3. POST heartbeat/run.
-    4. Poll inbox for heartbeat_result event.
-    5. Assert the event was created (heartbeat did not crash).
+    4. Poll inbox for ANY heartbeat completion event
+       (heartbeat_result or heartbeat_error).
+    5. Assert one was created (heartbeat did not deadlock).
     6. Restore mock LLM to normal.
 
     API endpoints:
@@ -857,16 +864,18 @@ def test_heartbeat_resilient_to_llm_error(
         events = _poll_inbox_heartbeat(
             app_server,
             time.time() + 30.0,
-            event_type="heartbeat_result",
         )
         assert len(events) >= 1, (
-            "Heartbeat should complete even with LLM errors: "
-            f"{app_server.logs_tail()}"
+            "Heartbeat should complete (result or error) even with "
+            f"LLM errors: {app_server.logs_tail()}"
         )
 
         event = events[0]
         assert event["source_type"] == "heartbeat"
-        assert event["event_type"] == "heartbeat_result"
+        assert event["event_type"] in {
+            "heartbeat_result",
+            "heartbeat_error",
+        }, event
     finally:
         srv.force_error = False
         _teardown_heartbeat(app_server, ctx)
