@@ -595,3 +595,77 @@ async def test_provider_group_in_get_info(isolated_secret_dir) -> None:
     assert info.provider_group == "aliyun"
     assert info.provider_group_name == "Aliyun"
     assert info.provider_variant == "dashscope"
+
+
+def test_dashscope_max_inline_media_bytes_loaded_from_json(
+    isolated_secret_dir,
+) -> None:
+    """A user-set ``max_inline_media_bytes`` in dashscope.json must be
+    loaded by ``_init_from_storage`` and actually used by the capping
+    formatter at runtime.
+
+    Writes a builtin dashscope.json with a custom threshold, boots a fresh
+    ``ProviderManager`` (which runs ``_init_from_storage``), and asserts
+    the runtime builtin instance — not just the freshly deserialized one —
+    carries the value through to the formatter.
+    """
+    builtin_path = isolated_secret_dir / "providers" / "builtin"
+    builtin_path.mkdir(parents=True, exist_ok=True)
+
+    dashscope_json = {
+        "id": "dashscope",
+        "name": "DashScope",
+        "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+        "api_key": "sk-test",
+        "chat_model": "DashScopeChatModel",
+        "models": [{"id": "qwen3-max", "name": "Qwen3 Max"}],
+        "max_inline_media_bytes": 4096,
+    }
+    (builtin_path / "dashscope.json").write_text(
+        json.dumps(dashscope_json, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+
+    manager = ProviderManager()
+
+    provider = manager.get_provider("dashscope")
+    assert provider is not None
+    # The runtime builtin must reflect the value loaded from disk, not the
+    # field default (2 MB).
+    assert provider.max_inline_media_bytes == 4096
+
+    # And it must reach the capping formatter that actually guards requests.
+    model = provider.get_chat_model_instance("qwen3-max")
+    assert model.formatter.max_bytes == 4096
+
+
+def test_dashscope_max_inline_media_bytes_defaults_when_absent(
+    isolated_secret_dir,
+) -> None:
+    """An existing dashscope.json without the new key must fall back to the
+    built-in default (2 MB) — i.e. upgrading must not silently cap at 0."""
+    builtin_path = isolated_secret_dir / "providers" / "builtin"
+    builtin_path.mkdir(parents=True, exist_ok=True)
+
+    # Legacy JSON: no max_inline_media_bytes key at all.
+    dashscope_json = {
+        "id": "dashscope",
+        "name": "DashScope",
+        "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+        "api_key": "sk-test",
+        "chat_model": "DashScopeChatModel",
+        "models": [{"id": "qwen3-max", "name": "Qwen3 Max"}],
+    }
+    (builtin_path / "dashscope.json").write_text(
+        json.dumps(dashscope_json, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+
+    manager = ProviderManager()
+    provider = manager.get_provider("dashscope")
+    assert provider is not None
+    assert provider.max_inline_media_bytes == 2 * 1024 * 1024
+    assert (
+        provider.get_chat_model_instance("qwen3-max").formatter.max_bytes
+        == 2 * 1024 * 1024
+    )
