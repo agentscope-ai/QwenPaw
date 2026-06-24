@@ -1104,6 +1104,8 @@
     "sendMessage": "Gửi tin nhắn",
     "createMemory": "Tạo bộ nhớ",
     "searchMemory": "Tìm bộ nhớ",
+    "memorySearch": "Tìm bộ nhớ {{query}}",
+    "memorySearchDefault": "Tìm bộ nhớ",
     "updateMemory": "Cập nhật bộ nhớ",
     "deleteMemory": "Xóa bộ nhớ"
   },

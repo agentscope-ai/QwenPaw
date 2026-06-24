@@ -2457,7 +2457,7 @@
     "getCurrentTime": "Получить текущее время",
     "setTimezone": "Установить {{timezone}}",
     "getTokenUsage": "Запросить использование токенов",
-    "memorySearch": "Поиск {{query}}",
+    "memorySearch": "Поиск в памяти {{query}}",
     "memorySearchDefault": "Поиск в памяти",
     "listAgents": "Список агентов",
     "chatWithAgent": "Чат с {{agent}}",

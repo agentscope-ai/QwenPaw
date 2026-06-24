@@ -2481,7 +2481,7 @@
     "getCurrentTime": "Obter hora atual",
     "setTimezone": "Definir {{timezone}}",
     "getTokenUsage": "Consultar uso de tokens",
-    "memorySearch": "Buscar {{query}}",
+    "memorySearch": "Buscar na memória {{query}}",
     "memorySearchDefault": "Buscar na memória",
     "listAgents": "Listar agentes",
     "chatWithAgent": "Conversar com {{agent}}",

@@ -2442,7 +2442,7 @@
     "getCurrentTime": "現在時刻を取得",
     "setTimezone": "{{timezone}} に設定",
     "getTokenUsage": "トークン使用量を照会",
-    "memorySearch": "{{query}} を検索",
+    "memorySearch": "メモリで {{query}} を検索",
     "memorySearchDefault": "メモリを検索",
     "listAgents": "エージェント一覧",
     "chatWithAgent": "{{agent}} とチャット",

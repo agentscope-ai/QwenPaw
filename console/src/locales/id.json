@@ -1247,7 +1247,7 @@
     "getCurrentTime": "Dapatkan waktu saat ini",
     "setTimezone": "Atur {{timezone}}",
     "getTokenUsage": "Kueri penggunaan token",
-    "memorySearch": "Cari {{query}}",
+    "memorySearch": "Cari memori {{query}}",
     "memorySearchDefault": "Cari memori",
     "listAgents": "Daftar agen",
     "chatWithAgent": "Chat dengan {{agent}}",

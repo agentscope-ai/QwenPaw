@@ -174,9 +174,30 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         self,
         query: str,
         max_results: int = 5,
-        min_score: float = 0.1,
+        min_score: float = 0,
     ) -> ToolChunk:
-        """Search ReMe memory."""
+        """Search memory files semantically.
+
+        Use this tool before answering questions about prior work,
+        decisions, dates, people, preferences, or todos. Returns top
+        relevant snippets with file paths and line numbers.
+
+        Args:
+            query (`str`):
+                The semantic search query to find relevant memory snippets.
+            max_results (`int`, optional):
+                Maximum number of search results to return. Defaults to 5.
+            min_score (`float`, optional):
+                Minimum relevance score for results. Defaults to 0; keep this
+                at 0 in normal use because ReMe search may mix BM25 and fused
+                scores with different scales, and raising it can hide valid
+                keyword matches.
+
+        Returns:
+            `ToolResponse`:
+                Search results formatted with paths, line numbers, and
+                content.
+        """
         query = query.strip()
         if not query:
             return _tool_chunk("Error: query cannot be empty", ok=False)

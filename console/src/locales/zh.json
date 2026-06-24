@@ -2610,7 +2610,7 @@
     "getCurrentTime": "获取 当前时间",
     "setTimezone": "设置 {{timezone}}",
     "getTokenUsage": "查询 Token 用量",
-    "memorySearch": "搜索 {{query}}",
+    "memorySearch": "搜索记忆 {{query}}",
     "memorySearchDefault": "搜索 记忆",
     "listAgents": "列出 代理",
     "chatWithAgent": "对话 {{agent}}",

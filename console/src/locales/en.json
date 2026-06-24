@@ -2601,7 +2601,7 @@
     "getCurrentTime": "Get current time",
     "setTimezone": "Set {{timezone}}",
     "getTokenUsage": "Query token usage",
-    "memorySearch": "Search {{query}}",
+    "memorySearch": "Search memory {{query}}",
     "memorySearchDefault": "Search memory",
     "listAgents": "List agents",
     "chatWithAgent": "Chat {{agent}}",
