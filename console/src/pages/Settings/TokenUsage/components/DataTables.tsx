@@ -118,6 +118,7 @@ export function DataTables({ byModelData, byDateData }: DataTablesProps) {
             dataSource={byModelData}
             pagination={{ pageSize: 10 }}
             size="small"
+            scroll={{ x: "max-content" }}
           />
         </Card>
       )}
@@ -129,6 +130,7 @@ export function DataTables({ byModelData, byDateData }: DataTablesProps) {
             dataSource={byDateData}
             pagination={{ pageSize: 10 }}
             size="small"
+            scroll={{ x: "max-content" }}
           />
         </Card>
       )}

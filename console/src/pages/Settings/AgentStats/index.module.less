@@ -125,6 +125,34 @@
   }
 }
 
+/* ─── Mobile ─────────────────────────────────────────────────────────────── */
+@media (max-width: 768px) {
+  .filters {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .datePicker {
+    width: 100%;
+  }
+
+  .card {
+    padding: 12px;
+  }
+
+  .cardValue {
+    font-size: 20px;
+  }
+
+  .chartContainerShort {
+    min-height: 220px;
+  }
+
+  .pieChartContainer {
+    min-height: 260px;
+  }
+}
+
 :global(.dark-mode) {
   .loading {
     color: rgba(255, 255, 255, 0.35);

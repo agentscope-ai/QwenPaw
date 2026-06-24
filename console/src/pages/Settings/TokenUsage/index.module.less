@@ -90,6 +90,31 @@
   font-weight: 500;
 }
 
+/* ─── Mobile ─────────────────────────────────────────────────────────────── */
+@media (max-width: 768px) {
+  .toolbar {
+    :global(.qwenpaw-picker) {
+      width: 100%;
+    }
+  }
+
+  .card {
+    padding: 12px;
+  }
+
+  .cardValue {
+    font-size: 20px;
+  }
+
+  .tableCard {
+    overflow-x: auto;
+
+    :global(.qwenpaw-table) {
+      min-width: 600px;
+    }
+  }
+}
+
 /* ─── Dark mode ─────────────────────────────────────────────────────────────── */
 :global(.dark-mode) {
   .loading {
