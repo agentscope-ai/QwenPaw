@@ -197,11 +197,12 @@ class ResourceGovernor:
             else "-"
         )
         logger.info(
-            "governance decision: tool=%s target=%r action=%s sandbox=%s "
-            "reason=%s",
+            "governance decision: tool=%s target=%r action=%s source=%s "
+            "sandbox=%s reason=%s",
             tc_spec.tool_name,
             target_repr,
             decision.action.value,
+            decision.source,
             sandbox_mode,
             decision.reason,
         )
@@ -417,7 +418,7 @@ class ResourceGovernor:
         if not self._policy:
             return False
         source = self._policy.evaluate_source(tc_spec)
-        return source == "builtin"
+        return source == "builtin_rules"
 
     # ------------------------------------------------------------------
     # Property access

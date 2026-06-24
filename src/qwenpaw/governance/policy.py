@@ -48,10 +48,16 @@ class GovernanceDecision:
     sandbox_config: SandboxConfig | None = None
     findings: list[Any] | None = None  # GuardFinding list for approval card
     # Origin of the decision, surfaced as the "Source" line on the approval
-    # card. Values: "builtin-rules", "user-rules", or a tool-guard threat
-    # category string (e.g. "command_injection", "sensitive_file_access")
-    # when the decision was driven by a deep-scan finding.
-    source: str = "builtin-rules"
+    # card. Identifies which policy mechanism drove the decision:
+    #   "builtin_rules"         — Phase 2 DEFAULT_BUILTIN_RULES hit
+    #   "user_rules"            — Phase 2 user_rules hit
+    #   "sensitive_paths"       — Phase 1 finding (sensitive_path_detector)
+    #   "detection_rules"       — Phase 1 finding (pattern_detector)
+    #   "shell_evasion_checks"  — Phase 1 finding (shell_evasion_detector)
+    #   "shell_danger_keywords" — Phase 1.5 hardcoded shell-danger regex
+    #   "sandbox"               — Phase 3 shell sandbox fallback
+    #   "No rule hit"           — Phase 3 fallback (no rule/finding matched)
+    source: str = "No rule hit"
 
 
 class ToolCallSpec:
@@ -119,7 +125,13 @@ class GovernanceRule:
         """wcmatch globmatch with directory self-match support."""
         from wcmatch import glob
 
-        flags = glob.GLOBSTAR | glob.BRACE | glob.NEGATE | glob.SPLIT
+        flags = (
+            glob.GLOBSTAR
+            | glob.BRACE
+            | glob.NEGATE
+            | glob.SPLIT
+            | glob.DOTGLOB
+        )
         if glob.globmatch(target, pattern, flags=flags):
             return True
         if pattern.endswith("/**"):
@@ -581,12 +593,16 @@ class GovernancePolicy:
             return GovernanceDecision(
                 action=GovernanceAction.DENY,
                 reason=f"Unregistered tool: {tc_spec.tool_name}",
+                source="unknown tool",
             )
         if tool_type == "internal":
-            return GovernanceDecision(action=GovernanceAction.ALLOW, reason="")
+            return GovernanceDecision(
+                action=GovernanceAction.ALLOW,
+                reason="internal",
+            )
 
         # execution_level == OFF → skip Phase 1, go to Phase 2
-        skip_deep_scan = self.execution_level == "off"
+        skip_deep_scan = self.execution_level.lower() == "off"
 
         # ── Phase 1: Deep security scan ──
         findings: list[Any] = []
@@ -594,14 +610,10 @@ class GovernancePolicy:
             findings = self._deep_security_scan(tc_spec, tool_type)
             # CRITICAL findings → immediate DENY
             if any(getattr(f, "severity", "") == "CRITICAL" for f in findings):
-                reasons = [
-                    getattr(f, "title", "")
-                    for f in findings
-                    if getattr(f, "severity", "") == "CRITICAL"
-                ]
+                top = _top_finding(findings)
                 return GovernanceDecision(
                     action=GovernanceAction.DENY,
-                    reason="Critical security finding: " + "; ".join(reasons),
+                    reason=getattr(top, "description", "") or top.title,
                     findings=findings,
                     source=_findings_source(findings),
                 )
@@ -616,6 +628,7 @@ class GovernancePolicy:
                     action=GovernanceAction.DENY,
                     reason=danger_reason,
                     findings=findings,
+                    source="shell_danger_keywords",
                 )
 
         # ── Phase 2: builtin_rules + user_rules (first-match-wins) ──
@@ -628,7 +641,7 @@ class GovernancePolicy:
                     action=GovernanceAction(rule.action.value),
                     reason=rule.reason,
                     findings=findings or None,
-                    source="builtin-rules",
+                    source="builtin_rules",
                 )
 
         for rule in self.user_rules:
@@ -640,7 +653,7 @@ class GovernancePolicy:
                     action=GovernanceAction(rule.action.value),
                     reason=rule.reason,
                     findings=findings or None,
-                    source="user-rules",
+                    source="user_rules",
                 )
 
         # ── Phase 3: Fallback + execution_level threshold ──
@@ -688,67 +701,80 @@ class GovernancePolicy:
     ) -> GovernanceDecision:
         """Apply execution_level threshold to determine final decision.
 
-        - OFF: should not reach here (scan skipped, but rules didn't match)
-        - AUTO: ASK for guarded tools, ALLOW for others
-        - SMART: LOW/INFO findings → ALLOW; MEDIUM+ → ASK
-        - STRICT: any findings → ASK
+        Reached only when no builtin/user rule matched ("No rule hit"):
+        neither an explicit ALLOW/ASK (user_rules) nor an implicit one
+        (builtin_rules) fired. The decision then depends on the deep-scan
+        findings and the execution_level threshold.
+
+        No findings (nothing matched, nothing flagged):
+            - STRICT: ASK (all tools require approval)
+            - OTHERS: ASK (no allow rule hit).
+        Has findings:
+            - STRICT: ASK (any finding triggers approval)
+            - SMART: INFO/LOW → ALLOW; MEDIUM+ → ASK
+            - AUTO / OFF: ASK (a finding surfaced despite the relaxed scan)
         """
         level = self.execution_level
 
         if not findings:
-            # No findings and no rule hit
+            # No findings and no rule hit.
             if level == "strict":
                 return GovernanceDecision(
                     action=GovernanceAction.ASK,
                     reason="STRICT mode: all tool calls require approval",
-                    source="STRICT mode",
+                    source="fallback",
                 )
             return GovernanceDecision(
                 action=GovernanceAction.ASK,
-                reason="No rule hit",
-                source="No rule hit",
+                reason=f"{level.upper()} mode: no allow rule hit.",
+                source="fallback",
             )
 
-        # Has findings — decide based on execution_level
+        # Has findings — decide based on execution_level.
+        # source is the policy key of the top finding; reason is that
+        # finding's own description (no mode shell).
+        top = _top_finding(findings)
+        finding_reason = getattr(top, "description", "") or top.title
+        finding_source = _findings_source(findings)
         max_sev = _max_severity(findings)
 
         if level == "strict":
             return GovernanceDecision(
                 action=GovernanceAction.ASK,
-                reason=f"STRICT mode: findings detected (max={max_sev})",
+                reason=finding_reason,
                 findings=findings,
-                source=_findings_source(findings),
+                source=finding_source,
             )
 
         if level == "smart":
             if max_sev in ("INFO", "LOW"):
                 return GovernanceDecision(
                     action=GovernanceAction.ALLOW,
-                    reason=f"SMART mode: auto-allowed ({max_sev})",
+                    reason=finding_reason,
                     findings=findings,
-                    source=_findings_source(findings),
+                    source=finding_source,
                 )
             return GovernanceDecision(
                 action=GovernanceAction.ASK,
-                reason=f"SMART mode: {max_sev} finding requires approval",
+                reason=finding_reason,
                 findings=findings,
-                source=_findings_source(findings),
+                source=finding_source,
             )
 
-        # AUTO / OFF fallback
+        # AUTO / OFF: a finding surfaced, so ask.
         return GovernanceDecision(
             action=GovernanceAction.ASK,
-            reason="No rule hit",
-            findings=findings or None,
-            source=_findings_source(findings),
+            reason=finding_reason,
+            findings=findings,
+            source=finding_source,
         )
 
     def evaluate_source(self, tc_spec: ToolCallSpec) -> str:
         """Determine which rule source a tool call matches.
 
         Returns:
-            "builtin"  — matched builtin_rules (no rule recorded on approve)
-            "user"     — matched user_rules (rule can be recorded on approve)
+            "builtin_rules"  — matched builtin_rules
+            "user_rules"     — matched user_rules
             "fallback" — no match, global fallback
         """
         tool_type = self._registry.get_type(tc_spec.tool_name)
@@ -757,13 +783,13 @@ class GovernancePolicy:
                 tc_spec,
                 tool_type=tool_type,
             ):
-                return "builtin"
+                return "builtin_rules"
         for rule in self.user_rules:
             if rule.matches_tool_call(
                 tc_spec,
                 tool_type=tool_type,
             ):
-                return "user"
+                return "user_rules"
         return "fallback"
 
     # ------------------------------------------------------------------
@@ -841,6 +867,16 @@ def _parse_match(match_str: str) -> tuple[str, str]:
 
 _SEVERITY_ORDER = ["CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO"]
 
+# Map a GuardFinding's ``detector`` field to the policy.yaml key that
+# drives it. Used so ``GovernanceDecision.source`` reports which policy
+# section produced a finding-driven decision, rather than the threat
+# category.
+_DETECTOR_TO_SOURCE: dict[str, str] = {
+    "sensitive_path_detector": "sensitive_paths",
+    "pattern_detector": "detection_rules",
+    "shell_evasion_detector": "shell_evasion_checks",
+}
+
 
 def _max_severity(findings: list[Any]) -> str:
     """Return the highest severity string from a list of findings."""
@@ -852,26 +888,30 @@ def _max_severity(findings: list[Any]) -> str:
     return "SAFE"
 
 
-def _findings_source(findings: list[Any]) -> str:
-    """Pick the approval-card ``source`` for a finding-driven decision.
-
-    Returns the threat category of the highest-severity finding (e.g.
-    ``"command_injection"``), falling back to ``"builtin-rules"`` when no
-    finding carries a category.
-    """
-    if not findings:
-        return "builtin-rules"
+def _top_finding(findings: list[Any]) -> Any:
+    """Return the highest-severity finding (ties → first encountered)."""
     for sev in _SEVERITY_ORDER:
         for f in findings:
             if getattr(f, "severity", "") == sev:
-                category = getattr(f, "category", None)
-                if category:
-                    return (
-                        category.value
-                        if hasattr(category, "value")
-                        else str(category)
-                    )
-    return "builtin-rules"
+                return f
+    return findings[0]
+
+
+def _findings_source(findings: list[Any]) -> str:
+    """Pick the approval-card ``source`` for a finding-driven decision.
+
+    Returns the policy key of the highest-severity finding, derived from
+    its ``detector`` field (e.g. ``"detection_rules"``). Falls back to
+    ``"detection_rules"`` when a finding carries no recognisable
+    detector, and to ``"builtin_rules"`` when there are no findings.
+    """
+    if not findings:
+        return "builtin_rules"
+    top = _top_finding(findings)
+    detector = getattr(top, "detector", None)
+    if detector:
+        return _DETECTOR_TO_SOURCE.get(detector, "detection_rules")
+    return "detection_rules"
 
 
 # ---------------------------------------------------------------------------

@@ -316,7 +316,7 @@ async def _policy_tool_call(
     governance_source = getattr(
         getattr(self, "_qp_policy_decision", None),
         "source",
-        "builtin-rules",
+        "No rule hit",
     )
 
     # Record the ASK escalation (sandbox violation → ask user)
@@ -380,7 +380,7 @@ async def _ask_user_approval(
     violation_msg: str | None = None,
     governance_reason: str | None = None,
     policy_findings: list[Any] | None = None,
-    source: str = "builtin-rules",
+    source: str = "No rule hit",
 ) -> Any:
     """Request user approval, blocking until a reply is received."""
     from agentscope.permission import PermissionBehavior, PermissionDecision
@@ -416,6 +416,7 @@ async def _ask_user_approval(
         tool_name,
         target,
         source,
+        agent_id=agent_id,
     )
     display_target = generalized_target or target
 

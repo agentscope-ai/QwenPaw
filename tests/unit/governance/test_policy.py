@@ -287,16 +287,34 @@ class TestGovernancePolicyEvaluate:
         assert decision.action == GovernanceAction.ALLOW
 
     def test_grep_outside_workspace_ask(self, policy):
-        """Grep outside workspace should fall through to ASK."""
+        """Grep outside workspace with no rule hit falls through to ASK.
+
+        Fail-closed: nothing matched (no rule, no finding), so the user
+        must approve regardless of execution_level.
+        """
         tc = _tc("Grep", "/etc/")
         decision = policy.evaluate(tc)
         assert decision.action == GovernanceAction.ASK
 
     def test_glob_outside_workspace_ask(self, policy):
-        """Glob outside workspace should fall through to ASK."""
+        """Glob outside workspace with no rule hit falls through to ASK."""
         tc = _tc("Glob", "/var/log/")
         decision = policy.evaluate(tc)
         assert decision.action == GovernanceAction.ASK
+
+    def test_outside_workspace_always_asks(self, policy):
+        """No rule hit + no findings ASKs under every execution_level.
+
+        Fail-closed design: an unmatched tool call always requires
+        approval, irrespective of the execution_level threshold.
+        """
+        import copy
+
+        tc = _tc("Grep", "/etc/")
+        for level in ("strict", "smart", "auto", "off"):
+            p = copy.deepcopy(policy)
+            p.execution_level = level
+            assert p.evaluate(tc).action == GovernanceAction.ASK, level
 
     def test_bash_no_match_fallback(self, policy):
         """Bash with no rule match should return SANDBOX_FALLBACK."""
@@ -559,7 +577,7 @@ class _FakeModel:
         self._text = text
         self._delay = delay
 
-    async def __call__(self, messages):  # noqa: ANN001
+    async def __call__(self, messages, **kwargs):  # noqa: ANN001
         import asyncio
 
         if self._delay:
@@ -803,7 +821,7 @@ class TestGeneralizeTargetForApproval:
         result = await generalize_target_for_approval(
             "Read",
             "/ws/.env",
-            "builtin-rules",
+            "builtin_rules",
         )
         # Bare target, NOT wrapped in ToolName(...).
         assert result == "/ws/.env"
@@ -811,7 +829,7 @@ class TestGeneralizeTargetForApproval:
 
     @pytest.mark.parametrize(
         "source",
-        ["user-rules", "sandbox", "STRICT mode", "No rule hit"],
+        ["user_rules", "sandbox", "No rule hit"],
     )
     async def test_non_builtin_source_generalizes(self, monkeypatch, source):
         from qwenpaw.governance.generalize import (

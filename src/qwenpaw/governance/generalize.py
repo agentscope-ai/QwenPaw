@@ -17,7 +17,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from fnmatch import fnmatch
-from typing import Any
+from typing import Any, Optional
 
 from .tool_registry import DEFAULT_REGISTRY
 from .policy import _parse_match
@@ -201,14 +201,21 @@ def _extract_response_text(response: Any) -> str:
     return ""
 
 
-async def _consume_model_text(model: Any, messages: list) -> str:
-    """Await ``model(messages)`` and return its text content.
+async def _consume_model_text(
+    model: Any,
+    messages: list,
+    **call_kwargs: Any,
+) -> str:
+    """Await ``model(messages, **call_kwargs)`` and return its text content.
 
     Some providers return an ``async_generator`` that streams chunks;
     others return a non-streaming response object. Streaming chunks are
     assumed to carry cumulative text, so the latest non-empty chunk wins.
+
+    ``call_kwargs`` are forwarded to the model call. Generalization passes
+    ``thinking={"type": "disabled"}`` here to skip extended thinking.
     """
-    response = await model(messages)
+    response = await model(messages, **call_kwargs)
     if hasattr(response, "__aiter__"):
         accumulated = ""
         async for chunk in response:
@@ -245,6 +252,7 @@ async def _llm_generalize_pattern(
     tool_name: str,
     target: str,
     tool_type: str,
+    agent_id: Optional[str] = None,
 ) -> str:
     """Ask the active chat model for a generalized glob pattern.
 
@@ -256,10 +264,12 @@ async def _llm_generalize_pattern(
         from ..agents.model_factory import create_model_and_formatter
         from agentscope.message import Msg, TextBlock
 
-        model, _ = create_model_and_formatter()
+        model, _ = create_model_and_formatter(agent_id=agent_id)
     except Exception as exc:  # no active model / misconfigured provider
         logger.debug(
-            "rule generalization skipped: no model available (%s)",
+            "rule generalization skipped: no model available for "
+            "agent=%s (%s)",
+            agent_id,
             exc,
         )
         return ""
@@ -303,14 +313,22 @@ async def _llm_generalize_pattern(
     ]
 
     try:
-        raw = await _consume_model_text(model, messages)
+        raw = await _consume_model_text(
+            model,
+            messages,
+            thinking={"type": "disabled"},
+        )
     except Exception as exc:
         logger.debug("rule generalization LLM call failed (%s)", exc)
         return ""
     return _extract_pattern(raw)
 
 
-async def generalize_rule_match(tool_name: str, target: str) -> str:
+async def generalize_rule_match(
+    tool_name: str,
+    target: str,
+    agent_id: Optional[str] = None,
+) -> str:
     """Return a generalized ``ToolName(pattern)`` match for an approved rule.
 
     Delegates to the LLM via :func:`_llm_generalize_pattern` (bounded by
@@ -322,6 +340,10 @@ async def generalize_rule_match(tool_name: str, target: str) -> str:
     Args:
         tool_name: policy tool name, e.g. "Bash"
         target: tool's target argument value
+        agent_id: agent whose model should be used for generalization.
+            Forwarded to ``create_model_and_formatter`` so the same model
+            the agent runs on is reused, instead of falling back to the
+            global active model (which may be slower / different).
 
     Returns:
         match string, e.g. "Bash(git *)" or "Read(/ws/src/**)"
@@ -336,13 +358,16 @@ async def generalize_rule_match(tool_name: str, target: str) -> str:
 
     try:
         pattern = await asyncio.wait_for(
-            _llm_generalize_pattern(tool_name, target, tool_type),
+            _llm_generalize_pattern(tool_name, target, tool_type, agent_id),
             timeout=GENERALIZE_TIMEOUT_SECONDS,
         )
     except asyncio.TimeoutError:
-        logger.debug(
-            "rule generalization timed out after %ss; exact match used",
+        logger.warning(
+            "rule generalization timed out after %ss for %s(%s); "
+            "exact match used",
             GENERALIZE_TIMEOUT_SECONDS,
+            tool_name,
+            target,
         )
         return exact
     except Exception:
@@ -378,13 +403,14 @@ async def generalize_rule_match(tool_name: str, target: str) -> str:
 # ``GovernanceDecision.source`` values that mark a decision as driven by
 # builtin protection (resource ask: .env / .ssh / keys …). Builtin asks
 # are never generalized and never recorded — they ask every time.
-_BUILTIN_SOURCES = frozenset({"builtin-rules"})
+_BUILTIN_SOURCES = frozenset({"builtin_rules"})
 
 
 async def generalize_target_for_approval(
     tool_name: str,
     target: str,
     source: str,
+    agent_id: Optional[str] = None,
 ) -> str:
     """Generalize the approved target for the approval card + persistence.
 
@@ -397,7 +423,11 @@ async def generalize_target_for_approval(
     if source in _BUILTIN_SOURCES:
         return target
     try:
-        match_str = await generalize_rule_match(tool_name, target)
+        match_str = await generalize_rule_match(
+            tool_name,
+            target,
+            agent_id=agent_id,
+        )
         _, pattern = _parse_match(match_str)
         return pattern
     except Exception:

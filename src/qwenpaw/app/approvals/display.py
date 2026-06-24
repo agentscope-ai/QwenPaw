@@ -15,5 +15,5 @@ def approval_display_fields(pending: Any) -> dict[str, str]:
         "tool_display_name": str(
             display.get("tool_name") or pending.tool_name,
         ),
-        "tool_source": str(display.get("tool_source") or "builtin"),
+        "tool_source": str(display.get("tool_source") or "No rule hit"),
     }
