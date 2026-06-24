@@ -94,6 +94,10 @@ class ToolRegistry:
         path = input_data.get(param, "")
         path = str(path) if path else ""
 
+        # Expand a leading ``~`` to the user's home directory
+        if path:
+            path = os.path.expanduser(path)
+
         # 2) For file tools, resolve empty/relative path using workspace_dir
         if self._types.get(tool_name) == "file" and workspace_dir:
             if not path:

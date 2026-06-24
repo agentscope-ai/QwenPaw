@@ -44,7 +44,7 @@ class _FakeModel:
         self._text = text
         self._delay = delay
 
-    async def __call__(self, messages):  # noqa: ANN001
+    async def __call__(self, messages, **kwargs):  # noqa: ANN001
         if self._delay:
             await asyncio.sleep(self._delay)
         return {"text": self._text}
@@ -56,7 +56,7 @@ class _StreamingModel:
     def __init__(self, chunks: list[str]) -> None:
         self._chunks = chunks
 
-    async def __call__(self, messages):  # noqa: ANN001
+    async def __call__(self, messages, **kwargs):  # noqa: ANN001
         return self._stream()
 
     async def _stream(self):
@@ -68,7 +68,7 @@ class _StreamingModel:
 class _RaisingModel:
     """Model whose call always raises (simulates an API error)."""
 
-    async def __call__(self, messages):  # noqa: ANN001
+    async def __call__(self, messages, **kwargs):  # noqa: ANN001
         raise RuntimeError("model API blew up")
 
 
