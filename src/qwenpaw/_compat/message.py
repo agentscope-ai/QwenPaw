@@ -146,6 +146,11 @@ def msg_from_dict(data: Mapping[str, Any]) -> Any:
 
     # Translate legacy content blocks in place.
     content = payload.get("content")
+    if isinstance(content, str):
+        # 1.x stored plain-text content as a bare string; 2.0 requires a list
+        # of typed blocks.  Wrap it in a single text block.
+        payload["content"] = [{"type": "text", "text": content}]
+        content = payload["content"]
     if isinstance(content, list):
         payload["content"] = [_coerce_block(b) for b in content]
         content = payload["content"]
