@@ -257,7 +257,10 @@ class TestRepairEmptyToolInputs:
             ],
         )
         result = _repair_empty_tool_inputs([msg])
-        assert result[0].content[0]["input"] == {"key": "value"}
+        # _repair_empty_tool_inputs now stores the repaired value as a JSON
+        # string (consistent with ToolCallBlock.input being str) rather than
+        # the parsed dict, so downstream formatters receive valid JSON.
+        assert result[0].content[0]["input"] == json.dumps({"key": "value"})
 
     def test_skips_repair_when_input_already_set(self):
         msg = _msg(
