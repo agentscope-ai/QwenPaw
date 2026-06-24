@@ -326,7 +326,11 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
                 SkillEnvHook,
                 SkillEnvCleanupHook,
             )
-            from ..hooks.cron.cron_hook import CronContextHook
+            from ..hooks.cron.cron_hook import (
+                CronContextHook,
+                CronMemoryIsolateHook,
+                CronMemoryRestoreHook,
+            )
             from ..hooks.request_setup.contextvars_hook import (
                 ContextVarsSetupHook,
             )
@@ -339,6 +343,8 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
             # pylint: disable-next=protected-access
             workspace_registry._bootstrap_kwargs["builtin_hook_clses"] = [
                 CronContextHook,
+                CronMemoryIsolateHook,
+                CronMemoryRestoreHook,
                 SessionLoadHook,
                 SessionSaveHook,
                 BootstrapHook,
