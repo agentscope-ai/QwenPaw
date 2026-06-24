@@ -340,7 +340,7 @@ class TestAgentMdManagerWriteMemoryMd:
     def test_writes_nested_memory_path(self, manager, tmp_path):
         manager.write_memory_md("2026-06-24/session-a.md", "data")
         assert (tmp_path / "memory" / "2026-06-24" / "session-a.md").read_text(
-            encoding="utf-8"
+            encoding="utf-8",
         ) == "data"
 
     def test_writes_digest_path(self, manager, tmp_path):

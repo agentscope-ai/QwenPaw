@@ -549,20 +549,27 @@ class CommandHandler(ConversationCommandHandlerMixin):
                 "- Enable memory manager to use this feature",
             )
 
+        invalid_count_message: str | None = None
         try:
             count = int(args.strip() or "1")
         except ValueError:
-            return await self._make_system_msg(
+            count = 0
+            invalid_count_message = (
                 f"**Invalid Count: '{args}'**\n\n"
                 "- Count must be a positive integer\n"
-                "- Examples: /memorize, /memorize 2",
+                "- Examples: /memorize, /memorize 2"
             )
 
-        if count <= 0:
-            return await self._make_system_msg(
+        if invalid_count_message is None and count <= 0:
+            invalid_count_message = (
                 f"**Invalid Count: {count}**\n\n"
                 "- Count must be a positive integer\n"
-                "- Examples: /memorize, /memorize 2",
+                "- Examples: /memorize, /memorize 2"
+            )
+
+        if invalid_count_message is not None:
+            return await self._make_system_msg(
+                invalid_count_message,
             )
 
         reply_ids = self._latest_reply_ids(messages, count=count)
@@ -602,9 +609,12 @@ class CommandHandler(ConversationCommandHandlerMixin):
         )
 
     def _latest_reply_ids(
-        self, messages: list[Msg], *, count: int
+        self,
+        messages: list[Msg],
+        *,
+        count: int,
     ) -> list[str]:
-        """Return the latest ``count`` assistant reply ids in chronological order."""
+        """Return latest assistant reply ids in chronological order."""
         reply_ids: list[str] = []
         for msg in reversed(messages):
             if msg.role != "assistant" or msg.name != self.agent_name:

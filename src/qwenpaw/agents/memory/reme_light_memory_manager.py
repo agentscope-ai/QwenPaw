@@ -222,7 +222,7 @@ class ReMeLightMemoryManager(BaseMemoryManager):
             return False
         response_metadata = getattr(response, "metadata", None)
         if isinstance(response_metadata, dict) and response_metadata.get(
-            INBOX_EMITTED_METADATA_KEY
+            INBOX_EMITTED_METADATA_KEY,
         ):
             return False
 
@@ -293,7 +293,9 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         return {
             "auto_memory": "Auto-memory completed with no returned content.",
             "auto_dream": "Auto-dream completed with no returned content.",
-            "auto_resource": "Auto-resource completed with no returned content.",
+            "auto_resource": (
+                "Auto-resource completed with no returned content."
+            ),
         }.get(name, "Memory job completed with no returned content.")
 
     async def memory_search(

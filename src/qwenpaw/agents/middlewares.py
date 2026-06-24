@@ -28,7 +28,6 @@ from ..constant import TRUNCATION_NOTICE_MARKER
 
 if TYPE_CHECKING:
     from agentscope.agent import Agent
-    from agentscope.message import Msg
 
 logger = logging.getLogger(__name__)
 MAX_AUTO_MEMORY_REPLY_IDS = 1000
@@ -115,7 +114,8 @@ class MemoryMiddleware(MiddlewareBase):
         if not reply_id or reply_id in self._seen_auto_memory_reply_ids:
             return
         self._repair_tagged_auto_memory_search_context(
-            agent, reply_id=reply_id
+            agent,
+            reply_id=reply_id,
         )
         self._seen_auto_memory_reply_ids[reply_id] = None
         if len(self._seen_auto_memory_reply_ids) > MAX_AUTO_MEMORY_REPLY_IDS:

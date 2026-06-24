@@ -104,7 +104,9 @@ async def test_memorize_defaults_to_latest_reply_group() -> None:
     msg = await handler.handle_command("/memorize")
 
     memory_manager.auto_memory.assert_awaited_once()
-    args, kwargs = memory_manager.auto_memory.await_args
+    await_args = memory_manager.auto_memory.await_args
+    assert await_args is not None
+    args, kwargs = await_args
     assert [m.get_text_content() for m in args[0]] == ["u2", "a2"]
     assert kwargs == {
         "session_id": "session-1",
@@ -136,7 +138,9 @@ async def test_memorize_count_selects_latest_reply_groups() -> None:
     msg = await handler.handle_command("/memorize 2")
 
     memory_manager.auto_memory.assert_awaited_once()
-    args, kwargs = memory_manager.auto_memory.await_args
+    await_args = memory_manager.auto_memory.await_args
+    assert await_args is not None
+    args, kwargs = await_args
     assert [m.get_text_content() for m in args[0]] == [
         "u2",
         "a2",
@@ -168,7 +172,9 @@ async def test_memorize_falls_back_to_assistant_replies_by_role() -> None:
     msg = await handler.handle_command("/memorize")
 
     memory_manager.auto_memory.assert_awaited_once()
-    args, kwargs = memory_manager.auto_memory.await_args
+    await_args = memory_manager.auto_memory.await_args
+    assert await_args is not None
+    args, kwargs = await_args
     assert [m.get_text_content() for m in args[0]] == ["u2", "a2"]
     assert kwargs["reply_id"] == "r2"
     assert kwargs["reply_ids"] == ["r2"]
@@ -193,7 +199,9 @@ async def test_memorize_one_matches_explicit_one() -> None:
     await handler.handle_command("/memorize 1")
 
     memory_manager.auto_memory.assert_awaited_once()
-    args, kwargs = memory_manager.auto_memory.await_args
+    await_args = memory_manager.auto_memory.await_args
+    assert await_args is not None
+    args, kwargs = await_args
     assert [m.get_text_content() for m in args[0]] == ["u1", "a1"]
     assert kwargs["reply_ids"] == ["r1"]
 

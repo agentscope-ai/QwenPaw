@@ -580,7 +580,8 @@ class EmbeddingModelConfig(BaseModel):
         description="Whether to use custom dimensions",
     )
     max_cache_size: int = Field(
-        default=10000, description="Maximum cache size"
+        default=10000,
+        description="Maximum cache size",
     )
     max_input_length: int = Field(
         default=8192,
