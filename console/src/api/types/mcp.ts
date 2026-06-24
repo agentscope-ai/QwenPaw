@@ -134,7 +134,7 @@ export interface MCPAccessRule {
 
 export interface MCPAccessPrincipalOption {
   /** Where the tool call comes from */
-  source_type: "channel";
+  source_type: MCPAccessSourceType;
   /** Concrete source, e.g. console, dingtalk */
   source_value: string;
   /** Selectable object type */

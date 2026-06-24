@@ -463,13 +463,14 @@
       "subjectValuePlaceholderSelectedSource": "選択したソース内のユーザーID",
       "subjectValuePlaceholderScoped": "{{source}} のユーザーID",
       "subjectValueAll": "すべて",
-      "recentUserPlaceholder": "既存のユーザーIDを選択または入力",
-      "noRecentUsers": "利用可能なユーザーはありません",
+      "recentUserPlaceholder": "ユーザーIDは選択したソース内で有効です。再入力または選択してください",
+      "noRecentUsers": "このソースに最近のユーザーはいません。ユーザーIDを手入力できます",
       "ambiguousUserSourceWarning": "ユーザーIDはソース内でのみ一意です。チャンネルを指定して、別チャンネルのユーザーと誤って一致しないようにしてください。",
+      "unknownUserValueWarning": "このユーザーIDは最近のアクティブユーザーにありません。保存は可能です。",
       "validation": {
         "missingUserValue": "具体的なソースを選択し、有効なユーザーIDを入力してください。",
         "ambiguousUserSource": "ユーザールールは、すべてのチャンネルではなく特定のチャンネルを対象にしてください。",
-        "unknownUserValue": "このユーザーIDは選択したソースに存在しません。"
+        "unknownUserValue": "このユーザーIDは最近のアクティブユーザーにありません。保存は可能です。"
       },
       "addRule": "ルールを追加",
       "deleteRule": "ルールを削除",

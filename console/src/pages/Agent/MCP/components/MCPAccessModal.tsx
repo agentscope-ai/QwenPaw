@@ -9,7 +9,6 @@ import type {
   MCPAccessPolicy,
   MCPAccessPrincipalOption,
   MCPAccessRule,
-  MCPAccessSubjectType,
   MCPClientInfo,
   MCPToolAccessOverride,
   MCPToolInfo,
@@ -18,6 +17,7 @@ import {
   addClientRule,
   addToolRule,
   buildMCPAccessToolGroups,
+  findMCPAccessPolicyWarning,
   normalizeMCPAccessPolicy,
   removeClientRule,
   removeToolRule,
@@ -28,7 +28,6 @@ import {
 } from "../accessPolicy";
 import styles from "../index.module.less";
 import { MCPAccessClientPanel } from "./MCPAccessClientPanel";
-import { defaultSubjectValue } from "./MCPAccessRuleRows";
 import { MCPAccessToolPanel } from "./MCPAccessToolPanel";
 
 interface MCPAccessModalProps {
@@ -178,10 +177,17 @@ export const MCPAccessModal: React.FC<MCPAccessModalProps> = ({
 
   const handleSave = async () => {
     if (!policy) return;
-    const validationError = validateMCPAccessPolicy(policy, principalOptions);
+    const validationError = validateMCPAccessPolicy(policy);
     if (validationError) {
       message.error(t(`mcp.access.validation.${validationError.reason}`));
       return;
+    }
+    const validationWarning = findMCPAccessPolicyWarning(
+      policy,
+      principalOptions,
+    );
+    if (validationWarning) {
+      message.warning(t(`mcp.access.validation.${validationWarning.reason}`));
     }
     setSaving(true);
     try {
@@ -298,9 +304,7 @@ function withRuleDefaults<Rule extends MCPAccessRule>(
 ): Rule {
   const nextRule = { ...rule, ...patch };
   if (patch.subject_type) {
-    nextRule.subject_value = defaultSubjectValue(
-      patch.subject_type as MCPAccessSubjectType,
-    );
+    nextRule.subject_value = "";
   }
   if (
     (patch.source_type !== undefined || patch.source_value !== undefined) &&

@@ -722,13 +722,14 @@
       "subjectValuePlaceholderSelectedSource": "ID pengguna di sumber yang dipilih",
       "subjectValuePlaceholderScoped": "ID pengguna {{source}}",
       "subjectValueAll": "Semua",
-      "recentUserPlaceholder": "Pilih atau ketik ID pengguna yang ada",
-      "noRecentUsers": "Tidak ada pengguna yang tersedia",
+      "recentUserPlaceholder": "ID pengguna dibatasi pada sumber yang dipilih; ketik atau pilih lagi",
+      "noRecentUsers": "Tidak ada pengguna terbaru untuk sumber ini; ketik ID pengguna secara manual",
       "ambiguousUserSourceWarning": "ID pengguna hanya unik di dalam sumber. Pilih saluran tertentu untuk menghindari kecocokan lintas saluran.",
+      "unknownUserValueWarning": "ID pengguna ini tidak ada di daftar pengguna aktif terbaru. Penyimpanan tetap diizinkan.",
       "validation": {
         "missingUserValue": "Pilih sumber tertentu dan masukkan ID pengguna yang valid.",
         "ambiguousUserSource": "Aturan pengguna harus menargetkan saluran tertentu, bukan semua saluran.",
-        "unknownUserValue": "ID pengguna ini tidak ada di sumber yang dipilih."
+        "unknownUserValue": "ID pengguna ini tidak ada di daftar pengguna aktif terbaru. Penyimpanan tetap diizinkan."
       },
       "addRule": "Tambah aturan",
       "deleteRule": "Hapus aturan",

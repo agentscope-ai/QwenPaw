@@ -63,7 +63,7 @@ MCP_PROTOCOL = PROTOCOL_MCP
 MCP_TOOL_KIND = CAPABILITY_KIND_TOOL
 
 _RESERVED_KEY_PREFIXES = (
-    "access-principals",
+    "access-principals/",
     "tools/",
     "toggle/",
     "oauth/",

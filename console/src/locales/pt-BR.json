@@ -666,13 +666,14 @@
       "subjectValuePlaceholderSelectedSource": "ID de usuário na origem selecionada",
       "subjectValuePlaceholderScoped": "ID de usuário de {{source}}",
       "subjectValueAll": "Todos",
-      "recentUserPlaceholder": "Selecionar ou digitar ID de usuário existente",
-      "noRecentUsers": "Nenhum usuário disponível",
+      "recentUserPlaceholder": "O ID de usuário é limitado à origem selecionada; digite ou selecione novamente",
+      "noRecentUsers": "Nenhum usuário recente para esta origem; digite um ID manualmente",
       "ambiguousUserSourceWarning": "IDs de usuário são únicos apenas dentro da origem. Selecione um canal específico para evitar correspondência entre canais.",
+      "unknownUserValueWarning": "Este ID de usuário não está nos usuários ativos recentes. Ainda é possível salvar.",
       "validation": {
         "missingUserValue": "Selecione uma origem específica e informe um ID de usuário válido.",
         "ambiguousUserSource": "Regras de usuário devem mirar um canal específico, não todos os canais.",
-        "unknownUserValue": "Este ID de usuário não existe na origem selecionada."
+        "unknownUserValue": "Este ID de usuário não está nos usuários ativos recentes. Ainda é possível salvar."
       },
       "addRule": "Adicionar regra",
       "deleteRule": "Excluir regra",

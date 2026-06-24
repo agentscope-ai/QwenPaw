@@ -591,13 +591,14 @@
       "subjectValuePlaceholderSelectedSource": "所选频道内的用户 ID",
       "subjectValuePlaceholderScoped": "{{source}} 内的用户 ID",
       "subjectValueAll": "全部",
-      "recentUserPlaceholder": "选择或输入已存在的用户 ID",
-      "noRecentUsers": "暂无可选用户",
+      "recentUserPlaceholder": "用户 ID 仅在所选来源内有效；请重新输入或选择",
+      "noRecentUsers": "该来源暂无近期用户，可手动输入用户 ID",
       "ambiguousUserSourceWarning": "用户 ID 仅在来源内唯一，请选择具体频道以避免跨频道误匹配。",
+      "unknownUserValueWarning": "该用户 ID 未出现在近期活跃用户中，但仍可保存。",
       "validation": {
         "missingUserValue": "请选择具体来源并填写有效的用户 ID。",
         "ambiguousUserSource": "用户规则必须指定具体频道，不能选择所有频道。",
-        "unknownUserValue": "该用户 ID 在当前来源下不存在。"
+        "unknownUserValue": "该用户 ID 未出现在近期活跃用户中，但仍可保存。"
       },
       "addRule": "新增规则",
       "deleteRule": "删除规则",

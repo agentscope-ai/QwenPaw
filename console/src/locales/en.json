@@ -752,13 +752,14 @@
       "subjectValuePlaceholderSelectedSource": "user ID in selected source",
       "subjectValuePlaceholderScoped": "{{source}} user ID",
       "subjectValueAll": "All",
-      "recentUserPlaceholder": "Select or type existing user ID",
-      "noRecentUsers": "No users available",
+      "recentUserPlaceholder": "User ID is scoped to the selected source; type or select again",
+      "noRecentUsers": "No recent users for this source; type a user ID manually",
       "ambiguousUserSourceWarning": "User IDs are scoped by source. Select a specific channel to avoid cross-channel matches.",
+      "unknownUserValueWarning": "This user ID is not in recent active users. Saving is allowed.",
       "validation": {
         "missingUserValue": "Select a specific source and enter a valid user ID.",
         "ambiguousUserSource": "User rules must target a specific channel, not all channels.",
-        "unknownUserValue": "This user ID does not exist in the selected source."
+        "unknownUserValue": "This user ID is not in recent active users. Saving is allowed."
       },
       "addRule": "Add Rule",
       "deleteRule": "Delete Rule",

@@ -14,6 +14,7 @@ import {
   buildSubjectValueOptions,
   MCP_CHANNEL_SOURCE_VALUES,
   ruleHasAmbiguousUserSource,
+  ruleHasUnknownUserValue,
 } from "../accessPolicy";
 import styles from "../index.module.less";
 
@@ -97,11 +98,6 @@ const RuleSubjectValueInput: React.FC<RuleSubjectValueInputProps> = ({
     </AutoComplete>
   );
 };
-
-export function defaultSubjectValue(subjectType: MCPAccessSubjectType): string {
-  void subjectType;
-  return "";
-}
 
 const CHANNEL_SOURCE_FALLBACK_LABELS: Record<string, string> = {
   console: "Console",
@@ -245,6 +241,7 @@ function AccessRuleRow<Rule extends MCPAccessRule>({
 }: AccessRuleRowProps<Rule>) {
   const { t } = useTranslation();
   const subjectValueOptions = buildSubjectValueOptions(principalOptions, rule);
+  const hasUnknownUserValue = ruleHasUnknownUserValue(principalOptions, rule);
 
   return (
     <div className={styles.accessRuleRow}>
@@ -331,6 +328,11 @@ function AccessRuleRow<Rule extends MCPAccessRule>({
             {ruleHasAmbiguousUserSource(rule) && (
               <div className={styles.accessRuleWarning}>
                 {t("mcp.access.ambiguousUserSourceWarning")}
+              </div>
+            )}
+            {hasUnknownUserValue && (
+              <div className={styles.accessRuleWarning}>
+                {t("mcp.access.unknownUserValueWarning")}
               </div>
             )}
           </div>
