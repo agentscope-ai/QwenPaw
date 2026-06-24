@@ -688,12 +688,21 @@ class GovernancePolicy:
     ) -> GovernanceDecision:
         """Apply execution_level threshold to determine final decision.
 
-        - OFF: should not reach here (scan skipped, but rules didn't match)
+        - OFF: ALLOW (no approval needed)
         - AUTO: ASK for guarded tools, ALLOW for others
         - SMART: LOW/INFO findings → ALLOW; MEDIUM+ → ASK
         - STRICT: any findings → ASK
         """
         level = self.execution_level
+
+        # OFF mode: always ALLOW — no approval needed
+        if level == "off":
+            return GovernanceDecision(
+                action=GovernanceAction.ALLOW,
+                reason="OFF mode: approval disabled",
+                findings=findings or None,
+                source="OFF mode",
+            )
 
         if not findings:
             # No findings and no rule hit
@@ -735,7 +744,7 @@ class GovernancePolicy:
                 source=_findings_source(findings),
             )
 
-        # AUTO / OFF fallback
+        # AUTO fallback
         return GovernanceDecision(
             action=GovernanceAction.ASK,
             reason="No rule hit",
