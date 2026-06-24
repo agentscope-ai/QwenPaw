@@ -354,11 +354,18 @@ class ResourceGovernor:
                 str(self.workspace_dir),
             )
 
-    def add_approved_rule(self, tc_spec: ToolCallSpec) -> bool:
+    async def add_approved_rule(
+        self,
+        tc_spec: ToolCallSpec,
+        *,
+        generalized_target: str,
+    ) -> bool:
         """Add an ALLOW rule for a user-approved tool call.
 
-        Handles rule generalization and empty-pattern guard internally
-        so callers (tool_adapter) don't need to know policy details.
+        Args:
+            generalized_target: the generalized target/pattern (e.g.
+                ``"git *"``), already computed upstream by
+                ``generalize_target_for_approval``.
 
         Returns True if a rule was actually added, False if skipped
         (e.g. builtin ask, empty target pattern).
@@ -367,16 +374,7 @@ class ResourceGovernor:
             return False
 
         try:
-            from .policy import generalize_rule_match
-
-            generalized = generalize_rule_match(
-                tc_spec.tool_name,
-                tc_spec.target,
-            )
-            _, rule_pattern = generalized.split("(", 1)
-            rule_pattern = rule_pattern.rstrip(")")
-
-            if not rule_pattern:
+            if not generalized_target:
                 logger.debug(
                     "ResourceGovernor: empty pattern, skipping rule "
                     "for tool=%s target=%s",
@@ -385,8 +383,9 @@ class ResourceGovernor:
                 )
                 return False
 
+            match = f"{tc_spec.tool_name}({generalized_target})"
             rule = GovernanceRule(
-                match=generalized,
+                match=match,
                 action=GovernanceAction.ALLOW,
                 reason="user approved",
                 grantee=tc_spec.agent_id or "*",

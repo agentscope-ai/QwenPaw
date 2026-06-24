@@ -541,3 +541,320 @@ class TestToolRegistryGrepGlob:
             {"pattern": "*.py"},
         )
         assert target == "*.py"
+
+
+# ---------------------------------------------------------------------------
+# Test: generalize_rule_match (LLM-based rule generalization)
+# ---------------------------------------------------------------------------
+
+
+class _FakeModel:
+    """Minimal stand-in for an agentscope ChatModelBase.
+
+    ``__call__`` is awaited by ``_consume_model_text`` and returns a
+    dict-shaped response (the extractor reads ``text`` via ``dict.get``).
+    """
+
+    def __init__(self, text: str, delay: float = 0.0) -> None:
+        self._text = text
+        self._delay = delay
+
+    async def __call__(self, messages):  # noqa: ANN001
+        import asyncio
+
+        if self._delay:
+            await asyncio.sleep(self._delay)
+        return {"text": self._text}
+
+
+def _patch_model(monkeypatch, text: str, delay: float = 0.0) -> None:
+    """Make ``create_model_and_formatter`` return a _FakeModel."""
+    import qwenpaw.agents.model_factory as factory
+
+    monkeypatch.setattr(
+        factory,
+        "create_model_and_formatter",
+        lambda *a, **kw: (_FakeModel(text, delay), None),
+    )
+
+
+def _patch_model_unavailable(monkeypatch) -> None:
+    """Make model creation raise — simulates no configured provider."""
+    import qwenpaw.agents.model_factory as factory
+
+    def _raise(*a, **kw):
+        raise RuntimeError("no active model")
+
+    monkeypatch.setattr(factory, "create_model_and_formatter", _raise)
+
+
+class TestGeneralizeRuleMatch:
+    """generalize_rule_match widens an approved target via the LLM,
+    with strict validation and an exact-match fallback."""
+
+    async def test_shell_generalizes(self, monkeypatch):
+        from qwenpaw.governance.generalize import generalize_rule_match
+
+        _patch_model(monkeypatch, "git *")
+        assert (
+            await generalize_rule_match("Bash", "git status") == "Bash(git *)"
+        )
+
+    async def test_file_generalizes(self, monkeypatch):
+        from qwenpaw.governance.generalize import generalize_rule_match
+
+        _patch_model(monkeypatch, "/ws/src/**")
+        assert (
+            await generalize_rule_match("Read", "/ws/src/foo.py")
+            == "Read(/ws/src/**)"
+        )
+
+    async def test_unsafe_bare_wildcard_falls_back(self, monkeypatch):
+        from qwenpaw.governance.generalize import generalize_rule_match
+
+        _patch_model(monkeypatch, "*")
+        assert (
+            await generalize_rule_match("Bash", "git status")
+            == "Bash(git status)"
+        )
+
+    async def test_anchor_violation_falls_back(self, monkeypatch):
+        """A pattern for a different command must not be trusted."""
+        from qwenpaw.governance.generalize import generalize_rule_match
+
+        _patch_model(monkeypatch, "rm *")
+        assert (
+            await generalize_rule_match("Bash", "git status")
+            == "Bash(git status)"
+        )
+
+    async def test_destructive_command_not_widened(self, monkeypatch):
+        """rm/sudo/etc. stay exact even if the model proposes a glob."""
+        from qwenpaw.governance.generalize import generalize_rule_match
+
+        _patch_model(monkeypatch, "rm *")
+        assert (
+            await generalize_rule_match("Bash", "rm secret.env")
+            == "Bash(rm secret.env)"
+        )
+
+    async def test_pattern_not_covering_target_falls_back(self, monkeypatch):
+        """A pattern that no longer matches the approved target is rejected."""
+        from qwenpaw.governance.generalize import generalize_rule_match
+
+        _patch_model(monkeypatch, "/ws/out/**")
+        assert (
+            await generalize_rule_match("Read", "/ws/src/foo.py")
+            == "Read(/ws/src/foo.py)"
+        )
+
+    async def test_no_model_falls_back(self, monkeypatch):
+        from qwenpaw.governance.generalize import generalize_rule_match
+
+        _patch_model_unavailable(monkeypatch)
+        assert (
+            await generalize_rule_match("Bash", "git status")
+            == "Bash(git status)"
+        )
+
+    async def test_timeout_falls_back(self, monkeypatch):
+        from qwenpaw.governance import generalize as policy_mod
+
+        monkeypatch.setattr(policy_mod, "GENERALIZE_TIMEOUT_SECONDS", 0.05)
+        _patch_model(monkeypatch, "git *", delay=1.0)
+        assert (
+            await policy_mod.generalize_rule_match("Bash", "git status")
+            == "Bash(git status)"
+        )
+
+    async def test_non_generalizable_type_stays_exact(self, monkeypatch):
+        """network/internal tools are not widened."""
+        from qwenpaw.governance.generalize import generalize_rule_match
+
+        called = {"n": 0}
+
+        import qwenpaw.agents.model_factory as factory
+
+        def _spy(*_args, **_kwargs):
+            called["n"] += 1
+            return (_FakeModel("*"), None)
+
+        monkeypatch.setattr(factory, "create_model_and_formatter", _spy)
+        assert (
+            await generalize_rule_match("Browser", "https://example.com/a")
+            == "Browser(https://example.com/a)"
+        )
+        assert called["n"] == 0
+
+    async def test_empty_target_stays_exact(self, monkeypatch):
+        from qwenpaw.governance.generalize import generalize_rule_match
+
+        _patch_model(monkeypatch, "*")
+        assert await generalize_rule_match("Bash", "") == "Bash()"
+
+
+class TestAddApprovedRuleGeneralization:
+    """add_approved_rule persists the precomputed generalized target/pattern.
+
+    The LLM generalization happens upstream in
+    ``generalize_target_for_approval`` (called from ``_ask_user_approval``);
+    ``add_approved_rule`` re-wraps the supplied pattern as
+    ``ToolName(pattern)`` and never calls the model itself."""
+
+    @pytest.fixture()
+    def governor(self, tmp_path):
+        gov = _make_governor(tmp_path)
+        gov.start()
+        yield gov
+        gov.stop()
+        AuditLog._instance = None
+        shutil.rmtree(gov._policy_dir, ignore_errors=True)
+
+    async def test_records_generalized_target(self, governor, monkeypatch):
+        """A generalized target/pattern supplied by the caller is wrapped
+        and persisted as ``ToolName(pattern)``."""
+        import qwenpaw.agents.model_factory as factory
+
+        calls = {"n": 0}
+        monkeypatch.setattr(
+            factory,
+            "create_model_and_formatter",
+            lambda *a, **kw: calls.__setitem__("n", calls["n"] + 1)
+            or (_FakeModel("git *"), None),
+        )
+        added = await governor.add_approved_rule(
+            _tc("Bash", "git status"),
+            generalized_target="git *",
+        )
+        assert added is True
+        assert governor.policy.user_rules[0].match == "Bash(git *)"
+        # add_approved_rule does NOT call the model itself.
+        assert calls["n"] == 0
+
+    async def test_records_exact_target(self, governor):
+        """An exact target (generalization failed upstream) is recorded."""
+        added = await governor.add_approved_rule(
+            _tc("Bash", "git status"),
+            generalized_target="git status",
+        )
+        assert added is True
+        assert governor.policy.user_rules[0].match == "Bash(git status)"
+
+    async def test_pattern_with_paren_wrapped_correctly(self, governor):
+        """A pattern containing ')' is wrapped verbatim — the tool_name is
+        prepended, no inner parsing happens here."""
+        added = await governor.add_approved_rule(
+            _tc("Bash", "echo $(date)"),
+            generalized_target="echo $(date)",
+        )
+        assert added is True
+        assert governor.policy.user_rules[0].match == "Bash(echo $(date))"
+
+    async def test_builtin_ask_skipped(self, governor):
+        """A builtin-protected target (.env) is never recorded, even when
+        a generalized target is supplied."""
+        before = list(governor.policy.user_rules)
+        tc = _tc("Read", "/ws/.env")
+        added = await governor.add_approved_rule(
+            tc,
+            generalized_target="/ws/.env",
+        )
+        assert added is False
+        assert governor.policy.user_rules == before
+
+    async def test_empty_target_skipped(self, governor):
+        """An empty generalized target is skipped."""
+        before = list(governor.policy.user_rules)
+        added = await governor.add_approved_rule(
+            _tc("Bash", "git status"),
+            generalized_target="",
+        )
+        assert added is False
+        assert governor.policy.user_rules == before
+
+    async def test_missing_generalized_target_raises(self, governor):
+        """The keyword arg is required — calling without it is a TypeError,
+        not a silent skip. This guards the tool_adapter call site."""
+        with pytest.raises(TypeError):
+            await governor.add_approved_rule(_tc("Bash", "git status"))
+
+
+class TestGeneralizeTargetForApproval:
+    """generalize_target_for_approval is the single entry point the
+    approval flow uses; it guards builtin sources and never raises.
+    Returns the bare generalized target/pattern."""
+
+    async def test_builtin_source_returns_exact_target(self, monkeypatch):
+        from qwenpaw.governance.generalize import (
+            generalize_target_for_approval,
+        )
+
+        # Even with a model that would generalize, builtin source must
+        # return the exact target and skip the LLM.
+        import qwenpaw.agents.model_factory as factory
+
+        calls = {"n": 0}
+        monkeypatch.setattr(
+            factory,
+            "create_model_and_formatter",
+            lambda *a, **kw: calls.__setitem__("n", calls["n"] + 1)
+            or (_FakeModel("*"), None),
+        )
+        result = await generalize_target_for_approval(
+            "Read",
+            "/ws/.env",
+            "builtin-rules",
+        )
+        # Bare target, NOT wrapped in ToolName(...).
+        assert result == "/ws/.env"
+        assert calls["n"] == 0
+
+    @pytest.mark.parametrize(
+        "source",
+        ["user-rules", "sandbox", "STRICT mode", "No rule hit"],
+    )
+    async def test_non_builtin_source_generalizes(self, monkeypatch, source):
+        from qwenpaw.governance.generalize import (
+            generalize_target_for_approval,
+        )
+
+        _patch_model(monkeypatch, "git *")
+        result = await generalize_target_for_approval(
+            "Bash",
+            "git status",
+            source,
+        )
+        # Bare pattern, NOT wrapped.
+        assert result == "git *"
+
+    async def test_exception_falls_back_to_exact_target(self, monkeypatch):
+        from qwenpaw.governance import generalize as g
+
+        # Force generalize_rule_match to blow up; helper must swallow it.
+        async def _boom(tool_name, target):
+            raise RuntimeError("boom")
+
+        monkeypatch.setattr(g, "generalize_rule_match", _boom)
+        result = await g.generalize_target_for_approval(
+            "Bash",
+            "git status",
+            "sandbox",
+        )
+        assert result == "git status"
+
+    async def test_unwraps_pattern_containing_paren(self, monkeypatch):
+        """When the LLM returns a match string whose pattern contains ')',
+        the helper must unwrap correctly to the inner pattern (this is why
+        it uses _parse_match rather than a naive split)."""
+        from qwenpaw.governance import generalize as g
+
+        async def _fake(_tool_name, _target):
+            return "Bash(echo $(date))"
+
+        monkeypatch.setattr(g, "generalize_rule_match", _fake)
+        result = await g.generalize_target_for_approval(
+            "Bash",
+            "echo $(date)",
+            "sandbox",
+        )
+        assert result == "echo $(date)"

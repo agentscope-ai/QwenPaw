@@ -410,6 +410,15 @@ async def _ask_user_approval(
     root_session_id = str(ctx.get("root_session_id") or session_id)
     root_agent_id = str(ctx.get("root_agent_id") or agent_id or "unknown")
 
+    from .generalize import generalize_target_for_approval
+
+    generalized_target = await generalize_target_for_approval(
+        tool_name,
+        target,
+        source,
+    )
+    display_target = generalized_target or target
+
     # Construct a ToolGuardResult for ApprovalService.
     # If deep-scan findings were attached by policy.evaluate(),
     # convert them into GuardFindings for the approval card.
@@ -465,8 +474,8 @@ async def _ask_user_approval(
                         else "Policy Approval Required"
                     ),
                     description=(
-                        f"Tool '{tool_name}' with target '{target}' "
-                        f"requires user approval per governance policy."
+                        f"Tool '{tool_name}' with target '{display_target}' "
+                        f"requires user approval."
                         + (
                             f"\n\nGovernance reason: {governance_reason}"
                             if governance_reason
@@ -569,7 +578,10 @@ async def _ask_user_approval(
     summary = format_findings_summary(guard_result)
     if decision == ApprovalDecision.APPROVED:
         # ── Record approved rule (skip for builtin ask) ──
-        governor.add_approved_rule(tc_spec)
+        await governor.add_approved_rule(
+            tc_spec,
+            generalized_target=generalized_target,
+        )
         return PermissionDecision(
             behavior=PermissionBehavior.ALLOW,
             message=f"Approved by user.\n{summary}",
