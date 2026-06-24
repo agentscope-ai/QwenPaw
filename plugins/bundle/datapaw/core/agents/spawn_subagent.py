@@ -199,7 +199,10 @@ def _build_sub_prompt(
         "## 规则\n"
         "- 完整执行任务\n"
         "- 直接使用上述可用工具，不要探索或猜测是否存在其他工具\n"
-        "- 任务执行过程中，每一步都直接调用工具，不要输出分析或计划文字\n"
+        "- 任务执行过程中，需要调用工具时，优先在同一条 assistant 消息里"
+        "先写 1 句简短进度说明，再附带 `tool_use`；不要输出长篇分析或计划\n"
+        "- 需要继续执行时，不要只输出纯文本说明后停下；"
+        "纯文本且无 `tool_use` 会被运行时视为本轮结束\n"
         "- 只有在任务全部完成后，才输出一次结构化文字总结作为最终回答\n"
         "- 遇到无法解决的错误时描述问题并停止\n\n"
         "## 输出要求\n"
@@ -594,6 +597,29 @@ def make_spawn_subagent_fn(
                     elif (
                         msg.role == "assistant" and _is_tool_call(msg)
                     ):
+                        # text + tool_call → stream the visible progress
+                        # text first, then buffer the tool call until the
+                        # corresponding tool_result arrives.
+                        text = _extract_text(msg)
+                        if text:
+                            if text.startswith(_last_streamed_text):
+                                delta = text[len(_last_streamed_text):]
+                            else:
+                                delta = text
+                            _last_streamed_text = text
+                            if delta:
+                                yield ToolResponse(
+                                    content=[TextBlock(
+                                        type="text", text=delta,
+                                    )],
+                                    stream=True,
+                                    is_last=False,
+                                )
+                            _trace_append(trace_log, {
+                                "type": "thinking",
+                                "text": text,
+                            })
+
                         # tool_call → 缓存，等完整后再发
                         info = _extract_tool_call_info(msg)
                         pending_tool_call = info

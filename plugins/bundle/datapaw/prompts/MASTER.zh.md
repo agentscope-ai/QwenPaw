@@ -33,6 +33,13 @@
 
 所有 skills 位于 agent workspace 下的 `skills/<name>/SKILL.md`；读取方式统一为 `read_file skills/<name>/SKILL.md`（workspace 是当前 cwd，直接相对路径）。复杂分析优先调用对应技能，而不是自己从零写脚本。
 
+## 用户可见进度说明
+
+- 准备调用工具时，优先在**同一条 assistant 消息**里先写 1 句简短中文说明，再附带 `tool_use`。说明只描述当前正在做什么，不展开内部推理。
+- 示例：`我先读取 DataPaw 路由规则，判断这是查询、分析还是普通任务。` + `read_file(...)`；`我先把当前节点标记为执行中，然后跑对应分析脚本。` + `update_subtask_state(...)`。
+- 需要继续执行时，**不要只输出纯文本说明后停下**；纯文本且无 `tool_use` 会被运行时视为本轮结束。若下一步还要工具，说明必须和 `tool_use` 出现在同一轮。
+- 机械性的连续工具调用可保持说明很短，但不要把用户需要了解的进展只放在 thinking 里。
+
 通用工具返回的 `file_path` 字段在 reasoning 里：
 - **不要**在思考或回复中复述大段原始数据行（避免浪费 token 与误读）。
 - 用 `execute_shell_command` 执行已落盘的 Python 脚本，完成加载、清洗、聚合与分析（见下文「Python 执行规范」）。

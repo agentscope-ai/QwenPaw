@@ -48,7 +48,8 @@ class TestBuildSubPrompt:
 
     def test_anti_premature_exit_rules(self):
         prompt = _build_sub_prompt("test", "", {}, [], [])
-        assert "直接调用工具" in prompt
+        assert "同一条 assistant 消息" in prompt
+        assert "纯文本且无 `tool_use`" in prompt
         assert "最终回答" in prompt
 
     def test_includes_datapaw_environment(self, tmp_path):
@@ -449,6 +450,93 @@ async def test_tool_call_and_result():
         assert any("[tool_call]" in t for t in texts), f"missing tool_call: {texts}"
         assert any("rows: 42" in t for t in texts), f"missing tool_result: {texts}"
         assert results[-1].is_last is True
+
+
+@pytest.mark.asyncio
+async def test_text_and_tool_call_same_message_streams_text_first():
+    reply_msg = Msg("agent", content="完成", role="assistant")
+
+    with patch("core.agents.spawn_subagent.ReActAgent") as MockAgent:
+
+        async def _call(task_msg):
+            q = instance._stored_queue
+            await q.put(
+                (
+                    Msg(
+                        "agent",
+                        content=[
+                            {
+                                "type": "text",
+                                "text": "我先查询可用指标，再执行 SQL。",
+                            },
+                            {
+                                "type": "tool_use",
+                                "id": "tc1",
+                                "name": "execute_sql",
+                                "input": {"query": "SELECT 1"},
+                            },
+                        ],
+                        role="assistant",
+                    ),
+                    True,
+                    None,
+                )
+            )
+            await q.put(
+                (
+                    Msg(
+                        "system",
+                        content=[
+                            {
+                                "type": "tool_result",
+                                "id": "tc1",
+                                "name": "execute_sql",
+                                "output": [{"type": "text", "text": "rows: 1"}],
+                            }
+                        ],
+                        role="system",
+                    ),
+                    True,
+                    None,
+                )
+            )
+            return reply_msg
+
+        instance = AsyncMock(side_effect=_call)
+
+        def _set_q(enabled, q):
+            instance._stored_queue = q
+
+        instance.set_msg_queue_enabled = _set_q
+        MockAgent.return_value = instance
+
+        fn = make_spawn_subagent_fn(
+            runtime_state=_make_runtime_state(),
+            get_model_and_formatter=lambda: (MagicMock(), MagicMock()),
+            get_builtin_tools=lambda: [],
+            get_mcp_clients=lambda: [],
+            get_skill_dirs_for_role=lambda r: [],
+        )
+        results = []
+        async for resp in fn(task="query", role="data_fetcher"):
+            results.append(resp)
+
+        texts = [r.content[0]["text"] for r in results]
+        progress_idx = next(
+            i for i, text in enumerate(texts)
+            if "我先查询可用指标" in text
+        )
+        tool_idx = next(i for i, text in enumerate(texts) if "[tool_call]" in text)
+        assert progress_idx < tool_idx
+        assert any("rows: 1" in t for t in texts)
+
+        final = results[-1]
+        entries = final.metadata["entries"]
+        assert {"type": "thinking", "text": "我先查询可用指标，再执行 SQL。"} in entries
+        assert any(
+            e["type"] == "tool_call" and e["name"] == "execute_sql"
+            for e in entries
+        )
 
 
 @pytest.mark.asyncio

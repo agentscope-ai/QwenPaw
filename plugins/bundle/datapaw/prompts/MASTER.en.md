@@ -33,6 +33,13 @@ After entering the analysis execution stage, also `read_file skills/runtime-guid
 
 All skills live under the agent workspace at `skills/<name>/SKILL.md`; read them uniformly via `read_file skills/<name>/SKILL.md` (the workspace is your cwd, relative paths work directly). For complex analysis, prefer the matching skill over writing a script from scratch.
 
+## User-visible progress text
+
+- When preparing a tool call, prefer writing one short user-visible sentence in the **same assistant message** before the `tool_use`. The sentence should say what you are doing now, not expose private reasoning.
+- Examples: `I will first read the DataPaw router rules to classify this as a query, analysis, or ordinary task.` + `read_file(...)`; `I will mark the current node in progress, then run the analysis script for it.` + `update_subtask_state(...)`.
+- When more execution is needed, **do not stop after a text-only explanation**. A text-only assistant message with no `tool_use` is treated by the runtime as the end of the turn. If the next step needs a tool, the explanation and `tool_use` must appear in the same reasoning round.
+- Keep mechanical consecutive tool-call explanations brief, but do not leave user-relevant progress visible only in thinking.
+
 For `file_path` fields returned by general tools, during reasoning:
 - **Do not** echo large raw data rows in your reasoning or reply (wastes tokens and risks misreading).
 - Use `execute_shell_command` to run persisted Python scripts for loading, cleaning, aggregating, and analyzing (see "Python execution rules" below).
