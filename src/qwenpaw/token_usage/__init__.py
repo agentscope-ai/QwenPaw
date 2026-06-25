@@ -12,7 +12,6 @@ from .manager import (
 from .model_wrapper import TokenRecordingModelWrapper
 from .turn_usage import (
     TURN_USAGE_META_KEY,
-    attach_turn_usage_metadata,
     finalize_console_turn_usage,
     fmt_tokens,
     get_pending_usage_for_stream,
@@ -29,7 +28,6 @@ __all__ = [
     "_UsageEvent",
     "fmt_tokens",
     "TURN_USAGE_META_KEY",
-    "attach_turn_usage_metadata",
     "finalize_console_turn_usage",
     "get_pending_usage_for_stream",
     "reset_pending_usage_for_stream",

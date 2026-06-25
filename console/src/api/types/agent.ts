@@ -32,7 +32,6 @@ export interface LightContextConfig {
 export interface AutoMemorySearchConfig {
   enabled: boolean;
   max_results: number;
-  min_score: number;
   persist_to_context: boolean;
 }
 

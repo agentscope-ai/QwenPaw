@@ -435,9 +435,7 @@
 
 /* ─── Skills Grid ─────────────────────────────────────────────────────────── */
 .skillsGrid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-  gap: 16px;
+  /* Layout (grid + gap) is provided by the shared .responsive-grid utility. */
   padding: 16px;
 }
 
@@ -1157,8 +1155,108 @@
     align-items: stretch;
   }
 
+  .headerRight {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+    width: 100%;
+  }
+
   .headerActionsLeft,
-  .headerActionsRight {
+  .headerActionsRight,
+  .batchActions {
     flex-wrap: wrap;
+    width: 100%;
+
+    > * {
+      flex: 1 0 auto;
+      min-width: 0;
+    }
+
+    :global(.qwenpaw-btn) {
+      min-width: 0;
+    }
+  }
+
+  .primaryTransferButton,
+  .primaryActionButton {
+    min-width: 0;
+  }
+
+  .importToolbar {
+    flex-wrap: wrap;
+    justify-content: flex-start;
+  }
+
+  .toolbar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
+
+  .searchContainer {
+    max-width: none;
+    width: 100%;
+  }
+
+  .searchInput {
+    :global(input) {
+      text-align: center;
+    }
+  }
+
+  .tagSelect {
+    :global {
+      .qwenpaw-select-selection-placeholder,
+      .ant-select-selection-placeholder {
+        text-align: center;
+      }
+
+      .qwenpaw-select-selection-overflow,
+      .ant-select-selection-overflow {
+        justify-content: center;
+      }
+    }
+  }
+
+  .toolbarRight {
+    justify-content: space-between;
+    width: 100%;
+  }
+
+  .skillsGrid {
+    /* Grid columns/gap are handled by the shared .responsive-grid utility. */
+    padding: 12px;
+  }
+
+  .skillCard {
+    min-height: auto;
+  }
+
+  :global(.dark-mode) {
+    .descriptionText {
+      background: rgba(255, 255, 255, 0.04);
+      border-color: rgba(255, 255, 255, 0.1);
+      color: rgba(255, 255, 255, 0.65);
+    }
+  }
+
+  .cardFooter {
+    position: static;
+    margin-top: 12px;
+    padding: 0;
+    background: transparent;
+  }
+
+  .cardTopRight {
+    gap: 6px;
+  }
+
+  .metaInfoRow {
+    flex-wrap: wrap;
+
+    .metaInfoLabel {
+      min-width: 64px;
+    }
   }
 }

@@ -444,8 +444,12 @@ class ConsoleChannel(BaseChannel):
                 elif obj == "response":
                     last_response = event
 
-            runner = getattr(self._workspace, "runner", None)
-            session = getattr(runner, "session", None) if runner else None
+            # Session is on ``workspace.session``.
+            session = (
+                getattr(self._workspace, "session", None)
+                if self._workspace is not None
+                else None
+            )
             agent_id = (
                 getattr(self._workspace, "agent_id", "default")
                 if self._workspace is not None

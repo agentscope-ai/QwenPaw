@@ -24,6 +24,7 @@ from helpers import (
     register_mock_provider,
     scoped,
     unregister_mock_provider,
+    wait_cron_executed,
 )
 
 _HTTP_TIMEOUT = 15.0
@@ -123,21 +124,6 @@ def _delete_job(app_server, job_id):
         pass
 
 
-def _poll_history(app_server, job_id, deadline):
-    while time.time() < deadline:
-        resp = app_server.api_request(
-            "GET",
-            f"/api/cron/jobs/{job_id}/history",
-            timeout=_HTTP_TIMEOUT,
-        )
-        if resp.status_code == 200:
-            records = resp.json()
-            if isinstance(records, list) and records:
-                return records
-        time.sleep(1.0)
-    return []
-
-
 def _register_provider_with_id(
     app_server,
     provider_id: str,
@@ -226,7 +212,7 @@ def test_rate_limit_429_then_recover(app_server, mock_llm) -> None:
             f"/api/cron/jobs/{job_id}/run",
             timeout=_HTTP_TIMEOUT,
         )
-        records = _poll_history(
+        records = wait_cron_executed(
             app_server,
             job_id,
             time.time() + 60.0,
@@ -298,7 +284,7 @@ def test_persistent_5xx_eventually_fails(app_server, mock_llm) -> None:
             f"/api/cron/jobs/{job_id}/run",
             timeout=_HTTP_TIMEOUT,
         )
-        records = _poll_history(
+        records = wait_cron_executed(
             app_server,
             job_id,
             time.time() + 60.0,
