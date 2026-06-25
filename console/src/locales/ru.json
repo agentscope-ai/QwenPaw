@@ -1069,6 +1069,7 @@
     "protocolHint": "Выберите протокол API провайдера для этой конфигурации.",
     "selectProtocol": "Пожалуйста, выберите протокол",
     "protocolOpenAI": "OpenAI-совместимый (Chat Completions)",
+    "protocolOpenAIResponse": "OpenAI-совместимый (Response API)",
     "protocolAnthropic": "Anthropic (Messages API)",
     "currentKey": "Текущий: {{key}}",
     "startsWith": "Начинается с «{{prefix}}»",

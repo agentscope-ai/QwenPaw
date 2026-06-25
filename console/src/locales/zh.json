@@ -1278,6 +1278,7 @@
     "protocolHint": "为当前配置选择提供商 API 协议。",
     "selectProtocol": "请选择协议",
     "protocolOpenAI": "OpenAI 兼容（Chat Completions）",
+    "protocolOpenAIResponse": "OpenAI 兼容（Response API）",
     "protocolAnthropic": "Anthropic（Messages API）",
     "currentKey": "当前密钥：{{key}}",
     "startsWith": "以 \"{{prefix}}\" 开头",

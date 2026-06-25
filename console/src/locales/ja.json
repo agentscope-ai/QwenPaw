@@ -1069,6 +1069,7 @@
     "protocolHint": "この設定のプロバイダーAPIプロトコルを選択してください。",
     "selectProtocol": "プロトコルを選択してください",
     "protocolOpenAI": "OpenAI互換（Chat Completions）",
+    "protocolOpenAIResponse": "OpenAI互換（Response API）",
     "protocolAnthropic": "Anthropic（Messages API）",
     "currentKey": "現在: {{key}}",
     "startsWith": "\"{{prefix}}\" で始まる",

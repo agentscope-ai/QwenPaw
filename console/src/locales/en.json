@@ -1429,6 +1429,7 @@
     "protocolHint": "Choose the provider API protocol for this configuration.",
     "selectProtocol": "Please select a protocol",
     "protocolOpenAI": "OpenAI-compatible (Chat Completions)",
+    "protocolOpenAIResponse": "OpenAI-compatible (Response API)",
     "protocolAnthropic": "Anthropic (Messages API)",
     "currentKey": "Current: {{key}}",
     "startsWith": "Starts with \"{{prefix}}\"",

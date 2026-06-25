@@ -1375,6 +1375,7 @@
     "protocolHint": "Pilih protokol API penyedia untuk konfigurasi ini.",
     "selectProtocol": "Harap pilih protokol",
     "protocolOpenAI": "Kompatibel OpenAI (Chat Completions)",
+    "protocolOpenAIResponse": "Kompatibel OpenAI (Response API)",
     "protocolAnthropic": "Anthropic (Messages API)",
     "currentKey": "Saat ini: {{key}}",
     "startsWith": "Dimulai dengan \"{{prefix}}\"",

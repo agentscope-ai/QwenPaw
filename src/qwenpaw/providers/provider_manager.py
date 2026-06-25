@@ -28,6 +28,7 @@ from .openai_provider import (
     OpenCodeProvider,
     KiloProvider,
 )
+from .openai_response_provider import OpenAIResponseProvider
 from .lmstudio_provider import LMStudioProvider
 from .provider import (
     ModelInfo,
@@ -945,6 +946,16 @@ PROVIDER_OPENAI = OpenAIProvider(
     freeze_url=True,
 )
 
+PROVIDER_OPENAI_RESPONSE = OpenAIResponseProvider(
+    id="openai-response",
+    name="OpenAI (Response API)",
+    base_url="https://api.openai.com/v1",
+    api_key_prefix="sk-",
+    chat_model="OpenAIResponseModel",
+    models=OPENAI_MODELS,
+    freeze_url=True,
+)
+
 PROVIDER_OPENCODE = OpenCodeProvider(
     id="opencode",
     name="OpenCode",
@@ -1290,6 +1301,7 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
         self._add_builtin(PROVIDER_OPENCODE)
         self._add_builtin(PROVIDER_KILO)
         self._add_builtin(PROVIDER_OPENAI)
+        self._add_builtin(PROVIDER_OPENAI_RESPONSE)
         self._add_builtin(PROVIDER_AZURE_OPENAI)
         self._add_builtin(PROVIDER_ANTHROPIC)
         self._add_builtin(PROVIDER_GEMINI)
@@ -1889,6 +1901,7 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
                 return True
         return False
 
+    # pylint: disable=too-many-return-statements
     def _provider_from_data(self, data: Dict) -> Provider:
         """Deserialize provider data to a concrete provider type."""
         provider_id = str(data.get("id", ""))
@@ -1904,6 +1917,8 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
             return DashScopeProvider.model_validate(data)
         if provider_id == "ollama":
             return OllamaProvider.model_validate(data)
+        if chat_model == "OpenAIResponseModel":
+            return OpenAIResponseProvider.model_validate(data)
         return OpenAIProvider.model_validate(data)
 
     def save_active_model(self, active_model: ModelSlotConfig):
