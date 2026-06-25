@@ -22,6 +22,9 @@ from fastapi import APIRouter, Body, HTTPException, UploadFile, File, Request
 from fastapi.responses import ORJSONResponse, Response, StreamingResponse
 from watchfiles import awatch, Change
 from pydantic import BaseModel, Field
+import logging
+
+logger = logging.getLogger(__name__)
 
 from ..utils import check_upload_size, safe_join, schedule_agent_reload
 from ...config import (
@@ -31,10 +34,47 @@ from ...config import (
 )
 from ...config.config import load_agent_config, save_agent_config
 from ...agents.memory.agent_md_manager import AgentMdManager
+from ...governance.policy import load_governance_policy, save_governance_policy
+from ...governance.resource_governor import ResourceGovernor
 from ...agents.templates import get_workspace_md_template_id
 from ...agents.utils import copy_workspace_md_files
 from ...constant import BUILTIN_QA_AGENT_ID, SUPPORTED_AGENT_LANGUAGES
 from ..agent_context import get_agent_for_request, get_coding_dir
+
+
+def _normalize_execution_level(approval_level: Optional[str]) -> str:
+    """Map frontend approval_level to policy.yaml execution_level."""
+    if not approval_level:
+        return "smart"
+    normalized = approval_level.lower()
+    if normalized in {"off", "auto", "smart", "strict"}:
+        return normalized
+    return "smart"
+
+
+def _sync_policy_execution_level(
+    agent_id: str,
+    workspace_dir: Path,
+    approval_level: Optional[str],
+) -> None:
+    """Sync approval_level from agent config to policy.yaml execution_level."""
+    try:
+        governor = ResourceGovernor(str(workspace_dir))
+        governor.start()
+        new_level = _normalize_execution_level(approval_level)
+        if governor.policy.execution_level != new_level:
+            governor.policy.execution_level = new_level
+            save_governance_policy(
+                governor.policy,
+                str(governor._policy_dir),
+                str(governor.workspace_dir),
+            )
+    except Exception:
+        logger.debug(
+            "Failed to sync approval_level to policy.yaml for agent=%s",
+            agent_id,
+            exc_info=True,
+        )
 
 
 router = APIRouter(prefix="/workspace", tags=["workspace"])
@@ -935,6 +975,12 @@ async def put_agents_running_config(
     running_config.approval_level = None
     agent_config.running = running_config
     save_agent_config(workspace.agent_id, agent_config)
+
+    _sync_policy_execution_level(
+        workspace.agent_id,
+        workspace.workspace_dir,
+        agent_config.approval_level,
+    )
 
     schedule_agent_reload(request, workspace.agent_id)
 
