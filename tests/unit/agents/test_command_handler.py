@@ -81,8 +81,27 @@ async def test_compact_respects_disabled_config() -> None:
     assert "Compact skipped" in msg.get_text_content()
 
 
+class _FakeCtxConfig(SimpleNamespace):
+    """Minimal stand-in for AgentScope's ContextConfig with model_copy()."""
+
+    def model_copy(self, *, update):
+        merged = {
+            "trigger_ratio": self.trigger_ratio,
+            "reserve_ratio": self.reserve_ratio,
+            **update,
+        }
+        return _FakeCtxConfig(**merged)
+
+
 @pytest.mark.asyncio
 async def test_compact_uses_manual_force_context_config() -> None:
+    """Manual /compact clones the live agent's context_config, dropping the
+    auto trigger and shrinking the reserve to the forced module constants."""
+    from qwenpaw.agents.command_handler import (
+        _FORCE_RESERVE_RATIO,
+        _FORCE_TRIGGER_RATIO,
+    )
+
     captured = {}
 
     async def _compress_context(context_config=None):
@@ -94,6 +113,7 @@ async def test_compact_uses_manual_force_context_config() -> None:
         context=[object()],
         summary="",
     )
+    agent.context_config = _FakeCtxConfig(trigger_ratio=0.8, reserve_ratio=0.2)
     agent.compress_context = _compress_context
     handler = CommandHandler(agent_name="QwenPaw", agent=agent)
     # pylint: disable=protected-access
@@ -102,6 +122,8 @@ async def test_compact_uses_manual_force_context_config() -> None:
     msg = await handler.handle_command("/compact")
 
     context_config = captured["context_config"]
-    assert context_config.trigger_ratio == 0.000001
-    assert context_config.reserve_ratio == 0.2
+    assert context_config.trigger_ratio == _FORCE_TRIGGER_RATIO
+    assert context_config.reserve_ratio == _FORCE_RESERVE_RATIO
+    # The live agent's own config is left untouched (model_copy, not mutated).
+    assert agent.context_config.reserve_ratio == 0.2
     assert "Compact Complete" in msg.get_text_content()
