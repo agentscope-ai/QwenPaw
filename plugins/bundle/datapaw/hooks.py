@@ -15,7 +15,8 @@ Four patches, installed from ``plugin._on_startup``:
    ``request_context["agent_id"] == "datapaw"``, plus a thin wrapper around
    ``AgentRunner.query_handler`` that stashes ``request`` / ``runner`` in
    contextvars so the adapter can wire ``DAGStore`` and the SSE queue after
-   agent construction.
+   agent construction, and schedules best-effort dialogue trace submission
+   after each DataPaw turn.
 3. ``setup_channel_sse_hook`` — replaces ``ConsoleChannel.stream_one`` so the
    DAG ``TaskEvent`` queue attached to ``request._datapaw_sse_queue`` gets
    drained into SSE frames alongside the regular message stream.
@@ -264,11 +265,70 @@ def _wrap_query_handler(orig_query_handler):
             ):
                 yield item
         finally:
-            _datapaw_request_var.reset(request_token)
-            _datapaw_runner_var.reset(runner_token)
+            try:
+                _schedule_trace_submit_for_request(self, request, msgs)
+            except Exception:  # pylint: disable=broad-except
+                logger.warning(
+                    "DataPaw trace submit scheduling failed",
+                    exc_info=True,
+                )
+            finally:
+                _datapaw_request_var.reset(request_token)
+                _datapaw_runner_var.reset(runner_token)
 
     _patched_query_handler._datapaw_patched = True
     return _patched_query_handler
+
+
+def _last_message_id(msgs: Any) -> str:
+    """Return the last incoming message id, used as dialogue delimiter."""
+    if not isinstance(msgs, list):
+        msgs = [msgs] if msgs is not None else []
+    for msg in reversed(msgs):
+        value = ""
+        if isinstance(msg, dict):
+            value = msg.get("id") or ""
+        else:
+            value = getattr(msg, "id", "") or ""
+        if value:
+            return str(value)
+    return ""
+
+
+def _schedule_trace_submit_for_request(
+    runner: Any,
+    request: Any,
+    msgs: Any,
+) -> None:
+    """Best-effort dialogue trace submission after a DataPaw turn ends."""
+    session_id = getattr(request, "session_id", "") or ""
+    user_id = getattr(request, "user_id", "") or "default"
+    channel = getattr(request, "channel", "") or "console"
+    if not session_id:
+        logger.debug("DataPaw trace submit skipped: request has no session_id")
+        return
+
+    request_context = getattr(request, "request_context", None)
+    if not isinstance(request_context, dict):
+        request_context = {}
+
+    try:
+        from .core.trace_submitter import schedule_trace_submit
+
+        schedule_trace_submit(
+            runner=runner,
+            session_id=session_id,
+            user_id=user_id,
+            channel=channel,
+            request_context=request_context,
+            trigger_msg_id=_last_message_id(msgs),
+        )
+    except Exception:  # pylint: disable=broad-except
+        logger.warning(
+            "DataPaw trace submit scheduling failed: session_id=%s",
+            session_id,
+            exc_info=True,
+        )
 
 
 def setup_runner_hooks(_runner_module=None) -> None:
