@@ -4,24 +4,17 @@ import { Button, Checkbox, Modal, Typography } from "antd";
 import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { isTauriRuntime } from "./backendRuntime";
+import {
+  getRememberedCloseAction,
+  setRememberedCloseAction,
+  type CloseAction,
+} from "./closeWindowPreference";
 
 const CLOSE_REQUESTED_EVENT = "qwenpaw-close-requested";
-const CLOSE_ACTION_STORAGE_KEY = "qwenpaw.closeWindowAction";
-
-type CloseAction = "minimize-to-tray" | "quit";
 
 async function runCloseAction(action: CloseAction): Promise<void> {
   const command = action === "quit" ? "quit_app" : "minimize_to_tray";
   await invoke<void>(command);
-}
-
-function getRememberedCloseAction(): CloseAction | null {
-  const action = window.localStorage.getItem(CLOSE_ACTION_STORAGE_KEY);
-  return action === "minimize-to-tray" || action === "quit" ? action : null;
-}
-
-function setRememberedCloseAction(action: CloseAction) {
-  window.localStorage.setItem(CLOSE_ACTION_STORAGE_KEY, action);
 }
 
 export default function CloseWindowPrompt() {

@@ -37,7 +37,9 @@
       "remember": "Запомнить мой выбор",
       "showWindow": "Показать окно",
       "minimizeToTray": "Свернуть в трей",
-      "quitApp": "Выйти из приложения"
+      "quitApp": "Выйти из приложения",
+      "preference": "Закрытие окна",
+      "resetPreference": "Сбросить выбор"
     }
   },
   "chunkError": {

@@ -37,7 +37,9 @@
       "remember": "選択を記憶する",
       "showWindow": "ウィンドウを表示",
       "minimizeToTray": "トレイに最小化",
-      "quitApp": "アプリを終了"
+      "quitApp": "アプリを終了",
+      "preference": "ウィンドウを閉じる",
+      "resetPreference": "選択をリセット"
     }
   },
   "chunkError": {

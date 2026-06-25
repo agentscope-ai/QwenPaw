@@ -55,6 +55,17 @@
     color: var(--colorText, rgba(0, 0, 0, 0.88));
   }
 
+  &:disabled {
+    cursor: not-allowed;
+    opacity: 0.45;
+  }
+
+  &:disabled:hover {
+    background: transparent;
+    border-color: var(--colorBorderSecondary, rgba(0, 0, 0, 0.06));
+    color: var(--colorTextSecondary, rgba(0, 0, 0, 0.65));
+  }
+
   &Active {
     background: var(--colorPrimaryBg, #fff7e6);
     border-color: var(--colorPrimary, #ff9d4d);
@@ -92,6 +103,12 @@
       background: rgba(255, 255, 255, 0.06);
       border-color: rgba(255, 255, 255, 0.2);
       color: rgba(255, 255, 255, 0.88);
+    }
+
+    &:disabled:hover {
+      background: transparent;
+      border-color: rgba(255, 255, 255, 0.1);
+      color: rgba(255, 255, 255, 0.55);
     }
 
     &Active {

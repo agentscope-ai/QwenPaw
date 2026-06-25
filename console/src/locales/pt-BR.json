@@ -39,7 +39,9 @@
       "remember": "Lembrar minha escolha",
       "showWindow": "Mostrar janela",
       "minimizeToTray": "Minimizar para a bandeja",
-      "quitApp": "Sair do aplicativo"
+      "quitApp": "Sair do aplicativo",
+      "preference": "Fechar Janela",
+      "resetPreference": "Redefinir escolha"
     }
   },
   "chunkError": {

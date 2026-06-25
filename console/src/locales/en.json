@@ -40,7 +40,9 @@
       "remember": "Remember my choice",
       "showWindow": "Show Window",
       "minimizeToTray": "Minimize to Tray",
-      "quitApp": "Quit App"
+      "quitApp": "Quit App",
+      "preference": "Close Window",
+      "resetPreference": "Reset Choice"
     }
   },
   "chunkError": {

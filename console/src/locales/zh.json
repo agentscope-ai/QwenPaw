@@ -40,7 +40,9 @@
       "remember": "记住我的选择",
       "showWindow": "显示窗口",
       "minimizeToTray": "最小化到托盘",
-      "quitApp": "退出应用"
+      "quitApp": "退出应用",
+      "preference": "关闭窗口",
+      "resetPreference": "重置选择"
     }
   },
   "chunkError": {

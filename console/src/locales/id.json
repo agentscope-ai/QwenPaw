@@ -39,7 +39,9 @@
       "remember": "Ingat pilihan saya",
       "showWindow": "Tampilkan Jendela",
       "minimizeToTray": "Minimalkan ke baki sistem",
-      "quitApp": "Keluar dari Aplikasi"
+      "quitApp": "Keluar dari Aplikasi",
+      "preference": "Tutup Jendela",
+      "resetPreference": "Atur ulang pilihan"
     }
   },
   "chunkError": {
