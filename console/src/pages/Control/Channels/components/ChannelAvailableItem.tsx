@@ -16,8 +16,21 @@ export const ChannelAvailableItem = React.memo(function ChannelAvailableItem({
   const { t } = useTranslation();
   const label = getChannelLabel(channelKey, t);
 
+  const handleKeyDown = (event: React.KeyboardEvent) => {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      onClick();
+    }
+  };
+
   return (
-    <div className={styles.availableItem} onClick={onClick}>
+    <div
+      className={styles.availableItem}
+      onClick={onClick}
+      onKeyDown={handleKeyDown}
+      role="button"
+      tabIndex={0}
+    >
       <ChannelIcon channelKey={channelKey} size={24} />
       <span className={styles.availableItemName}>{label}</span>
       <span className={styles.availableItemAction}>

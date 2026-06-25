@@ -179,7 +179,7 @@
   border-radius: 8px;
   cursor: pointer;
   transition: all 0.2s ease;
-  background: rgba(0, 0, 0, 0.03);
+  background: rgba(0, 0, 0, 0.01);
   border: 1px solid rgba(0, 0, 0, 0.06);
 
   &:hover {
@@ -189,6 +189,11 @@
     .availableItemAction {
       color: rgba(0, 0, 0, 0.88);
     }
+  }
+
+  &:focus-visible {
+    outline: 2px solid #1677ff;
+    outline-offset: 1px;
   }
 }
 
@@ -628,6 +633,10 @@
       .availableItemAction {
         color: rgba(255, 255, 255, 0.85);
       }
+    }
+
+    &:focus-visible {
+      outline-color: #ff7f16;
     }
   }
 
