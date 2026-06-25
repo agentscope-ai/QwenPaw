@@ -7,11 +7,13 @@ import {
   createColumns,
   FilterBar,
   SessionDrawer,
+  formatTime,
   type Session,
 } from "./components";
 import { useSessions } from "./useSessions";
 import api from "../../../api";
 import { PageHeader } from "@/components/PageHeader";
+import { ChannelIcon } from "../Channels/components";
 import styles from "./index.module.less";
 
 function SessionsPage() {
@@ -37,6 +39,15 @@ function SessionsPage() {
   const [filterChannel, setFilterChannel] = useState<string>("");
   const [filterTitle, setFilterTitle] = useState<string>("");
   const [availableChannels, setAvailableChannels] = useState<string[]>([]);
+  const [isMobile, setIsMobile] = useState(false);
+
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 768px)");
+    setIsMobile(mq.matches);
+    const handler = (e: MediaQueryListEvent) => setIsMobile(e.matches);
+    mq.addEventListener("change", handler);
+    return () => mq.removeEventListener("change", handler);
+  }, []);
 
   // ponytail: defer re-filtering until idle to avoid per-keystroke lag
   //   ceiling: if list is 10k+ sessions, consider virtualisation + backend search
@@ -174,6 +185,7 @@ function SessionsPage() {
         extra={
           <div className={styles.headerRight}>
             <FilterBar
+              isMobile={isMobile}
               filterUserId={filterUserId}
               filterChannel={filterChannel}
               filterTitle={filterTitle}
@@ -191,23 +203,74 @@ function SessionsPage() {
         }
       />
 
-      <Card className={styles.tableCard} bodyStyle={{ padding: 0 }}>
-        <Table
-          columns={columns}
-          dataSource={filteredSessions}
-          loading={loading}
-          rowKey="id"
-          rowSelection={rowSelection}
-          rowClassName={(record) =>
-            selectedRowKeys.includes(record.id) ? styles.selectedRow : ""
-          }
-          scroll={{ x: 1500 }}
-          pagination={{
-            pageSize: 10,
-            showSizeChanger: false,
-          }}
-        />
-      </Card>
+      {isMobile ? (
+        <div className={styles.mobileCardList}>
+          {filteredSessions.map((session) => (
+            <Card
+              key={session.id}
+              className={styles.mobileSessionCard}
+              size="small"
+              bodyStyle={{ padding: 24 }}
+            >
+              <div className={styles.mobileSessionHeader}>
+                <span className={styles.mobileSessionName}>
+                  {session.name || session.id}
+                </span>
+                <span className={styles.mobileSessionChannel}>
+                  <ChannelIcon channelKey={session.channel} size={24} />
+                </span>
+              </div>
+              <div className={styles.mobileSessionMeta}>
+                <span>ID: {session.id}</span>
+                {session.user_id && <span>User: {session.user_id}</span>}
+                <span>Created: {formatTime(session.created_at)}</span>
+              </div>
+              <div className={styles.mobileSessionActions}>
+                <Button
+                  size="small"
+                  className={styles.mobileActionBtn}
+                  onClick={() => handleEdit(session)}
+                >
+                  {t("common.edit")}
+                </Button>
+                <Button
+                  size="small"
+                  className={styles.mobileActionBtn}
+                  onClick={() => handleView(session)}
+                >
+                  {t("common.view")}
+                </Button>
+                <Button
+                  size="small"
+                  className={styles.mobileActionBtn}
+                  danger
+                  onClick={() => handleDelete(session.id)}
+                >
+                  {t("common.delete")}
+                </Button>
+              </div>
+            </Card>
+          ))}
+        </div>
+      ) : (
+        <Card className={styles.tableCard} bodyStyle={{ padding: 0 }}>
+          <Table
+            columns={columns}
+            dataSource={filteredSessions}
+            loading={loading}
+            rowKey="id"
+            rowSelection={rowSelection}
+            rowClassName={(record) =>
+              selectedRowKeys.includes(record.id) ? styles.selectedRow : ""
+            }
+            scroll={{ x: 1500 }}
+            pagination={{
+              pageSize: 10,
+              showSizeChanger: false,
+            }}
+          />
+        </Card>
+      )}
 
       <SessionDrawer
         open={drawerOpen}

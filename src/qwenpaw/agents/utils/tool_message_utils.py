@@ -1,34 +1,57 @@
 # -*- coding: utf-8 -*-
 """Tool message validation and sanitization utilities.
 
-This module ensures tool_use and tool_result messages are properly
+This module ensures tool_call/tool_result messages are properly
 paired and ordered to prevent API errors.
+
+Supports both dict blocks (1.x ``type="tool_use"``) and Pydantic
+``ToolCallBlock``/``ToolResultBlock`` objects (2.0 ``type="tool_call"``).
 """
 import json
 import logging
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
+_TOOL_CALL_TYPES = ("tool_use", "tool_call")
+_TOOL_RESULT_TYPES = ("tool_result",)
+
+
+def _block_attr(block: Any, key: str, default: Any = None) -> Any:
+    """Read *key* from a dict or Pydantic block."""
+    if isinstance(block, dict):
+        return block.get(key, default)
+    return getattr(block, key, default)
+
+
+def _is_tool_call(block: Any) -> bool:
+    return _block_attr(block, "type") in _TOOL_CALL_TYPES
+
+
+def _is_tool_result(block: Any) -> bool:
+    return _block_attr(block, "type") in _TOOL_RESULT_TYPES
+
 
 def extract_tool_ids(msg) -> tuple[set[str], set[str]]:
-    """Return (tool_use_ids, tool_result_ids) found in a single message.
+    """Return (tool_call_ids, tool_result_ids) found in a single message.
 
     Args:
         msg: A Msg object whose content may contain tool blocks.
 
     Returns:
-        A tuple of two sets: (tool_use IDs, tool_result IDs).
+        A tuple of two sets: (tool_call IDs, tool_result IDs).
     """
     uses: set[str] = set()
     results: set[str] = set()
     if isinstance(msg.content, list):
         for block in msg.content:
-            if isinstance(block, dict) and block.get("id"):
-                btype = block.get("type")
-                if btype == "tool_use":
-                    uses.add(block["id"])
-                elif btype == "tool_result":
-                    results.add(block["id"])
+            bid = _block_attr(block, "id")
+            if not bid:
+                continue
+            if _is_tool_call(block):
+                uses.add(bid)
+            elif _is_tool_result(block):
+                results.add(bid)
     return uses, results
 
 
@@ -63,12 +86,11 @@ def _reorder_tool_results(msgs: list) -> list:
     for msg in msgs:
         if isinstance(msg.content, list):
             for block in msg.content:
-                if (
-                    isinstance(block, dict)
-                    and block.get("type") == "tool_result"
-                    and block.get("id")
-                ):
-                    results_by_id.setdefault(block["id"], []).append(msg)
+                if _is_tool_result(block) and _block_attr(block, "id"):
+                    results_by_id.setdefault(
+                        _block_attr(block, "id"),
+                        [],
+                    ).append(msg)
                     result_msg_ids.add(id(msg))
 
     consumed: dict[str, int] = {}
@@ -81,13 +103,9 @@ def _reorder_tool_results(msgs: list) -> list:
         if not isinstance(msg.content, list):
             continue
         for block in msg.content:
-            if not (
-                isinstance(block, dict)
-                and block.get("type") == "tool_use"
-                and block.get("id")
-            ):
+            if not (_is_tool_call(block) and _block_attr(block, "id")):
                 continue
-            bid = block["id"]
+            bid = _block_attr(block, "id")
             candidates = results_by_id.get(bid, [])
             ci = consumed.get(bid, 0)
             if ci >= len(candidates):
@@ -159,15 +177,12 @@ def _dedup_tool_blocks(msgs: list) -> list:
         new_blocks: list = []
         deduped = False
         for block in msg.content:
-            if (
-                isinstance(block, dict)
-                and block.get("type") == "tool_use"
-                and block.get("id")
-            ):
-                if block["id"] in seen_ids:
+            if _is_tool_call(block) and _block_attr(block, "id"):
+                bid = _block_attr(block, "id")
+                if bid in seen_ids:
                     deduped = True
                     continue
-                seen_ids.add(block["id"])
+                seen_ids.add(bid)
             new_blocks.append(block)
         if deduped:
             msg.content = new_blocks
@@ -204,18 +219,12 @@ def _remove_invalid_tool_blocks(msgs: list) -> list:
         removed = False
 
         for block in msg.content:
-            if not isinstance(block, dict):
-                new_blocks.append(block)
-                continue
+            block_type = _block_attr(block, "type")
 
-            block_type = block.get("type")
+            if _is_tool_call(block) or _is_tool_result(block):
+                block_id = _block_attr(block, "id")
+                block_name = _block_attr(block, "name")
 
-            # Validate tool_use and tool_result blocks
-            if block_type in ("tool_use", "tool_result"):
-                block_id = block.get("id")
-                block_name = block.get("name")
-
-                # Check if id is valid (not None, not empty string)
                 if not block_id:
                     logger.warning(
                         "Removing %s with invalid id: id=%r, name=%r",
@@ -226,10 +235,10 @@ def _remove_invalid_tool_blocks(msgs: list) -> list:
                     removed = True
                     continue
 
-                # For tool_use, also check name is non-empty
-                if block_type == "tool_use" and not block_name:
+                if _is_tool_call(block) and not block_name:
                     logger.warning(
-                        "Removing tool_use with invalid name: id=%r, name=%r",
+                        "Removing %s with invalid name: id=%r, name=%r",
+                        block_type,
                         block_id,
                         block_name,
                     )
@@ -275,44 +284,42 @@ def _repair_empty_tool_inputs(
         repaired = False
 
         for block in msg.content:
-            if not isinstance(block, dict):
-                new_blocks.append(block)
-                continue
+            if _is_tool_call(block):
+                input_field = _block_attr(block, "input", {})
+                raw_input = _block_attr(block, "raw_input", "")
 
-            # Check if this is a tool_use with empty input but valid raw_input
-            if block.get("type") == "tool_use":
-                input_field = block.get("input", {})
-                raw_input = block.get("raw_input", "")
-
-                # If input is empty but raw_input has content, try to parse
                 if not input_field and raw_input and raw_input != "{}":
                     try:
-                        # Use raw_decode instead of json.loads to tolerate
-                        # trailing extra content that some models (e.g.
-                        # DeepSeek-V4-Flash) append after the closing brace of
-                        # a no-parameter tool call.  raw_decode parses the
-                        # first valid JSON value and ignores the rest,
-                        # so "{}garbage" silently yields {} instead of
-                        # raising "Extra data".
-                        _decoder = json.JSONDecoder()
-                        parsed, _ = _decoder.raw_decode(raw_input.strip())
+                        parsed = json.loads(
+                            raw_input
+                            if isinstance(raw_input, str)
+                            else str(raw_input),
+                        )
                         if isinstance(parsed, dict) and parsed:
-                            # Success! Update the input field
-                            block["input"] = parsed
+                            # All agentscope 2.0 formatters expect
+                            # ToolCallBlock.input to be a JSON string
+                            # (Anthropic/Gemini do json.loads on their side).
+                            # Use json.dumps for both dict and Pydantic blocks
+                            # so the downstream pipeline is consistent.
+                            input_str = json.dumps(parsed, ensure_ascii=False)
+                            if isinstance(block, dict):
+                                block["input"] = input_str
+                            else:
+                                block.input = input_str
                             repaired = True
                             logger.info(
-                                "Repaired tool_use input from raw_input: "
+                                "Repaired tool input from raw_input: "
                                 "id=%s, name=%s, keys=%s",
-                                block.get("id"),
-                                block.get("name"),
+                                _block_attr(block, "id"),
+                                _block_attr(block, "name"),
                                 list(parsed.keys()),
                             )
-                    except (json.JSONDecodeError, ValueError, TypeError) as e:
+                    except (json.JSONDecodeError, TypeError) as e:
                         logger.warning(
-                            "Failed to repair tool_use input from raw_input: "
+                            "Failed to repair tool input from raw_input: "
                             "id=%s, name=%s, error=%s",
-                            block.get("id"),
-                            block.get("name"),
+                            _block_attr(block, "id"),
+                            _block_attr(block, "name"),
                             e,
                         )
 
@@ -327,6 +334,89 @@ def _repair_empty_tool_inputs(
     return result if changed else msgs
 
 
+# pylint: disable=too-many-branches
+def _coerce_tool_inputs_to_json(msgs: list) -> list:
+    """Ensure every tool_call block's ``input`` field is a valid JSON string.
+
+    The DashScope (and other OpenAI-compatible) APIs reject requests where
+    ``function.arguments`` is not valid JSON.  This can happen when a
+    historical session stored a ``ToolCallBlock`` whose ``input`` field was
+    saved as a non-JSON value (e.g. an empty string ``""``, or a bare dict),
+    or is missing entirely.
+
+    Coercion rules:
+    * Already-valid JSON string → keep as-is.
+    * ``dict`` / ``list`` → ``json.dumps``.
+    * Empty string ``""`` → ``"{}"`` (treat as no-args call).
+    * Non-empty non-JSON string (e.g. truncated streaming artefact) →
+      **drop the block** so ``_remove_unpaired_tool_messages`` can clean up
+      the orphaned tool_result.  Replacing with ``{}`` would cause the tool
+      to be called with wrong/empty arguments, which is worse.
+    """
+    for msg in msgs:
+        if not isinstance(getattr(msg, "content", None), list):
+            continue
+
+        new_blocks: list = []
+        changed_this_msg = False
+
+        for block in msg.content:
+            if not _is_tool_call(block):
+                new_blocks.append(block)
+                continue
+
+            # Legacy dict blocks go through _coerce_block on load and also
+            # always carry "input". Fall back to "" just in case so
+            # downstream code stays safe.
+            raw = _block_attr(block, "input", "")
+
+            drop_block = False
+            coerced_input: str = raw if isinstance(raw, str) else "{}"
+
+            if isinstance(raw, str):
+                try:
+                    json.loads(raw)
+                    coerced_input = raw  # already a valid JSON string
+                except (json.JSONDecodeError, ValueError):
+                    if raw == "":
+                        coerced_input = "{}"
+                    else:
+                        # Non-empty but unparseable (e.g. truncated during
+                        # streaming).  Drop rather than silently sending "{}".
+                        logger.warning(
+                            "tool_call input is not valid JSON; "
+                            "dropping block: id=%r, name=%r, "
+                            "input_preview=%s",
+                            _block_attr(block, "id"),
+                            _block_attr(block, "name"),
+                            repr(raw[:120]),
+                        )
+                        drop_block = True
+            elif isinstance(raw, (dict, list)):
+                coerced_input = json.dumps(raw, ensure_ascii=False)
+            else:
+                # None / bytes / int / … → treat as empty.
+                coerced_input = "{}"
+
+            if drop_block:
+                changed_this_msg = True
+                continue  # omit from new_blocks
+
+            if coerced_input != raw:
+                if isinstance(block, dict):
+                    block["input"] = coerced_input
+                else:
+                    block.input = coerced_input
+                changed_this_msg = True
+
+            new_blocks.append(block)
+
+        if changed_this_msg:
+            msg.content = new_blocks
+
+    return msgs
+
+
 def _sanitize_tool_messages(msgs: list) -> list:
     """Ensure tool_use/tool_result messages are properly paired and ordered.
 
@@ -334,6 +424,9 @@ def _sanitize_tool_messages(msgs: list) -> list:
     """
     # First, repair tool_use blocks with empty input but valid raw_input
     msgs = _repair_empty_tool_inputs(msgs)
+    # Coerce all tool_call input fields to valid JSON strings so that
+    # providers (DashScope, OpenAI, etc.) do not reject the request.
+    msgs = _coerce_tool_inputs_to_json(msgs)
     # Then, remove invalid tool blocks (empty id, None name, etc.)
     msgs = _remove_invalid_tool_blocks(msgs)
     # Finally, remove duplicate tool blocks
@@ -343,6 +436,11 @@ def _sanitize_tool_messages(msgs: list) -> list:
     needs_fix = False
     for msg in msgs:
         msg_uses, msg_results = extract_tool_ids(msg)
+        # Process uses BEFORE results so that intra-message pairs
+        # (AgentScope 2.0 style: tool_call + tool_result in the same
+        # assistant message) are correctly matched.
+        for uid in msg_uses:
+            pending[uid] = pending.get(uid, 0) + 1
         for rid in msg_results:
             if pending.get(rid, 0) <= 0:
                 needs_fix = True
@@ -352,11 +450,9 @@ def _sanitize_tool_messages(msgs: list) -> list:
                 del pending[rid]
         if needs_fix:
             break
-        if pending and not msg_results:
+        if pending and not msg_results and not msg_uses:
             needs_fix = True
             break
-        for uid in msg_uses:
-            pending[uid] = pending.get(uid, 0) + 1
     if not needs_fix and not pending:
         return msgs
 

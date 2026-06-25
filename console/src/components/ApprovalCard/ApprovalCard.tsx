@@ -11,6 +11,7 @@ const { Text } = Typography;
 export interface ApprovalCardProps {
   requestId: string;
   toolName: string;
+  toolSource?: string;
   severity: string;
   findingsCount: number;
   findingsSummary: string;
@@ -31,6 +32,7 @@ export interface ApprovalCardProps {
 export function ApprovalCard({
   requestId,
   toolName,
+  toolSource,
   severity,
   findingsCount,
   findingsSummary,
@@ -86,6 +88,10 @@ export function ApprovalCard({
   }, [agentsById, ownerAgentId, agentId, t]);
   const shouldShowExecutionAgent =
     showInboxAgentContext && Boolean(isCrossSession);
+  const displayToolSource =
+    toolSource && toolSource !== "builtin"
+      ? toolSource
+      : t("approval.builtinSource", "Built-in");
 
   useEffect(() => {
     const elapsed = Date.now() / 1000 - createdAt;
@@ -190,6 +196,15 @@ export function ApprovalCard({
           <Text className={styles.label}>{t("approval.tool", "Tool")}:</Text>
           <Text className={styles.value} code>
             {toolName}
+          </Text>
+        </div>
+
+        <div className={styles.infoRow}>
+          <Text className={styles.label}>
+            {t("approval.source", "Source")}:
+          </Text>
+          <Text className={styles.value} code>
+            {displayToolSource}
           </Text>
         </div>
 

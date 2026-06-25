@@ -6,14 +6,19 @@ Covers the pure helpers: ``_get_last_user_text``, ``_is_conversation_command``,
 coroutine is exercised by integration tests; we only verify here that the
 short-circuit (empty input) path yields nothing.
 """
-# pylint: disable=protected-access,redefined-outer-name,unused-argument
+# pylint: disable=protected-access,redefined-outer-name,unused-argument,wrong-import-position,no-name-in-module
 from __future__ import annotations
 
 from types import SimpleNamespace
 
 import pytest
 
-from qwenpaw.app.runner import command_dispatch as cd
+# pylint: disable=no-name-in-module
+# flake8: noqa: E402,E501
+cd = pytest.importorskip(  # type: ignore[assignment]
+    "qwenpaw.app.runner.command_dispatch",
+    reason="qwenpaw.app.runner was removed in AgentScope 2.0",
+)
 
 
 # ---------------------------------------------------------------------------

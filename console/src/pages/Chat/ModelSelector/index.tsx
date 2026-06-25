@@ -698,7 +698,9 @@ export default function ModelSelector() {
       <Dropdown
         open={open}
         onOpenChange={handleOpenChange}
-        popupRender={() => dropdownContent}
+        popupRender={() => (
+          <div style={{ transform: "translateY(0)" }}>{dropdownContent}</div>
+        )}
         trigger={["click"]}
         placement="bottomLeft"
       >

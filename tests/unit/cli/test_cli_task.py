@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from click.testing import CliRunner
@@ -219,68 +219,6 @@ def test_stdout_json_and_default_context(monkeypatch) -> None:
     assert "elapsed_seconds" in data
     assert "_headless_tool_guard" not in captured_ctx
     assert "_headless_skills_dir" not in captured_ctx
-
-
-# ── ToolGuardMixin behavior ─────────────────────────────────────────
-
-
-class _FakeActingBase:
-    """Provides ``_acting`` that ToolGuardMixin.super() resolves to."""
-
-    def __init__(self):
-        self.acting_called = False
-
-    async def _acting(self, _tool_call):
-        self.acting_called = True
-        return {"output": "executed"}
-
-
-def _build_guarded_agent(request_context: dict):
-    from qwenpaw.agents.tool_guard_mixin import ToolGuardMixin
-
-    class _GuardInstance(ToolGuardMixin, _FakeActingBase):
-        pass
-
-    inst = _GuardInstance()
-    inst._request_context = dict(  # pylint: disable=protected-access
-        request_context,
-    )
-    return inst
-
-
-async def test_tool_guard_bypassed_via_request_context():
-    """_acting delegates directly to super when _headless_tool_guard=false."""
-    agent = _build_guarded_agent({"_headless_tool_guard": "false"})
-
-    tool_call = {"id": "tc_1", "name": "execute_shell_command", "input": {}}
-    result = await agent._acting(tool_call)  # pylint: disable=protected-access
-
-    assert agent.acting_called is True
-    assert result == {"output": "executed"}
-
-
-async def test_tool_guard_not_bypassed_without_flag():
-    """Without _headless_tool_guard, the mixin runs its guard logic."""
-    agent = _build_guarded_agent({"session_id": "s1"})
-
-    tool_call = {"id": "tc_2", "name": "execute_shell_command", "input": {}}
-    with patch(
-        "qwenpaw.security.tool_guard.engine.get_guard_engine",
-    ) as mock_engine_fn:
-        mock_engine = MagicMock()
-        mock_engine.enabled = True
-        mock_engine.is_denied.return_value = False
-        mock_engine.is_guarded.return_value = False
-        mock_engine.guard.return_value = None
-        mock_engine_fn.return_value = mock_engine
-
-        with patch("qwenpaw.app.approvals.get_approval_service"):
-            result = await agent._acting(  # pylint: disable=protected-access
-                tool_call,
-            )
-
-    assert agent.acting_called is True
-    assert result == {"output": "executed"}
 
 
 # ── Full CLI → request_context → component e2e ──────────────────────

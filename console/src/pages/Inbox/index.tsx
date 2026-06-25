@@ -405,7 +405,8 @@ export default function InboxPage() {
                   agentId={approval.agent_id}
                   ownerAgentId={approval.owner_agent_id}
                   showInboxAgentContext
-                  toolName={approval.tool_name}
+                  toolName={approval.tool_display_name || approval.tool_name}
+                  toolSource={approval.tool_source}
                   severity={approval.severity}
                   findingsCount={approval.findings_count}
                   findingsSummary={approval.findings_summary}

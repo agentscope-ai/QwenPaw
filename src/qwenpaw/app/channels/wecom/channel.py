@@ -25,14 +25,15 @@ from collections import OrderedDict
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from agentscope_runtime.engine.schemas.agent_schemas import (
+from aibot import WSClient, WSClientOptions, generate_req_id
+
+from qwenpaw.schemas import (
     AgentRequest,
     FileContent,
     ImageContent,
     TextContent,
     VideoContent,
 )
-from aibot import WSClient, WSClientOptions, generate_req_id
 
 from ....constant import DEFAULT_MEDIA_DIR
 from ....exceptions import ChannelError

@@ -8,7 +8,8 @@ from pathlib import Path
 from typing import Any
 
 from agentscope.message import TextBlock
-from agentscope.tool import ToolResponse
+from agentscope.message import ToolResultState
+from agentscope.tool import ToolChunk
 
 logger = logging.getLogger(__name__)
 
@@ -103,8 +104,9 @@ def _save_prd(prd_path: Path, prd: dict) -> None:
     logger.info("Updated prd.json at: %s (backup: %s)", prd_path, backup_name)
 
 
-def _error_response(message: str) -> ToolResponse:
-    return ToolResponse(
+def _error_response(message: str) -> ToolChunk:
+    return ToolChunk(
+        state=ToolResultState.SUCCESS,
         content=[
             TextBlock(
                 type="text",
@@ -122,7 +124,7 @@ def _error_response(message: str) -> ToolResponse:
     )
 
 
-def _ok_response(message: str, data: dict = None) -> ToolResponse:
+def _ok_response(message: str, data: dict = None) -> ToolChunk:
     result = {
         "status": "ok",
         "message": message,
@@ -134,7 +136,8 @@ def _ok_response(message: str, data: dict = None) -> ToolResponse:
     }
     if data:
         result["data"] = data
-    return ToolResponse(
+    return ToolChunk(
+        state=ToolResultState.SUCCESS,
         content=[
             TextBlock(
                 type="text",
@@ -151,7 +154,7 @@ async def _handle_create(  # pylint: disable=too-many-return-statements
     description: str = None,
     branch_name: str = None,
     stories: list[dict] | str = None,
-) -> ToolResponse:
+) -> ToolChunk:
     """处理 create 操作：创建新的 PRD。
 
     Args:
@@ -163,7 +166,7 @@ async def _handle_create(  # pylint: disable=too-many-return-statements
         stories: stories 列表或 JSON 字符串（必填）
 
     Returns:
-        ToolResponse: 创建结果
+        ToolChunk: 创建结果
     """
     if not project or not project.strip():
         return _error_response("create 操作需要 project 参数（项目名称）")
@@ -258,7 +261,7 @@ async def manage_prd(  # noqa: E501 # pylint: disable=too-many-return-statements
     description: str = None,
     branch_name: str = None,
     stories: list[dict] | str = None,
-) -> ToolResponse:
+) -> ToolChunk:
     """Create or modify the PRD (prd.json) for the current mission.
 
     ⚠️ IMPORTANT: This is the ONLY correct way to create or modify prd.json
@@ -311,7 +314,7 @@ async def manage_prd(  # noqa: E501 # pylint: disable=too-many-return-statements
             passes/notes are auto-filled.
 
     Returns:
-        `ToolResponse`: JSON result with status and message.
+        `ToolChunk`: JSON result with status and message.
     """
     loop_path = Path(loop_dir).expanduser().resolve()
     prd_path = loop_path / "prd.json"

@@ -157,13 +157,12 @@ export const useAgentsData = () => {
 
   const handleFileClick = async (file: MarkdownFile) => {
     if (file.filename === "MEMORY.md") {
-      if (expandedMemory && selectedFile?.filename === "MEMORY.md") {
-        setExpandedMemory(false);
-        return;
-      } else {
-        setExpandedMemory(true);
-        fetchDailyMemories();
-      }
+      setExpandedMemory((prev) => {
+        if (!prev) {
+          fetchDailyMemories();
+        }
+        return !prev;
+      });
     }
 
     setSelectedFile(file);
@@ -288,6 +287,14 @@ export const useAgentsData = () => {
     fetchDailyMemories,
     handleFileClick,
     handleDailyMemoryClick,
+    toggleExpandedMemory: () => {
+      setExpandedMemory((v) => {
+        if (!v) {
+          fetchDailyMemories();
+        }
+        return !v;
+      });
+    },
     handleSave,
     handleReset,
     handleToggleFileEnabled,

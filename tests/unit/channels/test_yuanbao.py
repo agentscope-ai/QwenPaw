@@ -528,7 +528,7 @@ class TestSendMedia:
     """P1: Media upload and sending."""
 
     async def test_extract_media_url_image(self, connected_channel):
-        from agentscope_runtime.engine.schemas.agent_schemas import ContentType
+        from qwenpaw.schemas import ContentType
 
         part = MagicMock()
         part.type = ContentType.IMAGE
@@ -538,7 +538,7 @@ class TestSendMedia:
         assert url == "https://example.com/photo.jpg"
 
     async def test_extract_media_url_file(self, connected_channel):
-        from agentscope_runtime.engine.schemas.agent_schemas import ContentType
+        from qwenpaw.schemas import ContentType
 
         part = MagicMock()
         part.type = ContentType.FILE
@@ -549,7 +549,7 @@ class TestSendMedia:
         assert url == "/tmp/report.pdf"
 
     async def test_extract_media_url_empty(self, connected_channel):
-        from agentscope_runtime.engine.schemas.agent_schemas import ContentType
+        from qwenpaw.schemas import ContentType
 
         part = MagicMock()
         part.type = ContentType.TEXT
@@ -558,7 +558,7 @@ class TestSendMedia:
 
     async def test_send_media_part_upload_success(self, connected_channel):
         """Media part should upload to COS and send via WebSocket."""
-        from agentscope_runtime.engine.schemas.agent_schemas import ContentType
+        from qwenpaw.schemas import ContentType
         from qwenpaw.app.channels.yuanbao.media import UploadResult
 
         part = MagicMock()
@@ -603,7 +603,7 @@ class TestSendMedia:
         connected_channel,
     ):
         """Failed upload should fall back to text link."""
-        from agentscope_runtime.engine.schemas.agent_schemas import ContentType
+        from qwenpaw.schemas import ContentType
 
         part = MagicMock()
         part.type = ContentType.IMAGE
@@ -940,7 +940,7 @@ class TestParseMsgBody:
         tmp_path,
     ):
         """TIMFileElem with audio suffix should yield AudioContent."""
-        from agentscope_runtime.engine.schemas.agent_schemas import (
+        from qwenpaw.schemas import (
             AudioContent,
         )
 
@@ -980,7 +980,7 @@ class TestParseMsgBody:
         tmp_path,
     ):
         """TIMFileElem with non-audio suffix should yield FileContent."""
-        from agentscope_runtime.engine.schemas.agent_schemas import (
+        from qwenpaw.schemas import (
             FileContent,
         )
 
@@ -1021,7 +1021,7 @@ class TestParseMsgBody:
         tmp_path,
     ):
         """Missing ``file_name`` should fall back to literal ``file``."""
-        from agentscope_runtime.engine.schemas.agent_schemas import (
+        from qwenpaw.schemas import (
             FileContent,
         )
 
@@ -1061,7 +1061,7 @@ class TestParseMsgBody:
         tmp_path,
     ):
         """Failed download should surface a TextContent placeholder."""
-        from agentscope_runtime.engine.schemas.agent_schemas import (
+        from qwenpaw.schemas import (
             TextContent,
         )
 

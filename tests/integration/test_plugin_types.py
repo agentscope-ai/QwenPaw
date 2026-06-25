@@ -140,7 +140,7 @@ def _command_plugin_zip(plugin_id: str) -> bytes:
     """Plugin that registers a /slash control command."""
     backend = (
         "# -*- coding: utf-8 -*-\n"
-        "from qwenpaw.app.runner.control_commands.base import (\n"
+        "from qwenpaw.runtime.commands.control.base import (\n"
         "    BaseControlCommandHandler,\n"
         ")\n"
         "\n"

@@ -1106,5 +1106,29 @@
     "searchMemory": "Tìm bộ nhớ",
     "updateMemory": "Cập nhật bộ nhớ",
     "deleteMemory": "Xóa bộ nhớ"
+  },
+  "sessions": {
+    "title": "Phiên làm việc",
+    "description": "Xem và quản lý các phiên chat đang hoạt động",
+    "loading": "Đang tải phiên...",
+    "confirmDelete": "Xác nhận xóa",
+    "deleteConfirm": "Bạn có chắc muốn xóa phiên này không?",
+    "batchDeleteConfirm": "Bạn có chắc muốn xóa {{count}} phiên đã chọn không?",
+    "deleteSuccess": "Xóa phiên thành công",
+    "deleteFailed": "Xóa phiên thất bại",
+    "batchDeleteSuccess": "Đã xóa thành công {{count}} phiên",
+    "batchDeleteFailed": "Xóa hàng loạt thất bại",
+    "saveSuccess": "Lưu phiên thành công",
+    "saveFailed": "Lưu phiên thất bại",
+    "batchDeleteButton": "Xóa hàng loạt",
+    "filterTitle": "Lọc theo tiêu đề",
+    "filterUserId": "Lọc theo ID người dùng",
+    "filterChannel": "Lọc theo kênh",
+    "allChannels": "Tất cả kênh",
+    "totalItems": "Tổng {{count}} mục",
+    "selectedItems": "Đã chọn {{count}} mục",
+    "editSession": "Chỉnh sửa phiên",
+    "pleaseInputName": "Vui lòng nhập tên phiên",
+    "sessionNamePlaceholder": "Tên phiên"
   }
 }

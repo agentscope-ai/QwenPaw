@@ -7,7 +7,23 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from qwenpaw.agents.acp.server import (
+import pytest
+
+# pylint: disable=no-name-in-module,wrong-import-position
+# flake8: noqa: E402,E501
+_acp_server = pytest.importorskip(
+    "qwenpaw.agents.acp.server",
+    reason=(
+        "_extract_tool_output / _media_block_url / _msg_to_updates / "
+        "_tool_result_content were removed in AgentScope 2.0 ACP rewrite"
+    ),
+)
+if not hasattr(_acp_server, "_extract_tool_output"):
+    pytest.skip(
+        "_extract_tool_output not available in AgentScope 2.0",
+        allow_module_level=True,
+    )
+from qwenpaw.agents.acp.server import (  # type: ignore[import]
     _extract_tool_output,
     _media_block_url,
     _msg_to_updates,

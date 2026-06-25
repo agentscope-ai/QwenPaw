@@ -94,58 +94,57 @@ for _pkg in _metadata_pkgs:
     except Exception:
         pass
 
-hiddenimports = [
-    # uvicorn internals (not auto-discovered by PyInstaller)
-    "uvicorn.logging",
-    "uvicorn.loops",
-    "uvicorn.loops.auto",
-    "uvicorn.protocols",
-    "uvicorn.protocols.http",
-    "uvicorn.protocols.http.auto",
-    "uvicorn.protocols.websockets",
-    "uvicorn.protocols.websockets.auto",
-    "uvicorn.lifespan",
-    "uvicorn.lifespan.on",
-    # All CLI sub-commands (dynamically loaded by Click)
-    *collect_submodules("qwenpaw.cli"),
-    # All channel adapters (imported on-demand at runtime)
-    *collect_submodules("qwenpaw.app.channels"),
-    # ASGI app entry points
-    "qwenpaw.app._app",
-    "qwenpaw.app.api",
-    "qwenpaw.app.middleware",
-    "qwenpaw.app.multi_agent_manager",
-    "qwenpaw.app.runner",
-    # Backup modules are exposed through qwenpaw.backup.__getattr__, which
-    # PyInstaller cannot discover from static imports.
-    *collect_submodules("qwenpaw.backup"),
-    # Third-party packages that use dynamic imports. Use
-    # collect_submodules() for packages that load many submodules by name;
-    # keep the bare package string when runtime code imports only the
-    # package root or when PyInstaller needs the top-level module anchor.
-    *collect_submodules("dotenv"),
-    "dotenv",
-    "a2a",
-    "a2a.types",
-    *collect_submodules("acp"),
-    "acp",
-    "agentscope_runtime",
-    "psutil",
-    "multipart",
-    "websockets",
-    "modelscope",
-    "modelscope.hub.api",
-    "modelscope.hub.snapshot_download",
-    *collect_submodules("whisper"),
-    *collect_submodules("chromadb"),
-]
-
-backend = Analysis(
+a = Analysis(
     [str(SRC / "tauri" / "entry.py")],
     pathex=[str(REPO_ROOT), str(REPO_ROOT / "src")],
     binaries=[],
     datas=datas,
-    hiddenimports=hiddenimports,
+    hiddenimports=[
+        # uvicorn internals (not auto-discovered by PyInstaller)
+        "uvicorn.logging",
+        "uvicorn.loops",
+        "uvicorn.loops.auto",
+        "uvicorn.protocols",
+        "uvicorn.protocols.http",
+        "uvicorn.protocols.http.auto",
+        "uvicorn.protocols.websockets",
+        "uvicorn.protocols.websockets.auto",
+        "uvicorn.lifespan",
+        "uvicorn.lifespan.on",
+        # All CLI sub-commands (dynamically loaded by Click)
+        *collect_submodules("qwenpaw.cli"),
+        # All channel adapters (imported on-demand at runtime)
+        *collect_submodules("qwenpaw.app.channels"),
+        # ASGI app entry points
+        "qwenpaw.app._app",
+        "qwenpaw.app.api",
+        "qwenpaw.app.middleware",
+        "qwenpaw.app.multi_agent_manager",
+        "qwenpaw.app.chats",
+        "qwenpaw.app.task_tracker",
+        "qwenpaw.runtime.commands",
+        # Backup modules are exposed through qwenpaw.backup.__getattr__, which
+        # PyInstaller cannot discover from static imports.
+        *collect_submodules("qwenpaw.backup"),
+        # Third-party packages that use dynamic imports. Use
+        # collect_submodules() for packages that load many submodules by name;
+        # keep the bare package string when runtime code imports only the
+        # package root or when PyInstaller needs the top-level module anchor.
+        *collect_submodules("dotenv"),
+        "dotenv",
+        "a2a",
+        "a2a.types",
+        *collect_submodules("acp"),
+        "acp",
+        "psutil",
+        "multipart",
+        "websockets",
+        "modelscope",
+        "modelscope.hub.api",
+        "modelscope.hub.snapshot_download",
+        *collect_submodules("whisper"),
+        *collect_submodules("chromadb"),
+    ],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
@@ -153,25 +152,11 @@ backend = Analysis(
     noarchive=False,
 )
 
-cli = Analysis(
-    [str(SRC / "tauri" / "cli_entry.py")],
-    pathex=[str(REPO_ROOT), str(REPO_ROOT / "src")],
-    binaries=[],
-    datas=datas,
-    hiddenimports=hiddenimports,
-    hookspath=[],
-    hooksconfig={},
-    runtime_hooks=[],
-    excludes=[],
-    noarchive=False,
-)
+pyz = PYZ(a.pure)
 
-backend_pyz = PYZ(backend.pure)
-cli_pyz = PYZ(cli.pure)
-
-backend_exe = EXE(
-    backend_pyz,
-    backend.scripts,
+exe = EXE(
+    pyz,
+    a.scripts,
     [],
     name="qwenpaw-backend",
     debug=False,
@@ -187,30 +172,10 @@ backend_exe = EXE(
     exclude_binaries=True,
 )
 
-cli_exe = EXE(
-    cli_pyz,
-    cli.scripts,
-    [],
-    name="qwenpaw",
-    debug=False,
-    bootloader_ignore_signals=False,
-    strip=False,
-    upx=False,
-    console=True,
-    disable_windowed_traceback=False,
-    argv_emulation=False,
-    target_arch=None,
-    codesign_identity=codesign_identity,
-    exclude_binaries=True,
-)
-
 coll = COLLECT(
-    backend_exe,
-    cli_exe,
-    backend.binaries,
-    backend.datas,
-    cli.binaries,
-    cli.datas,
+    exe,
+    a.binaries,
+    a.datas,
     strip=False,
     upx=False,
     name="qwenpaw-backend",

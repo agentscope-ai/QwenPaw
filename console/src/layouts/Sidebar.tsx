@@ -31,6 +31,7 @@ import api from "../api";
 import { useCodingMode } from "../stores/codingModeStore";
 import { useSidebarModeStore } from "../stores/sidebarModeStore";
 import { buildSessionPath, getSessionIdFromPath } from "../utils/sessionRoute";
+import sessionApi from "../pages/Chat/sessionApi";
 import styles from "./index.module.less";
 import { useTheme } from "../contexts/ThemeContext";
 import { useMenuItems, useRoutes } from "../plugins/registry/hooks";
@@ -309,18 +310,22 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
     if (onChatPage) {
       window.dispatchEvent(new CustomEvent("qwenpaw:sidebar-new-chat"));
     } else {
-      navigate("/chat");
+      sessionStorage.setItem("qwenpaw_pending_new_chat", "1");
+      const mode = codingMode ? "coding" : "chat";
+      navigate(`/${mode}`);
     }
-  }, [location.pathname, navigate]);
+  }, [location.pathname, navigate, codingMode]);
 
   /**
    * Session click: navigate directly without relying on ChatSessionInitializer.
    * buildSessionPath handles coding-mode paths.
+   * Resolve realId (backend UUID) to avoid exposing local timestamp in URL.
    */
   const handleSidebarSessionClick = useCallback(
     (sessionId: string) => {
       const mode = codingMode ? "coding" : "chat";
-      const targetPath = buildSessionPath(mode, sessionId);
+      const effectiveId = sessionApi.getEffectiveSessionId(sessionId);
+      const targetPath = buildSessionPath(mode, effectiveId);
       navigate(targetPath);
     },
     [codingMode, navigate],

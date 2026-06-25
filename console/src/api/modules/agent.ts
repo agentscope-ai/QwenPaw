@@ -26,7 +26,7 @@ export const agentApi = {
   healthCheck: () => request<unknown>("/agent/health"),
 
   agentApi: (body: AgentRequest) =>
-    request<unknown>("/agent/process", {
+    request<unknown>("/console/chat", {
       method: "POST",
       body: JSON.stringify(body),
     }),

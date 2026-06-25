@@ -13,7 +13,7 @@ import aiofiles
 import aiofiles.os
 import orjson
 
-from ..app.runner.repo import JsonChatRepository
+from ..app.chats.repo import JsonChatRepository
 from ..token_usage import get_token_usage_manager
 from .models import (
     AgentStatsSummary,
@@ -46,14 +46,28 @@ def _should_skip_by_mtime(
     return False
 
 
+def _extract_session_messages(session_data: dict) -> list:
+    """Return raw message dicts/tuples from a session state, 1.x or 2.0."""
+    agent_raw = session_data.get("agent", {})
+    # 2.0: messages live on agent.state.context
+    state_raw = agent_raw.get("state")
+    if isinstance(state_raw, dict):
+        ctx = state_raw.get("context")
+        if isinstance(ctx, list) and ctx:
+            return ctx
+    # 1.x fallback
+    memory_raw = agent_raw.get("memory", {})
+    if isinstance(memory_raw, dict):
+        return memory_raw.get("memories") or memory_raw.get("content") or []
+    return []
+
+
 def _should_skip_by_content_range(
     session_data: dict,
     start_date_str: str,
     end_date_str: str,
 ) -> bool:
-    memories = (
-        session_data.get("agent", {}).get("memory", {}).get("memories")
-    ) or session_data.get("agent", {}).get("memory", {}).get("content", [])
+    memories = _extract_session_messages(session_data)
 
     if not memories:
         return True
@@ -70,7 +84,7 @@ def _should_skip_by_content_range(
         if not isinstance(msg_data, dict):
             continue
 
-        timestamp = msg_data.get("timestamp")
+        timestamp = msg_data.get("created_at") or msg_data.get("timestamp")
         if timestamp:
             timestamps.append(str(timestamp)[:10])
 
@@ -108,9 +122,7 @@ def _process_session_file(
     tool_call_count = 0
     has_messages_in_range = False
     try:
-        memories = (
-            session_data.get("agent", {}).get("memory", {}).get("memories")
-        ) or session_data.get("agent", {}).get("memory", {}).get("content", [])
+        memories = _extract_session_messages(session_data)
 
         stats = channel_stats.setdefault(
             channel,
@@ -133,7 +145,7 @@ def _process_session_file(
             if not isinstance(msg_data, dict):
                 continue
 
-            timestamp = msg_data.get("timestamp")
+            timestamp = msg_data.get("created_at") or msg_data.get("timestamp")
             if not timestamp:
                 continue
 
@@ -161,10 +173,12 @@ def _process_session_file(
 
             if isinstance(content, list):
                 for block in content:
-                    if (
-                        isinstance(block, dict)
-                        and block.get("type") == "tool_use"
-                    ):
+                    btype = (
+                        block.get("type")
+                        if isinstance(block, dict)
+                        else getattr(block, "type", None)
+                    )
+                    if btype in ("tool_use", "tool_call"):
                         ds["tool_calls"] += 1
                         tool_call_count += 1
 

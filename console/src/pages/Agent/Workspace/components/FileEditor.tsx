@@ -1,6 +1,11 @@
 import React, { useState, useMemo } from "react";
 import { Button, Card, Input, Switch } from "@agentscope-ai/design";
-import { CopyOutlined, UndoOutlined, SaveOutlined } from "@ant-design/icons";
+import {
+  CopyOutlined,
+  UndoOutlined,
+  SaveOutlined,
+  ArrowLeftOutlined,
+} from "@ant-design/icons";
 import type { MarkdownFile } from "../../../../api/types";
 import { XMarkdown } from "@ant-design/x-markdown";
 import { useTranslation } from "react-i18next";
@@ -12,25 +17,32 @@ import styles from "../index.module.less";
 interface FileEditorProps {
   selectedFile: MarkdownFile | null;
   fileContent: string;
-  loading: boolean;
   hasChanges: boolean;
+  saving?: boolean;
   onContentChange: (content: string) => void;
-  onSave: () => void;
+  onSave: () => void | Promise<void>;
   onReset: () => void;
+  onBack?: () => void;
+  compact?: boolean;
 }
 
 export const FileEditor: React.FC<FileEditorProps> = ({
   selectedFile,
   fileContent,
-  loading,
   hasChanges,
+  saving,
   onContentChange,
   onSave,
   onReset,
+  onBack,
+  compact,
 }) => {
   const { t } = useTranslation();
   const { message } = useAppMessage();
   const [showMarkdown, setShowMarkdown] = useState(true);
+  const [touchStart, setTouchStart] = useState<{ x: number; y: number } | null>(
+    null,
+  );
 
   const isMarkdownFile = selectedFile?.filename.endsWith(".md") || false;
   const markdownContent = useMemo(
@@ -62,17 +74,68 @@ export const FileEditor: React.FC<FileEditorProps> = ({
     }
   };
 
+  const handleTouchStart = (e: React.TouchEvent) => {
+    if (!onBack) return;
+    setTouchStart({ x: e.touches[0].clientX, y: e.touches[0].clientY });
+  };
+
+  const handleTouchEnd = (e: React.TouchEvent) => {
+    if (!touchStart || !onBack) return;
+    const endX = e.changedTouches[0].clientX;
+    const endY = e.changedTouches[0].clientY;
+    const dx = endX - touchStart.x;
+    const dy = endY - touchStart.y;
+    if (dx > 80 && Math.abs(dx) > Math.abs(dy) * 1.5) {
+      onBack();
+    }
+    setTouchStart(null);
+  };
+
   return (
-    <div className={styles.fileEditor}>
+    <div
+      className={styles.fileEditor}
+      onTouchStart={handleTouchStart}
+      onTouchEnd={handleTouchEnd}
+    >
       <Card className={styles.editorCard}>
         {selectedFile ? (
           <>
-            <div className={styles.editorHeader}>
-              <div>
-                <div className={styles.fileName}>{selectedFile.filename}</div>
+            {compact && onBack && (
+              <div className={styles.mobileToolbar}>
+                <Button
+                  type="text"
+                  size="small"
+                  icon={<ArrowLeftOutlined />}
+                  onClick={onBack}
+                >
+                  {t("common.back")}
+                </Button>
+                <span className={styles.mobileToolbarTitle}>
+                  {selectedFile.filename}
+                </span>
+              </div>
+            )}
+            <div
+              className={
+                compact
+                  ? `${styles.editorHeader} ${styles.editorHeaderCompact}`
+                  : styles.editorHeader
+              }
+            >
+              <div className={compact ? styles.fileMetaCompact : ""}>
+                {!compact && (
+                  <div className={styles.fileName}>{selectedFile.filename}</div>
+                )}
                 <div className={styles.filePath}>{selectedFile.path}</div>
               </div>
               <div className={styles.buttonGroup}>
+                <span className={styles.saveStatus}>
+                  {saving
+                    ? t("workspace.saving")
+                    : hasChanges
+                    ? t("workspace.unsaved")
+                    : t("workspace.saved")}
+                </span>
                 <Button
                   size="small"
                   onClick={onReset}
@@ -86,7 +149,7 @@ export const FileEditor: React.FC<FileEditorProps> = ({
                   size="small"
                   onClick={onSave}
                   disabled={!hasChanges}
-                  loading={loading}
+                  loading={saving}
                   icon={<SaveOutlined />}
                 >
                   {t("common.save")}
@@ -139,6 +202,11 @@ export const FileEditor: React.FC<FileEditorProps> = ({
                   onChange={(e) => onContentChange(e.target.value)}
                   className={styles.textarea}
                   placeholder={t("workspace.fileContent")}
+                  autoSize={
+                    compact
+                      ? { minRows: 15, maxRows: 40 }
+                      : { minRows: 6, maxRows: 20 }
+                  }
                 />
               )}
             </div>

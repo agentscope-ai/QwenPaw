@@ -168,20 +168,13 @@ def _last_preview_from_delta(delta: list[dict[str, Any]]) -> str | None:
 # pylint: disable=too-many-branches,too-many-statements
 async def run_heartbeat_once(
     *,
-    runner: Any,
+    workspace: Any,
     channel_manager: Any,
     agent_id: Optional[str] = None,
     workspace_dir: Optional[Path] = None,
 ) -> None:
-    """
-    Run one heartbeat: read HEARTBEAT.md from workspace, run agent,
-    optionally dispatch to last channel (target=last).
-
-    Args:
-        runner: Agent runner instance
-        channel_manager: Channel manager instance
-        agent_id: Agent ID for loading config
-        workspace_dir: Workspace directory for reading HEARTBEAT.md
+    """Run one heartbeat: read HEARTBEAT.md, run agent, optionally
+    dispatch to last channel (target=last).
     """
     from ...config.config import load_agent_config
 
@@ -238,7 +231,7 @@ async def run_heartbeat_once(
         if ld.channel and (ld.user_id or ld.session_id):
 
             async def _run_and_dispatch() -> None:
-                async for event in runner.stream_query(req):
+                async for event in workspace.stream_query(req):
                     await channel_manager.send_event(
                         channel=ld.channel,
                         user_id=ld.user_id,
@@ -256,7 +249,7 @@ async def run_heartbeat_once(
     if target == HEARTBEAT_TARGET_INBOX:
         run_id = str(uuid.uuid4())
         baseline_messages = await read_session_messages(
-            runner=runner,
+            runner=workspace,
             session_id=req["session_id"],
             user_id=req["user_id"],
             channel=req["channel"],
@@ -277,14 +270,14 @@ async def run_heartbeat_once(
         )
 
         async def _run_only() -> None:
-            async for _ in runner.stream_query(req):
+            async for _ in workspace.stream_query(req):
                 pass
 
         try:
             await asyncio.wait_for(_run_only(), timeout=120)
             delta = await append_trace_from_session_delta(
                 run_id=run_id,
-                runner=runner,
+                runner=workspace,
                 session_id=req["session_id"],
                 user_id=req["user_id"],
                 channel=req["channel"],
@@ -313,7 +306,7 @@ async def run_heartbeat_once(
             logger.warning("heartbeat run timed out")
             await append_trace_from_session_delta(
                 run_id=run_id,
-                runner=runner,
+                runner=workspace,
                 session_id=req["session_id"],
                 user_id=req["user_id"],
                 channel=req["channel"],
@@ -343,7 +336,7 @@ async def run_heartbeat_once(
             logger.exception("heartbeat run failed (inbox target)")
             await append_trace_from_session_delta(
                 run_id=run_id,
-                runner=runner,
+                runner=workspace,
                 session_id=req["session_id"],
                 user_id=req["user_id"],
                 channel=req["channel"],
@@ -370,7 +363,7 @@ async def run_heartbeat_once(
 
     # target main or no last_dispatch: run agent only, no dispatch
     async def _run_without_dispatch() -> None:
-        async for _ in runner.stream_query(req):
+        async for _ in workspace.stream_query(req):
             pass
 
     try:

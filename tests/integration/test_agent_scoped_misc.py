@@ -253,13 +253,33 @@ def test_mcp_oauth_start_returns_auth_url(app_server) -> None:
     - POST /api/agents/{agentId}/mcp/oauth/start/{client_key}
     """
     agent_id = "integ_misc_oauth_start_01"
+    client_key = "integ-mock-mcp-client"
     create_agent(app_server, agent_id)
     try:
+        # 2.0: MCP card must exist before OAuth start (driver-based arch).
+        create_resp = app_server.api_request(
+            "POST",
+            scoped(agent_id, "/mcp"),
+            json={
+                "client_key": client_key,
+                "client": {
+                    "name": "Mock MCP Client",
+                    "transport": "streamable_http",
+                    "url": "http://localhost:19999/mcp",
+                    "enabled": True,
+                },
+            },
+            timeout=_HTTP_TIMEOUT,
+        )
+        assert create_resp.status_code in (200, 201), (
+            f"MCP client create failed: {create_resp.status_code} "
+            f"{create_resp.text}"
+        )
         resp = app_server.api_request(
             "POST",
             scoped(
                 agent_id,
-                "/mcp/oauth/start/integ-mock-mcp-client",
+                f"/mcp/oauth/start/{client_key}",
             ),
             json={
                 "url": "http://localhost:19999/mcp",

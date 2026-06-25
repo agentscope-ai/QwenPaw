@@ -14,10 +14,14 @@ from fastapi import APIRouter, File, HTTPException, Query, Request, UploadFile
 from pydantic import BaseModel
 from starlette.responses import StreamingResponse
 
-from agentscope_runtime.engine.schemas.agent_schemas import AgentRequest
+from qwenpaw.schemas import (
+    AgentRequest,
+    _coerce_content_item,
+)
 from ...utils.logging import LOG_FILE_PATH
 from ..agent_context import get_agent_for_request
-from ..runner.title_generator import generate_and_update_title
+from ..approvals.display import approval_display_fields
+from ..chats.title_generator import generate_and_update_title
 from ..utils import check_upload_size
 
 
@@ -91,7 +95,12 @@ def _extract_session_and_payload(request_data: Union[AgentRequest, dict]):
             if hasattr(content_part, "content"):
                 content_parts.extend(list(content_part.content or []))
             elif isinstance(content_part, dict) and "content" in content_part:
-                content_parts.extend(content_part["content"] or [])
+                # Coerce raw dicts to typed Content models so downstream
+                # getattr checks (e.g. _content_has_text) see real attrs.
+                content_parts.extend(
+                    _coerce_content_item(c)
+                    for c in (content_part["content"] or [])
+                )
 
     native_payload = {
         "channel_id": channel_id,
@@ -250,7 +259,7 @@ async def post_console_chat_stop(
             "[STOP API] chat_id not found in tracker, trying to resolve "
             "from session_id...",
         )
-        chat_manager = getattr(workspace.runner, "_chat_manager", None)
+        chat_manager = workspace.chat_manager
         if chat_manager:
             resolved_chat_id = await chat_manager.get_chat_id_by_session(
                 session_id=chat_id,
@@ -379,10 +388,13 @@ async def get_push_messages(
             "owner_agent_id": p.owner_agent_id,
             "agent_id": p.agent_id,
             "tool_name": p.tool_name,
+            **approval_display_fields(p),
             "severity": p.severity,
             "findings_count": p.findings_count,
             "findings_summary": p.result_summary,
             "tool_params": p.extra.get("tool_call", {}).get("input", {}),
+            "source_type": p.extra.get("source_type", "tool_guard"),
+            "driver": p.extra.get("driver"),
             "created_at": p.created_at,
             "timeout_seconds": p.timeout_seconds,
         }

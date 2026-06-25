@@ -9,7 +9,6 @@ import inspect
 import logging
 from typing import Any
 
-from .categories import resolve as resolve_category
 from .providers import PROVIDERS
 from .schema import MarketResult, MarketSearchError, ProviderInfo
 
@@ -30,7 +29,6 @@ def list_providers() -> list[ProviderInfo]:
                 label=provider.label,
                 available=is_available,
                 reason=reason,
-                supports_browse=getattr(provider, "supports_browse", True),
             ),
         )
     return out
@@ -41,7 +39,6 @@ async def search_market(
     provider_pages: dict[str, int],
     limit: int = 10,
     lang: str = "en",
-    category: str | None = None,
 ) -> tuple[
     list[MarketResult],
     list[MarketSearchError],
@@ -50,13 +47,13 @@ async def search_market(
     """Search each requested provider at its own page; concat results."""
     capped_limit = max(1, min(int(limit or 1), _MAX_LIMIT))
     selected = [
-        (key, max(1, int(provider_pages[key] or 1)))
-        for key in PROVIDERS
-        if key in provider_pages
+        (key, max(1, int(page or 1)))
+        for key, page in provider_pages.items()
+        if key in PROVIDERS
     ]
 
     coros = [
-        _run_one(key, query, capped_limit, page, lang, category)
+        _run_one(key, query, capped_limit, page, lang)
         for key, page in selected
     ]
     paired = await asyncio.gather(*coros)
@@ -83,7 +80,6 @@ async def _run_one(
     limit: int,
     page: int,
     lang: str,
-    category: str | None = None,
 ) -> tuple[list[MarketResult], bool, int | None] | MarketSearchError:
     provider = PROVIDERS[key]
     is_available, reason = provider.available()
@@ -92,31 +88,11 @@ async def _run_one(
             provider=key,
             message=reason or "provider unavailable",
         )
-    # Native category filter where supported; otherwise fall back to
-    # searching the category name when the user typed nothing.
-    routing = resolve_category(category, key, lang)
-    effective_query = query
-    native_code = routing["native_code"]
-    if native_code is None and routing["search_term"] and not query.strip():
-        effective_query = routing["search_term"]
-    # Search-only sources have no browse listing: an empty query would
-    # return nothing. Skip the wasted upstream call (the UI prompts the
-    # user to search) rather than fabricating a throwaway query.
-    if (
-        native_code is None
-        and not effective_query.strip()
-        and not getattr(provider, "supports_browse", True)
-    ):
-        return [], False, 0
-    # Providers that don't declare `lang`/`category` kwargs ignore them.
-    kwargs = _supported_kwargs(
-        provider.search,
-        lang=lang,
-        category=native_code,
-    )
+    # Providers that don't declare a `lang` kwarg simply ignore it.
+    kwargs = _supported_kwargs(provider.search, lang=lang)
     try:
-        return await provider.search(effective_query, limit, page, **kwargs)
-    except Exception as exc:  # noqa: BLE001
+        return await provider.search(query, limit, page, **kwargs)
+    except Exception as exc:
         logger.warning(
             "Market provider %s failed for query=%r: %s",
             key,

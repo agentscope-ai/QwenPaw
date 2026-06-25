@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """Tool backing the ``/make-skill`` flow."""
+
 from __future__ import annotations
 
 import json
@@ -7,10 +8,12 @@ import logging
 import re
 
 from agentscope.message import TextBlock
-from agentscope.tool import ToolResponse
+from agentscope.tool import ToolChunk
+from agentscope.message import ToolResultState
 
 from ...config.context import get_current_workspace_dir
 from ...exceptions import SkillsError
+from ...runtime.tool_registry import tool_descriptor
 from ...security.skill_scanner import SkillScanError
 from ..skill_system.store import (
     normalize_skill_dir_name,
@@ -25,6 +28,20 @@ logger = logging.getLogger(__name__)
 _STEP_REF_INLINE = re.compile(
     r"\$\{steps\.(\d+)(?:\.([A-Za-z0-9_.-]+))?\}",
 )
+
+
+def _iter_strings(obj: object) -> list[str]:
+    """Recursively collect all string values from dicts/lists."""
+    results: list[str] = []
+    if isinstance(obj, str):
+        results.append(obj)
+    elif isinstance(obj, dict):
+        for v in obj.values():
+            results.extend(_iter_strings(v))
+    elif isinstance(obj, list):
+        for v in obj:
+            results.extend(_iter_strings(v))
+    return results
 
 
 def _analyse_batch_refs(
@@ -57,7 +74,6 @@ def _analyse_batch_refs(
             referencing_tool = str(
                 action.get("tool_name") or action.get("tool") or "",
             )
-            # Scan all string values in arguments for ${steps} refs
             step_args = action.get("arguments") or action.get("args") or {}
             if not isinstance(step_args, dict):
                 continue
@@ -85,20 +101,6 @@ def _analyse_batch_refs(
     return refs
 
 
-def _iter_strings(obj: object) -> list[str]:
-    """Recursively collect all string values from dicts/lists."""
-    results: list[str] = []
-    if isinstance(obj, str):
-        results.append(obj)
-    elif isinstance(obj, dict):
-        for v in obj.values():
-            results.extend(_iter_strings(v))
-    elif isinstance(obj, list):
-        for v in obj:
-            results.extend(_iter_strings(v))
-    return results
-
-
 def _format_ref_verification(refs: list[dict[str, str]]) -> str:
     """Format $steps references into a verification prompt."""
     if not refs:
@@ -108,8 +110,8 @@ def _format_ref_verification(refs: list[dict[str, str]]) -> str:
         "\n\n---\n"
         "**Batch JSON contains `${steps}` references that need "
         "verification.**\n"
-        "Before calling `finish_subtask`, please run each referenced tool "
-        "or check previous tool use history "
+        "Before calling `finish_subtask`, please run each referenced "
+        "tool or check previous tool use history "
         "to confirm its return value contains the expected fields:\n",
     ]
     for ref in refs:
@@ -131,11 +133,6 @@ def _format_ref_verification(refs: list[dict[str, str]]) -> str:
     return "\n".join(lines)
 
 
-def _tool_text_response(text: str) -> ToolResponse:
-    """Wrap text in a single-TextBlock ToolResponse."""
-    return ToolResponse(content=[TextBlock(type="text", text=text)])
-
-
 def _parse_extra_files(
     extra_files: dict[str, str] | str | None,
 ) -> dict[str, str] | None:
@@ -149,17 +146,33 @@ def _parse_extra_files(
             message="extra_files string must be a valid JSON object",
         ) from exc
     if not isinstance(parsed, dict):
-        raise SkillsError(message="extra_files string must parse to an object")
+        raise SkillsError(
+            message="extra_files string must parse to an object",
+        )
     return parsed
 
 
+def _tool_text_response(text: str) -> ToolChunk:
+    """Wrap text in a single-TextBlock ToolChunk."""
+    return ToolChunk(
+        is_last=True,
+        state=ToolResultState.SUCCESS,
+        content=[TextBlock(type="text", text=text)],
+    )
+
+
 # pylint: disable=too-many-return-statements,too-many-branches,too-many-locals
+@tool_descriptor(
+    requires_skills=("make-skill",),
+    requires_sandbox=("file_write",),
+    async_execution=True,
+)
 async def materialize_skill(
     name: str,
     description: str,
     body: str,
     extra_files: dict[str, str] | str | None = None,
-) -> ToolResponse:
+) -> ToolChunk:
     """Persist a confirmed skill proposal into the workspace.
 
     Runs format validation and the security scanner, writes
@@ -174,10 +187,11 @@ async def materialize_skill(
             don't under-trigger.
         body: The SKILL.md body, no frontmatter.
         extra_files: Additional files to include alongside SKILL.md.
-            Pass either a dict or a JSON object string. Keys are relative
-            paths (e.g. ``"scripts/batch.json"``), values are file
-            contents as strings. Useful for bundling ``run_tool_batch``
-            JSON files or helper scripts referenced by the skill body.
+            Pass either a dict or a JSON object string. Keys are
+            relative paths (e.g. ``"scripts/batch.json"``), values
+            are file contents as strings. Useful for bundling
+            ``run_tool_batch`` JSON files or helper scripts referenced
+            by the skill body.
     """
     if not name or not description or not body:
         return _tool_text_response(

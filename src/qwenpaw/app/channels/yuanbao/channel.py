@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 import aiohttp
 
-from agentscope_runtime.engine.schemas.agent_schemas import (
+from ....schemas import (
     AudioContent,
     ContentType,
     FileContent,
@@ -77,7 +77,7 @@ from .media import (
 from .utils import download_media
 
 if TYPE_CHECKING:
-    from agentscope_runtime.engine.schemas.agent_schemas import AgentRequest
+    from ....schemas import AgentRequest
 
 logger = logging.getLogger(__name__)
 

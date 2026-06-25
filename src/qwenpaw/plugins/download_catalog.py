@@ -19,7 +19,7 @@ _FETCH_TIMEOUT = 30
 
 
 def _fetch_json(url: str) -> Any:
-    req = urllib.request.Request(  # noqa: S310
+    req = urllib.request.Request(
         url,
         headers={"Accept": "application/json"},
     )

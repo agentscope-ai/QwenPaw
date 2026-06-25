@@ -28,7 +28,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 import httpx
-from agentscope_runtime.engine.schemas.agent_schemas import (
+from qwenpaw.schemas import (
     AudioContent,
     FileContent,
     ImageContent,
@@ -174,7 +174,7 @@ finally:
             delattr(_pkg_resources_module, "declare_namespace")
 
 if TYPE_CHECKING:
-    from agentscope_runtime.engine.schemas.agent_schemas import AgentRequest
+    from qwenpaw.schemas import AgentRequest
 
 logger = logging.getLogger(__name__)
 
@@ -404,7 +404,7 @@ class FeishuChannel(BaseChannel):
         native_payload: Any,
     ) -> "AgentRequest":
         """Build AgentRequest from Feishu native dict (content_parts)."""
-        from agentscope_runtime.engine.schemas.agent_schemas import (
+        from qwenpaw.schemas import (
             AgentRequest,
         )
 

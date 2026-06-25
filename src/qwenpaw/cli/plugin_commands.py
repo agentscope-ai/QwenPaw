@@ -69,7 +69,7 @@ def _api_install_plugin(source: str, force: bool = False) -> bool:
         headers={"Content-Type": "application/json"},
     )
     try:
-        with urllib.request.urlopen(req, timeout=120) as resp:  # noqa: S310
+        with urllib.request.urlopen(req, timeout=120) as resp:
             body = json.loads(resp.read())
         name = body.get("name", source)
         click.echo(
@@ -129,7 +129,7 @@ def _api_upload_plugin(zip_path: Path, force: bool = False) -> bool:
         },
     )
     try:
-        with urllib.request.urlopen(req, timeout=120) as resp:  # noqa: S310
+        with urllib.request.urlopen(req, timeout=120) as resp:
             result = json.loads(resp.read())
         name = result.get("name", zip_path.name)
         click.echo(
@@ -164,7 +164,7 @@ def _api_uninstall_plugin(plugin_id: str) -> bool:
     url = f"{base}/plugins/{plugin_id}"
     req = urllib.request.Request(url, method="DELETE")
     try:
-        with urllib.request.urlopen(req, timeout=30) as resp:  # noqa: S310
+        with urllib.request.urlopen(req, timeout=30) as resp:
             body = json.loads(resp.read())
         click.echo(
             body.get(

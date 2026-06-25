@@ -125,11 +125,13 @@ def parse_session_timestamp(value: Any) -> float | None:
     if not isinstance(value, str) or not value.strip():
         return None
     raw = value.strip()
-    formats = ("%Y-%m-%d %H:%M:%S.%f", "%Y-%m-%d %H:%M:%S")
-    for fmt in formats:
+    try:
+        return datetime.fromisoformat(raw).timestamp()
+    except ValueError:
+        pass
+    for fmt in ("%Y-%m-%d %H:%M:%S.%f", "%Y-%m-%d %H:%M:%S"):
         try:
-            dt = datetime.strptime(raw, fmt)
-            return dt.timestamp()
+            return datetime.strptime(raw, fmt).timestamp()
         except ValueError:
             continue
     return None
@@ -154,8 +156,8 @@ async def read_session_messages(
         )
     except Exception:  # pylint: disable=broad-except
         return []
-    memory = state.get("agent", {}).get("memory", {})
-    return flatten_session_messages(memory.get("content"))
+    agent_state = state.get("agent", {}).get("state", {})
+    return flatten_session_messages(agent_state.get("context"))
 
 
 async def append_trace_from_session_delta(
@@ -179,7 +181,9 @@ async def append_trace_from_session_delta(
         run_id,
         [
             {
-                "at": parse_session_timestamp(msg.get("timestamp")),
+                "at": parse_session_timestamp(
+                    msg.get("created_at") or msg.get("timestamp"),
+                ),
                 "event": msg,
             }
             for msg in delta

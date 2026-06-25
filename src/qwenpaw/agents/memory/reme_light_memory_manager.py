@@ -1,811 +1,328 @@
 # -*- coding: utf-8 -*-
-"""ReMeLight-backed memory manager for agents."""
-import asyncio
-import importlib.metadata
+"""ReMe-backed memory manager for agents.
+
+The public class and registry key keep the historical ``ReMeLight`` naming so
+existing agent configs continue to work, but the implementation delegates to
+ReMe's application/job framework.
+"""
+
 import json
 import logging
-import platform
-import shutil
-import sys
 import uuid
-from datetime import datetime
-from pathlib import Path
-from typing import Any, Optional
+from contextlib import suppress
+from typing import Any, TYPE_CHECKING
 
-from agentscope.agent import ReActAgent
-from agentscope.message import Msg, TextBlock, ToolResultBlock, ToolUseBlock
-from agentscope.tool import Toolkit, ToolResponse
+from agentscope.message import Msg, TextBlock
+from agentscope.message import ToolCallBlock, ToolCallState
+from agentscope.message import ToolResultBlock, ToolResultState
+from agentscope.tool import ToolChunk
 
 from .base_memory_manager import BaseMemoryManager, memory_registry
-from .prompts import (
-    MEMORY_GUIDANCE_ZH,
-    MEMORY_GUIDANCE_EN,
-    DREAM_OPTIMIZATION_ZH,
-    DREAM_OPTIMIZATION_EN,
-)
+from .prompts import build_memory_guidance_prompt
+from .reme_config import get_reme_app_config
 from ..model_factory import create_model_and_formatter
-from ..utils import get_token_counter
 from ...config import load_config
-from ...config.config import load_agent_config, get_model_max_input_length
-from ...config.context import (
-    set_current_workspace_dir,
-    set_current_recent_max_bytes,
-)
-from ...constant import EnvVarLoader
+from ...config.config import load_agent_config, AgentProfileConfig
+
+if TYPE_CHECKING:
+    from reme import ReMe
+    from reme.application import Response
 
 logger = logging.getLogger(__name__)
 
-_REME_STORE_VERSION = "v1"
-_EXPECTED_REME_VERSION = "0.3.1.10"
-# Maximum number of tokens from query splitting
-MAX_QUERY_TOKENS = 50
+MAX_QUERY_CHARS = 50
+NO_MEMORY_RESULTS = "(no memory results)"
 
 
-def _detect_memory_manager_backend() -> str:
-    """Detect the memory store backend from environment variables.
-
-    Resolves ``MEMORY_STORE_BACKEND`` with the following priority:
-    - ``local``: always used on Windows
-    - ``chroma``: used when ``chromadb`` is importable (non-Windows)
-    - falls back to ``local`` when ``chromadb`` is unavailable
-
-    Returns:
-        Backend name string: ``"local"``, ``"chroma"``, or any explicitly
-        configured value.
-    """
-    backend_env = EnvVarLoader.get_str("MEMORY_STORE_BACKEND", "auto")
-    if backend_env != "auto":
-        return backend_env
-
-    if platform.system() == "Windows":
-        return "local"
-
-    try:
-        import chromadb  # noqa: F401 pylint: disable=unused-import
-
-        return "chroma"
-    except Exception as e:
-        logger.warning(
-            f"""
-chromadb import failed, falling back to `local` backend.
-This is often caused by an outdated system SQLite (requires >= 3.35).
-Please upgrade your system SQLite to >= 3.35.
-See: https://docs.trychroma.com/docs/overview/troubleshooting#sqlite
-| Error: {e}
-            """,
-        )
-        return "local"
+def _tool_chunk(text: str, *, ok: bool = True) -> ToolChunk:
+    return ToolChunk(
+        is_last=True,
+        state=ToolResultState.SUCCESS if ok else ToolResultState.ERROR,
+        content=[TextBlock(type="text", text=text)],
+    )
 
 
 @memory_registry.register("remelight")
 class ReMeLightMemoryManager(BaseMemoryManager):
-    """Memory manager backed by ReMeLight.
+    """Memory manager backed by ReMe.
 
-    Delegates lifecycle, search, and compaction to a ``ReMeLight`` instance
-    (``self._reme``).
+    ReMe uses the QwenPaw workspace root as its vault.  Daily memory,
+    digest memory, search, auto-memory, and auto-dream are executed through
+    ReMe jobs.
     """
 
     def __init__(self, working_dir: str, agent_id: str):
         super().__init__(working_dir=working_dir, agent_id=agent_id)
-        self._reme_version_ok: bool = self._check_reme_version()
-        self._reme = None
-
+        self._reme: "ReMe | None" = None
         logger.info(
-            f"ReMeLightMemoryManager init: "
-            f"agent_id={agent_id}, working_dir={working_dir}",
+            "ReMeLightMemoryManager init: agent_id=%s working_dir=%s",
+            agent_id,
+            working_dir,
         )
 
-        memory_manager_backend = _detect_memory_manager_backend()
+        try:
+            from reme import ReMe as ReMeApp  # type: ignore
 
-        from reme.reme_light import ReMeLight
+            agent_config: AgentProfileConfig = load_agent_config(self.agent_id)
+            global_config = load_config()
+            self._reme = ReMeApp(
+                **get_reme_app_config(
+                    working_dir=self.working_dir,
+                    agent_config=agent_config,
+                    user_timezone=getattr(
+                        global_config,
+                        "user_timezone",
+                        None,
+                    ),
+                ),
+            )
+        except Exception as exc:
+            logger.warning("ReMe import failed; memory disabled: %s", exc)
 
-        emb_config = self.get_embedding_config()
-        vector_enabled = bool(emb_config["base_url"]) and bool(
-            emb_config["model_name"],
-        )
+    async def start(self) -> None:
+        """Start the embedded ReMe application."""
+        if self._reme is None:
+            return
 
-        log_cfg = {
-            **emb_config,
-            "api_key": self._mask_key(emb_config["api_key"]),
-        }
-        logger.info(
-            f"Embedding config: {log_cfg}, "
-            f"vector_enabled={vector_enabled}",
-        )
-
-        fts_enabled = EnvVarLoader.get_bool("FTS_ENABLED", True)
+        await self._update_qwenpaw_model()
+        try:
+            await self._reme.start()
+            logger.info(
+                "ReMe memory manager started for agent '%s'",
+                self.agent_id,
+            )
+        except Exception:
+            logger.exception("ReMe start failed")
+            return
 
         agent_config = load_agent_config(self.agent_id)
-        reme_cfg = agent_config.running.reme_light_memory_config
-        rebuild_on_start = reme_cfg.rebuild_memory_index_on_start
-
-        store_name = "memory"
-        effective_rebuild = self._resolve_rebuild_on_start(
-            working_dir=working_dir,
-            store_version=_REME_STORE_VERSION,
-            rebuild_on_start=rebuild_on_start,
-        )
-
-        recursive_file_watcher = reme_cfg.recursive_file_watcher
-
-        self._memory_backend = memory_manager_backend
-        self._reme_init_kwargs = {
-            "working_dir": working_dir,
-            "emb_config": emb_config,
-            "store_name": store_name,
-            "vector_enabled": vector_enabled,
-            "fts_enabled": fts_enabled,
-            "effective_rebuild": effective_rebuild,
-            "recursive_file_watcher": recursive_file_watcher,
-        }
-
-        self._reme = ReMeLight(
-            working_dir=working_dir,
-            default_embedding_model_config=emb_config,
-            default_file_store_config={
-                "backend": memory_manager_backend,
-                "store_name": store_name,
-                "vector_enabled": vector_enabled,
-                "fts_enabled": fts_enabled,
-            },
-            default_file_watcher_config={
-                "rebuild_index_on_start": effective_rebuild,
-                "recursive": recursive_file_watcher,
-            },
-        )
-
-        self.summary_toolkit = Toolkit()
-        from qwenpaw.agents.tools import (
-            read_file,
-            write_file,
-            edit_file,
-        )  # noqa: PLC0415
-
-        self.summary_toolkit.register_tool_function(read_file)
-        self.summary_toolkit.register_tool_function(write_file)
-        self.summary_toolkit.register_tool_function(edit_file)
-
-    @staticmethod
-    def _mask_key(key: str) -> str:
-        """Mask an API key, showing only the first 5 characters."""
-        return key[:5] + "*" * (len(key) - 5) if len(key) > 5 else key
-
-    @staticmethod
-    def _check_reme_version() -> bool:
-        """Return ``False`` (and warn) when the installed reme-ai version
-        does not match the expected version."""
-        try:
-            installed = importlib.metadata.version("reme-ai")
-        except importlib.metadata.PackageNotFoundError:
-            return True
-        if installed != _EXPECTED_REME_VERSION:
-            logger.warning(
-                f"reme-ai version mismatch: installed={installed}, "
-                f"expected={_EXPECTED_REME_VERSION}. "
-                f"Run `pip install reme-ai=={_EXPECTED_REME_VERSION}`"
-                " to align.",
+        cfg = agent_config.running.reme_light_memory_config
+        if cfg.rebuild_memory_index_on_start:
+            await self._run_reme_job("reindex")
+            logger.info(
+                "Memory index rebuilt on start for agent '%s'",
+                self.agent_id,
             )
-            return False
-        return True
-
-    def _warn_if_version_mismatch(self) -> None:
-        """Warn once per call if the cached version check failed."""
-        if not self._reme_version_ok:
-            logger.warning(
-                "reme-ai version mismatch, "
-                f"expected={_EXPECTED_REME_VERSION}. "
-                f"Run `pip install reme-ai=={_EXPECTED_REME_VERSION}`"
-                " to align.",
-            )
-
-    def get_embedding_config(self) -> dict:
-        """Return embedding config: config > env var > default."""
-        self._warn_if_version_mismatch()
-        cfg = load_agent_config(
-            self.agent_id,
-        ).running.reme_light_memory_config.embedding_model_config
-        return {
-            "backend": cfg.backend,
-            "api_key": cfg.api_key
-            or EnvVarLoader.get_str("EMBEDDING_API_KEY"),
-            "base_url": cfg.base_url
-            or EnvVarLoader.get_str("EMBEDDING_BASE_URL"),
-            "model_name": cfg.model_name
-            or EnvVarLoader.get_str("EMBEDDING_MODEL_NAME"),
-            "dimensions": cfg.dimensions,
-            "enable_cache": cfg.enable_cache,
-            "use_dimensions": cfg.use_dimensions,
-            "max_cache_size": cfg.max_cache_size,
-            "max_input_length": cfg.max_input_length,
-            "max_batch_size": cfg.max_batch_size,
-        }
-
-    @staticmethod
-    def _resolve_rebuild_on_start(
-        working_dir: str,
-        store_version: str,
-        rebuild_on_start: bool,
-    ) -> bool:
-        """Return effective ``rebuild_index_on_start`` value.
-
-        Uses a sentinel file ``.reme_store_{store_version}`` to detect whether
-        the current store version has been initialized. Forces a one-time
-        rebuild when the sentinel is absent. Bump *_REME_STORE_VERSION* to
-        trigger another one-time rebuild on next start.
-        """
-        sentinel_name = f".reme_store_{store_version}"
-        sentinel_path = Path(working_dir) / sentinel_name
-
-        if sentinel_path.exists():
-            return rebuild_on_start
-
-        logger.info(
-            f"Sentinel '{sentinel_name}' not found, forcing rebuild.",
-        )
-
-        try:
-            for old in Path(working_dir).glob(".reme_store_*"):
-                old.unlink(missing_ok=True)
-        except Exception as e:
-            logger.warning(f"Failed to remove old sentinels: {e}")
-
-        try:
-            sentinel_path.touch()
-        except Exception as e:
-            logger.warning(f"Failed to create sentinel '{sentinel_name}': {e}")
-
-        return True
-
-    # ------------------------------------------------------------------
-    # chromadb runtime probe
-    # ------------------------------------------------------------------
-
-    _CHROMADB_PROBE_SCRIPT = (
-        "import chromadb; "
-        "c = chromadb.EphemeralClient(); "
-        "c.get_or_create_collection('probe-test')"
-    )
-    _CHROMADB_PROBE_TIMEOUT = 15
-
-    @staticmethod
-    async def _probe_chromadb_runtime() -> bool:
-        """Spawn a subprocess to verify chromadb Rust bindings.
-
-        Returns ``True`` when the probe succeeds, ``False`` on
-        crash (SIGSEGV), timeout, or any other failure.
-        """
-        try:
-            proc = await asyncio.create_subprocess_exec(
-                sys.executable,
-                "-c",
-                ReMeLightMemoryManager._CHROMADB_PROBE_SCRIPT,
-                stdout=asyncio.subprocess.DEVNULL,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            _, stderr = await asyncio.wait_for(
-                proc.communicate(),
-                timeout=(ReMeLightMemoryManager._CHROMADB_PROBE_TIMEOUT),
-            )
-            if proc.returncode != 0:
-                logger.warning(
-                    f"chromadb runtime probe failed "
-                    f"(rc={proc.returncode}): "
-                    f"{stderr.decode(errors='replace').strip()}",
-                )
-            return proc.returncode == 0
-        except asyncio.TimeoutError:
-            logger.warning(
-                "chromadb runtime probe timed out",
-            )
-            try:
-                proc.kill()  # type: ignore[possibly-undefined]
-            except ProcessLookupError:
-                pass
-            return False
-        except Exception as exc:
-            logger.warning(
-                f"chromadb runtime probe error: {exc}",
-            )
-            return False
-
-    def _rebuild_reme_with_local(self) -> None:
-        """Recreate ``self._reme`` with the local backend."""
-        from reme.reme_light import ReMeLight  # noqa: PLC0415
-
-        kw = self._reme_init_kwargs
-        self._memory_backend = "local"
-        self._reme = ReMeLight(
-            working_dir=kw["working_dir"],
-            default_embedding_model_config=kw["emb_config"],
-            default_file_store_config={
-                "backend": "local",
-                "store_name": kw["store_name"],
-                "vector_enabled": kw["vector_enabled"],
-                "fts_enabled": kw["fts_enabled"],
-            },
-            default_file_watcher_config={
-                "rebuild_index_on_start": (kw["effective_rebuild"]),
-                "recursive": kw["recursive_file_watcher"],
-            },
-        )
-
-    # ------------------------------------------------------------------
-    # BaseMemoryManager interface
-    # ------------------------------------------------------------------
-
-    async def start(self):
-        """Start the ReMeLight lifecycle.
-
-        When the detected backend is ``chroma``, an async
-        subprocess probe verifies that the Rust native bindings
-        work at runtime.  If the probe fails (e.g. SIGSEGV on
-        macOS), the manager silently downgrades to the ``local``
-        backend so the agent can still start.
-        """
-        self._warn_if_version_mismatch()
-        if self._reme is None:
-            return None
-
-        if self._memory_backend == "chroma":
-            if not await self._probe_chromadb_runtime():
-                logger.warning(
-                    "chromadb Rust bindings unusable, "
-                    "downgrading to local backend",
-                )
-                self._rebuild_reme_with_local()
-
-        return await self._reme.start()
 
     async def close(self) -> bool:
-        """Close ReMeLight and perform cleanup."""
-        self._warn_if_version_mismatch()
+        """Close ReMe and cleanup background summary worker state."""
         logger.info(
-            f"ReMeLightMemoryManager closing: agent_id={self.agent_id}",
+            "ReMeLightMemoryManager closing: agent_id=%s",
+            self.agent_id,
         )
-        if self._reme is None:
-            return True
-        result = await self._reme.close()
-        logger.info(
-            f"ReMeLightMemoryManager closed: agent_id={self.agent_id}, "
-            f"result={result}",
-        )
-        return result
 
-    def get_memory_prompt(self, language: str = "zh") -> str:
-        """Return the memory guidance prompt for the system prompt."""
-        prompts = {"zh": MEMORY_GUIDANCE_ZH, "en": MEMORY_GUIDANCE_EN}
-        return prompts.get(language, MEMORY_GUIDANCE_EN)
+        worker = self._worker_task
+        if worker is not None and not worker.done():
+            worker.cancel()
+            with suppress(BaseException):
+                await worker
+
+        if self._reme is not None:
+            try:
+                await self._reme.close()
+            except Exception:
+                logger.exception("ReMe close failed")
+                return False
+
+        self._reme = None
+        return True
+
+    def get_memory_prompt(self) -> str:
+        """Return memory guidance for system prompt injection."""
+        agent_config = load_agent_config(self.agent_id)
+        cfg = agent_config.running.reme_light_memory_config
+        return build_memory_guidance_prompt(
+            agent_config.language,
+            daily_dir=cfg.daily_dir,
+        )
 
     def list_memory_tools(self):
         """Return memory tool functions to register with the agent toolkit."""
         return [self.memory_search]
 
-    @staticmethod
-    def _is_cjk(char: str) -> bool:
-        """Check if a character is CJK (Chinese/Japanese/Korean)."""
-        cp = ord(char)
-        return (
-            (0x4E00 <= cp <= 0x9FFF)
-            or (0x3400 <= cp <= 0x4DBF)  # CJK Unified Ideographs
-            or (  # CJK Extension A
-                0xF900 <= cp <= 0xFAFF
-            )  # CJK Compatibility Ideographs
+    async def _update_qwenpaw_model(self) -> None:
+        """Reuse QwenPaw's active model in ReMe's default LLM component."""
+        if self._reme is None:
+            return
+
+        model, _formatter = create_model_and_formatter(self.agent_id)
+        await self._reme.update_component(
+            "as_llm",
+            "default",
+            model=model,
         )
 
-    def tokenize_query(
+    async def _run_reme_job(
         self,
-        query: str,
-        max_tokens: int = MAX_QUERY_TOKENS,
-    ) -> list[str]:
-        """Tokenize query: CJK chars as 1-gram, non-CJK split by whitespace.
-
-        Args:
-            query: The search query string (non-empty)
-            max_tokens: Maximum number of tokens to return
-
-        Returns:
-            List of tokens, limited to max_tokens
-        """
-        tokens = []
-
-        for word in query.split():
-            if not word:
-                continue
-
-            # Fast path: pure non-CJK word, add directly
-            if not any(self._is_cjk(c) for c in word):
-                tokens.append(word)
-                if len(tokens) >= max_tokens:
-                    break
-                continue
-
-            # Mixed CJK/non-CJK: iterate chars within the word
-            non_cjk_buffer = []
-            for char in word:
-                if self._is_cjk(char):
-                    if non_cjk_buffer:
-                        tokens.append("".join(non_cjk_buffer))
-                        non_cjk_buffer = []
-                    tokens.append(char)
-                else:
-                    non_cjk_buffer.append(char)
-
-                if len(tokens) >= max_tokens:
-                    break
-
-            if non_cjk_buffer and len(tokens) < max_tokens:
-                tokens.append("".join(non_cjk_buffer))
-
-            if len(tokens) >= max_tokens:
-                break
-
-        return tokens[:max_tokens]
+        name: str,
+        *,
+        needs_llm: bool = False,
+        **kwargs: Any,
+    ) -> "Response | None":
+        if self._reme is None or not getattr(self._reme, "is_started", False):
+            logger.debug("ReMe job skipped; app not started: %s", name)
+            return None
+        try:
+            if needs_llm:
+                await self._update_qwenpaw_model()
+            return await self._reme.run_job(name, **kwargs)
+        except Exception:
+            logger.exception("ReMe job failed: %s", name)
+            return None
 
     async def memory_search(
         self,
         query: str,
         max_results: int = 5,
         min_score: float = 0.1,
-    ) -> ToolResponse:
-        """
-        Search MEMORY.md and memory/*.md files semantically.
-
-        Use this tool before answering questions about prior work,
-        decisions, dates, people, preferences, or todos. Returns top
-        relevant snippets with file paths and line numbers.
-
-        Args:
-            query (`str`):
-                The semantic search query to find relevant memory snippets.
-            max_results (`int`, optional):
-                Maximum number of search results to return. Defaults to 5.
-            min_score (`float`, optional):
-                Minimum similarity score for results. Defaults to 0.1.
-
-        Returns:
-            `ToolResponse`:
-                Search results formatted with paths, line numbers, and
-                content.
-        """
-        self._warn_if_version_mismatch()
-        if self._reme is None or not getattr(self._reme, "_started", False):
-            return ToolResponse(
-                content=[
-                    TextBlock(
-                        type="text",
-                        text="ReMe is not started, report github issue!",
-                    ),
-                ],
-            )
-
-        try:
-            query_final = " ".join(self.tokenize_query(query))
-            logger.info(f"Tokenized query: {query_final}")
-        except Exception as e:
-            logger.exception(f"Failed to tokenize query: {e} query={query}")
-            query_final = query
-
-        return await self._reme.memory_search(
-            query=query_final,
-            max_results=max_results,
-            min_score=min_score,
-        )
-
-    async def summarize(self, messages: list[Msg], **_kwargs) -> str:
-        """Generate a summary of the given messages and persist to memory."""
-        agent_config = load_agent_config(self.agent_id)
-        light_ctx = agent_config.running.light_context_config
-        cc = light_ctx.context_compact_config
-        chat_model, formatter = create_model_and_formatter(self.agent_id)
-
-        set_current_workspace_dir(Path(self.working_dir))
-        pruning_cfg = light_ctx.tool_result_pruning_config
-        recent_max_bytes = pruning_cfg.pruning_recent_msg_max_bytes
-        set_current_recent_max_bytes(recent_max_bytes)
-
-        return await self._reme.summary_memory(
-            messages=messages,
-            as_llm=chat_model,
-            as_llm_formatter=formatter,
-            as_token_counter=get_token_counter(agent_config),
-            toolkit=self.summary_toolkit,
-            language=agent_config.language,
-            max_input_length=get_model_max_input_length(agent_config),
-            compact_ratio=cc.compact_threshold_ratio,
-            timezone=load_config().user_timezone or None,
-            add_thinking_block=cc.compact_with_thinking_block,
-        )
-
-    async def retrieve(
-        self,
-        messages: list[Msg] | Msg,
-        agent_name: str = "",
-        **_kwargs,
-    ) -> dict | None:
-        """Retrieve relevant memory and return updated kwargs dict.
-
-        Args:
-            messages: One or more conversation messages used as the query.
-            agent_name: Agent name for constructing Msg.
-
-        Returns:
-            None: No relevant memory found, caller should not update kwargs.
-            dict: {"msg": msgs + [assistant_msg, tool_result_msg]} to merge
-                with kwargs via {**kwargs, **result}.
-        """
-        msgs: list[Msg] = (
-            [messages] if isinstance(messages, Msg) else list(messages)
-        )
-
-        # Build query from the newest messages, preserving tail.
-        query_parts: list[str] = []
-        total = 0
-        for msg in reversed(msgs):
-            remaining = 100 - total
-            if remaining <= 0:
-                break
-
-            text = (msg.get_text_content() or "").strip()
-            if not text:
-                continue
-
-            chunk = text[:remaining]
-            query_parts.insert(0, chunk)
-            total += len(chunk)
-
-        query = " ".join(query_parts).strip()
+    ) -> ToolChunk:
+        """Search ReMe memory."""
+        query = query.strip()
         if not query:
-            return None
+            return _tool_chunk("Error: query cannot be empty", ok=False)
 
-        agent_config = load_agent_config(self.agent_id)
-        reme_cfg = agent_config.running.reme_light_memory_config
-        ms = reme_cfg.auto_memory_search_config
-        max_results = ms.max_results
-        min_score = ms.min_score
+        response = await self._run_reme_job(
+            "search",
+            query=query,
+            limit=max(1, max_results),
+            min_score=max(0.0, min_score),
+        )
+        if response is None:
+            return _tool_chunk("ReMe is not started.", ok=False)
 
-        try:
-            result = await self.memory_search(
-                query=query,
-                max_results=max_results,
-                min_score=min_score,
-            )
-            content_blocks = result.content
+        answer = str(response.answer or "").strip()
+        if not answer:
+            answer = NO_MEMORY_RESULTS
+        return _tool_chunk(answer, ok=response.success)
 
-            text_content = "\n".join(
-                b.get("text", "")
-                for b in content_blocks
-                if isinstance(b, dict) and b.get("text")
-            )
-            if not text_content:
-                return None
+    async def summarize(
+        self,
+        messages: list[Msg],
+        **kwargs: Any,
+    ) -> str:
+        """Persist conversation messages through ReMe auto-memory."""
+        if not messages:
+            return ""
 
-            # Construct assistant_msg and tool_result_msg
-            _id = uuid.uuid4().hex
-            tool_use_input = {
-                "query": query,
-                "max_results": max_results,
-                "min_score": min_score,
-            }
-
-            assistant_msg = Msg(
-                name=agent_name,
-                role="assistant",
-                content=[
-                    TextBlock(
-                        type="text",
-                        text="Searching memory for relevant context...",
-                    ),
-                    ToolUseBlock(
-                        type="tool_use",
-                        id=_id,
-                        name="memory_search",
-                        input=tool_use_input,
-                        raw_input=json.dumps(
-                            tool_use_input,
-                            ensure_ascii=False,
-                        ),
-                    ),
-                ],
-            )
-
-            tool_result_msg = Msg(
-                name=agent_name,
-                role="system",
-                content=[
-                    ToolResultBlock(
-                        type="tool_result",
-                        id=_id,
-                        name="memory_search",
-                        output=[TextBlock(type="text", text=text_content)],
-                    ),
-                ],
-            )
-
-            return {"msg": msgs + [assistant_msg, tool_result_msg]}
-
-        except Exception as e:
-            logger.exception(f"memory_search failed: {e}")
-            return None
+        response = await self._run_reme_job(
+            "auto_memory",
+            needs_llm=True,
+            messages=[msg.model_dump(mode="json") for msg in messages],
+            session_id=str(kwargs.get("session_id") or ""),
+            memory_hint=str(kwargs.get("memory_hint") or ""),
+        )
+        if response is None:
+            return ""
+        return str(response.answer or "")
 
     async def auto_memory_search(
         self,
         messages: list[Msg] | Msg,
         agent_name: str = "",
-        **kwargs,
+        **kwargs: Any,
     ) -> dict | None:
-        """Auto-search memory if auto_memory_search_config.enabled is True."""
+        """Auto-search memory and expose it as a completed tool interaction."""
+        del kwargs
         agent_config = load_agent_config(self.agent_id)
-        rlmc = agent_config.running.reme_light_memory_config
-        ms = rlmc.auto_memory_search_config
-
-        if not ms.enabled:
+        memory_cfg = agent_config.running.reme_light_memory_config
+        if not memory_cfg.auto_memory_search_config.enabled:
             return None
 
-        return await self.retrieve(messages, agent_name=agent_name)
+        msgs = [messages] if isinstance(messages, Msg) else list(messages)
+        query = self._build_query(msgs)
+        if not query:
+            return None
 
-    async def summarize_when_compact(
-        self,
-        messages: list[Msg],
-        **kwargs,
-    ) -> None:
-        """Schedule summarize task if summarize_when_compact is enabled."""
-        if not messages:
-            return
+        search_cfg = memory_cfg.auto_memory_search_config
 
-        agent_config = load_agent_config(self.agent_id)
-        rlmc = agent_config.running.reme_light_memory_config
+        response = await self._run_reme_job(
+            "search",
+            query=query,
+            limit=max(1, search_cfg.max_results),
+            min_score=max(0.0, search_cfg.min_score),
+        )
+        if response is None or not response.success:
+            return None
 
-        if rlmc.summarize_when_compact:
-            self.add_summarize_task(messages=messages)
+        text = str(response.answer or "").strip()
+        if not text:
+            return None
+
+        tool_call_id = uuid.uuid4().hex
+        tool_input = {
+            "query": query,
+            "max_results": search_cfg.max_results,
+            "min_score": search_cfg.min_score,
+        }
+        assistant_msg = Msg(
+            name=agent_name or self.agent_id,
+            role="assistant",
+            content=[
+                TextBlock(text="Searching memory for relevant context..."),
+                ToolCallBlock(
+                    id=tool_call_id,
+                    name="memory_search",
+                    input=json.dumps(tool_input, ensure_ascii=False),
+                    state=ToolCallState.FINISHED,
+                ),
+            ],
+        )
+        tool_result_msg = Msg(
+            name=agent_name or self.agent_id,
+            role="assistant",
+            content=[
+                ToolResultBlock(
+                    id=tool_call_id,
+                    name="memory_search",
+                    output=[TextBlock(text=text)],
+                    state=ToolResultState.SUCCESS,
+                ),
+            ],
+        )
+        return {
+            "query": query,
+            "text": text,
+            "msg": msgs + [assistant_msg, tool_result_msg],
+        }
 
     async def auto_memory(
         self,
         all_messages: list[Msg],
-        **kwargs,
+        **kwargs: Any,
     ) -> None:
-        """Auto-extract memory every N user queries."""
-        agent_config = load_agent_config(self.agent_id)
-        rlmc = agent_config.running.reme_light_memory_config
-        auto_memory_interval = rlmc.auto_memory_interval
-
-        if auto_memory_interval is None or auto_memory_interval <= 0:
+        """Auto-extract memory for a prepared reply batch."""
+        if not kwargs.get("reply_ids") or not all_messages:
             return
 
-        user_message_count = sum(
-            1 for msg in all_messages if msg.role == "user"
+        self.add_summarize_task(
+            messages=all_messages,
+            session_id=str(kwargs.get("session_id") or ""),
         )
 
-        if (
-            user_message_count >= auto_memory_interval
-            and user_message_count % auto_memory_interval == 0
-        ):
-            # Find the start of the recent interval window
-            user_count = 0
-            start_idx = 0
-            for i, msg in enumerate(all_messages):
-                if msg.role == "user":
-                    user_count += 1
-                    if (
-                        user_count
-                        == user_message_count - auto_memory_interval + 1
-                    ):
-                        start_idx = i
-                        break
-            recent_messages = all_messages[start_idx:]
-            if recent_messages:
-                self.add_summarize_task(messages=recent_messages)
-
-    async def dream(
-        self,
-        *,
-        runner: Any = None,
-        channel_manager: Any = None,
-        agent_id: Optional[str] = None,
-        workspace_dir: Optional[Path] = None,
-        **kwargs,
-    ) -> None:
-        """
-        Run one dream-based memory optimization pass.
-
-        Args:
-            runner: Agent runner instance (typically supplied by the cron
-                callback). Reserved here to mirror ``run_heartbeat_once``'s
-                signature.
-            channel_manager: Optional channel manager. Reserved for future
-                use (e.g. dispatching an optimization summary); accepted
-                here to mirror ``run_heartbeat_once``'s signature.
-            agent_id: Agent ID for loading config. Falls back to
-                ``self.agent_id`` when omitted.
-            workspace_dir: Workspace directory used to locate MEMORY.md
-                and write backups. Required — raises ``ValueError`` when
-                omitted (so a misconfigured cron fails loudly instead of
-                writing to the process CWD).
-        """
-        del runner, channel_manager, kwargs  # mirror run_heartbeat_once
-        logger.info("running dream-based memory optimization")
-
-        # Use agent_id if provided, otherwise fall back to instance default
-        if not agent_id:
-            agent_id = self.agent_id
-
-        agent_config = load_agent_config(agent_id)
-        light_ctx = agent_config.running.light_context_config
-        chat_model, formatter = create_model_and_formatter(agent_id)
-
-        # Refuse to run when neither is available — running with
-        # an empty path would silently target the process CWD.
-        if not workspace_dir:
-            raise ValueError(
-                "dream requires a workspace_dir",
-            )
-        workspace_path = Path(workspace_dir)
-
-        # Build a dedicated toolkit for the dream agent so it stays
-        # isolated from self.summary_toolkit (which the summarize path
-        # shares). Decoupling avoids any future tool change on either
-        # side accidentally affecting the other.
-        from qwenpaw.agents.tools import (  # noqa: PLC0415
-            read_file,
-            write_file,
-            edit_file,
+    async def dream(self, **kwargs: Any) -> None:
+        """Run one ReMe auto-dream pass."""
+        response = await self._run_reme_job(
+            "auto_dream",
+            needs_llm=True,
+            date=str(kwargs.get("date") or ""),
+            hint=str(kwargs.get("hint") or ""),
         )
+        if response is not None and not response.success:
+            raise RuntimeError(str(response.answer))
 
-        dream_toolkit = Toolkit()
-        dream_toolkit.register_tool_function(read_file)
-        dream_toolkit.register_tool_function(write_file)
-        dream_toolkit.register_tool_function(edit_file)
-
-        set_current_workspace_dir(workspace_path)
-        pruning_cfg = light_ctx.tool_result_pruning_config
-        recent_max_bytes = pruning_cfg.pruning_recent_msg_max_bytes
-        set_current_recent_max_bytes(recent_max_bytes)
-
-        language = getattr(agent_config, "language", "zh")
-        current_date = datetime.now().strftime("%Y-%m-%d")
-
-        prompts = {"zh": DREAM_OPTIMIZATION_ZH, "en": DREAM_OPTIMIZATION_EN}
-        template = prompts.get(language, DREAM_OPTIMIZATION_EN)
-        query_text = template.format(current_date=current_date)
-
-        if not query_text.strip():
-            logger.debug("dream optimization skipped: empty query")
-            return
-
-        backup_path = workspace_path.absolute() / "backup"
-        backup_path.mkdir(parents=True, exist_ok=True)
-
-        memory_file = workspace_path / "MEMORY.md"
-        if memory_file.exists():
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            backup_filename = f"memory_backup_{timestamp}.md"
-            backup_file = backup_path / backup_filename
-            try:
-                shutil.copyfile(memory_file, backup_file)
-                logger.info(f"Created MEMORY.md backup: {backup_file}")
-            except Exception as e:
-                logger.error(f"Failed to create MEMORY.md backup: {e}")
-        else:
-            logger.debug("No existing MEMORY.md file to backup")
-
-        dream_agent = ReActAgent(
-            name="DreamOptimizer",
-            model=chat_model,
-            sys_prompt="You are a Dream Memory Organizer specialized"
-            " in optimizing long-term memory files.",
-            toolkit=dream_toolkit,
-            formatter=formatter,
-        )
-        dream_agent.set_console_output_enabled(False)
-
-        user_msg = Msg(
-            name="dream",
-            role="user",
-            content=[TextBlock(type="text", text=query_text)],
-        )
-
-        try:
-            response = await dream_agent.reply(user_msg)
-            logger.info(f"Dream agent response: {response.get_text_content()}")
-        except Exception as e:
-            logger.exception(f"dream-based memory optimization failed: {e}")
-            raise
+    @staticmethod
+    def _build_query(messages: list[Msg]) -> str:
+        parts = []
+        total = 0
+        for msg in reversed(messages):
+            if msg.role not in {"user", "assistant"}:
+                continue
+            text = (msg.get_text_content() or "").strip()
+            if not text:
+                continue
+            remaining = MAX_QUERY_CHARS - total - (1 if parts else 0)
+            if remaining <= 0:
+                break
+            parts.insert(0, text[-remaining:])
+            total += min(len(text), remaining) + (1 if len(parts) > 1 else 0)
+        return " ".join(parts).strip()

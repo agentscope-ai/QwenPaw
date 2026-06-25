@@ -14,6 +14,27 @@ import pytest
 
 logger = logging.getLogger(__name__)
 
+
+def pytest_sessionstart(session):
+    """Hard guard against running e2e against a real QwenPaw instance.
+
+    Triggers ``config.working_dir`` validation before any fixture
+    chain runs. Fails the entire session in <1s if
+    ``QWENPAW_WORKING_DIR`` is unset or points inside the user's home
+    directory. Without this, a developer running ``pytest`` without
+    setting up the isolated test server could silently corrupt their
+    real ``~/.qwenpaw`` data.
+
+    Skipped for ``ui_smoke`` runs — those hit a frontend dev server
+    only and never write seed files to disk.
+    """
+    marker_expr = session.config.getoption("-m", default="")
+    if marker_expr.strip() == "ui_smoke":
+        return
+    from config.settings import config
+    _ = config.working_dir  # raises RuntimeError on misconfiguration
+
+
 _DEFAULT_PROVIDER = os.getenv("QWENPAW_MODEL_PROVIDER", "dashscope")
 _DEFAULT_MODEL = os.getenv("QWENPAW_DEFAULT_MODEL", "qwen3.6-plus")
 
