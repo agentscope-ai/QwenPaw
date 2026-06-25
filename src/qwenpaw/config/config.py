@@ -1203,6 +1203,14 @@ class AgentProfileConfig(BaseModel):
         default_factory=CodingModeConfig,
         description="Coding Mode configuration for this agent",
     )
+    freeze_env_context_date: bool = Field(
+        default=False,
+        description=(
+            "Freeze date in env_context per session to preserve "
+            "KV cache prefix. When enabled, the date remains stable "
+            "across turns within a session and refreshes on session switch."
+        ),
+    )
 
 
 class AgentsConfig(BaseModel):

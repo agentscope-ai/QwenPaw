@@ -11,9 +11,17 @@ injects all dependencies into the agent constructor.
 from __future__ import annotations
 
 import logging
+from datetime import datetime
 from typing import Any, Iterable
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 _logger = logging.getLogger(__name__)
+
+# Per-session date freezing: keep system prompt stable across turns
+# to preserve KV cache prefix. Refreshed on session switch.
+# Module-level globals are safe for single-worker deployment.
+_env_context_session_id: str | None = None
+_env_context_frozen_now: datetime | None = None
 
 
 class AgentBuilder:
@@ -363,6 +371,7 @@ class AgentBuilder:
         import os
         import sys
         from ..app.chats.utils import build_env_context
+        from ..config import load_config
         from ..constant import WORKING_DIR
 
         workspace_dir = getattr(ctx, "workspace_dir", None)
@@ -385,6 +394,25 @@ class AgentBuilder:
             or ("cmd.exe" if sys.platform == "win32" else "/bin/sh")
         )
         request = getattr(ctx, "request", None)
+
+        # Freeze date per session to preserve KV cache prefix
+        frozen_now = None
+        if getattr(agent_config, "freeze_env_context_date", False):
+            global _env_context_session_id, _env_context_frozen_now
+            session_id = getattr(ctx, "session_id", "")
+            if session_id != _env_context_session_id:
+                _env_context_session_id = session_id
+                _user_tz = load_config().user_timezone or "UTC"
+                try:
+                    _env_context_frozen_now = datetime.now(
+                        ZoneInfo(_user_tz),
+                    )
+                except (ZoneInfoNotFoundError, KeyError):
+                    _env_context_frozen_now = datetime.now(
+                        ZoneInfo("UTC"),
+                    )
+            frozen_now = _env_context_frozen_now
+
         return build_env_context(
             session_id=getattr(ctx, "session_id", ""),
             user_id=(getattr(request, "user_id", None) if request else None),
@@ -393,6 +421,7 @@ class AgentBuilder:
             working_dir=ws,
             default_shell=_default_shell,
             project_dir=_project_dir,
+            frozen_now=frozen_now,
         )
 
     @staticmethod

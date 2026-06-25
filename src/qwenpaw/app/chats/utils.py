@@ -67,6 +67,7 @@ def build_env_context(
     add_hint: bool = True,
     default_shell: Optional[str] = None,
     project_dir: Optional[str] = None,
+    frozen_now: Optional[datetime] = None,
 ) -> str:
     """
     Build environment context with current request context prepended.
@@ -86,18 +87,26 @@ def build_env_context(
             directory" line is replaced with an explicit
             "Project directory" + "Agent workspace (internal)" pair
             so the LLM stops treating the workspace as home.
+        frozen_now: Optional datetime to use for the current date line.
+            When provided, the date is frozen to this value instead
+            of being generated from the current time. This allows
+            caller-side session-level date freezing to preserve
+            KV cache prefix across turns within a session.
 
     Returns:
         Formatted environment context string
     """
     parts = []
     user_tz = load_config().user_timezone or "UTC"
-    try:
-        now = datetime.now(ZoneInfo(user_tz))
-    except (ZoneInfoNotFoundError, KeyError):
-        logger.warning("Invalid timezone %r, falling back to UTC", user_tz)
-        now = datetime.now(timezone.utc)
-        user_tz = "UTC"
+    if frozen_now is not None:
+        now = frozen_now
+    else:
+        try:
+            now = datetime.now(ZoneInfo(user_tz))
+        except (ZoneInfoNotFoundError, KeyError):
+            logger.warning("Invalid timezone %r, falling back to UTC", user_tz)
+            now = datetime.now(timezone.utc)
+            user_tz = "UTC"
 
     if session_id is not None:
         parts.append(f"- Session ID: {session_id}")
