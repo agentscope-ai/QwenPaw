@@ -889,9 +889,12 @@ async def test_resume_flag_skips_welcome_and_replays_at_start():
     transport = FakeTransport(resume_session_id="old-1")
     app = PawApp(transport, resume_session_id="old-1")
     async with app.run_test() as pilot:
-        for _ in range(10):
+        # Wait until the resumed transcript has fully replayed (both user
+        # turns rendered), not just until the load fired — on a slow runner
+        # the second message lands several frames after transport.loaded.
+        for _ in range(50):
             await pilot.pause()
-            if transport.loaded:
+            if transport.loaded and len(list(app.query(UserMessage))) >= 2:
                 break
         # No welcome banner; the resumed transcript renders instead.
         assert not list(app.query(WelcomeMessage))

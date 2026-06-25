@@ -189,9 +189,12 @@ def make_recall_history_python(
                 state=ToolResultState.DENIED,
             )
         cell = _build_cell(source)
-        cmd = f"{shlex.quote(sys.executable)} {shlex.quote(str(cell))}"
+        argv = [sys.executable, str(cell)]
         try:
             if sandbox_config is not None:
+                # The sandbox runs a shell command string; quote each argv
+                # element (POSIX shell inside the sandbox).
+                cmd = " ".join(shlex.quote(a) for a in argv)
                 stdout, stderr, code = await _run_sandboxed(
                     cmd,
                     sandbox_config,
@@ -199,8 +202,11 @@ def make_recall_history_python(
                     scratch_root,
                 )
             else:
+                # No shell: pass argv straight to the OS so quoting is
+                # correct on every platform (cmd.exe rejects shlex's POSIX
+                # single-quotes, which would fail the run on Windows).
                 stdout, stderr, code = await _run_subprocess(
-                    cmd,
+                    argv,
                     timeout_s,
                     scratch_root,
                 )
@@ -251,12 +257,12 @@ async def _run_sandboxed(
 
 
 async def _run_subprocess(
-    cmd: str,
+    argv: list[str],
     timeout_s: int,
     cwd: str,
 ) -> tuple[str, str, int]:
-    proc = await asyncio.create_subprocess_shell(
-        cmd,
+    proc = await asyncio.create_subprocess_exec(
+        *argv,
         cwd=cwd,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
