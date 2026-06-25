@@ -325,12 +325,8 @@ class MemoryMiddleware(MiddlewareBase):
             msg = messages[idx]
             if not MemoryMiddleware._is_memory_user_turn(msg):
                 continue
-            return MemoryMiddleware._user_turn_marker(msg, idx)
+            return msg.id
         return ""
-
-    @staticmethod
-    def _user_turn_marker(msg: "Msg", idx: int) -> str:
-        return msg.id or f"idx:{idx}"
 
     @staticmethod
     def _messages_for_user_turns(
@@ -347,7 +343,7 @@ class MemoryMiddleware(MiddlewareBase):
         for idx, msg in enumerate(messages):
             if (
                 MemoryMiddleware._is_memory_user_turn(msg)
-                and MemoryMiddleware._user_turn_marker(msg, idx) in targets
+                and msg.id in targets
             ):
                 if first_idx is None:
                     first_idx = idx
