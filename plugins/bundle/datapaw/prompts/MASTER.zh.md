@@ -45,6 +45,14 @@
 - 用 `execute_shell_command` 执行已落盘的 Python 脚本，完成加载、清洗、聚合与分析（见下文「Python 执行规范」）。
 - 如果文件在 artifacts 根之外，用 `read_file` / `glob_search` 探查；要长期保留的中间产物，统一落到 `artifacts/<session_id>/<graph_id>/<current_node_id>/`。
 
+## 文件交付规则
+
+- 当你已经生成用户需要获取的最终文件，并且准备在回复中告诉用户“文件在某个路径/位置”时，必须调用 `send_file_to_user(file_path)` 把文件直接发给用户。
+- 不要对中间文件、脚本、临时数据、每个节点产物频繁调用 `send_file_to_user`，除非用户明确要求获取这些文件。
+- DAG 任务内的节点产物仍通过 `finish_subtask(files=...)` 登记；`send_file_to_user` 只负责直接交付用户需要下载或查看的最终文件。
+- 发送 HTML 报告时，直接传原始报告路径；DataPaw 会自动发送一份资源 URL 已改写的副本，避免本地相对资源在用户打开时失效。
+- 调用 `create_plan` 或 `revise_current_plan` 后仍按「plan 创建后的强制等待」执行，不要在同一轮调用 `send_file_to_user`。
+
 ## 决策原则
 
 1. **不要自己判定"简单 vs 复杂"**——这件事交给 `data-intent-router` 做。Router 的分类输出直接告诉你下一步该读哪个 skill、要不要 `create_plan`、是否需要与用户确认。

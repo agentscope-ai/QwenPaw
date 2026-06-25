@@ -35,6 +35,7 @@ from ..orchestration import RuntimeStateManager
 from ..path_context import PathContext, default_artifacts_root
 from ..sse_metadata import NODE_ROUTING_METADATA_KEYS
 from ..tools import DEFAULT_TOOL_NAMES, TOOL_REGISTRY
+from ..file_delivery import build_send_file_to_user_fn
 from .pending_edits import format_pending_edits
 from .subagent_config import build_spawn_subagent_fn, acting_spawn_subagent
 
@@ -213,8 +214,6 @@ class DataPawAgent(QwenPawAgent):
             parallel_tool_calls=True,
         )
 
-        self._disable_send_file_to_user_tool()
-
         if runtime_state is None:
             runtime_state = RuntimeStateManager(lang=self._lang)
         else:
@@ -227,23 +226,11 @@ class DataPawAgent(QwenPawAgent):
                     setattr(runtime_state, attr, getattr(plan_notebook, attr))
         self._configure_artifact_path_resolver(workspace_dir)
 
+        self._register_file_delivery_tool()
         self._register_plan_tools(namesake_strategy)
         self._register_datapaw_tools(namesake_strategy)
 
     # --- Internal helpers -----------------------------------------------------
-
-    def _disable_send_file_to_user_tool(self) -> None:
-        if not getattr(self, "toolkit", None):
-            return
-        if "send_file_to_user" not in getattr(self.toolkit, "tools", {}):
-            return
-        try:
-            self.toolkit.remove_tool_function("send_file_to_user")
-        except Exception:  # pylint: disable=broad-except
-            logger.warning(
-                "Failed to disable send_file_to_user for DataPaw agent",
-                exc_info=True,
-            )
 
     def _current_node_id(self) -> str | None:
         try:
@@ -313,6 +300,21 @@ class DataPawAgent(QwenPawAgent):
         return await super().print(msg, last, speech=speech)
 
     # --- Tool registration ----------------------------------------------------
+
+    def _register_file_delivery_tool(self) -> None:
+        """Override host send_file_to_user with DataPaw HTML handling."""
+        if "send_file_to_user" not in getattr(self.toolkit, "tools", {}):
+            return
+        try:
+            self.toolkit.register_tool_function(
+                build_send_file_to_user_fn(self),
+                namesake_strategy="override",
+            )
+        except Exception:  # pylint: disable=broad-except
+            logger.warning(
+                "Failed to register DataPaw send_file_to_user wrapper",
+                exc_info=True,
+            )
 
     def _register_plan_tools(
         self,

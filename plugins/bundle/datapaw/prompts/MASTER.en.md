@@ -45,6 +45,14 @@ For `file_path` fields returned by general tools, during reasoning:
 - Use `execute_shell_command` to run persisted Python scripts for loading, cleaning, aggregating, and analyzing (see "Python execution rules" below).
 - If the file lives outside the artifacts root, probe with `read_file` / `glob_search`; intermediate products you want to preserve should land under `artifacts/<session_id>/<graph_id>/<current_node_id>/`.
 
+## File delivery rules
+
+- When you have generated a final file the user needs to obtain, and you are about to tell the user where that file is, call `send_file_to_user(file_path)` to deliver it directly.
+- Do not call `send_file_to_user` repeatedly for intermediate files, scripts, temporary data, or every node artifact unless the user explicitly asks for those files.
+- In DAG tasks, keep registering node artifacts through `finish_subtask(files=...)`; `send_file_to_user` is only for directly delivering final files the user needs to download or view.
+- When sending an HTML report, pass the original report path. DataPaw automatically sends a copy with resource URLs rewritten, so local relative resources still work when the user opens it.
+- After `create_plan` or `revise_current_plan`, still follow "Mandatory wait after plan creation"; do not call `send_file_to_user` in the same round.
+
 ## Decision principles
 
 1. **Do not classify "simple vs complex" yourself** — that is `data-intent-router`'s job. The router's classification tells you which skill to read next, whether to `create_plan`, and whether user confirmation is needed.

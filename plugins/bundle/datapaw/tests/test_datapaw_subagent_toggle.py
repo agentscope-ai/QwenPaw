@@ -93,7 +93,19 @@ def test_master_prompt_includes_subagent_by_default(monkeypatch):
 
     assert "## Sub-Agent" in prompt
     assert "spawn_subagent(task" in prompt
+    assert "send_file_to_user(file_path)" in prompt
     assert "DATAPAW_SUBAGENT" not in prompt
+
+
+def test_master_prompt_includes_file_delivery_rules_en(monkeypatch):
+    monkeypatch.delenv(DATAPAW_SPAWN_SUBAGENT_ENABLED_ENV, raising=False)
+
+    from plugin_datapaw.core.agents.base import _read_master_md
+
+    prompt = _read_master_md("en")
+
+    assert "## File delivery rules" in prompt
+    assert "send_file_to_user(file_path)" in prompt
 
 
 def test_master_prompt_hides_subagent_when_disabled(monkeypatch):
