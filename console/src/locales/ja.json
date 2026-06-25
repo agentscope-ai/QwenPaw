@@ -431,7 +431,7 @@
     "deleteSuccess": "MCPクライアントを削除しました",
     "deleteError": "MCPクライアントの削除に失敗しました",
     "maskedFieldHint": "機密フィールドは *** でマスクされています。マスク値の直接編集はできません。変更するには完全な新しい値に置き換えてください。",
-    "tools": "ツール",
+    "tools": "ツール&権限",
     "noTools": "このMCPサーバーには利用可能なツールがありません",
     "toolsLoadError": "MCPサーバーからツール一覧の取得に失敗しました",
     "toolsConnecting": "MCPサーバーに接続中です。しばらくしてから再度お試しください",
@@ -1572,7 +1572,13 @@
     "configured": "設定済み",
     "requiresConfig": "設定が必要です",
     "configSaved": "設定を保存しました",
-    "configSaveError": "設定の保存に失敗しました"
+    "configSaveError": "設定の保存に失敗しました",
+    "active": "個が有効",
+    "available": "利用可能",
+    "noEnabled": "有効なツールはありません",
+    "goEnableBtn": "有効にする",
+    "configureAction": "設定 →",
+    "enableAction": "有効化 →"
   },
   "modelConfig": {
     "promptTitle": "LLMモデルが必要です — 設定後にChatページで選択",

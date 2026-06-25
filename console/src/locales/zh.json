@@ -1827,7 +1827,13 @@
     "configured": "已配置",
     "requiresConfig": "需要配置",
     "configSaved": "配置已保存",
-    "configSaveError": "配置保存失败"
+    "configSaveError": "配置保存失败",
+    "active": "个已激活",
+    "available": "可用",
+    "noEnabled": "暂无已启用的工具",
+    "goEnableBtn": "去启用",
+    "configureAction": "配置 →",
+    "enableAction": "启用 →"
   },
   "modelConfig": {
     "promptTitle": "需要配置 LLM 模型，配置模型后在 Chat 页面选择",

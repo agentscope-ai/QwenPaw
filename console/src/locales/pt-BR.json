@@ -634,7 +634,7 @@
     "deleteSuccess": "MCP client deleted successfully",
     "deleteError": "Falha ao Excluir MCP client",
     "maskedFieldHint": "Sensitive fields are masked with ***. In-place edits on masked values are not supported — replace with the full new value to modify.",
-    "tools": "Ferramentas",
+    "tools": "Ferramentas e Permissões",
     "noTools": "No tools available from this MCP server",
     "toolsLoadError": "Failed to load tools from MCP server",
     "toolsConnecting": "MCP server is still connecting, please try again in a moment",
@@ -1779,7 +1779,18 @@
     "allDisabled": "All tools are already disabled",
     "asyncExecution": "Async Execution",
     "asyncExecutionEnabled": "Async execution Ativado",
-    "asyncExecutionDisabled": "Async execution Desativado"
+    "asyncExecutionDisabled": "Async execution Desativado",
+    "configure": "Configurar",
+    "configured": "Configurado",
+    "requiresConfig": "Requer configuração",
+    "configSaved": "Configuração salva",
+    "configSaveError": "Falha ao salvar configuração",
+    "active": "ativo(s)",
+    "available": "Disponível",
+    "noEnabled": "Nenhuma ferramenta ativada",
+    "goEnableBtn": "Ativar agora",
+    "configureAction": "Configurar →",
+    "enableAction": "Ativar →"
   },
   "modelConfig": {
     "promptTitle": "LLM Model Required — Select in Chat After Configuration",
