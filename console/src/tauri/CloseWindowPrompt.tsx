@@ -5,28 +5,9 @@ import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { isTauriRuntime } from "./backendRuntime";
 
-const CLOSE_REQUESTED_EVENT = "qwenpaw-close-requested";
-const CLOSE_ACTION_STORAGE_KEY = "qwenpaw.closeWindowAction";
+const CLOSE_PROMPT_EVENT = "qwenpaw-close-requested";
 
 type CloseAction = "minimize-to-tray" | "quit";
-
-async function runCloseAction(action: CloseAction): Promise<void> {
-  const command = action === "quit" ? "quit_app" : "minimize_to_tray";
-  await invoke<void>(command);
-}
-
-function getRememberedCloseAction(): CloseAction | null {
-  const action = window.localStorage.getItem(CLOSE_ACTION_STORAGE_KEY);
-  return action === "minimize-to-tray" || action === "quit" ? action : null;
-}
-
-function setRememberedCloseAction(action: CloseAction) {
-  window.localStorage.setItem(CLOSE_ACTION_STORAGE_KEY, action);
-}
-
-type CloseRequestPayload = {
-  requestId: number;
-};
 
 export default function CloseWindowPrompt() {
   const { t, i18n } = useTranslation();
@@ -34,36 +15,16 @@ export default function CloseWindowPrompt() {
   const [remember, setRemember] = useState(false);
   const [submitting, setSubmitting] = useState<CloseAction | null>(null);
 
-  const handleCloseRequested = useCallback((requestId: number) => {
-    void invoke("ack_close_request", { requestId }).catch((err) => {
-      console.error("Failed to acknowledge close request:", err);
-    });
-
-    const rememberedAction = getRememberedCloseAction();
-    if (rememberedAction) {
-      void runCloseAction(rememberedAction).catch((err) => {
-        console.error("Failed to run remembered close action:", err);
-      });
-      return;
-    }
-
-    setRemember(false);
-    setOpen(true);
-  }, []);
-
   const handleAction = useCallback(
     async (action: CloseAction) => {
       setSubmitting(action);
       try {
-        if (remember) {
-          setRememberedCloseAction(action);
-        }
-        await runCloseAction(action);
+        await invoke("resolve_close", { action, remember });
         if (action === "minimize-to-tray") {
           setOpen(false);
         }
       } catch (err) {
-        console.error("Failed to run close action:", err);
+        console.error("Failed to resolve close action:", err);
       } finally {
         setSubmitting(null);
       }
@@ -77,9 +38,10 @@ export default function CloseWindowPrompt() {
     let disposed = false;
     let unlisten: (() => void) | undefined;
 
-    void listen<CloseRequestPayload>(CLOSE_REQUESTED_EVENT, (event) =>
-      handleCloseRequested(event.payload.requestId),
-    )
+    void listen(CLOSE_PROMPT_EVENT, () => {
+      setRemember(false);
+      setOpen(true);
+    })
       .then((cleanup) => {
         if (disposed) {
           cleanup();
@@ -95,7 +57,7 @@ export default function CloseWindowPrompt() {
       disposed = true;
       unlisten?.();
     };
-  }, [handleCloseRequested]);
+  }, []);
 
   useEffect(() => {
     if (!isTauriRuntime()) return undefined;

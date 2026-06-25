@@ -1,12 +1,6 @@
 //! System tray integration for the desktop shell.
 
-use std::{
-    sync::{
-        atomic::{AtomicU64, Ordering},
-        Mutex,
-    },
-    time::Duration,
-};
+use std::sync::Mutex;
 
 use tauri::{
     menu::{Menu, MenuItem},
@@ -15,12 +9,14 @@ use tauri::{
 };
 
 use crate::backend;
+use crate::settings::{self, CloseAction};
 
 const SHOW_MENU_ID: &str = "show";
 const QUIT_MENU_ID: &str = "quit";
-const CLOSE_FALLBACK_DELAY: Duration = Duration::from_millis(1500);
 
-pub(crate) const CLOSE_REQUESTED_EVENT: &str = "qwenpaw-close-requested";
+/// Emitted to the frontend when the user closes the window and no preference
+/// is remembered yet, asking it to show the close prompt.
+pub(crate) const CLOSE_PROMPT_EVENT: &str = "qwenpaw-close-requested";
 
 #[derive(Clone)]
 struct TrayMenuItems {
@@ -28,26 +24,9 @@ struct TrayMenuItems {
     quit: MenuItem<tauri::Wry>,
 }
 
+#[derive(Default)]
 pub(crate) struct TrayState {
     menu_items: Mutex<Option<TrayMenuItems>>,
-    close_request_id: AtomicU64,
-    close_ack_id: AtomicU64,
-}
-
-impl Default for TrayState {
-    fn default() -> Self {
-        Self {
-            menu_items: Mutex::new(None),
-            close_request_id: AtomicU64::new(0),
-            close_ack_id: AtomicU64::new(0),
-        }
-    }
-}
-
-#[derive(Clone, serde::Serialize)]
-#[serde(rename_all = "camelCase")]
-struct CloseRequestPayload {
-    request_id: u64,
 }
 
 /// Creates the tray icon and its cross-platform menu actions.
@@ -56,15 +35,17 @@ pub(crate) fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Erro
     let quit = MenuItem::with_id(app, QUIT_MENU_ID, "Quit", true, None::<&str>)?;
     let menu = Menu::with_items(app, &[&show, &quit])?;
 
-    let tray_state = app.state::<TrayState>();
-    let mut menu_items = tray_state
-        .menu_items
-        .lock()
-        .map_err(|_| "failed to lock tray menu state")?;
-    *menu_items = Some(TrayMenuItems {
-        show: show.clone(),
-        quit: quit.clone(),
-    });
+    {
+        let tray_state = app.state::<TrayState>();
+        let mut menu_items = tray_state
+            .menu_items
+            .lock()
+            .map_err(|_| "failed to lock tray menu state")?;
+        *menu_items = Some(TrayMenuItems {
+            show: show.clone(),
+            quit: quit.clone(),
+        });
+    }
 
     let mut tray = TrayIconBuilder::new()
         .menu(&menu)
@@ -104,24 +85,39 @@ pub(crate) fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Erro
     Ok(())
 }
 
-#[tauri::command]
-pub(crate) fn minimize_to_tray(app: tauri::AppHandle) {
-    hide_main_window(&app);
+/// Handles a window close request. A remembered preference is honored directly
+/// in Rust; otherwise the frontend is asked to prompt the user.
+pub(crate) fn handle_close_requested(window: &tauri::Window) {
+    let app = window.app_handle();
+    match settings::remembered_close_action(app) {
+        Some(CloseAction::Quit) => exit_app(app),
+        Some(CloseAction::MinimizeToTray) => hide_main_window(app),
+        None => {
+            let _ = window.emit(CLOSE_PROMPT_EVENT, ());
+        }
+    }
 }
 
+/// Resolves the close prompt with the user's choice, optionally remembering it.
 #[tauri::command]
-pub(crate) fn quit_app(app: tauri::AppHandle) {
-    exit_app(&app);
+pub(crate) fn resolve_close(
+    app: tauri::AppHandle,
+    action: CloseAction,
+    remember: bool,
+) -> Result<(), String> {
+    if remember {
+        settings::remember_close_action(&app, action)?;
+    }
+
+    match action {
+        CloseAction::Quit => exit_app(&app),
+        CloseAction::MinimizeToTray => hide_main_window(&app),
+    }
+
+    Ok(())
 }
 
-#[tauri::command]
-pub(crate) fn ack_close_request(app: tauri::AppHandle, request_id: u64) {
-    let tray_state = app.state::<TrayState>();
-    tray_state
-        .close_ack_id
-        .fetch_max(request_id, Ordering::SeqCst);
-}
-
+/// Updates the tray menu labels with frontend-provided translations.
 #[tauri::command]
 pub(crate) fn set_tray_labels(
     app: tauri::AppHandle,
@@ -138,32 +134,14 @@ pub(crate) fn set_tray_labels(
     };
 
     if let Some(items) = menu_items {
-        items.show.set_text(show_window).map_err(|err| err.to_string())?;
+        items
+            .show
+            .set_text(show_window)
+            .map_err(|err| err.to_string())?;
         items.quit.set_text(quit).map_err(|err| err.to_string())?;
     }
 
     Ok(())
-}
-
-pub(crate) fn request_close(window: &tauri::Window) {
-    let app = window.app_handle().clone();
-    let request_id = {
-        let tray_state = app.state::<TrayState>();
-        tray_state.close_request_id.fetch_add(1, Ordering::SeqCst) + 1
-    };
-
-    let _ = window.emit(CLOSE_REQUESTED_EVENT, CloseRequestPayload { request_id });
-
-    std::thread::spawn(move || {
-        std::thread::sleep(CLOSE_FALLBACK_DELAY);
-
-        let tray_state = app.state::<TrayState>();
-        let is_latest_request = tray_state.close_request_id.load(Ordering::SeqCst) == request_id;
-        let is_unhandled = tray_state.close_ack_id.load(Ordering::SeqCst) < request_id;
-        if is_latest_request && is_unhandled {
-            hide_main_window(&app);
-        }
-    });
 }
 
 pub(crate) fn show_main_window(app: &tauri::AppHandle) {
