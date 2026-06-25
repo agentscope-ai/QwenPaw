@@ -10,7 +10,8 @@ import {
   buildSessionPath,
   getSessionIdFromPath,
 } from "../../../../utils/sessionRoute";
-import { Drawer, Spin, Tooltip } from "antd";
+import { Drawer, Empty, Spin, Tooltip } from "antd";
+import { useIsMobile } from "../../../../hooks/useIsMobile";
 import { FixedSizeList, type ListChildComponentProps } from "react-window";
 import { IconButton } from "@agentscope-ai/design";
 import {
@@ -666,6 +667,11 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
           >
             <Spin />
           </div>
+        ) : sortedSessions.length === 0 ? (
+          <Empty
+            description={t("chat.history.empty", "No chat history")}
+            style={{ marginTop: 80 }}
+          />
         ) : (
           <FixedSizeList
             height={listHeight}
@@ -693,6 +699,9 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
     </>
   );
 
+  // Mobile viewport detection so the drawer width matches the search panel.
+  const isMobile = useIsMobile();
+
   // Embedded mode: render as an inline panel (no Drawer wrapper)
   if (props.embedded) {
     if (!props.open) return null;
@@ -706,7 +715,7 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
       onClose={props.pinned ? undefined : props.onClose}
       destroyOnHidden={!props.pinned}
       placement="right"
-      width={330}
+      width={isMobile ? "calc(100vw - 56px)" : 330}
       closable={false}
       title={null}
       mask={!props.pinned}

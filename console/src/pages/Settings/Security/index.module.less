@@ -643,3 +643,99 @@
   display: inline-flex;
   align-items: center;
 }
+
+/* ─── Mobile Adaptation ──────────────────────────────────────────────────── */
+@media (max-width: 768px) {
+  .mainTabs {
+    :global {
+      .qwenpaw-tabs-nav {
+        overflow-x: auto;
+        scrollbar-width: none;
+
+        &::-webkit-scrollbar {
+          display: none;
+        }
+      }
+
+      .qwenpaw-tabs-nav-wrap {
+        overflow-x: auto !important;
+        white-space: nowrap;
+      }
+
+      .qwenpaw-tabs-nav-list {
+        display: inline-flex;
+        white-space: nowrap;
+      }
+
+      .qwenpaw-tabs-tab {
+        flex-shrink: 0;
+        white-space: nowrap;
+      }
+    }
+  }
+
+  .content {
+    padding: 0 12px;
+  }
+
+  .sectionConfigureContainer {
+    padding-bottom: 16px;
+  }
+
+  .formCard {
+    :global(.ant-card-body) {
+      padding: 16px;
+    }
+  }
+
+  .toolGuardRow {
+    grid-template-columns: 1fr;
+    gap: 0;
+  }
+
+  .sectionHeader {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 16px 12px 0;
+  }
+
+  .ruleTable,
+  .tableCard {
+    overflow-x: auto;
+
+    :global(.ant-table),
+    :global(.qwenpaw-table) {
+      min-width: 600px;
+    }
+  }
+
+  .ruleCollapse {
+    :global(.qwenpaw-collapse-header) {
+      padding: 10px 12px !important;
+    }
+  }
+
+  .shellEvasionGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .skillScannerConfig {
+    grid-template-columns: 1fr;
+  }
+
+  .skillScannerConfigItem {
+    padding-right: 0;
+  }
+
+  .skillScannerConfigItem + .skillScannerConfigItem {
+    border-left: none;
+    border-top: 1px solid var(--ant-color-border, #f0f0f0);
+    padding-top: 12px;
+    margin-top: 12px;
+  }
+
+  .footerButtons {
+    padding: 12px 16px;
+  }
+}

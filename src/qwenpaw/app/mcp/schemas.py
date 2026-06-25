@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field
@@ -184,6 +185,35 @@ class MCPAccessRule(BaseModel):
     effect: Literal["allow", "ask", "deny"] = Field(
         ...,
         description="Access effect for this source/object tuple",
+    )
+
+
+class MCPAccessPrincipalOption(BaseModel):
+    """Selectable source-scoped principal discovered from recent chats."""
+
+    source_type: Literal["channel"] = Field(
+        default="channel",
+        description="Where the tool call comes from",
+    )
+    source_value: str = Field(
+        ...,
+        description="Concrete source, e.g. console, dingtalk",
+    )
+    subject_type: Literal["user"] = Field(
+        default="user",
+        description="Selectable object type",
+    )
+    subject_value: str = Field(
+        ...,
+        description="User identifier within the selected source",
+    )
+    label: str = Field(default="", description="Display label")
+    chat_id: str = Field(default="", description="Recent chat UUID")
+    chat_name: str = Field(default="", description="Recent chat name")
+    session_id: str = Field(default="", description="Recent session ID")
+    updated_at: Optional[datetime] = Field(
+        default=None,
+        description="Most recent chat update timestamp",
     )
 
 

@@ -53,7 +53,7 @@
     "skills": "Skills",
     "skillPool": "Skill Pool",
     "market": "Skill Market",
-    "tools": "Tools & Permissions",
+    "tools": "Tools",
     "mcp": "MCP",
     "acp": "ACP",
     "agentConfig": "Configuration",
@@ -599,7 +599,10 @@
     "exitBatch": "Exit Batch",
     "noSearchResults": "No skills found matching your search",
     "filterByTag": "Filter by tag",
-    "noTags": "No tags available"
+    "noTags": "No tags available",
+    "enabledSkills": "Enabled Skills",
+    "disabledSkills": "Disabled Skills",
+    "active": "active"
   },
   "skillPool": {
     "description": "Shared local skill pool for built-in skills and workspace uploads. External hub imports such as ClawHub or LobeHub are separate.",
@@ -729,7 +732,7 @@
       "title": "Access",
       "button": "Access",
       "summary": "MCP access policy",
-      "clientSection": "Client Access",
+      "clientSection": "Overall Access",
       "toolSection": "Tool Access",
       "default": "Default",
       "sourceType": "Source",
@@ -749,7 +752,18 @@
         "channel": "console / dingtalk"
       },
       "subjectValuePlaceholder": "e.g. alice",
+      "subjectValuePlaceholderSelectedSource": "user ID in selected source",
+      "subjectValuePlaceholderScoped": "{{source}} user ID",
       "subjectValueAll": "All",
+      "recentUserPlaceholder": "User ID is scoped to the selected source; type or select again",
+      "noRecentUsers": "No recent users for this source; type a user ID manually",
+      "ambiguousUserSourceWarning": "User IDs are scoped by source. Select a specific channel to avoid cross-channel matches.",
+      "unknownUserValueWarning": "This user ID is not in recent active users. Saving is allowed.",
+      "validation": {
+        "missingUserValue": "Select a specific source and enter a valid user ID.",
+        "ambiguousUserSource": "User rules must target a specific channel, not all channels.",
+        "unknownUserValue": "This user ID is not in recent active users. Saving is allowed."
+      },
       "addRule": "Add Rule",
       "deleteRule": "Delete Rule",
       "noClientRules": "No rules",
@@ -1240,7 +1254,13 @@
     "batchDismissConfirm": "Dismiss {{count}} selected users?",
     "batchSuccess": "{{count}} users processed successfully",
     "batchRemove": "Delete",
-    "batchRemoveConfirm": "Delete {{count}} selected users?"
+    "batchRemoveConfirm": "Delete {{count}} selected users?",
+    "enabledSection": "Enabled",
+    "enabledCount": "{{count}}",
+    "availableSection": "Available",
+    "enableAction": "Enable",
+    "noEnabledChannels": "No enabled channels",
+    "goEnableChannels": "Enable channels"
   },
   "sessions": {
     "title": "Sessions",
@@ -1423,6 +1443,7 @@
     "protocolHint": "Choose the provider API protocol for this configuration.",
     "selectProtocol": "Please select a protocol",
     "protocolOpenAI": "OpenAI-compatible (Chat Completions)",
+    "protocolOpenAIResponse": "OpenAI-compatible (Response API)",
     "protocolAnthropic": "Anthropic (Messages API)",
     "currentKey": "Current: {{key}}",
     "startsWith": "Starts with \"{{prefix}}\"",
@@ -1851,9 +1872,8 @@
     "autoMaxResultsTooltip": "Maximum number of results returned when auto memory search is enabled",
     "autoMaxResultsRequired": "Max results is required",
     "autoMaxResultsMin": "Max results must be at least 1",
-    "autoMinScore": "Auto Search Min Score",
-    "autoMinScoreTooltip": "Minimum relevance score threshold (0–1) when auto memory search is enabled",
-    "autoMinScoreRequired": "Min score is required",
+    "autoMemorySearchPersistToContext": "Persist Search Result to Context",
+    "autoMemorySearchPersistToContextTooltip": "When enabled, the auto memory search tool call and result are saved into the conversation context. Disable it to use the search result only for the current model call.",
     "embeddingConfigTitle": "Embedding Model Config",
     "embeddingBackend": "Backend",
     "embeddingBackendTooltip": "Embedding backend provider, e.g. openai",
@@ -1972,7 +1992,13 @@
     "configured": "Configured",
     "requiresConfig": "Requires configuration",
     "configSaved": "Configuration saved",
-    "configSaveError": "Failed to save configuration"
+    "configSaveError": "Failed to save configuration",
+    "active": "active",
+    "available": "Available",
+    "noEnabled": "No tools enabled",
+    "goEnableBtn": "Go enable",
+    "configureAction": "Configure →",
+    "enableAction": "Enable →"
   },
   "modelConfig": {
     "promptTitle": "LLM Model Required — Select in Chat After Configuration",
@@ -2603,7 +2629,7 @@
     "getCurrentTime": "Get current time",
     "setTimezone": "Set {{timezone}}",
     "getTokenUsage": "Query token usage",
-    "memorySearch": "Search {{query}}",
+    "memorySearch": "Search memory {{query}}",
     "memorySearchDefault": "Search memory",
     "listAgents": "List agents",
     "chatWithAgent": "Chat {{agent}}",

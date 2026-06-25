@@ -4,6 +4,7 @@ GeminiChatModel."""
 
 from __future__ import annotations
 
+import copy
 import logging
 import time
 from typing import Any, List
@@ -24,6 +25,113 @@ from qwenpaw.providers.multimodal_prober import (
 from qwenpaw.providers.provider import ModelInfo, Provider
 
 logger = logging.getLogger(__name__)
+
+
+# TODO: Remove _flatten_json_schema and _sanitize_schema_for_gemini once
+# agentscope >= 2.0.3 is released (these are upstreamed into
+# GeminiChatModel._format_tools in newer versions).
+
+
+def _flatten_json_schema(schema: dict) -> dict:
+    """Flatten a JSON schema by resolving all ``$ref`` references.
+
+    Gemini API does not support ``$defs`` and ``$ref`` in JSON schemas.
+    """
+    schema = copy.deepcopy(schema)
+    defs = schema.pop("$defs", {})
+
+    def _resolve_ref(obj: Any, visited: set | None = None) -> Any:
+        if visited is None:
+            visited = set()
+        if not isinstance(obj, dict):
+            if isinstance(obj, list):
+                return [_resolve_ref(item, visited.copy()) for item in obj]
+            return obj
+        if "$ref" in obj:
+            ref_path = obj["$ref"]
+            if ref_path.startswith("#/$defs/"):
+                def_name = ref_path[len("#/$defs/") :]
+                if def_name in visited:
+                    logger.warning(
+                        "Circular reference detected for '%s' in tool schema",
+                        def_name,
+                    )
+                    return {
+                        "type": "object",
+                        "description": f"(circular: {def_name})",
+                    }
+                visited.add(def_name)
+                if def_name in defs:
+                    resolved = _resolve_ref(defs[def_name], visited.copy())
+                    for key, value in obj.items():
+                        if key != "$ref":
+                            resolved[key] = _resolve_ref(
+                                value,
+                                visited.copy(),
+                            )
+                    return resolved
+            return obj
+        result = {}
+        for key, value in obj.items():
+            result[key] = _resolve_ref(value, visited.copy())
+        return result
+
+    return _resolve_ref(schema)
+
+
+# pylint: disable=too-many-branches
+def _sanitize_schema_for_gemini(schema: Any) -> Any:
+    """Sanitize a JSON schema to be compatible with the Gemini API.
+
+    Removes or rewrites constructs that Gemini does not support:
+
+    - ``additionalProperties``: removed entirely.
+    - ``anyOf`` containing ``{"type": "null"}``: simplified to the single
+      non-null type (i.e. ``Optional[X]`` becomes just ``X``).
+    - All nested sub-schemas are processed recursively.
+    """
+    if not isinstance(schema, dict):
+        if isinstance(schema, list):
+            return [_sanitize_schema_for_gemini(v) for v in schema]
+        return schema
+
+    schema = dict(schema)
+
+    schema.pop("additionalProperties", None)
+
+    if "anyOf" in schema and isinstance(schema["anyOf"], list):
+        any_of = schema["anyOf"]
+        non_null = [v for v in any_of if v != {"type": "null"}]
+        if len(non_null) < len(any_of):
+            if len(non_null) == 1:
+                merged = dict(_sanitize_schema_for_gemini(non_null[0]))
+                for k, v in schema.items():
+                    if k != "anyOf":
+                        merged.setdefault(k, v)
+                return merged
+            elif non_null:
+                schema["anyOf"] = [
+                    _sanitize_schema_for_gemini(v) for v in non_null
+                ]
+            else:
+                del schema["anyOf"]
+
+    for key in ["properties", "patternProperties", "$defs"]:
+        if key in schema and isinstance(schema[key], dict):
+            schema[key] = {
+                k: _sanitize_schema_for_gemini(v)
+                for k, v in schema[key].items()
+            }
+
+    for key in ["items", "not", "if", "then", "else"]:
+        if key in schema:
+            schema[key] = _sanitize_schema_for_gemini(schema[key])
+
+    for key in ["allOf", "oneOf", "anyOf"]:
+        if key in schema and isinstance(schema[key], list):
+            schema[key] = [_sanitize_schema_for_gemini(v) for v in schema[key]]
+
+    return schema
 
 
 class GeminiProvider(Provider):
@@ -375,6 +483,24 @@ class _GeminiChatModelCompat:
         class _Compat(GeminiChatModel):
             _qp_default_headers = default_headers
             _qp_extra_config_kwargs = extra_config_kwargs
+
+            # TODO: Remove this override once agentscope >= 2.0.3 is
+            # released (upstream _format_tools will handle sanitization).
+            def _format_tools(self, tools, tool_choice):
+                if tools:
+                    sanitized = []
+                    for schema in tools:
+                        if "function" not in schema:
+                            sanitized.append(schema)
+                            continue
+                        func = schema["function"].copy()
+                        if "parameters" in func:
+                            func["parameters"] = _sanitize_schema_for_gemini(
+                                _flatten_json_schema(func["parameters"]),
+                            )
+                        sanitized.append({**schema, "function": func})
+                    tools = sanitized
+                return super()._format_tools(tools, tool_choice)
 
             async def _call_api(
                 self,
