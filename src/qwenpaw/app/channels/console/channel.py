@@ -444,11 +444,7 @@ class ConsoleChannel(BaseChannel):
                 elif obj == "response":
                     last_response = event
 
-            # AgentScope 2.0: the workspace no longer exposes ``runner`` —
-            # the session lives on ``workspace.session`` (same instance the
-            # session load/save hooks use). The old ``runner.session`` access
-            # silently yielded None, so finalize was never called and the
-            # turn-usage ring/popover never rendered.
+            # AgentScope 2.0: session is on ``workspace.session``.
             session = (
                 getattr(self._workspace, "session", None)
                 if self._workspace is not None

@@ -133,12 +133,7 @@ def reconcile_turn_with_context(
 
 
 def find_turn_closing_assistant_in_context(messages: Any) -> Any | None:
-    """Return the assistant message closing the latest turn.
-
-    ``AgentState.context`` (AgentScope 2.0) is a plain ``list[Msg]``; scan it
-    in reverse and return the assistant message that closes the most recent
-    turn (i.e. the one before the preceding user message).
-    """
+    """Return the last assistant message after the most recent user message."""
     if not messages:
         return None
     for msg in reversed(list(messages)):
@@ -195,8 +190,7 @@ async def finalize_console_turn_usage(
         state = None
 
     if state:
-        # AgentScope 2.0 persists the agent context under ``agent.state`` as
-        # an ``AgentState`` (see react_agent.state_dict and chats/api.py).
+        # AgentScope 2.0: agent context lives in ``agent.state``.
         agent_raw = state.get("agent", {})
         state_raw = agent_raw.get("state")
         agent_state = None
