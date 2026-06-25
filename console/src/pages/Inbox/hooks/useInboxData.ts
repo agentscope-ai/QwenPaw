@@ -45,12 +45,16 @@ const mapEventToPushMessage = (
   channelType:
     event.source_type === "heartbeat"
       ? "heartbeat"
+      : event.source_type === "memory"
+      ? "memory"
       : event.source_type === "cron"
       ? "wechat"
       : "email",
   channelName:
     event.source_type === "heartbeat"
       ? "Heartbeat"
+      : event.source_type === "memory"
+      ? "Memory"
       : event.source_type === "cron"
       ? "Cron"
       : "System",
@@ -127,7 +131,7 @@ export const useInboxData = () => {
     try {
       const res = await api.getInboxEvents({ limit: 200 });
       const events = [...(res?.events || [])].filter((event) =>
-        ["cron", "heartbeat"].includes(event.source_type),
+        ["cron", "heartbeat", "memory"].includes(event.source_type),
       );
       events.sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
       const nextItems: PushMessage[] = events.map((event) =>

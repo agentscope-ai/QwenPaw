@@ -207,9 +207,8 @@ class WecomQRCodeAuthHandler(QRCodeAuthHandler):
             ) from exc
 
         settings_match = re.search(
-            r"window\.settings\s*=\s*(\{.*\})",
+            r"window\.settings\s*=\s*(\{[^<]+\})",
             html,
-            re.DOTALL,
         )
         if not settings_match:
             raise HTTPException(

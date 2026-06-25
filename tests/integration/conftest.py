@@ -366,6 +366,10 @@ def app_server(  # pylint: disable=too-many-statements,too-many-branches
     env["QWENPAW_SECRET_DIR"] = str(secret_dir)
     env["QWENPAW_BACKUP_DIR"] = str(backups_dir)
     env["QWENPAW_AUTH_ENABLED"] = "false"
+    # Set the upload size limit used by /api/.../upload-limit and the
+    # request-body cap. Read once at app import time from this env var,
+    # so it must be present before the subprocess starts.
+    env["QWENPAW_UPLOAD_MAX_SIZE_MB"] = "10"
     # Integration tests run in a temporary isolated workspace and must not
     # touch the developer's OS keychain. Force file-backed secrets so first
     # encryption does not block on desktop keyring discovery.

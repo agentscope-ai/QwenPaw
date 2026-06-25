@@ -97,6 +97,7 @@ def test_get_last_user_text_unknown_shape_returns_none():
         "/clear",
         "/history",
         "/proactive",
+        "/dream",
         # Bare /plan (no args) is a conversation command.
         "/plan",
     ],

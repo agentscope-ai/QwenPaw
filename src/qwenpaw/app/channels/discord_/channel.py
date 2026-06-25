@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import logging
 import asyncio
+import mimetypes
 import re
 import tempfile
 from collections import deque
@@ -23,6 +24,7 @@ from qwenpaw.schemas import (
 )
 
 from ....exceptions import ChannelError
+from ....constant import DEFAULT_MEDIA_DIR
 from ....config.config import DiscordConfig as DiscordChannelConfig
 
 from ..utils import file_url_to_local_path
@@ -69,6 +71,8 @@ class DiscordChannel(BaseChannel):
         streaming_enabled: bool = False,
         access_control_dm: bool = False,
         access_control_group: bool = False,
+        media_dir: str = "",
+        workspace_dir: Optional[Path] = None,
     ):
         super().__init__(
             process,
@@ -91,6 +95,16 @@ class DiscordChannel(BaseChannel):
         self.http_proxy_auth = http_proxy_auth
         self.bot_prefix = bot_prefix
         self.accept_bot_messages = accept_bot_messages
+        self._workspace_dir = (
+            Path(workspace_dir).expanduser() if workspace_dir else None
+        )
+        if not media_dir and self._workspace_dir:
+            self._media_dir = self._workspace_dir / "media"
+        elif media_dir:
+            self._media_dir = Path(media_dir).expanduser()
+        else:
+            self._media_dir = DEFAULT_MEDIA_DIR
+        self._media_dir.mkdir(parents=True, exist_ok=True)
         self._task: Optional[asyncio.Task] = None
         self._client = None
         self._processed_message_ids: set[str] = set()
@@ -189,60 +203,41 @@ class DiscordChannel(BaseChannel):
                     )
                 if attachments:
                     for att in attachments:
-                        file_name = (att.filename or "").lower()
-                        url = att.url
-                        ctype = (att.content_type or "").lower()
+                        local_path = await self._download_attachment(att)
+                        if not local_path:
+                            logger.warning(
+                                "discord attachment download failed: %s",
+                                att.filename,
+                            )
+                            continue
 
-                        is_image = ctype.startswith(
-                            "image/",
-                        ) or file_name.endswith(
-                            (
-                                ".png",
-                                ".jpg",
-                                ".jpeg",
-                                ".gif",
-                                ".webp",
-                                ".bmp",
-                                ".tiff",
-                            ),
-                        )
-                        is_video = ctype.startswith(
-                            "video/",
-                        ) or file_name.endswith(
-                            (".mp4", ".mov", ".mkv", ".webm", ".avi"),
-                        )
-                        is_audio = ctype.startswith(
-                            "audio/",
-                        ) or file_name.endswith(
-                            (".mp3", ".wav", ".m4a", ".aac", ".ogg", ".flac"),
-                        )
-
-                        if is_image:
+                        category = self._classify_attachment(att)
+                        if category == "image":
                             content_parts.append(
                                 ImageContent(
                                     type=ContentType.IMAGE,
-                                    image_url=url,
+                                    image_url=local_path,
                                 ),
                             )
-                        elif is_video:
+                        elif category == "video":
                             content_parts.append(
                                 VideoContent(
                                     type=ContentType.VIDEO,
-                                    video_url=url,
+                                    video_url=local_path,
                                 ),
                             )
-                        elif is_audio:
+                        elif category == "audio":
                             content_parts.append(
                                 AudioContent(
                                     type=ContentType.AUDIO,
-                                    data=url,
+                                    data=local_path,
                                 ),
                             )
                         else:
                             content_parts.append(
                                 FileContent(
                                     type=ContentType.FILE,
-                                    file_url=url,
+                                    file_url=local_path,
                                 ),
                             )
 
@@ -378,6 +373,7 @@ class DiscordChannel(BaseChannel):
                 "0",
             )
             == "1",
+            media_dir=os.getenv("DISCORD_MEDIA_DIR", ""),
         )
 
     @classmethod
@@ -389,7 +385,10 @@ class DiscordChannel(BaseChannel):
         show_tool_details: bool = True,
         filter_tool_messages: bool = False,
         filter_thinking: bool = False,
+        workspace_dir: Optional[Path] = None,
     ) -> "DiscordChannel":
+        raw_media_dir = getattr(config, "media_dir", None)
+        media_dir = raw_media_dir if isinstance(raw_media_dir, str) else ""
         return cls(
             process=process,
             enabled=config.enabled,
@@ -414,7 +413,67 @@ class DiscordChannel(BaseChannel):
             access_control_group=bool(
                 getattr(config, "access_control_group", False),
             ),
+            media_dir=media_dir,
+            workspace_dir=workspace_dir,
         )
+
+    @staticmethod
+    def _classify_attachment(attachment: Any) -> str:
+        """Classify a Discord attachment as image/video/audio/file.
+
+        Priority: attachment.content_type > filename MIME guess > file.
+        """
+        ctype = (getattr(attachment, "content_type", None) or "").lower()
+        filename = getattr(attachment, "filename", "") or ""
+
+        mime = ctype
+        if not mime and filename:
+            guessed, _ = mimetypes.guess_type(filename)
+            mime = (guessed or "").lower()
+
+        if mime.startswith("image/"):
+            return "image"
+        if mime.startswith("video/"):
+            return "video"
+        if mime.startswith("audio/"):
+            return "audio"
+        return "file"
+
+    async def _download_attachment(
+        self,
+        attachment: Any,
+    ) -> Optional[str]:
+        """Download a Discord attachment to media_dir; return local path."""
+        if not self._client:
+            return None
+        import discord
+
+        if not isinstance(attachment, discord.Attachment):
+            return None
+
+        try:
+            self._media_dir.mkdir(parents=True, exist_ok=True)
+            safe_name = (
+                "".join(
+                    c
+                    for c in (attachment.filename or "")
+                    if c.isalnum() or c in "-_."
+                )
+                or "file"
+            )
+            suffix = Path(safe_name).suffix or ""
+            stem = Path(safe_name).stem or "file"
+            path = self._media_dir / f"{attachment.id}_{stem}{suffix}"
+            await attachment.save(path)
+            logger.info(
+                "discord downloaded attachment: %s -> %s",
+                attachment.filename,
+                path,
+            )
+            return str(path)
+        except Exception:
+            logger.exception("discord attachment download failed")
+            return None
 
     async def _resolve_target(self, to_handle, _meta):
         """Resolve a Discord Messageable from meta or to_handle."""

@@ -612,12 +612,12 @@ html.dark-mode .ant-modal-body .ant-form-item-extra {
 /* Drawer */
 html.dark-mode .qwenpaw-drawer-content,
 html.dark-mode .ant-drawer-content {
-  background: #1f1f1f !important;
+  background: #141414 !important;
 }
 
 html.dark-mode .qwenpaw-drawer-header,
 html.dark-mode .ant-drawer-header {
-  background: #1f1f1f !important;
+  background: #141414 !important;
   border-bottom-color: rgba(255, 255, 255, 0.08) !important;
 }
 
@@ -638,13 +638,13 @@ html.dark-mode .ant-drawer-close:hover {
 
 html.dark-mode .qwenpaw-drawer-body,
 html.dark-mode .ant-drawer-body {
-  background: #1f1f1f !important;
+  background: #141414 !important;
   color: rgba(255, 255, 255, 0.85) !important;
 }
 
 html.dark-mode .qwenpaw-drawer-footer,
 html.dark-mode .ant-drawer-footer {
-  background: #1f1f1f !important;
+  background: #141414 !important;
   border-top-color: rgba(255, 255, 255, 0.08) !important;
 }
 

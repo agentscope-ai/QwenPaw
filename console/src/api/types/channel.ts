@@ -20,6 +20,7 @@ export interface DiscordConfig extends BaseChannelConfig {
   http_proxy_auth: string;
   accept_bot_messages?: boolean;
   streaming_enabled?: boolean;
+  media_dir?: string;
 }
 
 export interface DingTalkConfig extends BaseChannelConfig {
@@ -32,6 +33,7 @@ export interface DingTalkConfig extends BaseChannelConfig {
   robot_code: string;
   at_sender_on_reply?: boolean;
   streaming_enabled?: boolean;
+  endpoint?: string;
 }
 
 export interface FeishuConfig extends BaseChannelConfig {

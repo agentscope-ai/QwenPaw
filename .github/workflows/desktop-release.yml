@@ -112,7 +112,7 @@ jobs:
         id: runner-python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.10"
+          python-version: "3.11"
 
       - name: Install verify deps (Playwright + Chromium)
         shell: pwsh
@@ -321,7 +321,7 @@ jobs:
         id: runner-python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.10"
+          python-version: "3.11"
 
       - name: Install verify deps (Playwright + Chromium)
         env:
@@ -355,25 +355,32 @@ jobs:
           # 2. Fix conda-pack paths (mandatory or python crashes on launch).
           (cd "$ENV_DIR" && ./bin/conda-unpack 2>/dev/null || true)
 
-          # 3. Force the bundled interpreter to ignore user site-packages.
-          export PYTHONHOME="$ENV_DIR"
+          # 3. Force only the bundled interpreter to ignore user site-packages.
+          # Keep PYTHONHOME scoped so the runner Python used by Playwright does
+          # not inherit the packaged stdlib path.
           export PYTHONNOUSERSITE=1
           export PATH="$ENV_DIR/bin:$PATH"
+          bundled_python() {
+            env PYTHONHOME="$ENV_DIR" PYTHONNOUSERSITE=1 \
+              PATH="$ENV_DIR/bin:$PATH" "$PYTHON" "$@"
+          }
 
           # 4. SSL certificates — required for DashScope HTTPS calls.
-          CERT_FILE="$("$PYTHON" -c 'import certifi,sys; sys.stdout.write(certifi.where())' 2>/dev/null || true)"
+          CERT_FILE="$(bundled_python -c 'import certifi,sys; sys.stdout.write(certifi.where())' 2>/dev/null || true)"
           if [ -n "${CERT_FILE:-}" ] && [ -f "$CERT_FILE" ]; then
             export SSL_CERT_FILE="$CERT_FILE"
             export REQUESTS_CA_BUNDLE="$CERT_FILE"
           fi
 
           # 5. Init workspace and start the desktop backend in the background.
-          "$PYTHON" -m qwenpaw init --defaults --accept-security
+          bundled_python -m qwenpaw init --defaults --accept-security
           # Skip the BootstrapHook onboarding script so the verifier
           # can drive the agent in normal QA mode (see
           # scripts/verify/desktop_verify.py::verify_ui_chat docstring).
           rm -f "$HOME/.qwenpaw/workspaces/default/BOOTSTRAP.md"
-          nohup "$PYTHON" -m qwenpaw app --host 127.0.0.1 --port 8088 \
+          nohup env PYTHONHOME="$ENV_DIR" PYTHONNOUSERSITE=1 \
+            PATH="$ENV_DIR/bin:$PATH" \
+            "$PYTHON" -m qwenpaw app --host 127.0.0.1 --port 8088 \
             > "$RUNNER_TEMP/qwenpaw-desktop-stdout.log" \
             2> "$RUNNER_TEMP/qwenpaw-desktop-stderr.log" &
           echo $! > "$RUNNER_TEMP/qwenpaw-desktop.pid"
@@ -393,7 +400,7 @@ jobs:
 
           # 7. Cross-version sanity: backend version must match source.
           expected="${{ steps.version.outputs.version }}"
-          actual="$(curl -sf http://127.0.0.1:8088/api/version | "$RUNNER_PYTHON" -c 'import sys,json; print(json.load(sys.stdin)["version"])')"
+          actual="$(curl -sf http://127.0.0.1:8088/api/version | env -u PYTHONHOME -u PYTHONPATH "$RUNNER_PYTHON" -c 'import sys,json; print(json.load(sys.stdin)["version"])')"
           if [ "$actual" != "$expected" ]; then
             echo "::error::Desktop version mismatch: expected=$expected actual=$actual"
             exit 1
@@ -403,7 +410,7 @@ jobs:
           #    Playwright + Chromium are installed). The bundled conda-pack
           #    python stays untouched so we don't pollute the actual env
           #    that ships to users.
-          "$RUNNER_PYTHON" scripts/verify/desktop_verify.py \
+          env -u PYTHONHOME -u PYTHONPATH "$RUNNER_PYTHON" scripts/verify/desktop_verify.py \
             --base-url http://127.0.0.1:8088 \
             --ui-mode legacy \
             --headed

@@ -16,20 +16,24 @@ Currently provided:
 
 import logging
 import uuid
+from copy import deepcopy
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, AsyncGenerator, Callable, Set
 
 from agentscope.middleware import MiddlewareBase
+from agentscope.message import Msg, TextBlock, ToolCallBlock, ToolResultBlock
 
 from .tools.utils import truncate_text_output, DEFAULT_MAX_BYTES
 from ..constant import TRUNCATION_NOTICE_MARKER
 
 if TYPE_CHECKING:
     from agentscope.agent import Agent
-    from agentscope.message import Msg
 
 logger = logging.getLogger(__name__)
 MAX_AUTO_MEMORY_REPLY_IDS = 1000
+QWENPAW_MESSAGE_TAG_KEY = "qwenpaw_tag"
+AUTO_MEMORY_SEARCH_MESSAGE_TAG = "auto_memory_search"
+AUTO_MEMORY_SEARCH_TEXT = "Searching memory for relevant context..."
 
 
 class MemoryMiddleware(MiddlewareBase):
@@ -109,6 +113,10 @@ class MemoryMiddleware(MiddlewareBase):
         reply_id = agent.state.reply_id
         if not reply_id or reply_id in self._seen_auto_memory_reply_ids:
             return
+        self._repair_tagged_auto_memory_search_context(
+            agent,
+            reply_id=reply_id,
+        )
         self._seen_auto_memory_reply_ids[reply_id] = None
         if len(self._seen_auto_memory_reply_ids) > MAX_AUTO_MEMORY_REPLY_IDS:
             oldest_key = next(iter(self._seen_auto_memory_reply_ids))
@@ -157,7 +165,7 @@ class MemoryMiddleware(MiddlewareBase):
             del self._pending_auto_memory_reply_ids[:count]
 
         messages = self._messages_for_reply_ids(
-            list(agent.state.context),
+            self._normal_memory_messages(list(agent.state.context)),
             reply_ids=reply_ids,
             agent_name=agent.name,
         )
@@ -225,6 +233,74 @@ class MemoryMiddleware(MiddlewareBase):
     def _persist_auto_memory_search_to_context(self) -> bool:
         search_cfg = self._memory_config().auto_memory_search_config
         return bool(getattr(search_cfg, "persist_to_context", True))
+
+    @staticmethod
+    def _message_tag(msg: "Msg") -> str:
+        metadata = getattr(msg, "metadata", None)
+        if not isinstance(metadata, dict):
+            return ""
+        return str(metadata.get(QWENPAW_MESSAGE_TAG_KEY) or "")
+
+    @classmethod
+    def _is_auto_memory_search_msg(cls, msg: "Msg") -> bool:
+        return cls._message_tag(msg) == AUTO_MEMORY_SEARCH_MESSAGE_TAG
+
+    @classmethod
+    def _normal_memory_messages(cls, messages: list["Msg"]) -> list["Msg"]:
+        return [msg for msg in messages if not cls._message_tag(msg)]
+
+    @staticmethod
+    def _is_auto_memory_search_block(block: Any) -> bool:
+        if isinstance(block, TextBlock):
+            return block.text == AUTO_MEMORY_SEARCH_TEXT
+        if isinstance(block, (ToolCallBlock, ToolResultBlock)):
+            return block.name == "memory_search"
+        return False
+
+    @classmethod
+    def _repair_tagged_auto_memory_search_context(
+        cls,
+        agent: "Agent",
+        *,
+        reply_id: str,
+    ) -> None:
+        """Split real reply blocks merged into tagged auto-search messages."""
+        context = getattr(agent.state, "context", None) or []
+        if not context:
+            return
+
+        for idx in range(len(context) - 1, -1, -1):
+            msg = context[idx]
+            if (
+                getattr(msg, "role", None) != "assistant"
+                or getattr(msg, "name", None) != agent.name
+                or not cls._is_auto_memory_search_msg(msg)
+            ):
+                continue
+
+            auto_blocks = []
+            reply_blocks = []
+            for block in msg.get_content_blocks():
+                if cls._is_auto_memory_search_block(block):
+                    auto_blocks.append(block)
+                else:
+                    reply_blocks.append(block)
+
+            if not reply_blocks:
+                return
+
+            msg.content = auto_blocks
+            context.insert(
+                idx + 1,
+                Msg(
+                    id=reply_id,
+                    name=agent.name,
+                    role="assistant",
+                    content=deepcopy(reply_blocks),
+                    usage=deepcopy(getattr(msg, "usage", None)),
+                ),
+            )
+            return
 
     @staticmethod
     def _messages_for_reply_ids(

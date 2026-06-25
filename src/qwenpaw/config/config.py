@@ -225,6 +225,7 @@ class DiscordConfig(BaseChannelConfig):
     http_proxy_auth: str = ""
     accept_bot_messages: bool = False
     streaming_enabled: bool = False
+    media_dir: Optional[str] = None
 
 
 class DingTalkConfig(BaseChannelConfig):
@@ -239,6 +240,7 @@ class DingTalkConfig(BaseChannelConfig):
     card_auto_layout: bool = False
     at_sender_on_reply: bool = False
     streaming_enabled: bool = False
+    endpoint: str = ""
 
 
 class FeishuConfig(BaseChannelConfig):
@@ -546,16 +548,6 @@ class AutoMemorySearchConfig(BaseModel):
         ),
     )
 
-    min_score: float = Field(
-        default=0,
-        ge=0.0,
-        le=1.0,
-        description=(
-            "Minimum relevance score for results when auto memory"
-            " search is enabled"
-        ),
-    )
-
     persist_to_context: bool = Field(
         default=True,
         description=(
@@ -589,7 +581,10 @@ class EmbeddingModelConfig(BaseModel):
         default=False,
         description="Whether to use custom dimensions",
     )
-    max_cache_size: int = Field(default=3000, description="Maximum cache size")
+    max_cache_size: int = Field(
+        default=10000,
+        description="Maximum cache size",
+    )
     max_input_length: int = Field(
         default=8192,
         description="Maximum input length for embedding",
@@ -677,7 +672,7 @@ class ReMeLightMemoryConfig(BaseModel):
     )
 
     auto_memory_interval: int | None = Field(
-        default=1,
+        default=None,
         description="Auto memory every N user queries. 1 means auto "
         "memory after every user query, 2 means every 2 queries, etc. "
         "None or <= 0 disables periodic auto memory. WARNING: Setting "
