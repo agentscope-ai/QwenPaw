@@ -22,8 +22,11 @@ model via the ``formatter=`` constructor kwarg.
 
 from __future__ import annotations
 
+import base64
 import os
 from typing import Any
+from urllib.parse import urlparse
+from urllib.request import url2pathname
 
 # The capping formatters below override agentscope's ``_format_*_source``
 # methods, which are ``@staticmethod`` on the base classes, with instance
@@ -58,8 +61,9 @@ def inline_media_size(source: Any) -> int | None:
     if isinstance(source, URLSource):
         url = str(source.url)
         if url.startswith("file://"):
+            path = url2pathname(urlparse(url).path)
             try:
-                return os.path.getsize(url.removeprefix("file://"))
+                return os.path.getsize(path)
             except OSError:
                 return None
         return None
@@ -116,6 +120,24 @@ class CappingFormatterMixin:  # pylint: disable=too-few-public-methods
             return None
         return self._placeholder(kind, size)
 
+    @staticmethod
+    def _local_source_to_base64(source: Any) -> Any:
+        """Convert a local ``file://`` URLSource to a Base64Source.
+
+        Non-local sources (remote URLs, already-base64 sources, anything
+        else) are returned unchanged so the base formatter handles them as
+        before.
+        """
+        if not isinstance(source, URLSource):
+            return source
+        url = str(source.url)
+        if not url.startswith("file://"):
+            return source
+        path = url2pathname(urlparse(url).path)
+        with open(path, "rb") as f:
+            encoded = base64.b64encode(f.read()).decode("utf-8")
+        return Base64Source(data=encoded, media_type=source.media_type)
+
 
 class _CappingOpenAIFormatter(OpenAIChatFormatter, CappingFormatterMixin):
     """OpenAI formatter that caps oversized local image/audio media."""
@@ -124,13 +146,17 @@ class _CappingOpenAIFormatter(OpenAIChatFormatter, CappingFormatterMixin):
         capped = self._maybe_cap(source, "image")
         if capped is not None:
             return capped
-        return super()._format_image_source(source)
+        return super()._format_image_source(
+            self._local_source_to_base64(source),
+        )
 
     def _format_audio_source(self, source: Any) -> dict[str, Any]:
         capped = self._maybe_cap(source, "audio")
         if capped is not None:
             return capped
-        return super()._format_audio_source(source)
+        return super()._format_audio_source(
+            self._local_source_to_base64(source),
+        )
 
 
 class _CappingAnthropicFormatter(
@@ -143,7 +169,9 @@ class _CappingAnthropicFormatter(
         capped = self._maybe_cap(source, "image")
         if capped is not None:
             return capped
-        return super()._format_image_source(source)
+        return super()._format_image_source(
+            self._local_source_to_base64(source),
+        )
 
 
 class _CappingGeminiFormatter(GeminiChatFormatter, CappingFormatterMixin):
@@ -162,7 +190,9 @@ class _CappingGeminiFormatter(GeminiChatFormatter, CappingFormatterMixin):
         capped = self._maybe_cap(source, "media")
         if capped is not None:
             return capped
-        return super()._format_media_source(source)
+        return super()._format_media_source(
+            self._local_source_to_base64(source),
+        )
 
 
 class _CappingDashScopeFormatter(
@@ -175,16 +205,22 @@ class _CappingDashScopeFormatter(
         capped = self._maybe_cap(source, "video")
         if capped is not None:
             return capped
-        return super()._format_video_source(source)
+        return super()._format_video_source(
+            self._local_source_to_base64(source),
+        )
 
     def _format_image_source(self, source: Any) -> dict[str, Any]:
         capped = self._maybe_cap(source, "image")
         if capped is not None:
             return capped
-        return super()._format_image_source(source)
+        return super()._format_image_source(
+            self._local_source_to_base64(source),
+        )
 
     def _format_audio_source(self, source: Any) -> dict[str, Any]:
         capped = self._maybe_cap(source, "audio")
         if capped is not None:
             return capped
-        return super()._format_audio_source(source)
+        return super()._format_audio_source(
+            self._local_source_to_base64(source),
+        )

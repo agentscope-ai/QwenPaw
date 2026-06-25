@@ -40,7 +40,7 @@ _ALL_CAPPING_FORMATTERS = [
 def _write(tmp_path, name: str, size: int) -> str:
     path = tmp_path / name
     path.write_bytes(b"\0" * size)
-    return f"file://{path}"
+    return path.as_uri()
 
 
 # ---------------------------------------------------------------------------
