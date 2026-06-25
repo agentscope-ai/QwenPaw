@@ -3,6 +3,8 @@
 # Test stubs override signatures for monkeypatch targets (unused-argument);
 # ``if False: yield`` is the standard idiom for an async-generator no-op.
 """Tests for hooks.setup_runner_hooks and the smart agent factory."""
+import asyncio
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 
@@ -162,3 +164,102 @@ def test_setup_runner_hooks_idempotent():
 
     assert fake_runner_module.QwenPawAgent is first_factory
     assert FakeAgentRunner.query_handler is first_qh
+
+
+def test_datapaw_query_wrapper_schedules_trace_submit(monkeypatch):
+    """DataPaw turns schedule one best-effort trace submit after completion."""
+    from plugin_datapaw.constants import BUILTIN_DATAPAW_AGENT_ID
+    from plugin_datapaw.hooks import _wrap_query_handler
+    from plugin_datapaw.core import trace_submitter
+
+    calls = []
+    monkeypatch.setattr(
+        trace_submitter,
+        "schedule_trace_submit",
+        lambda **kwargs: calls.append(kwargs),
+    )
+
+    async def orig_query_handler(self, msgs, request=None, **kwargs):
+        yield "chunk", False
+
+    async def run():
+        wrapped = _wrap_query_handler(orig_query_handler)
+        runner = SimpleNamespace(agent_id=BUILTIN_DATAPAW_AGENT_ID)
+        request = SimpleNamespace(
+            session_id="s1",
+            user_id="default",
+            channel="console",
+            request_context={"datasource_id": "ds1"},
+        )
+        msgs = [SimpleNamespace(id="u1")]
+        chunks = []
+        async for item in wrapped(runner, msgs, request):
+            chunks.append(item)
+        return chunks
+
+    assert asyncio.run(run()) == [("chunk", False)]
+    assert len(calls) == 1
+    assert calls[0]["session_id"] == "s1"
+    assert calls[0]["user_id"] == "default"
+    assert calls[0]["channel"] == "console"
+    assert calls[0]["request_context"] == {"datasource_id": "ds1"}
+    assert calls[0]["trigger_msg_id"] == "u1"
+    assert "agent_name" not in calls[0]
+
+
+def test_non_datapaw_query_wrapper_does_not_schedule_trace_submit(monkeypatch):
+    """Non-DataPaw agents keep the original query path untouched."""
+    from plugin_datapaw.hooks import _wrap_query_handler
+    from plugin_datapaw.core import trace_submitter
+
+    calls = []
+    monkeypatch.setattr(
+        trace_submitter,
+        "schedule_trace_submit",
+        lambda **kwargs: calls.append(kwargs),
+    )
+
+    async def orig_query_handler(self, msgs, request=None, **kwargs):
+        yield "chunk", True
+
+    async def run():
+        wrapped = _wrap_query_handler(orig_query_handler)
+        runner = SimpleNamespace(agent_id="default")
+        request = SimpleNamespace(session_id="s1", user_id="default")
+        chunks = []
+        async for item in wrapped(runner, [SimpleNamespace(id="u1")], request):
+            chunks.append(item)
+        return chunks
+
+    assert asyncio.run(run()) == [("chunk", True)]
+    assert calls == []
+
+
+def test_trace_submit_scheduling_error_does_not_break_datapaw_turn(
+    monkeypatch,
+):
+    """Trace scheduling failures must not affect the chat response path."""
+    from plugin_datapaw.constants import BUILTIN_DATAPAW_AGENT_ID
+    import plugin_datapaw.hooks as hooks
+
+    monkeypatch.setattr(
+        hooks,
+        "_schedule_trace_submit_for_request",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            RuntimeError("trace failed"),
+        ),
+    )
+
+    async def orig_query_handler(self, msgs, request=None, **kwargs):
+        yield "chunk", True
+
+    async def run():
+        wrapped = hooks._wrap_query_handler(orig_query_handler)
+        runner = SimpleNamespace(agent_id=BUILTIN_DATAPAW_AGENT_ID)
+        request = SimpleNamespace(session_id="s1", user_id="default")
+        chunks = []
+        async for item in wrapped(runner, [SimpleNamespace(id="u1")], request):
+            chunks.append(item)
+        return chunks
+
+    assert asyncio.run(run()) == [("chunk", True)]
