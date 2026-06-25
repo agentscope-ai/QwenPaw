@@ -128,9 +128,9 @@ The only exception: `finish_plan(state="abandoned")` — callable when the user 
 
 ## SQL query rules
 
-- Each query via `execute_sql` (or an equivalent MCP data-fetch tool) must return **at most 1000 rows** per call.
-- When writing SQL, actively cap result size (e.g. `LIMIT 1000`) or use an equivalent limit in tool parameters. If the business needs more detail, rewrite the query with aggregation, a narrower time range, or tighter filters — **do not** bypass the cap with OFFSET pagination or multiple chunked re-queries.
-- When `truncated=true` or `row_count` hits 1000, explicitly note in your conclusions that the data may be truncated; do not silently treat it as a full dataset.
+- Each query via `execute_sql` (or an equivalent MCP data-fetch tool) defaults to **at most 10000 rows** per call.
+- When writing SQL, actively cap result size (e.g. `LIMIT 10000`) or use an equivalent limit in tool parameters. If the business needs more detail, rewrite the query with aggregation, a narrower time range, or tighter filters — **do not** bypass the cap with OFFSET pagination or multiple chunked re-queries.
+- When `truncated=true` or `row_count` hits 10000, explicitly note in your conclusions that the data may be truncated; do not silently treat it as a full dataset.
 
 ## Python execution rules
 
@@ -158,11 +158,11 @@ The sub-agent returns an execution summary (including output file paths). Contin
 ## Data-fetch results and artifact landing
 
 - Each round, first read `<datapaw-analysis-environment>` in the system prompt — it describes the command working directory and the artifacts root.
-- Before calling `execute_sql`, follow "SQL query rules"; a single query must not exceed 1000 rows.
+- Before calling `execute_sql`, follow "SQL query rules"; a single query defaults to at most 10000 rows.
 - When `execute_sql` returns `download_url`, `download_url` is the authoritative entry for the full SQL result; `rows` is preview/display only and does not represent the complete dataset.
 - If `execute_sql.exec_status != "error"` and `download_url` exists, you must download the full result via `execute_shell_command`. The saved filename should reflect this query's intent (metrics, dimensions, time range, etc.) so users can understand it — e.g. `pv_by_country_nov_dec.csv`, `daily_active_users_2025q1.csv`. **Do not** use abstract or technical names like `execute_sql_<session_ref>`. Use lowercase letters, digits, `_` or `-`; avoid spaces and special characters. Recommended command: `curl -fsSL --create-dirs --max-time 120 -o artifacts/<session_id>/<graph_id>/<current_node_id>/<descriptive_filename>.csv '<download_url>'` (set `timeout` to 120). Run `mkdir -p` first if the directory tree is deep.
 - After a successful download, base subsequent analysis on the local file saved by curl; follow "Python execution rules" to persist scripts before running — do not echo raw `rows` in your reply.
-- Do not re-query in chunks to exceed the 1000-row cap when `row_count < total_row_count`, `rows` is small, or `truncated=true`; rewrite SQL (aggregate / narrow scope) instead of paginating. `truncated` means `total_row_count` stats may be capped, not that the downloaded file is truncated.
+- Do not re-query in chunks to exceed the 10000-row cap when `row_count < total_row_count`, `rows` is small, or `truncated=true`; rewrite SQL (aggregate / narrow scope) instead of paginating. `truncated` means `total_row_count` stats may be capped, not that the downloaded file is truncated.
 - When tool returns include a `file_path`-style file reference, do not echo file contents line by line; follow "Python execution rules" to persist a script first, then analyze.
 - How to interpret relative paths returned by tools:
   - If the path is relative to the artifacts root (e.g. `1778138864221/graph_xxx/some_node/data.csv`): prefix it with `artifacts/` when accessing from the agent workspace cwd.

@@ -99,6 +99,9 @@ def build_spawn_subagent_fn(agent: "DataPawAgent") -> Any:
         running = getattr(agent._agent_config, "running", None)
         return getattr(running, "shell_command_executable", None) or None
 
+    def _get_data_source_context():
+        return getattr(agent, "_datasource_context", None)
+
     return make_spawn_subagent_fn(
         runtime_state=agent.plan_notebook,
         get_model_and_formatter=_get_model_and_formatter,
@@ -111,6 +114,7 @@ def build_spawn_subagent_fn(agent: "DataPawAgent") -> Any:
         get_recent_max_bytes=_get_recent_max_bytes,
         get_shell_command_timeout=_get_shell_command_timeout,
         get_shell_command_executable=_get_shell_command_executable,
+        get_data_source_context=_get_data_source_context,
     )
 
 

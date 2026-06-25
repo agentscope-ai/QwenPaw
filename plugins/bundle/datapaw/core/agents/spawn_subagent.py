@@ -51,6 +51,9 @@ from qwenpaw.config.context import (
     set_current_workspace_dir,
 )
 
+from ..data_sources.runtime_context import DataSourceRuntimeContext
+from ..mcp_cm import is_cm_mcp_client
+
 if TYPE_CHECKING:
     from ..orchestration.state import RuntimeStateManager
 
@@ -152,6 +155,33 @@ def _build_environment_section(
     )
 
 
+def _build_data_source_section(
+    context: DataSourceRuntimeContext | None,
+) -> str:
+    if context is None:
+        return (
+            "## 当前数据源\n"
+            "- 当前请求未解析到已选择的数据源。需要查询数据库 / 数仓时，"
+            "先让用户选择数据源；不要沿用其它请求的数据源。\n\n"
+        )
+
+    lines = [
+        "## 当前数据源",
+        f"- datasource_id: `{context.id}`",
+        f"- name: `{context.name}`",
+        f"- type: `{context.type}`",
+        f"- sql_dialect: `{context.sql_dialect}`",
+        "- 生成 SQL 时必须使用当前数据源方言。",
+    ]
+    if context.type == "odps":
+        lines.append(
+            "- 当前是 ODPS 数据源。读取 `fetch-data` 时，同时查阅当前可用的 "
+            "ODPS / MaxCompute 相关 skill；若没有相关 skill，直接使用 ODPS "
+            "SQL 方言。"
+        )
+    return "\n".join(lines) + "\n\n"
+
+
 def _build_sub_prompt(
     task: str,
     context: str,
@@ -164,6 +194,7 @@ def _build_sub_prompt(
     session_id: str | None = None,
     graph_id: str | None = None,
     node_id: str | None = None,
+    data_source_context: DataSourceRuntimeContext | None = None,
 ) -> str:
     upstream_section = "\n".join(
         f"- {nid}: {out}" for nid, out in upstream_outputs.items()
@@ -185,11 +216,13 @@ def _build_sub_prompt(
         graph_id=graph_id,
         node_id=node_id,
     )
+    data_source_section = _build_data_source_section(data_source_context)
 
     return (
         "你是一个任务执行器。精确完成指定任务。\n\n"
         f"## 你的任务\n{task}\n\n"
         f"{environment_section}"
+        f"{data_source_section}"
         "## 可用工具\n"
         f"内置工具：{builtin_list}\n"
         f"语义层 / MCP 工具：{mcp_list}\n"
@@ -303,6 +336,36 @@ def _extract_tool_result_name(msg: Msg) -> str:
 SUPPORTED_ROLES = ("data_fetcher",)
 
 
+class DataPawSubAgent(ReActAgent):
+    """ReAct sub-agent with DataPaw datasource metadata injection."""
+
+    def __init__(
+        self,
+        *args,
+        cm_tool_names: set[str] | None = None,
+        datasource_id: str | None = None,
+        **kwargs,
+    ) -> None:
+        super().__init__(*args, **kwargs)
+        self._cm_tool_names = set(cm_tool_names or set())
+        self._datasource_id = datasource_id
+
+    def _inject_datasource_metadata(self, tool_call: dict) -> None:
+        if not self._datasource_id:
+            return
+        if tool_call.get("name") not in self._cm_tool_names:
+            return
+        inp = tool_call.get("input")
+        if not isinstance(inp, dict):
+            inp = {}
+            tool_call["input"] = inp
+        inp["metadata"] = {"datasource_id": self._datasource_id}
+
+    async def _acting(self, tool_call: dict) -> dict | None:  # type: ignore[override]
+        self._inject_datasource_metadata(tool_call)
+        return await super()._acting(tool_call)
+
+
 def make_spawn_subagent_fn(
     *,
     runtime_state: "RuntimeStateManager",
@@ -316,6 +379,8 @@ def make_spawn_subagent_fn(
     get_recent_max_bytes: Callable[[], int | None] | None = None,
     get_shell_command_timeout: Callable[[], float | None] | None = None,
     get_shell_command_executable: Callable[[], str | None] | None = None,
+    get_data_source_context: Callable[[], DataSourceRuntimeContext | None]
+    | None = None,
 ) -> Callable[..., AsyncGenerator[ToolResponse, None]]:
     """Build the ``spawn_subagent`` closure capturing runtime dependencies.
 
@@ -427,6 +492,11 @@ def make_spawn_subagent_fn(
                 if shell_executable_value is not None
                 else get_current_shell_command_executable()
             )
+            data_source_context = (
+                get_data_source_context()
+                if get_data_source_context is not None
+                else None
+            )
 
             try:
                 model, formatter = get_model_and_formatter()
@@ -467,7 +537,21 @@ def make_spawn_subagent_fn(
 
             # 2) Register MCP clients (semantic layer tools)
             mcp_names_before = set(sub_toolkit.tools.keys())
+            cm_tool_names: set[str] = set()
             for client in get_mcp_clients():
+                if is_cm_mcp_client(client):
+                    try:
+                        tools = await client.list_tools()
+                        cm_tool_names.update(
+                            name
+                            for t in tools
+                            if (name := getattr(t, "name", ""))
+                        )
+                    except Exception:
+                        logger.warning(
+                            "spawn_subagent: failed to collect CM tool names",
+                            exc_info=True,
+                        )
                 try:
                     await sub_toolkit.register_mcp_client(
                         client,
@@ -507,6 +591,7 @@ def make_spawn_subagent_fn(
                 session_id=session_id,
                 graph_id=graph_id,
                 node_id=node_id,
+                data_source_context=data_source_context,
             )
             skill_prompt = sub_toolkit.get_agent_skill_prompt()
             if skill_prompt:
@@ -518,7 +603,7 @@ def make_spawn_subagent_fn(
                 agent_name,
                 sys_prompt,
             )
-            sub_agent = ReActAgent(
+            sub_agent = DataPawSubAgent(
                 name=agent_name,
                 model=model,
                 formatter=formatter,
@@ -526,6 +611,8 @@ def make_spawn_subagent_fn(
                 toolkit=sub_toolkit,
                 max_iters=MAX_ITERS,
                 parallel_tool_calls=False,
+                cm_tool_names=cm_tool_names,
+                datasource_id=getattr(data_source_context, "id", None),
             )
 
             task_msg = Msg("user", content=task, role="user")

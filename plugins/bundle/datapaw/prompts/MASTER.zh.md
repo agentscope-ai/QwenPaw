@@ -128,9 +128,9 @@
 
 ## SQL 查询规范
 
-- 每次通过 `execute_sql`（或等价 MCP 取数工具）发起的查询，**单次最多 1000 行**。
-- 编写 SQL 时主动约束结果规模（如 `LIMIT 1000`），或在工具参数中使用等价限制；若业务需要更多明细，应通过聚合、缩窄时间范围或过滤条件改写查询，**不要**用 OFFSET 分页或多次分片重查绕过上限。
-- 返回 `truncated=true` 或 `row_count` 触达 1000 时，在结论中明确标注数据可能被截断，不要静默当作全量分析。
+- 每次通过 `execute_sql`（或等价 MCP 取数工具）发起的查询，**单次默认上限 10000 行**。
+- 编写 SQL 时主动约束结果规模（如 `LIMIT 10000`），或在工具参数中使用等价限制；若业务需要更多明细，应通过聚合、缩窄时间范围或过滤条件改写查询，**不要**用 OFFSET 分页或多次分片重查绕过上限。
+- 返回 `truncated=true` 或 `row_count` 触达 10000 时，在结论中明确标注数据可能被截断，不要静默当作全量分析。
 
 ## Python 执行规范
 
@@ -158,11 +158,11 @@ sub-agent 完成后会返回执行摘要（包含产出文件路径）。你基�
 ## 取数结果与产物落盘
 
 - 每轮先阅读系统提示里的 `<datapaw-analysis-environment>`，它会说明命令工作目录与 artifacts 根目录。
-- 调用 `execute_sql` 前遵守「SQL 查询规范」；单次查询不得超过 1000 行。
+- 调用 `execute_sql` 前遵守「SQL 查询规范」；单次查询默认不得超过 10000 行。
 - `execute_sql` 返回 `download_url` 时，`download_url` 是完整 SQL 结果的可信入口；`rows` 只作为预览/展示用，不代表完整数据。
 - 若 `execute_sql.exec_status != "error"` 且存在 `download_url`，下一步必须用 `execute_shell_command` 下载完整结果。保存文件名应反映本次查询意图（指标、维度、时间范围等），便于用户理解，例如 `pv_by_country_nov_dec.csv`、`daily_active_users_2025q1.csv`；**禁止**使用 `execute_sql_<session_ref>` 等抽象或技术性命名。文件名用小写英文、数字、`_` 或 `-`，避免空格与特殊字符。推荐命令：`curl -fsSL --create-dirs --max-time 120 -o artifacts/<session_id>/<graph_id>/<current_node_id>/<描述性文件名>.csv '<download_url>'`（`timeout` 参数设为 120）。若目录较深可先 `mkdir -p`。
 - 下载成功后，后续分析必须基于 curl 下载保存的本地文件，按「Python 执行规范」落盘脚本后执行；不要在回复中复述 `rows` 的原始明细行。
-- 不要因为 `row_count < total_row_count`、`rows` 较少或 `truncated=true` 而分片重查以突破 1000 行上限；应改写 SQL（聚合 / 缩窄范围）而非分页拉取。`truncated` 表示 `total_row_count` 统计可能被截断，不表示下载文件被截断。
+- 不要因为 `row_count < total_row_count`、`rows` 较少或 `truncated=true` 而分片重查以突破 10000 行上限；应改写 SQL（聚合 / 缩窄范围）而非分页拉取。`truncated` 表示 `total_row_count` 统计可能被截断，不表示下载文件被截断。
 - 工具返回里出现 `file_path` 这种文件引用字段时，不要逐行复述文件内容；应按「Python 执行规范」落盘脚本后执行分析。
 - 工具返回的相对路径如何理解：
   - 如果是相对 artifacts 根的路径（例如 `1778138864221/graph_xxx/some_node/data.csv`）：从 agent workspace cwd 访问时加 `artifacts/` 前缀。

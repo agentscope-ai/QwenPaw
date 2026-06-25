@@ -29,13 +29,14 @@ from pydantic import BaseModel
 from qwenpaw.agents.react_agent import NamesakeStrategy, QwenPawAgent
 from qwenpaw.agents.skill_system.store import get_workspace_skills_dir
 
+from ..data_sources.runtime_context import resolve_data_source_context
+from ..file_delivery import build_send_file_to_user_fn
 from ..i18n import tr
 from ..mcp_cm import apply_cm_mcp_long_timeouts, is_cm_mcp_client
 from ..orchestration import RuntimeStateManager
 from ..path_context import PathContext, default_artifacts_root
 from ..sse_metadata import NODE_ROUTING_METADATA_KEYS
 from ..tools import DEFAULT_TOOL_NAMES, TOOL_REGISTRY
-from ..file_delivery import build_send_file_to_user_fn
 from .pending_edits import format_pending_edits
 from .subagent_config import build_spawn_subagent_fn, acting_spawn_subagent
 
@@ -193,6 +194,9 @@ class DataPawAgent(QwenPawAgent):
         self._sub_agent_dispatcher = self._datapaw_config.sub_agent_dispatcher
         self._lang = getattr(agent_config, "language", None) or "zh"
         self._datapaw_workspace_dir = workspace_dir
+        self._datasource_context = resolve_data_source_context(
+            request_context,
+        )
 
         if workspace_dir is not None:
             skills_path = get_workspace_skills_dir(
@@ -480,7 +484,10 @@ class DataPawAgent(QwenPawAgent):
         cm_tool_names = getattr(self, "_cm_tool_names", set())
         if tool_call.get("name") not in cm_tool_names:
             return
-        datasource_id = (self._request_context or {}).get("datasource_id")
+        context = getattr(self, "_datasource_context", None)
+        datasource_id = getattr(context, "id", None) or (
+            self._request_context or {}
+        ).get("datasource_id")
         if not datasource_id:
             return
         inp = tool_call.get("input")

@@ -25,11 +25,11 @@ def test_read_request_context_from_object_attr():
     assert _read_request_context(req) == {"datasource_id": "y"}
 
 
-def test_read_request_context_returns_none_when_absent_or_empty():
+def test_read_request_context_returns_none_when_absent():
     from plugin_datapaw.hooks import _read_request_context
 
     assert _read_request_context({}) is None
-    assert _read_request_context({"request_context": {}}) is None
+    assert _read_request_context({"request_context": {}}) == {}
     assert _read_request_context({"request_context": "nope"}) is None
     assert _read_request_context(SimpleNamespace()) is None
 
@@ -95,6 +95,18 @@ def test_build_wrapper_no_request_context_leaves_request_untouched():
     request = wrapped(object(), {"meta": {}})
 
     assert not hasattr(request, "request_context")
+
+
+def test_build_wrapper_attaches_empty_request_context():
+    from plugin_datapaw.hooks import _wrap_build_agent_request_from_native
+
+    def orig(self, native_payload):
+        return SimpleNamespace(channel_meta={})
+
+    wrapped = _wrap_build_agent_request_from_native(orig)
+    request = wrapped(object(), {"request_context": {}})
+
+    assert request.request_context == {}
 
 
 # ---------------------------------------------------------------------------

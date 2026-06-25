@@ -65,6 +65,12 @@ class DataPawPlugin:
             agent_id="datapaw",
             provider=self._provide_env_hint,
         )
+        api.register_prompt_section(
+            name="datapaw.selected_data_source",
+            after="workspace",
+            agent_id="datapaw",
+            provider=self._provide_selected_data_source,
+        )
 
     async def _on_startup(self):
         logger.info("DataPaw plugin starting up")
@@ -106,6 +112,16 @@ class DataPawPlugin:
         artifacts_root = default_artifacts_root(agent_id, workspace_dir)
         lang: str = getattr(agent, "_lang", "zh")
         return tr("env.hint", lang, root=artifacts_root)
+
+    @staticmethod
+    def _provide_selected_data_source(agent) -> str:
+        from .core.data_sources.runtime_context import (
+            format_data_source_prompt,
+        )
+
+        return format_data_source_prompt(
+            getattr(agent, "_datasource_context", None),
+        )
 
     def _on_uninstall(self, **_kwargs):
         from .agents_setup import uninstall_builtin_agents

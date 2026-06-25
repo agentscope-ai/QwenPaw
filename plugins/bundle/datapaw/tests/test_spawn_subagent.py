@@ -11,7 +11,8 @@ _repo = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_repo))
 sys.path.insert(0, str(_repo.parent.parent.parent / "src"))
 
-from core.agents.spawn_subagent import (  # noqa: E402
+from plugin_datapaw.core.agents.spawn_subagent import (  # noqa: E402
+    DataPawSubAgent,
     _build_sub_prompt,
     _extract_text,
     _extract_tool_call_info,
@@ -21,6 +22,9 @@ from core.agents.spawn_subagent import (  # noqa: E402
     make_spawn_subagent_fn,
 )
 from agentscope.message import Msg  # noqa: E402
+from plugin_datapaw.core.data_sources.runtime_context import (  # noqa: E402
+    DataSourceRuntimeContext,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -70,6 +74,55 @@ class TestBuildSubPrompt:
         assert str(workspace_dir) in prompt
         assert "artifacts/s1/graph_abc/n1/" in prompt
         assert "s1/graph_abc/n1/<filename>" in prompt
+
+    def test_includes_data_source_context(self):
+        prompt = _build_sub_prompt(
+            "查询数据",
+            "",
+            {},
+            ["read_file"],
+            ["execute_sql"],
+            data_source_context=DataSourceRuntimeContext(
+                id="odps-abc",
+                name="ODPS Demo",
+                type="odps",
+                sql_dialect="odps",
+            ),
+        )
+
+        assert "datasource_id: `odps-abc`" in prompt
+        assert "sql_dialect: `odps`" in prompt
+        assert "ODPS / MaxCompute" in prompt
+
+
+class TestDataPawSubAgent:
+    def test_injects_datasource_metadata_for_cm_tool(self):
+        agent = DataPawSubAgent.__new__(DataPawSubAgent)
+        agent._cm_tool_names = {"execute_sql"}
+        agent._datasource_id = "odps-abc"
+        tool_call = {
+            "name": "execute_sql",
+            "input": {
+                "query": "select 1",
+                "metadata": {"datasource_id": "wrong", "keep": "drop"},
+            },
+        }
+
+        agent._inject_datasource_metadata(tool_call)
+
+        assert tool_call["input"]["metadata"] == {
+            "datasource_id": "odps-abc",
+        }
+
+    def test_skips_non_cm_tool(self):
+        agent = DataPawSubAgent.__new__(DataPawSubAgent)
+        agent._cm_tool_names = {"execute_sql"}
+        agent._datasource_id = "odps-abc"
+        tool_call = {"name": "read_file", "input": {"path": "x"}}
+
+        agent._inject_datasource_metadata(tool_call)
+
+        assert tool_call == {"name": "read_file", "input": {"path": "x"}}
 
 
 class TestShouldStream:
@@ -247,7 +300,7 @@ async def test_model_failure():
 async def test_successful_run():
     reply_msg = Msg("agent", content="done", role="assistant")
 
-    with patch("core.agents.spawn_subagent.ReActAgent") as MockAgent:
+    with patch("plugin_datapaw.core.agents.spawn_subagent.DataPawSubAgent") as MockAgent:
 
         async def _call(task_msg):
             q = instance._stored_queue
@@ -309,7 +362,7 @@ async def test_subagent_sets_qwenpaw_tool_context(tmp_path):
     reply_msg = Msg("agent", content="done", role="assistant")
     set_current_workspace_dir(parent_workspace_dir)
 
-    with patch("core.agents.spawn_subagent.ReActAgent") as MockAgent:
+    with patch("plugin_datapaw.core.agents.spawn_subagent.DataPawSubAgent") as MockAgent:
 
         async def _call(task_msg):
             captured["workspace_dir"] = get_current_workspace_dir()
@@ -365,7 +418,7 @@ async def test_subagent_sets_qwenpaw_tool_context(tmp_path):
 async def test_tool_call_and_result():
     reply_msg = Msg("agent", content="分析完成", role="assistant")
 
-    with patch("core.agents.spawn_subagent.ReActAgent") as MockAgent:
+    with patch("plugin_datapaw.core.agents.spawn_subagent.DataPawSubAgent") as MockAgent:
 
         async def _call(task_msg):
             q = instance._stored_queue
@@ -456,7 +509,7 @@ async def test_tool_call_and_result():
 async def test_text_and_tool_call_same_message_streams_text_first():
     reply_msg = Msg("agent", content="完成", role="assistant")
 
-    with patch("core.agents.spawn_subagent.ReActAgent") as MockAgent:
+    with patch("plugin_datapaw.core.agents.spawn_subagent.DataPawSubAgent") as MockAgent:
 
         async def _call(task_msg):
             q = instance._stored_queue
@@ -541,8 +594,8 @@ async def test_text_and_tool_call_same_message_streams_text_first():
 
 @pytest.mark.asyncio
 async def test_timeout():
-    with patch("core.agents.spawn_subagent.ReActAgent") as MockAgent, patch(
-        "core.agents.spawn_subagent.TIMEOUT_SECONDS", 0.5
+    with patch("plugin_datapaw.core.agents.spawn_subagent.DataPawSubAgent") as MockAgent, patch(
+        "plugin_datapaw.core.agents.spawn_subagent.TIMEOUT_SECONDS", 0.5
     ):
 
         async def _hang(task_msg):
@@ -574,7 +627,7 @@ async def test_trace_persisted_to_runtime_state():
     """Verify sub-agent trace is written to the node via runtime_state."""
     reply_msg = Msg("agent", content="done", role="assistant")
 
-    with patch("core.agents.spawn_subagent.ReActAgent") as MockAgent:
+    with patch("plugin_datapaw.core.agents.spawn_subagent.DataPawSubAgent") as MockAgent:
 
         async def _call(task_msg):
             q = instance._stored_queue
@@ -682,7 +735,7 @@ async def test_trace_in_metadata_without_plan():
     node trace but IS carried in the final ToolResponse metadata."""
     reply_msg = Msg("agent", content="done", role="assistant")
 
-    with patch("core.agents.spawn_subagent.ReActAgent") as MockAgent:
+    with patch("plugin_datapaw.core.agents.spawn_subagent.DataPawSubAgent") as MockAgent:
 
         async def _call(task_msg):
             q = instance._stored_queue
@@ -737,7 +790,7 @@ async def test_streaming_yields_delta_not_cumulative():
     """Consecutive thinking chunks with cumulative text yield only deltas."""
     reply_msg = Msg("agent", content="done", role="assistant")
 
-    with patch("core.agents.spawn_subagent.ReActAgent") as MockAgent:
+    with patch("plugin_datapaw.core.agents.spawn_subagent.DataPawSubAgent") as MockAgent:
 
         async def _call(task_msg):
             q = instance._stored_queue
@@ -811,7 +864,7 @@ async def test_delta_resets_after_tool_result():
     """Delta tracking resets when a tool result arrives."""
     reply_msg = Msg("agent", content="summary", role="assistant")
 
-    with patch("core.agents.spawn_subagent.ReActAgent") as MockAgent:
+    with patch("plugin_datapaw.core.agents.spawn_subagent.DataPawSubAgent") as MockAgent:
 
         async def _call(task_msg):
             q = instance._stored_queue

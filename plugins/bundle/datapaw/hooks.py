@@ -600,7 +600,7 @@ def _read_request_context(request_data: Any) -> dict | None:
         rc = request_data.get("request_context")
     else:
         rc = getattr(request_data, "request_context", None)
-    return rc if isinstance(rc, dict) and rc else None
+    return rc if isinstance(rc, dict) else None
 
 
 def _wrap_extract_session_and_payload(orig):
@@ -624,7 +624,7 @@ def _wrap_build_agent_request_from_native(orig):
         request = orig(self, native_payload)
         payload = native_payload if isinstance(native_payload, dict) else {}
         request_context = payload.get("request_context")
-        if isinstance(request_context, dict) and request_context:
+        if isinstance(request_context, dict):
             try:
                 request.request_context = request_context
             except AttributeError:
