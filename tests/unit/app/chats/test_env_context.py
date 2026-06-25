@@ -9,7 +9,8 @@ Covers:
   the last user message *after* slash-command dispatch, leaving the
   raw text untouched for hooks and commands.
 """
-# pylint: disable=protected-access,redefined-outer-name,unused-argument,wrong-import-position
+# pylint: disable=protected-access,redefined-outer-name
+# pylint: disable=unused-argument,wrong-import-position
 from __future__ import annotations
 
 from types import SimpleNamespace
@@ -33,7 +34,10 @@ def _make_user_msg(content: list[dict[str, str]]) -> Any:
 
 def _make_assistant_msg() -> Any:
     """Create a minimal Msg-like object for a non-user message."""
-    return SimpleNamespace(role="assistant", content=[{"type": "text", "text": "ok"}])
+    return SimpleNamespace(
+        role="assistant",
+        content=[{"type": "text", "text": "ok"}],
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -89,19 +93,26 @@ class TestInjectCurrentTime:
         ]
         Runtime._inject_current_time(msgs)  # type: ignore[arg-type]
         text = msgs[-1].content[0]["text"]
-        assert text.startswith("Current time:"), (
-            f"Expected text to start with 'Current time:', got {text!r}"
-        )
+        assert text.startswith(
+            "Current time:",
+        ), f"Expected text to start with 'Current time:', got {text!r}"
         # Original content should appear after the prefix
-        assert text.rstrip().endswith("hello"), (
-            f"Expected original text 'hello' to be preserved, got {text!r}"
-        )
+        assert text.rstrip().endswith(
+            "hello",
+        ), f"Expected original text 'hello' to be preserved, got {text!r}"
 
     def test_inserts_text_block_for_media_only(self) -> None:
         """When the user message has no text block, a text block is inserted."""
         msgs = [
             _make_assistant_msg(),
-            _make_user_msg([{"type": "image_url", "image_url": "data:img/png;base64,abc"}]),
+            _make_user_msg(
+                [
+                    {
+                        "type": "image_url",
+                        "image_url": "data:img/png;base64,abc",
+                    },
+                ],
+            ),
         ]
         Runtime._inject_current_time(msgs)  # type: ignore[arg-type]
         content = msgs[-1].content
@@ -117,9 +128,9 @@ class TestInjectCurrentTime:
             _make_user_msg([{"type": "text", "text": "user says hi"}]),
         ]
         Runtime._inject_current_time(msgs)  # type: ignore[arg-type]
-        assert msgs[0].content[0]["text"] == "ok", (
-            "Assistant message should not be modified."
-        )
+        assert (
+            msgs[0].content[0]["text"] == "ok"
+        ), "Assistant message should not be modified."
         assert msgs[1].content[0]["text"].startswith("Current time:")
 
     def test_timestamp_format_english(self) -> None:
@@ -131,9 +142,9 @@ class TestInjectCurrentTime:
         assert "(" in text and ")" in text
         weekday_part = text[text.rfind("(") + 1 : text.rfind(")")]
         # Should not be Chinese
-        assert not any("\u4e00" <= c <= "\u9fff" for c in weekday_part), (
-            f"Weekday should be English, got {weekday_part!r}"
-        )
+        assert not any(
+            "\u4e00" <= c <= "\u9fff" for c in weekday_part
+        ), f"Weekday should be English, got {weekday_part!r}"
 
     def test_empty_message_list(self) -> None:
         """An empty message list should not raise."""
