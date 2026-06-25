@@ -34,7 +34,6 @@ def create_mock_process_handler():
 class TestSlackChannelContract(ChannelContractTest):
     """SlackChannel must satisfy ALL contracts."""
 
-
     def create_instance(self) -> "BaseChannel":
         """Provide a SlackChannel instance for contract testing."""
         from qwenpaw.app.channels.slack.channel import SlackChannel

@@ -2469,7 +2469,7 @@ class TestSlackSenderContentParts:
         mock_slack_client,
     ):
         from qwenpaw.app.channels.slack.sender import SlackSender
-        from agentscope_runtime.engine.schemas.agent_schemas import (
+        from qwenpaw.schemas import (
             RefusalContent,
         )
 

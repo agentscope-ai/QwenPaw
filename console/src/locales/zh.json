@@ -950,7 +950,6 @@
       "wechat": "微信",
       "xiaoyi": "小艺",
       "yuanbao": "元宝",
-      "onebot": "OneBot",
       "slack": "Slack"
     },
     "pleaseInputDbPath": "请输入数据库路径",
