@@ -166,25 +166,49 @@ async def submit_trace_from_session(
     trigger_msg_id: str = "",
 ) -> bool:
     """Submit one dialogue trace to CM. Returns success, never raises."""
+    request_id = uuid.uuid4().hex
     url = _cm_trace_url()
     if not url:
-        logger.debug("%s not set; skip trace submit", CM_BASE_URL_ENV)
+        logger.info(
+            "cm trace submit result: session_id=%s success=%s "
+            "trace_count=%s message_count=%s reason=%s request_id=%s",
+            session_id,
+            False,
+            0,
+            0,
+            "cm_base_url_unset",
+            request_id,
+        )
         return False
     if not session_id or not user_id:
-        logger.debug(
-            "trace submit skipped: missing session_id/user_id "
-            "(session_id=%s user_id=%s)",
+        logger.info(
+            "cm trace submit result: session_id=%s success=%s "
+            "trace_count=%s message_count=%s reason=%s user_id=%s "
+            "request_id=%s",
             session_id,
+            False,
+            0,
+            0,
+            "missing_session_or_user",
             user_id,
+            request_id,
         )
         return False
 
     session = getattr(runner, "session", None)
     if session is None:
-        logger.debug("trace submit skipped: runner has no session store")
+        logger.info(
+            "cm trace submit result: session_id=%s success=%s "
+            "trace_count=%s message_count=%s reason=%s request_id=%s",
+            session_id,
+            False,
+            0,
+            0,
+            "missing_session_store",
+            request_id,
+        )
         return False
 
-    request_id = uuid.uuid4().hex
     trace_count = 0
     message_count = 0
     try:

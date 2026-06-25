@@ -152,8 +152,10 @@ def test_build_trace_payload_falls_back_to_last_user_split() -> None:
 def test_submit_trace_skips_when_cm_base_url_unset(
     monkeypatch: pytest.MonkeyPatch,
     recording_client,
+    caplog,
 ) -> None:
     monkeypatch.delenv(CM_BASE_URL_ENV, raising=False)
+    caplog.set_level(logging.INFO, logger=trace_submitter.logger.name)
     runner = _FakeRunner(_state_for([]))
 
     ok = asyncio.run(
@@ -167,6 +169,11 @@ def test_submit_trace_skips_when_cm_base_url_unset(
 
     assert ok is False
     assert recording_client.captured == []
+    assert "cm trace submit result" in caplog.text
+    assert "success=False" in caplog.text
+    assert "trace_count=0" in caplog.text
+    assert "message_count=0" in caplog.text
+    assert "reason=cm_base_url_unset" in caplog.text
 
 
 def test_submit_trace_posts_dialogue_payload(
