@@ -34,6 +34,7 @@ import pytest
 from helpers import (
     LOADER_READY_TIMEOUT,
     PLUGIN_HTTP_TIMEOUT,
+    wait_cron_executed,
     wait_until_plugin_loader_ready,
 )
 
@@ -546,19 +547,11 @@ def test_provider_plugin_actually_serves_llm_call(app_server) -> None:
         assert run_resp.status_code == 200, app_server.logs_tail()
 
         # Poll history.
-        deadline = time.time() + 30.0
-        records: list = []
-        while time.time() < deadline:
-            hist_resp = app_server.api_request(
-                "GET",
-                f"/api/cron/jobs/{job_id}/history",
-                timeout=PLUGIN_HTTP_TIMEOUT,
-            )
-            if hist_resp.status_code == 200:
-                records = hist_resp.json()
-                if isinstance(records, list) and records:
-                    break
-            time.sleep(1.0)
+        records = wait_cron_executed(
+            app_server,
+            job_id,
+            time.time() + 30.0,
+        )
         assert records, app_server.logs_tail()
         assert (
             records[0]["status"] == "success"

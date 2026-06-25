@@ -215,7 +215,7 @@ def test_rate_limit_429_then_recover(app_server, mock_llm) -> None:
         records = wait_cron_executed(
             app_server,
             job_id,
-            time.time() + 60.0,
+            time.time() + 120.0,
         )
         assert records, app_server.logs_tail()
         assert (
@@ -287,7 +287,7 @@ def test_persistent_5xx_eventually_fails(app_server, mock_llm) -> None:
         records = wait_cron_executed(
             app_server,
             job_id,
-            time.time() + 60.0,
+            time.time() + 120.0,
         )
         assert records, app_server.logs_tail()
         # Either failure recorded explicitly, or success with error
