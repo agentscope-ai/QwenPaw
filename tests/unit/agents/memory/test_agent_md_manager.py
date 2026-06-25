@@ -225,6 +225,24 @@ class TestAgentMdManagerListMemoryMds:
         assert len(result) == 1
         assert result[0]["filename"] == "session.md"
 
+    def test_lists_nested_daily_session_files(self, manager, tmp_path):
+        mem = tmp_path / "memory"
+        day = mem / "2026-06-24"
+        day.mkdir()
+        (mem / "2026-06-24.md").write_text("# Day")
+        (day / "session-a.md").write_text("# Session")
+        result = manager.list_memory_mds()
+        filenames = {item["filename"] for item in result}
+        assert "2026-06-24.md" in filenames
+        assert "2026-06-24/session-a.md" in filenames
+
+    def test_lists_digest_files_with_digest_prefix(self, manager, tmp_path):
+        digest = tmp_path / "digest" / "wiki"
+        digest.mkdir(parents=True)
+        (digest / "topic.md").write_text("# Topic")
+        result = manager.list_memory_mds()
+        assert "digest/wiki/topic.md" in {item["filename"] for item in result}
+
     def test_ignores_files_in_working_dir(self, manager, tmp_path):
         (tmp_path / "working.md").write_text("# Working")
         result = manager.list_memory_mds()
@@ -265,9 +283,27 @@ class TestAgentMdManagerReadMemoryMd:
         result = manager.read_memory_md("ctx")
         assert result == "data"
 
+    def test_reads_nested_memory_path(self, manager, tmp_path):
+        nested = tmp_path / "memory" / "2026-06-24"
+        nested.mkdir()
+        (nested / "session-a.md").write_text("session", encoding="utf-8")
+        result = manager.read_memory_md("2026-06-24/session-a.md")
+        assert result == "session"
+
+    def test_reads_digest_path(self, manager, tmp_path):
+        nested = tmp_path / "digest" / "wiki"
+        nested.mkdir(parents=True)
+        (nested / "topic.md").write_text("topic", encoding="utf-8")
+        result = manager.read_memory_md("digest/wiki/topic.md")
+        assert result == "topic"
+
     def test_raises_file_not_found(self, manager):
         with pytest.raises(FileNotFoundError):
             manager.read_memory_md("missing.md")
+
+    def test_rejects_memory_path_traversal(self, manager):
+        with pytest.raises(ValueError):
+            manager.read_memory_md("../escape.md")
 
     def test_strips_whitespace(self, manager, tmp_path):
         mem = tmp_path / "memory"
@@ -300,6 +336,22 @@ class TestAgentMdManagerWriteMemoryMd:
     def test_auto_appends_md_extension(self, manager, tmp_path):
         manager.write_memory_md("session", "data")
         assert (tmp_path / "memory" / "session.md").exists()
+
+    def test_writes_nested_memory_path(self, manager, tmp_path):
+        manager.write_memory_md("2026-06-24/session-a.md", "data")
+        assert (tmp_path / "memory" / "2026-06-24" / "session-a.md").read_text(
+            encoding="utf-8",
+        ) == "data"
+
+    def test_writes_digest_path(self, manager, tmp_path):
+        manager.write_memory_md("digest/wiki/topic.md", "data")
+        assert (tmp_path / "digest" / "wiki" / "topic.md").read_text(
+            encoding="utf-8",
+        ) == "data"
+
+    def test_rejects_write_memory_path_traversal(self, manager):
+        with pytest.raises(ValueError):
+            manager.write_memory_md("2026-06-24/../escape.md", "data")
 
     def test_overwrites_existing_memory_file(
         self,

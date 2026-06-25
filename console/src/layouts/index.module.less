@@ -19,6 +19,28 @@
       justify-content: center;
     }
   }
+
+  .showOnMobile {
+    display: none;
+  }
+}
+
+@media (max-width: 768px) {
+  .header {
+    padding: 0 12px;
+
+    .headerDivider {
+      display: none;
+    }
+
+    .hideOnMobile {
+      display: none !important;
+    }
+
+    .showOnMobile {
+      display: inline-flex !important;
+    }
+  }
 }
 
 .headerTitle {
