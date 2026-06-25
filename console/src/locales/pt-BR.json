@@ -513,7 +513,10 @@
     "exitBatch": "Exit Batch",
     "noSearchResults": "No skills found matching your search",
     "filterByTag": "Filtrar by tag",
-    "noTags": "Nao Tags available"
+    "noTags": "Nao Tags available",
+    "enabledSkills": "Skills Ativadas",
+    "disabledSkills": "Skills Desativadas",
+    "active": "ativas"
   },
   "skillPool": {
     "description": "Shared local skill pool for built-in skills and workspace uploads. External hub imports such as ClawHub or LobeHub are separate.",

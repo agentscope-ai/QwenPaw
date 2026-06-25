@@ -361,7 +361,10 @@
     "lastUpdated": "Diperbarui",
     "searchPlaceholder": "Filter berdasarkan nama",
     "listView": "Tampilan daftar",
-    "gridView": "Tampilan grid"
+    "gridView": "Tampilan grid",
+    "enabledSkills": "Skill Aktif",
+    "disabledSkills": "Skill Nonaktif",
+    "active": "aktif"
   },
   "skillPool": {
     "description": "Kumpulan skill lokal bersama untuk skill bawaan dan unggahan workspace.",

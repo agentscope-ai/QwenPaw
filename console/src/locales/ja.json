@@ -313,7 +313,10 @@
     "exitBatch": "一括操作を終了",
     "noSearchResults": "検索に一致するスキルが見つかりません",
     "filterByTag": "タグで絞り込み",
-    "noTags": "タグがありません"
+    "noTags": "利用可能なタグがありません",
+    "enabledSkills": "有効なスキル",
+    "disabledSkills": "無効なスキル",
+    "active": "個有効"
   },
   "skillPool": {
     "description": "ビルトインスキルとワークスペースアップロード用の共有ローカルスキルプール。ClawHub や LobeHub などの外部インポートは別機能です。",

@@ -1065,7 +1065,10 @@
     "loadFailed": "Tải kỹ năng thất bại",
     "saveSuccess": "Đã lưu kỹ năng",
     "saveFailed": "Lưu kỹ năng thất bại",
-    "emptyState": "Chưa có kỹ năng nào"
+    "emptyState": "Chưa có kỹ năng nào",
+    "enabledSkills": "Kỹ năng đã kích hoạt",
+    "disabledSkills": "Kỹ năng chưa kích hoạt",
+    "active": "kích hoạt"
   },
   "skillPool": {
     "description": "Kho kỹ năng cục bộ dùng chung cho kỹ năng tích hợp và tải lên từ workspace.",
