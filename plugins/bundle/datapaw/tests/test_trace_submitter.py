@@ -8,9 +8,12 @@ import logging
 
 import pytest
 
+from plugin_datapaw.constants import (
+    DATAPAW_CM_BASE_URL_ENV,
+    DEFAULT_DATAPAW_CM_BASE_URL,
+)
 from plugin_datapaw.core import trace_submitter
 from plugin_datapaw.core.trace_submitter import (
-    CM_BASE_URL_ENV,
     _build_trace_payload,
     submit_trace_from_session,
 )
@@ -149,14 +152,24 @@ def test_build_trace_payload_falls_back_to_last_user_split() -> None:
     assert [message["id"] for message in payload["messages"]] == ["u2", "a2"]
 
 
-def test_submit_trace_skips_when_cm_base_url_unset(
+def test_submit_trace_uses_default_when_cm_base_url_unset(
     monkeypatch: pytest.MonkeyPatch,
     recording_client,
     caplog,
 ) -> None:
-    monkeypatch.delenv(CM_BASE_URL_ENV, raising=False)
+    monkeypatch.delenv(DATAPAW_CM_BASE_URL_ENV, raising=False)
     caplog.set_level(logging.INFO, logger=trace_submitter.logger.name)
-    runner = _FakeRunner(_state_for([]))
+    runner = _FakeRunner(
+        _state_for(
+            [
+                {
+                    "id": "u1",
+                    "timestamp": "2026-06-25 10:00:00.000",
+                    "role": "user",
+                },
+            ],
+        ),
+    )
 
     ok = asyncio.run(
         submit_trace_from_session(
@@ -167,13 +180,16 @@ def test_submit_trace_skips_when_cm_base_url_unset(
         ),
     )
 
-    assert ok is False
-    assert recording_client.captured == []
+    assert ok is True
+    assert len(recording_client.captured) == 1
+    assert (
+        recording_client.captured[0]["url"]
+        == f"{DEFAULT_DATAPAW_CM_BASE_URL}/api/v1/trace/submit_trace"
+    )
     assert "cm trace submit result" in caplog.text
-    assert "success=False" in caplog.text
-    assert "trace_count=0" in caplog.text
-    assert "message_count=0" in caplog.text
-    assert "reason=cm_base_url_unset" in caplog.text
+    assert "success=True" in caplog.text
+    assert "trace_count=1" in caplog.text
+    assert "message_count=1" in caplog.text
 
 
 def test_submit_trace_posts_dialogue_payload(
@@ -181,7 +197,7 @@ def test_submit_trace_posts_dialogue_payload(
     recording_client,
     caplog,
 ) -> None:
-    monkeypatch.setenv(CM_BASE_URL_ENV, "http://cm.local/")
+    monkeypatch.setenv(DATAPAW_CM_BASE_URL_ENV, "http://cm.local/")
     caplog.set_level(logging.INFO, logger=trace_submitter.logger.name)
     runner = _FakeRunner(
         _state_for(
@@ -246,7 +262,7 @@ def test_submit_trace_swallows_http_status_errors(
     recording_client,
     caplog,
 ) -> None:
-    monkeypatch.setenv(CM_BASE_URL_ENV, "http://cm.local")
+    monkeypatch.setenv(DATAPAW_CM_BASE_URL_ENV, "http://cm.local")
     caplog.set_level(logging.WARNING, logger=trace_submitter.logger.name)
     recording_client.status_code = 404
     runner = _FakeRunner(
@@ -284,7 +300,7 @@ def test_submit_trace_swallows_network_errors(
     recording_client,
     caplog,
 ) -> None:
-    monkeypatch.setenv(CM_BASE_URL_ENV, "http://cm.local")
+    monkeypatch.setenv(DATAPAW_CM_BASE_URL_ENV, "http://cm.local")
     caplog.set_level(logging.WARNING, logger=trace_submitter.logger.name)
     recording_client.raise_on_post = True
     runner = _FakeRunner(

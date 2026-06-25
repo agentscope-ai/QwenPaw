@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import os
 from urllib.parse import quote
 
 import httpx
@@ -12,7 +11,7 @@ from fastapi.responses import JSONResponse
 
 from qwenpaw.utils.http import trust_env_for_url
 
-from ..data_sources.cm_notifier import CM_BASE_URL_ENV
+from ...constants import get_datapaw_cm_base_url
 
 logger = logging.getLogger(__name__)
 
@@ -27,11 +26,8 @@ def _server_error() -> JSONResponse:
     return JSONResponse(status_code=500, content=_SERVER_ERROR_BODY)
 
 
-def _cm_docs_url(path: str = "") -> str | None:
-    base_url = (os.environ.get(CM_BASE_URL_ENV) or "").strip().rstrip("/")
-    if not base_url:
-        return None
-    return f"{base_url}{_DOCS_API_PATH}{path}"
+def _cm_docs_url(path: str = "") -> str:
+    return f"{get_datapaw_cm_base_url()}{_DOCS_API_PATH}{path}"
 
 
 async def _proxy_json_request(
@@ -43,9 +39,6 @@ async def _proxy_json_request(
     headers: dict[str, str] | None = None,
 ) -> JSONResponse:
     url = _cm_docs_url(path)
-    if not url:
-        logger.warning("%s not set; docs proxy unavailable", CM_BASE_URL_ENV)
-        return _server_error()
     if query:
         url = f"{url}?{query}"
 

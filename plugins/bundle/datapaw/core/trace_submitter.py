@@ -10,7 +10,6 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import os
 import uuid
 from datetime import datetime
 from typing import Any
@@ -20,18 +19,16 @@ import httpx
 from qwenpaw.app.inbox_trace_store import flatten_session_messages
 from qwenpaw.utils.http import trust_env_for_url
 
-CM_BASE_URL_ENV = "DATAPAW_CM_BASE_URL"
+from ..constants import get_datapaw_cm_base_url
+
 _TRACE_SUBMIT_PATH = "/api/v1/trace/submit_trace"
 _TIMEOUT_SECONDS = 5.0
 
 logger = logging.getLogger(__name__)
 
 
-def _cm_trace_url() -> str | None:
-    base = (os.environ.get(CM_BASE_URL_ENV) or "").strip().rstrip("/")
-    if not base:
-        return None
-    return f"{base}{_TRACE_SUBMIT_PATH}"
+def _cm_trace_url() -> str:
+    return f"{get_datapaw_cm_base_url()}{_TRACE_SUBMIT_PATH}"
 
 
 def _now_timestamp_ms() -> str:
@@ -168,18 +165,6 @@ async def submit_trace_from_session(
     """Submit one dialogue trace to CM. Returns success, never raises."""
     request_id = uuid.uuid4().hex
     url = _cm_trace_url()
-    if not url:
-        logger.info(
-            "cm trace submit result: session_id=%s success=%s "
-            "trace_count=%s message_count=%s reason=%s request_id=%s",
-            session_id,
-            False,
-            0,
-            0,
-            "cm_base_url_unset",
-            request_id,
-        )
-        return False
     if not session_id or not user_id:
         logger.info(
             "cm trace submit result: session_id=%s success=%s "
