@@ -1,0 +1,49 @@
+.kgDocsPage {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+
+  :global {
+    .qwenpaw-spark-card-wrapper {
+      padding: 0 !important;
+    }
+
+    .qwenpaw-table-wrapper
+      .qwenpaw-table-container
+      .qwenpaw-table-thead
+      > tr
+      > th {
+      background: #f9f8f4 !important;
+    }
+  }
+}
+
+.tableCard {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  margin: 20px;
+}
+
+.filename {
+  max-width: 220px;
+}
+
+.deleteAction {
+  color: #ff4d4f;
+}
+
+:global(html.dark-mode) {
+  .kgDocsPage {
+    :global {
+      .qwenpaw-table-wrapper
+        .qwenpaw-table-container
+        .qwenpaw-table-thead
+        > tr
+        > th {
+        background: #1f1f1f !important;
+      }
+    }
+  }
+}

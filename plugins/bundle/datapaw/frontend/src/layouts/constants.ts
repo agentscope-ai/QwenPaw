@@ -23,6 +23,7 @@ export const DEFAULT_OPEN_KEYS = [
 export const KEY_TO_PATH: Record<string, string> = {
   chat: "/chat",
   "data-connection": "/datapaw/data-connection",
+  "kg-docs": "/datapaw/kg-docs",
   channels: "/channels",
   sessions: "/sessions",
   "cron-jobs": "/cron-jobs",
@@ -44,6 +45,7 @@ export const KEY_TO_PATH: Record<string, string> = {
 export const KEY_TO_LABEL: Record<string, string> = {
   chat: "nav.chat",
   "data-connection": "nav.dataConnection",
+  "kg-docs": "nav.kgDocs",
   channels: "nav.channels",
   sessions: "nav.sessions",
   "cron-jobs": "nav.cronJobs",

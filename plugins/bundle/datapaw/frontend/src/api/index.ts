@@ -24,6 +24,7 @@ import { userTimezoneApi } from "./modules/userTimezone";
 import { languageApi } from "./modules/language";
 import { filesApi } from "./modules/files";
 import { dataSourceApi } from "./modules/dataSource";
+import { kgDocsApi } from "./modules/kgDocs";
 
 export const api = {
   // Root
@@ -81,6 +82,9 @@ export const api = {
 
   // Files
   ...filesApi,
+
+  // KG Docs
+  ...kgDocsApi,
 };
 
 export default api;
@@ -89,3 +93,4 @@ export default api;
 export { agentsApi };
 export { filesApi };
 export { dataSourceApi };
+export { kgDocsApi };

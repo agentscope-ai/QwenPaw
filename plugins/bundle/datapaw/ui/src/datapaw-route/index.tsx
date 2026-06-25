@@ -16,12 +16,17 @@
 import DataConnectionPage from "@/pages/Datapaw/DataConnection";
 import AddDataSourcePage from "@/pages/Datapaw/DataConnection/Add";
 import { useDataConnectionPathname } from "@/pages/Datapaw/DataConnection/navigation";
+import KGDocsPage from "@/pages/Datapaw/KGDocs";
 
-const BASE = "/plugin/datapaw/datapaw/data-connection";
+const DATA_CONNECTION_BASE = "/plugin/datapaw/datapaw/data-connection";
+const KG_DOCS_BASE = "/plugin/datapaw/datapaw/kg-docs";
 
 export function DataPawRoute() {
   const pathname = useDataConnectionPathname();
-  if (pathname === `${BASE}/add`) {
+  if (pathname === KG_DOCS_BASE) {
+    return <KGDocsPage />;
+  }
+  if (pathname === `${DATA_CONNECTION_BASE}/add`) {
     return <AddDataSourcePage />;
   }
   return <DataConnectionPage />;

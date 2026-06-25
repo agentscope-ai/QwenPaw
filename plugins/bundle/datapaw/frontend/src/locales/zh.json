@@ -37,6 +37,7 @@
     "chat": "聊天",
     "datapaw": "Datapaw",
     "dataConnection": "数据连接",
+    "kgDocs": "KG 文档管理",
     "semanticWeaving": "语义编织",
     "control": "控制",
     "channels": "频道",
@@ -132,6 +133,26 @@
       "createFailed": "创建失败，请稍后重试",
       "testFailed": "连接测试失败，请稍后重试",
       "notFound": "数据源不存在"
+    }
+  },
+  "kgDocs": {
+    "title": "KG 文档管理",
+    "upload": "上传文档",
+    "filename": "文件名",
+    "docId": "文档 ID",
+    "fileSize": "大小",
+    "uploadSuccess": "文档「{{name}}」已上传",
+    "deleteSuccess": "文档已删除",
+    "confirmDeleteTitle": "确认删除",
+    "confirmDelete": "确定删除文档「{{name}}」吗？",
+    "errors": {
+      "nameConflict": "文件名已存在，请更换文件名",
+      "unsupportedType": "仅支持 txt、docx、pdf、md 文件",
+      "singleFileOnly": "仅支持单文件上传",
+      "fileTooLarge": "文件大小不能超过 50MB",
+      "notFound": "文档不存在",
+      "serverError": "文档服务暂不可用",
+      "requestFailed": "请求失败，请稍后重试"
     }
   },
   "workspace": {

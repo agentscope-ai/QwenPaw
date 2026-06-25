@@ -21,7 +21,9 @@
     "copied": "クリップボードにコピーしました",
     "copyFailed": "クリップボードへのコピーに失敗しました",
     "contentPlaceholder": "内容を入力してください...",
-    "close": "閉じる"
+    "close": "閉じる",
+    "actions": "操作",
+    "total": "合計 {{count}} 件"
   },
   "chunkError": {
     "title": "ページの読み込みに失敗しました",
@@ -34,7 +36,8 @@
     "chat": "チャット",
     "datapaw": "Datapaw",
     "dataConnection": "データ接続",
-    "semanticWeaving": "Semantic Weaving",
+    "kgDocs": "KG ドキュメント管理",
+    "semanticWeaving": "セマンティックウィービング",
     "control": "コントロール",
     "channels": "チャンネル",
     "sessions": "セッション",
@@ -127,6 +130,26 @@
       "connectionOk": "接続成功",
       "createFailed": "作成に失敗しました。後でもう一度お試しください",
       "notFound": "データソースが見つかりません"
+    }
+  },
+  "kgDocs": {
+    "title": "KG ドキュメント管理",
+    "upload": "ドキュメントをアップロード",
+    "filename": "ファイル名",
+    "docId": "ドキュメント ID",
+    "fileSize": "サイズ",
+    "uploadSuccess": "ドキュメント「{{name}}」をアップロードしました",
+    "deleteSuccess": "ドキュメントを削除しました",
+    "confirmDeleteTitle": "削除の確認",
+    "confirmDelete": "ドキュメント「{{name}}」を削除しますか？",
+    "errors": {
+      "nameConflict": "同じ名前のファイルが既に存在します。",
+      "unsupportedType": "txt、docx、pdf、md ファイルのみ対応しています。",
+      "singleFileOnly": "一度にアップロードできるファイルは 1 つだけです。",
+      "fileTooLarge": "ファイルサイズは 50MB 以下にしてください。",
+      "notFound": "ドキュメントが見つかりません。",
+      "serverError": "ドキュメントサービスを利用できません。",
+      "requestFailed": "リクエストに失敗しました。後でもう一度お試しください。"
     }
   },
   "agent": {
@@ -1456,8 +1479,8 @@
     "previewLoading": "読み込み中...",
     "previewError": "ファイルの読み込みに失敗しました",
     "csvRows": "全count行",
-        "fetchDataResult": "クエリ結果",
-        "fetchDataRows": "合計 {{count}} 行",
+    "fetchDataResult": "クエリ結果",
+    "fetchDataRows": "合計 {{count}} 行",
     "filePreview": "プレビュー",
     "back": "戻る",
     "unsupportedFormat": "このフォーマットはプレビューに対応していません。ダウンロードしてください",

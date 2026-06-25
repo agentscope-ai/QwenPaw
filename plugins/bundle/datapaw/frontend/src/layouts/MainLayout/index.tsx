@@ -56,11 +56,13 @@ const DataConnectionPage = lazyWithRetry(
 const AddDataSourcePage = lazyWithRetry(
   () => import("../../pages/Datapaw/DataConnection/Add"),
 );
+const KGDocsPage = lazyWithRetry(() => import("../../pages/Datapaw/KGDocs"));
 const { Content } = Layout;
 
 const pathToKey: Record<string, string> = {
   "/chat": "chat",
   "/datapaw/data-connection": "data-connection",
+  "/datapaw/kg-docs": "kg-docs",
   "/channels": "channels",
   "/sessions": "sessions",
   "/cron-jobs": "cron-jobs",
@@ -84,14 +86,12 @@ function MainRoutes() {
     <Routes>
       <Route path="/" element={<Navigate to="/chat" replace />} />
       <Route path="/chat/*" element={<Chat />} />
-      <Route
-        path="/datapaw/data-connection"
-        element={<DataConnectionPage />}
-      />
+      <Route path="/datapaw/data-connection" element={<DataConnectionPage />} />
       <Route
         path="/datapaw/data-connection/add"
         element={<AddDataSourcePage />}
       />
+      <Route path="/datapaw/kg-docs" element={<KGDocsPage />} />
       <Route path="/channels" element={<ChannelsPage />} />
       <Route path="/sessions" element={<SessionsPage />} />
       <Route path="/cron-jobs" element={<CronJobsPage />} />
@@ -107,10 +107,7 @@ function MainRoutes() {
       <Route path="/agent-config" element={<AgentConfigPage />} />
       <Route path="/security" element={<SecurityPage />} />
       <Route path="/token-usage" element={<TokenUsagePage />} />
-      <Route
-        path="/voice-transcription"
-        element={<VoiceTranscriptionPage />}
-      />
+      <Route path="/voice-transcription" element={<VoiceTranscriptionPage />} />
     </Routes>
   );
 }
@@ -124,6 +121,8 @@ export default function MainLayout() {
     pathToKey[currentPath] ||
     (currentPath.startsWith("/datapaw/data-connection")
       ? "data-connection"
+      : currentPath.startsWith("/datapaw/kg-docs")
+      ? "kg-docs"
       : "chat");
 
   const routeOutlet = (

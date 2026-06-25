@@ -149,6 +149,12 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
       label: t("nav.dataConnection"),
     },
     {
+      key: "kg-docs",
+      icon: <SparkLocalFileLine size={18} />,
+      path: "/datapaw/kg-docs",
+      label: t("nav.kgDocs"),
+    },
+    {
       key: "semantic-weaving",
       icon: <SparkDataLine size={18} />,
       path: SEMANTIC_WEAVING_URL,
@@ -271,8 +277,15 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
           icon: <SparkInternetLine size={16} />,
         },
         {
+          key: "kg-docs",
+          label: collapsed ? null : t("nav.kgDocs"),
+          icon: <SparkLocalFileLine size={16} />,
+        },
+        {
           key: "semantic-weaving",
-          label: collapsed ? null : t("nav.semanticWeaving", "Semantic Weaving"),
+          label: collapsed
+            ? null
+            : t("nav.semanticWeaving", "Semantic Weaving"),
           icon: <SparkDataLine size={16} />,
         },
       ],

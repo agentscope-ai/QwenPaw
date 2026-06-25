@@ -11,3 +11,4 @@ export * from "./skill";
 export * from "./workspace";
 export * from "./tokenUsage";
 export * from "./dataSource";
+export * from "./kgDocs";

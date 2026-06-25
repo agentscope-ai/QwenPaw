@@ -128,6 +128,10 @@ src/.hypothesis/
 # Codex IDE
 .codex/
 
+# Local QwenPaw runtime workspace
+.qwenpaw/
+.qwenpaw.secret/
+
 # Worktrees
 .worktrees/
 .qwenpaw/worktrees/

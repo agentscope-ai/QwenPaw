@@ -37,6 +37,7 @@
     "chat": "Chat",
     "datapaw": "Datapaw",
     "dataConnection": "Data Connection",
+    "kgDocs": "KG Document Management",
     "semanticWeaving": "Semantic Weaving",
     "control": "Control",
     "channels": "Channels",
@@ -132,6 +133,26 @@
       "createFailed": "Failed to create. Please try again.",
       "testFailed": "Connection test failed. Please try again.",
       "notFound": "Data source not found"
+    }
+  },
+  "kgDocs": {
+    "title": "KG Document Management",
+    "upload": "Upload Document",
+    "filename": "Filename",
+    "docId": "Document ID",
+    "fileSize": "Size",
+    "uploadSuccess": "Document \"{{name}}\" uploaded",
+    "deleteSuccess": "Document deleted",
+    "confirmDeleteTitle": "Confirm Delete",
+    "confirmDelete": "Delete document \"{{name}}\"?",
+    "errors": {
+      "nameConflict": "A file with this name already exists.",
+      "unsupportedType": "Only txt, docx, pdf, and md files are supported.",
+      "singleFileOnly": "Only one file can be uploaded at a time.",
+      "fileTooLarge": "File size must not exceed 50MB.",
+      "notFound": "Document not found.",
+      "serverError": "Document service is unavailable.",
+      "requestFailed": "Request failed. Please try again."
     }
   },
   "voiceTranscription": {

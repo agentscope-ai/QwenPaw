@@ -21,7 +21,9 @@
     "copied": "Скопировано в буфер обмена",
     "copyFailed": "Не удалось скопировать в буфер обмена",
     "contentPlaceholder": "Введите содержимое...",
-    "close": "Закрыть"
+    "close": "Закрыть",
+    "actions": "Действия",
+    "total": "Всего {{count}}"
   },
   "chunkError": {
     "title": "Не удалось загрузить страницу",
@@ -34,7 +36,8 @@
     "chat": "Чат",
     "datapaw": "Datapaw",
     "dataConnection": "Подключение данных",
-    "semanticWeaving": "Semantic Weaving",
+    "kgDocs": "Управление KG-документами",
+    "semanticWeaving": "Семантическое связывание",
     "control": "Управление",
     "channels": "Каналы",
     "sessions": "Сессии",
@@ -127,6 +130,26 @@
       "connectionOk": "Подключение успешно",
       "createFailed": "Не удалось создать. Повторите попытку.",
       "notFound": "Источник данных не найден"
+    }
+  },
+  "kgDocs": {
+    "title": "Управление KG-документами",
+    "upload": "Загрузить документ",
+    "filename": "Имя файла",
+    "docId": "ID документа",
+    "fileSize": "Размер",
+    "uploadSuccess": "Документ «{{name}}» загружен",
+    "deleteSuccess": "Документ удалён",
+    "confirmDeleteTitle": "Подтверждение удаления",
+    "confirmDelete": "Удалить документ «{{name}}»?",
+    "errors": {
+      "nameConflict": "Файл с таким именем уже существует.",
+      "unsupportedType": "Поддерживаются только файлы txt, docx, pdf и md.",
+      "singleFileOnly": "За один раз можно загрузить только один файл.",
+      "fileTooLarge": "Размер файла не должен превышать 50MB.",
+      "notFound": "Документ не найден.",
+      "serverError": "Сервис документов недоступен.",
+      "requestFailed": "Не удалось выполнить запрос. Повторите попытку."
     }
   },
   "agent": {
@@ -1461,8 +1484,8 @@
     "previewLoading": "Загрузка...",
     "previewError": "Не удалось загрузить файл",
     "csvRows": "count строк",
-        "fetchDataResult": "Результат",
-        "fetchDataRows": "{{count}} строк",
+    "fetchDataResult": "Результат",
+    "fetchDataRows": "{{count}} строк",
     "filePreview": "Предпросмотр",
     "back": "Назад",
     "unsupportedFormat": "Предпросмотр этого формата не поддерживается, скачайте файл",
