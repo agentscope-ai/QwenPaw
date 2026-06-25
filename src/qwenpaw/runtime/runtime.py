@@ -17,7 +17,9 @@ from __future__ import annotations
 import asyncio
 import logging
 import uuid
+from datetime import datetime, timezone
 from typing import Any, AsyncGenerator
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from .builder import AgentBuilder
 from .envelope import Envelope
@@ -25,6 +27,7 @@ from .executor import AgentExecutor
 from .hooks import HookAction, HookContext
 from .message_convert import _get_last_user_text, _request_input_to_msgs
 from .phases import Phase
+from ..config import load_config
 
 logger = logging.getLogger(__name__)
 
@@ -121,6 +124,7 @@ class Runtime:
                 # --- [fixed 3] execute agent ---
                 async for ev in envelope.emit_response_created():
                     yield ev
+                Runtime._inject_current_time(ctx.input_msgs)
                 executor = AgentExecutor(ctx.agent, envelope)
                 logger.debug(
                     "Agent input: %s",
@@ -449,6 +453,43 @@ class Runtime:
         if not getattr(request, "user_id", None):
             request.user_id = request.session_id
         return request
+
+    @staticmethod
+    def _inject_current_time(msgs: list[Any]) -> None:
+        """Prepend current time to the last user message's first text block.
+
+        Operates in-place on *msgs* (a list of agentscope ``Msg`` objects)
+        so that only model-facing input receives the timestamp — slash
+        commands, lifecycle hooks, and short-circuit paths see raw text.
+
+        If the last user message has no text block (media-only input),
+        a text block with the timestamp alone is inserted.
+        """
+        try:
+            user_tz_name = load_config().user_timezone or "UTC"
+            now = datetime.now(ZoneInfo(user_tz_name))
+        except (ZoneInfoNotFoundError, KeyError, ValueError):
+            user_tz_name = "UTC"
+            now = datetime.now(timezone.utc)
+
+        prefix = (
+            f"Current time: {now.strftime('%Y-%m-%d %H:%M:%S')} "
+            f"{user_tz_name} ({now.strftime('%A')})\n\n"
+        )
+
+        # Walk backwards to find the last user message
+        for msg in reversed(msgs):
+            if getattr(msg, "role", None) != "user":
+                continue
+            # Walk through content blocks (list of dicts)
+            content: list[dict] = getattr(msg, "content", None) or []
+            for block in content:
+                if isinstance(block, dict) and block.get("type") == "text":
+                    block["text"] = prefix + block["text"]
+                    return
+            # No text block found — insert one (media-only edge case)
+            content.insert(0, {"type": "text", "text": prefix})
+            return
 
     def _build_context(self, request: Any) -> HookContext:
         workspace_dir = getattr(self.workspace, "workspace_dir", None)
