@@ -2353,7 +2353,12 @@
     "detailContent": "Saída",
     "detailPayload": "Dados",
     "detailExecutionTrace": "Rastro de execução",
-    "detailTraceEmpty": "Nenhum rastro de execução disponível"
+    "detailTraceEmpty": "Nenhum rastro de execução disponível",
+    "filterByAgent": "Filtrar por agente",
+    "filterBySourceType": "Filtrar por origem",
+    "sourceTypeCron": "Cron",
+    "sourceTypeHeartbeat": "Heartbeat",
+    "sourceTypeMemory": "Memory"
   },
   "codingMode": {
     "title": "Modo de Codificação",

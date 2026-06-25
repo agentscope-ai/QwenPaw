@@ -2309,7 +2309,12 @@
     "detailContent": "出力",
     "detailPayload": "追加情報",
     "detailExecutionTrace": "実行トレース",
-    "detailTraceEmpty": "実行トレースはありません"
+    "detailTraceEmpty": "実行トレースはありません",
+    "filterByAgent": "エージェントで絞り込み",
+    "filterBySourceType": "ソースで絞り込み",
+    "sourceTypeCron": "Cron",
+    "sourceTypeHeartbeat": "Heartbeat",
+    "sourceTypeMemory": "Memory"
   },
   "codingMode": {
     "title": "コーディングモード",

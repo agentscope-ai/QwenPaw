@@ -50,6 +50,12 @@ type TabKey = "approvals" | "messages";
 const INBOX_TAB_STORAGE_KEY = "qwenpaw.inbox.activeTab";
 const PUSH_MESSAGES_PAGE_SIZE = 5;
 
+const SOURCE_TYPE_LABEL_KEYS: Record<string, string> = {
+  cron: "inbox.sourceTypeCron",
+  heartbeat: "inbox.sourceTypeHeartbeat",
+  memory: "inbox.sourceTypeMemory",
+};
+
 const resolveInitialTab = (): TabKey => {
   if (typeof window === "undefined") {
     return "messages";
@@ -132,11 +138,6 @@ export default function InboxPage() {
       }));
     return options;
   }, [agentDisplayNameById, filteredPushMessages, pushMessages, t]);
-  const SOURCE_TYPE_LABEL_KEYS: Record<string, string> = {
-    cron: "inbox.sourceTypeCron",
-    heartbeat: "inbox.sourceTypeHeartbeat",
-    memory: "inbox.sourceTypeMemory",
-  };
   const sourceTypeOptions = useMemo(() => {
     const types = new Set<string>(
       pushMessages

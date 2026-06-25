@@ -2324,7 +2324,12 @@
     "detailContent": "Вывод",
     "detailPayload": "Данные",
     "detailExecutionTrace": "Трассировка выполнения",
-    "detailTraceEmpty": "Трассировка выполнения недоступна"
+    "detailTraceEmpty": "Трассировка выполнения недоступна",
+    "filterByAgent": "Фильтр по агенту",
+    "filterBySourceType": "Фильтр по источнику",
+    "sourceTypeCron": "Cron",
+    "sourceTypeHeartbeat": "Heartbeat",
+    "sourceTypeMemory": "Memory"
   },
   "codingMode": {
     "title": "Режим кодирования",
