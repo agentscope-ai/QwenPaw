@@ -189,16 +189,6 @@ export default function KGDocsPage() {
         ),
       },
       {
-        title: t("kgDocs.docId"),
-        dataIndex: "doc_id",
-        key: "doc_id",
-        render: (docId: string) => (
-          <Typography.Text copyable={{ text: docId }} ellipsis>
-            {docId}
-          </Typography.Text>
-        ),
-      },
-      {
         title: t("kgDocs.fileSize"),
         dataIndex: "file_size",
         key: "file_size",
