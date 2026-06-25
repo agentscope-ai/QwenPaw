@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """ToolCoordinator — single owner of all in-flight tool calls."""
+
 from __future__ import annotations
 
 import asyncio
@@ -12,7 +13,7 @@ from agentscope.tool import ToolChunk, ToolResponse
 
 from ._context import CancelReason, OffloadReason, ToolCallContext
 from ._ctxvars import reset_call_context, set_call_context
-from ._entry import ToolCallEntry, ToolCallStatus
+from ._entry import ResultFinalizer, ToolCallEntry, ToolCallStatus
 from ._hint import make_offload_hint_msg
 from ._hooks import ToolHookRegistry
 from ._stream import ToolStream, _SENTINEL as _STREAM_SENTINEL
@@ -72,6 +73,7 @@ class ToolCoordinator:
         agent_id: str,
         root_session_id: str,
         deadline_override: float | None = None,
+        result_finalizer: ResultFinalizer | None = None,
     ) -> AsyncGenerator[Any, None]:
         entry = self._create_entry(
             tool_call,
@@ -79,6 +81,7 @@ class ToolCoordinator:
             agent_id,
             root_session_id,
             deadline_override,
+            result_finalizer,
         )
         ctx = entry.ctx
 
@@ -112,6 +115,7 @@ class ToolCoordinator:
             entry.stream.remove_subscriber(chunk_queue)
 
         if terminal == "completed":
+            await self._await_background_task(entry)
             yield self._finalize_completed(entry)
             return
 
@@ -132,6 +136,7 @@ class ToolCoordinator:
         agent_id: str,
         root_session_id: str,
         deadline_override: float | None,
+        result_finalizer: ResultFinalizer | None,
     ) -> ToolCallEntry:
         loop = asyncio.get_running_loop()
         now = loop.time()
@@ -157,6 +162,7 @@ class ToolCoordinator:
                 session_id=session_id,
             ),
             final_response=ToolResponse(id=tool_call.id),
+            result_finalizer=result_finalizer,
         )
 
     async def _begin_offload(
@@ -600,13 +606,7 @@ class ToolCoordinator:
             if event.type == "stream_closed":
                 break
 
-        try:
-            await bg
-        except asyncio.CancelledError:
-            # Distinguish: bg task cancelled vs supervise task cancelled.
-            current = asyncio.current_task()
-            if current is not None and current.cancelled():
-                raise
+        await self._await_background_task(entry)
 
         self._finalize_completed(entry)
 
@@ -633,6 +633,19 @@ class ToolCoordinator:
         entry.force_cancelled = True
         entry.background_task.cancel()
 
+    @staticmethod
+    async def _await_background_task(entry: ToolCallEntry) -> None:
+        bg = entry.background_task
+        if bg is None:
+            return
+        try:
+            await bg
+        except asyncio.CancelledError:
+            # Distinguish: bg task cancelled vs caller task cancelled.
+            current = asyncio.current_task()
+            if current is not None and current.cancelled():
+                raise
+
     def _finalize_completed(self, entry: ToolCallEntry) -> ToolResponse:
         if entry.final_response is None:
             entry.final_response = ToolResponse(
@@ -645,6 +658,12 @@ class ToolCoordinator:
                 id=entry.ctx.tool_call_id,
                 state=ToolResultState.ERROR,
             )
+        if entry.result_finalizer is not None and not entry.result_finalized:
+            entry.final_response = entry.result_finalizer(
+                entry.final_response,
+                entry.ctx,
+            )
+            entry.result_finalized = True
         entry.status = ToolCallStatus.COMPLETED
         if entry.end_state is None:
             entry.end_state = (

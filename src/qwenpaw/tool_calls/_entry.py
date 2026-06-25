@@ -1,14 +1,23 @@
 # -*- coding: utf-8 -*-
 """Single-owner state for one in-flight tool call."""
+
 from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Any
+from typing import TYPE_CHECKING, Any, Callable
 
 from ._context import ToolCallContext
 from ._stream import ToolStream
+
+if TYPE_CHECKING:
+    from agentscope.tool import ToolResponse
+
+ResultFinalizer = Callable[
+    ["ToolResponse", ToolCallContext],
+    "ToolResponse",
+]
 
 
 class ToolCallStatus(StrEnum):
@@ -28,3 +37,5 @@ class ToolCallEntry:
     background_task: asyncio.Task[None] | None = None
     end_state: str | None = None
     force_cancelled: bool = False
+    result_finalizer: ResultFinalizer | None = None
+    result_finalized: bool = False

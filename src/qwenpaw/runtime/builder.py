@@ -510,10 +510,44 @@ class AgentBuilder:
                 None,
             )
             if tool_coordinator is not None:
-                from ..tool_calls import ToolCoordinatorMiddleware
+                from ..tool_calls import (
+                    ToolCoordinatorMiddleware,
+                    ToolResultLimiter,
+                )
+
+                result_limiter = None
+                try:
+                    import os
+
+                    lcc = agent_config.running.light_context_config
+                    trc = lcc.tool_result_pruning_config
+                    workspace = getattr(ctx, "workspace", None)
+                    workspace_dir = (
+                        str(getattr(workspace, "workspace_dir", ""))
+                        if workspace is not None
+                        else ""
+                    )
+                    tool_results_dir = (
+                        os.path.join(workspace_dir, trc.tool_results_cache)
+                        if workspace_dir
+                        else None
+                    )
+                    result_limiter = ToolResultLimiter(
+                        enabled=trc.enabled,
+                        max_text_bytes=trc.pruning_recent_msg_max_bytes,
+                        cache_dir=tool_results_dir,
+                    )
+                except Exception:
+                    _logger.debug(
+                        "ToolResultLimiter not created",
+                        exc_info=True,
+                    )
 
                 mws.append(
-                    ToolCoordinatorMiddleware(coordinator=tool_coordinator),
+                    ToolCoordinatorMiddleware(
+                        coordinator=tool_coordinator,
+                        result_limiter=result_limiter,
+                    ),
                 )
 
         memory_manager = AgentBuilder._get_memory_manager(ctx)
