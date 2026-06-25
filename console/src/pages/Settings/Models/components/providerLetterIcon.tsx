@@ -14,6 +14,7 @@ const PROVIDER_LETTER_COLORS: Record<string, string> = {
   "minimax-cn": "#1A1A2E",
   minimax: "#1A1A2E",
   openai: "#10A37F",
+  "openai-response": "#10A37F",
   dashscope: "#6236FF",
   lmstudio: "#6C5CE7",
   "siliconflow-cn": "#5B5FC7",
