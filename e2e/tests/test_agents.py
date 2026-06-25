@@ -584,17 +584,8 @@ class TestToggleAgent:
 
             # Step 5: Enable the agent (operate directly on the current page, no refresh)
             log_test_step("5. Enable the agent")
-            # Locate the agent row again and click the toggle
-            agent_row = page.locator(f'.qwenpaw-table-row:has-text("{agent_name}")').first
-            if agent_row.is_visible():
-                toggle_btn = agent_row.locator('.qwenpaw-space-item:nth-child(2) button').first
-                toggle_btn.click()
-                page.wait_for_timeout(500)
-                # Handle a possible confirm popover
-                popconfirm_btn = page.locator('.qwenpaw-popconfirm-buttons button.qwenpaw-btn-primary').first
-                if popconfirm_btn.is_visible():
-                    popconfirm_btn.click()
-                page.wait_for_timeout(2000)
+            agents_page.enable_agent(agent_name)
+            page.wait_for_timeout(2000)
 
             # Step 6: Verify the post-enable state is restored
             log_test_step("6. Verify the post-enable state")
