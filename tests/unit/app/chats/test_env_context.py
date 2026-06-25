@@ -16,8 +16,6 @@ from __future__ import annotations
 from types import SimpleNamespace
 from typing import Any
 
-import pytest
-
 from qwenpaw.app.chats.utils import build_env_context
 from qwenpaw.runtime.runtime import Runtime
 
@@ -102,7 +100,7 @@ class TestInjectCurrentTime:
         ), f"Expected original text 'hello' to be preserved, got {text!r}"
 
     def test_inserts_text_block_for_media_only(self) -> None:
-        """When the user message has no text block, a text block is inserted."""
+        """Inserts text block when user msg has no text block."""
         msgs = [
             _make_assistant_msg(),
             _make_user_msg(
@@ -122,7 +120,7 @@ class TestInjectCurrentTime:
         assert any(b.get("type") == "image_url" for b in content)
 
     def test_ignores_non_user_messages(self) -> None:
-        """Only the *last* user message is modified; assistant msgs stay untouched."""
+        """Only last user message is modified; assistant keeps raw text."""
         msgs = [
             _make_assistant_msg(),
             _make_user_msg([{"type": "text", "text": "user says hi"}]),
