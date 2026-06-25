@@ -37,6 +37,7 @@ ChatModelName = Literal[
     "OpenAIChatModel",
     "AnthropicChatModel",
     "GeminiChatModel",
+    "DashScopeChatModel",
 ]
 
 # effective: agent-specific if set, otherwise global
