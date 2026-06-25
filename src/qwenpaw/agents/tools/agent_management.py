@@ -653,6 +653,7 @@ def _generate_subagent_session_id() -> str:
     return f"sub-{str(uuid4())[:8]}"
 
 
+@tool_descriptor(async_execution=True)
 async def spawn_subagent(
     task: str,
     fork: bool = False,

@@ -220,6 +220,7 @@ async def test_agent_management_tools_can_be_registered_in_toolkit():
         tools=[
             FunctionTool(agent_management.list_agents),
             FunctionTool(agent_management.chat_with_agent),
+            FunctionTool(agent_management.spawn_subagent),
         ],
     )
 
@@ -228,6 +229,20 @@ async def test_agent_management_tools_can_be_registered_in_toolkit():
 
     assert "list_agents" in schema_names
     assert "chat_with_agent" in schema_names
+    assert "spawn_subagent" in schema_names
+
+
+def test_spawn_subagent_has_tool_descriptor():
+    from qwenpaw.agents.tools import discover_builtin_tool_funcs
+
+    descriptor = getattr(agent_management.spawn_subagent, "_tool_descriptor")
+    discovered_names = {
+        func._tool_descriptor.name for func in discover_builtin_tool_funcs()
+    }
+
+    assert descriptor.name == "spawn_subagent"
+    assert descriptor.async_execution is True
+    assert "spawn_subagent" in discovered_names
 
 
 async def test_list_agents_uses_to_thread(monkeypatch):
