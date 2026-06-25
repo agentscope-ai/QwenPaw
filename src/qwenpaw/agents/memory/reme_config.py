@@ -70,43 +70,43 @@ def _base_config(enable_search_raw_log: bool = False) -> dict[str, Any]:
                     },
                 ],
             },
-            # "resource_watch_loop": {
-            #     "backend": "background",
-            #     "watch_dirs": ["resource_dir"],
-            #     "watch_suffixes": [
-            #         "md",
-            #         "txt",
-            #         "json",
-            #         "jsonl",
-            #         "csv",
-            #         "yaml",
-            #         "html",
-            #     ],
-            #     "steps": [
-            #         {
-            #             "backend": "init_changes_step",
-            #             "monitor_type": "file_catalog",
-            #             "monitor_name": "resource",
-            #             "dispatch_steps": [
-            #                 {
-            #                     "backend": "update_catalog_step",
-            #                     "file_catalog": "resource",
-            #                 },
-            #                 {"backend": "auto_resource_step"},
-            #             ],
-            #         },
-            #         {
-            #             "backend": "watch_changes_step",
-            #             "dispatch_steps": [
-            #                 {
-            #                     "backend": "update_catalog_step",
-            #                     "file_catalog": "resource",
-            #                 },
-            #                 {"backend": "auto_resource_step"},
-            #             ],
-            #         },
-            #     ],
-            # },
+            "resource_watch_loop": {
+                "backend": "background",
+                "watch_dirs": ["resource_dir"],
+                "watch_suffixes": [
+                    "md",
+                    "txt",
+                    "json",
+                    "jsonl",
+                    "csv",
+                    "yaml",
+                    "html",
+                ],
+                "steps": [
+                    {
+                        "backend": "init_changes_step",
+                        "monitor_type": "file_catalog",
+                        "monitor_name": "resource",
+                        "dispatch_steps": [
+                            {
+                                "backend": "update_catalog_step",
+                                "file_catalog": "resource",
+                            },
+                            {"backend": "auto_resource_step"},
+                        ],
+                    },
+                    {
+                        "backend": "watch_changes_step",
+                        "dispatch_steps": [
+                            {
+                                "backend": "update_catalog_step",
+                                "file_catalog": "resource",
+                            },
+                            {"backend": "auto_resource_step"},
+                        ],
+                    },
+                ],
+            },
             "version": {
                 "backend": "base",
                 "description": "return reme package version",
@@ -379,6 +379,7 @@ def _base_config(enable_search_raw_log: bool = False) -> dict[str, Any]:
                     "properties": {
                         "date": {"type": "string", "default": ""},
                         "hint": {"type": "string", "default": ""},
+                        "scan_days": {"type": "integer", "default": 2},
                         "topic_count": {"type": "integer", "default": 3},
                         "topic_diversity_days": {
                             "type": "integer",
@@ -391,6 +392,7 @@ def _base_config(enable_search_raw_log: bool = False) -> dict[str, Any]:
                         "backend": "dream_extract_step",
                         "file_catalog": "dream",
                         "topic_session_id": "interests",
+                        "scan_days": 2,
                     },
                     {"backend": "dream_integrate_step"},
                     {
@@ -556,6 +558,12 @@ def _apply_embedding_config(
     parameters: dict[str, Any] = {}
     if embedding_config.use_dimensions:
         parameters["dimensions"] = embedding_config.dimensions
+    embedding_store_name = (
+        "default"
+        if embedding_config.base_url.strip()
+        and embedding_config.model_name.strip()
+        else ""
+    )
 
     components["as_embedding"]["default"].update(
         {
@@ -576,6 +584,9 @@ def _apply_embedding_config(
             "max_batch_size": embedding_config.max_batch_size,
         },
     )
+    components["file_store"]["default"][
+        "embedding_store"
+    ] = embedding_store_name
 
 
 def get_reme_app_config(

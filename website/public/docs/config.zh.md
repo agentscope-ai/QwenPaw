@@ -384,12 +384,11 @@ MCP（模型上下文协议）允许智能体连接外部服务（如 Filesystem
 
 **自动记忆搜索配置（`reme_light_memory_config.auto_memory_search_config` 对象）：**
 
-| 字段          | 类型  | 默认值  | 说明                                        |
-| ------------- | ----- | ------- | ------------------------------------------- |
-| `enabled`     | bool  | `false` | 是否在每轮对话时自动执行记忆搜索            |
-| `max_results` | int   | `1`     | 自动搜索时最多返回的结果数                  |
-| `min_score`   | float | `0.1`   | 自动搜索时的最低相关性分数阈值（0.0 - 1.0） |
-| `timeout`     | float | `10.0`  | 自动搜索超时时间（秒）                      |
+| 字段          | 类型  | 默认值  | 说明                             |
+| ------------- | ----- | ------- | -------------------------------- |
+| `enabled`     | bool  | `false` | 是否在每轮对话时自动执行记忆搜索 |
+| `max_results` | int   | `1`     | 自动搜索时最多返回的结果数       |
+| `timeout`     | float | `10.0`  | 自动搜索超时时间（秒）           |
 
 **Embedding 配置（`reme_light_memory_config.embedding_model_config` 对象）：**
 

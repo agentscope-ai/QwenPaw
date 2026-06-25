@@ -97,6 +97,7 @@ async def test_permission_allow():
                         "allow",
                         "deny",
                     }
+                    assert ev.params == "command: rm -rf /tmp/nope"
                     await transport.resolve_permission(ev.request_id, "allow")
                 if isinstance(ev, TurnEnded):
                     return

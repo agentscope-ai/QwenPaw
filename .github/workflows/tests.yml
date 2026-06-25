@@ -18,6 +18,15 @@ on:
       - 'setup.py'
       - '.github/workflows/tests.yml'
   workflow_dispatch:
+    inputs:
+      integration_marker:
+        description: >-
+          Pytest marker expression for the integration tier. Leave blank
+          to keep the event-based default (PR=p0, push/dispatch=p0+p1).
+          Examples: "integration and p0", "integration and (p0 or p1)",
+          "integration".
+        required: false
+        default: ''
 
 # Coverage data is collected on a single matrix entry per test class
 # (ubuntu-latest + python 3.13 for lower tracer overhead)
@@ -272,11 +281,16 @@ jobs:
         id: marker
         if: steps.check-integrated.outputs.has_tests == 'true'
         shell: bash
+        env:
+          DISPATCH_MARKER: ${{ inputs.integration_marker }}
         run: |
+          # Manual dispatch override -> use whatever the maintainer typed.
           # PR gate -> p0 only (fast feedback)
-          # push / workflow_dispatch -> p0 + p1 (full pre-merge gate)
+          # push / workflow_dispatch (no input) -> p0 + p1 (full pre-merge gate)
           # nightly full sweep lives in full-tests-nightly.yml
-          if [ "${GITHUB_EVENT_NAME}" = "pull_request" ]; then
+          if [ -n "${DISPATCH_MARKER}" ]; then
+            EXPR="${DISPATCH_MARKER}"
+          elif [ "${GITHUB_EVENT_NAME}" = "pull_request" ]; then
             EXPR="integration and p0"
           else
             EXPR="integration and (p0 or p1)"

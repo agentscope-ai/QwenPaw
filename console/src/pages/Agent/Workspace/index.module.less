@@ -480,10 +480,41 @@
   }
 }
 
+.memoryFolderItem {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 58px;
+  padding: 10px;
+  margin-bottom: 6px;
+  color: #666;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  user-select: none;
+}
+
 .dailyMemoryName {
+  display: flex;
+  align-items: center;
+  gap: 4px;
   font-size: 13px;
   font-weight: 500;
   margin-bottom: 2px;
+}
+
+.memoryInlineToggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  padding: 0;
+  color: #999;
+  background: transparent;
+  border: none;
+  cursor: pointer;
 }
 
 .dailyMemoryMeta {
@@ -585,6 +616,14 @@
 
   .dailyMemoryName {
     color: rgba(255, 255, 255, 0.85);
+  }
+
+  .memoryFolderItem {
+    color: rgba(255, 255, 255, 0.65);
+  }
+
+  .memoryInlineToggle {
+    color: rgba(255, 255, 255, 0.35);
   }
 
   .dailyMemoryMeta {

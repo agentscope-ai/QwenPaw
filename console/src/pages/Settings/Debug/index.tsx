@@ -57,7 +57,7 @@ export default function DebugPage() {
         <Card
           title={t("debug.backend.title", "Backend logs")}
           extra={
-            <Space size="middle">
+            <Space size="middle" className={styles.cardExtra}>
               <Text type="secondary">
                 {t("debug.backend.newestFirst", "Newest first")}
               </Text>
@@ -76,7 +76,7 @@ export default function DebugPage() {
             <div className={styles.toolbar}>
               <div className={styles.toolbarLeft}>
                 <Select
-                  style={{ width: 160 }}
+                  className={styles.levelSelect}
                   value={backendLevel}
                   onChange={(v) => setBackendLevel(v)}
                   options={[
@@ -106,7 +106,7 @@ export default function DebugPage() {
                   ]}
                 />
                 <Input
-                  style={{ width: 320 }}
+                  className={styles.searchInput}
                   value={backendQuery}
                   onChange={(e) => setBackendQuery(e.target.value)}
                   placeholder={t(
@@ -116,7 +116,7 @@ export default function DebugPage() {
                   allowClear
                 />
                 {backendLogs?.updated_at && (
-                  <Text type="secondary">
+                  <Text type="secondary" className={styles.updatedAt}>
                     {t("debug.backend.updatedAt", "Updated at")}:{" "}
                     {dayjs(backendLogs.updated_at * 1000).format(
                       "YYYY-MM-DD HH:mm:ss",

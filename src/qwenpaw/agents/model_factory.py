@@ -30,6 +30,11 @@ try:
 except ImportError:
     GeminiChatFormatter = None
 
+try:
+    from agentscope.formatter import OpenAIResponseFormatter
+except ImportError:
+    OpenAIResponseFormatter = None
+
 from .utils.message_request_normalizer import (
     normalize_messages_for_model_request,
 )
@@ -1151,10 +1156,10 @@ def _create_formatter_instance(
     # results — promote them into a follow-up user message instead.
     # Anthropic format keeps images in tool_result natively, so no
     # promotion needed.
-    if isinstance(
-        base_formatter,
-        (OpenAIChatFormatter, GeminiChatFormatter),
-    ):
+    _promote_types = (OpenAIChatFormatter, GeminiChatFormatter)
+    if OpenAIResponseFormatter is not None:
+        _promote_types = (*_promote_types, OpenAIResponseFormatter)
+    if isinstance(base_formatter, _promote_types):
         kwargs["promote_tool_result_images"] = True
     return formatter_class(**kwargs)
 

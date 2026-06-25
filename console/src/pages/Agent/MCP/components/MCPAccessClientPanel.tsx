@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next";
 import type {
   MCPAccessEffect,
   MCPAccessPolicy,
+  MCPAccessPrincipalOption,
   MCPAccessRule,
 } from "../../../../api/types";
 import { accessRuleIdentityKey } from "../accessPolicy";
@@ -14,6 +15,7 @@ import { MCPAccessRuleRows } from "./MCPAccessRuleRows";
 
 interface MCPAccessClientPanelProps {
   policy: MCPAccessPolicy;
+  principalOptions: MCPAccessPrincipalOption[];
   setDefaultEffect: (effect: MCPAccessEffect) => void;
   addClientAccessRule: () => void;
   updateClientRule: (
@@ -27,6 +29,7 @@ interface MCPAccessClientPanelProps {
 
 export const MCPAccessClientPanel: React.FC<MCPAccessClientPanelProps> = ({
   policy,
+  principalOptions,
   setDefaultEffect,
   addClientAccessRule,
   updateClientRule,
@@ -64,6 +67,7 @@ export const MCPAccessClientPanel: React.FC<MCPAccessClientPanelProps> = ({
       </div>
       <MCPAccessRuleRows
         rules={policy.client_overrides}
+        principalOptions={principalOptions}
         getKey={accessRuleIdentityKey}
         updateRule={updateClientRule}
         setRuleEffect={setClientRuleEffect}

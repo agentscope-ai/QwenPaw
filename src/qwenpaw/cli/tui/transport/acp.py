@@ -15,6 +15,7 @@ hooks for the QwenPaw agent, so we implement exactly those.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
 import sys
@@ -124,6 +125,35 @@ def _kill_process_tree(pid: int) -> None:
         pass
 
 
+def _permission_params(tool_call: Any) -> str | None:
+    """Render ACP permission tool parameters for the inline approval prompt."""
+    raw_input = _tool_call_raw_input(tool_call)
+    if raw_input is None:
+        return None
+    if isinstance(raw_input, str):
+        return raw_input.strip() or None
+    if isinstance(raw_input, dict):
+        lines: list[str] = []
+        for key, value in raw_input.items():
+            text = (
+                value
+                if isinstance(value, str)
+                else json.dumps(value, ensure_ascii=False)
+            )
+            lines.append(f"{key}: {text}")
+        return "\n".join(lines) or None
+    return str(raw_input)
+
+
+def _tool_call_raw_input(tool_call: Any) -> Any:
+    if isinstance(tool_call, dict):
+        return tool_call.get("rawInput", tool_call.get("raw_input"))
+    raw_input = getattr(tool_call, "raw_input", None)
+    if raw_input is not None:
+        return raw_input
+    return getattr(tool_call, "rawInput", None)
+
+
 class _TuiClient:
     """ACP client callbacks → push normalized events onto a queue."""
 
@@ -188,6 +218,7 @@ class _TuiClient:
                 request_id=request_id,
                 title=str(title),
                 tool_kind=getattr(tool_call, "kind", None),
+                params=_permission_params(tool_call),
                 options=[
                     PermissionOption(
                         option_id=getattr(o, "option_id", ""),
@@ -263,12 +294,18 @@ class AcpTransport:
         # of opening a fresh one.
         self._resume_session_id = resume_session_id
         # Default: re-invoke this very interpreter as `python -m qwenpaw acp`.
-        # Copy the caller's list so appending ``--agent`` never mutates it.
-        self._command = (
-            list(command)
-            if command
-            else [sys.executable, "-m", "qwenpaw", "acp"]
-        )
+        # The TUI owns that subprocess, so opt it into local diagnostics.
+        # Copy the caller's list so appending options never mutates it.
+        if command is None:
+            self._command = [
+                sys.executable,
+                "-m",
+                "qwenpaw",
+                "acp",
+                "--local-diagnostics",
+            ]
+        else:
+            self._command = list(command)
         if agent:
             self._command += ["--agent", agent]
 

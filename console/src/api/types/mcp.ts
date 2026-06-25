@@ -132,6 +132,27 @@ export interface MCPAccessRule {
   effect: MCPAccessEffect;
 }
 
+export interface MCPAccessPrincipalOption {
+  /** Where the tool call comes from */
+  source_type: MCPAccessSourceType;
+  /** Concrete source, e.g. console, dingtalk */
+  source_value: string;
+  /** Selectable object type */
+  subject_type: "user";
+  /** User identifier within the selected source */
+  subject_value: string;
+  /** Display label */
+  label: string;
+  /** Recent chat UUID */
+  chat_id: string;
+  /** Recent chat name */
+  chat_name: string;
+  /** Recent session ID */
+  session_id: string;
+  /** Most recent chat update timestamp */
+  updated_at: string | null;
+}
+
 export interface MCPToolDefaultPolicy {
   /** MCP tool name */
   tool_name: string;

@@ -70,6 +70,17 @@ class _ContentBase(BaseModel):
     type: ContentType
     delta: bool = False
     index: Optional[int] = None
+    status: Optional[RunStatus] = None
+    object: str = "content"
+    msg_id: Optional[str] = None
+
+    def in_progress(self) -> "_ContentBase":
+        self.status = RunStatus.InProgress
+        return self
+
+    def completed(self) -> "_ContentBase":
+        self.status = RunStatus.Completed
+        return self
 
 
 class TextContent(_ContentBase):
@@ -254,8 +265,11 @@ class AgentRequest(BaseModel):
 class AgentResponse(BaseModel):
     model_config = ConfigDict(extra="allow")
 
+    id: Optional[str] = None
     output: List[Message] = Field(default_factory=list)
     status: RunStatus = RunStatus.Completed
+    created_at: Optional[str] = None
+    completed_at: Optional[str] = None
     metadata: Optional[Dict[str, Any]] = None
 
 

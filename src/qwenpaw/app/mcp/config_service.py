@@ -15,6 +15,7 @@ from ..driver_config_service import (
 )
 from .schemas import (
     MCPAccessPolicy,
+    MCPAccessPrincipalOption,
     MCPAccessRule,
     MCPClientCreateRequest,
     MCPClientInfo,
@@ -61,7 +62,13 @@ logger = logging.getLogger(__name__)
 MCP_PROTOCOL = PROTOCOL_MCP
 MCP_TOOL_KIND = CAPABILITY_KIND_TOOL
 
-_RESERVED_KEY_PREFIXES = ("tools/", "toggle/", "oauth/", "policy/")
+_RESERVED_KEY_PREFIXES = (
+    "access-principals/",
+    "tools/",
+    "toggle/",
+    "oauth/",
+    "policy/",
+)
 
 
 class MCPConfigService:
@@ -175,6 +182,65 @@ class MCPConfigService:
 
     async def get_policy(self, client_key: str) -> MCPAccessPolicy:
         return mcp_access_policy_from_card(await self.load_card(client_key))
+
+    async def list_access_principals(
+        self,
+        *,
+        limit: int = 100,
+    ) -> list[MCPAccessPrincipalOption]:
+        """Return recent source-scoped users for Console policy editing."""
+        chat_manager = getattr(self._workspace, "chat_manager", None)
+        if chat_manager is None:
+            return []
+        try:
+            chats = await chat_manager.list_chats()
+        except Exception:
+            logger.warning(
+                "Failed to list chat identities for MCP access policy",
+                exc_info=True,
+            )
+            return []
+
+        by_identity: dict[
+            tuple[str, str, str],
+            MCPAccessPrincipalOption,
+        ] = {}
+        for chat in chats:
+            source_value = str(getattr(chat, "channel", "") or "").strip()
+            subject_value = str(getattr(chat, "user_id", "") or "").strip()
+            if not source_value or not subject_value:
+                continue
+            key = (
+                PRINCIPAL_SOURCE_CHANNEL,
+                source_value,
+                subject_value,
+            )
+            option = MCPAccessPrincipalOption(
+                source_type=PRINCIPAL_SOURCE_CHANNEL,
+                source_value=source_value,
+                subject_type=PRINCIPAL_SUBJECT_USER,
+                subject_value=subject_value,
+                label=_principal_option_label(
+                    source_value,
+                    subject_value,
+                    str(getattr(chat, "name", "") or ""),
+                ),
+                chat_id=str(getattr(chat, "id", "") or ""),
+                chat_name=str(getattr(chat, "name", "") or ""),
+                session_id=str(getattr(chat, "session_id", "") or ""),
+                updated_at=getattr(chat, "updated_at", None),
+            )
+            existing = by_identity.get(key)
+            if existing is None or _principal_updated_at(option) >= (
+                _principal_updated_at(existing)
+            ):
+                by_identity[key] = option
+
+        return sorted(
+            by_identity.values(),
+            key=_principal_updated_at,
+            reverse=True,
+        )[:limit]
 
     async def update_policy(
         self,
@@ -475,6 +541,21 @@ def _card_display_name(card: DriverCard) -> str:
         str(card.config.get("display_name") or ""),
         fallback=card.name,
     )
+
+
+def _principal_option_label(
+    source_value: str,
+    subject_value: str,
+    chat_name: str,
+) -> str:
+    base = f"{source_value} / {subject_value}"
+    return f"{base} ({chat_name})" if chat_name else base
+
+
+def _principal_updated_at(option: MCPAccessPrincipalOption) -> float:
+    if option.updated_at is None:
+        return 0.0
+    return option.updated_at.timestamp()
 
 
 def _credential_ref_by_alias_or_kind(
