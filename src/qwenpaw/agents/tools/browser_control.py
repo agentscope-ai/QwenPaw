@@ -476,6 +476,35 @@ async def _stop_playwright_instance(pw: Any) -> None:
         pass
 
 
+async def _kill_orphaned_chrome_processes() -> None:
+    """Kill any orphaned Chromium/Chrome renderer processes left by Playwright.
+
+    After playwright.stop(), child Chrome processes may linger because the
+    driver SIGKILL only targets the main browser process. Renderers survive
+    as orphans and accumulate over repeated start/stop cycles.
+    """
+    import signal as _signal
+    try:
+        # Find chromium/chrome processes whose PPID is 1 (orphaned)
+        proc = await asyncio.create_subprocess_exec(
+            "pkill", "-f", "--", "chromium.*--type=renderer",
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.DEVNULL,
+        )
+        await proc.wait()
+    except Exception:
+        pass
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "pkill", "-f", "--", "chrome.*--type=renderer",
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.DEVNULL,
+        )
+        await proc.wait()
+    except Exception:
+        pass
+
+
 def _sync_browser_launch(
     state: dict,
     cdp_port: int = 0,
@@ -1327,6 +1356,9 @@ async def _action_stop(state: dict) -> ToolChunk:
             stopped = False
             if owned:
                 stopped = await _stop_owned_browser_process(state)
+            else:
+                # Kill orphaned Chrome renderer processes even for CDP mode
+                await _kill_orphaned_chrome_processes()
         finally:
             _reset_browser_state(state)
         message = (
@@ -1360,6 +1392,8 @@ async def _action_stop(state: dict) -> ToolChunk:
                 _get_executor(),
                 lambda: _sync_browser_close(state),
             )
+            # Kill orphaned Chrome renderer processes that survive browser.close()
+            await _kill_orphaned_chrome_processes()
         except Exception as e:
             return _tool_response(
                 json.dumps(
@@ -1388,6 +1422,8 @@ async def _action_stop(state: dict) -> ToolChunk:
                     await state["playwright"].stop()
                 except Exception:
                     pass
+            # Kill orphaned Chrome renderer processes that survive playwright.stop()
+            await _kill_orphaned_chrome_processes()
         except Exception as e:
             return _tool_response(
                 json.dumps(
