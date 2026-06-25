@@ -482,6 +482,9 @@ jobs:
         with:
           python-version: "3.11"
 
+      - name: Install packaging helper dependencies
+        run: python -m pip install packaging
+
       - name: Set up uv
         uses: astral-sh/setup-uv@v5
 
@@ -517,18 +520,21 @@ jobs:
           # Authenticate the python-build-standalone release lookup in
           # stage_python_runtime.py to avoid anonymous API rate limits.
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          TAURI_UPDATER_PUBKEY: ${{ vars.TAURI_UPDATER_PUBKEY }}
+          TAURI_UPDATER_ENDPOINTS: ${{ vars.TAURI_UPDATER_ENDPOINTS }}
         run: ./scripts/pack-tauri/build_win_pyinstaller.ps1
 
-      - name: Stage Tauri Windows installer
+      - name: Stage Tauri Windows installer and updater assets
         shell: pwsh
         run: |
-          $installer = Get-ChildItem "console/src-tauri/target/release/bundle/nsis/*.exe" | Select-Object -First 1
-          if (-not $installer) {
-            throw "No Tauri Windows installer found"
-          }
-          $target = "dist/QwenPaw-Tauri-${{ steps.version.outputs.version }}-Windows-setup.exe"
-          Copy-Item -Force $installer.FullName $target
-          Write-Host "Staged Tauri Windows installer: $target"
+          python scripts/pack-tauri/generate_update_manifest.py stage `
+            --bundle-dir console/src-tauri/target/release/bundle/nsis `
+            --pattern '*-setup.exe' `
+            --target windows-x86_64 `
+            --output "dist/QwenPaw-Tauri-${{ steps.version.outputs.version }}-Windows-setup.exe" `
+            --pubkey-config console/src-tauri/tauri.version.conf.json
 
       - name: Install verify deps (Playwright + Chromium)
         shell: pwsh
@@ -597,6 +603,15 @@ jobs:
           name: QwenPaw-Desktop-Tauri-Windows-${{ steps.version.outputs.version }}
           path: dist/QwenPaw-Tauri-*-Windows-setup.exe
 
+      - name: Upload Tauri Windows updater metadata
+        if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && github.event.inputs.upload_to_oss == 'true')
+        uses: actions/upload-artifact@v4
+        with:
+          name: tauri-updater-meta-windows
+          path: |
+            dist/QwenPaw-Tauri-*-Windows-setup.exe.sig
+            dist/tauri-windows-x86_64-updater.json
+
   build-tauri-macos:
     needs: [check-release-secrets]
     if: |
@@ -620,6 +635,9 @@ jobs:
           PIP_NO_CACHE_DIR: "1"
         with:
           python-version: "3.11"
+
+      - name: Install packaging helper dependencies
+        run: python -m pip install packaging
 
       - name: Set up uv
         uses: astral-sh/setup-uv@v5
@@ -648,6 +666,10 @@ jobs:
           # Authenticate the python-build-standalone release lookup in
           # stage_python_runtime.py to avoid anonymous API rate limits.
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          TAURI_UPDATER_PUBKEY: ${{ vars.TAURI_UPDATER_PUBKEY }}
+          TAURI_UPDATER_ENDPOINTS: ${{ vars.TAURI_UPDATER_ENDPOINTS }}
         run: |
           chmod +x scripts/pack-tauri/build_macos_pyinstaller.sh
           bash scripts/pack-tauri/build_macos_pyinstaller.sh
@@ -714,6 +736,16 @@ jobs:
           name: QwenPaw-Desktop-Tauri-macOS-${{ steps.version.outputs.version }}
           path: dist/QwenPaw-Tauri-*-macOS.zip
 
+      - name: Upload Tauri macOS updater metadata
+        if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && github.event.inputs.upload_to_oss == 'true')
+        uses: actions/upload-artifact@v4
+        with:
+          name: tauri-updater-meta-macos
+          path: |
+            dist/QwenPaw-Tauri-*-macOS.app.tar.gz
+            dist/QwenPaw-Tauri-*-macOS.app.tar.gz.sig
+            dist/tauri-darwin-*-updater.json
+
   upload-release:
     needs: [build-windows, build-macos, build-tauri-windows, build-tauri-macos]
     if: github.event_name == 'release'
@@ -721,6 +753,21 @@ jobs:
     permissions:
       contents: write
     steps:
+      - name: Checkout (for scripts)
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install packaging helper dependencies
+        run: python -m pip install packaging
+
+      - name: Get version
+        id: version
+        run: echo "version=$(sed -n 's/^__version__[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' src/qwenpaw/__version__.py)" >> $GITHUB_OUTPUT
+
       - name: Download all artifacts
         uses: actions/download-artifact@v4
 
@@ -730,6 +777,29 @@ jobs:
           mv QwenPaw-Desktop-macOS-*/QwenPaw-*.zip . 2>/dev/null || true
           mv QwenPaw-Desktop-Tauri-Windows-*/QwenPaw-Tauri-*-Windows-setup.exe . 2>/dev/null || true
           mv QwenPaw-Desktop-Tauri-macOS-*/QwenPaw-Tauri-*-macOS.zip . 2>/dev/null || true
+          # Updater metadata from internal artifacts
+          mv tauri-updater-meta-windows/QwenPaw-Tauri-*-Windows-setup.exe.sig . 2>/dev/null || true
+          mv tauri-updater-meta-windows/tauri-windows-*-updater.json . 2>/dev/null || true
+          mv tauri-updater-meta-macos/QwenPaw-Tauri-*-macOS.app.tar.gz . 2>/dev/null || true
+          mv tauri-updater-meta-macos/QwenPaw-Tauri-*-macOS.app.tar.gz.sig . 2>/dev/null || true
+          mv tauri-updater-meta-macos/tauri-darwin-*-updater.json . 2>/dev/null || true
+
+      - name: Generate Tauri updater manifest
+        env:
+          # Pass release.body via env so quotes/newlines/$ in markdown are safe.
+          RELEASE_BODY: ${{ github.event.release.body }}
+        run: |
+          metadata_args=()
+          for f in tauri-windows-*-updater.json tauri-darwin-*-updater.json; do
+            [ -f "$f" ] && metadata_args+=(--metadata "$f")
+          done
+          NOTES="${RELEASE_BODY:-QwenPaw Desktop ${{ steps.version.outputs.version }}}"
+          python scripts/pack-tauri/generate_update_manifest.py manifest \
+            --version "${{ steps.version.outputs.version }}" \
+            --base-url "https://github.com/${{ github.repository }}/releases/download/${{ github.event.release.tag_name }}" \
+            "${metadata_args[@]}" \
+            --notes "$NOTES" \
+            --output qwenpaw-tauri-latest.json
 
       - name: Upload to Release
         uses: softprops/action-gh-release@v2
@@ -739,6 +809,8 @@ jobs:
             QwenPaw-[0-9]*-macOS.zip
             QwenPaw-Tauri-*-Windows-setup.exe
             QwenPaw-Tauri-*-macOS.zip
+            QwenPaw-Tauri-*-macOS.app.tar.gz
+            qwenpaw-tauri-latest.json
           fail-on-unmatched-files: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -746,8 +818,18 @@ jobs:
   upload-oss:
     needs: [build-windows, build-macos, build-tauri-windows, build-tauri-macos]
     # Run on: 1) release trigger, or 2) manual trigger with upload_to_oss checked
-    if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && github.event.inputs.upload_to_oss == 'true')
+    if: |
+      always() &&
+      (github.event_name == 'release' ||
+       (github.event_name == 'workflow_dispatch' && github.event.inputs.upload_to_oss == 'true')) &&
+      needs.build-windows.result == 'success' &&
+      needs.build-macos.result == 'success' &&
+      needs.build-tauri-windows.result == 'success' &&
+      needs.build-tauri-macos.result == 'success'
     runs-on: ubuntu-latest
+    env:
+      OSS_BUCKET: ${{ vars.OSS_BUCKET || 'qwenpaw-download' }}
+      OSS_PUBLIC_BASE_URL: ${{ vars.OSS_PUBLIC_BASE_URL || 'https://download.qwenpaw.agentscope.io/files/apps/desktop' }}
     steps:
       - name: Checkout (for scripts)
         uses: actions/checkout@v4
@@ -756,6 +838,9 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+
+      - name: Install packaging helper dependencies
+        run: python -m pip install packaging
 
       - name: Get version
         id: version
@@ -802,25 +887,25 @@ jobs:
 
           # Upload file (versioned)
           ossutil cp "$WIN_EXE" \
-            "oss://qwenpaw-download/files/apps/desktop/win/QwenPaw-Setup-${VERSION}.exe" \
+            "oss://${OSS_BUCKET}/files/apps/desktop/win/QwenPaw-Setup-${VERSION}.exe" \
             --acl public-read \
             --force
 
           # Upload file (latest)
           ossutil cp "$WIN_EXE" \
-            "oss://qwenpaw-download/files/apps/desktop/win/QwenPaw-Setup-latest.exe" \
+            "oss://${OSS_BUCKET}/files/apps/desktop/win/QwenPaw-Setup-latest.exe" \
             --acl public-read \
             --force
 
           # Upload metadata (versioned)
           ossutil cp win-metadata.json \
-            "oss://qwenpaw-download/metadata/apps/desktop/win/QwenPaw-Setup-${VERSION}.exe.json" \
+            "oss://${OSS_BUCKET}/metadata/apps/desktop/win/QwenPaw-Setup-${VERSION}.exe.json" \
             --acl public-read \
             --force
 
           # Upload metadata (latest)
           ossutil cp win-metadata.json \
-            "oss://qwenpaw-download/metadata/apps/desktop/win/QwenPaw-Setup-latest.exe.json" \
+            "oss://${OSS_BUCKET}/metadata/apps/desktop/win/QwenPaw-Setup-latest.exe.json" \
             --acl public-read \
             --force
 
@@ -849,25 +934,25 @@ jobs:
 
           # Upload file (versioned)
           ossutil cp "$MAC_ZIP" \
-            "oss://qwenpaw-download/files/apps/desktop/mac/QwenPaw-${VERSION}-macOS.zip" \
+            "oss://${OSS_BUCKET}/files/apps/desktop/mac/QwenPaw-${VERSION}-macOS.zip" \
             --acl public-read \
             --force
 
           # Upload file (latest)
           ossutil cp "$MAC_ZIP" \
-            "oss://qwenpaw-download/files/apps/desktop/mac/QwenPaw-latest-macOS.zip" \
+            "oss://${OSS_BUCKET}/files/apps/desktop/mac/QwenPaw-latest-macOS.zip" \
             --acl public-read \
             --force
 
           # Upload metadata (versioned)
           ossutil cp mac-metadata.json \
-            "oss://qwenpaw-download/metadata/apps/desktop/mac/QwenPaw-${VERSION}-macOS.zip.json" \
+            "oss://${OSS_BUCKET}/metadata/apps/desktop/mac/QwenPaw-${VERSION}-macOS.zip.json" \
             --acl public-read \
             --force
 
           # Upload metadata (latest)
           ossutil cp mac-metadata.json \
-            "oss://qwenpaw-download/metadata/apps/desktop/mac/QwenPaw-latest-macOS.zip.json" \
+            "oss://${OSS_BUCKET}/metadata/apps/desktop/mac/QwenPaw-latest-macOS.zip.json" \
             --acl public-read \
             --force
 
@@ -902,19 +987,19 @@ jobs:
               --output "${metadata}"
 
             ossutil cp "${artifact}" \
-              "oss://qwenpaw-download/files/apps/desktop/${platform}/${versioned_name}" \
+              "oss://${OSS_BUCKET}/files/apps/desktop/${platform}/${versioned_name}" \
               --acl public-read \
               --force
             ossutil cp "${artifact}" \
-              "oss://qwenpaw-download/files/apps/desktop/${platform}/${latest_name}" \
+              "oss://${OSS_BUCKET}/files/apps/desktop/${platform}/${latest_name}" \
               --acl public-read \
               --force
             ossutil cp "${metadata}" \
-              "oss://qwenpaw-download/metadata/apps/desktop/${platform}/${versioned_name}.json" \
+              "oss://${OSS_BUCKET}/metadata/apps/desktop/${platform}/${versioned_name}.json" \
               --acl public-read \
               --force
             ossutil cp "${metadata}" \
-              "oss://qwenpaw-download/metadata/apps/desktop/${platform}/${latest_name}.json" \
+              "oss://${OSS_BUCKET}/metadata/apps/desktop/${platform}/${latest_name}.json" \
               --acl public-read \
               --force
           }
@@ -935,12 +1020,71 @@ jobs:
             "QwenPaw-Tauri-latest-macOS.zip" \
             "mac-tauri-metadata.json"
 
+      - name: Upload Tauri macOS updater archive to OSS
+        # The .zip is for first-install; the auto-updater pulls .app.tar.gz.
+        if: hashFiles('tauri-updater-meta-macos/*.app.tar.gz') != ''
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          APP_TAR_GZ=$(find tauri-updater-meta-macos -name "QwenPaw-Tauri-*-macOS.app.tar.gz" | head -1)
+          if [ -z "$APP_TAR_GZ" ]; then
+            echo "No macOS .app.tar.gz found, skipping"
+            exit 0
+          fi
+          ossutil cp "$APP_TAR_GZ" \
+            "oss://${OSS_BUCKET}/files/apps/desktop/mac-tauri/QwenPaw-Tauri-${VERSION}-macOS.app.tar.gz" \
+            --acl public-read \
+            --force
+
+      - name: Link artifacts into updater-meta dirs for manifest generation
+        if: hashFiles('tauri-updater-meta-*/tauri-*-updater.json') != ''
+        run: |
+          # The manifest generator expects the artifact binary alongside the
+          # sidecar JSON.  After artifact splitting the exe lives in a separate
+          # artifact directory, so we symlink it into the meta directory.
+          for f in QwenPaw-Desktop-Tauri-Windows-*/QwenPaw-Tauri-*-Windows-setup.exe; do
+            [ -f "$f" ] && ln -sf "../$f" tauri-updater-meta-windows/ 2>/dev/null || true
+          done
+
+      - name: Generate and upload OSS updater manifest
+        # Mirror the GitHub-pointing manifest with one whose URLs point at
+        # OSS, so mainland users can hit a CN-fast endpoint first and fall
+        # back to GitHub if OSS is unreachable.
+        if: hashFiles('tauri-updater-meta-*/tauri-*-updater.json') != ''
+        env:
+          # Pass release.body via env so quotes/newlines/$ in markdown are safe.
+          RELEASE_BODY: ${{ github.event.release.body }}
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          OSS_BASE="${OSS_PUBLIC_BASE_URL%/}"
+          metadata_args=()
+          for f in tauri-updater-meta-windows/tauri-windows-*-updater.json \
+                   tauri-updater-meta-macos/tauri-darwin-*-updater.json; do
+            [ -f "$f" ] && metadata_args+=(--metadata "$f")
+          done
+          if [ ${#metadata_args[@]} -eq 0 ]; then
+            echo "No Tauri updater sidecars found, skipping OSS manifest"
+            exit 0
+          fi
+          NOTES="${RELEASE_BODY:-QwenPaw Desktop ${VERSION}}"
+          python scripts/pack-tauri/generate_update_manifest.py manifest \
+            --version "$VERSION" \
+            --base-url "$OSS_BASE" \
+            --target-base "windows-x86_64=${OSS_BASE}/win-tauri" \
+            --target-base "darwin-aarch64=${OSS_BASE}/mac-tauri" \
+            "${metadata_args[@]}" \
+            --notes "$NOTES" \
+            --output qwenpaw-tauri-latest-oss.json
+          ossutil cp qwenpaw-tauri-latest-oss.json \
+            "oss://${OSS_BUCKET}/metadata/qwenpaw-tauri-latest.json" \
+            --acl public-read \
+            --force
+
       - name: Update desktop index
         run: |
           VERSION="${{ steps.version.outputs.version }}"
 
           # Download existing desktop/index.json if exists
-          ossutil cp "oss://qwenpaw-download/metadata/apps/desktop/index.json" \
+          ossutil cp "oss://${OSS_BUCKET}/metadata/apps/desktop/index.json" \
             desktop-index.json 2>/dev/null || cat > desktop-index.json << 'EOF'
           {
             "product": "desktop",
@@ -1005,7 +1149,7 @@ jobs:
 
           # Upload updated desktop/index.json
           ossutil cp desktop-index.json \
-            "oss://qwenpaw-download/metadata/apps/desktop/index.json" \
+            "oss://${OSS_BUCKET}/metadata/apps/desktop/index.json" \
             --acl public-read \
             --force
 
@@ -1014,7 +1158,7 @@ jobs:
       - name: Update main index
         run: |
           # Download main index if exists
-          ossutil cp "oss://qwenpaw-download/metadata/index.json" \
+          ossutil cp "oss://${OSS_BUCKET}/metadata/index.json" \
             main-index.json 2>/dev/null || cat > main-index.json << 'EOF'
           {
             "version": "1.0",
@@ -1048,7 +1192,7 @@ jobs:
 
           # Upload main index
           ossutil cp main-index.json \
-            "oss://qwenpaw-download/metadata/index.json" \
+            "oss://${OSS_BUCKET}/metadata/index.json" \
             --acl public-read \
             --force
 

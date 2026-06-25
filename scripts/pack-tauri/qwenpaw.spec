@@ -155,7 +155,6 @@ a = Analysis(
 
 pyz = PYZ(a.pure)
 
-
 def script_entry(file_name):
     for item in a.scripts:
         if Path(item[1]).name == file_name:
