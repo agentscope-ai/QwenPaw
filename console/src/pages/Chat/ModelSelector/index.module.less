@@ -19,6 +19,17 @@
     color: #ff7f16;
     box-shadow: 0 2px 8px rgba(97, 92, 237, 0.12);
   }
+
+  @media (max-width: 768px) {
+    max-width: 140px;
+    padding: 4px 6px;
+    gap: 3px;
+  }
+
+  @media (max-width: 480px) {
+    max-width: 96px;
+    font-size: 13px;
+  }
 }
 
 .triggerName {
@@ -26,6 +37,36 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   max-width: 180px;
+
+  @media (max-width: 768px) {
+    max-width: 90px;
+  }
+
+  @media (max-width: 480px) {
+    position: relative;
+    max-width: 60px;
+    overflow: hidden;
+    text-overflow: clip;
+
+    > .marquee {
+      display: inline-block;
+      padding-left: 100%;
+      animation: modelSelectorMarquee 10s linear infinite;
+    }
+  }
+}
+
+.marquee {
+  display: inline-block;
+}
+
+@keyframes modelSelectorMarquee {
+  0% {
+    transform: translateX(0);
+  }
+  100% {
+    transform: translateX(-100%);
+  }
 }
 
 .triggerArrow {
@@ -66,9 +107,6 @@
     width: calc(100vw - 32px);
     max-width: 360px;
     max-height: 60vh;
-    position: fixed !important;
-    left: 50% !important;
-    transform: translateX(-50%) !important;
   }
 }
 

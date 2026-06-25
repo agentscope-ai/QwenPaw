@@ -73,6 +73,8 @@ class ConversationCommandHandlerMixin:
             "proactive",
             "plan",
             "system_prompt",
+            "dream",
+            "memorize",
         },
     )
 
@@ -503,6 +505,170 @@ class CommandHandler(ConversationCommandHandlerMixin):
                 status_lines.append(f"  - Error: {info['error']}\n")
 
         return await self._make_system_msg("".join(status_lines))
+
+    async def _process_dream(
+        self,
+        _messages: list[Msg],
+        args: str = "",
+    ) -> Msg:
+        """Process /dream command to run one auto-dream pass."""
+        if not self._has_memory_manager():
+            return await self._make_system_msg(
+                "**Memory Manager Disabled**\n\n"
+                "- Cannot run auto-dream\n"
+                "- Enable memory manager to use this feature",
+            )
+
+        hint = args.strip()
+        try:
+            if hint:
+                await self.memory_manager.dream(hint=hint)
+            else:
+                await self.memory_manager.dream()
+        except Exception as e:
+            logger.exception("auto-dream failed: %s", e)
+            return await self._make_system_msg(
+                f"**Auto-dream Failed**\n\n- Error: {e}",
+            )
+
+        return await self._make_system_msg(
+            "**Auto-dream Complete**\n\n"
+            "- Ran one auto-dream memory optimization pass",
+        )
+
+    async def _process_memorize(
+        self,
+        messages: list[Msg],
+        args: str = "",
+    ) -> Msg:
+        """Process /memorize command to run auto-memory for recent replies."""
+        if not self._has_memory_manager():
+            return await self._make_system_msg(
+                "**Memory Manager Disabled**\n\n"
+                "- Cannot run auto-memory\n"
+                "- Enable memory manager to use this feature",
+            )
+
+        invalid_count_message: str | None = None
+        try:
+            count = int(args.strip() or "1")
+        except ValueError:
+            count = 0
+            invalid_count_message = (
+                f"**Invalid Count: '{args}'**\n\n"
+                "- Count must be a positive integer\n"
+                "- Examples: /memorize, /memorize 2"
+            )
+
+        if invalid_count_message is None and count <= 0:
+            invalid_count_message = (
+                f"**Invalid Count: {count}**\n\n"
+                "- Count must be a positive integer\n"
+                "- Examples: /memorize, /memorize 2"
+            )
+
+        if invalid_count_message is not None:
+            return await self._make_system_msg(
+                invalid_count_message,
+            )
+
+        reply_ids = self._latest_reply_ids(messages, count=count)
+        if not reply_ids:
+            return await self._make_system_msg(
+                "**No Reply Messages Found**\n\n"
+                "- No assistant replies are available to memorize",
+            )
+
+        memory_messages = self._messages_for_reply_ids(
+            messages,
+            reply_ids=reply_ids,
+        )
+        if not memory_messages:
+            return await self._make_system_msg(
+                "**No Messages Found**\n\n"
+                "- Could not build a message range for the selected replies",
+            )
+
+        try:
+            await self.memory_manager.auto_memory(
+                memory_messages,
+                session_id=str(getattr(self._state, "session_id", "") or ""),
+                reply_id=reply_ids[-1],
+                reply_ids=reply_ids,
+            )
+        except Exception as e:
+            logger.exception("manual auto-memory failed: %s", e)
+            return await self._make_system_msg(
+                f"**Auto-memory Failed**\n\n- Error: {e}",
+            )
+
+        return await self._make_system_msg(
+            "**Auto-memory Started**\n\n"
+            f"- Reply groups: {len(reply_ids)}\n"
+            f"- Messages submitted: {len(memory_messages)}",
+        )
+
+    def _latest_reply_ids(
+        self,
+        messages: list[Msg],
+        *,
+        count: int,
+    ) -> list[str]:
+        """Return latest assistant reply ids in chronological order."""
+        reply_ids: list[str] = []
+        for msg in reversed(messages):
+            if msg.role != "assistant" or msg.name != self.agent_name:
+                continue
+            if not msg.id:
+                continue
+            reply_ids.append(msg.id)
+            if len(reply_ids) >= count:
+                break
+        reply_ids.reverse()
+        if reply_ids:
+            return reply_ids
+
+        # Standalone slash-command handling may not have the exact runtime
+        # agent name available for older sessions.  Fall back to assistant
+        # messages by role/id instead of reporting that no reply exists.
+        for msg in reversed(messages):
+            if msg.role != "assistant" or not msg.id:
+                continue
+            reply_ids.append(msg.id)
+            if len(reply_ids) >= count:
+                break
+        reply_ids.reverse()
+        return reply_ids
+
+    def _messages_for_reply_ids(
+        self,
+        messages: list[Msg],
+        *,
+        reply_ids: list[str],
+    ) -> list[Msg]:
+        targets = set(reply_ids)
+        if not targets:
+            return []
+
+        first_idx: int | None = None
+        last_idx: int | None = None
+        for idx, msg in enumerate(messages):
+            if msg.role == "assistant" and msg.id in targets:
+                if first_idx is None:
+                    first_idx = idx
+                last_idx = idx
+
+        if first_idx is None or last_idx is None:
+            return []
+
+        start_idx = 0
+        for idx in range(first_idx - 1, -1, -1):
+            msg = messages[idx]
+            if msg.role == "assistant" and msg.id:
+                start_idx = idx + 1
+                break
+
+        return messages[start_idx : last_idx + 1]
 
     async def _process_message(
         self,

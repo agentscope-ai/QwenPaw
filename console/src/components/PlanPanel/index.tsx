@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { Drawer, Progress, Spin } from "antd";
+import { Drawer, Empty, Progress, Spin } from "antd";
 import { IconButton } from "@agentscope-ai/design";
 import { SparkOperateRightLine } from "@agentscope-ai/icons";
 import { useChatAnywhereSessionsState } from "@agentscope-ai/chat";
@@ -9,6 +9,7 @@ import {
   subscribePlanUpdates,
   type PlanStateResponse,
 } from "../../api/modules/plan";
+import { useIsMobile } from "../../hooks/useIsMobile";
 import styles from "./index.module.less";
 
 interface PlanPanelProps {
@@ -119,13 +120,16 @@ const PlanPanel: React.FC<PlanPanelProps> = ({ open, onClose }) => {
   const percent =
     totalCount > 0 ? Math.round((doneCount / totalCount) * 100) : 0;
 
+  // Mobile viewport detection so the drawer width matches the search panel.
+  const isMobile = useIsMobile();
+
   return (
     <Drawer
       className={styles.drawer}
       open={open}
       onClose={onClose}
       placement="right"
-      width={380}
+      width={isMobile ? "calc(100vw - 56px)" : 380}
       closable={false}
       title={null}
       styles={{ body: { padding: 0 } }}
@@ -145,13 +149,20 @@ const PlanPanel: React.FC<PlanPanelProps> = ({ open, onClose }) => {
             <Spin />
           </div>
         ) : !plan ? (
-          <div className={styles.emptyState}>
-            <div className={styles.emptyIcon}>📋</div>
-            <div>{t("plan.noPlan", "No active plan")}</div>
-            <div className={styles.emptyHint}>
-              {t("plan.noPlanHint", "Use /plan <description> to create a plan")}
-            </div>
-          </div>
+          <Empty
+            description={
+              <div>
+                <div>{t("plan.noPlan", "No active plan")}</div>
+                <div className={styles.emptyHint}>
+                  {t(
+                    "plan.noPlanHint",
+                    "Use /plan <description> to create a plan",
+                  )}
+                </div>
+              </div>
+            }
+            style={{ marginTop: 80 }}
+          />
         ) : (
           <>
             <div className={styles.planInfo}>

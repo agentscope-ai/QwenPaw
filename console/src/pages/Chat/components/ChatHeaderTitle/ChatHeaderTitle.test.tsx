@@ -18,7 +18,7 @@ describe("ChatHeaderTitle", () => {
       currentSessionId: "sess-1",
     });
     renderWithProviders(<ChatHeaderTitle />);
-    expect(screen.getByText("My Chat")).toBeInTheDocument();
+    expect(screen.getAllByText("My Chat")[0]).toBeInTheDocument();
   });
 
   it('displays "New Chat" when session name is empty', () => {
@@ -27,7 +27,7 @@ describe("ChatHeaderTitle", () => {
       currentSessionId: "sess-1",
     });
     renderWithProviders(<ChatHeaderTitle />);
-    expect(screen.getByText("New Chat")).toBeInTheDocument();
+    expect(screen.getAllByText("New Chat")[0]).toBeInTheDocument();
   });
 
   it('displays "New Chat" when no matching session exists', () => {
@@ -36,7 +36,7 @@ describe("ChatHeaderTitle", () => {
       currentSessionId: null,
     });
     renderWithProviders(<ChatHeaderTitle />);
-    expect(screen.getByText("New Chat")).toBeInTheDocument();
+    expect(screen.getAllByText("New Chat")[0]).toBeInTheDocument();
   });
 
   it("displays the correct session name after switching currentSessionId", () => {
@@ -48,7 +48,7 @@ describe("ChatHeaderTitle", () => {
       currentSessionId: "sess-2",
     });
     renderWithProviders(<ChatHeaderTitle />);
-    expect(screen.getByText("Chat B")).toBeInTheDocument();
+    expect(screen.getAllByText("Chat B")[0]).toBeInTheDocument();
     expect(screen.queryByText("Chat A")).not.toBeInTheDocument();
   });
 });
