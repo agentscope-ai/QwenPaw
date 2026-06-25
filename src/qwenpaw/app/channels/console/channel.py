@@ -444,7 +444,7 @@ class ConsoleChannel(BaseChannel):
                 elif obj == "response":
                     last_response = event
 
-            # AgentScope 2.0: session is on ``workspace.session``.
+            # Session is on ``workspace.session``.
             session = (
                 getattr(self._workspace, "session", None)
                 if self._workspace is not None

@@ -25,7 +25,7 @@ async def snapshot_context_usage_for_state(
     state: Any,
     agent_id: str,
 ) -> dict[str, Any] | None:
-    """Estimate token totals from an agentscope 2.0 ``AgentState``."""
+    """Estimate token totals from ``AgentState``."""
     try:
         from ..config.config import (
             load_agent_config,
@@ -190,7 +190,7 @@ async def finalize_console_turn_usage(
         state = None
 
     if state:
-        # AgentScope 2.0: agent context lives in ``agent.state``.
+        # Agent context lives in ``agent.state``.
         agent_raw = state.get("agent", {})
         state_raw = agent_raw.get("state")
         agent_state = None
