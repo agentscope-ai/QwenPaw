@@ -376,8 +376,25 @@ class QwenPawAgent(CodingModeMixin, Agent):
             if not self._is_bad_request_or_media_error(e):
                 raise
 
+            # Don't cache content moderation rejections as 'rejects_media'.
+            # Content moderation errors are per-image, not per-model.
+            error_str = str(e).lower()
+            moderation_signals = (
+                "content_moderation",
+                "content moderation",
+                "safety",
+                "blocked",
+                "prohibited",
+                "violate",
+                "policy",
+                "inappropriate",
+                "nsfw",
+                "unsafe",
+            )
+            is_moderation_error = any(sig in error_str for sig in moderation_signals)
+
             model_key = self._get_model_key()
-            if model_key:
+            if model_key and not is_moderation_error:
                 get_capability_cache().learn(
                     model_key,
                     "rejects_media",
