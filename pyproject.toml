@@ -100,12 +100,15 @@ copaw = "qwenpaw.cli.main:cli"
 # Legacy group "copaw.doctor" is still loaded when present.
 
 [project.optional-dependencies]
-dev = [
+test = [
     "pytest>=8.3.5",
     "pytest-asyncio>=0.23.0",
-    "pre-commit>=4.2.0",
     "pytest-cov>=6.2.1",
+    "pytest-xdist>=3.5.0",
     "hypothesis>=6.0.0",
+]
+dev = [
+    "pre-commit>=4.2.0",
 ]
 local = [
     "huggingface_hub>=0.20.0",
