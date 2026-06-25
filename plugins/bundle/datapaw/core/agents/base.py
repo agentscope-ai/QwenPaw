@@ -16,12 +16,13 @@ assembled in three layers: host's ``AGENTS.md`` / ``SOUL.md`` /
 package's ``prompts/MASTER.md``, then a host-workspace environment
 hint.
 """
+
 from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, List, Literal, Optional, TYPE_CHECKING, Type
+from typing import TYPE_CHECKING, Any, List, Literal, Optional, Type
 
 from agentscope.message import Msg
 from pydantic import BaseModel
@@ -37,6 +38,11 @@ from ..tools import DEFAULT_TOOL_NAMES, TOOL_REGISTRY
 from .pending_edits import format_pending_edits
 from .subagent_config import build_spawn_subagent_fn, acting_spawn_subagent
 
+try:
+    from ...constants import is_spawn_subagent_enabled
+except ImportError:  # pragma: no cover - compatibility for legacy test imports
+    from constants import is_spawn_subagent_enabled
+
 if TYPE_CHECKING:
     from qwenpaw.agents.memory import BaseMemoryManager
     from qwenpaw.config.config import AgentProfileConfig
@@ -46,6 +52,8 @@ logger = logging.getLogger("qwenpaw.datapaw.agents")
 
 PLUGIN_DIR = Path(__file__).resolve().parent.parent.parent
 PLUGIN_PROMPTS_DIR = PLUGIN_DIR / "prompts"
+SUBAGENT_SECTION_BEGIN = "<!-- DATAPAW_SUBAGENT_BEGIN -->"
+SUBAGENT_SECTION_END = "<!-- DATAPAW_SUBAGENT_END -->"
 
 
 _HOST_PLAN_MODE_FLAGS: tuple[str, ...] = (
@@ -74,7 +82,7 @@ def _read_master_md(lang: str = "zh") -> str:
         if not path.exists():
             continue
         try:
-            return path.read_text(encoding="utf-8")
+            return _render_master_md(path.read_text(encoding="utf-8"))
         except OSError:
             logger.warning(
                 "Failed to read DataPaw prompt file %s",
@@ -82,6 +90,38 @@ def _read_master_md(lang: str = "zh") -> str:
                 exc_info=True,
             )
     return ""
+
+
+def _render_master_md(content: str) -> str:
+    """Render the master prompt according to runtime feature toggles."""
+    if is_spawn_subagent_enabled():
+        return _strip_subagent_markers(content)
+    return _remove_subagent_section(content)
+
+
+def _strip_subagent_markers(content: str) -> str:
+    content = content.replace(f"{SUBAGENT_SECTION_BEGIN}\n", "")
+    content = content.replace(f"{SUBAGENT_SECTION_END}\n", "")
+    content = content.replace(SUBAGENT_SECTION_BEGIN, "")
+    return content.replace(SUBAGENT_SECTION_END, "")
+
+
+def _remove_subagent_section(content: str) -> str:
+    start = content.find(SUBAGENT_SECTION_BEGIN)
+    if start < 0:
+        return content
+    stop = content.find(
+        SUBAGENT_SECTION_END,
+        start + len(SUBAGENT_SECTION_BEGIN),
+    )
+    if stop < 0:
+        return _strip_subagent_markers(content)
+    stop += len(SUBAGENT_SECTION_END)
+    before = content[:start].rstrip()
+    after = content[stop:].lstrip()
+    if before and after:
+        return f"{before}\n\n{after}"
+    return f"{before}{after}"
 
 
 def _get_in_progress_node_id(plan: Any) -> Optional[str]:
@@ -291,6 +331,10 @@ class DataPawAgent(QwenPawAgent):
                     exc_info=True,
                 )
 
+        if not is_spawn_subagent_enabled():
+            self._remove_spawn_subagent_tool()
+            return
+
         try:
             spawn_fn = build_spawn_subagent_fn(self)
             self.toolkit.register_tool_function(
@@ -300,6 +344,17 @@ class DataPawAgent(QwenPawAgent):
         except Exception:  # pylint: disable=broad-except
             logger.warning(
                 "Failed to register spawn_subagent tool",
+                exc_info=True,
+            )
+
+    def _remove_spawn_subagent_tool(self) -> None:
+        if "spawn_subagent" not in getattr(self.toolkit, "tools", {}):
+            return
+        try:
+            self.toolkit.remove_tool_function("spawn_subagent")
+        except Exception:  # pylint: disable=broad-except
+            logger.warning(
+                "Failed to disable spawn_subagent for DataPaw agent",
                 exc_info=True,
             )
 

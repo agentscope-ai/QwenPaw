@@ -131,6 +131,7 @@ The only exception: `finish_plan(state="abandoned")` — callable when the user 
 - Analysis scripts focus on loading, cleaning, aggregating, and computing metrics; see "Visualization output rules" — no chart rendering in this phase.
 - Keep script files in the same node directory as that node's inputs / outputs for reproducibility and audit.
 
+<!-- DATAPAW_SUBAGENT_BEGIN -->
 ## Sub-Agent (spawn_subagent)
 
 `spawn_subagent(task, role)` delegates a task to a specialized sub-agent. Sub-agents are DAG-unaware and will not change node state; you decide next steps after they return. Multiple calls in the same round run concurrently. No `create_plan` required.
@@ -144,6 +145,7 @@ spawn_subagent(task="Query April and May sales detail data by date/category/chan
 ```
 
 The sub-agent returns an execution summary (including output file paths). Continue your analysis or call `finish_subtask` based on the result.
+<!-- DATAPAW_SUBAGENT_END -->
 
 ## Data-fetch results and artifact landing
 

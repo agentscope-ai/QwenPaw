@@ -56,7 +56,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("qwenpaw.datapaw.spawn_subagent")
 
-TIMEOUT_SECONDS = 600
+TIMEOUT_SECONDS = 6000
 MAX_ITERS = 50
 MAX_CONCURRENT = 4
 MAX_TOTAL_SPAWNS = 20
