@@ -171,7 +171,11 @@
     "detailPayload": "附加信息",
     "detailExecutionTrace": "执行轨迹",
     "detailTraceEmpty": "暂无执行轨迹",
-    "filterByAgent": "按 Agent 筛选"
+    "filterByAgent": "按 Agent 筛选",
+    "filterBySourceType": "按来源筛选",
+    "sourceTypeCron": "定时任务",
+    "sourceTypeHeartbeat": "心跳",
+    "sourceTypeMemory": "记忆"
   },
   "workspace": {
     "title": "文件",

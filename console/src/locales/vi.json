@@ -311,7 +311,11 @@
     "detailPayload": "Payload",
     "detailExecutionTrace": "Trace thực thi",
     "detailTraceEmpty": "Không có trace",
-    "filterByAgent": "Lọc theo agent"
+    "filterByAgent": "Lọc theo agent",
+    "filterBySourceType": "Lọc theo nguồn",
+    "sourceTypeCron": "Cron",
+    "sourceTypeHeartbeat": "Heartbeat",
+    "sourceTypeMemory": "Memory"
   },
   "acp": {
     "title": "ACP",

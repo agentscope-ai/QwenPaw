@@ -987,7 +987,11 @@
     "detailPayload": "Payload",
     "detailExecutionTrace": "Jejak Eksekusi",
     "detailTraceEmpty": "Tidak ada jejak eksekusi",
-    "filterByAgent": "Filter berdasarkan agen"
+    "filterByAgent": "Filter berdasarkan agen",
+    "filterBySourceType": "Filter berdasarkan sumber",
+    "sourceTypeCron": "Cron",
+    "sourceTypeHeartbeat": "Heartbeat",
+    "sourceTypeMemory": "Memory"
   },
   "acp": {
     "title": "ACP",

@@ -171,7 +171,11 @@
     "detailPayload": "Payload",
     "detailExecutionTrace": "Execution Trace",
     "detailTraceEmpty": "No execution trace available",
-    "filterByAgent": "Filter by agent"
+    "filterByAgent": "Filter by agent",
+    "filterBySourceType": "Filter by source",
+    "sourceTypeCron": "Cron",
+    "sourceTypeHeartbeat": "Heartbeat",
+    "sourceTypeMemory": "Memory"
   },
   "acp": {
     "title": "ACP",
