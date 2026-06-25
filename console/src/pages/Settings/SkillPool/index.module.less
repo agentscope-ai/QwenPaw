@@ -435,7 +435,9 @@
 
 /* ─── Skills Grid ─────────────────────────────────────────────────────────── */
 .skillsGrid {
-  /* Layout (grid + gap) is provided by the shared .responsive-grid utility. */
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 16px;
   padding: 16px;
 }
 
@@ -566,6 +568,18 @@
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
+}
+
+.skillEmoji {
+  width: 52px;
+  height: 52px;
+  border-radius: 10px;
+  background: #f7f5f3;
+  font-size: 28px;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .titleRow {

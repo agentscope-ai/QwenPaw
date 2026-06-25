@@ -8,7 +8,7 @@ import {
   getPoolBuiltinStatusTone,
   isSkillBuiltin,
 } from "@/utils/skill";
-import { getSkillVisual } from "../../../Agent/Skills/components";
+import { SkillVisual } from "@/components/SkillVisual";
 import styles from "../index.module.less";
 
 interface PoolSkillCardProps {
@@ -66,7 +66,11 @@ export function PoolSkillCard({
       {/* Top row: Icon (left) + Status badge + Checkbox (right) */}
       <div className={styles.cardTopRow}>
         <span className={styles.fileIcon}>
-          {getSkillVisual(skill.name, skill.emoji)}
+          <SkillVisual
+            name={skill.name}
+            emoji={skill.emoji}
+            emojiClassName={styles.skillEmoji}
+          />
         </span>
         <div className={styles.cardTopRight}>
           <span
