@@ -310,6 +310,24 @@ class TestGovernancePolicyEvaluate:
         decision = policy.evaluate(tc)
         assert decision.action == GovernanceAction.DENY
 
+    def test_spawn_subagent_is_registered_internal_tool(self, policy):
+        """spawn_subagent should pass governance as an internal tool."""
+        policy_name = DEFAULT_REGISTRY.python_to_policy_name(
+            "spawn_subagent",
+        )
+        target = DEFAULT_REGISTRY.extract_target(
+            policy_name,
+            {"task": "Analyze the repository", "background": True},
+        )
+
+        assert policy_name == "SpawnSubagent"
+        assert target == "Analyze the repository"
+        assert DEFAULT_REGISTRY.get_type(policy_name) == "internal"
+        assert (
+            policy.evaluate(_tc(policy_name, target)).action
+            == GovernanceAction.ALLOW
+        )
+
     def test_ssh_dir_match_patterns(self, policy):
         """Various .ssh path patterns should match the builtin rule."""
         ssh_targets = [
