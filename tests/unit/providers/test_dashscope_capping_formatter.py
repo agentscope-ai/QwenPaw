@@ -19,7 +19,7 @@ import pytest
 
 from qwenpaw.providers.dashscope_provider import (
     _CappingDashScopeFormatter,
-    _MAX_INLINE_MEDIA_BYTES,
+    MAX_INLINE_MEDIA_BYTES,
 )
 
 
@@ -45,7 +45,7 @@ def test_remote_url_is_not_inlined() -> None:
 
 
 def test_oversized_video_is_replaced_with_text_placeholder(tmp_path) -> None:
-    url = _write(tmp_path, "big.mp4", _MAX_INLINE_MEDIA_BYTES + 1)
+    url = _write(tmp_path, "big.mp4", MAX_INLINE_MEDIA_BYTES + 1)
     from agentscope.message import URLSource
 
     out = _CappingDashScopeFormatter()._format_video_source(
@@ -107,7 +107,7 @@ def test_custom_threshold_is_honored(tmp_path) -> None:
 
 
 def test_zero_threshold_disables_capping(tmp_path) -> None:
-    url = _write(tmp_path, "big.mp4", _MAX_INLINE_MEDIA_BYTES + 1)
+    url = _write(tmp_path, "big.mp4", MAX_INLINE_MEDIA_BYTES + 1)
     from agentscope.message import URLSource
 
     source = URLSource(url=url, media_type="video/mp4")

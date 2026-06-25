@@ -14,8 +14,9 @@ from agentscope.model import ChatModelBase
 from openai import APIError
 from pydantic import Field
 
-from qwenpaw.providers.capping_formatter import _CappingOpenAIFormatter
 from qwenpaw.providers.provider import ModelInfo, Provider
+from .capping_formatter import _CappingOpenAIFormatter
+from .capping_formatter import MAX_INLINE_MEDIA_BYTES
 
 if TYPE_CHECKING:
     from qwenpaw.providers.multimodal_prober import ProbeResult
@@ -49,7 +50,7 @@ class OpenAIProvider(Provider):
     """Provider implementation for OpenAI API and compatible endpoints."""
 
     max_inline_media_bytes: int = Field(
-        default=2 * 1024 * 1024,
+        default=MAX_INLINE_MEDIA_BYTES,
         ge=0,
         description=(
             "Maximum size (in bytes) of a local media file inlined as "

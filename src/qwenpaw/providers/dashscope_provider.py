@@ -18,9 +18,7 @@ from typing import Any, Dict
 from agentscope.model import ChatModelBase
 from pydantic import Field
 
-from .capping_formatter import (
-    MAX_INLINE_MEDIA_BYTES as _MAX_INLINE_MEDIA_BYTES,
-)
+from .capping_formatter import MAX_INLINE_MEDIA_BYTES
 from .capping_formatter import _CappingDashScopeFormatter
 from .openai_provider import (
     CODING_DASHSCOPE_BASE_URL,
@@ -39,7 +37,7 @@ class DashScopeProvider(OpenAIProvider):
     chat_model: str = Field(default="DashScopeChatModel")
 
     max_inline_media_bytes: int = Field(
-        default=_MAX_INLINE_MEDIA_BYTES,
+        default=MAX_INLINE_MEDIA_BYTES,
         ge=0,
         description=(
             "Maximum size (in bytes) of a local media file inlined as "

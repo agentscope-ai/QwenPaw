@@ -10,19 +10,20 @@ from agentscope.model import ChatModelBase
 from openai import APIError, AsyncOpenAI
 from pydantic import Field
 
-from qwenpaw.providers.capping_formatter import _CappingOpenAIFormatter
 from qwenpaw.providers.provider import (
     Provider,
     ExtendedModelInfo,
     ModelInfo,
 )
+from .capping_formatter import _CappingOpenAIFormatter
+from .capping_formatter import MAX_INLINE_MEDIA_BYTES
 
 
 class OpenRouterProvider(Provider):
     """OpenRouter provider with required HTTP-Referer and X-Title headers."""
 
     max_inline_media_bytes: int = Field(
-        default=2 * 1024 * 1024,
+        default=MAX_INLINE_MEDIA_BYTES,
         ge=0,
         description=(
             "Maximum size (in bytes) of a local media file inlined as "

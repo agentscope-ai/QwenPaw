@@ -14,7 +14,6 @@ from agentscope.model import ChatModelBase
 import anthropic
 from pydantic import Field
 
-from qwenpaw.providers.capping_formatter import _CappingAnthropicFormatter
 from qwenpaw.providers.multimodal_prober import (
     ProbeResult,
     _PROBE_IMAGE_B64,
@@ -23,6 +22,9 @@ from qwenpaw.providers.multimodal_prober import (
     evaluate_image_probe_answer,
 )
 from qwenpaw.providers.provider import ModelInfo, Provider
+
+from .capping_formatter import _CappingAnthropicFormatter
+from .capping_formatter import MAX_INLINE_MEDIA_BYTES
 
 logger = logging.getLogger(__name__)
 
@@ -71,7 +73,7 @@ class AnthropicProvider(Provider):
     """Provider implementation for Anthropic API."""
 
     max_inline_media_bytes: int = Field(
-        default=2 * 1024 * 1024,
+        default=MAX_INLINE_MEDIA_BYTES,
         ge=0,
         description=(
             "Maximum size (in bytes) of a local media file inlined as "
