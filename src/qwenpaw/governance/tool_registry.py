@@ -154,12 +154,14 @@ def _create_default_registry() -> ToolRegistry:
     registry.register("SubmitToAgent", "internal", "agent_id")
     registry.register("CheckAgentTask", "internal", "task_id")
     registry.register("DelegateExternalAgent", "internal", "runner")
+    registry.register("MemorySearch", "internal", "")
 
     # ── Python function name mappings ──
     registry.register_python_name("execute_shell_command", "Bash")
     registry.register_python_name("read_file", "Read")
     registry.register_python_name("write_file", "Write")
     registry.register_python_name("edit_file", "Edit")
+    registry.register_python_name("memory_search", "MemorySearch")
     registry.register_python_name("append_file", "Append")
     registry.register_python_name("grep_search", "Grep")
     registry.register_python_name("glob_search", "Glob")

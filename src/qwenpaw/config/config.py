@@ -225,6 +225,7 @@ class DiscordConfig(BaseChannelConfig):
     http_proxy_auth: str = ""
     accept_bot_messages: bool = False
     streaming_enabled: bool = False
+    media_dir: Optional[str] = None
 
 
 class DingTalkConfig(BaseChannelConfig):
@@ -239,6 +240,7 @@ class DingTalkConfig(BaseChannelConfig):
     card_auto_layout: bool = False
     at_sender_on_reply: bool = False
     streaming_enabled: bool = False
+    endpoint: str = ""
 
 
 class FeishuConfig(BaseChannelConfig):
@@ -546,13 +548,11 @@ class AutoMemorySearchConfig(BaseModel):
         ),
     )
 
-    min_score: float = Field(
-        default=0.3,
-        ge=0.0,
-        le=1.0,
+    persist_to_context: bool = Field(
+        default=True,
         description=(
-            "Minimum relevance score for results when auto memory"
-            " search is enabled"
+            "Whether to persist auto memory search tool_call/tool_result "
+            "messages into the conversation context"
         ),
     )
 
@@ -581,7 +581,10 @@ class EmbeddingModelConfig(BaseModel):
         default=False,
         description="Whether to use custom dimensions",
     )
-    max_cache_size: int = Field(default=3000, description="Maximum cache size")
+    max_cache_size: int = Field(
+        default=10000,
+        description="Maximum cache size",
+    )
     max_input_length: int = Field(
         default=8192,
         description="Maximum input length for embedding",
@@ -638,13 +641,38 @@ class ReMeLightMemoryConfig(BaseModel):
 
     model_config = ConfigDict(extra="ignore")
 
+    metadata_dir: str = Field(
+        default="mem_metadata",
+        description="Subdirectory for ReMe persistent state",
+    )
+    session_dir: str = Field(
+        default="mem_session",
+        description="Subdirectory for persisted agent sessions",
+    )
+    resource_dir: str = Field(
+        default="resource",
+        description="Subdirectory for external assets",
+    )
+    daily_dir: str = Field(
+        default="memory",
+        description="Subdirectory for daily memory",
+    )
+    digest_dir: str = Field(
+        default="digest",
+        description="Subdirectory for digest memory",
+    )
+    enable_search_raw_log: bool = Field(
+        default=False,
+        description="Whether to enable raw log search",
+    )
+
     summarize_when_compact: bool = Field(
         default=True,
         description="Whether to enable memory summarization during compaction",
     )
 
     auto_memory_interval: int | None = Field(
-        default=1,
+        default=None,
         description="Auto memory every N user queries. 1 means auto "
         "memory after every user query, 2 means every 2 queries, etc. "
         "None or <= 0 disables periodic auto memory. WARNING: Setting "
@@ -675,15 +703,6 @@ class ReMeLightMemoryConfig(BaseModel):
         ),
     )
 
-    recursive_file_watcher: bool = Field(
-        default=False,
-        description=(
-            "Whether to watch memory directory recursively. "
-            "Set to True to include subdirectories like memory/subdirectory/* "
-            "in vector search indexing."
-        ),
-    )
-
 
 class ContextCompactConfig(BaseModel):
     """Context compaction configuration."""
@@ -707,17 +726,12 @@ class ContextCompactConfig(BaseModel):
 
     reserve_threshold_ratio: float = Field(
         default=0.1,
-        ge=0,
+        gt=0,
         le=0.3,
         description=(
             "Context reserve threshold ratio: the most recent fraction of the "
             "context is preserved after compaction to maintain continuity"
         ),
-    )
-
-    compact_with_thinking_block: bool = Field(
-        default=True,
-        description="Whether to include thinking blocks when compacting",
     )
 
 

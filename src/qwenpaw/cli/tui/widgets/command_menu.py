@@ -171,6 +171,9 @@ class PromptInput(TextArea):
     async def _on_key(self, event: events.Key) -> None:
         if self._consume_suppressed_paste_tail(event):
             return
+        if await self._route_permission_key(event):
+            return
+
         if self._menu.display:
             if event.key == "down":
                 self._menu.cursor_down()
@@ -208,6 +211,19 @@ class PromptInput(TextArea):
             self.insert("\n")
             return
         await super()._on_key(event)
+
+    async def _route_permission_key(self, event: events.Key) -> bool:
+        app = self.app
+        if not getattr(app, "_permission_active", lambda: False)():
+            return False
+        if event.key not in ("down", "up", "enter", "tab", "escape"):
+            return False
+        event.prevent_default()
+        event.stop()
+        await app._handle_permission_key(  # pylint: disable=protected-access
+            event.key,
+        )
+        return True
 
     async def _on_paste(self, event: events.Paste) -> None:
         app = self.app

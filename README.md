@@ -17,6 +17,8 @@
 [![DingTalk](https://img.shields.io/badge/DingTalk-Join_Us-orange.svg)](https://qr.dingtalk.com/action/joingroup?code=v1,k1,OmDlBXpjW+I2vWjKDsjvI9dhcXjGZi3bQiojOq3dlDw=&_dt_no_comment=1&origin=11)
 [![AgentScope Platform](https://img.shields.io/badge/%E2%98%81_AgentScope_Platform-%F0%9F%90%BE_7%2F24_Online_%26_Free-FF6B2B.svg)](https://platform.agentscope.io/)
 
+<a href="https://trendshift.io/repositories/25882" target="_blank"><img src="https://trendshift.io/api/badge/trendshift/repositories/25882/daily" alt="agentscope-ai%2FQwenPaw | Trendshift" style="width: 250px; height: 55px;" width="250" height="55"/></a>
+
 [[Documentation](https://qwenpaw.agentscope.io/)] [[中文](README_zh.md)] [[日本語](README_ja.md)] [[Русский](README_ru.md)]
 
 <p align="center">
@@ -423,18 +425,14 @@ Star QwenPaw on GitHub and be instantly notified of new releases.
 | ------------------------ | -------------------------------------------------------------------------------------------- | -------------------- |
 | **Horizontal Expansion** | More channels, models, skills, MCPs — **community contributions welcome**                  | Seeking Contributors |
 | **Existing Feature Extension** | Display optimization, download hints, Windows path compatibility, etc. — **community contributions welcome** | Seeking Contributors |
-| **Infra**               | QwenPaw OS foundation                                                                         | In Progress          |
 | **Models**               | Multi-model switching                                                                         | In Progress          |
-|                          | Response API                                                                                 | Planned              |
-| **Workspace**            | Subfolder layout (config, production files, etc.)                                            | Planned              |
-| **Coding**               | Compatibility with existing agents (e.g. Claude Code)                                        | Planned              |
-| **Multi-agent**          | Group chat                                                                                   | Planned              |
-|                          | Subagent visualization                                                                                 | Planned              |
-|                          | HiClaw enterprise capabilities                                                               | Planned              |
-| **Context Management**   | Personal knowledge base                                                             | In Progress          |
-|                          | User-selectable compression (fine-grained control)                                           | Planned              |
+| **Browser-use**   | Support Chrome extension                                                             | In Progress          |
+| **Long-term Memory**   | Personal knowledge base                                                             | In Progress          |
 | **QwenPaw Application**   | QwenPaw Creator                                                             | In Progress          |
 |                          | QwenPaw Insight                                           | In Progress              |
+| **Multi-agent**               | Compatibility with existing agents (e.g. Claude Code)                                        | Planned              |
+|          | Group chat                                                                                   | Planned              |
+|                          | Subagent visualization                                                                                 | Planned              |
 
 _Status:_ **In Progress** — actively being worked on; **Planned** — queued or under design, also welcome contributions; **Seeking Contributors** — we strongly encourage community contributions.
 

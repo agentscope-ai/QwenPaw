@@ -17,6 +17,8 @@
 [![DingTalk](https://img.shields.io/badge/DingTalk-Join_Us-orange.svg)](https://qr.dingtalk.com/action/joingroup?code=v1,k1,OmDlBXpjW+I2vWjKDsjvI9dhcXjGZi3bQiojOq3dlDw=&_dt_no_comment=1&origin=11)
 [![AgentScope Platform](https://img.shields.io/badge/%E2%98%81_AgentScope_Platform-%F0%9F%90%BE_7%2F24_Online_%26_Free-FF6B2B.svg)](https://platform.agentscope.io/)
 
+<a href="https://trendshift.io/repositories/25882" target="_blank"><img src="https://trendshift.io/api/badge/trendshift/repositories/25882/daily" alt="agentscope-ai%2FQwenPaw | Trendshift" style="width: 250px; height: 55px;" width="250" height="55"/></a>
+
 [[Tài liệu](https://qwenpaw.agentscope.io/)] [[English](README.md)] [[中文](README_zh.md)] [[日本語](README_ja.md)] [[Русский](README_ru.md)]
 
 <p align="center">
@@ -423,18 +425,14 @@ Star QwenPaw trên GitHub để nhận thông báo ngay lập tức về các b�
 | -------------------------- | ------------------------------------------------------------------------------------------ | ------------------- |
 | **Mở rộng ngang**          | Thêm kênh, mô hình, Skills, MCP — **hoan nghênh đóng góp từ cộng đồng**                   | Đang kêu gọi đóng góp |
 | **Mở rộng tính năng hiện có** | Tối ưu hiển thị, gợi ý tải xuống, tương thích đường dẫn Windows — **hoan nghênh đóng góp** | Đang kêu gọi đóng góp |
-| **Hạ tầng**                | Nền tảng QwenPaw OS                                                                        | Đang thực hiện      |
 | **Mô hình**                | Chuyển đổi đa mô hình                                                                       | Đang thực hiện      |
-|                            | Response API                                                                                | Đã lên kế hoạch     |
-| **Không gian làm việc**   | Bố trí thư mục con (cấu hình, tệp sản xuất, v.v.)                                          | Đã lên kế hoạch     |
-| **Lập trình**              | Tương thích với các tác nhân hiện có (ví dụ: Claude Code)                                  | Đã lên kế hoạch     |
-| **Đa tác nhân**            | Chat nhóm                                                                                   | Đã lên kế hoạch     |
-|                            | Trực quan hóa tác nhân con                                                                  | Đã lên kế hoạch     |
-|                            | Khả năng doanh nghiệp HiClaw                                                                | Đã lên kế hoạch     |
-| **Quản lý ngữ cảnh**      | Cơ sở tri thức cá nhân                                                                      | Đang thực hiện      |
-|                            | Nén do người dùng chọn (kiểm soát chi tiết)                                                | Đã lên kế hoạch     |
+| **Browser-use**            | Hỗ trợ tiện ích mở rộng Chrome                                                              | Đang thực hiện      |
+| **Bộ nhớ dài hạn**        | Cơ sở tri thức cá nhân                                                                      | Đang thực hiện      |
 | **Ứng dụng QwenPaw**      | QwenPaw Creator                                                                             | Đang thực hiện      |
 |                            | QwenPaw Insight                                                                             | Đang thực hiện      |
+| **Đa tác nhân**            | Tương thích với các tác nhân hiện có (ví dụ: Claude Code)                                  | Đã lên kế hoạch     |
+|                            | Chat nhóm                                                                                   | Đã lên kế hoạch     |
+|                            | Trực quan hóa tác nhân con                                                                  | Đã lên kế hoạch     |
 
 _Trạng thái:_ **Đang thực hiện** — đang tích cực phát triển; **Đã lên kế hoạch** — đã xếp hàng hoặc đang thiết kế, cũng hoan nghênh đóng góp; **Đang kêu gọi đóng góp** — chúng tôi khuyến khích đóng góp từ cộng đồng.
 

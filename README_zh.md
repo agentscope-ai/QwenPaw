@@ -17,6 +17,8 @@
 [![钉钉群](https://img.shields.io/badge/DingTalk-Join_Us-orange.svg)](https://qr.dingtalk.com/action/joingroup?code=v1,k1,OmDlBXpjW+I2vWjKDsjvI9dhcXjGZi3bQiojOq3dlDw=&_dt_no_comment=1&origin=11)
 [![AgentScope 体验平台](https://img.shields.io/badge/%E2%98%81_AgentScope_Platform-%F0%9F%90%BE_7%2F24_Online_%26_Free-FF6B2B.svg)](https://platform.agentscope.io/)
 
+<a href="https://trendshift.io/repositories/25882" target="_blank"><img src="https://trendshift.io/api/badge/trendshift/repositories/25882/daily" alt="agentscope-ai%2FQwenPaw | Trendshift" style="width: 250px; height: 55px;" width="250" height="55"/></a>
+
 [[文档](https://qwenpaw.agentscope.io/)] [[English](README.md)] [[日本語](README_ja.md)] [[Русский](README_ru.md)]
 
 <p align="center">
@@ -489,18 +491,14 @@ QwenPaw 内置多层安全防护机制，保障你的数据与系统安全：
 | ------------------------ | ----------------------------------------------------------------------------------------- | ------ |
 | **横向拓展**             | 更多频道、模型、技能、MCP 等 — **欢迎社区贡献**                                           | 征集中 |
 | **已有功能扩展与完善**   | 展示优化、下载提示、Windows 路径兼容等 — **欢迎社区贡献**                                 | 征集中 |
-| **基础设施**             | QwenPaw OS 基础                                                                           | 进行中 |
 | **模型**                 | 多模型切换                                                                                | 进行中 |
-|                          | Response API                                                                              | 计划中 |
-| **工作区**               | 子目录划分（配置、生产文件等）                                                            | 计划中 |
-| **Coding 能力**          | 兼容 Claude Code 等既有 Agent                                                             | 计划中 |
-| **多智能体**             | 群聊                                                                                      | 计划中 |
-|                          | Subagent 可视化                                                                           | 计划中 |
-|                          | HiClaw 企业级能力                                                                         | 计划中 |
-| **上下文管理**           | 个人知识库                                                                                | 进行中 |
-|                          | 用户可选压缩（细粒度控制）                                                                | 计划中 |
+| **Browser-use**          | 支持 Chrome 扩展                                                                          | 进行中 |
+| **长期记忆**             | 个人知识库                                                                                | 进行中 |
 | **QwenPaw 应用**         | QwenPaw Creator                                                                           | 进行中 |
 |                          | QwenPaw Insight                                                                           | 进行中 |
+| **多智能体**             | 兼容 Claude Code 等既有 Agent                                                             | 计划中 |
+|                          | 群聊                                                                                      | 计划中 |
+|                          | Subagent 可视化                                                                           | 计划中 |
 
 _状态说明：**进行中** — 正在积极开发；**计划中** — 已排队或设计中，也欢迎贡献；**征集中** — 我们强烈鼓励社区参与。_
 

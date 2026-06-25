@@ -29,9 +29,11 @@ from helpers import (
     MOCK_LLM_PROVIDER_ID,
     MockLLMHandler,
     clean_inbox,
+    poll_history as _poll_history,
     register_mock_provider,
     scoped,
     unregister_mock_provider,
+    wait_cron_executed as _wait_cron_executed,
 )
 
 _HTTP_TIMEOUT = 15.0
@@ -83,15 +85,52 @@ def _configure_mock_runner(app_server, runner_name=_MOCK_RUNNER_NAME):
     assert resp.status_code == 200, app_server.logs_tail()
 
 
-def _enable_delegate_tool(app_server):
-    """Enable delegate_external_agent via tool toggle."""
+def _delegate_tool_enabled(app_server) -> bool:
+    """Return current enabled state of delegate_external_agent."""
     resp = app_server.api_request(
-        "PATCH",
-        scoped("default", "/tools/delegate_external_agent/toggle"),
-        json={"enabled": True},
+        "GET",
+        scoped("default", "/tools"),
         timeout=_HTTP_TIMEOUT,
     )
     assert resp.status_code == 200, app_server.logs_tail()
+    for tool in resp.json():
+        if tool.get("name") == "delegate_external_agent":
+            return bool(tool.get("enabled"))
+    return False
+
+
+def _set_delegate_tool(app_server, *, enabled: bool):
+    """Idempotently set delegate_external_agent enabled to ``enabled``.
+
+    ``PATCH /tools/{name}/toggle`` is a stateful toggle (flips current
+    value, ignores request body), so we first read the current state via
+    GET and only invoke the toggle when a flip is actually required.
+    Without this, two callers that both "want enabled=True" end up
+    cancelling each other out and the tool is unregistered for the
+    second invocation.
+    """
+    if _delegate_tool_enabled(app_server) == enabled:
+        return
+    resp = app_server.api_request(
+        "PATCH",
+        scoped("default", "/tools/delegate_external_agent/toggle"),
+        timeout=_HTTP_TIMEOUT,
+    )
+    assert resp.status_code == 200, app_server.logs_tail()
+
+
+def _enable_delegate_tool(app_server):
+    """Ensure delegate_external_agent is enabled (idempotent)."""
+    _set_delegate_tool(app_server, enabled=True)
+
+
+def _disable_delegate_tool(app_server):
+    """Ensure delegate_external_agent is disabled (idempotent).
+
+    Use in test finally blocks to restore baseline so subsequent tests
+    see a predictable initial state.
+    """
+    _set_delegate_tool(app_server, enabled=False)
 
 
 def _agent_input(text):
@@ -148,21 +187,6 @@ def _delete_job(app_server, job_id):
         )
     except Exception:
         pass
-
-
-def _poll_history(app_server, job_id, deadline, *, min_count=1):
-    while time.time() < deadline:
-        resp = app_server.api_request(
-            "GET",
-            f"/api/cron/jobs/{job_id}/history",
-            timeout=_HTTP_TIMEOUT,
-        )
-        if resp.status_code == 200:
-            records = resp.json()
-            if isinstance(records, list) and len(records) >= min_count:
-                return records
-        time.sleep(1.0)
-    return []
 
 
 # ------------------------------------------------------------------ #
@@ -226,7 +250,7 @@ def test_acp_list_runners_includes_mock_runner(
         )
         assert run_resp.status_code == 200, app_server.logs_tail()
 
-        records = _poll_history(
+        records = _wait_cron_executed(
             app_server,
             job_id,
             time.time() + 30.0,
@@ -240,6 +264,7 @@ def test_acp_list_runners_includes_mock_runner(
     finally:
         _delete_job(app_server, job_id)
         srv.force_tool_call = False
+        _disable_delegate_tool(app_server)
         unregister_mock_provider(app_server, MOCK_LLM_PROVIDER_ID)
 
 
@@ -282,12 +307,13 @@ def test_acp_status_returns_runner_state(app_server, mock_llm) -> None:
             timeout=_HTTP_TIMEOUT,
         )
         assert run_resp.status_code == 200, app_server.logs_tail()
-        records = _poll_history(app_server, job_id, time.time() + 30.0)
+        records = _wait_cron_executed(app_server, job_id, time.time() + 30.0)
         assert len(records) >= 1, app_server.logs_tail()
         assert records[0]["status"] == "success", records[0]
     finally:
         _delete_job(app_server, job_id)
         srv.force_tool_call = False
+        _disable_delegate_tool(app_server)
         unregister_mock_provider(app_server, MOCK_LLM_PROVIDER_ID)
 
 
@@ -298,6 +324,10 @@ def test_acp_status_returns_runner_state(app_server, mock_llm) -> None:
 
 @pytest.mark.integration
 @pytest.mark.p0
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="stdio subprocess pipes unreliable on Windows",
+)
 def test_acp_start_spawns_mock_runner(app_server, mock_llm) -> None:
     """Test purpose:
     - Verify delegate_external_agent(action="start") really spawns the
@@ -341,7 +371,11 @@ def test_acp_start_spawns_mock_runner(app_server, mock_llm) -> None:
             timeout=_HTTP_TIMEOUT,
         )
         assert run_resp.status_code == 200, app_server.logs_tail()
-        records = _poll_history(app_server, job_id, time.time() + 60.0)
+        records = _wait_cron_executed(
+            app_server,
+            job_id,
+            time.time() + 60.0,
+        )
         assert len(records) >= 1, app_server.logs_tail()
         assert (
             records[0]["status"] == "success"
@@ -358,6 +392,7 @@ def test_acp_start_spawns_mock_runner(app_server, mock_llm) -> None:
     finally:
         _delete_job(app_server, job_id)
         srv.force_tool_call = False
+        _disable_delegate_tool(app_server)
         unregister_mock_provider(app_server, MOCK_LLM_PROVIDER_ID)
 
 
@@ -409,7 +444,7 @@ def test_acp_close_after_start(app_server, mock_llm) -> None:
             f"/api/cron/jobs/{job_start}/run",
             timeout=_HTTP_TIMEOUT,
         )
-        records = _poll_history(
+        records = _wait_cron_executed(
             app_server,
             job_start,
             time.time() + 60.0,
@@ -431,7 +466,7 @@ def test_acp_close_after_start(app_server, mock_llm) -> None:
                 f"/api/cron/jobs/{job_close}/run",
                 timeout=_HTTP_TIMEOUT,
             )
-            records2 = _poll_history(
+            records2 = _wait_cron_executed(
                 app_server,
                 job_close,
                 time.time() + 30.0,
@@ -444,6 +479,7 @@ def test_acp_close_after_start(app_server, mock_llm) -> None:
     finally:
         _delete_job(app_server, job_start)
         srv.force_tool_call = False
+        _disable_delegate_tool(app_server)
         unregister_mock_provider(app_server, MOCK_LLM_PROVIDER_ID)
 
 
@@ -511,7 +547,11 @@ def test_acp_initialize_failure_records_error(
             timeout=_HTTP_TIMEOUT,
         )
         assert run_resp.status_code == 200, app_server.logs_tail()
-        records = _poll_history(app_server, job_id, time.time() + 60.0)
+        records = _wait_cron_executed(
+            app_server,
+            job_id,
+            time.time() + 60.0,
+        )
         assert (
             len(records) >= 1
         ), f"No history (deadlock?): {app_server.logs_tail()}"
@@ -538,4 +578,5 @@ def test_acp_initialize_failure_records_error(
             timeout=_HTTP_TIMEOUT,
         )
         srv.force_tool_call = False
+        _disable_delegate_tool(app_server)
         unregister_mock_provider(app_server, MOCK_LLM_PROVIDER_ID)

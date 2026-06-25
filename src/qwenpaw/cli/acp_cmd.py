@@ -26,10 +26,20 @@ import click
     default=False,
     help="Enable debug logging to stderr",
 )
+@click.option(
+    "--local-diagnostics",
+    is_flag=True,
+    default=False,
+    help=(
+        "Surface raw unexpected error text to the ACP client. Intended for "
+        "local clients that own this ACP subprocess, such as the TUI."
+    ),
+)
 def acp_cmd(
     agent: str | None,
     workspace: str | None,
     debug: bool,
+    local_diagnostics: bool,
 ) -> None:
     """Start QwenPaw as an ACP agent (stdio)."""
     from pathlib import Path
@@ -48,5 +58,6 @@ def acp_cmd(
         run_qwenpaw_agent(
             agent_id=agent,
             workspace_dir=workspace_dir,
+            local_diagnostics=local_diagnostics,
         ),
     )

@@ -126,38 +126,46 @@ describe("workspaceApi.uploadFile", () => {
 describe("workspaceApi.listDailyMemory", () => {
   afterEach(() => vi.clearAllMocks());
 
-  it("strips .md suffix to produce date field", async () => {
+  it("strips .md suffix from basename to produce date field", async () => {
     vi.mocked(request).mockResolvedValue([
-      { filename: "2024-06-01.md", modified_time: "2024-06-01T12:00:00Z" },
+      {
+        filename: "2024-06-01/session.md",
+        modified_time: "2024-06-01T12:00:00Z",
+      },
     ]);
 
     const result = await workspaceApi.listDailyMemory();
 
     expect(request).toHaveBeenCalledWith("/workspace/memory");
-    expect(result[0].date).toBe("2024-06-01");
+    expect(result[0].date).toBe("session");
   });
 });
 
 describe("workspaceApi.loadDailyMemory", () => {
   afterEach(() => vi.clearAllMocks());
 
-  it("calls /workspace/memory/<date>.md", async () => {
+  it("calls /workspace/memory/<memory-path>", async () => {
     vi.mocked(request).mockResolvedValue({ content: "memory" });
-    await workspaceApi.loadDailyMemory("2024-06-01");
-    expect(request).toHaveBeenCalledWith("/workspace/memory/2024-06-01.md");
+    await workspaceApi.loadDailyMemory("2024-06-01/session.md");
+    expect(request).toHaveBeenCalledWith(
+      "/workspace/memory/2024-06-01/session.md",
+    );
   });
 });
 
 describe("workspaceApi.saveDailyMemory", () => {
   afterEach(() => vi.clearAllMocks());
 
-  it("sends PUT to /workspace/memory/<date>.md with content", async () => {
+  it("sends PUT to /workspace/memory/<memory-path> with content", async () => {
     vi.mocked(request).mockResolvedValue({});
-    await workspaceApi.saveDailyMemory("2024-06-01", "today");
-    expect(request).toHaveBeenCalledWith("/workspace/memory/2024-06-01.md", {
-      method: "PUT",
-      body: JSON.stringify({ content: "today" }),
-    });
+    await workspaceApi.saveDailyMemory("digest/wiki/topic.md", "today");
+    expect(request).toHaveBeenCalledWith(
+      "/workspace/memory/digest/wiki/topic.md",
+      {
+        method: "PUT",
+        body: JSON.stringify({ content: "today" }),
+      },
+    );
   });
 });
 

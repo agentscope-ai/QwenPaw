@@ -5,42 +5,10 @@
   overflow: hidden;
 }
 
-.pageHeader {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  position: relative;
-  padding: 20px;
-  border-bottom: 1px solid #eae9e7;
-  margin-bottom: 0;
-}
-
 .toolsContainer {
-  overflow: auto;
-}
-
-.breadcrumbHeader {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 16px;
   flex: 1;
-}
-
-.breadcrumbParent {
-  color: #999;
-  font-weight: 400;
-}
-
-.breadcrumbSeparator {
-  color: #ccc;
-  margin: 0 4px;
-}
-
-.breadcrumbCurrent {
-  color: #333;
-  font-weight: 600;
-  font-size: 20px;
+  overflow-y: auto;
+  min-height: 0;
 }
 
 .headerAction {
@@ -53,58 +21,6 @@
   }
 }
 
-.header {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  margin-bottom: 24px;
-}
-
-.headerInfo {
-  display: flex;
-  flex-direction: column;
-}
-
-.actionTab {
-  padding: 5px 14px;
-  border-radius: 7px;
-  border: none;
-  font-size: 13px;
-  color: #999;
-  background: transparent;
-  cursor: pointer;
-  transition: all 0.18s ease;
-
-  &:hover {
-    color: #666;
-    background: rgba(0, 0, 0, 0.04);
-  }
-}
-
-.disabledTab {
-  color: #ff7f16 !important;
-  background: #fff !important;
-  cursor: not-allowed;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.1);
-
-  &:hover {
-    color: #ff7f16 !important;
-    background: #fff !important;
-  }
-}
-
-.title {
-  margin-bottom: 4px;
-  font-size: 24px;
-  font-weight: 600;
-}
-
-.description {
-  margin: 0;
-  color: #999;
-  font-size: 14px;
-}
-
 .loading {
   text-align: center;
   padding: 60px;
@@ -113,16 +29,127 @@
 
 .toolsGrid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-  gap: 16px;
-  padding: 16px;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+/* ---- Panel Section (grouped containers) ---- */
+
+.panelSection {
+  background: #fafbfc;
+  border: 1px solid #f3f4f6;
+  border-radius: 12px;
+  padding: 18px;
+  margin: 16px;
+}
+
+.panelSectionDashed {
+  background: #fff;
+  border: 1px dashed #e5e7eb;
+  border-radius: 12px;
+  padding: 18px;
+  margin: 0 16px 16px;
+}
+
+.panelTitle {
+  font-size: 13px;
+  font-weight: 600;
+  color: #6b7280;
+  margin-bottom: 14px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.panelDotGreen {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #10b981;
+  flex-shrink: 0;
+}
+
+.panelDotGray {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #d1d5db;
+  flex-shrink: 0;
+}
+
+.panelCount {
+  font-size: 11px;
+  color: #10b981;
+  font-weight: 400;
+  margin-left: auto;
+}
+
+.emptyEnabled {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 48px 24px;
+  border: 2px dashed #e5e7eb;
+  border-radius: 12px;
+  margin-bottom: 24px;
+  text-align: center;
+}
+
+.emptyEnabled p {
+  font-size: 14px;
+  color: #6b7280;
+  margin-bottom: 16px;
+}
+
+.availableGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 8px;
+}
+
+.availableItem {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border: 1px solid #f3f4f6;
+  border-radius: 8px;
+  background: #fafafa;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.availableItem:hover {
+  background: #fff;
+  border-color: #6366f1;
+  box-shadow: 0 2px 8px rgba(99, 102, 241, 0.1);
+}
+
+.availableItemName {
+  font-size: 13px;
+  font-weight: 500;
+  flex: 1;
+  color: #1a1a1a;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.availableItemAction {
+  font-size: 11px;
+  color: #6366f1;
+  font-weight: 500;
+  white-space: nowrap;
 }
 
 .toolCard {
   height: auto;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 8px;
   border-radius: var(--border-radius, 8px);
   background: var(--color-bg-base, #ffffff);
   border: 1px solid var(--color-border-secondary, #eae8e7);
@@ -166,6 +193,14 @@
   display: flex;
   align-items: center;
   gap: 6px;
+  max-width: 200px;
+}
+
+.toolNameText {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  min-width: 0;
 }
 
 .toolIconFallback {
@@ -208,11 +243,11 @@
 }
 
 .toolDescription {
-  margin: 6px 0 16px 0;
+  margin: 4px 0 12px 0;
   color: #666;
-  font-size: 13px;
-  line-height: 1.6;
-  min-height: 40px;
+  font-size: 12px;
+  line-height: 1.5;
+  min-height: 36px;
   overflow: hidden;
   text-overflow: ellipsis;
   display: -webkit-box;
@@ -239,17 +274,17 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  padding-top: 12px;
+  gap: 8px;
+  padding-top: 10px;
   margin-top: auto;
   border-top: 1px solid #f0f0f0;
 }
 
 .toggleButton {
   flex: 1;
-  padding: 8px 16px;
-  border-radius: 7px;
-  font-size: 13px;
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: 12px;
   color: #666;
   background: transparent;
   border: 1px solid #d9d9d9;
@@ -269,22 +304,6 @@
 
 /* ─── Dark mode ─────────────────────────────────────────────────────────────── */
 :global(.dark-mode) {
-  .pageHeader {
-    border-bottom-color: rgba(255, 255, 255, 0.08);
-  }
-
-  .breadcrumbParent {
-    color: rgba(255, 255, 255, 0.35);
-  }
-
-  .breadcrumbSeparator {
-    color: rgba(255, 255, 255, 0.2);
-  }
-
-  .breadcrumbCurrent {
-    color: rgba(255, 255, 255, 0.85);
-  }
-
   .loading {
     color: rgba(255, 255, 255, 0.35);
   }
@@ -292,16 +311,6 @@
   /* Tool card */
   .toolCard {
     background: #2d2d2d;
-
-    &.normalCard {
-      border-color: rgba(255, 255, 255, 0.08) !important;
-      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3) !important;
-    }
-
-    &.hoverCard {
-      border-color: rgba(255, 255, 255, 0.2) !important;
-      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4) !important;
-    }
   }
 
   .toolName {
@@ -330,6 +339,51 @@
 
   .cardFooter {
     border-top-color: rgba(255, 255, 255, 0.08);
+  }
+
+  /* Panel sections */
+  .panelSection {
+    background: rgba(255, 255, 255, 0.04);
+    border-color: rgba(255, 255, 255, 0.08);
+  }
+
+  .panelSectionDashed {
+    background: transparent;
+    border-color: rgba(255, 255, 255, 0.12);
+  }
+
+  .panelTitle {
+    color: rgba(255, 255, 255, 0.45);
+  }
+
+  .panelDotGray {
+    background: rgba(255, 255, 255, 0.2);
+  }
+
+  .emptyEnabled {
+    border-color: rgba(255, 255, 255, 0.12);
+
+    p {
+      color: rgba(255, 255, 255, 0.45);
+    }
+  }
+
+  .availableItem {
+    background: rgba(255, 255, 255, 0.04);
+    border-color: rgba(255, 255, 255, 0.08);
+
+    &:hover {
+      background: rgba(255, 255, 255, 0.08);
+      border-color: #6366f1;
+    }
+  }
+
+  .availableItemName {
+    color: rgba(255, 255, 255, 0.85);
+  }
+
+  .availableItemAction {
+    color: #818cf8;
   }
 
   .toggleButton {

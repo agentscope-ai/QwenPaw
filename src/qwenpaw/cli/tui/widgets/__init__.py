@@ -18,6 +18,7 @@ from .messages import (
     UserMessage,
 )
 from .permission_modal import PermissionModal
+from .permission_overlay import PermissionOverlay
 from .session_picker import SessionPicker
 from .status_bar import StatusBar
 from .theme_picker import ThemePicker
@@ -40,6 +41,7 @@ __all__ = [
     "UserMessage",
     "WelcomeMessage",
     "PermissionModal",
+    "PermissionOverlay",
     "SessionPicker",
     "StatusBar",
     "ToolPanel",

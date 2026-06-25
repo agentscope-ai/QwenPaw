@@ -6,7 +6,7 @@ import {
   getPoolBuiltinStatusLabel,
   getPoolBuiltinStatusTone,
 } from "@/utils/skill";
-import { getSkillVisual } from "../../../Agent/Skills/components";
+import { SkillVisual } from "@/components/SkillVisual";
 import styles from "../index.module.less";
 
 interface SkillPoolListItemProps {
@@ -55,7 +55,11 @@ export function SkillPoolListItem({
       )}
       <div className={styles.listItemLeft}>
         <span className={styles.fileIcon}>
-          {getSkillVisual(skill.name, skill.content)}
+          <SkillVisual
+            name={skill.name}
+            emoji={skill.content}
+            emojiClassName={styles.skillEmoji}
+          />
         </span>
         <div className={styles.listItemInfo}>
           <div className={styles.listItemHeader}>
