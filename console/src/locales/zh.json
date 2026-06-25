@@ -75,7 +75,33 @@
     "updateModal": {
       "title": "发现新版本 v{{version}}",
       "viewReleases": "查看 Releases",
-      "close": "关闭"
+      "installDesktopUpdate": "现在更新",
+      "desktopInstallHint": "QwenPaw 桌面端 {{version}} 已准备好安装，更新后应用将自动重启。",
+      "checking": "检查更新中…",
+      "checkingHint": "正在确认最新版本",
+      "downloading": "正在下载更新",
+      "downloadingTo": "正在更新到版本 {{version}}",
+      "downloadProgress": "{{done}} / {{total}} · {{rate}}",
+      "installing": "正在安装更新",
+      "willRestart": "应用将在安装完成后自动重启,请稍候…",
+      "stepPrepare": "准备",
+      "stepDownloading": "下载",
+      "stepInstalling": "安装",
+      "failedTitle": "更新失败",
+      "back": "返回",
+      "retry": "重试",
+      "errors": {
+        "network": "连接不上更新服务器，请检查网络后重试。",
+        "signature": "更新文件签名校验失败，请重新尝试下载。",
+        "appLocation": "QwenPaw 正在从 macOS 只读位置运行。请先将 QwenPaw.app 移动到“应用程序”文件夹，从那里启动后再重试更新。",
+        "other": "更新失败。"
+      },
+      "updateLater": "后台下载",
+      "backgroundDownloading": "正在后台下载更新…",
+      "readyToInstall": "更新已就绪",
+      "readyToInstallHint": "v{{version}} 更新已下载，重启后将安装并启动新版本。",
+      "restartNow": "现在更新",
+      "backgroundFailed": "后台下载失败"
     },
     "settings": {
       "language": "语言",

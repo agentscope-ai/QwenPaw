@@ -87,7 +87,33 @@
     "updateModal": {
       "title": "Versi baru tersedia: v{{version}}",
       "viewReleases": "Lihat Rilis",
-      "close": "Tutup"
+      "installDesktopUpdate": "Perbarui Sekarang",
+      "desktopInstallHint": "QwenPaw Desktop {{version}} siap dipasang. Aplikasi akan dimulai ulang setelah pembaruan.",
+      "checking": "Memeriksa pembaruan…",
+      "checkingHint": "Memeriksa versi terbaru",
+      "downloading": "Mengunduh pembaruan",
+      "downloadingTo": "Memperbarui ke versi {{version}}",
+      "downloadProgress": "{{done}} / {{total}} · {{rate}}",
+      "installing": "Memasang pembaruan",
+      "willRestart": "Aplikasi akan dimulai ulang otomatis setelah selesai.",
+      "stepPrepare": "Persiapan",
+      "stepDownloading": "Unduh",
+      "stepInstalling": "Pasang",
+      "failedTitle": "Pembaruan gagal",
+      "back": "Kembali",
+      "retry": "Coba Lagi",
+      "errors": {
+        "network": "Tidak dapat menjangkau server pembaruan. Periksa internet dan coba lagi.",
+        "signature": "Tanda tangan file pembaruan tidak valid. Coba unduh lagi.",
+        "appLocation": "QwenPaw berjalan dari lokasi macOS yang hanya-baca. Pindahkan QwenPaw.app ke folder Applications, jalankan dari sana, lalu coba perbarui lagi.",
+        "other": "Pembaruan gagal."
+      },
+      "updateLater": "Unduh di Latar Belakang",
+      "backgroundDownloading": "Mengunduh di latar belakang…",
+      "readyToInstall": "Pembaruan siap",
+      "readyToInstallHint": "Pembaruan v{{version}} telah diunduh. Mulai ulang untuk memasang dan membuka versi baru.",
+      "restartNow": "Perbarui Sekarang",
+      "backgroundFailed": "Unduhan latar belakang gagal"
     },
     "settings": {
       "language": "Bahasa",

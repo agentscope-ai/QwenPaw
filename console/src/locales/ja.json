@@ -1609,7 +1609,33 @@
     "updateModal": {
       "title": "新しいバージョンが利用可能です: v{{version}}",
       "viewReleases": "リリースを見る",
-      "close": "閉じる"
+      "installDesktopUpdate": "今すぐ更新",
+      "desktopInstallHint": "QwenPaw Desktop {{version}} のインストール準備が整いました。更新後にアプリが再起動します。",
+      "checking": "更新を確認中…",
+      "checkingHint": "最新バージョンを確認しています",
+      "downloading": "更新をダウンロード中",
+      "downloadingTo": "バージョン {{version}} に更新中",
+      "downloadProgress": "{{done}} / {{total}} · {{rate}}",
+      "installing": "更新をインストール中",
+      "willRestart": "アプリはインストール完了後に自動的に再起動します",
+      "stepPrepare": "準備",
+      "stepDownloading": "ダウンロード",
+      "stepInstalling": "インストール",
+      "failedTitle": "更新に失敗しました",
+      "back": "戻る",
+      "retry": "再試行",
+      "errors": {
+        "network": "更新サーバーに接続できませんでした。インターネット接続を確認して再試行してください。",
+        "signature": "更新ファイルの署名検証に失敗しました。もう一度ダウンロードしてください。",
+        "appLocation": "QwenPaw は読み取り専用の macOS の場所から実行されています。QwenPaw.app を Applications フォルダーへ移動し、そこから起動してからもう一度更新してください。",
+        "other": "更新に失敗しました。"
+      },
+      "updateLater": "バックグラウンドでダウンロード",
+      "backgroundDownloading": "バックグラウンドでダウンロード中…",
+      "readyToInstall": "更新の準備が完了",
+      "readyToInstallHint": "v{{version}} の更新をダウンロードしました。再起動してインストールし、新しいバージョンを起動します。",
+      "restartNow": "今すぐ更新",
+      "backgroundFailed": "バックグラウンドダウンロード失敗"
     },
     "settings": {
       "language": "言語",

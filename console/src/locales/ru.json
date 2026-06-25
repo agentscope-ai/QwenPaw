@@ -1624,7 +1624,33 @@
     "updateModal": {
       "title": "Доступна новая версия: v{{version}}",
       "viewReleases": "Открыть релизы",
-      "close": "Закрыть"
+      "installDesktopUpdate": "Обновить сейчас",
+      "desktopInstallHint": "QwenPaw Desktop {{version}} готов к установке. Приложение перезапустится после обновления.",
+      "checking": "Проверка обновлений…",
+      "checkingHint": "Проверяем последнюю версию",
+      "downloading": "Загрузка обновления",
+      "downloadingTo": "Обновление до версии {{version}}",
+      "downloadProgress": "{{done}} / {{total}} · {{rate}}",
+      "installing": "Установка обновления",
+      "willRestart": "Приложение перезапустится автоматически после установки.",
+      "stepPrepare": "Подготовка",
+      "stepDownloading": "Загрузка",
+      "stepInstalling": "Установка",
+      "failedTitle": "Обновление не удалось",
+      "back": "Назад",
+      "retry": "Повторить",
+      "errors": {
+        "network": "Не удалось подключиться к серверу обновлений. Проверьте интернет и повторите попытку.",
+        "signature": "Не удалось проверить подпись файла обновления. Попробуйте загрузить ещё раз.",
+        "appLocation": "QwenPaw запущен из macOS-пути только для чтения. Переместите QwenPaw.app в папку Applications, запустите его оттуда и повторите обновление.",
+        "other": "Обновление не удалось."
+      },
+      "updateLater": "Скачать в фоне",
+      "backgroundDownloading": "Загрузка в фоновом режиме…",
+      "readyToInstall": "Обновление готово",
+      "readyToInstallHint": "Обновление v{{version}} загружено. Перезапустите приложение, чтобы установить и открыть новую версию.",
+      "restartNow": "Обновить сейчас",
+      "backgroundFailed": "Фоновая загрузка не удалась"
     },
     "settings": {
       "language": "Язык",

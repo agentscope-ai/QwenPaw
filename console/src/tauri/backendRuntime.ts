@@ -2,10 +2,45 @@ import { invoke, isTauri } from "@tauri-apps/api/core";
 
 declare const VITE_API_BASE_URL: string;
 
+const DESKTOP_QUERY_KEY = "desktop";
+const DESKTOP_SESSION_KEY = "qpDesktop";
+
 let initRuntimeApiBaseUrlPromise: Promise<string> | null = null;
 
 export function isTauriRuntime(): boolean {
   return isTauri();
+}
+
+/**
+ * Reliably detect whether we're running inside the Tauri desktop app, even
+ * after the webview has navigated to the backend-hosted console where
+ * `__TAURI_INTERNALS__` may or may not be reachable. The bootstrap gate tags
+ * the redirect URL with `?desktop=1` and we persist it in sessionStorage so
+ * subsequent reloads keep the answer.
+ */
+export function isDesktopApp(): boolean {
+  if (typeof window === "undefined") return false;
+  if (isTauriRuntime()) return true;
+  try {
+    if (sessionStorage.getItem(DESKTOP_SESSION_KEY) === "1") return true;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get(DESKTOP_QUERY_KEY) === "1") {
+      sessionStorage.setItem(DESKTOP_SESSION_KEY, "1");
+      return true;
+    }
+  } catch {
+    /* sessionStorage unavailable (e.g., privacy mode) */
+  }
+  return false;
+}
+
+/**
+ * Append the desktop marker to a URL so the backend-hosted console can detect
+ * it after the bootstrap redirect.
+ */
+export function withDesktopMarker(url: string): string {
+  const sep = url.includes("?") ? "&" : "?";
+  return `${url}${sep}${DESKTOP_QUERY_KEY}=1`;
 }
 
 export function shouldUseTauriStartupGate(): boolean {

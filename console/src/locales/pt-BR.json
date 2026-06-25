@@ -1821,7 +1821,33 @@
     "updateModal": {
       "title": "Novo Versao available: v{{version}}",
       "viewReleases": "Visualizar Releases",
-      "close": "Fechar"
+      "installDesktopUpdate": "Atualizar agora",
+      "desktopInstallHint": "QwenPaw Desktop {{version}} está pronto para instalar. O aplicativo será reiniciado após a atualização.",
+      "checking": "Verificando atualizações…",
+      "checkingHint": "Confirmando a versão mais recente",
+      "downloading": "Baixando atualização",
+      "downloadingTo": "Atualizando para a versão {{version}}",
+      "downloadProgress": "{{done}} / {{total}} · {{rate}}",
+      "installing": "Instalando atualização",
+      "willRestart": "O aplicativo será reiniciado automaticamente após a conclusão.",
+      "stepPrepare": "Preparar",
+      "stepDownloading": "Baixar",
+      "stepInstalling": "Instalar",
+      "failedTitle": "Falha na atualização",
+      "back": "Voltar",
+      "retry": "Tentar Novamente",
+      "errors": {
+        "network": "Não foi possível alcançar o servidor de atualização. Verifique sua internet e tente novamente.",
+        "signature": "Assinatura do arquivo de atualização inválida. Tente baixar novamente.",
+        "appLocation": "O QwenPaw está sendo executado a partir de um local somente leitura do macOS. Mova QwenPaw.app para a pasta Aplicativos, abra-o a partir de lá e tente atualizar novamente.",
+        "other": "Falha na atualização."
+      },
+      "updateLater": "Baixar em segundo plano",
+      "backgroundDownloading": "Baixando em segundo plano…",
+      "readyToInstall": "Atualização pronta",
+      "readyToInstallHint": "A atualização v{{version}} foi baixada. Reinicie para instalar e abrir a nova versão.",
+      "restartNow": "Atualizar agora",
+      "backgroundFailed": "Falha no download em segundo plano"
     },
     "settings": {
       "language": "Idioma",
