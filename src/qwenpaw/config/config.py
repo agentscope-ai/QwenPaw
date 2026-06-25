@@ -459,13 +459,12 @@ class WeChatConfig(BaseChannelConfig):
 
 
 class SlackConfig(BaseChannelConfig):
-    """Slack channel: Socket Mode connection with native streaming API.
+    """Slack channel: Socket Mode connection with edit-in-place streaming.
 
     Uses slack-bolt AsyncSocketModeHandler (aiohttp WebSocket) to connect
     to a single Slack workspace. Supports incremental message rendering
-    via chat.startStream/appendStream/stopStream when replying in threads,
-    with automatic fallback to chat_update when native streaming is
-    unavailable.
+    via chat.postMessage + chat.update (edit-in-place) when streaming is
+    enabled.
     """
 
     bot_token: str = ""

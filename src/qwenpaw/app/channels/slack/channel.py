@@ -192,12 +192,14 @@ class SlackChannel(BaseChannel):  # pylint: disable=too-many-public-methods
         self._socket_reconnect_attempt = 0
         self._socket_reconnect_lock = asyncio.Lock()
         self._running: bool = False
+        self._background_tasks: set[asyncio.Task] = set()
         self._event_handler: Optional[SlackEventHandler] = None
         self._sender: Optional[SlackSender] = None
         self._proxy_url: Optional[str] = None
         self._bot_user_id: str = ""
         self._thread_context_cache: Dict[str, tuple[str, float]] = {}
         self._thread_context_cache_ttl: float = 60.0
+        self._thread_context_cache_max: int = 1024
 
     @property
     def media_dir(self) -> Path:
@@ -426,6 +428,12 @@ class SlackChannel(BaseChannel):  # pylint: disable=too-many-public-methods
                     exc_info=True,
                 )
 
+    def _schedule_background(self, coro) -> None:
+        """Schedule a coroutine as a background task with prevent-GC ref."""
+        task = asyncio.create_task(coro)
+        self._background_tasks.add(task)
+        task.add_done_callback(self._background_tasks.discard)
+
     def _on_socket_mode_task_done(self, task: asyncio.Task) -> None:
         """Callback: schedule a reconnect when the Socket Mode task exits
         unexpectedly."""
@@ -433,7 +441,7 @@ class SlackChannel(BaseChannel):  # pylint: disable=too-many-public-methods
             return
         if task.cancelled():
             return
-        if not getattr(self, "_running", False):
+        if not self._running:
             return
 
         exc = task.exception()
@@ -441,7 +449,7 @@ class SlackChannel(BaseChannel):  # pylint: disable=too-many-public-methods
             # Normal exit — SDK's start_async() should never return normally,
             # but if it does, schedule a restart.
             if self._running:
-                asyncio.ensure_future(
+                self._schedule_background(
                     self._restart_socket_mode("task exited normally"),
                 )
             return
@@ -463,7 +471,9 @@ class SlackChannel(BaseChannel):  # pylint: disable=too-many-public-methods
             exc,
         )
         if self._running:
-            asyncio.ensure_future(self._restart_socket_mode("task error"))
+            self._schedule_background(
+                self._restart_socket_mode("task error"),
+            )
 
     async def _restart_socket_mode(self, reason: str) -> None:
         """Reconnect Socket Mode with exponential backoff.
@@ -844,9 +854,13 @@ class SlackChannel(BaseChannel):  # pylint: disable=too-many-public-methods
         thread_ts: str,
         content: str,
     ) -> None:
-        """Store thread context in cache."""
+        """Store thread context in cache (bounded)."""
         key = f"{channel_id}:{thread_ts}"
         self._thread_context_cache[key] = (content, time.monotonic())
+        # Evict oldest entries when exceeding capacity
+        while len(self._thread_context_cache) > self._thread_context_cache_max:
+            oldest = next(iter(self._thread_context_cache))
+            del self._thread_context_cache[oldest]
 
     def resolve_session_id(
         self,

@@ -29,6 +29,7 @@ import time
 from collections import OrderedDict
 from typing import TYPE_CHECKING, Any, Callable, Dict, Optional
 
+import aiofiles
 import aiohttp
 
 from qwenpaw.schemas import (
@@ -399,8 +400,8 @@ class SlackEventHandler:
         path = str(
             self._channel.media_dir / f"slack_{os.urandom(8).hex()}{suffix}",
         )
-        with open(path, "wb") as fh:
-            fh.write(data)
+        async with aiofiles.open(path, "wb") as fh:
+            await fh.write(data)
 
         logger.debug(
             "slack handler: cached %s → %s (%d bytes)",
@@ -546,6 +547,7 @@ class SlackEventHandler:
                 "slack handler: users_info failed for %s",
                 user_id,
             )
+        self._user_name_cache[user_id] = ""
         return ""
 
     async def handle_slash_command(self, command: dict) -> None:

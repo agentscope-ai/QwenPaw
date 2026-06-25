@@ -8,7 +8,10 @@ generation, dedup-key construction, and light data extraction.
 from __future__ import annotations
 
 import asyncio
-from typing import Any, Dict, Optional, Tuple, List
+import mimetypes
+import os
+from typing import Any, Dict, List, Optional, Tuple
+from urllib.parse import urlparse
 
 
 # ── Session identifiers ──
@@ -64,8 +67,6 @@ def detect_file_type(filename: str) -> str:
 
     Returns ``"application/octet-stream"`` when no mapping is found.
     """
-    import mimetypes
-
     mime, _ = mimetypes.guess_type(filename)
     return mime or "application/octet-stream"
 
@@ -75,8 +76,6 @@ def detect_file_type(filename: str) -> str:
 
 def is_slack_host(url: str) -> bool:
     """Return *True* if *url* is hosted on a Slack domain."""
-    from urllib.parse import urlparse
-
     from .constants import SLACK_SSRF_ALLOWED_SUFFIXES
 
     host = (urlparse(url).hostname or "").lower()
@@ -117,7 +116,7 @@ async def with_retry(func, *args, retries=3, backoff=1.5, **kwargs):
             if not _is_retryable_error(exc):
                 raise
 
-            # 优先使用 Slack 的 Retry-After 头
+            # Prefer Slack's Retry-After header
             retry_after = _extract_retry_after(exc)
             if retry_after is not None:
                 await asyncio.sleep(retry_after)
@@ -181,8 +180,6 @@ def _resolve_slack_proxy_url(
 
     Returns *None* when ``NO_PROXY`` excludes Slack's API hosts.
     """
-    import os
-
     proxy_url = proxy or os.getenv("HTTP_PROXY") or os.getenv("HTTPS_PROXY")
     if not proxy_url:
         return None, None

@@ -15,7 +15,9 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+from collections import OrderedDict
 from typing import TYPE_CHECKING, Any, Dict, Optional
+from urllib.parse import unquote, urlparse
 
 import aiohttp
 
@@ -44,8 +46,6 @@ def _is_slack_ssrf_allowed(url: str) -> bool:
 
 def _resolve_local_file_path(url: str) -> Optional[str]:
     """Return the local filesystem path if *url* is a ``file://`` URI."""
-    from urllib.parse import urlparse, unquote
-
     if os.path.isfile(url):
         return url
 
@@ -69,7 +69,8 @@ class SlackSender:
 
     def __init__(self, channel: "SlackChannel"):
         self._channel = channel
-        self._per_route_locks: Dict[str, asyncio.Lock] = {}
+        self._per_route_locks: OrderedDict[str, asyncio.Lock] = OrderedDict()
+        self._per_route_locks_max: int = 1024
         self._http_session: Optional[aiohttp.ClientSession] = None
 
     # ── Public API ──
@@ -94,6 +95,10 @@ class SlackSender:
             route_key,
             asyncio.Lock(),
         )
+        # Move to end (LRU) and evict oldest if over capacity
+        self._per_route_locks.move_to_end(route_key)
+        while len(self._per_route_locks) > self._per_route_locks_max:
+            self._per_route_locks.popitem(last=False)
 
         async with lock:
             return await self._send_content_parts_impl(
