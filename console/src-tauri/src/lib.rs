@@ -28,7 +28,7 @@ pub fn run() {
             updates::check_cached_update,
             tray::minimize_to_tray,
             tray::quit_app,
-            tray::set_tray_language,
+            tray::set_tray_labels,
             tray::ack_close_request,
         ])
         .manage(backend::BackendState::default())

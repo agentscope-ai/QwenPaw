@@ -35,10 +35,9 @@
       "title": "ウィンドウを閉じる",
       "description": "ウィンドウを閉じるときに実行する操作を選択してください。アプリを終了すると、実行中のすべてのタスクとスケジュール済みタスクが停止します。",
       "remember": "選択を記憶する",
+      "showWindow": "ウィンドウを表示",
       "minimizeToTray": "トレイに最小化",
-      "quitApp": "アプリを終了",
-      "preference": "ウィンドウを閉じる",
-      "resetPreference": "選択をリセット"
+      "quitApp": "アプリを終了"
     }
   },
   "chunkError": {

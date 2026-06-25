@@ -4,17 +4,24 @@ import { Button, Checkbox, Modal, Typography } from "antd";
 import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { isTauriRuntime } from "./backendRuntime";
-import {
-  getRememberedCloseAction,
-  setRememberedCloseAction,
-  type CloseAction,
-} from "./closeWindowPreference";
 
 const CLOSE_REQUESTED_EVENT = "qwenpaw-close-requested";
+const CLOSE_ACTION_STORAGE_KEY = "qwenpaw.closeWindowAction";
+
+type CloseAction = "minimize-to-tray" | "quit";
 
 async function runCloseAction(action: CloseAction): Promise<void> {
   const command = action === "quit" ? "quit_app" : "minimize_to_tray";
   await invoke<void>(command);
+}
+
+function getRememberedCloseAction(): CloseAction | null {
+  const action = window.localStorage.getItem(CLOSE_ACTION_STORAGE_KEY);
+  return action === "minimize-to-tray" || action === "quit" ? action : null;
+}
+
+function setRememberedCloseAction(action: CloseAction) {
+  window.localStorage.setItem(CLOSE_ACTION_STORAGE_KEY, action);
 }
 
 type CloseRequestPayload = {
@@ -93,17 +100,21 @@ export default function CloseWindowPrompt() {
   useEffect(() => {
     if (!isTauriRuntime()) return undefined;
 
-    const syncTrayLanguage = (language: string) => {
-      void invoke("set_tray_language", { language }).catch((err) => {
-        console.error("Failed to update tray language:", err);
+    const syncTrayLabels = (language: string) => {
+      const translate = i18n.getFixedT(language);
+      void invoke("set_tray_labels", {
+        showWindow: translate("desktop.closeWindow.showWindow", "Show Window"),
+        quit: translate("desktop.closeWindow.quitApp", "Quit App"),
+      }).catch((err) => {
+        console.error("Failed to update tray labels:", err);
       });
     };
 
-    syncTrayLanguage(i18n.resolvedLanguage || i18n.language || "en");
-    i18n.on("languageChanged", syncTrayLanguage);
+    syncTrayLabels(i18n.resolvedLanguage || i18n.language || "en");
+    i18n.on("languageChanged", syncTrayLabels);
 
     return () => {
-      i18n.off("languageChanged", syncTrayLanguage);
+      i18n.off("languageChanged", syncTrayLabels);
     };
   }, [i18n]);
 

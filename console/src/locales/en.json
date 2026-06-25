@@ -38,10 +38,9 @@
       "title": "Close Window",
       "description": "What would you like to do when closing the window? Quitting the app stops all running tasks and scheduled jobs.",
       "remember": "Remember my choice",
+      "showWindow": "Show Window",
       "minimizeToTray": "Minimize to Tray",
-      "quitApp": "Quit App",
-      "preference": "Close Window",
-      "resetPreference": "Reset Choice"
+      "quitApp": "Quit App"
     }
   },
   "chunkError": {

@@ -168,6 +168,11 @@ function AppInner() {
     };
   }, [i18n]);
 
+  // Wait for plugins to load before rendering routes that might be patched
+  if (pluginsLoading) {
+    return null;
+  }
+
   return (
     <BrowserRouter basename={basename}>
       <GlobalStyle />

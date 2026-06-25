@@ -37,10 +37,9 @@
       "title": "Fechar Janela",
       "description": "O que deseja fazer ao fechar a janela? Sair do aplicativo interrompe todas as tarefas em execução e tarefas agendadas.",
       "remember": "Lembrar minha escolha",
+      "showWindow": "Mostrar janela",
       "minimizeToTray": "Minimizar para a bandeja",
-      "quitApp": "Sair do aplicativo",
-      "preference": "Fechar Janela",
-      "resetPreference": "Redefinir escolha"
+      "quitApp": "Sair do aplicativo"
     }
   },
   "chunkError": {

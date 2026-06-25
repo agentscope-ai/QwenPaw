@@ -38,10 +38,9 @@
       "title": "关闭窗口",
       "description": "关闭窗口时您希望执行什么操作？退出应用将停止所有正在运行的任务和定时任务。",
       "remember": "记住我的选择",
+      "showWindow": "显示窗口",
       "minimizeToTray": "最小化到托盘",
-      "quitApp": "退出应用",
-      "preference": "关闭窗口",
-      "resetPreference": "重置选择"
+      "quitApp": "退出应用"
     }
   },
   "chunkError": {

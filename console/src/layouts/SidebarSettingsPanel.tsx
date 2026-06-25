@@ -1,7 +1,7 @@
 import React from "react";
 import { useTranslation } from "react-i18next";
 
-import { RotateCcw, SunMoon } from "lucide-react";
+import { SunMoon } from "lucide-react";
 import {
   SparkSunLine,
   SparkMoonLine,
@@ -16,11 +16,6 @@ import {
 import { languageApi } from "../api/modules/language";
 import { useTheme, type ThemeMode } from "../contexts/ThemeContext";
 import { useSidebarModeStore } from "../stores/sidebarModeStore";
-import { isTauriRuntime } from "../tauri/backendRuntime";
-import {
-  clearRememberedCloseAction,
-  getRememberedCloseAction,
-} from "../tauri/closeWindowPreference";
 import styles from "./sidebarSettingsPanel.module.less";
 
 // ── Language config ────────────────────────────────────────────────────────
@@ -47,9 +42,6 @@ export default function SidebarSettingsPanel({
   const { themeMode, setThemeMode } = useTheme();
   const { mode: sidebarMode, toggleMode: toggleSidebarMode } =
     useSidebarModeStore();
-  const [hasClosePreference, setHasClosePreference] = React.useState(
-    () => isTauriRuntime() && getRememberedCloseAction() !== null,
-  );
 
   const raw = i18n.resolvedLanguage || i18n.language;
   const currentLang = KNOWN_KEYS.has(raw) ? raw : raw.split("-")[0];
@@ -58,11 +50,6 @@ export default function SidebarSettingsPanel({
     i18n.changeLanguage(lang);
     localStorage.setItem("language", lang);
     languageApi.updateLanguage(lang).catch(() => {});
-  };
-
-  const resetCloseWindowPreference = () => {
-    clearRememberedCloseAction();
-    setHasClosePreference(false);
   };
 
   const themeOptions: {
@@ -131,24 +118,6 @@ export default function SidebarSettingsPanel({
           ))}
         </div>
       </div>
-
-      {isTauriRuntime() ? (
-        <div className={styles.row}>
-          <span className={styles.label}>
-            {t("desktop.closeWindow.preference", "Close Window")}
-          </span>
-          <button
-            className={`${styles.optBtn} ${styles.optBtnBlock}`}
-            disabled={!hasClosePreference}
-            onClick={resetCloseWindowPreference}
-          >
-            <RotateCcw size={14} />
-            <span className={styles.optLabel}>
-              {t("desktop.closeWindow.resetPreference", "Reset Choice")}
-            </span>
-          </button>
-        </div>
-      ) : null}
 
       {/* ── Mode ─────────────────────────────────────────── */}
       <div className={styles.row}>

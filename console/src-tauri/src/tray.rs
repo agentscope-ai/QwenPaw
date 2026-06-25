@@ -44,12 +44,6 @@ impl Default for TrayState {
     }
 }
 
-#[derive(Clone, Copy)]
-struct TrayLabels {
-    show_window: &'static str,
-    quit: &'static str,
-}
-
 #[derive(Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 struct CloseRequestPayload {
@@ -58,9 +52,8 @@ struct CloseRequestPayload {
 
 /// Creates the tray icon and its cross-platform menu actions.
 pub(crate) fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
-    let labels = labels_for_language(&initial_language());
-    let show = MenuItem::with_id(app, SHOW_MENU_ID, labels.show_window, true, None::<&str>)?;
-    let quit = MenuItem::with_id(app, QUIT_MENU_ID, labels.quit, true, None::<&str>)?;
+    let show = MenuItem::with_id(app, SHOW_MENU_ID, "Show Window", true, None::<&str>)?;
+    let quit = MenuItem::with_id(app, QUIT_MENU_ID, "Quit", true, None::<&str>)?;
     let menu = Menu::with_items(app, &[&show, &quit])?;
 
     let tray_state = app.state::<TrayState>();
@@ -130,8 +123,11 @@ pub(crate) fn ack_close_request(app: tauri::AppHandle, request_id: u64) {
 }
 
 #[tauri::command]
-pub(crate) fn set_tray_language(app: tauri::AppHandle, language: String) -> Result<(), String> {
-    let labels = labels_for_language(&language);
+pub(crate) fn set_tray_labels(
+    app: tauri::AppHandle,
+    show_window: String,
+    quit: String,
+) -> Result<(), String> {
     let menu_items = {
         let tray_state = app.state::<TrayState>();
         let guard = tray_state
@@ -142,14 +138,8 @@ pub(crate) fn set_tray_language(app: tauri::AppHandle, language: String) -> Resu
     };
 
     if let Some(items) = menu_items {
-        items
-            .show
-            .set_text(labels.show_window)
-            .map_err(|err| err.to_string())?;
-        items
-            .quit
-            .set_text(labels.quit)
-            .map_err(|err| err.to_string())?;
+        items.show.set_text(show_window).map_err(|err| err.to_string())?;
+        items.quit.set_text(quit).map_err(|err| err.to_string())?;
     }
 
     Ok(())
@@ -193,53 +183,4 @@ pub(crate) fn hide_main_window(app: &tauri::AppHandle) {
 fn exit_app(app: &tauri::AppHandle) {
     backend::stop(app);
     app.exit(0);
-}
-
-fn initial_language() -> String {
-    ["QWENPAW_LANG", "LANGUAGE", "LC_ALL", "LC_MESSAGES", "LANG"]
-        .iter()
-        .filter_map(|key| std::env::var(key).ok())
-        .find(|value| !value.trim().is_empty())
-        .unwrap_or_else(|| "en".to_string())
-}
-
-fn labels_for_language(language: &str) -> TrayLabels {
-    match normalize_language(language).as_str() {
-        "zh" => TrayLabels {
-            show_window: "显示窗口",
-            quit: "退出",
-        },
-        "ja" => TrayLabels {
-            show_window: "ウィンドウを表示",
-            quit: "終了",
-        },
-        "ru" => TrayLabels {
-            show_window: "Показать окно",
-            quit: "Выход",
-        },
-        "pt" => TrayLabels {
-            show_window: "Mostrar janela",
-            quit: "Sair",
-        },
-        "id" => TrayLabels {
-            show_window: "Tampilkan Jendela",
-            quit: "Keluar",
-        },
-        "vi" => TrayLabels {
-            show_window: "Hiện cửa sổ",
-            quit: "Thoát",
-        },
-        _ => TrayLabels {
-            show_window: "Show Window",
-            quit: "Quit",
-        },
-    }
-}
-
-fn normalize_language(language: &str) -> String {
-    language
-        .split(['-', '_', '.', ':'])
-        .next()
-        .unwrap_or("en")
-        .to_ascii_lowercase()
 }

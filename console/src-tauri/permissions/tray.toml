@@ -5,5 +5,5 @@ commands.allow = [
   "ack_close_request",
   "minimize_to_tray",
   "quit_app",
-  "set_tray_language",
+  "set_tray_labels",
 ]
