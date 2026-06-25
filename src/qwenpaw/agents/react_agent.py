@@ -126,6 +126,9 @@ class QwenPawAgent(CodingModeMixin, Agent):
 
         self._register_tool_call_hooks()
 
+        # Per-turn text-only auto-continue budget (reset at cur_iter == 0).
+        self._auto_continue_extra_used = 0
+
     async def compress_context(
         self,
         context_config: Any = None,
@@ -345,6 +348,10 @@ class QwenPawAgent(CodingModeMixin, Agent):
         stripping, passive bad-request retry, and auto-continue on
         text-only responses."""
 
+        # New reply turn: reset the per-turn auto-continue budget.
+        if self.state.cur_iter == 0:
+            self._auto_continue_extra_used = 0
+
         # ── Proactive media stripping ──
         from .model_factory import _supports_multimodal_for_current_model
 
@@ -429,6 +436,7 @@ class QwenPawAgent(CodingModeMixin, Agent):
                 "(tool_choice=%r)",
                 tool_choice,
             )
+            self._auto_continue_extra_used += 1
             self.state.context.append(
                 Msg(
                     name="user",
@@ -453,6 +461,10 @@ class QwenPawAgent(CodingModeMixin, Agent):
             "auto_continue_on_text_only",
             False,
         ):
+            return False
+
+        # Per-turn cap: else a text-only model loops until max_iters.
+        if self._auto_continue_extra_used >= self._AUTO_CONTINUE_MAX_EXTRA:
             return False
 
         if msg is None or msg.has_content_blocks("tool_call"):
