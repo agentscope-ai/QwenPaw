@@ -12,9 +12,12 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from plugin_datapaw.constants import (
+    DATAPAW_CM_BASE_URL_ENV,
+    DEFAULT_DATAPAW_CM_BASE_URL,
+)
 from plugin_datapaw.core.data_sources import cm_notifier
 from plugin_datapaw.core.data_sources.cm_notifier import (
-    CM_BASE_URL_ENV,
     _data_source_payload,
     notify_cm,
 )
@@ -334,15 +337,35 @@ def test_cm_payload_deleted_only_id_and_type(store: DataSourceStore) -> None:
     assert payload["dataSource"] == {"id": record.id, "type": "mysql"}
 
 
-def test_notify_cm_skips_when_unset(
+def test_notify_cm_uses_default_when_unset(
     store: DataSourceStore,
     monkeypatch: pytest.MonkeyPatch,
     recording_client,
 ) -> None:
-    monkeypatch.delenv(CM_BASE_URL_ENV, raising=False)
+    monkeypatch.delenv(DATAPAW_CM_BASE_URL_ENV, raising=False)
     record = _make_unmasked_record(store)
     asyncio.run(notify_cm("created", record))
-    assert recording_client.captured == []
+
+    assert len(recording_client.captured) == 1
+    sent = recording_client.captured[0]
+    assert sent["url"] == f"{DEFAULT_DATAPAW_CM_BASE_URL}/api/datasources/sync"
+    assert sent["json"]["dataSource"]["config"]["password"] == MYSQL_CONFIG["password"]
+
+
+def test_notify_cm_uses_default_when_blank(
+    store: DataSourceStore,
+    monkeypatch: pytest.MonkeyPatch,
+    recording_client,
+) -> None:
+    monkeypatch.setenv(DATAPAW_CM_BASE_URL_ENV, "   ")
+    record = _make_unmasked_record(store)
+    asyncio.run(notify_cm("updated", record))
+
+    assert len(recording_client.captured) == 1
+    assert (
+        recording_client.captured[0]["url"]
+        == f"{DEFAULT_DATAPAW_CM_BASE_URL}/api/datasources/sync"
+    )
 
 
 def test_notify_cm_posts_unmasked_payload(
@@ -350,7 +373,7 @@ def test_notify_cm_posts_unmasked_payload(
     monkeypatch: pytest.MonkeyPatch,
     recording_client,
 ) -> None:
-    monkeypatch.setenv(CM_BASE_URL_ENV, "http://cm.local/")
+    monkeypatch.setenv(DATAPAW_CM_BASE_URL_ENV, "http://cm.local/")
     record = _make_unmasked_record(store)
     asyncio.run(notify_cm("created", record))
 
@@ -366,7 +389,7 @@ def test_notify_cm_swallows_errors(
     monkeypatch: pytest.MonkeyPatch,
     recording_client,
 ) -> None:
-    monkeypatch.setenv(CM_BASE_URL_ENV, "http://cm.local")
+    monkeypatch.setenv(DATAPAW_CM_BASE_URL_ENV, "http://cm.local")
     recording_client.raise_on_post = True
     record = _make_unmasked_record(store)
     asyncio.run(notify_cm("updated", record))

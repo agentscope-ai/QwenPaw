@@ -12,7 +12,10 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from plugin_datapaw.core.data_sources.cm_notifier import CM_BASE_URL_ENV
+from plugin_datapaw.constants import (
+    DATAPAW_CM_BASE_URL_ENV,
+    DEFAULT_DATAPAW_CM_BASE_URL,
+)
 
 PLUGIN_DIR = Path(__file__).resolve().parent.parent
 
@@ -72,7 +75,7 @@ def reset_recording_client() -> None:
 @pytest.fixture
 def api_client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
     router_mod = _load_router_module()
-    monkeypatch.setenv(CM_BASE_URL_ENV, "http://cm.local/")
+    monkeypatch.setenv(DATAPAW_CM_BASE_URL_ENV, "http://cm.local/")
     monkeypatch.setattr(router_mod.httpx, "AsyncClient", RecordingAsyncClient)
 
     app = FastAPI()
@@ -160,17 +163,20 @@ def test_cm_business_error_is_passthrough(api_client: TestClient) -> None:
     assert resp.json() == payload
 
 
-def test_missing_cm_base_url_returns_proxy_error(
+def test_missing_cm_base_url_uses_default(
     api_client: TestClient,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.delenv(CM_BASE_URL_ENV, raising=False)
+    monkeypatch.delenv(DATAPAW_CM_BASE_URL_ENV, raising=False)
 
     resp = api_client.get("/api/v1/docs")
 
-    assert resp.status_code == 500
-    assert resp.json() == {"code": 50001, "message": "server_error", "data": None}
-    assert RecordingAsyncClient.calls == []
+    assert resp.status_code == 200
+    assert RecordingAsyncClient.calls[0]["method"] == "GET"
+    assert (
+        RecordingAsyncClient.calls[0]["url"]
+        == f"{DEFAULT_DATAPAW_CM_BASE_URL}/api/v1/docs"
+    )
 
 
 def test_cm_network_error_returns_proxy_error(api_client: TestClient) -> None:

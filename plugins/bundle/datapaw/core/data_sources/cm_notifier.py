@@ -3,12 +3,11 @@
 
 Best-effort: failures are logged and never affect the local CRUD operation.
 The cm endpoint is configured via the ``DATAPAW_CM_BASE_URL`` environment
-variable; when unset, notifications are skipped silently.
+variable, falling back to the DataPaw default when unset.
 """
 from __future__ import annotations
 
 import logging
-import os
 import uuid
 from typing import Dict, Literal
 
@@ -16,22 +15,19 @@ import httpx
 
 from qwenpaw.utils.http import trust_env_for_url
 
+from ...constants import get_datapaw_cm_base_url
 from .models import DataSourceRecord, _utc_now_iso
 
 logger = logging.getLogger(__name__)
 
-CM_BASE_URL_ENV = "DATAPAW_CM_BASE_URL"
 _SYNC_PATH = "/api/datasources/sync"
 _TIMEOUT_SECONDS = 5.0
 
 Action = Literal["created", "updated", "deleted"]
 
 
-def _cm_sync_url() -> str | None:
-    base = (os.environ.get(CM_BASE_URL_ENV) or "").strip().rstrip("/")
-    if not base:
-        return None
-    return f"{base}{_SYNC_PATH}"
+def _cm_sync_url() -> str:
+    return f"{get_datapaw_cm_base_url()}{_SYNC_PATH}"
 
 
 def _data_source_payload(action: Action, record: DataSourceRecord) -> Dict[str, object]:
@@ -50,9 +46,6 @@ def _data_source_payload(action: Action, record: DataSourceRecord) -> Dict[str, 
 async def notify_cm(action: Action, record: DataSourceRecord) -> None:
     """Send a change notification to cm. Never raises."""
     url = _cm_sync_url()
-    if not url:
-        logger.debug("%s not set; skip cm notify (action=%s)", CM_BASE_URL_ENV, action)
-        return
 
     payload = _data_source_payload(action, record)
     request_id = uuid.uuid4().hex
