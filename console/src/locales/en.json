@@ -33,6 +33,17 @@
     "yes": "Yes",
     "no": "No"
   },
+  "desktop": {
+    "closeWindow": {
+      "title": "Close Window",
+      "description": "What would you like to do when closing the window? Quitting the app stops all running tasks and scheduled jobs.",
+      "remember": "Remember my choice",
+      "minimizeToTray": "Minimize to Tray",
+      "quitApp": "Quit App",
+      "preference": "Close Window",
+      "resetPreference": "Reset Choice"
+    }
+  },
   "chunkError": {
     "title": "Failed to load page",
     "subTitle": "This may be caused by a network issue or an application update.",

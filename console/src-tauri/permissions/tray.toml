@@ -1,0 +1,9 @@
+[[permission]]
+identifier = "tray"
+description = "Allows the frontend to handle desktop tray window actions."
+commands.allow = [
+  "ack_close_request",
+  "minimize_to_tray",
+  "quit_app",
+  "set_tray_language",
+]

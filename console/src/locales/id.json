@@ -32,6 +32,17 @@
     "yes": "Ya",
     "no": "Tidak"
   },
+  "desktop": {
+    "closeWindow": {
+      "title": "Tutup Jendela",
+      "description": "Apa yang ingin Anda lakukan saat menutup jendela? Keluar dari aplikasi akan menghentikan semua tugas yang sedang berjalan dan tugas terjadwal.",
+      "remember": "Ingat pilihan saya",
+      "minimizeToTray": "Minimalkan ke baki sistem",
+      "quitApp": "Keluar dari Aplikasi",
+      "preference": "Tutup Jendela",
+      "resetPreference": "Atur ulang pilihan"
+    }
+  },
   "chunkError": {
     "title": "Gagal memuat halaman",
     "subTitle": "Ini mungkin disebabkan oleh masalah jaringan atau pembaruan aplikasi.",

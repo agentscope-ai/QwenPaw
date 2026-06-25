@@ -1,0 +1,156 @@
+import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
+import { Button, Checkbox, Modal, Typography } from "antd";
+import { useCallback, useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
+import { isTauriRuntime } from "./backendRuntime";
+import {
+  getRememberedCloseAction,
+  setRememberedCloseAction,
+  type CloseAction,
+} from "./closeWindowPreference";
+
+const CLOSE_REQUESTED_EVENT = "qwenpaw-close-requested";
+
+async function runCloseAction(action: CloseAction): Promise<void> {
+  const command = action === "quit" ? "quit_app" : "minimize_to_tray";
+  await invoke<void>(command);
+}
+
+type CloseRequestPayload = {
+  requestId: number;
+};
+
+export default function CloseWindowPrompt() {
+  const { t, i18n } = useTranslation();
+  const [open, setOpen] = useState(false);
+  const [remember, setRemember] = useState(false);
+  const [submitting, setSubmitting] = useState<CloseAction | null>(null);
+
+  const handleCloseRequested = useCallback((requestId: number) => {
+    void invoke("ack_close_request", { requestId }).catch((err) => {
+      console.error("Failed to acknowledge close request:", err);
+    });
+
+    const rememberedAction = getRememberedCloseAction();
+    if (rememberedAction) {
+      void runCloseAction(rememberedAction).catch((err) => {
+        console.error("Failed to run remembered close action:", err);
+      });
+      return;
+    }
+
+    setRemember(false);
+    setOpen(true);
+  }, []);
+
+  const handleAction = useCallback(
+    async (action: CloseAction) => {
+      setSubmitting(action);
+      try {
+        if (remember) {
+          setRememberedCloseAction(action);
+        }
+        await runCloseAction(action);
+        if (action === "minimize-to-tray") {
+          setOpen(false);
+        }
+      } catch (err) {
+        console.error("Failed to run close action:", err);
+      } finally {
+        setSubmitting(null);
+      }
+    },
+    [remember],
+  );
+
+  useEffect(() => {
+    if (!isTauriRuntime()) return undefined;
+
+    let disposed = false;
+    let unlisten: (() => void) | undefined;
+
+    void listen<CloseRequestPayload>(CLOSE_REQUESTED_EVENT, (event) =>
+      handleCloseRequested(event.payload.requestId),
+    )
+      .then((cleanup) => {
+        if (disposed) {
+          cleanup();
+          return;
+        }
+        unlisten = cleanup;
+      })
+      .catch((err) => {
+        console.error("Failed to listen for close requests:", err);
+      });
+
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, [handleCloseRequested]);
+
+  useEffect(() => {
+    if (!isTauriRuntime()) return undefined;
+
+    const syncTrayLanguage = (language: string) => {
+      void invoke("set_tray_language", { language }).catch((err) => {
+        console.error("Failed to update tray language:", err);
+      });
+    };
+
+    syncTrayLanguage(i18n.resolvedLanguage || i18n.language || "en");
+    i18n.on("languageChanged", syncTrayLanguage);
+
+    return () => {
+      i18n.off("languageChanged", syncTrayLanguage);
+    };
+  }, [i18n]);
+
+  if (!isTauriRuntime()) {
+    return null;
+  }
+
+  return (
+    <Modal
+      open={open}
+      title={t("desktop.closeWindow.title", "Close Window")}
+      closable={false}
+      maskClosable={false}
+      keyboard={false}
+      footer={[
+        <Button
+          key="minimize"
+          loading={submitting === "minimize-to-tray"}
+          disabled={submitting === "quit"}
+          onClick={() => void handleAction("minimize-to-tray")}
+        >
+          {t("desktop.closeWindow.minimizeToTray", "Minimize to Tray")}
+        </Button>,
+        <Button
+          key="quit"
+          type="primary"
+          danger
+          loading={submitting === "quit"}
+          disabled={submitting === "minimize-to-tray"}
+          onClick={() => void handleAction("quit")}
+        >
+          {t("desktop.closeWindow.quitApp", "Quit App")}
+        </Button>,
+      ]}
+    >
+      <Typography.Paragraph type="secondary">
+        {t(
+          "desktop.closeWindow.description",
+          "What would you like to do when closing the window? Quitting the app stops all running tasks and scheduled jobs.",
+        )}
+      </Typography.Paragraph>
+      <Checkbox
+        checked={remember}
+        onChange={(event) => setRemember(event.target.checked)}
+      >
+        {t("desktop.closeWindow.remember", "Remember my choice")}
+      </Checkbox>
+    </Modal>
+  );
+}

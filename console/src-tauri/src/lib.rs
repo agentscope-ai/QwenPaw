@@ -4,8 +4,9 @@ mod backend;
 mod backend_download;
 mod external_link;
 mod updates;
+mod tray;
 
-use tauri::{Manager, RunEvent, WindowEvent};
+use tauri::{RunEvent, WindowEvent};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 /// Build the desktop app, wire native plugins/commands, and stop the backend on exit.
@@ -25,15 +26,22 @@ pub fn run() {
             updates::download_desktop_update,
             updates::install_downloaded_update,
             updates::check_cached_update,
+            tray::minimize_to_tray,
+            tray::quit_app,
+            tray::set_tray_language,
+            tray::ack_close_request,
         ])
         .manage(backend::BackendState::default())
-        .setup(backend::setup)
+        .manage(tray::TrayState::default())
+        .setup(|app| {
+            backend::setup(app)?;
+            tray::setup(app)?;
+            Ok(())
+        })
         .on_window_event(|window, event| {
-            // The app currently has a single "main" window, so closing it
-            // is equivalent to quitting. If a multi-window mode is introduced,
-            // make this window-count aware and keep the exit-event fallback.
-            if matches!(event, WindowEvent::CloseRequested { .. }) {
-                backend::stop(window.app_handle());
+            if let WindowEvent::CloseRequested { api, .. } = event {
+                api.prevent_close();
+                tray::request_close(window);
             }
         })
         .build(tauri::generate_context!());
