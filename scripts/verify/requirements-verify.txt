@@ -1,0 +1,9 @@
+# Dependencies for scripts/verify/desktop_verify.py UI drivers.
+# Installed by .github/workflows/desktop-release.yml on each runner before
+# the verify step runs. The verifier itself only needs stdlib for the API
+# layer; the drivers below are imported lazily so callers using --skip-ui
+# don't have to install them.
+
+# All platforms: Playwright drives Chromium (Legacy + Tauri Win) or
+# WebKit (Tauri macOS) for headed/headless browser automation.
+playwright>=1.40

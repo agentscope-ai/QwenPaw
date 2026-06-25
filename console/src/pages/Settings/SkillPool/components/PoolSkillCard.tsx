@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Button, Card, Checkbox, Tooltip } from "@agentscope-ai/design";
 import { useTranslation } from "react-i18next";
 import dayjs from "dayjs";
@@ -32,8 +32,21 @@ export function PoolSkillCard({
 }: PoolSkillCardProps) {
   const { t } = useTranslation();
   const [isHover, setIsHover] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
   const syncTone = getPoolBuiltinStatusTone(skill.sync_status);
   const isBuiltin = isSkillBuiltin(skill.source);
+
+  useEffect(() => {
+    const mql = window.matchMedia("(max-width: 768px)");
+    const handleChange = (event: MediaQueryListEvent | MediaQueryList) => {
+      setIsMobile(event.matches);
+    };
+    handleChange(mql);
+    mql.addEventListener("change", handleChange);
+    return () => {
+      mql.removeEventListener("change", handleChange);
+    };
+  }, []);
 
   return (
     <Card
@@ -126,8 +139,8 @@ export function PoolSkillCard({
         <p className={styles.descriptionText}>{skill.description || "-"}</p>
       </div>
 
-      {/* Footer - only show on hover or batch mode */}
-      {(isHover || batchModeEnabled) && (
+      {/* Footer - show on hover, batch mode, or mobile (no hover) */}
+      {(isHover || batchModeEnabled || isMobile) && (
         <div className={styles.cardFooter}>
           <Button
             className={styles.actionButton}

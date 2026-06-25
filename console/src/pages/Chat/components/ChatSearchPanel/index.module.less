@@ -10,6 +10,19 @@
   }
 }
 
+@media (max-width: 768px) {
+  .drawer {
+    :global {
+      .qwenpaw-drawer-content {
+        border-radius: 0 !important;
+      }
+      .qwenpaw-drawer-mask {
+        background: rgba(0, 0, 0, 0.45) !important;
+      }
+    }
+  }
+}
+
 /* Header bar */
 .header {
   display: flex;
@@ -177,13 +190,13 @@
   .drawer {
     :global {
       .qwenpaw-drawer-body {
-        background-color: #1f1f1f;
+        background-color: #141414;
       }
     }
   }
 
   .header {
-    background-color: #1f1f1f;
+    background-color: #141414;
   }
 
   .headerTitle {
@@ -206,11 +219,11 @@
   }
 
   .topGradient {
-    background: linear-gradient(180deg, #1f1f1f 0%, rgba(31, 31, 31, 0) 100%);
+    background: linear-gradient(180deg, #141414 0%, rgba(31, 31, 31, 0) 100%);
   }
 
   .bottomGradient {
-    background: linear-gradient(0deg, #1f1f1f 0%, rgba(31, 31, 31, 0) 100%);
+    background: linear-gradient(0deg, #141414 0%, rgba(31, 31, 31, 0) 100%);
   }
 
   .searchResultItem {

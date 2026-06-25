@@ -59,12 +59,11 @@
   /* Wide mode: widen bubble list and sender while keeping spacing */
   &.wideMode :global {
     .qwenpaw-bubble-list {
-      max-width: calc(100% - 48px) !important;
+      max-width: none !important;
     }
 
-    .qwenpaw-sender,
-    [class*="sender-content"] {
-      max-width: calc(100% - 48px) !important;
+    .qwenpaw-chat-anywhere-sender-wrapper {
+      max-width: none !important;
     }
   }
 
