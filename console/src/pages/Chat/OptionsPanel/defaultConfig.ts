@@ -9,6 +9,11 @@ const defaultConfig = {
       logo: "",
       title: "Work with QwenPaw",
     },
+    bubbleList: {
+      userMessageAnchors: {
+        variant: "navigator",
+      },
+    },
   },
   sender: {
     attachments: true,
