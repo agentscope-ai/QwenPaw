@@ -30,7 +30,7 @@ if TYPE_CHECKING:
     from agentscope.agent import Agent
 
 logger = logging.getLogger(__name__)
-MAX_AUTO_MEMORY_REPLY_IDS = 1000
+MAX_AUTO_MEMORY_TURN_MARKERS = 1000
 QWENPAW_MESSAGE_TAG_KEY = "qwenpaw_tag"
 AUTO_MEMORY_SEARCH_MESSAGE_TAG = "auto_memory_search"
 AUTO_MEMORY_SEARCH_TEXT = "Searching memory for relevant context..."
@@ -50,9 +50,9 @@ class MemoryMiddleware(MiddlewareBase):
 
     def __init__(self, *, memory_manager: Any) -> None:
         self._memory_manager = memory_manager
-        self._searched_reply_id: str | None = None
-        self._pending_auto_memory_reply_ids: list[str] = []
-        self._seen_auto_memory_reply_ids: dict[str, None] = {}
+        self._searched_user_turn_marker: str | None = None
+        self._pending_auto_memory_turn_markers: list[str] = []
+        self._seen_auto_memory_turn_markers: dict[str, None] = {}
 
     async def on_system_prompt(
         self,
@@ -73,15 +73,15 @@ class MemoryMiddleware(MiddlewareBase):
         input_kwargs: dict[str, Any],
         next_handler: Callable[..., Any],
     ) -> Any:
-        reply_id = agent.state.reply_id
-        if reply_id != self._searched_reply_id:
-            self._searched_reply_id = reply_id
+        turn_marker = self._latest_user_turn_marker(agent.state.context)
+        if turn_marker and turn_marker != self._searched_user_turn_marker:
+            self._searched_user_turn_marker = turn_marker
             try:
                 result = await self._memory_manager.auto_memory_search(
                     list(agent.state.context),
                     agent_name=agent.name,
                     session_id=agent.state.session_id,
-                    reply_id=reply_id,
+                    user_turn_id=turn_marker,
                 )
             except Exception:
                 logger.exception(
@@ -110,24 +110,28 @@ class MemoryMiddleware(MiddlewareBase):
         async for item in next_handler(**input_kwargs):
             yield item
 
-        reply_id = agent.state.reply_id
-        if not reply_id or reply_id in self._seen_auto_memory_reply_ids:
+        self._repair_tagged_auto_memory_search_context(agent)
+        turn_marker = self._latest_user_turn_marker(agent.state.context)
+        if (
+            not turn_marker
+            or turn_marker in self._seen_auto_memory_turn_markers
+        ):
             return
-        self._repair_tagged_auto_memory_search_context(
-            agent,
-            reply_id=reply_id,
-        )
-        self._seen_auto_memory_reply_ids[reply_id] = None
-        if len(self._seen_auto_memory_reply_ids) > MAX_AUTO_MEMORY_REPLY_IDS:
-            oldest_key = next(iter(self._seen_auto_memory_reply_ids))
-            self._seen_auto_memory_reply_ids.pop(oldest_key)
-        self._pending_auto_memory_reply_ids.append(reply_id)
+
+        self._seen_auto_memory_turn_markers[turn_marker] = None
+        if (
+            len(self._seen_auto_memory_turn_markers)
+            > MAX_AUTO_MEMORY_TURN_MARKERS
+        ):
+            oldest_key = next(iter(self._seen_auto_memory_turn_markers))
+            self._seen_auto_memory_turn_markers.pop(oldest_key)
+        self._pending_auto_memory_turn_markers.append(turn_marker)
 
         interval = self._auto_memory_interval()
         if interval <= 0:
-            self._pending_auto_memory_reply_ids.clear()
+            self._pending_auto_memory_turn_markers.clear()
             return
-        if len(self._pending_auto_memory_reply_ids) < interval:
+        if len(self._pending_auto_memory_turn_markers) < interval:
             return
 
         await self._flush_auto_memory(agent, count=interval)
@@ -141,7 +145,7 @@ class MemoryMiddleware(MiddlewareBase):
         cfg = self._memory_config()
         if (
             cfg.summarize_when_compact
-            and self._pending_auto_memory_reply_ids
+            and self._pending_auto_memory_turn_markers
             and await self._will_compress_context(agent, input_kwargs)
         ):
             await self._flush_auto_memory(agent)
@@ -154,20 +158,23 @@ class MemoryMiddleware(MiddlewareBase):
         *,
         count: int | None = None,
     ) -> None:
-        if not self._pending_auto_memory_reply_ids:
+        if not self._pending_auto_memory_turn_markers:
             return
 
         if count is None:
-            reply_ids = list(self._pending_auto_memory_reply_ids)
-            self._pending_auto_memory_reply_ids.clear()
+            turn_markers = list(self._pending_auto_memory_turn_markers)
+            self._pending_auto_memory_turn_markers.clear()
         else:
-            reply_ids = self._pending_auto_memory_reply_ids[:count]
-            del self._pending_auto_memory_reply_ids[:count]
+            turn_markers = self._pending_auto_memory_turn_markers[:count]
+            del self._pending_auto_memory_turn_markers[:count]
 
-        messages = self._messages_for_reply_ids(
-            self._normal_memory_messages(list(agent.state.context)),
-            reply_ids=reply_ids,
-            agent_name=agent.name,
+        self._repair_tagged_auto_memory_search_context(agent)
+        normal_messages = self._normal_memory_messages(
+            list(agent.state.context),
+        )
+        messages = self._messages_for_user_turns(
+            normal_messages,
+            turn_markers=turn_markers,
         )
         if not messages:
             return
@@ -175,12 +182,20 @@ class MemoryMiddleware(MiddlewareBase):
         try:
             await self._memory_manager.auto_memory(
                 messages,
-                session_id=agent.state.session_id,
-                reply_id=reply_ids[-1],
-                reply_ids=reply_ids,
+                session_id=self._agent_session_id(agent),
             )
         except Exception:
             logger.exception("MemoryMiddleware auto_memory failed")
+
+    @staticmethod
+    def _agent_session_id(agent: "Agent") -> str:
+        session_id = str(getattr(agent.state, "session_id", "") or "")
+        if session_id:
+            return session_id
+        request_context = getattr(agent, "_request_context", None) or {}
+        if isinstance(request_context, dict):
+            return str(request_context.get("session_id") or "")
+        return ""
 
     @staticmethod
     async def _will_compress_context(
@@ -261,8 +276,6 @@ class MemoryMiddleware(MiddlewareBase):
     def _repair_tagged_auto_memory_search_context(
         cls,
         agent: "Agent",
-        *,
-        reply_id: str,
     ) -> None:
         """Split real reply blocks merged into tagged auto-search messages."""
         context = getattr(agent.state, "context", None) or []
@@ -293,7 +306,6 @@ class MemoryMiddleware(MiddlewareBase):
             context.insert(
                 idx + 1,
                 Msg(
-                    id=reply_id,
                     name=agent.name,
                     role="assistant",
                     content=deepcopy(reply_blocks),
@@ -303,13 +315,25 @@ class MemoryMiddleware(MiddlewareBase):
             return
 
     @staticmethod
-    def _messages_for_reply_ids(
+    def _latest_user_turn_marker(messages: list["Msg"]) -> str:
+        for idx in range(len(messages) - 1, -1, -1):
+            msg = messages[idx]
+            if msg.role != "user":
+                continue
+            return MemoryMiddleware._user_turn_marker(msg, idx)
+        return ""
+
+    @staticmethod
+    def _user_turn_marker(msg: "Msg", idx: int) -> str:
+        return msg.id or f"idx:{idx}"
+
+    @staticmethod
+    def _messages_for_user_turns(
         messages: list["Msg"],
         *,
-        reply_ids: list[str],
-        agent_name: str,
+        turn_markers: list[str],
     ) -> list["Msg"]:
-        targets = set(reply_ids)
+        targets = set(turn_markers)
         if not targets:
             return []
 
@@ -317,9 +341,8 @@ class MemoryMiddleware(MiddlewareBase):
         last_idx: int | None = None
         for idx, msg in enumerate(messages):
             if (
-                msg.role == "assistant"
-                and msg.name == agent_name
-                and msg.id in targets
+                msg.role == "user"
+                and MemoryMiddleware._user_turn_marker(msg, idx) in targets
             ):
                 if first_idx is None:
                     first_idx = idx
@@ -328,14 +351,13 @@ class MemoryMiddleware(MiddlewareBase):
         if first_idx is None or last_idx is None:
             return []
 
-        start_idx = 0
-        for idx in range(first_idx - 1, -1, -1):
-            msg = messages[idx]
-            if msg.role == "assistant" and msg.name == agent_name:
-                start_idx = idx + 1
+        end_idx = len(messages)
+        for idx in range(last_idx + 1, len(messages)):
+            if messages[idx].role == "user":
+                end_idx = idx
                 break
 
-        return messages[start_idx : last_idx + 1]
+        return messages[first_idx:end_idx]
 
 
 class ToolResultPruningMiddleware(MiddlewareBase):

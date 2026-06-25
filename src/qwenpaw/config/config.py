@@ -549,7 +549,7 @@ class AutoMemorySearchConfig(BaseModel):
     )
 
     persist_to_context: bool = Field(
-        default=True,
+        default=False,
         description=(
             "Whether to persist auto memory search tool_call/tool_result "
             "messages into the conversation context"
@@ -672,7 +672,7 @@ class ReMeLightMemoryConfig(BaseModel):
     )
 
     auto_memory_interval: int | None = Field(
-        default=None,
+        default=5,
         description="Auto memory every N user queries. 1 means auto "
         "memory after every user query, 2 means every 2 queries, etc. "
         "None or <= 0 disables periodic auto memory. WARNING: Setting "

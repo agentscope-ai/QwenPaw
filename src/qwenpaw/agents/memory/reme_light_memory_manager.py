@@ -225,6 +225,18 @@ class ReMeLightMemoryManager(BaseMemoryManager):
             INBOX_EMITTED_METADATA_KEY,
         ):
             return False
+        if (
+            name in {"auto_memory", "auto_resource"}
+            and isinstance(response_metadata, dict)
+            and response_metadata.get("modified") is False
+        ):
+            logger.info(
+                "ReMe job result inbox push skipped; no memory change: "
+                "agent_id=%s job_name=%s modified=False",
+                self.agent_id,
+                name,
+            )
+            return False
 
         answer = str(getattr(response, "answer", "") or "").strip()
         if len(answer) > MAX_INBOX_BODY_CHARS:
@@ -263,11 +275,14 @@ class ReMeLightMemoryManager(BaseMemoryManager):
                 response_metadata[INBOX_EMITTED_METADATA_KEY] = True
             logger.info(
                 "ReMe job result pushed to inbox: "
-                "agent_id=%s job_name=%s event_id=%s status=%s",
+                "agent_id=%s job_name=%s event_id=%s status=%s modified=%s",
                 self.agent_id,
                 name,
                 event.get("id"),
                 event.get("status"),
+                response_metadata.get("modified")
+                if isinstance(response_metadata, dict)
+                else None,
             )
             return True
         except Exception:  # pylint: disable=broad-except
@@ -445,12 +460,21 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         **kwargs: Any,
     ) -> None:
         """Auto-extract memory for a prepared reply batch."""
-        if not kwargs.get("reply_ids") or not all_messages:
+        if not all_messages:
+            return
+        session_id = str(kwargs.get("session_id") or "")
+        if not session_id:
+            logger.warning(
+                "ReMe auto_memory skipped; session_id is empty: "
+                "agent_id=%s messages=%s",
+                self.agent_id,
+                len(all_messages),
+            )
             return
 
         self.add_summarize_task(
             messages=all_messages,
-            session_id=str(kwargs.get("session_id") or ""),
+            session_id=session_id,
         )
 
     async def dream(self, **kwargs: Any) -> None:

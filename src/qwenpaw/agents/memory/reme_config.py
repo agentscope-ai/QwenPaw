@@ -135,7 +135,7 @@ def _base_config(enable_search_raw_log: bool = False) -> dict[str, Any]:
             "search": {
                 "backend": "base",
                 "description": (
-                    "Hybrid vault search (vector + BM25, RRF-fused)."
+                    "Hybrid workspace search (vector + BM25, RRF-fused)."
                 ),
                 "parameters": {
                     "type": "object",
@@ -169,7 +169,11 @@ def _base_config(enable_search_raw_log: bool = False) -> dict[str, Any]:
             },
             "node_search": {
                 "backend": "base",
-                "description": "Digest node recall.",
+                "description": (
+                    "Digest node recall — given a candidate abstraction's "
+                    "name+description, surface existing digest nodes similar "
+                    "enough to either dedup against or link to as related."
+                ),
                 "parameters": {
                     "type": "object",
                     "properties": {
@@ -193,35 +197,33 @@ def _base_config(enable_search_raw_log: bool = False) -> dict[str, Any]:
                     },
                 ],
             },
-            "daily_create": {
-                "backend": "base",
-                "description": (
-                    "Provision a session note under a daily folder."
-                ),
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "session_id": {"type": "string", "default": ""},
-                        "date": {"type": "string", "default": ""},
-                    },
-                },
-                "steps": [{"backend": "daily_create_step"}],
-            },
             "daily_list": {
                 "backend": "base",
                 "description": "List notes under a single day.",
                 "parameters": {
                     "type": "object",
-                    "properties": {"date": {"type": "string", "default": ""}},
+                    "properties": {
+                        "date": {
+                            "type": "string",
+                            "description": "YYYY-MM-DD; empty = today",
+                            "default": "",
+                        },
+                    },
                 },
                 "steps": [{"backend": "daily_list_step"}],
             },
             "daily_reindex": {
                 "backend": "base",
-                "description": "Rebuild the day-index page.",
+                "description": "Rebuild the day-index page daily/<date>.md.",
                 "parameters": {
                     "type": "object",
-                    "properties": {"date": {"type": "string", "default": ""}},
+                    "properties": {
+                        "date": {
+                            "type": "string",
+                            "description": "YYYY-MM-DD; empty = today",
+                            "default": "",
+                        },
+                    },
                 },
                 "steps": [{"backend": "daily_reindex_step"}],
             },
@@ -343,7 +345,10 @@ def _base_config(enable_search_raw_log: bool = False) -> dict[str, Any]:
             },
             "write": {
                 "backend": "base",
-                "description": "Write a markdown file.",
+                "description": (
+                    "Write a markdown file (create or overwrite) with "
+                    "name/description frontmatter."
+                ),
                 "parameters": {
                     "type": "object",
                     "properties": {
@@ -357,9 +362,54 @@ def _base_config(enable_search_raw_log: bool = False) -> dict[str, Any]:
                 },
                 "steps": [{"backend": "write_step"}],
             },
+            "daily_write": {
+                "backend": "base",
+                "description": (
+                    "Write a daily markdown note with conversation source "
+                    "frontmatter."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "name": {
+                            "type": "string",
+                            "description": (
+                                "daily note filename stem and frontmatter name"
+                            ),
+                        },
+                        "description": {
+                            "type": "string",
+                            "description": "frontmatter description",
+                        },
+                        "session_id": {
+                            "type": "string",
+                            "description": "source conversation session "
+                            "identifier",
+                        },
+                        "content": {
+                            "type": "string",
+                            "description": "body",
+                        },
+                        "metadata": {
+                            "type": "object",
+                            "description": "Optional extra frontmatter "
+                            "fields.",
+                        },
+                    },
+                    "required": [
+                        "name",
+                        "description",
+                        "session_id",
+                        "content",
+                    ],
+                },
+                "steps": [{"backend": "daily_write_step"}],
+            },
             "edit": {
                 "backend": "base",
-                "description": "Find-and-replace in a markdown file.",
+                "description": (
+                    "Find-and-replace in a markdown file (all occurrences)."
+                ),
                 "parameters": {
                     "type": "object",
                     "properties": {
@@ -373,13 +423,19 @@ def _base_config(enable_search_raw_log: bool = False) -> dict[str, Any]:
             },
             "auto_dream": {
                 "backend": "base",
-                "description": "Auto-dream memory consolidation.",
+                "description": (
+                    "Auto-dream: scan today's day-index and daily notes, "
+                    "globally extract merged units/topics, integrate digest "
+                    "units, write interests.yaml, and persist the dream "
+                    "catalog."
+                ),
                 "parameters": {
                     "type": "object",
                     "properties": {
                         "date": {"type": "string", "default": ""},
                         "hint": {"type": "string", "default": ""},
                         "scan_days": {"type": "integer", "default": 2},
+                        "max_units": {"type": "integer", "default": 5},
                         "topic_count": {"type": "integer", "default": 3},
                         "topic_diversity_days": {
                             "type": "integer",
@@ -393,6 +449,7 @@ def _base_config(enable_search_raw_log: bool = False) -> dict[str, Any]:
                         "file_catalog": "dream",
                         "topic_session_id": "interests",
                         "scan_days": 2,
+                        "max_units": 5,
                     },
                     {"backend": "dream_integrate_step"},
                     {
@@ -448,7 +505,22 @@ def _base_config(enable_search_raw_log: bool = False) -> dict[str, Any]:
                     "properties": {
                         "changes": {
                             "type": "array",
-                            "items": {"type": "object"},
+                            "description": (
+                                "resource change batch, each item has "
+                                "path/file_path and change"
+                            ),
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "path": {"type": "string"},
+                                    "file_path": {"type": "string"},
+                                    "change": {
+                                        "type": "string",
+                                        "description": "added/"
+                                        "modified/deleted",
+                                    },
+                                },
+                            },
                         },
                     },
                     "required": ["changes"],
