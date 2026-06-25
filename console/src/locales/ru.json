@@ -879,7 +879,13 @@
     "batchDismissConfirm": "Удалить {{count}} пользователей?",
     "batchSuccess": "{{count}} пользователей обработано",
     "batchRemove": "Удалить",
-    "batchRemoveConfirm": "Удалить {{count}} выбранных пользователей?"
+    "batchRemoveConfirm": "Удалить {{count}} выбранных пользователей?",
+    "enabledSection": "Активированные",
+    "enabledCount": "{{count}}",
+    "availableSection": "Доступные",
+    "enableAction": "Активировать",
+    "noEnabledChannels": "Нет активированных каналов",
+    "goEnableChannels": "Активировать каналы"
   },
   "sessions": {
     "title": "Сессии",

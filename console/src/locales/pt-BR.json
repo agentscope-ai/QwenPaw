@@ -1086,7 +1086,13 @@
     "batchDismissConfirm": "Remover {{count}} usuários?",
     "batchSuccess": "{{count}} usuários processados com sucesso",
     "batchRemove": "Excluir",
-    "batchRemoveConfirm": "Excluir {{count}} usuários selecionados?"
+    "batchRemoveConfirm": "Excluir {{count}} usuários selecionados?",
+    "enabledSection": "Ativados",
+    "enabledCount": "{{count}}",
+    "availableSection": "Disponíveis",
+    "enableAction": "Ativar",
+    "noEnabledChannels": "Nenhum canal ativado",
+    "goEnableChannels": "Ativar canais"
   },
   "sessions": {
     "title": "Sessoes",

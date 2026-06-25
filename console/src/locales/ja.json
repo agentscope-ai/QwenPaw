@@ -879,7 +879,13 @@
     "batchDismissConfirm": "{{count}}件のユーザーを削除しますか？",
     "batchSuccess": "{{count}}件のユーザーを処理しました",
     "batchRemove": "削除",
-    "batchRemoveConfirm": "{{count}}件のユーザーを削除しますか？"
+    "batchRemoveConfirm": "{{count}}件のユーザーを削除しますか？",
+    "enabledSection": "有効",
+    "enabledCount": "{{count}}件",
+    "availableSection": "未有効",
+    "enableAction": "有効にする",
+    "noEnabledChannels": "有効なチャンネルはありません",
+    "goEnableChannels": "チャンネルを有効にする"
   },
   "sessions": {
     "title": "セッション",

@@ -460,7 +460,13 @@
     "batchDismissConfirm": "Hapus {{count}} pengguna?",
     "batchSuccess": "{{count}} pengguna berhasil diproses",
     "batchRemove": "Hapus",
-    "batchRemoveConfirm": "Hapus {{count}} pengguna yang dipilih?"
+    "batchRemoveConfirm": "Hapus {{count}} pengguna yang dipilih?",
+    "enabledSection": "Diaktifkan",
+    "enabledCount": "{{count}}",
+    "availableSection": "Tersedia",
+    "enableAction": "Aktifkan",
+    "noEnabledChannels": "Tidak ada saluran yang diaktifkan",
+    "goEnableChannels": "Aktifkan saluran"
   },
   "tools": {
     "title": "Tool Bawaan",

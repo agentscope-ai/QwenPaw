@@ -943,7 +943,13 @@
     "wechatBotTokenTooltip": "Bearer token sau khi đăng nhập bằng mã QR. Để trống để kích hoạt đăng nhập bằng mã QR.",
     "wechatBotTokenPlaceholder": "Tự điền sau khi quét QR, hoặc dán thủ công",
     "wechatBotTokenFile": "Đường dẫn file token",
-    "wechatMediaDir": "Thư mục media"
+    "wechatMediaDir": "Thư mục media",
+    "enabledSection": "Đã kích hoạt",
+    "enabledCount": "{{count}}",
+    "availableSection": "Chưa kích hoạt",
+    "enableAction": "Kích hoạt",
+    "noEnabledChannels": "Không có kênh nào được kích hoạt",
+    "goEnableChannels": "Kích hoạt kênh"
   },
   "cronJobs": {
     "title": "Tác vụ định kỳ",
