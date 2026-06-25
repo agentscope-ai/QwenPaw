@@ -185,6 +185,8 @@ async def submit_trace_from_session(
         return False
 
     request_id = uuid.uuid4().hex
+    trace_count = 0
+    message_count = 0
     try:
         state = await session.get_session_state_dict(
             session_id,
@@ -201,11 +203,17 @@ async def submit_trace_from_session(
             request_context=request_context,
             trigger_msg_id=trigger_msg_id,
         )
-        if not payload["messages"]:
+        message_count = len(payload["messages"])
+        trace_count = 1 if message_count else 0
+        if not message_count:
             logger.debug(
-                "trace submit skipped: no dialogue messages "
-                "session_id=%s request_id=%s",
+                "cm trace submit result: session_id=%s success=%s "
+                "trace_count=%s message_count=%s reason=%s request_id=%s",
                 session_id,
+                False,
+                trace_count,
+                message_count,
+                "no_dialogue_messages",
                 request_id,
             )
             return False
@@ -221,28 +229,36 @@ async def submit_trace_from_session(
             )
         if resp.status_code >= 400:
             logger.warning(
-                "cm trace submit failed: session_id=%s status=%s "
-                "messages=%s request_id=%s",
+                "cm trace submit result: session_id=%s success=%s "
+                "trace_count=%s message_count=%s status=%s request_id=%s",
                 session_id,
+                False,
+                trace_count,
+                message_count,
                 resp.status_code,
-                len(payload["messages"]),
                 request_id,
             )
             return False
 
         logger.info(
-            "cm trace submit ok: session_id=%s status=%s messages=%s "
-            "request_id=%s",
+            "cm trace submit result: session_id=%s success=%s "
+            "trace_count=%s message_count=%s status=%s request_id=%s",
             session_id,
+            True,
+            trace_count,
+            message_count,
             resp.status_code,
-            len(payload["messages"]),
             request_id,
         )
         return True
     except Exception as exc:  # pylint: disable=broad-except
         logger.warning(
-            "cm trace submit error: session_id=%s err=%s request_id=%s",
+            "cm trace submit result: session_id=%s success=%s "
+            "trace_count=%s message_count=%s error=%s request_id=%s",
             session_id,
+            False,
+            trace_count,
+            message_count,
             exc,
             request_id,
         )

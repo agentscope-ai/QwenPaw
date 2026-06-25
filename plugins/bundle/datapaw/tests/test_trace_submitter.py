@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 
 import pytest
 
@@ -171,8 +172,10 @@ def test_submit_trace_skips_when_cm_base_url_unset(
 def test_submit_trace_posts_dialogue_payload(
     monkeypatch: pytest.MonkeyPatch,
     recording_client,
+    caplog,
 ) -> None:
     monkeypatch.setenv(CM_BASE_URL_ENV, "http://cm.local/")
+    caplog.set_level(logging.INFO, logger=trace_submitter.logger.name)
     runner = _FakeRunner(
         _state_for(
             [
@@ -225,13 +228,19 @@ def test_submit_trace_posts_dialogue_payload(
     assert [msg["id"] for msg in sent["json"]["messages"]] == ["u2", "a2"]
     assert sent["json"]["messages"][1]["content"] == "streaming answer"
     assert sent["json"]["messages"][1]["metadata"] == {"graph_id": "g1"}
+    assert "cm trace submit result" in caplog.text
+    assert "success=True" in caplog.text
+    assert "trace_count=1" in caplog.text
+    assert "message_count=2" in caplog.text
 
 
 def test_submit_trace_swallows_http_status_errors(
     monkeypatch: pytest.MonkeyPatch,
     recording_client,
+    caplog,
 ) -> None:
     monkeypatch.setenv(CM_BASE_URL_ENV, "http://cm.local")
+    caplog.set_level(logging.WARNING, logger=trace_submitter.logger.name)
     recording_client.status_code = 404
     runner = _FakeRunner(
         _state_for(
@@ -256,13 +265,20 @@ def test_submit_trace_swallows_http_status_errors(
 
     assert ok is False
     assert len(recording_client.captured) == 1
+    assert "cm trace submit result" in caplog.text
+    assert "success=False" in caplog.text
+    assert "trace_count=1" in caplog.text
+    assert "message_count=1" in caplog.text
+    assert "status=404" in caplog.text
 
 
 def test_submit_trace_swallows_network_errors(
     monkeypatch: pytest.MonkeyPatch,
     recording_client,
+    caplog,
 ) -> None:
     monkeypatch.setenv(CM_BASE_URL_ENV, "http://cm.local")
+    caplog.set_level(logging.WARNING, logger=trace_submitter.logger.name)
     recording_client.raise_on_post = True
     runner = _FakeRunner(
         _state_for(
@@ -286,3 +302,8 @@ def test_submit_trace_swallows_network_errors(
     )
 
     assert ok is False
+    assert "cm trace submit result" in caplog.text
+    assert "success=False" in caplog.text
+    assert "trace_count=1" in caplog.text
+    assert "message_count=1" in caplog.text
+    assert "error=network down" in caplog.text
