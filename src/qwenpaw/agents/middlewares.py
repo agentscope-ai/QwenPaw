@@ -24,19 +24,19 @@ from agentscope.middleware import MiddlewareBase
 from agentscope.message import Msg, TextBlock, ToolCallBlock, ToolResultBlock
 
 from .tools.utils import truncate_text_output, DEFAULT_MAX_BYTES
-from ..constant import TRUNCATION_NOTICE_MARKER
+from ..constant import (
+    AUTO_CONTINUE_MESSAGE_TAG,
+    AUTO_MEMORY_SEARCH_MESSAGE_TAG,
+    AUTO_MEMORY_SEARCH_TEXT,
+    QWENPAW_MESSAGE_TAG_KEY,
+    TRUNCATION_NOTICE_MARKER,
+)
 
 if TYPE_CHECKING:
     from agentscope.agent import Agent
 
 logger = logging.getLogger(__name__)
 MAX_AUTO_MEMORY_TURN_MARKERS = 1000
-QWENPAW_MESSAGE_TAG_KEY = "qwenpaw_tag"
-AUTO_MEMORY_SEARCH_MESSAGE_TAG = "auto_memory_search"
-AUTO_CONTINUE_MESSAGE_TAG = "auto_continue"
-AUTO_MEMORY_SEARCH_TEXT = (
-    "Find memory relevant to the latest user request and conversation context."
-)
 
 
 class MemoryMiddleware(MiddlewareBase):
@@ -262,7 +262,7 @@ class MemoryMiddleware(MiddlewareBase):
     @classmethod
     def _is_memory_user_turn(cls, msg: "Msg") -> bool:
         return msg.role == "user" and cls._message_tag(msg) not in {
-            AUTO_CONTINUE_MESSAGE_TAG
+            AUTO_CONTINUE_MESSAGE_TAG,
         }
 
     @classmethod

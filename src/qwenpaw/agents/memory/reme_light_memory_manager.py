@@ -23,6 +23,11 @@ from .reme_config import get_reme_app_config
 from ..model_factory import create_model_and_formatter
 from ...app.inbox_store import append_event as append_inbox_event
 from ...config import load_config
+from ...constant import (
+    AUTO_MEMORY_SEARCH_MESSAGE_TAG,
+    AUTO_MEMORY_SEARCH_TEXT,
+    QWENPAW_MESSAGE_TAG_KEY,
+)
 from ...config.config import load_agent_config, AgentProfileConfig
 
 if TYPE_CHECKING:
@@ -37,8 +42,6 @@ INBOX_RESULT_JOB_NAMES = {"auto_memory", "auto_dream", "auto_resource"}
 INBOX_RESULT_HOOK_KEY = "qwenpaw_memory_result_hook"
 INBOX_EMITTED_METADATA_KEY = "_qwenpaw_inbox_emitted"
 MAX_INBOX_BODY_CHARS = 4000
-QWENPAW_MESSAGE_TAG_KEY = "qwenpaw_tag"
-AUTO_MEMORY_SEARCH_MESSAGE_TAG = "auto_memory_search"
 
 
 def _tool_chunk(text: str, *, ok: bool = True) -> ToolChunk:
@@ -434,7 +437,7 @@ class ReMeLightMemoryManager(BaseMemoryManager):
                 QWENPAW_MESSAGE_TAG_KEY: AUTO_MEMORY_SEARCH_MESSAGE_TAG,
             },
             content=[
-                TextBlock(text="Searching memory for relevant context..."),
+                TextBlock(text=AUTO_MEMORY_SEARCH_TEXT),
                 ToolCallBlock(
                     id=tool_call_id,
                     name="memory_search",
