@@ -265,7 +265,7 @@ class MemoryMiddleware(MiddlewareBase):
         reply_id: str,
     ) -> None:
         """Split real reply blocks merged into tagged auto-search messages."""
-        context = list(getattr(agent.state, "context", []) or [])
+        context = getattr(agent.state, "context", None) or []
         if not context:
             return
 
@@ -290,7 +290,7 @@ class MemoryMiddleware(MiddlewareBase):
                 return
 
             msg.content = auto_blocks
-            agent.state.context.insert(
+            context.insert(
                 idx + 1,
                 Msg(
                     id=reply_id,

@@ -178,8 +178,13 @@ class AgentMdManager:
         self._assert_within_dir(target, base_dir)
         return target
 
-    def _memory_file_info(self, file_path: Path, filename: str) -> dict:
-        stat = file_path.stat()
+    def _memory_file_info(
+        self,
+        file_path: Path,
+        filename: str,
+        stat_result=None,
+    ) -> dict:
+        stat = stat_result or file_path.stat()
         return {
             "filename": filename,
             "size": stat.st_size,
@@ -205,25 +210,20 @@ class AgentMdManager:
                 - modified_time: file modification timestamp
         """
         result = []
-        for f in sorted(
-            self.memory_dir.rglob("*.md"),
-            key=lambda x: x.stat().st_mtime,
-            reverse=True,
+        for root_dir, prefix in (
+            (self.memory_dir, ""),
+            (self.digest_dir, f"{self.digest_dir.name}/"),
         ):
-            if f.is_file():
-                filename = f.relative_to(self.memory_dir).as_posix()
-                result.append(self._memory_file_info(f, filename))
-        for f in sorted(
-            self.digest_dir.rglob("*.md"),
-            key=lambda x: x.stat().st_mtime,
-            reverse=True,
-        ):
-            if f.is_file():
+            for file_path in root_dir.rglob("*.md"):
+                if not file_path.is_file():
+                    continue
+                stat = file_path.stat()
                 filename = (
-                    f"{self.digest_dir.name}/"
-                    f"{f.relative_to(self.digest_dir).as_posix()}"
+                    f"{prefix}{file_path.relative_to(root_dir).as_posix()}"
                 )
-                result.append(self._memory_file_info(f, filename))
+                result.append(
+                    self._memory_file_info(file_path, filename, stat),
+                )
         result.sort(key=lambda x: x["modified_time"], reverse=True)
         return result
 

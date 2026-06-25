@@ -521,10 +521,8 @@ async def list_memory_files(
             str(workspace.workspace_dir),
             agent_id=workspace.agent_id,
         )
-        files = [
-            MdFileInfo.model_validate(file)
-            for file in workspace_manager.list_memory_mds()
-        ]
+        raw_files = await asyncio.to_thread(workspace_manager.list_memory_mds)
+        files = [MdFileInfo.model_validate(file) for file in raw_files]
         return files
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
@@ -547,7 +545,10 @@ async def read_memory_file(
             str(workspace.workspace_dir),
             agent_id=workspace.agent_id,
         )
-        content = workspace_manager.read_memory_md(md_path)
+        content = await asyncio.to_thread(
+            workspace_manager.read_memory_md,
+            md_path,
+        )
         return MdFileContent(content=content)
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -573,7 +574,11 @@ async def write_memory_file(
             str(workspace.workspace_dir),
             agent_id=workspace.agent_id,
         )
-        workspace_manager.write_memory_md(md_path, body.content)
+        await asyncio.to_thread(
+            workspace_manager.write_memory_md,
+            md_path,
+            body.content,
+        )
         return {"written": True}
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
