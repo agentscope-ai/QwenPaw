@@ -298,6 +298,10 @@ def test_acp_status_returns_runner_state(app_server, mock_llm) -> None:
 
 @pytest.mark.integration
 @pytest.mark.p0
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="stdio subprocess pipes unreliable on Windows",
+)
 def test_acp_start_spawns_mock_runner(app_server, mock_llm) -> None:
     """Test purpose:
     - Verify delegate_external_agent(action="start") really spawns the

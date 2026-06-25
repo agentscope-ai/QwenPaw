@@ -20,6 +20,7 @@ pytest-cov (or use ``--no-cov``) so the parent process does not enforce
 ``fail_under`` on near-zero host-process coverage. This flow is not
 validated under ``pytest-xdist``.
 """
+
 from __future__ import annotations
 
 import json
@@ -289,18 +290,17 @@ def channel_callback_server():
     """Start a lightweight HTTP server for custom channel outbound.
 
     Sets ``TEST_CHANNEL_CALLBACK_URL`` in ``os.environ`` so every
-    ``app_server`` subprocess inherits it. Tests that need to
-    inspect recorded payloads request this fixture by name.
+    ``app_server`` subprocess inherits it. Tests that need to inspect
+    recorded payloads request this fixture by name.
     """
     from http.server import BaseHTTPRequestHandler, HTTPServer
-    import json as _json  # pylint: disable=reimported
 
     class _Handler(BaseHTTPRequestHandler):
         def do_POST(self):  # noqa: N802
             length = int(self.headers.get("Content-Length", 0))
             body = self.rfile.read(length) if length else b""
             try:
-                payload = _json.loads(body)
+                payload = json.loads(body)
             except (ValueError, UnicodeDecodeError):
                 payload = {
                     "raw": body.decode("utf-8", errors="replace"),
@@ -348,6 +348,8 @@ def app_server(  # pylint: disable=too-many-statements,too-many-branches
     secret_dir.mkdir(parents=True, exist_ok=True)
     backups_dir.mkdir(parents=True, exist_ok=True)
 
+    # Copy any custom channel fixtures into the subprocess working dir so
+    # that tests in test_custom_channel.py can discover them at startup.
     custom_channels_src = Path(__file__).parent / "_custom_channels"
     if custom_channels_src.is_dir():
         custom_channels_dst = working_dir / "custom_channels"
@@ -364,10 +366,10 @@ def app_server(  # pylint: disable=too-many-statements,too-many-branches
     env["QWENPAW_SECRET_DIR"] = str(secret_dir)
     env["QWENPAW_BACKUP_DIR"] = str(backups_dir)
     env["QWENPAW_AUTH_ENABLED"] = "false"
-    env["QWENPAW_UPLOAD_MAX_SIZE_MB"] = "10"
-    callback_url = os.environ.get("TEST_CHANNEL_CALLBACK_URL")
-    if callback_url:
-        env["TEST_CHANNEL_CALLBACK_URL"] = callback_url
+    # Integration tests run in a temporary isolated workspace and must not
+    # touch the developer's OS keychain. Force file-backed secrets so first
+    # encryption does not block on desktop keyring discovery.
+    env["QWENPAW_RUNNING_IN_CONTAINER"] = "true"
     env["NO_PROXY"] = "*"
     env["PYTHONUNBUFFERED"] = "1"
     # Force UTF-8 stdio in the subprocess so non-ASCII log lines (e.g.
@@ -423,10 +425,10 @@ def app_server(  # pylint: disable=too-many-statements,too-many-branches
         )
         log_thread.start()
 
-        # 30s lets cold-start endpoints (ACP getter, heartbeat) and
-        # agent creation (workspace init) finish on slower runners
-        # (Windows CI ~50% slower) without hiding real deadlocks.
-        http_timeout = 30.0
+        # 15s default lets cold-start endpoints (ACP getter, heartbeat)
+        # finish without hiding real deadlocks; 30s in coverage mode
+        # for tracer overhead.
+        http_timeout = 30.0 if _integration_coverage_requested() else 15.0
         client = httpx.Client(timeout=http_timeout, trust_env=False)
 
         try:

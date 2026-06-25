@@ -1,0 +1,37 @@
+# -*- coding: utf-8 -*-
+"""Construct hint messages for completed background tool calls."""
+from __future__ import annotations
+
+from typing import Any
+
+
+def make_offload_hint_msg(entry: Any) -> Any:
+    """Construct a hint Msg for a completed offloaded tool call.
+
+    The hint contains a system-notification TextBlock and a
+    ToolResultBlock with the full (untruncated) final_response content.
+    """
+    from agentscope.message import Msg, TextBlock, ToolResultBlock
+
+    end = entry.end_state or "unknown"
+    notification = TextBlock(
+        type="text",
+        text=(
+            "<system-notification>\n"
+            f"Background tool call `{entry.ctx.tool_name}` "
+            f"(id={entry.ctx.tool_call_id}) completed with state={end}. "
+            "The full result follows in the next tool_result block.\n"
+            "</system-notification>"
+        ),
+    )
+    tool_result = ToolResultBlock(
+        type="tool_result",
+        id=entry.ctx.tool_call_id,
+        name=entry.ctx.tool_name,
+        output=list(entry.final_response.content or []),
+    )
+    return Msg(
+        name="system",
+        role="system",
+        content=[notification, tool_result],
+    )

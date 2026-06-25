@@ -21,15 +21,19 @@ _pending_usage_by_session: _PendingUsageMap = OrderedDict()
 _PENDING_USAGE_MAX_SESSIONS = 128
 
 
-async def snapshot_context_usage_for_memory(
-    memory: Any,
+async def snapshot_context_usage_for_state(
+    state: Any,
     agent_id: str,
 ) -> dict[str, Any] | None:
-    """Estimate token totals from a loaded memory object."""
+    """Estimate token totals from ``AgentState``."""
     try:
         from ..config.config import (
             load_agent_config,
             get_model_max_input_length,
+        )
+        from ..agents.utils.context_stats import estimate_context_tokens
+        from ..agents.utils.estimate_token_counter import (
+            EstimatedTokenCounter,
         )
 
         agent_config = load_agent_config(agent_id)
@@ -37,7 +41,11 @@ async def snapshot_context_usage_for_memory(
         if max_input_length <= 0:
             return None
 
-        stats = await memory.estimate_tokens(max_input_length)
+        stats = await estimate_context_tokens(
+            state,
+            EstimatedTokenCounter(),
+            max_input_length,
+        )
         details = stats.pop("messages_detail", None) or []
 
         last_user_idx = -1
@@ -124,12 +132,11 @@ def reconcile_turn_with_context(
     return turn
 
 
-def find_turn_closing_assistant(memory: Any) -> Any | None:
-    """Return the assistant message that closes the latest turn."""
-    content = getattr(memory, "content", None)
-    if not content:
+def find_turn_closing_assistant_in_context(messages: Any) -> Any | None:
+    """Return the last assistant message after the most recent user message."""
+    if not messages:
         return None
-    for msg, _marks in reversed(content):
+    for msg in reversed(list(messages)):
         role = getattr(msg, "role", None)
         if role == "user":
             break
@@ -138,16 +145,13 @@ def find_turn_closing_assistant(memory: Any) -> Any | None:
     return None
 
 
-def attach_turn_usage_metadata(
-    memory: Any,
+def _write_turn_usage_meta(
+    msg: Any,
     turn: dict[str, Any] | None,
     ctx: dict[str, Any] | None,
 ) -> bool:
-    """Write turn/context usage onto the closing assistant message."""
-    if turn is None and ctx is None:
-        return False
-    msg = find_turn_closing_assistant(memory)
-    if msg is None:
+    """Write turn/context usage onto a specific assistant message."""
+    if msg is None or (turn is None and ctx is None):
         return False
     meta = getattr(msg, "metadata", None)
     if not isinstance(meta, dict):
@@ -168,7 +172,9 @@ async def finalize_console_turn_usage(
     channel: str,
     agent_id: str,
 ) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
-    """After runner save, attach turn usage metadata and stage SSE pending."""
+    """After the session-save hook persists agent.state, attach per-turn usage
+    metadata to the closing assistant message and stage the SSE pending state.
+    """
     turn = TokenRecordingModelWrapper.pop_usage_for_session(session_id)
     ctx: dict[str, Any] | None = None
 
@@ -184,34 +190,45 @@ async def finalize_console_turn_usage(
         state = None
 
     if state:
-        memory_state = state.get("agent", {}).get("memory", {})
-        if memory_state:
-            from ..agents.context.agent_context import AgentContext
-            from ..agents.utils.estimate_token_counter import (
-                EstimatedTokenCounter,
-            )
+        # Agent context lives in ``agent.state``.
+        agent_raw = state.get("agent", {})
+        state_raw = agent_raw.get("state")
+        agent_state = None
+        if isinstance(state_raw, dict):
+            try:
+                from agentscope.state import AgentState
 
-            memory = AgentContext(EstimatedTokenCounter())
-            memory.load_state_dict(memory_state, strict=False)
-            ctx = await snapshot_context_usage_for_memory(memory, agent_id)
-            turn = reconcile_turn_with_context(turn, ctx)
-            if attach_turn_usage_metadata(memory, turn, ctx):
-                try:
+                agent_state = AgentState.model_validate(state_raw)
+            except Exception:
+                logger.debug("AgentState parse skipped", exc_info=True)
+                agent_state = None
+
+        if agent_state is not None:
+            ctx = await snapshot_context_usage_for_state(agent_state, agent_id)
+
+        turn = reconcile_turn_with_context(turn, ctx)
+
+        # Persist usage onto the closing assistant message so reopening the
+        # chat from history still renders the ring/popover.
+        if agent_state is not None:
+            try:
+                msg = find_turn_closing_assistant_in_context(
+                    getattr(agent_state, "context", None),
+                )
+                if _write_turn_usage_meta(msg, turn, ctx):
                     await session.update_session_state(
                         session_id=session_id,
-                        key="agent.memory",
-                        value=memory.state_dict(),
+                        key="agent.state",
+                        value=agent_state.model_dump(mode="json"),
                         user_id=user_id,
                         channel=channel,
                         create_if_not_exist=False,
                     )
-                except Exception:
-                    logger.debug(
-                        "update_session_state for turn usage skipped",
-                        exc_info=True,
-                    )
-        else:
-            turn = reconcile_turn_with_context(turn, ctx)
+            except Exception:
+                logger.debug(
+                    "update_session_state for turn usage skipped",
+                    exc_info=True,
+                )
     else:
         turn = reconcile_turn_with_context(turn, ctx)
 

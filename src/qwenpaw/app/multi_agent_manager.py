@@ -4,12 +4,13 @@
 Provides centralized management for multiple Workspace objects,
 including lazy loading, lifecycle management, and hot reloading.
 """
+
 import asyncio
 import logging
 import time
 from typing import Dict, Set
 
-from agentscope_runtime.engine.schemas.exception import (
+from qwenpaw.exceptions import (
     ConfigurationException,
 )
 
@@ -38,6 +39,17 @@ class MultiAgentManager:
         self._pending_starts: Dict[str, asyncio.Event] = {}
         self._cleanup_tasks: Set[asyncio.Task] = set()
         logger.debug("MultiAgentManager initialized")
+
+    def _create_workspace(
+        self,
+        agent_id: str,
+        workspace_dir: str,
+    ) -> Workspace:
+        """Factory method for workspace creation.
+
+        Overridden by WorkspaceRegistry.
+        """
+        return Workspace(agent_id=agent_id, workspace_dir=workspace_dir)
 
     async def get_agent(self, agent_id: str) -> Workspace:
         """Get agent workspace by ID (lazy loading with dedup).
@@ -107,7 +119,7 @@ class MultiAgentManager:
         # We are the starter — create outside the lock for parallelism
         t0 = time.perf_counter()
         logger.debug(f"Creating new workspace: {agent_id}")
-        instance = Workspace(
+        instance = self._create_workspace(
             agent_id=agent_id,
             workspace_dir=agent_ref.workspace_dir,
         )
@@ -175,7 +187,12 @@ class MultiAgentManager:
                 if asyncio.iscoroutinefunction(callback):
                     await callback(workspace_info)
                 else:
-                    await asyncio.to_thread(callback, workspace_info)
+                    result = await asyncio.to_thread(callback, workspace_info)
+                    if asyncio.iscoroutine(result) or hasattr(
+                        result,
+                        "__await__",
+                    ):
+                        await result
             except Exception as exc:
                 logger.error(
                     f"Error in workspace_created hook "
@@ -369,7 +386,7 @@ class MultiAgentManager:
         # Step 3: Create and start new workspace instance (outside lock)
         # This is the slow part, but doesn't block other agents
         logger.info(f"Creating new workspace instance: {agent_id}")
-        new_instance = Workspace(
+        new_instance = self._create_workspace(
             agent_id=agent_id,
             workspace_dir=agent_ref.workspace_dir,
         )
@@ -456,26 +473,30 @@ class MultiAgentManager:
         logger.info("All cleanup tasks cancelled/completed")
 
     async def stop_all(self):
-        """Stop all agent instances.
+        """Stop all agent instances concurrently.
 
         Called during application shutdown to clean up resources.
-        Cancels any pending delayed cleanup tasks and stops all agents.
+        Cancels any pending delayed cleanup tasks and stops all
+        agents in parallel via asyncio.gather.
         """
-        logger.info(f"Stopping all agents ({len(self.agents)} running)...")
+        logger.info(
+            f"Stopping all agents ({len(self.agents)} running)...",
+        )
 
-        # First, cancel pending cleanup tasks to avoid orphaned instances
         await self.cancel_all_cleanup_tasks()
 
-        # Create list of agent IDs to avoid modifying dict during iteration
-        agent_ids = list(self.agents.keys())
-
-        for agent_id in agent_ids:
+        async def _stop_one(agent_id: str, instance: Workspace):
             try:
-                instance = self.agents[agent_id]
                 await instance.stop()
                 logger.debug(f"Agent stopped: {agent_id}")
             except Exception as e:
-                logger.error(f"Error stopping agent {agent_id}: {e}")
+                logger.error(
+                    f"Error stopping agent {agent_id}: {e}",
+                )
+
+        await asyncio.gather(
+            *(_stop_one(aid, inst) for aid, inst in self.agents.items()),
+        )
 
         self.agents.clear()
         logger.info("All agents stopped")

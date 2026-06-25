@@ -23,6 +23,8 @@ import threading
 from pathlib import Path
 from typing import Any, Optional
 
+from ...exceptions import LspError
+
 LOGGER = logging.getLogger(__name__)
 
 # Hide Windows console window when spawning the server.
@@ -86,10 +88,6 @@ def parse_messages(buffer: bytes) -> tuple[list[dict], bytes]:
 # ---------------------------------------------------------------------
 # Client
 # ---------------------------------------------------------------------
-
-
-class LspError(RuntimeError):
-    """Raised when the LSP server returns a JSON-RPC error or dies."""
 
 
 def _client_capabilities() -> dict:
@@ -475,7 +473,7 @@ def shutdown_all() -> None:
     for c in clients:
         try:
             c.shutdown()
-        except Exception:  # noqa: BLE001  pragma: no cover
+        except Exception:  # pragma: no cover
             LOGGER.debug("LSP shutdown raised", exc_info=True)
 
 

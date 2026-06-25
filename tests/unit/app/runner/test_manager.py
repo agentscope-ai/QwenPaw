@@ -4,7 +4,7 @@
 Uses the real :class:`JsonChatRepository` backed by ``tmp_path`` so the
 tests cover the integrated CRUD path without mocking the repo away.
 """
-# pylint: disable=protected-access,redefined-outer-name,unused-argument
+# pylint: disable=protected-access,redefined-outer-name,unused-argument,wrong-import-position,no-name-in-module
 from __future__ import annotations
 
 import asyncio
@@ -12,9 +12,21 @@ from pathlib import Path
 
 import pytest
 
-from qwenpaw.app.runner.manager import ChatManager
-from qwenpaw.app.runner.models import ChatSpec, ChatUpdate, SessionSource
-from qwenpaw.app.runner.repo import JsonChatRepository
+# pylint: disable=no-name-in-module
+# flake8: noqa: E402,E501
+pytest.importorskip(
+    "qwenpaw.app.runner.manager",
+    reason="qwenpaw.app.runner was removed in AgentScope 2.0",
+)
+from qwenpaw.app.runner.manager import ChatManager  # type: ignore[import]
+from qwenpaw.app.runner.models import (  # type: ignore[import]
+    ChatSpec,
+    ChatUpdate,
+    SessionSource,
+)
+from qwenpaw.app.runner.repo import (  # type: ignore[import]
+    JsonChatRepository,
+)
 from qwenpaw.app.channels.schema import DEFAULT_CHANNEL
 
 

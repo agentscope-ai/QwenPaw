@@ -11,6 +11,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
+from qwenpaw.exceptions import (
+    CommandExecutionError,
+    ProcessLaunchError,
+)
+
 
 @dataclass(frozen=True)
 class CommandResult:
@@ -35,31 +40,12 @@ class CommandResult:
         return self.stderr.splitlines()
 
 
-class CommandExecutionError(RuntimeError):
-    def __init__(
-        self,
-        command: Sequence[str],
-        message: str,
-        *,
-        returncode: int | None = None,
-        stdout: str = "",
-        stderr: str = "",
-    ) -> None:
-        super().__init__(message)
-        self.command = list(command)
-        self.returncode = returncode
-        self.stdout = stdout
-        self.stderr = stderr
-
-
-class ProcessLaunchError(RuntimeError):
-    def __init__(
-        self,
-        command: Sequence[str],
-        message: str,
-    ) -> None:
-        super().__init__(message)
-        self.command = list(command)
+__all__ = [
+    "CommandExecutionError",
+    "CommandResult",
+    "ProcessLaunchError",
+    "ShutdownResult",
+]
 
 
 @dataclass(frozen=True)

@@ -6,16 +6,30 @@ from __future__ import annotations
 import json
 from datetime import datetime
 from types import SimpleNamespace
-from typing import Any, AsyncGenerator, Type
+from typing import Any, AsyncGenerator
 
 from agentscope.model import OpenAIChatModel
 from agentscope.model._model_response import ChatResponse
-from pydantic import BaseModel
 
 from qwenpaw.local_models.tag_parser import (
     parse_tool_calls_from_text,
     text_contains_tool_call_tag,
 )
+
+
+def _battr(block: Any, key: str, default: Any = None) -> Any:
+    """Read an attribute from a dict *or* Pydantic block."""
+    if isinstance(block, dict):
+        return block.get(key, default)
+    return getattr(block, key, default)
+
+
+def _bset(block: Any, key: str, value: Any) -> None:
+    """Set an attribute on a dict *or* Pydantic block."""
+    if isinstance(block, dict):
+        block[key] = value
+    else:
+        setattr(block, key, value)
 
 
 def _clone_with_overrides(obj: Any, **overrides: Any) -> Any:
@@ -328,163 +342,153 @@ def _sanitize_tool_schemas(
     return sanitized
 
 
-# Parameters accepted by OpenAI SDK's chat.completions.create().
-# Non-standard params (e.g. enable_search) are moved to extra_body.
-# API: https://developers.openai.com/api/reference/resources
-#      /chat/subresources/completions/methods/create
-# SDK: https://github.com/openai/openai-python
-#      ?tab=readme-ov-file#undocumented-request-params
-_OPENAI_CREATE_PARAMS = frozenset(
-    {
-        "messages",
-        "model",
-        "audio",
-        "frequency_penalty",
-        "function_call",
-        "functions",
-        "logit_bias",
-        "logprobs",
-        "max_completion_tokens",
-        "max_tokens",
-        "metadata",
-        "modalities",
-        "n",
-        "parallel_tool_calls",
-        "prediction",
-        "presence_penalty",
-        "prompt_cache_key",
-        "prompt_cache_retention",
-        "reasoning_effort",
-        "response_format",
-        "safety_identifier",
-        "seed",
-        "service_tier",
-        "stop",
-        "store",
-        "stream",
-        "stream_options",
-        "temperature",
-        "tool_choice",
-        "tools",
-        "top_logprobs",
-        "top_p",
-        "user",
-        "verbosity",
-        "web_search_options",
-        "extra_headers",
-        "extra_query",
-        "extra_body",
-        "timeout",
-    },
-)
-
-
 class OpenAIChatModelCompat(OpenAIChatModel):
     """OpenAIChatModel with robust parsing for malformed tool-call chunks
-    and transparent ``extra_content`` (Gemini thought_signature) relay."""
+    and transparent ``extra_content`` (Gemini thought_signature) relay.
 
-    def __init__(self, *args: Any, **kwargs: Any) -> None:
-        super().__init__(*args, **kwargs)
-        if self.generate_kwargs:
-            extra_body = self.generate_kwargs.pop("extra_body", None) or {}
-            non_standard = {
-                k: v
-                for k, v in list(self.generate_kwargs.items())
-                if k not in _OPENAI_CREATE_PARAMS
-            }
-            for k in non_standard:
-                del self.generate_kwargs[k]
-            if non_standard:
-                extra_body = {**extra_body, **non_standard}
-            if extra_body:
-                self.generate_kwargs["extra_body"] = extra_body
+    Accepts two extra constructor kwargs that ``OpenAIChatModel`` does not:
 
-    async def __call__(self, *args: Any, **kwargs: Any) -> Any:
-        from ..observability.langfuse import current_generation_kwargs
+    * ``default_headers`` — injected as ``extra_headers`` on every API call
+      (used for DashScope tracking headers, etc.).
+    * ``extra_generate_kwargs`` — merged into every ``_call_api`` invocation
+      (provider-level ``generate_kwargs`` that don't map to ``Parameters``).
+    """
 
-        langfuse_kwargs = current_generation_kwargs(self.model_name)
-        if langfuse_kwargs:
-            kwargs = {**langfuse_kwargs, **kwargs}
-        return await super().__call__(*args, **kwargs)
-
-    def _format_tools_json_schemas(
+    def __init__(
         self,
-        schemas: list[dict[str, Any]],
-    ) -> list[dict[str, Any]]:
-        """Format tool schemas while stripping boolean sub-schemas.
+        *,
+        default_headers: dict[str, str] | None = None,
+        extra_generate_kwargs: dict[str, Any] | None = None,
+        **kwargs: Any,
+    ) -> None:
+        self._default_headers = default_headers
+        self._extra_generate_kwargs = extra_generate_kwargs or {}
+        super().__init__(**kwargs)
+
+    async def _call_api(
+        self,
+        model_name: str,
+        messages: Any,
+        tools: list[dict] | None = None,
+        tool_choice: Any | None = None,
+        **generate_kwargs: Any,
+    ) -> Any:
+        merged = {**self._extra_generate_kwargs, **generate_kwargs}
+        if self._default_headers:
+            existing = merged.get("extra_headers") or {}
+            merged["extra_headers"] = {**self._default_headers, **existing}
+        return await super()._call_api(
+            model_name,
+            messages,
+            tools,
+            tool_choice,
+            **merged,
+        )
+
+    def _format_tools(
+        self,
+        tools: list[dict] | None,
+        tool_choice: Any | None,
+    ) -> tuple[list[dict] | None, Any]:
+        """Sanitize boolean sub-schemas before forwarding to base.
 
         Some MCP servers declare parameters using JSON Schema boolean values
         (e.g. ``additionalProperties: true``, ``items: true``) which are valid
-        per spec but rejected by strict providers such as DeepSeek V4 with the
-        error ``true is not of type 'array'``.  This override sanitizes the
-        schemas before forwarding them to the base implementation.
+        per spec but rejected by strict providers such as DeepSeek V4.
         """
-        return super()._format_tools_json_schemas(
-            _sanitize_tool_schemas(schemas),
-        )
+        if tools:
+            tools = _sanitize_tool_schemas(tools)
+        return super()._format_tools(tools, tool_choice)
 
     # pylint: disable=too-many-branches, too-many-statements
-    async def _parse_openai_stream_response(
+    async def _parse_stream_response(
         self,
         start_datetime: datetime,
         response: Any,
-        structured_model: Type[BaseModel] | None = None,
     ) -> AsyncGenerator[ChatResponse, None]:
         sanitized_response = _SanitizedStream(response)
 
-        # Stable tag-extracted tool-call blocks across streaming chunks.
-        # Keyed by positional strings so IDs stay consistent as chunks
-        # accumulate.  Two sources: "thinking" blocks and plain "text" blocks.
         _think_tool_calls: dict[str, dict] = {}
         _text_tool_calls: dict[str, dict] = {}
 
-        async for parsed in super()._parse_openai_stream_response(
+        async for parsed in super()._parse_stream_response(
             start_datetime=start_datetime,
             response=sanitized_response,
-            structured_model=structured_model,
         ):
             # Filter out malformed tool_use blocks (null id or empty name)
             # emitted by some OpenAI-compatible models, to prevent bad entries
             # from being persisted into session history (issue #4185).
+            _tool_types = ("tool_use", "tool_call")
+
             parsed.content = [
                 b
                 for b in parsed.content
                 if not (
-                    b.get("type") == "tool_use"
-                    and (not isinstance(b.get("id"), str) or not b.get("name"))
+                    (
+                        b.get("type")
+                        if isinstance(b, dict)
+                        else getattr(b, "type", None)
+                    )
+                    in _tool_types
+                    and (
+                        not isinstance(
+                            b.get("id")
+                            if isinstance(b, dict)
+                            else getattr(b, "id", None),
+                            str,
+                        )
+                        or not (
+                            b.get("name")
+                            if isinstance(b, dict)
+                            else getattr(b, "name", None)
+                        )
+                    )
                 )
             ]
 
-            # Attach extra_content (Gemini thought_signature) to tool_use
-            # blocks.
             if sanitized_response.extra_contents:
                 for block in parsed.content:
-                    if block.get("type") != "tool_use":
+                    btype = (
+                        block.get("type")
+                        if isinstance(block, dict)
+                        else getattr(block, "type", None)
+                    )
+                    if btype not in _tool_types:
                         continue
-                    tool_id = block.get("id")
+                    tool_id = (
+                        block.get("id")
+                        if isinstance(block, dict)
+                        else getattr(block, "id", None)
+                    )
                     if not isinstance(tool_id, str):
                         continue
                     ec = sanitized_response.extra_contents.get(tool_id)
                     if ec:
-                        block["extra_content"] = ec
+                        if isinstance(block, dict):
+                            block["extra_content"] = ec
+                        else:
+                            block.extra_content = ec
 
-            # Check whether the response already carries structured tool_use
-            # blocks (either from the model or from extra_content above).
             has_tool_use = any(
-                b.get("type") == "tool_use" for b in parsed.content
+                (
+                    b.get("type")
+                    if isinstance(b, dict)
+                    else getattr(b, "type", None)
+                )
+                in _tool_types
+                for b in parsed.content
             )
 
             if has_tool_use:
-                # Structured tool calls arrived — discard any tag-derived
-                # ones, so we don't produce duplicates.
                 _think_tool_calls.clear()
                 _text_tool_calls.clear()
             else:
                 # --- 1. Scan thinking blocks ---
                 for block in parsed.content:
-                    if block.get("type") != "thinking":
+                    btype = _battr(block, "type")
+                    if btype != "thinking":
                         continue
-                    thinking_text = block.get("thinking") or ""
+                    thinking_text = _battr(block, "thinking") or ""
                     if not text_contains_tool_call_tag(thinking_text):
                         continue
 
@@ -492,10 +496,7 @@ class OpenAIChatModelCompat(OpenAIChatModel):
                     if not think_parsed.tool_calls:
                         continue
 
-                    # Keep only the text before the first <tool_call>.
-                    # Everything after is the model's simulated continuation
-                    # (may include </tool_response>, </think> artefacts).
-                    block["thinking"] = think_parsed.text_before.strip()
+                    _bset(block, "thinking", think_parsed.text_before.strip())
 
                     _think_tool_calls = {
                         f"thinking_{i}": {
@@ -509,21 +510,17 @@ class OpenAIChatModelCompat(OpenAIChatModel):
                     }
 
                 # --- 2. Scan text/content blocks ---
-                # Some models emit <tool_call> tags directly in their
-                # response text instead of (or in addition to) thinking.
                 new_content: list | None = None
                 for i, block in enumerate(parsed.content):
-                    if block.get("type") != "text":
+                    if _battr(block, "type") != "text":
                         continue
-                    text = block.get("text") or ""
+                    text = _battr(block, "text") or ""
                     if not text_contains_tool_call_tag(text):
                         continue
 
                     text_parsed = parse_tool_calls_from_text(text)
-                    # Keep only text_before; discard the tag block and
-                    # everything after (same rationale as thinking).
                     clean_text = text_parsed.text_before.strip()
-                    block["text"] = clean_text
+                    _bset(block, "text", clean_text)
 
                     if text_parsed.tool_calls:
                         _text_tool_calls = {

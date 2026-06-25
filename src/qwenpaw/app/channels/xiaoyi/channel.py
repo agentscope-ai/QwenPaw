@@ -28,7 +28,7 @@ from urllib.parse import urlparse
 
 import aiohttp
 
-from agentscope_runtime.engine.schemas.agent_schemas import (
+from ....schemas import (
     FileContent,
     ImageContent,
     ContentType,
@@ -59,7 +59,7 @@ from .utils import download_file
 logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
-    from agentscope_runtime.engine.schemas.agent_schemas import AgentRequest
+    from ....schemas import AgentRequest
 
 # Type alias for message/disconnect callbacks
 _OnMessage = Callable[[Dict[str, Any], str], Coroutine[Any, Any, None]]
@@ -1333,7 +1333,7 @@ class XiaoYiChannel(BaseChannel):
         - kind="reasoningText": For thinking/reasoning content
         - kind="text": For regular text content
         """
-        from agentscope_runtime.engine.schemas.agent_schemas import (
+        from ....schemas import (
             MessageType,
         )
 

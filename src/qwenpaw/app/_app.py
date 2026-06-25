@@ -9,15 +9,12 @@ import time
 import uuid
 from contextlib import asynccontextmanager, suppress
 from pathlib import Path
+from typing import Any
 
-from fastapi import FastAPI, HTTPException
+from fastapi import APIRouter, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse, ORJSONResponse
-from agentscope_runtime.engine.app import AgentApp
-from agentscope_runtime.engine.schemas.exception import (
-    AppBaseException,
-)
+from fastapi.responses import FileResponse
 
 from ..config import load_config  # pylint: disable=no-name-in-module
 from ..config.utils import get_config_path
@@ -41,11 +38,11 @@ from .routers import router as api_router, create_agent_scoped_router
 from .routers.agent_scoped import AgentContextMiddleware
 from .routers.approval import router as approval_router
 from .routers.coding_mode import router as coding_mode_router
+from .routers.tool_calls import router as tool_calls_router
 from .routers.voice import voice_router
 from ..envs import load_envs_into_environ
 from ..providers.provider_manager import ProviderManager
 from ..local_models.manager import LocalModelManager
-from .multi_agent_manager import MultiAgentManager
 from .migration import (
     migrate_legacy_workspace_to_default_agent,
     migrate_legacy_skills_to_skill_pool,
@@ -71,152 +68,92 @@ mimetypes.add_type("image/svg+xml", ".svg")
 load_envs_into_environ()
 
 
-# Dynamic runner that selects the correct workspace runner based on request
+# Dynamic runner that selects the correct workspace based on request
 class DynamicMultiAgentRunner:
-    """Runner wrapper that dynamically routes to the correct workspace runner.
-
-    This allows AgentApp to work with multiple agents by inspecting
-    the X-Agent-Id header on each request.
+    """Routes each request to the correct Workspace and runs it
+    through ``Runtime.run()``.
     """
 
     def __init__(self):
         self.framework_type = "agentscope"
-        self._multi_agent_manager = None
+        self._workspace_registry = None
+        self._app_services = None
 
-    def set_multi_agent_manager(self, manager):
-        """Set the MultiAgentManager instance after initialization."""
-        self._multi_agent_manager = manager
+    def set_app_services(self, app_services):
+        """Set the cross-workspace AppServiceManager reference."""
+        self._app_services = app_services
+
+    def set_workspace_registry(self, workspace_registry):
+        """Set the WorkspaceRegistry (sole workspace manager)."""
+        self._workspace_registry = workspace_registry
 
     async def _get_workspace(self, request):
-        """Get the correct workspace based on request.
-
-        Returns:
-            Workspace: The workspace instance for the current agent.
-        """
+        """Get the correct Workspace based on request."""
         from .agent_context import get_current_agent_id
 
-        # Get agent_id from context (set by middleware or header)
         agent_id = get_current_agent_id()
+        logger.debug("_get_workspace: agent_id=%s", agent_id)
 
-        logger.debug(f"_get_workspace: agent_id={agent_id}")
+        if self._workspace_registry is None:
+            raise RuntimeError("WorkspaceRegistry not initialized")
 
-        # Get the correct workspace
-        if not self._multi_agent_manager:
-            raise RuntimeError("MultiAgentManager not initialized")
-
-        try:
-            workspace = await self._multi_agent_manager.get_agent(agent_id)
-            logger.debug(
-                "Got workspace: %s, runner: %s",
-                workspace.agent_id,
-                workspace.runner,
-            )
-            return workspace
-        except (ValueError, AppBaseException) as e:
-            logger.error(f"Agent not found: {e}")
-            raise
-        except Exception as e:
-            logger.error(
-                f"Error getting workspace: {e}",
-                exc_info=True,
-            )
-            raise
-
-    async def _get_workspace_runner(self, request):
-        """Get the correct workspace runner based on request."""
-        workspace = await self._get_workspace(request)
-        return workspace.runner
+        workspace = await self._workspace_registry.get_agent(agent_id)
+        logger.debug("Got workspace: %s", workspace.agent_id)
+        return workspace
 
     async def stream_query(self, request, *args, **kwargs):
-        """Dynamically route to the correct workspace runner.
+        """Route to the correct Workspace and run via Runtime.
 
         Registers the task with the workspace's TaskTracker so that
         graceful shutdown during agent reload can detect in-flight
-        background tasks (fixes #3275).
+        background tasks.
         """
         logger.debug("DynamicMultiAgentRunner.stream_query called")
         workspace = None
         run_key = None
         try:
             workspace = await self._get_workspace(request)
-            runner = workspace.runner
-            logger.debug(f"Got runner: {runner}, type: {type(runner)}")
 
-            # Register this task with the workspace's TaskTracker so
-            # _graceful_stop_old_instance() can see it during reload.
             run_key = f"ext-{uuid.uuid4().hex}"
-            await workspace.task_tracker.register_external_task(run_key)
+            await workspace.task_tracker.register_external_task(
+                run_key,
+            )
 
-            # Delegate to the actual runner's stream_query generator
-            count = 0
-            async for item in runner.stream_query(request, *args, **kwargs):
-                count += 1
-                logger.debug(f"Yielding item #{count}: {type(item)}")
+            from ..runtime.runtime import Runtime
+
+            rt = Runtime(
+                workspace=workspace,
+                app_services=self._app_services,
+            )
+            async for item in rt.run(request):
                 yield item
-            logger.debug(f"stream_query completed, yielded {count} items")
         except Exception as e:
             logger.error(
                 f"Error in stream_query: {e}",
                 exc_info=True,
             )
-            # Yield error message to client
             yield {
                 "error": str(e),
                 "type": "error",
             }
         finally:
-            # Always unregister the task when done (success, error,
-            # or cancellation).
             if workspace is not None and run_key is not None:
-                await workspace.task_tracker.unregister_external_task(run_key)
+                await workspace.task_tracker.unregister_external_task(
+                    run_key,
+                )
 
-    async def query_handler(self, request, *args, **kwargs):
-        """Dynamically route to the correct workspace runner.
-
-        Registers the task with the workspace's TaskTracker so that
-        graceful shutdown during agent reload can detect in-flight
-        requests (fixes #3275).
-        """
-        workspace = None
-        run_key = None
-        try:
-            workspace = await self._get_workspace(request)
-            runner = workspace.runner
-
-            run_key = f"ext-{uuid.uuid4().hex}"
-            await workspace.task_tracker.register_external_task(run_key)
-
-            async for item in runner.query_handler(request, *args, **kwargs):
-                yield item
-        finally:
-            # Always unregister the task when done (success, error,
-            # or cancellation).
-            if workspace is not None and run_key is not None:
-                await workspace.task_tracker.unregister_external_task(run_key)
-
-    # Async context manager support for AgentApp lifecycle
     async def __aenter__(self):
-        """
-        No-op context manager entry (workspaces manage their own runners).
-        """
+        """No-op context manager entry."""
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
-        """No-op context manager exit (workspaces manage their own runners)."""
+        """No-op context manager exit."""
         return None
 
 
-# Use dynamic runner for AgentApp
 runner = DynamicMultiAgentRunner()
 
-agent_app = AgentApp(
-    app_name="QwenPaw",
-    app_description="A helpful assistant with background task support",
-    runner=runner,
-    enable_stream_task=True,
-    stream_task_queue="stream_query",
-    stream_task_timeout=1800,
-)
+_agent_router = APIRouter()
 
 
 @asynccontextmanager
@@ -227,7 +164,7 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
     add_project_file_handler(LOG_FILE_PATH)
 
     # ================================================================
-    # Phase 1: Fast synchronous setup (target < 100ms)
+    # Fast synchronous setup (target < 100ms)
     # Everything here must be lightweight so the server starts quickly.
     # ================================================================
 
@@ -245,52 +182,223 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
 
     auto_register_from_env()
 
-    # Telemetry runs in a background thread to avoid blocking startup.
-    def _maybe_collect_telemetry():
-        try:
-            from ..utils.telemetry import (
-                collect_and_upload_telemetry,
-                has_telemetry_been_collected,
-                is_telemetry_opted_out,
-            )
+    try:
+        from ..utils.telemetry import (
+            collect_and_upload_telemetry,
+            has_telemetry_been_collected,
+            is_telemetry_opted_out,
+        )
 
-            if not is_telemetry_opted_out(
-                WORKING_DIR,
-            ) and not has_telemetry_been_collected(WORKING_DIR):
-                collect_and_upload_telemetry(WORKING_DIR)
+        if not is_telemetry_opted_out(
+            WORKING_DIR,
+        ) and not has_telemetry_been_collected(WORKING_DIR):
+            collect_and_upload_telemetry(WORKING_DIR)
+    except Exception:
+        logger.debug(
+            "Telemetry collection skipped due to error",
+            exc_info=True,
+        )
+
+    logger.debug("Checking for legacy config migration...")
+    migrate_legacy_workspace_to_default_agent()
+    ensure_default_agent_exists()
+    migrate_legacy_skills_to_skill_pool()
+    ensure_qa_agent_exists()
+
+    # Create core managers (instant — no I/O)
+    provider_manager = ProviderManager.get_instance()
+    local_model_manager = LocalModelManager.get_instance()
+
+    # --- AppServiceManager + WorkspaceRegistry ---
+    app_services = None
+    workspace_registry = None
+    try:
+        from .app_services import AppServiceManager
+        from .workspace_registry import WorkspaceRegistry
+
+        app_services = AppServiceManager()
+        await app_services.start()
+        app.state.app_services = app_services
+
+        workspace_registry = WorkspaceRegistry(
+            app_services=app_services,
+        )
+        app.state.workspace_registry = workspace_registry
+        logger.debug("Runtime infrastructure initialized")
+
+        # --- @api_action auto-registration ---
+        _api_action_command_specs: list[Any] = []
+        try:
+            from ..api_action import ManagerRegistry
+            from ._api_action_routes import (
+                collect_slash_specs_from_api_actions,
+                register_http_routes,
+            )
+            from .crons.manager import CronManager
+
+            manager_registry = ManagerRegistry()
+
+            def _get_default_cron_mgr(app_inst: Any) -> Any:
+                mam = getattr(app_inst.state, "multi_agent_manager", None)
+                if mam is None:
+                    return None
+                # pylint: disable-next=protected-access
+                ws = mam._workspaces.get("default")
+                return getattr(ws, "cron_manager", None) if ws else None
+
+            manager_registry.register(CronManager, _get_default_cron_mgr)
+            app.state.manager_registry = manager_registry
+
+            n_routes = register_http_routes(app, manager_registry)
+            logger.debug("Auto-registered %d HTTP routes", n_routes)
+
+            _api_action_command_specs.extend(
+                collect_slash_specs_from_api_actions(manager_registry),
+            )
+            logger.debug(
+                "Collected %d slash specs from @api_action",
+                len(_api_action_command_specs),
+            )
         except Exception:
             logger.debug(
-                "Telemetry collection skipped due to error",
+                "@api_action auto-registration skipped",
                 exc_info=True,
             )
 
-    asyncio.get_event_loop().run_in_executor(
-        None,
-        _maybe_collect_telemetry,
-    )
+        # --- HITL slash commands ---
+        try:
+            from .app_services._builtin_tool_commands import (
+                build_tool_command_specs,
+            )
 
-    # Migrations offloaded to thread pool — they do heavy file I/O.
-    # Workspace migration must finish first (others read its output).
-    # ensure_default/qa_agent both read-modify-write config.json so
-    # they stay sequential; skills migration only reads config + writes
-    # skill files so it can overlap safely.
-    logger.debug("Checking for legacy config migration...")
-    await asyncio.to_thread(migrate_legacy_workspace_to_default_agent)
+            _api_action_command_specs.extend(
+                build_tool_command_specs(app_services.tool_coordinator),
+            )
+            logger.debug("HITL tool commands registered")
+        except Exception:
+            logger.debug(
+                "HITL tool command registration skipped",
+                exc_info=True,
+            )
 
-    async def _agent_ensures():
-        await asyncio.to_thread(ensure_default_agent_exists)
-        await asyncio.to_thread(ensure_qa_agent_exists)
+        # --- Built-in tools ---
+        try:
+            from ..agents.tools import discover_builtin_tool_funcs
 
-    await asyncio.gather(
-        _agent_ensures(),
-        asyncio.to_thread(migrate_legacy_skills_to_skill_pool),
-    )
+            # pylint: disable-next=protected-access
+            workspace_registry._bootstrap_kwargs[
+                "builtin_tool_funcs"
+            ] = discover_builtin_tool_funcs()
+            logger.debug("Built-in tool funcs collected")
+        except Exception:
+            logger.debug(
+                "Built-in tool func collection skipped",
+                exc_info=True,
+            )
 
-    # Create core managers (instant — no I/O)
-    logger.debug("Initializing MultiAgentManager...")
-    multi_agent_manager = MultiAgentManager()
-    provider_manager = ProviderManager.get_instance()
-    local_model_manager = LocalModelManager.get_instance()
+        # --- Built-in slash commands (daemon, control, conversation) ---
+        try:
+            from ..runtime.builtin_commands import (
+                collect_builtin_command_specs,
+                get_skill_fallback_handler,
+            )
+
+            _api_action_command_specs.extend(collect_builtin_command_specs())
+            # pylint: disable-next=protected-access
+            workspace_registry._bootstrap_kwargs[
+                "builtin_fallback_handler"
+            ] = get_skill_fallback_handler()
+            logger.debug("Built-in slash commands collected")
+        except Exception:
+            logger.debug(
+                "Built-in slash command collection skipped",
+                exc_info=True,
+            )
+
+        # --- Built-in lifecycle hooks ---
+        try:
+            from ..hooks.session.session_hook import (
+                SessionLoadHook,
+                SessionSaveHook,
+            )
+            from ..hooks.bootstrap.bootstrap_hook import BootstrapHook
+            from ..hooks.skill_env.skill_env_hook import (
+                SkillEnvHook,
+                SkillEnvCleanupHook,
+            )
+            from ..hooks.cron.cron_hook import CronContextHook
+            from ..hooks.request_setup.contextvars_hook import (
+                ContextVarsSetupHook,
+            )
+            from ..hooks.request_setup.media_hook import MediaProcessHook
+            from ..hooks.error.error_hook import (
+                ErrorNormalizeHook,
+                CancelCleanupHook,
+            )
+
+            # pylint: disable-next=protected-access
+            workspace_registry._bootstrap_kwargs["builtin_hook_clses"] = [
+                CronContextHook,
+                SessionLoadHook,
+                SessionSaveHook,
+                BootstrapHook,
+                SkillEnvHook,
+                SkillEnvCleanupHook,
+                ContextVarsSetupHook,
+                MediaProcessHook,
+                ErrorNormalizeHook,
+                CancelCleanupHook,
+            ]
+            logger.debug("Built-in lifecycle hooks collected")
+        except Exception:
+            logger.debug(
+                "Built-in lifecycle hook collection skipped",
+                exc_info=True,
+            )
+
+        # --- Built-in prompt contributors ---
+        try:
+            from ..runtime.prompt_contributors import _ALL_CONTRIBUTORS
+
+            # pylint: disable-next=protected-access
+            workspace_registry._bootstrap_kwargs[
+                "builtin_contributor_clses"
+            ] = _ALL_CONTRIBUTORS
+            logger.debug("Built-in prompt contributors collected")
+        except Exception:
+            logger.debug(
+                "Built-in prompt contributor collection skipped",
+                exc_info=True,
+            )
+
+        # --- Built-in modes (CodingMode, MissionMode) ---
+        try:
+            from ..modes.coding import CodingMode
+            from ..modes.mission import MissionMode
+
+            # pylint: disable-next=protected-access
+            workspace_registry._bootstrap_kwargs["builtin_mode_clses"] = [
+                CodingMode,
+                MissionMode,
+            ]
+            logger.debug("Built-in modes collected")
+        except Exception:
+            logger.debug(
+                "Built-in mode collection skipped",
+                exc_info=True,
+            )
+
+        if _api_action_command_specs:
+            # pylint: disable-next=protected-access
+            workspace_registry._bootstrap_kwargs[
+                "builtin_command_specs"
+            ] = _api_action_command_specs
+
+    except Exception:
+        logger.debug(
+            "Runtime infrastructure init skipped",
+            exc_info=True,
+        )
 
     # Start token usage manager background tasks
     logger.debug("Starting TokenUsageManager background tasks...")
@@ -299,22 +407,27 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
     token_usage_manager = get_token_usage_manager()
     token_usage_manager.start(flush_interval=10)
 
-    # Expose to endpoints (must be set before first request arrives)
-    app.state.multi_agent_manager = multi_agent_manager
+    # Expose to endpoints (must be set before first request arrives).
+    # WorkspaceRegistry IS-A MultiAgentManager — backward compat for
+    # routers / agent_context that read app.state.multi_agent_manager.
+    app.state.multi_agent_manager = workspace_registry
     app.state.provider_manager = provider_manager
     app.state.local_model_manager = local_model_manager
     app.state.plugin_loader = None
     app.state.plugin_registry = None
 
     if isinstance(runner, DynamicMultiAgentRunner):
-        runner.set_multi_agent_manager(multi_agent_manager)
+        if app_services is not None:
+            runner.set_app_services(app_services)
+        if workspace_registry is not None:
+            runner.set_workspace_registry(workspace_registry)
 
     async def _get_agent_by_id(agent_id: str = None):
         """Get agent instance by ID, or active agent if not specified."""
         if agent_id is None:
             config = load_config(get_config_path())
             agent_id = config.agents.active_agent or "default"
-        return await multi_agent_manager.get_agent(agent_id)
+        return await workspace_registry.get_agent(agent_id)
 
     app.state.get_agent_by_id = _get_agent_by_id
 
@@ -325,7 +438,7 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
     )
 
     # ================================================================
-    # Phase 2: Background heavy initialization
+    # Background heavy initialization
     # Agents, plugins, and services start in a background task so the
     # server can begin accepting HTTP requests immediately.
     # First API requests that need an agent will await its readiness
@@ -334,38 +447,38 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
 
     async def _background_startup():  # pylint: disable=too-many-statements
         try:
-            # ---- Parallel: agents + plugins + local model resume ----
-            # These are independent and together dominate startup time.
-
-            async def _load_plugins():
-                logger.debug("Initializing plugin system...")
-                from ..plugins.loader import PluginLoader
-                from ..config.utils import get_plugins_dir
-
-                plugin_dirs = [get_plugins_dir()]
-                loader = PluginLoader(plugin_dirs)
-                loader.registry.set_plugin_http_app(app)
-
-                cfg = load_config(get_config_path())
-                plugin_cfgs = cfg.plugins if hasattr(cfg, "plugins") else {}
-                logger.debug(
-                    f"Loading plugins with " f"{len(plugin_cfgs)} config(s)",
-                )
-                loaded = await loader.load_all_plugins(
-                    configs=plugin_cfgs,
-                )
-                logger.debug(f"Loaded {len(loaded)} plugin(s)")
-                return loader
-
-            plugin_loader, _ = await asyncio.gather(
-                _load_plugins(),
-                multi_agent_manager.start_all_configured_agents(),
-            )
+            # Start all configured agents (truly parallel now)
+            await workspace_registry.start_all_configured_agents()
 
             provider_manager.start_local_model_resume(local_model_manager)
 
-            # ---- Plugin providers (depends on plugins loaded) ----
+            # ---- Plugin System ----
+            logger.debug("Initializing plugin system...")
+
+            from ..plugins.loader import PluginLoader
             from ..plugins.runtime import RuntimeHelpers
+            from ..config.utils import get_plugins_dir
+
+            plugin_dirs = [
+                get_plugins_dir(),
+            ]
+
+            plugin_loader = PluginLoader(plugin_dirs)
+
+            plugin_loader.registry.set_plugin_http_app(app)
+
+            config = load_config(get_config_path())
+            plugin_configs = (
+                config.plugins if hasattr(config, "plugins") else {}
+            )
+            logger.debug(
+                f"Loading plugins with {len(plugin_configs)} config(s)",
+            )
+
+            loaded_plugins = await plugin_loader.load_all_plugins(
+                configs=plugin_configs,
+            )
+            logger.debug(f"Loaded {len(loaded_plugins)} plugin(s)")
 
             runtime_helpers = RuntimeHelpers(
                 provider_manager=provider_manager,
@@ -392,7 +505,7 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
 
             # ---- Plugin Control Commands ----
             logger.debug("Registering plugin control commands...")
-            from ..app.runner.control_commands import register_command
+            from qwenpaw.runtime.commands.control import register_command
             from ..app.channels.command_registry import CommandRegistry
 
             command_registry = CommandRegistry()
@@ -421,61 +534,38 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
                         exc_info=True,
                     )
 
-            # ---- Startup Hooks (same priority run concurrently) ----
+            # ---- Startup Hooks ----
             logger.debug("Executing plugin startup hooks...")
             startup_hooks = plugin_loader.registry.get_startup_hooks()
-
-            from itertools import groupby
-
-            async def _run_hook(hook):
-                logger.debug(
-                    f"Executing startup hook '{hook.hook_name}' "
-                    f"from plugin '{hook.plugin_id}' "
-                    f"(priority={hook.priority})",
-                )
-                result = hook.callback()
-                if inspect.iscoroutine(
-                    result,
-                ) or inspect.isawaitable(result):
-                    await result
-                logger.debug(
-                    f"Completed startup hook '{hook.hook_name}' "
-                    f"from plugin '{hook.plugin_id}'",
-                )
-
-            for _priority, group in groupby(
-                startup_hooks,
-                key=lambda h: h.priority,
-            ):
-                hooks_in_group = list(group)
-                if len(hooks_in_group) == 1:
-                    try:
-                        await _run_hook(hooks_in_group[0])
-                    except Exception as e:
-                        logger.error(
-                            f"✗ Failed startup hook "
-                            f"'{hooks_in_group[0].hook_name}' "
-                            f"from '{hooks_in_group[0].plugin_id}'"
-                            f": {e}",
-                            exc_info=True,
-                        )
-                else:
-                    results = await asyncio.gather(
-                        *[_run_hook(h) for h in hooks_in_group],
-                        return_exceptions=True,
+            for hook in startup_hooks:
+                try:
+                    logger.debug(
+                        f"Executing startup hook '{hook.hook_name}' "
+                        f"from plugin '{hook.plugin_id}' "
+                        f"(priority={hook.priority})",
                     )
-                    for hook, res in zip(hooks_in_group, results):
-                        if isinstance(res, Exception):
-                            logger.error(
-                                f"✗ Failed startup hook "
-                                f"'{hook.hook_name}' from "
-                                f"'{hook.plugin_id}': {res}",
-                                exc_info=True,
-                            )
+
+                    result = hook.callback()
+                    if inspect.iscoroutine(
+                        result,
+                    ) or inspect.isawaitable(result):
+                        await result
+
+                    logger.debug(
+                        f"Completed startup hook '{hook.hook_name}' "
+                        f"from plugin '{hook.plugin_id}'",
+                    )
+                except Exception as e:
+                    logger.error(
+                        f"✗ Failed to execute startup hook "
+                        f"'{hook.hook_name}' "
+                        f"from plugin '{hook.plugin_id}': {e}",
+                        exc_info=True,
+                    )
 
             # ---- Approval Service ----
             try:
-                default_agent = await multi_agent_manager.get_agent(
+                default_agent = await workspace_registry.get_agent(
                     "default",
                 )
                 if default_agent.channel_manager:
@@ -560,6 +650,14 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
                 with suppress(OSError, RuntimeError, ValueError):
                     local_model_mgr.shutdown_server_sync()
 
+        # Stop AppServiceManager (ToolCoordinator shutdown, etc.)
+        _app_svc = getattr(app.state, "app_services", None)
+        if _app_svc is not None:
+            try:
+                await _app_svc.stop()
+            except Exception as e:
+                logger.error(f"Error stopping AppServiceManager: {e}")
+
         # Stop multi-agent manager (stops all agents and their components)
         multi_agent_mgr = getattr(app.state, "multi_agent_manager", None)
         if multi_agent_mgr is not None:
@@ -569,28 +667,40 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
             except Exception as e:
                 logger.error(f"Error stopping MultiAgentManager: {e}")
 
-        # Stop token usage manager (drain queue and final flush)
-        logger.info("Stopping TokenUsageManager...")
-        try:
-            await token_usage_manager.stop()
-        except Exception as e:
-            logger.error(f"Error stopping TokenUsageManager: {e}")
-
-        # Stop all browser instances
+        # These three cleanup tasks are independent; run in parallel.
         from ..agents.tools.browser_control import stop_all_browsers
-
-        try:
-            await stop_all_browsers()
-        except Exception as e:
-            logger.error(f"Error stopping browsers during shutdown: {e}")
-
-        # Close the shared httpx client owned by the skills hub module.
         from ..agents.skill_system.hub import aclose_hub_client
 
-        try:
-            await aclose_hub_client()
-        except Exception as e:
-            logger.error(f"Error closing skills hub HTTP client: {e}")
+        async def _stop_token_usage():
+            logger.info("Stopping TokenUsageManager...")
+            try:
+                await token_usage_manager.stop()
+            except Exception as e:
+                logger.error(
+                    f"Error stopping TokenUsageManager: {e}",
+                )
+
+        async def _stop_browsers():
+            try:
+                await stop_all_browsers()
+            except Exception as e:
+                logger.error(
+                    f"Error stopping browsers: {e}",
+                )
+
+        async def _close_hub():
+            try:
+                await aclose_hub_client()
+            except Exception as e:
+                logger.error(
+                    f"Error closing skills hub HTTP client: {e}",
+                )
+
+        await asyncio.gather(
+            _stop_token_usage(),
+            _stop_browsers(),
+            _close_hub(),
+        )
 
         logger.info("Application shutdown complete")
 
@@ -600,7 +710,6 @@ app = FastAPI(
     docs_url="/docs" if DOCS_ENABLED else None,
     redoc_url="/redoc" if DOCS_ENABLED else None,
     openapi_url="/openapi.json" if DOCS_ENABLED else None,
-    default_response_class=ORJSONResponse,
 )
 
 # Add agent context middleware for agent-scoped routes
@@ -697,6 +806,8 @@ def get_doctor_runtime():
 
 app.include_router(api_router, prefix="/api")
 
+app.include_router(tool_calls_router, prefix="/api")
+
 # Approval router: /api/approval/approve, /api/approval/deny, etc.
 app.include_router(approval_router, prefix="/api")
 
@@ -708,7 +819,7 @@ agent_scoped_router = create_agent_scoped_router()
 app.include_router(agent_scoped_router, prefix="/api")
 
 app.include_router(
-    agent_app.router,
+    _agent_router,
     prefix="/api/agent",
     tags=["agent"],
 )

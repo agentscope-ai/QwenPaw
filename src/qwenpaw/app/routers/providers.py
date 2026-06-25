@@ -16,7 +16,7 @@ from fastapi import (
 )
 from pydantic import BaseModel, Field
 
-from agentscope_runtime.engine.schemas.exception import (
+from qwenpaw.exceptions import (
     AppBaseException,
 )
 

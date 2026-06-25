@@ -25,7 +25,7 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 import aiohttp
 
-from agentscope_runtime.engine.schemas.agent_schemas import (
+from qwenpaw.schemas import (
     TextContent,
     ImageContent,
     VideoContent,
@@ -36,7 +36,7 @@ from agentscope_runtime.engine.schemas.agent_schemas import (
 
 from ....config.config import QQConfig as QQChannelConfig
 from ....constant import WORKING_DIR
-from ....exceptions import ChannelError
+from ....exceptions import ChannelError, QQApiError
 
 from ..base import (
     BaseChannel,
@@ -195,16 +195,6 @@ class _HeartbeatController:
         except Exception:
             pass
         self._schedule()
-
-
-class QQApiError(RuntimeError):
-    """HTTP error returned by QQ API."""
-
-    def __init__(self, path: str, status: int, data: Any):
-        self.path = path
-        self.status = status
-        self.data = data
-        super().__init__(f"API {path} {status}: {data}")
 
 
 def _is_recoverable_ws_os_error(exc: OSError) -> bool:

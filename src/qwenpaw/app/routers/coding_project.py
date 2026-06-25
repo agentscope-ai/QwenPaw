@@ -303,7 +303,7 @@ async def clone_project(
 
         except (asyncio.CancelledError, GeneratorExit):
             pass
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             payload = json.dumps({"type": "error", "detail": str(exc)})
             yield f"data: {payload}\n\n"
 
@@ -381,7 +381,7 @@ async def import_local(body: ImportLocalRequest, request: Request) -> dict:
 
     try:
         project_path = await asyncio.to_thread(_copy)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
     await asyncio.to_thread(
@@ -446,7 +446,7 @@ async def upload_zip(
         project_path = await asyncio.to_thread(_extract)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
     # Auto-init git repo if the extracted folder has no repo

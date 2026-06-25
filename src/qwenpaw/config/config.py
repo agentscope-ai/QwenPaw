@@ -15,7 +15,7 @@ from pydantic import (
     model_validator,
 )
 import shortuuid
-from agentscope_runtime.engine.schemas.exception import (
+from qwenpaw.exceptions import (
     ConfigurationException,
 )
 
@@ -224,6 +224,7 @@ class DiscordConfig(BaseChannelConfig):
     http_proxy: str = ""
     http_proxy_auth: str = ""
     accept_bot_messages: bool = False
+    streaming_enabled: bool = False
 
 
 class DingTalkConfig(BaseChannelConfig):
@@ -546,12 +547,20 @@ class AutoMemorySearchConfig(BaseModel):
     )
 
     min_score: float = Field(
-        default=0.3,
+        default=0,
         ge=0.0,
         le=1.0,
         description=(
             "Minimum relevance score for results when auto memory"
             " search is enabled"
+        ),
+    )
+
+    persist_to_context: bool = Field(
+        default=True,
+        description=(
+            "Whether to persist auto memory search tool_call/tool_result "
+            "messages into the conversation context"
         ),
     )
 
@@ -637,18 +646,43 @@ class ReMeLightMemoryConfig(BaseModel):
 
     model_config = ConfigDict(extra="ignore")
 
+    metadata_dir: str = Field(
+        default="mem_metadata",
+        description="Subdirectory for ReMe persistent state",
+    )
+    session_dir: str = Field(
+        default="mem_session",
+        description="Subdirectory for persisted agent sessions",
+    )
+    resource_dir: str = Field(
+        default="resource",
+        description="Subdirectory for external assets",
+    )
+    daily_dir: str = Field(
+        default="memory",
+        description="Subdirectory for daily memory",
+    )
+    digest_dir: str = Field(
+        default="digest",
+        description="Subdirectory for digest memory",
+    )
+    enable_search_raw_log: bool = Field(
+        default=False,
+        description="Whether to enable raw log search",
+    )
+
     summarize_when_compact: bool = Field(
         default=True,
         description="Whether to enable memory summarization during compaction",
     )
 
     auto_memory_interval: int | None = Field(
-        default=None,
-        description="Auto memory every N user queries. None disables "
-        "periodic auto memory, 1 means auto memory after every user "
-        "query, 2 means every 2 queries, etc. WARNING: Setting too "
-        "small (e.g., 1-3) may cause high token usage and heavy "
-        "background task burden. Recommended: 5 or 10.",
+        default=1,
+        description="Auto memory every N user queries. 1 means auto "
+        "memory after every user query, 2 means every 2 queries, etc. "
+        "None or <= 0 disables periodic auto memory. WARNING: Setting "
+        "too small (e.g., 1-3) may cause high token usage and heavy "
+        "background task burden.",
     )
 
     dream_cron: str = Field(
@@ -671,15 +705,6 @@ class ReMeLightMemoryConfig(BaseModel):
             "Whether to clear and rebuild the memory search index when the"
             " agent starts. Set to False to skip re-indexing and only monitor"
             " new file changes."
-        ),
-    )
-
-    recursive_file_watcher: bool = Field(
-        default=False,
-        description=(
-            "Whether to watch memory directory recursively. "
-            "Set to True to include subdirectories like memory/subdirectory/* "
-            "in vector search indexing."
         ),
     )
 
@@ -706,17 +731,12 @@ class ContextCompactConfig(BaseModel):
 
     reserve_threshold_ratio: float = Field(
         default=0.1,
-        ge=0,
+        gt=0,
         le=0.3,
         description=(
             "Context reserve threshold ratio: the most recent fraction of the "
             "context is preserved after compaction to maintain continuity"
         ),
-    )
-
-    compact_with_thinking_block: bool = Field(
-        default=True,
-        description="Whether to include thinking blocks when compacting",
     )
 
 

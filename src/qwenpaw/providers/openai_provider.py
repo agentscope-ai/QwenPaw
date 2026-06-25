@@ -150,45 +150,48 @@ class OpenAIProvider(Provider):
             )
 
     def get_chat_model_instance(self, model_id: str) -> ChatModelBase:
+        from agentscope.credential._openai import OpenAICredential
+        from agentscope.model import OpenAIChatModel
+
         from .openai_chat_model_compat import OpenAIChatModelCompat
 
-        client_kwargs: dict = {"base_url": self.base_url}
+        credential = OpenAICredential(
+            id=f"qwenpaw-{self.id}",
+            api_key=self.api_key,
+            base_url=self.base_url,
+        )
 
-        # Start with user-defined custom headers, then layer platform-specific
-        # headers on top so required service headers are always present.
+        # Platform-specific headers injected per-request via extra_headers.
         merged_headers = self._build_default_headers()
-
+        dashscope_meta = json.dumps(
+            {
+                "agentType": "QwenPaw",
+                "deployType": "UnKnown",
+                "moduleCode": "model",
+                "agentCode": "UnKnown",
+            },
+            ensure_ascii=False,
+        )
         if self.base_url in DASHSCOPE_BASE_URLS:
-            merged_headers["x-dashscope-agentapp"] = json.dumps(
-                {
-                    "agentType": "QwenPaw",
-                    "deployType": "UnKnown",
-                    "moduleCode": "model",
-                    "agentCode": "UnKnown",
-                },
-                ensure_ascii=False,
-            )
+            merged_headers["x-dashscope-agentapp"] = dashscope_meta
         elif self.base_url in (CODING_DASHSCOPE_BASE_URL, TOKEN_PLAN_BASE_URL):
-            merged_headers["X-DashScope-Cdpl"] = json.dumps(
-                {
-                    "agentType": "QwenPaw",
-                    "deployType": "UnKnown",
-                    "moduleCode": "model",
-                    "agentCode": "UnKnown",
-                },
-                ensure_ascii=False,
-            )
+            merged_headers["X-DashScope-Cdpl"] = dashscope_meta
 
-        if merged_headers:
-            client_kwargs["default_headers"] = merged_headers
+        gen_kwargs = self.get_effective_generate_kwargs(model_id)
+        parameters = OpenAIChatModel.Parameters(
+            max_tokens=gen_kwargs.pop("max_tokens", None),
+            temperature=gen_kwargs.pop("temperature", None),
+            top_p=gen_kwargs.pop("top_p", None),
+        )
 
         return OpenAIChatModelCompat(
-            model_name=model_id,
+            credential=credential,
+            model=model_id,
+            parameters=parameters,
             stream=True,
-            api_key=self.api_key,
-            stream_tool_parsing=False,
-            client_kwargs=client_kwargs,
-            generate_kwargs=self.get_effective_generate_kwargs(model_id),
+            default_headers=merged_headers or None,
+            extra_generate_kwargs=gen_kwargs or None,
+            context_size=self._get_context_size(model_id),
         )
 
     async def probe_model_multimodal(

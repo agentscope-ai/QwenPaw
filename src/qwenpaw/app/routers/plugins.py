@@ -51,7 +51,7 @@ def _list_plugins_from_disk() -> list[dict]:
         try:
             with open(manifest_path, encoding="utf-8") as f:
                 manifest = json.load(f)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             logger.warning("Failed to read %s: %s", manifest_path, exc)
             continue
 
@@ -170,7 +170,7 @@ async def _post_load_setup(  # pylint: disable=too-many-branches
 
     # Register any control commands the plugin registered
     try:
-        from ...app.runner.control_commands import register_command
+        from ...runtime.commands.control import register_command
         from ...app.channels.command_registry import CommandRegistry
 
         command_registry = CommandRegistry()
@@ -380,7 +380,7 @@ def _post_unload_cleanup(
     # ── Control commands ─────────────────────────────────────────────────
     if command_names:
         try:
-            from ...app.runner.control_commands import (
+            from ...runtime.commands.control import (
                 unregister_command as unregister_handler,
             )
             from ...app.channels.command_registry import CommandRegistry
@@ -953,7 +953,7 @@ async def _async_download(url: str, dest: Path) -> None:
     import asyncio
 
     def _download() -> None:
-        with urllib.request.urlopen(  # noqa: S310
+        with urllib.request.urlopen(
             url,
             timeout=_DOWNLOAD_TIMEOUT,
         ) as resp:

@@ -355,6 +355,7 @@ try:
 except (TypeError, ValueError):
     TOOL_GUARD_APPROVAL_TIMEOUT_SECONDS = 300.0
 
+
 # Tool guard approval heartbeat interval (seconds).
 # Sends periodic heartbeat messages during approval wait to keep SSE
 # connection alive. Should be less than browser/proxy timeout (30-60s).

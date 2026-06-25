@@ -7,17 +7,19 @@ This module handles system commands like /compact, /new, /clear, etc.
 import json
 import logging
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import Any, TYPE_CHECKING
 
 from agentscope.message import Msg, TextBlock
 
+from .utils.context_stats import format_history_str
 from ..config.config import load_agent_config, get_model_max_input_length
 from ..constant import DEBUG_HISTORY_FILE, MAX_LOAD_HISTORY_COUNT
 from ..exceptions import SystemCommandException
 
 if TYPE_CHECKING:
+    from agentscope.agent import Agent
+    from agentscope.state import AgentState
     from .memory import BaseMemoryManager
-    from .context import AgentContext, BaseContextManager
 
 logger = logging.getLogger(__name__)
 
@@ -53,8 +55,7 @@ def _fmt_tokens(n: int) -> str:
 class ConversationCommandHandlerMixin:
     """Mixin for conversation (system) commands: /compact, /new, /clear, etc.
 
-    Expects self to have: agent_name, memory, formatter, memory_manager,
-    context_manager.
+    Expects self to have: agent_name, memory, formatter, memory_manager.
     """
 
     # Supported conversation commands (unchanged set)
@@ -71,6 +72,7 @@ class ConversationCommandHandlerMixin:
             "load_history",
             "proactive",
             "plan",
+            "system_prompt",
         },
     )
 
@@ -103,30 +105,75 @@ class CommandHandler(ConversationCommandHandlerMixin):
     def __init__(
         self,
         agent_name: str,
-        memory: "AgentContext",
+        agent: "Agent | None" = None,
         memory_manager: "BaseMemoryManager | None" = None,
-        context_manager: "BaseContextManager | None" = None,
+        offloader: Any = None,
+        *,
+        state: "AgentState | None" = None,
+        agent_id: str = "default",
+        prompt_context: Any = None,
     ):
         """Initialize command handler.
 
+        Can be constructed in two modes:
+
+        1. **Agent-backed**: pass ``agent`` — state is read from
+           ``agent.state``.
+        2. **Standalone**: pass ``state`` directly — no
+           agent instance required.  Used by slash command adapters that
+           load state from session before agent construction.
+
         Args:
-            agent_name: Name of the agent for message creation
-            memory: Agent's context instance (AgentContext)
-            memory_manager: Optional memory manager instance
-            context_manager: Optional context manager instance
+            agent_name: Name of the agent for message creation.
+            agent: The owning agent (optional in standalone mode).
+            memory_manager: Optional long-term memory manager (ReMe).
+            offloader: Optional offloader for persisting context to disk.
+            state: Direct AgentState (standalone mode). Mutually
+                exclusive with ``agent``.
+            agent_id: Agent ID for config loading (standalone mode).
+            prompt_context: Optional runtime HookContext used to rebuild
+                the current system prompt in standalone slash-command mode.
         """
+        if agent is not None and state is not None:
+            raise ValueError(
+                "agent and state are mutually exclusive; "
+                "pass one or the other",
+            )
         self.agent_name = agent_name
-        self.memory: "AgentContext" = memory
+        self._agent = agent
+        self._state_direct: "AgentState | None" = state
+        self._agent_id = agent_id
         self.memory_manager: "BaseMemoryManager" = memory_manager
-        self.context_manager: "BaseContextManager" = context_manager
+        self._offloader = offloader
+        self._prompt_context = prompt_context
 
     def _get_agent_config(self):
-        """Get hot-reloaded agent config.
+        """Get hot-reloaded agent config."""
+        if self.memory_manager is not None:
+            return load_agent_config(self.memory_manager.agent_id)
+        return load_agent_config(self._agent_id)
 
-        Returns:
-            AgentProfileConfig: The current agent configuration
-        """
-        return load_agent_config(self.memory_manager.agent_id)
+    # ------------------------------------------------------------------
+    # State accessors — short-term memory lives on ``agent.state``
+    # or the directly-provided ``_state_direct``.
+    # ------------------------------------------------------------------
+
+    @property
+    def _state(self):
+        """AgentState — from direct reference or agent.state."""
+        if self._state_direct is not None:
+            return self._state_direct
+        return self._agent.state
+
+    def _get_summary(self) -> str:
+        """Read ``state.summary`` (string only — defensive against list
+        form)."""
+        s = self._state.summary
+        return s if isinstance(s, str) else ""
+
+    def _set_summary(self, value: str) -> None:
+        """Write the rolling compaction summary."""
+        self._state.summary = value or ""
 
     def is_command(self, query: str | None) -> bool:
         """Check if the query is a system command (alias for mixin)."""
@@ -157,79 +204,117 @@ class CommandHandler(ConversationCommandHandlerMixin):
         """Check if memory manager is available."""
         return self.memory_manager is not None
 
-    def _has_context_manager(self) -> bool:
-        """Check if context manager is available."""
-        return self.context_manager is not None
-
     async def _process_compact(
         self,
         messages: list[Msg],
-        args: str = "",
+        args: str = "",  # pylint: disable=unused-argument
     ) -> Msg:
-        """Process /compact command."""
-        extra_instruction = args.strip()
+        """Process /compact command.
+
+        Delegates to agentscope's native ``Agent.compress_context()``.
+        In standalone mode (no agent instance), a temporary lightweight
+        Agent is built to perform the compression.
+        """
         if not messages:
             return await self._make_system_msg(
                 "📭 **No messages to compact.**\n\n"
                 "- Current memory is empty\n"
                 "- No action taken",
             )
-        if not self._has_memory_manager() or not self._has_context_manager():
-            return await self._make_system_msg(
-                "🚫 **Memory/Context Manager Disabled**\n\n"
-                "- Memory compaction is not available\n"
-                "- Enable memory and context manager to use this feature",
-            )
-
-        self.memory_manager.add_summarize_task(messages=messages)
-        result = await self.context_manager.compact_context(
-            messages=messages,
-            previous_summary=self.memory.get_compressed_summary(),
-            extra_instruction=extra_instruction,
-        )
 
         agent_config = self._get_agent_config()
-        max_len = get_model_max_input_length(agent_config)
-
-        if not result.get("success"):
-            reason = result.get("reason", "unknown")
-            before = result.get("before_tokens", 0)
-            before_pct = (
-                f"{before / max_len * 100:.0f}%" if max_len > 0 else "N/A"
-            )
+        compact_config = (
+            agent_config.running.light_context_config.context_compact_config
+        )
+        if not compact_config.enabled:
             return await self._make_system_msg(
-                f"❌ **Compact Failed!**\n\n"
-                f"- Reason: {reason}\n"
-                f"- Messages: {len(messages)}, "
-                f"Tokens: {_fmt_tokens(before)}/"
-                f"{_fmt_tokens(max_len)} ({before_pct})\n"
-                f"- Please check the logs for details\n"
-                f"- If context exceeds max length, "
-                f"please use `/new` or `/clear` to clear the context",
+                "🚫 **Compact skipped.**\n\n"
+                "- Context compaction is disabled in config\n"
+                "- Enable `light_context_config."
+                "context_compact_config.enabled` "
+                "to use `/compact`",
             )
 
-        compact_content = result.get("history_compact", "")
-        await self.memory.update_compressed_summary(compact_content)
-        before = result.get("before_tokens", 0)
-        after = result.get("after_tokens", 0)
-        await self.memory.clear_content()
-        before_pct = f"{before / max_len * 100:.0f}%" if max_len > 0 else "N/A"
-        after_pct = f"{after / max_len * 100:.0f}%" if max_len > 0 else "N/A"
+        agent = self._agent
+        if agent is None:
+            agent = await self._build_tmp_agent()
+            if agent is None:
+                return await self._make_system_msg(
+                    "🚫 **Compact failed — could not initialise model.**\n\n"
+                    "- Check that an active model is configured",
+                )
+
+        try:
+            await agent.compress_context(
+                context_config=self._build_manual_context_config(
+                    agent_config,
+                ),
+            )
+        except Exception as e:
+            logger.exception("compress_context failed: %s", e)
+            return await self._make_system_msg(
+                f"❌ **Compact Failed!**\n\n- Reason: {e}\n"
+                f"- Use `/clear` to reset the context if needed",
+            )
+
+        reme_cfg = agent_config.running.reme_light_memory_config
+        if self._has_memory_manager() and reme_cfg.summarize_when_compact:
+            self.memory_manager.add_summarize_task(messages=messages)
+
+        summary = self._get_summary()
         return await self._make_system_msg(
             f"✅ **Compact Complete!**\n\n"
             f"- Messages compacted: {len(messages)}\n"
-            f"- Tokens: {_fmt_tokens(before)}/"
-            f"{_fmt_tokens(max_len)}({before_pct}) -> "
-            f"{_fmt_tokens(after)}/"
-            f"{_fmt_tokens(max_len)}({after_pct})\n"
-            f"**Compressed Summary:**\n{compact_content}\n"
-            f"- Summary task started in background\n",
+            f"**Compressed Summary:**\n{summary}\n",
         )
+
+    @staticmethod
+    def _build_manual_context_config(agent_config: Any) -> Any:
+        """Build a ContextConfig that forces manual /compact to run."""
+        from agentscope.agent import ContextConfig
+
+        ccc = agent_config.running.light_context_config.context_compact_config
+        return ContextConfig(
+            trigger_ratio=0.000001,
+            reserve_ratio=ccc.reserve_threshold_ratio,
+        )
+
+    async def _build_tmp_agent(self) -> "Agent | None":
+        """Build a minimal Agent for standalone compression.
+
+        Shares ``self._state`` so compression side-effects (summary,
+        context trimming, offloading) are reflected immediately.
+        """
+        try:
+            from agentscope.agent import Agent
+
+            from ..agents.model_factory import (
+                create_model_and_formatter,
+            )
+
+            agent_config = self._get_agent_config()
+            model, _fmt = create_model_and_formatter(
+                agent_config.id,
+            )
+
+            return Agent(
+                name="compactor",
+                model=model,
+                system_prompt=await self._get_current_system_prompt(),
+                state=self._state,
+                offloader=self._offloader,
+                context_config=self._build_manual_context_config(
+                    agent_config,
+                ),
+            )
+        except Exception:
+            logger.exception("Failed to build temporary agent for /compact")
+            return None
 
     async def _process_new(self, messages: list[Msg], _args: str = "") -> Msg:
         """Process /new command."""
         if not messages:
-            self.memory.clear_compressed_summary()
+            self._set_summary("")
             return await self._make_system_msg(
                 "**No messages to summarize.**\n\n"
                 "- Current memory is empty\n"
@@ -246,9 +331,9 @@ class CommandHandler(ConversationCommandHandlerMixin):
             )
 
         self.memory_manager.add_summarize_task(messages=messages)
-        self.memory.clear_compressed_summary()
+        self._set_summary("")
 
-        await self.memory.clear_content()
+        await self._persist_and_clear()
         return await self._make_system_msg(
             "**New Conversation Started!**\n\n"
             "- Summary task started in background\n"
@@ -263,8 +348,8 @@ class CommandHandler(ConversationCommandHandlerMixin):
         _args: str = "",
     ) -> Msg:
         """Process /clear command."""
-        await self.memory.clear_content()
-        self.memory.clear_compressed_summary()
+        await self._persist_and_clear()
+        self._set_summary("")
         return await self._make_system_msg(
             "**History Cleared!**\n\n"
             "- Compressed summary reset\n"
@@ -273,13 +358,27 @@ class CommandHandler(ConversationCommandHandlerMixin):
             metadata={"clear_history": True, "clear_plan": True},
         )
 
+    async def _persist_and_clear(self) -> None:
+        """Persist current context to disk via offloader, then clear."""
+        state = self._state
+        if state.context and self._offloader is not None:
+            try:
+                session_id = getattr(state, "session_id", "") or ""
+                await self._offloader.offload_context(
+                    session_id,
+                    list(state.context),
+                )
+            except Exception as e:
+                logger.warning("offloader.offload_context failed: %s", e)
+        state.context.clear()
+
     async def _process_compact_str(
         self,
         _messages: list[Msg],
         _args: str = "",
     ) -> Msg:
         """Process /compact_str command to show compressed summary."""
-        summary = self.memory.get_compressed_summary()
+        summary = self._get_summary()
         if not summary:
             return await self._make_system_msg(
                 "**No Compressed Summary**\n\n"
@@ -298,8 +397,12 @@ class CommandHandler(ConversationCommandHandlerMixin):
         """Process /history command."""
         agent_config = self._get_agent_config()
         running_config = agent_config.running
-        history_str = await self.memory.get_history_str(
-            max_input_length=get_model_max_input_length(agent_config),
+        from .utils import get_token_counter
+
+        history_str = await format_history_str(
+            self._state,
+            get_token_counter(agent_config),
+            get_model_max_input_length(agent_config),
         )
 
         # Truncate if too long
@@ -312,10 +415,60 @@ class CommandHandler(ConversationCommandHandlerMixin):
         )
 
         # Add compact summary hint if available
-        if self.memory.get_compressed_summary():
+        if self._get_summary():
             history_str += "\n- Use /compact_str to view full compact summary"
 
         return await self._make_system_msg(history_str)
+
+    async def _process_system_prompt(
+        self,
+        _messages: list[Msg],
+        _args: str = "",
+    ) -> Msg:
+        """Process /system_prompt command to show current system prompt."""
+        prompt = await self._get_current_system_prompt()
+        if not prompt:
+            return await self._make_system_msg(
+                "**No System Prompt**\n\n"
+                "- Current system prompt is empty or unavailable",
+            )
+        return await self._make_system_msg(
+            f"**System Prompt**\n\n```text\n{prompt}\n```",
+        )
+
+    async def _get_current_system_prompt(self) -> str:
+        """Return the active system prompt when possible.
+
+        In agent-backed mode, ask AgentScope for its dynamic system prompt
+        so skill/offloader/middleware injections are included. In standalone
+        slash-command mode, rebuild the prompt from the current HookContext.
+        """
+        agent = self._agent
+        if agent is not None:
+            get_system_prompt = getattr(agent, "_get_system_prompt", None)
+            if callable(get_system_prompt):
+                try:
+                    return (await get_system_prompt()) or ""
+                except Exception as e:
+                    logger.warning("agent._get_system_prompt failed: %s", e)
+
+            prompt = getattr(agent, "_system_prompt", None)
+            if isinstance(prompt, str):
+                return prompt
+
+        ctx = self._prompt_context
+        if ctx is not None:
+            try:
+                from ..runtime.builder import AgentBuilder
+
+                builder = AgentBuilder(
+                    app_services=getattr(ctx, "app_services", None),
+                )
+                return builder.build_prompt(ctx, self._get_agent_config())
+            except Exception as e:
+                logger.warning("rebuild system prompt failed: %s", e)
+
+        return ""
 
     async def _process_summarize_status(
         self,
@@ -438,7 +591,7 @@ class CommandHandler(ConversationCommandHandlerMixin):
 
         try:
             # Check if there's a compressed summary
-            compressed_summary = self.memory.get_compressed_summary()
+            compressed_summary = self._get_summary()
             has_summary = bool(compressed_summary)
 
             # Build dump messages: summary first (if exists), then messages
@@ -519,21 +672,21 @@ class CommandHandler(ConversationCommandHandlerMixin):
                         if len(loaded_messages) >= MAX_LOAD_HISTORY_COUNT:
                             break
 
-            # Clear existing memory
-            self.memory.content.clear()
-            self.memory.clear_compressed_summary()
+            # Clear existing context without persisting (this IS the
+            # "replay history into state" path; new context is what we
+            # just loaded from disk).
+            self._state.context.clear()
+            self._set_summary("")
 
             # If first message has summary marker, extract and restore summary
             if has_summary_marker and loaded_messages:
                 summary_msg = loaded_messages.pop(0)
-                # Extract summary content from the message
                 summary_content = summary_msg.get_text_content() or ""
-                # Set the compressed summary directly
-                await self.memory.update_compressed_summary(summary_content)
+                self._set_summary(summary_content)
                 logger.info("Restored compressed summary from history file")
 
             for msg in loaded_messages:
-                await self.memory.add(msg)
+                self._state.context.append(msg)
 
             logger.info(
                 f"Loaded {len(loaded_messages)} messages from {history_file}",
@@ -563,9 +716,10 @@ class CommandHandler(ConversationCommandHandlerMixin):
         Raises:
             SystemCommandException: If command is not recognized
         """
-        messages = await self.memory.get_memory(
-            prepend_summary=False,
-        )
+        # Snapshot the current short-term context for the conversation
+        # command (most handlers don't need the messages list; the ones
+        # that do — /compact, /dump_history — read it once).
+        messages = list(self._state.context)
         # Parse command and arguments
         parts = query.strip().lstrip("/").split(" ", maxsplit=1)
         command = parts[0]
@@ -588,38 +742,14 @@ class CommandHandler(ConversationCommandHandlerMixin):
         _messages: list[Msg],
         _args: str = "",
     ) -> Msg:
-        """Process bare /plan command to show plan status.
-
-        This handler is only called for ``/plan`` without arguments.
-        ``/plan <description>`` is routed through the runner instead.
+        """Stub for the legacy ``/plan`` command — plan mode is currently
+        unavailable in qwenpaw.
         """
-        from ..app.agent_context import get_current_agent_id
-
-        agent_id = get_current_agent_id()
-        try:
-            agent_config = load_agent_config(agent_id)
-            plan_enabled = getattr(
-                getattr(agent_config, "plan", None),
-                "enabled",
-                False,
-            )
-        except Exception:
-            plan_enabled = False
-
-        if not plan_enabled:
-            return await self._make_system_msg(
-                "**Plan Mode**\n\n"
-                "- Status: **disabled**\n"
-                "- Enable plan mode in Settings → Plan to use "
-                "`/plan <description>` for creating structured plans.",
-            )
         return await self._make_system_msg(
             "**Plan Mode**\n\n"
-            "- Status: **enabled**\n"
-            "- Use `/plan <description>` to create a new plan\n"
-            "- The plan panel on the right shows the current plan and "
-            "progress\n"
-            "- Use `/clear` or `/new` to clear any active plan",
+            "- Status: **temporarily unavailable**\n"
+            "- Plan mode is being migrated to the new task system "
+            "and will be available in a future update.",
         )
 
     async def _process_proactive(

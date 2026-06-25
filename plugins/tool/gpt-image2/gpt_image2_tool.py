@@ -4,13 +4,15 @@
 
 import base64
 import logging
+import mimetypes
 import time
 from pathlib import Path
 from typing import List
 
 import httpx
-from agentscope.message import ImageBlock, TextBlock
-from agentscope.tool import ToolResponse
+from agentscope.message import DataBlock, TextBlock, URLSource
+from agentscope.message import ToolResultState
+from agentscope.tool import ToolChunk
 from qwenpaw.constant import DEFAULT_MEDIA_DIR
 from qwenpaw.plugins import get_tool_config
 
@@ -21,7 +23,7 @@ async def generate_image_gpt(
     prompt: str,
     size: str = "1024x1024",
     quality: str = "auto",
-) -> ToolResponse:
+) -> ToolChunk:
     """Generate an image using OpenAI GPT Image 2 model.
 
     This tool uses OpenAI's state-of-the-art GPT Image 2 model to
@@ -42,7 +44,7 @@ async def generate_image_gpt(
             - auto: Automatically choose based on prompt (default)
 
     Returns:
-        ToolResponse:
+        ToolChunk:
             Contains the generated image and metadata.
 
     Example:
@@ -55,7 +57,8 @@ async def generate_image_gpt(
         # Get tool config (API key and endpoint)
         tool_config = get_tool_config("generate_image_gpt")
         if not tool_config:
-            return ToolResponse(
+            return ToolChunk(
+                state=ToolResultState.ERROR,
                 content=[
                     TextBlock(
                         type="text",
@@ -69,7 +72,8 @@ async def generate_image_gpt(
 
         api_key = tool_config.get("api_key")
         if not api_key:
-            return ToolResponse(
+            return ToolChunk(
+                state=ToolResultState.ERROR,
                 content=[
                     TextBlock(
                         type="text",
@@ -96,7 +100,8 @@ async def generate_image_gpt(
         # Validate parameters
         valid_sizes = {"1024x1024", "1024x1792", "1792x1024"}
         if size not in valid_sizes:
-            return ToolResponse(
+            return ToolChunk(
+                state=ToolResultState.ERROR,
                 content=[
                     TextBlock(
                         type="text",
@@ -112,7 +117,8 @@ async def generate_image_gpt(
         # GPT Image 2 supports: low, medium, high, auto
         valid_quality = {"low", "medium", "high", "auto"}
         if quality not in valid_quality:
-            return ToolResponse(
+            return ToolChunk(
+                state=ToolResultState.ERROR,
                 content=[
                     TextBlock(
                         type="text",
@@ -156,7 +162,8 @@ async def generate_image_gpt(
             except Exception:
                 pass
             logger.error(error_msg)
-            return ToolResponse(
+            return ToolChunk(
+                state=ToolResultState.ERROR,
                 content=[
                     TextBlock(
                         type="text",
@@ -189,7 +196,8 @@ async def generate_image_gpt(
             logger.info(f"Image saved to {image_path}")
         except Exception as e:
             logger.error(f"Failed to save image: {e}")
-            return ToolResponse(
+            return ToolChunk(
+                state=ToolResultState.ERROR,
                 content=[
                     TextBlock(
                         type="text",
@@ -199,11 +207,15 @@ async def generate_image_gpt(
             )
 
         # Return image with local file path
-        return ToolResponse(
+        return ToolChunk(
+            state=ToolResultState.SUCCESS,
             content=[
-                ImageBlock(
-                    type="image",
-                    source={"type": "url", "url": str(image_path)},
+                DataBlock(
+                    source=URLSource(
+                        url="file://" + str(image_path),
+                        media_type=mimetypes.guess_type(str(image_path))[0]
+                        or "image/*",
+                    ),
                 ),
                 TextBlock(
                     type="text",
@@ -219,7 +231,8 @@ async def generate_image_gpt(
 
     except httpx.TimeoutException:
         logger.error("Image generation timed out")
-        return ToolResponse(
+        return ToolChunk(
+            state=ToolResultState.ERROR,
             content=[
                 TextBlock(
                     type="text",
@@ -232,7 +245,8 @@ async def generate_image_gpt(
         )
     except Exception as e:
         logger.error(f"Image generation failed: {e}", exc_info=True)
-        return ToolResponse(
+        return ToolChunk(
+            state=ToolResultState.ERROR,
             content=[
                 TextBlock(
                     type="text",
@@ -247,7 +261,7 @@ async def edit_image_gpt(  # pylint: disable=too-many-statements
     reference_images: List[str],
     size: str = "1024x1024",
     quality: str = "auto",
-) -> ToolResponse:
+) -> ToolChunk:
     """Edit or generate image using reference images with GPT Image 2.
 
     This tool uses OpenAI's GPT Image 2 model to generate or edit images
@@ -272,7 +286,7 @@ async def edit_image_gpt(  # pylint: disable=too-many-statements
             Defaults to "auto".
 
     Returns:
-        ToolResponse:
+        ToolChunk:
             Contains the generated/edited image and metadata.
 
     Example:
@@ -285,7 +299,8 @@ async def edit_image_gpt(  # pylint: disable=too-many-statements
     try:
         # Validate reference_images
         if not reference_images:
-            return ToolResponse(
+            return ToolChunk(
+                state=ToolResultState.ERROR,
                 content=[
                     TextBlock(
                         type="text",
@@ -298,7 +313,8 @@ async def edit_image_gpt(  # pylint: disable=too-many-statements
             )
 
         if len(reference_images) > 16:
-            return ToolResponse(
+            return ToolChunk(
+                state=ToolResultState.ERROR,
                 content=[
                     TextBlock(
                         type="text",
@@ -313,7 +329,8 @@ async def edit_image_gpt(  # pylint: disable=too-many-statements
         # Get tool config
         tool_config = get_tool_config("edit_image_gpt")
         if not tool_config:
-            return ToolResponse(
+            return ToolChunk(
+                state=ToolResultState.ERROR,
                 content=[
                     TextBlock(
                         type="text",
@@ -327,7 +344,8 @@ async def edit_image_gpt(  # pylint: disable=too-many-statements
 
         api_key = tool_config.get("api_key")
         if not api_key:
-            return ToolResponse(
+            return ToolChunk(
+                state=ToolResultState.ERROR,
                 content=[
                     TextBlock(
                         type="text",
@@ -354,7 +372,8 @@ async def edit_image_gpt(  # pylint: disable=too-many-statements
         # Validate parameters
         valid_sizes = {"auto", "1024x1024", "1024x1536", "1536x1024"}
         if size not in valid_sizes:
-            return ToolResponse(
+            return ToolChunk(
+                state=ToolResultState.ERROR,
                 content=[
                     TextBlock(
                         type="text",
@@ -368,7 +387,8 @@ async def edit_image_gpt(  # pylint: disable=too-many-statements
 
         valid_quality = {"low", "medium", "high", "auto"}
         if quality not in valid_quality:
-            return ToolResponse(
+            return ToolChunk(
+                state=ToolResultState.ERROR,
                 content=[
                     TextBlock(
                         type="text",
@@ -388,7 +408,8 @@ async def edit_image_gpt(  # pylint: disable=too-many-statements
                 img_dict = _process_image_url(img_path)
                 images_payload.append(img_dict)
         except FileNotFoundError as e:
-            return ToolResponse(
+            return ToolChunk(
+                state=ToolResultState.ERROR,
                 content=[
                     TextBlock(
                         type="text",
@@ -397,7 +418,8 @@ async def edit_image_gpt(  # pylint: disable=too-many-statements
                 ],
             )
         except Exception as e:
-            return ToolResponse(
+            return ToolChunk(
+                state=ToolResultState.ERROR,
                 content=[
                     TextBlock(
                         type="text",
@@ -443,7 +465,8 @@ async def edit_image_gpt(  # pylint: disable=too-many-statements
             except Exception:
                 pass
             logger.error(error_msg)
-            return ToolResponse(
+            return ToolChunk(
+                state=ToolResultState.ERROR,
                 content=[
                     TextBlock(
                         type="text",
@@ -473,7 +496,8 @@ async def edit_image_gpt(  # pylint: disable=too-many-statements
             logger.info(f"Image saved to {image_path}")
         except Exception as e:
             logger.error(f"Failed to save image: {e}")
-            return ToolResponse(
+            return ToolChunk(
+                state=ToolResultState.ERROR,
                 content=[
                     TextBlock(
                         type="text",
@@ -483,11 +507,15 @@ async def edit_image_gpt(  # pylint: disable=too-many-statements
             )
 
         # Return image with local file path
-        return ToolResponse(
+        return ToolChunk(
+            state=ToolResultState.SUCCESS,
             content=[
-                ImageBlock(
-                    type="image",
-                    source={"type": "url", "url": str(image_path)},
+                DataBlock(
+                    source=URLSource(
+                        url="file://" + str(image_path),
+                        media_type=mimetypes.guess_type(str(image_path))[0]
+                        or "image/*",
+                    ),
                 ),
                 TextBlock(
                     type="text",
@@ -504,7 +532,8 @@ async def edit_image_gpt(  # pylint: disable=too-many-statements
 
     except httpx.TimeoutException:
         logger.error("Image editing timed out")
-        return ToolResponse(
+        return ToolChunk(
+            state=ToolResultState.ERROR,
             content=[
                 TextBlock(
                     type="text",
@@ -514,7 +543,8 @@ async def edit_image_gpt(  # pylint: disable=too-many-statements
         )
     except Exception as e:
         logger.error(f"Image editing failed: {e}", exc_info=True)
-        return ToolResponse(
+        return ToolChunk(
+            state=ToolResultState.ERROR,
             content=[
                 TextBlock(
                     type="text",

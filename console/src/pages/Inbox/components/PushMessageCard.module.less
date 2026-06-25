@@ -87,6 +87,17 @@
   gap: 8px;
 }
 
+/* ─── Mobile ────────────────────────────────────────────────────────────────── */
+@media (max-width: 768px) {
+  .messageCard {
+    :global(.qwenpaw-card-body) {
+      height: auto !important;
+      min-height: 142px;
+      overflow: hidden;
+    }
+  }
+}
+
 /* ─── Dark mode ─────────────────────────────────────────────────────────────── */
 :global(.dark-mode) {
   .messageCard {

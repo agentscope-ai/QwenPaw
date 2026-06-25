@@ -10,7 +10,7 @@ from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-from agentscope_runtime.engine.schemas.exception import (
+from qwenpaw.exceptions import (
     AppBaseException,
 )
 
@@ -20,17 +20,18 @@ from ...agents.model_factory import create_model_and_formatter
 logger = logging.getLogger(__name__)
 
 
-def get_model_and_formatter():
-    """Get the active chat model and formatter instances.
+def get_model():
+    """Get the active chat model instance.
 
     Returns:
-        Tuple of (model, formatter) or (None, None) if not configured
+        Chat model instance or None if not configured
     """
     try:
-        return create_model_and_formatter()
+        model, _ = create_model_and_formatter()
+        return model
     except (ValueError, AppBaseException) as e:
         logger.warning("Failed to get model: %s", e)
-        return None, None
+        return None
 
 
 # System prompts for different languages
@@ -179,7 +180,7 @@ async def ai_optimize_skill_stream(request: AIOptimizeSkillRequest):
 
     async def generate():
         try:
-            model, formatter = get_model_and_formatter()
+            model = get_model()
             if not model:
                 error_msg = json.dumps(
                     {
@@ -192,18 +193,25 @@ async def ai_optimize_skill_stream(request: AIOptimizeSkillRequest):
                 yield f"data: {error_msg}\n\n"
                 return
 
-            from agentscope.message import Msg
-
             system_prompt = SYSTEM_PROMPTS.get(
                 request.language,
                 SYSTEM_PROMPTS["en"],
             )
 
-            msgs = [
-                Msg(name="system", content=system_prompt, role="system"),
-                Msg(name="user", content=request.content, role="user"),
+            from agentscope.message import Msg, TextBlock
+
+            messages = [
+                Msg(
+                    name="system",
+                    role="system",
+                    content=[TextBlock(type="text", text=system_prompt)],
+                ),
+                Msg(
+                    name="user",
+                    role="user",
+                    content=[TextBlock(type="text", text=request.content)],
+                ),
             ]
-            messages = await formatter.format(msgs)
 
             response = await model(messages)
             accumulated = ""

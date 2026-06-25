@@ -281,12 +281,11 @@ Configuration is located in `~/.qwenpaw/workspaces/{agent_id}/agent.json` under 
 
 **`running.light_context_config.context_compact_config` fields:**
 
-| Parameter                     | Default | Description                                                                                    |
-| ----------------------------- | ------- | ---------------------------------------------------------------------------------------------- |
-| `enabled`                     | `true`  | Whether to enable automatic context compaction                                                 |
-| `compact_threshold_ratio`     | `0.8`   | Threshold ratio for triggering compaction, triggers when `max_input_length × ratio` is reached |
-| `reserve_threshold_ratio`     | `0.1`   | Ratio of recent messages to keep during compaction, keeps `max_input_length × ratio` tokens    |
-| `compact_with_thinking_block` | `true`  | Whether to include thinking blocks during compaction                                           |
+| Parameter                 | Default | Description                                                                                    |
+| ------------------------- | ------- | ---------------------------------------------------------------------------------------------- |
+| `enabled`                 | `true`  | Whether to enable automatic context compaction                                                 |
+| `compact_threshold_ratio` | `0.8`   | Threshold ratio for triggering compaction, triggers when `max_input_length × ratio` is reached |
+| `reserve_threshold_ratio` | `0.1`   | Ratio of recent messages to keep during compaction, keeps `max_input_length × ratio` tokens    |
 
 **`running.light_context_config.tool_result_pruning_config` fields:**
 

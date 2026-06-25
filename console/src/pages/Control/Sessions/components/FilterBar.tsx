@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import styles from "../index.module.less";
 
 interface FilterBarProps {
+  isMobile?: boolean;
   filterUserId: string;
   filterChannel: string;
   filterTitle: string;
@@ -13,6 +14,7 @@ interface FilterBarProps {
 }
 
 export function FilterBar({
+  isMobile,
   filterUserId,
   filterChannel,
   filterTitle,
@@ -31,7 +33,7 @@ export function FilterBar({
         onChange={(e) => onTitleChange(e.target.value)}
         allowClear
         className="sessions-filter-input"
-        style={{ width: 200, marginRight: 8 }}
+        style={isMobile ? { width: "100%" } : { width: 200, marginRight: 8 }}
       />
       <Input
         placeholder={t("sessions.filterUserId")}
@@ -39,7 +41,7 @@ export function FilterBar({
         onChange={(e) => onUserIdChange(e.target.value)}
         allowClear
         className="sessions-filter-input"
-        style={{ width: 200, marginRight: 8 }}
+        style={isMobile ? { width: "100%" } : { width: 200, marginRight: 8 }}
       />
       <Select
         placeholder={t("sessions.filterChannel")}
@@ -47,7 +49,7 @@ export function FilterBar({
         onChange={(value) => onChannelChange(value || "")}
         allowClear
         className="sessions-filter-select"
-        style={{ width: 180 }}
+        style={isMobile ? { width: "100%" } : { width: 180 }}
       >
         {uniqueChannels.map((channel) => (
           <Select.Option key={channel} value={channel}>

@@ -5,13 +5,29 @@ The ACP server sends an ``available_commands_update`` notification after a
 session is created so clients (e.g. the paw TUI) can offer autocompletion.
 """
 
-# pylint: disable=protected-access
+# pylint: disable=protected-access,wrong-import-position,no-name-in-module
 
 from __future__ import annotations
 
 import asyncio
 
-from qwenpaw.agents.acp.server import (
+import pytest
+
+# pylint: disable=no-name-in-module
+# flake8: noqa: E402,E501
+_acp_server = pytest.importorskip(  # type: ignore[assignment]
+    "qwenpaw.agents.acp.server",
+    reason=(
+        "_ACP_REDUNDANT_COMMANDS / ACP_AGENT_META_KEY / ACP_ERROR_META_KEY "
+        "were removed in AgentScope 2.0 ACP rewrite"
+    ),
+)
+if not hasattr(_acp_server, "_ACP_REDUNDANT_COMMANDS"):
+    pytest.skip(
+        "_ACP_REDUNDANT_COMMANDS not available in AgentScope 2.0",
+        allow_module_level=True,
+    )
+from qwenpaw.agents.acp.server import (  # type: ignore[import]
     _ACP_REDUNDANT_COMMANDS,
     ACP_AGENT_META_KEY,
     ACP_ERROR_META_KEY,
