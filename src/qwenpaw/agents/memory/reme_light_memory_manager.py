@@ -148,6 +148,16 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         """Return memory tool functions to register with the agent toolkit."""
         return [self.memory_search]
 
+    def get_auto_memory_interval(self) -> int:
+        """Return ReMe light auto-memory cadence from agent config."""
+        agent_config = load_agent_config(self.agent_id)
+        interval = (
+            agent_config.running.reme_light_memory_config.auto_memory_interval
+        )
+        if interval is None:
+            return 0
+        return int(interval)
+
     async def _update_qwenpaw_model(self) -> None:
         """Reuse QwenPaw's active model in ReMe's default LLM component."""
         if self._reme is None:

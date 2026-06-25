@@ -33,7 +33,10 @@ logger = logging.getLogger(__name__)
 MAX_AUTO_MEMORY_TURN_MARKERS = 1000
 QWENPAW_MESSAGE_TAG_KEY = "qwenpaw_tag"
 AUTO_MEMORY_SEARCH_MESSAGE_TAG = "auto_memory_search"
-AUTO_MEMORY_SEARCH_TEXT = "Searching memory for relevant context..."
+AUTO_CONTINUE_MESSAGE_TAG = "auto_continue"
+AUTO_MEMORY_SEARCH_TEXT = (
+    "Find memory relevant to the latest user request and conversation context."
+)
 
 
 class MemoryMiddleware(MiddlewareBase):
@@ -233,11 +236,7 @@ class MemoryMiddleware(MiddlewareBase):
         ]
 
     def _auto_memory_interval(self) -> int:
-        interval = self._memory_config().auto_memory_interval
-
-        if interval is None:
-            return 0
-        return int(interval)
+        return int(self._memory_manager.get_auto_memory_interval())
 
     def _memory_config(self) -> Any:
         from ..config.config import load_agent_config
@@ -259,6 +258,12 @@ class MemoryMiddleware(MiddlewareBase):
     @classmethod
     def _is_auto_memory_search_msg(cls, msg: "Msg") -> bool:
         return cls._message_tag(msg) == AUTO_MEMORY_SEARCH_MESSAGE_TAG
+
+    @classmethod
+    def _is_memory_user_turn(cls, msg: "Msg") -> bool:
+        return msg.role == "user" and cls._message_tag(msg) not in {
+            AUTO_CONTINUE_MESSAGE_TAG
+        }
 
     @classmethod
     def _normal_memory_messages(cls, messages: list["Msg"]) -> list["Msg"]:
@@ -318,7 +323,7 @@ class MemoryMiddleware(MiddlewareBase):
     def _latest_user_turn_marker(messages: list["Msg"]) -> str:
         for idx in range(len(messages) - 1, -1, -1):
             msg = messages[idx]
-            if msg.role != "user":
+            if not MemoryMiddleware._is_memory_user_turn(msg):
                 continue
             return MemoryMiddleware._user_turn_marker(msg, idx)
         return ""
@@ -341,7 +346,7 @@ class MemoryMiddleware(MiddlewareBase):
         last_idx: int | None = None
         for idx, msg in enumerate(messages):
             if (
-                msg.role == "user"
+                MemoryMiddleware._is_memory_user_turn(msg)
                 and MemoryMiddleware._user_turn_marker(msg, idx) in targets
             ):
                 if first_idx is None:
@@ -353,11 +358,13 @@ class MemoryMiddleware(MiddlewareBase):
 
         end_idx = len(messages)
         for idx in range(last_idx + 1, len(messages)):
-            if messages[idx].role == "user":
+            if MemoryMiddleware._is_memory_user_turn(messages[idx]):
                 end_idx = idx
                 break
 
-        return messages[first_idx:end_idx]
+        return MemoryMiddleware._normal_memory_messages(
+            messages[first_idx:end_idx],
+        )
 
 
 class ToolResultPruningMiddleware(MiddlewareBase):

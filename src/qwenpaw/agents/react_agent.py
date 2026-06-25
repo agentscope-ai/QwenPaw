@@ -434,6 +434,7 @@ class QwenPawAgent(CodingModeMixin, Agent):
                     name="user",
                     role="user",
                     content=[TextBlock(type="text", text=hint_body)],
+                    metadata={"qwenpaw_tag": "auto_continue"},
                 ),
             )
             return  # outer loop continues → _check_next_action → reasoning
