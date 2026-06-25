@@ -1970,7 +1970,13 @@
     "configured": "Configured",
     "requiresConfig": "Requires configuration",
     "configSaved": "Configuration saved",
-    "configSaveError": "Failed to save configuration"
+    "configSaveError": "Failed to save configuration",
+    "active": "active",
+    "available": "Available",
+    "noEnabled": "No tools enabled",
+    "goEnableBtn": "Go enable",
+    "configureAction": "Configure →",
+    "enableAction": "Enable →"
   },
   "modelConfig": {
     "promptTitle": "LLM Model Required — Select in Chat After Configuration",

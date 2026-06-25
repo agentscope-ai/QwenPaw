@@ -1579,7 +1579,13 @@
     "configured": "Настроено",
     "requiresConfig": "Требуется настройка",
     "configSaved": "Конфигурация сохранена",
-    "configSaveError": "Не удалось сохранить конфигурацию"
+    "configSaveError": "Не удалось сохранить конфигурацию",
+    "active": "активно",
+    "available": "Доступно",
+    "noEnabled": "Нет включённых инструментов",
+    "goEnableBtn": "Включить",
+    "configureAction": "Настроить →",
+    "enableAction": "Включить →"
   },
   "modelConfig": {
     "promptTitle": "Требуется LLM-модель — выберите в Chat после настройки",

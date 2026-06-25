@@ -468,7 +468,13 @@
     "configured": "Đã cấu hình",
     "requiresConfig": "Cần cấu hình",
     "configSaved": "Đã lưu cấu hình",
-    "configSaveError": "Lưu cấu hình thất bại"
+    "configSaveError": "Lưu cấu hình thất bại",
+    "active": "đang hoạt động",
+    "available": "Có sẵn",
+    "noEnabled": "Không có công cụ nào được bật",
+    "goEnableBtn": "Bật ngay",
+    "configureAction": "Cấu hình →",
+    "enableAction": "Bật →"
   },
   "mcp": {
     "title": "MCP Client",

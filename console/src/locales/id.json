@@ -483,7 +483,13 @@
     "configured": "Terkonfigurasi",
     "requiresConfig": "Perlu konfigurasi",
     "configSaved": "Konfigurasi tersimpan",
-    "configSaveError": "Gagal menyimpan konfigurasi"
+    "configSaveError": "Gagal menyimpan konfigurasi",
+    "active": "aktif",
+    "available": "Tersedia",
+    "noEnabled": "Tidak ada alat yang diaktifkan",
+    "goEnableBtn": "Aktifkan sekarang",
+    "configureAction": "Konfigurasi →",
+    "enableAction": "Aktifkan →"
   },
   "modelConfig": {
     "promptTitle": "Model LLM Diperlukan - Pilih di Chat Setelah Konfigurasi",

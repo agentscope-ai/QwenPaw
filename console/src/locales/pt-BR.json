@@ -1771,7 +1771,18 @@
     "allDisabled": "All tools are already disabled",
     "asyncExecution": "Async Execution",
     "asyncExecutionEnabled": "Async execution Ativado",
-    "asyncExecutionDisabled": "Async execution Desativado"
+    "asyncExecutionDisabled": "Async execution Desativado",
+    "configure": "Configurar",
+    "configured": "Configurado",
+    "requiresConfig": "Requer configuração",
+    "configSaved": "Configuração salva",
+    "configSaveError": "Falha ao salvar configuração",
+    "active": "ativo(s)",
+    "available": "Disponível",
+    "noEnabled": "Nenhuma ferramenta ativada",
+    "goEnableBtn": "Ativar agora",
+    "configureAction": "Configurar →",
+    "enableAction": "Ativar →"
   },
   "modelConfig": {
     "promptTitle": "LLM Model Required — Select in Chat After Configuration",

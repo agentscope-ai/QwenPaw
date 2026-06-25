@@ -1564,7 +1564,13 @@
     "configured": "設定済み",
     "requiresConfig": "設定が必要です",
     "configSaved": "設定を保存しました",
-    "configSaveError": "設定の保存に失敗しました"
+    "configSaveError": "設定の保存に失敗しました",
+    "active": "個が有効",
+    "available": "利用可能",
+    "noEnabled": "有効なツールはありません",
+    "goEnableBtn": "有効にする",
+    "configureAction": "設定 →",
+    "enableAction": "有効化 →"
   },
   "modelConfig": {
     "promptTitle": "LLMモデルが必要です — 設定後にChatページで選択",
