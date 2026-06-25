@@ -116,7 +116,7 @@
 }
 
 .panelSectionDashed {
-  background: rgba(0, 0, 0, 0.02);
+  background: transparent;
   border: 1px dashed rgba(0, 0, 0, 0.15);
   border-radius: 12px;
   padding: 16px;
@@ -179,10 +179,12 @@
   border-radius: 8px;
   cursor: pointer;
   transition: all 0.2s ease;
-  background: rgba(255, 255, 255, 0.5);
+  background: rgba(0, 0, 0, 0.03);
+  border: 1px solid rgba(0, 0, 0, 0.06);
 
   &:hover {
-    background: rgba(0, 0, 0, 0.04);
+    background: rgba(0, 0, 0, 0.06);
+    border-color: rgba(0, 0, 0, 0.1);
 
     .availableItemAction {
       color: rgba(0, 0, 0, 0.88);
@@ -591,7 +593,7 @@
   }
 
   .panelSectionDashed {
-    background: rgba(255, 255, 255, 0.02);
+    background: transparent;
     border-color: rgba(255, 255, 255, 0.1);
   }
 
@@ -616,10 +618,12 @@
   }
 
   .availableItem {
-    background: rgba(255, 255, 255, 0.03);
+    background: rgba(255, 255, 255, 0.06);
+    border-color: rgba(255, 255, 255, 0.08);
 
     &:hover {
-      background: rgba(255, 255, 255, 0.06);
+      background: rgba(255, 255, 255, 0.1);
+      border-color: rgba(255, 255, 255, 0.15);
 
       .availableItemAction {
         color: rgba(255, 255, 255, 0.85);
