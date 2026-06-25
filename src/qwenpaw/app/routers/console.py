@@ -7,6 +7,7 @@ import json
 import logging
 import re
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import AsyncGenerator, Union
 
@@ -29,6 +30,9 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/console", tags=["console"])
 
+_CHAT_TASKS: dict[str, dict] = {}
+_CHAT_RUNTIME_TASKS: dict[str, asyncio.Task] = {}
+
 
 class MarkInboxReadRequest(BaseModel):
     event_ids: list[str] = []
@@ -36,6 +40,85 @@ class MarkInboxReadRequest(BaseModel):
 
 
 MAX_DEBUG_LOG_LINES = 1000
+
+
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+def _parse_sse_payload(event_data: str) -> dict | None:
+    for line in event_data.splitlines():
+        if not line.startswith("data: "):
+            continue
+        try:
+            parsed = json.loads(line[6:])
+        except json.JSONDecodeError:
+            continue
+        if isinstance(parsed, dict):
+            return parsed
+    return None
+
+
+async def _run_console_chat_task(
+    *,
+    task_id: str,
+    workspace,
+    console_channel,
+    native_payload: dict,
+    session_id: str,
+    timeout: float | None,
+) -> None:
+    record = _CHAT_TASKS[task_id]
+    record["status"] = "running"
+    record["started_at"] = _now_iso()
+    run_key = f"console-task-{task_id}"
+    await workspace.task_tracker.register_external_task(run_key)
+
+    async def _collect() -> dict:
+        response_data: dict | None = None
+        fallback_data: dict | None = None
+        async for event_data in console_channel.stream_one(native_payload):
+            parsed = _parse_sse_payload(event_data)
+            if parsed is None:
+                continue
+            fallback_data = parsed
+            if parsed.get("object") == "response" or "output" in parsed:
+                response_data = parsed
+        return response_data or fallback_data or {}
+
+    result = {
+        "status": "failed",
+        "session_id": session_id,
+        "error": {"message": "Task did not complete"},
+    }
+    try:
+        if timeout is not None:
+            response_data = await asyncio.wait_for(_collect(), timeout=timeout)
+        else:
+            response_data = await _collect()
+        result = dict(response_data)
+        result["status"] = "completed"
+        result["session_id"] = session_id
+    except asyncio.CancelledError:
+        result = {
+            "status": "failed",
+            "session_id": session_id,
+            "error": {"message": "Task cancelled"},
+        }
+        raise
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("Background console chat task failed: %s", task_id)
+        result = {
+            "status": "failed",
+            "session_id": session_id,
+            "error": {"message": str(exc)},
+        }
+    finally:
+        record["status"] = "finished"
+        record["finished_at"] = _now_iso()
+        record["result"] = result
+        _CHAT_RUNTIME_TASKS.pop(task_id, None)
+        await workspace.task_tracker.unregister_external_task(run_key)
 
 
 def _safe_filename(name: str) -> str:
@@ -231,6 +314,99 @@ async def post_console_chat(
             "Connection": "keep-alive",
         },
     )
+
+
+@router.post(
+    "/chat/task",
+    status_code=200,
+    summary="Submit console chat as a background task",
+)
+async def post_console_chat_task(
+    request_data: Union[AgentRequest, dict],
+    request: Request,
+) -> dict:
+    """Submit a detached chat run and return a task id immediately."""
+    workspace = await get_agent_for_request(request)
+    console_channel = await workspace.channel_manager.get_channel("console")
+    if console_channel is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Channel Console not found",
+        )
+    try:
+        native_payload = _extract_session_and_payload(request_data)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    session_id = console_channel.resolve_session_id(
+        sender_id=native_payload["sender_id"],
+        channel_meta=native_payload["meta"],
+    )
+    timeout = None
+    if (
+        isinstance(request_data, dict)
+        and request_data.get("timeout") is not None
+    ):
+        try:
+            timeout = float(request_data["timeout"])
+        except (TypeError, ValueError) as exc:
+            raise HTTPException(
+                status_code=400,
+                detail="timeout must be a number",
+            ) from exc
+        if timeout <= 0:
+            raise HTTPException(
+                status_code=400,
+                detail="timeout must be greater than zero",
+            )
+
+    task_id = str(uuid.uuid4())
+    record = {
+        "task_id": task_id,
+        "agent_id": workspace.agent_id,
+        "session_id": session_id,
+        "status": "submitted",
+        "submitted_at": _now_iso(),
+    }
+    _CHAT_TASKS[task_id] = record
+    runtime_task = asyncio.create_task(
+        _run_console_chat_task(
+            task_id=task_id,
+            workspace=workspace,
+            console_channel=console_channel,
+            native_payload=native_payload,
+            session_id=session_id,
+            timeout=timeout,
+        ),
+        name=f"console-chat-task-{task_id}",
+    )
+    _CHAT_RUNTIME_TASKS[task_id] = runtime_task
+    return {
+        "task_id": task_id,
+        "status": "submitted",
+        "session_id": session_id,
+    }
+
+
+@router.get(
+    "/chat/task/{task_id}",
+    status_code=200,
+    summary="Get background console chat task status",
+)
+async def get_console_chat_task_status(
+    task_id: str,
+    request: Request,
+) -> dict:
+    """Return task lifecycle state and the final response when available."""
+    workspace = await get_agent_for_request(request)
+    record = _CHAT_TASKS.get(task_id)
+    if record is None or record.get("agent_id") != workspace.agent_id:
+        raise HTTPException(status_code=404, detail="Task not found")
+    return {
+        key: value
+        for key, value in record.items()
+        if key != "agent_id"
+    }
 
 
 @router.post(

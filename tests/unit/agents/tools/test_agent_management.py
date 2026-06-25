@@ -215,6 +215,35 @@ def test_collect_final_agent_chat_response_keeps_last_sse_payload(monkeypatch):
     assert agent_management.extract_agent_text_content(result) == "second"
 
 
+def test_collect_final_agent_chat_response_ignores_trailing_usage(monkeypatch):
+    fake_lines = [
+        (
+            'data: {"object": "response", "status": "completed", '
+            '"output": [{"content": '
+            '[{"type": "text", "text": "subagent result"}]}]}'
+        ),
+        'data: {"type": "turn_usage", "usage": {"total_tokens": 15}}',
+    ]
+    fake_client = _FakeClient(stream_response=_FakeResponse(lines=fake_lines))
+    monkeypatch.setattr(
+        agent_management,
+        "create_agent_api_client",
+        lambda _base_url: fake_client,
+    )
+
+    result = agent_management.collect_final_agent_chat_response(
+        "http://127.0.0.1:8088",
+        {"session_id": "sid", "input": []},
+        "bot_b",
+        30,
+    )
+
+    assert result is not None
+    assert agent_management.extract_agent_text_content(result) == (
+        "subagent result"
+    )
+
+
 async def test_agent_management_tools_can_be_registered_in_toolkit():
     toolkit = Toolkit(
         tools=[

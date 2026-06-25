@@ -291,8 +291,14 @@ def collect_final_agent_chat_response(
     to_agent: str,
     timeout: int,
 ) -> Optional[Dict[str, Any]]:
-    """Collect the last SSE payload from inter-agent chat."""
+    """Collect the final response envelope from inter-agent chat.
+
+    Console streams may append non-response events such as ``turn_usage``
+    after the completed response.  Keep the latest response-shaped payload
+    instead of blindly returning the final SSE event.
+    """
     response_data: Optional[Dict[str, Any]] = None
+    fallback_data: Optional[Dict[str, Any]] = None
     with create_agent_api_client(base_url) as client:
         with client.stream(
             "POST",
@@ -306,8 +312,13 @@ def collect_final_agent_chat_response(
                 if line:
                     parsed = parse_agent_sse_line(line)
                     if parsed:
-                        response_data = parsed
-    return response_data
+                        fallback_data = parsed
+                        if (
+                            parsed.get("object") == "response"
+                            or "output" in parsed
+                        ):
+                            response_data = parsed
+    return response_data or fallback_data
 
 
 def submit_agent_chat_task(
