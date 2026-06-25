@@ -189,7 +189,6 @@ function ChannelsPage() {
                 <span className={styles.panelDotGreen} />
                 {t("channels.enabledSection")}
                 <span className={styles.panelCount}>
-                  {enabledCards.length}{" "}
                   {t("channels.enabledCount", { count: enabledCards.length })}
                 </span>
               </div>
