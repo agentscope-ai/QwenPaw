@@ -3,7 +3,6 @@
 mod backend;
 mod backend_download;
 mod external_link;
-mod settings;
 mod updates;
 mod tray;
 
@@ -27,7 +26,8 @@ pub fn run() {
             updates::download_desktop_update,
             updates::install_downloaded_update,
             updates::check_cached_update,
-            tray::resolve_close,
+            tray::minimize_to_tray,
+            tray::quit_app,
             tray::set_tray_labels,
         ])
         .manage(backend::BackendState::default())
@@ -40,7 +40,7 @@ pub fn run() {
         .on_window_event(|window, event| {
             if let WindowEvent::CloseRequested { api, .. } = event {
                 api.prevent_close();
-                tray::handle_close_requested(window);
+                tray::request_close(window);
             }
         })
         .build(tauri::generate_context!());

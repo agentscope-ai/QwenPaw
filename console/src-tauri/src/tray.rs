@@ -9,14 +9,13 @@ use tauri::{
 };
 
 use crate::backend;
-use crate::settings::{self, CloseAction};
 
 const SHOW_MENU_ID: &str = "show";
 const QUIT_MENU_ID: &str = "quit";
 
-/// Emitted to the frontend when the user closes the window and no preference
-/// is remembered yet, asking it to show the close prompt.
-pub(crate) const CLOSE_PROMPT_EVENT: &str = "qwenpaw-close-requested";
+/// Emitted to the frontend when the user closes the window, asking it to honor
+/// the remembered preference or show the close prompt.
+pub(crate) const CLOSE_REQUESTED_EVENT: &str = "qwenpaw-close-requested";
 
 #[derive(Clone)]
 struct TrayMenuItems {
@@ -85,36 +84,21 @@ pub(crate) fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Erro
     Ok(())
 }
 
-/// Handles a window close request. A remembered preference is honored directly
-/// in Rust; otherwise the frontend is asked to prompt the user.
-pub(crate) fn handle_close_requested(window: &tauri::Window) {
-    let app = window.app_handle();
-    match settings::remembered_close_action(app) {
-        Some(CloseAction::Quit) => exit_app(app),
-        Some(CloseAction::MinimizeToTray) => hide_main_window(app),
-        None => {
-            let _ = window.emit(CLOSE_PROMPT_EVENT, ());
-        }
-    }
+/// Asks the frontend to handle a window close request. The frontend honors the
+/// remembered choice or shows the close prompt, then calls back into the
+/// `minimize_to_tray` / `quit_app` commands.
+pub(crate) fn request_close(window: &tauri::Window) {
+    let _ = window.emit(CLOSE_REQUESTED_EVENT, ());
 }
 
-/// Resolves the close prompt with the user's choice, optionally remembering it.
 #[tauri::command]
-pub(crate) fn resolve_close(
-    app: tauri::AppHandle,
-    action: CloseAction,
-    remember: bool,
-) -> Result<(), String> {
-    if remember {
-        settings::remember_close_action(&app, action)?;
-    }
+pub(crate) fn minimize_to_tray(app: tauri::AppHandle) {
+    hide_main_window(&app);
+}
 
-    match action {
-        CloseAction::Quit => exit_app(&app),
-        CloseAction::MinimizeToTray => hide_main_window(&app),
-    }
-
-    Ok(())
+#[tauri::command]
+pub(crate) fn quit_app(app: tauri::AppHandle) {
+    exit_app(&app);
 }
 
 /// Updates the tray menu labels with frontend-provided translations.
