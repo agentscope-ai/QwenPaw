@@ -201,6 +201,24 @@ def _extract_response_text(response: Any) -> str:
     return ""
 
 
+def _build_model(agent_id: Optional[str]) -> Any:
+    """Build a fresh chat-model instance for *agent_id*.
+
+    Returns ``None`` if no model can be built — never raises.
+    """
+    try:
+        from ..agents.model_factory import create_model_and_formatter
+
+        model, _ = create_model_and_formatter(agent_id=agent_id)
+        return model
+    except Exception as exc:  # noqa: BLE001 - never block generalization
+        logger.debug(
+            "rule generalization: could not build model instance (%s)",
+            exc,
+        )
+        return None
+
+
 async def _consume_model_text(
     model: Any,
     messages: list,
@@ -212,8 +230,12 @@ async def _consume_model_text(
     others return a non-streaming response object. Streaming chunks are
     assumed to carry cumulative text, so the latest non-empty chunk wins.
 
-    ``call_kwargs`` are forwarded to the model call. Generalization passes
-    ``thinking={"type": "disabled"}`` here to skip extended thinking.
+    ``disable_thinking=True`` here — a single neutral flag that each
+    provider's compat ``_call_api`` translates into its own thinking-disable
+    wire params (``enable_thinking=False`` / ``thinking={"type":"disabled"}``
+    / …). This is the lever that actually works for the DashScope provider
+    family, where setting ``parameters.thinking_enable`` on the instance is
+    masked or ignored.
     """
     response = await model(messages, **call_kwargs)
     if hasattr(response, "__aiter__"):
@@ -260,17 +282,11 @@ async def _llm_generalize_pattern(
     output) so the caller can fall back to the exact match. Never
     raises.
     """
-    try:
-        from ..agents.model_factory import create_model_and_formatter
-        from agentscope.message import Msg, TextBlock
-
-        model, _ = create_model_and_formatter(agent_id=agent_id)
-    except Exception as exc:  # no active model / misconfigured provider
+    model = _build_model(agent_id)
+    if model is None:
         logger.debug(
-            "rule generalization skipped: no model available for "
-            "agent=%s (%s)",
+            "rule generalization skipped: no model available for agent=%s",
             agent_id,
-            exc,
         )
         return ""
 
@@ -299,24 +315,29 @@ async def _llm_generalize_pattern(
         f"{guidance}\n\n"
         "glob pattern:"
     )
-    messages = [
-        Msg(
-            name="system",
-            role="system",
-            content=[TextBlock(type="text", text=_GENERALIZE_SYSTEM_PROMPT)],
-        ),
-        Msg(
-            name="user",
-            role="user",
-            content=[TextBlock(type="text", text=user_text)],
-        ),
-    ]
 
     try:
+        from agentscope.message import Msg, TextBlock
+
+        messages = [
+            Msg(
+                name="system",
+                role="system",
+                content=[
+                    TextBlock(type="text", text=_GENERALIZE_SYSTEM_PROMPT),
+                ],
+            ),
+            Msg(
+                name="user",
+                role="user",
+                content=[TextBlock(type="text", text=user_text)],
+            ),
+        ]
+        # ``disable_thinking=True`` interpreted by compat layer
         raw = await _consume_model_text(
             model,
             messages,
-            thinking={"type": "disabled"},
+            disable_thinking=True,
         )
     except Exception as exc:
         logger.debug("rule generalization LLM call failed (%s)", exc)

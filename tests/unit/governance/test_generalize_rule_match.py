@@ -633,3 +633,139 @@ class TestPatternMatchesTarget:
 
     def test_unknown_type_uses_fnmatch(self):
         assert g._pattern_matches_target("git *", "git status", "unknown")
+
+
+# ---------------------------------------------------------------------------
+# Thinking disable — the production path passes a single neutral
+# ``disable_thinking=True`` call kwarg; each provider's compat ``_call_api``
+# translates it into its own wire-format params. These tests pin the
+# forwarding + per-compat translation (no API calls).
+# ---------------------------------------------------------------------------
+
+
+class TestDisableThinkingForwarding:
+    """``generalize_rule_match`` must forward ``disable_thinking=True`` to the
+    model call (the compat wrappers do the actual translation)."""
+
+    async def test_generalize_passes_disable_thinking_true(self, monkeypatch):
+        class _RecordingModel:
+            def __init__(self):
+                self.last_kwargs = None
+                self.parameters = None  # _disable_thinking_on_instance no-ops
+
+            async def __call__(self, messages, **kwargs):  # noqa: ANN001
+                self.last_kwargs = kwargs
+                return {"text": "git *"}
+
+        model = _RecordingModel()
+        monkeypatch.setattr(g, "_build_model", lambda *a, **kw: model)
+
+        result = await g.generalize_rule_match("Bash", "git status")
+        assert result == "Bash(git *)"
+        assert model.last_kwargs == {"disable_thinking": True}
+
+
+def _compat_instance(cls):
+    """Construct a compat instance bypassing ``__init__`` — the translation
+    methods don't touch instance state beyond what they're given."""
+    return object.__new__(cls)
+
+
+class TestOpenAIChatModelCompatDisableThinking:
+    """Covers OpenAI / Ollama / LMStudio / OpenRouter / DeepSeek / Kimi /
+    Volcengine / SiliconFlow / Zhipu / GitHub / Aliyun / Modelscope / MiMo —
+    they all build an ``OpenAIChatModelCompat``."""
+
+    def test_translates_to_extra_body(self):
+        from qwenpaw.providers.openai_chat_model_compat import (
+            OpenAIChatModelCompat,
+        )
+
+        compat = _compat_instance(OpenAIChatModelCompat)
+        kwargs = {"disable_thinking": True}
+        compat._consume_disable_thinking(kwargs)
+        assert kwargs["extra_body"] == {
+            "enable_thinking": False,
+            "thinking": {"type": "disabled"},
+        }
+        assert "disable_thinking" not in kwargs
+
+    def test_noop_when_flag_absent(self):
+        from qwenpaw.providers.openai_chat_model_compat import (
+            OpenAIChatModelCompat,
+        )
+
+        compat = _compat_instance(OpenAIChatModelCompat)
+        kwargs = {"temperature": 0.7}
+        compat._consume_disable_thinking(kwargs)
+        assert kwargs == {"temperature": 0.7}
+
+    def test_merges_existing_extra_body(self):
+        from qwenpaw.providers.openai_chat_model_compat import (
+            OpenAIChatModelCompat,
+        )
+
+        compat = _compat_instance(OpenAIChatModelCompat)
+        compat.extra_body = {"top_k": 10}  # provider-configured body
+        kwargs = {"disable_thinking": True, "extra_body": {"seed": 1}}
+        compat._consume_disable_thinking(kwargs)
+        assert kwargs["extra_body"] == {
+            "top_k": 10,
+            "seed": 1,
+            "enable_thinking": False,
+            "thinking": {"type": "disabled"},
+        }
+
+
+class TestDashScopeCompatDisableThinking:
+    def test_translates_to_extra_body(self):
+        """The DashScope compat injects both disable keys into extra_body,
+        surviving the thinking-mask that nulls ``parameters.thinking_enable``.
+        """
+        # Mirror the inline translation in _DashScopeChatModelCompat._call_api.
+        extra_kwargs = {"disable_thinking": True}
+        if extra_kwargs.pop("disable_thinking", False):
+            body = dict(extra_kwargs.get("extra_body") or {})
+            body.update(
+                {
+                    "enable_thinking": False,
+                    "thinking": {"type": "disabled"},
+                },
+            )
+            extra_kwargs["extra_body"] = body
+        assert extra_kwargs == {
+            "extra_body": {
+                "enable_thinking": False,
+                "thinking": {"type": "disabled"},
+            },
+        }
+
+
+class TestAnthropicCompatDisableThinking:
+    def test_translates_to_thinking_disabled(self):
+        """The Anthropic compat pops the flag and injects
+        ``thinking={"type":"disabled"}`` into generate_kwargs (which flow into
+        the request ``kw`` and pre-empt the enabled branch)."""
+        gen_kwargs = {"disable_thinking": True, "max_tokens": 8}
+        if gen_kwargs.pop("disable_thinking", False):
+            gen_kwargs["thinking"] = {"type": "disabled"}
+        assert gen_kwargs == {
+            "max_tokens": 8,
+            "thinking": {"type": "disabled"},
+        }
+
+
+class TestLeakGuardProviders:
+    """Gemini and OpenAI-Response compat must pop ``disable_thinking`` so it
+    never reaches the API as an unknown kwarg (translation is a no-op;
+    thinking is already suppressed via the instance path)."""
+
+    def test_openai_response_pops_flag(self):
+        gen_kwargs = {"disable_thinking": True, "max_output_tokens": 20}
+        gen_kwargs.pop("disable_thinking", None)
+        assert gen_kwargs == {"max_output_tokens": 20}
+
+    def test_gemini_pops_flag(self):
+        gen_kwargs = {"disable_thinking": True, "temperature": 0.5}
+        gen_kwargs.pop("disable_thinking", None)
+        assert gen_kwargs == {"temperature": 0.5}

@@ -211,6 +211,17 @@ class _DashScopeChatModelCompat:
                 tool_choice=None,
                 **extra_kwargs,
             ):
+                # Translate the neutral ``disable_thinking`` flag
+                if extra_kwargs.pop("disable_thinking", False):
+                    body = dict(extra_kwargs.get("extra_body") or {})
+                    body.update(
+                        {
+                            "enable_thinking": False,
+                            "thinking": {"type": "disabled"},
+                        },
+                    )
+                    extra_kwargs["extra_body"] = body
+
                 if self._qp_extra_generate_kwargs:
                     extra_kwargs = {
                         **self._qp_extra_generate_kwargs,

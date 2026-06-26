@@ -623,6 +623,7 @@ class OpenAIChatModelCompat(OpenAIChatModel):
         **generate_kwargs: Any,
     ) -> Any:
         merged = {**self._extra_generate_kwargs, **generate_kwargs}
+        self._consume_disable_thinking(merged)
         if self._default_headers:
             existing = merged.get("extra_headers") or {}
             merged["extra_headers"] = {**self._default_headers, **existing}
@@ -633,6 +634,25 @@ class OpenAIChatModelCompat(OpenAIChatModel):
             tool_choice,
             **merged,
         )
+
+    def _consume_disable_thinking(self, call_kwargs: dict) -> None:
+        """Translate the neutral ``disable_thinking`` flag into OpenAI-compat
+        wire params, merging into *call_kwargs* in place.
+
+        Qwen via ``enable_thinking``, DeepSeek/Moonshot-style via
+        ``thinking``.
+        """
+        if not call_kwargs.pop("disable_thinking", False):
+            return
+        body = dict(getattr(self, "extra_body", None) or {})
+        body.update(call_kwargs.get("extra_body") or {})
+        body.update(
+            {
+                "enable_thinking": False,
+                "thinking": {"type": "disabled"},
+            },
+        )
+        call_kwargs["extra_body"] = body
 
     def _format_tools(
         self,
