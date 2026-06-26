@@ -6,7 +6,7 @@ from __future__ import annotations
 import json
 from datetime import datetime
 from types import SimpleNamespace
-from typing import Any, AsyncGenerator
+from typing import Any, AsyncGenerator, Callable
 
 from agentscope.model import OpenAIChatModel
 from agentscope.model._model_response import ChatResponse
@@ -235,6 +235,61 @@ _MAP_SCHEMA_KEYWORDS = frozenset(
 )
 
 
+def _walk_schema(
+    schema: dict[str, Any],
+    transform: Callable[[Any], Any],
+    *,
+    dependency_schema_types: tuple[type, ...] = (dict,),
+) -> dict[str, Any]:
+    """Walk known JSON Schema child positions using *transform*."""
+    result: dict[str, Any] = {}
+    for key, value in schema.items():
+        if key in _SINGLE_SCHEMA_KEYWORDS:
+            if key == "items" and isinstance(value, list):
+                result[key] = [transform(item) for item in value]
+            else:
+                result[key] = transform(value)
+        elif key in _ARRAY_SCHEMA_KEYWORDS:
+            if isinstance(value, list):
+                result[key] = [transform(item) for item in value]
+            else:
+                result[key] = value
+        elif key in _MAP_SCHEMA_KEYWORDS:
+            if isinstance(value, dict):
+                result[key] = {
+                    item_key: transform(item_value)
+                    for item_key, item_value in value.items()
+                }
+            else:
+                result[key] = value
+        elif key == "dependencies" and isinstance(value, dict):
+            # draft-07: value per key may be a schema or a string array.
+            result[key] = {
+                item_key: (
+                    transform(item_value)
+                    if isinstance(item_value, dependency_schema_types)
+                    else item_value
+                )
+                for item_key, item_value in value.items()
+            }
+        else:
+            result[key] = value
+    return result
+
+
+def _strip_boolean_schema_special_cases(schema: Any) -> Any:
+    if not isinstance(schema, dict):
+        return schema
+    return {
+        key: value
+        for key, value in schema.items()
+        if not (
+            (key == "additionalProperties" and value is True)
+            or (key == "required" and isinstance(value, bool))
+        )
+    }
+
+
 # pylint: disable=too-many-branches
 def _sanitize_boolean_schemas(schema: Any) -> Any:
     """Position-aware sanitizer for boolean JSON Schema values.
@@ -270,48 +325,112 @@ def _sanitize_boolean_schemas(schema: Any) -> Any:
         return {"not": {}}
     if not isinstance(schema, dict):
         return schema
+    return _walk_schema(
+        _strip_boolean_schema_special_cases(schema),
+        _sanitize_boolean_schemas,
+        dependency_schema_types=(dict, bool),
+    )
 
-    result: dict[str, Any] = {}
-    for key, value in schema.items():
-        # Strip special-cases intercepted before the keyword dispatch:
-        # `additionalProperties: False` / `: <object>` still fall through
-        # to the `_SINGLE_SCHEMA_KEYWORDS` branch below.
-        if key == "additionalProperties" and value is True:
-            continue
-        if key == "required" and isinstance(value, bool):
+
+def _is_null_schema(schema: Any) -> bool:
+    if not isinstance(schema, dict):
+        return False
+    node_type = schema.get("type")
+    if node_type == "null":
+        return True
+    return isinstance(node_type, list) and set(node_type) == {"null"}
+
+
+def _ensure_object_type_for_untyped_schema(
+    schema: dict[str, Any],
+) -> dict[str, Any]:
+    """Give a permissive nullable fallback an explicit provider type."""
+    if "type" not in schema and not any(
+        key in schema
+        for key in (
+            "$ref",
+            "allOf",
+            "anyOf",
+            "oneOf",
+            "not",
+            "enum",
+            "const",
+        )
+    ):
+        return {**schema, "type": "object"}
+    return schema
+
+
+def _normalize_nullable_type(schema: dict[str, Any]) -> dict[str, Any]:
+    node_type = schema.get("type")
+    if node_type == "null":
+        return {**schema, "type": "object"}
+    if not isinstance(node_type, list) or "null" not in node_type:
+        return schema
+
+    non_null_types = [value for value in node_type if value != "null"]
+    if not non_null_types:
+        return {**schema, "type": "object"}
+    if len(non_null_types) == 1:
+        return {**schema, "type": non_null_types[0]}
+    return {**schema, "type": non_null_types}
+
+
+# pylint: disable=too-many-branches
+def _sanitize_nullable_schemas(schema: Any) -> Any:
+    """Remove JSON Schema ``null`` types from provider tool schemas.
+
+    OpenAI-compatible relays that route to Gemini-style backends often reject
+    functionDeclaration schemas containing nullable branches such as
+    ``anyOf: [{"type": "string"}, {"type": "null"}]``.  Tool parameters are
+    still optional via ``required`` and ``default: null``, so the provider
+    schema can safely expose only the non-null branch.
+    """
+    if isinstance(schema, list):
+        return [_sanitize_nullable_schemas(item) for item in schema]
+    if not isinstance(schema, dict):
+        return schema
+
+    node = dict(schema)
+
+    for key in ("anyOf", "oneOf"):
+        variants = node.get(key)
+        if not isinstance(variants, list):
             continue
 
-        if key in _SINGLE_SCHEMA_KEYWORDS:
-            if key == "items" and isinstance(value, list):
-                # draft-07 tuple form
-                result[key] = [_sanitize_boolean_schemas(v) for v in value]
-            else:
-                result[key] = _sanitize_boolean_schemas(value)
-        elif key in _ARRAY_SCHEMA_KEYWORDS:
-            if isinstance(value, list):
-                result[key] = [_sanitize_boolean_schemas(v) for v in value]
-            else:
-                result[key] = value
-        elif key in _MAP_SCHEMA_KEYWORDS:
-            if isinstance(value, dict):
-                result[key] = {
-                    k: _sanitize_boolean_schemas(v) for k, v in value.items()
-                }
-            else:
-                result[key] = value
-        elif key == "dependencies" and isinstance(value, dict):
-            # draft-07: value per key may be a schema or a string array.
-            result[key] = {
-                k: (
-                    _sanitize_boolean_schemas(v)
-                    if isinstance(v, (dict, bool))
-                    else v
-                )
-                for k, v in value.items()
+        non_null_variants = [
+            variant for variant in variants if not _is_null_schema(variant)
+        ]
+        if len(non_null_variants) == len(variants):
+            continue
+
+        if len(non_null_variants) == 1:
+            branch = _sanitize_nullable_schemas(non_null_variants[0])
+            if not isinstance(branch, dict):
+                branch = {}
+            siblings = {
+                sibling_key: sibling_value
+                for sibling_key, sibling_value in node.items()
+                if sibling_key != key
             }
+            sanitized_siblings = _sanitize_nullable_schemas(siblings)
+            merged = dict(branch)
+            if isinstance(sanitized_siblings, dict):
+                for sibling_key, sibling_value in sanitized_siblings.items():
+                    merged.setdefault(sibling_key, sibling_value)
+            return _ensure_object_type_for_untyped_schema(
+                _normalize_nullable_type(merged),
+            )
+
+        if non_null_variants:
+            node[key] = non_null_variants
         else:
-            result[key] = value
-    return result
+            node.pop(key, None)
+            node = _ensure_object_type_for_untyped_schema(node)
+
+    return _normalize_nullable_type(
+        _walk_schema(node, _sanitize_nullable_schemas),
+    )
 
 
 def _collect_defs(schema: dict[str, Any]) -> dict[str, Any]:
@@ -415,13 +534,16 @@ def _sanitize_tool_schemas(
 ) -> list[dict[str, Any]]:
     """Sanitize tool function schemas to be compatible with strict providers.
 
-    Applies two passes over each tool's ``parameters`` schema:
+    Applies three passes over each tool's ``parameters`` schema:
 
     1. **$ref / $defs expansion** — inlines all local ``$ref`` references so
        that models which do not support ``$defs`` (e.g. GLM-5.x) receive a
        flat, self-contained schema.
     2. **Boolean schema sanitization** — replaces boolean JSON Schema values
        (``true`` / ``false``) that strict providers like DeepSeek V4 reject.
+    3. **Nullable schema sanitization** — removes JSON Schema ``null`` type
+       branches that OpenAI-compatible relays to Gemini-style providers reject
+       in function declarations.
     """
     sanitized = []
     for tool in tools:
@@ -436,8 +558,10 @@ def _sanitize_tool_schemas(
         if not isinstance(params, dict):
             sanitized.append(tool)
             continue
-        sanitized_params = _sanitize_boolean_schemas(
-            _expand_schema_refs(params),
+        sanitized_params = _sanitize_nullable_schemas(
+            _sanitize_boolean_schemas(
+                _expand_schema_refs(params),
+            ),
         )
         sanitized.append(
             {**tool, "function": {**func, "parameters": sanitized_params}},
@@ -535,9 +659,11 @@ class OpenAIChatModelCompat(OpenAIChatModel):
                     in _tool_types
                     and (
                         not isinstance(
-                            b.get("id")
-                            if isinstance(b, dict)
-                            else getattr(b, "id", None),
+                            (
+                                b.get("id")
+                                if isinstance(b, dict)
+                                else getattr(b, "id", None)
+                            ),
                             str,
                         )
                         or not (
