@@ -137,7 +137,11 @@ class MemoryMiddleware(MiddlewareBase):
         if len(self._pending_auto_memory_turn_markers) < interval:
             return
 
-        await self._flush_auto_memory(agent, count=interval)
+        await self._flush_auto_memory(
+            agent,
+            count=interval,
+            repair_context=False,
+        )
 
     async def on_compress_context(
         self,
@@ -160,6 +164,7 @@ class MemoryMiddleware(MiddlewareBase):
         agent: "Agent",
         *,
         count: int | None = None,
+        repair_context: bool = True,
     ) -> None:
         if not self._pending_auto_memory_turn_markers:
             return
@@ -171,7 +176,8 @@ class MemoryMiddleware(MiddlewareBase):
             turn_markers = self._pending_auto_memory_turn_markers[:count]
             del self._pending_auto_memory_turn_markers[:count]
 
-        self._repair_tagged_auto_memory_search_context(agent)
+        if repair_context:
+            self._repair_tagged_auto_memory_search_context(agent)
         normal_messages = self._normal_memory_messages(
             list(agent.state.context),
         )
