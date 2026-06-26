@@ -73,11 +73,11 @@ pub(crate) fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Erro
         });
 
     if let Some(icon) = app.default_window_icon() {
+        // Use the full-color app icon on every platform. The icon is a colored
+        // logo, so it must NOT be flagged as a macOS template image — template
+        // images are rendered as a solid monochrome silhouette, which would
+        // turn the menu-bar icon into a black blob.
         tray = tray.icon(icon.clone());
-        #[cfg(target_os = "macos")]
-        {
-            tray = tray.icon_as_template(true);
-        }
     }
 
     tray.build(app)?;
@@ -87,8 +87,8 @@ pub(crate) fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Erro
 /// Asks the frontend to handle a window close request. The frontend honors the
 /// remembered choice or shows the close prompt, then calls back into the
 /// `minimize_to_tray` / `quit_app` commands.
-pub(crate) fn request_close(window: &tauri::Window) {
-    let _ = window.emit(CLOSE_REQUESTED_EVENT, ());
+pub(crate) fn request_close(app: &tauri::AppHandle) {
+    let _ = app.emit(CLOSE_REQUESTED_EVENT, ());
 }
 
 #[tauri::command]
