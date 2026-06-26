@@ -247,24 +247,35 @@ class CommandHandler(ConversationCommandHandlerMixin):
     def _forced_context_config(self, agent: "Agent"):
         """Clone the agent's ContextConfig for a manual ``/compact``.
 
-        Two overrides vs. the auto config: ``trigger_ratio`` is dropped so
-        compaction runs directly (skipping the auto threshold), and
-        ``reserve_ratio`` is shrunk to ``_FORCE_RESERVE_RATIO`` so a small
-        conversation that would fit inside the auto reserve still has a middle
-        to evict — i.e. on-demand ``/compact`` actually frees space instead of
-        reporting "nothing to compact". Both scroll and native honour
-        a ``context_config`` override; falls back to the agent's config if
-        cloning fails."""
+        ``trigger_ratio`` is always dropped so compaction runs directly,
+        skipping the auto threshold — that is the point of a manual command and
+        is strategy-agnostic.
+
+        ``reserve_ratio`` is shrunk to ``_FORCE_RESERVE_RATIO`` **only under
+        scroll**. Scroll eviction is lossless (evicted turns stay recallable
+        from ``history.db``), so a tiny reserve simply frees more in-context
+        space with nothing lost. Native compaction is *lossy* — the
+        non-reserved middle is summarized into ``state.summary`` and the
+        originals are dropped — so native keeps its configured
+        ``reserve_threshold_ratio`` (already baked into ``base``) to preserve
+        the same recent-tail continuity as auto compaction. Native also has its
+        own "reserve too large → drop to 0" fallback, so it never reports
+        "nothing to compact" without the shrink. Falls back to the agent's
+        config if cloning fails."""
         base = getattr(agent, "context_config", None)
         if base is None:
             return None
+        update: dict[str, Any] = {"trigger_ratio": _FORCE_TRIGGER_RATIO}
         try:
-            return base.model_copy(
-                update={
-                    "trigger_ratio": _FORCE_TRIGGER_RATIO,
-                    "reserve_ratio": _FORCE_RESERVE_RATIO,
-                },
+            strategy = (
+                self._get_agent_config().running.light_context_config.strategy
             )
+        except Exception:
+            strategy = "native"
+        if strategy == "scroll":
+            update["reserve_ratio"] = _FORCE_RESERVE_RATIO
+        try:
+            return base.model_copy(update=update)
         except Exception:
             logger.warning(
                 "Could not clone context_config to force /compact; "
