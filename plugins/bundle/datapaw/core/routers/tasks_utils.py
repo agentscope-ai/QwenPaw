@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any, List, Literal, NamedTuple, Optional
-from urllib.parse import quote, urlsplit
+from urllib.parse import quote, unquote, urlsplit
 
 from fastapi import HTTPException, Request
 from fastapi.responses import FileResponse, Response
@@ -502,23 +502,50 @@ def find_registered_artifact(
 def normalize_html_resource_path(
     html_path: str,
     raw_url: str,
+    *,
+    artifacts_root: Path | None = None,
 ) -> tuple[str, str] | None:
-    """Normalize a relative URL inside HTML to an artifacts-root path."""
+    """Normalize a URL inside HTML to an artifacts-root-relative path."""
     raw = (raw_url or "").strip()
     if not raw or raw.startswith(("#", "?")) or raw.startswith("//"):
         return None
     parsed = urlsplit(raw)
+    if parsed.scheme.lower() == "file":
+        if parsed.netloc and parsed.netloc.lower() != "localhost":
+            return None
+        if artifacts_root is None:
+            return None
+        candidate = Path(unquote(parsed.path)).expanduser().resolve()
+        root = artifacts_root.expanduser().resolve()
+        if not candidate.is_relative_to(root):
+            return None
+        return candidate.relative_to(root).as_posix(), parsed.fragment
+
     if parsed.scheme.lower() in _SKIPPED_URL_SCHEMES or parsed.netloc:
         return None
     if not parsed.path:
         return None
 
-    if parsed.path.startswith(("./", "../")):
+    decoded_path = unquote(parsed.path)
+    if Path(decoded_path).is_absolute():
+        if artifacts_root is not None:
+            candidate = Path(decoded_path).expanduser().resolve()
+            root = artifacts_root.expanduser().resolve()
+            if candidate.is_relative_to(root):
+                return candidate.relative_to(root).as_posix(), parsed.fragment
+
+        resource_path = decoded_path.lstrip("/")
+        html_session = html_path.split("/", 1)[0]
+        if html_session and resource_path.startswith(f"{html_session}/"):
+            return resource_path, parsed.fragment
+        return None
+
+    if decoded_path.startswith(("./", "../")):
         resource_path = posixpath.normpath(
-            posixpath.join(posixpath.dirname(html_path), parsed.path),
+            posixpath.join(posixpath.dirname(html_path), decoded_path),
         )
     else:
-        resource_path = parsed.path.lstrip("/")
+        resource_path = decoded_path.lstrip("/")
     if resource_path in ("", ".") or resource_path.startswith("../"):
         return None
     return resource_path, parsed.fragment
@@ -532,11 +559,16 @@ def rewrite_css_urls(
     user_id: str,
     agent_id: str = "",
     api_origin: str = "",
+    artifacts_root: Path | None = None,
 ) -> str:
     def replace(match: re.Match[str]) -> str:
         quote_char = match.group(1)
         raw_url = match.group(2)
-        normalized = normalize_html_resource_path(html_path, raw_url)
+        normalized = normalize_html_resource_path(
+            html_path,
+            raw_url,
+            artifacts_root=artifacts_root,
+        )
         if normalized is None:
             return match.group(0)
         resource_path, fragment = normalized
@@ -561,6 +593,7 @@ def rewrite_srcset(
     user_id: str,
     agent_id: str = "",
     api_origin: str = "",
+    artifacts_root: Path | None = None,
 ) -> str:
     rewritten_parts: list[str] = []
     for candidate in srcset.split(","):
@@ -568,7 +601,11 @@ def rewrite_srcset(
         if not stripped:
             continue
         parts = stripped.split(None, 1)
-        normalized = normalize_html_resource_path(html_path, parts[0])
+        normalized = normalize_html_resource_path(
+            html_path,
+            parts[0],
+            artifacts_root=artifacts_root,
+        )
         if normalized is None:
             rewritten_parts.append(stripped)
             continue
@@ -598,6 +635,7 @@ class HTMLResourceRewriter(HTMLParser):
         user_id: str,
         agent_id: str = "",
         api_origin: str = "",
+        artifacts_root: Path | None = None,
     ) -> None:
         super().__init__(convert_charrefs=False)
         self.html_path = html_path
@@ -605,11 +643,16 @@ class HTMLResourceRewriter(HTMLParser):
         self.user_id = user_id
         self.agent_id = agent_id
         self.api_origin = api_origin
+        self.artifacts_root = artifacts_root
         self.parts: list[str] = []
         self._style_depth = 0
 
     def _rewrite_url(self, raw_url: str) -> str:
-        normalized = normalize_html_resource_path(self.html_path, raw_url)
+        normalized = normalize_html_resource_path(
+            self.html_path,
+            raw_url,
+            artifacts_root=self.artifacts_root,
+        )
         if normalized is None:
             return raw_url
         resource_path, fragment = normalized
@@ -642,6 +685,7 @@ class HTMLResourceRewriter(HTMLParser):
                     user_id=self.user_id,
                     agent_id=self.agent_id,
                     api_origin=self.api_origin,
+                    artifacts_root=self.artifacts_root,
                 )
             elif lower_name == "style":
                 value = rewrite_css_urls(
@@ -651,6 +695,7 @@ class HTMLResourceRewriter(HTMLParser):
                     user_id=self.user_id,
                     agent_id=self.agent_id,
                     api_origin=self.api_origin,
+                    artifacts_root=self.artifacts_root,
                 )
             rewritten.append((name, value))
         return rewritten
@@ -700,6 +745,7 @@ class HTMLResourceRewriter(HTMLParser):
                 user_id=self.user_id,
                 agent_id=self.agent_id,
                 api_origin=self.api_origin,
+                artifacts_root=self.artifacts_root,
             )
         self.parts.append(data)
 
@@ -730,6 +776,7 @@ def rewrite_html_resource_links(
     user_id: str,
     agent_id: str = "",
     api_origin: str = "",
+    artifacts_root: Path | None = None,
 ) -> str:
     parser = HTMLResourceRewriter(
         html_path=html_path,
@@ -737,6 +784,7 @@ def rewrite_html_resource_links(
         user_id=user_id,
         agent_id=agent_id,
         api_origin=api_origin,
+        artifacts_root=artifacts_root,
     )
     parser.feed(html)
     parser.close()
@@ -807,6 +855,7 @@ def serve_artifact_file(
                 user_id=user_id,
                 agent_id=agent_id,
                 api_origin=api_origin,
+                artifacts_root=context.mount_dir,
             ),
             media_type="text/html; charset=utf-8",
             headers={"Content-Disposition": content_disposition},

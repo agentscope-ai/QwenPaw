@@ -132,6 +132,64 @@ def test_rewrite_html_resource_links_unit() -> None:
     )
 
 
+def test_rewrite_html_resource_links_artifact_absolute_path(tmp_path) -> None:
+    from plugin_datapaw.core.routers.tasks_utils import rewrite_html_resource_links
+
+    artifacts_root = tmp_path / "workspace" / "artifacts"
+    absolute_csv = (artifacts_root / CSV_PATH).resolve()
+    outside_csv = (tmp_path / "outside.csv").resolve()
+    root_relative_csv = f"/{CSV_PATH}"
+    html = (
+        f'<a href="{absolute_csv.as_posix()}">csv</a>'
+        f'<a href="{root_relative_csv}">root-relative</a>'
+        f'<a href="{outside_csv.as_posix()}">outside</a>'
+    )
+
+    rewritten = rewrite_html_resource_links(
+        html,
+        html_path=REPORT_PATH,
+        session_id=SESSION_ID,
+        user_id="default",
+        agent_id="datapaw",
+        api_origin="http://testserver",
+        artifacts_root=artifacts_root,
+    )
+
+    assert (
+        f"http://testserver/api/tasks/{SESSION_ID}/files/resource"
+        f"?path={quote(CSV_PATH, safe='')}"
+        "&amp;user_id=default&amp;agent_id=datapaw"
+        in rewritten
+    )
+    assert f'href="{root_relative_csv}"' not in rewritten
+    assert f'href="{outside_csv.as_posix()}"' in rewritten
+
+
+def test_rewrite_html_resource_links_artifact_file_url(tmp_path) -> None:
+    from plugin_datapaw.core.routers.tasks_utils import rewrite_html_resource_links
+
+    artifacts_root = tmp_path / "workspace" / "artifacts"
+    absolute_csv = (artifacts_root / CSV_PATH).resolve()
+    html = f'<a href="{absolute_csv.as_uri()}">csv</a>'
+
+    rewritten = rewrite_html_resource_links(
+        html,
+        html_path=REPORT_PATH,
+        session_id=SESSION_ID,
+        user_id="default",
+        agent_id="datapaw",
+        api_origin="http://testserver",
+        artifacts_root=artifacts_root,
+    )
+
+    assert (
+        f"http://testserver/api/tasks/{SESSION_ID}/files/resource"
+        f"?path={quote(CSV_PATH, safe='')}"
+        "&amp;user_id=default&amp;agent_id=datapaw"
+        in rewritten
+    )
+
+
 def test_serve_artifact_file_preview_rewrites(tmp_path) -> None:
     from plugin_datapaw.core.routers.tasks_utils import serve_artifact_file
 
@@ -167,6 +225,16 @@ def test_serve_artifact_file_download_rewrites(tmp_path) -> None:
     from plugin_datapaw.core.routers.tasks_utils import serve_artifact_file
 
     _write_artifact_tree(tmp_path)
+    artifacts_root = tmp_path / "workspace" / "artifacts"
+    report_path = artifacts_root / REPORT_PATH
+    absolute_csv = (artifacts_root / CSV_PATH).resolve()
+    report_path.write_text(
+        (
+            f'<a href="{absolute_csv.as_posix()}">csv</a>'
+            f'<a href="{absolute_csv.as_uri()}">csv-file</a>'
+        ),
+        encoding="utf-8",
+    )
     workspace = _workspace(tmp_path)
     response = serve_artifact_file(
         workspace,
@@ -186,6 +254,8 @@ def test_serve_artifact_file_download_rewrites(tmp_path) -> None:
         f"?path={quote(CSV_PATH, safe='')}"
         in body
     )
+    assert absolute_csv.as_posix() not in body
+    assert absolute_csv.as_uri() not in body
     assert "Content-Disposition" in response.headers
     assert "attachment" in response.headers["Content-Disposition"]
 

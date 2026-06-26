@@ -137,6 +137,45 @@ def test_html_artifact_send_generates_rewritten_copy(tmp_path) -> None:
     assert "href=\"../data/result.csv\"" not in body
 
 
+def test_html_artifact_send_rewrites_absolute_artifact_links(tmp_path) -> None:
+    from plugin_datapaw.core.file_delivery import build_send_file_to_user_fn
+
+    report_path = _write_artifact_report(tmp_path)
+    artifacts_root = tmp_path / "workspace" / "artifacts"
+    absolute_csv = (artifacts_root / CSV_REL).resolve()
+    report_path.write_text(
+        (
+            f'<a href="{absolute_csv.as_posix()}">csv</a>'
+            f'<a href="{absolute_csv.as_uri()}">csv-file</a>'
+        ),
+        encoding="utf-8",
+    )
+    sent_paths: list[str] = []
+
+    async def fake_host_send(file_path: str):
+        sent_paths.append(file_path)
+        return {"sent": file_path}
+
+    tool = build_send_file_to_user_fn(_agent(tmp_path))
+    with patch(
+        "plugin_datapaw.core.file_delivery._host_send_file_to_user",
+        new=fake_host_send,
+    ):
+        asyncio.run(tool(f"artifacts/{REPORT_REL}"))
+
+    copy_path = report_path.with_name("report.datapaw-send.html")
+    assert sent_paths == [str(copy_path)]
+    body = copy_path.read_text(encoding="utf-8")
+    csv_url = (
+        "http://testserver/api/tasks/s1/files/resource"
+        f"?path={quote(CSV_REL, safe='')}"
+        "&amp;user_id=default&amp;agent_id=datapaw"
+    )
+    assert csv_url in body
+    assert absolute_csv.as_posix() not in body
+    assert absolute_csv.as_uri() not in body
+
+
 def test_non_html_send_passthrough(tmp_path) -> None:
     from plugin_datapaw.core.file_delivery import build_send_file_to_user_fn
 
