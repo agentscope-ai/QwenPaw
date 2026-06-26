@@ -203,6 +203,13 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
     migrate_legacy_skills_to_skill_pool()
     ensure_qa_agent_exists()
 
+    # Import raw sessions/*.json history into each scroll agent's history.db so
+    # conversations that pre-date scroll (or never write-through'd) are
+    # recallable. Internally guarded — never raises, never blocks boot.
+    from ..agents.context.scroll.sync import sync_all_scroll_agents
+
+    sync_all_scroll_agents()
+
     # Create core managers (instant — no I/O)
     provider_manager = ProviderManager.get_instance()
     local_model_manager = LocalModelManager.get_instance()
