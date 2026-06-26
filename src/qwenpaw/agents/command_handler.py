@@ -247,21 +247,16 @@ class CommandHandler(ConversationCommandHandlerMixin):
     def _forced_context_config(self, agent: "Agent"):
         """Clone the agent's ContextConfig for a manual ``/compact``.
 
-        ``trigger_ratio`` is always dropped so compaction runs directly,
-        skipping the auto threshold — that is the point of a manual command and
-        is strategy-agnostic.
+        Always drops ``trigger_ratio`` so compaction runs now instead of
+        waiting for the auto threshold (strategy-agnostic).
 
-        ``reserve_ratio`` is shrunk to ``_FORCE_RESERVE_RATIO`` **only under
-        scroll**. Scroll eviction is lossless (evicted turns stay recallable
-        from ``history.db``), so a tiny reserve simply frees more in-context
-        space with nothing lost. Native compaction is *lossy* — the
-        non-reserved middle is summarized into ``state.summary`` and the
-        originals are dropped — so native keeps its configured
-        ``reserve_threshold_ratio`` (already baked into ``base``) to preserve
-        the same recent-tail continuity as auto compaction. Native also has its
-        own "reserve too large → drop to 0" fallback, so it never reports
-        "nothing to compact" without the shrink. Falls back to the agent's
-        config if cloning fails."""
+        Shrinks ``reserve_ratio`` to ``_FORCE_RESERVE_RATIO`` **only under
+        scroll**, where eviction is lossless (evicted turns stay recallable),
+        so a tiny reserve frees space with nothing lost. Native compaction is
+        lossy — the non-reserved middle is summarized away — so it keeps its
+        configured reserve (already on ``base``) for the same recent-tail
+        continuity as auto compaction. Falls back to the agent's config if
+        cloning fails."""
         base = getattr(agent, "context_config", None)
         if base is None:
             return None
