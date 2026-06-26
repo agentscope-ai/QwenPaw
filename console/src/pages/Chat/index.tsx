@@ -38,6 +38,7 @@ import {
   wrapChatResponseUsageStream,
 } from "./turnUsage";
 import ChatHeaderTitle from "./components/ChatHeaderTitle";
+import { useSessionUpdateRefresh } from "./useSessionUpdateRefresh";
 import ChatSessionInitializer from "./components/ChatSessionInitializer";
 import { ApprovalCard } from "../../components/ApprovalCard/ApprovalCard";
 import { commandsApi } from "../../api/modules/commands";
@@ -1566,6 +1567,8 @@ export default function ChatPage() {
     window.addEventListener("model-switched", handler);
     return () => window.removeEventListener("model-switched", handler);
   }, [fetchMultimodalCaps]);
+
+  useSessionUpdateRefresh(chatIdRef, setRefreshKey);
 
   const pendingClearHistoryRef = useRef(false);
   const whisperSpeechRef = useRef<WhisperSpeechButtonRef>(null);

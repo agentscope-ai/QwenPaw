@@ -39,6 +39,9 @@ from .renderer import MessageRenderer, RenderStyle
 from .schema import ChannelType
 from .access_control import get_access_control_store
 from ...config.utils import load_config
+from ..console_push_store import (
+    append_session_updated as push_store_append_session_updated,
+)
 
 # Optional callback to enqueue payload (set by manager)
 EnqueueCallback = Optional[Callable[[Any], None]]
@@ -948,6 +951,10 @@ class BaseChannel(ABC):
                     to_handle,
                     send_meta,
                 )
+                await self._notify_console_session_updated(
+                    request,
+                    send_meta,
+                )
 
             if self._on_reply_sent:
                 args = self.get_on_reply_sent_args(request, to_handle)
@@ -1383,6 +1390,10 @@ class BaseChannel(ABC):
                     to_handle,
                     send_meta,
                 )
+                await self._notify_console_session_updated(
+                    request,
+                    send_meta,
+                )
             if self._on_reply_sent:
                 args = self.get_on_reply_sent_args(request, to_handle)
                 self._on_reply_sent(self.channel, *args)
@@ -1392,6 +1403,33 @@ class BaseChannel(ABC):
                 request,
                 to_handle,
                 "An error occurred while processing your request.",
+            )
+
+    def _should_notify_console_session_updated(
+        self,
+        send_meta: Optional[Dict[str, Any]],
+    ) -> bool:
+        if self.channel == "console":
+            return False
+        if (send_meta or {}).get("suppress_console_push"):
+            return False
+        return True
+
+    async def _notify_console_session_updated(
+        self,
+        request: "AgentRequest",
+        send_meta: Optional[Dict[str, Any]],
+    ) -> None:
+        if not self._should_notify_console_session_updated(send_meta):
+            return
+        session_id = str(getattr(request, "session_id", "") or "")
+        if not session_id:
+            return
+        try:
+            await push_store_append_session_updated(session_id)
+        except Exception:
+            logger.exception(
+                "failed to push console session update notification",
             )
 
     def _get_response_error_message(self, last_response: Any) -> Optional[str]:

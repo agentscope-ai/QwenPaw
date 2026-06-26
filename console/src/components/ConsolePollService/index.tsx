@@ -2,6 +2,10 @@ import { useEffect, useRef, useState } from "react";
 import { MessageCircle, X } from "lucide-react";
 import { consoleApi, type PushMessage } from "../../api/modules/console";
 import { useApprovalContext } from "../../contexts/ApprovalContext";
+import {
+  dispatchSessionUpdated,
+  getSessionIdFromPushMessage,
+} from "../../events/sessionUpdate";
 import styles from "./index.module.less";
 
 const POLL_INTERVAL_MS = 2500;
@@ -57,6 +61,11 @@ export default function ConsolePollService() {
           for (const m of res.messages) {
             if (seen.has(m.id)) continue;
             seen.add(m.id);
+            const updatedSessionId = getSessionIdFromPushMessage(m.text);
+            if (updatedSessionId) {
+              dispatchSessionUpdated(updatedSessionId);
+              continue;
+            }
             newItems.push({ ...m, dismissAt: now + AUTO_DISMISS_MS });
           }
           if (newItems.length === 0) return;

@@ -17,6 +17,7 @@ _list: List[Dict[str, Any]] = []
 _lock = asyncio.Lock()
 _MAX_AGE_SECONDS = 60
 _MAX_MESSAGES = 500
+SESSION_UPDATED_PUSH_PREFIX = "session_updated:"
 
 
 async def append(session_id: str, text: str, *, sticky: bool = False) -> None:
@@ -36,6 +37,15 @@ async def append(session_id: str, text: str, *, sticky: bool = False) -> None:
         if len(_list) > _MAX_MESSAGES:
             _list.sort(key=lambda m: m["ts"])
             del _list[: len(_list) - _MAX_MESSAGES]
+
+
+async def append_session_updated(session_id: str) -> None:
+    """Notify the console UI that a session received channel-side updates."""
+    await append(
+        session_id,
+        f"{SESSION_UPDATED_PUSH_PREFIX}{session_id}",
+        sticky=False,
+    )
 
 
 async def take(session_id: str) -> List[Dict[str, Any]]:

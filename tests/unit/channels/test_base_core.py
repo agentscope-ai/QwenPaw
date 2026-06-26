@@ -1356,6 +1356,76 @@ class TestRunProcessLoopIntegration:
         # Verify send_message_content was called
         base_channel.send_message_content.assert_called_once()
 
+    async def test_channel_completion_pushes_console_session_update(
+        self,
+        base_channel,
+    ):
+        """Non-console channel completion should refresh the web chat."""
+        from qwenpaw.schemas import (
+            RunStatus,
+            Event,
+            Message,
+            MessageType,
+            Role,
+            TextContent,
+            ContentType,
+        )
+
+        base_channel.channel = "wecom"
+        base_channel.send_message_content = AsyncMock()
+
+        mock_request = MagicMock()
+        mock_request.user_id = "user1"
+        mock_request.session_id = "wecom:user1"
+        mock_request.channel_meta = {}
+
+        async def mock_process(_request):
+            yield Event(
+                object="message",
+                status=RunStatus.Completed,
+                type="message.completed",
+                id="msg-1",
+                created_at=1234567890,
+                message=Message(
+                    type=MessageType.MESSAGE,
+                    role=Role.ASSISTANT,
+                    content=[TextContent(type=ContentType.TEXT, text="Hello")],
+                ),
+            )
+
+        base_channel._process = mock_process
+
+        with patch(
+            "qwenpaw.app.channels.base.push_store_append_session_updated",
+            new_callable=AsyncMock,
+        ) as mock_push:
+            await base_channel._run_process_loop(
+                mock_request,
+                to_handle="user1",
+                send_meta={},
+            )
+
+        mock_push.assert_awaited_once_with("wecom:user1")
+
+    async def test_console_channel_completion_does_not_push_session_update(
+        self,
+        base_channel,
+    ):
+        """Console chat already streams locally and should not remount itself."""
+        mock_request = MagicMock()
+        mock_request.session_id = "console:user1"
+
+        with patch(
+            "qwenpaw.app.channels.base.push_store_append_session_updated",
+            new_callable=AsyncMock,
+        ) as mock_push:
+            await base_channel._notify_console_session_updated(
+                mock_request,
+                send_meta={},
+            )
+
+        mock_push.assert_not_awaited()
+
     @pytest.mark.skip(
         reason="Response/AgentResponse classes removed from schema",
     )
