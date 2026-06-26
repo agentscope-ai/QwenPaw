@@ -21,6 +21,7 @@ Run:
     pytest tests/unit/channels/test_telegram.py -v
     pytest tests/unit/channels/test_telegram.py::TestTelegramChannelInit -v
 """
+
 # pylint: disable=redefined-outer-name,protected-access,unused-argument
 # pylint: disable=broad-exception-raised,using-constant-test
 from __future__ import annotations
@@ -40,7 +41,6 @@ from qwenpaw.schemas import (
     FileContent,
     ContentType,
 )
-
 
 # =============================================================================
 # Fixtures
@@ -1175,6 +1175,30 @@ class TestTelegramNoTextDebounce:
 
         assert should_process is True
         assert len(merged) == 1
+
+    def test_media_only_uses_base_behavior_when_no_text_debounce_enabled(
+        self,
+        telegram_channel,
+    ):
+        """Enabling no-text debounce should buffer media-only content."""
+        telegram_channel.set_no_text_debounce_enabled(True)
+        parts = [
+            ImageContent(
+                type=ContentType.IMAGE,
+                image_url="http://example.com/img.jpg",
+            ),
+        ]
+
+        should_process, merged = telegram_channel._apply_no_text_debounce(
+            "session_1",
+            parts,
+        )
+
+        assert should_process is False
+        assert merged == []
+        assert (
+            telegram_channel._pending_content_by_session["session_1"] == parts
+        )
 
     def test_text_content_uses_base_behavior(
         self,

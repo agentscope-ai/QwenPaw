@@ -74,6 +74,7 @@ class OneBotChannel(BaseChannel):
         share_session_in_group: bool = False,
         access_control_dm: bool = False,
         access_control_group: bool = False,
+        no_text_debounce_enabled: bool = False,
     ):
         super().__init__(
             process,
@@ -88,6 +89,7 @@ class OneBotChannel(BaseChannel):
             require_mention=require_mention,
             access_control_dm=access_control_dm,
             access_control_group=access_control_group,
+            no_text_debounce_enabled=no_text_debounce_enabled,
         )
         self.enabled = enabled
         self.bot_prefix = bot_prefix
@@ -181,6 +183,12 @@ class OneBotChannel(BaseChannel):
             ),
             access_control_group=bool(
                 getattr(config, "access_control_group", False),
+            ),
+            no_text_debounce_enabled=(
+                bool(getattr(config, "no_text_debounce_enabled"))
+                if getattr(config, "no_text_debounce_enabled", None)
+                is not None
+                else False
             ),
         )
 
@@ -688,6 +696,8 @@ class OneBotChannel(BaseChannel):
         media (image, audio, video, file), process it immediately
         instead of buffering until a text message arrives.
         """
+        if self._no_text_debounce_enabled:
+            return super()._apply_no_text_debounce(session_id, content_parts)
         has_media = any(
             getattr(part, "type", None)
             not in (ContentType.TEXT, ContentType.REFUSAL)

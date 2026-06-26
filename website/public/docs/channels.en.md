@@ -1340,17 +1340,18 @@ Field details and structure are in the tables above and [Config & working dir](.
 
 All channels support the following common fields:
 
-| Field                  | Type     | Default  | Description                                                               |
-| ---------------------- | -------- | -------- | ------------------------------------------------------------------------- |
-| `enabled`              | bool     | `false`  | Whether to enable this channel                                            |
-| `bot_prefix`           | string   | `""`     | Bot reply prefix (e.g., `[BOT]`)                                          |
-| `filter_tool_messages` | bool     | `false`  | Whether to filter tool call/output messages                               |
-| `filter_thinking`      | bool     | `false`  | Whether to filter thinking/reasoning content                              |
-| `dm_policy`            | string   | `"open"` | Direct message access policy: `"open"` (open) / `"allowlist"` (whitelist) |
-| `group_policy`         | string   | `"open"` | Group chat access policy: `"open"` (open) / `"allowlist"` (whitelist)     |
-| `allow_from`           | string[] | `[]`     | Whitelist (effective when policy is `"allowlist"`)                        |
-| `deny_message`         | string   | `""`     | Denial message when access is denied                                      |
-| `require_mention`      | bool     | `false`  | Whether @mention is required to respond                                   |
+| Field                      | Type      | Default  | Description                                                                           |
+| -------------------------- | --------- | -------- | ------------------------------------------------------------------------------------- |
+| `enabled`                  | bool      | `false`  | Whether to enable this channel                                                        |
+| `bot_prefix`               | string    | `""`     | Bot reply prefix (e.g., `[BOT]`)                                                      |
+| `filter_tool_messages`     | bool      | `false`  | Whether to filter tool call/output messages                                           |
+| `filter_thinking`          | bool      | `false`  | Whether to filter thinking/reasoning content                                          |
+| `no_text_debounce_enabled` | bool/null | `null`   | Whether media-only messages wait for follow-up text; `null` keeps the channel default |
+| `dm_policy`                | string    | `"open"` | Direct message access policy: `"open"` (open) / `"allowlist"` (whitelist)             |
+| `group_policy`             | string    | `"open"` | Group chat access policy: `"open"` (open) / `"allowlist"` (whitelist)                 |
+| `allow_from`               | string[]  | `[]`     | Whitelist (effective when policy is `"allowlist"`)                                    |
+| `deny_message`             | string    | `""`     | Denial message when access is denied                                                  |
+| `require_mention`          | bool      | `false`  | Whether @mention is required to respond                                               |
 
 ### Multi-modal message support
 

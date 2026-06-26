@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 # pylint: disable=protected-access
 """Unit tests for OneBot v11 channel."""
+
 from __future__ import annotations
 
 import asyncio
@@ -12,7 +13,6 @@ from qwenpaw.schemas import (
 )
 
 from qwenpaw.app.channels.onebot.channel import OneBotChannel
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -197,6 +197,59 @@ class TestParseMessageSegments:
             [{"type": "unknown_type", "data": {}}],
         )
         assert len(parts) == 0
+
+
+# ===================================================================
+# No-text debounce
+# ===================================================================
+
+
+class TestOneBotNoTextDebounce:
+    def test_media_only_triggers_immediate_processing_by_default(self):
+        """OneBot should preserve its current media-only default behavior."""
+        from qwenpaw.schemas import (
+            ImageContent,
+        )
+
+        ch = _make_channel()
+        parts = [
+            ImageContent(
+                type=ContentType.IMAGE,
+                image_url="https://img.example.com/1.jpg",
+            ),
+        ]
+
+        should_process, merged = ch._apply_no_text_debounce(
+            "session_1",
+            parts,
+        )
+
+        assert should_process is True
+        assert merged == parts
+
+    def test_media_only_uses_base_behavior_when_no_text_debounce_enabled(self):
+        """Enabling no-text debounce should buffer media-only content."""
+        from qwenpaw.schemas import (
+            ImageContent,
+        )
+
+        ch = _make_channel()
+        ch.set_no_text_debounce_enabled(True)
+        parts = [
+            ImageContent(
+                type=ContentType.IMAGE,
+                image_url="https://img.example.com/1.jpg",
+            ),
+        ]
+
+        should_process, merged = ch._apply_no_text_debounce(
+            "session_1",
+            parts,
+        )
+
+        assert should_process is False
+        assert merged == []
+        assert ch._pending_content_by_session["session_1"] == parts
 
 
 # ===================================================================

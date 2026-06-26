@@ -4,6 +4,7 @@
 """
 Base Channel: bound to AgentRequest/AgentResponse, unified by process.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -133,6 +134,7 @@ class BaseChannel(ABC):
         streaming_enabled: bool = False,
         access_control_dm: bool = False,
         access_control_group: bool = False,
+        no_text_debounce_enabled: bool = True,
     ):
         self._process = process
         self._on_reply_sent = on_reply_sent
@@ -149,6 +151,7 @@ class BaseChannel(ABC):
         self.require_mention = require_mention
         self.access_control_dm = access_control_dm
         self.access_control_group = access_control_group
+        self._no_text_debounce_enabled = bool(no_text_debounce_enabled)
         self._language = "zh"
         self._enqueue: EnqueueCallback = None
         self._workspace = None
@@ -297,6 +300,10 @@ class BaseChannel(ABC):
             for c in (contents or [])
         )
 
+    def set_no_text_debounce_enabled(self, enabled: bool) -> None:
+        """Configure whether media-only content waits for follow-up text."""
+        self._no_text_debounce_enabled = bool(enabled)
+
     def _apply_no_text_debounce(
         self,
         session_id: str,
@@ -309,6 +316,13 @@ class BaseChannel(ABC):
         (voice messages are standalone user input, not partial uploads).
         """
         if not self._content_has_text(content_parts):
+            if not self._no_text_debounce_enabled:
+                pending = self._pending_content_by_session.pop(
+                    session_id,
+                    [],
+                )
+                merged = pending + list(content_parts)
+                return (True, merged)
             if self._content_has_audio(content_parts):
                 # Audio-only messages (e.g. voice messages) should be
                 # processed immediately — they are complete user input.

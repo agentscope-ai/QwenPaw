@@ -1373,17 +1373,18 @@ pip install "qwenpaw[sip,sip-livekit]"
 
 所有频道都支持以下通用字段：
 
-| 字段                   | 类型     | 默认值   | 说明                                                    |
-| ---------------------- | -------- | -------- | ------------------------------------------------------- |
-| `enabled`              | bool     | `false`  | 是否启用该频道                                          |
-| `bot_prefix`           | string   | `""`     | 机器人回复前缀（如 `[BOT]`）                            |
-| `filter_tool_messages` | bool     | `false`  | 是否过滤工具调用/输出消息                               |
-| `filter_thinking`      | bool     | `false`  | 是否过滤思考/推理内容                                   |
-| `dm_policy`            | string   | `"open"` | 私聊访问策略：`"open"`（开放）/ `"allowlist"`（白名单） |
-| `group_policy`         | string   | `"open"` | 群聊访问策略：`"open"`（开放）/ `"allowlist"`（白名单） |
-| `allow_from`           | string[] | `[]`     | 白名单列表（当 policy 为 `"allowlist"` 时生效）         |
-| `deny_message`         | string   | `""`     | 拒绝访问时的提示消息                                    |
-| `require_mention`      | bool     | `false`  | 是否需要 @机器人 才响应                                 |
+| 字段                       | 类型      | 默认值   | 说明                                                      |
+| -------------------------- | --------- | -------- | --------------------------------------------------------- |
+| `enabled`                  | bool      | `false`  | 是否启用该频道                                            |
+| `bot_prefix`               | string    | `""`     | 机器人回复前缀（如 `[BOT]`）                              |
+| `filter_tool_messages`     | bool      | `false`  | 是否过滤工具调用/输出消息                                 |
+| `filter_thinking`          | bool      | `false`  | 是否过滤思考/推理内容                                     |
+| `no_text_debounce_enabled` | bool/null | `null`   | 是否让无文本媒体消息等待后续文本；`null` 保持频道默认行为 |
+| `dm_policy`                | string    | `"open"` | 私聊访问策略：`"open"`（开放）/ `"allowlist"`（白名单）   |
+| `group_policy`             | string    | `"open"` | 群聊访问策略：`"open"`（开放）/ `"allowlist"`（白名单）   |
+| `allow_from`               | string[]  | `[]`     | 白名单列表（当 policy 为 `"allowlist"` 时生效）           |
+| `deny_message`             | string    | `""`     | 拒绝访问时的提示消息                                      |
+| `require_mention`          | bool      | `false`  | 是否需要 @机器人 才响应                                   |
 
 ### 多模态消息支持
 

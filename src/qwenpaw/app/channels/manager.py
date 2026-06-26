@@ -167,6 +167,10 @@ class ChannelManager:
                     False,
                 )
                 filter_thinking = ch_cfg.get("filter_thinking", False)
+                no_text_debounce_enabled = ch_cfg.get(
+                    "no_text_debounce_enabled",
+                    None,
+                )
             else:
                 filter_tool_messages = getattr(
                     ch_cfg,
@@ -177,6 +181,11 @@ class ChannelManager:
                     ch_cfg,
                     "filter_thinking",
                     False,
+                )
+                no_text_debounce_enabled = getattr(
+                    ch_cfg,
+                    "no_text_debounce_enabled",
+                    None,
                 )
 
             from_config_kwargs = {
@@ -206,7 +215,7 @@ class ChannelManager:
                 }
 
             try:
-                channels.append(ch_cls.from_config(**filtered_kwargs))
+                channel = ch_cls.from_config(**filtered_kwargs)
             except Exception as e:
                 logger.warning(
                     "Failed to initialize channel '%s', skipping: %s",
@@ -214,6 +223,14 @@ class ChannelManager:
                     e,
                 )
                 continue
+            if no_text_debounce_enabled is not None and hasattr(
+                channel,
+                "set_no_text_debounce_enabled",
+            ):
+                channel.set_no_text_debounce_enabled(
+                    bool(no_text_debounce_enabled),
+                )
+            channels.append(channel)
 
         return cls(channels)
 

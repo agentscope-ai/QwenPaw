@@ -14,6 +14,7 @@ Corresponding Tier Strategy:
 - This file: As B-tier supplement, covers complex internal logic
   (debounce, merge, permissions)
 """
+
 # pylint: disable=redefined-outer-name,protected-access,unused-argument
 # pylint: disable=reimported,broad-exception-raised,using-constant-test
 from __future__ import annotations
@@ -26,7 +27,6 @@ import pytest
 # Import BaseChannel directly for internal logic testing
 from qwenpaw.app.channels.base import BaseChannel, ProcessHandler
 from qwenpaw.app.channels.console.channel import ConsoleChannel
-
 
 # =============================================================================
 # Test Fixtures (Shared Infrastructure)
@@ -287,6 +287,44 @@ class TestNoTextDebounceBuffering:
         # Verify content is buffered
         assert "session_1" in base_channel._pending_content_by_session
         assert len(base_channel._pending_content_by_session["session_1"]) == 1
+
+    def test_no_text_content_processed_when_debounce_disabled(
+        self,
+        base_channel,
+        content_builder,
+    ):
+        """Disabling no-text debounce should process media-only content."""
+        parts = [content_builder.image("http://a.jpg")]
+
+        base_channel.set_no_text_debounce_enabled(False)
+        should_process, merged = base_channel._apply_no_text_debounce(
+            "session_1",
+            parts,
+        )
+
+        assert should_process is True
+        assert merged == parts
+        assert "session_1" not in base_channel._pending_content_by_session
+
+    def test_no_text_debounce_disabled_releases_existing_buffer(
+        self,
+        base_channel,
+        content_builder,
+    ):
+        """A disabled debounce pass should not strand previous media."""
+        first = content_builder.image("http://1.jpg")
+        second = content_builder.image("http://2.jpg")
+        base_channel._pending_content_by_session["session_1"] = [first]
+
+        base_channel.set_no_text_debounce_enabled(False)
+        should_process, merged = base_channel._apply_no_text_debounce(
+            "session_1",
+            [second],
+        )
+
+        assert should_process is True
+        assert merged == [first, second]
+        assert "session_1" not in base_channel._pending_content_by_session
 
     def test_text_content_releases_buffer(self, base_channel, content_builder):
         """Text content should trigger buffer release"""

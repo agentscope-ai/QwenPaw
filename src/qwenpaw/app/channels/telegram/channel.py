@@ -309,6 +309,7 @@ class TelegramChannel(BaseChannel):
         streaming_enabled: bool = False,
         access_control_dm: bool = False,
         access_control_group: bool = False,
+        no_text_debounce_enabled: bool = False,
     ):
         super().__init__(
             process,
@@ -324,6 +325,7 @@ class TelegramChannel(BaseChannel):
             streaming_enabled=streaming_enabled,
             access_control_dm=access_control_dm,
             access_control_group=access_control_group,
+            no_text_debounce_enabled=no_text_debounce_enabled,
         )
         self.enabled = enabled
         self._bot_token = bot_token
@@ -477,6 +479,8 @@ class TelegramChannel(BaseChannel):
         content_parts: list[Any],
     ) -> tuple[bool, list[Any]]:
         """Process media-only Telegram messages without waiting for text."""
+        if self._no_text_debounce_enabled:
+            return super()._apply_no_text_debounce(session_id, content_parts)
         has_media = any(
             getattr(part, "type", None)
             not in (ContentType.TEXT, ContentType.REFUSAL)
@@ -616,6 +620,7 @@ class TelegramChannel(BaseChannel):
         show_typing = c.get("show_typing")
         if show_typing is None:
             show_typing = True
+        no_text_debounce_enabled = c.get("no_text_debounce_enabled")
 
         return cls(
             process=process,
@@ -641,6 +646,11 @@ class TelegramChannel(BaseChannel):
             ),
             access_control_group=bool(
                 c.get("access_control_group", False),
+            ),
+            no_text_debounce_enabled=(
+                bool(no_text_debounce_enabled)
+                if no_text_debounce_enabled is not None
+                else False
             ),
         )
 

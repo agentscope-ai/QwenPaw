@@ -198,6 +198,7 @@ class BaseChannelConfig(BaseModel):
     bot_prefix: str = ""
     filter_tool_messages: bool = False
     filter_thinking: bool = False
+    no_text_debounce_enabled: Optional[bool] = None
     dm_policy: Literal["open", "allowlist"] = "open"
     group_policy: Literal["open", "allowlist"] = "open"
     allow_from: List[str] = Field(default_factory=list)
