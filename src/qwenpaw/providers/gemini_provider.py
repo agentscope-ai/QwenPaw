@@ -88,6 +88,9 @@ def _sanitize_schema_for_gemini(schema: Any) -> Any:
     - ``additionalProperties``: removed entirely.
     - ``anyOf`` containing ``{"type": "null"}``: simplified to the single
       non-null type (i.e. ``Optional[X]`` becomes just ``X``).
+    - ``{"type": "null"}`` appearing as a standalone schema: replaced with
+      ``{"type": "object"}`` because the Gemini API (and many third-party
+      proxies) do not accept ``null`` as a functionDeclaration property type.
     - All nested sub-schemas are processed recursively.
     """
     if not isinstance(schema, dict):
@@ -96,6 +99,13 @@ def _sanitize_schema_for_gemini(schema: Any) -> Any:
         return schema
 
     schema = dict(schema)
+
+    # Replace standalone "type": "null" with "type": "object".
+    # Some MCP servers emit ``{"type": "null"}`` for parameters that
+    # accept ``None``; the Gemini API and many third-party proxies
+    # reject ``null`` as a valid functionDeclaration schema type.
+    if schema.get("type") == "null":
+        schema["type"] = "object"
 
     schema.pop("additionalProperties", None)
 
