@@ -316,9 +316,6 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
 
   const handleSessionClick = useCallback(
     (sessionId: string) => {
-      if (sessionApi.isSessionSwitching) {
-        return;
-      }
       if (sessionId === currentSessionId) {
         return;
       }
@@ -333,12 +330,14 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
         return;
       }
 
-      sessionApi.isSessionSwitching = true;
+      // Start a new cancellable switch (aborts any in-flight switch)
+      const controller = sessionApi.startNewSwitch();
       setSwitchingSessionId(sessionId);
 
       sessionApi
-        .preloadSession(sessionId)
+        .preloadSession(sessionId, controller.signal)
         .then(({ realId }) => {
+          if (controller.signal.aborted) return;
           const effectiveId = sessionApi.getEffectiveSessionId(
             sessionId,
             realId,
@@ -357,25 +356,17 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
           );
           setCurrentSessionId(sessionId);
         })
-        .catch(() => {
-          // On error, still try to switch normally.
+        .catch((err) => {
+          if (err?.name === "AbortError") return;
+          // On non-abort error, still try to switch normally.
           setCurrentSessionId(sessionId);
         })
-        .then(() => {
-          // Wait two animation frames so React commits + runs effects,
-          // ensuring ChatSessionInitializer's effect has been skipped.
-          return new Promise<void>((resolve) => {
-            requestAnimationFrame(() => {
-              requestAnimationFrame(() => resolve());
-            });
-            // Fallback: resolve after 2000ms to ensure finally() always runs
-            // even if rAF is dropped (background tab, fast re-clicks, etc.).
-            setTimeout(() => resolve(), 2000);
-          });
-        })
         .finally(() => {
-          sessionApi.finishSessionSwitch();
-          setSwitchingSessionId(null);
+          // Only clean up if this switch was NOT superseded by a newer one
+          if (!controller.signal.aborted) {
+            sessionApi.finishSessionSwitch();
+            setSwitchingSessionId(null);
+          }
         });
     },
     [
@@ -398,19 +389,6 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
     return () =>
       window.removeEventListener("qwenpaw:sidebar-switch-done", onDone);
   }, []);
-
-  // Fallback: if the global switching lock is released but switchingSessionId
-  // is still stuck (e.g. event missed, component re-mounted, race condition),
-  // clear it so the UI doesn't remain greyed out.
-  useEffect(() => {
-    if (!switchingSessionId) return;
-    const id = setInterval(() => {
-      if (!sessionApi.isSessionSwitching) {
-        setSwitchingSessionId(null);
-      }
-    }, 500);
-    return () => clearInterval(id);
-  }, [switchingSessionId]);
 
   // In embedded mode, clear switchingSessionId when the URL changes
   // (signals that the session switch initiated via DOM event has completed).
