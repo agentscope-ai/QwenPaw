@@ -154,13 +154,6 @@ def _create_default_registry() -> ToolRegistry:
     registry.register("SubmitToAgent", "internal", "agent_id")
     registry.register("CheckAgentTask", "internal", "task_id")
     registry.register("DelegateExternalAgent", "internal", "runner")
-    # Scroll context strategy's recall REPL (recall_history_python). It runs
-    # model-authored Python, so it is NOT internal/auto-allow: classify as
-    # "shell" so the global fallback returns SANDBOX_FALLBACK and a
-    # sandbox_config is compiled and injected (PolicyGuardedTool). The policy
-    # name is the snake→Pascal of the tool name; keep them in lockstep or the
-    # sandbox stops being injected. target_param="source" exposes the code to
-    # danger-keyword detection and audit logging.
     registry.register("RecallHistoryPython", "shell", "source")
     registry.register("MemorySearch", "internal", "")
 
