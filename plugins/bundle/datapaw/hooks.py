@@ -16,7 +16,8 @@ Four patches, installed from ``plugin._on_startup``:
    ``AgentRunner.query_handler`` that stashes ``request`` / ``runner`` in
    contextvars so the adapter can wire ``DAGStore`` and the SSE queue after
    agent construction, and schedules best-effort dialogue trace submission
-   after each DataPaw turn.
+   after each DataPaw turn, and schedules best-effort OSS session upload when
+   ``DATAPAW_OSS_UPLOAD`` is enabled.
 3. ``setup_channel_sse_hook`` — replaces ``ConsoleChannel.stream_one`` so the
    DAG ``TaskEvent`` queue attached to ``request._datapaw_sse_queue`` gets
    drained into SSE frames alongside the regular message stream.
@@ -272,6 +273,13 @@ def _wrap_query_handler(orig_query_handler):
                     "DataPaw trace submit scheduling failed",
                     exc_info=True,
                 )
+            try:
+                _schedule_oss_upload_for_request(self, request)
+            except Exception:  # pylint: disable=broad-except
+                logger.warning(
+                    "DataPaw OSS upload scheduling failed",
+                    exc_info=True,
+                )
             finally:
                 _datapaw_request_var.reset(request_token)
                 _datapaw_runner_var.reset(runner_token)
@@ -326,6 +334,37 @@ def _schedule_trace_submit_for_request(
     except Exception:  # pylint: disable=broad-except
         logger.warning(
             "DataPaw trace submit scheduling failed: session_id=%s",
+            session_id,
+            exc_info=True,
+        )
+
+
+def _schedule_oss_upload_for_request(
+    runner: Any,
+    request: Any,
+) -> None:
+    """Best-effort OSS session upload after a DataPaw turn ends."""
+    session_id = getattr(request, "session_id", "") or ""
+    user_id = getattr(request, "user_id", "") or "default"
+    channel = getattr(request, "channel", "") or "console"
+    if not session_id:
+        logger.debug(
+            "DataPaw OSS upload skipped: request has no session_id",
+        )
+        return
+
+    try:
+        from .core.oss_sync import upload_session_to_oss
+
+        upload_session_to_oss(
+            runner=runner,
+            session_id=session_id,
+            user_id=user_id,
+            channel=channel,
+        )
+    except Exception:  # pylint: disable=broad-except
+        logger.warning(
+            "DataPaw OSS upload scheduling failed: session_id=%s",
             session_id,
             exc_info=True,
         )
