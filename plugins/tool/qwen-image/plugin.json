@@ -1,7 +1,7 @@
 {
   "id": "qwen-image-tool",
   "name": "Qwen-Image Tool",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "type": "tool",
   "description": "Generate and edit images using Alibaba Qwen-Image models",
   "description_i18n": {

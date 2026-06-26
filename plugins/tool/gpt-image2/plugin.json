@@ -1,7 +1,7 @@
 {
   "id": "gpt-image2-tool",
   "name": "GPT Image 2 Tool",
-  "version": "1.1.1",
+  "version": "2.0.0",
   "type": "tool",
   "description": "Generate and edit images using OpenAI GPT Image 2 model",
   "description_i18n": {
