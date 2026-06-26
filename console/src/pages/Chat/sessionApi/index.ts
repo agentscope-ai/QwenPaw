@@ -471,6 +471,52 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
   private sessionResultCache: Map<string, IAgentScopeRuntimeWebUISession> =
     new Map();
 
+  // ---------------------------------------------------------------------------
+  // LRU cache for fully-converted sessions (avoids re-fetching on switch-back)
+  // ---------------------------------------------------------------------------
+
+  private static readonly CONVERTED_CACHE_MAX = 10;
+  private static readonly CONVERTED_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
+  /** LRU cache: backendId → { session, timestamp } */
+  private convertedSessionCache = new Map<
+    string,
+    { session: ExtendedSession; timestamp: number }
+  >();
+
+  private getCachedConvertedSession(backendId: string): ExtendedSession | null {
+    const entry = this.convertedSessionCache.get(backendId);
+    if (!entry) return null;
+    if (Date.now() - entry.timestamp > SessionApi.CONVERTED_CACHE_TTL) {
+      this.convertedSessionCache.delete(backendId);
+      return null;
+    }
+    // LRU: move to end
+    this.convertedSessionCache.delete(backendId);
+    this.convertedSessionCache.set(backendId, entry);
+    return entry.session;
+  }
+
+  private setCachedConvertedSession(
+    backendId: string,
+    session: ExtendedSession,
+  ): void {
+    if (this.convertedSessionCache.size >= SessionApi.CONVERTED_CACHE_MAX) {
+      // Evict oldest (first entry in Map iteration order)
+      const oldestKey = this.convertedSessionCache.keys().next().value;
+      if (oldestKey) this.convertedSessionCache.delete(oldestKey);
+    }
+    this.convertedSessionCache.set(backendId, {
+      session,
+      timestamp: Date.now(),
+    });
+  }
+
+  /** Invalidate the converted cache for a session (call after sending a message). */
+  invalidateConvertedCache(backendId: string): void {
+    this.convertedSessionCache.delete(backendId);
+  }
+
   /**
    * Pre-load a session's data. Returns the session with its realId resolved.
    * Used by handleSessionClick to load data BEFORE setting currentSessionId,
@@ -942,6 +988,19 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     listEntry: ExtendedSession | undefined,
     signal?: AbortSignal,
   ): Promise<ExtendedSession> {
+    // Check LRU cache for non-generating sessions
+    const isIdle = !listEntry?.generating;
+    if (isIdle) {
+      const cached = this.getCachedConvertedSession(backendId);
+      if (cached) {
+        // Update mutable fields that may differ
+        cached.id = displayId;
+        if (listEntry?.name) cached.name = listEntry.name;
+        this.updateWindowVariables(cached);
+        return cached;
+      }
+    }
+
     const chatHistory = await api.getChat(backendId, { signal });
     if (signal?.aborted)
       throw new DOMException("Aborted", "AbortError");
@@ -961,6 +1020,12 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
       generating,
     };
     this.updateWindowVariables(session);
+
+    // Cache non-generating sessions
+    if (!generating) {
+      this.setCachedConvertedSession(backendId, session);
+    }
+
     return session;
   }
 
