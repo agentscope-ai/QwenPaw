@@ -90,3 +90,70 @@ async def test_external_checker_exception_is_ignored(
     # Should fall through to native ACL, landing in pending.
     blocked = await console_channel._access_control_gate(payload)
     assert blocked is True
+
+
+# ── _external_acl_gate: external-only, independent of native ACL ──────────
+
+
+@pytest.mark.asyncio
+async def test_external_only_gate_deny(
+    console_channel: ConsoleChannel,
+) -> None:
+    """A deny verdict blocks even without native access control configured."""
+    console_channel.access_control_dm = False
+    console_channel.access_control_group = False
+
+    def checker(_channel: str, _sender: str, _meta: dict) -> str:
+        return "deny"
+
+    BaseChannel.register_external_acl_checker(checker)
+    payload = {"acl_sender_id": "bob@example.com", "meta": {}}
+    assert await console_channel._external_acl_gate(payload) is True
+
+
+@pytest.mark.asyncio
+async def test_external_only_gate_allow_and_none_pass(
+    console_channel: ConsoleChannel,
+) -> None:
+    """allow and None both permit; native pending flow is never triggered."""
+    console_channel.access_control_dm = False
+
+    def checker(_channel: str, _sender: str, _meta: dict):
+        return None
+
+    BaseChannel.register_external_acl_checker(checker)
+    payload = {"acl_sender_id": "ghost@example.com", "meta": {}}
+    assert await console_channel._external_acl_gate(payload) is False
+    # Unlike the native gate, this sender is never pushed to pending approval.
+    store = console_channel._get_acl_store()
+    acl = store.get_acl("console")
+    assert not any(p["user_id"] == "ghost@example.com" for p in acl["pending"])
+
+
+@pytest.mark.asyncio
+async def test_external_only_gate_uses_acl_sender_id(
+    console_channel: ConsoleChannel,
+) -> None:
+    """The trusted acl_sender_id is what the checker receives."""
+    seen: dict = {}
+
+    def checker(_channel: str, sender: str, _meta: dict):
+        seen["sender"] = sender
+        return "allow"
+
+    BaseChannel.register_external_acl_checker(checker)
+    payload = {
+        "sender_id": "default",
+        "acl_sender_id": "real@example.com",
+        "meta": {},
+    }
+    await console_channel._external_acl_gate(payload)
+    assert seen["sender"] == "real@example.com"
+
+
+@pytest.mark.asyncio
+async def test_external_only_gate_no_checkers_passes(
+    console_channel: ConsoleChannel,
+) -> None:
+    payload = {"acl_sender_id": "anyone@example.com", "meta": {}}
+    assert await console_channel._external_acl_gate(payload) is False

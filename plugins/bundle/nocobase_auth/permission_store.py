@@ -129,6 +129,17 @@ class PermissionStore:
             self._reload_if_stale()
             return self._data["users"].get(sender_id)
 
+    def is_known_user(self, sender_id: str) -> bool:
+        """Return True if ``sender_id`` matches a synced NocoBase user.
+
+        Used by the console fail-closed gate to distinguish an authenticated
+        NocoBase user (allowed unless explicitly denied) from an unknown
+        sender (blocked).
+        """
+        if not sender_id:
+            return False
+        return self.get_user(sender_id) is not None
+
     def get_role_channel_map(self) -> Dict[str, Dict[str, List[str]]]:
         with self._lock:
             self._reload_if_stale()

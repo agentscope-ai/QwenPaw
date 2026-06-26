@@ -69,10 +69,18 @@ def _extract_placeholder_name(content_parts: list) -> tuple[str, str]:
     return first_text[:10], first_text
 
 
-def _extract_session_and_payload(request_data: Union[AgentRequest, dict]):
+def _extract_session_and_payload(
+    request_data: Union[AgentRequest, dict],
+    acl_sender_id: str = "",
+):
     """Extract run_key (ChatSpec.id), session_id, and native payload.
 
     run_key must be ChatSpec.id (chat_id) so it matches list_chats/get_chat.
+
+    ``acl_sender_id`` is the trusted, server-derived caller identity (the
+    authenticated login user). When set it is attached to the payload so the
+    console access-control gate can evaluate it; the client-supplied
+    ``user_id`` is never trusted for access decisions.
     """
     if isinstance(request_data, AgentRequest):
         channel_id = getattr(request_data, "channel", None) or "console"
@@ -93,15 +101,19 @@ def _extract_session_and_payload(request_data: Union[AgentRequest, dict]):
             elif isinstance(content_part, dict) and "content" in content_part:
                 content_parts.extend(content_part["content"] or [])
 
-    native_payload = {
+    meta: dict = {
+        "session_id": session_id,
+        "user_id": sender_id,
+    }
+    native_payload: dict = {
         "channel_id": channel_id,
         "sender_id": sender_id,
         "content_parts": content_parts,
-        "meta": {
-            "session_id": session_id,
-            "user_id": sender_id,
-        },
+        "meta": meta,
     }
+    if acl_sender_id:
+        native_payload["acl_sender_id"] = acl_sender_id
+        meta["acl_sender_id"] = acl_sender_id
     return native_payload
 
 
@@ -153,8 +165,15 @@ async def post_console_chat(
             status_code=503,
             detail="Channel Console not found",
         )
+    # Trusted caller identity for access control: the authenticated login user
+    # set by AuthMiddleware. Empty when auth is disabled (local operator),
+    # which leaves the console ungated.
+    acl_sender_id = getattr(request.state, "user", "") or ""
     try:
-        native_payload = _extract_session_and_payload(request_data)
+        native_payload = _extract_session_and_payload(
+            request_data,
+            acl_sender_id=acl_sender_id,
+        )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
     session_id = console_channel.resolve_session_id(

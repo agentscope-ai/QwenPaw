@@ -596,6 +596,108 @@ class TestConsoleStreaming:
         ):
             await stream_channel.consume_one({"test": "payload"})
 
+    async def test_stream_one_blocks_when_acl_denies(self, stream_channel):
+        """A denied trusted identity yields a deny event, never processes."""
+        from qwenpaw.app.channels.base import (
+            BaseChannel,
+            _external_acl_checkers,
+        )
+        from agentscope_runtime.engine.schemas.agent_schemas import (
+            TextContent,
+            ContentType,
+        )
+
+        processed = False
+
+        async def mock_process(_request):
+            nonlocal processed
+            processed = True
+            for _ in ():  # never yields; marks that processing started
+                yield None
+
+        stream_channel._process = mock_process
+
+        def checker(_channel: str, _sender: str, _meta: dict) -> str:
+            return "deny"
+
+        BaseChannel.register_external_acl_checker(checker)
+        try:
+            payload = {
+                "sender_id": "default",
+                "acl_sender_id": "stranger@example.com",
+                "content_parts": [
+                    TextContent(type=ContentType.TEXT, text="hi"),
+                ],
+                "meta": {},
+            }
+            events = [e async for e in stream_channel.stream_one(payload)]
+        finally:
+            _external_acl_checkers.clear()
+
+        assert processed is False
+        assert len(events) == 1
+        assert '"error"' in events[0]
+
+    async def test_stream_one_skips_gate_without_acl_sender_id(
+        self,
+        stream_channel,
+    ):
+        """Without a trusted identity the console is ungated (operator)."""
+        from qwenpaw.app.channels.base import (
+            BaseChannel,
+            _external_acl_checkers,
+        )
+        from agentscope_runtime.engine.schemas.agent_schemas import (
+            RunStatus,
+            Event,
+            Message,
+            MessageType,
+            Role,
+            TextContent,
+            ContentType,
+        )
+
+        called = False
+
+        def checker(_channel: str, _sender: str, _meta: dict) -> str:
+            nonlocal called
+            called = True
+            return "deny"
+
+        async def mock_process(_request):
+            yield Event(
+                object="message",
+                status=RunStatus.Completed,
+                type="message.completed",
+                id="ev-1",
+                created_at=1,
+                message=Message(
+                    type=MessageType.MESSAGE,
+                    role=Role.ASSISTANT,
+                    content=[TextContent(type=ContentType.TEXT, text="ok")],
+                ),
+            )
+
+        stream_channel._process = mock_process
+        BaseChannel.register_external_acl_checker(checker)
+        try:
+            payload = {
+                "sender_id": "default",  # no acl_sender_id -> not enforced
+                "content_parts": [
+                    TextContent(type=ContentType.TEXT, text="hi"),
+                ],
+                "meta": {},
+            }
+            events = []
+            async for event in stream_channel.stream_one(payload):
+                events.append(event)
+                break
+        finally:
+            _external_acl_checkers.clear()
+
+        assert called is False
+        assert events and "data:" in events[0]
+
 
 # =============================================================================
 # P2: Console Media Handling

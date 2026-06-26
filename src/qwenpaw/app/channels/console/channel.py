@@ -365,6 +365,23 @@ class ConsoleChannel(BaseChannel):
 
     async def stream_one(self, payload: Any) -> AsyncGenerator[str, None]:
         """Process one payload and yield SSE-formatted events"""
+        # Access-control gate (e.g. NocoBase). The console is the web UI, so
+        # we enforce only when the HTTP layer injected a *trusted* caller
+        # identity (acl_sender_id = the authenticated login user). When absent
+        # — auth disabled or the local terminal — the console is the local
+        # operator and is not gated. A denied request is answered with one SSE
+        # error event and never reaches the agent.
+        if (
+            isinstance(payload, dict)
+            and payload.get("acl_sender_id")
+            and await self._external_acl_gate(payload)
+        ):
+            deny_event = _json.dumps(
+                {"type": "error", "error": self._acl_msg("blocked")},
+                ensure_ascii=False,
+            )
+            yield f"data: {deny_event}\n\n"
+            return
         if isinstance(payload, dict) and "content_parts" in payload:
             session_id = self.resolve_session_id(
                 payload.get("sender_id") or "",

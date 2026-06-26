@@ -52,7 +52,11 @@ class NocoBaseAuthPlugin:
         self._sync_engine = SyncEngine()
         await self._sync_engine.start()
 
-        self._checker = build_checker(self._sync_engine.store)
+        engine = self._sync_engine
+        self._checker = build_checker(
+            engine.store,
+            is_enabled=lambda: bool(engine.config and engine.config.enabled),
+        )
         try:
             from qwenpaw.app.channels.base import BaseChannel
 

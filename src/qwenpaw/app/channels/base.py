@@ -506,6 +506,77 @@ class BaseChannel(ABC):
         )
         return True
 
+    async def _external_acl_gate(self, payload: Any) -> bool:
+        """Run only the external ACL checkers (e.g. NocoBase). Blocked->True.
+
+        Unlike :meth:`_access_control_gate`, this consults *only* the plugin
+        checkers and never touches the native whitelist / pending-approval
+        flow.  It is independent of ``access_control_enabled`` so channels
+        whose access is governed entirely by a plugin (the console web UI)
+        can enforce it without configuring native ACL.  A checker may fail
+        closed (return ``"deny"``) for an unknown sender; ``"allow"`` and
+        ``None`` both permit the request.
+        """
+        if not _external_acl_checkers:
+            return False
+
+        if isinstance(payload, dict):
+            sender_id = (
+                payload.get("acl_sender_id") or payload.get("sender_id") or ""
+            )
+            meta = dict(payload.get("meta") or {})
+        else:
+            sender_id = (
+                getattr(payload, "acl_sender_id", "")
+                or getattr(payload, "user_id", "")
+                or ""
+            )
+            meta = dict(getattr(payload, "channel_meta", None) or {})
+
+        channel_key = self.channel
+        for checker in _external_acl_checkers:
+            try:
+                result = checker(channel_key, sender_id, meta)
+            except Exception:
+                logger.exception("External ACL checker failed")
+                continue
+            if result == "allow":
+                return False
+            if result == "deny":
+                await self._send_external_acl_deny(payload, sender_id, meta)
+                logger.info(
+                    "%s external ACL blocked: sender=%s",
+                    self.channel,
+                    sender_id or "?",
+                )
+                return True
+        return False
+
+    async def _send_external_acl_deny(
+        self,
+        payload: Any,
+        sender_id: str,
+        meta: dict,
+    ) -> None:
+        """Best-effort delivery of the deny message back to the sender."""
+        deny_msg = self._acl_msg("blocked")
+        try:
+            if isinstance(payload, dict):
+                to_handle = sender_id
+            else:
+                to_handle = self.get_to_handle_from_request(payload)
+            await self.send_content_parts(
+                to_handle,
+                [TextContent(type=ContentType.TEXT, text=deny_msg)],
+                meta,
+            )
+        except Exception:
+            logger.debug(
+                "%s external ACL: failed to send deny to %s",
+                self.channel,
+                sender_id[:20] if sender_id else "?",
+            )
+
     def _check_group_mention(
         self,
         is_group: bool,
