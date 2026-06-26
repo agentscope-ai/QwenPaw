@@ -90,7 +90,11 @@ const SessionRow = React.memo(function SessionRow({
         chatStatus={session.status}
         generating={session.generating}
         pinned={session.pinned}
-        active={session.id === data.currentSessionId || session.id === data.switchingSessionId}
+        active={
+          session.id === data.currentSessionId ||
+          session.id === data.switchingSessionId ||
+          (!!data.currentSessionId && (session as ExtendedChatSession).realId === data.currentSessionId)
+        }
         disabled={false}
         editing={isEditing}
         editValue={isEditing ? data.editValue : undefined}
