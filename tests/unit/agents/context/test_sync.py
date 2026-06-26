@@ -10,6 +10,7 @@ and robust (empty dir / corrupt file never raise).
 
 import json
 import logging
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -283,6 +284,104 @@ def test_unparseable_message_counted_not_fatal(store, tmp_path: Path):
     report = sync_sessions_to_history(history=store, sessions_dir=sessions)
     assert report.unparseable >= 1
     assert store.count("sid") >= 1  # the good message still landed
+
+
+def _write_session_dated(
+    sessions_dir: Path,
+    filename: str,
+    session_id: str,
+    dated_msgs: list[tuple[Msg, str]],
+) -> Path:
+    """Write a 2.0 session whose messages carry explicit ``created_at``."""
+    sessions_dir.mkdir(parents=True, exist_ok=True)
+    ctx = []
+    for msg, ts in dated_msgs:
+        d = msg.to_dict()
+        d["created_at"] = ts
+        ctx.append(d)
+    state = {"session_id": session_id, "summary": "", "context": ctx}
+    path = sessions_dir / filename
+    path.write_text(
+        json.dumps({"agent": {"state": state}}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    return path
+
+
+def test_retention_skips_messages_older_than_window(store, tmp_path: Path):
+    sessions = tmp_path / "sessions"
+    now = datetime.now(timezone.utc)
+    old = (now - timedelta(days=40)).isoformat()
+    recent = (now - timedelta(days=1)).isoformat()
+    u, a = _sample_msgs()
+    _write_session_dated(
+        sessions,
+        "conv.json",
+        "sid",
+        [(u, old), (a, recent)],
+    )
+    report = sync_sessions_to_history(
+        history=store,
+        sessions_dir=sessions,
+        retention_days=30,
+    )
+    assert report.aged_out == 1  # the 40-day-old user turn was skipped
+    assert store.count("sid") > 0  # the recent assistant turn landed
+    # The aged-out message's content must NOT be in the DB.
+    rows = store._conn.execute(
+        "SELECT 1 FROM conversation_history "
+        "WHERE content LIKE '%please do X%'",
+    ).fetchall()
+    assert rows == []
+
+
+def test_retention_zero_keeps_everything(store, tmp_path: Path):
+    sessions = tmp_path / "sessions"
+    ancient = (datetime.now(timezone.utc) - timedelta(days=400)).isoformat()
+    u, a = _sample_msgs()
+    _write_session_dated(
+        sessions,
+        "conv.json",
+        "sid",
+        [(u, ancient), (a, ancient)],
+    )
+    report = sync_sessions_to_history(
+        history=store,
+        sessions_dir=sessions,
+        retention_days=0,
+    )
+    assert report.aged_out == 0
+    assert store.count("sid") > 0  # 0 = keep forever, nothing filtered
+
+
+def test_fully_aged_session_imports_nothing_and_skips_on_rerun(
+    store,
+    tmp_path: Path,
+):
+    """A session entirely past the window imports 0 rows; the manifest then
+    lets later boots skip it — no re-import/re-purge churn each startup."""
+    sessions = tmp_path / "sessions"
+    old = (datetime.now(timezone.utc) - timedelta(days=40)).isoformat()
+    u, a = _sample_msgs()
+    _write_session_dated(sessions, "conv.json", "sid", [(u, old), (a, old)])
+
+    r1 = sync_sessions_to_history(
+        history=store,
+        sessions_dir=sessions,
+        retention_days=30,
+    )
+    assert r1.rows_inserted == 0
+    assert r1.aged_out == 2
+    assert store.count("sid") == 0
+
+    # File unchanged → manifest skip, not re-read (no churn).
+    r2 = sync_sessions_to_history(
+        history=store,
+        sessions_dir=sessions,
+        retention_days=30,
+    )
+    assert all(f.skipped for f in r2.files)
+    assert r2.rows_inserted == 0
 
 
 def _stub_config_loaders(monkeypatch, workspace: Path) -> None:

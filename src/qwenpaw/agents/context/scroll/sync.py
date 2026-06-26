@@ -64,6 +64,7 @@ class FileResult:
     session_id: str = ""
     messages: int = 0  # messages read from the session state
     unparseable: int = 0  # messages that were not a decodable Msg
+    aged_out: int = 0  # messages skipped as older than the retention window
     rows_processed: int = 0  # LogEntry rows attempted
     rows_inserted: int = 0  # rows actually new (delta of history.count)
     skipped: bool = False  # short-circuited via manifest (already synced)
@@ -112,6 +113,10 @@ class SyncReport:
     def unparseable(self) -> int:
         return sum(f.unparseable for f in self.files)
 
+    @property
+    def aged_out(self) -> int:
+        return sum(f.aged_out for f in self.files)
+
     def summary(self) -> str:
         if not self.files:
             return "no sessions to sync"
@@ -122,6 +127,10 @@ class SyncReport:
         ]
         if self.skipped_files:
             parts.append(f"{self.skipped_files} unchanged")
+        if self.aged_out:
+            parts.append(
+                f"{self.aged_out} message(s) older than retention",
+            )
         if self.unparseable:
             parts.append(f"{self.unparseable} message(s) unparseable")
         if self.errored_files:
@@ -229,12 +238,20 @@ def _sync_file(
     *,
     agent_id: str | None,
     dry_run: bool,
+    cutoff: str | None = None,
 ) -> FileResult:
     """Import one ``sessions/*.json`` file into ``conversation_history``.
 
     Dedup keys mirror ``ScrollContextManager._persist_new`` exactly: a turn
     keys on its source ``msg.id``; a tool result keys on its ``tool_call_id``,
     or — for a result with no call id — on its position within the owning Msg.
+
+    When ``cutoff`` (an ISO-8601 instant) is given, messages whose
+    ``created_at`` precedes it are skipped — they fall outside the retention
+    window the startup purge enforces, so importing them would only resurrect
+    rows that purge deletes on the same boot. Messages without a ``created_at``
+    are kept (purge never matches a NULL timestamp either, so the two stay
+    consistent).
     """
     res = FileResult(filename=rel_name)
     try:
@@ -263,6 +280,14 @@ def _sync_file(
 
     before = 0 if dry_run else history.count(session_id)
     for row_index, msg in enumerate(messages):
+        # Retention filter: a message older than the window is skipped so we
+        # never import a row the same-boot purge would immediately delete.
+        # Mirrors purge semantics — compared against the same cutoff, NULL
+        # timestamps never match (kept).
+        created_at = getattr(msg, "created_at", None)
+        if cutoff and created_at and created_at < cutoff:
+            res.aged_out += 1
+            continue
         # Stable fallback id: the message's position is a fixed function of the
         # file, so a re-run re-derives the same key (unlike id(msg)).
         mid = getattr(msg, "id", None) or f"{session_id}#row{row_index}"
@@ -342,17 +367,33 @@ def sync_sessions_to_history(
     agent_id: str | None = None,
     dry_run: bool = False,
     use_manifest: bool = True,
+    retention_days: int = 0,
 ) -> SyncReport:
     """Import every ``sessions/*.json`` under *sessions_dir* into *history*.
 
     Returns a :class:`SyncReport`. Safe to call repeatedly: unchanged files are
     skipped via the manifest, and the DB's UNIQUE index makes re-appends
     no-ops. Never deletes or rewrites the source session files.
+
+    ``retention_days`` (0 = keep forever) mirrors
+    ``scroll_config.history_retention_days``: when positive, messages older
+    than that window are not imported. This keeps the sync from re-importing
+    rows the startup purge deletes on the same boot — a session that has fully
+    aged out imports 0 rows, so its manifest entry lets later boots skip it for
+    good instead of re-importing-then-re-purging each time.
     """
     sessions_path = Path(sessions_dir).expanduser()
     report = SyncReport()
     if not sessions_path.is_dir():
         return report
+
+    cutoff = (
+        (
+            datetime.now(timezone.utc) - timedelta(days=retention_days)
+        ).isoformat()
+        if retention_days > 0
+        else None
+    )
 
     manifest_path = sessions_path / MANIFEST_NAME
     manifest = _load_manifest(manifest_path) if use_manifest else {"files": {}}
@@ -392,6 +433,7 @@ def sync_sessions_to_history(
             rel_name,
             agent_id=agent_id,
             dry_run=dry_run,
+            cutoff=cutoff,
         )
         report.files.append(res)
         if res.errored:
@@ -409,6 +451,7 @@ def sync_sessions_to_history(
                 "sha256": digest,
                 "session_id": res.session_id,
                 "messages": res.messages,
+                "aged_out": res.aged_out,
                 "rows_processed": res.rows_processed,
                 "rows_inserted": res.rows_inserted,
             }
@@ -527,18 +570,16 @@ def _sync_all_scroll_agents() -> None:
                 )
 
         db_path = workspace_dir / lcc.scroll_config.db_filename
+        retention_days = lcc.scroll_config.history_retention_days
         history = HistoryStore(db_path)
         try:
             report = sync_sessions_to_history(
                 history=history,
                 sessions_dir=sessions_dir,
                 agent_id=agent_id,
+                retention_days=retention_days,
             )
-            _purge_old_history(
-                history,
-                lcc.scroll_config.history_retention_days,
-                agent_id,
-            )
+            _purge_old_history(history, retention_days, agent_id)
         except Exception as exc:  # noqa: BLE001 - isolate one agent's failure
             logger.warning(
                 "session-sync[%s]: failed: %s",
