@@ -65,6 +65,7 @@ vi.mock("../../sessionApi", () => ({
   default: {
     getSessionList: mockGetSessionList,
     isSessionSwitching: false,
+    startNewSwitch: vi.fn(() => ({ signal: { aborted: false } })),
     preloadSession: vi.fn().mockResolvedValue({ session: {}, realId: null }),
     finishSessionSwitch: vi.fn(),
     lastNavigatedChatId: null,
