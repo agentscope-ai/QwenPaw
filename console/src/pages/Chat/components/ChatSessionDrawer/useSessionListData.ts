@@ -174,12 +174,13 @@ export function useSessionListData(
       .sort((a, b) => {
         if (a.pinned && !b.pinned) return -1;
         if (!a.pinned && b.pinned) return 1;
-        const aTime = a.updatedAt ?? a.createdAt;
-        const bTime = b.updatedAt ?? b.createdAt;
+        // ISO 8601 strings are lexicographically sortable — avoid new Date()
+        const aTime = a.updatedAt ?? a.createdAt ?? "";
+        const bTime = b.updatedAt ?? b.createdAt ?? "";
         if (!aTime && !bTime) return 0;
         if (!aTime) return 1;
         if (!bTime) return -1;
-        return new Date(bTime).getTime() - new Date(aTime).getTime();
+        return bTime < aTime ? -1 : bTime > aTime ? 1 : 0;
       });
   }, [sessions]);
 

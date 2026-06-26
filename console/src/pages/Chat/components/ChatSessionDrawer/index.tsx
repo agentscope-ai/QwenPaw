@@ -48,7 +48,7 @@ const ITEM_HEIGHT = 77;
 
 /** Data passed to each row via FixedSizeList's itemData prop */
 interface SessionRowData {
-  sortedSessions: ExtendedChatSession[];
+  sortedSessionsRef: React.MutableRefObject<ExtendedChatSession[]>;
   currentSessionId: string | undefined;
   /** When non-null, a session switch is in progress and other items are disabled */
   switchingSessionId: string | null;
@@ -71,7 +71,8 @@ const SessionRow = React.memo(function SessionRow({
   style,
   data,
 }: ListChildComponentProps<SessionRowData>) {
-  const session = data.sortedSessions[index];
+  const session = data.sortedSessionsRef.current[index];
+  if (!session) return null;
   const channelKey = session.channel?.trim() || "";
   const channelLabel = channelKey
     ? getChannelLabel(channelKey, data.t)
@@ -253,12 +254,13 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
       if (extA.pinned && !extB.pinned) return -1;
       if (!extA.pinned && extB.pinned) return 1;
 
-      const aTime = extA.updatedAt ?? extA.createdAt;
-      const bTime = extB.updatedAt ?? extB.createdAt;
+      // ISO 8601 strings are lexicographically sortable — avoid new Date()
+      const aTime = extA.updatedAt ?? extA.createdAt ?? "";
+      const bTime = extB.updatedAt ?? extB.createdAt ?? "";
       if (!aTime && !bTime) return 0;
       if (!aTime) return 1;
       if (!bTime) return -1;
-      return new Date(bTime).getTime() - new Date(aTime).getTime();
+      return bTime < aTime ? -1 : bTime > aTime ? 1 : 0;
     });
   }, [sessions]);
 
@@ -555,9 +557,12 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
   ]);
 
   /** Stable data object for FixedSizeList — avoids re-creating row renderer on every render */
+  const sortedSessionsRef = useRef(sortedSessions);
+  sortedSessionsRef.current = sortedSessions;
+
   const itemData = useMemo<SessionRowData>(
     () => ({
-      sortedSessions: sortedSessions as ExtendedChatSession[],
+      sortedSessionsRef,
       currentSessionId,
       switchingSessionId,
       editingSessionId,
@@ -573,7 +578,6 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
       handleItemContextMenu,
     }),
     [
-      sortedSessions,
       currentSessionId,
       switchingSessionId,
       editingSessionId,
