@@ -8,8 +8,151 @@
       content="width=device-width, initial-scale=1.0, viewport-fit=cover"
     />
     <title>QwenPaw Console</title>
+    <style>
+      #app-loading-overlay {
+        position: fixed;
+        inset: 0;
+        z-index: 99999;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+        transition: opacity 0.3s;
+      }
+      #app-loading-overlay .card {
+        width: 400px;
+        padding: 40px;
+        border-radius: 12px;
+        text-align: center;
+        background: #fff;
+        box-shadow: 0 4px 24px rgba(0, 0, 0, 0.1);
+      }
+      #app-loading-overlay .logo {
+        font-size: 28px;
+        font-weight: 700;
+        color: #ff7f16;
+        margin-bottom: 28px;
+        letter-spacing: -0.5px;
+      }
+      #app-loading-overlay .progress-wrap {
+        position: relative;
+        display: inline-block;
+      }
+      #app-loading-overlay .progress-label {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        font-size: 24px;
+        font-weight: 500;
+        color: #333;
+      }
+      #app-loading-overlay .trail {
+        stroke: rgba(0, 0, 0, 0.04);
+      }
+      #app-loading-overlay .arc {
+        stroke: #ff7f16;
+        transition: stroke-dasharray 0.3s ease;
+      }
+      #app-loading-overlay .status {
+        color: #333;
+        font-size: 16px;
+        font-weight: 500;
+        margin: 16px 0 0;
+      }
+      @media (prefers-color-scheme: dark) {
+        #app-loading-overlay {
+          background: linear-gradient(
+            135deg,
+            #0f0c29 0%,
+            #302b63 50%,
+            #24243e 100%
+          );
+        }
+        #app-loading-overlay .card {
+          background: #1f1f1f;
+          box-shadow: 0 4px 24px rgba(0, 0, 0, 0.4);
+        }
+        #app-loading-overlay .progress-label,
+        #app-loading-overlay .status {
+          color: rgba(255, 255, 255, 0.85);
+        }
+        #app-loading-overlay .trail {
+          stroke: rgba(255, 255, 255, 0.06);
+        }
+      }
+    </style>
   </head>
   <body>
+    <div id="app-loading-overlay">
+      <div class="card">
+        <div class="logo">QwenPaw</div>
+        <div class="progress-wrap">
+          <svg width="160" height="160" viewBox="0 0 160 160">
+            <circle
+              class="trail"
+              cx="80"
+              cy="80"
+              r="70"
+              fill="none"
+              stroke-width="8"
+              stroke-linecap="round"
+              stroke-dasharray="329.87 440"
+              transform="rotate(135 80 80)"
+            />
+            <circle
+              id="alo-arc"
+              class="arc"
+              cx="80"
+              cy="80"
+              r="70"
+              fill="none"
+              stroke-width="8"
+              stroke-linecap="round"
+              stroke-dasharray="0 440"
+              transform="rotate(135 80 80)"
+            />
+          </svg>
+          <div id="alo-label" class="progress-label">0s</div>
+        </div>
+        <p id="alo-status" class="status">Loading console...</p>
+      </div>
+    </div>
+    <script>
+      (function () {
+        var TIMEOUT = 300,
+          ARC = 329.87;
+        var base = 0;
+        try {
+          var hm = (location.hash || "").match(/_ls=(\d+)/);
+          if (hm) {
+            base = parseInt(hm[1], 10) || 0;
+          }
+        } catch (e) {}
+        var arc = document.getElementById("alo-arc");
+        var label = document.getElementById("alo-label");
+        var st = document.getElementById("alo-status");
+        var t0 = Date.now();
+        function ui() {
+          var elapsed = base + Math.floor((Date.now() - t0) / 1000);
+          var pct = Math.min(Math.round((elapsed / TIMEOUT) * 100), 100);
+          arc.setAttribute("stroke-dasharray", (pct / 100) * ARC + " 440");
+          label.textContent = elapsed + "s";
+        }
+        ui();
+        setInterval(ui, 1000);
+        // Safety net: remove overlay after 30s even if React fails to mount
+        setTimeout(function () {
+          var o = document.getElementById("app-loading-overlay");
+          if (o) {
+            o.style.opacity = "0";
+            setTimeout(function () {
+              o.remove();
+            }, 300);
+          }
+        }, 30000);
+      })();
+    </script>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

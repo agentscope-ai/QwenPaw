@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """CLI command: run QwenPaw app on a free port in a native webview window."""
 
-# pylint:disable=too-many-branches,too-many-statements,consider-using-with
+# pylint:disable=too-many-branches,too-many-statements,consider-using-with,too-many-locals
 from __future__ import annotations
 
 import logging
@@ -13,7 +13,8 @@ import threading
 import time
 import traceback
 import webbrowser
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
+from typing import Any
 
 import click
 
@@ -27,6 +28,10 @@ except ImportError:
     webview = None  # type: ignore[assignment]
 
 logger = logging.getLogger(__name__)
+
+# Shared state populated by desktop_preloader.py so the preloader splash
+# can be reused instead of creating a second window.
+preloader_splash: dict = {}
 
 
 class WebViewAPI:
@@ -103,8 +108,24 @@ class WebViewAPI:
             return False
 
 
-def _wait_for_http(host: str, port: int, timeout_sec: float = 300.0) -> bool:
-    """Return True when something accepts TCP on host:port."""
+def _show_splash():
+    """Create splash window — delegates to shared _splash module."""
+    from ._splash import show_splash
+
+    return show_splash()
+
+
+def _wait_for_http(
+    host: str,
+    port: int,
+    timeout_sec: float = 300.0,
+    progress_cb: Callable[..., Any] | None = None,
+) -> bool:
+    """Return True when something accepts TCP on host:port.
+
+    If *progress_cb* is provided it is invoked every second so a splash
+    screen can stay alive during the wait.
+    """
     deadline = time.monotonic() + timeout_sec
     while time.monotonic() < deadline:
         try:
@@ -113,6 +134,8 @@ def _wait_for_http(host: str, port: int, timeout_sec: float = 300.0) -> bool:
                 s.connect((host, port))
                 return True
         except (OSError, socket.error):
+            if progress_cb:
+                progress_cb()
             time.sleep(1)
     return False
 
@@ -167,6 +190,27 @@ def desktop_cmd(
     """
     # Setup logger for desktop command (separate from backend subprocess)
     setup_logger(log_level)
+
+    # Splash window: reuse preloader splash if available, otherwise create one.
+    # This keeps visual feedback during backend startup.
+    splash_callbacks = preloader_splash.get("callbacks")
+    splash_start = preloader_splash.get("start_time")
+    if splash_callbacks:
+        splash_update, _, splash_destroy = (
+            splash_callbacks[1],
+            splash_callbacks[2],
+            splash_callbacks[3],
+        )
+        if splash_start is None:
+            splash_start = time.monotonic()
+    else:
+        _splash = _show_splash()
+        splash_update, _, splash_destroy = (
+            _splash[1],
+            _splash[2],
+            _splash[3],
+        )
+        splash_start = time.monotonic()
 
     # get_stable_port() returns (port, socket) — the socket is kept open
     # to hold the port until the subprocess is about to bind it, minimizing
@@ -239,12 +283,15 @@ def desktop_cmd(
                 stdout_thread.start()
                 stderr_thread.start()
             logger.info("Waiting for HTTP ready...")
-            if _wait_for_http(host, port):
+            if _wait_for_http(host, port, progress_cb=splash_update):
                 logger.info("HTTP ready, creating webview window...")
+                # Pass elapsed time to Phase 2 overlay via URL hash.
+                elapsed = int(time.monotonic() - splash_start)
+                console_url = f"{url}/#_ls={elapsed}"
                 api = WebViewAPI()
                 webview.create_window(
                     "QwenPaw Desktop",
-                    url,
+                    console_url,
                     width=1280,
                     height=800,
                     text_select=True,
@@ -258,6 +305,9 @@ def desktop_cmd(
                 # survive window close.  Without storage_path, WebView2
                 # may use a temp directory that is discarded on restart.
                 webview_storage = str(WORKING_DIR / "webview_data")
+                # Destroy splash just before webview takes over to avoid
+                # a blank gap between the splash and the webview render.
+                splash_destroy()
                 webview.start(
                     private_mode=False,
                     storage_path=webview_storage,
@@ -265,6 +315,7 @@ def desktop_cmd(
                 logger.info("webview.start() returned (window closed).")
             else:
                 logger.error("Server did not become ready in time.")
+                splash_destroy()
                 click.echo(
                     "Server did not become ready in time; open manually: "
                     + url,
@@ -323,7 +374,7 @@ def desktop_cmd(
         # Using a flag is more reliable than checking specific exit codes
         if proc and proc.returncode != 0 and not manually_terminated:
             logger.error(
-                f"Backend process exited unexpectedly with code "
+                "Backend process exited unexpectedly with code "
                 f"{proc.returncode}",
             )
             # Follow POSIX convention for exit codes:
@@ -342,4 +393,8 @@ def desktop_cmd(
         logger.error(f"Exception: {e!r}")
         traceback.print_exc(file=sys.stderr)
         sys.stderr.flush()
+        try:
+            splash_destroy()
+        except Exception:
+            pass
         raise

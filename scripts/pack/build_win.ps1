@@ -32,12 +32,29 @@ if (Test-Path $VersionFile) {
   if ($m) { $CurrentVersion = $Matches[1] }
 }
 $RunWheelBuild = $true
+$PreloaderSrc = Join-Path $RepoRoot "src\qwenpaw\cli\desktop_preloader.py"
 if ($CurrentVersion) {
   $wheelGlob = Join-Path $Dist "qwenpaw-$CurrentVersion-*.whl"
   $existingWheels = Get-ChildItem -Path $wheelGlob -ErrorAction SilentlyContinue
   if ($existingWheels.Count -gt 0) {
-    Write-Host "dist/ already has wheel for version $CurrentVersion, skipping."
-    $RunWheelBuild = $false
+    $newestWheel = $existingWheels | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+    # Force rebuild if startup-related source files are newer than the wheel
+    $sourcesToCheck = @(
+      $PreloaderSrc,
+      (Join-Path $RepoRoot "src\qwenpaw\cli\desktop_cmd.py"),
+      (Join-Path $RepoRoot "console\index.html")
+    )
+    $newerSource = $sourcesToCheck | Where-Object {
+      Test-Path $_ -PathType Leaf
+    } | Where-Object {
+      (Get-Item $_).LastWriteTime -gt $newestWheel.LastWriteTime
+    } | Select-Object -First 1
+    if ($newerSource) {
+      Write-Host "Source newer than existing wheel: $newerSource -> rebuilding wheel."
+    } else {
+      Write-Host "dist/ already has wheel for version $CurrentVersion, skipping."
+      $RunWheelBuild = $false
+    }
   } else {
     # Clean up old wheels to avoid confusion
     $oldWheels = Get-ChildItem -Path (Join-Path $Dist "qwenpaw-*.whl") -ErrorAction SilentlyContinue
@@ -248,7 +265,7 @@ if defined CERT_FILE (
 if not exist "%USERPROFILE%\.qwenpaw\config.json" (
   "%~dp0python.exe" -u -m qwenpaw init --defaults --accept-security
 )
-"%~dp0python.exe" -u -m qwenpaw desktop --log-level %QWENPAW_LOG_LEVEL%
+"%~dp0python.exe" -u "%~dp0desktop_preloader.py" --log-level %QWENPAW_LOG_LEVEL%
 "@ | Set-Content -Path $LauncherBat -Encoding ASCII
 
 # Debug launcher .bat (shows console)
@@ -300,7 +317,7 @@ if not exist "%USERPROFILE%\.qwenpaw\config.json" (
 echo [Launch] Starting QwenPaw Desktop with log-level=%QWENPAW_LOG_LEVEL%...
 echo Press Ctrl+C to stop
 echo.
-"%~dp0python.exe" -u -m qwenpaw desktop --log-level %QWENPAW_LOG_LEVEL%
+"%~dp0python.exe" -u "%~dp0desktop_preloader.py" --log-level %QWENPAW_LOG_LEVEL%
 echo.
 echo [Exit] QwenPaw Desktop closed
 pause
@@ -322,6 +339,14 @@ $QwenpawCmd = Join-Path $EnvRoot "qwenpaw.cmd"
 @"
 @"%~dp0python.exe" -u -m qwenpaw %*
 "@ | Set-Content -Path $QwenpawCmd -Encoding ASCII
+
+# Copy desktop_preloader.py to env root for fast splash startup
+if (Test-Path $PreloaderSrc) {
+  Copy-Item $PreloaderSrc -Destination $EnvRoot -Force
+  Write-Host "[build_win] Copied desktop_preloader.py to env root"
+} else {
+  Write-Host "[build_win] WARN: desktop_preloader.py not found at $PreloaderSrc"
+}
 
 # Copy icon.ico to env root so NSIS can find it
 $IconSrc = Join-Path $PackDir "assets\icon.ico"

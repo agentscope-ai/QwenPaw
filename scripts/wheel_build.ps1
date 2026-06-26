@@ -8,12 +8,21 @@ Set-Location $RepoRoot
 $ConsoleDir = Join-Path $RepoRoot "console"
 $ConsoleDest = Join-Path $RepoRoot "src\qwenpaw\console"
 
+# Use npm.cmd next to node.exe to avoid PowerShell constrained-language
+# issues with the npm.ps1 wrapper that ships in some Node installations.
+$NodeExe = (Get-Command node -ErrorAction Stop).Source
+$NpmCmd = Join-Path (Split-Path -Parent $NodeExe) "npm.cmd"
+if (-not (Test-Path $NpmCmd)) {
+  $NpmCmd = "npm"
+}
+Write-Host "[wheel_build] Using npm: $NpmCmd"
+
 Write-Host "[wheel_build] Building console frontend..."
 Push-Location $ConsoleDir
 try {
-  npm ci
+  & $NpmCmd ci
   if ($LASTEXITCODE -ne 0) { throw "npm ci failed with exit code $LASTEXITCODE" }
-  npm run build
+  & $NpmCmd run build
   if ($LASTEXITCODE -ne 0) { throw "npm run build failed with exit code $LASTEXITCODE" }
 } finally {
   Pop-Location
