@@ -39,7 +39,7 @@
       "minimizeToTray": "Свернуть в трей",
       "quitApp": "Выйти из приложения",
       "preference": "Закрытие окна",
-      "resetPreference": "Сбросить выбор"
+      "askEveryTime": "Спрашивать каждый раз"
     }
   },
   "chunkError": {

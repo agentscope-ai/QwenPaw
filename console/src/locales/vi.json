@@ -41,7 +41,7 @@
       "minimizeToTray": "Thu nhỏ xuống khay hệ thống",
       "quitApp": "Thoát ứng dụng",
       "preference": "Đóng cửa sổ",
-      "resetPreference": "Đặt lại lựa chọn"
+      "askEveryTime": "Hỏi mỗi lần"
     }
   },
   "chunkError": {

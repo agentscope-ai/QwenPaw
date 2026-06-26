@@ -41,7 +41,7 @@
       "minimizeToTray": "Minimizar para a bandeja",
       "quitApp": "Sair do aplicativo",
       "preference": "Fechar Janela",
-      "resetPreference": "Redefinir escolha"
+      "askEveryTime": "Perguntar sempre"
     }
   },
   "chunkError": {

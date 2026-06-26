@@ -42,7 +42,7 @@
       "minimizeToTray": "最小化到托盘",
       "quitApp": "退出应用",
       "preference": "关闭窗口",
-      "resetPreference": "重置选择"
+      "askEveryTime": "每次询问"
     }
   },
   "chunkError": {

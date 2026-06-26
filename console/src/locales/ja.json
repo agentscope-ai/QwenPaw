@@ -39,7 +39,7 @@
       "minimizeToTray": "トレイに最小化",
       "quitApp": "アプリを終了",
       "preference": "ウィンドウを閉じる",
-      "resetPreference": "選択をリセット"
+      "askEveryTime": "毎回確認する"
     }
   },
   "chunkError": {

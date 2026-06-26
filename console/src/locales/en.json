@@ -42,7 +42,7 @@
       "minimizeToTray": "Minimize to Tray",
       "quitApp": "Quit App",
       "preference": "Close Window",
-      "resetPreference": "Reset Choice"
+      "askEveryTime": "Ask every time"
     }
   },
   "chunkError": {
