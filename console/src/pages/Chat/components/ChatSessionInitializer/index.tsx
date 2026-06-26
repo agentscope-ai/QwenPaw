@@ -214,7 +214,6 @@ const ChatSessionInitializer: React.FC = () => {
       );
       window.removeEventListener("qwenpaw:sidebar-new-chat", handleNewChat);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [navigate, setCurrentSessionId]);
 
   return null;
