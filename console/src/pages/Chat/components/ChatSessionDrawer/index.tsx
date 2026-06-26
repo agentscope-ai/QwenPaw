@@ -50,7 +50,7 @@ const ITEM_HEIGHT = 77;
 interface SessionRowData {
   sortedSessionsRef: React.MutableRefObject<ExtendedChatSession[]>;
   currentSessionId: string | undefined;
-  /** When non-null, a session switch is in progress and other items are disabled */
+  /** When non-null, the target session shows active state immediately */
   switchingSessionId: string | null;
   editingSessionId: string | null;
   editValue: string;
@@ -93,7 +93,8 @@ const SessionRow = React.memo(function SessionRow({
         active={
           session.id === data.currentSessionId ||
           session.id === data.switchingSessionId ||
-          (!!data.currentSessionId && (session as ExtendedChatSession).realId === data.currentSessionId)
+          (!!data.currentSessionId &&
+            (session as ExtendedChatSession).realId === data.currentSessionId)
         }
         disabled={false}
         editing={isEditing}
@@ -180,7 +181,8 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
   >([]);
 
   const sessions = props.embedded ? localSessions : sdkState.sessions;
-  const { currentSessionId: sdkCurrentSessionId, setCurrentSessionId } = sdkState;
+  const { currentSessionId: sdkCurrentSessionId, setCurrentSessionId } =
+    sdkState;
   // In embedded mode, prefer URL-derived chatId for active-state matching
   // because the SDK context may not be accessible from outside the provider.
   const urlCurrentSessionId = props.embedded
@@ -642,10 +644,7 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
       </div>
 
       {/* Session list */}
-      <div
-        className={styles.listWrapper}
-        ref={listWrapperRef}
-      >
+      <div className={styles.listWrapper} ref={listWrapperRef}>
         <div className={styles.topGradient} />
         {listLoading ? (
           <div

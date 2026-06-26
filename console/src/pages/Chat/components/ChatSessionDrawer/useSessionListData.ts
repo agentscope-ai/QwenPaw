@@ -204,7 +204,8 @@ export function useSessionListData(
   useEffect(() => {
     const onDone = () => setSwitchingSessionId(null);
     window.addEventListener("qwenpaw:sidebar-switch-done", onDone);
-    return () => window.removeEventListener("qwenpaw:sidebar-switch-done", onDone);
+    return () =>
+      window.removeEventListener("qwenpaw:sidebar-switch-done", onDone);
   }, []);
 
   const handleDelete = useCallback(

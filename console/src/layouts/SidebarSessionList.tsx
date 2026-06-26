@@ -139,7 +139,6 @@ export default function SidebarSessionList({
   const {
     sortedSessions,
     loading,
-    switchingSessionId,
     editingSessionId,
     editValue,
     handleSessionClick,
@@ -213,9 +212,7 @@ export default function SidebarSessionList({
   };
 
   return (
-    <div
-      className={styles.sessionList}
-    >
+    <div className={styles.sessionList}>
       {/* New Chat button */}
       <button className={styles.newChatBtn} onClick={handleNewChat}>
         <SparkPlusLine size={14} />

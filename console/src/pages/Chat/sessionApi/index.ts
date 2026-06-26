@@ -1003,8 +1003,7 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     }
 
     const chatHistory = await api.getChat(backendId, { signal });
-    if (signal?.aborted)
-      throw new DOMException("Aborted", "AbortError");
+    if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
     const generating = isGenerating(chatHistory);
     const messages = convertMessages(chatHistory.messages || []);
     this.patchLastUserMessage(messages, generating, backendId);
