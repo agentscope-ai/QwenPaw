@@ -444,7 +444,7 @@ def _sync_all_scroll_agents() -> None:
     total_sessions = 0
     synced_agents = 0
 
-    for agent_id in config.agents.profiles:
+    for agent_id, agent_ref in config.agents.profiles.items():
         try:
             agent_config = load_agent_config(agent_id)
         except Exception as exc:  # noqa: BLE001
@@ -463,7 +463,13 @@ def _sync_all_scroll_agents() -> None:
         if strategy != "scroll":
             continue
 
-        workspace_dir = Path(agent_config.workspace_dir).expanduser()
+        # Authoritative per-agent path: the profile ref in root config maps
+        # each id to its own directory. We must NOT use
+        # ``agent_config.workspace_dir`` — that field comes from the agent.json
+        # body, which is baked in when a workspace is cloned, so every copy
+        # points back at the original (e.g. all lme_w* -> memory-agent),
+        # collapsing every agent onto one workspace.
+        workspace_dir = Path(agent_ref.workspace_dir).expanduser()
         sessions_dir = workspace_dir / "sessions"
         if not sessions_dir.is_dir():
             logger.info("session-sync[%s]: no sessions to sync", agent_id)

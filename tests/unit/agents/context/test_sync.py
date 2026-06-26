@@ -286,9 +286,16 @@ def test_unparseable_message_counted_not_fatal(store, tmp_path: Path):
 
 
 def _stub_config_loaders(monkeypatch, workspace: Path) -> None:
-    """Point the startup sync at one scroll agent under *workspace*."""
+    """Point the startup sync at one scroll agent under *workspace*.
+
+    ``agent_config.workspace_dir`` is deliberately a bogus path: the sync must
+    resolve the workspace from the *profile ref*, not from the agent.json body
+    (which is stale for cloned workspaces). If a regression reuses
+    ``agent_config.workspace_dir``, the bogus path has no sessions/ and the
+    first-run notice never fires — failing the test.
+    """
     agent_config = SimpleNamespace(
-        workspace_dir=str(workspace),
+        workspace_dir="/nonexistent/must-not-be-used",
         running=SimpleNamespace(
             light_context_config=SimpleNamespace(
                 strategy="scroll",
@@ -296,7 +303,8 @@ def _stub_config_loaders(monkeypatch, workspace: Path) -> None:
             ),
         ),
     )
-    config = SimpleNamespace(agents=SimpleNamespace(profiles={"a1": object()}))
+    profiles = {"a1": SimpleNamespace(workspace_dir=str(workspace))}
+    config = SimpleNamespace(agents=SimpleNamespace(profiles=profiles))
     import qwenpaw.config as cfg
     import qwenpaw.config.config as cfgcfg
 
