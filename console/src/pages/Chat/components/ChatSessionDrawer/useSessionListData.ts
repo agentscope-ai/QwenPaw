@@ -198,6 +198,15 @@ export function useSessionListData(
     setSwitchingSessionId(null);
   }, [currentSessionId]);
 
+  // Also clear switchingSessionId when the switch completes (or fails).
+  // This is needed for SidebarSessionList (simple mode) which communicates
+  // via DOM events and may not see currentSessionId change on errors.
+  useEffect(() => {
+    const onDone = () => setSwitchingSessionId(null);
+    window.addEventListener("qwenpaw:sidebar-switch-done", onDone);
+    return () => window.removeEventListener("qwenpaw:sidebar-switch-done", onDone);
+  }, []);
+
   const handleDelete = useCallback(
     async (sessionId: string) => {
       const session = sessions.find((s) => s.id === sessionId);
