@@ -1,35 +1,28 @@
 # -*- coding: utf-8 -*-
-"""Auto-sync raw ``sessions/*.json`` conversation history into ``history.db``.
+"""Import raw ``sessions/*.json`` conversation history into ``history.db``.
 
-The raw conversation history lives in ``{workspace}/sessions/*.json`` — the
-:class:`~qwenpaw.app.chats.session.SafeJSONSession` state, one file per
-conversation. Under the ``scroll`` strategy an agent's durable recall lives in
-``history.db``, populated live by :class:`ScrollContextManager`. But a
-conversation that ran before scroll was enabled (or whose window never
-write-through'd) has its messages *only* in the session file, invisible to
-recall.
+Conversations are saved one-file-per-session under ``{workspace}/sessions/``.
+Under the ``scroll`` strategy, durable recall lives in ``history.db``,
+populated live by :class:`ScrollContextManager`. Messages from before scroll
+was enabled (or that never write-through'd) exist *only* in the session file,
+invisible to recall.
 
-This module closes that gap: on startup we scan every scroll-enabled agent's
-``sessions/`` directory and import each session's saved message window into its
-``history.db``.
+On startup we scan every scroll-enabled agent's ``sessions/`` directory and
+import each session's saved messages into its ``history.db``. The import is:
 
-Design guarantees (mirroring :mod:`.migrate`):
+* **Non-destructive** — session files are read-only; we only write
+  ``history.db`` and the ``.synced.json`` manifest.
+* **Idempotent** — synced rows use the same ``(session_id, dedup_key)`` the
+  live writer uses (``ScrollContextManager._persist_new``), so re-runs and
+  concurrent live writes collide on the DB's ``ux_dedup`` UNIQUE index and add
+  nothing. The ``.synced.json`` manifest also lets re-runs skip unchanged
+  files without re-reading them.
+* **Faithful** — conversion uses the live path's serializer
+  (:func:`msg_to_entries`), so a synced row matches what the agent would have
+  written itself.
 
-* **Non-destructive.** Session files are opened read-only and never modified,
-  renamed, or deleted. The only writes are to ``history.db`` and the
-  ``.synced.json`` manifest.
-* **Idempotent.** Synced rows carry the exact ``(session_id, dedup_key)``
-  identity the live writer uses (see ``ScrollContextManager._persist_new``), so
-  re-runs and concurrent live writes collide on the DB's ``ux_dedup`` UNIQUE
-  index and insert nothing new. A ``.synced.json`` manifest additionally lets a
-  re-run skip unchanged files without re-reading them.
-* **Faithful.** Conversion reuses the exact serialization the live path uses
-  (:func:`msg_to_entries`), so a synced row is indistinguishable from one the
-  agent would have written itself.
-
-The session ``state`` dict embeds the real ``session_id``, so synced rows land
-under the same conversation id the live agent uses — sync and live
-write-through fully converge.
+The session ``state`` embeds the real ``session_id``, so synced rows land under
+the same conversation id the live agent uses.
 """
 
 from __future__ import annotations
@@ -89,8 +82,8 @@ class SyncReport:
 
     @property
     def rows_inserted(self) -> int:
-        # Rows actually inserted *this run* — a skipped file contributes the
-        # historical count from its manifest entry, not a fresh insert.
+        # Rows inserted *this run* — skipped files don't count (their rows were
+        # inserted on an earlier run).
         return sum(
             f.rows_inserted
             for f in self.files
@@ -174,15 +167,11 @@ def _save_manifest(manifest_path: Path, manifest: dict) -> None:
 def _extract_session(data: dict, stem: str) -> tuple[str, list[Msg], int]:
     """Pull ``(session_id, messages, unparseable)`` from a session state dict.
 
-    The on-disk format is ``{"agent": {<module state>}}`` (see
-    ``SafeJSONSession.save_session_state``). The agent module is either the 2.0
-    ``{"state": {AgentState dump}}`` or the 1.x legacy ``{"memory": {...}}``
-    form — the same two shapes ``QwenPawAgent.load_state_dict`` accepts.
-
-    Both shapes are reduced to a flat list of message payloads, then decoded
-    through ONE tolerant loop: a single payload the current ``Msg`` schema can
-    no longer validate (e.g. a long-deprecated block type) is counted as
-    unparseable and skipped, never aborting the file.
+    Handles both on-disk shapes ``QwenPawAgent.load_state_dict`` accepts: the
+    2.0 ``{"state": {...}}`` (where the real ``session_id`` lives) and the 1.x
+    legacy ``{"memory": {...}}``. Both reduce to a flat list of payloads, then
+    a tolerant decode loop: a payload the current ``Msg`` schema can't validate
+    is counted unparseable and skipped, never aborting the file.
     """
     agent = data.get("agent")
     if not isinstance(agent, dict):
@@ -194,7 +183,7 @@ def _extract_session(data: dict, stem: str) -> tuple[str, list[Msg], int]:
 
     state = agent.get("state")
     if isinstance(state, dict):
-        # 2.0 format — the real session_id is embedded here.
+        # 2.0 format — session_id lives here.
         session_id = state.get("session_id") or ""
         ctx = state.get("context")
         if isinstance(ctx, list):
@@ -202,9 +191,8 @@ def _extract_session(data: dict, stem: str) -> tuple[str, list[Msg], int]:
     else:
         memory = agent.get("memory")
         if isinstance(memory, dict):
-            # 1.x legacy: content is [[msg_dict, marks], ...]; unwrap to the
-            # bare payloads (marks are dropped — neither HINT nor COMPRESSED is
-            # reachable from the new state schema).
+            # 1.x legacy: content is [[msg_dict, marks], ...]; keep the
+            # payload, drop the marks (unused by the new schema).
             for item in memory.get("content") or []:
                 if isinstance(item, (list, tuple)) and len(item) == 2:
                     raw_msgs.append(item[0])
@@ -243,15 +231,13 @@ def _sync_file(
     """Import one ``sessions/*.json`` file into ``conversation_history``.
 
     Dedup keys mirror ``ScrollContextManager._persist_new`` exactly: a turn
-    keys on its source ``msg.id``; a tool result keys on its ``tool_call_id``,
-    or — for a result with no call id — on its position within the owning Msg.
+    keys on its ``msg.id``; a tool result keys on its ``tool_call_id``, or — if
+    it has none — on its position within the owning Msg.
 
-    When ``cutoff`` (an ISO-8601 instant) is given, messages whose
-    ``created_at`` precedes it are skipped — they fall outside the retention
-    window the startup purge enforces, so importing them would only resurrect
-    rows that purge deletes on the same boot. Messages without a ``created_at``
-    are kept (purge never matches a NULL timestamp either, so the two stay
-    consistent).
+    With a ``cutoff`` (ISO-8601 instant), messages older than it are skipped:
+    they fall outside the retention window, so importing them would only
+    resurrect rows the same-boot purge deletes. Messages with no ``created_at``
+    are kept (purge skips NULL timestamps too, so the two stay consistent).
     """
     res = FileResult(filename=rel_name)
     try:
@@ -280,16 +266,15 @@ def _sync_file(
 
     before = 0 if dry_run else history.count(session_id)
     for row_index, msg in enumerate(messages):
-        # Retention filter: a message older than the window is skipped so we
-        # never import a row the same-boot purge would immediately delete.
-        # Mirrors purge semantics — compared against the same cutoff, NULL
-        # timestamps never match (kept).
+        # Skip messages older than the retention window so we don't import rows
+        # the same-boot purge would immediately delete. NULL timestamps are
+        # kept (purge skips them too).
         created_at = getattr(msg, "created_at", None)
         if cutoff and created_at and created_at < cutoff:
             res.aged_out += 1
             continue
-        # Stable fallback id: the message's position is a fixed function of the
-        # file, so a re-run re-derives the same key (unlike id(msg)).
+        # Fallback id from row position: a re-run derives the same key (unlike
+        # id(msg)), keeping dedup stable.
         mid = getattr(msg, "id", None) or f"{session_id}#row{row_index}"
         anon_pos = 0
         try:
@@ -322,19 +307,15 @@ def _sync_file(
 
 
 def _skip_is_safe(history: "HistoryStore", prior: dict) -> bool:
-    """Whether a manifest hit may be trusted to skip re-reading the file.
+    """Whether a manifest hit can be trusted to skip re-reading the file.
 
-    The manifest records that a file's content was fully synced *into a DB* —
-    but that DB can be recreated underneath it: ``HistoryStore`` quarantines a
+    The DB can be rebuilt under the manifest: ``HistoryStore`` quarantines a
     corrupt ``history.db`` and opens a fresh empty one, while ``.synced.json``
-    (in ``sessions/``) survives. A blind hash-skip would then leave the session
-    permanently absent from the rebuilt DB.
-
-    So we verify the claim: a skip is safe only if the session actually has
-    rows in *this* DB. If the manifest recorded no rows (nothing to lose), the
-    skip is trivially safe. Otherwise an empty session means the DB was reset —
-    fall through and re-sync (Layer B's UNIQUE index dedups, so a healthy DB
-    pays only a re-read, never duplicate rows)."""
+    survives. A blind hash-skip would then leave the session missing from the
+    rebuilt DB. So we verify: skip is safe only if the session still has rows
+    in *this* DB. A manifest with no rows is trivially safe; an empty session
+    that should have rows means the DB was reset — re-sync (the UNIQUE index
+    dedups, so a healthy DB only pays a re-read)."""
     if int(prior.get("rows_inserted", 0)) <= 0:
         return True
     session_id = prior.get("session_id") or ""
@@ -347,11 +328,10 @@ def _skip_is_safe(history: "HistoryStore", prior: dict) -> bool:
 
 
 def _iter_session_files(sessions_path: Path):
-    """Yield ``*.json`` session files, skipping dotted archive dirs/manifests.
+    """Yield ``*.json`` session files, recursing into channel subdirs.
 
-    Recurses so channel subdirectories (``sessions/<channel>/*.json``) are
-    covered, but any path component starting with ``.`` (e.g. the
-    ``.weixin-legacy`` archive, this manifest) is excluded.
+    Any path with a dotted component (the ``.weixin-legacy`` archive, this
+    manifest, etc.) is excluded.
     """
     for path in sorted(sessions_path.rglob("*.json")):
         rel = path.relative_to(sessions_path)
@@ -372,15 +352,12 @@ def sync_sessions_to_history(
     """Import every ``sessions/*.json`` under *sessions_dir* into *history*.
 
     Returns a :class:`SyncReport`. Safe to call repeatedly: unchanged files are
-    skipped via the manifest, and the DB's UNIQUE index makes re-appends
-    no-ops. Never deletes or rewrites the source session files.
+    skipped via the manifest and the DB's UNIQUE index makes re-appends no-ops.
+    Never deletes or rewrites the source session files.
 
-    ``retention_days`` (0 = keep forever) mirrors
-    ``scroll_config.history_retention_days``: when positive, messages older
-    than that window are not imported. This keeps the sync from re-importing
-    rows the startup purge deletes on the same boot — a session that has fully
-    aged out imports 0 rows, so its manifest entry lets later boots skip it for
-    good instead of re-importing-then-re-purging each time.
+    ``retention_days`` (0 = keep forever) skips messages older than the window,
+    so we don't import rows the same-boot purge would delete. A fully aged-out
+    session imports 0 rows, and its manifest entry lets later boots skip it.
     """
     sessions_path = Path(sessions_dir).expanduser()
     report = SyncReport()
@@ -470,10 +447,9 @@ def _purge_old_history(
 ) -> None:
     """Drop history rows older than ``retention_days`` (0 = keep forever).
 
-    Enforces the retention window on every startup, complementing the
-    teardown-time purge — so a store still shrinks even if the agent process
-    was killed before its teardown hook could run. Best-effort: a purge
-    failure is logged and never aborts the sync.
+    Runs on every startup so the store still shrinks even if the agent was
+    killed before its teardown purge could run. Best-effort: a failure is
+    logged and never aborts the sync.
     """
     if retention_days <= 0:
         return
@@ -501,10 +477,10 @@ def _purge_old_history(
 def sync_all_scroll_agents() -> None:
     """Sync every scroll-enabled agent's ``sessions/*.json`` into its history.
 
-    Called once at server startup. Fully guarded: any failure (config load, a
-    single agent, a single file) is logged and isolated so it can never block
-    boot. Native-strategy agents are skipped — their ``history.db`` is never
-    read, so populating it would only create an orphan file.
+    Called once at server startup. Fully guarded: any failure is logged and
+    isolated so it can never block boot. Native-strategy agents are skipped —
+    their ``history.db`` is never read, so populating it would just orphan a
+    file.
     """
     try:
         _sync_all_scroll_agents()
@@ -542,22 +518,19 @@ def _sync_all_scroll_agents() -> None:
         if strategy != "scroll":
             continue
 
-        # Authoritative per-agent path: the profile ref in root config maps
-        # each id to its own directory. We must NOT use
-        # ``agent_config.workspace_dir`` — that field comes from the agent.json
-        # body, which is baked in when a workspace is cloned, so every copy
-        # points back at the original (e.g. all lme_w* -> memory-agent),
-        # collapsing every agent onto one workspace.
+        # Use the profile ref's path (each id -> its own dir), NOT
+        # ``agent_config.workspace_dir``: that field is baked into agent.json
+        # at clone time, so every clone points back at the original and they'd
+        # all collapse onto one workspace.
         workspace_dir = Path(agent_ref.workspace_dir).expanduser()
         sessions_dir = workspace_dir / "sessions"
         if not sessions_dir.is_dir():
             logger.info("session-sync[%s]: no sessions to sync", agent_id)
             continue
 
-        # First-run notice: the manifest's absence is the one-time signal
-        # (mirrors the scroll history first-run warning). Emitted BEFORE the
-        # import so a long one-time migration isn't a silent stall in the
-        # console; later startups have a manifest and skip straight through.
+        # First-run notice (no manifest yet): warn BEFORE the import so the
+        # one-time migration isn't a silent stall. Later startups have a
+        # manifest and skip straight through.
         if not (sessions_dir / MANIFEST_NAME).exists():
             pending = sum(1 for _ in _iter_session_files(sessions_dir))
             if pending:
