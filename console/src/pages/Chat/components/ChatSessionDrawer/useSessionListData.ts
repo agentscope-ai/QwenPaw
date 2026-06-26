@@ -144,6 +144,8 @@ export function useSessionListData(
     void fetchSessions();
 
     const timer = setInterval(async () => {
+      // Pause polling during session switch to avoid bandwidth contention
+      if (sessionApi.isSessionSwitching) return;
       try {
         const list = await sessionApi.getSessionList();
         if (!cancelled) {
