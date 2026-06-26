@@ -54,11 +54,11 @@ def scroll_unsandboxed_allowed(scroll_config: Any) -> bool:
     return bool(getattr(scroll_config, "allow_unsandboxed", False))
 
 
-# history.db has no retention by default (keep-forever), so a long-running
-# agent's store can grow without bound. Warn when it crosses this size so the
-# operator can opt into a retention window. Process-level dedupe keeps a
-# long-lived server from re-warning on every agent build.
-_DB_SIZE_WARN_BYTES = 10 * 1024**3  # 10 GiB
+# history.db auto-purges past history_retention_days (default 30), but an
+# operator can disable that (set 0) or a very chatty agent can outpace it, so
+# the store may still grow large. Warn when it crosses this size. Process-level
+# dedupe keeps a long-lived server from re-warning on every agent build.
+_DB_SIZE_WARN_BYTES = 1 * 1024**3  # 1 GiB
 _DB_SIZE_WARNED: set[str] = set()
 
 
@@ -109,12 +109,11 @@ def _warn_db_size(db_path: Path) -> None:
         return
     _DB_SIZE_WARNED.add(key)
     logger.warning(
-        "scroll history at %s is %.1f GiB (history_retention_days=0 keeps "
-        "everything; otherwise old rows auto-purge on teardown). To trim it "
-        "now, run 'qwenpaw history purge --days 30 --dry-run' to preview, "
-        "then again with --vacuum to delete and reclaim disk; add "
-        "--tool-output-only to drop just the bulky tool output and keep the "
-        "conversation.",
+        "scroll history at %s is %.1f GiB. Rows older than "
+        "history_retention_days (default 30) auto-purge on startup and on "
+        "teardown; if you set history_retention_days=0 the store keeps "
+        "everything and grows without bound. Lower the retention window to "
+        "trim it.",
         db_path,
         total / 1024**3,
     )

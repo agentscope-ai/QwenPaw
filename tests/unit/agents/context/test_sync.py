@@ -299,7 +299,10 @@ def _stub_config_loaders(monkeypatch, workspace: Path) -> None:
         running=SimpleNamespace(
             light_context_config=SimpleNamespace(
                 strategy="scroll",
-                scroll_config=SimpleNamespace(db_filename="history.db"),
+                scroll_config=SimpleNamespace(
+                    db_filename="history.db",
+                    history_retention_days=0,
+                ),
             ),
         ),
     )

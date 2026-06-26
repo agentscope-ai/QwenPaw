@@ -99,9 +99,7 @@ def test_large_existing_db_warns_about_retention(tmp_path: Path, caplog):
             _build(tmp_path)
             records = _size_records(caplog)
             assert len(records) == 1
-            assert "qwenpaw history purge --days 30" in (
-                records[0].getMessage()
-            )
+            assert "history_retention_days" in records[0].getMessage()
             # Deduped: a second build in the same process does not re-warn.
             caplog.clear()
             _build(tmp_path)

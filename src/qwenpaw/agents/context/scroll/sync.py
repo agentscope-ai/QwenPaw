@@ -38,6 +38,7 @@ import hashlib
 import json
 import logging
 from dataclasses import dataclass, field
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -419,6 +420,41 @@ def sync_sessions_to_history(
     return report
 
 
+def _purge_old_history(
+    history: HistoryStore,
+    retention_days: int,
+    agent_id: str | None = None,
+) -> None:
+    """Drop history rows older than ``retention_days`` (0 = keep forever).
+
+    Enforces the retention window on every startup, complementing the
+    teardown-time purge — so a store still shrinks even if the agent process
+    was killed before its teardown hook could run. Best-effort: a purge
+    failure is logged and never aborts the sync.
+    """
+    if retention_days <= 0:
+        return
+    cutoff = (
+        datetime.now(timezone.utc) - timedelta(days=retention_days)
+    ).isoformat()
+    try:
+        removed = history.purge(before=cutoff)
+    except Exception as exc:  # noqa: BLE001 - retention must never break boot
+        logger.warning(
+            "session-sync[%s]: retention purge failed: %s",
+            agent_id,
+            exc,
+        )
+        return
+    if removed:
+        logger.info(
+            "session-sync[%s]: purged %d row(s) older than %dd",
+            agent_id,
+            removed,
+            retention_days,
+        )
+
+
 def sync_all_scroll_agents() -> None:
     """Sync every scroll-enabled agent's ``sessions/*.json`` into its history.
 
@@ -497,6 +533,11 @@ def _sync_all_scroll_agents() -> None:
                 history=history,
                 sessions_dir=sessions_dir,
                 agent_id=agent_id,
+            )
+            _purge_old_history(
+                history,
+                lcc.scroll_config.history_retention_days,
+                agent_id,
             )
         except Exception as exc:  # noqa: BLE001 - isolate one agent's failure
             logger.warning(

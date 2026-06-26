@@ -414,8 +414,8 @@ class HistoryStore:
         turns. The FTS index is kept in sync (each purged row is removed from
         it first). Rows with a NULL/empty ``created_at`` are never matched, so
         they are retained. This is the retention/clear path — driven on
-        teardown by ``history_retention_days`` (default 90; set 0 to keep
-        history forever, which calls nothing here).
+        startup and teardown by ``history_retention_days`` (default 30; set 0
+        to keep history forever, which calls nothing here).
 
         Note: this DELETEs but does not ``VACUUM``, so freed pages are reused
         but the file does not shrink on disk until a separate vacuum.
@@ -450,8 +450,7 @@ class HistoryStore:
         ``purge`` only DELETEs rows, so freed pages are reused but the file
         does not shrink on disk. VACUUM rewrites it compactly. It is O(db size)
         and briefly needs extra scratch space, so it is an explicit, separate
-        step (e.g. driven by the ``history purge --vacuum`` CLI) rather than
-        run inline on the teardown path.
+        step rather than run inline on the retention purge path.
         """
         # VACUUM cannot run inside an open transaction; sqlite3 in its default
         # isolation mode opens one implicitly on writes, so commit first.

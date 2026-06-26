@@ -839,13 +839,13 @@ class ScrollContextConfig(BaseModel):
     )
 
     history_retention_days: int = Field(
-        default=0,
+        default=30,
         ge=0,
         description=(
             "Days of durable history to keep; rows older than this are "
-            "purged on agent teardown. 0 (default) keeps history forever "
-            "— the memory is never dropped unless an operator opts into a "
-            "retention window."
+            "purged automatically on startup and on agent teardown. Default "
+            "30 keeps roughly the last month. Set 0 to keep history forever "
+            "(unbounded growth — only the capacity warning fires)."
         ),
     )
 
