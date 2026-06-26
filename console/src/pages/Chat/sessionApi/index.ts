@@ -9,7 +9,6 @@ import api, {
   type ChatStatus,
   type Message,
 } from "../../../api";
-import { migrateInputQueueStorage } from "../inputQueueStorage";
 import { toDisplayUrl } from "../utils";
 import { extractTurnUsageFromOutputMessages } from "../turnUsage";
 
@@ -989,7 +988,6 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     const { list, realId } = resolveRealId(this.sessionList, tempId);
     this.sessionList = list;
     if (realId) {
-      migrateInputQueueStorage(tempId, realId);
       // Migrate the pending user message from the local timestamp key to
       // the backend UUID key so patchLastUserMessage can find it after
       // page refresh (where the URL — and therefore the lookup key — is

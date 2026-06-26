@@ -17,11 +17,6 @@ export type CopyableResponse = {
   output?: CopyableMessage[];
 };
 
-export type RuntimeLoadingBridgeApi = {
-  getLoading?: () => boolean | string;
-  setLoading?: (loading: boolean | string) => void;
-};
-
 // ---------------------------------------------------------------------------
 // Text extraction utilities
 // ---------------------------------------------------------------------------
