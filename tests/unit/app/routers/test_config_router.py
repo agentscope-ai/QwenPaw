@@ -26,6 +26,7 @@ from qwenpaw.app.routers.config import router as config_router
 from qwenpaw.config.config import (
     ChannelConfig,
     ConsoleConfig,
+    HeartbeatConfig,
     ToolGuardConfig,
 )
 
@@ -150,6 +151,54 @@ def test_put_channels_422_on_invalid_payload(client, patch_get_agent):
     )
 
     assert response.status_code == 422
+
+
+# ---------------------------------------------------------------------------
+# /config/heartbeat — get + put
+# ---------------------------------------------------------------------------
+
+
+def test_get_heartbeat_returns_timeout_seconds(
+    client,
+    fake_agent_workspace,
+    patch_get_agent,
+):
+    fake_agent_workspace.config.heartbeat = HeartbeatConfig(
+        enabled=True,
+        every="2h",
+        target="inbox",
+        timeoutSeconds=240,
+    )
+
+    response = client.get("/api/config/heartbeat")
+
+    assert response.status_code == 200
+    assert response.json()["timeoutSeconds"] == 240
+
+
+def test_put_heartbeat_preserves_timeout_seconds(
+    client,
+    fake_agent_workspace,
+    patch_get_agent,
+):
+    fake_agent_workspace.cron_manager = None
+
+    with patch("qwenpaw.config.config.save_agent_config") as save_mock:
+        response = client.put(
+            "/api/config/heartbeat",
+            json={
+                "enabled": True,
+                "every": "2h",
+                "target": "inbox",
+                "timeoutSeconds": 360,
+            },
+        )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["timeoutSeconds"] == 360
+    assert fake_agent_workspace.config.heartbeat.timeout_seconds == 360
+    save_mock.assert_called_once()
 
 
 # ---------------------------------------------------------------------------

@@ -182,6 +182,7 @@ async def run_heartbeat_once(
     if not _in_active_hours(hb.active_hours):
         logger.debug("heartbeat skipped: outside active hours")
         return
+    timeout_seconds = hb.timeout_seconds
 
     # Use workspace_dir if provided, otherwise fall back to global path
     if workspace_dir:
@@ -241,9 +242,15 @@ async def run_heartbeat_once(
                     )
 
             try:
-                await asyncio.wait_for(_run_and_dispatch(), timeout=120)
+                await asyncio.wait_for(
+                    _run_and_dispatch(),
+                    timeout=timeout_seconds,
+                )
             except asyncio.TimeoutError:
-                logger.warning("heartbeat run timed out")
+                logger.warning(
+                    "heartbeat run timed out after %ss",
+                    timeout_seconds,
+                )
             return
 
     if target == HEARTBEAT_TARGET_INBOX:
@@ -274,7 +281,7 @@ async def run_heartbeat_once(
                 pass
 
         try:
-            await asyncio.wait_for(_run_only(), timeout=120)
+            await asyncio.wait_for(_run_only(), timeout=timeout_seconds)
             delta = await append_trace_from_session_delta(
                 run_id=run_id,
                 runner=workspace,
@@ -303,7 +310,10 @@ async def run_heartbeat_once(
                 },
             )
         except asyncio.TimeoutError:
-            logger.warning("heartbeat run timed out")
+            logger.warning(
+                "heartbeat run timed out after %ss",
+                timeout_seconds,
+            )
             await append_trace_from_session_delta(
                 run_id=run_id,
                 runner=workspace,
@@ -315,7 +325,7 @@ async def run_heartbeat_once(
             await finalize_trace(
                 run_id,
                 status="timeout",
-                error="timed out after 120s",
+                error=f"timed out after {timeout_seconds}s",
             )
             await append_inbox_event(
                 agent_id=agent_id,
@@ -325,7 +335,7 @@ async def run_heartbeat_once(
                 status="error",
                 severity="error",
                 title="Heartbeat timed out",
-                body="Heartbeat run timed out after 120s.",
+                body=f"Heartbeat run timed out after {timeout_seconds}s.",
                 payload={
                     "run_id": run_id,
                     "target": target,
@@ -367,6 +377,12 @@ async def run_heartbeat_once(
             pass
 
     try:
-        await asyncio.wait_for(_run_without_dispatch(), timeout=120)
+        await asyncio.wait_for(
+            _run_without_dispatch(),
+            timeout=timeout_seconds,
+        )
     except asyncio.TimeoutError:
-        logger.warning("heartbeat run timed out")
+        logger.warning(
+            "heartbeat run timed out after %ss",
+            timeout_seconds,
+        )

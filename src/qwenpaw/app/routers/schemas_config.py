@@ -5,6 +5,7 @@ from typing import Literal, Optional
 
 from pydantic import BaseModel, Field
 
+from ...constant import HEARTBEAT_DEFAULT_TIMEOUT_SECONDS
 from ...config.config import ActiveHoursConfig
 
 
@@ -14,6 +15,11 @@ class HeartbeatBody(BaseModel):
     enabled: bool = False
     every: str = "6h"
     target: str = "main"
+    timeout_seconds: int = Field(
+        default=HEARTBEAT_DEFAULT_TIMEOUT_SECONDS,
+        ge=1,
+        alias="timeoutSeconds",
+    )
     active_hours: Optional[ActiveHoursConfig] = Field(
         default=None,
         alias="activeHours",
