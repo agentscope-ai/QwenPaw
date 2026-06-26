@@ -885,8 +885,6 @@ def _build_batch_response(
             "completed": completed,
             "last_step_result": results[-1],
         }
-        if "text" not in results[-1]:
-            payload["last_text"] = None
     else:
         payload = {
             "ok": all_ok,
@@ -906,20 +904,52 @@ def _build_batch_response(
         return ToolResponse(content=[summary, *all_content_blocks])
 
     content: list[Any] = [summary]
-    last_step_text = (
-        results[-1].get("text")
-        if results and isinstance(results[-1].get("text"), str)
-        else None
-    )
-    last_block_text = (
-        last_text_block.get("text")
-        if isinstance(last_text_block, dict)
-        else getattr(last_text_block, "text", None)
-    )
-    if last_text_block is not None and last_block_text != last_step_text:
+    if _should_include_last_text_block(last_text_block, results):
         content.append(last_text_block)
     content.extend(all_content_blocks)
     return ToolResponse(content=content)
+
+
+def _should_include_last_text_block(
+    last_text_block: Any | None,
+    results: list[dict[str, Any]],
+) -> bool:
+    if last_text_block is None or not results:
+        return False
+
+    last_block_text = _block_text(last_text_block)
+    if not isinstance(last_block_text, str):
+        return False
+
+    return not _last_step_result_contains_text(results[-1], last_block_text)
+
+
+def _block_text(block: Any) -> Any:
+    return (
+        block.get("text")
+        if isinstance(block, dict)
+        else getattr(block, "text", None)
+    )
+
+
+def _last_step_result_contains_text(
+    last_step_result: dict[str, Any],
+    text: str,
+) -> bool:
+    if last_step_result.get("text") == text:
+        return True
+
+    try:
+        parsed_text = json.loads(text)
+        if parsed_text == last_step_result.get("value"):
+            return True
+        return parsed_text == {
+            key: value
+            for key, value in last_step_result.items()
+            if key not in {"step", "tool_name"}
+        }
+    except (json.JSONDecodeError, TypeError):
+        return False
 
 
 def _prepare_batch_inputs(
@@ -1052,17 +1082,62 @@ async def run_tool_batch(  # pylint: disable=too-many-return-statements
 
     Use ``${args.<name>}`` placeholders in argument values for parts
     that vary at runtime. Use ``${steps.<index>.<path>}`` to reference
-    earlier steps' output. Use ``${vars.<name>}`` to reference runtime
-    variables created by ``set_var``. The brace-delimited syntax is
-    required so that placeholders are unambiguous inside mixed-content
-    strings (e.g. shell commands).
+    an action by its zero-based position in the batch JSON, not by the
+    execution count. If a loop jumps back to the same action, that action
+    keeps the same ``steps.<index>`` reference; it resolves to that
+    action's most recent execution result. Use ``${vars.<name>}`` to
+    reference runtime variables created by ``set_var``. The brace-delimited
+    syntax is required so that placeholders are unambiguous inside
+    mixed-content strings (e.g. shell commands).
 
     Example::
 
         run_tool_batch(
-            file_path="/absolute/path/to/batch.json",
-            args={"file_path": "/app/config.yaml", "pattern": "database"},
+            file_path="path/to/example.json",
+            args={"query": "database"},
+            maxstep=20,
         )
+
+    Example ``path/to/example.json``::
+
+        {
+          "actions": [
+            {
+              "tool_name": "set_var",
+              "arguments": {"expr": "i=0"}
+            },
+            {
+              "tool_name": "label",
+              "arguments": {"name": "retry"}
+            },
+            {
+              "tool_name": "grep_search",
+              "arguments": {"pattern": "${args.query}", "path": "src"}
+            },
+            {
+              "tool_name": "set_var",
+              "arguments": {"expr": "i=${vars.i}+1"}
+            },
+            {
+              "tool_name": "goto",
+              "arguments": {
+                "label": "retry",
+                "condition": "${vars.i}<3"
+              }
+            },
+            {
+              "tool_name": "grep_search",
+              "arguments": {
+                "pattern": "${steps.2.text}",
+                "path": "tests"
+              }
+            }
+          ]
+        }
+
+    In this example, ``${steps.2.text}`` always refers to action index 2,
+    the ``grep_search`` action inside the loop. It does not become
+    ``steps.3`` or ``steps.4`` after loop iterations.
 
     Args:
         file_path: Absolute path to a JSON batch file.
