@@ -1528,6 +1528,7 @@
     "downloadDag": "下载 DAG",
     "artifactManage": "工件管理",
     "artifactManageEmpty": "暂无工件文件",
+    "artifactSessionFiles": "会话文件",
     "artifactGraphCurrent": "当前",
     "artifactGraphFiles": "{{count}} 个文件",
     "artifactGraphEmpty": "该任务图暂无工件",

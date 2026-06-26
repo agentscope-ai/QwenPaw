@@ -44,6 +44,7 @@ from .tasks_utils import (
     extract_artifacts,
     get_session_for_agent,
     get_workspace_for_agent,
+    list_session_artifact_files,
     load_pn_for_request,
     persist_pn,
     resolve_request_api_origin,
@@ -605,8 +606,8 @@ async def list_files(
         description="Filter by node_id; omitted returns all.",
     ),
 ) -> FilesResponse:
-    """List every file-artifact registered via ``finish_subtask``."""
-    session, _ = await get_session_for_agent(
+    """List every regular file under ``artifacts/{session_id}``."""
+    session, agent_id = await get_session_for_agent(
         request,
         getattr(request.state, "agent_id", None),
     )
@@ -616,9 +617,19 @@ async def list_files(
         user_id=user_id,
     )
     artifacts = extract_artifacts(pn)
+    workspace = await get_workspace_for_agent(
+        request,
+        agent_id,
+    )
+    files = list_session_artifact_files(
+        workspace,
+        session_id,
+        agent_id,
+        artifacts,
+    )
 
     entries: List[FileEntry] = []
-    for item in artifacts:
+    for item in files:
         if graph_id and item.graph_id != graph_id:
             continue
         if node_id and item.node_id != node_id:
@@ -658,13 +669,13 @@ async def preview_file(
         ...,
         min_length=1,
         description=(
-            "``ArtifactItem.path``;"
-            " must exist in this session's artifacts list."
+            "Artifact path relative to the artifacts root;"
+            " must resolve under artifacts/{session_id}."
         ),
     ),
     user_id: str = Query(default="default"),
 ) -> Response:
-    """Inline-preview a file-artifact registered in this session."""
+    """Inline-preview a file under this session's artifacts directory."""
     session, agent_id = await get_session_for_agent(
         request,
         getattr(request.state, "agent_id", None),
@@ -707,7 +718,7 @@ async def resource_file(
     user_id: str = Query(default="default"),
     agent_id: str = Query(default=""),
 ) -> FileResponse:
-    """Proxy any file under the artifacts root (no whitelist check)."""
+    """Proxy any file under this session's artifacts directory."""
     del user_id  # kept for parity with preview URLs and auth-aware hosts
     resolved_agent = agent_id or getattr(request.state, "agent_id", None)
     _, resolved_agent = await get_session_for_agent(request, resolved_agent)
@@ -736,13 +747,13 @@ async def download_file(
         ...,
         min_length=1,
         description=(
-            "``ArtifactItem.path``;"
-            " must exist in this session's artifacts list."
+            "Artifact path relative to the artifacts root;"
+            " must resolve under artifacts/{session_id}."
         ),
     ),
     user_id: str = Query(default="default"),
 ) -> Response:
-    """Download a file-artifact registered in this session."""
+    """Download a file under this session's artifacts directory."""
     session, agent_id = await get_session_for_agent(
         request,
         getattr(request.state, "agent_id", None),

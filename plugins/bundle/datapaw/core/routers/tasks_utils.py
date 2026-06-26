@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import logging
+import mimetypes
 import posixpath
 import re
+from datetime import datetime, timezone
 from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any, List, Literal, NamedTuple, Optional
@@ -32,6 +34,8 @@ _SKIPPED_URL_SCHEMES = {
     "cid",
 }
 _CSS_URL_RE = re.compile(r"url\(\s*(['\"]?)([^)'\"\s]+)\1\s*\)")
+SESSION_ARTIFACT_GRAPH_ID = "__session__"
+SESSION_ARTIFACT_ROOT_NODE_ID = "__root__"
 
 
 class PnContext(NamedTuple):
@@ -287,6 +291,22 @@ def build_artifact_path_context(
     return PathContext(mount_dir=base_dir)
 
 
+def build_session_artifact_root(
+    workspace: Any,
+    session_id: str,
+    agent_id: str,
+) -> tuple[PathContext, Path]:
+    """Return artifacts-root context plus ``artifacts/{session_id}`` root."""
+    context = build_artifact_path_context(workspace, session_id, agent_id)
+    session_root = (context.mount_dir / session_id).resolve()
+    if not context.contains(session_root):
+        raise HTTPException(
+            status_code=400,
+            detail="Resolved session artifact path escapes artifacts root.",
+        )
+    return context, session_root
+
+
 def resolve_artifact_host_path(
     workspace: Any,
     session_id: str,
@@ -303,6 +323,180 @@ def resolve_artifact_host_path(
             detail="Resolved artifact path escapes the agent workspace.",
         )
     return resolved
+
+
+def resolve_session_artifact_host_path(
+    workspace: Any,
+    session_id: str,
+    agent_id: str,
+    path: str,
+) -> tuple[PathContext, Path, Path]:
+    """Resolve ``path`` and require it to stay inside this session root."""
+    context, session_root = build_session_artifact_root(
+        workspace,
+        session_id,
+        agent_id,
+    )
+    host_path = context.resolve_artifact_path(path).resolve()
+    if not context.contains(host_path):
+        raise HTTPException(
+            status_code=400,
+            detail="Resolved artifact path escapes the agent workspace.",
+        )
+    if not host_path.is_relative_to(session_root):
+        raise HTTPException(
+            status_code=400,
+            detail="Resolved artifact path escapes this session.",
+        )
+    return context, session_root, host_path
+
+
+def artifact_relative_path(context: PathContext, host_path: Path) -> str:
+    """Return a POSIX path relative to the artifacts root."""
+    return host_path.resolve().relative_to(context.mount_dir).as_posix()
+
+
+def infer_artifact_owner(
+    session_root: Path,
+    host_path: Path,
+) -> tuple[str, str]:
+    """Infer graph / node ids from ``artifacts/{session_id}`` layout."""
+    parts = host_path.resolve().relative_to(session_root).parts
+    if len(parts) >= 3:
+        return parts[0], parts[1]
+    if len(parts) == 2:
+        return parts[0], SESSION_ARTIFACT_ROOT_NODE_ID
+    return SESSION_ARTIFACT_GRAPH_ID, SESSION_ARTIFACT_ROOT_NODE_ID
+
+
+def infer_artifact_mime_type(path: str) -> str:
+    """Infer MIME type from a file path, falling back to octet-stream."""
+    mime_type, _ = mimetypes.guess_type(path)
+    return mime_type or "application/octet-stream"
+
+
+def format_artifact_mtime(host_path: Path) -> str:
+    """Format file mtime as a JSON/Date.parse-friendly timestamp."""
+    return (
+        datetime.fromtimestamp(
+            host_path.stat().st_mtime,
+            tz=timezone.utc,
+        )
+        .isoformat()
+        .replace("+00:00", "Z")
+    )
+
+
+def build_filesystem_artifact_item(
+    context: PathContext,
+    session_root: Path,
+    host_path: Path,
+    *,
+    registered: ArtifactItem | None = None,
+) -> ArtifactItem:
+    """Build a file-list entry from disk, optionally overlaying metadata."""
+    rel_path = artifact_relative_path(context, host_path)
+    graph_id, node_id = infer_artifact_owner(session_root, host_path)
+
+    if registered is not None:
+        return ArtifactItem(
+            graph_id=registered.graph_id or graph_id,
+            node_id=registered.node_id or node_id,
+            name=registered.name or host_path.name,
+            path=rel_path,
+            mime_type=registered.mime_type or infer_artifact_mime_type(rel_path),
+            size_bytes=registered.size_bytes,
+            created_at=registered.created_at,
+        )
+
+    stat = host_path.stat()
+    return ArtifactItem(
+        graph_id=graph_id,
+        node_id=node_id,
+        name=host_path.name,
+        path=rel_path,
+        mime_type=infer_artifact_mime_type(rel_path),
+        size_bytes=stat.st_size,
+        created_at=format_artifact_mtime(host_path),
+    )
+
+
+def build_registered_artifact_index(
+    context: PathContext,
+    session_root: Path,
+    artifacts: List[ArtifactItem],
+) -> dict[str, ArtifactItem]:
+    """Map registered artifact paths to session-relative disk entries."""
+    indexed: dict[str, ArtifactItem] = {}
+    for item in artifacts:
+        host_path = context.resolve_artifact_path(item.path).resolve()
+        if not context.contains(host_path):
+            continue
+        if not host_path.is_relative_to(session_root):
+            continue
+        indexed[artifact_relative_path(context, host_path)] = item
+    return indexed
+
+
+def list_session_artifact_files(
+    workspace: Any,
+    session_id: str,
+    agent_id: str,
+    artifacts: List[ArtifactItem],
+) -> List[ArtifactItem]:
+    """Scan ``artifacts/{session_id}`` and return every regular file."""
+    context, session_root = build_session_artifact_root(
+        workspace,
+        session_id,
+        agent_id,
+    )
+    if not session_root.exists() or not session_root.is_dir():
+        return []
+
+    registered_by_path = build_registered_artifact_index(
+        context,
+        session_root,
+        artifacts,
+    )
+    items: list[ArtifactItem] = []
+
+    for candidate in sorted(session_root.rglob("*")):
+        try:
+            resolved = candidate.resolve()
+            if not resolved.is_relative_to(session_root):
+                continue
+            if not resolved.is_file():
+                continue
+            rel_path = artifact_relative_path(context, resolved)
+            items.append(
+                build_filesystem_artifact_item(
+                    context,
+                    session_root,
+                    resolved,
+                    registered=registered_by_path.get(rel_path),
+                ),
+            )
+        except OSError:
+            logger.warning(
+                "tasks router: failed to scan artifact file %s",
+                candidate,
+                exc_info=True,
+            )
+    return items
+
+
+def find_registered_artifact(
+    context: PathContext,
+    session_root: Path,
+    artifacts: List[ArtifactItem],
+    rel_path: str,
+) -> ArtifactItem | None:
+    """Return registered metadata for ``rel_path`` if present."""
+    return build_registered_artifact_index(
+        context,
+        session_root,
+        artifacts,
+    ).get(rel_path)
 
 
 def normalize_html_resource_path(
@@ -569,30 +763,32 @@ def serve_artifact_file(
     user_id: str = "",
     api_origin: str = "",
 ) -> Response:
-    """Validate against artifact whitelist + mount boundary, then serve."""
-    matched: Optional[ArtifactItem] = next(
-        (item for item in artifacts if item.path == path),
-        None,
-    )
-    if matched is None:
-        raise HTTPException(
-            status_code=404,
-            detail=(
-                f"Artifact path {path!r} is not registered in this session."
-            ),
-        )
-
-    host_path = resolve_artifact_host_path(
+    """Validate against session boundary, then serve a disk artifact."""
+    context, session_root, host_path = resolve_session_artifact_host_path(
         workspace,
         session_id,
         agent_id,
-        matched.path,
+        path,
     )
     if not host_path.is_file():
         raise HTTPException(
             status_code=404,
-            detail=(f"Artifact file is missing on disk: {matched.path}"),
+            detail=(f"Artifact file is missing on disk: {path}"),
         )
+
+    rel_path = artifact_relative_path(context, host_path)
+    matched = find_registered_artifact(
+        context,
+        session_root,
+        artifacts,
+        rel_path,
+    )
+    matched = build_filesystem_artifact_item(
+        context,
+        session_root,
+        host_path,
+        registered=matched,
+    )
 
     media_type = matched.mime_type or "application/octet-stream"
     if rewrite_html and is_html_artifact(matched):
@@ -630,14 +826,13 @@ def serve_resource_file(
     agent_id: str,
     path: str,
 ) -> FileResponse:
-    """Serve any file under the artifacts root (no whitelist check)."""
-    context = build_artifact_path_context(workspace, session_id, agent_id)
-    host_path = context.resolve_artifact_path(path).resolve()
-    if not context.contains(host_path):
-        raise HTTPException(
-            status_code=400,
-            detail="Resolved resource path escapes the agent workspace.",
-        )
+    """Serve any file under this session's artifacts root."""
+    _, _, host_path = resolve_session_artifact_host_path(
+        workspace,
+        session_id,
+        agent_id,
+        path,
+    )
     if not host_path.is_file():
         raise HTTPException(
             status_code=404,

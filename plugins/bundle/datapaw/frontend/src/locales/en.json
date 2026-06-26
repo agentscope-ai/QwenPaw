@@ -1520,6 +1520,7 @@
     "downloadDag": "Download DAG",
     "artifactManage": "Artifact Management",
     "artifactManageEmpty": "No artifact files yet",
+    "artifactSessionFiles": "Session files",
     "artifactGraphCurrent": "Current",
     "artifactGraphFiles": "{{count}} files",
     "artifactGraphEmpty": "No artifacts in this task graph",

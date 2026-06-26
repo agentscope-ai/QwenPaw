@@ -7,9 +7,10 @@ from urllib.parse import quote
 
 import pytest
 
-REPORT_PATH = "1778472702210/graph_ATp6bnvQ/generate_report/report.html"
-CSV_PATH = "1778472702210/graph_ATp6bnvQ/anomaly_detection/anomaly_points.csv"
-CSS_PATH = "1778472702210/graph_ATp6bnvQ/generate_report/assets/report.css"
+SESSION_ID = "1778472702210"
+REPORT_PATH = f"{SESSION_ID}/graph_ATp6bnvQ/generate_report/report.html"
+CSV_PATH = f"{SESSION_ID}/graph_ATp6bnvQ/anomaly_detection/anomaly_points.csv"
+CSS_PATH = f"{SESSION_ID}/graph_ATp6bnvQ/generate_report/assets/report.css"
 
 SAMPLE_HTML = """
 <!DOCTYPE html>
@@ -138,7 +139,7 @@ def test_serve_artifact_file_preview_rewrites(tmp_path) -> None:
     workspace = _workspace(tmp_path)
     response = serve_artifact_file(
         workspace,
-        "s1",
+        SESSION_ID,
         "datapaw",
         [_report_artifact()],
         REPORT_PATH,
@@ -150,12 +151,12 @@ def test_serve_artifact_file_preview_rewrites(tmp_path) -> None:
 
     body = response.body.decode("utf-8")
     assert (
-        "http://testserver/api/tasks/s1/files/resource"
+        f"http://testserver/api/tasks/{SESSION_ID}/files/resource"
         f"?path={quote(CSV_PATH, safe='')}"
         in body
     )
     assert (
-        "http://testserver/api/tasks/s1/files/resource"
+        f"http://testserver/api/tasks/{SESSION_ID}/files/resource"
         f"?path={quote(CSS_PATH, safe='')}"
         in body
     )
@@ -169,7 +170,7 @@ def test_serve_artifact_file_download_rewrites(tmp_path) -> None:
     workspace = _workspace(tmp_path)
     response = serve_artifact_file(
         workspace,
-        "s1",
+        SESSION_ID,
         "datapaw",
         [_report_artifact()],
         REPORT_PATH,
@@ -181,7 +182,7 @@ def test_serve_artifact_file_download_rewrites(tmp_path) -> None:
 
     body = response.body.decode("utf-8")
     assert (
-        "http://testserver/api/tasks/s1/files/resource"
+        f"http://testserver/api/tasks/{SESSION_ID}/files/resource"
         f"?path={quote(CSV_PATH, safe='')}"
         in body
     )
@@ -196,7 +197,7 @@ def test_serve_resource_file_serves_under_artifact_root(tmp_path) -> None:
     workspace = _workspace(tmp_path)
     response = serve_resource_file(
         workspace,
-        "s1",
+        SESSION_ID,
         "datapaw",
         CSV_PATH,
     )
@@ -216,7 +217,7 @@ def test_serve_resource_file_rejects_paths_outside_artifact_root(tmp_path) -> No
     with pytest.raises(HTTPException) as exc_info:
         serve_resource_file(
             workspace,
-            "s1",
+            SESSION_ID,
             "datapaw",
             "../secret.txt",
         )

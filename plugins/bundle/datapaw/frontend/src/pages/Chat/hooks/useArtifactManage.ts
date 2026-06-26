@@ -1,4 +1,5 @@
 import { useCallback, useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
   tasksApi,
   type HistoricalPlanSummary,
@@ -6,6 +7,8 @@ import {
   type TasksSummaryResponse,
 } from "../../../api/modules/tasks";
 import { normalizeArtifactFile } from "../components/TaskGraphPanel/fileUtils";
+
+const SESSION_ARTIFACT_GRAPH_ID = "__session__";
 
 export interface ArtifactGraphGroup {
   graphId: string;
@@ -55,6 +58,7 @@ function sortArtifactFilesChronologically(files: TaskArtifact[]): TaskArtifact[]
 function buildGraphGroups(
   summary: TasksSummaryResponse | null,
   allFiles: TaskArtifact[],
+  sessionGroupName: string,
 ): ArtifactGraphGroup[] {
   const metaById = new Map<
     string,
@@ -90,7 +94,9 @@ function buildGraphGroups(
       const meta = metaById.get(graphId);
       return {
         graphId,
-        name: meta?.name ?? graphId,
+        name:
+          meta?.name ??
+          (graphId === SESSION_ARTIFACT_GRAPH_ID ? sessionGroupName : graphId),
         state: meta?.state,
         isCurrent: meta?.isCurrent ?? false,
         fileCount: countByGraph.get(graphId) ?? 0,
@@ -136,6 +142,7 @@ export function useArtifactManage({
   userId,
   enabled = true,
 }: UseArtifactManageOptions) {
+  const { t } = useTranslation();
   const [groups, setGroups] = useState<ArtifactGraphGroup[]>([]);
   const [filesByGraph, setFilesByGraph] = useState<Record<string, TaskArtifact[]>>({});
   const [loadingGraphIds, setLoadingGraphIds] = useState<Set<string>>(new Set());
@@ -160,7 +167,11 @@ export function useArtifactManage({
         tasksApi.listFiles(sessionId, userId),
       ]);
       const allFiles = filesRes.files ?? [];
-      const nextGroups = buildGraphGroups(nextSummary, allFiles);
+      const nextGroups = buildGraphGroups(
+        nextSummary,
+        allFiles,
+        t("taskGraph.artifactSessionFiles"),
+      );
       setSummary(nextSummary);
       setGroups(nextGroups);
       return { groups: nextGroups, summary: nextSummary };
@@ -172,7 +183,7 @@ export function useArtifactManage({
     } finally {
       setIndexLoading(false);
     }
-  }, [sessionId, userId]);
+  }, [sessionId, t, userId]);
 
   const loadGraphFiles = useCallback(
     async (
