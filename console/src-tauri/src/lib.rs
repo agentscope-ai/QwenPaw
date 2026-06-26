@@ -29,6 +29,7 @@ pub fn run() {
             tray::minimize_to_tray,
             tray::quit_app,
             tray::set_tray_labels,
+            tray::ack_close,
         ])
         .manage(backend::BackendState::default())
         .manage(tray::TrayState::default())

@@ -1,6 +1,8 @@
 //! System tray integration for the desktop shell.
 
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
+use std::time::Duration;
 
 use tauri::{
     menu::{Menu, MenuItem},
@@ -12,6 +14,12 @@ use crate::backend;
 
 const SHOW_MENU_ID: &str = "show";
 const QUIT_MENU_ID: &str = "quit";
+
+/// How long Rust waits for the frontend to acknowledge a close request before
+/// falling back to minimize-to-tray. The frontend acks immediately (before it
+/// even reads the remembered preference), so this only elapses when no listener
+/// is attached (e.g. during the bootstrap-to-console navigation or a reload).
+const CLOSE_ACK_TIMEOUT: Duration = Duration::from_millis(1500);
 
 /// Emitted to the frontend when the user closes the window, asking it to honor
 /// the remembered preference or show the close prompt.
@@ -26,6 +34,11 @@ struct TrayMenuItems {
 #[derive(Default)]
 pub(crate) struct TrayState {
     menu_items: Mutex<Option<TrayMenuItems>>,
+    /// Bumped on every close request so a stale fallback can detect that a newer
+    /// request superseded it.
+    close_seq: AtomicU64,
+    /// Highest close sequence the frontend has acknowledged.
+    close_ack: AtomicU64,
 }
 
 /// Creates the tray icon and its cross-platform menu actions.
@@ -87,8 +100,43 @@ pub(crate) fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Erro
 /// Asks the frontend to handle a window close request. The frontend honors the
 /// remembered choice or shows the close prompt, then calls back into the
 /// `minimize_to_tray` / `quit_app` commands.
+///
+/// To avoid leaving the window unclosable when no listener is attached, a
+/// fallback minimizes to tray if the frontend does not `ack_close` in time.
 pub(crate) fn request_close(app: &tauri::AppHandle) {
+    let seq = {
+        let state = app.state::<TrayState>();
+        state.close_seq.fetch_add(1, Ordering::SeqCst) + 1
+    };
+
     let _ = app.emit(CLOSE_REQUESTED_EVENT, ());
+
+    let app = app.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(CLOSE_ACK_TIMEOUT);
+        let state = app.state::<TrayState>();
+        // A newer close request superseded this one; let its own timer decide.
+        if state.close_seq.load(Ordering::SeqCst) != seq {
+            return;
+        }
+        // The frontend acknowledged and now owns the flow (prompt or remembered
+        // action), so leave it alone.
+        if state.close_ack.load(Ordering::SeqCst) >= seq {
+            return;
+        }
+        // Nobody responded: fall back to the safe, recoverable choice instead of
+        // quitting, so running tasks are not lost.
+        hide_main_window(&app);
+    });
+}
+
+/// Acknowledges a close request so the Rust-side fallback stands down and lets
+/// the frontend drive the prompt / remembered-choice flow.
+#[tauri::command]
+pub(crate) fn ack_close(app: tauri::AppHandle) {
+    let state = app.state::<TrayState>();
+    let seq = state.close_seq.load(Ordering::SeqCst);
+    state.close_ack.store(seq, Ordering::SeqCst);
 }
 
 #[tauri::command]

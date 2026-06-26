@@ -24,6 +24,12 @@ export default function CloseWindowPrompt() {
   const [submitting, setSubmitting] = useState<CloseAction | null>(null);
 
   const handleCloseRequested = useCallback(() => {
+    // Tell Rust a listener is alive so its minimize-to-tray fallback stands
+    // down; we now own the prompt / remembered-choice flow.
+    void invoke("ack_close").catch((err) => {
+      console.error("Failed to ack close request:", err);
+    });
+
     const rememberedAction = getRememberedCloseAction();
     if (rememberedAction) {
       void runCloseAction(rememberedAction).catch((err) => {
