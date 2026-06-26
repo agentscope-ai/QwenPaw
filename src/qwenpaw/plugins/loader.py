@@ -840,6 +840,29 @@ class PluginLoader:
         for k in stale:
             sys.modules.pop(k, None)
 
+        # Plugins that manipulate ``sys.path`` (e.g. inserting their own
+        # directory) and use bare ``from sibling import …`` load sibling
+        # modules as top-level entries in ``sys.modules`` — the prefix
+        # cleanup above misses them.  Sweep any module whose ``__file__``
+        # lives inside the plugin directory so a reinstall always gets
+        # fresh code.
+        source_resolved = str(record.source_path.resolve()) + os.sep
+        stale_by_file = [
+            k
+            for k, mod in list(sys.modules.items())
+            if (mod_file := getattr(mod, "__file__", None)) is not None
+            and os.path.realpath(mod_file).startswith(source_resolved)
+        ]
+        for k in stale_by_file:
+            sys.modules.pop(k, None)
+
+        # Remove the plugin directory from sys.path (plugins add it at
+        # import time for sibling imports; leaving it leaks into later
+        # imports and prevents clean hot-reload).
+        plugin_dir_str = str(record.source_path.resolve())
+        while plugin_dir_str in sys.path:
+            sys.path.remove(plugin_dir_str)
+
         # Clear all in-memory registry entries for this plugin
         self.registry.unregister_plugin(plugin_id)
 

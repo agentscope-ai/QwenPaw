@@ -247,18 +247,19 @@ def _living_desktop_present(host: str, port: int) -> bool:
     health = desktop_health()
     if health and health.get("ok"):
         return True
+    has_claim = False
     try:
         from qwenpaw_pet_desktop import runtime as pet_rt
 
         if pet_rt.spawn_claim_active():
-            return True
+            has_claim = True
         pid = pet_rt.read_pid()
         if pid and pet_rt.is_pid_running(pid):
             return True
     except ImportError:
         pass
-    # Uvicorn may have bound the port before /health responds.
-    if not _tcp_bind_test(host, port):
+
+    if has_claim and not _tcp_bind_test(host, port):
         return True
     return False
 
@@ -365,9 +366,7 @@ def _spawn_desktop_background_impl() -> tuple[bool, str | None]:
                 "Could not pre-create pet bridge token",
                 exc_info=True,
             )
-        if not _tcp_bind_test(host, preferred_port):
-            return False, "Desktop pet is already running or starting."
-        port = preferred_port
+        port = _pick_listen_port(host, preferred_port)
         pet_rt.write_spawn_claim(host, port)
         display_host = (
             "127.0.0.1" if host in ("0.0.0.0", "::", "[::]") else host
