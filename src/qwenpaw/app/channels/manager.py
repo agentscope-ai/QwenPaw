@@ -453,6 +453,11 @@ class ChannelManager:
                     f"session={session_id[:30]} "
                     f"priority={priority_level}",
                 )
+                # Re-enqueue in-flight batch so messages are not lost
+                # during hot-reload (zero-downtime agent restart).
+                if batch:
+                    for item in reversed(batch):
+                        await queue.put(item)
                 break
             except Exception:
                 logger.exception(
