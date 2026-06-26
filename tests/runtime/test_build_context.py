@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+# pylint: disable=redefined-outer-name,protected-access
 """Unit tests for Runtime._build_context agent_id resolution."""
 
 from types import SimpleNamespace
