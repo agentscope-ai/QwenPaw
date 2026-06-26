@@ -311,6 +311,7 @@ class MemoryMiddleware(MiddlewareBase):
             context.insert(
                 idx + 1,
                 Msg(
+                    id=agent.state.reply_id,
                     name=agent.name,
                     role="assistant",
                     content=deepcopy(reply_blocks),
