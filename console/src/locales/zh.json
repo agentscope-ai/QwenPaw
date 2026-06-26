@@ -75,7 +75,33 @@
     "updateModal": {
       "title": "发现新版本 v{{version}}",
       "viewReleases": "查看 Releases",
-      "close": "关闭"
+      "installDesktopUpdate": "现在更新",
+      "desktopInstallHint": "QwenPaw 桌面端 {{version}} 已准备好安装，更新后应用将自动重启。",
+      "checking": "检查更新中…",
+      "checkingHint": "正在确认最新版本",
+      "downloading": "正在下载更新",
+      "downloadingTo": "正在更新到版本 {{version}}",
+      "downloadProgress": "{{done}} / {{total}} · {{rate}}",
+      "installing": "正在安装更新",
+      "willRestart": "应用将在安装完成后自动重启,请稍候…",
+      "stepPrepare": "准备",
+      "stepDownloading": "下载",
+      "stepInstalling": "安装",
+      "failedTitle": "更新失败",
+      "back": "返回",
+      "retry": "重试",
+      "errors": {
+        "network": "连接不上更新服务器，请检查网络后重试。",
+        "signature": "更新文件签名校验失败，请重新尝试下载。",
+        "appLocation": "QwenPaw 正在从 macOS 只读位置运行。请先将 QwenPaw.app 移动到“应用程序”文件夹，从那里启动后再重试更新。",
+        "other": "更新失败。"
+      },
+      "updateLater": "后台下载",
+      "backgroundDownloading": "正在后台下载更新…",
+      "readyToInstall": "更新已就绪",
+      "readyToInstallHint": "v{{version}} 更新已下载，重启后将安装并启动新版本。",
+      "restartNow": "现在更新",
+      "backgroundFailed": "后台下载失败"
     },
     "settings": {
       "language": "语言",
@@ -949,7 +975,8 @@
       "wecom": "企业微信",
       "wechat": "微信",
       "xiaoyi": "小艺",
-      "yuanbao": "元宝"
+      "yuanbao": "元宝",
+      "slack": "Slack"
     },
     "pleaseInputDbPath": "请输入数据库路径",
     "pleaseInputPollInterval": "请输入轮询间隔",
@@ -1012,6 +1039,11 @@
     "dingtalkEndpointTooltip": "用于钉钉私有化部署的自定义 API 地址。留空则使用官方默认地址。",
     "wecomCancelled": "授权已取消",
     "wecomAuthFailed": "授权失败：{{msg}}",
+    "slackBotToken": "Bot Token",
+    "slackBotTokenTooltip": "Slack Bot User OAuth Token，以 xoxb- 开头",
+    "slackAppToken": "App Token",
+    "slackAppTokenTooltip": "Slack App-Level Token（Socket Mode），以 xapp- 开头",
+    "slackProxyTooltip": "HTTP 代理地址，用于连接 Slack API",
     "voiceSetupGuide": "请先注册 Twilio 账户并购买电话号码，然后在下方填写凭据。Account SID 和 Auth Token 可在 Twilio 控制台首页找到。Phone Number SID 在 Phone Numbers → Active Numbers 中查看。",
     "voiceSetupLink": "打开 Twilio 控制台",
     "sipSetupGuide": "配置 SIP 注册服务器（如 Asterisk、FreeSWITCH），然后在下方填写 SIP 凭据。Dev 模式使用 pyVoIP 在本地处理 SIP/RTP；Production 模式使用 LiveKit SIP Server。",

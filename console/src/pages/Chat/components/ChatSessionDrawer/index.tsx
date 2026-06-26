@@ -48,9 +48,9 @@ const ITEM_HEIGHT = 77;
 
 /** Data passed to each row via FixedSizeList's itemData prop */
 interface SessionRowData {
-  sortedSessions: ExtendedChatSession[];
+  sortedSessionsRef: React.MutableRefObject<ExtendedChatSession[]>;
   currentSessionId: string | undefined;
-  /** When non-null, a session switch is in progress and other items are disabled */
+  /** When non-null, the target session shows active state immediately */
   switchingSessionId: string | null;
   editingSessionId: string | null;
   editValue: string;
@@ -71,15 +71,13 @@ const SessionRow = React.memo(function SessionRow({
   style,
   data,
 }: ListChildComponentProps<SessionRowData>) {
-  const session = data.sortedSessions[index];
+  const session = data.sortedSessionsRef.current[index];
+  if (!session) return null;
   const channelKey = session.channel?.trim() || "";
   const channelLabel = channelKey
     ? getChannelLabel(channelKey, data.t)
     : undefined;
   const isEditing = data.editingSessionId === session.id;
-
-  const isDisabled =
-    !!data.switchingSessionId && session.id !== data.switchingSessionId;
 
   return (
     <div style={style}>
@@ -92,8 +90,13 @@ const SessionRow = React.memo(function SessionRow({
         chatStatus={session.status}
         generating={session.generating}
         pinned={session.pinned}
-        active={session.id === data.currentSessionId}
-        disabled={isDisabled}
+        active={
+          session.id === data.currentSessionId ||
+          session.id === data.switchingSessionId ||
+          (!!data.currentSessionId &&
+            (session as ExtendedChatSession).realId === data.currentSessionId)
+        }
+        disabled={false}
         editing={isEditing}
         editValue={isEditing ? data.editValue : undefined}
         onClick={data.handleSessionClick}
@@ -178,7 +181,14 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
   >([]);
 
   const sessions = props.embedded ? localSessions : sdkState.sessions;
-  const { currentSessionId, setCurrentSessionId } = sdkState;
+  const { currentSessionId: sdkCurrentSessionId, setCurrentSessionId } =
+    sdkState;
+  // In embedded mode, prefer URL-derived chatId for active-state matching
+  // because the SDK context may not be accessible from outside the provider.
+  const urlCurrentSessionId = props.embedded
+    ? getSessionIdFromPath(location.pathname) ?? undefined
+    : undefined;
+  const currentSessionId = urlCurrentSessionId || sdkCurrentSessionId;
   const setSessions = props.embedded ? setLocalSessions : sdkState.setSessions;
   const { embedded, pinned, onClose } = props;
 
@@ -253,12 +263,13 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
       if (extA.pinned && !extB.pinned) return -1;
       if (!extA.pinned && extB.pinned) return 1;
 
-      const aTime = extA.updatedAt ?? extA.createdAt;
-      const bTime = extB.updatedAt ?? extB.createdAt;
+      // ISO 8601 strings are lexicographically sortable — avoid new Date()
+      const aTime = extA.updatedAt ?? extA.createdAt ?? "";
+      const bTime = extB.updatedAt ?? extB.createdAt ?? "";
       if (!aTime && !bTime) return 0;
       if (!aTime) return 1;
       if (!bTime) return -1;
-      return new Date(bTime).getTime() - new Date(aTime).getTime();
+      return bTime < aTime ? -1 : bTime > aTime ? 1 : 0;
     });
   }, [sessions]);
 
@@ -293,6 +304,8 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
     void fetchSessions();
 
     const timer = setInterval(async () => {
+      // Pause polling during session switch to avoid bandwidth contention
+      if (sessionApi.isSessionSwitching) return;
       try {
         const list = await sessionApi.getSessionList();
         if (!isCancelled) {
@@ -316,9 +329,6 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
 
   const handleSessionClick = useCallback(
     (sessionId: string) => {
-      if (sessionApi.isSessionSwitching) {
-        return;
-      }
       if (sessionId === currentSessionId) {
         return;
       }
@@ -333,12 +343,14 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
         return;
       }
 
-      sessionApi.isSessionSwitching = true;
+      // Start a new cancellable switch (aborts any in-flight switch)
+      const controller = sessionApi.startNewSwitch();
       setSwitchingSessionId(sessionId);
 
       sessionApi
-        .preloadSession(sessionId)
+        .preloadSession(sessionId, controller.signal)
         .then(({ realId }) => {
+          if (controller.signal.aborted) return;
           const effectiveId = sessionApi.getEffectiveSessionId(
             sessionId,
             realId,
@@ -357,25 +369,17 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
           );
           setCurrentSessionId(sessionId);
         })
-        .catch(() => {
-          // On error, still try to switch normally.
+        .catch((err) => {
+          if (err?.name === "AbortError") return;
+          // On non-abort error, still try to switch normally.
           setCurrentSessionId(sessionId);
         })
-        .then(() => {
-          // Wait two animation frames so React commits + runs effects,
-          // ensuring ChatSessionInitializer's effect has been skipped.
-          return new Promise<void>((resolve) => {
-            requestAnimationFrame(() => {
-              requestAnimationFrame(() => resolve());
-            });
-            // Fallback: resolve after 2000ms to ensure finally() always runs
-            // even if rAF is dropped (background tab, fast re-clicks, etc.).
-            setTimeout(() => resolve(), 2000);
-          });
-        })
         .finally(() => {
-          sessionApi.finishSessionSwitch();
-          setSwitchingSessionId(null);
+          // Only clean up if this switch was NOT superseded by a newer one
+          if (!controller.signal.aborted) {
+            sessionApi.finishSessionSwitch();
+            setSwitchingSessionId(null);
+          }
         });
     },
     [
@@ -398,19 +402,6 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
     return () =>
       window.removeEventListener("qwenpaw:sidebar-switch-done", onDone);
   }, []);
-
-  // Fallback: if the global switching lock is released but switchingSessionId
-  // is still stuck (e.g. event missed, component re-mounted, race condition),
-  // clear it so the UI doesn't remain greyed out.
-  useEffect(() => {
-    if (!switchingSessionId) return;
-    const id = setInterval(() => {
-      if (!sessionApi.isSessionSwitching) {
-        setSwitchingSessionId(null);
-      }
-    }, 500);
-    return () => clearInterval(id);
-  }, [switchingSessionId]);
 
   // In embedded mode, clear switchingSessionId when the URL changes
   // (signals that the session switch initiated via DOM event has completed).
@@ -575,9 +566,12 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
   ]);
 
   /** Stable data object for FixedSizeList — avoids re-creating row renderer on every render */
+  const sortedSessionsRef = useRef(sortedSessions);
+  sortedSessionsRef.current = sortedSessions;
+
   const itemData = useMemo<SessionRowData>(
     () => ({
-      sortedSessions: sortedSessions as ExtendedChatSession[],
+      sortedSessionsRef,
       currentSessionId,
       switchingSessionId,
       editingSessionId,
@@ -593,7 +587,6 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
       handleItemContextMenu,
     }),
     [
-      sortedSessions,
       currentSessionId,
       switchingSessionId,
       editingSessionId,
@@ -651,11 +644,7 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
       </div>
 
       {/* Session list */}
-      <div
-        className={styles.listWrapper}
-        ref={listWrapperRef}
-        style={switchingSessionId ? { pointerEvents: "none" } : undefined}
-      >
+      <div className={styles.listWrapper} ref={listWrapperRef}>
         <div className={styles.topGradient} />
         {listLoading ? (
           <div

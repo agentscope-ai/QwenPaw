@@ -2110,6 +2110,12 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
                     builtin.auth_mode = provider.auth_mode
                 if provider.custom_headers:
                     builtin.custom_headers = provider.custom_headers
+                # Restore the configurable inline-media cap for the providers
+                # that support it (currently DashScope).
+                if hasattr(builtin, "max_inline_media_bytes"):
+                    builtin.max_inline_media_bytes = (
+                        provider.max_inline_media_bytes
+                    )
                 builtin_model_ids = {m.id for m in builtin.models}
                 builtin.extra_models = [
                     m

@@ -1312,6 +1312,127 @@ After configuration, start a call from your SIP phone or browser:
 
 ---
 
+## Slack
+
+### Create the Slack App
+
+1. Go to [https://api.slack.com/apps](https://api.slack.com/apps), click **Create New App** → **From a manifest**.
+
+   ![Create App from manifest](https://img.alicdn.com/imgextra/i2/O1CN01K6LQ851dgsjSspFNi_!!6000000003766-2-tps-1760-1043.png)
+
+2. Select the workspace you want to install the app to, then paste the following manifest (JSON format):
+
+> **Tip:** You can change `name` and `display_name` to your preferred bot name before pasting.
+
+```json
+{
+  "display_information": {
+    "name": "Demo App"
+  },
+  "features": {
+    "bot_user": {
+      "display_name": "Demo App",
+      "always_online": false
+    }
+  },
+  "oauth_config": {
+    "scopes": {
+      "bot": [
+        "chat:write",
+        "files:read",
+        "files:write",
+        "im:history",
+        "mpim:history",
+        "channels:history",
+        "groups:history",
+        "app_mentions:read",
+        "users:read",
+        "commands"
+      ]
+    }
+  },
+  "settings": {
+    "event_subscriptions": {
+      "bot_events": [
+        "app_mention",
+        "message.channels",
+        "message.groups",
+        "message.im",
+        "message.mpim"
+      ]
+    },
+    "interactivity": {
+      "is_enabled": true
+    },
+    "org_deploy_enabled": false,
+    "socket_mode_enabled": true,
+    "token_rotation_enabled": false
+  }
+}
+```
+
+![Paste JSON config](https://img.alicdn.com/imgextra/i1/O1CN01XtgiMy1IkuHXafxzg_!!6000000000932-2-tps-1765-1046.png)
+
+3. Review the summary and click **Create**.
+
+   ![Manifest review](https://img.alicdn.com/imgextra/i3/O1CN01M076Oa1OmdTIpshdZ_!!6000000001748-2-tps-1758-1042.png)
+
+4. In **Features → App Home**, check **"Allow users to send Slash commands and messages from the messages tab"**.
+
+   ![App Home Messages Tab](https://img.alicdn.com/imgextra/i2/O1CN01wvaTja1qARggWd6RB_!!6000000005455-2-tps-1752-1044.png)
+
+### Get Tokens
+
+After the app is created, you need two tokens:
+
+1. **App-Level Token** — In **Settings → Basic Information**, scroll to **App-Level Tokens**, click **Generate Token and Scopes**, add the `connections:write` scope, and copy the token (starts with `xapp-`).
+
+   ![Generate App Token](https://img.alicdn.com/imgextra/i4/O1CN01OGk6GU1zpVk1zp8Ua_!!6000000006763-2-tps-1793-1079.png)
+
+2. **Bot Token** — In **Settings → Install App**, click **Install to Workspace**, authorize, then copy the **Bot User OAuth Token** (starts with `xoxb-`).
+
+   ![Install App](https://img.alicdn.com/imgextra/i1/O1CN01AjFgQN1al3UjLne0H_!!6000000003369-2-tps-1790-1080.png)
+
+3. Invite the bot to each channel by typing `/invite @YourBotName` in Slack.
+
+### Configure the Bot
+
+You can configure via the Console UI or by editing the agent workspace `agent.json`.
+
+**Method 1:** Configure in the Console
+
+Go to **Control → Channels**, click **Slack**, and enter the **Bot Token** and **App Token** you obtained.
+
+**Method 2:** Edit agent workspace `agent.json`
+
+Find `channels.slack` in your agent's `agent.json` (e.g., `~/.qwenpaw/workspaces/default/agent.json`) and fill in the fields:
+
+```json
+"slack": {
+    "enabled": true,
+    "bot_token": "xoxb-your-bot-token-here",
+    "app_token": "xapp-your-app-token-here",
+    "proxy": "",
+    "streaming_enabled": false
+}
+```
+
+**Slack-specific fields:**
+
+| Field               | Type   | Default         | Description                                                                 |
+| ------------------- | ------ | --------------- | --------------------------------------------------------------------------- |
+| `bot_token`         | string | `""` (required) | Slack Bot User OAuth Token, starts with `xoxb-`                             |
+| `app_token`         | string | `""` (required) | Slack App-Level Token for Socket Mode, starts with `xapp-`                  |
+| `proxy`             | string | `""`            | HTTP proxy URL for connecting to Slack API (e.g., `http://127.0.0.1:18118`) |
+| `streaming_enabled` | bool   | `false`         | Enable incremental message rendering via chat.update edits                  |
+
+### Notes
+
+- QwenPaw magic commands (e.g., `/stop`, `/model list`) can be sent as native Slack slash commands. You can also type them as plain messages — just prefix with a space (` /stop`) to bypass Slack's slash-command interception in threads.
+- If you change scopes or event subscriptions later, you **must reinstall the app** for the changes to take effect.
+- To control who can interact with the bot, use the access control fields (`access_control_dm`, `access_control_group`). Slack uses **Member IDs** (e.g., `U01ABC2DEF3`) for user identification — find them via profile → ⋮ → Copy member ID.
+- You can add more slash commands in the manifest's `slash_commands` array to register additional magic commands (e.g., `/stop`, `/status`).
+
 ## Appendix
 
 ### Config overview
@@ -1326,6 +1447,7 @@ After configuration, start a call from your SIP phone or browser:
 | Telegram   | telegram   | bot_token; optional http_proxy, http_proxy_auth                                                            |
 | Mattermost | mattermost | url, bot_token; optional show_typing, thread_follow_without_mention                                        |
 | Matrix     | matrix     | homeserver, user_id, access_token                                                                          |
+| Slack      | slack      | bot_token, app_token; optional proxy, streaming_enabled                                                    |
 | WeCom      | wecom      | bot_id, secret; optional media_dir, max_reconnect_attempts                                                 |
 | WeChat     | wechat     | bot_token (or QR login); optional bot_token_file, base_url, media_dir                                      |
 | XiaoYi     | xiaoyi     | ak, sk, agent_id; optional ws_url                                                                          |
@@ -1364,6 +1486,7 @@ done). **✗** = not supported (not possible on this channel).
 | DingTalk   | ✓         | ✓          | ✓          | ✓          | ✓         | ✓         | ✓          | ✓          | ✓          | ✓         |
 | Feishu     | ✓         | ✓          | ✓          | ✓          | ✓         | ✓         | ✓          | ✓          | ✓          | ✓         |
 | Discord    | ✓         | ✓          | ✓          | ✓          | ✓         | ✓         | ✓          | ✓          | ✓          | ✓         |
+| Slack      | ✓         | ✓          | ✓          | ✓          | ✓         | ✓         | ✓          | ✓          | ✓          | ✓         |
 | iMessage   | ✓         | ✗          | ✗          | ✗          | ✗         | ✓         | ✗          | ✗          | ✗          | ✗         |
 | QQ         | ✓         | ✓          | ✓          | ✓          | ✓         | ✓         | ✓          | ✓          | ✓          | ✓         |
 | WeCom      | ✓         | ✓          | ✓          | ✓          | ✓         | ✓         | ✓          | ✓          | ✓          | ✓         |
@@ -1384,6 +1507,7 @@ Notes:
   `feishu_chat_id` and `feishu_message_id` for group context and dedup.
 - **Discord**: Attachments are parsed as image / video / audio / file for the
   agent; sending real media is 🚧 (currently link-only in reply).
+- **Slack**: Supports all file types natively — images, audio, video, PDFs, and arbitrary files. Uploaded files are automatically downloaded and processed as multimodal input; sending supports all media types via `files.uploadV2`.
 - **iMessage**: imsg + database polling; text only; attachments are ✗ (not
   possible on this channel).
 - **QQ**: Receiving attachments as multimodal and sending real media are 🚧;

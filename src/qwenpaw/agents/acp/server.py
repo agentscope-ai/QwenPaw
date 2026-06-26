@@ -75,6 +75,7 @@ from ...config.config import ModelSlotConfig
 from ...exceptions import AppBaseException
 from ...providers.provider_manager import ProviderManager
 from ...agents.command_handler import SYSTEM_COMMAND_DESCRIPTIONS
+from .meta import ACP_CODING_PROJECT_META_KEY
 
 logger = logging.getLogger(__name__)
 
@@ -282,6 +283,25 @@ class QwenPawACPAgent(Agent):
         if self._workspace_dir is not None:
             return self._workspace_dir
         return WORKING_DIR / "workspaces" / agent_id
+
+    @staticmethod
+    def _session_info(
+        *,
+        cwd: str,
+        session_id: str,
+        meta: dict[str, Any],
+    ) -> dict[str, Any]:
+        info: dict[str, Any] = {
+            "cwd": cwd,
+            "user_id": f"acp_{session_id[:8]}",
+            "mode": QwenPawACPAgent.MODE_DEFAULT,
+        }
+        project_dir = meta.get(ACP_CODING_PROJECT_META_KEY)
+        if isinstance(project_dir, str):
+            project_dir = project_dir.strip()
+            if project_dir:
+                info[ACP_CODING_PROJECT_META_KEY] = project_dir
+        return info
 
     async def _ensure_app_services(self) -> Any:
         """Create and start ACP-local cross-workspace services."""
@@ -491,11 +511,11 @@ class QwenPawACPAgent(Agent):
         **kwargs: Any,
     ) -> NewSessionResponse:
         session_id = uuid4().hex
-        self._sessions[session_id] = {
-            "cwd": cwd,
-            "user_id": f"acp_{session_id[:8]}",
-            "mode": self.MODE_DEFAULT,
-        }
+        self._sessions[session_id] = self._session_info(
+            cwd=cwd,
+            session_id=session_id,
+            meta=kwargs,
+        )
         logger.info(
             "ACP new_session: id=%s cwd=%s",
             session_id,
@@ -516,11 +536,11 @@ class QwenPawACPAgent(Agent):
         | None = None,
         **kwargs: Any,
     ) -> LoadSessionResponse | None:
-        self._sessions[session_id] = {
-            "cwd": cwd,
-            "user_id": f"acp_{session_id[:8]}",
-            "mode": self.MODE_DEFAULT,
-        }
+        self._sessions[session_id] = self._session_info(
+            cwd=cwd,
+            session_id=session_id,
+            meta=kwargs,
+        )
         logger.info(
             "ACP load_session: id=%s cwd=%s",
             session_id,
@@ -565,6 +585,11 @@ class QwenPawACPAgent(Agent):
         request_context: dict[str, str] = {}
         if session_mode == self.MODE_BYPASS:
             request_context["_headless_tool_guard"] = "false"
+        project_dir = session_info.get(ACP_CODING_PROJECT_META_KEY)
+        if isinstance(project_dir, str):
+            project_dir = project_dir.strip()
+            if project_dir:
+                request_context[ACP_CODING_PROJECT_META_KEY] = project_dir
 
         request = AgentRequest(
             input=[
@@ -660,13 +685,20 @@ class QwenPawACPAgent(Agent):
             cwd,
         )
         if session_id not in self._sessions:
-            self._sessions[session_id] = {
-                "cwd": cwd,
-                "user_id": f"acp_{session_id[:8]}",
-                "mode": self.MODE_DEFAULT,
-            }
+            self._sessions[session_id] = self._session_info(
+                cwd=cwd,
+                session_id=session_id,
+                meta=kwargs,
+            )
         else:
             self._sessions[session_id]["cwd"] = cwd
+            project_dir = kwargs.get(ACP_CODING_PROJECT_META_KEY)
+            if isinstance(project_dir, str):
+                project_dir = project_dir.strip()
+                if project_dir:
+                    self._sessions[session_id][
+                        ACP_CODING_PROJECT_META_KEY
+                    ] = project_dir
         return ResumeSessionResponse()
 
     async def set_session_model(  # pylint: disable=unused-argument

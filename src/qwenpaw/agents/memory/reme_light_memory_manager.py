@@ -23,6 +23,11 @@ from .reme_config import get_reme_app_config
 from ..model_factory import create_model_and_formatter
 from ...app.inbox_store import append_event as append_inbox_event
 from ...config import load_config
+from ...constant import (
+    AUTO_MEMORY_SEARCH_MESSAGE_TAG,
+    AUTO_MEMORY_SEARCH_TEXT,
+    QWENPAW_MESSAGE_TAG_KEY,
+)
 from ...config.config import load_agent_config, AgentProfileConfig
 
 if TYPE_CHECKING:
@@ -37,8 +42,6 @@ INBOX_RESULT_JOB_NAMES = {"auto_memory", "auto_dream", "auto_resource"}
 INBOX_RESULT_HOOK_KEY = "qwenpaw_memory_result_hook"
 INBOX_EMITTED_METADATA_KEY = "_qwenpaw_inbox_emitted"
 MAX_INBOX_BODY_CHARS = 4000
-QWENPAW_MESSAGE_TAG_KEY = "qwenpaw_tag"
-AUTO_MEMORY_SEARCH_MESSAGE_TAG = "auto_memory_search"
 
 
 def _tool_chunk(text: str, *, ok: bool = True) -> ToolChunk:
@@ -148,6 +151,16 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         """Return memory tool functions to register with the agent toolkit."""
         return [self.memory_search]
 
+    def get_auto_memory_interval(self) -> int:
+        """Return ReMe light auto-memory cadence from agent config."""
+        agent_config = load_agent_config(self.agent_id)
+        interval = (
+            agent_config.running.reme_light_memory_config.auto_memory_interval
+        )
+        if interval is None:
+            return 0
+        return int(interval)
+
     async def _update_qwenpaw_model(self) -> None:
         """Reuse QwenPaw's active model in ReMe's default LLM component."""
         if self._reme is None:
@@ -225,6 +238,18 @@ class ReMeLightMemoryManager(BaseMemoryManager):
             INBOX_EMITTED_METADATA_KEY,
         ):
             return False
+        if (
+            name in {"auto_memory", "auto_resource"}
+            and isinstance(response_metadata, dict)
+            and response_metadata.get("modified") is False
+        ):
+            logger.info(
+                "ReMe job result inbox push skipped; no memory change: "
+                "agent_id=%s job_name=%s modified=False",
+                self.agent_id,
+                name,
+            )
+            return False
 
         answer = str(getattr(response, "answer", "") or "").strip()
         if len(answer) > MAX_INBOX_BODY_CHARS:
@@ -263,11 +288,14 @@ class ReMeLightMemoryManager(BaseMemoryManager):
                 response_metadata[INBOX_EMITTED_METADATA_KEY] = True
             logger.info(
                 "ReMe job result pushed to inbox: "
-                "agent_id=%s job_name=%s event_id=%s status=%s",
+                "agent_id=%s job_name=%s event_id=%s status=%s modified=%s",
                 self.agent_id,
                 name,
                 event.get("id"),
                 event.get("status"),
+                response_metadata.get("modified")
+                if isinstance(response_metadata, dict)
+                else None,
             )
             return True
         except Exception:  # pylint: disable=broad-except
@@ -409,7 +437,7 @@ class ReMeLightMemoryManager(BaseMemoryManager):
                 QWENPAW_MESSAGE_TAG_KEY: AUTO_MEMORY_SEARCH_MESSAGE_TAG,
             },
             content=[
-                TextBlock(text="Searching memory for relevant context..."),
+                TextBlock(text=AUTO_MEMORY_SEARCH_TEXT),
                 ToolCallBlock(
                     id=tool_call_id,
                     name="memory_search",
@@ -445,12 +473,21 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         **kwargs: Any,
     ) -> None:
         """Auto-extract memory for a prepared reply batch."""
-        if not kwargs.get("reply_ids") or not all_messages:
+        if not all_messages:
+            return
+        session_id = str(kwargs.get("session_id") or "")
+        if not session_id:
+            logger.warning(
+                "ReMe auto_memory skipped; session_id is empty: "
+                "agent_id=%s messages=%s",
+                self.agent_id,
+                len(all_messages),
+            )
             return
 
         self.add_summarize_task(
             messages=all_messages,
-            session_id=str(kwargs.get("session_id") or ""),
+            session_id=session_id,
         )
 
     async def dream(self, **kwargs: Any) -> None:

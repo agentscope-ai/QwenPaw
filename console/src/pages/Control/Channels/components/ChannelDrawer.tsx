@@ -34,6 +34,7 @@ const CHANNELS_WITH_ACCESS_CONTROL: ChannelKey[] = [
   "mqtt",
   "xiaoyi",
   "yuanbao",
+  "slack",
 ];
 
 // Doc EN URLs per channel (anchors on https://qwenpaw.agentscope.io/docs/channels)
@@ -59,6 +60,7 @@ const CHANNEL_DOC_EN_URLS: Partial<Record<ChannelKey, string>> = {
   yuanbao: "https://qwenpaw.agentscope.io/docs/channels/?lang=en#Yuanbao",
   onebot:
     "https://qwenpaw.agentscope.io/docs/channels/?lang=en#OneBot-v11-NapCat--QQ-full-protocol",
+  slack: "https://qwenpaw.agentscope.io/docs/channels/?lang=en#Slack",
 };
 
 // Doc ZH URLs per channel (anchors on https://qwenpaw.agentscope.io/docs/channels)
@@ -82,6 +84,7 @@ const CHANNEL_DOC_ZH_URLS: Partial<Record<ChannelKey, string>> = {
     "https://qwenpaw.agentscope.io/docs/channels/?lang=zh#腾讯元宝Yuanbao",
   onebot:
     "https://qwenpaw.agentscope.io/docs/channels/?lang=zh#OneBot-v11NapCat--QQ-完整协议",
+  slack: "https://qwenpaw.agentscope.io/docs/channels/?lang=zh#Slack",
 };
 
 const TWILIO_CONSOLE_URL = "https://console.twilio.com";
@@ -626,6 +629,35 @@ export function ChannelDrawer({
               valuePropName="checked"
             >
               <Switch />
+            </Form.Item>
+          </>
+        );
+
+      case "slack":
+        return (
+          <>
+            <Form.Item
+              name="bot_token"
+              label="Bot Token"
+              rules={[{ required: true }]}
+              tooltip={t("channels.slackBotTokenTooltip")}
+            >
+              <Input.Password placeholder="xoxb-..." />
+            </Form.Item>
+            <Form.Item
+              name="app_token"
+              label="App Token"
+              rules={[{ required: true }]}
+              tooltip={t("channels.slackAppTokenTooltip")}
+            >
+              <Input.Password placeholder="xapp-..." />
+            </Form.Item>
+            <Form.Item
+              name="proxy"
+              label="HTTP Proxy"
+              tooltip={t("channels.slackProxyTooltip")}
+            >
+              <Input placeholder="http://127.0.0.1:18118" />
             </Form.Item>
           </>
         );
@@ -1447,7 +1479,8 @@ export function ChannelDrawer({
             activeKey === "telegram" ||
             activeKey === "dingtalk" ||
             activeKey === "feishu" ||
-            activeKey === "discord") && (
+            activeKey === "discord" ||
+            activeKey === "slack") && (
             <Form.Item
               name="streaming_enabled"
               label={t("channels.streamingEnabled")}

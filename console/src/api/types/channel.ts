@@ -62,6 +62,13 @@ export interface TelegramConfig extends BaseChannelConfig {
   streaming_enabled?: boolean;
 }
 
+export interface SlackConfig extends BaseChannelConfig {
+  bot_token: string;
+  app_token: string;
+  proxy?: string;
+  streaming_enabled?: boolean;
+}
+
 export interface MQTTConfig extends BaseChannelConfig {
   host: string;
   port: number;
@@ -178,6 +185,7 @@ export interface ChannelConfig {
   feishu: FeishuConfig;
   qq: QQConfig;
   telegram: TelegramConfig;
+  slack: SlackConfig;
   mqtt: MQTTConfig;
   matrix: MatrixConfig;
   mattermost: MattermostConfig;
@@ -199,6 +207,7 @@ export type SingleChannelConfig =
   | QQConfig
   | ConsoleConfig
   | TelegramConfig
+  | SlackConfig
   | MQTTConfig
   | MatrixConfig
   | MattermostConfig

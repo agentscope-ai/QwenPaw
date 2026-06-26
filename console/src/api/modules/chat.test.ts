@@ -165,7 +165,10 @@ describe("chatApi CRUD", () => {
 
   it("getChat encodes chatId and sends GET", async () => {
     await chatApi.getChat("chat/1");
-    expect(request).toHaveBeenCalledWith("/chats/chat%2F1");
+    expect(request).toHaveBeenCalledWith(
+      "/chats/chat%2F1",
+      expect.objectContaining({ signal: undefined }),
+    );
   });
 
   it("updateChat sends PUT to the correct path", async () => {

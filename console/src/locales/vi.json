@@ -964,7 +964,12 @@
     "availableSection": "Chưa kích hoạt",
     "enableAction": "Kích hoạt",
     "noEnabledChannels": "Không có kênh nào được kích hoạt",
-    "goEnableChannels": "Kích hoạt kênh"
+    "goEnableChannels": "Kích hoạt kênh",
+    "slackBotToken": "Bot Token",
+    "slackBotTokenTooltip": "Slack Bot User OAuth Token, bắt đầu bằng xoxb-",
+    "slackAppToken": "App Token",
+    "slackAppTokenTooltip": "Slack App-Level Token cho Socket Mode, bắt đầu bằng xapp-",
+    "slackProxyTooltip": "URL proxy HTTP để kết nối đến Slack API"
   },
   "cronJobs": {
     "title": "Tác vụ định kỳ",

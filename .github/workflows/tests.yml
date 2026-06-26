@@ -97,7 +97,7 @@ jobs:
         shell: bash
         run: |
           python -m pip install --upgrade pip
-          pip install -e ".[dev,full]"
+          pip install -e ".[dev,test,full]"
 
       - name: Run unit tests
         shell: bash
@@ -182,7 +182,7 @@ jobs:
         shell: bash
         run: |
           python -m pip install --upgrade pip
-          pip install -e ".[dev,full]"
+          pip install -e ".[dev,test,full]"
 
       - name: Run contract tests
         shell: bash
@@ -265,7 +265,7 @@ jobs:
         shell: bash
         run: |
           python -m pip install --upgrade pip
-          pip install -e ".[dev,full]"
+          pip install -e ".[dev,test,full]"
 
       - name: Check if integrated tests exist
         id: check-integrated
@@ -302,16 +302,17 @@ jobs:
         if: steps.check-integrated.outputs.has_tests == 'true'
         shell: bash
         env:
-          # Subprocess coverage on the ubuntu/py3.13 entry only. conftest.py
+          # Subprocess coverage on the ubuntu/py3.11 entry only. conftest.py
           # treats empty / missing as off, so the other matrix entries do
-          # not pay the tracer overhead.
-          QWENPAW_INTEGRATION_COVERAGE: ${{ (matrix.os == 'ubuntu-latest' && matrix.python-version == '3.13') && '1' || '' }}
+          # not pay the tracer overhead. Multi-platform coverage is opt-in
+          # via full-tests-nightly.yml dispatch (coverage_platforms input).
+          QWENPAW_INTEGRATION_COVERAGE: ${{ (matrix.os == 'ubuntu-latest' && matrix.python-version == '3.11') && '1' || '' }}
         run: |
-          if [ "${{ matrix.os }}" = "ubuntu-latest" ] && \
-             [ "${{ matrix.python-version }}" = "3.13" ]; then
+          if [ -n "$QWENPAW_INTEGRATION_COVERAGE" ]; then
             # Subprocess coverage entry. Parent process must not carry
             # --cov, hence --no-cov here.
             pytest tests/integration -v --no-cov \
+              -n auto --dist=loadscope \
               -m "${{ steps.marker.outputs.expr }}"
             cp .integration_coverage/integration_subproc \
               .coverage.integration
@@ -321,6 +322,7 @@ jobs:
               -o coverage.integration.xml || [ "$?" -eq 2 ]
           else
             pytest tests/integration -v \
+              -n auto --dist=loadscope \
               -m "${{ steps.marker.outputs.expr }}"
           fi
 
@@ -328,14 +330,13 @@ jobs:
         if: |
           steps.check-integrated.outputs.has_tests == 'true' &&
           matrix.os == 'ubuntu-latest' &&
-          matrix.python-version == '3.13'
+          matrix.python-version == '3.11'
         uses: actions/upload-artifact@v4
         with:
           name: coverage-data-integration
           path: |
             .coverage.integration
             coverage.integration.xml
-            htmlcov-integration/
           retention-days: 1
           include-hidden-files: true
 
@@ -377,11 +378,12 @@ jobs:
       - name: Inspect downloaded coverage data
         shell: bash
         run: |
-          ls -la .coverage* coverage.*.xml htmlcov-integration 2>&1 | head -30 || true
+          ls -la .coverage* coverage.*.xml 2>&1 | head -30 || true
 
       - name: Combine all coverage data
         shell: bash
         run: |
+          # Collect all coverage data files: unit, contract, and integration.
           coverage combine \
             .coverage.unit .coverage.contract .coverage.integration
           # Tolerate fail-under (exit 2): combined number is what matters

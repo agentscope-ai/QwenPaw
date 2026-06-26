@@ -14,6 +14,7 @@ channel restart lag.
 from __future__ import annotations
 
 import copy
+import time
 
 import pytest
 
@@ -275,14 +276,23 @@ def test_channel_put_console_roundtrip(app_server) -> None:
         )
         assert put_resp.status_code == 200, app_server.logs_tail()
 
-        get_after = app_server.api_request(
-            "GET",
-            "/api/config/channels/console",
-            timeout=_CHANNEL_HTTP_TIMEOUT,
-        )
-        assert get_after.status_code == 200, app_server.logs_tail()
-        after = get_after.json()
-        assert after.get("bot_prefix") == "integ-test-prefix"
+        deadline = time.time() + 3.0
+        while time.time() < deadline:
+            get_after = app_server.api_request(
+                "GET",
+                "/api/config/channels/console",
+                timeout=_CHANNEL_HTTP_TIMEOUT,
+            )
+            assert get_after.status_code == 200, app_server.logs_tail()
+            after = get_after.json()
+            if after.get("bot_prefix") == "integ-test-prefix":
+                break
+            time.sleep(0.3)
+        else:
+            after = get_after.json()
+            assert (
+                after.get("bot_prefix") == "integ-test-prefix"
+            ), f"bot_prefix not persisted after 3s: {app_server.logs_tail()}"
         for k, v in before.items():
             if k != "bot_prefix":
                 assert after.get(k) == v, f"side-effect on {k}"
@@ -435,14 +445,25 @@ def test_channel_bulk_put_get_roundtrip(app_server) -> None:
         )
         assert put_resp.status_code == 200, app_server.logs_tail()
 
-        get_after = app_server.api_request(
-            "GET",
-            "/api/config/channels",
-            timeout=_CHANNEL_HTTP_TIMEOUT,
-        )
-        assert get_after.status_code == 200, app_server.logs_tail()
-        after = get_after.json()
-        assert after["console"].get("bot_prefix") == "bulk-test-prefix"
+        deadline = time.time() + 3.0
+        while time.time() < deadline:
+            get_after = app_server.api_request(
+                "GET",
+                "/api/config/channels",
+                timeout=_CHANNEL_HTTP_TIMEOUT,
+            )
+            assert get_after.status_code == 200, app_server.logs_tail()
+            after = get_after.json()
+            if after["console"].get("bot_prefix") == "bulk-test-prefix":
+                break
+            time.sleep(0.3)
+        else:
+            after = get_after.json()
+            assert after["console"].get("bot_prefix") == "bulk-test-prefix", (
+                f"bot_prefix not persisted (reload race?): "
+                f"{after['console'].get('bot_prefix')!r}\n"
+                f"{app_server.logs_tail()}"
+            )
     finally:
         app_server.api_request(
             "PUT",
@@ -544,7 +565,6 @@ def test_channel_config_persists_after_restart(app_server) -> None:
     - PUT /api/config/channels/console
     - POST /api/config/channels/console/restart
     """
-    import time
 
     get_before = app_server.api_request(
         "GET",

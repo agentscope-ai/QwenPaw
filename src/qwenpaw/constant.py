@@ -115,6 +115,14 @@ KEYRING_ACCOUNT_ENV = "QWENPAW_KEYRING_ACCOUNT"
 
 PROJECT_NAME = "QwenPaw"
 
+# Message metadata tags shared across agent middleware and memory managers.
+QWENPAW_MESSAGE_TAG_KEY = "qwenpaw_tag"
+AUTO_MEMORY_SEARCH_MESSAGE_TAG = "auto_memory_search"
+AUTO_CONTINUE_MESSAGE_TAG = "auto_continue"
+AUTO_MEMORY_SEARCH_TEXT = (
+    "Find memory relevant to the latest user request and conversation context."
+)
+
 # Subdirectory name inside each agent's workspace that holds cloned / imported
 # coding projects.
 # Full path = <workspace_dir> / CODING_PROJECT_SUBDIR / <name>

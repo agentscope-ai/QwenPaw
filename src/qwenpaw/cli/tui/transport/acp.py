@@ -36,6 +36,7 @@ from acp.schema import (
     RequestPermissionResponse,
 )
 
+from ....agents.acp.meta import ACP_CODING_PROJECT_META_KEY
 from ..__version__ import __version__
 from ..events import (
     BackendWarmed,
@@ -286,10 +287,12 @@ class AcpTransport:
         agent: str | None = None,
         cwd: str | None = None,
         command: list[str] | None = None,
+        project_dir: str | None = None,
         resume_session_id: str | None = None,
     ) -> None:
         self._agent = agent
         self._cwd = cwd or os.getcwd()
+        self._project_dir = project_dir
         # When set, ``start()`` resumes this session (load + replay) instead
         # of opening a fresh one.
         self._resume_session_id = resume_session_id
@@ -324,6 +327,11 @@ class AcpTransport:
     @property
     def session_id(self) -> str | None:
         return self._session_id
+
+    def _session_kwargs(self) -> dict[str, str]:
+        if not self._project_dir:
+            return {}
+        return {ACP_CODING_PROJECT_META_KEY: self._project_dir}
 
     async def start(self) -> Connected:
         self._stack = AsyncExitStack()
@@ -360,12 +368,16 @@ class AcpTransport:
             session = await self._conn.load_session(
                 cwd=self._cwd,
                 session_id=session_id,
+                **self._session_kwargs(),
             )
             # LoadSessionResponse carries no model list; it populates from the
             # first turn's usage report instead.
             model = None
         else:
-            session = await self._conn.new_session(cwd=self._cwd)
+            session = await self._conn.new_session(
+                cwd=self._cwd,
+                **self._session_kwargs(),
+            )
             session_id = cast(str, session.session_id)
             model = _current_model(session)
         self._session_id = session_id
@@ -535,7 +547,11 @@ class AcpTransport:
         # replayed history updates (tagged with this id) aren't filtered out.
         self._session_id = session_id
         self._client.set_session_id(session_id)
-        await self._conn.load_session(cwd=self._cwd, session_id=session_id)
+        await self._conn.load_session(
+            cwd=self._cwd,
+            session_id=session_id,
+            **self._session_kwargs(),
+        )
 
     async def resolve_permission(
         self,

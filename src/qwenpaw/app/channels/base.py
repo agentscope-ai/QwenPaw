@@ -831,7 +831,8 @@ class BaseChannel(ABC):
                 None,
             )
 
-            accumulated = streaming_buffers.pop(stream_type, "")
+            buf = streaming_buffers.pop(stream_type, "")
+            accumulated = self._extract_text_from_event(event) or buf
             await self.on_streaming_end(
                 request,
                 to_handle,
@@ -841,6 +842,19 @@ class BaseChannel(ABC):
                 accumulated_text=accumulated,
             )
         return True
+
+    @staticmethod
+    def _extract_text_from_event(event: Any) -> str:
+        """Extract concatenated text from event.content list."""
+        content = getattr(event, "content", None)
+        if not content or not isinstance(content, list):
+            return ""
+        parts = []
+        for item in content:
+            text = getattr(item, "text", None)
+            if text:
+                parts.append(text)
+        return "".join(parts)
 
     async def _stream_with_tracker(
         self,

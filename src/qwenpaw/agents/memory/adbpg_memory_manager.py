@@ -155,6 +155,10 @@ class ADBPGMemoryManager(BaseMemoryManager):
         """Return memory tools exposed to the agent."""
         return [self.memory_search]
 
+    def get_auto_memory_interval(self) -> int:
+        """Persist ADBPG user messages every turn."""
+        return 1
+
     # ------------------------------------------------------------------
     # Optional methods (override)
     # ------------------------------------------------------------------
