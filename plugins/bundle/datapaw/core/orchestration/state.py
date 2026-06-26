@@ -115,6 +115,22 @@ def _text(msg: str) -> ToolResponse:
 class RuntimeStateManager(PlanNotebook):
     """DataPaw runtime state: one active graph + history + artifact index."""
 
+    # --- Plan-lock bypass via property descriptor ---
+    # The host (react_agent) unconditionally sets
+    # ``_plan_text_only_after_mutation = True`` after create_plan /
+    # revise_current_plan, forcing tool_choice="none" on the next pass.
+    # DataPaw disables this lock so behavior is fully prompt-driven:
+    # the model decides whether to proceed or pause based on skills.
+
+    @property
+    def _plan_text_only_after_mutation(self) -> bool:  # type: ignore[override]
+        return self.__dict__.get("_ptoa_store", False)
+
+    @_plan_text_only_after_mutation.setter
+    def _plan_text_only_after_mutation(self, value: bool) -> None:
+        # Always suppress: DataPaw never locks tools after plan mutation.
+        self.__dict__["_ptoa_store"] = False
+
     description: str = (
         "DataPaw task graph management tools. Use these to create a DAG "
         "of analysis tasks (create_plan), track node execution "
@@ -471,11 +487,11 @@ class RuntimeStateManager(PlanNotebook):
             graph.add_node(n)
 
         self.current_plan = graph
-        # Set host plan-mode flags so DataPawPlanToHint routes to the
-        # "just_mutated" template and the next user message clears them
-        # via runner.clear_plan_awaiting_user_confirm.
-        self._plan_just_mutated = True
         self._plan_recently_finished = False
+        # DataPaw disables plan-lock: behavior (proceed vs pause) is
+        # fully controlled by skills/prompts, not backend flags.
+        self._plan_just_mutated = False
+        self._plan_awaiting_user_confirm = False
         await self._notify_graph_change(TaskEventType.GRAPH_CREATED)
 
         return _text(
@@ -683,7 +699,10 @@ class RuntimeStateManager(PlanNotebook):
         except ValueError as exc:
             return _text(str(exc))
 
-        self._plan_just_mutated = True
+        # DataPaw: no plan-lock for revise either — model decides
+        # whether to pause (complex) or proceed (routine adjustment).
+        self._plan_just_mutated = False
+        self._plan_awaiting_user_confirm = False
         await self._notify_graph_change(TaskEventType.GRAPH_UPDATED)
 
         parts = [f"Applied {len(normalized)} change(s)."]

@@ -283,9 +283,9 @@ python {skill-dir}/scripts/generate_nl2sql_prompt.py \
 
 ### Step 6: 执行 SQL 并落盘
 
-通过**数据湖仓**执行 Step 5 产出的 SQL。本步骤所需的执行参数与待探查的返回信息如下：
+通过**数据湖仓**执行 Step 5 产出的 SQL。
 
-**本步骤所需探查到的返回信息**
+#### 执行参数与返回信息
 
 ```
 {
