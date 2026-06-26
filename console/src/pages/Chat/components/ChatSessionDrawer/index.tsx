@@ -79,9 +79,6 @@ const SessionRow = React.memo(function SessionRow({
     : undefined;
   const isEditing = data.editingSessionId === session.id;
 
-  const isDisabled =
-    !!data.switchingSessionId && session.id !== data.switchingSessionId;
-
   return (
     <div style={style}>
       <ChatSessionItem
@@ -94,7 +91,7 @@ const SessionRow = React.memo(function SessionRow({
         generating={session.generating}
         pinned={session.pinned}
         active={session.id === data.currentSessionId}
-        disabled={isDisabled}
+        disabled={false}
         editing={isEditing}
         editValue={isEditing ? data.editValue : undefined}
         onClick={data.handleSessionClick}
@@ -638,7 +635,6 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
       <div
         className={styles.listWrapper}
         ref={listWrapperRef}
-        style={switchingSessionId ? { pointerEvents: "none" } : undefined}
       >
         <div className={styles.topGradient} />
         {listLoading ? (
