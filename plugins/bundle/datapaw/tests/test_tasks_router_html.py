@@ -132,6 +132,47 @@ def test_rewrite_html_resource_links_unit() -> None:
     )
 
 
+def test_rewrite_html_resource_links_resolves_bare_relative_from_html_dir() -> None:
+    from plugin_datapaw.core.routers.tasks_utils import rewrite_html_resource_links
+
+    html_path = f"{SESSION_ID}/dau_dec2025/qwenchat_dau_dec2025_report.html"
+    sibling_csv = f"{SESSION_ID}/dau_dec2025/qwenchat_dau_dec2025.csv"
+    nested_csv = f"{SESSION_ID}/dau_dec2025/data/detail.csv"
+    html = (
+        '<a href="qwenchat_dau_dec2025.csv">csv</a>'
+        '<a href="data/detail.csv">detail</a>'
+        f'<a href="{CSV_PATH}">artifact-root</a>'
+    )
+
+    rewritten = rewrite_html_resource_links(
+        html,
+        html_path=html_path,
+        session_id=SESSION_ID,
+        user_id="default",
+        agent_id="datapaw",
+        api_origin="http://testserver",
+    )
+
+    assert (
+        f"http://testserver/api/tasks/{SESSION_ID}/files/resource"
+        f"?path={quote(sibling_csv, safe='')}"
+        "&amp;user_id=default&amp;agent_id=datapaw"
+        in rewritten
+    )
+    assert (
+        f"http://testserver/api/tasks/{SESSION_ID}/files/resource"
+        f"?path={quote(nested_csv, safe='')}"
+        "&amp;user_id=default&amp;agent_id=datapaw"
+        in rewritten
+    )
+    assert (
+        f"http://testserver/api/tasks/{SESSION_ID}/files/resource"
+        f"?path={quote(CSV_PATH, safe='')}"
+        "&amp;user_id=default&amp;agent_id=datapaw"
+        in rewritten
+    )
+
+
 def test_rewrite_html_resource_links_artifact_absolute_path(tmp_path) -> None:
     from plugin_datapaw.core.routers.tasks_utils import rewrite_html_resource_links
 

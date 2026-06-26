@@ -540,12 +540,13 @@ def normalize_html_resource_path(
             return resource_path, parsed.fragment
         return None
 
-    if decoded_path.startswith(("./", "../")):
+    html_session = html_path.split("/", 1)[0]
+    if html_session and decoded_path.startswith(f"{html_session}/"):
+        resource_path = decoded_path
+    else:
         resource_path = posixpath.normpath(
             posixpath.join(posixpath.dirname(html_path), decoded_path),
         )
-    else:
-        resource_path = decoded_path.lstrip("/")
     if resource_path in ("", ".") or resource_path.startswith("../"):
         return None
     return resource_path, parsed.fragment
