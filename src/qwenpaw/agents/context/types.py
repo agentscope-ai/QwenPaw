@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Literal
 
 
 @dataclass(frozen=True)
@@ -17,7 +17,7 @@ class LogEntry:
     state. Structured fields default to empty.
     """
 
-    kind: str  # "model_turn" | "context_msg" | "tool_result"
+    kind: Literal["model_turn", "context_msg", "tool_result"]
     role: str | None = None
     name: str | None = None  # tool name (for tool_call/tool_result)
     content: str | None = None  # text body
