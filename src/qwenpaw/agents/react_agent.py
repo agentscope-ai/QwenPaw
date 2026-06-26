@@ -471,12 +471,13 @@ class QwenPawAgent(CodingModeMixin, Agent):
         """Return True for provider-side content safety rejections."""
         error_str = str(exc).lower()
         safety_markers = (
-            "sensitive",
             "new_sensitive",
+            "image is sensitive",
             "content policy",
             "content_policy",
             "moderation",
-            "safety",
+            "content_safety",
+            "safety_filter",
             "(1026)",
         )
         return any(marker in error_str for marker in safety_markers)
