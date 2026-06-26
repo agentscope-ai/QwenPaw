@@ -578,6 +578,8 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     content?: Array<{ type: string; [key: string]: unknown }>,
   ): void {
     if (!sessionId || !text) return;
+    // Invalidate LRU cache so switching back fetches fresh messages
+    this.invalidateConvertedCache(sessionId);
     if (content && content.length > 0) {
       savePendingUserMessage(sessionId, { text, content });
     } else {
@@ -1241,6 +1243,10 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
       existing?.realId ?? (isLocalTimestamp(sessionId) ? null : sessionId);
 
     if (deleteId) await api.deleteChat(deleteId);
+
+    // Invalidate LRU cache for the deleted session
+    if (deleteId) this.invalidateConvertedCache(deleteId);
+    if (existing?.realId) this.invalidateConvertedCache(existing.realId);
 
     // Use the canonical id from the list entry (existing?.id = localId even when
     // the caller passed a UUID), so the filter always removes the right entry.
