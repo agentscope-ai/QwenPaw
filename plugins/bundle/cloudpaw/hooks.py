@@ -388,6 +388,18 @@ def setup_tool_and_prompt_hooks() -> (  # pylint: disable=too-many-statements
         )
         return
 
+    # In QwenPaw 2.0 (agentscope 2.x), the agent no longer builds its
+    # own toolkit or system prompt internally — these are constructed by
+    # AgentBuilder and injected via the constructor.  Skip monkey-patching
+    # when the legacy methods are absent.
+    if not hasattr(QwenPawAgent, "_create_toolkit"):
+        logger.info(
+            "QwenPawAgent._create_toolkit not found (QwenPaw 2.0); "
+            "tool/prompt monkey-patches skipped — use api.register_tool() "
+            "for plugin tools.",
+        )
+        return
+
     _original_create_toolkit = QwenPawAgent._create_toolkit
     _original_build_sys_prompt = QwenPawAgent._build_sys_prompt
 
