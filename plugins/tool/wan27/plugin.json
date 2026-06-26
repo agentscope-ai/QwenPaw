@@ -1,7 +1,7 @@
 {
   "id": "wan27-tool",
   "name": "Wan 2.7 Video Generation Tool",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "type": "tool",
   "description": "Generate videos using Alibaba Wan 2.7 models (text-to-video, image-to-video, reference-to-video)",
   "description_i18n": {
