@@ -92,9 +92,8 @@ def format_data_source_prompt(
     ]
     if context.type == "odps":
         lines.append(
-            "- 当前是 ODPS 数据源。取数时通常与 `fetch-data` 一起查阅当前可用的 "
-            "ODPS / MaxCompute 相关 skill；若当前没有这类 skill，直接按 ODPS SQL "
-            "方言生成 SQL。"
+            "- 当前是 ODPS 数据源。取数时需要同时调用 `query-odps` 与 `fetch-data` 两个 SKILL："
+            "`query-odps` 为写 ODPS SQL / 执行查询必须遵守的规范，`fetch-data` 为取数必备流程。"
         )
     lines.append("</datapaw-selected-data-source>")
     return "\n".join(lines)
