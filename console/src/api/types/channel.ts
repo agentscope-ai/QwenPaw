@@ -3,6 +3,7 @@ export interface BaseChannelConfig {
   bot_prefix: string;
   filter_tool_messages?: boolean;
   filter_thinking?: boolean;
+  aggregate_message_replies?: boolean;
   dm_policy?: "open" | "allowlist";
   group_policy?: "open" | "allowlist";
   allow_from?: string[];

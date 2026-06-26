@@ -913,6 +913,8 @@
     "filterToolMessagesTooltip": "Show tool call and output messages to users (turn off to hide)",
     "filterThinking": "Mostrar Thinking",
     "filterThinkingTooltip": "Show model thinking/reasoning content to users (turn off to hide)",
+    "aggregateMessageReplies": "Aggregate Replies",
+    "aggregateMessageRepliesTooltip": "Batch normal assistant reply messages from one run into a single channel message",
     "streamingEnabled": "Saída em Streaming",
     "streamingEnabledDingtalkHint": "Apenas efetivo quando o tipo de mensagem é Card",
     "streamingEnabledFeishuHint": "Requer habilitar a permissão cardkit:card:write na página de gerenciamento de permissões da Plataforma Aberta Feishu",

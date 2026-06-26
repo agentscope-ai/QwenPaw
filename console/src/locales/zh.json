@@ -904,6 +904,8 @@
     "filterToolMessagesTooltip": "向用户显示工具调用和输出消息（关闭则隐藏）",
     "filterThinking": "显示思考过程",
     "filterThinkingTooltip": "向用户显示模型的思考/推理内容（关闭则隐藏）",
+    "aggregateMessageReplies": "聚合回复消息",
+    "aggregateMessageRepliesTooltip": "将一次运行中的普通助手回复合并为一条频道消息",
     "streamingEnabled": "流式输出",
     "streamingEnabledDingtalkHint": "仅在消息类型为 Card 时生效",
     "streamingEnabledFeishuHint": "需要在飞书开放平台权限管理界面开通 cardkit:card:write 权限",

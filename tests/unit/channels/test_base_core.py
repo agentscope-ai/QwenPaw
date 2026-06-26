@@ -14,6 +14,7 @@ Corresponding Tier Strategy:
 - This file: As B-tier supplement, covers complex internal logic
   (debounce, merge, permissions)
 """
+
 # pylint: disable=redefined-outer-name,protected-access,unused-argument
 # pylint: disable=reimported,broad-exception-raised,using-constant-test
 from __future__ import annotations
@@ -26,7 +27,6 @@ import pytest
 # Import BaseChannel directly for internal logic testing
 from qwenpaw.app.channels.base import BaseChannel, ProcessHandler
 from qwenpaw.app.channels.console.channel import ConsoleChannel
-
 
 # =============================================================================
 # Test Fixtures (Shared Infrastructure)
@@ -1355,6 +1355,169 @@ class TestRunProcessLoopIntegration:
 
         # Verify send_message_content was called
         base_channel.send_message_content.assert_called_once()
+
+    async def test_aggregate_message_replies_sends_once_on_completion(
+        self,
+        base_channel,
+    ):
+        """Plain assistant messages can be batched into one reply."""
+        from qwenpaw.schemas import (
+            RunStatus,
+            Message,
+            MessageType,
+            Role,
+            TextContent,
+            ContentType,
+        )
+
+        def completed_text(text: str) -> Message:
+            return Message(
+                object="message",
+                type=MessageType.MESSAGE,
+                role=Role.ASSISTANT,
+                status=RunStatus.Completed,
+                content=[TextContent(type=ContentType.TEXT, text=text)],
+            )
+
+        async def mock_process(_request):
+            yield completed_text("First step")
+            yield completed_text("Second step")
+
+        base_channel._process = mock_process
+        base_channel.set_message_reply_aggregation(True)
+        base_channel.send_content_parts = AsyncMock()
+
+        mock_request = MagicMock()
+        mock_request.user_id = "user1"
+        mock_request.session_id = "test:user1"
+        mock_request.channel_meta = {}
+
+        await base_channel._run_process_loop(
+            mock_request,
+            to_handle="user1",
+            send_meta={},
+        )
+
+        base_channel.send_content_parts.assert_awaited_once()
+        sent_parts = base_channel.send_content_parts.await_args.args[1]
+        assert [part.text for part in sent_parts] == [
+            "First step",
+            "\nSecond step",
+        ]
+
+    async def test_aggregate_message_replies_default_remains_immediate(
+        self,
+        base_channel,
+    ):
+        """Disabled aggregation preserves one send per completed message."""
+        from qwenpaw.schemas import (
+            RunStatus,
+            Message,
+            MessageType,
+            Role,
+            TextContent,
+            ContentType,
+        )
+
+        def completed_text(text: str) -> Message:
+            return Message(
+                object="message",
+                type=MessageType.MESSAGE,
+                role=Role.ASSISTANT,
+                status=RunStatus.Completed,
+                content=[TextContent(type=ContentType.TEXT, text=text)],
+            )
+
+        async def mock_process(_request):
+            yield completed_text("First step")
+            yield completed_text("Second step")
+
+        base_channel._process = mock_process
+        base_channel.send_content_parts = AsyncMock()
+
+        mock_request = MagicMock()
+        mock_request.user_id = "user1"
+        mock_request.session_id = "test:user1"
+        mock_request.channel_meta = {}
+
+        await base_channel._run_process_loop(
+            mock_request,
+            to_handle="user1",
+            send_meta={},
+        )
+
+        assert base_channel.send_content_parts.await_count == 2
+        assert [
+            call.args[1][0].text
+            for call in base_channel.send_content_parts.await_args_list
+        ] == [
+            "First step",
+            "Second step",
+        ]
+
+    async def test_aggregate_message_replies_flushes_before_media(
+        self,
+        base_channel,
+    ):
+        """Media messages are not folded into the text aggregation buffer."""
+        from qwenpaw.schemas import (
+            RunStatus,
+            Message,
+            MessageType,
+            Role,
+            TextContent,
+            ImageContent,
+            ContentType,
+        )
+
+        text_message = Message(
+            object="message",
+            type=MessageType.MESSAGE,
+            role=Role.ASSISTANT,
+            status=RunStatus.Completed,
+            content=[TextContent(type=ContentType.TEXT, text="Text first")],
+        )
+        image_message = Message(
+            object="message",
+            type=MessageType.MESSAGE,
+            role=Role.ASSISTANT,
+            status=RunStatus.Completed,
+            content=[
+                ImageContent(
+                    type=ContentType.IMAGE,
+                    image_url="https://example.com/a.png",
+                ),
+            ],
+        )
+
+        async def mock_process(_request):
+            yield text_message
+            yield image_message
+
+        base_channel._process = mock_process
+        base_channel.set_message_reply_aggregation(True)
+        base_channel.send_content_parts = AsyncMock()
+
+        mock_request = MagicMock()
+        mock_request.user_id = "user1"
+        mock_request.session_id = "test:user1"
+        mock_request.channel_meta = {}
+
+        await base_channel._run_process_loop(
+            mock_request,
+            to_handle="user1",
+            send_meta={},
+        )
+
+        assert base_channel.send_content_parts.await_count == 2
+        first_parts = base_channel.send_content_parts.await_args_list[0].args[
+            1
+        ]
+        second_parts = base_channel.send_content_parts.await_args_list[1].args[
+            1
+        ]
+        assert first_parts[0].text == "Text first"
+        assert second_parts[0].image_url == "https://example.com/a.png"
 
     @pytest.mark.skip(
         reason="Response/AgentResponse classes removed from schema",

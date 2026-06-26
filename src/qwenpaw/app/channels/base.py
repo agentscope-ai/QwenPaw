@@ -54,6 +54,7 @@ _TOOL_OUTPUT_MESSAGE_TYPES = {
     MessageType.PLUGIN_CALL_OUTPUT,
     MessageType.MCP_TOOL_CALL_OUTPUT,
 }
+_AGGREGATED_REPLY_META_KEY = "_aggregated_message_reply_parts"
 
 if TYPE_CHECKING:
     from qwenpaw.schemas import (
@@ -131,6 +132,7 @@ class BaseChannel(ABC):
         deny_message: str = "",
         require_mention: bool = False,
         streaming_enabled: bool = False,
+        aggregate_message_replies: bool = False,
         access_control_dm: bool = False,
         access_control_group: bool = False,
     ):
@@ -139,6 +141,7 @@ class BaseChannel(ABC):
         self._show_tool_details = show_tool_details
         self._filter_tool_messages = filter_tool_messages
         self._filter_thinking = filter_thinking
+        self._aggregate_message_replies = aggregate_message_replies
         self.streaming_enabled = streaming_enabled
         # Legacy fields — stored for backward compat but not used for
         # filtering (new ACL gate handles access control).
@@ -174,6 +177,10 @@ class BaseChannel(ABC):
         self._debounce_seconds: float = 0.0
         self._debounce_pending: Dict[str, List[Any]] = {}
         self._debounce_timers: Dict[str, asyncio.Task[None]] = {}
+
+    def set_message_reply_aggregation(self, enabled: bool) -> None:
+        """Enable or disable reply aggregation for this channel instance."""
+        self._aggregate_message_replies = bool(enabled)
 
     def _is_native_payload(self, payload: Any) -> bool:
         """True if payload is a native dict that can be time-debounced."""
@@ -871,12 +878,20 @@ class BaseChannel(ABC):
 
             err_msg = self._get_response_error_message(last_response)
             if err_msg:
+                await self._flush_aggregated_message_replies(
+                    to_handle,
+                    send_meta,
+                )
                 await self._on_consume_error(
                     request,
                     to_handle,
                     f"Error: {err_msg}",
                 )
             else:
+                await self._flush_aggregated_message_replies(
+                    to_handle,
+                    send_meta,
+                )
                 await self._on_process_completed(
                     request,
                     to_handle,
@@ -901,6 +916,10 @@ class BaseChannel(ABC):
                 f"channel _stream_with_tracker failed: {e}, "
                 f"session={getattr(request, 'session_id', 'N/A')[:30]}, "
                 f"agent={to_handle}",
+            )
+            await self._flush_aggregated_message_replies(
+                to_handle,
+                send_meta,
             )
             await self._on_consume_error(
                 request,
@@ -1306,12 +1325,20 @@ class BaseChannel(ABC):
                     await self.on_event_response(request, event)
             err_msg = self._get_response_error_message(last_response)
             if err_msg:
+                await self._flush_aggregated_message_replies(
+                    to_handle,
+                    send_meta,
+                )
                 await self._on_consume_error(
                     request,
                     to_handle,
                     f"Error: {err_msg}",
                 )
             else:
+                await self._flush_aggregated_message_replies(
+                    to_handle,
+                    send_meta,
+                )
                 await self._on_process_completed(
                     request,
                     to_handle,
@@ -1322,6 +1349,10 @@ class BaseChannel(ABC):
                 self._on_reply_sent(self.channel, *args)
         except Exception:
             logger.exception("channel consume_one failed")
+            await self._flush_aggregated_message_replies(
+                to_handle,
+                send_meta,
+            )
             await self._on_consume_error(
                 request,
                 to_handle,
@@ -1489,7 +1520,94 @@ class BaseChannel(ABC):
         Hook: one message event completed. Default: send_message_content.
         Override for batch/debounce (e.g. DingTalk merge then send).
         """
+        if self._aggregate_message_replies:
+            parts = self._message_to_content_parts(event)
+            reply_text = self._get_aggregateable_reply_text(event, parts)
+            if reply_text is not None:
+                self._append_aggregated_message_reply(send_meta, reply_text)
+                return
+
+            await self._flush_aggregated_message_replies(
+                to_handle,
+                send_meta,
+            )
+            await self._send_message_parts(to_handle, event, parts, send_meta)
+            return
+
         await self.send_message_content(to_handle, event, send_meta)
+
+    def _get_aggregateable_reply_text(
+        self,
+        message: Any,
+        parts: List[OutgoingContentPart],
+    ) -> Optional[str]:
+        """Return text for plain assistant replies safe to batch."""
+        if getattr(message, "type", None) != MessageType.MESSAGE:
+            return None
+        if not parts:
+            return None
+
+        text_parts: List[str] = []
+        for part in parts:
+            part_type = getattr(part, "type", None)
+            if part_type == ContentType.TEXT:
+                text = getattr(part, "text", "") or ""
+            elif part_type == ContentType.REFUSAL:
+                text = getattr(part, "refusal", "") or ""
+            else:
+                return None
+            if text:
+                text_parts.append(text)
+
+        if not text_parts:
+            return None
+        reply_text = "\n".join(text_parts).strip()
+        return reply_text or None
+
+    def _append_aggregated_message_reply(
+        self,
+        send_meta: Dict[str, Any],
+        text: str,
+    ) -> None:
+        """Buffer one plain reply in the current run's send metadata."""
+        if not text:
+            return
+        parts = send_meta.setdefault(_AGGREGATED_REPLY_META_KEY, [])
+        if parts:
+            text = "\n" + text
+        parts.append(TextContent(type=ContentType.TEXT, text=text))
+
+    async def _flush_aggregated_message_replies(
+        self,
+        to_handle: str,
+        send_meta: Dict[str, Any],
+    ) -> None:
+        """Send and clear any buffered plain reply messages for this run."""
+        parts = send_meta.pop(_AGGREGATED_REPLY_META_KEY, [])
+        if not parts:
+            return
+        await self.send_content_parts(to_handle, parts, send_meta)
+
+    async def _send_message_parts(
+        self,
+        to_handle: str,
+        message: Any,
+        parts: List[OutgoingContentPart],
+        meta: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        """Send pre-rendered message parts without rendering twice."""
+        if not parts:
+            logger.debug(
+                f"channel send_message_content: no parts for to_handle="
+                f"{to_handle}, skip send",
+            )
+            return
+        logger.debug(
+            f"channel send_message_content: to_handle={to_handle} "
+            f"parts_count={len(parts)} "
+            f"part_types={[getattr(p, 'type', None) for p in parts]}",
+        )
+        await self.send_content_parts(to_handle, parts, meta)
 
     async def on_event_response(
         self,
@@ -1565,18 +1683,7 @@ class BaseChannel(ABC):
         multi-part sending.
         """
         parts = self._message_to_content_parts(message)
-        if not parts:
-            logger.debug(
-                f"channel send_message_content: no parts for to_handle="
-                f"{to_handle}, skip send",
-            )
-            return
-        logger.debug(
-            f"channel send_message_content: to_handle={to_handle} "
-            f"parts_count={len(parts)} "
-            f"part_types={[getattr(p, 'type', None) for p in parts]}",
-        )
-        await self.send_content_parts(to_handle, parts, meta)
+        await self._send_message_parts(to_handle, message, parts, meta)
 
     def _truncate_stream_tool_chunk(
         self,
@@ -1735,10 +1842,10 @@ class BaseChannel(ABC):
         Subclasses must implement from_config(process, config, on_reply_sent).
 
         show_tool_details is global config (not in channel config), so we
-        preserve from self. filter_tool_messages and filter_thinking are
-        per-channel config, so we read from new config.
+        preserve from self. Channel-level delivery/filter options are read
+        from the new config.
         """
-        return self.__class__.from_config(
+        channel = self.__class__.from_config(
             process=self._process,
             config=config,
             on_reply_sent=self._on_reply_sent,
@@ -1754,6 +1861,11 @@ class BaseChannel(ABC):
                 False,
             ),
         )
+        if hasattr(channel, "set_message_reply_aggregation"):
+            channel.set_message_reply_aggregation(
+                getattr(config, "aggregate_message_replies", False),
+            )
+        return channel
 
     async def health_check(self) -> Dict[str, Any]:
         """Return health status for this channel.

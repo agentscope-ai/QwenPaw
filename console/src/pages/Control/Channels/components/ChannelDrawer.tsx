@@ -91,6 +91,7 @@ const BASE_FIELDS = [
   "bot_prefix",
   "filter_tool_messages",
   "filter_thinking",
+  "aggregate_message_replies",
   "isBuiltin",
 ];
 
@@ -1427,6 +1428,14 @@ export function ChannelDrawer({
                 label={t("channels.filterThinking")}
                 valuePropName="checked"
                 tooltip={t("channels.filterThinkingTooltip")}
+              >
+                <Switch />
+              </Form.Item>
+              <Form.Item
+                name="aggregate_message_replies"
+                label={t("channels.aggregateMessageReplies")}
+                valuePropName="checked"
+                tooltip={t("channels.aggregateMessageRepliesTooltip")}
               >
                 <Switch />
               </Form.Item>

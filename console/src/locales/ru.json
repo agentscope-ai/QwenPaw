@@ -710,6 +710,8 @@
     "filterToolMessagesTooltip": "Показывать пользователям вызовы инструментов и их вывод (выключите, чтобы скрыть)",
     "filterThinking": "Показывать рассуждения",
     "filterThinkingTooltip": "Показывать пользователям рассуждения модели (выключите, чтобы скрыть)",
+    "aggregateMessageReplies": "Aggregate Replies",
+    "aggregateMessageRepliesTooltip": "Batch normal assistant reply messages from one run into a single channel message",
     "streamingEnabled": "Потоковый вывод",
     "streamingEnabledDingtalkHint": "Действует только при типе сообщения Card",
     "streamingEnabledFeishuHint": "Необходимо включить разрешение cardkit:card:write на странице управления разрешениями открытой платформы Feishu",

@@ -710,6 +710,8 @@
     "filterToolMessagesTooltip": "ツール呼び出しと出力メッセージをユーザーに表示します（オフにすると非表示）",
     "filterThinking": "思考過程を表示",
     "filterThinkingTooltip": "モデルの思考・推論内容をユーザーに表示します（オフにすると非表示）",
+    "aggregateMessageReplies": "Aggregate Replies",
+    "aggregateMessageRepliesTooltip": "Batch normal assistant reply messages from one run into a single channel message",
     "streamingEnabled": "ストリーミング出力",
     "streamingEnabledDingtalkHint": "メッセージタイプがCardの場合のみ有効",
     "streamingEnabledFeishuHint": "Feishuオープンプラットフォームの権限管理ページでcardkit:card:write権限を有効にする必要があります",

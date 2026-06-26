@@ -935,6 +935,8 @@
     "filterToolMessagesTooltip": "Hiển thị lời gọi công cụ và kết quả cho người dùng (tắt để ẩn)",
     "filterThinking": "Hiển thị suy luận",
     "filterThinkingTooltip": "Hiển thị nội dung suy luận của mô hình (tắt để ẩn)",
+    "aggregateMessageReplies": "Aggregate Replies",
+    "aggregateMessageRepliesTooltip": "Batch normal assistant reply messages from one run into a single channel message",
     "streamingEnabled": "Xuất streaming",
     "ackMessage": "Tin nhắn xác nhận",
     "ackMessageTooltip": "Gửi phản hồi tức thì khi nhận được tin nhắn, trước khi xử lý",

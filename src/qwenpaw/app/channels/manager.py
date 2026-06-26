@@ -167,6 +167,10 @@ class ChannelManager:
                     False,
                 )
                 filter_thinking = ch_cfg.get("filter_thinking", False)
+                aggregate_message_replies = ch_cfg.get(
+                    "aggregate_message_replies",
+                    False,
+                )
             else:
                 filter_tool_messages = getattr(
                     ch_cfg,
@@ -178,6 +182,11 @@ class ChannelManager:
                     "filter_thinking",
                     False,
                 )
+                aggregate_message_replies = getattr(
+                    ch_cfg,
+                    "aggregate_message_replies",
+                    False,
+                )
 
             from_config_kwargs = {
                 "process": process,
@@ -186,6 +195,7 @@ class ChannelManager:
                 "show_tool_details": show_tool_details,
                 "filter_tool_messages": filter_tool_messages,
                 "filter_thinking": filter_thinking,
+                "aggregate_message_replies": aggregate_message_replies,
                 "workspace_dir": workspace_dir,
             }
 
@@ -206,7 +216,12 @@ class ChannelManager:
                 }
 
             try:
-                channels.append(ch_cls.from_config(**filtered_kwargs))
+                channel = ch_cls.from_config(**filtered_kwargs)
+                if hasattr(channel, "set_message_reply_aggregation"):
+                    channel.set_message_reply_aggregation(
+                        aggregate_message_replies,
+                    )
+                channels.append(channel)
             except Exception as e:
                 logger.warning(
                     "Failed to initialize channel '%s', skipping: %s",
