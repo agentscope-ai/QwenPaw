@@ -186,7 +186,6 @@ export function useSessionListData(
 
   const handleSessionClick = useCallback(
     (sessionId: string) => {
-      if (sessionApi.isSessionSwitching) return;
       if (sessionId === currentSessionId) return;
       setSwitchingSessionId(sessionId);
       onSessionClick(sessionId);
