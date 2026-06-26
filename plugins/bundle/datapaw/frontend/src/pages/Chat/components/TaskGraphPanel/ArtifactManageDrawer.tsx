@@ -10,6 +10,8 @@ import type { TasksSummaryResponse } from "../../../../api/modules/tasks";
 import drawerStyles from "./TaskNodeDrawer.module.less";
 import styles from "./ArtifactManageDrawer.module.less";
 
+const SESSION_ARTIFACT_GRAPH_ID = "__session__";
+
 export interface ArtifactManageDrawerProps {
   open: boolean;
   onClose: () => void;
@@ -85,14 +87,24 @@ export default function ArtifactManageDrawer({
     resetLoadedFiles();
     setExpandedGraphIds(new Set());
     const { groups: nextGroups, summary: nextSummary } = await refreshIndex();
+    const defaultGraphIds = new Set<string>();
+    const sessionGroup = nextGroups.find(
+      (group) => group.graphId === SESSION_ARTIFACT_GRAPH_ID,
+    );
+    if (sessionGroup) {
+      defaultGraphIds.add(sessionGroup.graphId);
+    }
     if (graphId) {
-      expandGraph(graphId, nextSummary);
-      return;
+      defaultGraphIds.add(graphId);
+    } else {
+      const currentGroup = nextGroups.find((group) => group.isCurrent);
+      if (currentGroup) {
+        defaultGraphIds.add(currentGroup.graphId);
+      }
     }
-    const currentGroup = nextGroups.find((group) => group.isCurrent);
-    if (currentGroup) {
-      expandGraph(currentGroup.graphId, nextSummary);
-    }
+    defaultGraphIds.forEach((targetGraphId) => {
+      expandGraph(targetGraphId, nextSummary);
+    });
   }, [expandGraph, graphId, refreshIndex, resetLoadedFiles]);
 
   useEffect(() => {

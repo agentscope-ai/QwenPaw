@@ -119,6 +119,7 @@ def _rewrite_html_delivery_copy(
     *,
     html_host_path: Path,
     html_artifact_path: str,
+    artifacts_root: Path,
 ) -> Path | None:
     rc = _request_context(agent)
     session_id = str(rc.get("session_id") or "")
@@ -135,6 +136,7 @@ def _rewrite_html_delivery_copy(
         user_id=user_id,
         agent_id=agent_id,
         api_origin=_api_origin(agent),
+        artifacts_root=artifacts_root,
     )
     copy_path = _send_copy_path(html_host_path)
     copy_path.write_text(rewritten, encoding="utf-8")
@@ -171,6 +173,7 @@ def build_send_file_to_user_fn(
                 agent,
                 html_host_path=html_host_path,
                 html_artifact_path=html_artifact_path,
+                artifacts_root=artifacts_root,
             )
         except Exception:  # pylint: disable=broad-except
             logger.warning(
