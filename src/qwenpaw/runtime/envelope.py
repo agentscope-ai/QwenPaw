@@ -623,7 +623,12 @@ class Envelope:
             yield self._tag_seq(err_message)
 
         # === HINT_BLOCK (P2-2: warn and drop) ===
-        elif evt_type == EventType.HINT_BLOCK.value:
+        # ``EventType.HINT_BLOCK`` does not exist in every agentscope version;
+        # guard the lookup so an unmatched event falls through to a no-op
+        # instead of raising AttributeError and killing the whole turn.
+        elif (_hb := getattr(EventType, "HINT_BLOCK", None)) is not None and (
+            evt_type == _hb.value
+        ):
             source = getattr(event, "source", None) or ""
             logger.warning(
                 "HintBlockEvent received but not rendered: "
