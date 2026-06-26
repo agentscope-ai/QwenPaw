@@ -259,16 +259,17 @@ const convertMessages = (
   messages: Message[],
 ): IAgentScopeRuntimeWebUIMessage[] => {
   const result: IAgentScopeRuntimeWebUIMessage[] = [];
+  const len = messages.length;
   let i = 0;
 
-  while (i < messages.length) {
+  while (i < len) {
     if (messages[i].role === ROLE_USER) {
       result.push(buildUserCard(messages[i++]));
     } else {
-      const outputMsgs: OutputMessage[] = [];
-      while (i < messages.length && messages[i].role !== ROLE_USER) {
-        outputMsgs.push(toOutputMessage(messages[i++]));
-      }
+      // Collect consecutive non-user messages via slice
+      const startIdx = i;
+      while (i < len && messages[i].role !== ROLE_USER) i++;
+      const outputMsgs = messages.slice(startIdx, i).map(toOutputMessage);
       if (outputMsgs.length) result.push(buildResponseCard(outputMsgs));
     }
   }
