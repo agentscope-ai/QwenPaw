@@ -1271,6 +1271,22 @@ class WecomChannel(BaseChannel):
     # Session processing state management
     # ------------------------------------------------------------------
 
+    def _apply_no_text_debounce(
+        self,
+        session_id: str,
+        content_parts: list[Any],
+    ) -> tuple[bool, list[Any]]:
+        """Process media-only WeCom messages without waiting for text."""
+        has_media = any(
+            getattr(part, "type", None)
+            not in (ContentType.TEXT, ContentType.REFUSAL)
+            for part in content_parts
+        )
+        if has_media:
+            pending = self._pending_content_by_session.pop(session_id, [])
+            return True, pending + list(content_parts)
+        return super()._apply_no_text_debounce(session_id, content_parts)
+
     async def _consume_with_tracker(
         self,
         request: "AgentRequest",

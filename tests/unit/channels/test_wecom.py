@@ -714,6 +714,103 @@ class TestWecomChannelBuildAgentRequest:
 
 
 # =============================================================================
+# P0: Media-only Debounce Tests
+# =============================================================================
+
+
+class TestWecomChannelMediaOnlyDebounce:
+    """
+    P0: WeCom media-only messages should be processed without waiting for text.
+    """
+
+    def test_file_only_content_processes_immediately(self, wecom_channel):
+        """A pure file message should not be buffered until a text message."""
+        from qwenpaw.schemas import FileContent
+
+        file_part = FileContent(
+            type="file",
+            file_url="/tmp/document.pdf",
+            filename="document.pdf",
+        )
+
+        should_process, merged = wecom_channel._apply_no_text_debounce(
+            "wecom:user_123",
+            [file_part],
+        )
+
+        assert should_process is True
+        assert merged == [file_part]
+        assert (
+            "wecom:user_123" not in wecom_channel._pending_content_by_session
+        )
+
+    def test_native_file_payload_passes_debounce(self, wecom_channel):
+        """A native WeCom file payload should pass debounce."""
+        from qwenpaw.schemas import FileContent
+
+        file_part = FileContent(
+            type="file",
+            file_url="/tmp/document.pdf",
+            filename="document.pdf",
+        )
+        payload = {
+            "channel_id": "wecom",
+            "sender_id": "user_123",
+            "session_id": "wecom:user_123",
+            "content_parts": [file_part],
+            "meta": {"wecom_chat_type": "single"},
+        }
+
+        assert wecom_channel._debounce_payload(payload) is True
+        assert payload["content_parts"] == [file_part]
+        assert (
+            "wecom:user_123" not in wecom_channel._pending_content_by_session
+        )
+
+    def test_media_only_content_prepends_existing_pending_parts(
+        self,
+        wecom_channel,
+    ):
+        """Existing buffered media should be preserved before new media."""
+        from qwenpaw.schemas import FileContent, ImageContent
+
+        image_part = ImageContent(type="image", image_url="/tmp/image.jpg")
+        file_part = FileContent(
+            type="file",
+            file_url="/tmp/document.pdf",
+            filename="document.pdf",
+        )
+        wecom_channel._pending_content_by_session["wecom:user_123"] = [
+            image_part,
+        ]
+
+        should_process, merged = wecom_channel._apply_no_text_debounce(
+            "wecom:user_123",
+            [file_part],
+        )
+
+        assert should_process is True
+        assert merged == [image_part, file_part]
+        assert (
+            "wecom:user_123" not in wecom_channel._pending_content_by_session
+        )
+
+    def test_text_content_keeps_base_debounce_behavior(self, wecom_channel):
+        """Text messages should still process normally."""
+        from qwenpaw.schemas import TextContent
+
+        text_part = TextContent(type="text", text="hello")
+
+        should_process, merged = wecom_channel._apply_no_text_debounce(
+            "wecom:user_123",
+            [text_part],
+        )
+
+        assert should_process is True
+        assert merged == [text_part]
+
+
+# =============================================================================
 # P0: Merge Native Items Tests
 # =============================================================================
 
