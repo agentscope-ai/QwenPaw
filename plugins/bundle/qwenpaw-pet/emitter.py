@@ -242,25 +242,29 @@ def desktop_health() -> dict[str, Any] | None:
     return None
 
 
-def _living_desktop_present(host: str, port: int) -> bool:
+def _living_desktop_present(
+    host: str,  # pylint: disable=unused-argument
+    port: int,  # pylint: disable=unused-argument
+) -> bool:
     """True when a pet desktop is up or still starting on the bridge port."""
     health = desktop_health()
     if health and health.get("ok"):
         return True
-    has_claim = False
     try:
         from qwenpaw_pet_desktop import runtime as pet_rt
 
+        # A recent spawn claim is authoritative: the child process may
+        # not have written its PID or bound the port yet (especially on
+        # Windows cold starts where PySide6 + uvicorn can take seconds).
+        # Treating the claim as "starting" prevents duplicate spawns
+        # from rapid UI clicks.
         if pet_rt.spawn_claim_active():
-            has_claim = True
+            return True
         pid = pet_rt.read_pid()
         if pid and pet_rt.is_pid_running(pid):
             return True
     except ImportError:
         pass
-
-    if has_claim and not _tcp_bind_test(host, port):
-        return True
     return False
 
 

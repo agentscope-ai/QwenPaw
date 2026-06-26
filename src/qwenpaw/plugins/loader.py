@@ -858,10 +858,13 @@ class PluginLoader:
 
         # Remove the plugin directory from sys.path (plugins add it at
         # import time for sibling imports; leaving it leaks into later
-        # imports and prevents clean hot-reload).
-        plugin_dir_str = str(record.source_path.resolve())
-        while plugin_dir_str in sys.path:
-            sys.path.remove(plugin_dir_str)
+        # imports and prevents clean hot-reload).  Compare by realpath
+        # so symlinks or non-resolved spellings of the same directory
+        # are also caught.
+        plugin_dir_real = os.path.realpath(record.source_path)
+        sys.path[:] = [
+            p for p in sys.path if os.path.realpath(p) != plugin_dir_real
+        ]
 
         # Clear all in-memory registry entries for this plugin
         self.registry.unregister_plugin(plugin_id)
