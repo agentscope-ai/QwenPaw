@@ -2,6 +2,7 @@
   "id": "qwen-image-tool",
   "name": "Qwen-Image Tool",
   "version": "1.0.0",
+  "type": "tool",
   "description": "Generate and edit images using Alibaba Qwen-Image models",
   "description_i18n": {
     "zh-CN": "使用阿里云 Qwen-Image 模型生成与编辑图像",
@@ -12,7 +13,7 @@
     "backend": "qwen_image.py"
   },
   "dependencies": ["dashscope>=1.25.16", "httpx>=0.24.0"],
-  "min_version": "1.1.6",
+  "min_version": "2.0.0",
   "meta": {
     "tools": [
       {
