@@ -414,6 +414,9 @@ function clearPendingUserMessage(sessionId: string): void {
 class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
   private sessionList: IAgentScopeRuntimeWebUISession[] = [];
 
+  /** Previous returned list reference for shallow-compare optimisation. */
+  private _prevReturnedList: IAgentScopeRuntimeWebUISession[] | null = null;
+
   /**
    * When set, getSessionList will move the matching session to the front on the first call,
    * so the library's useMount auto-selects it instead of always defaulting to sessions[0].
@@ -834,7 +837,45 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
         this.sessionList.unshift(preferred);
       }
     }
-    return [...this.sessionList];
+
+    // If the list hasn't changed substantively, return the previous array
+    // reference to prevent downstream useMemo / React re-renders.
+    if (
+      this._prevReturnedList &&
+      this.isSessionListEqual(this._prevReturnedList, this.sessionList)
+    ) {
+      return this._prevReturnedList;
+    }
+    const result = [...this.sessionList];
+    this._prevReturnedList = result;
+    return result;
+  }
+
+  /**
+   * Shallow-compare two session lists by key fields.
+   * Returns true if lists are structurally identical (no re-render needed).
+   */
+  private isSessionListEqual(
+    prev: IAgentScopeRuntimeWebUISession[],
+    next: IAgentScopeRuntimeWebUISession[],
+  ): boolean {
+    if (prev.length !== next.length) return false;
+    for (let i = 0; i < prev.length; i++) {
+      const a = prev[i] as ExtendedSession;
+      const b = next[i] as ExtendedSession;
+      if (
+        a.id !== b.id ||
+        a.name !== b.name ||
+        a.status !== b.status ||
+        a.updatedAt !== b.updatedAt ||
+        a.pinned !== b.pinned ||
+        a.generating !== b.generating ||
+        a.realId !== b.realId
+      ) {
+        return false;
+      }
+    }
+    return true;
   }
 
   async getSessionList() {
