@@ -349,8 +349,7 @@ class QwenPawAgent(CodingModeMixin, Agent):
         from .model_factory import _supports_multimodal_for_current_model
 
         should_strip = (
-            not _supports_multimodal_for_current_model()
-            or self._model_rejects_media()
+            not _supports_multimodal_for_current_model() or self._model_rejects_media()
         )
         if should_strip:
             if self._uses_request_time_media_normalization():
@@ -442,8 +441,7 @@ class QwenPawAgent(CodingModeMixin, Agent):
                     "</previous-assistant-tail>"
                 )
             logger.info(
-                "Auto-continue: text-only response; injecting hint "
-                "(tool_choice=%r)",
+                "Auto-continue: text-only response; injecting hint " "(tool_choice=%r)",
                 tool_choice,
             )
             self.state.context.append(
@@ -654,9 +652,7 @@ class QwenPawAgent(CodingModeMixin, Agent):
                     )
                     if isinstance(output, list):
                         filtered = [
-                            item
-                            for item in output
-                            if not self._is_media_block(item)
+                            item for item in output if not self._is_media_block(item)
                         ]
                         stripped_count = len(output) - len(filtered)
                         total_stripped += stripped_count
@@ -667,9 +663,7 @@ class QwenPawAgent(CodingModeMixin, Agent):
                                     filtered or MEDIA_UNSUPPORTED_PLACEHOLDER
                                 )
                             else:
-                                block.output = (
-                                    filtered or MEDIA_UNSUPPORTED_PLACEHOLDER
-                                )
+                                block.output = filtered or MEDIA_UNSUPPORTED_PLACEHOLDER
 
                 new_content.append(block)
 
