@@ -9,14 +9,18 @@ and robust (empty dir / corrupt file never raise).
 """
 
 import json
+import logging
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from agentscope.message import Msg, TextBlock, ToolCallBlock, ToolResultBlock
 
 from qwenpaw.agents.context.scroll.history import HistoryStore
+from qwenpaw.agents.context.scroll import sync as sync_mod
 from qwenpaw.agents.context.scroll.sync import (
     MANIFEST_NAME,
+    sync_all_scroll_agents,
     sync_sessions_to_history,
 )
 
@@ -279,3 +283,58 @@ def test_unparseable_message_counted_not_fatal(store, tmp_path: Path):
     report = sync_sessions_to_history(history=store, sessions_dir=sessions)
     assert report.unparseable >= 1
     assert store.count("sid") >= 1  # the good message still landed
+
+
+def _stub_config_loaders(monkeypatch, workspace: Path) -> None:
+    """Point the startup sync at one scroll agent under *workspace*."""
+    agent_config = SimpleNamespace(
+        workspace_dir=str(workspace),
+        running=SimpleNamespace(
+            light_context_config=SimpleNamespace(
+                strategy="scroll",
+                scroll_config=SimpleNamespace(db_filename="history.db"),
+            ),
+        ),
+    )
+    config = SimpleNamespace(agents=SimpleNamespace(profiles={"a1": object()}))
+    import qwenpaw.config as cfg
+    import qwenpaw.config.config as cfgcfg
+
+    monkeypatch.setattr(cfg, "load_config", lambda: config, raising=False)
+    monkeypatch.setattr(
+        cfgcfg,
+        "load_agent_config",
+        lambda _id: agent_config,
+        raising=False,
+    )
+
+
+def test_first_run_emits_console_notice_then_stays_quiet(
+    monkeypatch,
+    caplog,
+    tmp_path: Path,
+):
+    workspace = tmp_path / "ws"
+    _write_session_2x(
+        workspace / "sessions",
+        "conv.json",
+        "sid",
+        _sample_msgs(),
+    )
+    _stub_config_loaders(monkeypatch, workspace)
+
+    # First boot: a WARNING-level one-time migration notice precedes the work.
+    with caplog.at_level(logging.WARNING, logger=sync_mod.logger.name):
+        sync_all_scroll_agents()
+    first_run_notices = [
+        r for r in caplog.records if "first run" in r.getMessage()
+    ]
+    assert len(first_run_notices) == 1
+    assert first_run_notices[0].levelno == logging.WARNING
+    assert (workspace / "sessions" / MANIFEST_NAME).exists()
+
+    # Second boot: manifest present → no first-run notice.
+    caplog.clear()
+    with caplog.at_level(logging.WARNING, logger=sync_mod.logger.name):
+        sync_all_scroll_agents()
+    assert not [r for r in caplog.records if "first run" in r.getMessage()]

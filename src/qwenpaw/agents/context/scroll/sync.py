@@ -469,6 +469,21 @@ def _sync_all_scroll_agents() -> None:
             logger.info("session-sync[%s]: no sessions to sync", agent_id)
             continue
 
+        # First-run notice: the manifest's absence is the one-time signal
+        # (mirrors the scroll history first-run warning). Emitted BEFORE the
+        # import so a long one-time migration isn't a silent stall in the
+        # console; later startups have a manifest and skip straight through.
+        if not (sessions_dir / MANIFEST_NAME).exists():
+            pending = sum(1 for _ in _iter_session_files(sessions_dir))
+            if pending:
+                logger.warning(
+                    "session-sync[%s]: first run — importing %d session "
+                    "file(s) into history.db. This one-time migration may "
+                    "take a moment; later startups skip unchanged files.",
+                    agent_id,
+                    pending,
+                )
+
         db_path = workspace_dir / lcc.scroll_config.db_filename
         history = HistoryStore(db_path)
         try:
