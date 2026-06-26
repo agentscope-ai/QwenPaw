@@ -217,7 +217,6 @@ export default function SidebarSessionList({
   return (
     <div
       className={styles.sessionList}
-      style={switchingSessionId ? { pointerEvents: "none" } : undefined}
     >
       {/* New Chat button */}
       <button className={styles.newChatBtn} onClick={handleNewChat}>
