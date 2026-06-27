@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import type { ProviderInfo } from "@/api/types/provider";
-import { countConfiguredProviders, getIsConfigured, groupProviders } from "./utils";
+import {
+  countConfiguredProviders,
+  getIsConfigured,
+  groupProviders,
+} from "./utils";
 
 function provider(overrides: Partial<ProviderInfo>): ProviderInfo {
   return {
