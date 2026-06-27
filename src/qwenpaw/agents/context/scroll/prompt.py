@@ -44,13 +44,13 @@ description holds the full ``ms`` API (helpers, their result keys, query
 mechanics) — read it there rather than guessing signatures.
 
 DISCIPLINE:
-  • If the request needs something not in your live context, recall it with
-    recall_history_python BEFORE answering — don't guess from a headline, and
-    don't refuse before you've searched. A miss in a memory file
-    (MEMORY.md / PROFILE.md) is not "not found": most spoken facts were never
-    saved there, but this verbatim history has them. How to recall well (wide
-    nets, full content, counting, recency, dates) is in that tool's own
-    description.
+  • recall_history_python is the COMPLETE record of past conversation — the
+    source of truth for any fact ever said, asked, done, or decided. When a
+    question turns on such a fact and it's not in your live context, recall it
+    FIRST; don't guess from a headline or refuse before searching.
+  • Memory files (MEMORY.md / PROFILE.md, via memory_search) hold the important
+    profile and user facts you deemed worth distilling — a quick first
+    reference, a curated subset of that same history.
 """
 
 __all__ = ["SCROLL_SYSTEM_PROMPT"]
