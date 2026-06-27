@@ -2379,7 +2379,10 @@
     "denied": "ツール呼び出しが拒否されました",
     "approveFailed": "承認に失敗しました",
     "cancelTask": "タスクをキャンセル",
-    "denyFailed": "拒否に失敗しました"
+    "denyFailed": "拒否に失敗しました",
+    "approvePattern": "パターンを承認",
+    "approveExact": "原文のみ承認",
+    "approvalScope": "承認スコープ"
   },
   "pluginManager": {
     "title": "プラグインマネージャー",

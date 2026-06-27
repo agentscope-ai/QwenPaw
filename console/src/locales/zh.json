@@ -2589,7 +2589,10 @@
     "cancelTask": "取消任务",
     "denyFailed": "拒绝失败",
     "timeoutAutoDenied": "已超时，自动拒绝",
-    "acknowledge": "我知道了"
+    "acknowledge": "我知道了",
+    "approvePattern": "批准通用规则",
+    "approveExact": "仅批准原文",
+    "approvalScope": "批准范围"
   },
   "pluginManager": {
     "title": "插件管理",

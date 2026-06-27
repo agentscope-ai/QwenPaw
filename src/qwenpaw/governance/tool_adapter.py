@@ -447,6 +447,7 @@ async def _ask_user_approval(
     from ..constant import TOOL_GUARD_APPROVAL_TIMEOUT_SECONDS
     from ..security.tool_guard.approval import (
         ApprovalDecision,
+        ApprovalScope,
         format_findings_summary,
     )
     from ..security.tool_guard.models import (
@@ -533,10 +534,8 @@ async def _ask_user_approval(
                         else "Policy Approval Required"
                     ),
                     description=(
-                        f"Tool '{tool_name}' with target '{display_target}' "
-                        f"requires user approval."
-                        + (
-                            f"\n\nGovernance reason: {governance_reason}"
+                        (
+                            f"Governance reason: {governance_reason}"
                             if governance_reason
                             else ""
                         )
@@ -600,6 +599,9 @@ async def _ask_user_approval(
             "display": {
                 "tool_name": tool_name,
                 "tool_source": source,
+                "exact_target": target,
+                "similar_target": display_target,
+                "is_generalized": display_target != target,
             },
             "channel_meta": ctx.get("channel_meta"),
             "_channel_instance": ctx.get("_channel_instance"),
@@ -630,22 +632,31 @@ async def _ask_user_approval(
 
     # Record user approve/deny result to audit log
     approved = decision == ApprovalDecision.APPROVED
+    # The scope the user chose (set by resolve_request on the same pending
+    # object). None = no choice offered → EXACT.
+    scope = getattr(pending, "scope", None)
+    scope_label = scope.value if scope else "exact"
     approval_decision = GovernanceDecision(
         action=GovernanceAction.ALLOW if approved else GovernanceAction.DENY,
-        reason="User Approve" if approved else "User Deny",
+        reason=(f"User Approve ({scope_label})" if approved else "User Deny"),
     )
     governor.audit(tc_spec, approval_decision)
 
     summary = format_findings_summary(guard_result)
     if decision == ApprovalDecision.APPROVED:
         # ── Record approved rule (skip for builtin ask) ──
+        # SIMILAR → the generalized pattern; EXACT (default) → the literal
+        # target the user actually approved. Widening is opt-in.
+        rule_target = (
+            generalized_target if scope == ApprovalScope.SIMILAR else target
+        )
         await governor.add_approved_rule(
             tc_spec,
-            generalized_target=generalized_target,
+            generalized_target=rule_target,
         )
         return PermissionDecision(
             behavior=PermissionBehavior.ALLOW,
-            message=f"Approved by user.\n{summary}",
+            message=f"Approved by user ({scope_label}).\n{summary}",
         )
 
     denial_msg = (

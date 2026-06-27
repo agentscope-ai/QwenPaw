@@ -69,6 +69,11 @@ interface ApprovalMessageData {
   toolParams: Record<string, unknown>;
   createdAt: number;
   timeoutSeconds: number;
+  // Approval-scope choice (console-only). When isGeneralized is true the
+  // card offers Approve Pattern (similar) vs Approve Exact (exact).
+  isGeneralized?: boolean;
+  exactTarget?: string;
+  similarTarget?: string;
 }
 
 import WhisperSpeechButton, {
@@ -1464,6 +1469,9 @@ export default function ChatPage() {
         toolParams: approval.tool_params,
         createdAt: approval.created_at,
         timeoutSeconds: approval.timeout_seconds,
+        isGeneralized: approval.is_generalized,
+        exactTarget: approval.exact_target,
+        similarTarget: approval.similar_target,
       });
     }
 
@@ -1471,7 +1479,7 @@ export default function ChatPage() {
   }, [approvals, chatId]);
 
   const handleApprove = useCallback(
-    async (requestId: string) => {
+    async (requestId: string, scope?: "exact" | "similar") => {
       const request = approvalRequests.get(requestId);
       if (!request) return;
 
@@ -1489,6 +1497,8 @@ export default function ChatPage() {
           "approve",
           requestId,
           rootSessionId,
+          undefined,
+          scope,
         );
         setApprovals((prev) =>
           prev.filter((item) => item.request_id !== requestId),
@@ -3091,7 +3101,10 @@ export default function ChatPage() {
               timeoutSeconds={request.timeoutSeconds}
               sessionId={request.sessionId}
               rootSessionId={request.rootSessionId}
-              onApprove={handleApprove}
+              isGeneralized={request.isGeneralized}
+              exactTarget={request.exactTarget}
+              similarTarget={request.similarTarget}
+              onApprove={(reqId, scope) => handleApprove(reqId, scope)}
               onDeny={handleDeny}
               onCancel={() => {
                 const sessionId =

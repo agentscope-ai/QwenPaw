@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from ...constant import TOOL_GUARD_APPROVAL_TIMEOUT_SECONDS
-from ...security.tool_guard.approval import ApprovalDecision
+from ...security.tool_guard.approval import ApprovalDecision, ApprovalScope
 from .models import ApprovalRequestSummary
 
 if TYPE_CHECKING:
@@ -56,6 +56,12 @@ class PendingApproval:
     findings_count: int = 0
     severity: str = "medium"  # For frontend display
     extra: dict[str, Any] = field(default_factory=dict)
+    # How widely the approved call should be remembered (EXACT vs SIMILAR).
+    # Set by ``resolve_request`` from the approve path; ``None`` means the
+    # caller didn't choose (IM channels, CLI, non-governance paths) and is
+    # treated as EXACT by the governance consumer. Only meaningful when the
+    # decision is APPROVED.
+    scope: ApprovalScope | None = None
 
 
 # ------------------------------------------------------------------
@@ -250,8 +256,16 @@ class ApprovalService:
         self,
         request_id: str,
         decision: ApprovalDecision,
+        scope: ApprovalScope | None = None,
     ) -> PendingApproval | None:
-        """Resolve pending approval by setting Future result."""
+        """Resolve pending approval by setting Future result.
+
+        Args:
+            scope: how widely an APPROVED call should be remembered
+                (EXACT vs SIMILAR). Stashed on ``pending.scope`` so the
+                governance consumer can pick the rule target. ``None`` is
+                treated as EXACT. Ignored for non-APPROVED decisions.
+        """
         async with self._lock:
             pending = self._pending.pop(request_id, None)
             if pending is None:
@@ -263,15 +277,17 @@ class ApprovalService:
 
             pending.status = decision.value
             pending.resolved_at = time.time()
+            pending.scope = scope
 
         # Set Future result outside lock
         if not pending.future.done():
             pending.future.set_result(decision)
 
         logger.info(
-            "Approval request %s resolved: decision=%s tool=%s",
+            "Approval request %s resolved: decision=%s scope=%s tool=%s",
             request_id[:8],
             decision.value,
+            scope.value if scope else "exact(default)",
             pending.tool_name,
         )
 

@@ -15,6 +15,8 @@ Usage:
 
 from __future__ import annotations
 
+# pylint: disable=too-many-branches
+
 import logging
 from typing import Any, Dict
 
@@ -170,6 +172,15 @@ def parse_args(query: str, command_prefix: str) -> Dict[str, Any]:
             for part in parts[1:]:
                 if part in ("--all", "-a"):
                     args["all"] = True
+
+        # Parse scope flags for approve command (--exact / --pattern).
+        # Default (no flag) is EXACT, set by the handler.
+        if args["action"] == "approve" and len(parts) > 1:
+            for part in parts[1:]:
+                if part == "--exact":
+                    args["exact"] = True
+                elif part == "--pattern":
+                    args["pattern"] = True
 
         # Second part (if exists) is request_id
         if len(parts) > 1 and not parts[1].startswith("-"):

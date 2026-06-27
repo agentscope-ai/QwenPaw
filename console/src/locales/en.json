@@ -2571,7 +2571,10 @@
     "cancelTask": "Cancel Task",
     "denyFailed": "Failed to deny",
     "timeoutAutoDenied": "Timed out, auto denied",
-    "acknowledge": "Got it"
+    "acknowledge": "Got it",
+    "approvePattern": "Approve Pattern",
+    "approveExact": "Approve Exact",
+    "approvalScope": "Approval scope"
   },
   "pluginManager": {
     "title": "Plugin Manager",
