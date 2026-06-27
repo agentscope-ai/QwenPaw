@@ -1004,6 +1004,40 @@ class BaseChannel(ABC):
             return out
         return value
 
+    @staticmethod
+    def _strip_event_headlines(event: Any, fallback: str) -> str:
+        """Drop scroll headlines (``<!-- ⟦ … ⟧ -->``) from an SSE payload.
+
+        Channels strip headlines via ``MessageRenderer``, but this raw-event
+        SSE path (console + web UI) bypasses it, so the comment leaks into the
+        rendered chat. We strip a dumped *copy* here — the live event, the
+        persisted ``conversation_history`` row, and the durable index all keep
+        the headline verbatim (those go through separate paths). A no-op on any
+        text block that holds no headline, so user/tool text is untouched.
+        """
+        from qwenpaw.agents.context.scroll.serialize import strip_headline
+
+        try:
+            payload = event.model_dump(mode="json")
+        except Exception:  # noqa: BLE001 - fall back to the unstripped data
+            return fallback
+
+        def walk(node: Any) -> None:
+            if isinstance(node, dict):
+                if node.get("type") == "text" and isinstance(
+                    node.get("text"),
+                    str,
+                ):
+                    node["text"] = strip_headline(node["text"])
+                for value in node.values():
+                    walk(value)
+            elif isinstance(node, list):
+                for value in node:
+                    walk(value)
+
+        walk(payload)
+        return json.dumps(payload, ensure_ascii=False, default=str)
+
     def _serialize_event_for_sse(self, event: Any) -> str:
         try:
             if hasattr(event, "model_dump_json"):
@@ -1012,6 +1046,12 @@ class BaseChannel(ABC):
                 data = event.json()
             else:
                 data = json.dumps({"text": str(event)}, ensure_ascii=True)
+
+            # Headlines reach the UI only through this raw-event path; rewrite
+            # to strip them, but only when a fence marker is actually present
+            # so the common (headline-free) event pays nothing.
+            if hasattr(event, "model_dump") and ("⟦" in data or "〚" in data):
+                data = self._strip_event_headlines(event, data)
 
             return self._sanitize_surrogate_text(data)
 

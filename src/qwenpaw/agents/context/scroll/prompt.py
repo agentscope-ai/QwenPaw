@@ -25,9 +25,10 @@ as an HTML comment on its own line:
     <!-- ⟦ user's flight is AA231 on 2026-07-02 ⟧ -->
 
 The headline becomes this turn's entry in the history index — the line your
-future self searches to find this turn again. Keep it under ~15 words and
-specific (name the value/decision, not "did some work"). One line only; no
-``⟧`` inside.
+future self searches to find this turn again. Capture the SINGLE most important
+fact/decision — don't enumerate every detail (the full turn is recallable).
+Keep it under ~15 words and specific (name the value/decision, not "did some
+work"). One line only; no ``⟧`` inside.
 
 THE MAP. Once context is compressed you'll see a ``[context compressed]``
 block: an index of the turns you evicted, each a ``seq · ⟦ headline ⟧`` line
