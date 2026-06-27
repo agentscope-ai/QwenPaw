@@ -17,11 +17,7 @@ echo "[launch_tauri_macos] Found app: $APP"
 # 2. Remove macOS quarantine (CI download marks it).
 xattr -dr com.apple.quarantine "$APP" 2>/dev/null || true
 
-# 3. Pre-delete BOOTSTRAP.md so the agent answers in plain QA mode.
-mkdir -p "$HOME/.qwenpaw/workspaces/default"
-rm -f "$HOME/.qwenpaw/workspaces/default/BOOTSTRAP.md"
-
-# 4. Launch the full Tauri shell (matches real user double-click).
+# 3. Launch the full Tauri shell (matches real user double-click).
 echo "[launch_tauri_macos] Launching Tauri shell..."
 open "$APP"
 echo "[launch_tauri_macos] open exit=$?"
@@ -29,7 +25,7 @@ sleep 3
 echo "[launch_tauri_macos] Process snapshot after launch:"
 ps -ef | grep -iE "qwenpaw|tauri" | grep -v grep || echo "  (no matching processes)"
 
-# 5. Wait for the sidecar to write the port file and respond.
+# 4. Wait for the sidecar to write the port file and respond.
 #    The sidecar writes desktop_port at WORKING_DIR root (~/.qwenpaw),
 #    not inside the workspace dir.
 PORT_FILE="$HOME/.qwenpaw/desktop_port"
@@ -57,6 +53,10 @@ for i in $(seq 1 60); do
   fi
   sleep 2
 done
+
+# 5. Auto-init creates BOOTSTRAP.md during startup. Remove it afterwards so
+#    the verifier can drive the agent in normal QA mode.
+rm -f "$HOME/.qwenpaw/workspaces/default/BOOTSTRAP.md"
 
 export BASE_URL="http://127.0.0.1:$PORT"
 echo "BASE_URL=$BASE_URL" >> "$GITHUB_ENV"

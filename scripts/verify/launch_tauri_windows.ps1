@@ -81,20 +81,14 @@ if ($wv2Files) {
   Write-Host "::warning::WebView2 bootstrapper not found in install dir"
 }
 
-# 3. Pre-delete BOOTSTRAP.md so the agent answers in plain QA mode.
-$wsDir = Join-Path $env:USERPROFILE ".qwenpaw\workspaces\default"
-New-Item -ItemType Directory -Force -Path $wsDir | Out-Null
-$bootstrapMd = Join-Path $wsDir "BOOTSTRAP.md"
-if (Test-Path $bootstrapMd) { Remove-Item -Force $bootstrapMd }
-
-# 4. Launch the full Tauri shell with CDP debugging enabled.
+# 3. Launch the full Tauri shell with CDP debugging enabled.
 #    This makes WebView2 expose a Chrome DevTools Protocol port so
 #    Playwright can connect_over_cdp() to the real embedded webview.
 $cdpPort = 9222
 $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = "--remote-debugging-port=$cdpPort"
 Start-Process -FilePath $tauriExe
 
-# 5. Wait for the sidecar to write the port file and respond.
+# 4. Wait for the sidecar to write the port file and respond.
 #    The sidecar writes desktop_port at WORKING_DIR root (~/.qwenpaw),
 #    not inside the workspace dir.
 $portFile = Join-Path $env:USERPROFILE ".qwenpaw\desktop_port"
@@ -120,6 +114,11 @@ if (-not $port) {
   Write-Host "::error::Tauri app did not start within 120s"
   exit 1
 }
+
+# 5. Auto-init creates BOOTSTRAP.md during startup. Remove it afterwards so
+#    the verifier can drive the agent in normal QA mode.
+$bootstrapMd = Join-Path $env:USERPROFILE ".qwenpaw\workspaces\default\BOOTSTRAP.md"
+if (Test-Path $bootstrapMd) { Remove-Item -Force $bootstrapMd }
 
 # 6. Wait for CDP endpoint to become available.
 $cdpUrl = "http://127.0.0.1:$cdpPort"
