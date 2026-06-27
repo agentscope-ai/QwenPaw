@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from .models import DataSourceType
-from .store import DataSourceNotFoundError, DataSourceStore
+from .store import DataSourceNotFoundError, create_data_source_store
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +31,7 @@ class DataSourceRuntimeContext:
 def resolve_data_source_context(
     request_context: dict[str, Any] | None,
     *,
-    store: DataSourceStore | None = None,
+    store=None,
 ) -> DataSourceRuntimeContext | None:
     """Resolve the selected data source from a request context.
 
@@ -46,7 +46,7 @@ def resolve_data_source_context(
         return None
 
     try:
-        record = (store or DataSourceStore()).get(
+        record = (store or create_data_source_store()).get(
             datasource_id,
             masked=True,
         )

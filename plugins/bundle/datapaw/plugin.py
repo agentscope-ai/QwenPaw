@@ -75,6 +75,36 @@ class DataPawPlugin:
     async def _on_startup(self):
         logger.info("DataPaw plugin starting up")
 
+        from qwenpaw.constant import EnvVarLoader
+
+        import asyncio
+        import os
+
+        from .constants import DATAPAW_DATA_SOURCE_BACKEND_ENV
+        from .core.oss_sync import reload_from_oss
+
+        if EnvVarLoader.get_bool("DATAPAW_OSS_RELOAD", False):
+            try:
+                await asyncio.to_thread(reload_from_oss)
+            except Exception:  # pylint: disable=broad-except
+                logger.warning(
+                    "DataPaw OSS reload on startup failed",
+                    exc_info=True,
+                )
+
+        if (
+            os.environ.get(DATAPAW_DATA_SOURCE_BACKEND_ENV) or "json"
+        ).strip().lower() == "hologres":
+            from .core.data_sources.hologres_store import ensure_data_source_table
+
+            try:
+                await asyncio.to_thread(ensure_data_source_table)
+            except Exception:  # pylint: disable=broad-except
+                logger.warning(
+                    "DataPaw Hologres table init on startup failed",
+                    exc_info=True,
+                )
+
         from .agents_setup import ensure_builtin_agents
         from .hooks import (
             setup_channel_sse_hook,

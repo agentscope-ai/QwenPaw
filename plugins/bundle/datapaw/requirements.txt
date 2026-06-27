@@ -10,3 +10,4 @@ pymysql>=1.1
 psycopg2-binary>=2.9
 pyodps>=0.12
 sqlalchemy>=2.0
+oss2>=2.18.0
