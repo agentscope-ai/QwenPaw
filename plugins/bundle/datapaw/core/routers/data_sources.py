@@ -25,14 +25,14 @@ from ..data_sources.models import (
 from ..data_sources.store import (
     DataSourceConflictError,
     DataSourceNotFoundError,
-    DataSourceStore,
+    create_data_source_store,
 )
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["datapaw-data-sources"])
 
-_store = DataSourceStore()
+_store = create_data_source_store()
 
 
 def _safe_config_for_log(config: dict) -> dict:

@@ -9,13 +9,14 @@ from .models import (
     DataSourceTestResponse,
     DataSourceUpdateRequest,
 )
-from .store import DataSourceStore, DataSourceStoreError
+from .store import DataSourceStore, DataSourceStoreError, create_data_source_store
 
 __all__ = [
     "DataSourceCreateRequest",
     "DataSourceRecord",
     "DataSourceStore",
     "DataSourceStoreError",
+    "create_data_source_store",
     "DataSourceTestRequest",
     "DataSourceTestResponse",
     "DataSourceUpdateRequest",

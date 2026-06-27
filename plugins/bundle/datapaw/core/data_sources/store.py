@@ -11,7 +11,7 @@ from typing import List, Optional
 
 from qwenpaw.constant import SECRET_DIR, WORKING_DIR
 
-from ...constants import BUILTIN_DATAPAW_AGENT_ID
+from ...constants import BUILTIN_DATAPAW_AGENT_ID, DATAPAW_DATA_SOURCE_BACKEND_ENV
 from .masking import mask_config, restore_config_values
 from .models import (
     DataSourceCreateRequest,
@@ -68,7 +68,7 @@ def legacy_store_path() -> Path:
     ).expanduser().resolve()
 
 
-class DataSourceStore:
+class JsonDataSourceStore:
     """CRUD over an encrypted JSON file of data-source records."""
 
     def __init__(self, path: Optional[Path] = None) -> None:
@@ -267,3 +267,18 @@ class DataSourceStore:
         return record.model_copy(
             update={"config": mask_config(record.config)},
         )
+
+
+DataSourceStore = JsonDataSourceStore
+
+
+def create_data_source_store(path: Optional[Path] = None):
+    """Return JSON or Hologres store based on ``DATAPAW_DATA_SOURCE_BACKEND``."""
+    backend = (
+        os.environ.get(DATAPAW_DATA_SOURCE_BACKEND_ENV) or "json"
+    ).strip().lower()
+    if backend == "hologres":
+        from .hologres_store import HologresDataSourceStore  # pylint: disable=import-outside-toplevel
+
+        return HologresDataSourceStore()
+    return JsonDataSourceStore(path=path)

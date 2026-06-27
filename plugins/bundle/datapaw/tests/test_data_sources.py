@@ -35,7 +35,9 @@ from plugin_datapaw.core.data_sources.store import (
     DataSourceConflictError,
     DataSourceNotFoundError,
     DataSourceStore,
+    create_data_source_store,
 )
+from plugin_datapaw.core.data_sources import hologres_store as hologres_store_mod
 
 PLUGIN_DIR = Path(__file__).resolve().parent.parent
 
@@ -446,3 +448,234 @@ def test_router_delete_notifies_id_and_type(
     assert action == "deleted"
     assert record.id == record_id
     assert record.type == "mysql"
+
+
+class _FakeCursor:
+    def __init__(self, conn: "_FakeConn") -> None:
+        self._conn = conn
+        self.rowcount = 0
+
+    def execute(self, sql: str, params=None) -> None:  # noqa: A002
+        self.rowcount = self._conn.run_query(sql, params or ())
+
+    def __enter__(self) -> "_FakeCursor":
+        return self
+
+    def __exit__(self, *_exc) -> bool:
+        return False
+
+    def fetchall(self):
+        return self._conn.fetchall_result
+
+    def fetchone(self):
+        rows = self._conn.fetchall_result
+        return rows[0] if rows else None
+
+
+class _FakeConn:
+    def __init__(self) -> None:
+        self.rows: dict[str, dict] = {}
+        self.fetchall_result: list[tuple] = []
+        self.committed = False
+
+    def cursor(self):
+        return _FakeCursor(self)
+
+    def commit(self) -> None:
+        self.committed = True
+
+    def rollback(self) -> None:
+        pass
+
+    def close(self) -> None:
+        pass
+
+    def run_query(self, sql: str, params: tuple) -> int:
+        normalized = " ".join(sql.split())
+        if normalized.startswith("SELECT id, type, name, config, created_at, updated_at FROM datapaw_data_source ORDER BY"):
+            self.fetchall_result = [
+                (
+                    row["id"],
+                    row["type"],
+                    row["name"],
+                    row["config"],
+                    row["created_at"],
+                    row["updated_at"],
+                )
+                for row in sorted(
+                    self.rows.values(),
+                    key=lambda item: item["updated_at"],
+                    reverse=True,
+                )
+            ]
+            return 0
+
+        if "WHERE id = %s" in normalized and normalized.startswith(
+            "SELECT id, type, name, config, created_at, updated_at FROM datapaw_data_source"
+        ):
+            record_id = params[0]
+            row = self.rows.get(record_id)
+            self.fetchall_result = [
+                (
+                    row["id"],
+                    row["type"],
+                    row["name"],
+                    row["config"],
+                    row["created_at"],
+                    row["updated_at"],
+                )
+            ] if row else []
+            return 0
+
+        if normalized.startswith("INSERT INTO datapaw_data_source"):
+            record_id, ds_type, name, config, created_at, updated_at = params
+            if any(row["name"].casefold() == str(name).strip().casefold() for row in self.rows.values()):
+                import psycopg2.errors as pg_errors  # pylint: disable=import-outside-toplevel
+
+                raise pg_errors.UniqueViolation()
+            if hasattr(config, "adapted"):
+                config = dict(config.adapted)
+            self.rows[record_id] = {
+                "id": record_id,
+                "type": ds_type,
+                "name": name,
+                "config": dict(config),
+                "created_at": created_at,
+                "updated_at": updated_at,
+            }
+            return 1
+
+        if normalized.startswith("UPDATE datapaw_data_source"):
+            name, config, updated_at, record_id = params
+            row = self.rows.get(record_id)
+            if row is None:
+                self.fetchall_result = []
+                return 0
+            if hasattr(config, "adapted"):
+                config = dict(config.adapted)
+            row.update(
+                {
+                    "name": name,
+                    "config": dict(config),
+                    "updated_at": updated_at,
+                }
+            )
+            return 1
+
+        if normalized.startswith("DELETE FROM datapaw_data_source"):
+            record_id = params[0]
+            if record_id not in self.rows:
+                return 0
+            del self.rows[record_id]
+            return 1
+
+        if "SELECT 1 FROM datapaw_data_source" in normalized:
+            if len(params) == 2:
+                new_name, record_id = params
+                self.fetchall_result = [
+                    (1,)
+                ] if any(
+                    row["id"] != record_id
+                    and row["name"].strip().casefold() == str(new_name).strip().casefold()
+                    for row in self.rows.values()
+                ) else []
+            else:
+                name = params[0]
+                self.fetchall_result = [
+                    (1,)
+                ] if any(
+                    row["name"].strip().casefold() == str(name).strip().casefold()
+                    for row in self.rows.values()
+                ) else []
+            return 0
+
+        return 0
+
+
+@pytest.fixture
+def mock_hologres_store(monkeypatch: pytest.MonkeyPatch):
+    fake_conn = _FakeConn()
+    monkeypatch.setattr(hologres_store_mod, "_connect", lambda: fake_conn)
+    return hologres_store_mod.HologresDataSourceStore(), fake_conn
+
+
+def test_create_store_defaults_to_json(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("DATAPAW_DATA_SOURCE_BACKEND", raising=False)
+    store = create_data_source_store(path=tmp_path / "data_sources.json")
+    assert store.path == (tmp_path / "data_sources.json").resolve()
+
+
+def test_create_store_uses_hologres_backend(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("DATAPAW_DATA_SOURCE_BACKEND", "hologres")
+    store = create_data_source_store()
+    assert isinstance(store, hologres_store_mod.HologresDataSourceStore)
+
+
+def test_hologres_store_stores_plaintext_password(
+    mock_hologres_store: tuple,
+) -> None:
+    store, fake_conn = mock_hologres_store
+    created = store.create(
+        DataSourceCreateRequest(
+            type="mysql",
+            name="holo-db",
+            config=dict(MYSQL_CONFIG),
+        ),
+    )
+    stored = fake_conn.rows[created.id]["config"]
+    assert stored["password"] == MYSQL_CONFIG["password"]
+    assert store.get(created.id, masked=False).config["password"] == MYSQL_CONFIG["password"]
+
+
+def test_hologres_store_crud(mock_hologres_store: tuple) -> None:
+    store, _fake_conn = mock_hologres_store
+    created = store.create(
+        DataSourceCreateRequest(
+            type="mysql",
+            name="crud-db",
+            config=dict(MYSQL_CONFIG),
+        ),
+    )
+    assert len(store.list_all(masked=False)) == 1
+
+    updated = store.update(
+        created.id,
+        DataSourceUpdateRequest(name="crud-db-new"),
+    )
+    assert updated.name == "crud-db-new"
+
+    store.delete(created.id)
+    with pytest.raises(DataSourceNotFoundError):
+        store.get(created.id)
+
+
+def test_ensure_data_source_table_runs_once(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[str] = []
+
+    class _InitConn:
+        def cursor(self):
+            return self
+
+        def execute(self, sql: str, params=None) -> None:  # noqa: A002
+            calls.append(sql)
+
+        def commit(self) -> None:
+            pass
+
+        def close(self) -> None:
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_exc) -> bool:
+            return False
+
+    monkeypatch.setattr(hologres_store_mod, "_connect", lambda: _InitConn())
+    hologres_store_mod._table_ready = False
+
+    hologres_store_mod.ensure_data_source_table()
+    hologres_store_mod.ensure_data_source_table()
+
+    assert len(calls) == 1
+    assert "CREATE TABLE IF NOT EXISTS datapaw_data_source" in calls[0]
