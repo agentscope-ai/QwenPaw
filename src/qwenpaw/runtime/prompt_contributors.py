@@ -260,9 +260,10 @@ class ScrollContextContributor(SyncPromptContributor):
             return None
         if strategy != "scroll":
             return None
-        from ..agents.context.scroll.prompt import SCROLL_SYSTEM_PROMPT
+        from ..agents.context.scroll.prompt import build_scroll_system_prompt
 
-        return SCROLL_SYSTEM_PROMPT
+        language = getattr(agent_config, "language", "en")
+        return build_scroll_system_prompt(language)
 
 
 class EnvContextContributor(SyncPromptContributor):
