@@ -45,8 +45,11 @@ mechanics) — read it there rather than guessing signatures.
 DISCIPLINE:
   • If the request needs something not in your live context, recall it with
     recall_history_python BEFORE answering — don't guess from a headline, and
-    don't refuse before you've searched. How to recall well (wide nets, full
-    content, counting, recency, dates) is in that tool's own description.
+    don't refuse before you've searched. A miss in a memory file
+    (MEMORY.md / PROFILE.md) is not "not found": most spoken facts were never
+    saved there, but this verbatim history has them. How to recall well (wide
+    nets, full content, counting, recency, dates) is in that tool's own
+    description.
 """
 
 __all__ = ["SCROLL_SYSTEM_PROMPT"]

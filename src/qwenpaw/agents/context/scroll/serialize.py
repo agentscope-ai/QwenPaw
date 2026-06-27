@@ -13,9 +13,18 @@ from ..types import LogEntry
 # brackets U+27E6 / U+27E7, chosen to almost never collide with code, markdown,
 # or diff hunks). The fence is normally wrapped in an HTML comment
 # (``<!-- ⟦ … ⟧ -->``) so it stays invisible in the rendered chat; the optional
-# wrapper is tolerated here. The inner text never contains ⟧.
+# wrapper is tolerated here.
+#
+# Qwen routinely substitutes the visually-identical white square brackets
+# U+301A/U+301B (``〚 〛``) for the intended U+27E6/U+27E7 (``⟦ ⟧``). Accept both
+# pairs on each side so a lookalike fence is still stripped from display and
+# captured into the index rather than leaking as a visible comment. The inner
+# text never contains a closing bracket of either variant.
+_OPEN = r"[⟦〚]"
+_CLOSE = r"[⟧〛]"
 _HEADLINE_RE = re.compile(
-    r"^[ \t]*(?:<!--)?[ \t]*⟦[ \t]*(.+?)[ \t]*⟧[ \t]*(?:-->)?[ \t]*$",
+    rf"^[ \t]*(?:<!--)?[ \t]*{_OPEN}[ \t]*(.+?)[ \t]*{_CLOSE}"
+    rf"[ \t]*(?:-->)?[ \t]*$",
     re.MULTILINE,
 )
 _HEADLINE_MAX = 200  # chars — a headline is an index entry, not a paragraph
