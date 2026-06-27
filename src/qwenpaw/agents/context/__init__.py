@@ -152,62 +152,81 @@ def build_scroll_components(
         session_id,
     )
 
-    # Imported lazily so the native path never pays for the scroll machinery.
-    from .scroll.cap_middleware import ToolResultCapMiddleware
-    from .scroll.history import HistoryStore
-    from .scroll.manager import ScrollContextManager
-    from .scroll.repl import make_recall_history_python
+    # Everything below is guarded: if any scroll dependency is unsatisfied
+    # (a lazy import fails, e.g. a missing package or a broken submodule) or a
+    # component can't be constructed, we log and return ``None`` so the agent
+    # silently falls back to native context management instead of failing to
+    # build. Native keeps full history in-context, so degrading is always safe.
+    try:
+        # Imported lazily so the native path never pays for the scroll
+        # machinery — and so a missing scroll dependency degrades to native
+        # here rather than breaking import of this module.
+        from .scroll.cap_middleware import ToolResultCapMiddleware
+        from .scroll.history import HistoryStore
+        from .scroll.manager import ScrollContextManager
+        from .scroll.repl import make_recall_history_python
 
-    sc = lcc.scroll_config
-    db_path = Path(workspace_dir) / sc.db_filename
-    # First-run notice: scroll is the default as of this release, so agents
-    # that never set ``strategy`` are switched to it silently. The first time
-    # we wire scroll in a workspace we create ``history.db`` there; warn once
-    # (the file's absence is the first-run signal — it never repeats) so the
-    # switch, the new on-disk file, and the rollback path are all discoverable.
-    if not db_path.exists():
-        _warn_first_run(db_path)
-    else:
-        # Existing store: nudge toward a retention window if it grew large.
-        _warn_db_size(db_path)
-    history = HistoryStore(db_path)
-    scratch_root = str(Path(workspace_dir) / ".scroll")
+        sc = lcc.scroll_config
+        db_path = Path(workspace_dir) / sc.db_filename
+        # First-run notice: scroll is the default as of this release, so agents
+        # that never set ``strategy`` are switched to it silently. The first
+        # time we wire scroll in a workspace we create ``history.db`` there;
+        # warn once (the file's absence is the first-run signal — it never
+        # repeats) so the switch, the new on-disk file, and the rollback path
+        # are all discoverable.
+        if not db_path.exists():
+            _warn_first_run(db_path)
+        else:
+            # Existing store: nudge toward a retention window if it grew large.
+            _warn_db_size(db_path)
+        history = HistoryStore(db_path)
+        scratch_root = str(Path(workspace_dir) / ".scroll")
 
-    # Shared {tool_call_id -> seq} of results the cap middleware already
-    # wrote in full. The manager consults it so it never re-persists the
-    # truncated stub the model sees in-context (which would duplicate the row
-    # + bloat FTS); it adopts the cap's seq so the result still falls inside
-    # the eviction span.
-    capped_results: dict[str, int] = {}
+        # Shared {tool_call_id -> seq} of results the cap middleware already
+        # wrote in full. The manager consults it so it never re-persists the
+        # truncated stub the model sees in-context (which would duplicate the
+        # row + bloat FTS); it adopts the cap's seq so the result still falls
+        # inside the eviction span.
+        capped_results: dict[str, int] = {}
 
-    manager = ScrollContextManager(
-        history=history,
-        session_id=session_id,
-        agent_id=agent_id,
-        pinned=sc.pinned,
-        capped_results=capped_results,
-        # Legacy dialog archive is opt-in; only hand the manager an offloader
-        # when configured, so by default scroll writes nothing to dialog/.
-        offloader=offloader if getattr(sc, "offload_dialog", False) else None,
-    )
-    cap = ToolResultCapMiddleware(
-        history=history,
-        model=model,
-        session_id=session_id,
-        agent_id=agent_id,
-        token_cap=sc.tool_output_token_cap,
-        capped_results=capped_results,
-    )
-    tool = make_recall_history_python(
-        history_db_path=str(history.path),
-        session_id=session_id,
-        agent_id=agent_id,
-        scratch_root=scratch_root,
-        timeout_s=sc.repl_timeout_s,
-        allow_unsandboxed=scroll_unsandboxed_allowed(sc),
-    )
-    return ScrollComponents(
-        context_manager=manager,
-        cap_middleware=cap,
-        repl_tool=tool,
-    )
+        manager = ScrollContextManager(
+            history=history,
+            session_id=session_id,
+            agent_id=agent_id,
+            pinned=sc.pinned,
+            capped_results=capped_results,
+            # Legacy dialog archive is opt-in; only hand the manager an
+            # offloader when configured, so by default scroll writes nothing
+            # to dialog/.
+            offloader=(
+                offloader if getattr(sc, "offload_dialog", False) else None
+            ),
+        )
+        cap = ToolResultCapMiddleware(
+            history=history,
+            model=model,
+            session_id=session_id,
+            agent_id=agent_id,
+            token_cap=sc.tool_output_token_cap,
+            capped_results=capped_results,
+        )
+        tool = make_recall_history_python(
+            history_db_path=str(history.path),
+            session_id=session_id,
+            agent_id=agent_id,
+            scratch_root=scratch_root,
+            timeout_s=sc.repl_timeout_s,
+            allow_unsandboxed=scroll_unsandboxed_allowed(sc),
+        )
+        return ScrollComponents(
+            context_manager=manager,
+            cap_middleware=cap,
+            repl_tool=tool,
+        )
+    except Exception:  # noqa: BLE001 - any scroll failure degrades to native
+        logger.warning(
+            "scroll: failed to wire components — falling back to native "
+            "context management",
+            exc_info=True,
+        )
+        return None
