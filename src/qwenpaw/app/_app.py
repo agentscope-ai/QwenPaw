@@ -206,9 +206,19 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
     # Import raw sessions/*.json history into each scroll agent's history.db so
     # conversations that pre-date scroll (or never write-through'd) are
     # recallable. Internally guarded — never raises, never blocks boot.
-    from ..agents.context.scroll.sync import sync_all_scroll_agents
+    # This is purely an import/backfill step, so it can safely run
+    # asynchronously (off the boot path) without affecting correctness.
+    #
+    # The module import is guarded too: sync_all_scroll_agents()'s own
+    # try/except only protects its body, so a failure while importing the
+    # module (e.g. a transitive ImportError) would otherwise escape and block
+    # boot. Wrapping the import keeps startup resilient to that as well.
+    try:
+        from ..agents.context.scroll.sync import sync_all_scroll_agents
 
-    sync_all_scroll_agents()
+        sync_all_scroll_agents()
+    except Exception:  # noqa: BLE001 - session sync must never block startup
+        logger.warning("session-sync: import/launch failed", exc_info=True)
 
     # Create core managers (instant — no I/O)
     provider_manager = ProviderManager.get_instance()

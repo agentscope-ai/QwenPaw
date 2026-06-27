@@ -71,6 +71,25 @@ def extract_headline(text: str | None) -> str | None:
     return None
 
 
+def strip_headline(text: str | None) -> str | None:
+    """Remove the headline line for display, keeping it in context/index.
+
+    Deletes exactly the line :func:`extract_headline` matched (same first
+    match, by span) — so a line is hidden iff it became the index entry. The
+    headline stays verbatim in the live context and persisted row; this only
+    cleans the text rendered to channels/console, where ``<!-- … -->`` shows.
+    """
+    if not text:
+        return text
+    m = _HEADLINE_RE.search(text)
+    if not m or not m.group(1).strip():
+        return text
+    start, end = m.span()  # one line: ``.`` never crosses a newline
+    cleaned = text[:start] + text[end:]
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)  # collapse blank line left
+    return cleaned.strip()
+
+
 def msg_to_entries(msg: Msg) -> list[LogEntry]:
     """Map one ``Msg`` to one or more durable ``LogEntry`` rows.
 
