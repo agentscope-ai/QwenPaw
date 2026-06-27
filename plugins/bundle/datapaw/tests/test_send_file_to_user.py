@@ -22,7 +22,7 @@ SAMPLE_HTML = """
   <style>.hero { background: url('../images/hero.png'); }</style>
 </head>
 <body>
-  <a href="../data/result.csv">csv</a>
+  <a href='../data/result.csv'>csv</a>
   <img srcset="./small.png 1x, ./large.png 2x">
 </body>
 </html>
@@ -95,7 +95,7 @@ def test_register_file_delivery_respects_disabled_host_tool() -> None:
     assert "send_file_to_user" not in agent.toolkit.tools
 
 
-def test_html_artifact_send_generates_rewritten_copy(tmp_path) -> None:
+def test_html_artifact_send_rewrites_original_file_in_place(tmp_path) -> None:
     from plugin_datapaw.core.file_delivery import build_send_file_to_user_fn
 
     report_path = _write_artifact_report(tmp_path)
@@ -113,15 +113,10 @@ def test_html_artifact_send_generates_rewritten_copy(tmp_path) -> None:
         asyncio.run(tool(f"artifacts/{REPORT_REL}"))
         asyncio.run(tool(f"artifacts/{REPORT_REL}"))
 
-    copy_path = report_path.with_name("report.datapaw-send.html")
-    assert sent_paths == [str(copy_path), str(copy_path)]
-    assert copy_path.is_file()
-    assert list(report_path.parent.glob("report.datapaw-send*.html")) == [
-        copy_path,
-    ]
-    assert report_path.read_text(encoding="utf-8") == SAMPLE_HTML
+    assert sent_paths == [str(report_path), str(report_path)]
+    assert not list(report_path.parent.glob("report.datapaw-send*.html"))
 
-    body = copy_path.read_text(encoding="utf-8")
+    body = report_path.read_text(encoding="utf-8")
     csv_url = (
         "http://testserver/api/tasks/s1/files/resource"
         f"?path={quote(CSV_REL, safe='')}"
@@ -134,7 +129,7 @@ def test_html_artifact_send_generates_rewritten_copy(tmp_path) -> None:
     )
     assert csv_url in body
     assert css_url in body
-    assert "href=\"../data/result.csv\"" not in body
+    assert "href='../data/result.csv'" not in body
 
 
 def test_html_artifact_send_rewrites_absolute_artifact_links(tmp_path) -> None:
@@ -163,9 +158,9 @@ def test_html_artifact_send_rewrites_absolute_artifact_links(tmp_path) -> None:
     ):
         asyncio.run(tool(f"artifacts/{REPORT_REL}"))
 
-    copy_path = report_path.with_name("report.datapaw-send.html")
-    assert sent_paths == [str(copy_path)]
-    body = copy_path.read_text(encoding="utf-8")
+    assert sent_paths == [str(report_path)]
+    assert not report_path.with_name("report.datapaw-send.html").exists()
+    body = report_path.read_text(encoding="utf-8")
     csv_url = (
         "http://testserver/api/tasks/s1/files/resource"
         f"?path={quote(CSV_REL, safe='')}"
@@ -174,6 +169,34 @@ def test_html_artifact_send_rewrites_absolute_artifact_links(tmp_path) -> None:
     assert csv_url in body
     assert absolute_csv.as_posix() not in body
     assert absolute_csv.as_uri() not in body
+
+
+def test_html_artifact_send_accepts_artifact_root_relative_path(tmp_path) -> None:
+    from plugin_datapaw.core.file_delivery import build_send_file_to_user_fn
+
+    report_path = _write_artifact_report(tmp_path)
+    sent_paths: list[str] = []
+
+    async def fake_host_send(file_path: str):
+        sent_paths.append(file_path)
+        return {"sent": file_path}
+
+    tool = build_send_file_to_user_fn(_agent(tmp_path))
+    with patch(
+        "plugin_datapaw.core.file_delivery._host_send_file_to_user",
+        new=fake_host_send,
+    ):
+        asyncio.run(tool(REPORT_REL))
+
+    assert sent_paths == [str(report_path)]
+    assert not report_path.with_name("report.datapaw-send.html").exists()
+    body = report_path.read_text(encoding="utf-8")
+    csv_url = (
+        "http://testserver/api/tasks/s1/files/resource"
+        f"?path={quote(CSV_REL, safe='')}"
+        "&amp;user_id=default&amp;agent_id=datapaw"
+    )
+    assert csv_url in body
 
 
 def test_non_html_send_passthrough(tmp_path) -> None:

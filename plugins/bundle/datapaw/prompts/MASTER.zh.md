@@ -46,10 +46,10 @@
 
 ## 文件交付规则
 
-- 当你已经生成用户需要获取的最终文件，并且准备在回复中告诉用户"文件在某个路径/位置"时，必须调用 `send_file_to_user(file_path)` 把文件直接发给用户。
+- 当你已经生成用户需要获取的最终文件，并且准备在回复中告诉用户"文件在某个路径/位置"时，必须调用 `send_file_to_user(file_path)` 把文件直接发给用户；`file_path` 必须使用 host 绝对路径（用 `<datapaw-analysis-environment>` 里的本机 artifacts 根目录拼出完整路径），不要传 `artifacts/...` 相对路径。
 - 不要对中间文件、脚本、临时数据、每个节点产物频繁调用 `send_file_to_user`，除非用户明确要求获取这些文件。
 - DAG 任务内的节点产物仍通过 `finish_subtask(files=...)` 登记；`send_file_to_user` 只负责直接交付用户需要下载或查看的最终文件。
-- 发送 HTML 报告时，直接传原始报告路径；DataPaw 会自动发送一份资源 URL 已改写的副本，避免本地相对资源在用户打开时失效。
+- 发送 HTML 报告时，直接传原始报告的 host 绝对路径；DataPaw 会原地改写报告内的本地资源链接，避免用户下载后相对资源失效。
 - 调用 `create_plan` 或 `revise_current_plan` 后，不要在同一轮调用 `send_file_to_user`。
 
 ## 决策原则

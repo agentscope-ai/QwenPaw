@@ -207,6 +207,9 @@ _MESSAGES: dict[str, dict[str, str]] = {
             "- 引用产物时使用 `artifacts/<session_id>/<graph_id>/<node_id>/...`；"
             "`finish_subtask(files=...)` 的 path 使用相对 artifacts 根的路径"
             "（不带 `artifacts/` 前缀）。\n"
+            "- 调用 `send_file_to_user(file_path)` 交付最终文件时，"
+            "使用 host 绝对路径：`{root}/<session_id>/<graph_id>/<node_id>/...`，"
+            "不要传 `artifacts/...` 相对路径。\n"
             "</datapaw-analysis-environment>"
         ),
         "en": (
@@ -219,6 +222,10 @@ _MESSAGES: dict[str, dict[str, str]] = {
             "`artifacts/<session_id>/<graph_id>/<node_id>/...`; "
             "for `finish_subtask(files=...)`, use paths relative to the "
             "artifacts root (no `artifacts/` prefix).\n"
+            "- When calling `send_file_to_user(file_path)` to deliver a "
+            "final file, use a host absolute path: "
+            "`{root}/<session_id>/<graph_id>/<node_id>/...`, not an "
+            "`artifacts/...` relative path.\n"
             "</datapaw-analysis-environment>"
         ),
     },

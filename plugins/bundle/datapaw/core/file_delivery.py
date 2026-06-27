@@ -107,24 +107,17 @@ def _resolve_artifact_html_path(
     return None
 
 
-def _send_copy_path(html_path: Path) -> Path:
-    if html_path.stem.endswith(".datapaw-send"):
-        return html_path
-    suffix = html_path.suffix or ".html"
-    return html_path.with_name(f"{html_path.stem}.datapaw-send{suffix}")
-
-
-def _rewrite_html_delivery_copy(
+def _rewrite_html_artifact_in_place(
     agent: Any,
     *,
     html_host_path: Path,
     html_artifact_path: str,
     artifacts_root: Path,
-) -> Path | None:
+) -> bool:
     rc = _request_context(agent)
     session_id = str(rc.get("session_id") or "")
     if not session_id:
-        return None
+        return False
 
     user_id = str(rc.get("user_id") or "default")
     agent_id = str(rc.get("agent_id") or _agent_id(agent))
@@ -138,9 +131,8 @@ def _rewrite_html_delivery_copy(
         api_origin=_api_origin(agent),
         artifacts_root=artifacts_root,
     )
-    copy_path = _send_copy_path(html_host_path)
-    copy_path.write_text(rewritten, encoding="utf-8")
-    return copy_path
+    html_host_path.write_text(rewritten, encoding="utf-8")
+    return True
 
 
 def build_send_file_to_user_fn(
@@ -151,8 +143,8 @@ def build_send_file_to_user_fn(
     async def send_file_to_user(file_path: str) -> ToolResponse:
         """Send a file to the user.
 
-        For DataPaw HTML artifacts, sends a rewritten copy whose local
-        resources point at the DataPaw resource API.
+        For DataPaw HTML artifacts, rewrites the original HTML file in place
+        so local resources point at the DataPaw resource API.
         """
         workspace_dir = _workspace_dir(agent)
         artifacts_root = default_artifacts_root(
@@ -169,7 +161,7 @@ def build_send_file_to_user_fn(
 
         html_host_path, html_artifact_path = resolved
         try:
-            copy_path = _rewrite_html_delivery_copy(
+            rewritten = _rewrite_html_artifact_in_place(
                 agent,
                 html_host_path=html_host_path,
                 html_artifact_path=html_artifact_path,
@@ -181,11 +173,11 @@ def build_send_file_to_user_fn(
                 html_host_path,
                 exc_info=True,
             )
-            copy_path = None
+            rewritten = False
 
-        if copy_path is None:
+        if not rewritten:
             return await _host_send_file_to_user(file_path)
-        return await _host_send_file_to_user(str(copy_path))
+        return await _host_send_file_to_user(str(html_host_path))
 
     send_file_to_user.__annotations__ = {
         "file_path": str,
