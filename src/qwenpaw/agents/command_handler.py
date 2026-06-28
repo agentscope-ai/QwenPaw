@@ -49,15 +49,6 @@ SYSTEM_COMMAND_DESCRIPTIONS: dict[str, str] = {
 # directly; the field is constrained ``gt=0``, so we use a negligible value
 # rather than zero.
 _FORCE_TRIGGER_RATIO = 1e-6
-# Manual ``/compact`` also shrinks the ``reserve_ratio`` recent-tail budget
-# to a small window. The auto reserve (~10% of the context window, e.g. ~13K
-# tokens on a 128K model) is sized for *automatic* compaction near the
-# trigger; reusing it for a manual command means a small conversation that
-# fits inside the reserve has nothing to evict, so ``/compact`` appears to do
-# nothing. On demand the user wants space freed *now*, so we keep only a couple
-# of recent turns for continuity (eviction is lossless under scroll — the rest
-# stays recallable).
-_FORCE_RESERVE_RATIO = 0.02
 
 
 def _fmt_tokens(n: int) -> str:
@@ -247,28 +238,17 @@ class CommandHandler(ConversationCommandHandlerMixin):
     def _forced_context_config(self, agent: "Agent"):
         """Clone the agent's ContextConfig for a manual ``/compact``.
 
-        Always drops ``trigger_ratio`` so compaction runs now instead of
-        waiting for the auto threshold (strategy-agnostic).
-
-        Shrinks ``reserve_ratio`` to ``_FORCE_RESERVE_RATIO`` **only under
-        scroll**, where eviction is lossless (evicted turns stay recallable),
-        so a tiny reserve frees space with nothing lost. Native compaction is
-        lossy — the non-reserved middle is summarized away — so it keeps its
-        configured reserve (already on ``base``) for the same recent-tail
-        continuity as auto compaction. Falls back to the agent's config if
-        cloning fails."""
+        Only drops ``trigger_ratio`` so compaction runs now instead of waiting
+        for the auto threshold. The ``reserve_ratio`` recent-tail budget is
+        left untouched, so a manual ``/compact`` keeps the same tail as auto
+        compaction under both strategies. (A side effect: a conversation that
+        already fits inside the reserve has nothing to evict, so ``/compact``
+        reports "nothing to compact" — which is honest, it doesn't need
+        compacting.) Falls back to the agent's config if cloning fails."""
         base = getattr(agent, "context_config", None)
         if base is None:
             return None
         update: dict[str, Any] = {"trigger_ratio": _FORCE_TRIGGER_RATIO}
-        try:
-            strategy = (
-                self._get_agent_config().running.light_context_config.strategy
-            )
-        except Exception:
-            strategy = "native"
-        if strategy == "scroll":
-            update["reserve_ratio"] = _FORCE_RESERVE_RATIO
         try:
             return base.model_copy(update=update)
         except Exception:

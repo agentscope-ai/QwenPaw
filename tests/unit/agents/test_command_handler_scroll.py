@@ -81,15 +81,12 @@ class _FakeCtxConfig:
         return _FakeCtxConfig(**merged)
 
 
-def test_forced_compact_drops_trigger_and_shrinks_reserve(monkeypatch):
-    """Under scroll, manual /compact must bypass the auto trigger AND shrink
-    the recent-tail reserve, so a small conversation still has a middle to
-    evict instead of reporting 'nothing to compact'. Lossless eviction
-    (recallable history) makes the aggressive reserve safe."""
-    from qwenpaw.agents.command_handler import (
-        _FORCE_RESERVE_RATIO,
-        _FORCE_TRIGGER_RATIO,
-    )
+def test_forced_compact_drops_trigger_keeps_reserve(monkeypatch):
+    """Under scroll, manual /compact forces the trigger but keeps the
+    configured recent-tail reserve — same as auto compaction. /compact only
+    means "compact now", not "shrink the tail more aggressively"; a
+    conversation that already fits inside the reserve has nothing to evict."""
+    from qwenpaw.agents.command_handler import _FORCE_TRIGGER_RATIO
 
     handler = CommandHandler(agent_name="QwenPaw")
     monkeypatch.setattr(
@@ -100,7 +97,8 @@ def test_forced_compact_drops_trigger_and_shrinks_reserve(monkeypatch):
     agent = SimpleNamespace(context_config=_FakeCtxConfig(0.8, 0.1))
     forced = handler._forced_context_config(agent)
     assert forced.trigger_ratio == _FORCE_TRIGGER_RATIO
-    assert forced.reserve_ratio == _FORCE_RESERVE_RATIO
+    # Reserve stays at the configured base — no scroll-specific shrink.
+    assert forced.reserve_ratio == 0.1
     # The original is untouched (model_copy, not in-place mutation).
     assert agent.context_config.reserve_ratio == 0.1
 
