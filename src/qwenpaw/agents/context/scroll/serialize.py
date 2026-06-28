@@ -41,8 +41,39 @@ def _dump(block: Any) -> dict:
     return {"repr": str(block)}
 
 
+def _media_ref(bd: dict) -> str | None:
+    """Render one ``DataBlock`` dump as a compact, searchable text reference.
+
+    ``[image: <url>]`` / ``[file: <name> — <url>]`` so a media-bearing turn
+    still lands in ``content`` (and its FTS index) and comes back through
+    recall — which is text-only and would otherwise see an empty string. A
+    base64 source NEVER inlines its payload: only ``name``/``media_type`` is
+    shown, so ``content`` stays small even when the block carries raw bytes.
+    """
+    if not isinstance(bd, dict) or bd.get("type") != "data":
+        return None
+    src = bd.get("source") or {}
+    media_type = src.get("media_type") or ""
+    kind = media_type.split("/", 1)[0] if "/" in media_type else "file"
+    if kind not in ("image", "audio", "video"):
+        kind = "file"
+    ref = (
+        src.get("url")
+        if src.get("type") == "url"
+        else f"<{media_type or 'binary'}>"
+    )
+    name = bd.get("name")
+    if name and ref:
+        return f"[{kind}: {name} — {ref}]"
+    return f"[{kind}: {name or ref or '?'}]"
+
+
 def flatten_output(output: Any) -> str | None:
-    """Flatten a ToolResultBlock.output (str | list[block]) to text."""
+    """Flatten a ToolResultBlock.output (str | list[block]) to text.
+
+    Non-text blocks (an image a tool returned) collapse to a ``_media_ref``
+    placeholder rather than vanishing, so the result stays recallable.
+    """
     if output is None:
         return None
     if isinstance(output, str):
@@ -53,6 +84,10 @@ def flatten_output(output: Any) -> str | None:
         text = bd.get("text")
         if text:
             parts.append(text)
+        else:
+            ref = _media_ref(bd)
+            if ref:
+                parts.append(ref)
     return "\n".join(parts) if parts else None
 
 
@@ -132,8 +167,15 @@ def msg_to_entries(msg: Msg) -> list[LogEntry]:
         dumped = [_dump(b) for b in non_result]
         text = msg.get_text_content() or ""
         # Headline only on the model's own turns; user/placeholder rows
-        # need none.
+        # need none. Computed from the model's own text, before media refs
+        # are appended, so a placeholder line can't be mistaken for a fence.
         headline = extract_headline(text) if msg.role == "assistant" else None
+        # Append a text reference for any media/file block so a turn that
+        # carried only an image isn't stored (and recalled) as empty content.
+        media = [r for r in (_media_ref(b) for b in dumped) if r]
+        if media:
+            joined = "\n".join(media)
+            text = f"{text}\n{joined}".strip() if text else joined
         entries.append(
             LogEntry(
                 kind="model_turn"
