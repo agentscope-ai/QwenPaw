@@ -2354,7 +2354,7 @@ def get_model_max_input_length(
     """
     from ..providers import ProviderManager
 
-    # First try the runtime active model (set by zorrofox)
+    # First try the runtime active model (set by zorrofox1121)
     try:
         manager = ProviderManager.get_instance()
         model_slot = manager.get_active_model()
