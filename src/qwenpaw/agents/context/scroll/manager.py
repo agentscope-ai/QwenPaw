@@ -414,16 +414,6 @@ class ScrollContextManager:
             dry_run=dry_run,
         )
 
-    def estimate_purge_old(self, retention_days: int) -> dict:
-        """Preview a retention purge: ``{"rows", "content_bytes"}`` that
-        ``purge_old(retention_days)`` would drop. ``retention_days <= 0``
-        (keep forever) drops nothing, so returns zeros."""
-        if retention_days <= 0:
-            return {"rows": 0, "content_bytes": 0}
-        return self._history.estimate_purge(
-            before=self._cutoff(retention_days),
-        )
-
     @staticmethod
     def _cutoff(retention_days: int) -> str:
         """ISO-8601 UTC instant ``retention_days`` ago — the purge boundary."""
