@@ -169,6 +169,27 @@ export function ReactAgentCard({
         </Form.Item>
 
         <Form.Item
+          label={t("agentConfig.contextStrategy")}
+          name={["light_context_config", "strategy"]}
+          tooltip={t("agentConfig.contextStrategyTooltip")}
+          className={styles.reactAgentField}
+        >
+          <Select
+            options={[
+              {
+                value: "scroll",
+                label: t("agentConfig.contextStrategyScroll"),
+              },
+              {
+                value: "native",
+                label: t("agentConfig.contextStrategyNative"),
+              },
+            ]}
+            style={{ width: "100%" }}
+          />
+        </Form.Item>
+
+        <Form.Item
           label={t("agentConfig.memoryManagerBackend")}
           name="memory_manager_backend"
           tooltip={t("agentConfig.memoryManagerBackendTooltip")}
