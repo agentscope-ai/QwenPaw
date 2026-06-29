@@ -1177,9 +1177,27 @@ class DingTalkChannel(BaseChannel):
             )
             return False
 
-        # Send via Open API with appropriate msgKey
-        # Note: sampleImageMsg does not support mediaId, so we send as
-        # sampleFile for all media types including images.
+        # Send via Open API with appropriate msgKey.
+        # DingTalk sampleImageMsg photoURL accepts uploaded image mediaId,
+        # so local/base64 images can still render as previewable images.
+        if upload_type == "image":
+            ok = await self._send_open_api_message(
+                msg_key="sampleImageMsg",
+                msg_param={
+                    "photoURL": media_id,
+                },
+                conversation_id=conversation_id,
+                conversation_type=conversation_type,
+                sender_staff_id=sender_staff_id,
+            )
+            if ok:
+                return True
+            logger.info(
+                "dingtalk _send_media_part_via_open_api: "
+                "sampleImageMsg with mediaId failed, falling back to "
+                "sampleFile",
+            )
+
         return await self._send_open_api_message(
             msg_key="sampleFile",
             msg_param={
@@ -1577,12 +1595,10 @@ class DingTalkChannel(BaseChannel):
                 return False
 
             if upload_type == "image":
-                # Use markdown with media_id for inline image preview
                 payload = {
-                    "msgtype": "markdown",
-                    "markdown": {
-                        "title": filename or "image",
-                        "text": f"![{filename or 'image'}]({media_id})",
+                    "msgtype": "image",
+                    "image": {
+                        "picURL": media_id,
                     },
                 }
                 ok = await self._send_payload_via_session_webhook(
@@ -1591,7 +1607,7 @@ class DingTalkChannel(BaseChannel):
                 )
                 if ok:
                     return True
-                # Fallback to file card if markdown fails
+                # Fallback to file card if mediaId image send fails.
                 payload = {
                     "msgtype": "file",
                     "file": {
@@ -1746,12 +1762,10 @@ class DingTalkChannel(BaseChannel):
 
         # ---------- send ----------
         if upload_type == "image":
-            # Use markdown with media_id for inline image preview
             payload = {
-                "msgtype": "markdown",
-                "markdown": {
-                    "title": filename or "image",
-                    "text": f"![{filename or 'image'}]({media_id})",
+                "msgtype": "image",
+                "image": {
+                    "picURL": media_id,
                 },
             }
             ok = await self._send_payload_via_session_webhook(
@@ -1760,19 +1774,12 @@ class DingTalkChannel(BaseChannel):
             )
             if ok:
                 return True
-            # Fallback to file card if markdown fails
-            payload = {
-                "msgtype": "file",
-                "file": {
-                    "mediaId": media_id,
-                    "fileType": ext,
-                    "fileName": filename,
-                },
-            }
-            return await self._send_payload_via_session_webhook(
-                session_webhook,
-                payload,
+            logger.info(
+                "dingtalk _send_media_part_via_webhook: "
+                "msgtype=image with mediaId failed, trying Open API "
+                "fallback",
             )
+            return False
 
         if upload_type == "voice":
             # sendBySession returns 400105 for voice; send as file.
@@ -2417,10 +2424,33 @@ class DingTalkChannel(BaseChannel):
             )
             for part in parts:
                 if getattr(part, "type", None) in media_types:
-                    await self._send_media_part_via_webhook(
+                    ok = await self._send_media_part_via_webhook(
                         session_webhook,
                         part,
                     )
+                    if not ok:
+                        logger.info(
+                            "dingtalk on_event_message_completed: webhook "
+                            "media send failed, trying Open API fallback",
+                        )
+                        params = await self._resolve_open_api_params_from_handle(
+                            to_handle,
+                            send_meta,
+                        )
+                        cid = params.get("conversation_id", "")
+                        if cid:
+                            await self._send_media_part_via_open_api(
+                                part,
+                                conversation_id=cid,
+                                conversation_type=params.get(
+                                    "conversation_type",
+                                    "",
+                                ),
+                                sender_staff_id=params.get(
+                                    "sender_staff_id",
+                                    "",
+                                ),
+                            )
         elif body.strip() or parts:
             await self.send_content_parts(to_handle, parts, send_meta)
 

@@ -2717,6 +2717,11 @@ class TestDingTalkMediaPartSending:
         )
 
         assert result is True
+        payload = mock_http_session._requests[-1]["kwargs"]["json"]
+        assert payload == {
+            "msgtype": "image",
+            "image": {"picURL": "existing_media_123"},
+        }
 
     async def test_send_media_part_via_webhook_fetch_and_upload(
         self,
@@ -2727,13 +2732,6 @@ class TestDingTalkMediaPartSending:
         """Fetch and upload when no media_id."""
         dingtalk_channel._http = mock_http_session
         dingtalk_channel._media_dir = tmp_path
-
-        # Mock file download
-        mock_http_session.expect_get(
-            url="http://example.com/img.jpg",
-            response_status=200,
-            response_data=b"\xff\xd8\xff\xe0image data",
-        )
 
         # Mock token and upload
         mock_http_session.expect_post(
@@ -2758,7 +2756,9 @@ class TestDingTalkMediaPartSending:
 
         part = ImageContent(
             type=ContentType.IMAGE,
-            image_url="http://example.com/img.jpg",
+            image_url=(
+                "data:image/jpeg;base64,/9j/4GltYWdlIGRhdGE="
+            ),
             # No media_id, should fetch and upload
         )
 
@@ -2768,6 +2768,45 @@ class TestDingTalkMediaPartSending:
         )
 
         assert result is True
+        payload = mock_http_session._requests[-1]["kwargs"]["json"]
+        assert payload == {
+            "msgtype": "image",
+            "image": {"picURL": "uploaded_media_123"},
+        }
+
+    async def test_send_media_part_via_open_api_uploaded_image_media_id(
+        self,
+        dingtalk_channel,
+    ):
+        """Send uploaded image media_id as Open API image message."""
+        from qwenpaw.app.channels.base import ImageContent, ContentType
+
+        part = ImageContent(
+            type=ContentType.IMAGE,
+            image_url="data:image/png;base64,aW1hZ2UgZGF0YQ==",
+        )
+        dingtalk_channel._upload_media = AsyncMock(
+            return_value="uploaded_image_media_123",
+        )
+        dingtalk_channel._send_open_api_message = AsyncMock(
+            return_value=True,
+        )
+
+        result = await dingtalk_channel._send_media_part_via_open_api(
+            part,
+            conversation_id="cid_123",
+            conversation_type="group",
+            sender_staff_id="staff_123",
+        )
+
+        assert result is True
+        dingtalk_channel._send_open_api_message.assert_awaited_once_with(
+            msg_key="sampleImageMsg",
+            msg_param={"photoURL": "uploaded_image_media_123"},
+            conversation_id="cid_123",
+            conversation_type="group",
+            sender_staff_id="staff_123",
+        )
 
     async def test_send_media_part_empty_media_id_skipped(
         self,
