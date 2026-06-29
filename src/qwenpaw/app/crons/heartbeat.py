@@ -48,10 +48,12 @@ _EVERY_PATTERN = re.compile(
 _CRON_FIELD_PATTERN = re.compile(
     r"^[\d\*\-/,]+$",
 )
-# DOW field also accepts named abbreviations (mon–sun) per POSIX/APScheduler.
-# Supports: numeric cron chars, or named abbreviations, or named ranges like mon-fri.
+# DOW field accepts named abbreviations (mon-sun) per
+# POSIX/APScheduler.  Supports: numeric cron chars, named
+# abbreviations, or named ranges like mon-fri.
+_DOW_NAMED = "(?:mon|tue|wed|thu|fri|sat|sun)"
 _DOW_FIELD_PATTERN = re.compile(
-    r"^(?:[\d\*\-/,]+|(?:mon|tue|wed|thu|fri|sat|sun)(?:-(?:mon|tue|wed|thu|fri|sat|sun))?(/[\d]+)?$)",
+    r"^(?:[\d\*\-/,]+|" + _DOW_NAMED + r"(?:-" + _DOW_NAMED + r")?(/[\d]+)?$)",
     re.IGNORECASE,
 )
 _HEARTBEAT_SOURCE_ID = "_heartbeat"
