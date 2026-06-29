@@ -5,12 +5,16 @@ from __future__ import annotations
 
 import asyncio
 
+import pytest
 from agentscope.message import DataBlock, TextBlock, ToolResultState, URLSource
 from agentscope.tool import ToolResponse
 
 from qwenpaw.constant import TRUNCATION_NOTICE_MARKER
 from qwenpaw.tool_calls._context import ToolCallContext
-from qwenpaw.tool_calls._result_limiter import ToolResultLimiter
+from qwenpaw.tool_calls._result_limiter import (
+    EXECUTION_TRUNCATION_NOTICE_MARKER,
+    ToolResultLimiter,
+)
 
 
 def _ctx() -> ToolCallContext:
@@ -84,7 +88,8 @@ def test_ascii_result_is_capped_and_original_is_cached(tmp_path):
     result = limiter.limit(response, _ctx())
 
     assert _total_text_bytes(result) <= 512
-    assert TRUNCATION_NOTICE_MARKER in _all_text(result)
+    assert EXECUTION_TRUNCATION_NOTICE_MARKER in _all_text(result)
+    assert TRUNCATION_NOTICE_MARKER not in _all_text(result)
     assert "Tool output truncated before entering agent context" in _all_text(
         result,
     )
@@ -123,7 +128,7 @@ def test_multiple_text_blocks_share_one_budget(tmp_path):
     result = limiter.limit(response, _ctx())
 
     assert _total_text_bytes(result) <= 640
-    assert TRUNCATION_NOTICE_MARKER in _all_text(result)
+    assert EXECUTION_TRUNCATION_NOTICE_MARKER in _all_text(result)
 
 
 def test_notice_counts_toward_total_limit(tmp_path):
@@ -210,3 +215,49 @@ def test_disabled_limiter_returns_original_response(tmp_path):
     result = limiter.limit(response, _ctx())
 
     assert result is response
+
+
+@pytest.mark.asyncio
+async def test_async_limit_offloads_cache_write(monkeypatch, tmp_path):
+    response = _text_response("x" * 2000)
+    limiter = ToolResultLimiter(
+        enabled=True,
+        max_text_bytes=512,
+        cache_dir=tmp_path,
+    )
+    calls = []
+
+    async def fake_to_thread(func, *args, **kwargs):
+        calls.append((func, args, kwargs))
+        return func(*args, **kwargs)
+
+    monkeypatch.setattr(asyncio, "to_thread", fake_to_thread)
+
+    result = await limiter.limit_async(response, _ctx())
+
+    assert calls
+    assert _total_text_bytes(result) <= 512
+    assert list(tmp_path.iterdir())
+
+
+def test_legacy_response_fallback_copies_without_mutating_original(tmp_path):
+    class LegacyResponse:
+        def __init__(self):
+            self.content = [TextBlock(type="text", text="x" * 2000)]
+            self.id = "legacy-call"
+            self.state = ToolResultState.SUCCESS
+            self.metadata = {"source": "legacy"}
+
+    response = LegacyResponse()
+    original_content = list(response.content)
+    limiter = ToolResultLimiter(
+        enabled=True,
+        max_text_bytes=512,
+        cache_dir=tmp_path,
+    )
+
+    result = limiter.limit(response, _ctx())
+
+    assert result is not response
+    assert response.content == original_content
+    assert _total_text_bytes(result) <= 512

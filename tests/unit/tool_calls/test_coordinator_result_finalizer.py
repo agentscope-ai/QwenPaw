@@ -172,6 +172,37 @@ async def test_middleware_caller_observes_capped_response(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_async_finalizer_is_awaited():
+    coordinator = ToolCoordinator()
+    tool_call = _ToolCall()
+
+    async def next_handler(
+        tool_call: _ToolCall,
+    ) -> AsyncGenerator[Any, None]:
+        yield _text_response(tool_call.id, "x" * 2000)
+
+    async def finalizer(
+        _response: ToolResponse,
+        ctx: ToolCallContext,
+    ) -> ToolResponse:
+        await asyncio.sleep(0)
+        return _text_response(ctx.tool_call_id, "finalized")
+
+    events = await _collect(
+        coordinator.execute(
+            tool_call=tool_call,
+            next_handler=next_handler,
+            session_id="session-1",
+            agent_id="agent-1",
+            root_session_id="root-1",
+            result_finalizer=finalizer,
+        ),
+    )
+
+    assert events[-1].content[0].text == "finalized"
+
+
+@pytest.mark.asyncio
 async def test_background_completion_hint_uses_finalized_response(tmp_path):
     coordinator = ToolCoordinator(default_timeout_secs=0.001)
     tool_call = _ToolCall(id="call-bg", name="slow_tool")
@@ -217,5 +248,6 @@ async def test_background_completion_hint_uses_finalized_response(tmp_path):
     )
 
     assert events[-1].metadata["offloaded"] is True
+    assert hint.role == "assistant"
     assert _tool_result_output_text_bytes(tool_result) <= 512
     assert finalizer_calls == 1

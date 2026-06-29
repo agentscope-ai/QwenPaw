@@ -12,11 +12,13 @@ from ._context import ToolCallContext
 from ._stream import ToolStream
 
 if TYPE_CHECKING:
+    from typing import Awaitable
+
     from agentscope.tool import ToolResponse
 
 ResultFinalizer = Callable[
     ["ToolResponse", ToolCallContext],
-    "ToolResponse",
+    "ToolResponse | Awaitable[ToolResponse]",
 ]
 
 

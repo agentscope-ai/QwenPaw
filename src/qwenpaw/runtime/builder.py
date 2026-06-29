@@ -534,7 +534,7 @@ class AgentBuilder:
                     )
                     result_limiter = ToolResultLimiter(
                         enabled=trc.enabled,
-                        max_text_bytes=trc.pruning_recent_msg_max_bytes,
+                        max_text_bytes=trc.execution_layer_max_bytes,
                         cache_dir=tool_results_dir,
                     )
                 except Exception:

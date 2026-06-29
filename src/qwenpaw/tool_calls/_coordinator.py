@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import logging
 from dataclasses import dataclass
 from typing import Any, AsyncGenerator, Awaitable, Callable
@@ -116,7 +117,7 @@ class ToolCoordinator:
 
         if terminal == "completed":
             await self._await_background_task(entry)
-            yield self._finalize_completed(entry)
+            yield await self._finalize_completed(entry)
             return
 
         yield await self._begin_offload(entry)
@@ -608,7 +609,7 @@ class ToolCoordinator:
 
         await self._await_background_task(entry)
 
-        self._finalize_completed(entry)
+        await self._finalize_completed(entry)
 
         hint = make_offload_hint_msg(entry)
         async with self._hints_lock:
@@ -646,7 +647,7 @@ class ToolCoordinator:
             if current is not None and current.cancelled():
                 raise
 
-    def _finalize_completed(self, entry: ToolCallEntry) -> ToolResponse:
+    async def _finalize_completed(self, entry: ToolCallEntry) -> ToolResponse:
         if entry.final_response is None:
             entry.final_response = ToolResponse(
                 content=[
@@ -659,10 +660,13 @@ class ToolCoordinator:
                 state=ToolResultState.ERROR,
             )
         if entry.result_finalizer is not None and not entry.result_finalized:
-            entry.final_response = entry.result_finalizer(
+            finalized = entry.result_finalizer(
                 entry.final_response,
                 entry.ctx,
             )
+            if inspect.isawaitable(finalized):
+                finalized = await finalized
+            entry.final_response = finalized
             entry.result_finalized = True
         entry.status = ToolCallStatus.COMPLETED
         if entry.end_state is None:

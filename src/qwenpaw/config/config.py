@@ -771,6 +771,16 @@ class ToolResultPruningConfig(BaseModel):
         ),
     )
 
+    execution_layer_max_bytes: int = Field(
+        default=50000,
+        ge=1000,
+        description=(
+            "Hard byte cap applied at execution time before the tool "
+            "response is inserted into the agent context. Independent of "
+            "the tiered historical pruning thresholds."
+        ),
+    )
+
     offload_retention_days: int = Field(
         default=5,
         ge=1,

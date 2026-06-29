@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import copy
 import logging
 import re
 import uuid
@@ -12,10 +14,11 @@ from typing import Any
 from agentscope.message import TextBlock
 from agentscope.tool import ToolResponse
 
-from ..constant import TRUNCATION_NOTICE_MARKER
 from ._context import ToolCallContext
 
 logger = logging.getLogger(__name__)
+
+EXECUTION_TRUNCATION_NOTICE_MARKER = "<<<EXECUTION_TOOL_RESULT_TRUNCATED>>>"
 
 
 class ToolResultLimiter:
@@ -37,7 +40,11 @@ class ToolResultLimiter:
         response: ToolResponse,
         context: ToolCallContext,
     ) -> ToolResponse:
-        """Return a response whose aggregate text content is byte-bounded."""
+        """Return a byte-bounded response in synchronous callers.
+
+        Asyncio coordinator paths should use :meth:`limit_async` so cache
+        writes are offloaded from the event loop.
+        """
         if not self._enabled:
             return response
 
@@ -53,21 +60,87 @@ class ToolResultLimiter:
             )
             return self._fail_closed(response)
 
+    async def limit_async(
+        self,
+        response: ToolResponse,
+        context: ToolCallContext,
+    ) -> ToolResponse:
+        """Return a byte-bounded response without blocking the event loop."""
+        if not self._enabled:
+            return response
+
+        try:
+            return await self._limit_async(response, context)
+        except Exception:
+            logger.exception(
+                "Failed to limit tool result",
+                extra={
+                    "tool_name": context.tool_name,
+                    "tool_call_id": context.tool_call_id,
+                },
+            )
+            return self._fail_closed(response)
+
     def _limit(
         self,
         response: ToolResponse,
         context: ToolCallContext,
     ) -> ToolResponse:
+        content, original_bytes, early_result = self._prepare_limit(response)
+        if early_result is not None:
+            return early_result
+
+        saved_path = self._save_original_text(content, context)
+        return self._limit_prepared(
+            response,
+            context,
+            content=content,
+            original_bytes=original_bytes,
+            saved_path=saved_path,
+        )
+
+    async def _limit_async(
+        self,
+        response: ToolResponse,
+        context: ToolCallContext,
+    ) -> ToolResponse:
+        content, original_bytes, early_result = self._prepare_limit(response)
+        if early_result is not None:
+            return early_result
+
+        saved_path = await self._save_original_text_async(content, context)
+        return self._limit_prepared(
+            response,
+            context,
+            content=content,
+            original_bytes=original_bytes,
+            saved_path=saved_path,
+        )
+
+    def _prepare_limit(
+        self,
+        response: ToolResponse,
+    ) -> tuple[list[Any], int, ToolResponse | None]:
         content = list(response.content or [])
         original_bytes = _total_text_bytes(content)
         if original_bytes == 0:
-            return response
+            return content, original_bytes, response
         if self._max_text_bytes <= 0:
-            return self._fail_closed(response)
+            return content, original_bytes, self._fail_closed(response)
         if original_bytes <= self._max_text_bytes:
-            return response
+            return content, original_bytes, response
 
-        saved_path = self._save_original_text(content, context)
+        return content, original_bytes, None
+
+    def _limit_prepared(
+        self,
+        response: ToolResponse,
+        context: ToolCallContext,
+        *,
+        content: list[Any],
+        original_bytes: int,
+        saved_path: str | None,
+    ) -> ToolResponse:
         limited_content, retained_bytes = self._limit_content(
             content,
             original_bytes=original_bytes,
@@ -190,6 +263,19 @@ class ToolResultLimiter:
             )
             return None
 
+    async def _save_original_text_async(
+        self,
+        content: list[Any],
+        context: ToolCallContext,
+    ) -> str | None:
+        if self._cache_dir is None:
+            return None
+        return await asyncio.to_thread(
+            self._save_original_text,
+            content,
+            context,
+        )
+
     def _fail_closed(self, response: ToolResponse) -> ToolResponse:
         content = [
             block
@@ -198,7 +284,7 @@ class ToolResultLimiter:
         ]
         notice = _utf8_prefix(
             (
-                f"{TRUNCATION_NOTICE_MARKER}\n"
+                f"{EXECUTION_TRUNCATION_NOTICE_MARKER}\n"
                 "Tool output omitted because it exceeded the safe size limit."
             ),
             max(0, self._max_text_bytes),
@@ -215,7 +301,7 @@ def _build_notice(
     saved_path: str | None,
 ) -> str:
     lines = [
-        TRUNCATION_NOTICE_MARKER,
+        EXECUTION_TRUNCATION_NOTICE_MARKER,
         "Tool output truncated before entering agent context.",
         f"Original size: {original_bytes} bytes.",
         f"Retained size: {retained_bytes} bytes.",
@@ -309,8 +395,9 @@ def _copy_response_with_content(
 ) -> ToolResponse:
     if hasattr(response, "model_copy"):
         return response.model_copy(update={"content": content})
-    response.content = content
-    return response
+    copied = copy.copy(response)
+    copied.content = content
+    return copied
 
 
 def _utf8_prefix(text: str, max_bytes: int) -> str:

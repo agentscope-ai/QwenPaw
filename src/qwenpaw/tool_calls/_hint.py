@@ -32,6 +32,9 @@ def make_offload_hint_msg(entry: Any) -> Any:
         output=list(entry.final_response.content or []),
         state=entry.final_response.state,
     )
+    # AgentScope 2.0 validates that system messages contain only text
+    # blocks.  This hint must carry a ToolResultBlock so provider formatters
+    # keep it on the tool-result path; use assistant role intentionally.
     return Msg(
         name="system",
         role="assistant",
