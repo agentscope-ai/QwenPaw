@@ -121,6 +121,13 @@ class Runtime:
                 async for ev in envelope.emit_response_created():
                     yield ev
                 executor = AgentExecutor(ctx.agent, envelope)
+                logger.debug(
+                    "Agent input: %s",
+                    _get_last_user_text(
+                        ctx.input_msgs,
+                    )
+                    or "(empty)",
+                )
                 async for ev in executor.run(ctx.input_msgs):
                     yield ev
 
