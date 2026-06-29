@@ -16,8 +16,9 @@ import zipfile
 from typing import Any
 
 import pytest
+from helpers import default_http_timeout
 
-_HTTP_TIMEOUT = 15.0
+_HTTP_TIMEOUT = default_http_timeout(15.0)
 _POOL_BASE = "/api/skills/pool"
 
 

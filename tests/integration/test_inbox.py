@@ -20,12 +20,13 @@ import pytest
 
 from tests.integration.helpers import (
     clean_inbox,
+    default_http_timeout,
     make_event,
     seed_inbox_events,
     seed_inbox_trace,
 )
 
-_INBOX_HTTP_TIMEOUT = 15.0
+_INBOX_HTTP_TIMEOUT = default_http_timeout(15.0)
 
 
 @pytest.fixture(autouse=True)
