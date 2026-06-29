@@ -42,7 +42,6 @@ import ChatSessionInitializer from "./components/ChatSessionInitializer";
 import { ApprovalCard } from "../../components/ApprovalCard/ApprovalCard";
 import { commandsApi } from "../../api/modules/commands";
 import { useApprovalContext } from "../../contexts/ApprovalContext";
-import { planApi } from "../../api/modules/plan";
 import {
   useChatScalarSnapshot,
   useChatListSnapshot,
@@ -1283,7 +1282,6 @@ export default function ChatPage() {
   const [approvalRequests, setApprovalRequests] = useState<
     Map<string, ApprovalMessageData>
   >(new Map());
-  const [planEnabled, setPlanEnabled] = useState(false);
   const { mode: sidebarMode } = useSidebarModeStore();
   const isFullMode = sidebarMode === "full";
 
@@ -1320,19 +1318,6 @@ export default function ChatPage() {
     () => chatSkills.filter(isSkillAvailableInConsole),
     [chatSkills],
   );
-
-  useEffect(() => {
-    let cancelled = false;
-    planApi
-      .getPlanConfig()
-      .then((cfg) => {
-        if (!cancelled) setPlanEnabled(cfg.enabled);
-      })
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
-  }, [selectedAgent]);
 
   useEffect(() => {
     let cancelled = false;
@@ -2283,13 +2268,6 @@ export default function ChatPage() {
         description: t("chat.commands.skills.description"),
       },
     ];
-    if (planEnabled) {
-      commandSuggestions.push({
-        command: "/plan",
-        value: "plan ",
-        description: t("chat.commands.plan.description"),
-      });
-    }
     const reservedCommands = new Set(
       commandSuggestions.map((item) => item.value.trim()),
     );
@@ -2552,7 +2530,6 @@ export default function ChatPage() {
             <span style={{ flex: 1 }} />
             <ModelSelector />
             <ChatActionGroup
-              planEnabled={planEnabled}
               onToggleHistory={
                 effectiveIsFullMode ? toggleHistoryPanel : undefined
               }
@@ -2811,7 +2788,6 @@ export default function ChatPage() {
     extScalar,
     extLists,
     scheduleHistoryClear,
-    planEnabled,
     consoleSkills,
     selectedAgent,
     onFileCardClick,

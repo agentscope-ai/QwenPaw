@@ -1677,8 +1677,6 @@
     "shellCommandExecutable": "Shell 可执行程序",
     "shellCommandExecutableTooltip": "execute_shell_command 使用的 shell 路径。Linux/macOS：如 /bin/bash、/bin/zsh。Windows：支持 powershell.exe、pwsh.exe 或类 POSIX shell（如 Git Bash）。留空时依次回退到 $SHELL 环境变量，再回退到平台默认值（Unix 为 /bin/sh，Windows 为 cmd.exe）。",
     "shellCommandExecutablePlaceholder": "例如 /bin/bash 或 powershell.exe（留空 = 自动检测）",
-    "planMode": "计划模式",
-    "planModeTooltip": "启用后可使用 /plan <描述> 进行结构化任务规划。启用时会注册 plan 相关工具，并显示计划面板。",
     "maxInputLength": "最大输入长度",
     "maxInputLengthTooltip": "模型上下文窗口的最大输入长度（token 数）",
     "maxInputLengthPlaceholder": "请输入最大输入长度",
@@ -1956,9 +1954,6 @@
       },
       "skills": {
         "description": "列出当前对话可用的技能，并显示可显式调用的技能命令"
-      },
-      "plan": {
-        "description": "创建结构化计划，将任务分解为多个子任务"
       }
     },
     "attachments": {
@@ -2475,19 +2470,6 @@
     "denyFailed": "拒绝失败",
     "timeoutAutoDenied": "已超时，自动拒绝",
     "acknowledge": "我知道了"
-  },
-  "plan": {
-    "title": "计划",
-    "noPlan": "暂无活跃计划",
-    "noPlanHint": "使用 /plan <描述> 创建计划",
-    "progress": "进度",
-    "outcome": "结果",
-    "state": {
-      "todo": "待办",
-      "in_progress": "进行中",
-      "done": "已完成",
-      "abandoned": "已放弃"
-    }
   },
   "pluginManager": {
     "title": "插件管理",

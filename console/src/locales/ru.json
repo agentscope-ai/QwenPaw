@@ -1481,8 +1481,6 @@
     "shellCommandExecutable": "Исполняемый файл shell",
     "shellCommandExecutableTooltip": "Путь к shell, используемому execute_shell_command. Linux/macOS: например, /bin/bash, /bin/zsh. Windows: поддерживаются powershell.exe, pwsh.exe или POSIX-совместимые shell (например, Git Bash). Если пусто, используется переменная окружения $SHELL, затем платформенный shell по умолчанию (/bin/sh для Unix, cmd.exe для Windows).",
     "shellCommandExecutablePlaceholder": "напр. /bin/bash или powershell.exe (пусто = автоопределение)",
-    "planMode": "Режим планирования",
-    "planModeTooltip": "Включите для использования /plan <описание> для структурированного планирования задач. При включении регистрируются инструменты планирования и отображается панель плана.",
     "maxInputLength": "Макс. длина входа",
     "maxInputLengthTooltip": "Максимальная длина входа (токены) для окна контекста модели",
     "maxInputLengthPlaceholder": "Введите макс. длину входа",
@@ -1784,9 +1782,6 @@
       },
       "skills": {
         "description": "Показать доступные в чате навыки и явные команды их вызова"
-      },
-      "plan": {
-        "description": "Создать структурированный план, разбив задачу на подзадачи"
       }
     },
     "attachments": {
@@ -2360,19 +2355,6 @@
     "marketDetails": "Details",
     "marketDownloads": "Downloads",
     "marketDeveloper": "Developer"
-  },
-  "plan": {
-    "title": "План",
-    "noPlan": "Нет активного плана",
-    "noPlanHint": "Используйте /plan <описание> для создания плана",
-    "progress": "Прогресс",
-    "outcome": "Результат",
-    "state": {
-      "todo": "К выполнению",
-      "in_progress": "В процессе",
-      "done": "Выполнено",
-      "abandoned": "Отменено"
-    }
   },
   "inbox": {
     "title": "Ежедневный AI-сбор",

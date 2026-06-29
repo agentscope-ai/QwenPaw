@@ -1682,8 +1682,6 @@
     "shellCommandExecutable": "Shell Executável",
     "shellCommandExecutableTooltip": "Caminho para o shell usado pelo execute_shell_command. Linux/macOS: ex. /bin/bash, /bin/zsh. Windows: suporta powershell.exe, pwsh.exe ou shells POSIX como Git Bash. Quando vazio, usa a variável de ambiente $SHELL, depois o padrão da plataforma (/bin/sh no Unix, cmd.exe no Windows).",
     "shellCommandExecutablePlaceholder": "ex.: /bin/bash ou powershell.exe (vazio = detecção automática)",
-    "planMode": "Plan Modo",
-    "planModeTooltip": "Enable plan mode to use /plan <description> for structured task planning. When enabled, plan tools are registered and the plan panel becomes available.",
     "maxInputLength": "Max Input Length",
     "maxInputLengthTooltip": "Maximum input length (tokens) for the model context window",
     "maxInputLengthPlaceholder": "Enter max input length",
@@ -1981,9 +1979,6 @@
       },
       "skills": {
         "description": "List chat-available skills and expose explicit skill commands"
-      },
-      "plan": {
-        "description": "Create a structured plan to decompose the task into subtasks"
       }
     },
     "attachments": {
@@ -2389,19 +2384,6 @@
     "marketDetails": "Details",
     "marketDownloads": "Downloads",
     "marketDeveloper": "Developer"
-  },
-  "plan": {
-    "title": "Plan",
-    "noPlan": "Nao Ativo plan",
-    "noPlanHint": "Use /plan <description> to create a plan",
-    "progress": "Progress",
-    "outcome": "Outcome",
-    "state": {
-      "todo": "Todo",
-      "in_progress": "In Progress",
-      "done": "Done",
-      "abandoned": "Abandoned"
-    }
   },
   "inbox": {
     "title": "Colheita diária de IA",

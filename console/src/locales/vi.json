@@ -181,9 +181,6 @@
       },
       "history": {
         "description": "Hiển thị lịch sử cuộc trò chuyện"
-      },
-      "plan": {
-        "description": "Lên kế hoạch cho tác vụ được mô tả"
       }
     },
     "contextMenu": {
@@ -597,19 +594,6 @@
     "noData": "Chưa có dữ liệu",
     "period": "Khoảng thời gian"
   },
-  "plan": {
-    "title": "Kế hoạch",
-    "create": "Tạo kế hoạch",
-    "empty": "Chưa có kế hoạch nào",
-    "status": {
-      "pending": "Đang chờ",
-      "inProgress": "Đang thực hiện",
-      "done": "Hoàn thành",
-      "cancelled": "Đã hủy"
-    },
-    "deleteConfirm": "Xóa kế hoạch này?",
-    "deleteSuccess": "Đã xóa kế hoạch"
-  },
   "approval": {
     "title": "Yêu cầu phê duyệt",
     "description": "Agent đang yêu cầu phê duyệt để thực thi hành động sau:",
@@ -752,8 +736,6 @@
     "shellCommandExecutable": "Shell thực thi",
     "shellCommandExecutableTooltip": "Đường dẫn shell dùng cho execute_shell_command. Để trống để tự phát hiện.",
     "shellCommandExecutablePlaceholder": "Ví dụ: /bin/bash hoặc powershell.exe (để trống = tự phát hiện)",
-    "planMode": "Chế độ kế hoạch",
-    "planModeTooltip": "Bật để dùng /plan <mô tả> lên kế hoạch tác vụ có cấu trúc.",
     "maxInputLength": "Độ dài đầu vào tối đa",
     "maxInputLengthTooltip": "Độ dài tối đa (token) cho cửa sổ ngữ cảnh mô hình",
     "maxInputLengthPlaceholder": "Nhập độ dài tối đa",

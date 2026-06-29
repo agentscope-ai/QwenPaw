@@ -1466,8 +1466,6 @@
     "shellCommandExecutable": "Shell実行ファイル",
     "shellCommandExecutableTooltip": "execute_shell_commandが使用するシェルのパス。Linux/macOS: /bin/bash、/bin/zshなど。Windows: powershell.exe、pwsh.exe、またはGit Bashなどの POSIX互換シェルに対応。空の場合は $SHELL 環境変数、次にプラットフォームデフォルト（Unixは /bin/sh、Windowsは cmd.exe）にフォールバックします。",
     "shellCommandExecutablePlaceholder": "例: /bin/bash または powershell.exe（空 = 自動検出）",
-    "planMode": "プランモード",
-    "planModeTooltip": "/plan <説明> で構造化タスクプランニングを使用できます。有効にするとプラン関連ツールが登録され、プランパネルが表示されます。",
     "maxInputLength": "最大入力長",
     "maxInputLengthTooltip": "モデルのコンテキストウィンドウの最大入力長（トークン数）",
     "maxInputLengthPlaceholder": "最大入力長を入力",
@@ -1769,9 +1767,6 @@
       },
       "skills": {
         "description": "チャットで利用可能なスキルを一覧し、明示的なスキルコマンドを表示します"
-      },
-      "plan": {
-        "description": "構造化された計画を作成し、タスクをサブタスクに分解します"
       }
     },
     "attachments": {
@@ -2345,19 +2340,6 @@
     "marketDetails": "Details",
     "marketDownloads": "Downloads",
     "marketDeveloper": "Developer"
-  },
-  "plan": {
-    "title": "プラン",
-    "noPlan": "アクティブなプランがありません",
-    "noPlanHint": "/plan <説明> でプランを作成",
-    "progress": "進捗",
-    "outcome": "結果",
-    "state": {
-      "todo": "未着手",
-      "in_progress": "進行中",
-      "done": "完了",
-      "abandoned": "中止"
-    }
   },
   "inbox": {
     "title": "受信トレイ",

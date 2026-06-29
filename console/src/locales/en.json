@@ -1545,7 +1545,7 @@
     "goConfigureBtn": "Configure a Provider",
     "availableGroup": "Available Providers",
     "clickToConfigure": "Click to configure",
-    "configureAction": "Configure \u2192",
+    "configureAction": "Configure →",
     "endpointCount": "{{count}} endpoints",
     "connect": "OAuth",
     "saveApiKey": "Save",
@@ -1819,8 +1819,6 @@
     "shellCommandExecutable": "Shell Executable",
     "shellCommandExecutableTooltip": "Path to the shell used by execute_shell_command. Linux/macOS: e.g. /bin/bash, /bin/zsh. Windows: supports powershell.exe, pwsh.exe, or POSIX-like shells such as Git Bash. When empty, falls back to the $SHELL environment variable, then to the platform default (/bin/sh on Unix, cmd.exe on Windows).",
     "shellCommandExecutablePlaceholder": "e.g. /bin/bash or powershell.exe (empty = auto-detect)",
-    "planMode": "Plan Mode",
-    "planModeTooltip": "Enable plan mode to use /plan <description> for structured task planning. When enabled, plan tools are registered and the plan panel becomes available.",
     "maxInputLength": "Max Input Length",
     "maxInputLengthTooltip": "Maximum input length (tokens) for the model context window",
     "maxInputLengthPlaceholder": "Enter max input length",
@@ -2098,9 +2096,6 @@
       },
       "skills": {
         "description": "List chat-available skills and expose explicit skill commands"
-      },
-      "plan": {
-        "description": "Create a structured plan to decompose the task into subtasks"
       }
     },
     "attachments": {
@@ -2457,19 +2452,6 @@
     "denyFailed": "Failed to deny",
     "timeoutAutoDenied": "Timed out, auto denied",
     "acknowledge": "Got it"
-  },
-  "plan": {
-    "title": "Plan",
-    "noPlan": "No active plan",
-    "noPlanHint": "Use /plan <description> to create a plan",
-    "progress": "Progress",
-    "outcome": "Outcome",
-    "state": {
-      "todo": "Todo",
-      "in_progress": "In Progress",
-      "done": "Done",
-      "abandoned": "Abandoned"
-    }
   },
   "pluginManager": {
     "title": "Plugin Manager",
