@@ -19,7 +19,10 @@ from __future__ import annotations
 import logging
 import os
 from pathlib import Path
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
+
+if TYPE_CHECKING:
+    import psutil
 
 logger = logging.getLogger(__name__)
 
