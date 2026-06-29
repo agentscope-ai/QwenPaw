@@ -279,12 +279,9 @@ class _FakeCtxConfig(SimpleNamespace):
 @pytest.mark.asyncio
 async def test_compact_uses_manual_force_context_config() -> None:
     """Under scroll, manual /compact clones the live agent's context_config,
-    dropping the auto trigger and shrinking the reserve to the forced module
-    constants (lossless eviction makes the aggressive reserve safe)."""
-    from qwenpaw.agents.command_handler import (
-        _FORCE_RESERVE_RATIO,
-        _FORCE_TRIGGER_RATIO,
-    )
+    dropping the auto trigger but leaving the reserve tail untouched so it
+    matches the same recent-tail budget as auto compaction."""
+    from qwenpaw.agents.command_handler import _FORCE_TRIGGER_RATIO
 
     captured = {}
 
@@ -310,7 +307,8 @@ async def test_compact_uses_manual_force_context_config() -> None:
 
     context_config = captured["context_config"]
     assert context_config.trigger_ratio == _FORCE_TRIGGER_RATIO
-    assert context_config.reserve_ratio == _FORCE_RESERVE_RATIO
+    # The reserve tail is kept at the agent's configured value, not shrunk.
+    assert context_config.reserve_ratio == 0.2
     # The live agent's own config is left untouched (model_copy, not mutated).
     assert agent.context_config.reserve_ratio == 0.2
     assert "Compact Complete" in msg.get_text_content()
