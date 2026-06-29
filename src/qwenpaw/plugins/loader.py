@@ -72,7 +72,9 @@ def _install_lock_path(plugin_id: str) -> Path:
     Keyed per plugin so unrelated plugins can install concurrently, but
     every process installing the *same* plugin serialises through one lock.
     """
-    safe_id = "".join(c if c.isalnum() or c in "-_." else "_" for c in plugin_id)
+    safe_id = "".join(
+        c if c.isalnum() or c in "-_." else "_" for c in plugin_id
+    )
     return _plugin_runtime_dir() / "install-locks" / f"{safe_id}.lock"
 
 

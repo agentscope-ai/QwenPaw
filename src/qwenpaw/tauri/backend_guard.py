@@ -104,14 +104,17 @@ def _terminate_previous_backend(pid_file: Path) -> None:
             proc.wait(timeout=_TERMINATE_TIMEOUT_SECONDS)
         except psutil.TimeoutExpired:
             logger.warning(
-                "Orphaned backend pid %s did not exit; killing it", pid,
+                "Orphaned backend pid %s did not exit; killing it",
+                pid,
             )
             proc.kill()
     except psutil.NoSuchProcess:
         pass
     except psutil.Error:
         logger.warning(
-            "Failed to terminate orphaned backend pid %s", pid, exc_info=True,
+            "Failed to terminate orphaned backend pid %s",
+            pid,
+            exc_info=True,
         )
 
 
@@ -139,11 +142,13 @@ def reconcile_singleton_backend(working_dir: "str | os.PathLike[str]") -> None:
         _terminate_previous_backend(pid_file)
     except Exception:  # pragma: no cover - defensive
         logger.debug(
-            "Backend reconciliation (terminate) failed", exc_info=True,
+            "Backend reconciliation (terminate) failed",
+            exc_info=True,
         )
     try:
         _write_pid(pid_file, os.getpid())
     except Exception:  # pragma: no cover - defensive
         logger.debug(
-            "Backend reconciliation (record pid) failed", exc_info=True,
+            "Backend reconciliation (record pid) failed",
+            exc_info=True,
         )
