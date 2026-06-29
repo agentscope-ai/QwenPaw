@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { request } from "@/services";
+import { request } from "@/api/request";
 
 export type BudgetLevel = "low" | "medium" | "high";
 
@@ -60,13 +60,23 @@ export const useLoopStore = create<LoopState>((set) => ({
   stopLoop: () => set({ runtime: null }),
 }));
 
+interface CommandsResponse {
+  commands: Array<{
+    name: string;
+    description: string;
+    category: string;
+  }>;
+}
+
 export async function fetchAvailableLoopSkills(): Promise<void> {
   try {
-    const res = await request("/api/workspace/commands/available");
+    const res = await request<CommandsResponse>(
+      "/api/workspace/commands/available",
+    );
     const commands = res?.commands ?? [];
     const loopSkills: LoopSkillInfo[] = commands
-      .filter((c: any) => c.category === "plugin")
-      .map((c: any) => ({
+      .filter((c) => c.category === "plugin")
+      .map((c) => ({
         name: c.name,
         description: c.description || c.name,
       }));

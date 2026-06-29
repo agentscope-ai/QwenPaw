@@ -26,6 +26,13 @@ class RubricConfig(BaseModel):
         default="",
         description="Message injected when BLOCK",
     )
+    use_fork: bool = Field(
+        default=False,
+        description=(
+            "If True, rubric grader runs in a forked "
+            "worktree via spawn_subagent(fork=True)"
+        ),
+    )
 
 
 class StateConfig(BaseModel):

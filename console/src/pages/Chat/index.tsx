@@ -26,7 +26,7 @@ import ModelSelector from "./ModelSelector";
 import { useTheme } from "../../contexts/ThemeContext";
 import { useAgentStore } from "../../stores/agentStore";
 import { useCodingMode } from "../../stores/codingModeStore";
-import { useLoopStore } from "../../stores/loopStore";
+import { useLoopStore, fetchAvailableLoopSkills } from "../../stores/loopStore";
 import {
   LoopCommandChip,
   LoopBudgetSelector,
@@ -1204,6 +1204,10 @@ export default function ChatPage() {
     };
   }, [queueSessionId]);
 
+  useEffect(() => {
+    void fetchAvailableLoopSkills();
+  }, []);
+
   const scheduleNextSend = useCallback(() => {
     if (autoSendTimerRef.current) clearTimeout(autoSendTimerRef.current);
     autoSendTimerRef.current = setTimeout(() => {
@@ -1623,10 +1627,11 @@ export default function ChatPage() {
       if (loopMatch) {
         const skillName = loopMatch[1].trim();
         const skills = useLoopStore.getState().availableSkills;
-        const skill = skills.find((s) => s.name === skillName);
-        if (skill) {
-          useLoopStore.getState().setSelectedSkill(skill);
-        }
+        const skill = skills.find((s) => s.name === skillName) ?? {
+          name: skillName,
+          description: skillName,
+        };
+        useLoopStore.getState().setSelectedSkill(skill);
         setTextareaValue(textarea, "");
         lastChecked = "";
       }
@@ -2357,6 +2362,11 @@ export default function ChatPage() {
         value: "skills",
         description: t("chat.commands.skills.description"),
       },
+      {
+        command: "/goal",
+        value: "__loop__goal",
+        description: t("chat.commands.goal.description"),
+      },
     ];
     if (planEnabled) {
       commandSuggestions.push({
@@ -2416,9 +2426,7 @@ export default function ChatPage() {
           return false;
         }
         const loopSkill = useLoopStore.getState().selectedSkill;
-        const queueText = loopSkill
-          ? `/${loopSkill.name} ${val}`
-          : val;
+        const queueText = loopSkill ? `/${loopSkill.name} ${val}` : val;
         useMessageQueueStore.getState().enqueue(queueSessionId, {
           text: queueText,
           attachments:

@@ -1,23 +1,24 @@
+/* ── Loop Command Chip ── */
 .loopChip {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  background: linear-gradient(135deg, #1e1b4b 0%, #312e81 100%);
-  border: 1px solid #4338ca;
+  background: var(--ant-color-primary-bg, rgba(22, 119, 255, 0.08));
+  border: 1px solid var(--ant-color-primary-border, rgba(22, 119, 255, 0.3));
   border-radius: 8px;
   padding: 4px 10px 4px 8px;
   font-size: 13px;
   font-weight: 500;
-  color: #c7d2fe;
+  color: var(--ant-color-primary, #1677ff);
   cursor: default;
   user-select: none;
-  transition: all 0.15s;
+  transition: all 0.15s ease;
   animation: chipIn 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
 @keyframes chipIn {
   0% {
-    transform: scale(0.8);
+    transform: scale(0.85);
     opacity: 0;
   }
   100% {
@@ -27,14 +28,14 @@
 }
 
 .loopChip:hover {
-  background: linear-gradient(135deg, #312e81 0%, #3730a3 100%);
-  border-color: #6366f1;
+  background: var(--ant-color-primary-bg-hover, rgba(22, 119, 255, 0.12));
+  border-color: var(--ant-color-primary, #1677ff);
 }
 
 .loopChipHighlighted {
-  background: linear-gradient(135deg, #4338ca 0%, #4f46e5 100%);
-  border-color: #818cf8;
-  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.3);
+  background: var(--ant-color-primary-bg-hover, rgba(22, 119, 255, 0.15));
+  border-color: var(--ant-color-primary, #1677ff);
+  box-shadow: 0 0 0 2px var(--ant-color-primary-bg, rgba(22, 119, 255, 0.15));
 }
 
 .chipClose {
@@ -43,7 +44,7 @@
   opacity: 0.5;
   cursor: pointer;
   margin-left: 2px;
-  transition: opacity 0.15s;
+  transition: opacity 0.15s ease;
   flex-shrink: 0;
 }
 
@@ -51,40 +52,40 @@
   opacity: 1;
 }
 
-/* Budget Selector */
+/* ── Budget Selector ── */
 .budgetSelector {
   display: flex;
   align-items: center;
-  gap: 4px;
-  background: var(--ant-color-fill-quaternary, #27272a);
+  gap: 2px;
+  background: var(--ant-color-fill-quaternary, rgba(0, 0, 0, 0.02));
   border-radius: 8px;
-  padding: 3px 4px;
+  padding: 2px;
 }
 
 .budgetOption {
   display: flex;
   align-items: center;
   gap: 4px;
-  padding: 4px 10px;
+  padding: 3px 8px;
   border-radius: 6px;
   font-size: 12px;
   font-weight: 500;
-  color: var(--ant-color-text-quaternary, #71717a);
+  color: var(--ant-color-text-quaternary, rgba(0, 0, 0, 0.25));
   cursor: pointer;
-  transition: all 0.15s;
+  transition: all 0.15s ease;
   border: 1px solid transparent;
 }
 
 .budgetOption:hover {
-  color: var(--ant-color-text-tertiary, #a1a1aa);
-  background: var(--ant-color-fill-tertiary, #3f3f46);
+  color: var(--ant-color-text-tertiary, rgba(0, 0, 0, 0.45));
+  background: var(--ant-color-fill-tertiary, rgba(0, 0, 0, 0.04));
 }
 
 .budgetOptionActive {
-  background: var(--ant-color-bg-container, #18181b);
-  color: var(--ant-color-text, #e4e4e7);
-  border-color: var(--ant-color-border, #3f3f46);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+  background: var(--ant-color-bg-container, #fff);
+  color: var(--ant-color-text, rgba(0, 0, 0, 0.88));
+  border-color: var(--ant-color-border, #d9d9d9);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
 }
 
 .budgetDots {
@@ -96,42 +97,26 @@
   width: 5px;
   height: 5px;
   border-radius: 50%;
-  background: var(--ant-color-fill-secondary, #52525b);
-  transition: background 0.15s;
+  background: var(--ant-color-fill-secondary, rgba(0, 0, 0, 0.06));
+  transition: background 0.15s ease;
 }
 
-.budgetDotFilled {
-  background: #52525b;
-}
-
-.budgetOptionActive .budgetDotFilled {
-  background: #22c55e;
-}
-
-.budgetOptionActive[data-level="medium"] .budgetDotFilled {
-  background: #eab308;
-}
-
-.budgetOptionActive[data-level="high"] .budgetDotFilled {
-  background: #f97316;
-}
-
-/* Loop Status Bar */
+/* ── Loop Status Bar ── */
 .loopStatusBar {
-  background: var(--ant-color-bg-elevated, #18181b);
-  border: 1px solid var(--ant-color-border, #27272a);
+  background: var(--ant-color-bg-elevated, #fff);
+  border: 1px solid var(--ant-color-border, #d9d9d9);
   border-radius: 10px;
   padding: 8px 14px;
   margin-bottom: 8px;
   display: flex;
   align-items: center;
   gap: 12px;
-  animation: statusIn 0.3s ease-out;
+  animation: statusIn 0.25s ease-out;
 }
 
 @keyframes statusIn {
   0% {
-    transform: translateY(-8px);
+    transform: translateY(-6px);
     opacity: 0;
   }
   100% {
@@ -144,13 +129,13 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  background: #1e1b4b;
-  border: 1px solid #4338ca;
+  background: var(--ant-color-primary-bg, rgba(22, 119, 255, 0.08));
+  border: 1px solid var(--ant-color-primary-border, rgba(22, 119, 255, 0.3));
   border-radius: 6px;
   padding: 3px 8px;
   font-size: 11px;
   font-weight: 600;
-  color: #a5b4fc;
+  color: var(--ant-color-primary, #1677ff);
   white-space: nowrap;
 }
 
@@ -158,12 +143,12 @@
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: #818cf8;
+  background: var(--ant-color-primary, #1677ff);
   animation: pulse 2s infinite;
 }
 
 .pulseDotPaused {
-  background: #eab308;
+  background: var(--ant-color-warning, #faad14);
   animation: none;
 }
 
@@ -173,14 +158,14 @@
     opacity: 1;
   }
   50% {
-    opacity: 0.4;
+    opacity: 0.35;
   }
 }
 
 .statusInfo {
   flex: 1;
   font-size: 12px;
-  color: var(--ant-color-text-secondary, #a1a1aa);
+  color: var(--ant-color-text-secondary, rgba(0, 0, 0, 0.65));
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -195,7 +180,7 @@
 .progressBar {
   width: 80px;
   height: 4px;
-  background: var(--ant-color-fill-quaternary, #27272a);
+  background: var(--ant-color-fill-quaternary, rgba(0, 0, 0, 0.02));
   border-radius: 2px;
   overflow: hidden;
 }
@@ -207,20 +192,20 @@
 }
 
 .progressFillGreen {
-  background: #22c55e;
+  background: var(--ant-color-success, #52c41a);
 }
 
 .progressFillYellow {
-  background: #eab308;
+  background: var(--ant-color-warning, #faad14);
 }
 
 .progressFillRed {
-  background: #ef4444;
+  background: var(--ant-color-error, #ff4d4f);
 }
 
 .progressText {
   font-size: 11px;
-  color: var(--ant-color-text-quaternary, #71717a);
+  color: var(--ant-color-text-quaternary, rgba(0, 0, 0, 0.25));
   font-weight: 500;
   min-width: 32px;
 }
@@ -234,24 +219,24 @@
   width: 24px;
   height: 24px;
   border-radius: 6px;
-  border: 1px solid var(--ant-color-border, #3f3f46);
-  background: var(--ant-color-fill-quaternary, #27272a);
-  color: var(--ant-color-text-tertiary, #a1a1aa);
+  border: 1px solid var(--ant-color-border, #d9d9d9);
+  background: var(--ant-color-fill-quaternary, rgba(0, 0, 0, 0.02));
+  color: var(--ant-color-text-tertiary, rgba(0, 0, 0, 0.45));
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: all 0.15s;
+  transition: all 0.15s ease;
   padding: 0;
 }
 
 .statusBtn:hover {
-  background: var(--ant-color-fill-tertiary, #3f3f46);
-  color: var(--ant-color-text, #e4e4e7);
+  background: var(--ant-color-fill-tertiary, rgba(0, 0, 0, 0.04));
+  color: var(--ant-color-text, rgba(0, 0, 0, 0.88));
 }
 
 .statusBtnDanger:hover {
-  background: #450a0a;
-  border-color: #dc2626;
-  color: #fca5a5;
+  background: var(--ant-color-error-bg, #fff2f0);
+  border-color: var(--ant-color-error, #ff4d4f);
+  color: var(--ant-color-error, #ff4d4f);
 }

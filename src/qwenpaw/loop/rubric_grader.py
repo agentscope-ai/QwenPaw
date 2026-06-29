@@ -51,6 +51,7 @@ async def run_rubric_grader(
     agent_output: str,
     iteration: int,
     spawn_fn: Any = None,
+    fork: bool = False,
 ) -> RubricEvaluation:
     """Run rubric grading via spawn_subagent.
 
@@ -60,6 +61,7 @@ async def run_rubric_grader(
         iteration: Current grading iteration.
         spawn_fn: Async callable to spawn a subagent.
             Falls back to tool-level spawn_subagent.
+        fork: If True, run grader in isolated worktree.
 
     Returns:
         RubricEvaluation with verdict and feedback.
@@ -89,7 +91,7 @@ async def run_rubric_grader(
     try:
         result = await spawn_fn(
             task=grader_task,
-            fork=False,
+            fork=fork,
             background=False,
             timeout=60,
         )

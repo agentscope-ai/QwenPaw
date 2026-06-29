@@ -435,6 +435,7 @@ async def _eval_soft_judge(
             goal=prompt,
             agent_output=state_str,
             iteration=session.iteration_count,
+            fork=cfg.rubric.use_fork,
         )
         return result.verdict
     except Exception as exc:

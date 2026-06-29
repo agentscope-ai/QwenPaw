@@ -1959,6 +1959,9 @@
       },
       "plan": {
         "description": "创建结构化计划，将任务分解为多个子任务"
+      },
+      "goal": {
+        "description": "目标驱动循环 — 通过 Rubric 验证持续追求目标直至完成"
       }
     },
     "attachments": {
@@ -2774,6 +2777,18 @@
       "NOT_FOUND": "文件未找到，可能已被移动或删除。如果使用了相对路径，请尝试使用绝对路径。",
       "LOAD_FAILED": "加载文件预览失败。",
       "LOAD_FAILED_DETAIL": "加载文件预览失败：{{detail}}"
+    }
+  },
+  "loop": {
+    "budget": {
+      "low": "低",
+      "medium": "中",
+      "high": "高"
+    },
+    "status": {
+      "pause": "暂停",
+      "resume": "继续",
+      "stop": "停止"
     }
   }
 }

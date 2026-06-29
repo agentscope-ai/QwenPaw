@@ -1,31 +1,29 @@
 import React from "react";
+import { useTranslation } from "react-i18next";
 import { useLoopStore, type BudgetLevel } from "../../stores/loopStore";
 import styles from "./index.module.less";
 
-const BUDGET_OPTIONS: { level: BudgetLevel; label: string; dots: number }[] = [
-  { level: "low", label: "Low", dots: 1 },
-  { level: "medium", label: "Med", dots: 2 },
-  { level: "high", label: "High", dots: 3 },
+const BUDGET_LEVELS: { level: BudgetLevel; i18nKey: string; dots: number }[] = [
+  { level: "low", i18nKey: "loop.budget.low", dots: 1 },
+  { level: "medium", i18nKey: "loop.budget.medium", dots: 2 },
+  { level: "high", i18nKey: "loop.budget.high", dots: 3 },
 ];
 
 const DOT_COLORS: Record<BudgetLevel, string> = {
-  low: "#22c55e",
-  medium: "#eab308",
-  high: "#f97316",
+  low: "var(--ant-color-success, #52c41a)",
+  medium: "var(--ant-color-warning, #faad14)",
+  high: "var(--ant-color-warning-border, #ffa940)",
 };
 
-/**
- * Budget selector (Low/Med/High) shown in the sender bottom bar when a
- * loop chip is active. Visual dots indicate budget intensity.
- */
 export const LoopBudgetSelector: React.FC = () => {
+  const { t } = useTranslation();
   const { selectedSkill, budgetLevel, setBudgetLevel } = useLoopStore();
 
   if (!selectedSkill) return null;
 
   return (
     <div className={styles.budgetSelector}>
-      {BUDGET_OPTIONS.map(({ level, label, dots }) => {
+      {BUDGET_LEVELS.map(({ level, i18nKey, dots }) => {
         const isActive = budgetLevel === level;
         const cls = [
           styles.budgetOption,
@@ -53,7 +51,7 @@ export const LoopBudgetSelector: React.FC = () => {
                 />
               ))}
             </div>
-            <span>{label}</span>
+            <span>{t(i18nKey)}</span>
           </div>
         );
       })}

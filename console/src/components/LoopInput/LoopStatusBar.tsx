@@ -1,13 +1,11 @@
 import React from "react";
 import { Pause, Play, Square } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { useLoopStore } from "../../stores/loopStore";
 import styles from "./index.module.less";
 
-/**
- * Persistent status bar shown above the sender when a loop is actively
- * running. Displays iteration count, budget usage, and pause/stop controls.
- */
 export const LoopStatusBar: React.FC = () => {
+  const { t } = useTranslation();
   const { runtime, pauseLoop, resumeLoop, stopLoop } = useLoopStore();
 
   if (!runtime) return null;
@@ -42,14 +40,16 @@ export const LoopStatusBar: React.FC = () => {
       <div className={styles.statusActions}>
         <button
           className={styles.statusBtn}
-          title={runtime.paused ? "Resume" : "Pause"}
+          title={
+            runtime.paused ? t("loop.status.resume") : t("loop.status.pause")
+          }
           onClick={runtime.paused ? resumeLoop : pauseLoop}
         >
           {runtime.paused ? <Play size={12} /> : <Pause size={12} />}
         </button>
         <button
           className={`${styles.statusBtn} ${styles.statusBtnDanger}`}
-          title="Stop"
+          title={t("loop.status.stop")}
           onClick={stopLoop}
         >
           <Square size={12} />

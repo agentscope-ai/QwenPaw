@@ -2101,6 +2101,9 @@
       },
       "plan": {
         "description": "Create a structured plan to decompose the task into subtasks"
+      },
+      "goal": {
+        "description": "Goal-driven loop — pursue a goal with rubric verification until done"
       }
     },
     "attachments": {
@@ -2756,6 +2759,18 @@
       "NOT_FOUND": "File not found. It may have been moved or deleted. If a relative path was used, please try using an absolute path instead.",
       "LOAD_FAILED": "Failed to load file preview.",
       "LOAD_FAILED_DETAIL": "Failed to load file preview: {{detail}}"
+    }
+  },
+  "loop": {
+    "budget": {
+      "low": "Low",
+      "medium": "Med",
+      "high": "High"
+    },
+    "status": {
+      "pause": "Pause",
+      "resume": "Resume",
+      "stop": "Stop"
     }
   }
 }
