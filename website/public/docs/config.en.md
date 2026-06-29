@@ -503,16 +503,6 @@ When `null`, uses the global default model. Can be configured in Console (Agent 
 
 ---
 
-#### `plan` — Plan mode configuration
-
-| Field     | Type | Default | Description                 |
-| --------- | ---- | ------- | --------------------------- |
-| `enabled` | bool | `false` | Whether to enable plan mode |
-
-When enabled, the agent supports `/plan` commands for structured task planning and execution. See [Plan Mode](./plan) for detailed documentation.
-
----
-
 #### `approval_level` — Tool execution security level
 
 | Field            | Type   | Default  | Description                                                                                     |
