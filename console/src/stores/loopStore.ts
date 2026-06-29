@@ -57,10 +57,6 @@ export const useLoopStore = create<LoopState>((set) => ({
       name: "autopilot",
       description: "多阶段自治 — 自动规划并执行",
     },
-    {
-      name: "browser-mission",
-      description: "浏览器自动化 — 操控浏览器完成任务",
-    },
   ],
 
   setSelectedSkill: (skill) =>

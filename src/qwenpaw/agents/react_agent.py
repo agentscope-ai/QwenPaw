@@ -28,6 +28,7 @@ from ..constant import (
     QWENPAW_MESSAGE_TAG_KEY,
     WORKING_DIR,
 )
+from ..loop.stop_handler import StopAction, StopHandlerResult
 from ..providers.model_capability_cache import get_capability_cache
 
 if TYPE_CHECKING:
@@ -443,6 +444,34 @@ class QwenPawAgent(CodingModeMixin, Agent):
             )
             return  # outer loop continues → _check_next_action → reasoning
 
+        # ── Stop Hook: check registered handlers before stopping ──
+        stop_result = await self._run_stop_handlers(final_msg)
+        if stop_result.action == StopAction.BLOCK:
+            logger.info(
+                "Stop handler BLOCKED exit: %s",
+                stop_result.reason,
+            )
+            continuation = (
+                stop_result.continuation_message
+                or "Continue working on the task."
+            )
+            self.state.context.append(
+                Msg(
+                    name="user",
+                    role="user",
+                    content=[
+                        TextBlock(
+                            type="text",
+                            text=continuation,
+                        ),
+                    ],
+                    metadata={
+                        QWENPAW_MESSAGE_TAG_KEY: ("loop_continuation"),
+                    },
+                ),
+            )
+            return  # outer loop continues
+
         yield final_msg
 
     def _should_auto_continue(
@@ -603,6 +632,81 @@ class QwenPawAgent(CodingModeMixin, Agent):
                     tool_name,
                     float(t),
                 )
+
+    # ------------------------------------------------------------------
+    # Stop Hook: loop continuation support
+    # ------------------------------------------------------------------
+
+    def _get_stop_handlers(self) -> list:
+        """Retrieve registered stop handlers from PluginRegistry."""
+        try:
+            from ..plugins.registry import PluginRegistry
+
+            return list(
+                PluginRegistry.get_stop_handlers(),
+            )
+        except Exception:  # pylint: disable=broad-except
+            return []
+
+    async def _run_stop_handlers(
+        self,
+        final_msg: Msg,
+    ) -> StopHandlerResult:
+        """Run registered stop handlers in priority order.
+
+        If any handler returns BLOCK, the agent continues
+        working instead of stopping. Handlers are sorted by
+        priority (lower number = higher priority).
+
+        Args:
+            final_msg: The agent's final text-only Msg.
+
+        Returns:
+            StopHandlerResult with ALLOW or BLOCK action.
+        """
+        handlers = self._get_stop_handlers()
+        if not handlers:
+            return StopHandlerResult(
+                action=StopAction.ALLOW,
+            )
+
+        handlers.sort(key=lambda h: h.priority)
+
+        for reg in handlers:
+            try:
+                result = await reg.handler(
+                    {
+                        "final_msg": final_msg,
+                        "agent": self,
+                        "iteration": (self.state.cur_iter),
+                    },
+                )
+                if isinstance(result, StopHandlerResult):
+                    if result.action == StopAction.BLOCK:
+                        return result
+                elif isinstance(result, dict):
+                    action = result.get(
+                        "action",
+                        "allow",
+                    )
+                    if action == "block":
+                        return StopHandlerResult(
+                            action=StopAction.BLOCK,
+                            continuation_message=(result.get("message", "")),
+                            reason=result.get(
+                                "reason",
+                                "",
+                            ),
+                        )
+            except Exception as exc:  # pylint: disable=broad-except
+                logger.warning(
+                    "Stop handler '%s' raised: %s",
+                    reg.name,
+                    exc,
+                )
+                continue
+
+        return StopHandlerResult(action=StopAction.ALLOW)
 
     # pylint: disable=too-many-nested-blocks
     def _strip_media_blocks_from_memory(self) -> int:
