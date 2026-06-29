@@ -20,6 +20,7 @@ uninstall → side-effect gone.
 Reuses _build_sample_plugin_zip pattern from test_plugins.py and the
 _upload_plugin_zip / _delete_plugin helpers.
 """
+
 from __future__ import annotations
 
 import io
@@ -727,12 +728,12 @@ def test_command_plugin_command_actually_registered(app_server) -> None:
         resp = _upload(app_server, pid, _command_plugin_zip(pid))
         assert resp.status_code == 200, app_server.logs_tail()
 
-        logs = app_server.logs_tail(8000)
+        logs = app_server.logs_tail(32000)
         # Look for either the registration log line or the
         # CommandRegistry confirmation. Both should be present.
-        assert expected_cmd in logs, (
-            f"command '{expected_cmd}' not in server logs:\n" f"{logs[-2000:]}"
-        )
+        assert (
+            expected_cmd in logs
+        ), f"command '{expected_cmd}' not in server logs:\n{logs[-2000:]}"
         # Stronger check: explicit registration confirmation.
         assert (
             "Registered plugin control command" in logs
