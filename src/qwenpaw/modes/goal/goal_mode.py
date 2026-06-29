@@ -11,6 +11,7 @@ stays inside this file and ``modes/goal/``.
 """
 from __future__ import annotations
 
+import contextvars
 import logging
 import time
 from dataclasses import dataclass, field
@@ -19,10 +20,6 @@ from typing import TYPE_CHECKING, Any, Optional
 from agentscope.message import Msg, TextBlock
 
 from ..base import AgentMode
-from ...loop.rubric_grader import (
-    RubricVerdict,
-    run_rubric_grader,
-)
 from ...loop.stop_handler import (
     StopAction,
     StopHandlerRegistration,
@@ -38,6 +35,13 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_MAX_ITERATIONS = 20
 DEFAULT_MAX_TOKENS = 300000
+
+_current_session_id: contextvars.ContextVar[
+    str | None
+] = contextvars.ContextVar(
+    "goal_session_id",
+    default=None,
+)
 
 _DONE_PHRASES = (
     "goal complete",
@@ -151,6 +155,23 @@ class GoalMode(AgentMode):
 
     def __init__(self) -> None:
         self._sessions: dict[str, GoalSession] = {}
+        self._default_max_tokens = DEFAULT_MAX_TOKENS
+
+    @property
+    def sessions(self) -> dict[str, GoalSession]:
+        """Expose sessions for sibling modules."""
+        return self._sessions
+
+    @property
+    def default_max_tokens(self) -> int:
+        """Default token budget for new goals."""
+        return self._default_max_tokens
+
+    def first_active_session(
+        self,
+    ) -> GoalSession | None:
+        """Return first active GoalSession or None."""
+        return self._first_active_session()
 
     # ---- AgentMode interface ----
 
@@ -170,6 +191,41 @@ class GoalMode(AgentMode):
                 category="builtin",
                 help_text="Cancel active goal or loop.",
                 metadata={"builtin": True},
+            ),
+        ]
+
+    def tools(self) -> list:
+        """Return goal tools: get/create/update_goal."""
+        from ...runtime.tool_registry import ToolDescriptor
+        from .tools import (
+            make_create_goal,
+            make_get_goal,
+            make_update_goal,
+        )
+
+        return [
+            ToolDescriptor(
+                name="get_goal",
+                func=make_get_goal(self),
+                requires_modes=("goal",),
+                description=(
+                    "Get the current goal status, " "budgets, and usage."
+                ),
+            ),
+            ToolDescriptor(
+                name="create_goal",
+                func=make_create_goal(self),
+                requires_modes=("goal",),
+                description=(
+                    "Create a goal only when explicitly "
+                    "requested by the user."
+                ),
+            ),
+            ToolDescriptor(
+                name="update_goal",
+                func=make_update_goal(self),
+                requires_modes=("goal",),
+                description=("Mark goal as complete or blocked."),
             ),
         ]
 
@@ -246,10 +302,12 @@ class GoalMode(AgentMode):
         session_key = self._current_session_key(ctx)
         session = GoalSession(goal=goal_text)
         self._sessions[session_key] = session
+        _current_session_id.set(session_key)
 
         logger.info(
-            "Goal mode activated: %s",
+            "Goal mode activated: %s (key=%s)",
             goal_text[:80],
+            session_key,
         )
 
         _rewrite_user_msg(ctx, goal_text)
@@ -296,7 +354,17 @@ class GoalMode(AgentMode):
     # ---- stop handler ----
 
     async def _stop_handler(self, ctx: Any) -> Any:
-        """Stop handler: block exit if goal not met."""
+        """Stop handler — Codex-aligned self-audit model.
+
+        Exit conditions (any → ALLOW):
+        1. Session already deactivated (e.g. update_goal
+           tool called with status=complete/blocked).
+        2. Max iterations budget reached.
+        3. Token budget exhausted.
+        4. Agent text claims completion (self-audit).
+
+        Otherwise → BLOCK + inject continuation prompt.
+        """
         session_key = self._session_key_from_ctx(ctx)
         session = self._sessions.get(session_key)
         if session is None or not session.active:
@@ -314,10 +382,11 @@ class GoalMode(AgentMode):
             session.max_tokens,
         )
 
+        # --- hard limit: max iterations ---
         if session.iteration >= session.max_iterations:
             session.active = False
             logger.info(
-                "Goal mode: max iterations (%d) reached",
+                "Goal: max iterations (%d) reached",
                 session.max_iterations,
             )
             return StopHandlerResult(
@@ -325,6 +394,7 @@ class GoalMode(AgentMode):
                 reason="Max iterations reached",
             )
 
+        # --- hard limit: token budget ---
         if session.tokens_used >= session.max_tokens:
             session.active = False
             return StopHandlerResult(
@@ -341,40 +411,25 @@ class GoalMode(AgentMode):
                 ),
             )
 
+        # --- self-audit: trust agent's own claim ---
         final_msg = ctx.get("final_msg")
         output_text = ""
         if isinstance(final_msg, Msg):
             output_text = final_msg.get_text_content() or ""
 
-        should_grade = _agent_claims_done(output_text)
-        if not should_grade and session.iteration % 5 == 0:
-            should_grade = True
-
-        if should_grade:
-            logger.debug(
-                "Goal rubric grading iter=%d claims_done=%s",
+        if _agent_claims_done(output_text):
+            session.active = False
+            session.last_verdict = "satisfied"
+            logger.info(
+                "Goal self-audit: agent claims done at iter=%d",
                 session.iteration,
-                _agent_claims_done(output_text),
             )
-            evaluation = await run_rubric_grader(
-                goal=session.goal,
-                agent_output=output_text,
-                iteration=session.iteration,
-            )
-            session.last_verdict = evaluation.verdict
-            session.last_feedback = evaluation.feedback
-            logger.debug(
-                "Goal rubric verdict=%s",
-                evaluation.verdict,
+            return StopHandlerResult(
+                action=StopAction.ALLOW,
+                reason="Agent self-audit: goal complete",
             )
 
-            if evaluation.verdict == RubricVerdict.SATISFIED:
-                session.active = False
-                return StopHandlerResult(
-                    action=StopAction.ALLOW,
-                    reason=(f"Goal satisfied: " f"{evaluation.explanation}"),
-                )
-
+        # --- BLOCK: inject continuation prompt ---
         remaining = max(
             0,
             session.max_tokens - session.tokens_used,
@@ -387,8 +442,6 @@ class GoalMode(AgentMode):
             token_budget=session.max_tokens,
             remaining_tokens=remaining,
         )
-        if session.last_feedback:
-            continuation += f"\nFeedback: {session.last_feedback}"
 
         return StopHandlerResult(
             action=StopAction.BLOCK,
@@ -422,7 +475,18 @@ class GoalMode(AgentMode):
     def _first_active_session(
         self,
     ) -> Optional[GoalSession]:
-        """Return the first active session or None."""
+        """Return active session for current context.
+
+        Prefers ContextVar (coroutine-local) to avoid
+        cross-request interference under concurrency.
+        Falls back to scanning all sessions for hooks
+        that run outside a request coroutine.
+        """
+        key = _current_session_id.get()
+        if key is not None:
+            s = self._sessions.get(key)
+            if s is not None and s.active:
+                return s
         for s in self._sessions.values():
             if s.active:
                 return s

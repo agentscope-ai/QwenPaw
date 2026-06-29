@@ -108,48 +108,94 @@ async def run_rubric_grader(
         )
 
 
+_SATISFIED_KEYWORDS = (
+    "satisfied",
+    "complete",
+    "goal met",
+    "goal achieved",
+    "pass",
+)
+_FAILED_KEYWORDS = ("failed", "impossible", "cannot")
+
+
+def _extract_text(result: Any) -> str:
+    """Extract plain text from subagent result."""
+    if isinstance(result, str):
+        return result
+    content = getattr(result, "content", None)
+    if content is None:
+        return str(result)
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts: list[str] = []
+        for block in content:
+            if hasattr(block, "text"):
+                parts.append(block.text)
+            elif isinstance(block, dict):
+                parts.append(block.get("text", ""))
+        return "".join(parts)
+    return str(content)
+
+
 def _parse_grader_result(
     result: Any,
     iteration: int,
 ) -> RubricEvaluation:
-    """Parse the grader subagent's response."""
-    text = ""
-    if hasattr(result, "content"):
-        content = result.content
-        if isinstance(content, list):
-            for block in content:
-                if hasattr(block, "text"):
-                    text += block.text
-                elif isinstance(block, dict):
-                    text += block.get("text", "")
-        elif isinstance(content, str):
-            text = content
-    elif isinstance(result, str):
-        text = result
+    """Parse grader response via string matching.
 
+    Tries JSON first (for structured responses), then
+    falls back to keyword detection in the raw text.
+    """
+    text = _extract_text(result)
+    lower = text.lower()
+
+    # --- try JSON first (best effort) ---
     try:
         start = text.index("{")
         end = text.rindex("}") + 1
         data = json.loads(text[start:end])
+        verdict_str = data.get("verdict", "")
+        if verdict_str:
+            try:
+                verdict = RubricVerdict(verdict_str)
+            except ValueError:
+                verdict = None
+            if verdict is not None:
+                return RubricEvaluation(
+                    iteration=iteration,
+                    verdict=verdict,
+                    explanation=data.get(
+                        "explanation",
+                        "",
+                    ),
+                    feedback=data.get("feedback", ""),
+                )
     except (ValueError, json.JSONDecodeError):
-        return RubricEvaluation(
-            iteration=iteration,
-            verdict=RubricVerdict.NEEDS_REVISION,
-            explanation="Could not parse grader output",
-            feedback=text[:500],
-        )
+        pass
 
-    verdict_str = data.get("verdict", "needs_revision")
-    try:
-        verdict = RubricVerdict(verdict_str)
-    except ValueError:
-        verdict = RubricVerdict.NEEDS_REVISION
+    # --- fallback: keyword detection ---
+    for kw in _SATISFIED_KEYWORDS:
+        if kw in lower:
+            return RubricEvaluation(
+                iteration=iteration,
+                verdict=RubricVerdict.SATISFIED,
+                explanation=text[:300],
+            )
+
+    for kw in _FAILED_KEYWORDS:
+        if kw in lower:
+            return RubricEvaluation(
+                iteration=iteration,
+                verdict=RubricVerdict.FAILED,
+                explanation=text[:300],
+            )
 
     return RubricEvaluation(
         iteration=iteration,
-        verdict=verdict,
-        explanation=data.get("explanation", ""),
-        feedback=data.get("feedback", ""),
+        verdict=RubricVerdict.NEEDS_REVISION,
+        explanation=text[:300],
+        feedback=text[:500],
     )
 
 
