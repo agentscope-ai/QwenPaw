@@ -121,7 +121,9 @@ def make_create_goal(owner: "GoalMode") -> Any:
         if existing is not None:
             return "A goal is already active. " "Cancel it first with /cancel."
 
-        from .goal_mode import _current_session_id
+        from ...app.agent_context import (
+            set_current_session_id,
+        )
 
         key = f"__tool__{int(time.time())}"
         budget = token_budget if token_budget > 0 else owner.default_max_tokens
@@ -130,7 +132,7 @@ def make_create_goal(owner: "GoalMode") -> Any:
             max_tokens=budget,
         )
         owner.sessions[key] = session
-        _current_session_id.set(key)
+        set_current_session_id(key)
         logger.info(
             "Goal created via tool: %s",
             objective.strip()[:80],

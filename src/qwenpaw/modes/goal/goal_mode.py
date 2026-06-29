@@ -11,7 +11,6 @@ stays inside this file and ``modes/goal/``.
 """
 from __future__ import annotations
 
-import contextvars
 import logging
 import time
 from dataclasses import dataclass, field
@@ -20,12 +19,18 @@ from typing import TYPE_CHECKING, Any, Optional
 from agentscope.message import Msg, TextBlock
 
 from ..base import AgentMode
+from ...app.agent_context import (
+    get_current_session_id,
+    set_current_session_id,
+)
 from ...loop.rubric_grader import (
     GoalStatusRubric,
     RubricVerdict,
 )
 from ...loop.stop_handler import (
     StopAction,
+    StopGate,
+    StopHandler,
     StopHandlerRegistration,
     StopHandlerResult,
 )
@@ -39,13 +44,6 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_MAX_ITERATIONS = 20
 DEFAULT_MAX_TOKENS = 300000
-
-_current_session_id: contextvars.ContextVar[
-    str | None
-] = contextvars.ContextVar(
-    "goal_session_id",
-    default=None,
-)
 
 INITIAL_GOAL_PROMPT = """\
 You are now in goal mode. A persistent goal has \
@@ -155,14 +153,166 @@ class GoalSession:
     )
 
 
+# ---- Stop Gates (registered into universal StopHandler) ----
+
+
+class IterationGate(StopGate):
+    """Hard limit: max iterations."""
+
+    name = "goal-iteration"
+    priority = 10
+
+    def __init__(self, goal_mode: GoalMode) -> None:
+        self._mode = goal_mode
+
+    async def check(
+        self,
+        ctx: Any,
+    ) -> Optional[StopHandlerResult]:
+        session = self._mode.session_by_ctx_var()
+        if session is None or not session.active:
+            return None
+
+        session.iteration += 1
+        _update_goal_tokens(session, ctx)
+        logger.debug(
+            "Goal stop: iter=%d/%d tokens=%d/%d",
+            session.iteration,
+            session.max_iterations,
+            session.tokens_used,
+            session.max_tokens,
+        )
+
+        if session.iteration >= session.max_iterations:
+            session.active = False
+            logger.info(
+                "Goal: max iterations (%d) reached",
+                session.max_iterations,
+            )
+            return StopHandlerResult(
+                action=StopAction.ALLOW,
+                reason="Max iterations reached",
+            )
+        return None
+
+
+class BudgetGate(StopGate):
+    """Hard limit: token budget."""
+
+    name = "goal-budget"
+    priority = 20
+
+    def __init__(self, goal_mode: GoalMode) -> None:
+        self._mode = goal_mode
+
+    async def check(
+        self,
+        ctx: Any,
+    ) -> Optional[StopHandlerResult]:
+        session = self._mode.session_by_ctx_var()
+        if session is None or not session.active:
+            return None
+        if session.tokens_used < session.max_tokens:
+            return None
+
+        session.active = False
+        return StopHandlerResult(
+            action=StopAction.ALLOW,
+            reason="Token budget exceeded",
+            continuation_message=(
+                BUDGET_LIMIT_PROMPT.format(
+                    objective=session.goal,
+                    iteration=session.iteration,
+                    max_iterations=(session.max_iterations),
+                    tokens_used=session.tokens_used,
+                    token_budget=session.max_tokens,
+                )
+            ),
+        )
+
+
+class RubricGate(StopGate):
+    """Rubric evaluation gate.
+
+    Uses GoalStatusRubric by default (checks
+    session.active via ContextVar). Returns ALLOW
+    when rubric says SATISFIED, BLOCK + continuation
+    when NEEDS_REVISION.
+    """
+
+    name = "goal-rubric"
+    priority = 30
+
+    def __init__(
+        self,
+        goal_mode: GoalMode,
+        rubric: Any,
+    ) -> None:
+        self._mode = goal_mode
+        self._rubric = rubric
+
+    async def check(
+        self,
+        ctx: Any,
+    ) -> Optional[StopHandlerResult]:
+        session = self._mode.session_by_ctx_var()
+        if session is None:
+            return None
+
+        evaluation = await self._rubric.evaluate(
+            goal=session.goal,
+            agent_output="",
+            iteration=session.iteration,
+        )
+        session.last_verdict = str(evaluation.verdict)
+        logger.debug(
+            "Goal rubric verdict=%s",
+            evaluation.verdict,
+        )
+
+        if evaluation.verdict == RubricVerdict.SATISFIED:
+            logger.info(
+                "Goal %s at iter=%d",
+                evaluation.explanation,
+                session.iteration,
+            )
+            return StopHandlerResult(
+                action=StopAction.ALLOW,
+                reason=evaluation.explanation,
+            )
+
+        remaining = max(
+            0,
+            session.max_tokens - session.tokens_used,
+        )
+        return StopHandlerResult(
+            action=StopAction.BLOCK,
+            continuation_message=(
+                CONTINUATION_PROMPT.format(
+                    objective=session.goal,
+                    iteration=session.iteration,
+                    max_iterations=(session.max_iterations),
+                    tokens_used=session.tokens_used,
+                    token_budget=session.max_tokens,
+                    remaining_tokens=remaining,
+                )
+            ),
+            reason=(f"Goal incomplete: iteration " f"{session.iteration}"),
+        )
+
+
+# ---- GoalMode ----
+
+
 class GoalMode(AgentMode):
     """Built-in /goal mode (AgentMode subclass).
 
     Registers /goal and /cancel slash commands. When
-    active, the stop handler blocks agent exit and uses
-    LLM-as-Judge rubric grading to determine if the
-    goal is met. If not, continuation feedback is
-    injected.
+    active, three gates in the universal StopHandler
+    control loop termination:
+    1. IterationGate — hard iteration limit
+    2. BudgetGate — token budget limit
+    3. RubricGate — rubric evaluation (session status)
 
     This is the ONLY built-in loop mode. All other
     loops (ralph, ultrawork, etc.) are plugins.
@@ -173,9 +323,6 @@ class GoalMode(AgentMode):
     def __init__(self) -> None:
         self._sessions: dict[str, GoalSession] = {}
         self._default_max_tokens = DEFAULT_MAX_TOKENS
-        self._rubric = GoalStatusRubric(
-            get_session_fn=self._session_by_ctx_var,
-        )
 
     @property
     def sessions(self) -> dict[str, GoalSession]:
@@ -192,6 +339,19 @@ class GoalMode(AgentMode):
     ) -> GoalSession | None:
         """Return first active GoalSession or None."""
         return self._first_active_session()
+
+    def session_by_ctx_var(
+        self,
+    ) -> Optional[GoalSession]:
+        """Return session by ContextVar (any status).
+
+        Uses agent_context.get_current_session_id().
+        Returns session even when active=False.
+        """
+        key = get_current_session_id()
+        if key is None:
+            return None
+        return self._sessions.get(key)
 
     # ---- AgentMode interface ----
 
@@ -265,25 +425,28 @@ class GoalMode(AgentMode):
             LoopIterRestoreHook(),
         ]
 
-    def prompt_contributors(self) -> list["PromptContributor"]:
+    def prompt_contributors(
+        self,
+    ) -> list["PromptContributor"]:
         """Return goal-mode prompt contributor."""
         from .contributor import GoalPromptContributor
 
         return [GoalPromptContributor(owner=self)]
 
     def setup(self, workspace: object) -> None:
-        """Standard setup + stop handler + governance."""
+        """Register gates into universal StopHandler."""
         super().setup(workspace)
-        if not hasattr(workspace.plugins, "stop_handlers"):
-            workspace.plugins.stop_handlers = []
-        workspace.plugins.stop_handlers.append(
-            StopHandlerRegistration(
-                plugin_id="__builtin_goal__",
-                handler=self._stop_handler,
-                priority=50,
-                name="goal-mode",
-            ),
+
+        handler = _get_or_create_stop_handler(
+            workspace,
         )
+        rubric = GoalStatusRubric(
+            get_session_fn=self.session_by_ctx_var,
+        )
+        handler.register(IterationGate(self))
+        handler.register(BudgetGate(self))
+        handler.register(RubricGate(self, rubric))
+
         _register_goal_tools_governance()
 
     def is_active(self, ctx: Any) -> bool:
@@ -299,9 +462,9 @@ class GoalMode(AgentMode):
     ) -> Optional[Msg]:
         """Handle /goal <task description>.
 
-        Returns None so the Runtime does NOT skip the agent.
-        Instead we rewrite the user message in ctx.input_msgs
-        to the bare goal text, letting the agent process it.
+        Returns None so the Runtime does NOT skip the
+        agent. Rewrites the user message in ctx.input_msgs
+        to the bare goal text.
         """
         if not args or not args.strip():
             return Msg(
@@ -323,7 +486,7 @@ class GoalMode(AgentMode):
         session_key = self._current_session_key(ctx)
         session = GoalSession(goal=goal_text)
         self._sessions[session_key] = session
-        _current_session_id.set(session_key)
+        set_current_session_id(session_key)
 
         logger.info(
             "Goal mode activated: %s (key=%s)",
@@ -372,107 +535,6 @@ class GoalMode(AgentMode):
             role="system",
         )
 
-    # ---- stop handler ----
-
-    async def _stop_handler(self, ctx: Any) -> Any:
-        """Stop handler: iter + budget + rubric.
-
-        Three-layer termination:
-        1. Iteration hard limit → ALLOW
-        2. Token budget hard limit → ALLOW
-        3. rubric.evaluate() → SATISFIED → ALLOW
-        Otherwise → BLOCK + inject continuation prompt.
-        """
-        session_key = self._session_key_from_ctx(ctx)
-        _current_session_id.set(session_key)
-        session = self._sessions.get(session_key)
-        if session is None:
-            return StopHandlerResult(
-                action=StopAction.ALLOW,
-            )
-
-        session.iteration += 1
-        _update_goal_tokens(session, ctx)
-        logger.debug(
-            "Goal stop: iter=%d/%d tokens=%d/%d",
-            session.iteration,
-            session.max_iterations,
-            session.tokens_used,
-            session.max_tokens,
-        )
-
-        # --- hard limit: max iterations ---
-        if session.iteration >= session.max_iterations:
-            session.active = False
-            logger.info(
-                "Goal: max iterations (%d) reached",
-                session.max_iterations,
-            )
-            return StopHandlerResult(
-                action=StopAction.ALLOW,
-                reason="Max iterations reached",
-            )
-
-        # --- hard limit: token budget ---
-        if session.tokens_used >= session.max_tokens:
-            session.active = False
-            return StopHandlerResult(
-                action=StopAction.ALLOW,
-                reason="Token budget exceeded",
-                continuation_message=(
-                    BUDGET_LIMIT_PROMPT.format(
-                        objective=session.goal,
-                        iteration=session.iteration,
-                        max_iterations=(session.max_iterations),
-                        tokens_used=session.tokens_used,
-                        token_budget=session.max_tokens,
-                    )
-                ),
-            )
-
-        # --- rubric: goal status check (via ContextVar) ---
-        evaluation = await self._rubric.evaluate(
-            goal=session.goal,
-            agent_output="",
-            iteration=session.iteration,
-        )
-        session.last_verdict = str(evaluation.verdict)
-        logger.debug(
-            "Goal rubric verdict=%s",
-            evaluation.verdict,
-        )
-
-        if evaluation.verdict == RubricVerdict.SATISFIED:
-            logger.info(
-                "Goal %s at iter=%d",
-                evaluation.explanation,
-                session.iteration,
-            )
-            return StopHandlerResult(
-                action=StopAction.ALLOW,
-                reason=evaluation.explanation,
-            )
-
-        # --- BLOCK: inject continuation prompt ---
-        remaining = max(
-            0,
-            session.max_tokens - session.tokens_used,
-        )
-        continuation = CONTINUATION_PROMPT.format(
-            objective=session.goal,
-            iteration=session.iteration,
-            max_iterations=session.max_iterations,
-            tokens_used=session.tokens_used,
-            token_budget=session.max_tokens,
-            remaining_tokens=remaining,
-        )
-
-        return StopHandlerResult(
-            action=StopAction.BLOCK,
-            continuation_message=continuation,
-            reason=(f"Goal incomplete: iteration " f"{session.iteration}"),
-        )
-
     # ---- prompt / session helpers ----
 
     def prompt_provider(
@@ -511,31 +573,14 @@ class GoalMode(AgentMode):
     def _first_active_session(
         self,
     ) -> Optional[GoalSession]:
-        """Return active session for current coroutine.
-
-        Uses ContextVar exclusively — no scan fallback.
-        """
-        key = _current_session_id.get()
+        """Return active session via ContextVar."""
+        key = get_current_session_id()
         if key is None:
             return None
         s = self._sessions.get(key)
         if s is not None and s.active:
             return s
         return None
-
-    def _session_by_ctx_var(
-        self,
-    ) -> Optional[GoalSession]:
-        """Return session by ContextVar (any status).
-
-        Unlike _first_active_session, this returns
-        the session even when active=False — needed
-        by GoalStatusRubric to detect completion.
-        """
-        key = _current_session_id.get()
-        if key is None:
-            return None
-        return self._sessions.get(key)
 
     @staticmethod
     def _cancel_plugin_loops() -> None:
@@ -564,21 +609,6 @@ class GoalMode(AgentMode):
             return ctx.get("session_id", "default")
         return getattr(ctx, "session_id", "default")
 
-    @staticmethod
-    def _session_key_from_ctx(ctx: Any) -> str:
-        """Derive session key from stop handler ctx."""
-        if isinstance(ctx, dict):
-            agent = ctx.get("agent")
-            if agent is not None:
-                rc = getattr(
-                    agent,
-                    "_request_context",
-                    {},
-                )
-                return rc.get("session_id", "default")
-            return ctx.get("session_id", "default")
-        return "default"
-
     def get_session(
         self,
         session_key: str = "default",
@@ -593,13 +623,41 @@ class GoalMode(AgentMode):
         return {k: v for k, v in self._sessions.items() if v.active}
 
 
-def _rewrite_user_msg(ctx: Any, text: str) -> None:
-    """Replace last user message content with *text*.
+# ---- Module-level helpers ----
 
-    When _activate_handler returns None the Runtime proceeds
-    to the agent.  We swap the ``/goal …`` text so the agent
-    sees the bare goal instead of the raw slash command.
+
+def _get_or_create_stop_handler(
+    workspace: object,
+) -> StopHandler:
+    """Get universal StopHandler from workspace.
+
+    Creates one if it doesn't exist and registers it
+    with the legacy stop_handlers list.
     """
+    existing = getattr(workspace, "_stop_handler", None)
+    if isinstance(existing, StopHandler):
+        return existing
+
+    handler = StopHandler()
+    setattr(workspace, "_stop_handler", handler)
+
+    plugins = getattr(workspace, "plugins", None)
+    if plugins is not None:
+        if not hasattr(plugins, "stop_handlers"):
+            plugins.stop_handlers = []
+        plugins.stop_handlers.append(
+            StopHandlerRegistration(
+                plugin_id="__universal__",
+                handler=handler,
+                priority=0,
+                name="universal-stop-handler",
+            ),
+        )
+    return handler
+
+
+def _rewrite_user_msg(ctx: Any, text: str) -> None:
+    """Replace last user message content with *text*."""
     msgs = getattr(ctx, "input_msgs", None)
     if not msgs:
         return
@@ -648,7 +706,11 @@ def _register_goal_tools_governance() -> None:
             DEFAULT_REGISTRY,
         )
 
-        for name in ("GetGoal", "CreateGoal", "UpdateGoal"):
+        for name in (
+            "GetGoal",
+            "CreateGoal",
+            "UpdateGoal",
+        ):
             if DEFAULT_REGISTRY.get_type(name) == "unknown":
                 DEFAULT_REGISTRY.register(
                     name,

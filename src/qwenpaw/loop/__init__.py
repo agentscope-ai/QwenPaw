@@ -3,8 +3,10 @@
 
 from .stop_handler import (
     StopAction,
-    StopHandlerResult,
+    StopGate,
+    StopHandler,
     StopHandlerRegistration,
+    StopHandlerResult,
 )
 from .doom_loop import (
     DoomLoopAlert,
@@ -33,6 +35,8 @@ __all__ = [
     "LoopSkillConfig",
     "ObserverRegistration",
     "StopAction",
+    "StopGate",
+    "StopHandler",
     "StopHandlerRegistration",
     "StopHandlerResult",
 ]
