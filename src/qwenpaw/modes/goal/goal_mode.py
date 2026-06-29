@@ -20,10 +20,6 @@ from typing import TYPE_CHECKING, Any, Optional
 from agentscope.message import Msg, TextBlock
 
 from ..base import AgentMode
-from ...loop.rubric_grader import (
-    GoalStatusRubric,
-    RubricVerdict,
-)
 from ...loop.stop_handler import (
     StopAction,
     StopHandlerRegistration,
@@ -173,7 +169,6 @@ class GoalMode(AgentMode):
     def __init__(self) -> None:
         self._sessions: dict[str, GoalSession] = {}
         self._default_max_tokens = DEFAULT_MAX_TOKENS
-        self._rubric = GoalStatusRubric(owner=self)
 
     @property
     def sessions(self) -> dict[str, GoalSession]:
@@ -373,16 +368,14 @@ class GoalMode(AgentMode):
     # ---- stop handler ----
 
     async def _stop_handler(self, ctx: Any) -> Any:
-        """Stop handler: iter + budget + rubric.
+        """Stop handler: iter + budget + goal status.
 
-        Three-layer termination:
-        1. Iteration hard limit → ALLOW
-        2. Token budget hard limit → ALLOW
-        3. rubric.evaluate() → SATISFIED → ALLOW
-                              → otherwise → BLOCK
-
-        GoalStatusRubric checks session.active, which
-        is set to False by the update_goal tool.
+        Four-layer termination:
+        1. No session → ALLOW (pass through)
+        2. Iteration hard limit → ALLOW
+        3. Token budget hard limit → ALLOW
+        4. Goal complete/blocked (session.active) → ALLOW
+        Otherwise → BLOCK + inject continuation prompt.
         """
         session_key = self._session_key_from_ctx(ctx)
         _current_session_id.set(session_key)
@@ -431,33 +424,17 @@ class GoalMode(AgentMode):
                 ),
             )
 
-        # --- rubric evaluation ---
-        final_msg = ctx.get("final_msg")
-        output_text = ""
-        if isinstance(final_msg, Msg):
-            output_text = final_msg.get_text_content() or ""
-
-        evaluation = await self._rubric.evaluate(
-            goal=session.goal,
-            agent_output=output_text,
-            iteration=session.iteration,
-        )
-        session.last_verdict = str(evaluation.verdict)
-        logger.debug(
-            "Goal rubric verdict=%s",
-            evaluation.verdict,
-        )
-
-        if evaluation.verdict == RubricVerdict.SATISFIED:
-            session.active = False
+        # --- goal completed/blocked via update_goal ---
+        if not session.active:
+            verdict = session.last_verdict or "complete"
             logger.info(
-                "Goal complete at iter=%d: %s",
+                "Goal %s at iter=%d",
+                verdict,
                 session.iteration,
-                evaluation.explanation,
             )
             return StopHandlerResult(
                 action=StopAction.ALLOW,
-                reason=evaluation.explanation,
+                reason=f"Goal {verdict}",
             )
 
         # --- BLOCK: inject continuation prompt ---
