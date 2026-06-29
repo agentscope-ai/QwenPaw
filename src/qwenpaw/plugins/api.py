@@ -709,7 +709,11 @@ class PluginApi:
                 try:
                     if not _cond(agent):
                         return ""
-                except Exception:
+                except Exception as exc:
+                    logger.warning(
+                        "Prompt condition error: %s",
+                        exc,
+                    )
                     return ""
                 return _prov(agent)
 
@@ -803,7 +807,11 @@ class PluginApi:
             if mgr is None:
                 return None
             return mgr.agents.get(agent_id)
-        except Exception:
+        except Exception as exc:
+            logger.warning(
+                "Get workspace error: %s",
+                exc,
+            )
             return None
 
     def _register_spec_to_all_workspaces(self, spec):

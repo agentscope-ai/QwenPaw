@@ -257,7 +257,12 @@ class TestHitlPauseHook:
         alert = ctx.extras.get("_doom_loop_alert")
         assert alert is not None
         assert alert["escalation_count"] == 3
-        assert not state.paused
+        # First call keeps paused=True (alert shown);
+        # second call (user replied) unpauses.
+        assert state.paused is True
+        result2 = await hook.run(ctx)
+        assert result2.action == HookAction.CONTINUE
+        assert state.paused is False
 
 
 class TestObserverBroadcast:

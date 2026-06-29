@@ -1,79 +1,57 @@
 # -*- coding: utf-8 -*-
-"""Deep Interview — Socratic questioning loop plugin."""
-import logging
-from pathlib import Path
-from typing import Any, Dict
+"""Deep Interview — Socratic Questioning Loop plugin."""
+from qwenpaw.loop.base_plugin import BaseLoopPlugin
 
-from qwenpaw.plugins.api import PluginApi
 
-logger = logging.getLogger(__name__)
+class DeepInterviewPlugin(BaseLoopPlugin):
+    """Deep Interview socratic questioning loop."""
 
-_SKILL_MD = Path(__file__).parent / "SKILL.md"
-
-LOOP_SKILL_CONFIG: Dict[str, Any] = {
-    "name": "deep-interview",
-    "slash_command": "deep-interview",
-    "description": (
-        "Socratic interview — "
-        "deep-dive requirements with ambiguity scoring."
-    ),
-    "skill_prompt": "",
-    "rubric": {
-        "mode": "soft_judge",
-        "soft_judge_prompt": (
-            "Evaluate if the user's requirements "
-            "are sufficiently clear. All key questions "
-            "answered? Ambiguity score below 0.3?"
+    LOOP_SKILL_CONFIG = {
+        "name": "deep-interview",
+        "slash_command": "deep-interview",
+        "description": (
+            "Socratic questioning loop — " "deep-dive ambiguity until clear."
         ),
-        "continuation_prompt": (
-            "There are still ambiguous areas in the "
-            "requirements. Continue asking questions."
-        ),
-    },
-    "state": {
-        "mode": "none",
-    },
-    "doom_loop": {
-        "enabled": True,
-        "window_size": 5,
-        "similarity_threshold": 0.7,
-        "action": "hitl",
-        "hitl_message": (
-            "Agent is repeatedly asking similar "
-            "questions. Please intervene."
-        ),
-    },
-    "safety": {
-        "max_iterations": 20,
-        "thinking_only_streak_limit": 5,
-        "consecutive_error_limit": 3,
-        "budget": {
-            "max_tokens": 100000,
-            "max_cost_usd": 1.0,
-            "on_exceed": "force_stop",
+        "skill_prompt": "",
+        "rubric": {
+            "mode": "soft_judge",
+            "soft_judge_prompt": (
+                "Has the interview gathered enough "
+                "requirements with low ambiguity? "
+                "Reply satisfied if ambiguity_score "
+                "< 0.3, otherwise needs_revision."
+            ),
+            "continuation_prompt": (
+                "The requirements are not yet clear. "
+                "Ask 2-3 more targeted questions "
+                "about the most ambiguous areas."
+            ),
         },
-    },
-    "priority": 120,
-}
-
-
-class DeepInterviewPlugin:
-    """Deep interview Socratic loop."""
-
-    def register(self, api: PluginApi):
-        """Register deep-interview loop skill."""
-        from qwenpaw.loop.loader import LoopLoader
-
-        if _SKILL_MD.exists():
-            LOOP_SKILL_CONFIG["skill_prompt"] = _SKILL_MD.read_text(
-                encoding="utf-8",
-            )
-
-        loader = LoopLoader(api)
-        loader.load_from_dict(LOOP_SKILL_CONFIG)
-        logger.info(
-            "Registered /deep-interview loop skill",
-        )
+        "state": {
+            "mode": "json_file",
+            "filename": "deep-interview-state.json",
+            "schema_hint": (
+                "questions_asked, ambiguity_score, " "gathered_requirements"
+            ),
+        },
+        "doom_loop": {
+            "enabled": True,
+            "window_size": 5,
+            "similarity_threshold": 0.85,
+            "action": "hitl",
+        },
+        "safety": {
+            "max_iterations": 15,
+            "thinking_only_streak_limit": 3,
+            "consecutive_error_limit": 3,
+            "budget": {
+                "max_tokens": 200000,
+                "max_cost_usd": 2.0,
+                "on_exceed": "force_stop",
+            },
+        },
+        "priority": 100,
+    }
 
 
 plugin = DeepInterviewPlugin()

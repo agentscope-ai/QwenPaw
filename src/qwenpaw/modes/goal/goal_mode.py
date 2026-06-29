@@ -28,6 +28,23 @@ logger = logging.getLogger(__name__)
 DEFAULT_MAX_ITERATIONS = 20
 DEFAULT_MAX_TOKENS = 300000
 
+_DONE_PHRASES = (
+    "goal complete",
+    "task complete",
+    "task finished",
+    "all tests pass",
+    "mission accomplished",
+    "done",
+    "completed successfully",
+)
+
+
+def _agent_claims_done(text: str) -> bool:
+    """Detect if the agent output signals completion."""
+    upper = text.upper()
+    return any(phrase.upper() in upper for phrase in _DONE_PHRASES)
+
+
 CONTINUATION_PROMPT = """\
 Continue working toward the active goal.
 
@@ -264,8 +281,8 @@ class GoalMode:
             )
 
         session.iteration += 1
+        _update_goal_tokens(session, ctx)
 
-        # Hard limit check
         if session.iteration >= session.max_iterations:
             session.active = False
             logger.info(
@@ -293,14 +310,16 @@ class GoalMode:
                 ),
             )
 
-        # Rubric grading via spawn_subagent
         final_msg = ctx.get("final_msg")
         output_text = ""
         if isinstance(final_msg, Msg):
             output_text = final_msg.get_text_content() or ""
 
-        # Check if agent self-declared completion
-        if "GOAL COMPLETE" in output_text.upper():
+        should_grade = _agent_claims_done(output_text)
+        if not should_grade and session.iteration % 5 == 0:
+            should_grade = True
+
+        if should_grade:
             evaluation = await run_rubric_grader(
                 goal=session.goal,
                 agent_output=output_text,
@@ -406,6 +425,38 @@ class GoalMode:
     ) -> dict[str, GoalSession]:
         """Return all active sessions."""
         return {k: v for k, v in self._sessions.items() if v.active}
+
+
+def _update_goal_tokens(
+    session: GoalSession,
+    ctx: Any,
+) -> None:
+    """Accumulate token usage from model wrapper."""
+    try:
+        from ...token_usage.model_wrapper import (
+            TokenRecordingModelWrapper,
+        )
+
+        agent = ctx.get("agent") if isinstance(ctx, dict) else None
+        if agent is None:
+            return
+        rc = getattr(agent, "_request_context", {})
+        sid = rc.get("session_id", "")
+        if not sid:
+            return
+        store = getattr(
+            TokenRecordingModelWrapper,
+            "_usage_by_session",
+            {},
+        )
+        usage = store.get(sid)
+        if usage:
+            session.tokens_used = usage.get(
+                "total_tokens",
+                session.tokens_used,
+            )
+    except Exception:  # noqa: BLE001
+        pass
 
 
 __all__ = ["GoalMode", "GoalSession"]

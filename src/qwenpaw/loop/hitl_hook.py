@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+# pylint: disable=protected-access
 """PRE_DISPATCH hook: block execution when doom loop paused."""
 from __future__ import annotations
 
@@ -39,9 +40,16 @@ class HitlPauseHook(HookBase):
     priority = 5
 
     async def run(self, ctx: "HookContext") -> HookResult:
-        """Short-circuit if doom loop is paused."""
+        """Short-circuit on first pause, resume on user reply."""
         state = get_doom_loop_state(ctx)
         if not state.paused:
+            return HookResult()
+
+        # Second call while paused = user replied;
+        # unpause and let the request proceed.
+        if getattr(state, "_alert_shown", False):
+            state.paused = False
+            state._alert_shown = False  # type: ignore[attr-defined]
             return HookResult()
 
         try:
@@ -53,7 +61,8 @@ class HitlPauseHook(HookBase):
                 message=(
                     "Repetitive behavior detected. "
                     "The loop is paused. "
-                    "Reply to continue or use /cancel."
+                    "Reply to continue or use "
+                    "/cancel."
                 ),
                 escalation_count=state.escalation_count,
             )
@@ -65,17 +74,19 @@ class HitlPauseHook(HookBase):
                 content=[
                     TextBlock(
                         type="text",
-                        text=f"[Loop paused] {alert.message}",
+                        text=(f"[Loop paused] " f"{alert.message}"),
                     ),
                 ],
             )
-            state.paused = False
+            state._alert_shown = True  # type: ignore[attr-defined]
             return HookResult(
                 action=HookAction.SHORT_CIRCUIT,
                 payload=payload,
             )
         except Exception as exc:
-            logger.warning(f"hitl_pause_gate error: {exc}")
+            logger.warning(
+                f"hitl_pause_gate error: {exc}",
+            )
             return HookResult()
 
 

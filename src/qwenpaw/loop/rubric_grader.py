@@ -65,11 +65,18 @@ async def run_rubric_grader(
         RubricEvaluation with verdict and feedback.
     """
     if spawn_fn is None:
-        from ..agents.tools.agent_management import (
-            spawn_subagent,
-        )
+        try:
+            from ..agents.tools.agent_management import (
+                spawn_subagent,
+            )
 
-        spawn_fn = spawn_subagent
+            spawn_fn = spawn_subagent
+        except ImportError:
+            return RubricEvaluation(
+                iteration=iteration,
+                verdict=RubricVerdict.GRADER_ERROR,
+                explanation="spawn_subagent unavailable",
+            )
 
     grader_task = (
         f"{GRADER_SYSTEM_PROMPT}\n\n"

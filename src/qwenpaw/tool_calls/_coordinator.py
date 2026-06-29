@@ -658,7 +658,11 @@ class ToolCoordinator:
         self,
         entry: ToolCallEntry,
     ) -> None:
-        """Notify registered tool call observers."""
+        """Notify registered tool call observers.
+
+        Awaits each observer and processes the returned
+        DoomLoopSignal to trigger HITL pausing.
+        """
         observers: list = getattr(self, "_observers", [])
         if not observers:
             return
@@ -674,7 +678,15 @@ class ToolCoordinator:
                     [],
                 )
                 if asyncio.iscoroutine(coro):
-                    asyncio.ensure_future(coro)
+                    future = asyncio.ensure_future(coro)
+
+                    def _cb(  # type: ignore[no-untyped-def]
+                        f: asyncio.Future,  # type: ignore[type-arg]
+                        r: Any = reg,
+                    ) -> None:
+                        _handle_observer_signal(f, r)
+
+                    future.add_done_callback(_cb)
             except Exception as exc:
                 logger.debug(
                     f"observer {reg.name} error: {exc}",
@@ -698,6 +710,39 @@ class ToolCoordinator:
         if hook.default_timeout_secs is not None:
             return hook.default_timeout_secs
         return self._default_timeout
+
+
+def _handle_observer_signal(
+    future: asyncio.Future,
+    reg: Any,
+) -> None:
+    """Process DoomLoopSignal from observer future."""
+    try:
+        signal = future.result()
+    except Exception as exc:
+        logger.debug(
+            f"observer {reg.name} raised: {exc}",
+        )
+        return
+    if signal is None:
+        return
+    signal_str = str(signal)
+    if "escalate_hitl" in signal_str:
+        from ..loop.doom_loop import DoomLoopState
+
+        state: DoomLoopState | None = getattr(
+            reg,
+            "_doom_loop_state",
+            None,
+        )
+        if state is not None:
+            state.paused = True
+            state.escalation_count += 1
+            logger.warning(
+                f"HITL triggered by observer "
+                f"'{reg.name}': escalation "
+                f"#{state.escalation_count}",
+            )
 
 
 def _parse_tool_input(tool_call: Any) -> dict[str, Any]:

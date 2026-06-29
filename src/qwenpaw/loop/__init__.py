@@ -13,10 +13,12 @@ from .doom_loop import (
     ObserverRegistration,
     DoomLoopDetector,
 )
+from .base_plugin import BaseLoopPlugin
 from .schema import LoopSkillConfig
 from .loader import LoopLoader
 
 __all__ = [
+    "BaseLoopPlugin",
     "DoomLoopAlert",
     "DoomLoopDetector",
     "DoomLoopSignal",

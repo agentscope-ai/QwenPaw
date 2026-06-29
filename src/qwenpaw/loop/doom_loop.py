@@ -102,10 +102,14 @@ class DoomLoopDetector:
     def _compute_similarity(
         window: list[ToolCallRecord],
     ) -> float:
-        """Compute action pattern similarity within window.
+        """Compute action pattern similarity in window.
 
-        Returns 1.0 if all calls have same name+args, 0.0 if
-        all are different.
+        Formula: ``1 - (unique - 1) / (total - 1)``
+
+        Examples with window_size=4:
+          4 identical → unique=1 → 1 - 0/3 = 1.0
+          3 same + 1 diff → unique=2 → 1 - 1/3 ≈ 0.67
+          all different → unique=4 → 1 - 3/3 = 0.0
         """
         if not window:
             return 0.0

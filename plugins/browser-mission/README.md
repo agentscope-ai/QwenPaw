@@ -12,6 +12,7 @@
 plugins/browser-mission/
 ├── plugin.json   # 插件清单 (元数据、入口、依赖)
 ├── plugin.py     # 插件入口 + LoopSkillConfig 定义
+├── SKILL.md      # Agent skill prompt
 └── README.md     # 本文件
 ```
 
@@ -27,15 +28,18 @@ QwenPaw 启动时扫描 `plugins/` 目录，读取 `plugin.json` 中的 `entry_p
 
 | 字段 | 用途 |
 |------|------|
-| `trigger.slash_command` | 注册 `/browser-mission` 斜杠命令 |
-| `skill_prompt` | Agent 进入循环后注入的系统提示词 |
-| `rubric.continue_prompt` | 每轮迭代结束后的续行提示 |
-| `rubric.max_iterations` | 最大迭代次数 (20) |
-| `rubric.stop_phrases` | Agent 输出含这些短语时自动停止循环 |
-| `state.persist_key` | 状态持久化的 key |
-| `state.schema` | 状态初始结构 (url/步骤/错误等) |
-| `doom_loop` | 毁灭循环检测：滑窗=6，相似度阈值=0.8，超出后进入 HITL |
-| `safety.budget` | 预算安全阀：max 200k token / $2.0，超出后 ask_human |
+| `slash_command` | 注册 `/browser-mission` 斜杠命令 |
+| `skill_prompt` | 从 `SKILL.md` 读取，注入为系统提示词 |
+| `rubric.mode` | `hard_check` — 基于 state 文件字段检查 |
+| `rubric.check_expression` | `stories.every(s => s.passes \|\| s.blocker_reason)` |
+| `rubric.continuation_prompt` | 每轮迭代结束后的续行提示 |
+| `state.mode` | `json_file` — 持久化到 JSON 文件 |
+| `state.filename` | `browser-mission-state.json` |
+| `doom_loop.window_size` | 6 — 滑窗大小 |
+| `doom_loop.similarity_threshold` | 0.8 — 相似度阈值 |
+| `safety.max_iterations` | 20 — 最大迭代次数 |
+| `safety.budget.max_tokens` | 300,000 — token 上限 |
+| `safety.budget.max_cost_usd` | 3.0 — 费用上限 |
 
 ### 3. LoopLoader 翻译
 
@@ -44,11 +48,10 @@ QwenPaw 启动时扫描 `plugins/` 目录，读取 `plugin.json` 中的 `entry_p
 ```
 LoopLoader.load(config)
   ├─ api.register_slash_command("browser-mission", ...)
-  ├─ api.register_mode("browser-mission", ...)
-  ├─ api.register_agent_stop_handler(...)
-  ├─ api.register_prompt_section(layer="system", ...)
+  ├─ api.register_prompt_section("loop-skill-browser-mission", ...)
+  ├─ api.register_agent_stop_handler(...)  # rubric + budget
   ├─ api.register_tool_call_observer(...)  # doom loop 检测
-  └─ api.register_runtime_hook("post_llm_call", ...)  # stop phrase 检测
+  └─ api.register_runtime_hook(HitlPauseHook())  # HITL 暂停
 ```
 
 ### 4. 运行时行为
@@ -59,21 +62,24 @@ LoopLoader.load(config)
 
 后端接收到带 `/browser-mission` 前缀的消息后：
 1. 匹配到已注册的 slash command → 激活 "browser-mission" mode
-2. 注入 `skill_prompt` 到 system 层
+2. 注入 `skill_prompt`（SKILL.md 内容）到 system 层
 3. Agent 开始执行浏览器操作
-4. 每轮结束后，stop handler 拦截停止信号，注入 `continue_prompt` 继续下一轮
+4. 每轮结束后，stop handler 拦截停止信号：
+   - 读取 `.qwenpaw/loop_state/browser-mission-state.json`
+   - 检查 `stories.every(s => s.passes || s.blocker_reason)`
+   - 若通过 → ALLOW（loop 结束）
+   - 若未通过 → BLOCK（注入 continuation_prompt 继续下一轮）
 5. **Doom Loop 检测**：若连续 6 次 tool call 的相似度 ≥ 0.8，触发 HITL 干预
-6. **预算控制**：token 或费用超限后触发 `ask_human`
-7. 当 Agent 输出 `TASK_COMPLETE` / `MISSION_DONE`，或达到 `max_iterations`，循环自动终止
+6. **预算控制**：token 超限后触发 HITL
+7. 达到 `max_iterations` 时循环自动终止
 
 ## 自定义
 
 修改 `plugin.py` 中的 `LOOP_SKILL_CONFIG` 字典即可调整：
-- 提示词 (`skill_prompt`, `rubric.continue_prompt`)
-- 迭代上限 (`rubric.max_iterations`)
-- 停止关键词 (`rubric.stop_phrases`)
-- 毁灭循环灵敏度 (`doom_loop.window_size`, `doom_loop.similarity_threshold`)
-- 预算上限 (`safety.budget.max_tokens`, `safety.budget.max_cost_usd`)
+- 提示词 (`skill_prompt` / `rubric.continuation_prompt`)
+- 迭代上限 (`safety.max_iterations`)
+- 毁灭循环灵敏度 (`doom_loop.window_size` / `doom_loop.similarity_threshold`)
+- 预算上限 (`safety.budget.max_tokens` / `safety.budget.max_cost_usd`)
 
 ## 最低版本要求
 

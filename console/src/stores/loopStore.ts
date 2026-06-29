@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { request } from "@/services";
 
 export type BudgetLevel = "low" | "medium" | "high";
 
@@ -40,24 +41,7 @@ export const useLoopStore = create<LoopState>((set) => ({
   budgetLevel: "medium",
   chipHighlighted: false,
   runtime: null,
-  availableSkills: [
-    {
-      name: "ralph",
-      description: "持久完成循环 — 分解任务并逐个完成",
-    },
-    {
-      name: "ultrawork",
-      description: "并行委派 — 分解 todos 逐个完成",
-    },
-    {
-      name: "deep-interview",
-      description: "苏格拉底式提问 — 深挖需求模糊点",
-    },
-    {
-      name: "autopilot",
-      description: "多阶段自治 — 自动规划并执行",
-    },
-  ],
+  availableSkills: [],
 
   setSelectedSkill: (skill) =>
     set({ selectedSkill: skill, chipHighlighted: false }),
@@ -75,3 +59,21 @@ export const useLoopStore = create<LoopState>((set) => ({
     ),
   stopLoop: () => set({ runtime: null }),
 }));
+
+export async function fetchAvailableLoopSkills(): Promise<void> {
+  try {
+    const res = await request("/api/workspace/commands/available");
+    const commands = res?.commands ?? [];
+    const loopSkills: LoopSkillInfo[] = commands
+      .filter((c: any) => c.category === "plugin")
+      .map((c: any) => ({
+        name: c.name,
+        description: c.description || c.name,
+      }));
+    if (loopSkills.length > 0) {
+      useLoopStore.getState().setAvailableSkills(loopSkills);
+    }
+  } catch {
+    // Silently fall back to empty list
+  }
+}
