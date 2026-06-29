@@ -4,13 +4,21 @@
 
 QwenPaw's default context strategy is **scroll**: older turns are not summarized and discarded. They are written to a durable SQLite history store, evicted from the live model window when needed, and represented by a compact in-context index that can be expanded on demand.
 
-The current implementation lives under:
-
-- `src/qwenpaw/agents/context/base.py` - pluggable context-manager interface
-- `src/qwenpaw/agents/context/scroll/` - scroll strategy implementation
-- `src/qwenpaw/config/config.py` - `LightContextConfig`, `ContextCompactConfig`, and `ScrollContextConfig`
-
 The old AgentScope-native compression path is still available with `strategy: "native"`, but new configurations default to `strategy: "scroll"`.
+
+## The Three Memory Systems
+
+QwenPaw organizes memory into three complementary systems, loosely mirroring human memory, each owned by a different subsystem:
+
+| System              | What it is                                                                                                              | Documented in                   |
+| ------------------- | ----------------------------------------------------------------------------------------------------------------------- | ------------------------------- |
+| **Working memory**  | The live prompt window. Older turns evict into a compact, expandable index — never summarized.                          | [Context Management](./context) |
+| **Episodic memory** | A durable, verbatim record of every turn across sessions, recalled on demand via `recall_history_python`.               | [Context Management](./context) |
+| **Semantic memory** | Distilled facts, preferences, and knowledge; ReMe consolidates daily notes into `digest/`, searched by `memory_search`. | [Long-term Memory](./memory)    |
+
+Two of these — **working** and **episodic** memory — are implemented by the **scroll** context manager (`ScrollContextManager`). The third — **semantic** memory — is implemented by **ReMe**. They are deliberately orthogonal: scroll keeps raw history verbatim and never summarizes, while ReMe distills reusable knowledge and never touches the live window or the verbatim history store.
+
+> **This page covers working and episodic memory** — the scroll context manager. For semantic memory (the ReMe long-term backend), follow the links above.
 
 ## How Scroll Works
 
@@ -39,8 +47,6 @@ Key properties:
 | Path                                    | Default                                         | Purpose                                                                           |
 | --------------------------------------- | ----------------------------------------------- | --------------------------------------------------------------------------------- |
 | `{working_dir}/history.db`              | `scroll_config.db_filename = "history.db"`      | Main durable SQLite store. This is the source of truth for scroll recall.         |
-| `{working_dir}/.scroll/repl/scratch.db` | internal                                        | Persistent scratch DB used by `recall_history_python` across recall calls.        |
-| `{working_dir}/.scroll/cells/`          | internal                                        | Temporary Python cells generated for recall calls.                                |
 | `{working_dir}/dialog/YYYY-MM-DD.jsonl` | opt-in                                          | Legacy JSONL archive of evicted turns when `scroll_config.offload_dialog = true`. |
 | `{working_dir}/tool_results/`           | `tool_result_pruning_config.tool_results_cache` | File cache used by the legacy tiered tool-result pruning middleware.              |
 
@@ -58,7 +64,22 @@ Key properties:
 
 If SQLite FTS5 is available, QwenPaw also keeps a `conversation_history_fts` index over `content`. Without FTS5, recall search degrades to a slower `LIKE` scan.
 
-## Live Context Layout
+## Working Memory
+
+**Working memory** is the live prompt window — what the model can attend to right now. When it fills, scroll keeps it within budget by evicting older turns into a compact, expandable index instead of summarizing them away. Each entry in that index is a one-line **headline** the model wrote on the turn it came from. The sections below cover those headlines first, then how the live window is rebuilt, and how the eviction index is structured.
+
+### Headlines
+
+Scroll's defining choice is that it **does not compress context by asking the model to summarize**. Instead, the model marks its own milestones: at the end of a turn that matters — one that settles a fact or value, makes or revises a decision, reaches a result, completes a step, or hits a dead-end — it writes a single milestone line, as a trailing HTML comment wrapped in a pair of **rare bracket characters, `⟦ … ⟧`**:
+
+```text
+<!-- ⟦ chose PostgreSQL over MySQL for JSONB support ⟧ -->
+```
+
+- **How it's captured**: scroll pulls that line into the turn's `headline` column (assistant turns only) and removes the comment from what's rendered to chat — so it stays invisible to the user but verbatim in the stored row.
+- **What it's for**: the headline is the key information that survives once context is compressed and the raw turn is evicted from the live window — kept in context instead of a model-written summary. That stored headline is exactly what becomes the turn's `seq · ⟦ … ⟧` leaf in the eviction index below.
+
+### Live Context Layout
 
 After eviction, the live context is rebuilt as:
 
@@ -66,9 +87,11 @@ After eviction, the live context is rebuilt as:
 Pinned head
   Usually the first user task, controlled by scroll_config.pinned.
 
-Eviction index placeholder
-  One synthetic message named "memory" containing [context compressed],
-  tiered seq spans, and recall instructions.
+Eviction index (a placeholder message named "memory")
+  One synthetic message scroll injects to stand in for all the evicted turns
+  (not a real conversation turn). It carries the whole eviction index: a
+  [context compressed] header, then tiered headlines + seq spans, plus how to
+  recall the originals. Detailed in the next section, "Eviction Index".
 
 Recent tail
   The newest turns selected by AgentScope's pairing-safe split.
@@ -76,9 +99,9 @@ Recent tail
 
 The split uses AgentScope's token accounting and pairing-safe compression helpers, so it preserves tool-call/tool-result alignment at the live-window boundary.
 
-## Eviction Index
+### Eviction Index
 
-The eviction index is an in-context map of evicted history. It is tiered:
+The eviction index is the heart of working memory: an in-context map of evicted history that keeps the live window small while staying expandable. It is tiered:
 
 - **Tier 0** holds the most recently evicted blocks with the most detail.
 - Older tiers collapse older blocks into endpoint spans.
@@ -102,11 +125,15 @@ Re-expand a span inside recall_history_python: ms.expand(lo, hi)
 </system-info>
 ```
 
-The model should not answer from a headline alone. A headline is only a pointer; the full evidence comes from `ms.expand`, `ms.search`, or another recall helper.
+Each `⟦ … ⟧` leaf in the index is the model-written headline from the previous section. The model should not answer from a headline alone. A headline is only a pointer; the full evidence comes from `ms.expand`, `ms.search`, or another recall helper.
 
-## Recall API
+## Episodic Memory
 
-When scroll is active, QwenPaw injects a sandbox-capable tool named `recall_history_python`. The Python cell already defines `ms`, a `MemorySpace` object.
+**Episodic memory** is the durable, verbatim record of everything the agent has said or done — written to `history.db` and recalled on demand, across every session. Nothing that working-memory eviction drops from the live window is lost; it stays here, exact and searchable. The sections below cover how to recall it, how oversized tool results are offloaded into it, and how older conversations are migrated into it on startup.
+
+### Recall API
+
+The recall API is the interface to episodic memory: it reads back the durable, verbatim history that working-memory eviction left behind. When scroll is active, QwenPaw injects a sandbox-capable tool named `recall_history_python`. The Python cell already defines `ms`, a `MemorySpace` object.
 
 Common helpers:
 
@@ -139,7 +166,7 @@ Security note: `recall_history_python` runs model-authored Python. It normally r
 
 Unsandboxed recall executes arbitrary host Python as the agent user and should only be used in trusted local development.
 
-## Tool Results
+### Tool Results
 
 There are two related mechanisms:
 
@@ -149,6 +176,18 @@ There are two related mechanisms:
 | `ToolResultPruningMiddleware` | controlled by `tool_result_pruning_config.enabled` | Legacy tiered byte pruning for tool results, with optional file cache under `tool_results/`.                                                                                                                |
 
 The scroll cap is token-based and uses durable recall. The legacy pruning middleware is byte-based and keeps compatibility with the previous tool-result offload behavior.
+
+### Session Migration (Backfill)
+
+Conversations that predate scroll — or any chats already stored as `sessions/*.json` in the workspace — are backfilled into `history.db` automatically, so older history stays recallable through the episodic-memory tools.
+
+- **When**: on app startup, for every agent whose `strategy` is `"scroll"`.
+- **Source**: `{working_dir}/sessions/*.json` (including channel subdirectories). The original session files are never modified or deleted.
+- **One-time per file**: a `sessions/.synced.json` manifest records what was imported, so later startups skip unchanged files. Re-imports are no-ops — a `UNIQUE` index deduplicates rows.
+- **Retention-aware**: messages older than `scroll_config.history_retention_days` (default `30`) are skipped during import, matching the same-boot purge that trims `history.db` to the retention window. Set `history_retention_days` to `0` to keep — and import — everything.
+- **Non-blocking**: if the backfill fails, startup continues; that agent simply won't have its old chats imported, while scroll keeps recording new turns normally.
+
+> On the first startup, a one-time notice is logged while session files are imported, since a large backlog can take a moment. Later startups have a manifest and pass straight through.
 
 ## Configuration
 
@@ -232,3 +271,5 @@ Set this when you want AgentScope's built-in behavior instead of scroll:
 ```
 
 Native mode does not wire `ScrollContextManager`, `ToolResultCapMiddleware`, or `recall_history_python`. It uses AgentScope context compression with the same `compact_threshold_ratio` and `reserve_threshold_ratio` mapping.
+
+> **Tip:** Context configuration is typically managed through the Console (**Workspace → Running Config**) without manually editing `agent.json`.
