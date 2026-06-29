@@ -20,6 +20,10 @@ from typing import TYPE_CHECKING, Any, Optional
 from agentscope.message import Msg, TextBlock
 
 from ..base import AgentMode
+from ...loop.rubric_grader import (
+    GoalStatusRubric,
+    RubricVerdict,
+)
 from ...loop.stop_handler import (
     StopAction,
     StopHandlerRegistration,
@@ -169,6 +173,9 @@ class GoalMode(AgentMode):
     def __init__(self) -> None:
         self._sessions: dict[str, GoalSession] = {}
         self._default_max_tokens = DEFAULT_MAX_TOKENS
+        self._rubric = GoalStatusRubric(
+            get_session_fn=self._session_by_ctx_var,
+        )
 
     @property
     def sessions(self) -> dict[str, GoalSession]:
@@ -368,13 +375,12 @@ class GoalMode(AgentMode):
     # ---- stop handler ----
 
     async def _stop_handler(self, ctx: Any) -> Any:
-        """Stop handler: iter + budget + goal status.
+        """Stop handler: iter + budget + rubric.
 
-        Four-layer termination:
-        1. No session → ALLOW (pass through)
-        2. Iteration hard limit → ALLOW
-        3. Token budget hard limit → ALLOW
-        4. Goal complete/blocked (session.active) → ALLOW
+        Three-layer termination:
+        1. Iteration hard limit → ALLOW
+        2. Token budget hard limit → ALLOW
+        3. rubric.evaluate() → SATISFIED → ALLOW
         Otherwise → BLOCK + inject continuation prompt.
         """
         session_key = self._session_key_from_ctx(ctx)
@@ -424,17 +430,27 @@ class GoalMode(AgentMode):
                 ),
             )
 
-        # --- goal completed/blocked via update_goal ---
-        if not session.active:
-            verdict = session.last_verdict or "complete"
+        # --- rubric: goal status check (via ContextVar) ---
+        evaluation = await self._rubric.evaluate(
+            goal=session.goal,
+            agent_output="",
+            iteration=session.iteration,
+        )
+        session.last_verdict = str(evaluation.verdict)
+        logger.debug(
+            "Goal rubric verdict=%s",
+            evaluation.verdict,
+        )
+
+        if evaluation.verdict == RubricVerdict.SATISFIED:
             logger.info(
                 "Goal %s at iter=%d",
-                verdict,
+                evaluation.explanation,
                 session.iteration,
             )
             return StopHandlerResult(
                 action=StopAction.ALLOW,
-                reason=f"Goal {verdict}",
+                reason=evaluation.explanation,
             )
 
         # --- BLOCK: inject continuation prompt ---
@@ -506,6 +522,20 @@ class GoalMode(AgentMode):
         if s is not None and s.active:
             return s
         return None
+
+    def _session_by_ctx_var(
+        self,
+    ) -> Optional[GoalSession]:
+        """Return session by ContextVar (any status).
+
+        Unlike _first_active_session, this returns
+        the session even when active=False — needed
+        by GoalStatusRubric to detect completion.
+        """
+        key = _current_session_id.get()
+        if key is None:
+            return None
+        return self._sessions.get(key)
 
     @staticmethod
     def _cancel_plugin_loops() -> None:

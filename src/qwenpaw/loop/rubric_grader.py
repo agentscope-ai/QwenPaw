@@ -13,10 +13,7 @@ import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from enum import Enum
-from typing import TYPE_CHECKING, Any
-
-if TYPE_CHECKING:
-    from ..modes.goal.goal_mode import GoalMode
+from typing import Any, Callable, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -83,14 +80,17 @@ class DefaultRubric(RubricStrategy):
 class GoalStatusRubric(RubricStrategy):
     """Hardcoded status check for GoalMode.
 
-    Returns SATISFIED only when the session has been
-    explicitly deactivated (via update_goal tool).
-    Otherwise returns NEEDS_REVISION to keep the
-    loop running.
+    Accepts a ``get_session_fn`` callback that retrieves
+    the current GoalSession via ContextVar (no scan).
+    Returns SATISFIED when session.active is False
+    (set by update_goal tool), NEEDS_REVISION otherwise.
     """
 
-    def __init__(self, owner: GoalMode) -> None:
-        self._owner = owner
+    def __init__(
+        self,
+        get_session_fn: Callable[[], Optional[Any]],
+    ) -> None:
+        self._get_session = get_session_fn
 
     async def evaluate(
         self,
@@ -98,7 +98,7 @@ class GoalStatusRubric(RubricStrategy):
         agent_output: str,
         iteration: int,
     ) -> RubricEvaluation:
-        session = self._owner.first_active_session()
+        session = self._get_session()
         if session is None or not session.active:
             return RubricEvaluation(
                 iteration=iteration,
