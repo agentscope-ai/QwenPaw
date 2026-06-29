@@ -199,9 +199,46 @@ def _parse_grader_result(
     )
 
 
+_SELF_AUDIT_DONE_PHRASES = (
+    "goal complete",
+    "task complete",
+    "task finished",
+    "all tests pass",
+    "mission accomplished",
+    "completed successfully",
+)
+
+
+async def self_audit_rubric(
+    goal: str,  # noqa: ARG001  # pylint: disable=unused-argument
+    agent_output: str,
+    iteration: int,
+) -> RubricEvaluation:
+    """Self-audit rubric: trust agent's completion claim.
+
+    This is the default for /goal mode (Codex-style).
+    The working model decides completion via text
+    signals or the update_goal tool.
+    """
+    upper = agent_output.upper()
+    for phrase in _SELF_AUDIT_DONE_PHRASES:
+        if phrase.upper() in upper:
+            return RubricEvaluation(
+                iteration=iteration,
+                verdict=RubricVerdict.SATISFIED,
+                explanation=(f"Agent self-audit: '{phrase}'"),
+            )
+    return RubricEvaluation(
+        iteration=iteration,
+        verdict=RubricVerdict.NEEDS_REVISION,
+        explanation="Agent has not claimed completion",
+    )
+
+
 __all__ = [
     "GRADER_SYSTEM_PROMPT",
     "RubricEvaluation",
     "RubricVerdict",
     "run_rubric_grader",
+    "self_audit_rubric",
 ]

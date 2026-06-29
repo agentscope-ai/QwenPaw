@@ -43,23 +43,6 @@ _current_session_id: contextvars.ContextVar[
     default=None,
 )
 
-_DONE_PHRASES = (
-    "goal complete",
-    "task complete",
-    "task finished",
-    "all tests pass",
-    "mission accomplished",
-    "done",
-    "completed successfully",
-)
-
-
-def _agent_claims_done(text: str) -> bool:
-    """Detect if the agent output signals completion."""
-    upper = text.upper()
-    return any(phrase.upper() in upper for phrase in _DONE_PHRASES)
-
-
 INITIAL_GOAL_PROMPT = """\
 You are now in goal mode. A persistent goal has \
 been set for this thread.
@@ -442,22 +425,38 @@ class GoalMode(AgentMode):
                 ),
             )
 
-        # --- self-audit: trust agent's own claim ---
+        # --- rubric evaluation (self-audit by default) ---
         final_msg = ctx.get("final_msg")
         output_text = ""
         if isinstance(final_msg, Msg):
             output_text = final_msg.get_text_content() or ""
 
-        if _agent_claims_done(output_text):
+        from ...loop.rubric_grader import (
+            RubricVerdict,
+            self_audit_rubric,
+        )
+
+        evaluation = await self_audit_rubric(
+            goal=session.goal,
+            agent_output=output_text,
+            iteration=session.iteration,
+        )
+        session.last_verdict = str(evaluation.verdict)
+        logger.debug(
+            "Goal rubric verdict=%s",
+            evaluation.verdict,
+        )
+
+        if evaluation.verdict == RubricVerdict.SATISFIED:
             session.active = False
-            session.last_verdict = "satisfied"
             logger.info(
-                "Goal self-audit: agent claims done at iter=%d",
+                "Goal complete at iter=%d: %s",
                 session.iteration,
+                evaluation.explanation,
             )
             return StopHandlerResult(
                 action=StopAction.ALLOW,
-                reason="Agent self-audit: goal complete",
+                reason=evaluation.explanation,
             )
 
         # --- BLOCK: inject continuation prompt ---
