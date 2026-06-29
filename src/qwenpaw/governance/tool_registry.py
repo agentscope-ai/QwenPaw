@@ -163,9 +163,6 @@ def _register_builtin_tools(r: ToolRegistry) -> None:
         ("CheckAgentTask", "task_id"),
         ("DelegateExternalAgent", "runner"),
         ("MemorySearch", ""),
-        ("GetGoal", ""),
-        ("CreateGoal", ""),
-        ("UpdateGoal", ""),
     ]:
         r.register(name, "internal", param)
 
@@ -197,9 +194,6 @@ def _register_python_name_mappings(
         "submit_to_agent": "SubmitToAgent",
         "check_agent_task": "CheckAgentTask",
         "materialize_skill": "MaterializeSkill",
-        "get_goal": "GetGoal",
-        "create_goal": "CreateGoal",
-        "update_goal": "UpdateGoal",
     }
     for py_name, policy_name in mappings.items():
         r.register_python_name(py_name, policy_name)

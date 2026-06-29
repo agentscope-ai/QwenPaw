@@ -270,7 +270,7 @@ class GoalMode(AgentMode):
         return [GoalPromptContributor(owner=self)]
 
     def setup(self, workspace: object) -> None:
-        """Standard setup + stop handler registration."""
+        """Standard setup + stop handler + governance."""
         super().setup(workspace)
         if not hasattr(workspace.plugins, "stop_handlers"):
             workspace.plugins.stop_handlers = []
@@ -282,6 +282,7 @@ class GoalMode(AgentMode):
                 name="goal-mode",
             ),
         )
+        _register_goal_tools_governance()
 
     def is_active(self, ctx: Any) -> bool:
         """Goal mode is active when any session is live."""
@@ -631,6 +632,35 @@ def _update_goal_tokens(
             )
     except Exception:  # noqa: BLE001
         pass
+
+
+def _register_goal_tools_governance() -> None:
+    """Register goal tools with governance ToolRegistry."""
+    try:
+        from ...governance.tool_registry import (
+            DEFAULT_REGISTRY,
+        )
+
+        for name in ("GetGoal", "CreateGoal", "UpdateGoal"):
+            if DEFAULT_REGISTRY.get_type(name) == "unknown":
+                DEFAULT_REGISTRY.register(
+                    name,
+                    "internal",
+                    "",
+                )
+        for py, policy in (
+            ("get_goal", "GetGoal"),
+            ("create_goal", "CreateGoal"),
+            ("update_goal", "UpdateGoal"),
+        ):
+            DEFAULT_REGISTRY.register_python_name(
+                py,
+                policy,
+            )
+    except Exception:  # noqa: BLE001
+        logger.debug(
+            "Goal governance registration skipped",
+        )
 
 
 __all__ = ["GoalMode", "GoalSession"]
