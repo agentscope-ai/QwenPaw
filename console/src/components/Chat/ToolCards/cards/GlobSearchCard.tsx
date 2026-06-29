@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 import { FolderOpenOutlined } from "@ant-design/icons";
 import type { ToolCallContent } from "../shared/types";
 import { ToolCardShell, DefaultBlock } from "../shared";
-import { countLines, stringifyResult } from "../shared/utils";
+import { countResultLines, stringifyResult } from "../shared/utils";
 import styles from "../shared/toolCards.module.less";
 
 export interface GlobSearchCardProps {
@@ -23,7 +23,7 @@ const GlobSearchCard: React.FC<GlobSearchCardProps> = ({
     : t("tool.globSearchDefault");
 
   const resultText = stringifyResult(content.result);
-  const lineCount = countLines(content.result);
+  const lineCount = countResultLines(content.result);
 
   const badge =
     content.status === "done" && lineCount > 0 ? (

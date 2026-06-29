@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { TFunction } from "i18next";
-import { formatAgentList, formatMemorySearch } from "./utils";
+import { countResultLines, formatAgentList, formatMemorySearch } from "./utils";
 
 const translate = ((key: string) => {
   const translations: Record<string, string> = {
@@ -82,6 +82,36 @@ describe("formatMemorySearch", () => {
     expect(formattedResult).toContain("# 记忆与反思 - 2026-05-18");
     expect(formattedResult).not.toContain('[ { "path"');
     expect(formattedResult).not.toContain('"snippet":');
+  });
+});
+
+describe("countResultLines", () => {
+  it("counts lines from plain string results", () => {
+    const rawToolResult = "src/a.py\nsrc/b.py\nsrc/c.py";
+
+    expect(countResultLines(rawToolResult)).toBe(3);
+  });
+
+  it("counts lines from MCP text block array results", () => {
+    const rawToolResult = [
+      {
+        type: "text",
+        text: "src/a.py\nsrc/b.py\nsrc/c.py",
+      },
+    ];
+
+    expect(countResultLines(rawToolResult)).toBe(3);
+  });
+
+  it("counts lines from JSON-serialized MCP text block results", () => {
+    const rawToolResult = JSON.stringify([
+      {
+        type: "text",
+        text: "1| # Title\n2| content\n3| more content",
+      },
+    ]);
+
+    expect(countResultLines(rawToolResult)).toBe(3);
   });
 });
 

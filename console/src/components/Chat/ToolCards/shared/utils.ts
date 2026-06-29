@@ -36,6 +36,11 @@ export function countLines(text: unknown): number {
   return text.split("\n").length;
 }
 
+/** Count lines in normalized tool result display text */
+export function countResultLines(result: unknown): number {
+  return countLines(stringifyResult(result));
+}
+
 /** Get language identifier from file extension for syntax highlighting */
 export function getFileLanguage(tc: ToolCallContent): string {
   const params = tc.params || {};
