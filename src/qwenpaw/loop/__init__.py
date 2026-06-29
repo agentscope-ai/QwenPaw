@@ -14,6 +14,10 @@ from .doom_loop import (
     DoomLoopDetector,
 )
 from .base_plugin import BaseLoopPlugin
+from .iter_bypass_hook import (
+    LoopIterBypassHook,
+    LoopIterRestoreHook,
+)
 from .schema import LoopSkillConfig
 from .loader import LoopLoader
 
@@ -23,6 +27,8 @@ __all__ = [
     "DoomLoopDetector",
     "DoomLoopSignal",
     "DoomLoopState",
+    "LoopIterBypassHook",
+    "LoopIterRestoreHook",
     "LoopLoader",
     "LoopSkillConfig",
     "ObserverRegistration",

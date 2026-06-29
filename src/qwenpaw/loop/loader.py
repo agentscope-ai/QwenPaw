@@ -83,6 +83,22 @@ class LoopLoader:
 
             self._api.register_runtime_hook(HitlPauseHook())
 
+        from .iter_bypass_hook import (
+            LoopIterBypassHook,
+            LoopIterRestoreHook,
+        )
+
+        self._api.register_runtime_hook(
+            LoopIterBypassHook(
+                is_active_fn=lambda: any(
+                    s.active for s in self._active_loops.values()
+                ),
+            ),
+        )
+        self._api.register_runtime_hook(
+            LoopIterRestoreHook(),
+        )
+
         logger.info(
             f"LoopLoader registered loop '{cfg.name}' "
             f"as /{cfg.slash_command}",

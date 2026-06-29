@@ -173,6 +173,22 @@ class GoalMode:
             condition=self._is_any_goal_active,
         )
 
+        from ...loop.iter_bypass_hook import (
+            LoopIterBypassHook,
+            LoopIterRestoreHook,
+        )
+
+        api.register_runtime_hook(
+            LoopIterBypassHook(
+                is_active_fn=lambda: (
+                    self._first_active_session() is not None
+                ),
+            ),
+        )
+        api.register_runtime_hook(
+            LoopIterRestoreHook(),
+        )
+
     async def _activate_handler(
         self,
         ctx: Any,  # pylint: disable=unused-argument
