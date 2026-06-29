@@ -298,6 +298,13 @@ class GoalMode:
 
         session.iteration += 1
         _update_goal_tokens(session, ctx)
+        logger.debug(
+            "Goal stop_handler: iter=%d/%d tokens=%d/%d",
+            session.iteration,
+            session.max_iterations,
+            session.tokens_used,
+            session.max_tokens,
+        )
 
         if session.iteration >= session.max_iterations:
             session.active = False
@@ -336,6 +343,11 @@ class GoalMode:
             should_grade = True
 
         if should_grade:
+            logger.debug(
+                "Goal rubric grading iter=%d claims_done=%s",
+                session.iteration,
+                _agent_claims_done(output_text),
+            )
             evaluation = await run_rubric_grader(
                 goal=session.goal,
                 agent_output=output_text,
@@ -343,6 +355,10 @@ class GoalMode:
             )
             session.last_verdict = evaluation.verdict
             session.last_feedback = evaluation.feedback
+            logger.debug(
+                "Goal rubric verdict=%s",
+                evaluation.verdict,
+            )
 
             if evaluation.verdict == RubricVerdict.SATISFIED:
                 session.active = False
