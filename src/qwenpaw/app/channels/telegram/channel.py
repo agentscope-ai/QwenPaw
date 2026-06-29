@@ -1112,18 +1112,6 @@ class TelegramChannel(BaseChannel):
             await self._delete_message(chat_id, msg_id)
             await self.send(to_handle, final_text, send_meta)
 
-        # Card events (e.g. tool_guard) consumed by streaming need a
-        # compact interactive card sent after the streaming card.
-        if stream_type == "message" and self._card_handler.is_card_event(
-            event,
-        ):
-            await self._card_handler.try_send_card_for_event(
-                to_handle,
-                event,
-                send_meta,
-                compact=True,
-            )
-
     # ------------------------------------------------------------------
     # Event hooks
     # ------------------------------------------------------------------

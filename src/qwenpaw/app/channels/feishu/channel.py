@@ -2229,16 +2229,6 @@ class FeishuChannel(BaseChannel):
             )
             return False
 
-    def _is_card_event(self, event: Any) -> bool:
-        """Check if the event matches a registered interactive card kind."""
-        from .cards.context import extract_meta
-
-        meta = extract_meta(event)
-        if meta is None:
-            return False
-        message_type = str(meta.get("message_type") or "")
-        return message_type in self._card_handler._by_message_type
-
     # ------------------------------------------------------------------
     # Streaming hooks (CardKit card mode)
     # ------------------------------------------------------------------
@@ -2388,16 +2378,6 @@ class FeishuChannel(BaseChannel):
         message_id = card_state.get("message_id")
         if message_id:
             send_meta["_last_sent_message_id"] = message_id
-
-        # Card events (e.g. tool_guard) consumed by streaming need a
-        # compact interactive card sent after the streaming card.
-        if stream_type == "message" and self._is_card_event(event):
-            await self._card_handler.try_send_card_for_event(
-                to_handle,
-                event,
-                send_meta,
-                compact=True,
-            )
 
     # ------------------------------------------------------------------
     # Process lifecycle hooks

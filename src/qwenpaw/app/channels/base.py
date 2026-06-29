@@ -1930,3 +1930,61 @@ class BaseChannel(ABC):
             session_id=session_id,
         )
         await self.send_message_content(to_handle, event, meta)
+
+    async def send_approval_notification(
+        self,
+        *,
+        session_id: str,
+        user_id: str,
+        request_id: str,
+        tool_name: str,
+        severity: str,
+        result_summary: str,
+        channel_meta: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        """Push a tool-guard approval notification.
+
+        Constructs a mock event with metadata.message_type=tool_guard_approval
+        so card-capable channels render interactive cards, while others fall
+        back to plain text.
+        """
+        from qwenpaw.schemas import AgentRequest, Event
+
+        to_handle = self.to_handle_from_target(
+            user_id=user_id,
+            session_id=session_id,
+        )
+        send_meta: Dict[str, Any] = dict(channel_meta or {})
+        send_meta.setdefault("session_id", session_id)
+        send_meta.setdefault("user_id", user_id)
+        bot_prefix = getattr(self, "bot_prefix", None) or getattr(
+            self,
+            "_bot_prefix",
+            "",
+        )
+        if bot_prefix and "bot_prefix" not in send_meta:
+            send_meta["bot_prefix"] = bot_prefix
+
+        event = Event(
+            object="message",
+            status=RunStatus.Completed,
+            metadata={
+                "metadata": {
+                    "message_type": "tool_guard_approval",
+                    "approval_request_id": request_id,
+                    "tool_name": tool_name,
+                    "severity": severity,
+                },
+            },
+            content=[
+                TextContent(type=ContentType.TEXT, text=result_summary),
+            ],
+        )
+        request = AgentRequest(session_id=session_id, user_id=user_id)
+
+        await self.on_event_message_completed(
+            request,
+            to_handle,
+            event,
+            send_meta,
+        )

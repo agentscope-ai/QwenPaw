@@ -360,6 +360,7 @@ async def _ask_user_approval(
                 "name": tool_name,
                 "input": dict(input_data or {}),
             },
+            "channel_meta": ctx.get("channel_meta"),
         },
     )
 

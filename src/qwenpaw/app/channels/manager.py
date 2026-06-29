@@ -861,3 +861,33 @@ class ChannelManager:
             [TextContent(type=ContentType.TEXT, text=text)],
             merged_meta,
         )
+
+    async def push_approval_notification(
+        self,
+        *,
+        channel: str,
+        session_id: str,
+        user_id: str,
+        request_id: str,
+        tool_name: str,
+        severity: str,
+        result_summary: str,
+        channel_meta: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        """Push approval notification to a specific channel."""
+        ch = await self.get_channel(channel.lower())
+        if not ch:
+            logger.warning(
+                "push_approval_notification: channel not found: %s",
+                channel,
+            )
+            return
+        await ch.send_approval_notification(
+            session_id=session_id,
+            user_id=user_id,
+            request_id=request_id,
+            tool_name=tool_name,
+            severity=severity,
+            result_summary=result_summary,
+            channel_meta=channel_meta,
+        )

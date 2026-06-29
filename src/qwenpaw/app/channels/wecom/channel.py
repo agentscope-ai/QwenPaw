@@ -1260,13 +1260,6 @@ class WecomChannel(BaseChannel):
                 stream_id[:20],
             )
 
-        await self._card_handler.try_send_card_for_event(
-            to_handle,
-            event,
-            send_meta,
-            skip_stream_detail=True,
-        )
-
     # ------------------------------------------------------------------
     # Session processing state management
     # ------------------------------------------------------------------

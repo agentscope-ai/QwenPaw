@@ -406,6 +406,7 @@ class AgentBuilder:
             user_name = _channel_meta.get("user_name")
             if user_name:
                 rc["user_name"] = user_name
+            rc["channel_meta"] = _channel_meta
         _payload_ctx = (
             getattr(request, "request_context", None) if request else None
         )
