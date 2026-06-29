@@ -39,7 +39,7 @@ const ChatActionGroup: React.FC<ChatActionGroupProps> = ({
   const createNewSession = useCreateNewSession();
 
   // Compact mode follows the viewport: collapse secondary actions only on
-  // mobile. This keeps Plan visible on desktop while saving space on phones.
+  // mobile. This saves space on phones while keeping actions visible on desktop.
   const isCompact = useIsMobile();
 
   // Build "more" dropdown items for compact mode: History, WideMode.
@@ -117,7 +117,7 @@ const ChatActionGroup: React.FC<ChatActionGroupProps> = ({
         </Tooltip>
       )}
 
-      {/* Compact mode: collapse Plan/History/WideMode into more dropdown */}
+      {/* Compact mode: collapse History/WideMode into more dropdown */}
       {isCompact && moreItems.length > 0 && (
         <Dropdown
           menu={{ items: moreItems }}
