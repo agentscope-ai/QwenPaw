@@ -85,17 +85,38 @@ Function QWENPAW_CLI_PATH_PAGE_LEAVE
 FunctionEnd
 
 !macro QWENPAW_STOP_BACKEND_SIDECAR
-  ; The Python backend is a Tauri sidecar, not a user-facing window. If it is
-  ; left behind during update/uninstall, stop only the copy under $INSTDIR and
-  ; wait for the PyInstaller backend bundle to release its file handles.
-  ; The script is unpacked to NSIS' temporary plugin directory. Bypass is scoped
-  ; to this unsigned local installer helper so user PowerShell policy is not
-  ; permanently changed.
-  InitPluginsDir
-  File /oname=$PLUGINSDIR\qwenpaw-stop-backend-sidecar.ps1 "..\..\..\..\nsis\stop-backend-sidecar.ps1"
-  nsExec::ExecToStack `powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$PLUGINSDIR\qwenpaw-stop-backend-sidecar.ps1" -InstallDir "$INSTDIR"`
+  ; The Python backend is a Tauri sidecar, not a user-facing window. A leftover
+  ; (possibly orphaned, see #5550) backend keeps its PyInstaller ``.pyd`` modules
+  ; memory-mapped, which locks them on Windows. The installer then fails to
+  ; overwrite those files and shows the cryptic native "can't write file"
+  ; abort/retry/ignore dialog.
+  ;
+  ; We terminate it with the native ``taskkill`` tool instead of a PowerShell
+  ; helper: under WDAC/AppLocker policies PowerShell runs in ConstrainedLanguage
+  ; mode, where ``[System.IO.Path]::GetFullPath`` & friends throw, so the old
+  ; helper silently gave up without killing anything. If files are still locked
+  ; after several attempts we surface a friendly retry prompt rather than the
+  ; raw OS dialog.
+  Push $0
+  DetailPrint "$(qwenpawStopBackend)"
+  ${Do}
+    nsExec::Exec 'taskkill /F /T /IM qwenpaw-backend.exe'
+    Pop $0
+    nsExec::Exec 'taskkill /F /T /IM qwenpaw.exe'
+    Pop $0
+    ; Give Windows a moment to release the memory-mapped module handles.
+    Sleep 1500
+    ; ``find`` exits 0 only while the image is still listed (still running).
+    nsExec::Exec 'cmd /c tasklist /FI "IMAGENAME eq qwenpaw-backend.exe" /NH | find /I "qwenpaw-backend.exe"'
+    Pop $0
+    ${If} $0 != 0
+      ${ExitDo}
+    ${EndIf}
+    ; Still running. Ask the user; default to Cancel for silent installs.
+    MessageBox MB_RETRYCANCEL|MB_ICONEXCLAMATION "$(qwenpawStopBackendPrompt)" /SD IDCANCEL IDRETRY +2
+    Quit
+  ${Loop}
   Pop $0
-  Pop $1
 !macroend
 
 !macro NSIS_HOOK_PREINSTALL
