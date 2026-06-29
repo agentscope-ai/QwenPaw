@@ -732,6 +732,42 @@ class TestDingTalkSendMethods:
         assert result is True
         assert mock_http_session.call_count == 1
 
+    async def test_send_via_session_webhook_includes_mentions(
+        self,
+        dingtalk_channel,
+        mock_http_session,
+    ):
+        """Mention options should be emitted in DingTalk webhook payload."""
+        dingtalk_channel._http = mock_http_session
+        mock_http_session.expect_post(
+            url="https://oapi.dingtalk.com/robot/send",
+            response_status=200,
+            response_json={"errcode": 0, "errmsg": "ok"},
+        )
+
+        result = await dingtalk_channel._send_via_session_webhook(
+            session_webhook="https://oapi.dingtalk.com/robot/send?session=abc",
+            body="Hello from test",
+            at_user_ids=["staff-1"],
+            at_dingtalk_ids=["dt-1"],
+            is_at_all=True,
+        )
+
+        assert result is True
+        payload = mock_http_session._requests[0]["kwargs"]["json"]
+        assert payload["at"] == {
+            "atUserIds": ["staff-1"],
+            "atDingtalkIds": ["dt-1"],
+            "isAtAll": True,
+        }
+        text = (
+            payload.get("markdown", {}).get("text")
+            or payload["text"]["content"]
+        )
+        assert "@staff-1" in text
+        assert "@dt-1" in text
+        assert "@all" in text
+
     async def test_send_via_session_webhook_api_error(
         self,
         dingtalk_channel,
@@ -1924,6 +1960,31 @@ class TestDingTalkAICardMethods:
         )
 
         assert card is not None
+
+    async def test_create_ai_card_uses_explicit_at_user_ids(
+        self,
+        dingtalk_channel,
+    ):
+        """Explicit proactive mentions should be passed to AI card create."""
+        dingtalk_channel.message_type = "card"
+        dingtalk_channel.card_template_id = "template_123"
+        dingtalk_channel.card_template_key = "content"
+        dingtalk_channel.robot_code = "robot_123"
+        dingtalk_channel._oauth_sdk = _make_oauth_sdk("token_123")
+        card_sdk = _make_card_sdk()
+        dingtalk_channel._card_sdk = card_sdk
+
+        card = await dingtalk_channel._create_ai_card(
+            conversation_id="cid_group_123",
+            meta={"is_group": True, "at_user_ids": ["staff-1"]},
+        )
+
+        assert card is not None
+        create_request = (
+            card_sdk.create_card_with_options_async.await_args.args[0]
+        )
+        assert create_request.card_at_user_ids == ["staff-1"]
+        assert create_request.user_id_type == 1
 
     async def test_create_ai_card_dm_requires_staff_id(
         self,
@@ -3126,6 +3187,91 @@ class TestDingTalkLoadSessionWebhookEntry:
         )
 
         assert result is None
+
+
+# =============================================================================
+# P2: DingTalk proactive mention tests
+# =============================================================================
+
+
+@pytest.mark.asyncio
+class TestDingTalkProactiveMentions:
+    """Tests for proactive send mention metadata."""
+
+    async def test_send_content_parts_forwards_mention_meta(
+        self,
+        dingtalk_channel,
+    ):
+        from qwenpaw.app.channels.base import ContentType, TextContent
+
+        parts = [TextContent(type=ContentType.TEXT, text="Hello world")]
+
+        with patch.object(
+            dingtalk_channel,
+            "_send_via_session_webhook",
+            new=AsyncMock(return_value=True),
+        ) as mock_send:
+            await dingtalk_channel.send_content_parts(
+                to_handle="dingtalk:sw:test",
+                parts=parts,
+                meta={
+                    "session_webhook": "http://webhook.url",
+                    "at_user_ids": ["staff-1"],
+                    "at_dingtalk_ids": ["dt-1"],
+                    "is_at_all": True,
+                },
+            )
+
+        mock_send.assert_awaited_once_with(
+            "http://webhook.url",
+            "Hello world",
+            bot_prefix="",
+            at_user_ids=["staff-1"],
+            at_dingtalk_ids=["dt-1"],
+            is_at_all=True,
+        )
+
+    async def test_send_content_parts_skips_card_for_webhook_only_mentions(
+        self,
+        dingtalk_channel,
+    ):
+        from qwenpaw.app.channels.base import ContentType, TextContent
+
+        dingtalk_channel.cron_message_type = "card"
+        dingtalk_channel.card_template_id = "template_123"
+        dingtalk_channel.robot_code = "robot_123"
+        parts = [TextContent(type=ContentType.TEXT, text="Hello world")]
+
+        with (
+            patch.object(
+                dingtalk_channel,
+                "_create_ai_card",
+                new=AsyncMock(),
+            ) as mock_create,
+            patch.object(
+                dingtalk_channel,
+                "_send_via_session_webhook",
+                new=AsyncMock(return_value=True),
+            ) as mock_send,
+        ):
+            await dingtalk_channel.send_content_parts(
+                to_handle="dingtalk:sw:test",
+                parts=parts,
+                meta={
+                    "session_webhook": "http://webhook.url",
+                    "at_dingtalk_ids": ["dt-1"],
+                },
+            )
+
+        mock_create.assert_not_awaited()
+        mock_send.assert_awaited_once_with(
+            "http://webhook.url",
+            "Hello world",
+            bot_prefix="",
+            at_user_ids=None,
+            at_dingtalk_ids=["dt-1"],
+            is_at_all=False,
+        )
 
 
 # =============================================================================

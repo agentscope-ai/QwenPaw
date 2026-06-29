@@ -64,6 +64,17 @@ _ALL_CHANNEL_NAMES = {
 # Public alias for tests and external use.
 CHANNEL_NAMES = _ALL_CHANNEL_NAMES
 
+
+def _split_csv_options(values: tuple[str, ...]) -> list[str]:
+    """Normalize repeatable comma-separated CLI option values."""
+    result: list[str] = []
+    for value in values:
+        result.extend(
+            part.strip() for part in value.split(",") if part.strip()
+        )
+    return result
+
+
 # Template for `qwenpaw channels install <key>` stub (channel key substituted).
 CHANNEL_TEMPLATE = '''# -*- coding: utf-8 -*-
 """Custom channel: {key}. Edit and implement required methods."""
@@ -1234,6 +1245,23 @@ def configure_cmd(agent_id: str) -> None:
     default=None,
     help="Override the API base URL. Defaults to global --host/--port.",
 )
+@click.option(
+    "--at-user-ids",
+    multiple=True,
+    help=(
+        "DingTalk user IDs to @mention. May be repeated or comma-separated."
+    ),
+)
+@click.option(
+    "--at-dingtalk-ids",
+    multiple=True,
+    help=("DingTalk IDs to @mention. May be repeated or comma-separated."),
+)
+@click.option(
+    "--at-all",
+    is_flag=True,
+    help="Mention all members for DingTalk group messages.",
+)
 @click.pass_context
 def send_cmd(
     ctx: click.Context,
@@ -1243,6 +1271,9 @@ def send_cmd(
     target_session: str,
     text: str,
     base_url: Optional[str],
+    at_user_ids: tuple[str, ...],
+    at_dingtalk_ids: tuple[str, ...],
+    at_all: bool,
 ) -> None:
     """Send a text message to a channel.
 
@@ -1297,6 +1328,14 @@ def send_cmd(
         "target_session": target_session,
         "text": text,
     }
+    parsed_at_user_ids = _split_csv_options(at_user_ids)
+    parsed_at_dingtalk_ids = _split_csv_options(at_dingtalk_ids)
+    if parsed_at_user_ids:
+        payload["at_user_ids"] = parsed_at_user_ids
+    if parsed_at_dingtalk_ids:
+        payload["at_dingtalk_ids"] = parsed_at_dingtalk_ids
+    if at_all:
+        payload["is_at_all"] = True
 
     with client(base_url) as c:
         headers = {"X-Agent-Id": agent_id}

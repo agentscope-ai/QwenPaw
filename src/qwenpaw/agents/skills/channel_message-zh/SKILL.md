@@ -88,6 +88,10 @@ qwenpaw channels send \
 - `--target-session`
 - `--text`
 
+DingTalk 群发送时，如果用户明确要求 @ 某人，可以追加
+`--at-user-ids`、`--at-dingtalk-ids` 或 `--at-all`。
+`--at-user-ids` 和 `--at-dingtalk-ids` 支持重复传入或逗号分隔。
+
 ### 必须先查询
 
 发送前先执行：

@@ -364,6 +364,12 @@ qwenpaw channels send \
 - `--target-session`：会话 ID（从 `qwenpaw chats list` 获取）
 - `--text`：消息内容
 
+**DingTalk `@mention` 可选参数：**
+
+- `--at-user-ids`：要 @ 的 DingTalk userId，可重复传入，也可用逗号分隔。
+- `--at-dingtalk-ids`：要 @ 的 DingTalk ID，可重复传入，也可用逗号分隔。
+- `--at-all`：在 DingTalk 群聊中 @所有人。
+
 **重要提示：**
 
 - 发送前必须先用 `qwenpaw chats list` 查询 —— 不要猜测 `target-user` 或 `target-session`

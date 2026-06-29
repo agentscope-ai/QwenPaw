@@ -89,6 +89,31 @@ def test_send_message_passes_x_agent_id_into_meta(
     assert meta == {"_api_send": True, "agent_id": "my_bot"}
 
 
+def test_send_message_passes_dingtalk_mentions_into_meta(
+    client,
+    workspace_mock,
+):
+    payload = {
+        **_DEFAULT_PAYLOAD,
+        "channel": "dingtalk",
+        "at_user_ids": ["staff-1", "staff-2"],
+        "at_dingtalk_ids": ["dt-1"],
+        "is_at_all": True,
+    }
+
+    response = client.post("/api/messages/send", json=payload)
+
+    assert response.status_code == 200
+    call_kwargs = workspace_mock.channel_manager.send_text.await_args.kwargs
+    assert call_kwargs["channel"] == "dingtalk"
+    assert call_kwargs["meta"] == {
+        "_api_send": True,
+        "at_user_ids": ["staff-1", "staff-2"],
+        "at_dingtalk_ids": ["dt-1"],
+        "is_at_all": True,
+    }
+
+
 # ---------------------------------------------------------------------------
 # Error paths
 # ---------------------------------------------------------------------------

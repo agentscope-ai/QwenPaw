@@ -61,6 +61,18 @@ class SendMessageRequest(BaseModel):
         ...,
         description="Text message to send",
     )
+    at_user_ids: Optional[list[str]] = Field(
+        default=None,
+        description="Optional DingTalk user IDs to @mention",
+    )
+    at_dingtalk_ids: Optional[list[str]] = Field(
+        default=None,
+        description="Optional DingTalk IDs to @mention",
+    )
+    is_at_all: bool = Field(
+        default=False,
+        description="Whether to @all in DingTalk group messages",
+    )
 
 
 class SendMessageResponse(BaseModel):
@@ -157,6 +169,12 @@ async def send_message(
         meta: dict = {"_api_send": True}
         if x_agent_id:
             meta["agent_id"] = x_agent_id
+        if request.at_user_ids:
+            meta["at_user_ids"] = request.at_user_ids
+        if request.at_dingtalk_ids:
+            meta["at_dingtalk_ids"] = request.at_dingtalk_ids
+        if request.is_at_all:
+            meta["is_at_all"] = True
         await channel_manager.send_text(
             channel=request.channel,
             user_id=request.target_user,

@@ -88,6 +88,11 @@ qwenpaw channels send \
 - `--target-session`
 - `--text`
 
+For DingTalk group sends, you may add `--at-user-ids`,
+`--at-dingtalk-ids`, or `--at-all` when the user explicitly asks to mention
+someone. `--at-user-ids` and `--at-dingtalk-ids` may be repeated or
+comma-separated.
+
 ### Must Query First
 
 Before sending, run:

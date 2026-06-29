@@ -921,20 +921,21 @@ class DingTalkChannel(BaseChannel):
         bot_prefix: str = "",
         at_user_ids: Optional[List[str]] = None,
         at_dingtalk_ids: Optional[List[str]] = None,
+        is_at_all: bool = False,
     ) -> bool:
         """Send one text message via DingTalk sessionWebhook. Returns True
         on success.
 
-        When ``at_user_ids`` or ``at_dingtalk_ids`` is provided, the
-        ``at`` field is added to the webhook payload so that the
-        mentioned users receive a push notification.  The @mention text
-        is also prepended to the message body (DingTalk requires both).
+        When mention options are provided, the ``at`` field is added to
+        the webhook payload so that mentioned users receive a push
+        notification.  The @mention text is also prepended to the
+        message body for specific user mentions.
         """
         text = (bot_prefix + "  " + body) if body else bot_prefix
 
         # Build at payload and prepend @mention text
         at_payload: Optional[Dict[str, Any]] = None
-        if at_user_ids or at_dingtalk_ids:
+        if at_user_ids or at_dingtalk_ids or is_at_all:
             at_payload = {}
             mentions = []
             if at_user_ids:
@@ -943,7 +944,11 @@ class DingTalkChannel(BaseChannel):
             if at_dingtalk_ids:
                 at_payload["atDingtalkIds"] = at_dingtalk_ids
                 mentions.extend(f"@{did}" for did in at_dingtalk_ids)
-            text = " ".join(mentions) + "\n" + text
+            if is_at_all:
+                at_payload["isAtAll"] = True
+                mentions.append("@all")
+            if mentions:
+                text = " ".join(mentions) + "\n" + text
 
         if len(text) > 3500:
             payload: Dict[str, Any] = {
@@ -967,6 +972,38 @@ class DingTalkChannel(BaseChannel):
             session_webhook,
             payload,
         )
+
+    @staticmethod
+    def _normalize_mention_ids(value: Any) -> Optional[List[str]]:
+        """Return non-empty mention IDs from metadata values."""
+        if value is None:
+            return None
+        raw_values = (
+            value if isinstance(value, (list, tuple, set)) else [value]
+        )
+        normalized: List[str] = []
+        for raw in raw_values:
+            if raw is None:
+                continue
+            for part in str(raw).split(","):
+                item = part.strip()
+                if item:
+                    normalized.append(item)
+        return normalized or None
+
+    @classmethod
+    def _mentions_from_meta(
+        cls,
+        meta: Optional[Dict[str, Any]],
+    ) -> tuple[Optional[List[str]], Optional[List[str]], bool]:
+        """Extract DingTalk mention options from send metadata."""
+        meta = meta or {}
+        at_user_ids = cls._normalize_mention_ids(meta.get("at_user_ids"))
+        at_dingtalk_ids = cls._normalize_mention_ids(
+            meta.get("at_dingtalk_ids"),
+        )
+        is_at_all = bool(meta.get("is_at_all") or meta.get("at_all"))
+        return at_user_ids, at_dingtalk_ids, is_at_all
 
     async def _send_via_open_api(
         self,
@@ -1889,6 +1926,9 @@ class DingTalkChannel(BaseChannel):
             body = prefix + "  " + body
         elif prefix and not body and not media_parts:
             body = prefix
+        at_user_ids, at_dingtalk_ids, is_at_all = self._mentions_from_meta(
+            meta,
+        )
         session_webhook = await self._get_session_webhook_for_send(
             to_handle,
             meta,
@@ -1903,7 +1943,12 @@ class DingTalkChannel(BaseChannel):
         )
 
         # ---------- AI Card path (cron / proactive sends) ----------
-        if self._cron_ai_card_enabled() and body.strip():
+        has_webhook_only_mentions = bool(at_dingtalk_ids or is_at_all)
+        if (
+            self._cron_ai_card_enabled()
+            and body.strip()
+            and not has_webhook_only_mentions
+        ):
             params = await self._resolve_open_api_params_from_handle(
                 to_handle,
                 meta,
@@ -1915,6 +1960,7 @@ class DingTalkChannel(BaseChannel):
                     "conversation_type": params["conversation_type"],
                     "sender_staff_id": params["sender_staff_id"],
                     "is_group": params["conversation_type"] == "group",
+                    "at_user_ids": at_user_ids,
                 }
                 try:
                     card = await self._create_ai_card(
@@ -1965,6 +2011,9 @@ class DingTalkChannel(BaseChannel):
                     session_webhook,
                     body.strip(),
                     bot_prefix="",
+                    at_user_ids=at_user_ids,
+                    at_dingtalk_ids=at_dingtalk_ids,
+                    is_at_all=is_at_all,
                 )
             if not text_ok:
                 await self._invalidate_session_webhook(to_handle)
@@ -2974,8 +3023,14 @@ class DingTalkChannel(BaseChannel):
         # enterprise userId (senderStaffId).  Only set when available.
         card_at_user_ids: Optional[List[str]] = None
         card_user_id_type: Optional[int] = None
-        if self.at_sender_on_reply and is_group and sender_staff_id:
+        explicit_at_user_ids = self._normalize_mention_ids(
+            meta.get("at_user_ids"),
+        )
+        if explicit_at_user_ids:
+            card_at_user_ids = explicit_at_user_ids
+        elif self.at_sender_on_reply and is_group and sender_staff_id:
             card_at_user_ids = [sender_staff_id]
+        if card_at_user_ids:
             card_user_id_type = 1
 
         create_request = dingtalk_card_models.CreateCardRequest(

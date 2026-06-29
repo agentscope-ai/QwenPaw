@@ -379,6 +379,12 @@ qwenpaw channels send \
 - `--target-session`: Session ID (get from `qwenpaw chats list`)
 - `--text`: Message content
 
+**DingTalk `@mention` options:**
+
+- `--at-user-ids`: DingTalk user IDs to mention. Repeat the option or pass a comma-separated list.
+- `--at-dingtalk-ids`: DingTalk IDs to mention. Repeat the option or pass a comma-separated list.
+- `--at-all`: Mention all members in a DingTalk group.
+
 **Important:**
 
 - Always query sessions with `qwenpaw chats list` first — do NOT guess `target-user` or `target-session`
