@@ -446,7 +446,7 @@ class QwenPawAgent(CodingModeMixin, Agent):
 
         # ── Stop Hook: check registered handlers before stopping ──
         stop_result = await self._run_stop_handlers(final_msg)
-        if stop_result.action == StopAction.BLOCK:
+        if stop_result.action == StopAction.CONTINUE:
             logger.info(
                 "Stop handler BLOCKED exit: %s",
                 stop_result.reason,
@@ -662,12 +662,12 @@ class QwenPawAgent(CodingModeMixin, Agent):
             final_msg: The agent's final text-only Msg.
 
         Returns:
-            StopHandlerResult with ALLOW or BLOCK action.
+            StopHandlerResult with STOP or CONTINUE.
         """
         handlers = self._get_stop_handlers()
         if not handlers:
             return StopHandlerResult(
-                action=StopAction.ALLOW,
+                action=StopAction.STOP,
             )
 
         handlers.sort(key=lambda h: h.priority)
@@ -681,18 +681,29 @@ class QwenPawAgent(CodingModeMixin, Agent):
                         "iteration": (self.state.cur_iter),
                     },
                 )
-                if isinstance(result, StopHandlerResult):
-                    if result.action == StopAction.BLOCK:
+                if isinstance(
+                    result,
+                    StopHandlerResult,
+                ):
+                    if result.action == StopAction.CONTINUE:
                         return result
                 elif isinstance(result, dict):
                     action = result.get(
                         "action",
-                        "allow",
+                        "stop",
                     )
-                    if action == "block":
+                    if action in (
+                        "continue",
+                        "block",
+                    ):
                         return StopHandlerResult(
-                            action=StopAction.BLOCK,
-                            continuation_message=(result.get("message", "")),
+                            action=StopAction.CONTINUE,
+                            continuation_message=(
+                                result.get(
+                                    "message",
+                                    "",
+                                )
+                            ),
                             reason=result.get(
                                 "reason",
                                 "",
@@ -706,7 +717,9 @@ class QwenPawAgent(CodingModeMixin, Agent):
                 )
                 continue
 
-        return StopHandlerResult(action=StopAction.ALLOW)
+        return StopHandlerResult(
+            action=StopAction.STOP,
+        )
 
     # pylint: disable=too-many-nested-blocks
     def _strip_media_blocks_from_memory(self) -> int:

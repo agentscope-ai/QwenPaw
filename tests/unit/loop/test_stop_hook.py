@@ -15,19 +15,19 @@ from qwenpaw.loop.stop_handler import (
 class TestStopHandlerResult:  # pylint: disable=too-few-public-methods
     """StopHandlerResult data class tests."""
 
-    def test_default_allow(self):
+    def test_default_stop(self):
         r = StopHandlerResult()
-        assert r.action == StopAction.ALLOW
+        assert r.action == StopAction.STOP
         assert r.continuation_message == ""
         assert r.reason == ""
 
-    def test_block_with_message(self):
+    def test_continue_with_message(self):
         r = StopHandlerResult(
-            action=StopAction.BLOCK,
+            action=StopAction.CONTINUE,
             continuation_message="Keep going",
             reason="task incomplete",
         )
-        assert r.action == StopAction.BLOCK
+        assert r.action == StopAction.CONTINUE
         assert r.continuation_message == "Keep going"
 
 
@@ -59,11 +59,11 @@ class TestRunStopHandlers:
         return agent
 
     @pytest.mark.asyncio()
-    async def test_no_handlers_returns_allow(
+    async def test_no_handlers_returns_stop(
         self,
         _mock_agent,
     ):
-        """No handlers → ALLOW."""
+        """No handlers -> STOP."""
         from qwenpaw.agents.react_agent import (
             QwenPawAgent,
         )
@@ -80,29 +80,29 @@ class TestRunStopHandlers:
                 agent,
                 MagicMock(),
             )
-            assert result.action == StopAction.ALLOW
+            assert result.action == StopAction.STOP
 
     @pytest.mark.asyncio()
-    async def test_block_handler_returns_block(
+    async def test_continue_handler(
         self,
     ):
-        """A handler returning BLOCK should block."""
+        """A handler returning CONTINUE should continue."""
         from qwenpaw.agents.react_agent import (
             QwenPawAgent,
         )
 
-        async def block_handler(ctx):
+        async def cont_handler(ctx):
             return StopHandlerResult(
-                action=StopAction.BLOCK,
+                action=StopAction.CONTINUE,
                 continuation_message="Continue!",
                 reason="not done",
             )
 
         reg = StopHandlerRegistration(
             plugin_id="test",
-            handler=block_handler,
+            handler=cont_handler,
             priority=50,
-            name="blocker",
+            name="continuer",
         )
 
         agent = MagicMock(spec=QwenPawAgent)
@@ -116,28 +116,28 @@ class TestRunStopHandlers:
             agent,
             MagicMock(),
         )
-        assert result.action == StopAction.BLOCK
+        assert result.action == StopAction.CONTINUE
         assert result.continuation_message == "Continue!"
 
     @pytest.mark.asyncio()
-    async def test_allow_handler_returns_allow(
+    async def test_stop_handler_returns_stop(
         self,
     ):
-        """All handlers returning ALLOW → ALLOW."""
+        """All handlers returning STOP -> STOP."""
         from qwenpaw.agents.react_agent import (
             QwenPawAgent,
         )
 
-        async def allow_handler(ctx):
+        async def stop_handler(ctx):
             return StopHandlerResult(
-                action=StopAction.ALLOW,
+                action=StopAction.STOP,
             )
 
         reg = StopHandlerRegistration(
             plugin_id="test",
-            handler=allow_handler,
+            handler=stop_handler,
             priority=50,
-            name="allower",
+            name="stopper",
         )
 
         agent = MagicMock(spec=QwenPawAgent)
@@ -151,7 +151,7 @@ class TestRunStopHandlers:
             agent,
             MagicMock(),
         )
-        assert result.action == StopAction.ALLOW
+        assert result.action == StopAction.STOP
 
     @pytest.mark.asyncio()
     async def test_priority_ordering(self):
@@ -165,14 +165,14 @@ class TestRunStopHandlers:
         async def high_priority(ctx):
             call_order.append("high")
             return StopHandlerResult(
-                action=StopAction.BLOCK,
+                action=StopAction.CONTINUE,
                 continuation_message="high wins",
             )
 
         async def low_priority(ctx):
             call_order.append("low")
             return StopHandlerResult(
-                action=StopAction.ALLOW,
+                action=StopAction.STOP,
             )
 
         regs = [
@@ -201,7 +201,7 @@ class TestRunStopHandlers:
             agent,
             MagicMock(),
         )
-        assert result.action == StopAction.BLOCK
+        assert result.action == StopAction.CONTINUE
         assert call_order == ["high"]
 
     @pytest.mark.asyncio()
@@ -232,4 +232,4 @@ class TestRunStopHandlers:
             agent,
             MagicMock(),
         )
-        assert result.action == StopAction.ALLOW
+        assert result.action == StopAction.STOP

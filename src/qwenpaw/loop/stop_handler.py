@@ -4,8 +4,9 @@
 Architecture:
     StopHandler holds an ordered list of StopGate.
     Gates are checked in priority order (lower first).
-    First gate returning a result wins.
-    Default when no gate fires: ALLOW (agent stops).
+    Any gate returning STOP → agent stops immediately.
+    No gates registered → STOP (normal non-loop exit).
+    All gates return None → CONTINUE (loop keeps going).
 """
 from __future__ import annotations
 
@@ -19,10 +20,14 @@ logger = logging.getLogger(__name__)
 
 
 class StopAction(str, Enum):
-    """Whether to allow or block agent from stopping."""
+    """Whether the agent should stop or continue."""
 
-    ALLOW = "allow"
-    BLOCK = "block"
+    STOP = "stop"
+    CONTINUE = "continue"
+
+    # Backward-compatible aliases
+    ALLOW = "stop"
+    BLOCK = "continue"
 
 
 @dataclass
@@ -34,7 +39,7 @@ class StopHandlerResult:
     agent running.
     """
 
-    action: StopAction = StopAction.ALLOW
+    action: StopAction = StopAction.STOP
     continuation_message: str = ""
     reason: str = ""
 
@@ -55,9 +60,8 @@ class StopHandlerRegistration:
 class StopGate(ABC):
     """Base class for stop condition gates.
 
-    Each gate checks one condition and returns:
-    - StopHandlerResult → terminate gate evaluation
-    - None → pass to next gate
+    Return StopHandlerResult(STOP) to stop the agent.
+    Return None to pass (no objection, next gate).
     """
 
     name: str = ""
@@ -68,24 +72,26 @@ class StopGate(ABC):
         self,
         ctx: Any,
     ) -> Optional[StopHandlerResult]:
-        """Check stop condition.
+        """Evaluate one stop condition.
 
         Returns:
-            StopHandlerResult to stop evaluation,
-            None to pass to the next gate.
+            StopHandlerResult(STOP) → agent stops.
+            None → no objection, check next gate.
         """
 
 
 class StopHandler:
     """Universal stop handler with composable gates.
 
-    Gates are checked in priority order (lower first).
-    First gate that returns a non-None result wins.
-    If no gate fires, returns ALLOW (agent stops).
+    Any gate returning STOP → agent stops immediately.
+    No gates registered → STOP (normal non-loop exit).
+    All gates return None → CONTINUE with the
+    continuation message from ``continuation_fn``.
     """
 
     def __init__(self) -> None:
         self._gates: list[StopGate] = []
+        self._continuation_fn: (Optional[Callable[..., str]]) = None
 
     def register(self, gate: StopGate) -> None:
         """Register a gate and re-sort by priority."""
@@ -96,6 +102,13 @@ class StopHandler:
         """Remove all gates matching *name*."""
         self._gates = [g for g in self._gates if g.name != name]
 
+    def set_continuation(
+        self,
+        fn: Callable[..., str],
+    ) -> None:
+        """Set callback that builds continuation msg."""
+        self._continuation_fn = fn
+
     @property
     def gates(self) -> list[StopGate]:
         """Read-only view of registered gates."""
@@ -105,7 +118,16 @@ class StopHandler:
         self,
         ctx: Any,
     ) -> StopHandlerResult:
-        """Run all gates in priority order."""
+        """Run all gates in priority order.
+
+        Any STOP → stop. No gates → stop.
+        All None → continue.
+        """
+        if not self._gates:
+            return StopHandlerResult(
+                action=StopAction.STOP,
+            )
+
         for gate in self._gates:
             try:
                 result = await gate.check(ctx)
@@ -123,8 +145,20 @@ class StopHandler:
                     result.action.value,
                 )
                 return result
+
+        msg = ""
+        if self._continuation_fn:
+            try:
+                msg = self._continuation_fn(ctx)
+            except Exception:
+                logger.warning(
+                    "continuation_fn raised",
+                    exc_info=True,
+                )
         return StopHandlerResult(
-            action=StopAction.ALLOW,
+            action=StopAction.CONTINUE,
+            continuation_message=msg,
+            reason="All gates passed",
         )
 
 

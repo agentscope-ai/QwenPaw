@@ -1,15 +1,22 @@
 # -*- coding: utf-8 -*-
 # pylint: disable=protected-access
-"""Tests for GoalMode."""
+"""Tests for GoalMode gates and session."""
 import pytest
 
+from qwenpaw.app.agent_context import (
+    set_current_session_id,
+)
+from qwenpaw.loop.rubric_grader import GoalStatusRubric
 from qwenpaw.loop.stop_handler import (
     StopAction,
-    StopHandlerResult,
+    StopHandler,
 )
 from qwenpaw.modes.goal.goal_mode import (
+    BudgetGate,
     GoalMode,
     GoalSession,
+    IterationGate,
+    RubricGate,
 )
 
 
@@ -44,7 +51,7 @@ class TestGoalModeActivation:
 
     @pytest.mark.asyncio()
     async def test_activate_empty_args(self, _mode):
-        result = await _mode._activate_handler(  # noqa
+        result = await _mode._activate_handler(
             {},
             "",
         )
@@ -53,12 +60,11 @@ class TestGoalModeActivation:
 
     @pytest.mark.asyncio()
     async def test_activate_with_task(self, _mode):
-        result = await _mode._activate_handler(  # noqa
+        result = await _mode._activate_handler(
             {"session_id": "s1"},
             "fix all tests",
         )
-        text = result.get_text_content()
-        assert "activated" in text.lower()
+        assert result is None
         session = _mode.get_session("s1")
         assert session is not None
         assert session.goal == "fix all tests"
@@ -71,25 +77,25 @@ class TestGoalModeCancel:
     @pytest.fixture()
     def _mode(self):
         m = GoalMode()
-        m._sessions["s1"] = GoalSession(  # noqa
+        m._sessions["s1"] = GoalSession(
             goal="test",
         )
         return m
 
     @pytest.mark.asyncio()
     async def test_cancel_active(self, _mode):
-        result = await _mode._cancel_handler(  # noqa
+        result = await _mode._cancel_handler(
             {"session_id": "s1"},
             "",
         )
         text = result.get_text_content()
         assert "cancelled" in text.lower()
-        assert not _mode._sessions["s1"].active  # noqa
+        assert not _mode._sessions["s1"].active
 
     @pytest.mark.asyncio()
     async def test_cancel_none_active(self):
         m = GoalMode()
-        result = await m._cancel_handler(  # noqa
+        result = await m._cancel_handler(
             {},
             "",
         )
@@ -97,70 +103,154 @@ class TestGoalModeCancel:
         assert "no active" in text.lower()
 
 
-class TestGoalModeStopHandler:
-    """Test the stop handler logic."""
+# ---- Gate tests ----
 
-    @pytest.fixture()
-    def _mode(self):
-        m = GoalMode()
-        m._sessions["default"] = GoalSession(  # noqa
-            goal="fix tests",
+
+def _make_mode_with_session(
+    key="default",
+    **kwargs,
+):
+    """Create GoalMode + session + set ContextVar."""
+    m = GoalMode()
+    m._sessions[key] = GoalSession(
+        goal="fix tests",
+        **kwargs,
+    )
+    set_current_session_id(key)
+    return m
+
+
+class TestIterationGate:
+    """Test IterationGate."""
+
+    @pytest.mark.asyncio()
+    async def test_under_limit_returns_none(self):
+        m = _make_mode_with_session(
             max_iterations=5,
         )
-        return m
+        gate = IterationGate(m)
+        result = await gate.check({"agent": None})
+        assert result is None
+        assert m._sessions["default"].iteration == 1
 
     @pytest.mark.asyncio()
-    async def test_inactive_session_allows(self):
+    async def test_at_limit_returns_stop(self):
+        m = _make_mode_with_session(
+            max_iterations=5,
+        )
+        m._sessions["default"].iteration = 4
+        gate = IterationGate(m)
+        result = await gate.check({"agent": None})
+        assert result is not None
+        assert result.action == StopAction.STOP
+        assert not m._sessions["default"].active
+
+    @pytest.mark.asyncio()
+    async def test_no_session_returns_none(self):
         m = GoalMode()
-        result = await m._stop_handler(  # noqa
-            {"agent": None},
-        )
-        assert isinstance(result, StopHandlerResult)
-        assert result.action == StopAction.ALLOW
+        set_current_session_id(None)
+        gate = IterationGate(m)
+        result = await gate.check({"agent": None})
+        assert result is None
+
+
+class TestBudgetGate:
+    """Test BudgetGate."""
 
     @pytest.mark.asyncio()
-    async def test_max_iterations_allows(
+    async def test_under_budget_returns_none(self):
+        m = _make_mode_with_session(
+            max_tokens=100000,
+        )
+        m._sessions["default"].tokens_used = 50000
+        gate = BudgetGate(m)
+        result = await gate.check({"agent": None})
+        assert result is None
+
+    @pytest.mark.asyncio()
+    async def test_over_budget_returns_stop(self):
+        m = _make_mode_with_session(
+            max_tokens=100000,
+        )
+        m._sessions["default"].tokens_used = 999999
+        gate = BudgetGate(m)
+        result = await gate.check({"agent": None})
+        assert result is not None
+        assert result.action == StopAction.STOP
+        assert not m._sessions["default"].active
+
+
+class TestRubricGate:
+    """Test RubricGate."""
+
+    @pytest.mark.asyncio()
+    async def test_active_session_returns_none(self):
+        m = _make_mode_with_session()
+        rubric = GoalStatusRubric(
+            get_session_fn=m.session_by_ctx_var,
+        )
+        gate = RubricGate(m, rubric)
+        result = await gate.check({"agent": None})
+        assert result is None
+
+    @pytest.mark.asyncio()
+    async def test_completed_session_returns_stop(
         self,
-        _mode,
     ):
-        session = _mode._sessions["default"]  # noqa
-        session.iteration = 4  # next will be 5
-
-        result = await _mode._stop_handler(  # noqa
-            {"agent": None},
+        m = _make_mode_with_session()
+        m._sessions["default"].active = False
+        rubric = GoalStatusRubric(
+            get_session_fn=m.session_by_ctx_var,
         )
-        assert result.action == StopAction.ALLOW
-        assert "max iterations" in result.reason.lower()
+        gate = RubricGate(m, rubric)
+        result = await gate.check({"agent": None})
+        assert result is not None
+        assert result.action == StopAction.STOP
+
+
+class TestStopHandlerComposition:
+    """Test full StopHandler with GoalMode gates."""
 
     @pytest.mark.asyncio()
-    async def test_budget_exceeded_allows(
-        self,
-        _mode,
-    ):
-        session = _mode._sessions["default"]  # noqa
-        session.tokens_used = 999999
-        session.max_tokens = 100000
-
-        result = await _mode._stop_handler(  # noqa
-            {"agent": None},
-        )
-        assert result.action == StopAction.ALLOW
-        assert "budget" in result.reason.lower()
+    async def test_no_gates_returns_stop(self):
+        handler = StopHandler()
+        result = await handler({})
+        assert result.action == StopAction.STOP
 
     @pytest.mark.asyncio()
-    async def test_normal_blocks(self, _mode):
-        """Without GOAL COMPLETE, handler blocks."""
-        from unittest.mock import MagicMock
-
-        mock_msg = MagicMock()
-        mock_msg.get_text_content.return_value = "Working on the task..."
-
-        result = await _mode._stop_handler(  # noqa
-            {
-                "agent": None,
-                "final_msg": mock_msg,
-            },
+    async def test_all_pass_returns_continue(self):
+        m = _make_mode_with_session(
+            max_iterations=99,
+            max_tokens=999999,
         )
-        assert result.action == StopAction.BLOCK
-        assert "goal incomplete" in (result.reason.lower())
-        assert "Continue working" in (result.continuation_message)
+        rubric = GoalStatusRubric(
+            get_session_fn=m.session_by_ctx_var,
+        )
+        handler = StopHandler()
+        handler.register(IterationGate(m))
+        handler.register(BudgetGate(m))
+        handler.register(RubricGate(m, rubric))
+        handler.set_continuation(
+            lambda ctx: "Keep going",
+        )
+
+        result = await handler({"agent": None})
+        assert result.action == StopAction.CONTINUE
+        assert result.continuation_message == "Keep going"
+
+    @pytest.mark.asyncio()
+    async def test_iter_gate_stops_first(self):
+        m = _make_mode_with_session(
+            max_iterations=1,
+        )
+        rubric = GoalStatusRubric(
+            get_session_fn=m.session_by_ctx_var,
+        )
+        handler = StopHandler()
+        handler.register(IterationGate(m))
+        handler.register(BudgetGate(m))
+        handler.register(RubricGate(m, rubric))
+
+        result = await handler({"agent": None})
+        assert result.action == StopAction.STOP
+        assert "iterations" in result.reason.lower()

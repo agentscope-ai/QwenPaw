@@ -24,22 +24,22 @@ class TestStopHandler:
     """Tests for stop handler data structures."""
 
     def test_stop_action_enum(self):
-        assert StopAction.ALLOW == "allow"
-        assert StopAction.BLOCK == "block"
+        assert StopAction.STOP == "stop"
+        assert StopAction.CONTINUE == "continue"
 
     def test_stop_handler_result_defaults(self):
         result = StopHandlerResult()
-        assert result.action == StopAction.ALLOW
+        assert result.action == StopAction.STOP
         assert result.continuation_message == ""
         assert result.reason == ""
 
-    def test_stop_handler_result_block(self):
+    def test_stop_handler_result_continue(self):
         result = StopHandlerResult(
-            action=StopAction.BLOCK,
+            action=StopAction.CONTINUE,
             continuation_message="Keep working",
             reason="Task incomplete",
         )
-        assert result.action == StopAction.BLOCK
+        assert result.action == StopAction.CONTINUE
         assert result.continuation_message == "Keep working"
 
     def test_registration_dataclass(self):

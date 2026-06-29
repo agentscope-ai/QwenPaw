@@ -165,7 +165,7 @@ class LoopLoader:
             )
             if session is None or not session.active:
                 return StopHandlerResult(
-                    action=StopAction.ALLOW,
+                    action=StopAction.STOP,
                 )
 
             session.iteration_count += 1
@@ -175,7 +175,7 @@ class LoopLoader:
             if session.iteration_count >= safety.max_iterations:
                 session.active = False
                 return StopHandlerResult(
-                    action=StopAction.ALLOW,
+                    action=StopAction.STOP,
                     reason="Max iterations reached",
                 )
 
@@ -186,7 +186,7 @@ class LoopLoader:
             ):
                 session.active = False
                 return StopHandlerResult(
-                    action=StopAction.ALLOW,
+                    action=StopAction.STOP,
                     reason="Token budget exceeded",
                 )
 
@@ -201,7 +201,7 @@ class LoopLoader:
                 if passed:
                     session.active = False
                     return StopHandlerResult(
-                        action=StopAction.ALLOW,
+                        action=StopAction.STOP,
                         reason="Rubric hard_check passed",
                     )
 
@@ -213,13 +213,13 @@ class LoopLoader:
                 if verdict == RubricVerdict.SATISFIED:
                     session.active = False
                     return StopHandlerResult(
-                        action=StopAction.ALLOW,
+                        action=StopAction.STOP,
                         reason="Rubric soft_judge: satisfied",
                     )
 
             cont = _build_continuation(cfg, session)
             return StopHandlerResult(
-                action=StopAction.BLOCK,
+                action=StopAction.CONTINUE,
                 continuation_message=cont,
                 reason=(
                     f"Loop '{cfg.name}' iteration "

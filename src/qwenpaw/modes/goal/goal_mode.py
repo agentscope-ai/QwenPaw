@@ -157,7 +157,11 @@ class GoalSession:
 
 
 class IterationGate(StopGate):
-    """Hard limit: max iterations."""
+    """Hard limit: max iterations.
+
+    Also increments iteration counter and updates
+    token usage (runs first, priority=10).
+    """
 
     name = "goal-iteration"
     priority = 10
@@ -176,7 +180,7 @@ class IterationGate(StopGate):
         session.iteration += 1
         _update_goal_tokens(session, ctx)
         logger.debug(
-            "Goal stop: iter=%d/%d tokens=%d/%d",
+            "Goal gate: iter=%d/%d tokens=%d/%d",
             session.iteration,
             session.max_iterations,
             session.tokens_used,
@@ -190,7 +194,7 @@ class IterationGate(StopGate):
                 session.max_iterations,
             )
             return StopHandlerResult(
-                action=StopAction.ALLOW,
+                action=StopAction.STOP,
                 reason="Max iterations reached",
             )
         return None
@@ -217,27 +221,17 @@ class BudgetGate(StopGate):
 
         session.active = False
         return StopHandlerResult(
-            action=StopAction.ALLOW,
+            action=StopAction.STOP,
             reason="Token budget exceeded",
-            continuation_message=(
-                BUDGET_LIMIT_PROMPT.format(
-                    objective=session.goal,
-                    iteration=session.iteration,
-                    max_iterations=(session.max_iterations),
-                    tokens_used=session.tokens_used,
-                    token_budget=session.max_tokens,
-                )
-            ),
         )
 
 
 class RubricGate(StopGate):
     """Rubric evaluation gate.
 
-    Uses GoalStatusRubric by default (checks
-    session.active via ContextVar). Returns ALLOW
-    when rubric says SATISFIED, BLOCK + continuation
-    when NEEDS_REVISION.
+    Checks session.active via GoalStatusRubric.
+    SATISFIED (goal completed) → STOP.
+    Otherwise → None (no objection, continue).
     """
 
     name = "goal-rubric"
@@ -264,7 +258,9 @@ class RubricGate(StopGate):
             agent_output="",
             iteration=session.iteration,
         )
-        session.last_verdict = str(evaluation.verdict)
+        session.last_verdict = str(
+            evaluation.verdict,
+        )
         logger.debug(
             "Goal rubric verdict=%s",
             evaluation.verdict,
@@ -272,33 +268,14 @@ class RubricGate(StopGate):
 
         if evaluation.verdict == RubricVerdict.SATISFIED:
             logger.info(
-                "Goal %s at iter=%d",
-                evaluation.explanation,
+                "Goal completed at iter=%d",
                 session.iteration,
             )
             return StopHandlerResult(
-                action=StopAction.ALLOW,
+                action=StopAction.STOP,
                 reason=evaluation.explanation,
             )
-
-        remaining = max(
-            0,
-            session.max_tokens - session.tokens_used,
-        )
-        return StopHandlerResult(
-            action=StopAction.BLOCK,
-            continuation_message=(
-                CONTINUATION_PROMPT.format(
-                    objective=session.goal,
-                    iteration=session.iteration,
-                    max_iterations=(session.max_iterations),
-                    tokens_used=session.tokens_used,
-                    token_budget=session.max_tokens,
-                    remaining_tokens=remaining,
-                )
-            ),
-            reason=(f"Goal incomplete: iteration " f"{session.iteration}"),
-        )
+        return None
 
 
 # ---- GoalMode ----
@@ -446,6 +423,9 @@ class GoalMode(AgentMode):
         handler.register(IterationGate(self))
         handler.register(BudgetGate(self))
         handler.register(RubricGate(self, rubric))
+        handler.set_continuation(
+            self._build_continuation,
+        )
 
         _register_goal_tools_governance()
 
@@ -533,6 +513,27 @@ class GoalMode(AgentMode):
                 ),
             ],
             role="system",
+        )
+
+    def _build_continuation(
+        self,
+        ctx: Any,  # pylint: disable=unused-argument
+    ) -> str:
+        """Build continuation message for StopHandler."""
+        session = self._first_active_session()
+        if session is None:
+            return ""
+        remaining = max(
+            0,
+            session.max_tokens - session.tokens_used,
+        )
+        return CONTINUATION_PROMPT.format(
+            objective=session.goal,
+            iteration=session.iteration,
+            max_iterations=session.max_iterations,
+            tokens_used=session.tokens_used,
+            token_budget=session.max_tokens,
+            remaining_tokens=remaining,
         )
 
     # ---- prompt / session helpers ----
