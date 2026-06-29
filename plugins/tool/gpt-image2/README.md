@@ -71,8 +71,8 @@ Generate an image using OpenAI GPT Image 2 model from text prompt only.
 
 **Returns:**
 
-- ImageBlock with the generated image
-- TextBlock with generation metadata
+- DataBlock with the generated image
+- TextContent with generation metadata
 
 ### edit_image_gpt
 
@@ -92,8 +92,8 @@ Edit or generate image using reference images with OpenAI GPT Image 2 model.
 
 **Returns:**
 
-- ImageBlock with the edited/generated image
-- TextBlock with editing metadata
+- DataBlock with the edited/generated image
+- TextContent with editing metadata
 
 **Supported Image Formats:**
 
@@ -103,7 +103,7 @@ Edit or generate image using reference images with OpenAI GPT Image 2 model.
 
 ## Requirements
 
-- QwenPaw >= 1.1.6
+- QwenPaw >= 2.0.0
 - httpx >= 0.24.0
 - Valid OpenAI API key with access to GPT Image 2
 
