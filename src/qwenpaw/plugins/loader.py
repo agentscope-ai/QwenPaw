@@ -229,7 +229,7 @@ class PluginLoader:
             return False
 
     @staticmethod
-    def _check_dependencies_satisfied(
+    def _find_unsatisfied_dependencies(
         requirements_file: Path,
     ) -> List[str]:
         """Return requirement lines that are not importable / out of spec."""
@@ -270,7 +270,7 @@ class PluginLoader:
         _ensure_plugin_site_on_path()
 
         requirements_file = source_path / "requirements.txt"
-        missing_deps = self._check_dependencies_satisfied(requirements_file)
+        missing_deps = self._find_unsatisfied_dependencies(requirements_file)
         if not missing_deps:
             return
         logger.info(
@@ -307,7 +307,7 @@ class PluginLoader:
             # with fresh import caches before spending resources on pip.
             _ensure_plugin_site_on_path()
             importlib.invalidate_caches()
-            if not self._check_dependencies_satisfied(requirements_file):
+            if not self._find_unsatisfied_dependencies(requirements_file):
                 logger.info(
                     "Plugin '%s' dependencies already satisfied by a "
                     "concurrent installer; skipping pip install",

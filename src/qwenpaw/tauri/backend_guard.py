@@ -46,7 +46,7 @@ def _read_recorded_pid(pid_file: Path) -> Optional[int]:
     return pid if pid > 0 else None
 
 
-def _looks_like_backend(proc: "object") -> bool:
+def _looks_like_backend(proc: "psutil.Process") -> bool:
     """Best-effort check that *proc* is a QwenPaw desktop backend.
 
     Guards against PID reuse: a recorded PID may have been recycled by an
@@ -54,7 +54,6 @@ def _looks_like_backend(proc: "object") -> bool:
     """
     import psutil
 
-    assert isinstance(proc, psutil.Process)
     try:
         name = (proc.name() or "").lower()
     except (psutil.Error, OSError):
