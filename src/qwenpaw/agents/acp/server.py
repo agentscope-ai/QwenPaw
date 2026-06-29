@@ -983,24 +983,57 @@ class QwenPawACPAgent(Agent):
             return None
         return {ACP_AGENT_META_KEY: agent_id} if agent_id else None
 
-    @staticmethod
-    def _build_available_commands() -> list[AvailableCommand]:
-        """Build the curated slash-command list advertised to ACP clients."""
+    def _build_available_commands(
+        self,
+    ) -> list[AvailableCommand]:
+        """Build slash-command list from static + workspace registry."""
         descriptions: dict[str, str] = {
             **SYSTEM_COMMAND_DESCRIPTIONS,
             "model": "Show or switch AI model",
             "skills": (
-                "List chat-available skills and expose explicit skill commands"
+                "List chat-available skills"
+                " and expose explicit skill commands"
             ),
         }
-        return [
-            AvailableCommand(
-                name=name,
-                description=descriptions.get(name, ""),
+        seen: set[str] = set()
+        result: list[AvailableCommand] = []
+        for name in _ADVERTISED_COMMAND_ORDER:
+            if name in _ACP_REDUNDANT_COMMANDS:
+                continue
+            seen.add(name)
+            result.append(
+                AvailableCommand(
+                    name=name,
+                    description=descriptions.get(name, ""),
+                ),
             )
-            for name in _ADVERTISED_COMMAND_ORDER
-            if name not in _ACP_REDUNDANT_COMMANDS
-        ]
+        ws = self._workspace
+        if ws is not None:
+            registry = getattr(
+                getattr(ws, "plugins", None),
+                "slash_command_registry",
+                None,
+            )
+            if registry is not None:
+                for cmd_name in registry.names():
+                    if cmd_name in seen:
+                        continue
+                    if cmd_name in _ACP_REDUNDANT_COMMANDS:
+                        continue
+                    seen.add(cmd_name)
+                    match = registry.resolve(
+                        f"/{cmd_name}",
+                    )
+                    desc = ""
+                    if match:
+                        desc = match[0].help_text or ""
+                    result.append(
+                        AvailableCommand(
+                            name=cmd_name,
+                            description=desc,
+                        ),
+                    )
+        return result
 
     async def _report_prompt_error(
         self,

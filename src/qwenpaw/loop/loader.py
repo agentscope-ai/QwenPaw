@@ -70,6 +70,9 @@ class LoopLoader:
                 observer=self._make_observer(cfg),
                 name=f"doom-{cfg.name}",
             )
+            from .hitl_hook import HitlPauseHook
+
+            self._api.register_runtime_hook(HitlPauseHook())
 
         logger.info(
             f"LoopLoader registered loop '{cfg.name}' "

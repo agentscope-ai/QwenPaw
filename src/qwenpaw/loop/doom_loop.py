@@ -135,7 +135,30 @@ class DoomLoopState:
     escalation_count: int = 0
 
 
+@dataclass
+class DoomLoopAlert:
+    """Payload sent to frontend when HITL is triggered."""
+
+    session_id: str = ""
+    loop_name: str = ""
+    signal: str = ""
+    message: str = ""
+    escalation_count: int = 0
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize for ACP / SSE transport."""
+        return {
+            "type": "doom_loop_alert",
+            "session_id": self.session_id,
+            "loop_name": self.loop_name,
+            "signal": self.signal,
+            "message": self.message,
+            "escalation_count": self.escalation_count,
+        }
+
+
 __all__ = [
+    "DoomLoopAlert",
     "DoomLoopDetector",
     "DoomLoopSignal",
     "DoomLoopState",

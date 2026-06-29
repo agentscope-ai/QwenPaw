@@ -7,7 +7,9 @@ from .stop_handler import (
     StopHandlerRegistration,
 )
 from .doom_loop import (
+    DoomLoopAlert,
     DoomLoopSignal,
+    DoomLoopState,
     ObserverRegistration,
     DoomLoopDetector,
 )
@@ -15,8 +17,10 @@ from .schema import LoopSkillConfig
 from .loader import LoopLoader
 
 __all__ = [
+    "DoomLoopAlert",
     "DoomLoopDetector",
     "DoomLoopSignal",
+    "DoomLoopState",
     "LoopLoader",
     "LoopSkillConfig",
     "ObserverRegistration",

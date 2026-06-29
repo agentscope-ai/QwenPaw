@@ -650,9 +650,35 @@ class ToolCoordinator:
             entry.end_state = (
                 "interrupted" if entry.ctx.cancel_event.is_set() else "success"
             )
-        # Safe in cooperative asyncio; dict.pop is atomic within one step.
+        self._broadcast_observers(entry)
         self._entries.pop(entry.ctx.tool_call_id, None)
         return entry.final_response
+
+    def _broadcast_observers(
+        self,
+        entry: ToolCallEntry,
+    ) -> None:
+        """Notify registered tool call observers."""
+        observers: list = getattr(self, "_observers", [])
+        if not observers:
+            return
+        tool_name = entry.ctx.tool_name
+        args = entry.ctx.tool_input or {}
+        result = entry.final_response
+        for reg in observers:
+            try:
+                coro = reg.observer(
+                    tool_name,
+                    args,
+                    result,
+                    [],
+                )
+                if asyncio.iscoroutine(coro):
+                    asyncio.ensure_future(coro)
+            except Exception as exc:
+                logger.debug(
+                    f"observer {reg.name} error: {exc}",
+                )
 
     def _resolve_timeout(
         self,

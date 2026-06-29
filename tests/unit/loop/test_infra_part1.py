@@ -1,0 +1,308 @@
+# -*- coding: utf-8 -*-
+# pylint: disable=protected-access,unused-argument
+"""Unit tests for Checklist Part 1: infra items 4, 6B, 7C."""
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Any
+from unittest.mock import MagicMock
+
+import pytest
+
+
+# ── 改动4: dynamic command broadcasting ──
+
+
+class _FakeSpec:
+    """Minimal CommandSpec stand-in."""
+
+    def __init__(self, name, help_text=""):
+        self.name = name
+        self.help_text = help_text
+        self.category = "plugin"
+
+
+class _FakeRegistry:
+    """Minimal SlashCommandRegistry stand-in."""
+
+    def __init__(self, specs: dict[str, _FakeSpec]):
+        self._specs = specs
+
+    def names(self) -> list[str]:
+        return sorted(self._specs.keys())
+
+    def resolve(self, raw_text: str):
+        name = raw_text.lstrip("/").split()[0]
+        spec = self._specs.get(name)
+        if spec:
+            return (spec, "")
+        return None
+
+
+class _FakePlugins:
+    def __init__(self, registry):
+        self.slash_command_registry = registry
+
+
+class _FakeWorkspace:
+    def __init__(self, registry):
+        self.plugins = _FakePlugins(registry)
+
+
+class TestDynamicCommands:
+    """改动4: ACP _build_available_commands() reads workspace."""
+
+    def test_static_only(self):
+        """Without workspace, returns static commands."""
+        from qwenpaw.agents.acp.server import (
+            QwenPawACPAgent,
+        )
+
+        server = object.__new__(QwenPawACPAgent)
+        server._workspace = None
+        cmds = server._build_available_commands()
+        names = [c.name for c in cmds]
+        assert "clear" in names
+        assert "compact" in names
+
+    def test_with_plugin_commands(self):
+        """Plugin-registered commands appear in results."""
+        from qwenpaw.agents.acp.server import (
+            QwenPawACPAgent,
+        )
+
+        registry = _FakeRegistry(
+            {
+                "ralph": _FakeSpec("ralph", "Story loop"),
+                "ultrawork": _FakeSpec(
+                    "ultrawork",
+                    "Todo loop",
+                ),
+            },
+        )
+        server = object.__new__(QwenPawACPAgent)
+        server._workspace = _FakeWorkspace(registry)
+        cmds = server._build_available_commands()
+        names = [c.name for c in cmds]
+        assert "ralph" in names
+        assert "ultrawork" in names
+        for c in cmds:
+            if c.name == "ralph":
+                assert c.description == "Story loop"
+
+    def test_no_duplicates(self):
+        """Static commands are not duplicated by registry."""
+        from qwenpaw.agents.acp.server import (
+            QwenPawACPAgent,
+        )
+
+        registry = _FakeRegistry(
+            {"clear": _FakeSpec("clear", "Clear chat")},
+        )
+        server = object.__new__(QwenPawACPAgent)
+        server._workspace = _FakeWorkspace(registry)
+        cmds = server._build_available_commands()
+        clear_count = sum(1 for c in cmds if c.name == "clear")
+        assert clear_count == 1
+
+
+# ── 改动6B: context injection ──
+
+
+class TestContextInjection:
+    """改动6B: HookContext.inject_context + Runtime assembly."""
+
+    def test_inject_adds_to_list(self):
+        """inject_context() appends to context_injections."""
+        from qwenpaw.runtime.hooks import HookContext
+
+        ctx = HookContext(
+            request=MagicMock(),
+            session_id="s1",
+            agent_id="a1",
+            root_session_id="s1",
+            root_agent_id="a1",
+            workspace_dir=None,
+            workspace=MagicMock(),
+            app_services=MagicMock(),
+        )
+        ctx.inject_context("Budget: 5/15", priority=10, source="goal")
+        ctx.inject_context("Keep going", priority=50, source="loop")
+        assert len(ctx.context_injections) == 2
+        assert ctx.context_injections[0]["priority"] == 10
+        assert ctx.context_injections[1]["content"] == "Keep going"
+
+    def test_runtime_apply_sorts_by_priority(self):
+        """_apply_context_injections sorts by priority."""
+        from qwenpaw.runtime.hooks import HookContext
+        from qwenpaw.runtime.runtime import Runtime
+
+        ctx = HookContext(
+            request=MagicMock(),
+            session_id="s1",
+            agent_id="a1",
+            root_session_id="s1",
+            root_agent_id="a1",
+            workspace_dir=None,
+            workspace=MagicMock(),
+            app_services=MagicMock(),
+        )
+        ctx.inject_context("Second", priority=50)
+        ctx.inject_context("First", priority=10)
+        ctx.input_msgs = []
+
+        Runtime._apply_context_injections(ctx)
+
+        assert len(ctx.input_msgs) == 1
+        blocks = ctx.input_msgs[0].content
+        assert isinstance(blocks, list)
+        text = blocks[0].text
+        assert text.startswith("First")
+        assert "Second" in text
+
+    def test_no_injection_no_msg(self):
+        """Empty context_injections => no message added."""
+        from qwenpaw.runtime.hooks import HookContext
+        from qwenpaw.runtime.runtime import Runtime
+
+        ctx = HookContext(
+            request=MagicMock(),
+            session_id="s1",
+            agent_id="a1",
+            root_session_id="s1",
+            root_agent_id="a1",
+            workspace_dir=None,
+            workspace=MagicMock(),
+            app_services=MagicMock(),
+        )
+        ctx.input_msgs = []
+        Runtime._apply_context_injections(ctx)
+        assert len(ctx.input_msgs) == 0
+
+
+# ── 改动7C: HITL triggering ──
+
+
+class TestDoomLoopAlert:
+    """改动7C: DoomLoopAlert data structure."""
+
+    def test_alert_to_dict(self):
+        """DoomLoopAlert serializes correctly."""
+        from qwenpaw.loop.doom_loop import DoomLoopAlert
+
+        alert = DoomLoopAlert(
+            session_id="s1",
+            loop_name="ralph",
+            signal="escalate_hitl",
+            message="Repetitive behavior detected",
+            escalation_count=2,
+        )
+        d = alert.to_dict()
+        assert d["type"] == "doom_loop_alert"
+        assert d["session_id"] == "s1"
+        assert d["loop_name"] == "ralph"
+        assert d["escalation_count"] == 2
+
+
+class TestHitlPauseHook:
+    """改动7C: HitlPauseHook blocks when paused."""
+
+    @pytest.mark.asyncio
+    async def test_not_paused_continues(self):
+        """When not paused, hook returns CONTINUE."""
+        from qwenpaw.loop.hitl_hook import HitlPauseHook
+        from qwenpaw.runtime.hooks import HookAction, HookContext
+
+        ctx = HookContext(
+            request=MagicMock(),
+            session_id="s1",
+            agent_id="a1",
+            root_session_id="s1",
+            root_agent_id="a1",
+            workspace_dir=None,
+            workspace=MagicMock(),
+            app_services=MagicMock(),
+        )
+        hook = HitlPauseHook()
+        result = await hook.run(ctx)
+        assert result.action == HookAction.CONTINUE
+
+    @pytest.mark.asyncio
+    async def test_paused_short_circuits(self):
+        """When paused, hook returns SHORT_CIRCUIT."""
+        from qwenpaw.loop.hitl_hook import (
+            HitlPauseHook,
+            get_doom_loop_state,
+        )
+        from qwenpaw.runtime.hooks import HookAction, HookContext
+
+        ctx = HookContext(
+            request=MagicMock(),
+            session_id="s1",
+            agent_id="a1",
+            root_session_id="s1",
+            root_agent_id="a1",
+            workspace_dir=None,
+            workspace=MagicMock(),
+            app_services=MagicMock(),
+        )
+        state = get_doom_loop_state(ctx)
+        state.paused = True
+        state.escalation_count = 3
+
+        hook = HitlPauseHook()
+        result = await hook.run(ctx)
+        assert result.action == HookAction.SHORT_CIRCUIT
+        assert result.payload is not None
+        alert = ctx.extras.get("_doom_loop_alert")
+        assert alert is not None
+        assert alert["escalation_count"] == 3
+        assert not state.paused
+
+
+class TestObserverBroadcast:
+    """改动7C: ToolCoordinator._broadcast_observers."""
+
+    def test_broadcast_calls_observers(self):
+        """_broadcast_observers calls all registered observers."""
+        from qwenpaw.tool_calls._coordinator import (
+            ToolCoordinator,
+        )
+
+        coordinator = ToolCoordinator.__new__(ToolCoordinator)
+        coordinator._observers = []
+
+        called = []
+
+        async def mock_observer(name, args, result, history):
+            called.append(name)
+            return "ok"
+
+        @dataclass
+        class FakeReg:
+            plugin_id: str = "test"
+            observer: Any = None
+            name: str = "test_obs"
+
+        reg = FakeReg(observer=mock_observer)
+        coordinator._observers = [reg]
+
+        entry = MagicMock()
+        entry.ctx.tool_name = "read_file"
+        entry.ctx.tool_input = {"path": "/a/b"}
+        entry.final_response = MagicMock()
+
+        coordinator._broadcast_observers(entry)
+
+    def test_no_observers_no_error(self):
+        """No observers registered => no error."""
+        from qwenpaw.tool_calls._coordinator import (
+            ToolCoordinator,
+        )
+
+        coordinator = ToolCoordinator.__new__(ToolCoordinator)
+        entry = MagicMock()
+        entry.ctx.tool_name = "read_file"
+        entry.ctx.tool_input = {}
+        entry.final_response = MagicMock()
+        coordinator._broadcast_observers(entry)
