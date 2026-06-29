@@ -19,6 +19,8 @@ import { extractTurnUsageFromOutputMessages } from "../turnUsage";
 const DEFAULT_USER_ID = "default";
 const DEFAULT_CHANNEL = "console";
 const DEFAULT_SESSION_NAME = "New Chat";
+const REAL_ID_RESOLVE_RETRY_COUNT = 12;
+const REAL_ID_RESOLVE_RETRY_DELAY_MS = 500;
 const ROLE_TOOL = "tool";
 const ROLE_USER = "user";
 const ROLE_ASSISTANT = "assistant";
@@ -414,6 +416,7 @@ function clearPendingUserMessage(sessionId: string): void {
 
 class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
   private sessionList: IAgentScopeRuntimeWebUISession[] = [];
+  private realIdResolutionTasks: Set<string> = new Set();
 
   /** Previous returned list reference for shallow-compare optimisation. */
   private _prevReturnedList: IAgentScopeRuntimeWebUISession[] | null = null;
@@ -1137,6 +1140,42 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     }
   }
 
+  private scheduleResolveAndNotify(tempId: string): Promise<void> | null {
+    if (!tempId || this.realIdResolutionTasks.has(tempId)) {
+      return this.resolvePromise;
+    }
+
+    this.realIdResolutionTasks.add(tempId);
+    let promise: Promise<void> | null = null;
+    promise = (async () => {
+      try {
+        for (
+          let attempt = 0;
+          attempt < REAL_ID_RESOLVE_RETRY_COUNT;
+          attempt++
+        ) {
+          // Force a fresh listChats request on every attempt: a response from
+          // before POST completion cannot contain the newly-created backend id.
+          this.sessionListRequest = null;
+          await this.getSessionList();
+          this.resolveAndNotify(tempId);
+          if (this.getRealIdForSession(tempId)) return;
+
+          await new Promise((resolve) =>
+            setTimeout(resolve, REAL_ID_RESOLVE_RETRY_DELAY_MS),
+          );
+        }
+      } finally {
+        this.realIdResolutionTasks.delete(tempId);
+        if (promise && this.resolvePromise === promise) {
+          this.resolvePromise = null;
+        }
+      }
+    })();
+
+    return promise;
+  }
+
   /**
    * Trigger ID resolution for a local timestamp session.
    * Called by customFetch after POST succeeds (the backend has created the
@@ -1146,18 +1185,8 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     if (!isLocalTimestamp(tempId)) return;
     const existing = this.findSession(tempId);
     if (!existing || existing.realId) return; // already resolved
-    // Force a fresh listChats request: if a stale in-flight getSessionList
-    // (started before the POST) is still pending, its response won't contain
-    // the new backend session yet. Sharing that stale promise would cause
-    // resolveRealId to silently fail and onSessionIdResolved never fires,
-    // leaving the URL at /chat instead of /chat/<uuid>.
-    this.sessionListRequest = null;
-    const promise = this.getSessionList()
-      .then(() => this.resolveAndNotify(tempId))
-      .finally(() => {
-        if (this.resolvePromise === promise) this.resolvePromise = null;
-      });
-    this.resolvePromise = promise;
+    const promise = this.scheduleResolveAndNotify(tempId);
+    if (promise) this.resolvePromise = promise;
   }
 
   async updateSession(session: Partial<IAgentScopeRuntimeWebUISession>) {

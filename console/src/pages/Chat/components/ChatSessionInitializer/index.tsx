@@ -128,6 +128,14 @@ const ChatSessionInitializer: React.FC = () => {
     } else if (matching) {
       // Already in sync, just record that we've handled this chatId
       lastAppliedChatIdRef.current = chatId;
+    } else if (currentSessionIdRef.current !== chatId) {
+      // A just-created chat can be addressable by URL before listChats has
+      // caught up. Load the URL id directly instead of leaving the page in the
+      // default New Chat state.
+      lastAppliedChatIdRef.current = chatId;
+      setCurrentSessionId(chatId);
+    } else {
+      lastAppliedChatIdRef.current = chatId;
     }
     // Intentionally exclude currentSessionId from deps: only react to URL / session list changes.
     // currentSessionId is read via ref to avoid circular triggers.
