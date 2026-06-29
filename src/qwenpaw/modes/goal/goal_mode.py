@@ -217,10 +217,15 @@ class GoalMode(AgentMode):
 
     async def _activate_handler(
         self,
-        ctx: Any,  # pylint: disable=unused-argument
+        ctx: Any,
         args: str,
     ) -> Optional[Msg]:
-        """Handle /goal <task description>."""
+        """Handle /goal <task description>.
+
+        Returns None so the Runtime does NOT skip the agent.
+        Instead we rewrite the user message in ctx.input_msgs
+        to the bare goal text, letting the agent process it.
+        """
         if not args or not args.strip():
             return Msg(
                 name="system",
@@ -237,25 +242,18 @@ class GoalMode(AgentMode):
                 role="system",
             )
 
+        goal_text = args.strip()
         session_key = self._current_session_key(ctx)
-        session = GoalSession(goal=args.strip())
+        session = GoalSession(goal=goal_text)
         self._sessions[session_key] = session
 
         logger.info(
             "Goal mode activated: %s",
-            args.strip()[:80],
+            goal_text[:80],
         )
-        text = (
-            f"Goal mode activated.\n"
-            f"Goal: {args.strip()}\n"
-            f"Budget: {session.max_iterations} "
-            f"iterations, {session.max_tokens} tokens"
-        )
-        return Msg(
-            name="system",
-            content=[TextBlock(type="text", text=text)],
-            role="system",
-        )
+
+        _rewrite_user_msg(ctx, goal_text)
+        return None
 
     async def _cancel_handler(
         self,
@@ -484,6 +482,22 @@ class GoalMode(AgentMode):
     ) -> dict[str, GoalSession]:
         """Return all active sessions."""
         return {k: v for k, v in self._sessions.items() if v.active}
+
+
+def _rewrite_user_msg(ctx: Any, text: str) -> None:
+    """Replace last user message content with *text*.
+
+    When _activate_handler returns None the Runtime proceeds
+    to the agent.  We swap the ``/goal …`` text so the agent
+    sees the bare goal instead of the raw slash command.
+    """
+    msgs = getattr(ctx, "input_msgs", None)
+    if not msgs:
+        return
+    last = msgs[-1]
+    if not isinstance(last, Msg):
+        return
+    last.content = [TextBlock(type="text", text=text)]
 
 
 def _update_goal_tokens(
