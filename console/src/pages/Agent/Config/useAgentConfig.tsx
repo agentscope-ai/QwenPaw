@@ -2,7 +2,10 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { Form, Modal } from "@agentscope-ai/design";
 import { useTranslation } from "react-i18next";
 import api from "../../../api";
-import type { AgentsRunningConfig } from "../../../api/types";
+import type {
+  AgentsLLMRoutingConfig,
+  AgentsRunningConfig,
+} from "../../../api/types";
 import { useAppMessage } from "../../../hooks/useAppMessage";
 import { useAgentStore } from "../../../stores/agentStore";
 import {
@@ -11,6 +14,9 @@ import {
   MEMORY_MANAGER_BACKEND_OPTIONS,
 } from "../../../constants/backendMappings";
 import type { ToolExecutionLevel } from "./components/ToolExecutionLevelCard";
+
+const isPlainObject = (value: unknown): value is Record<string, unknown> =>
+  value != null && typeof value === "object" && !Array.isArray(value);
 
 export function useAgentConfig() {
   const { t } = useTranslation();
@@ -27,13 +33,15 @@ export function useAgentConfig() {
   const [approvalLevel, setApprovalLevel] =
     useState<ToolExecutionLevel>("AUTO");
   const originalConfigRef = useRef<AgentsRunningConfig | null>(null);
+  const originalLlmRoutingRef = useRef<AgentsLLMRoutingConfig | null>(null);
 
   const fetchConfig = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const [config, langResp, tzResp] = await Promise.all([
+      const [config, routingConfig, langResp, tzResp] = await Promise.all([
         api.getAgentRunningConfig(),
+        api.getAgentLlmRouting(selectedAgent),
         api.getAgentLanguage(),
         api.getUserTimezone(),
       ]);
@@ -82,10 +90,13 @@ export function useAgentConfig() {
           enabled: true,
           timeout_seconds: 30.0,
         },
+        llm_fallback_enabled: routingConfig.fallback?.enabled ?? false,
+        llm_fallback_models: routingConfig.fallback?.models ?? [],
       });
 
       // Store original config for complete save
       originalConfigRef.current = config;
+      originalLlmRoutingRef.current = routingConfig;
 
       setLanguage(langResp.language);
       setTimezone(tzResp.timezone || "UTC");
@@ -112,38 +123,42 @@ export function useAgentConfig() {
       // would overwrite the entire nested object with only the rendered
       // fields, dropping anything inside a collapsed panel.
       const original = originalConfigRef.current!;
-      const formValues = values as AgentsRunningConfig;
+      const originalRouting = originalLlmRoutingRef.current!;
+      const formValues = values as AgentsRunningConfig & {
+        llm_fallback_enabled?: boolean;
+        llm_fallback_models?: AgentsLLMRoutingConfig["fallback"]["models"];
+      };
 
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const deepMergeConfig = <T,>(
         base: T | undefined | null,
         override: T | undefined | null,
       ): T | undefined => {
         if (!base) return override ?? undefined;
         if (!override) return base;
-        const result = { ...(base as any) };
-        for (const key of Object.keys(override as any)) {
-          const overrideVal = (override as any)[key];
-          const baseVal = (base as any)[key];
-          if (
-            overrideVal != null &&
-            typeof overrideVal === "object" &&
-            !Array.isArray(overrideVal) &&
-            baseVal != null &&
-            typeof baseVal === "object" &&
-            !Array.isArray(baseVal)
-          ) {
+        const baseRecord = base as unknown as Record<string, unknown>;
+        const overrideRecord = override as unknown as Record<string, unknown>;
+        const result = { ...baseRecord };
+        for (const key of Object.keys(overrideRecord)) {
+          const overrideVal = overrideRecord[key];
+          const baseVal = baseRecord[key];
+          if (isPlainObject(overrideVal) && isPlainObject(baseVal)) {
             result[key] = deepMergeConfig(baseVal, overrideVal);
           } else {
             result[key] = overrideVal;
           }
         }
-        return result as T;
+        return result as unknown as T;
       };
+
+      const {
+        llm_fallback_enabled: llmFallbackEnabled,
+        llm_fallback_models: llmFallbackModels,
+        ...runningFormValues
+      } = formValues;
 
       const configToSave: AgentsRunningConfig = {
         ...original,
-        ...formValues,
+        ...runningFormValues,
         // Deep-merge nested config sections to preserve collapsed fields
         reme_light_memory_config: deepMergeConfig(
           original.reme_light_memory_config,
@@ -164,10 +179,25 @@ export function useAgentConfig() {
         approval_level: approvalLevel,
       };
 
-      await api.updateAgentRunningConfig(configToSave);
+      const routingToSave: AgentsLLMRoutingConfig = {
+        ...originalRouting,
+        fallback: {
+          ...(originalRouting.fallback ?? { enabled: false, models: [] }),
+          enabled: Boolean(llmFallbackEnabled),
+          models: (llmFallbackModels ?? []).filter(
+            (slot) => slot.provider_id && slot.model,
+          ),
+        },
+      };
+
+      await Promise.all([
+        api.updateAgentRunningConfig(configToSave),
+        api.updateAgentLlmRouting(routingToSave, selectedAgent),
+      ]);
 
       // Update original config after successful save
       originalConfigRef.current = configToSave;
+      originalLlmRoutingRef.current = routingToSave;
       message.success(t("agentConfig.saveSuccess"));
     } catch (err) {
       if (err instanceof Error && "errorFields" in err) return;
@@ -177,7 +207,7 @@ export function useAgentConfig() {
     } finally {
       setSaving(false);
     }
-  }, [form, t, selectedAgent, approvalLevel]);
+  }, [form, t, selectedAgent, approvalLevel, message]);
 
   const handleLanguageChange = useCallback(
     (value: string): void => {
@@ -217,7 +247,7 @@ export function useAgentConfig() {
         },
       });
     },
-    [language, t],
+    [language, t, message],
   );
 
   const handleTimezoneChange = useCallback(
@@ -238,7 +268,7 @@ export function useAgentConfig() {
         setSavingTimezone(false);
       }
     },
-    [timezone, t],
+    [timezone, t, message],
   );
 
   return {

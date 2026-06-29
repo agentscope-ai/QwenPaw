@@ -7,6 +7,7 @@ import {
   ReactAgentCard,
   LlmRetryCard,
   LlmRateLimiterCard,
+  LlmFallbackCard,
   ToolExecutionLevelCard,
   AgentLoopCard,
 } from "./components";
@@ -126,6 +127,19 @@ function AgentConfigPage() {
         children: (
           <div className={styles.tabContent}>
             <LlmRateLimiterCard />
+          </div>
+        ),
+      },
+      {
+        key: "llmFallback",
+        label: (
+          <span className={styles.tabLabel}>
+            {t("agentConfig.llmFallbackTitle")}
+          </span>
+        ),
+        children: (
+          <div className={styles.tabContent}>
+            <LlmFallbackCard />
           </div>
         ),
       },

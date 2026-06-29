@@ -1,6 +1,9 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { renderHook, act, waitFor } from "@testing-library/react";
-import type { AgentsRunningConfig } from "../../../api/types";
+import type {
+  AgentsLLMRoutingConfig,
+  AgentsRunningConfig,
+} from "../../../api/types";
 
 // vi.hoisted runs before the hoisted vi.mock factories, so the shared mock
 // objects are available inside them.
@@ -17,9 +20,11 @@ const hoisted = vi.hoisted(() => {
   };
   const apiMocks = {
     getAgentRunningConfig: vi.fn(),
+    getAgentLlmRouting: vi.fn(),
     getAgentLanguage: vi.fn(),
     getUserTimezone: vi.fn(),
     updateAgentRunningConfig: vi.fn(),
+    updateAgentLlmRouting: vi.fn(),
     updateAgentLanguage: vi.fn(),
     updateUserTimezone: vi.fn(),
   };
@@ -84,6 +89,19 @@ const {
 
 type Config = AgentsRunningConfig;
 
+function makeRoutingConfig(
+  overrides: Partial<AgentsLLMRoutingConfig> = {},
+): AgentsLLMRoutingConfig {
+  return {
+    enabled: true,
+    mode: "cloud_first",
+    local: { provider_id: "local", model: "local-model" },
+    cloud: { provider_id: "cloud", model: "cloud-model" },
+    fallback: { enabled: false, models: [] },
+    ...overrides,
+  };
+}
+
 function makeConfig(overrides: Partial<Config> = {}): Config {
   return {
     max_iters: 10,
@@ -131,9 +149,11 @@ describe("useAgentConfig", () => {
     mockSetFieldsValue.mockReset();
     mockValidateFields.mockReset();
     apiMocks.getAgentRunningConfig.mockReset();
+    apiMocks.getAgentLlmRouting.mockReset();
     apiMocks.getAgentLanguage.mockReset();
     apiMocks.getUserTimezone.mockReset();
     apiMocks.updateAgentRunningConfig.mockReset();
+    apiMocks.updateAgentLlmRouting.mockReset();
     apiMocks.updateAgentLanguage.mockReset();
     apiMocks.updateUserTimezone.mockReset();
     messageMock.success.mockReset();
@@ -141,9 +161,11 @@ describe("useAgentConfig", () => {
     modalConfirmMock.mockReset();
 
     apiMocks.getAgentRunningConfig.mockResolvedValue(makeConfig());
+    apiMocks.getAgentLlmRouting.mockResolvedValue(makeRoutingConfig());
     apiMocks.getAgentLanguage.mockResolvedValue({ language: "en" });
     apiMocks.getUserTimezone.mockResolvedValue({ timezone: "UTC" });
     mockValidateFields.mockResolvedValue(makeConfig());
+    apiMocks.updateAgentLlmRouting.mockResolvedValue(makeRoutingConfig());
   });
 
   it("initial loading=true, then loading=false after fetchConfig", async () => {

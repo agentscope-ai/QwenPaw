@@ -1,3 +1,5 @@
+import type { ModelSlotConfig } from "./provider";
+
 export interface AgentRequest {
   input: unknown;
   session_id?: string | null;
@@ -64,6 +66,19 @@ export interface ReMeLightMemoryConfig {
 export interface AutoTitleConfig {
   enabled: boolean;
   timeout_seconds: number;
+}
+
+export interface AgentsLLMFallbackConfig {
+  enabled: boolean;
+  models: ModelSlotConfig[];
+}
+
+export interface AgentsLLMRoutingConfig {
+  enabled: boolean;
+  mode: "local_first" | "cloud_first";
+  local: ModelSlotConfig;
+  cloud?: ModelSlotConfig | null;
+  fallback: AgentsLLMFallbackConfig;
 }
 
 export interface ADBPGMemoryConfig {

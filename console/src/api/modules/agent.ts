@@ -1,7 +1,11 @@
 import { request } from "../request";
 import { getApiUrl } from "../config";
 import { buildAuthHeaders } from "../authHeaders";
-import type { AgentRequest, AgentsRunningConfig } from "../types";
+import type {
+  AgentRequest,
+  AgentsLLMRoutingConfig,
+  AgentsRunningConfig,
+} from "../types";
 
 export type TranscriptionErrorCode =
   | "TRANSCRIPTION_DISABLED"
@@ -48,6 +52,32 @@ export const agentApi = {
 
   updateAgentRunningConfig: (config: AgentsRunningConfig) =>
     request<AgentsRunningConfig>("/workspace/running-config", {
+      method: "PUT",
+      body: JSON.stringify(config),
+    }),
+
+  getAgentLlmRouting: (agentId = "default") =>
+    request<AgentsLLMRoutingConfig>(
+      `/agents/${encodeURIComponent(agentId)}/config/agents/llm-routing`,
+    ),
+
+  updateAgentLlmRouting: (
+    config: AgentsLLMRoutingConfig,
+    agentId = "default",
+  ) =>
+    request<AgentsLLMRoutingConfig>(
+      `/agents/${encodeURIComponent(agentId)}/config/agents/llm-routing`,
+      {
+        method: "PUT",
+        body: JSON.stringify(config),
+      },
+    ),
+
+  getGlobalAgentLlmRouting: () =>
+    request<AgentsLLMRoutingConfig>("/global-config/agents/llm-routing"),
+
+  updateGlobalAgentLlmRouting: (config: AgentsLLMRoutingConfig) =>
+    request<AgentsLLMRoutingConfig>("/global-config/agents/llm-routing", {
       method: "PUT",
       body: JSON.stringify(config),
     }),

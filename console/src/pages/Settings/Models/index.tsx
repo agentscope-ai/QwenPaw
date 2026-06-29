@@ -6,7 +6,7 @@ import {
   useState,
 } from "react";
 import { useSearchParams } from "react-router-dom";
-import { Button, Input, Modal } from "@agentscope-ai/design";
+import { Button, Form, Input, Modal } from "@agentscope-ai/design";
 import { PlusOutlined, SearchOutlined, SyncOutlined } from "@ant-design/icons";
 import { useProviders } from "./useProviders";
 import {
@@ -20,13 +20,18 @@ import {
 } from "./components";
 import { PageHeader } from "@/components/PageHeader";
 import { useTranslation } from "react-i18next";
+import { useAppMessage } from "@/hooks/useAppMessage";
+import api from "@/api";
 import type { ProviderInfo } from "../../../api/types/provider";
+import type { AgentsLLMRoutingConfig } from "../../../api/types";
+import { mergeFallbackRoutingConfig } from "./fallbackRouting";
 import {
   countConfiguredProviders,
   getIsConfigured,
   groupProviders,
 } from "./utils";
 import { ProviderIcon } from "./components/ProviderIconComponent";
+import { LlmFallbackCard } from "../../Agent/Config/components/LlmFallbackCard";
 import styles from "./index.module.less";
 
 /* ------------------------------------------------------------------ */
@@ -35,10 +40,15 @@ import styles from "./index.module.less";
 
 function ModelsPage() {
   const { t } = useTranslation();
+  const { message } = useAppMessage();
   const [searchParams, setSearchParams] = useSearchParams();
   const { providers, activeModels, loading, error, fetchAll } = useProviders();
   const [addProviderOpen, setAddProviderOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const [fallbackForm] = Form.useForm();
+  const [fallbackSaving, setFallbackSaving] = useState(false);
+  const [globalRoutingConfig, setGlobalRoutingConfig] =
+    useState<AgentsLLMRoutingConfig | null>(null);
 
   // Shared Modal state — only one instance each instead of N per card
   const [configModalProvider, setConfigModalProvider] =
@@ -76,6 +86,44 @@ function ModelsPage() {
     setActiveTab(tab);
     localStorage.setItem("models_tab", tab);
   }, []);
+
+  // Load global fallback config
+  useEffect(() => {
+    api
+      .getGlobalAgentLlmRouting()
+      .then((config) => {
+        setGlobalRoutingConfig(config);
+        fallbackForm.setFieldsValue({
+          llm_fallback_enabled: config.fallback?.enabled ?? false,
+          llm_fallback_models: config.fallback?.models ?? [],
+        });
+      })
+      .catch((err) => {
+        const errMsg = err instanceof Error ? err.message : t("common.error");
+        message.error(errMsg);
+      });
+  }, [fallbackForm, message, t]);
+
+  const handleSaveFallback = useCallback(async () => {
+    const values = await fallbackForm.validateFields();
+    setFallbackSaving(true);
+    try {
+      const baseConfig =
+        globalRoutingConfig ?? (await api.getGlobalAgentLlmRouting());
+      const config = mergeFallbackRoutingConfig(baseConfig, {
+        enabled: values.llm_fallback_enabled,
+        models: values.llm_fallback_models,
+      });
+      await api.updateGlobalAgentLlmRouting(config);
+      setGlobalRoutingConfig(config);
+      message.success(t("common.saved"));
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : t("common.error");
+      message.error(errMsg);
+    } finally {
+      setFallbackSaving(false);
+    }
+  }, [fallbackForm, globalRoutingConfig, message, t]);
 
   // Keep modal provider states in sync with the latest providers data
   useEffect(() => {
@@ -527,6 +575,31 @@ function ModelsPage() {
                   )}
                 </>
               )}
+            </div>
+
+            {/* ---- Global Fallback Section ---- */}
+            <div className={styles.fallbackBlock}>
+              <div className={styles.sectionHeaderRow}>
+                <PageHeader
+                  current={t("models.globalFallbackTitle")}
+                  className={styles.fallbackPageHeader}
+                />
+                <span className={styles.fallbackHint}>
+                  {t("models.globalFallbackHint")}
+                </span>
+              </div>
+              <Form form={fallbackForm} layout="vertical">
+                <LlmFallbackCard />
+              </Form>
+              <div className={styles.fallbackActions}>
+                <Button
+                  type="primary"
+                  loading={fallbackSaving}
+                  onClick={handleSaveFallback}
+                >
+                  {t("common.save")}
+                </Button>
+              </div>
             </div>
 
             <CustomProviderModal

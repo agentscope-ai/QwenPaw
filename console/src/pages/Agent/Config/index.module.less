@@ -142,6 +142,47 @@
   margin-bottom: 0 !important;
 }
 
+.llmFallbackList {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.llmFallbackRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: end;
+}
+
+.llmFallbackField {
+  margin-bottom: 0 !important;
+}
+
+.llmFallbackActions {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 0;
+}
+
+.llmFallbackHint {
+  margin-top: 12px;
+  color: #888;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+@media (max-width: 768px) {
+  .llmFallbackRow {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+
+  .llmFallbackActions {
+    justify-content: flex-end;
+  }
+}
+
 /* Slider overrides - remove theme color */
 :global {
   .ant-slider-rail {
