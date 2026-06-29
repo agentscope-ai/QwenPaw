@@ -302,7 +302,7 @@ MCP（模型上下文协议）允许智能体连接外部服务（如 Filesystem
 | `enabled`        | bool           | `false`  | 是否启用心跳功能                                                             |
 | `every`          | string         | `"30m"`  | 运行间隔。支持 `Nh`、`Nm`、`Ns` 组合，如 `"1h"`、`"30m"`、`"2h30m"`、`"90s"` |
 | `target`         | string         | `"main"` | `"main"` = 只在主会话运行；`"last"` = 把结果发到最后一个发消息的频道/用户    |
-| `timeoutSeconds` | int            | `300`    | 单次心跳执行的最长时间，单位秒                                               |
+| `timeoutSeconds` | int            | `300`    | 单次心跳执行的最长时间，单位秒。有效范围：`1`–`3600`                         |
 | `activeHours`    | object \| null | `null`   | 可选活跃时段（`start`、`end` 时间，24 小时制）                               |
 
 详细说明请看 [心跳](./heartbeat)。

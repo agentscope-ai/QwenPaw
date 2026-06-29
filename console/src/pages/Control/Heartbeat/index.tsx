@@ -22,6 +22,7 @@ import styles from "./index.module.less";
 dayjs.extend(customParseFormat);
 
 const TIME_FORMAT = "HH:mm";
+const HEARTBEAT_MAX_TIMEOUT_SECONDS = 3600;
 
 /** TimePicker that uses "HH:mm" string as value for Form. */
 function TimePickerHHmm({
@@ -226,9 +227,18 @@ function HeartbeatPage() {
                   min: 1,
                   message: t("heartbeat.timeoutMin"),
                 },
+                {
+                  type: "number",
+                  max: HEARTBEAT_MAX_TIMEOUT_SECONDS,
+                  message: t("heartbeat.timeoutMax"),
+                },
               ]}
             >
-              <InputNumber min={1} className={styles.timeoutNumber} />
+              <InputNumber
+                min={1}
+                max={HEARTBEAT_MAX_TIMEOUT_SECONDS}
+                className={styles.timeoutNumber}
+              />
             </Form.Item>
 
             <Form.Item

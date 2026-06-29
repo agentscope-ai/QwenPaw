@@ -614,6 +614,7 @@
     "timeoutSeconds": "Batas waktu eksekusi (detik)",
     "timeoutRequired": "Wajib",
     "timeoutMin": "Minimal 1",
+    "timeoutMax": "Maksimal 3600",
     "unitMinutes": "Menit",
     "unitHours": "Jam",
     "target": "Target balasan",

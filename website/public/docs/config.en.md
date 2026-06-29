@@ -342,7 +342,7 @@ Heartbeat is a scheduled self-check feature that executes tasks from `HEARTBEAT.
 | `enabled`        | bool           | `false`  | Whether to enable heartbeat feature                                                                          |
 | `every`          | string         | `"30m"`  | Run interval. Supports `Nh`, `Nm`, `Ns` combos, e.g. `"1h"`, `"30m"`, `"2h30m"`, `"90s"`                     |
 | `target`         | string         | `"main"` | `"main"` = run in main session only; `"last"` = dispatch result to the last channel/user that sent a message |
-| `timeoutSeconds` | int            | `300`    | Maximum execution time for one heartbeat run, in seconds                                                     |
+| `timeoutSeconds` | int            | `300`    | Maximum execution time for one heartbeat run, in seconds. Valid range: `1`–`3600`                            |
 | `activeHours`    | object \| null | `null`   | Optional time window (if set, heartbeat only runs during this period)                                        |
 
 **`heartbeat.activeHours`** (when not null):

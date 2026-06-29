@@ -554,6 +554,7 @@
     "timeoutSeconds": "Таймаут выполнения (секунды)",
     "timeoutRequired": "Обязательно",
     "timeoutMin": "Должно быть не меньше 1",
+    "timeoutMax": "Должно быть не больше 3600",
     "unitMinutes": "Минуты",
     "unitHours": "Часы",
     "target": "Цель ответа",

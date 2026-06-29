@@ -847,6 +847,7 @@
     "timeoutSeconds": "Execution timeout (seconds)",
     "timeoutRequired": "Required",
     "timeoutMin": "Must be at least 1",
+    "timeoutMax": "Must be at most 3600",
     "unitMinutes": "Minutes",
     "unitHours": "Hours",
     "target": "Reply target",

@@ -686,6 +686,7 @@
     "timeoutSeconds": "执行超时（秒）",
     "timeoutRequired": "请填写执行超时",
     "timeoutMin": "执行超时至少为 1",
+    "timeoutMax": "执行超时最多为 3600",
     "unitMinutes": "分钟",
     "unitHours": "小时",
     "target": "回复目标",

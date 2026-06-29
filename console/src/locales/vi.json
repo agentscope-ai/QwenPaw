@@ -361,6 +361,7 @@
     "timeoutSeconds": "Thời gian chờ thực thi (giây)",
     "timeoutRequired": "Bắt buộc",
     "timeoutMin": "Phải ít nhất 1",
+    "timeoutMax": "Tối đa 3600",
     "unitMinutes": "Phút",
     "unitHours": "Giờ",
     "target": "Nơi gửi phản hồi",

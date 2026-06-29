@@ -757,6 +757,7 @@
     "timeoutSeconds": "Tempo limite de execução (segundos)",
     "timeoutRequired": "Obrigatório",
     "timeoutMin": "Deve ser no mínimo 1",
+    "timeoutMax": "Deve ser no máximo 3600",
     "unitMinutes": "Minutos",
     "unitHours": "Horas",
     "target": "Destino da resposta",

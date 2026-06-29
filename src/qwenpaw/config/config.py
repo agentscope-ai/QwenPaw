@@ -24,6 +24,7 @@ from ..constant import (
     HEARTBEAT_DEFAULT_EVERY,
     HEARTBEAT_DEFAULT_TARGET,
     HEARTBEAT_DEFAULT_TIMEOUT_SECONDS,
+    HEARTBEAT_MAX_TIMEOUT_SECONDS,
     LLM_ACQUIRE_TIMEOUT,
     LLM_BACKOFF_BASE,
     LLM_BACKOFF_CAP,
@@ -523,6 +524,7 @@ class HeartbeatConfig(BaseModel):
     timeout_seconds: int = Field(
         default=HEARTBEAT_DEFAULT_TIMEOUT_SECONDS,
         ge=1,
+        le=HEARTBEAT_MAX_TIMEOUT_SECONDS,
         alias="timeoutSeconds",
         description="Maximum seconds for one heartbeat execution",
     )
