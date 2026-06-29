@@ -32,6 +32,7 @@ router = APIRouter(prefix="/console", tags=["console"])
 
 _CHAT_TASKS: dict[str, dict] = {}
 _CHAT_RUNTIME_TASKS: dict[str, asyncio.Task] = {}
+_MAX_FINISHED_CHAT_TASKS = 100
 
 
 class MarkInboxReadRequest(BaseModel):
@@ -57,6 +58,36 @@ def _parse_sse_payload(event_data: str) -> dict | None:
         if isinstance(parsed, dict):
             return parsed
     return None
+
+
+def _public_chat_task_record(record: dict) -> dict:
+    return {
+        key: value
+        for key, value in record.items()
+        if key != "agent_id"
+    }
+
+
+def _prune_finished_chat_tasks() -> None:
+    finished_task_ids = [
+        task_id
+        for task_id, record in _CHAT_TASKS.items()
+        if record.get("status") == "finished"
+    ]
+    overflow = len(finished_task_ids) - _MAX_FINISHED_CHAT_TASKS
+    if overflow <= 0:
+        return
+
+    finished_task_ids.sort(
+        key=lambda task_id: (
+            _CHAT_TASKS[task_id].get("finished_at")
+            or _CHAT_TASKS[task_id].get("submitted_at")
+            or ""
+        ),
+    )
+    for task_id in finished_task_ids[:overflow]:
+        if task_id not in _CHAT_RUNTIME_TASKS:
+            _CHAT_TASKS.pop(task_id, None)
 
 
 async def _run_console_chat_task(
@@ -118,6 +149,7 @@ async def _run_console_chat_task(
         record["finished_at"] = _now_iso()
         record["result"] = result
         _CHAT_RUNTIME_TASKS.pop(task_id, None)
+        _prune_finished_chat_tasks()
         await workspace.task_tracker.unregister_external_task(run_key)
 
 
@@ -402,11 +434,10 @@ async def get_console_chat_task_status(
     record = _CHAT_TASKS.get(task_id)
     if record is None or record.get("agent_id") != workspace.agent_id:
         raise HTTPException(status_code=404, detail="Task not found")
-    return {
-        key: value
-        for key, value in record.items()
-        if key != "agent_id"
-    }
+    response = _public_chat_task_record(record)
+    if record.get("status") == "finished":
+        _CHAT_TASKS.pop(task_id, None)
+    return response
 
 
 @router.post(
