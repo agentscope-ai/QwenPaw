@@ -488,6 +488,9 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
                 provider_manager=provider_manager,
             )
             plugin_loader.registry.set_runtime_helpers(runtime_helpers)
+            plugin_loader.registry.set_workspace_manager(
+                workspace_registry,
+            )
 
             for (
                 provider_id,

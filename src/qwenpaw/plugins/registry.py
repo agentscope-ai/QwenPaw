@@ -139,6 +139,7 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
         self._http_prefix_to_plugin: Dict[str, str] = {}
         self._prompt_sections: List[PromptSectionRegistration] = []
         self._prompt_section_names: set = set()
+        self._workspace_manager: Optional[Any] = None
 
         self._initialized = True
 
@@ -336,6 +337,25 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
             RuntimeHelpers instance or None
         """
         return self._runtime_helpers
+
+    def set_workspace_manager(self, manager) -> None:
+        """Set the workspace manager reference.
+
+        Called once during app lifespan startup so plugins can
+        access workspace instances for registration.
+
+        Args:
+            manager: MultiAgentManager / WorkspaceRegistry instance
+        """
+        self._workspace_manager = manager
+
+    def get_workspace_manager(self):
+        """Get the workspace manager.
+
+        Returns:
+            MultiAgentManager instance or None
+        """
+        return self._workspace_manager
 
     def register_startup_hook(
         self,
