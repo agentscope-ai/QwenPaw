@@ -261,7 +261,7 @@ const ChatSearchPanel: React.FC<ChatSearchPanelProps> = ({ open, onClose }) => {
       onClose={onClose}
       destroyOnHidden
       placement="right"
-      width={360}
+      width="calc(100vw - 56px)"
       closable={false}
       title={null}
       styles={{

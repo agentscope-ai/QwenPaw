@@ -1,4 +1,4 @@
-import { memo, useCallback, useState } from "react";
+import { memo, useCallback, useEffect, useState } from "react";
 import { Button, Card, Tooltip } from "@agentscope-ai/design";
 import { useTranslation } from "react-i18next";
 import type { MarketResult } from "../../../../api/modules/market";
@@ -15,6 +15,21 @@ interface ResultCardProps {
   onOpenDetail: () => void;
 }
 
+const useIsMobile = () => {
+  const [isMobile, setIsMobile] = useState(
+    typeof window !== "undefined" ? window.innerWidth <= 768 : false,
+  );
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const handleResize = () => setIsMobile(window.innerWidth <= 768);
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
+
+  return isMobile;
+};
+
 const CURSOR_STYLE = { cursor: "pointer" } as const;
 
 export const ResultCard = memo(function ResultCard({
@@ -26,6 +41,7 @@ export const ResultCard = memo(function ResultCard({
 }: ResultCardProps) {
   const { t } = useTranslation();
   const [hover, setHover] = useState(false);
+  const isMobile = useIsMobile();
 
   const showFooter = useCallback(() => setHover(true), []);
   const hideFooter = useCallback(() => setHover(false), []);
@@ -58,7 +74,7 @@ export const ResultCard = memo(function ResultCard({
         {item.description || t("market.noDescription")}
       </p>
 
-      {hover && (
+      {(hover || isMobile) && (
         <div
           className={styles.cardFooter}
           onClick={stopPropagation}

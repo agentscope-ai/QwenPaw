@@ -151,6 +151,7 @@ class DingTalkChannel(BaseChannel):
         streaming_enabled: bool = False,
         access_control_dm: bool = False,
         access_control_group: bool = False,
+        endpoint: str = "",
     ):
         # Streaming only makes sense for card mode (AI Card streaming updates).
         # For markdown mode, force streaming_enabled=False so base class
@@ -194,6 +195,7 @@ class DingTalkChannel(BaseChannel):
         self.robot_code = robot_code or self.client_id
         self.card_auto_layout = card_auto_layout
         self.at_sender_on_reply = at_sender_on_reply
+        self.endpoint = (endpoint or "").strip().rstrip("/")
         self._workspace_dir = (
             Path(workspace_dir).expanduser() if workspace_dir else None
         )
@@ -291,6 +293,7 @@ class DingTalkChannel(BaseChannel):
                 "0",
             )
             == "1",
+            endpoint=os.getenv("DINGTALK_ENDPOINT", ""),
         )
 
     @classmethod
@@ -347,6 +350,7 @@ class DingTalkChannel(BaseChannel):
             access_control_group=bool(
                 getattr(config, "access_control_group", False),
             ),
+            endpoint=getattr(config, "endpoint", ""),
         )
 
     # ---------------------------
@@ -1296,8 +1300,9 @@ class DingTalkChannel(BaseChannel):
         # Use oapi media upload (api.dingtalk.com upload returns 404).
         # Doc:
         # https://open.dingtalk.com/document/development/upload-media-files
+        oapi_base = self.endpoint or "https://oapi.dingtalk.com"
         url = (
-            "https://oapi.dingtalk.com/media/upload"
+            f"{oapi_base}/media/upload"
             f"?access_token={token}&type={media_type}"
         )
         ext = "jpg" if media_type == "image" else "bin"
@@ -2617,6 +2622,34 @@ class DingTalkChannel(BaseChannel):
             "detail": "DingTalk stream client and HTTP session are active.",
         }
 
+    def _apply_custom_endpoint(self) -> None:
+        """Monkey-patch dingtalk_stream SDK modules to use a custom endpoint.
+
+        The SDK reads DINGTALK_OPENAPI_ENDPOINT at import time via
+        ``os.getenv`` and caches the value as module-level constants.
+        Each sub-module copies the value independently, so all must be
+        patched. This must be called before creating DingTalkStreamClient.
+        """
+        if not self.endpoint:
+            return
+
+        import dingtalk_stream.utils as _ds_utils
+        import dingtalk_stream.stream as _ds_stream
+        import dingtalk_stream.chatbot as _ds_chatbot
+        import dingtalk_stream.card_replier as _ds_card_replier
+
+        _ds_utils.DINGTALK_OPENAPI_ENDPOINT = self.endpoint
+        _ds_stream.DINGTALK_OPENAPI_ENDPOINT = self.endpoint
+        _ds_chatbot.DINGTALK_OPENAPI_ENDPOINT = self.endpoint
+        _ds_card_replier.DINGTALK_OPENAPI_ENDPOINT = self.endpoint
+        _ds_stream.DingTalkStreamClient.OPEN_CONNECTION_API = (
+            f"{self.endpoint}/v1.0/gateway/connections/open"
+        )
+        logger.info(
+            "dingtalk: custom endpoint applied: %s",
+            self.endpoint,
+        )
+
     async def start(self) -> None:
         if not self.enabled:
             logger.debug("disabled by env DINGTALK_CHANNEL_ENABLED=0")
@@ -2632,6 +2665,8 @@ class DingTalkChannel(BaseChannel):
             )
 
         self._loop = asyncio.get_running_loop()
+
+        self._apply_custom_endpoint()
 
         credential = dingtalk_stream.Credential(
             self.client_id,
@@ -2667,6 +2702,8 @@ class DingTalkChannel(BaseChannel):
         sdk_config = open_api_models.Config()
         sdk_config.protocol = "https"
         sdk_config.region_id = "central"
+        if self.endpoint:
+            sdk_config.endpoint = self.endpoint
         self._oauth_sdk = dingtalk_oauth_client.Client(sdk_config)
         self._robot_sdk = dingtalk_robot_client.Client(sdk_config)
         self._card_sdk = dingtalk_card_client.Client(sdk_config)

@@ -24,6 +24,17 @@ on:
     # Off-the-hour to avoid the global GitHub Actions cron rush at :00 / :30.
     - cron: '17 18 * * *'
   workflow_dispatch:
+    inputs:
+      coverage_platforms:
+        description: 'Which platforms collect integration coverage (schedule always uses all)'
+        required: false
+        default: 'linux'
+        type: choice
+        options:
+          - 'linux'
+          - 'macos'
+          - 'windows'
+          - 'all'
 
 jobs:
   unit-tests:
@@ -74,7 +85,7 @@ jobs:
         shell: bash
         run: |
           python -m pip install --upgrade pip
-          pip install -e ".[dev,full]"
+          pip install -e ".[dev,test,full]"
 
       - name: Run unit tests
         shell: bash
@@ -155,7 +166,7 @@ jobs:
         shell: bash
         run: |
           python -m pip install --upgrade pip
-          pip install -e ".[dev,full]"
+          pip install -e ".[dev,test,full]"
 
       - name: Run contract tests
         shell: bash
@@ -234,23 +245,49 @@ jobs:
         shell: bash
         run: |
           python -m pip install --upgrade pip
-          pip install -e ".[dev,full]"
+          pip install -e ".[dev,test,full]"
+
+      - name: Determine coverage flag
+        id: cov_flag
+        shell: bash
+        run: |
+          # schedule    -> all platforms collect coverage (py3.11 only)
+          # workflow_dispatch -> use inputs.coverage_platforms (default linux)
+          # Only py3.11 entries collect coverage — py3.13 has excessive
+          # trace overhead that starves ACP stdio I/O on 2-core runners.
+          if [ "${{ matrix.python-version }}" != "3.11" ]; then
+            echo "enabled=" >> "$GITHUB_OUTPUT"
+            echo "Skipping coverage: py${{ matrix.python-version }}"
+            exit 0
+          fi
+          if [ "${{ github.event_name }}" = "schedule" ]; then
+            PLATFORMS="all"
+          else
+            PLATFORMS="${{ inputs.coverage_platforms }}"
+          fi
+          OS="${{ matrix.os }}"
+          ENABLED=""
+          case "$PLATFORMS" in
+            all)     ENABLED="1" ;;
+            linux)   [ "$OS" = "ubuntu-latest"  ] && ENABLED="1" ;;
+            macos)   [ "$OS" = "macos-latest"   ] && ENABLED="1" ;;
+            windows) [ "$OS" = "windows-latest" ] && ENABLED="1" ;;
+          esac
+          echo "enabled=$ENABLED" >> "$GITHUB_OUTPUT"
+          echo "coverage platforms=$PLATFORMS, this os=$OS, enabled=${ENABLED:-no}"
 
       - name: Run integration suite (full sweep)
         shell: bash
         env:
-          # Subprocess coverage on the ubuntu/py3.13 entry only. conftest.py
-          # treats empty / missing as off, so the other matrix entries do
-          # not pay the tracer overhead.
-          QWENPAW_INTEGRATION_COVERAGE: ${{ (matrix.os == 'ubuntu-latest' && matrix.python-version == '3.13') && '1' || '' }}
+          QWENPAW_INTEGRATION_COVERAGE: ${{ steps.cov_flag.outputs.enabled }}
         run: |
           # Nightly always runs the full -m integration sweep (p0 + p1 +
           # p2), unlike tests.yml which gates by GITHUB_EVENT_NAME.
-          if [ "${{ matrix.os }}" = "ubuntu-latest" ] && \
-             [ "${{ matrix.python-version }}" = "3.13" ]; then
+          if [ -n "$QWENPAW_INTEGRATION_COVERAGE" ]; then
             # Subprocess coverage entry. Parent process must not carry
             # --cov, hence --no-cov here.
-            pytest tests/integration -v --no-cov -m integration
+            pytest tests/integration -v --no-cov \
+              -n auto --dist=loadscope -m integration
             cp .integration_coverage/integration_subproc \
               .coverage.integration
             # `coverage xml` honours fail_under and exits 2 when below;
@@ -258,20 +295,18 @@ jobs:
             coverage xml --data-file=.coverage.integration \
               -o coverage.integration.xml || [ "$?" -eq 2 ]
           else
-            pytest tests/integration -v -m integration
+            pytest tests/integration -v \
+              -n auto --dist=loadscope -m integration
           fi
 
       - name: Upload integration coverage data
-        if: |
-          matrix.os == 'ubuntu-latest' &&
-          matrix.python-version == '3.13'
+        if: steps.cov_flag.outputs.enabled == '1'
         uses: actions/upload-artifact@v4
         with:
-          name: coverage-data-integration
+          name: coverage-data-integration-${{ matrix.os }}-py${{ matrix.python-version }}
           path: |
             .coverage.integration
             coverage.integration.xml
-            htmlcov-integration/
           retention-days: 1
           include-hidden-files: true
 
@@ -311,25 +346,77 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           pattern: coverage-data-*
-          merge-multiple: true
+          path: coverage-artifacts
+
+      - name: Flatten coverage data with unique names
+        shell: bash
+        run: |
+          # Each artifact landed in coverage-artifacts/<artifact-name>/.
+          # Move + rename so multi-platform integration files don't
+          # collide on the shared .coverage.integration name.
+          shopt -s nullglob
+          for dir in coverage-artifacts/coverage-data-*; do
+            name=$(basename "$dir")
+            for f in "$dir"/.coverage.*; do
+              base=$(basename "$f")
+              # Suffix integration tier with the artifact origin to make
+              # filenames unique across the multi-OS matrix.
+              if [ "$base" = ".coverage.integration" ]; then
+                cp "$f" "./.coverage.integration.${name#coverage-data-integration-}"
+              else
+                cp "$f" "./$base"
+              fi
+            done
+            # Also surface the xml report (already unique per tier).
+            for f in "$dir"/coverage.*.xml; do
+              cp "$f" "./$(basename "$f")" 2>/dev/null || true
+            done
+          done
 
       - name: Inspect downloaded coverage data
         shell: bash
         run: |
-          ls -la .coverage* coverage.*.xml htmlcov-integration 2>&1 | head -30 || true
+          ls -la .coverage* coverage.*.xml 2>&1 | head -30 || true
 
       - name: Combine all coverage data
         shell: bash
         run: |
+          # Write a paths config to remap cross-OS absolute paths.
+          cat > .coveragerc <<RCEOF
+          [paths]
+          source =
+              src/qwenpaw
+              */src/qwenpaw
+              /Users/runner/work/QwenPaw/QwenPaw/src/qwenpaw
+              /home/runner/work/QwenPaw/QwenPaw/src/qwenpaw
+              D:\a\QwenPaw\QwenPaw\src\qwenpaw
+          RCEOF
           COMBINE_ARGS=""
-          for f in .coverage.unit .coverage.contract .coverage.integration .coverage.e2e; do
+          for f in .coverage.unit .coverage.contract .coverage.integration .coverage.integration.* .coverage.e2e; do
             [ -f "$f" ] && COMBINE_ARGS="$COMBINE_ARGS $f"
           done
           if [ -z "$COMBINE_ARGS" ]; then
             echo "No coverage data files found"
             exit 0
           fi
-          coverage combine $COMBINE_ARGS
+          echo "Combining: $COMBINE_ARGS"
+          # Also produce an integration-only combined data file +
+          # xml so the per-tier summary table still has a single
+          # "Integration" number after the multi-platform split.
+          INTEGRATION_FILES=""
+          for f in .coverage.integration .coverage.integration.*; do
+            [ -f "$f" ] && INTEGRATION_FILES="$INTEGRATION_FILES $f"
+          done
+          if [ -n "$INTEGRATION_FILES" ]; then
+            coverage combine --rcfile=.coveragerc --keep \
+              --data-file=.coverage.integration.merged \
+              $INTEGRATION_FILES
+            coverage xml --rcfile=.coveragerc \
+              --data-file=.coverage.integration.merged \
+              -o coverage.integration.xml || [ "$?" -eq 2 ]
+          fi
+          rm -f .coverage.integration.merged
+          coverage combine --rcfile=.coveragerc $COMBINE_ARGS
           coverage xml -o coverage.combined.xml || [ "$?" -eq 2 ]
           coverage html -d htmlcov-combined || [ "$?" -eq 2 ]
           echo "Combined coverage report:"

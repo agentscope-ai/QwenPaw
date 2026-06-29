@@ -59,12 +59,11 @@
   /* Wide mode: widen bubble list and sender while keeping spacing */
   &.wideMode :global {
     .qwenpaw-bubble-list {
-      max-width: calc(100% - 48px) !important;
+      max-width: none !important;
     }
 
-    .qwenpaw-sender,
-    [class*="sender-content"] {
-      max-width: calc(100% - 48px) !important;
+    .qwenpaw-chat-anywhere-sender-wrapper {
+      max-width: none !important;
     }
   }
 
@@ -229,6 +228,21 @@
   [class*="bubble-end"] [class*="markdown"],
   [class*="bubble-user"] [class*="markdown"] {
     white-space: pre-wrap;
+  }
+}
+
+/* Fix #5480: Assistant response markdown may temporarily fall back to the
+ * vendor Raw renderer while streaming. Raw renders newline-bearing text as
+ * normal div children, so keep whitespace and wrap long lines on the host side.
+ */
+.chatMessagesArea :global {
+  [class*="bubble-start"] [class*="markdown"],
+  [class*="bubble-assistant"] [class*="markdown"] {
+    min-width: 0;
+    max-width: 100%;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    word-break: normal;
   }
 }
 

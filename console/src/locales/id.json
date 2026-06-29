@@ -87,7 +87,33 @@
     "updateModal": {
       "title": "Versi baru tersedia: v{{version}}",
       "viewReleases": "Lihat Rilis",
-      "close": "Tutup"
+      "installDesktopUpdate": "Perbarui Sekarang",
+      "desktopInstallHint": "QwenPaw Desktop {{version}} siap dipasang. Aplikasi akan dimulai ulang setelah pembaruan.",
+      "checking": "Memeriksa pembaruan…",
+      "checkingHint": "Memeriksa versi terbaru",
+      "downloading": "Mengunduh pembaruan",
+      "downloadingTo": "Memperbarui ke versi {{version}}",
+      "downloadProgress": "{{done}} / {{total}} · {{rate}}",
+      "installing": "Memasang pembaruan",
+      "willRestart": "Aplikasi akan dimulai ulang otomatis setelah selesai.",
+      "stepPrepare": "Persiapan",
+      "stepDownloading": "Unduh",
+      "stepInstalling": "Pasang",
+      "failedTitle": "Pembaruan gagal",
+      "back": "Kembali",
+      "retry": "Coba Lagi",
+      "errors": {
+        "network": "Tidak dapat menjangkau server pembaruan. Periksa internet dan coba lagi.",
+        "signature": "Tanda tangan file pembaruan tidak valid. Coba unduh lagi.",
+        "appLocation": "QwenPaw berjalan dari lokasi macOS yang hanya-baca. Pindahkan QwenPaw.app ke folder Applications, jalankan dari sana, lalu coba perbarui lagi.",
+        "other": "Pembaruan gagal."
+      },
+      "updateLater": "Unduh di Latar Belakang",
+      "backgroundDownloading": "Mengunduh di latar belakang…",
+      "readyToInstall": "Pembaruan siap",
+      "readyToInstallHint": "Pembaruan v{{version}} telah diunduh. Mulai ulang untuk memasang dan membuka versi baru.",
+      "restartNow": "Perbarui Sekarang",
+      "backgroundFailed": "Unduhan latar belakang gagal"
     },
     "settings": {
       "language": "Bahasa",
@@ -361,7 +387,10 @@
     "lastUpdated": "Diperbarui",
     "searchPlaceholder": "Filter berdasarkan nama",
     "listView": "Tampilan daftar",
-    "gridView": "Tampilan grid"
+    "gridView": "Tampilan grid",
+    "enabledSkills": "Skill Aktif",
+    "disabledSkills": "Skill Nonaktif",
+    "active": "aktif"
   },
   "skillPool": {
     "description": "Kumpulan skill lokal bersama untuk skill bawaan dan unggahan workspace.",
@@ -460,7 +489,18 @@
     "batchDismissConfirm": "Hapus {{count}} pengguna?",
     "batchSuccess": "{{count}} pengguna berhasil diproses",
     "batchRemove": "Hapus",
-    "batchRemoveConfirm": "Hapus {{count}} pengguna yang dipilih?"
+    "batchRemoveConfirm": "Hapus {{count}} pengguna yang dipilih?",
+    "enabledSection": "Diaktifkan",
+    "enabledCount": "{{count}}",
+    "availableSection": "Tersedia",
+    "enableAction": "Aktifkan",
+    "noEnabledChannels": "Tidak ada saluran yang diaktifkan",
+    "goEnableChannels": "Aktifkan saluran",
+    "slackBotToken": "Bot Token",
+    "slackBotTokenTooltip": "Slack Bot User OAuth Token, dimulai dengan xoxb-",
+    "slackAppToken": "App Token",
+    "slackAppTokenTooltip": "Slack App-Level Token untuk Socket Mode, dimulai dengan xapp-",
+    "slackProxyTooltip": "URL proxy HTTP untuk menghubungkan ke Slack API"
   },
   "tools": {
     "title": "Tool Bawaan",
@@ -483,7 +523,13 @@
     "configured": "Terkonfigurasi",
     "requiresConfig": "Perlu konfigurasi",
     "configSaved": "Konfigurasi tersimpan",
-    "configSaveError": "Gagal menyimpan konfigurasi"
+    "configSaveError": "Gagal menyimpan konfigurasi",
+    "active": "aktif",
+    "available": "Tersedia",
+    "noEnabled": "Tidak ada alat yang diaktifkan",
+    "goEnableBtn": "Aktifkan sekarang",
+    "configureAction": "Konfigurasi →",
+    "enableAction": "Aktifkan →"
   },
   "modelConfig": {
     "promptTitle": "Model LLM Diperlukan - Pilih di Chat Setelah Konfigurasi",
@@ -674,6 +720,9 @@
     "title": "Klien MCP",
     "create": "Buat Klien",
     "formatSupport": "Format yang didukung",
+    "standardFormat": "Standar (pembungkus mcpServers)",
+    "directFormat": "Langsung (key → objek konfigurasi)",
+    "singleFormat": "Satu klien (field datar)",
     "emptyState": "Belum ada klien MCP yang dikonfigurasi",
     "loadError": "Gagal memuat klien MCP",
     "createSuccess": "Klien MCP berhasil dibuat",
@@ -686,9 +735,89 @@
     "deleteConfirm": "Yakin ingin menghapus klien MCP ini?",
     "deleteSuccess": "Klien MCP berhasil dihapus",
     "deleteError": "Gagal menghapus klien MCP",
-    "tools": "Tool",
+    "maskedFieldHint": "Field sensitif disamarkan dengan ***. Edit langsung pada nilai tersamarkan tidak didukung — ganti dengan nilai lengkap yang baru untuk mengubahnya.",
+    "tools": "Tool & Izin",
     "noTools": "Tidak ada tool tersedia dari server MCP ini",
+    "toolsLoadError": "Gagal memuat tool dari server MCP",
+    "toolsConnecting": "Server MCP masih tersambung, coba lagi sebentar lagi",
     "toolSchema": "Skema Input",
+    "access": {
+      "title": "Akses",
+      "button": "Akses",
+      "summary": "Kebijakan akses MCP",
+      "clientSection": "Akses keseluruhan",
+      "toolSection": "Akses tool",
+      "default": "Default",
+      "sourceType": "Sumber",
+      "sourceValue": "Nilai sumber",
+      "sourceValueAllChannels": "Semua saluran",
+      "subjectType": "Objek",
+      "subjectValue": "Nilai objek",
+      "effectLabel": "Kebijakan",
+      "source": {
+        "channel": "Saluran"
+      },
+      "subjectTypeOption": {
+        "all": "Semua",
+        "user": "Pengguna"
+      },
+      "sourceValuePlaceholder": {
+        "channel": "console / dingtalk"
+      },
+      "subjectValuePlaceholder": "mis. alice",
+      "subjectValuePlaceholderSelectedSource": "ID pengguna di sumber yang dipilih",
+      "subjectValuePlaceholderScoped": "ID pengguna {{source}}",
+      "subjectValueAll": "Semua",
+      "recentUserPlaceholder": "ID pengguna dibatasi pada sumber yang dipilih; ketik atau pilih lagi",
+      "noRecentUsers": "Tidak ada pengguna terbaru untuk sumber ini; ketik ID pengguna secara manual",
+      "ambiguousUserSourceWarning": "ID pengguna hanya unik di dalam sumber. Pilih saluran tertentu untuk menghindari kecocokan lintas saluran.",
+      "unknownUserValueWarning": "ID pengguna ini tidak ada di daftar pengguna aktif terbaru. Penyimpanan tetap diizinkan.",
+      "validation": {
+        "missingUserValue": "Pilih sumber tertentu dan masukkan ID pengguna yang valid.",
+        "ambiguousUserSource": "Aturan pengguna harus menargetkan saluran tertentu, bukan semua saluran.",
+        "unknownUserValue": "ID pengguna ini tidak ada di daftar pengguna aktif terbaru. Penyimpanan tetap diizinkan."
+      },
+      "addRule": "Tambah aturan",
+      "deleteRule": "Hapus aturan",
+      "noClientRules": "Tidak ada aturan",
+      "noRules": "Tidak ada aturan, menggunakan kebijakan default",
+      "inherit": "Ikuti ({{effect}})",
+      "stale": "Tidak ditemukan",
+      "disabledTools": "Klien MCP ini dinonaktifkan; aturan akses yang tersimpan tetap dapat diedit.",
+      "discardTitle": "Buang perubahan yang belum disimpan?",
+      "discardContent": "Perubahan kebijakan akses yang belum disimpan akan hilang.",
+      "loadError": "Gagal memuat kebijakan akses MCP",
+      "saveSuccess": "Kebijakan akses MCP tersimpan",
+      "saveError": "Gagal menyimpan kebijakan akses MCP",
+      "unmanagedRules": "{{count}} aturan lanjutan",
+      "effect": {
+        "allow": "Izinkan",
+        "ask": "Tanya",
+        "deny": "Tolak"
+      }
+    },
+    "tab": {
+      "json": "Impor JSON",
+      "form": "Mode Form"
+    },
+    "form": {
+      "key": "Kunci klien",
+      "keyPlaceholder": "my-mcp-server",
+      "keyRequired": "Kunci klien wajib diisi",
+      "name": "Nama tampilan",
+      "namePlaceholder": "My MCP Server",
+      "nameRequired": "Nama tampilan wajib diisi",
+      "transport": "Transport",
+      "url": "URL server",
+      "urlRequired": "URL wajib diisi untuk server MCP jarak jauh",
+      "command": "Perintah",
+      "commandRequired": "Perintah wajib diisi untuk transport stdio",
+      "args": "Argumen (dipisahkan spasi atau baris baru)",
+      "description": "Deskripsi",
+      "descriptionPlaceholder": "Deskripsi opsional",
+      "env": "Variabel lingkungan",
+      "envPlaceholder": "KEY=VALUE (satu per baris)"
+    },
     "oauth": {
       "enableOAuth": "Gunakan Otorisasi OAuth",
       "manage": "OAuth",
@@ -975,7 +1104,11 @@
     "detailPayload": "Payload",
     "detailExecutionTrace": "Jejak Eksekusi",
     "detailTraceEmpty": "Tidak ada jejak eksekusi",
-    "filterByAgent": "Filter berdasarkan agen"
+    "filterByAgent": "Filter berdasarkan agen",
+    "filterBySourceType": "Filter berdasarkan sumber",
+    "sourceTypeCron": "Cron",
+    "sourceTypeHeartbeat": "Heartbeat",
+    "sourceTypeMemory": "Memory"
   },
   "acp": {
     "title": "ACP",
@@ -1247,7 +1380,7 @@
     "getCurrentTime": "Dapatkan waktu saat ini",
     "setTimezone": "Atur {{timezone}}",
     "getTokenUsage": "Kueri penggunaan token",
-    "memorySearch": "Cari {{query}}",
+    "memorySearch": "Cari memori {{query}}",
     "memorySearchDefault": "Cari memori",
     "listAgents": "Daftar agen",
     "chatWithAgent": "Chat dengan {{agent}}",
@@ -1369,6 +1502,7 @@
     "protocolHint": "Pilih protokol API penyedia untuk konfigurasi ini.",
     "selectProtocol": "Harap pilih protokol",
     "protocolOpenAI": "Kompatibel OpenAI (Chat Completions)",
+    "protocolOpenAIResponse": "Kompatibel OpenAI (Response API)",
     "protocolAnthropic": "Anthropic (Messages API)",
     "currentKey": "Saat ini: {{key}}",
     "startsWith": "Dimulai dengan \"{{prefix}}\"",
@@ -1799,9 +1933,8 @@
     "autoMaxResultsTooltip": "Jumlah hasil maksimum yang dikembalikan saat pencarian memori otomatis diaktifkan",
     "autoMaxResultsRequired": "Hasil maksimum wajib diisi",
     "autoMaxResultsMin": "Hasil maksimum minimal 1",
-    "autoMinScore": "Skor Minimum Pencarian Otomatis",
-    "autoMinScoreTooltip": "Ambang skor relevansi minimum (0–1) saat pencarian memori otomatis diaktifkan",
-    "autoMinScoreRequired": "Skor minimum wajib diisi",
+    "autoMemorySearchPersistToContext": "Persist Search Result to Context",
+    "autoMemorySearchPersistToContextTooltip": "When enabled, the auto memory search tool call and result are saved into the conversation context. Disable it to use the search result only for the current model call.",
     "embeddingConfigTitle": "Konfigurasi Model Embedding",
     "embeddingBackend": "Backend",
     "embeddingBackendTooltip": "Penyedia backend embedding, mis. openai",

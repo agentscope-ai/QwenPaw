@@ -313,7 +313,10 @@
     "exitBatch": "一括操作を終了",
     "noSearchResults": "検索に一致するスキルが見つかりません",
     "filterByTag": "タグで絞り込み",
-    "noTags": "タグがありません"
+    "noTags": "利用可能なタグがありません",
+    "enabledSkills": "有効なスキル",
+    "disabledSkills": "無効なスキル",
+    "active": "個有効"
   },
   "skillPool": {
     "description": "ビルトインスキルとワークスペースアップロード用の共有ローカルスキルプール。ClawHub や LobeHub などの外部インポートは別機能です。",
@@ -431,11 +434,88 @@
     "deleteSuccess": "MCPクライアントを削除しました",
     "deleteError": "MCPクライアントの削除に失敗しました",
     "maskedFieldHint": "機密フィールドは *** でマスクされています。マスク値の直接編集はできません。変更するには完全な新しい値に置き換えてください。",
-    "tools": "ツール",
+    "tools": "ツール&権限",
     "noTools": "このMCPサーバーには利用可能なツールがありません",
     "toolsLoadError": "MCPサーバーからツール一覧の取得に失敗しました",
     "toolsConnecting": "MCPサーバーに接続中です。しばらくしてから再度お試しください",
     "toolSchema": "入力スキーマ",
+    "access": {
+      "title": "アクセス",
+      "button": "アクセス",
+      "summary": "MCPアクセスポリシー",
+      "clientSection": "全体アクセス",
+      "toolSection": "ツールアクセス",
+      "default": "デフォルト",
+      "sourceType": "ソース",
+      "sourceValue": "ソース値",
+      "sourceValueAllChannels": "すべてのチャンネル",
+      "subjectType": "対象",
+      "subjectValue": "対象値",
+      "effectLabel": "ポリシー",
+      "source": {
+        "channel": "チャンネル"
+      },
+      "subjectTypeOption": {
+        "all": "すべて",
+        "user": "ユーザー"
+      },
+      "sourceValuePlaceholder": {
+        "channel": "console / dingtalk"
+      },
+      "subjectValuePlaceholder": "例: alice",
+      "subjectValuePlaceholderSelectedSource": "選択したソース内のユーザーID",
+      "subjectValuePlaceholderScoped": "{{source}} のユーザーID",
+      "subjectValueAll": "すべて",
+      "recentUserPlaceholder": "ユーザーIDは選択したソース内で有効です。再入力または選択してください",
+      "noRecentUsers": "このソースに最近のユーザーはいません。ユーザーIDを手入力できます",
+      "ambiguousUserSourceWarning": "ユーザーIDはソース内でのみ一意です。チャンネルを指定して、別チャンネルのユーザーと誤って一致しないようにしてください。",
+      "unknownUserValueWarning": "このユーザーIDは最近のアクティブユーザーにありません。保存は可能です。",
+      "validation": {
+        "missingUserValue": "具体的なソースを選択し、有効なユーザーIDを入力してください。",
+        "ambiguousUserSource": "ユーザールールは、すべてのチャンネルではなく特定のチャンネルを対象にしてください。",
+        "unknownUserValue": "このユーザーIDは最近のアクティブユーザーにありません。保存は可能です。"
+      },
+      "addRule": "ルールを追加",
+      "deleteRule": "ルールを削除",
+      "noClientRules": "ルールなし",
+      "noRules": "ルールなし。デフォルトポリシーを使用します",
+      "inherit": "継承（{{effect}}）",
+      "stale": "見つかりません",
+      "disabledTools": "このMCPクライアントは無効です。保存済みのアクセスルールは引き続き編集できます。",
+      "discardTitle": "未保存の変更を破棄しますか？",
+      "discardContent": "未保存のアクセスポリシー変更は失われます。",
+      "loadError": "MCPアクセスポリシーの読み込みに失敗しました",
+      "saveSuccess": "MCPアクセスポリシーを保存しました",
+      "saveError": "MCPアクセスポリシーの保存に失敗しました",
+      "unmanagedRules": "{{count}} 件の詳細ルール",
+      "effect": {
+        "allow": "許可",
+        "ask": "確認",
+        "deny": "拒否"
+      }
+    },
+    "tab": {
+      "json": "JSONインポート",
+      "form": "フォームモード"
+    },
+    "form": {
+      "key": "クライアントキー",
+      "keyPlaceholder": "my-mcp-server",
+      "keyRequired": "クライアントキーは必須です",
+      "name": "表示名",
+      "namePlaceholder": "My MCP Server",
+      "nameRequired": "表示名は必須です",
+      "transport": "トランスポート",
+      "url": "サーバーURL",
+      "urlRequired": "リモートMCPサーバーにはURLが必要です",
+      "command": "コマンド",
+      "commandRequired": "stdioトランスポートにはコマンドが必要です",
+      "args": "引数（スペースまたは改行区切り）",
+      "description": "説明",
+      "descriptionPlaceholder": "任意の説明",
+      "env": "環境変数",
+      "envPlaceholder": "KEY=VALUE（1行に1つ）"
+    },
     "oauth": {
       "enableOAuth": "OAuth 認証を使用する",
       "manage": "OAuth",
@@ -778,6 +858,11 @@
     "wecomAuthHint": "上のQRコードをWeComでスキャンして認証してください。認証後、Bot IDとSecretが自動入力されます。",
     "wecomAuthSuccess": "WeComボットの認証に成功しました。Bot IDとSecretが自動入力されました。",
     "wecomQrcodeFailed": "WeCom QRコードの取得に失敗しました。もう一度お試しください。",
+    "slackBotToken": "Bot Token",
+    "slackBotTokenTooltip": "Slack Bot User OAuth Token（xoxb- で始まる）",
+    "slackAppToken": "App Token",
+    "slackAppTokenTooltip": "Slack App-Level Token（Socket Mode用、xapp- で始まる）",
+    "slackProxyTooltip": "Slack API接続用HTTPプロキシURL",
     "dingtalkSetupGuide": "DingTalkでQRコードをスキャンしてボットを作成します。スキャン後、DingTalkアプリが自動作成され、Client IDとClient Secretが自動入力されます。",
     "dingtalkScanAuth": "スキャンしてボットを作成",
     "dingtalkGetQrcode": "DingTalk QRコードを取得",
@@ -794,6 +879,8 @@
     "qqQrcodeExpired": "QRコードの有効期限が切れています。再度取得してください。",
     "atSenderOnReply": "返信時に送信者を@メンション",
     "atSenderOnReplyTooltip": "有効にすると、ボットはグループチャットでの返信の最初のメッセージで送信者を@メンションします。注意：カードモードでは、@メンションは企業内部メンバーのみ有効です。",
+    "dingtalkEndpoint": "APIエンドポイント",
+    "dingtalkEndpointTooltip": "DingTalkプライベートデプロイ用のカスタムAPIエンドポイント。空欄の場合は公式デフォルトを使用します。",
     "wecomCancelled": "認証がキャンセルされました",
     "wecomAuthFailed": "認証に失敗しました: {{msg}}",
     "filterAll": "すべて",
@@ -879,7 +966,13 @@
     "batchDismissConfirm": "{{count}}件のユーザーを削除しますか？",
     "batchSuccess": "{{count}}件のユーザーを処理しました",
     "batchRemove": "削除",
-    "batchRemoveConfirm": "{{count}}件のユーザーを削除しますか？"
+    "batchRemoveConfirm": "{{count}}件のユーザーを削除しますか？",
+    "enabledSection": "有効",
+    "enabledCount": "{{count}}件",
+    "availableSection": "未有効",
+    "enableAction": "有効にする",
+    "noEnabledChannels": "有効なチャンネルはありません",
+    "goEnableChannels": "チャンネルを有効にする"
   },
   "sessions": {
     "title": "セッション",
@@ -1061,6 +1154,7 @@
     "protocolHint": "この設定のプロバイダーAPIプロトコルを選択してください。",
     "selectProtocol": "プロトコルを選択してください",
     "protocolOpenAI": "OpenAI互換（Chat Completions）",
+    "protocolOpenAIResponse": "OpenAI互換（Response API）",
     "protocolAnthropic": "Anthropic（Messages API）",
     "currentKey": "現在: {{key}}",
     "startsWith": "\"{{prefix}}\" で始まる",
@@ -1460,9 +1554,8 @@
     "autoMaxResultsTooltip": "自動記憶検索が有効な場合に返される最大結果数",
     "autoMaxResultsRequired": "最大結果数は必須です",
     "autoMaxResultsMin": "最大結果数は1以上である必要があります",
-    "autoMinScore": "自動検索の最低スコア",
-    "autoMinScoreTooltip": "自動記憶検索が有効な場合の最低関連性スコア閾値（0～1）",
-    "autoMinScoreRequired": "最低スコアは必須です",
+    "autoMemorySearchPersistToContext": "Persist Search Result to Context",
+    "autoMemorySearchPersistToContextTooltip": "When enabled, the auto memory search tool call and result are saved into the conversation context. Disable it to use the search result only for the current model call.",
     "embeddingConfigTitle": "埋め込みモデル設定",
     "embeddingBackend": "バックエンド",
     "embeddingBackendTooltip": "埋め込みバックエンドプロバイダー（例：openai）",
@@ -1564,7 +1657,13 @@
     "configured": "設定済み",
     "requiresConfig": "設定が必要です",
     "configSaved": "設定を保存しました",
-    "configSaveError": "設定の保存に失敗しました"
+    "configSaveError": "設定の保存に失敗しました",
+    "active": "個が有効",
+    "available": "利用可能",
+    "noEnabled": "有効なツールはありません",
+    "goEnableBtn": "有効にする",
+    "configureAction": "設定 →",
+    "enableAction": "有効化 →"
   },
   "modelConfig": {
     "promptTitle": "LLMモデルが必要です — 設定後にChatページで選択",
@@ -1596,7 +1695,33 @@
     "updateModal": {
       "title": "新しいバージョンが利用可能です: v{{version}}",
       "viewReleases": "リリースを見る",
-      "close": "閉じる"
+      "installDesktopUpdate": "今すぐ更新",
+      "desktopInstallHint": "QwenPaw Desktop {{version}} のインストール準備が整いました。更新後にアプリが再起動します。",
+      "checking": "更新を確認中…",
+      "checkingHint": "最新バージョンを確認しています",
+      "downloading": "更新をダウンロード中",
+      "downloadingTo": "バージョン {{version}} に更新中",
+      "downloadProgress": "{{done}} / {{total}} · {{rate}}",
+      "installing": "更新をインストール中",
+      "willRestart": "アプリはインストール完了後に自動的に再起動します",
+      "stepPrepare": "準備",
+      "stepDownloading": "ダウンロード",
+      "stepInstalling": "インストール",
+      "failedTitle": "更新に失敗しました",
+      "back": "戻る",
+      "retry": "再試行",
+      "errors": {
+        "network": "更新サーバーに接続できませんでした。インターネット接続を確認して再試行してください。",
+        "signature": "更新ファイルの署名検証に失敗しました。もう一度ダウンロードしてください。",
+        "appLocation": "QwenPaw は読み取り専用の macOS の場所から実行されています。QwenPaw.app を Applications フォルダーへ移動し、そこから起動してからもう一度更新してください。",
+        "other": "更新に失敗しました。"
+      },
+      "updateLater": "バックグラウンドでダウンロード",
+      "backgroundDownloading": "バックグラウンドでダウンロード中…",
+      "readyToInstall": "更新の準備が完了",
+      "readyToInstallHint": "v{{version}} の更新をダウンロードしました。再起動してインストールし、新しいバージョンを起動します。",
+      "restartNow": "今すぐ更新",
+      "backgroundFailed": "バックグラウンドダウンロード失敗"
     },
     "settings": {
       "language": "言語",
@@ -2296,7 +2421,12 @@
     "detailContent": "出力",
     "detailPayload": "追加情報",
     "detailExecutionTrace": "実行トレース",
-    "detailTraceEmpty": "実行トレースはありません"
+    "detailTraceEmpty": "実行トレースはありません",
+    "filterByAgent": "エージェントで絞り込み",
+    "filterBySourceType": "ソースで絞り込み",
+    "sourceTypeCron": "Cron",
+    "sourceTypeHeartbeat": "Heartbeat",
+    "sourceTypeMemory": "Memory"
   },
   "codingMode": {
     "title": "コーディングモード",
@@ -2442,7 +2572,7 @@
     "getCurrentTime": "現在時刻を取得",
     "setTimezone": "{{timezone}} に設定",
     "getTokenUsage": "トークン使用量を照会",
-    "memorySearch": "{{query}} を検索",
+    "memorySearch": "メモリで {{query}} を検索",
     "memorySearchDefault": "メモリを検索",
     "listAgents": "エージェント一覧",
     "chatWithAgent": "{{agent}} とチャット",

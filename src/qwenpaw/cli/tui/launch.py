@@ -7,8 +7,8 @@
 ``qwenpaw tui --resume ID``    resume a previous session and continue it
 
 The TUI spawns ``qwenpaw acp`` using the *current* interpreter
-(``python -m qwenpaw acp``), so it always drives the same install/venv it ships
-in -- no reliance on ``qwenpaw`` being on ``PATH``.
+(``python -m qwenpaw acp --local-diagnostics``), so it always drives the same
+install/venv it ships in -- no reliance on ``qwenpaw`` being on ``PATH``.
 
 Textual and the transport are imported lazily so ``qwenpaw --help`` and other
 subcommands stay fast.
@@ -16,32 +16,55 @@ subcommands stay fast.
 
 from __future__ import annotations
 
+from pathlib import Path
 import sys
 
 import click
+
+
+def _resolve_project_dir(project: str | None) -> str | None:
+    """Return an absolute project directory path for a TUI code session."""
+    if not project:
+        return None
+    project_path = Path(project).expanduser().resolve()
+    if not project_path.is_dir():
+        raise click.ClickException(
+            f"Project path is not a directory: {project}",
+        )
+    return str(project_path)
 
 
 def _build_transport(
     *,
     agent: str | None,
     resume: str | None,
+    project: str | None = None,
 ):
     """Return ``(transport, description)`` for the requested target.
 
     ``command=None`` lets :class:`AcpTransport` use its default,
-    ``[sys.executable, "-m", "qwenpaw", "acp"]`` -- the same interpreter the
-    TUI is running under. The ``--agent`` suffix is *not* appended here:
-    ``AcpTransport`` appends ``--agent <id>`` itself when ``agent`` is set, so
-    doing it here too would double it.
+    ``[sys.executable, "-m", "qwenpaw", "acp", "--local-diagnostics"]`` --
+    the same interpreter the TUI is running under. The ``--agent`` suffix is
+    *not* appended here: ``AcpTransport`` appends ``--agent <id>`` itself when
+    ``agent`` is set, so doing it here too would double it.
     """
     from .transport.acp import AcpTransport
 
-    description = f"qwenpaw acp ({sys.executable} -m qwenpaw acp)"
+    project_dir = _resolve_project_dir(project)
+    description = (
+        f"qwenpaw acp ({sys.executable} -m qwenpaw acp --local-diagnostics)"
+    )
+    if project_dir:
+        description = f"{description} cwd={project_dir}"
 
     return (
+        # Project-bound TUI sessions start ACP in the project root and also
+        # send explicit metadata so Coding Mode can apply a request overlay.
         AcpTransport(
             agent=agent,
+            cwd=project_dir,
             command=None,
+            project_dir=project_dir,
             resume_session_id=resume,
         ),
         description,
@@ -52,11 +75,13 @@ def run_tui(
     *,
     agent: str | None = None,
     resume: str | None = None,
+    project: str | None = None,
 ) -> None:
     """Build the transport and run the Textual app (blocking)."""
     transport, description = _build_transport(
         agent=agent,
         resume=resume,
+        project=project,
     )
 
     from .app import PawApp
@@ -85,9 +110,20 @@ def run_tui(
     help="Resume a previous session by id (use /resume in-app to browse). "
     "Replays that session's transcript and continues it.",
 )
+@click.argument(
+    "project",
+    required=False,
+    type=click.Path(
+        exists=True,
+        file_okay=False,
+        dir_okay=True,
+        path_type=str,
+    ),
+)
 def tui_cmd(
     agent: str | None,
     resume: str | None,
+    project: str | None,
 ) -> None:
     """Open the QwenPaw terminal chat UI."""
-    run_tui(agent=agent, resume=resume)
+    run_tui(agent=agent, resume=resume, project=project)

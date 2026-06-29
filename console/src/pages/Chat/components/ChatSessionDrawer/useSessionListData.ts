@@ -144,6 +144,8 @@ export function useSessionListData(
     void fetchSessions();
 
     const timer = setInterval(async () => {
+      // Pause polling during session switch to avoid bandwidth contention
+      if (sessionApi.isSessionSwitching) return;
       try {
         const list = await sessionApi.getSessionList();
         if (!cancelled) {
@@ -172,18 +174,18 @@ export function useSessionListData(
       .sort((a, b) => {
         if (a.pinned && !b.pinned) return -1;
         if (!a.pinned && b.pinned) return 1;
-        const aTime = a.updatedAt ?? a.createdAt;
-        const bTime = b.updatedAt ?? b.createdAt;
+        // ISO 8601 strings are lexicographically sortable — avoid new Date()
+        const aTime = a.updatedAt ?? a.createdAt ?? "";
+        const bTime = b.updatedAt ?? b.createdAt ?? "";
         if (!aTime && !bTime) return 0;
         if (!aTime) return 1;
         if (!bTime) return -1;
-        return new Date(bTime).getTime() - new Date(aTime).getTime();
+        return bTime < aTime ? -1 : bTime > aTime ? 1 : 0;
       });
   }, [sessions]);
 
   const handleSessionClick = useCallback(
     (sessionId: string) => {
-      if (sessionApi.isSessionSwitching) return;
       if (sessionId === currentSessionId) return;
       setSwitchingSessionId(sessionId);
       onSessionClick(sessionId);
@@ -195,6 +197,16 @@ export function useSessionListData(
   useEffect(() => {
     setSwitchingSessionId(null);
   }, [currentSessionId]);
+
+  // Also clear switchingSessionId when the switch completes (or fails).
+  // This is needed for SidebarSessionList (simple mode) which communicates
+  // via DOM events and may not see currentSessionId change on errors.
+  useEffect(() => {
+    const onDone = () => setSwitchingSessionId(null);
+    window.addEventListener("qwenpaw:sidebar-switch-done", onDone);
+    return () =>
+      window.removeEventListener("qwenpaw:sidebar-switch-done", onDone);
+  }, []);
 
   const handleDelete = useCallback(
     async (sessionId: string) => {

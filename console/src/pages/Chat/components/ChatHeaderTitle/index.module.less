@@ -9,14 +9,103 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+
+  @media (max-width: 768px) {
+    max-width: 120px;
+    font-size: 14px;
+  }
+
+  // ─── Mobile: replace ellipsis with horizontal marquee ───────────────────
+  // When the title is longer than its container, slide the full text from
+  // right to left so the user can still read it.
+  @media (max-width: 480px) {
+    max-width: 90px;
+    font-size: 13px;
+    overflow: hidden;
+    text-overflow: clip;
+
+    > .marquee {
+      display: inline-block;
+      padding-left: 100%;
+      animation: chatNameMarquee 12s linear infinite;
+    }
+  }
 }
 
 .chatNameCoding {
   max-width: 100px;
+
+  @media (max-width: 768px) {
+    max-width: 70px;
+  }
+
+  @media (max-width: 480px) {
+    max-width: 55px;
+  }
+}
+
+// Wrapper used in JSX only when the title overflows on mobile.
+.marquee {
+  display: inline-block;
+}
+
+@keyframes chatNameMarquee {
+  0% {
+    transform: translateX(0);
+  }
+  100% {
+    transform: translateX(-100%);
+  }
 }
 
 :global(.dark-mode) {
   .chatName {
     color: rgba(255, 255, 255, 0.88);
   }
+}
+
+/* ---- Trigger button ---- */
+.trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+  user-select: none;
+  max-width: 260px;
+
+  &:hover {
+    .chatName {
+      color: var(--colorPrimary, #ff7f16);
+    }
+  }
+
+  @media (max-width: 768px) {
+    max-width: 140px;
+  }
+
+  @media (max-width: 480px) {
+    max-width: 100px;
+  }
+}
+
+/* ---- Dropdown menu items ---- */
+.menuItem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 200px;
+}
+
+.menuItemName {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+
+.menuItemActive {
+  color: var(--colorPrimary, #ff7f16);
+  font-size: 12px;
+  flex-shrink: 0;
 }

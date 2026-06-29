@@ -95,9 +95,6 @@ memory_page = pytest.fixture(scope="function", name="memory_page")(
 inbox_page = pytest.fixture(scope="function", name="inbox_page")(
     _make_page_fixture("pages.inbox_page", "InboxPage")
 )
-plan_page = pytest.fixture(scope="function", name="plan_page")(
-    _make_page_fixture("pages.plan_page", "PlanPage")
-)
 
 
 # ========== Business / Data Fixtures ==========

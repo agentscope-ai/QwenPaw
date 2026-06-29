@@ -313,7 +313,10 @@
     "exitBatch": "Выйти из режима",
     "noSearchResults": "Навыки, соответствующие вашему запросу, не найдены",
     "filterByTag": "Фильтр по тегу",
-    "noTags": "Нет доступных тегов"
+    "noTags": "Нет доступных тегов",
+    "enabledSkills": "Активные навыки",
+    "disabledSkills": "Неактивные навыки",
+    "active": "активно"
   },
   "skillPool": {
     "description": "Общий локальный пул навыков для встроенных навыков и загрузок из рабочих пространств. Внешние импорты (ClawHub, LobeHub) — отдельная функция.",
@@ -431,11 +434,88 @@
     "deleteSuccess": "MCP-клиент успешно удалён",
     "deleteError": "Не удалось удалить MCP-клиент",
     "maskedFieldHint": "Чувствительные поля скрыты ***. Редактирование скрытых значений не поддерживается — замените полным новым значением.",
-    "tools": "Инструменты",
+    "tools": "Инструменты и разрешения",
     "noTools": "На этом MCP сервере нет доступных инструментов",
     "toolsLoadError": "Не удалось загрузить инструменты с MCP сервера",
     "toolsConnecting": "MCP сервер подключается, попробуйте через некоторое время",
     "toolSchema": "Схема ввода",
+    "access": {
+      "title": "Доступ",
+      "button": "Доступ",
+      "summary": "Политика доступа MCP",
+      "clientSection": "Общий доступ",
+      "toolSection": "Доступ к инструменту",
+      "default": "По умолчанию",
+      "sourceType": "Источник",
+      "sourceValue": "Значение источника",
+      "sourceValueAllChannels": "Все каналы",
+      "subjectType": "Объект",
+      "subjectValue": "Значение объекта",
+      "effectLabel": "Политика",
+      "source": {
+        "channel": "Канал"
+      },
+      "subjectTypeOption": {
+        "all": "Все",
+        "user": "Пользователь"
+      },
+      "sourceValuePlaceholder": {
+        "channel": "console / dingtalk"
+      },
+      "subjectValuePlaceholder": "например, alice",
+      "subjectValuePlaceholderSelectedSource": "ID пользователя в выбранном источнике",
+      "subjectValuePlaceholderScoped": "ID пользователя в {{source}}",
+      "subjectValueAll": "Все",
+      "recentUserPlaceholder": "ID пользователя относится к выбранному источнику; введите или выберите заново",
+      "noRecentUsers": "Для этого источника нет недавних пользователей; введите ID вручную",
+      "ambiguousUserSourceWarning": "ID пользователя уникален только внутри источника. Выберите конкретный канал, чтобы избежать совпадений между каналами.",
+      "unknownUserValueWarning": "Этого ID нет среди недавних активных пользователей. Сохранение разрешено.",
+      "validation": {
+        "missingUserValue": "Выберите конкретный источник и введите корректный ID пользователя.",
+        "ambiguousUserSource": "Правила для пользователя должны указывать конкретный канал, а не все каналы.",
+        "unknownUserValue": "Этого ID нет среди недавних активных пользователей. Сохранение разрешено."
+      },
+      "addRule": "Добавить правило",
+      "deleteRule": "Удалить правило",
+      "noClientRules": "Нет правил",
+      "noRules": "Нет правил, используется политика по умолчанию",
+      "inherit": "Наследовать ({{effect}})",
+      "stale": "Не найдено",
+      "disabledTools": "Этот MCP клиент отключен; сохранённые правила доступа всё ещё можно редактировать.",
+      "discardTitle": "Отменить несохранённые изменения?",
+      "discardContent": "Несохранённые изменения политики доступа будут потеряны.",
+      "loadError": "Не удалось загрузить политику доступа MCP",
+      "saveSuccess": "Политика доступа MCP сохранена",
+      "saveError": "Не удалось сохранить политику доступа MCP",
+      "unmanagedRules": "{{count}} расширенных правил",
+      "effect": {
+        "allow": "Разрешить",
+        "ask": "Спрашивать",
+        "deny": "Запретить"
+      }
+    },
+    "tab": {
+      "json": "Импорт JSON",
+      "form": "Режим формы"
+    },
+    "form": {
+      "key": "Ключ клиента",
+      "keyPlaceholder": "my-mcp-server",
+      "keyRequired": "Ключ клиента обязателен",
+      "name": "Отображаемое имя",
+      "namePlaceholder": "My MCP Server",
+      "nameRequired": "Отображаемое имя обязательно",
+      "transport": "Транспорт",
+      "url": "URL сервера",
+      "urlRequired": "URL обязателен для удалённых MCP серверов",
+      "command": "Команда",
+      "commandRequired": "Команда обязательна для транспорта stdio",
+      "args": "Аргументы (через пробел или с новой строки)",
+      "description": "Описание",
+      "descriptionPlaceholder": "Необязательное описание",
+      "env": "Переменные окружения",
+      "envPlaceholder": "KEY=VALUE (по одной на строку)"
+    },
     "oauth": {
       "enableOAuth": "Использовать OAuth авторизацию",
       "manage": "OAuth",
@@ -778,6 +858,11 @@
     "wecomAuthHint": "Отсканируйте QR-код выше с помощью WeCom для авторизации. Bot ID и Secret будут заполнены автоматически.",
     "wecomAuthSuccess": "Бот WeCom авторизован. Bot ID и Secret заполнены автоматически.",
     "wecomQrcodeFailed": "Не удалось получить QR-код WeCom. Попробуйте ещё раз.",
+    "slackBotToken": "Bot Token",
+    "slackBotTokenTooltip": "Slack Bot User OAuth Token, начинается с xoxb-",
+    "slackAppToken": "App Token",
+    "slackAppTokenTooltip": "Slack App-Level Token для Socket Mode, начинается с xapp-",
+    "slackProxyTooltip": "URL HTTP-прокси для подключения к Slack API",
     "dingtalkSetupGuide": "Отсканируйте QR-код в DingTalk для мгновенного создания бота. Приложение DingTalk будет создано автоматически, а Client ID и Client Secret будут заполнены.",
     "dingtalkScanAuth": "Сканировать для создания бота",
     "dingtalkGetQrcode": "Получить QR-код DingTalk",
@@ -794,6 +879,8 @@
     "qqQrcodeExpired": "Срок действия QR-кода истек. Пожалуйста, получите новый.",
     "atSenderOnReply": "@ отправителя при ответе",
     "atSenderOnReplyTooltip": "При включении бот будет упоминать отправителя в первом сообщении ответа в групповых чатах. Примечание: в режиме карточек @упоминание работает только для внутренних сотрудников организации.",
+    "dingtalkEndpoint": "API Endpoint",
+    "dingtalkEndpointTooltip": "Пользовательский API-адрес для приватного развёртывания DingTalk. Оставьте пустым для использования официального адреса по умолчанию.",
     "wecomCancelled": "Авторизация отменена",
     "wecomAuthFailed": "Ошибка авторизации: {{msg}}",
     "filterAll": "Все",
@@ -879,7 +966,13 @@
     "batchDismissConfirm": "Удалить {{count}} пользователей?",
     "batchSuccess": "{{count}} пользователей обработано",
     "batchRemove": "Удалить",
-    "batchRemoveConfirm": "Удалить {{count}} выбранных пользователей?"
+    "batchRemoveConfirm": "Удалить {{count}} выбранных пользователей?",
+    "enabledSection": "Активированные",
+    "enabledCount": "{{count}}",
+    "availableSection": "Доступные",
+    "enableAction": "Активировать",
+    "noEnabledChannels": "Нет активированных каналов",
+    "goEnableChannels": "Активировать каналы"
   },
   "sessions": {
     "title": "Сессии",
@@ -1061,6 +1154,7 @@
     "protocolHint": "Выберите протокол API провайдера для этой конфигурации.",
     "selectProtocol": "Пожалуйста, выберите протокол",
     "protocolOpenAI": "OpenAI-совместимый (Chat Completions)",
+    "protocolOpenAIResponse": "OpenAI-совместимый (Response API)",
     "protocolAnthropic": "Anthropic (Messages API)",
     "currentKey": "Текущий: {{key}}",
     "startsWith": "Начинается с «{{prefix}}»",
@@ -1475,9 +1569,8 @@
     "autoMaxResultsTooltip": "Максимальное количество результатов при включённом автоматическом поиске по памяти",
     "autoMaxResultsRequired": "Требуется указать макс. число результатов",
     "autoMaxResultsMin": "Макс. число результатов должно быть не меньше 1",
-    "autoMinScore": "Мин. оценка автоматического поиска",
-    "autoMinScoreTooltip": "Минимальный порог релевантности (0–1) при включённом автоматическом поиске",
-    "autoMinScoreRequired": "Требуется указать мин. оценку",
+    "autoMemorySearchPersistToContext": "Persist Search Result to Context",
+    "autoMemorySearchPersistToContextTooltip": "When enabled, the auto memory search tool call and result are saved into the conversation context. Disable it to use the search result only for the current model call.",
     "embeddingConfigTitle": "Настройки модели эмбеддинга",
     "embeddingBackend": "Бэкенд",
     "embeddingBackendTooltip": "Провайдер бэкенда эмбеддинга, напр. openai",
@@ -1579,7 +1672,13 @@
     "configured": "Настроено",
     "requiresConfig": "Требуется настройка",
     "configSaved": "Конфигурация сохранена",
-    "configSaveError": "Не удалось сохранить конфигурацию"
+    "configSaveError": "Не удалось сохранить конфигурацию",
+    "active": "активно",
+    "available": "Доступно",
+    "noEnabled": "Нет включённых инструментов",
+    "goEnableBtn": "Включить",
+    "configureAction": "Настроить →",
+    "enableAction": "Включить →"
   },
   "modelConfig": {
     "promptTitle": "Требуется LLM-модель — выберите в Chat после настройки",
@@ -1611,7 +1710,33 @@
     "updateModal": {
       "title": "Доступна новая версия: v{{version}}",
       "viewReleases": "Открыть релизы",
-      "close": "Закрыть"
+      "installDesktopUpdate": "Обновить сейчас",
+      "desktopInstallHint": "QwenPaw Desktop {{version}} готов к установке. Приложение перезапустится после обновления.",
+      "checking": "Проверка обновлений…",
+      "checkingHint": "Проверяем последнюю версию",
+      "downloading": "Загрузка обновления",
+      "downloadingTo": "Обновление до версии {{version}}",
+      "downloadProgress": "{{done}} / {{total}} · {{rate}}",
+      "installing": "Установка обновления",
+      "willRestart": "Приложение перезапустится автоматически после установки.",
+      "stepPrepare": "Подготовка",
+      "stepDownloading": "Загрузка",
+      "stepInstalling": "Установка",
+      "failedTitle": "Обновление не удалось",
+      "back": "Назад",
+      "retry": "Повторить",
+      "errors": {
+        "network": "Не удалось подключиться к серверу обновлений. Проверьте интернет и повторите попытку.",
+        "signature": "Не удалось проверить подпись файла обновления. Попробуйте загрузить ещё раз.",
+        "appLocation": "QwenPaw запущен из macOS-пути только для чтения. Переместите QwenPaw.app в папку Applications, запустите его оттуда и повторите обновление.",
+        "other": "Обновление не удалось."
+      },
+      "updateLater": "Скачать в фоне",
+      "backgroundDownloading": "Загрузка в фоновом режиме…",
+      "readyToInstall": "Обновление готово",
+      "readyToInstallHint": "Обновление v{{version}} загружено. Перезапустите приложение, чтобы установить и открыть новую версию.",
+      "restartNow": "Обновить сейчас",
+      "backgroundFailed": "Фоновая загрузка не удалась"
     },
     "settings": {
       "language": "Язык",
@@ -2311,7 +2436,12 @@
     "detailContent": "Вывод",
     "detailPayload": "Данные",
     "detailExecutionTrace": "Трассировка выполнения",
-    "detailTraceEmpty": "Трассировка выполнения недоступна"
+    "detailTraceEmpty": "Трассировка выполнения недоступна",
+    "filterByAgent": "Фильтр по агенту",
+    "filterBySourceType": "Фильтр по источнику",
+    "sourceTypeCron": "Cron",
+    "sourceTypeHeartbeat": "Heartbeat",
+    "sourceTypeMemory": "Memory"
   },
   "codingMode": {
     "title": "Режим кодирования",
@@ -2457,7 +2587,7 @@
     "getCurrentTime": "Получить текущее время",
     "setTimezone": "Установить {{timezone}}",
     "getTokenUsage": "Запросить использование токенов",
-    "memorySearch": "Поиск {{query}}",
+    "memorySearch": "Поиск в памяти {{query}}",
     "memorySearchDefault": "Поиск в памяти",
     "listAgents": "Список агентов",
     "chatWithAgent": "Чат с {{agent}}",

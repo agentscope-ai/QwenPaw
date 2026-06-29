@@ -36,6 +36,10 @@ function generateFallbackFilename(): string {
   return `qwenpaw_workspace_${agentId}_${timestamp}.zip`;
 }
 
+function encodePath(path: string): string {
+  return path.split("/").map(encodeURIComponent).join("/");
+}
+
 export const workspaceApi = {
   listFiles: () =>
     request<MdFileInfo[]>("/workspace/files").then((files) =>
@@ -95,7 +99,8 @@ export const workspaceApi = {
   listDailyMemory: () =>
     request<MdFileInfo[]>("/workspace/memory").then((files) =>
       files.map((file) => {
-        const date = file.filename.replace(".md", "");
+        const basename = file.filename.split("/").pop() || file.filename;
+        const date = basename.replace(".md", "");
         return {
           ...file,
           date,
@@ -104,12 +109,12 @@ export const workspaceApi = {
       }),
     ),
 
-  loadDailyMemory: (date: string) =>
-    request<MdFileContent>(`/workspace/memory/${encodeURIComponent(date)}.md`),
+  loadDailyMemory: (memoryPath: string) =>
+    request<MdFileContent>(`/workspace/memory/${encodePath(memoryPath)}`),
 
-  saveDailyMemory: (date: string, content: string) =>
+  saveDailyMemory: (memoryPath: string, content: string) =>
     request<Record<string, unknown>>(
-      `/workspace/memory/${encodeURIComponent(date)}.md`,
+      `/workspace/memory/${encodePath(memoryPath)}`,
       {
         method: "PUT",
         body: JSON.stringify({ content }),

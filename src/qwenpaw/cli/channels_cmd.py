@@ -59,6 +59,7 @@ _ALL_CHANNEL_NAMES = {
     "console": "Console",
     "voice": "Twilio",
     "yuanbao": "Yuanbao",
+    "slack": "Slack",
 }
 # Public alias for tests and external use.
 CHANNEL_NAMES = _ALL_CHANNEL_NAMES

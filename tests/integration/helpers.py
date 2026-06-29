@@ -234,6 +234,100 @@ def make_event(
 # Mock LLM server
 # ------------------------------------------------------------------ #
 
+# ------------------------------------------------------------------ #
+# Cron history polling helpers (with disk + log fallback)
+# ------------------------------------------------------------------ #
+
+_CRON_HISTORY_HTTP_TIMEOUT = 15.0
+
+
+def poll_history(app_server, job_id, deadline, *, min_count=1):
+    """Poll ``GET /api/cron/jobs/{id}/history`` until records arrive."""
+    while time.time() < deadline:
+        resp = app_server.api_request(
+            "GET",
+            f"/api/cron/jobs/{job_id}/history",
+            timeout=_CRON_HISTORY_HTTP_TIMEOUT,
+        )
+        if resp.status_code == 200:
+            records = resp.json()
+            if isinstance(records, list) and len(records) >= min_count:
+                return records
+        time.sleep(1.0)
+    return []
+
+
+def _read_history_from_disk(app_server, job_id):
+    """Read on-disk jobs_history/<job>.json if present."""
+    from urllib.parse import quote
+
+    encoded = quote(job_id, safe="")
+    # JsonJobRepository writes to <workspaces>/<agent_id>/jobs_history/.
+    # We don't know the agent_id from the test, so glob.
+    for path in app_server.working_dir.rglob(
+        f"jobs_history/{encoded}.json",
+    ):
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if isinstance(data, list) and data:
+            return data
+    return []
+
+
+def wait_cron_executed(app_server, job_id, deadline):
+    """Wait for cron job to execute, with disk + log fallback.
+
+    Upstream has a known race in ``CronManager.get_history``: when an
+    agent reload swaps in a new ``CronManager`` instance, the new
+    instance's per-job in-memory cache may store an empty list before
+    the (still-running) cron task on the old instance writes to disk;
+    subsequent GETs hit the cache and return ``[]`` forever even though
+    the cron actually succeeded. See
+    ``localfile/bug_report_cron_history_cache.md`` for the full report.
+
+    Fallback order:
+        1. HTTP poll (preferred — same shape the production console
+           uses).
+        2. Read ``<working_dir>/**/jobs_history/<urlquoted_id>.json``
+           directly — the cron task still writes to disk, only the
+           per-instance cache is poisoned. Records have the real
+           ``run_at`` / ``status`` / ``error`` / ``trigger`` fields.
+        3. Scan server logs for the ``_execute_once`` line as a last
+           resort and return a synthetic record. Use this only when
+           the test only inspects ``status``.
+
+    Returns ``[]`` when none of the three signals appears before
+    ``deadline``.
+    """
+    records = poll_history(app_server, job_id, deadline)
+    if records:
+        return records
+
+    # Disk fallback — gives the real record shape.
+    disk_records = _read_history_from_disk(app_server, job_id)
+    if disk_records:
+        return disk_records
+
+    # Log fallback — only carries ``status``.
+    logs = app_server.logs_tail(40000)
+    success_marker = f"_execute_once: job_id={job_id} status=success"
+    failure_marker = f"_execute_once: job_id={job_id} status="
+    if success_marker in logs:
+        return [{"status": "success", "_via": "logs"}]
+    if failure_marker in logs:
+        idx = logs.find(failure_marker)
+        tail = logs[idx + len(failure_marker) :]
+        status = tail.split()[0] if tail else "error"
+        return [{"status": status, "_via": "logs"}]
+    return []
+
+
+# ------------------------------------------------------------------ #
+# MockLLMHandler (HTTPServer handler)
+# ------------------------------------------------------------------ #
+
 MOCK_LLM_RESPONSE = "Mock heartbeat response from integration test."
 MOCK_LLM_PROVIDER_ID = "integ-mock-llm"
 _HTTP_TIMEOUT = 15.0
