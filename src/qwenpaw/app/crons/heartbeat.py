@@ -48,15 +48,31 @@ _EVERY_PATTERN = re.compile(
 _CRON_FIELD_PATTERN = re.compile(
     r"^[\d\*\-/,]+$",
 )
+# DOW field also accepts named abbreviations (mon–sun) per POSIX/APScheduler.
+# Supports: numeric cron chars, or named abbreviations, or named ranges like mon-fri.
+_DOW_FIELD_PATTERN = re.compile(
+    r"^(?:[\d\*\-/,]+|(?:mon|tue|wed|thu|fri|sat|sun)(?:-(?:mon|tue|wed|thu|fri|sat|sun))?(/[\d]+)?$)",
+    re.IGNORECASE,
+)
 _HEARTBEAT_SOURCE_ID = "_heartbeat"
 
 
 def is_cron_expression(every: str) -> bool:
-    """Return True if *every* looks like a 5-field cron expression."""
+    """Return True if *every* looks like a 5-field cron expression.
+
+    The first four fields (minute, hour, day, month) accept only numeric
+    cron characters.  The fifth field (day-of-week) additionally accepts
+    the three-letter English abbreviations *mon*–*sun* which are valid in
+    both POSIX cron and APScheduler's ``CronTrigger``.
+    """
     parts = (every or "").strip().split()
     if len(parts) != 5:
         return False
-    return all(_CRON_FIELD_PATTERN.match(p) for p in parts)
+    # First 4 fields: minute, hour, day, month — numeric only
+    if not all(_CRON_FIELD_PATTERN.match(p) for p in parts[:4]):
+        return False
+    # 5th field: day-of-week — numeric OR named abbreviations
+    return bool(_DOW_FIELD_PATTERN.match(parts[4]))
 
 
 def parse_heartbeat_cron(every: str) -> tuple:

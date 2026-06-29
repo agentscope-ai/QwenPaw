@@ -29,9 +29,26 @@ def test_is_cron_expression_rejects_4_fields():
     assert is_cron_expression("0 9 * *") is False
 
 
-def test_is_cron_expression_rejects_named_dow():
-    # Named DOW like "mon" contains non-cron chars
-    assert is_cron_expression("0 9 * * mon") is False
+def test_is_cron_expression_accepts_named_dow():
+    """Named DOW abbreviations (mon–sun) are valid in POSIX cron and
+    APScheduler ``CronTrigger``."""
+    assert is_cron_expression("0 9 * * mon") is True
+    assert is_cron_expression("0 9 * * MON") is True
+    assert is_cron_expression("0 9 * * fri") is True
+
+
+def test_is_cron_expression_accepts_named_dow_range():
+    assert is_cron_expression("0 9 * * mon-fri") is True
+
+
+def test_is_cron_expression_accepts_named_dow_with_step():
+    assert is_cron_expression("0 9 * * tue/2") is True
+    assert is_cron_expression("0 9 * * mon-fri/2") is True
+
+
+def test_is_cron_expression_rejects_invalid_named_dow():
+    assert is_cron_expression("0 9 * * xyz") is False
+    assert is_cron_expression("0 9 * * monday") is False
 
 
 # ---------------------------------------------------------------------------
