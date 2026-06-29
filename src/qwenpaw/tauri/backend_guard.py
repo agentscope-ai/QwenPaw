@@ -119,17 +119,10 @@ def _terminate_previous_backend(pid_file: Path) -> None:
 
 
 def _write_pid(pid_file: Path, pid: int) -> None:
+    # Single writer at startup; a torn read is self-healing because
+    # _read_recorded_pid treats a non-integer file as "no pid".
     pid_file.parent.mkdir(parents=True, exist_ok=True)
-    tmp = pid_file.with_name(f"{pid_file.name}.tmp.{os.getpid()}")
-    try:
-        tmp.write_text(str(pid), encoding="utf-8")
-        tmp.replace(pid_file)
-    finally:
-        try:
-            if tmp.exists():
-                tmp.unlink()
-        except OSError:
-            pass
+    pid_file.write_text(str(pid), encoding="utf-8")
 
 
 def reconcile_singleton_backend(working_dir: "str | os.PathLike[str]") -> None:

@@ -98,7 +98,6 @@ FunctionEnd
   ; after several attempts we surface a friendly retry prompt rather than the
   ; raw OS dialog.
   Push $0
-  DetailPrint "$(qwenpawStopBackend)"
   ${Do}
     nsExec::Exec 'taskkill /F /T /IM qwenpaw-backend.exe'
     Pop $0
