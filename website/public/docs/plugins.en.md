@@ -904,9 +904,9 @@ cd status-command
 # -*- coding: utf-8 -*-
 """Status Command Plugin Entry Point."""
 
-from qwenpaw.plugins.api import PluginApi
-from qwenpaw.runtime.slash_command_registry import CommandSpec
 import logging
+
+from qwenpaw.plugins.api import PluginApi
 
 logger = logging.getLogger(__name__)
 
