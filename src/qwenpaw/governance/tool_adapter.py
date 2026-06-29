@@ -59,6 +59,29 @@ def _is_execution_level_off() -> bool:
         return False
 
 
+def _resolve_agent_approval_level(request_context: dict[str, str] | None) -> str:
+    """Resolve the per-agent approval_level from agent.json.
+
+    This is what the Web UI 'Tool Execution Security' card saves to.
+    Returns the canonical level string ('off'/'auto'/'smart'/'strict'),
+    or empty string if unresolvable.
+    """
+    if not request_context:
+        return ""
+    agent_id = request_context.get("agent_id", "")
+    if not agent_id:
+        return ""
+    try:
+        from ..config.config import load_agent_config
+        from ..security.tool_guard.execution_level import ToolExecutionLevel
+
+        profile = load_agent_config(agent_id)
+        raw = getattr(profile, "approval_level", None)
+        return ToolExecutionLevel.from_config(raw).value
+    except Exception:
+        return ""
+
+
 # ---------------------------------------------------------------------------
 # PolicyGuardedTool
 # ---------------------------------------------------------------------------
@@ -159,6 +182,24 @@ async def _policy_tool_check_permissions(
     del context
 
     governor = getattr(self, "_qp_governor", None)
+
+    # ── Agent-level approval_level check ──
+    # Web UI saves approval_level to agent.json; governance
+    # policy.yaml has its own execution_level.  We must honour
+    # the agent-level setting so the UI toggle works.
+    request_ctx = getattr(self, "_qp_request_context", None) or {}
+    agent_level = _resolve_agent_approval_level(request_ctx)
+    if agent_level == "off":
+        return PermissionDecision(
+            behavior=PermissionBehavior.ALLOW,
+            message="governance: approval_level=off, all tools allowed.",
+        )
+
+    # Sync agent-level approval_level to the governor's policy
+    # so the three-phase evaluation uses the correct threshold.
+    if governor is not None and agent_level:
+        governor.policy.execution_level = agent_level
+
     if governor is None:
         # Check if execution_level is "off" (dev mode) — allow pass-through
         if _is_execution_level_off():
@@ -257,10 +298,7 @@ async def _policy_tool_call(
     result = await FunctionTool.__call__(self, *args, **kwargs)
 
     # Check if sandbox violation was returned (state=DENIED)
-    if not (
-        isinstance(result, ToolChunk)
-        and result.state == ToolResultState.DENIED
-    ):
+    if not (isinstance(result, ToolChunk) and result.state == ToolResultState.DENIED):
         return result
 
     # Extract violation message from metadata or content
@@ -272,9 +310,7 @@ async def _policy_tool_call(
         for block in result.content or []:
             if hasattr(block, "text") and "Sandbox violation:" in block.text:
                 violation_msg = (
-                    block.text.split("Sandbox violation:", 1)[1]
-                    .split("\n")[0]
-                    .strip()
+                    block.text.split("Sandbox violation:", 1)[1].split("\n")[0].strip()
                 )
                 break
 
@@ -324,9 +360,11 @@ async def _policy_tool_call(
         tc_spec,
         GovernanceDecision(
             action=GovernanceAction.ASK,
-            reason=f"sandbox violation: {violation_msg}"
-            if violation_msg
-            else "sandbox violation, ask user",
+            reason=(
+                f"sandbox violation: {violation_msg}"
+                if violation_msg
+                else "sandbox violation, ask user"
+            ),
         ),
     )
 
@@ -455,9 +493,7 @@ async def _ask_user_approval(
                     rule_id="policy_ask",
                     category=GuardThreatCategory.RESOURCE_ABUSE,
                     severity=(
-                        GuardSeverity.HIGH
-                        if violation_msg
-                        else GuardSeverity.INFO
+                        GuardSeverity.HIGH if violation_msg else GuardSeverity.INFO
                     ),
                     title=(
                         "Sandbox Violation — Approve Unsandboxed Execution?"
