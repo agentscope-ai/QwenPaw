@@ -18,12 +18,12 @@ graph LR
     D -.->|New interaction creates new memory| A
 ```
 
-| Phase              | Module        | What it does                                                                                                        | Main output                                    |
-| ------------------ | ------------- | ------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------- |
-| **Accumulate**     | Auto Memory   | Turns useful conversation context into daily memory cards and keeps raw dialogue as traceable source material.      | `daily/<date>/<session_id>.md`                 |
-| **Read Resources** | Auto Resource | Turns external files into daily resource cards linked back to the original resources.                               | `daily/<date>/<resource_card>.md`              |
-| **Consolidate**    | Auto Dream    | Extracts long-term memory units from daily notes, integrates them into digest nodes, and generates interest topics. | `digest/*/*.md`, `daily/<date>/interests.yaml` |
-| **Serve**          | Proactive     | Reads interest topics and exposes them to the upper-level agent, which decides whether and how to remind the user.  | Structured proactive topics                    |
+| Phase              | Module        | What it does                                                                                                        | Main output                                     |
+| ------------------ | ------------- | ------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------- |
+| **Accumulate**     | Auto Memory   | Turns useful conversation context into daily memory cards and keeps raw dialogue as traceable source material.      | `memory/<date>/<session_id>.md`                 |
+| **Read Resources** | Auto Resource | Turns external files into daily resource cards linked back to the original resources.                               | `memory/<date>/<resource_card>.md`              |
+| **Consolidate**    | Auto Dream    | Extracts long-term memory units from daily notes, integrates them into digest nodes, and generates interest topics. | `digest/*/*.md`, `memory/<date>/interests.yaml` |
+| **Serve**          | Proactive     | Reads interest topics and exposes them to the upper-level agent, which decides whether and how to remind the user.  | Structured proactive topics                     |
 
 This makes memory evolution a data flow rather than a single summary file: raw sessions and resources stay available, daily cards preserve what happened, digest nodes hold reusable knowledge, and proactive topics provide the bridge from memory to action.
 
@@ -35,14 +35,14 @@ ReMe stores memory directly in a workspace. Files are readable and editable by b
 
 ```text
 <workspace>/
-├── metadata/       # Indexes, graph data, catalogs, and persistent system state
-├── session/        # Raw conversations and agent sessions
+├── mem_metadata/   # Indexes, graph data, catalogs, and persistent system state
+├── mem_session/    # Raw conversations and agent sessions
 │   └── dialog/
 │       └── <session_id>.jsonl
 ├── resource/       # External source materials, grouped by date
 │   └── YYYY-MM-DD/
 │       └── <resource>.<ext>
-├── daily/          # Lightly processed daily memory cards and day indexes
+├── memory/         # Lightly processed daily memory cards and day indexes
 │   ├── YYYY-MM-DD.md
 │   └── YYYY-MM-DD/
 │       ├── <session_id>.md
@@ -56,10 +56,10 @@ ReMe stores memory directly in a workspace. Files are readable and editable by b
 
 The split is intentional:
 
-- `session/` and `resource/` keep the original evidence.
-- `daily/` keeps concise, human-readable records for a specific day.
+- `mem_session/` and `resource/` keep the original evidence.
+- `memory/` keeps concise, human-readable records for a specific day.
 - `digest/` keeps reusable long-term memory such as preferences, workflows, and knowledge.
-- `metadata/` keeps indexes for search, wikilink traversal, and incremental processing.
+- `mem_metadata/` keeps indexes for search, wikilink traversal, and incremental processing.
 
 ---
 
@@ -69,9 +69,9 @@ Auto Memory is the conversation entry point. It saves the original dialogue and 
 
 ```text
 Conversation messages
-  -> session/dialog/<session_id>.jsonl
-  -> daily/<date>/<session_id>.md
-  -> daily/<date>.md
+  -> mem_session/dialog/<session_id>.jsonl
+  -> memory/<date>/<session_id>.md
+  -> memory/<date>.md
 ```
 
 It records information that is likely to help future work:
@@ -102,9 +102,9 @@ Auto Resource is the resource entry point. It watches or receives changes under 
 
 ```text
 resource/<date>/<resource_file>
-  -> daily/<date>/<generated_name>.md
+  -> memory/<date>/<generated_name>.md
   -> source_resource: [[resource/<date>/<resource_file>]]
-  -> daily/<date>.md
+  -> memory/<date>.md
 ```
 
 It is designed for making files useful to memory, not just storing them. A resource card may capture:
@@ -126,11 +126,11 @@ Current ReMe Beta behavior is most suitable for text-like resources such as Mark
 Auto Dream is the self-evolution step. It reads changed daily inputs for a date, extracts long-term memory units, integrates them into `digest/`, and writes proactive topic candidates into `interests.yaml`.
 
 ```text
-daily/<date>.md
-daily/<date>/**/*.md
+memory/<date>.md
+memory/<date>/**/*.md
   -> extract memory units and topic candidates
   -> integrate memory units into digest/
-  -> write daily/<date>/interests.yaml
+  -> write memory/<date>/interests.yaml
 ```
 
 Digest memory is organized by memory type:
@@ -150,7 +150,7 @@ Auto Dream uses four stages:
 | Topics    | De-duplicate and select the day's actionable interest topics, avoiding repeated topics from recent days.                   |
 | Finish    | Checkpoint successfully processed files and return a summary of scanned, changed, integrated, and topic counts.            |
 
-The integration step is where memory self-evolution happens. A new unit may create a new digest node, strengthen an existing one, refine its conditions and steps, or correct outdated information. Sources are linked back with workspace-relative wikilinks such as `derived_from:: [[daily/<date>/<session>.md]]`.
+The integration step is where memory self-evolution happens. A new unit may create a new digest node, strengthen an existing one, refine its conditions and steps, or correct outdated information. Sources are linked back with workspace-relative wikilinks such as `derived_from:: [[memory/<date>/<session>.md]]`.
 
 Auto Dream does not rewrite daily notes. Daily memory remains the factual record; digest memory is the abstract, reusable layer.
 
@@ -161,7 +161,7 @@ Auto Dream does not rewrite daily notes. Daily memory remains the factual record
 Proactive is the reading interface for active assistance. It does not re-analyze daily files and does not call an LLM by itself. It reads:
 
 ```text
-daily/<date>/interests.yaml
+memory/<date>/interests.yaml
 ```
 
 The file is generated by Auto Dream's Topics stage. A typical topic contains a title, reason, evidence, keywords, and source paths. QwenPaw can use these topics to decide whether to:
@@ -212,7 +212,7 @@ This document reflects the new ReMe file-native design used for QwenPaw's next m
 - memory is no longer centered on one `MEMORY.md` file;
 - resources are first-class memory inputs through Auto Resource;
 - long-term memory is split into `personal`, `procedure`, and `wiki` digest nodes;
-- proactive behavior is driven by `daily/<date>/interests.yaml` generated by Auto Dream;
+- proactive behavior is driven by `memory/<date>/interests.yaml` generated by Auto Dream;
 - search and wikilinks are part of the memory substrate rather than an optional add-on.
 
 The feature remains Beta, and exact UI switches, schedules, and product defaults may continue to change as QwenPaw integrates the new ReMe runtime.

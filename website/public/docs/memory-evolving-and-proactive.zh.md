@@ -18,12 +18,12 @@ graph LR
     D -.->|新交互继续产生新记忆| A
 ```
 
-| 阶段       | 模块          | 做什么                                                              | 主要产物                                       |
-| ---------- | ------------- | ------------------------------------------------------------------- | ---------------------------------------------- |
-| **积累**   | Auto Memory   | 将有长期价值的对话上下文整理成 daily 记忆卡片，并保留原始对话来源。 | `daily/<date>/<session_id>.md`                 |
-| **读资源** | Auto Resource | 将外部文件解读成 daily 资源卡片，并链接回原始资源。                 | `daily/<date>/<resource_card>.md`              |
-| **沉淀**   | Auto Dream    | 从 daily 记忆中抽取长期记忆单元，整合进 digest，并生成兴趣主题。    | `digest/*/*.md`、`daily/<date>/interests.yaml` |
-| **服务**   | Proactive     | 读取兴趣主题并暴露给上层 Agent，由 Agent 决定是否以及如何提醒用户。 | 结构化主动主题                                 |
+| 阶段       | 模块          | 做什么                                                              | 主要产物                                        |
+| ---------- | ------------- | ------------------------------------------------------------------- | ----------------------------------------------- |
+| **积累**   | Auto Memory   | 将有长期价值的对话上下文整理成 daily 记忆卡片，并保留原始对话来源。 | `memory/<date>/<session_id>.md`                 |
+| **读资源** | Auto Resource | 将外部文件解读成 daily 资源卡片，并链接回原始资源。                 | `memory/<date>/<resource_card>.md`              |
+| **沉淀**   | Auto Dream    | 从 daily 记忆中抽取长期记忆单元，整合进 digest，并生成兴趣主题。    | `digest/*/*.md`、`memory/<date>/interests.yaml` |
+| **服务**   | Proactive     | 读取兴趣主题并暴露给上层 Agent，由 Agent 决定是否以及如何提醒用户。 | 结构化主动主题                                  |
 
 因此，记忆进化不再是写入一个单独的总结文件，而是一条文件化数据流：原始会话和资源保留证据，daily 卡片记录当天发生了什么，digest 节点保存可复用知识，proactive 主题把记忆转化为行动线索。
 
@@ -35,14 +35,14 @@ ReMe 直接在 workspace 中存储记忆。文件对用户和 Agent 都可读、
 
 ```text
 <workspace>/
-├── metadata/       # 索引、图谱、catalog 和持久化系统状态
-├── session/        # 原始对话和 Agent session
+├── mem_metadata/   # 索引、图谱、catalog 和持久化系统状态
+├── mem_session/    # 原始对话和 Agent session
 │   └── dialog/
 │       └── <session_id>.jsonl
 ├── resource/       # 外部原始资料，按日期组织
 │   └── YYYY-MM-DD/
 │       └── <resource>.<ext>
-├── daily/          # 浅加工的日记卡片和当天索引
+├── memory/         # 浅加工的日记卡片和当天索引
 │   ├── YYYY-MM-DD.md
 │   └── YYYY-MM-DD/
 │       ├── <session_id>.md
@@ -56,10 +56,10 @@ ReMe 直接在 workspace 中存储记忆。文件对用户和 Agent 都可读、
 
 这个分层有明确边界：
 
-- `session/` 和 `resource/` 保留原始证据；
-- `daily/` 保留当天发生过什么，内容简洁、可读、可追溯；
+- `mem_session/` 和 `resource/` 保留原始证据；
+- `memory/` 保留当天发生过什么，内容简洁、可读、可追溯；
 - `digest/` 保留可复用的长期记忆，例如偏好、流程和知识；
-- `metadata/` 保留搜索、wikilink 图谱和增量处理需要的索引状态。
+- `mem_metadata/` 保留搜索、wikilink 图谱和增量处理需要的索引状态。
 
 ---
 
@@ -69,9 +69,9 @@ Auto Memory 是对话记忆入口。它保存原始对话，并将有长期价�
 
 ```text
 Conversation messages
-  -> session/dialog/<session_id>.jsonl
-  -> daily/<date>/<session_id>.md
-  -> daily/<date>.md
+  -> mem_session/dialog/<session_id>.jsonl
+  -> memory/<date>/<session_id>.md
+  -> memory/<date>.md
 ```
 
 它会记录未来可能还会用到的信息：
@@ -102,9 +102,9 @@ Auto Resource 是资源记忆入口。它监听或接收 `resource/<date>/` 下�
 
 ```text
 resource/<date>/<resource_file>
-  -> daily/<date>/<generated_name>.md
+  -> memory/<date>/<generated_name>.md
   -> source_resource: [[resource/<date>/<resource_file>]]
-  -> daily/<date>.md
+  -> memory/<date>.md
 ```
 
 它的目标不是简单存档文件，而是让资料变成可用记忆。资源卡片通常会提炼：
@@ -126,11 +126,11 @@ resource/<date>/<resource_file>
 Auto Dream 是记忆自进化步骤。它读取某一天发生变化的 daily 输入，抽取长期记忆单元，整合进 `digest/`，并把主动主题候选写入 `interests.yaml`。
 
 ```text
-daily/<date>.md
-daily/<date>/**/*.md
+memory/<date>.md
+memory/<date>/**/*.md
   -> 抽取 memory units 和 topic candidates
   -> 整合 memory units 到 digest/
-  -> 写入 daily/<date>/interests.yaml
+  -> 写入 memory/<date>/interests.yaml
 ```
 
 Digest 记忆按类型组织：
@@ -150,7 +150,7 @@ Auto Dream 包含四个阶段：
 | Topics    | 对当天兴趣主题去重、筛选，并避免和最近几天的主题重复。                                               |
 | Finish    | 对成功处理的文件做 checkpoint，并返回 scanned、changed、integrated、topics 等摘要。                  |
 
-真正的记忆自进化发生在 Integrate 阶段：新的 unit 可能创建新 digest 节点，也可能强化已有节点、细化适用条件和步骤，或修正过时信息。来源通过 workspace-relative wikilink 追溯，例如 `derived_from:: [[daily/<date>/<session>.md]]`。
+真正的记忆自进化发生在 Integrate 阶段：新的 unit 可能创建新 digest 节点，也可能强化已有节点、细化适用条件和步骤，或修正过时信息。来源通过 workspace-relative wikilink 追溯，例如 `derived_from:: [[memory/<date>/<session>.md]]`。
 
 Auto Dream 不改写 daily 正文。daily 是事实和现场记录，digest 才是抽象后的长期记忆层。
 
@@ -161,7 +161,7 @@ Auto Dream 不改写 daily 正文。daily 是事实和现场记录，digest 才�
 Proactive 是主动服务的读取接口。它本身不重新分析 daily 文件，也不调用 LLM，只读取：
 
 ```text
-daily/<date>/interests.yaml
+memory/<date>/interests.yaml
 ```
 
 该文件由 Auto Dream 的 Topics 阶段生成。一个典型 topic 会包含标题、原因、证据、关键词和来源路径。QwenPaw 可以基于这些 topic 决定是否：
@@ -212,7 +212,7 @@ ReMe 会在后台维护索引，让 Agent 可以通过搜索和图谱关系复�
 - 记忆不再围绕单个 `MEMORY.md` 文件组织；
 - 资源通过 Auto Resource 成为一等记忆输入；
 - 长期记忆拆分为 `personal`、`procedure`、`wiki` 三类 digest 节点；
-- 主动服务由 Auto Dream 生成的 `daily/<date>/interests.yaml` 驱动；
+- 主动服务由 Auto Dream 生成的 `memory/<date>/interests.yaml` 驱动；
 - 搜索和 wikilink 是记忆底座的一部分，而不是额外附加能力。
 
 该能力仍处于 Beta 阶段。随着 QwenPaw 接入新版 ReMe runtime，具体 UI 开关、调度时间和产品默认值可能继续调整。
