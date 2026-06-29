@@ -19,10 +19,9 @@ from __future__ import annotations
 import logging
 import os
 from pathlib import Path
-from typing import TYPE_CHECKING, Optional
+from typing import Optional
 
-if TYPE_CHECKING:
-    import psutil
+import psutil
 
 logger = logging.getLogger(__name__)
 
@@ -49,14 +48,12 @@ def _read_recorded_pid(pid_file: Path) -> Optional[int]:
     return pid if pid > 0 else None
 
 
-def _looks_like_backend(proc: "psutil.Process") -> bool:
+def _looks_like_backend(proc: psutil.Process) -> bool:
     """Best-effort check that *proc* is a QwenPaw desktop backend.
 
     Guards against PID reuse: a recorded PID may have been recycled by an
     unrelated process, which must never be killed.
     """
-    import psutil
-
     try:
         name = (proc.name() or "").lower()
     except (psutil.Error, OSError):
@@ -80,8 +77,6 @@ def _terminate_previous_backend(pid_file: Path) -> None:
     pid = _read_recorded_pid(pid_file)
     if pid is None or pid == os.getpid():
         return
-
-    import psutil
 
     try:
         proc = psutil.Process(pid)
