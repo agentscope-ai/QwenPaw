@@ -100,7 +100,7 @@ Auto-Dream 会读取近期每日记忆，提取可合并的 digest 单元，更�
 - **Inbox 行为**：只有实际修改记忆时，资源处理结果才会推送到 inbox
 
 > 关于 Auto-Memory、Auto-Dream、Auto-Memory-Search 和 Proactive
-> 的完整工作流介绍，请参阅 [智能体记忆进化与主动交互](./memory-evolving-and-proactive.zh.md)。以下仅补充技术实现细节与配置说明。
+> 的完整工作流介绍，请参阅 [智能体记忆进化与主动交互](./memory-evolving-and-proactive)。以下仅补充技术实现细节与配置说明。
 
 ---
 
@@ -346,8 +346,8 @@ QwenPaw 的记忆系统采用可插拔的 Backend 架构。除了默认的 ReMeL
 
 ## 相关页面
 
-- [智能体记忆进化](./memory-evolving-and-proactive.zh.md) — Auto-Memory、Auto-Dream、Auto-Memory-Search、Proactive 完整工作流
-- [项目介绍](./intro.zh.md) — 这个项目可以做什么
-- [控制台](./console.zh.md) — 在控制台管理记忆与配置
-- [Skills](./skills.zh.md) — 内置与自定义能力
-- [配置与工作目录](./config.zh.md) — 工作目录与 config
+- [智能体记忆进化](./memory-evolving-and-proactive) — Auto-Memory、Auto-Dream、Auto-Memory-Search、Proactive 完整工作流
+- [项目介绍](./intro) — 这个项目可以做什么
+- [控制台](./console) — 在控制台管理记忆与配置
+- [Skills](./skills) — 内置与自定义能力
+- [配置与工作目录](./config) — 工作目录与 config

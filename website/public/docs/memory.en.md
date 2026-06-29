@@ -102,7 +102,7 @@ source-linked daily notes via `auto_resource`.
 - **Supported default suffixes**: `md`, `txt`, `json`, `jsonl`, `csv`, `yaml`, `html`
 - **Inbox behavior**: Resource processing results are pushed to the inbox only when memory changed
 
-> For a complete walkthrough of Auto-Memory, Auto-Dream, Auto-Memory-Search, and Proactive, see [Memory-Evolving & Proactive Interaction](./memory-evolving-and-proactive.en.md). The sections below cover technical implementation details and configuration only.
+> For a complete walkthrough of Auto-Memory, Auto-Dream, Auto-Memory-Search, and Proactive, see [Memory-Evolving & Proactive Interaction](./memory-evolving-and-proactive). The sections below cover technical implementation details and configuration only.
 
 ---
 
@@ -396,8 +396,8 @@ The full configuration can be written into `running.adbpg_memory_config` of `age
 
 ## Related Pages
 
-- [Memory-Evolving & Proactive Interaction](./memory-evolving-and-proactive.en.md) — Auto-Memory, Auto-Dream, Auto-Memory-Search, Proactive complete workflow
-- [Introduction](./intro.en.md) — What this project can do
-- [Console](./console.en.md) — Manage memory and configuration in the console
-- [Skills](./skills.en.md) — Built-in and custom capabilities
-- [Configuration & Working Directory](./config.en.md) — Working directory and config
+- [Memory-Evolving & Proactive Interaction](./memory-evolving-and-proactive) — Auto-Memory, Auto-Dream, Auto-Memory-Search, Proactive complete workflow
+- [Introduction](./intro) — What this project can do
+- [Console](./console) — Manage memory and configuration in the console
+- [Skills](./skills) — Built-in and custom capabilities
+- [Configuration & Working Directory](./config) — Working directory and config
