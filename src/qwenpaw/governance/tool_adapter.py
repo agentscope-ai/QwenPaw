@@ -59,7 +59,9 @@ def _is_execution_level_off() -> bool:
         return False
 
 
-def _resolve_agent_approval_level(request_context: dict[str, str] | None) -> str:
+def _resolve_agent_approval_level(
+    request_context: dict[str, str] | None,
+) -> str:
     """Resolve the per-agent approval_level from agent.json.
 
     This is what the Web UI 'Tool Execution Security' card saves to.
@@ -298,7 +300,10 @@ async def _policy_tool_call(
     result = await FunctionTool.__call__(self, *args, **kwargs)
 
     # Check if sandbox violation was returned (state=DENIED)
-    if not (isinstance(result, ToolChunk) and result.state == ToolResultState.DENIED):
+    if not (
+        isinstance(result, ToolChunk)
+        and result.state == ToolResultState.DENIED
+    ):
         return result
 
     # Extract violation message from metadata or content
@@ -310,7 +315,9 @@ async def _policy_tool_call(
         for block in result.content or []:
             if hasattr(block, "text") and "Sandbox violation:" in block.text:
                 violation_msg = (
-                    block.text.split("Sandbox violation:", 1)[1].split("\n")[0].strip()
+                    block.text.split("Sandbox violation:", 1)[1]
+                    .split("\n")[0]
+                    .strip()
                 )
                 break
 
@@ -493,7 +500,9 @@ async def _ask_user_approval(
                     rule_id="policy_ask",
                     category=GuardThreatCategory.RESOURCE_ABUSE,
                     severity=(
-                        GuardSeverity.HIGH if violation_msg else GuardSeverity.INFO
+                        GuardSeverity.HIGH
+                        if violation_msg
+                        else GuardSeverity.INFO
                     ),
                     title=(
                         "Sandbox Violation — Approve Unsandboxed Execution?"
