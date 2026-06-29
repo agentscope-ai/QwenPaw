@@ -54,17 +54,7 @@ jobs:
 
       - name: Get version
         id: version
-        shell: pwsh
-        run: |
-          $content = Get-Content src/qwenpaw/__version__.py -Raw
-          if ($content -match '__version__\s*=\s*"([^"]+)"') {
-            $v = $Matches[1]
-          } else {
-            throw "Failed to extract version from __version__.py"
-          }
-          "version<<EOF" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
-          $v | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
-          "EOF" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+        uses: ./.github/actions/get-version
 
       - name: Set up Node
         uses: actions/setup-node@v4
@@ -114,110 +104,13 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install verify deps (Playwright + Chromium)
-        shell: pwsh
-        env:
-          RUNNER_PYTHON: ${{ steps.runner-python.outputs.python-path }}
-        run: |
-          $ErrorActionPreference = "Stop"
-          & $env:RUNNER_PYTHON -m pip install --upgrade pip
-          & $env:RUNNER_PYTHON -m pip install -r scripts/verify/requirements-verify.txt
-          & $env:RUNNER_PYTHON -m playwright install chromium --with-deps
-
       - name: Verify desktop (Legacy Windows)
         timeout-minutes: 10
-        shell: pwsh
-        env:
-          QWENPAW_DASHSCOPE_API_KEY: ${{ secrets.QWENPAW_DASHSCOPE_API_KEY }}
-          RUNNER_PYTHON: ${{ steps.runner-python.outputs.python-path }}
-          PYTHONIOENCODING: utf-8
-        run: |
-          $ErrorActionPreference = "Stop"
-
-          # 1. Locate the freshly built NSIS installer.
-          $installer = Get-ChildItem dist/QwenPaw-Setup-*.exe |
-            Select-Object -First 1
-          if (-not $installer) { throw "No QwenPaw-Setup-*.exe found in dist/" }
-
-          # 2. Silent install to a deterministic ASCII path under RUNNER_TEMP
-          #    so we don't need to reverse-lookup the install location.
-          #    NSIS requires /D=<path> to be the LAST argument and unquoted.
-          $installDir = Join-Path $env:RUNNER_TEMP "QwenPaw-Verify"
-          if (Test-Path $installDir) { Remove-Item -Recurse -Force $installDir }
-          $nsisArgs = "/S /D=$installDir"
-          Write-Host "Installer: $($installer.FullName)"
-          Write-Host "Install dir: $installDir"
-          Start-Process -FilePath $installer.FullName -ArgumentList $nsisArgs -Wait
-
-          # 3. NSIS runs asynchronously even with -Wait; poll for python.exe.
-          $bundledPython = Join-Path $installDir "python.exe"
-          $deadline = (Get-Date).AddSeconds(120)
-          while (-not (Test-Path $bundledPython)) {
-            if ((Get-Date) -gt $deadline) {
-              throw "python.exe not present at $bundledPython after 120s"
-            }
-            Start-Sleep -Seconds 2
-          }
-          Write-Host "Bundled interpreter located: $bundledPython"
-
-          # 4. Initialise workspace and start the desktop backend in the
-          #    background. Use the bundled python so dependencies match the
-          #    actual installed env users will use.
-          $env:PYTHONNOUSERSITE = "1"
-          & $bundledPython -m qwenpaw init --defaults --accept-security
-          if ($LASTEXITCODE -ne 0) { throw "qwenpaw init failed ($LASTEXITCODE)" }
-
-          # Skip the BootstrapHook onboarding script so the verifier
-          # can drive the agent in normal QA mode (see
-          # scripts/verify/desktop_verify.py::verify_ui_chat docstring).
-          $bootstrapMd = Join-Path $env:USERPROFILE ".qwenpaw\workspaces\default\BOOTSTRAP.md"
-          if (Test-Path $bootstrapMd) { Remove-Item -Force $bootstrapMd }
-
-          $stdoutLog = Join-Path $env:RUNNER_TEMP "qwenpaw-desktop-stdout.log"
-          $stderrLog = Join-Path $env:RUNNER_TEMP "qwenpaw-desktop-stderr.log"
-          $proc = Start-Process -PassThru -NoNewWindow `
-            -FilePath $bundledPython `
-            -ArgumentList "-m","qwenpaw","app","--host","127.0.0.1","--port","8088" `
-            -RedirectStandardOutput $stdoutLog `
-            -RedirectStandardError $stderrLog
-          $proc.Id | Out-File -FilePath (Join-Path $env:RUNNER_TEMP "qwenpaw-desktop.pid") -Encoding ascii
-
-          # 5. Wait for /api/version (~120s budget).
-          $ready = $false
-          for ($i = 1; $i -le 60; $i++) {
-            try {
-              $resp = Invoke-WebRequest -Uri http://127.0.0.1:8088/api/version `
-                -UseBasicParsing -TimeoutSec 5 -ErrorAction Stop
-              if ($resp.StatusCode -eq 200) {
-                Write-Host "Server up after ~$([int]($i*2))s"
-                $ready = $true
-                break
-              }
-            } catch { Start-Sleep -Seconds 2 }
-          }
-          if (-not $ready) {
-            Write-Host "::error::Server did not respond within 120s"
-            exit 1
-          }
-
-          # 6. Cross-version sanity: backend version must match source.
-          $expected = "${{ steps.version.outputs.version }}"
-          $payload = (Invoke-WebRequest -Uri http://127.0.0.1:8088/api/version `
-            -UseBasicParsing -TimeoutSec 10).Content | ConvertFrom-Json
-          $actual = $payload.version
-          if ($actual -ne $expected) {
-            Write-Host "::error::Desktop version mismatch: expected=$expected actual=$actual"
-            exit 1
-          }
-
-          # 7. Run the shared verifier with the runner's python (where
-          #    Playwright + Chromium are installed) so the installed env
-          #    stays untouched.
-          & $env:RUNNER_PYTHON scripts/verify/desktop_verify.py `
-            --base-url http://127.0.0.1:8088 `
-            --ui-mode legacy `
-            --headed
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+        uses: ./.github/actions/verify-legacy-windows
+        with:
+          dashscope-api-key: ${{ secrets.QWENPAW_DASHSCOPE_API_KEY }}
+          version: ${{ steps.version.outputs.version }}
+          runner-python: ${{ steps.runner-python.outputs.python-path }}
 
       - name: Stop desktop server (Legacy Windows)
         if: always()
@@ -289,7 +182,7 @@ jobs:
 
       - name: Get version
         id: version
-        run: echo "version=$(sed -n 's/^__version__[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' src/qwenpaw/__version__.py)" >> $GITHUB_OUTPUT
+        uses: ./.github/actions/get-version
 
       - name: Set up Node
         uses: actions/setup-node@v4
@@ -323,97 +216,13 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install verify deps (Playwright + Chromium)
-        env:
-          RUNNER_PYTHON: ${{ steps.runner-python.outputs.python-path }}
-        run: |
-          set -euo pipefail
-          "$RUNNER_PYTHON" -m pip install --upgrade pip
-          "$RUNNER_PYTHON" -m pip install \
-            -r scripts/verify/requirements-verify.txt
-          "$RUNNER_PYTHON" -m playwright install chromium --with-deps
-
       - name: Verify desktop (Legacy macOS)
         timeout-minutes: 10
-        env:
-          QWENPAW_DASHSCOPE_API_KEY: ${{ secrets.QWENPAW_DASHSCOPE_API_KEY }}
-          RUNNER_PYTHON: ${{ steps.runner-python.outputs.python-path }}
-        run: |
-          set -euo pipefail
-
-          # 1. Unpack the freshly built zip into an isolated verify dir.
-          mkdir -p dist/verify-legacy
-          unzip -q dist/QwenPaw-*-macOS.zip -d dist/verify-legacy
-          APP="$(find dist/verify-legacy -maxdepth 2 -name '*.app' -type d | head -1)"
-          if [ -z "$APP" ]; then
-            echo "::error::QwenPaw.app not found inside zip"
-            exit 1
-          fi
-          ENV_DIR="$APP/Contents/Resources/env"
-          PYTHON="$ENV_DIR/bin/python"
-
-          # 2. Fix conda-pack paths (mandatory or python crashes on launch).
-          (cd "$ENV_DIR" && ./bin/conda-unpack 2>/dev/null || true)
-
-          # 3. Force only the bundled interpreter to ignore user site-packages.
-          # Keep PYTHONHOME scoped so the runner Python used by Playwright does
-          # not inherit the packaged stdlib path.
-          export PYTHONNOUSERSITE=1
-          export PATH="$ENV_DIR/bin:$PATH"
-          bundled_python() {
-            env PYTHONHOME="$ENV_DIR" PYTHONNOUSERSITE=1 \
-              PATH="$ENV_DIR/bin:$PATH" "$PYTHON" "$@"
-          }
-
-          # 4. SSL certificates — required for DashScope HTTPS calls.
-          CERT_FILE="$(bundled_python -c 'import certifi,sys; sys.stdout.write(certifi.where())' 2>/dev/null || true)"
-          if [ -n "${CERT_FILE:-}" ] && [ -f "$CERT_FILE" ]; then
-            export SSL_CERT_FILE="$CERT_FILE"
-            export REQUESTS_CA_BUNDLE="$CERT_FILE"
-          fi
-
-          # 5. Init workspace and start the desktop backend in the background.
-          bundled_python -m qwenpaw init --defaults --accept-security
-          # Skip the BootstrapHook onboarding script so the verifier
-          # can drive the agent in normal QA mode (see
-          # scripts/verify/desktop_verify.py::verify_ui_chat docstring).
-          rm -f "$HOME/.qwenpaw/workspaces/default/BOOTSTRAP.md"
-          nohup env PYTHONHOME="$ENV_DIR" PYTHONNOUSERSITE=1 \
-            PATH="$ENV_DIR/bin:$PATH" \
-            "$PYTHON" -m qwenpaw app --host 127.0.0.1 --port 8088 \
-            > "$RUNNER_TEMP/qwenpaw-desktop-stdout.log" \
-            2> "$RUNNER_TEMP/qwenpaw-desktop-stderr.log" &
-          echo $! > "$RUNNER_TEMP/qwenpaw-desktop.pid"
-
-          # 6. Wait for /api/version (~120s budget).
-          for i in $(seq 1 60); do
-            if curl -sf http://127.0.0.1:8088/api/version >/dev/null; then
-              echo "Server up after ~$((i*2))s"
-              break
-            fi
-            if [ "$i" = "60" ]; then
-              echo "::error::Server did not respond within 120s"
-              exit 1
-            fi
-            sleep 2
-          done
-
-          # 7. Cross-version sanity: backend version must match source.
-          expected="${{ steps.version.outputs.version }}"
-          actual="$(curl -sf http://127.0.0.1:8088/api/version | env -u PYTHONHOME -u PYTHONPATH "$RUNNER_PYTHON" -c 'import sys,json; print(json.load(sys.stdin)["version"])')"
-          if [ "$actual" != "$expected" ]; then
-            echo "::error::Desktop version mismatch: expected=$expected actual=$actual"
-            exit 1
-          fi
-
-          # 8. Run the shared verifier with the runner's python (where
-          #    Playwright + Chromium are installed). The bundled conda-pack
-          #    python stays untouched so we don't pollute the actual env
-          #    that ships to users.
-          env -u PYTHONHOME -u PYTHONPATH "$RUNNER_PYTHON" scripts/verify/desktop_verify.py \
-            --base-url http://127.0.0.1:8088 \
-            --ui-mode legacy \
-            --headed
+        uses: ./.github/actions/verify-legacy-macos
+        with:
+          dashscope-api-key: ${{ secrets.QWENPAW_DASHSCOPE_API_KEY }}
+          version: ${{ steps.version.outputs.version }}
+          runner-python: ${{ steps.runner-python.outputs.python-path }}
 
       - name: Stop desktop server (Legacy macOS)
         if: always()
@@ -465,17 +274,7 @@ jobs:
 
       - name: Get version
         id: version
-        shell: pwsh
-        run: |
-          $content = Get-Content src/qwenpaw/__version__.py -Raw
-          if ($content -match '__version__\s*=\s*"([^"]+)"') {
-            $v = $Matches[1]
-          } else {
-            throw "Failed to extract version from __version__.py"
-          }
-          "version<<EOF" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
-          $v | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
-          "EOF" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+        uses: ./.github/actions/get-version
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -536,28 +335,11 @@ jobs:
             --output "dist/QwenPaw-Tauri-${{ steps.version.outputs.version }}-Windows-setup.exe" `
             --pubkey-config console/src-tauri/tauri.version.conf.json
 
-      - name: Install verify deps (Playwright + Chromium)
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = "Stop"
-          python -m pip install --upgrade pip
-          python -m pip install -r scripts/verify/requirements-verify.txt
-          python -m playwright install chromium --with-deps
-
       - name: Verify desktop (Tauri Windows)
         timeout-minutes: 10
-        shell: pwsh
-        env:
-          QWENPAW_DASHSCOPE_API_KEY: ${{ secrets.QWENPAW_DASHSCOPE_API_KEY }}
-          PYTHONIOENCODING: utf-8
-        run: |
-          . scripts/verify/launch_tauri_windows.ps1
-          python scripts/verify/desktop_verify.py `
-            --base-url $env:BASE_URL `
-            --ui-mode tauri-windows `
-            --headed `
-            --cdp-url $env:CDP_URL
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+        uses: ./.github/actions/verify-tauri-windows
+        with:
+          dashscope-api-key: ${{ secrets.QWENPAW_DASHSCOPE_API_KEY }}
 
       - name: Stop desktop server (Tauri Windows)
         if: always()
@@ -627,7 +409,7 @@ jobs:
 
       - name: Get version
         id: version
-        run: echo "version=$(sed -n 's/^__version__[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' src/qwenpaw/__version__.py)" >> $GITHUB_OUTPUT
+        uses: ./.github/actions/get-version
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -674,24 +456,11 @@ jobs:
           chmod +x scripts/pack-tauri/build_macos_pyinstaller.sh
           bash scripts/pack-tauri/build_macos_pyinstaller.sh
 
-      - name: Install verify deps (Playwright + WebKit)
-        run: |
-          set -euo pipefail
-          python -m pip install --upgrade pip
-          python -m pip install -r scripts/verify/requirements-verify.txt
-          python -m playwright install webkit --with-deps
-
       - name: Verify desktop (Tauri macOS)
         timeout-minutes: 10
-        env:
-          QWENPAW_DASHSCOPE_API_KEY: ${{ secrets.QWENPAW_DASHSCOPE_API_KEY }}
-        run: |
-          set -euo pipefail
-          source scripts/verify/launch_tauri_macos.sh
-          python scripts/verify/desktop_verify.py \
-            --base-url "$BASE_URL" \
-            --ui-mode tauri-macos \
-            --headed
+        uses: ./.github/actions/verify-tauri-macos
+        with:
+          dashscope-api-key: ${{ secrets.QWENPAW_DASHSCOPE_API_KEY }}
 
       - name: Stop desktop server (Tauri macOS)
         if: always()
@@ -766,7 +535,7 @@ jobs:
 
       - name: Get version
         id: version
-        run: echo "version=$(sed -n 's/^__version__[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' src/qwenpaw/__version__.py)" >> $GITHUB_OUTPUT
+        uses: ./.github/actions/get-version
 
       - name: Download all artifacts
         uses: actions/download-artifact@v4
@@ -844,7 +613,7 @@ jobs:
 
       - name: Get version
         id: version
-        run: echo "version=$(sed -n 's/^__version__[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' src/qwenpaw/__version__.py)" >> $GITHUB_OUTPUT
+        uses: ./.github/actions/get-version
 
       - name: Download all artifacts
         uses: actions/download-artifact@v4

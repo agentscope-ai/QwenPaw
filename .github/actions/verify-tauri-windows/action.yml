@@ -1,0 +1,48 @@
+name: Verify Desktop (Tauri Windows)
+description: |
+  Install NSIS-built Tauri desktop, launch the shell with CDP enabled,
+  and drive the real WebView2 through the shared Playwright UI verifier.
+  Stop / cleanup / log upload steps live in the caller workflow because
+  composite actions cannot use `if: always()`.
+
+inputs:
+  dashscope-api-key:
+    description: DashScope API key (empty -> verifier skips LLM round)
+    required: false
+    default: ""
+  allow-flaky-llm:
+    description: If 'true', verifier exits 0 on LLM retry exhaustion
+    required: false
+    default: "false"
+
+runs:
+  using: composite
+  steps:
+    - name: Install verify deps (Playwright + Chromium)
+      shell: pwsh
+      run: |
+        $ErrorActionPreference = "Stop"
+        python -m pip install --upgrade pip
+        python -m pip install -r scripts/verify/requirements-verify.txt
+        python -m playwright install chromium --with-deps
+
+    - name: Verify desktop (Tauri Windows)
+      shell: pwsh
+      env:
+        QWENPAW_DASHSCOPE_API_KEY: ${{ inputs.dashscope-api-key }}
+        PYTHONIOENCODING: utf-8
+        ALLOW_FLAKY_LLM: ${{ inputs.allow-flaky-llm }}
+      run: |
+        . scripts/verify/launch_tauri_windows.ps1
+        $verifyArgs = @(
+          "scripts/verify/desktop_verify.py",
+          "--base-url", $env:BASE_URL,
+          "--ui-mode", "tauri-windows",
+          "--headed",
+          "--cdp-url", $env:CDP_URL
+        )
+        if ($env:ALLOW_FLAKY_LLM -eq "true") {
+          $verifyArgs += "--allow-flaky-llm"
+        }
+        python @verifyArgs
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
