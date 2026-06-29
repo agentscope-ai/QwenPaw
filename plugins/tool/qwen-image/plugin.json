@@ -14,6 +14,7 @@
   },
   "dependencies": ["dashscope>=1.25.16", "httpx>=0.24.0"],
   "min_version": "2.0.0",
+  "qwenpaw_compat_labels": ["2.x"],
   "meta": {
     "tools": [
       {

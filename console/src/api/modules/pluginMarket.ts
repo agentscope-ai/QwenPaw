@@ -17,6 +17,8 @@ export interface MarketPluginEntry {
   view_count: number;
   details_url: string | null;
   locales: Record<string, MarketPluginLocale>;
+  /** QwenPaw major-version compatibility labels, e.g. ["1.x"] or ["2.x"]. */
+  qwenpaw_compat_labels?: string[];
 }
 
 interface MarketPluginListResponse {
@@ -67,8 +69,27 @@ export async function fetchMarketPlugins(
   return json.data;
 }
 
-export function buildMarketDownloadUrl(entry: MarketPluginEntry): string {
+/** Derive the major-version compatibility label from a QwenPaw version string. */
+export function getQwenPawCompatLabel(version: string): string {
+  const major = version.split(".", 1)[0];
+  return `${major}.x`;
+}
+
+export function buildMarketDownloadUrl(
+  entry: MarketPluginEntry,
+  qwenpawVersion?: string,
+): string {
   const id = entry.id.startsWith("@") ? entry.id.slice(1) : entry.id;
   const [owner, name] = id.split("/");
-  return `https://platform.agentscope.io/plugins/${owner}/${name}/archive/zip/master`;
+  // Route the download by QwenPaw major version when the entry declares
+  // compatibility labels and the caller provides a version.  Fall back to
+  // the legacy master branch when no specific branch can be determined.
+  let branch = "master";
+  if (qwenpawVersion && entry.qwenpaw_compat_labels?.length) {
+    const label = getQwenPawCompatLabel(qwenpawVersion);
+    if (entry.qwenpaw_compat_labels.includes(label)) {
+      branch = `v${label.replace(".x", "")}`;
+    }
+  }
+  return `https://platform.agentscope.io/plugins/${owner}/${name}/archive/zip/${branch}`;
 }

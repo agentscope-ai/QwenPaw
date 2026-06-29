@@ -140,6 +140,21 @@ def _localized_description(manifest: dict[str, Any]) -> dict[str, str]:
     return _localized_field(manifest.get("description") or "")
 
 
+def _derive_compat_labels(manifest: dict[str, Any]) -> list[str]:
+    """Return QwenPaw compatibility labels for a plugin.
+
+    If ``qwenpaw_compat_labels`` is explicitly declared in ``plugin.json``,
+    use it. Otherwise derive from ``min_version`` by taking the major
+    version number and appending ``.x``.
+    """
+    labels = manifest.get("qwenpaw_compat_labels")
+    if isinstance(labels, list) and labels:
+        return [str(label) for label in labels]
+    min_version = str(manifest.get("min_version") or "")
+    major = min_version.split(".", 1)[0] if min_version else "1"
+    return [f"{major}.x"]
+
+
 def _build_metadata(
     manifest: dict[str, Any],
     *,
@@ -167,28 +182,51 @@ def _build_metadata(
         "sha256": _sha256_of_file(zip_path),
         "updated_at": datetime.now(timezone.utc).isoformat(),
         "type": "zip",
+        "qwenpaw_compat_labels": _derive_compat_labels(manifest),
     }
+
+
+def _empty_index(updated_at: str) -> dict[str, Any]:
+    return {
+        "product": "plugins",
+        "updated_at": updated_at,
+        "platforms": {},
+        "files": {},
+    }
+
+
+def _add_to_index(
+    index: dict[str, Any],
+    metadata: dict[str, Any],
+    kind: str,
+    file_id: str,
+) -> None:
+    index["files"][file_id] = metadata
+    kind_entry = index["platforms"].setdefault(kind, {"versions": []})
+    if file_id not in kind_entry["versions"]:
+        kind_entry["versions"].insert(0, file_id)
 
 
 def discover_and_pack(
     plugins_root: Path,
     dist_root: Path,
     cdn_prefix: str,
-) -> dict[str, Any]:
-    """Scan, zip, and assemble the plugins index. Always full-rebuild."""
-    index: dict[str, Any] = {
-        "product": "plugins",
-        "updated_at": datetime.now(timezone.utc).isoformat(),
-        "platforms": {},
-        "files": {},
-    }
+) -> tuple[dict[str, Any], dict[str, dict[str, Any]]]:
+    """Scan, zip, and assemble the plugins index. Always full-rebuild.
+
+    Returns the legacy all-plugins index plus a mapping of compatibility
+    label -> per-version index (e.g. ``"1.x" -> index``).
+    """
+    updated_at = datetime.now(timezone.utc).isoformat()
+    index = _empty_index(updated_at)
+    per_label_indexes: dict[str, dict[str, Any]] = {}
 
     if not plugins_root.is_dir():
         print(
             f"WARNING: plugins root does not exist: {plugins_root}",
             file=sys.stderr,
         )
-        return index
+        return index, per_label_indexes
 
     for kind in KIND_DIRS:
         kind_dir = plugins_root / kind
@@ -226,12 +264,17 @@ def discover_and_pack(
                 zip_path=zip_path,
                 cdn_path=cdn_path,
             )
-            index["files"][file_id] = metadata
-            kind_entry = index["platforms"].setdefault(kind, {"versions": []})
-            if file_id not in kind_entry["versions"]:
-                kind_entry["versions"].insert(0, file_id)
+            labels = _derive_compat_labels(manifest)
 
-    return index
+            _add_to_index(index, metadata, kind, file_id)
+            for label in labels:
+                label_index = per_label_indexes.setdefault(
+                    label,
+                    _empty_index(updated_at),
+                )
+                _add_to_index(label_index, metadata, kind, file_id)
+
+    return index, per_label_indexes
 
 
 def main() -> int:
@@ -311,11 +354,21 @@ def main() -> int:
                     shutil.rmtree(child)
     dist_root.mkdir(parents=True, exist_ok=True)
 
-    index = discover_and_pack(plugins_root, dist_root, args.cdn_prefix)
+    index, per_label_indexes = discover_and_pack(
+        plugins_root, dist_root, args.cdn_prefix,
+    )
 
     metadata_out.parent.mkdir(parents=True, exist_ok=True)
     with metadata_out.open("w", encoding="utf-8") as f:
         json.dump(index, f, indent=2, ensure_ascii=False)
+
+    for label, label_index in per_label_indexes.items():
+        major = label.replace(".x", "")
+        label_out = metadata_out.parent / f"v{major}" / metadata_out.name
+        label_out.parent.mkdir(parents=True, exist_ok=True)
+        with label_out.open("w", encoding="utf-8") as f:
+            json.dump(label_index, f, indent=2, ensure_ascii=False)
+        print(f"Wrote index: {label_out}")
 
     print()
     print(f"Wrote index: {metadata_out}")

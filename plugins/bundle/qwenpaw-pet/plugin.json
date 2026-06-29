@@ -21,6 +21,7 @@
     "pyside6-essentials>=6.6"
   ],
   "min_version": "1.1.5",
+  "qwenpaw_compat_labels": ["1.x"],
   "meta": {
     "desktop_url": "http://127.0.0.1:8765"
   }

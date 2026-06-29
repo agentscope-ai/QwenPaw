@@ -12,10 +12,23 @@ from typing import Any
 
 from packaging.version import InvalidVersion, Version
 
+from ..__version__ import get_qwenpaw_compat_label
+
 logger = logging.getLogger(__name__)
 
 PLUGIN_DOWNLOAD_CDN = "https://download.qwenpaw.agentscope.io"
 _FETCH_TIMEOUT = 30
+
+
+def _plugins_index_path() -> str:
+    """Return the CDN plugins index path for the current QwenPaw major version.
+
+    Falls back to the un-versioned path when the versioned index is not yet
+    available on the CDN.
+    """
+    label = get_qwenpaw_compat_label()
+    major = label.replace(".x", "")
+    return f"/metadata/plugins/v{major}/index.json"
 
 
 def _fetch_json(url: str) -> Any:
@@ -129,17 +142,36 @@ def build_plugin_catalog() -> dict[str, Any]:
     if not plugins_product:
         return result
 
-    index_path = str(plugins_product.get("index_url") or "")
-    if not index_path.startswith("/"):
-        result["error"] = "Invalid plugins index_url in main metadata"
-        return result
-
+    # Prefer the versioned index for the current QwenPaw major release so
+    # that v1.x and v2.x users receive compatible plugin catalogs.  Fall back
+    # to the legacy un-versioned index when the versioned one is missing.
+    index_path = _plugins_index_path()
     try:
         plugins_index = _fetch_json(f"{base}{index_path}")
     except (urllib.error.URLError, json.JSONDecodeError, TimeoutError) as exc:
-        logger.warning("Plugin catalog: plugins index fetch failed: %s", exc)
-        result["error"] = "Failed to fetch plugins metadata"
-        return result
+        logger.debug(
+            "Plugin catalog: versioned index %s unavailable (%s), "
+            "falling back to legacy index",
+            index_path,
+            exc,
+        )
+        legacy_path = str(plugins_product.get("index_url") or "")
+        if not legacy_path.startswith("/"):
+            result["error"] = "Invalid plugins index_url in main metadata"
+            return result
+        try:
+            plugins_index = _fetch_json(f"{base}{legacy_path}")
+        except (
+            urllib.error.URLError,
+            json.JSONDecodeError,
+            TimeoutError,
+        ) as exc2:
+            logger.warning(
+                "Plugin catalog: plugins index fetch failed: %s",
+                exc2,
+            )
+            result["error"] = "Failed to fetch plugins metadata"
+            return result
 
     result["updated_at"] = plugins_index.get("updated_at")
     files = plugins_index.get("files") or {}

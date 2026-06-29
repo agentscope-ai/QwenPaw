@@ -19,6 +19,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from ..utils import schedule_agent_reload
+from ..__version__ import get_qwenpaw_compat_label
 
 logger = logging.getLogger(__name__)
 
@@ -898,9 +899,19 @@ async def search_market_plugins(
     page_size: int = 20,
     search: Optional[str] = None,
     category: Optional[str] = None,
+    qwenpaw_version: Optional[str] = None,
 ):
-    """Proxy plugin search to AgentScope Platform to avoid CORS."""
+    """Proxy plugin search to AgentScope Platform to avoid CORS.
+
+    The optional ``qwenpaw_version`` parameter lets callers request plugins
+    compatible with a specific QwenPaw release.  When omitted, the current
+    running version is used.  The upstream platform may use this to filter
+    results; the field is always forwarded verbatim so the console can do
+    client-side filtering as a fallback.
+    """
     import httpx
+
+    compat_label = get_qwenpaw_compat_label(qwenpaw_version or "")
 
     params: dict = {
         "page_number": page_number,
@@ -910,6 +921,9 @@ async def search_market_plugins(
         params["search"] = search
     if category:
         params["category"] = category
+    # Forward the compatibility label so the platform can filter results
+    # once it supports version-aware search.
+    params["qwenpaw_compat_label"] = compat_label
 
     try:
         async with httpx.AsyncClient(

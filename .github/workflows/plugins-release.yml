@@ -109,6 +109,19 @@ jobs:
             --acl public-read \
             --force \
             --meta "Cache-Control:public, max-age=60, must-revalidate"
+          for major in 1 2; do
+            label_path="dist/plugins/v${major}/index.json"
+            if [ -f "$label_path" ]; then
+              echo "Uploading versioned index: v${major}/index.json"
+              ossutil cp "$label_path" \
+                "oss://qwenpaw-download/metadata/plugins/v${major}/index.json" \
+                --acl public-read \
+                --force \
+                --meta "Cache-Control:public, max-age=60, must-revalidate"
+            else
+              echo "No versioned index for v${major}; skipping"
+            fi
+          done
 
       - name: Patch main metadata index to advertise plugins product
         run: |
