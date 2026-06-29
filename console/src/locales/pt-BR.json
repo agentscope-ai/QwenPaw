@@ -993,6 +993,8 @@
     "filterToolMessagesTooltip": "Show tool call and output messages to users (turn off to hide)",
     "filterThinking": "Mostrar Thinking",
     "filterThinkingTooltip": "Show model thinking/reasoning content to users (turn off to hide)",
+    "noTextDebounce": "Debounce sem texto",
+    "noTextDebounceTooltip": "Quando ativado, mensagens apenas com mídia (imagem/vídeo/arquivo) são armazenadas em buffer até que uma mensagem de texto chegue, depois mescladas. Desative para processar todas as mensagens imediatamente. Mensagens de voz são sempre processadas imediatamente.",
     "streamingEnabled": "Saída em Streaming",
     "streamingEnabledDingtalkHint": "Apenas efetivo quando o tipo de mensagem é Card",
     "streamingEnabledFeishuHint": "Requer habilitar a permissão cardkit:card:write na página de gerenciamento de permissões da Plataforma Aberta Feishu",

@@ -355,6 +355,59 @@ class TestNoTextDebounceBuffering:
         assert "session_b" in base_channel._pending_content_by_session
         assert len(base_channel._pending_content_by_session["session_b"]) == 1
 
+    def test_disabled_debounce_processes_immediately(
+        self,
+        mock_process,
+        content_builder,
+    ):
+        """When no_text_debounce=False, media-only content is processed
+        immediately without buffering."""
+        channel = ConsoleChannel(
+            process=mock_process,
+            enabled=True,
+            bot_prefix="[TEST] ",
+        )
+        channel._no_text_debounce = False
+        parts = [content_builder.image("http://a.jpg")]
+
+        should_process, merged = channel._apply_no_text_debounce(
+            "session_disabled",
+            parts,
+        )
+
+        assert should_process is True
+        assert len(merged) == 1
+        # Nothing should be buffered
+        assert "session_disabled" not in channel._pending_content_by_session
+
+    def test_disabled_debounce_releases_pending_buffer(
+        self,
+        mock_process,
+        content_builder,
+    ):
+        """When no_text_debounce=False, any previously buffered content is
+        released and merged with the current content."""
+        channel = ConsoleChannel(
+            process=mock_process,
+            enabled=True,
+            bot_prefix="[TEST] ",
+        )
+        channel._no_text_debounce = False
+        # Simulate pre-existing buffered content
+        channel._pending_content_by_session["session_disabled"] = [
+            content_builder.image("http://old.jpg"),
+        ]
+
+        parts = [content_builder.text("Hello")]
+        should_process, merged = channel._apply_no_text_debounce(
+            "session_disabled",
+            parts,
+        )
+
+        assert should_process is True
+        assert len(merged) == 2  # old image + new text
+        assert "session_disabled" not in channel._pending_content_by_session
+
 
 # =============================================================================
 # P1: Native Items Merging (Complex Merge Logic)

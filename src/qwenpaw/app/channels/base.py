@@ -130,6 +130,7 @@ class BaseChannel(ABC):
         allow_from: Optional[list] = None,
         deny_message: str = "",
         require_mention: bool = False,
+        no_text_debounce: bool = True,
         streaming_enabled: bool = False,
         access_control_dm: bool = False,
         access_control_group: bool = False,
@@ -139,6 +140,7 @@ class BaseChannel(ABC):
         self._show_tool_details = show_tool_details
         self._filter_tool_messages = filter_tool_messages
         self._filter_thinking = filter_thinking
+        self._no_text_debounce = no_text_debounce
         self.streaming_enabled = streaming_enabled
         # Legacy fields — stored for backward compat but not used for
         # filtering (new ACL gate handles access control).
@@ -308,6 +310,9 @@ class BaseChannel(ABC):
         Audio-only messages bypass debounce and are processed immediately
         (voice messages are standalone user input, not partial uploads).
         """
+        if not self._no_text_debounce:
+            pending = self._pending_content_by_session.pop(session_id, [])
+            return (True, pending + list(content_parts))
         if not self._content_has_text(content_parts):
             if self._content_has_audio(content_parts):
                 # Audio-only messages (e.g. voice messages) should be
@@ -1098,6 +1103,7 @@ class BaseChannel(ABC):
         on_reply_sent: OnReplySent = None,
         show_tool_details: bool = True,
         filter_tool_messages: bool = False,
+        no_text_debounce: bool = True,
         filter_thinking: bool = False,
     ) -> "BaseChannel":
         raise NotImplementedError

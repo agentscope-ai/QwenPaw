@@ -228,6 +228,7 @@ class MatrixChannel(BaseChannel):
         on_reply_sent: Optional[Callable] = None,
         show_tool_details: bool = True,
         filter_tool_messages: bool = False,
+        no_text_debounce: bool = True,
         filter_thinking: bool = False,
         workspace_dir: Path | None = None,
         access_control_dm: bool = False,
@@ -240,6 +241,7 @@ class MatrixChannel(BaseChannel):
             on_reply_sent=on_reply_sent,
             show_tool_details=show_tool_details,
             filter_tool_messages=filter_tool_messages,
+            no_text_debounce=no_text_debounce,
             filter_thinking=filter_thinking,
             access_control_dm=access_control_dm,
             access_control_group=access_control_group,
@@ -302,6 +304,7 @@ class MatrixChannel(BaseChannel):
         on_reply_sent: Optional[Callable] = None,
         show_tool_details: bool = True,
         filter_tool_messages: bool = False,
+        no_text_debounce: bool = True,
         filter_thinking: bool = False,
         workspace_dir: Path | None = None,
     ) -> "MatrixChannel":
@@ -336,6 +339,9 @@ class MatrixChannel(BaseChannel):
             ),
             filter_thinking=(
                 filter_thinking or raw.get("filter_thinking", False)
+            ),
+            no_text_debounce=(
+                no_text_debounce or raw.get("no_text_debounce", True)
             ),
             workspace_dir=workspace_dir,
             access_control_dm=bool(raw.get("access_control_dm", False)),

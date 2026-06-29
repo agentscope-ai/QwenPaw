@@ -1109,6 +1109,8 @@
     "filterToolMessagesTooltip": "Show tool call and output messages to users (turn off to hide)",
     "filterThinking": "Show Thinking",
     "filterThinkingTooltip": "Show model thinking/reasoning content to users (turn off to hide)",
+    "noTextDebounce": "No-text Debounce",
+    "noTextDebounceTooltip": "When enabled, media-only messages (image/video/file) are buffered until a text message arrives, then merged. Disable to process all messages immediately. Voice messages are always processed immediately.",
     "streamingEnabled": "Streaming Output",
     "streamingEnabledDingtalkHint": "Only effective when message type is Card",
     "streamingEnabledFeishuHint": "Requires enabling cardkit:card:write permission in the Feishu Open Platform permission management page",

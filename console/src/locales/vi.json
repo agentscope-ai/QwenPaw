@@ -932,6 +932,8 @@
     "filterToolMessagesTooltip": "Hiển thị lời gọi công cụ và kết quả cho người dùng (tắt để ẩn)",
     "filterThinking": "Hiển thị suy luận",
     "filterThinkingTooltip": "Hiển thị nội dung suy luận của mô hình (tắt để ẩn)",
+    "noTextDebounce": "Debounce không văn bản",
+    "noTextDebounceTooltip": "Khi bật, các tin nhắn chỉ chứa phương tiện (ảnh/video/tệp) sẽ được lưu tạm, đợi tin nhắn văn bản tiếp theo đến rồi gộp xử lý. Tắt để xử lý ngay tất cả tin nhắn. Tin nhắn thoại luôn được xử lý ngay.",
     "streamingEnabled": "Xuất streaming",
     "ackMessage": "Tin nhắn xác nhận",
     "ackMessageTooltip": "Gửi phản hồi tức thì khi nhận được tin nhắn, trước khi xử lý",

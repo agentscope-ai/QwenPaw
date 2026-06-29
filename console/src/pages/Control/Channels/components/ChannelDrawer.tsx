@@ -1503,6 +1503,18 @@ export function ChannelDrawer({
 
           {CHANNELS_WITH_ACCESS_CONTROL.includes(activeKey) &&
             renderAccessControlFields()}
+
+          {activeKey !== "console" && (
+            <Form.Item
+              name="no_text_debounce"
+              label={t("channels.noTextDebounce")}
+              valuePropName="checked"
+              tooltip={t("channels.noTextDebounceTooltip")}
+              initialValue={true}
+            >
+              <Switch />
+            </Form.Item>
+          )}
         </Form>
       )}
     </Drawer>

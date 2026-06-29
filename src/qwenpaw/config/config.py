@@ -203,6 +203,9 @@ class BaseChannelConfig(BaseModel):
     allow_from: List[str] = Field(default_factory=list)
     deny_message: str = ""
     require_mention: bool = False
+    # Buffer media-only messages until a text message arrives, then merge.
+    # Disable to process all messages immediately.
+    no_text_debounce: bool = True
     access_control_dm: bool = False
     access_control_group: bool = False
     # Channel-level mute: completely disable DM or group messages

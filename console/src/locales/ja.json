@@ -790,6 +790,8 @@
     "filterToolMessagesTooltip": "ツール呼び出しと出力メッセージをユーザーに表示します（オフにすると非表示）",
     "filterThinking": "思考過程を表示",
     "filterThinkingTooltip": "モデルの思考・推論内容をユーザーに表示します（オフにすると非表示）",
+    "noTextDebounce": "テキストなしデバウンス",
+    "noTextDebounceTooltip": "有効にすると、メディアのみのメッセージ（画像/動画/ファイル）は一時保存され、後続のテキストメッセージ到着時に結合されます。無効にするとすべてのメッセージが即時処理されます。音声メッセージは常に即時処理されます。",
     "streamingEnabled": "ストリーミング出力",
     "streamingEnabledDingtalkHint": "メッセージタイプがCardの場合のみ有効",
     "streamingEnabledFeishuHint": "Feishuオープンプラットフォームの権限管理ページでcardkit:card:write権限を有効にする必要があります",

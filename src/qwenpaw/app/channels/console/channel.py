@@ -161,6 +161,7 @@ class ConsoleChannel(BaseChannel):
         on_reply_sent: OnReplySent = None,
         show_tool_details: bool = True,
         filter_tool_messages: bool = False,
+        no_text_debounce: bool = True,
         filter_thinking: bool = False,
         workspace_dir: Optional[Union[str, Path]] = None,
     ) -> "ConsoleChannel":

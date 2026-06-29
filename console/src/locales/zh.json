@@ -948,6 +948,8 @@
     "filterToolMessagesTooltip": "向用户显示工具调用和输出消息（关闭则隐藏）",
     "filterThinking": "显示思考过程",
     "filterThinkingTooltip": "向用户显示模型的思考/推理内容（关闭则隐藏）",
+    "noTextDebounce": "无文本消息防抖",
+    "noTextDebounceTooltip": "开启后，仅含媒体（图片/视频/文件）的消息会暂存，等待后续文本消息合并处理；关闭则所有消息立即处理。语音消息始终立即处理",
     "streamingEnabled": "流式输出",
     "streamingEnabledDingtalkHint": "仅在消息类型为 Card 时生效",
     "streamingEnabledFeishuHint": "需要在飞书开放平台权限管理界面开通 cardkit:card:write 权限",

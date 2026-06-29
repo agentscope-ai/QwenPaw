@@ -300,6 +300,7 @@ class TelegramChannel(BaseChannel):
         workspace_dir: Path | None = None,
         show_typing: bool = True,
         filter_tool_messages: bool = False,
+        no_text_debounce: bool = True,
         filter_thinking: bool = False,
         dm_policy: str = "open",
         group_policy: str = "open",
@@ -315,6 +316,7 @@ class TelegramChannel(BaseChannel):
             on_reply_sent=on_reply_sent,
             show_tool_details=show_tool_details,
             filter_tool_messages=filter_tool_messages,
+            no_text_debounce=no_text_debounce,
             filter_thinking=filter_thinking,
             dm_policy=dm_policy,
             group_policy=group_policy,
@@ -471,22 +473,6 @@ class TelegramChannel(BaseChannel):
         app.add_handler(CallbackQueryHandler(handle_callback_query))
         return app
 
-    def _apply_no_text_debounce(
-        self,
-        session_id: str,
-        content_parts: list[Any],
-    ) -> tuple[bool, list[Any]]:
-        """Process media-only Telegram messages without waiting for text."""
-        has_media = any(
-            getattr(part, "type", None)
-            not in (ContentType.TEXT, ContentType.REFUSAL)
-            for part in content_parts
-        )
-        if has_media:
-            pending = self._pending_content_by_session.pop(session_id, [])
-            return True, pending + list(content_parts)
-        return super()._apply_no_text_debounce(session_id, content_parts)
-
     @staticmethod
     def _looks_like_polling_conflict(error: Exception) -> bool:
         """Return True for Telegram getUpdates conflict errors."""
@@ -602,6 +588,7 @@ class TelegramChannel(BaseChannel):
         on_reply_sent: OnReplySent = None,
         show_tool_details: bool = True,
         filter_tool_messages: bool = False,
+        no_text_debounce: bool = True,
         filter_thinking: bool = False,
         workspace_dir: Path | None = None,
     ) -> "TelegramChannel":
@@ -627,6 +614,7 @@ class TelegramChannel(BaseChannel):
             on_reply_sent=on_reply_sent,
             show_tool_details=show_tool_details,
             filter_tool_messages=filter_tool_messages,
+            no_text_debounce=no_text_debounce,
             filter_thinking=filter_thinking,
             workspace_dir=workspace_dir,
             show_typing=show_typing,
