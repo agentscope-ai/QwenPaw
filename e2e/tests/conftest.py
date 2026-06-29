@@ -83,7 +83,7 @@ def setup_default_model(api_context):
         )
         if resp.ok:
             logger.info(f"Global model set to {provider}/{model}")
-        elif resp.status == 400 and "MODEL_NOT_FOUND" in resp.text():
+        elif resp.status == 400 and "not found" in resp.text().lower():
             logger.info(f"Model '{model}' not in built-in list, adding as extra model")
             add_resp = api_context.post(
                 f"/api/models/{provider}/models",

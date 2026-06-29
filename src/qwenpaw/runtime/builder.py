@@ -11,7 +11,10 @@ injects all dependencies into the agent constructor.
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 from typing import Any, Iterable
+
+from ..agents.acp.meta import ACP_CODING_PROJECT_META_KEY
 
 _logger = logging.getLogger(__name__)
 
@@ -106,6 +109,11 @@ class AgentBuilder:
 
         agent_id = getattr(ctx, "agent_id", None) or "default"
         agent_config = load_agent_config(agent_id)
+        request_context = self._build_request_context(ctx)
+        agent_config = self._apply_request_coding_project(
+            agent_config,
+            request_context,
+        )
         ctx.agent_config = agent_config
 
         # Validate model availability.
@@ -121,7 +129,6 @@ class AgentBuilder:
 
         # Resolve skills.
         ensure_skills_initialized(workspace_dir or WORKING_DIR)
-        request_context = self._build_request_context(ctx)
         channel_name = request_context.get("channel", "console")
         try:
             effective_skills = resolve_effective_skills(
@@ -357,6 +364,43 @@ class AgentBuilder:
         if isinstance(_payload_ctx, dict):
             rc.update(_payload_ctx)
         return rc
+
+    @staticmethod
+    def _apply_request_coding_project(
+        agent_config: Any,
+        request_context: dict[str, Any],
+    ) -> Any:
+        """Enable Coding Mode for this request when ACP supplies a project."""
+        raw_project_dir = request_context.get(ACP_CODING_PROJECT_META_KEY)
+        if not isinstance(raw_project_dir, str) or not raw_project_dir.strip():
+            return agent_config
+
+        project_dir = Path(raw_project_dir).expanduser().resolve()
+        if not project_dir.is_dir():
+            _logger.warning(
+                "Ignoring non-directory Coding Mode project: %s",
+                raw_project_dir,
+            )
+            return agent_config
+
+        if not hasattr(agent_config, "model_copy"):
+            _logger.warning(
+                "Ignoring request Coding Mode project for unsupported config "
+                "type: %s",
+                type(agent_config).__name__,
+            )
+            return agent_config
+
+        agent_config = agent_config.model_copy(deep=True)
+        cm = getattr(agent_config, "coding_mode", None)
+        if cm is None:
+            from ..config.config import CodingModeConfig
+
+            cm = CodingModeConfig()
+            agent_config.coding_mode = cm
+        cm.enabled = True
+        cm.project_dir = str(project_dir)
+        return agent_config
 
     @staticmethod
     def _build_env_context(ctx: Any, agent_config: Any) -> str:

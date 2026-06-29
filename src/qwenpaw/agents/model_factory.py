@@ -30,11 +30,17 @@ try:
 except ImportError:
     GeminiChatFormatter = None
 
+try:
+    from agentscope.formatter import OpenAIResponseFormatter
+except ImportError:
+    OpenAIResponseFormatter = None
+
 from .utils.message_request_normalizer import (
     normalize_messages_for_model_request,
 )
 from ..exceptions import ProviderError, ModelFormatterError
 from ..providers import ProviderManager
+from ..providers.capping_formatter import MAX_INLINE_MEDIA_BYTES
 from ..providers.retry_chat_model import (
     RetryChatModel,
     RetryConfig,
@@ -148,6 +154,25 @@ def _anthropic_media_dedup_key(source: Any) -> str | None:
     return None
 
 
+def _video_oversize_placeholder(size: int) -> dict:
+    """Text placeholder substituted for a video that exceeds the inline cap.
+
+    Mirrors the wording used by ``capping_formatter``'s
+    ``CappingFormatterMixin._placeholder_text`` so oversized-video messages
+    are consistent across every provider path.  Tool-result videos inline
+    through these helpers bypass the capping formatters (which only see
+    ``_format_*_source``), so the cap is enforced here instead.
+    """
+    return {
+        "type": "text",
+        "text": (
+            f"[video omitted from model context: local file is "
+            f"{size} bytes, exceeds inline limit of "
+            f"{MAX_INLINE_MEDIA_BYTES} bytes]"
+        ),
+    }
+
+
 def _format_anthropic_video_data_block(block: Any) -> dict | None:
     """Format a 2.0 ``DataBlock`` of video media for Anthropic-compatible APIs.
 
@@ -158,15 +183,20 @@ def _format_anthropic_video_data_block(block: Any) -> dict | None:
     Returns the wire dict, or ``None`` if the source is unusable
     (missing file, unsupported extension, exotic scheme).
     """
+    # pylint: disable=too-many-return-statements
     source = getattr(block, "source", None)
     if source is None:
         return None
 
     media_type = getattr(source, "media_type", None) or ""
 
-    # Base64Source — pass data straight through.
+    # Base64Source — pass data straight through (after the size cap).
     data_attr = getattr(source, "data", None)
     if data_attr is not None:
+        # base64 length -> approximate raw byte count.
+        size = len(data_attr or "") * 3 // 4
+        if size > MAX_INLINE_MEDIA_BYTES:
+            return _video_oversize_placeholder(size)
         return {
             "type": "video",
             "source": {
@@ -182,6 +212,14 @@ def _format_anthropic_video_data_block(block: Any) -> dict | None:
 
     raw_url = _file_url_to_path(url_str)
     if os.path.exists(raw_url) and os.path.isfile(raw_url):
+        # Cap oversized local files before reading/encoding the whole
+        # thing into the request body (see ``capping_formatter``).
+        try:
+            size = os.path.getsize(raw_url)
+        except OSError:
+            size = 0
+        if size > MAX_INLINE_MEDIA_BYTES:
+            return _video_oversize_placeholder(size)
         ext = os.path.splitext(raw_url)[1].lower()
         resolved_media_type = (
             media_type
@@ -231,10 +269,22 @@ def _format_openai_video_block(video_block: dict) -> dict:
     source = video_block["source"]
     if source["type"] == "base64":
         media_type = source["media_type"]
+        # base64 length -> approximate raw byte count.
+        size = len(source.get("data") or "") * 3 // 4
+        if size > MAX_INLINE_MEDIA_BYTES:
+            return _video_oversize_placeholder(size)
         url = f"data:{media_type};base64,{source['data']}"
     elif source["type"] == "url":
         raw_url = _file_url_to_path(source["url"])
         if os.path.exists(raw_url) and os.path.isfile(raw_url):
+            # Cap oversized local files before reading/encoding the whole
+            # thing into the request body (see ``capping_formatter``).
+            try:
+                size = os.path.getsize(raw_url)
+            except OSError:
+                size = 0
+            if size > MAX_INLINE_MEDIA_BYTES:
+                return _video_oversize_placeholder(size)
             ext = os.path.splitext(raw_url)[1].lower()
             media_type = _SUPPORTED_VIDEO_EXTENSIONS.get(ext)
             if not media_type:
@@ -1151,10 +1201,10 @@ def _create_formatter_instance(
     # results — promote them into a follow-up user message instead.
     # Anthropic format keeps images in tool_result natively, so no
     # promotion needed.
-    if isinstance(
-        base_formatter,
-        (OpenAIChatFormatter, GeminiChatFormatter),
-    ):
+    _promote_types = (OpenAIChatFormatter, GeminiChatFormatter)
+    if OpenAIResponseFormatter is not None:
+        _promote_types = (*_promote_types, OpenAIResponseFormatter)
+    if isinstance(base_formatter, _promote_types):
         kwargs["promote_tool_result_images"] = True
     return formatter_class(**kwargs)
 

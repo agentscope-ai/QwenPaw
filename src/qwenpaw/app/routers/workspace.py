@@ -521,23 +521,21 @@ async def list_memory_files(
             str(workspace.workspace_dir),
             agent_id=workspace.agent_id,
         )
-        files = [
-            MdFileInfo.model_validate(file)
-            for file in workspace_manager.list_memory_mds()
-        ]
+        raw_files = await asyncio.to_thread(workspace_manager.list_memory_mds)
+        files = [MdFileInfo.model_validate(file) for file in raw_files]
         return files
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
 @router.get(
-    "/memory/{md_name}",
+    "/memory/{md_path:path}",
     response_model=MdFileContent,
     summary="Read a memory file",
     description="Read a memory markdown file (uses active agent)",
 )
 async def read_memory_file(
-    md_name: str,
+    md_path: str,
     request: Request,
 ) -> MdFileContent:
     """Read a memory directory markdown file."""
@@ -547,7 +545,10 @@ async def read_memory_file(
             str(workspace.workspace_dir),
             agent_id=workspace.agent_id,
         )
-        content = workspace_manager.read_memory_md(md_name)
+        content = await asyncio.to_thread(
+            workspace_manager.read_memory_md,
+            md_path,
+        )
         return MdFileContent(content=content)
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -556,13 +557,13 @@ async def read_memory_file(
 
 
 @router.put(
-    "/memory/{md_name}",
+    "/memory/{md_path:path}",
     response_model=dict,
     summary="Write a memory file",
     description="Create or update a memory file (uses active agent)",
 )
 async def write_memory_file(
-    md_name: str,
+    md_path: str,
     body: MdFileContent,
     request: Request,
 ) -> dict:
@@ -573,7 +574,11 @@ async def write_memory_file(
             str(workspace.workspace_dir),
             agent_id=workspace.agent_id,
         )
-        workspace_manager.write_memory_md(md_name, body.content)
+        await asyncio.to_thread(
+            workspace_manager.write_memory_md,
+            md_path,
+            body.content,
+        )
         return {"written": True}
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc

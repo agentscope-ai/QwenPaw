@@ -4,6 +4,7 @@ import { Button, Tag } from "@agentscope-ai/design";
 import { useTranslation } from "react-i18next";
 import type {
   MCPAccessEffect,
+  MCPAccessPrincipalOption,
   MCPAccessRule,
   MCPToolAccessOverride,
 } from "../../../../api/types";
@@ -15,6 +16,7 @@ import { MCPAccessRuleRows } from "./MCPAccessRuleRows";
 
 interface MCPAccessToolPanelProps {
   groups: MCPAccessToolGroup[];
+  principalOptions: MCPAccessPrincipalOption[];
   setToolDefaultEffect: (toolName: string, effect: MCPAccessEffect) => void;
   addRule: (toolName: string) => void;
   updateRule: (
@@ -28,6 +30,7 @@ interface MCPAccessToolPanelProps {
 
 export const MCPAccessToolPanel: React.FC<MCPAccessToolPanelProps> = ({
   groups,
+  principalOptions,
   setToolDefaultEffect,
   addRule,
   updateRule,
@@ -100,6 +103,7 @@ export const MCPAccessToolPanel: React.FC<MCPAccessToolPanelProps> = ({
 
             <MCPAccessRuleRows
               rules={group.rules}
+              principalOptions={principalOptions}
               getKey={toolRuleIdentityKey}
               updateRule={updateRule}
               setRuleEffect={setRuleEffect}

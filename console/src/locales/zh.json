@@ -75,7 +75,33 @@
     "updateModal": {
       "title": "发现新版本 v{{version}}",
       "viewReleases": "查看 Releases",
-      "close": "关闭"
+      "installDesktopUpdate": "现在更新",
+      "desktopInstallHint": "QwenPaw 桌面端 {{version}} 已准备好安装，更新后应用将自动重启。",
+      "checking": "检查更新中…",
+      "checkingHint": "正在确认最新版本",
+      "downloading": "正在下载更新",
+      "downloadingTo": "正在更新到版本 {{version}}",
+      "downloadProgress": "{{done}} / {{total}} · {{rate}}",
+      "installing": "正在安装更新",
+      "willRestart": "应用将在安装完成后自动重启,请稍候…",
+      "stepPrepare": "准备",
+      "stepDownloading": "下载",
+      "stepInstalling": "安装",
+      "failedTitle": "更新失败",
+      "back": "返回",
+      "retry": "重试",
+      "errors": {
+        "network": "连接不上更新服务器，请检查网络后重试。",
+        "signature": "更新文件签名校验失败，请重新尝试下载。",
+        "appLocation": "QwenPaw 正在从 macOS 只读位置运行。请先将 QwenPaw.app 移动到“应用程序”文件夹，从那里启动后再重试更新。",
+        "other": "更新失败。"
+      },
+      "updateLater": "后台下载",
+      "backgroundDownloading": "正在后台下载更新…",
+      "readyToInstall": "更新已就绪",
+      "readyToInstallHint": "v{{version}} 更新已下载，重启后将安装并启动新版本。",
+      "restartNow": "现在更新",
+      "backgroundFailed": "后台下载失败"
     },
     "settings": {
       "language": "语言",
@@ -171,7 +197,11 @@
     "detailPayload": "附加信息",
     "detailExecutionTrace": "执行轨迹",
     "detailTraceEmpty": "暂无执行轨迹",
-    "filterByAgent": "按 Agent 筛选"
+    "filterByAgent": "按 Agent 筛选",
+    "filterBySourceType": "按来源筛选",
+    "sourceTypeCron": "定时任务",
+    "sourceTypeHeartbeat": "心跳",
+    "sourceTypeMemory": "记忆"
   },
   "workspace": {
     "title": "文件",
@@ -438,7 +468,10 @@
     "exitBatch": "退出批量",
     "noSearchResults": "未找到匹配的技能",
     "filterByTag": "按标签筛选",
-    "noTags": "暂无标签"
+    "noTags": "暂无标签",
+    "enabledSkills": "已激活的技能",
+    "disabledSkills": "未激活的技能",
+    "active": "个激活"
   },
   "skillPool": {
     "description": "共享本地技能池，包含内置技能和工作区上传。ClawHub 或 LobeHub 等外部导入为独立功能。",
@@ -573,22 +606,33 @@
       "default": "默认策略",
       "sourceType": "调用来源",
       "sourceValue": "来源值",
-      "sourceValueAllChannels": "所有 Channel",
+      "sourceValueAllChannels": "所有频道",
       "subjectType": "对象",
       "subjectValue": "对象值",
       "effectLabel": "策略",
       "source": {
-        "channel": "Channel"
+        "channel": "频道"
       },
       "subjectTypeOption": {
         "all": "全部",
         "user": "用户"
       },
       "sourceValuePlaceholder": {
-        "channel": "console / dingtalk"
+        "channel": "控制台 / 钉钉"
       },
       "subjectValuePlaceholder": "例如 alice",
+      "subjectValuePlaceholderSelectedSource": "所选频道内的用户 ID",
+      "subjectValuePlaceholderScoped": "{{source}} 内的用户 ID",
       "subjectValueAll": "全部",
+      "recentUserPlaceholder": "用户 ID 仅在所选来源内有效；请重新输入或选择",
+      "noRecentUsers": "该来源暂无近期用户，可手动输入用户 ID",
+      "ambiguousUserSourceWarning": "用户 ID 仅在来源内唯一，请选择具体频道以避免跨频道误匹配。",
+      "unknownUserValueWarning": "该用户 ID 未出现在近期活跃用户中，但仍可保存。",
+      "validation": {
+        "missingUserValue": "请选择具体来源并填写有效的用户 ID。",
+        "ambiguousUserSource": "用户规则必须指定具体频道，不能选择所有频道。",
+        "unknownUserValue": "该用户 ID 未出现在近期活跃用户中，但仍可保存。"
+      },
       "addRule": "新增规则",
       "deleteRule": "删除规则",
       "noClientRules": "暂无规则",
@@ -918,11 +962,21 @@
       "console": "控制台",
       "dingtalk": "钉钉",
       "feishu": "飞书",
+      "discord": "Discord",
+      "telegram": "Telegram",
+      "qq": "QQ",
+      "imessage": "iMessage",
+      "mattermost": "Mattermost",
+      "matrix": "Matrix",
+      "onebot": "OneBot",
+      "mqtt": "MQTT",
+      "voice": "语音",
+      "sip": "SIP",
       "wecom": "企业微信",
       "wechat": "微信",
       "xiaoyi": "小艺",
       "yuanbao": "元宝",
-      "onebot": "OneBot"
+      "slack": "Slack"
     },
     "pleaseInputDbPath": "请输入数据库路径",
     "pleaseInputPollInterval": "请输入轮询间隔",
@@ -981,8 +1035,15 @@
     "qqQrcodeExpired": "二维码已过期，请重新获取",
     "atSenderOnReply": "回复时@发送者",
     "atSenderOnReplyTooltip": "开启后，机器人在群聊中回复时会在第一条消息中@发送者。注意：卡片模式下，@功能仅对企业内部成员生效。",
+    "dingtalkEndpoint": "API 地址",
+    "dingtalkEndpointTooltip": "用于钉钉私有化部署的自定义 API 地址。留空则使用官方默认地址。",
     "wecomCancelled": "授权已取消",
     "wecomAuthFailed": "授权失败：{{msg}}",
+    "slackBotToken": "Bot Token",
+    "slackBotTokenTooltip": "Slack Bot User OAuth Token，以 xoxb- 开头",
+    "slackAppToken": "App Token",
+    "slackAppTokenTooltip": "Slack App-Level Token（Socket Mode），以 xapp- 开头",
+    "slackProxyTooltip": "HTTP 代理地址，用于连接 Slack API",
     "voiceSetupGuide": "请先注册 Twilio 账户并购买电话号码，然后在下方填写凭据。Account SID 和 Auth Token 可在 Twilio 控制台首页找到。Phone Number SID 在 Phone Numbers → Active Numbers 中查看。",
     "voiceSetupLink": "打开 Twilio 控制台",
     "sipSetupGuide": "配置 SIP 注册服务器（如 Asterisk、FreeSWITCH），然后在下方填写 SIP 凭据。Dev 模式使用 pyVoIP 在本地处理 SIP/RTP；Production 模式使用 LiveKit SIP Server。",
@@ -1056,8 +1117,7 @@
     "addUser": "添加用户",
     "addUserPlaceholder": "输入用户 ID",
     "userId": "用户 ID",
-    "username": "用户名称",
-    "channel": "渠道",
+    "channel": "频道",
     "firstMessage": "首条消息",
     "time": "时间",
     "actions": "操作",
@@ -1087,7 +1147,13 @@
     "batchDismissConfirm": "确认忽略 {{count}} 位用户？",
     "batchSuccess": "已成功处理 {{count}} 位用户",
     "batchRemove": "删除",
-    "batchRemoveConfirm": "确认删除 {{count}} 位用户？"
+    "batchRemoveConfirm": "确认删除 {{count}} 位用户？",
+    "enabledSection": "已激活",
+    "enabledCount": "{{count}} 个",
+    "availableSection": "未激活",
+    "enableAction": "启用",
+    "noEnabledChannels": "暂无已激活频道",
+    "goEnableChannels": "去启用频道"
   },
   "sessions": {
     "title": "会话",
@@ -1177,7 +1243,7 @@
     "completionTokens": "输出 Token",
     "llmCalls": "LLM 调用",
     "toolCalls": "工具调用",
-    "channel": "渠道",
+    "channel": "频道",
     "sessionCount": "会话数",
     "sessions": "会话",
     "newSessions": "新建会话",
@@ -1270,6 +1336,7 @@
     "protocolHint": "为当前配置选择提供商 API 协议。",
     "selectProtocol": "请选择协议",
     "protocolOpenAI": "OpenAI 兼容（Chat Completions）",
+    "protocolOpenAIResponse": "OpenAI 兼容（Response API）",
     "protocolAnthropic": "Anthropic（Messages API）",
     "currentKey": "当前密钥：{{key}}",
     "startsWith": "以 \"{{prefix}}\" 开头",
@@ -1698,9 +1765,8 @@
     "autoMaxResultsTooltip": "自动记忆搜索时返回的最大结果数",
     "autoMaxResultsRequired": "最大结果数为必填项",
     "autoMaxResultsMin": "最大结果数必须大于等于 1",
-    "autoMinScore": "自动搜索最低相关性分数",
-    "autoMinScoreTooltip": "自动记忆搜索时结果的最低相关性分数阈值（0~1）",
-    "autoMinScoreRequired": "最低相关性分数为必填项",
+    "autoMemorySearchPersistToContext": "保存搜索结果到上下文",
+    "autoMemorySearchPersistToContextTooltip": "开启后，自动记忆搜索产生的工具调用和工具结果会写入对话上下文。关闭后，搜索结果只用于当前这次模型调用。",
     "embeddingConfigTitle": "向量模型配置",
     "embeddingBackend": "后端类型",
     "embeddingBackendTooltip": "向量模型后端，如 openai",
@@ -1819,7 +1885,13 @@
     "configured": "已配置",
     "requiresConfig": "需要配置",
     "configSaved": "配置已保存",
-    "configSaveError": "配置保存失败"
+    "configSaveError": "配置保存失败",
+    "active": "个已激活",
+    "available": "可用",
+    "noEnabled": "暂无已启用的工具",
+    "goEnableBtn": "去启用",
+    "configureAction": "配置 →",
+    "enableAction": "启用 →"
   },
   "modelConfig": {
     "promptTitle": "需要配置 LLM 模型，配置模型后在 Chat 页面选择",
@@ -2610,7 +2682,7 @@
     "getCurrentTime": "获取 当前时间",
     "setTimezone": "设置 {{timezone}}",
     "getTokenUsage": "查询 Token 用量",
-    "memorySearch": "搜索 {{query}}",
+    "memorySearch": "搜索记忆 {{query}}",
     "memorySearchDefault": "搜索 记忆",
     "listAgents": "列出 代理",
     "chatWithAgent": "对话 {{agent}}",

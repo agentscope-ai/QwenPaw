@@ -1908,26 +1908,31 @@ class MatrixChannel(BaseChannel):
         """Download mxc:// to a local file; return path or None."""
         if not mxc_url.startswith("mxc://"):
             return None
-        try:
-            rest = mxc_url[6:]  # strip "mxc://"
-            server, media_id = rest.split("/", 1)
-            url = (
-                f"{self.homeserver}/_matrix/media/v3/download"
-                f"/{server}/{media_id}"
+        if not self._client:
+            logger.warning(
+                "MatrixChannel: _download_mxc called without client",
             )
-            headers = {"Authorization": f"Bearer {self.access_token}"}
-            if not self._http_client:
-                logger.warning("MatrixChannel: HTTP client not initialized")
+            return None
+        try:
+            resp = await self._client.download(mxc=mxc_url)
+            from nio.responses import DownloadError
+
+            if isinstance(resp, DownloadError):
+                logger.warning(
+                    "MatrixChannel: failed to download mxc %s: %s %s",
+                    mxc_url,
+                    type(resp).__name__,
+                    getattr(resp, "message", ""),
+                )
                 return None
-            resp = await self._http_client.get(url, headers=headers)
-            resp.raise_for_status()
+
             dest = self._media_dir() / filename
-            dest.write_bytes(resp.content)
+            dest.write_bytes(resp.body)
             logger.debug("MatrixChannel: downloaded %s → %s", mxc_url, dest)
             return str(dest)
         except Exception as exc:
-            logger.warning(
-                "MatrixChannel: failed to download %s: %s",
+            logger.exception(
+                "MatrixChannel: unexpected error downloading %s: %s",
                 mxc_url,
                 exc,
             )
@@ -1949,29 +1954,23 @@ class MatrixChannel(BaseChannel):
         if not mxc_url.startswith("mxc://") or not self._client:
             return None
         try:
-            rest = mxc_url[6:]
-            server, media_id = rest.split("/", 1)
-            url = (
-                f"{self.homeserver}/_matrix/media/v3/download"
-                f"/{server}/{media_id}"
-            )
-            headers = {"Authorization": f"Bearer {self.access_token}"}
-            if not self._http_client:
-                logger.warning("MatrixChannel: HTTP client not initialized")
+            resp = await self._client.download(mxc=mxc_url)
+            from nio.responses import DownloadError
+
+            if isinstance(resp, DownloadError):
+                logger.warning(
+                    "MatrixChannel: failed to download encrypted %s: %s %s",
+                    mxc_url,
+                    type(resp).__name__,
+                    getattr(resp, "message", ""),
+                )
                 return None
-            resp = await self._http_client.get(url, headers=headers)
-            resp.raise_for_status()
 
             from nio.crypto.attachments import decrypt_attachment
 
             jwk_key = key.get("k", "")
             sha256_hash = hashes.get("sha256", "")
-            plaintext = decrypt_attachment(
-                resp.content,
-                jwk_key,
-                sha256_hash,
-                iv,
-            )
+            plaintext = decrypt_attachment(resp.body, jwk_key, sha256_hash, iv)
 
             dest = self._media_dir() / filename
             dest.write_bytes(plaintext)
@@ -1982,7 +1981,7 @@ class MatrixChannel(BaseChannel):
             )
             return str(dest)
         except Exception as exc:
-            logger.warning(
+            logger.exception(
                 "MatrixChannel: failed to download encrypted %s: %s",
                 mxc_url,
                 exc,

@@ -132,6 +132,17 @@ Do NOT read or write here unless the user explicitly asks.
 """
 
 
+def _project_dir_from_config(agent_config: object | None) -> str | None:
+    """Extract a configured Coding Mode project dir from an agent config."""
+    if agent_config is None:
+        return None
+    if isinstance(agent_config, dict):
+        cm_dict = agent_config.get("coding_mode") or {}
+        return cm_dict.get("project_dir") or None
+    cm_obj = getattr(agent_config, "coding_mode", None)
+    return getattr(cm_obj, "project_dir", None) or None
+
+
 class CodingModeMixin:
     """Mixin that adds Coding Mode features to a ReActAgent.
 
@@ -143,9 +154,8 @@ class CodingModeMixin:
     def _get_coding_project_dir(self) -> str | None:
         """Return the active coding project dir.
 
-        Always reloads from disk so changes made via the API (which persist to
-        ``agent.json``) are reflected immediately rather than stale in-memory
-        config being used.
+        Request-scoped config wins when present. Otherwise, reload from disk so
+        API changes persisted to ``agent.json`` are reflected.
 
         Returns None when no project has been set (use workspace default).
         """
@@ -163,21 +173,22 @@ class CodingModeMixin:
         if not agent_id:
             return None
 
+        project_dir = _project_dir_from_config(agent_config)
+        if project_dir:
+            return project_dir
+
         try:
             config = load_agent_config(agent_id)
             cm = config.coding_mode
             if cm and cm.project_dir:
                 return cm.project_dir
         except Exception:
-            pass
+            logger.debug(
+                "Failed to reload agent config for Coding Mode project",
+                exc_info=True,
+            )
 
-        if agent_config is None:
-            return None
-        if isinstance(agent_config, dict):
-            cm_dict = agent_config.get("coding_mode") or {}
-            return cm_dict.get("project_dir") or None
-        cm_obj = getattr(agent_config, "coding_mode", None)
-        return getattr(cm_obj, "project_dir", None) or None
+        return None
 
     def _coding_mode_enabled(self) -> bool:
         """Return ``True`` when Coding Mode is active."""

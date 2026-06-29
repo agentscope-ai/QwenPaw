@@ -66,7 +66,20 @@
           "Russian": "nsis-languages/Russian.nsh",
           "PortugueseBR": "nsis-languages/PortugueseBR.nsh"
         },
+        "compression": "zlib",
         "displayLanguageSelector": false
+      }
+    }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEE0MkMxRjE4MUM4Njc0RjAKUldUd2RJWWNHQjhzcEhoZ2FWWkxVRXp0bFMyS1JEand6YXZURCs5YnlNcFlzRCtNalhRcjJwamMK",
+      "endpoints": [
+        "https://download.qwenpaw.agentscope.io/metadata/qwenpaw-tauri-latest.json",
+        "https://github.com/agentscope-ai/QwenPaw/releases/latest/download/qwenpaw-tauri-latest.json"
+      ],
+      "windows": {
+        "installMode": "passive"
       }
     }
   }

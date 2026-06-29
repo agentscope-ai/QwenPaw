@@ -259,16 +259,17 @@ const convertMessages = (
   messages: Message[],
 ): IAgentScopeRuntimeWebUIMessage[] => {
   const result: IAgentScopeRuntimeWebUIMessage[] = [];
+  const len = messages.length;
   let i = 0;
 
-  while (i < messages.length) {
+  while (i < len) {
     if (messages[i].role === ROLE_USER) {
       result.push(buildUserCard(messages[i++]));
     } else {
-      const outputMsgs: OutputMessage[] = [];
-      while (i < messages.length && messages[i].role !== ROLE_USER) {
-        outputMsgs.push(toOutputMessage(messages[i++]));
-      }
+      // Collect consecutive non-user messages via slice
+      const startIdx = i;
+      while (i < len && messages[i].role !== ROLE_USER) i++;
+      const outputMsgs = messages.slice(startIdx, i).map(toOutputMessage);
       if (outputMsgs.length) result.push(buildResponseCard(outputMsgs));
     }
   }
@@ -414,6 +415,9 @@ function clearPendingUserMessage(sessionId: string): void {
 class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
   private sessionList: IAgentScopeRuntimeWebUISession[] = [];
 
+  /** Previous returned list reference for shallow-compare optimisation. */
+  private _prevReturnedList: IAgentScopeRuntimeWebUISession[] | null = null;
+
   /**
    * When set, getSessionList will move the matching session to the front on the first call,
    * so the library's useMount auto-selects it instead of always defaulting to sessions[0].
@@ -437,6 +441,22 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
   /** Whether a session switch is currently in progress. */
   isSessionSwitching = false;
 
+  /** AbortController for the current switch — aborted when a new switch starts. */
+  private switchAbortController: AbortController | null = null;
+
+  /**
+   * Start a new session switch. Aborts any in-flight switch and returns a
+   * fresh AbortController whose signal should be threaded through all async ops.
+   */
+  startNewSwitch(): AbortController {
+    // Cancel previous in-flight switch
+    this.switchAbortController?.abort();
+    const controller = new AbortController();
+    this.switchAbortController = controller;
+    this.isSessionSwitching = true;
+    return controller;
+  }
+
   /**
    * Set to true by useCreateNewSession before calling createSession().
    * Consumed and reset inside createSession on every call.
@@ -452,17 +472,66 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
   private sessionResultCache: Map<string, IAgentScopeRuntimeWebUISession> =
     new Map();
 
+  // ---------------------------------------------------------------------------
+  // LRU cache for fully-converted sessions (avoids re-fetching on switch-back)
+  // ---------------------------------------------------------------------------
+
+  private static readonly CONVERTED_CACHE_MAX = 10;
+  private static readonly CONVERTED_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
+  /** LRU cache: backendId → { session, timestamp } */
+  private convertedSessionCache = new Map<
+    string,
+    { session: ExtendedSession; timestamp: number }
+  >();
+
+  private getCachedConvertedSession(backendId: string): ExtendedSession | null {
+    const entry = this.convertedSessionCache.get(backendId);
+    if (!entry) return null;
+    if (Date.now() - entry.timestamp > SessionApi.CONVERTED_CACHE_TTL) {
+      this.convertedSessionCache.delete(backendId);
+      return null;
+    }
+    // LRU: move to end
+    this.convertedSessionCache.delete(backendId);
+    this.convertedSessionCache.set(backendId, entry);
+    return entry.session;
+  }
+
+  private setCachedConvertedSession(
+    backendId: string,
+    session: ExtendedSession,
+  ): void {
+    if (this.convertedSessionCache.size >= SessionApi.CONVERTED_CACHE_MAX) {
+      // Evict oldest (first entry in Map iteration order)
+      const oldestKey = this.convertedSessionCache.keys().next().value;
+      if (oldestKey) this.convertedSessionCache.delete(oldestKey);
+    }
+    this.convertedSessionCache.set(backendId, {
+      session,
+      timestamp: Date.now(),
+    });
+  }
+
+  /** Invalidate the converted cache for a session (call after sending a message). */
+  invalidateConvertedCache(backendId: string): void {
+    this.convertedSessionCache.delete(backendId);
+  }
+
   /**
    * Pre-load a session's data. Returns the session with its realId resolved.
    * Used by handleSessionClick to load data BEFORE setting currentSessionId,
    * so the library's automatic getSession call hits the result cache.
    */
-  async preloadSession(sessionId: string): Promise<{
+  async preloadSession(
+    sessionId: string,
+    signal?: AbortSignal,
+  ): Promise<{
     session: IAgentScopeRuntimeWebUISession;
     realId: string | null;
   }> {
     try {
-      const session = await this.getSession(sessionId);
+      const session = await this.getSession(sessionId, signal);
       const extendedSession = session as ExtendedSession;
       const realId = extendedSession.realId || null;
 
@@ -479,14 +548,19 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
 
       return { session, realId };
     } catch (error) {
+      // Don't reset switching state on abort — the new switch owns the lock
+      if (error instanceof DOMException && error.name === "AbortError") {
+        throw error;
+      }
       this.isSessionSwitching = false;
       throw error;
     }
   }
 
-  /** Called after navigate + setCurrentSessionId are both done. */
+  /** Called when a switch completes (or is superseded). */
   finishSessionSwitch(): void {
     this.isSessionSwitching = false;
+    this.switchAbortController = null;
   }
 
   /**
@@ -504,6 +578,8 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     content?: Array<{ type: string; [key: string]: unknown }>,
   ): void {
     if (!sessionId || !text) return;
+    // Invalidate LRU cache so switching back fetches fresh messages
+    this.invalidateConvertedCache(sessionId);
     if (content && content.length > 0) {
       savePendingUserMessage(sessionId, { text, content });
     } else {
@@ -810,7 +886,45 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
         this.sessionList.unshift(preferred);
       }
     }
-    return [...this.sessionList];
+
+    // If the list hasn't changed substantively, return the previous array
+    // reference to prevent downstream useMemo / React re-renders.
+    if (
+      this._prevReturnedList &&
+      this.isSessionListEqual(this._prevReturnedList, this.sessionList)
+    ) {
+      return this._prevReturnedList;
+    }
+    const result = [...this.sessionList];
+    this._prevReturnedList = result;
+    return result;
+  }
+
+  /**
+   * Shallow-compare two session lists by key fields.
+   * Returns true if lists are structurally identical (no re-render needed).
+   */
+  private isSessionListEqual(
+    prev: IAgentScopeRuntimeWebUISession[],
+    next: IAgentScopeRuntimeWebUISession[],
+  ): boolean {
+    if (prev.length !== next.length) return false;
+    for (let i = 0; i < prev.length; i++) {
+      const a = prev[i] as ExtendedSession;
+      const b = next[i] as ExtendedSession;
+      if (
+        a.id !== b.id ||
+        a.name !== b.name ||
+        a.status !== b.status ||
+        a.updatedAt !== b.updatedAt ||
+        a.pinned !== b.pinned ||
+        a.generating !== b.generating ||
+        a.realId !== b.realId
+      ) {
+        return false;
+      }
+    }
+    return true;
   }
 
   async getSessionList() {
@@ -835,7 +949,7 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
    */
   private lastSelectedIds: Set<string> = new Set();
 
-  async getSession(sessionId: string) {
+  async getSession(sessionId: string, signal?: AbortSignal) {
     // Check short-lived result cache first (populated by preloadSession).
     const cached = this.sessionResultCache.get(sessionId);
     if (cached) return cached;
@@ -843,7 +957,7 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     const existingRequest = this.sessionRequests.get(sessionId);
     if (existingRequest) return existingRequest;
 
-    const requestPromise = this._doGetSession(sessionId);
+    const requestPromise = this._doGetSession(sessionId, signal);
     this.sessionRequests.set(sessionId, requestPromise);
 
     try {
@@ -875,8 +989,23 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     displayId: string,
     backendId: string,
     listEntry: ExtendedSession | undefined,
+    signal?: AbortSignal,
   ): Promise<ExtendedSession> {
-    const chatHistory = await api.getChat(backendId);
+    // Check LRU cache for non-generating sessions
+    const isIdle = !listEntry?.generating;
+    if (isIdle) {
+      const cached = this.getCachedConvertedSession(backendId);
+      if (cached) {
+        // Update mutable fields that may differ
+        cached.id = displayId;
+        if (listEntry?.name) cached.name = listEntry.name;
+        this.updateWindowVariables(cached);
+        return cached;
+      }
+    }
+
+    const chatHistory = await api.getChat(backendId, { signal });
+    if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
     const generating = isGenerating(chatHistory);
     const messages = convertMessages(chatHistory.messages || []);
     this.patchLastUserMessage(messages, generating, backendId);
@@ -893,11 +1022,18 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
       generating,
     };
     this.updateWindowVariables(session);
+
+    // Cache non-generating sessions
+    if (!generating) {
+      this.setCachedConvertedSession(backendId, session);
+    }
+
     return session;
   }
 
   private async _doGetSession(
     sessionId: string,
+    signal?: AbortSignal,
   ): Promise<IAgentScopeRuntimeWebUISession> {
     // --- No session selected (library bug: createSession sets undefined) ---
     if (!sessionId || sessionId === "undefined" || sessionId === "null") {
@@ -921,6 +1057,7 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
             sessionId,
             fromList.realId,
             fromList,
+            signal,
           );
         } catch (error) {
           // If fetching with realId fails, return the local session without messages
@@ -942,6 +1079,7 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
               sessionId,
               resolved.realId,
               resolved,
+              signal,
             );
           } catch {
             this.updateWindowVariables(resolved);
@@ -962,6 +1100,7 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
         sessionId,
         sessionId,
         this.findSession(sessionId),
+        signal,
       );
     } catch (error: any) {
       // If the backend session doesn't exist (e.g. invalid UUID or expired session)
@@ -1104,6 +1243,10 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
       existing?.realId ?? (isLocalTimestamp(sessionId) ? null : sessionId);
 
     if (deleteId) await api.deleteChat(deleteId);
+
+    // Invalidate LRU cache for the deleted session
+    if (deleteId) this.invalidateConvertedCache(deleteId);
+    if (existing?.realId) this.invalidateConvertedCache(existing.realId);
 
     // Use the canonical id from the list entry (existing?.id = localId even when
     // the caller passed a UUID), so the filter always removes the right entry.

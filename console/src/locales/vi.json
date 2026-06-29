@@ -311,7 +311,11 @@
     "detailPayload": "Payload",
     "detailExecutionTrace": "Trace thực thi",
     "detailTraceEmpty": "Không có trace",
-    "filterByAgent": "Lọc theo agent"
+    "filterByAgent": "Lọc theo agent",
+    "filterBySourceType": "Lọc theo nguồn",
+    "sourceTypeCron": "Cron",
+    "sourceTypeHeartbeat": "Heartbeat",
+    "sourceTypeMemory": "Memory"
   },
   "acp": {
     "title": "ACP",
@@ -468,7 +472,13 @@
     "configured": "Đã cấu hình",
     "requiresConfig": "Cần cấu hình",
     "configSaved": "Đã lưu cấu hình",
-    "configSaveError": "Lưu cấu hình thất bại"
+    "configSaveError": "Lưu cấu hình thất bại",
+    "active": "đang hoạt động",
+    "available": "Có sẵn",
+    "noEnabled": "Không có công cụ nào được bật",
+    "goEnableBtn": "Bật ngay",
+    "configureAction": "Cấu hình →",
+    "enableAction": "Bật →"
   },
   "mcp": {
     "title": "MCP Client",
@@ -489,7 +499,12 @@
     "deleteConfirm": "Bạn có chắc muốn xóa MCP client này không?",
     "deleteSuccess": "Xóa MCP client thành công",
     "deleteError": "Xóa MCP client thất bại",
-    "maskedFieldHint": "Các trường nhạy cảm được ẩn bằng ***. Chỉnh sửa trực tiếp không được hỗ trợ — thay thế bằng giá trị mới."
+    "maskedFieldHint": "Các trường nhạy cảm được ẩn bằng ***. Chỉnh sửa trực tiếp không được hỗ trợ — thay thế bằng giá trị mới.",
+    "tools": "Công cụ & Quyền",
+    "noTools": "Không có công cụ nào từ máy chủ MCP này",
+    "toolsLoadError": "Tải danh sách công cụ từ máy chủ MCP thất bại",
+    "toolsConnecting": "Máy chủ MCP đang kết nối, vui lòng thử lại sau",
+    "toolSchema": "Mô tả & Tham số"
   },
   "market": {
     "searchPlaceholder": "Tìm kiếm kỹ năng trên các nền tảng",
@@ -943,7 +958,18 @@
     "wechatBotTokenTooltip": "Bearer token sau khi đăng nhập bằng mã QR. Để trống để kích hoạt đăng nhập bằng mã QR.",
     "wechatBotTokenPlaceholder": "Tự điền sau khi quét QR, hoặc dán thủ công",
     "wechatBotTokenFile": "Đường dẫn file token",
-    "wechatMediaDir": "Thư mục media"
+    "wechatMediaDir": "Thư mục media",
+    "enabledSection": "Đã kích hoạt",
+    "enabledCount": "{{count}}",
+    "availableSection": "Chưa kích hoạt",
+    "enableAction": "Kích hoạt",
+    "noEnabledChannels": "Không có kênh nào được kích hoạt",
+    "goEnableChannels": "Kích hoạt kênh",
+    "slackBotToken": "Bot Token",
+    "slackBotTokenTooltip": "Slack Bot User OAuth Token, bắt đầu bằng xoxb-",
+    "slackAppToken": "App Token",
+    "slackAppTokenTooltip": "Slack App-Level Token cho Socket Mode, bắt đầu bằng xapp-",
+    "slackProxyTooltip": "URL proxy HTTP để kết nối đến Slack API"
   },
   "cronJobs": {
     "title": "Tác vụ định kỳ",
@@ -1048,7 +1074,10 @@
     "loadFailed": "Tải kỹ năng thất bại",
     "saveSuccess": "Đã lưu kỹ năng",
     "saveFailed": "Lưu kỹ năng thất bại",
-    "emptyState": "Chưa có kỹ năng nào"
+    "emptyState": "Chưa có kỹ năng nào",
+    "enabledSkills": "Kỹ năng đã kích hoạt",
+    "disabledSkills": "Kỹ năng chưa kích hoạt",
+    "active": "kích hoạt"
   },
   "skillPool": {
     "description": "Kho kỹ năng cục bộ dùng chung cho kỹ năng tích hợp và tải lên từ workspace.",
@@ -1104,6 +1133,8 @@
     "sendMessage": "Gửi tin nhắn",
     "createMemory": "Tạo bộ nhớ",
     "searchMemory": "Tìm bộ nhớ",
+    "memorySearch": "Tìm bộ nhớ {{query}}",
+    "memorySearchDefault": "Tìm bộ nhớ",
     "updateMemory": "Cập nhật bộ nhớ",
     "deleteMemory": "Xóa bộ nhớ"
   },

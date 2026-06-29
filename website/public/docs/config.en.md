@@ -431,12 +431,11 @@ Controls agent runtime behavior, retry strategies, context management, and memor
 
 **Auto Memory Search Configuration (`reme_light_memory_config.auto_memory_search_config` object):**
 
-| Field         | Type  | Default | Description                                                |
-| ------------- | ----- | ------- | ---------------------------------------------------------- |
-| `enabled`     | bool  | `false` | Whether to auto search memory on every conversation turn   |
-| `max_results` | int   | `1`     | Maximum results for auto memory search                     |
-| `min_score`   | float | `0.1`   | Minimum relevance score for auto memory search (0.0 - 1.0) |
-| `timeout`     | float | `10.0`  | Timeout in seconds for auto memory search                  |
+| Field         | Type  | Default | Description                                              |
+| ------------- | ----- | ------- | -------------------------------------------------------- |
+| `enabled`     | bool  | `false` | Whether to auto search memory on every conversation turn |
+| `max_results` | int   | `1`     | Maximum results for auto memory search                   |
+| `timeout`     | float | `10.0`  | Timeout in seconds for auto memory search                |
 
 **Embedding Configuration (`reme_light_memory_config.embedding_model_config` object):**
 

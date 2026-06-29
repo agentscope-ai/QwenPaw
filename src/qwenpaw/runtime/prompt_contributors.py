@@ -219,25 +219,28 @@ class CodingModeContributor(SyncPromptContributor):
 
     @staticmethod
     def _resolve_project_dir(agent_config: Any) -> str | None:
-        """Reload config from disk so API-driven project switches apply."""
+        """Prefer request config, then reload disk config for API switches."""
+        cm_obj = getattr(agent_config, "coding_mode", None)
+        project_dir = getattr(cm_obj, "project_dir", None)
+        if project_dir:
+            return project_dir
+
         from ..config.config import load_agent_config
 
         agent_id = getattr(agent_config, "id", None)
         if not agent_id:
-            return getattr(
-                getattr(agent_config, "coding_mode", None),
-                "project_dir",
-                None,
-            )
+            return None
         try:
             fresh = load_agent_config(agent_id)
             cm = fresh.coding_mode
             if cm and cm.project_dir:
                 return cm.project_dir
         except Exception:
-            pass
-        cm_obj = getattr(agent_config, "coding_mode", None)
-        return getattr(cm_obj, "project_dir", None) or None
+            logger.debug(
+                "Failed to reload agent config for Coding Mode prompt",
+                exc_info=True,
+            )
+        return None
 
 
 class EnvContextContributor(SyncPromptContributor):

@@ -20,6 +20,7 @@ export interface DiscordConfig extends BaseChannelConfig {
   http_proxy_auth: string;
   accept_bot_messages?: boolean;
   streaming_enabled?: boolean;
+  media_dir?: string;
 }
 
 export interface DingTalkConfig extends BaseChannelConfig {
@@ -32,6 +33,7 @@ export interface DingTalkConfig extends BaseChannelConfig {
   robot_code: string;
   at_sender_on_reply?: boolean;
   streaming_enabled?: boolean;
+  endpoint?: string;
 }
 
 export interface FeishuConfig extends BaseChannelConfig {
@@ -57,6 +59,13 @@ export interface TelegramConfig extends BaseChannelConfig {
   http_proxy: string;
   http_proxy_auth: string;
   show_typing?: boolean;
+  streaming_enabled?: boolean;
+}
+
+export interface SlackConfig extends BaseChannelConfig {
+  bot_token: string;
+  app_token: string;
+  proxy?: string;
   streaming_enabled?: boolean;
 }
 
@@ -176,6 +185,7 @@ export interface ChannelConfig {
   feishu: FeishuConfig;
   qq: QQConfig;
   telegram: TelegramConfig;
+  slack: SlackConfig;
   mqtt: MQTTConfig;
   matrix: MatrixConfig;
   mattermost: MattermostConfig;
@@ -197,6 +207,7 @@ export type SingleChannelConfig =
   | QQConfig
   | ConsoleConfig
   | TelegramConfig
+  | SlackConfig
   | MQTTConfig
   | MatrixConfig
   | MattermostConfig

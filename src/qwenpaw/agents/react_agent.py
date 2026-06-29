@@ -23,7 +23,9 @@ from agentscope.tool import Toolkit
 from .skill_system import get_workspace_skills_dir
 from ..modes.coding import CodingModeMixin
 from ..constant import (
+    AUTO_CONTINUE_MESSAGE_TAG,
     MEDIA_UNSUPPORTED_PLACEHOLDER,
+    QWENPAW_MESSAGE_TAG_KEY,
     WORKING_DIR,
 )
 from ..providers.model_capability_cache import get_capability_cache
@@ -434,6 +436,9 @@ class QwenPawAgent(CodingModeMixin, Agent):
                     name="user",
                     role="user",
                     content=[TextBlock(type="text", text=hint_body)],
+                    metadata={
+                        QWENPAW_MESSAGE_TAG_KEY: AUTO_CONTINUE_MESSAGE_TAG,
+                    },
                 ),
             )
             return  # outer loop continues → _check_next_action → reasoning

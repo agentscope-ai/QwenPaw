@@ -314,13 +314,114 @@ def _sanitize_boolean_schemas(schema: Any) -> Any:
     return result
 
 
+def _collect_defs(schema: dict[str, Any]) -> dict[str, Any]:
+    """Collect all named type definitions from a JSON Schema root.
+
+    Supports both ``$defs`` (JSON Schema draft-2019+) and the legacy
+    ``definitions`` keyword (draft-04/06/07).
+    """
+    defs: dict[str, Any] = {}
+    if isinstance(schema.get("$defs"), dict):
+        defs.update(schema["$defs"])
+    if isinstance(schema.get("definitions"), dict):
+        defs.update(schema["definitions"])
+    return defs
+
+
+def _resolve_local_ref(
+    ref: str,
+    defs: dict[str, Any],
+) -> Any | None:
+    """Resolve a local ``$ref`` of the form ``#/$defs/Name``.
+
+    Returns the referenced schema dict, or ``None`` if *ref* is not a
+    resolvable local reference.
+    """
+    if not isinstance(ref, str) or not ref.startswith("#/"):
+        return None
+    parts = ref[2:].split("/")
+    if len(parts) == 2 and parts[0] in ("$defs", "definitions"):
+        return defs.get(parts[1])
+    return None
+
+
+def _inline_schema_refs(
+    node: Any,
+    defs: dict[str, Any],
+    _resolving: frozenset,
+) -> Any:
+    """Recursively inline ``$ref`` nodes using the provided *defs* mapping.
+
+    Inner recursive worker for :func:`_expand_schema_refs`.
+    """
+    if isinstance(node, list):
+        return [_inline_schema_refs(item, defs, _resolving) for item in node]
+    if not isinstance(node, dict):
+        return node
+
+    ref = node.get("$ref")
+    if isinstance(ref, str):
+        if ref in _resolving:
+            # Circular reference — break the cycle with an empty schema.
+            return {}
+        resolved = _resolve_local_ref(ref, defs)
+        if resolved is not None:
+            # Merge any sibling annotations (e.g. description) into the
+            # resolved schema, then recurse to handle nested refs.
+            siblings = {k: v for k, v in node.items() if k != "$ref"}
+            merged = {**resolved, **siblings}
+            return _inline_schema_refs(merged, defs, _resolving | {ref})
+        # External or unresolvable $ref — fall through and keep as-is.
+
+    # Recurse into all values; drop $defs / definitions from the output
+    # because all references have been resolved inline.
+    result: dict[str, Any] = {}
+    for key, value in node.items():
+        if key in ("$defs", "definitions"):
+            continue
+        result[key] = _inline_schema_refs(value, defs, _resolving)
+    return result
+
+
+def _expand_schema_refs(schema: Any) -> Any:
+    """Inline all local ``$ref`` references in a JSON Schema.
+
+    Some models (e.g. GLM-5.x via OpenCode Go) cannot process ``$ref`` /
+    ``$defs`` patterns in tool parameter schemas.  When Pydantic generates
+    schemas for complex nested types it emits a ``$defs`` block and refers to
+    it with ``{"$ref": "#/$defs/TypeName"}``.  This function resolves every
+    such reference by substituting the full definition inline, then drops the
+    ``$defs`` / ``definitions`` sections so the output is a flat, self-
+    contained schema that all providers can consume.
+
+    Circular references are detected and replaced with an empty schema
+    ``{}`` to avoid infinite recursion.
+
+    Only local references of the form ``#/$defs/<name>`` or
+    ``#/definitions/<name>`` are expanded; external ``$ref`` URLs are left
+    unchanged.
+    """
+    if not isinstance(schema, dict):
+        return schema
+    defs = _collect_defs(schema)
+    if not defs:
+        # Fast-path: nothing to expand.
+        return schema
+    return _inline_schema_refs(schema, defs, frozenset())
+
+
 def _sanitize_tool_schemas(
     tools: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
     """Sanitize tool function schemas to be compatible with strict providers.
 
-    Walks the ``parameters`` of each tool's function definition and replaces
-    boolean JSON Schema values that providers like DeepSeek V4 reject.
+    Applies two passes over each tool's ``parameters`` schema:
+
+    1. **$ref / $defs expansion** — inlines all local ``$ref`` references so
+       that models which do not support ``$defs`` (e.g. GLM-5.x) receive a
+       flat, self-contained schema.
+    2. **Boolean schema sanitization** — replaces boolean JSON Schema values
+       (``true`` / ``false``) that strict providers like DeepSeek V4 reject.
     """
     sanitized = []
     for tool in tools:
@@ -335,7 +436,9 @@ def _sanitize_tool_schemas(
         if not isinstance(params, dict):
             sanitized.append(tool)
             continue
-        sanitized_params = _sanitize_boolean_schemas(params)
+        sanitized_params = _sanitize_boolean_schemas(
+            _expand_schema_refs(params),
+        )
         sanitized.append(
             {**tool, "function": {**func, "parameters": sanitized_params}},
         )

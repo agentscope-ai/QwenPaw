@@ -21,7 +21,11 @@ import {
 import { PageHeader } from "@/components/PageHeader";
 import { useTranslation } from "react-i18next";
 import type { ProviderInfo } from "../../../api/types/provider";
-import { getIsConfigured, groupProviders } from "./utils";
+import {
+  countConfiguredProviders,
+  getIsConfigured,
+  groupProviders,
+} from "./utils";
 import { ProviderIcon } from "./components/ProviderIconComponent";
 import styles from "./index.module.less";
 
@@ -254,6 +258,15 @@ function ModelsPage() {
     };
   }, [providers, deferredSearchQuery]);
 
+  const configuredCloudProviderCount = useMemo(
+    () =>
+      countConfiguredProviders([
+        ...cloudConfiguredGrouped.flatMap((g) => g.providers),
+        ...cloudConfiguredUngrouped,
+      ]),
+    [cloudConfiguredGrouped, cloudConfiguredUngrouped],
+  );
+
   const renderProviderCards = (list: ProviderInfo[]) =>
     list.map((provider) => (
       <ProviderCard
@@ -388,10 +401,7 @@ function ModelsPage() {
                       <span className={styles.panelDotGreen} />
                       {t("models.configuredGroup")}
                       <span className={styles.panelCount}>
-                        {cloudConfiguredGrouped.reduce(
-                          (n, g) => n + g.providers.length,
-                          0,
-                        ) + cloudConfiguredUngrouped.length}{" "}
+                        {configuredCloudProviderCount}{" "}
                         {t("models.configuredOnline")}
                       </span>
                     </div>

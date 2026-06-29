@@ -48,6 +48,21 @@ qwenpaw app --log-level debug           # 详细日志
 
 > **说明：** `--workers` 选项因稳定性原因已废弃。QwenPaw 被设计为单 worker 进程运行。多 worker 模式会导致内存状态管理和 WebSocket 连接出现问题。此选项将在未来版本中移除。
 
+### qwenpaw tui
+
+打开内置终端聊天界面。它会使用当前 Python 环境运行 QwenPaw，适合开发安装
+和偏命令行的工作流。
+
+```bash
+qwenpaw                         # 用当前活跃 Agent 打开 TUI
+qwenpaw tui --agent writer      # 用指定 Agent 打开 TUI
+qwenpaw .                       # 将当前目录绑定为本次 TUI 会话的项目
+qwenpaw tui /path/to/repo       # 将其他目录绑定为本次 TUI 会话的项目
+```
+
+传入项目目录会为本次 TUI 会话启用 Coding 模式，并把该目录作为活跃项目。
+这是会话级设置；不会写入 `agent.json`，也不会改变控制台里选择的项目。
+
 ### 控制台
 
 `qwenpaw app` 启动后，在浏览器打开 `http://127.0.0.1:8088/` 即可进入 **控制台** ——
