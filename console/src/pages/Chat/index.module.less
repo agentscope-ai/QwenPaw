@@ -233,14 +233,13 @@
 
 /* Fix #5480: Assistant response markdown may temporarily fall back to the
  * vendor Raw renderer while streaming. Raw renders newline-bearing text as
- * normal div children, so keep whitespace and wrap long lines on the host side.
+ * normal div children, so wrap long lines on the host side.
  */
 .chatMessagesArea :global {
   [class*="bubble-start"] [class*="markdown"],
   [class*="bubble-assistant"] [class*="markdown"] {
     min-width: 0;
     max-width: 100%;
-    white-space: pre-wrap;
     overflow-wrap: anywhere;
     word-break: normal;
   }
