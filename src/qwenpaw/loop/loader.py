@@ -14,7 +14,7 @@ from .doom_loop import (
 )
 from .rubric_grader import (
     RubricVerdict,
-    run_rubric_grader,
+    SubAgentRubric,
 )
 from .schema import LoopSkillConfig
 from .stop_handler import StopAction, StopHandlerResult
@@ -447,11 +447,13 @@ async def _eval_soft_judge(
     state_str = json.dumps(state, indent=2) if state else "(no state)"
 
     try:
-        result = await run_rubric_grader(
+        rubric = SubAgentRubric(
+            fork=cfg.rubric.use_fork,
+        )
+        result = await rubric.evaluate(
             goal=prompt,
             agent_output=state_str,
             iteration=session.iteration_count,
-            fork=cfg.rubric.use_fork,
         )
         return result.verdict
     except Exception as exc:

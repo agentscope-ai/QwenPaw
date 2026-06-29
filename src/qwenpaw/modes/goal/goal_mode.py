@@ -20,6 +20,10 @@ from typing import TYPE_CHECKING, Any, Optional
 from agentscope.message import Msg, TextBlock
 
 from ..base import AgentMode
+from ...loop.rubric_grader import (
+    GoalStatusRubric,
+    RubricVerdict,
+)
 from ...loop.stop_handler import (
     StopAction,
     StopHandlerRegistration,
@@ -169,6 +173,7 @@ class GoalMode(AgentMode):
     def __init__(self) -> None:
         self._sessions: dict[str, GoalSession] = {}
         self._default_max_tokens = DEFAULT_MAX_TOKENS
+        self._rubric = GoalStatusRubric(owner=self)
 
     @property
     def sessions(self) -> dict[str, GoalSession]:
@@ -367,21 +372,21 @@ class GoalMode(AgentMode):
     # ---- stop handler ----
 
     async def _stop_handler(self, ctx: Any) -> Any:
-        """Stop handler — Codex-aligned self-audit model.
+        """Stop handler: iter + budget + rubric.
 
-        Exit conditions (any → ALLOW):
-        1. Session already deactivated (e.g. update_goal
-           tool called with status=complete/blocked).
-        2. Max iterations budget reached.
-        3. Token budget exhausted.
-        4. Agent text claims completion (self-audit).
+        Three-layer termination:
+        1. Iteration hard limit → ALLOW
+        2. Token budget hard limit → ALLOW
+        3. rubric.evaluate() → SATISFIED → ALLOW
+                              → otherwise → BLOCK
 
-        Otherwise → BLOCK + inject continuation prompt.
+        GoalStatusRubric checks session.active, which
+        is set to False by the update_goal tool.
         """
         session_key = self._session_key_from_ctx(ctx)
         _current_session_id.set(session_key)
         session = self._sessions.get(session_key)
-        if session is None or not session.active:
+        if session is None:
             return StopHandlerResult(
                 action=StopAction.ALLOW,
             )
@@ -389,7 +394,7 @@ class GoalMode(AgentMode):
         session.iteration += 1
         _update_goal_tokens(session, ctx)
         logger.debug(
-            "Goal stop_handler: iter=%d/%d tokens=%d/%d",
+            "Goal stop: iter=%d/%d tokens=%d/%d",
             session.iteration,
             session.max_iterations,
             session.tokens_used,
@@ -425,18 +430,13 @@ class GoalMode(AgentMode):
                 ),
             )
 
-        # --- rubric evaluation (self-audit by default) ---
+        # --- rubric evaluation ---
         final_msg = ctx.get("final_msg")
         output_text = ""
         if isinstance(final_msg, Msg):
             output_text = final_msg.get_text_content() or ""
 
-        from ...loop.rubric_grader import (
-            RubricVerdict,
-            self_audit_rubric,
-        )
-
-        evaluation = await self_audit_rubric(
+        evaluation = await self._rubric.evaluate(
             goal=session.goal,
             agent_output=output_text,
             iteration=session.iteration,
