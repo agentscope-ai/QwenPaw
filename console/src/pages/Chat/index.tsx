@@ -2415,8 +2415,12 @@ export default function ChatPage() {
           message.warning(t("chat.queue.queueFull", { max: MAX_QUEUE_SIZE }));
           return false;
         }
+        const loopSkill = useLoopStore.getState().selectedSkill;
+        const queueText = loopSkill
+          ? `/${loopSkill.name} ${val}`
+          : val;
         useMessageQueueStore.getState().enqueue(queueSessionId, {
-          text: val,
+          text: queueText,
           attachments:
             pendingFileListRef.current.length > 0
               ? pendingFileListRef.current.map((f) => ({
@@ -2441,6 +2445,22 @@ export default function ChatPage() {
       draftSuppressed = true;
       // Clear pending attachments when sending directly (not through queue)
       pendingFileListRef.current = [];
+
+      // Inject loop command prefix when a chip is active
+      const loopState = useLoopStore.getState();
+      if (loopState.selectedSkill) {
+        const textarea = document
+          .querySelector('[class*="sender"]')
+          ?.querySelector("textarea") as HTMLTextAreaElement | null;
+        if (textarea) {
+          const prefix = `/${loopState.selectedSkill.name} `;
+          const current = textarea.value;
+          if (!current.startsWith(prefix)) {
+            setTextareaValue(textarea, `${prefix}${current}`);
+          }
+        }
+      }
+
       return true;
     };
 
