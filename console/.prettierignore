@@ -13,7 +13,3 @@ node_modules/
 coverage/
 .vscode/
 .idea/
-
-# Lock files
-pnpm-lock.yaml
-package-lock.json

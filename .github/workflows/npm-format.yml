@@ -54,20 +54,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 9
-
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: "20"
-          cache: "pnpm"
-          cache-dependency-path: console/pnpm-lock.yaml
+          cache: "npm"
+          cache-dependency-path: console/package-lock.json
 
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+        run: npm ci
 
       - name: Run format check
-        run: pnpm run format:check
+        run: npm run format:check
