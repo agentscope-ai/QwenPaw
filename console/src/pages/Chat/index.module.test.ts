@@ -8,7 +8,7 @@ const stylesSource = readFileSync(
 );
 
 describe("Chat message markdown layout styles", () => {
-  it("preserves newlines for assistant markdown fallback content", () => {
+  it("wraps long lines for assistant markdown fallback content", () => {
     const marker = "Fix #5480";
     const markerIndex = stylesSource.indexOf(marker);
     const rule = stylesSource.slice(
@@ -18,7 +18,7 @@ describe("Chat message markdown layout styles", () => {
 
     expect(markerIndex).toBeGreaterThanOrEqual(0);
     expect(rule).toContain('[class*="bubble-start"] [class*="markdown"]');
-    expect(rule).toMatch(/white-space:\s*pre-wrap/);
+    expect(rule).not.toMatch(/white-space:\s*pre-wrap/);
     expect(rule).toMatch(/overflow-wrap:\s*anywhere/);
     expect(rule).toMatch(/word-break:\s*normal/);
     expect(rule).toMatch(/min-width:\s*0/);
