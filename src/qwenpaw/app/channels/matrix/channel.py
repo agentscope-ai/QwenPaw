@@ -340,9 +340,7 @@ class MatrixChannel(BaseChannel):
             filter_thinking=(
                 filter_thinking or raw.get("filter_thinking", False)
             ),
-            no_text_debounce=(
-                no_text_debounce or raw.get("no_text_debounce", True)
-            ),
+            no_text_debounce=no_text_debounce,
             workspace_dir=workspace_dir,
             access_control_dm=bool(raw.get("access_control_dm", False)),
             access_control_group=bool(raw.get("access_control_group", False)),
