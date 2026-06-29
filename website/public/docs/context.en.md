@@ -2,329 +2,233 @@
 
 ## Overview
 
-Imagine the LLM's context window as a **backpack with limited capacity** 🎒. Every conversation turn, every tool call result adds something to the backpack. As the conversation goes on, the backpack gets fuller and fuller...
+QwenPaw's default context strategy is **scroll**: older turns are not summarized and discarded. They are written to a durable SQLite history store, evicted from the live model window when needed, and represented by a compact in-context index that can be expanded on demand.
 
-**Context management** is a set of mechanisms that help you "manage your backpack", ensuring the AI can work continuously and efficiently.
+The current implementation lives under:
 
-> The context management mechanism is inspired by [OpenClaw](https://github.com/openclaw/openclaw) and independently implemented via **LightContextManager** in QwenPaw.
+- `src/qwenpaw/agents/context/base.py` - pluggable context-manager interface
+- `src/qwenpaw/agents/context/scroll/` - scroll strategy implementation
+- `src/qwenpaw/config/config.py` - `LightContextConfig`, `ContextCompactConfig`, and `ScrollContextConfig`
 
-### How It Works — Summary
+The old AgentScope-native compression path is still available with `strategy: "native"`, but new configurations default to `strategy: "scroll"`.
 
-QwenPaw context management uses two parallel offload paths to handle the limited context window:
-
-| Mechanism                          | Triggered When                        | Offload Target            | What Stays in Context                    |
-| ---------------------------------- | ------------------------------------- | ------------------------- | ---------------------------------------- |
-| **Tool result offload**            | Tool output exceeds byte threshold    | `tool_result/{uuid}.txt`  | Snippet + file path reference            |
-| **Conversation compact + archive** | Context token count exceeds threshold | `dialog/YYYY-MM-DD.jsonl` | `compact_summary` (summary + path guide) |
-
-**Before each inference turn**, `MemoryCompactionHook` runs in order:
+## How Scroll Works
 
 ```mermaid
 flowchart LR
-    A[Before each turn] --> B[1 Tool result offload]
-    B --> C[2 Token threshold check]
-    C -->|Under limit| D[Proceed normally]
-    C -->|Over limit| E[3 Compact old messages\ngenerate compact_summary]
-    E --> F[4 Archive raw messages\nwrite to dialog/]
-    F --> D
+    A[New turn enters context] --> B[Write-through to history.db]
+    B --> C{Live context over trigger ratio?}
+    C -->|No| D[Keep current window]
+    C -->|Yes| E[Keep pinned head + recent tail]
+    E --> F[Evict middle turns]
+    F --> G[Add seq span to eviction index]
+    G --> H[Rebuild live context with one index message]
+    H --> I[Recall later with recall_history_python]
 ```
 
-- **No data loss**: Compacted raw conversations are saved in `dialog/`, tool outputs in `tool_result/` — the Agent can always retrieve them via `read_file`
-- **Context continuity**: `compact_summary` retains a structured summary + dialog path guide so the Agent never loses context
-- **Automatic**: Triggers without manual intervention; `/compact` can also trigger it manually
+Key properties:
 
-## Context Structure
+- **Durable first**: `ScrollContextManager` persists live turns to `{working_dir}/history.db` before any eviction.
+- **No summary bottleneck**: evicted content is represented by an `EvictionIndex`, not by a generated summary.
+- **Recallable raw history**: each index line carries a `seq` span. The agent can run `recall_history_python` and call `ms.expand(lo, hi)` to read the full original rows.
+- **Cross-session memory**: history rows include `session_id` and `agent_id`, so recall can search this agent's past sessions and, when explicitly widened, other agents in the same workspace.
+- **Fallback-safe**: if scroll cannot be wired or its recall tool cannot run safely, QwenPaw falls back to native context management instead of evicting history that cannot be recalled.
 
-### In-Memory Data Structure
+## Storage Layout
 
-QwenPaw's context consists of two components:
+| Path                                    | Default                                         | Purpose                                                                           |
+| --------------------------------------- | ----------------------------------------------- | --------------------------------------------------------------------------------- |
+| `{working_dir}/history.db`              | `scroll_config.db_filename = "history.db"`      | Main durable SQLite store. This is the source of truth for scroll recall.         |
+| `{working_dir}/.scroll/repl/scratch.db` | internal                                        | Persistent scratch DB used by `recall_history_python` across recall calls.        |
+| `{working_dir}/.scroll/cells/`          | internal                                        | Temporary Python cells generated for recall calls.                                |
+| `{working_dir}/dialog/YYYY-MM-DD.jsonl` | opt-in                                          | Legacy JSONL archive of evicted turns when `scroll_config.offload_dialog = true`. |
+| `{working_dir}/tool_results/`           | `tool_result_pruning_config.tool_results_cache` | File cache used by the legacy tiered tool-result pruning middleware.              |
 
-```mermaid
-flowchart TD
-    A[Context] --> B[compact_summary optional]
-    B --> C[Dialog path guide<br>dialog/YYYY-MM-DD.jsonl N lines]
-    B --> D[Structured history summary<br>Goal / Constraints / Progress<br>KeyDecisions / NextSteps]
-    A --> E[messages full dialogue history]
+`history.db` contains a `conversation_history` table with structured rows:
+
+| Column                                          | Meaning                                                                     |
+| ----------------------------------------------- | --------------------------------------------------------------------------- |
+| `seq`                                           | Global autoincrement address used by the eviction index and recall helpers. |
+| `session_id`, `agent_id`                        | Conversation and agent lineage.                                             |
+| `kind`                                          | `model_turn`, `context_msg`, or `tool_result`.                              |
+| `role`, `name`, `content`                       | Role/tool metadata and flattened searchable text.                           |
+| `tool_call_id`, `tool_input`, `tool_state`      | Tool-call linkage and arguments/results state.                              |
+| `headline`                                      | Optional model-written milestone line used as an eviction-index leaf.       |
+| `blocks`, `metadata`, `created_at`, `dedup_key` | Full serialized blocks, metadata, timestamp, and idempotency key.           |
+
+If SQLite FTS5 is available, QwenPaw also keeps a `conversation_history_fts` index over `content`. Without FTS5, recall search degrades to a slower `LIKE` scan.
+
+## Live Context Layout
+
+After eviction, the live context is rebuilt as:
+
+```text
+Pinned head
+  Usually the first user task, controlled by scroll_config.pinned.
+
+Eviction index placeholder
+  One synthetic message named "memory" containing [context compressed],
+  tiered seq spans, and recall instructions.
+
+Recent tail
+  The newest turns selected by AgentScope's pairing-safe split.
 ```
 
-| Component                    | Description                                                                |
-| ---------------------------- | -------------------------------------------------------------------------- |
-| **compact_summary**          | Generated after compaction; contains two parts (see below)                 |
-| ↳ Dialog path guide          | Points to raw conversation data in `dialog/YYYY-MM-DD.jsonl` for reference |
-| ↳ Structured history summary | Goal / Constraints / Progress / KeyDecisions / NextSteps                   |
-| **messages**                 | Current conversation context (full message list)                           |
+The split uses AgentScope's token accounting and pairing-safe compression helpers, so it preserves tool-call/tool-result alignment at the live-window boundary.
 
-### File System Cache
+## Eviction Index
 
-Data evicted from the context is offloaded to the file system, keeping it traceable:
+The eviction index is an in-context map of evicted history. It is tiered:
 
-| Path                      | Contents                                                       |
-| ------------------------- | -------------------------------------------------------------- |
-| `dialog/YYYY-MM-DD.jsonl` | Compacted raw conversation messages, appended chronologically  |
-| `tool_result/{uuid}.txt`  | Full text of long tool call results; auto-cleaned after N days |
+- **Tier 0** holds the most recently evicted blocks with the most detail.
+- Older tiers collapse older blocks into endpoint spans.
+- Every line still carries a `seq` or `seq lo-hi` span, so collapsed history remains expandable from `history.db`.
 
-### Message Zone Division
+Example shape:
 
-```mermaid
-graph LR
-    A[System Prompt] -->|Always retained| B[Compactable Zone<br>Compactable Messages]
-    B -->|Compress when exceeded| C[Reserved Zone<br>Recent Messages]
+```text
+<system-info>
+[context compressed] The turns below were evicted ...
+
+Re-expand a span inside recall_history_python: ms.expand(lo, hi)
+
+===== Tier 1 (older msgs) =====
+  [seq 10-80]
+    · seq 10-34  ⟦ chose SQLite history store - added recall tool ⟧
+===== Tier 0 (recently compressed) =====
+  [seq 81-96]
+    · seq 84  ⟦ implemented context builder wiring ⟧
+    · seq 93  ⟦ verified fallback to native strategy ⟧
+</system-info>
 ```
 
-| Zone                 | Description                                      | Handling                                                      |
-| -------------------- | ------------------------------------------------ | ------------------------------------------------------------- |
-| **System Prompt**    | The AI's "role definition" and base instructions | Always retained, never compacted                              |
-| **Compactable Zone** | Historical conversation messages                 | Token counted; compacted into summary when threshold exceeded |
-| **Reserved Zone**    | Most recent N messages                           | Kept as-is, ensuring context continuity                       |
+The model should not answer from a headline alone. A headline is only a pointer; the full evidence comes from `ms.expand`, `ms.search`, or another recall helper.
 
-### Structure Example
+## Recall API
 
-```
-┌─────────────────────────────────────────┐
-│ System Prompt (Fixed)                    │  ← Always retained
-│ "You are an AI assistant..."             │
-├─────────────────────────────────────────┤
-│ compact_summary (Optional)               │  ← Generated after compaction
-│  - [Dialog guide] dialog/2025-01-15.jsonl│
-│  - Goal: Build user login system         │
-│  - Progress: Login API completed...      │
-├─────────────────────────────────────────┤
-│ Compactable Zone                         │  ← Compacted when exceeded
-│ [Message 1] User: Help me build login    │
-│ [Message 2] Assistant: Sure, I'll...     │
-│ [Message 3] Tool call result...          │
-│ ...                                      │
-├─────────────────────────────────────────┤
-│ Reserved Zone                            │  ← Always retained
-│ [Message N-2] User: Add registration     │
-│ [Message N-1] Assistant: Sure...         │
-│ [Message N] User: Done!                  │
-└─────────────────────────────────────────┘
+When scroll is active, QwenPaw injects a sandbox-capable tool named `recall_history_python`. The Python cell already defines `ms`, a `MemorySpace` object.
+
+Common helpers:
+
+```python
+# Re-expand an indexed span.
+print(ms.expand(81, 96))
+
+# Search this agent's durable history across sessions.
+hits = ms.search("deployment decision", k=20)
+for row in hits:
+    print(row["seq"], row["session_id"], row["content"][:500])
+
+# Read a specific tool call and result.
+print(ms.recall_tool("tool-call-id"))
+
+# Discover and read sessions.
+print(ms.sessions())
+print(ms.session("cron:nightly-report"))
+
+# Workspace-wide discovery when explicitly needed.
+print(ms.agents())
 ```
 
-## Management Mechanism
+Recall is read-only for durable history: `history.db` is attached as SQLite schema `hist` in read-only mode. The model can write only to its scratch `main` database.
 
-### Architecture Overview
+Security note: `recall_history_python` runs model-authored Python. It normally requires sandbox injection from the governance layer. If no sandbox is available, it fails closed unless both are true:
 
-```mermaid
-graph LR
-    Agent[Agent] -->|Before each inference| Hook[MemoryCompactionHook]
-    Hook --> TC[compact_tool_result<br>Compress tool output]
-    TC --> CC[check_context<br>Token counting]
-    CC -->|Exceeds limit| CM[compact_memory<br>Generate summary]
-```
+- environment variable `QWENPAW_ALLOW_UNSANDBOXED_RECALL` is truthy
+- `running.light_context_config.scroll_config.allow_unsandboxed = true`
 
-### Related Code
+Unsandboxed recall executes arbitrary host Python as the agent user and should only be used in trusted local development.
 
-- [LightContextManager](https://github.com/agentscope-ai/QwenPaw/blob/main/src/qwenpaw/agents/context/light_context_manager.py)
-- [AsMsgHandler](https://github.com/agentscope-ai/QwenPaw/blob/main/src/qwenpaw/agents/context/as_msg_handler.py) — Context checking and message formatting
-- [compactor_prompts](https://github.com/agentscope-ai/QwenPaw/blob/main/src/qwenpaw/agents/context/compactor_prompts.py) — Compaction prompts
+## Tool Results
 
-### Execution Flow
+There are two related mechanisms:
 
-```mermaid
-flowchart LR
-    M[messages] --> TC[ToolCallResultCompact<br>Offload long tool outputs]
-    TC --> CC[ContextChecker<br>Token counting]
-    CC --> D{Token > Threshold?}
-    D -->|No| K[Proceed normally]
-    D -->|Yes| E[Keep recent X% tokens]
-    E --> CM[Compactor<br>Compact old messages into summary]
-    CM --> SD[SaveDialog<br>Offload compacted messages to<br>dialog/YYYY-MM-DD.jsonl]
-    SD --> R[Update compact_summary + clear old messages]
-```
+| Mechanism                     | Default                                            | What it does                                                                                                                                                                                                |
+| ----------------------------- | -------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ToolResultCapMiddleware`     | active with scroll                                 | If one tool result exceeds `scroll_config.tool_output_token_cap`, the full output is written to `history.db`, while the live context keeps a bounded preview and an `ms.recall_tool(tool_call_id)` pointer. |
+| `ToolResultPruningMiddleware` | controlled by `tool_result_pruning_config.enabled` | Legacy tiered byte pruning for tool results, with optional file cache under `tool_results/`.                                                                                                                |
 
-**Execution Order**:
-
-1. `ToolCallResultCompact` — Offload long tool outputs to `tool_result/` (if enabled)
-2. `ContextChecker` — Determine if token count exceeds threshold
-3. `Compactor` — Compress old messages into a structured summary (`compact_memory`)
-4. `SaveDialog` — Persist the compacted raw messages to `dialog/YYYY-MM-DD.jsonl`
-
-## Compaction Mechanism
-
-When the context approaches its limit, QwenPaw automatically triggers compaction, condensing old conversations into a structured summary.
-
-### 1. compact_tool_result — Tool Result Compaction
-
-When `tool_result_pruning_config.enabled` is on (default `true`), different byte thresholds are applied based on how recent a message is:
-
-```mermaid
-flowchart LR
-    A[Tool Call Result] --> B{Within pruning_recent_n?}
-    B -->|Yes| C[Low truncation<br>pruning_recent_msg_max_bytes<br>Save full text to tool_result/uuid.txt<br>Keep snippet + file ref in message]
-    B -->|No| D[High truncation<br>pruning_old_msg_max_bytes<br>Reference existing file<br>More aggressive truncation]
-    C --> E[Context]
-    D --> E
-```
-
-| Message type                   | Threshold                      | Default | Behavior                                        |
-| ------------------------------ | ------------------------------ | ------- | ----------------------------------------------- |
-| Most recent `pruning_recent_n` | `pruning_recent_msg_max_bytes` | `50000` | Preserve more content; save full text to file   |
-| Older messages                 | `pruning_old_msg_max_bytes`    | `3000`  | Aggressive truncation; reuse existing file path |
-
-**Tool-specific behavior:**
-
-- **Browser-use type tools**: On first call, full content is saved to `tool_result/uuid.txt`, message keeps snippet + file reference with a "read from line N" hint; secondary truncation applies once the message falls outside `pruning_recent_n`
-- **read_file tool**: No truncation or file save within `pruning_recent_n` (content is already an external file); beyond `pruning_recent_n`, truncated and saved to `tool_result/`
-- Files older than `offload_retention_days` are automatically cleaned up
-
-### 2. check_context — Context Check
-
-Determines if context exceeds limits based on token counting, automatically splitting messages into "to compact" and "to keep" groups.
-
-```mermaid
-graph LR
-    M[messages] --> H[Token counting]
-    H --> C{total > threshold?}
-    C -->|No| K[Return all messages]
-    C -->|Yes| S[Keep from tail backwards<br>reserve tokens]
-    S --> CP[messages_to_compact<br>Early messages]
-    S --> KP[messages_to_keep<br>Recent messages]
-    S --> V{is_valid<br>Tool call alignment?}
-```
-
-- **Core Logic**: Reserve `memory_compact_reserve` tokens from the tail backwards, marking excess as to-be-compacted
-- **Integrity Guarantee**: Does not split user-assistant conversation pairs or tool_use/tool_result pairs
-
-### 3. compact_memory — Conversation Compaction
-
-Uses ReActAgent to compress historical conversations into a **structured context summary**:
-
-```mermaid
-graph LR
-    M[messages] --> H[format_msgs_to_str]
-    H --> A[ReActAgent<br>reme_compactor]
-    P[previous_summary] -->|Incremental update| A
-    A --> S[Structured summary]
-```
-
-### 4. Manual Compaction (/compact Command)
-
-Proactively trigger compaction:
-
-```
-/compact
-```
-
-You can also add an optional instruction for this manual run:
-
-```
-/compact keep requirements and decisions only
-```
-
-After execution, you'll see:
-
-```
-**Compact Complete!**
-
-- Messages compacted: 12
-**Compressed Summary:**
-<compacted summary content>
-```
-
-Response breakdown:
-
-- 📊 **Messages compacted** - How many messages were compacted
-- 📝 **Compressed Summary** - The generated summary content
-
-## Compaction Summary Structure
-
-`compact_summary` consists of two parts: a **dialog path guide** and a **structured history summary**.
-
-### Dialog Path Guide
-
-Points to compacted raw conversation data in `dialog/YYYY-MM-DD.jsonl` (written chronologically; recommended to read from the end backwards). The Agent can use the `read_file` tool to review historical details without keeping raw messages in the active context.
-
-### Structured History Summary
-
-```mermaid
-graph TB
-    A[Structured History Summary] --> B[Goal]
-    A --> C[Constraints]
-    A --> D[Progress]
-    A --> E[Key Decisions]
-    A --> F[Next Steps]
-    A --> G[Critical Context]
-```
-
-| Field                | Content                                 | Example                                        |
-| -------------------- | --------------------------------------- | ---------------------------------------------- |
-| **Goal**             | What the user wants to accomplish       | "Build a user login system"                    |
-| **Constraints**      | Requirements and preferences            | "Use TypeScript, no frameworks"                |
-| **Progress**         | Completed / in-progress / blocked tasks | "Login API done, registration API in progress" |
-| **Key Decisions**    | Decisions made and their rationale      | "Chose JWT over Sessions for statelessness"    |
-| **Next Steps**       | What to do next                         | "Implement password reset feature"             |
-| **Critical Context** | Data needed to continue work            | "Main file is at src/auth.ts"                  |
-
-- **Incremental Update**: When `previous_summary` is provided, new conversations are automatically merged with the old summary
-- **Information Preservation**: Compaction preserves exact file paths, function names, and error messages, ensuring seamless context transitions
+The scroll cap is token-based and uses durable recall. The legacy pruning middleware is byte-based and keeps compatibility with the previous tool-result offload behavior.
 
 ## Configuration
 
-Configuration is located in `~/.qwenpaw/workspaces/{agent_id}/agent.json` under `agents.running`:
-
-**`running` top-level fields:**
-
-| Parameter                 | Default       | Description                        |
-| ------------------------- | ------------- | ---------------------------------- |
-| `max_input_length`        | `131072`      | Model context window size (tokens) |
-| `context_manager_backend` | `"light"`     | Context manager backend type       |
-| `memory_manager_backend`  | `"remelight"` | Memory manager backend type        |
-
-**`running.light_context_config` fields:**
-
-| Parameter                      | Default    | Description                                            |
-| ------------------------------ | ---------- | ------------------------------------------------------ |
-| `dialog_path`                  | `"dialog"` | Dialog persistence directory (relative to working dir) |
-| `token_count_estimate_divisor` | `4.0`      | Divisor for byte-based token estimation                |
-
-**`running.light_context_config.context_compact_config` fields:**
-
-| Parameter                 | Default | Description                                                                                    |
-| ------------------------- | ------- | ---------------------------------------------------------------------------------------------- |
-| `enabled`                 | `true`  | Whether to enable automatic context compaction                                                 |
-| `compact_threshold_ratio` | `0.8`   | Threshold ratio for triggering compaction, triggers when `max_input_length × ratio` is reached |
-| `reserve_threshold_ratio` | `0.1`   | Ratio of recent messages to keep during compaction, keeps `max_input_length × ratio` tokens    |
-
-**`running.light_context_config.tool_result_pruning_config` fields:**
-
-| Parameter                      | Default | Description                                                                |
-| ------------------------------ | ------- | -------------------------------------------------------------------------- |
-| `enabled`                      | `true`  | Whether to prune long tool outputs                                         |
-| `pruning_recent_n`             | `2`     | Number of recent messages to use higher threshold for                      |
-| `pruning_old_msg_max_bytes`    | `3000`  | Byte threshold for older tool result messages                              |
-| `pruning_recent_msg_max_bytes` | `50000` | Byte threshold for the most recent `pruning_recent_n` tool result messages |
-| `offload_retention_days`       | `5`     | Days to retain cached tool output files (auto-cleaned after expiry)        |
-
-**Calculation Relationships:**
-
-- `memory_compact_threshold` = `max_input_length × compact_threshold_ratio` (threshold for triggering compaction)
-- `memory_compact_reserve` = `max_input_length × reserve_threshold_ratio` (tokens of recent messages to keep)
-
-**Example Configuration:**
+Relevant configuration is under `running.light_context_config`:
 
 ```json
 {
-  "agents": {
-    "running": {
-      "max_input_length": 128000,
-      "context_manager_backend": "light",
-      "light_context_config": {
-        "dialog_path": "dialog",
-        "context_compact_config": {
-          "enabled": true,
-          "compact_threshold_ratio": 0.8,
-          "reserve_threshold_ratio": 0.1
-        },
-        "tool_result_pruning_config": {
-          "enabled": true,
-          "pruning_recent_n": 2,
-          "pruning_old_msg_max_bytes": 3000,
-          "pruning_recent_msg_max_bytes": 50000
-        }
+  "running": {
+    "light_context_config": {
+      "strategy": "scroll",
+      "dialog_path": "dialog",
+      "context_compact_config": {
+        "enabled": true,
+        "compact_threshold_ratio": 0.8,
+        "reserve_threshold_ratio": 0.1
+      },
+      "scroll_config": {
+        "db_filename": "history.db",
+        "tool_output_token_cap": 3000,
+        "pinned": 1,
+        "repl_timeout_s": 300,
+        "history_retention_days": 30,
+        "allow_unsandboxed": false,
+        "offload_dialog": false
+      },
+      "tool_result_pruning_config": {
+        "enabled": true,
+        "pruning_recent_n": 2,
+        "pruning_old_msg_max_bytes": 3000,
+        "pruning_recent_msg_max_bytes": 50000,
+        "offload_retention_days": 5,
+        "tool_results_cache": "tool_results"
       }
     }
   }
 }
 ```
+
+Important fields:
+
+| Field                                            | Default        | Meaning                                                                                          |
+| ------------------------------------------------ | -------------- | ------------------------------------------------------------------------------------------------ |
+| `strategy`                                       | `"scroll"`     | `"scroll"` uses durable history + eviction index. `"native"` uses AgentScope-native compression. |
+| `context_compact_config.compact_threshold_ratio` | `0.8`          | Trigger when model input reaches this fraction of context size.                                  |
+| `context_compact_config.reserve_threshold_ratio` | `0.1`          | Recent tail budget kept after eviction.                                                          |
+| `scroll_config.db_filename`                      | `"history.db"` | SQLite filename relative to the workspace.                                                       |
+| `scroll_config.tool_output_token_cap`            | `3000`         | Token cap for one live tool result preview.                                                      |
+| `scroll_config.pinned`                           | `1`            | Number of leading messages never evicted.                                                        |
+| `scroll_config.repl_timeout_s`                   | `300`          | Per-call timeout for `recall_history_python`.                                                    |
+| `scroll_config.history_retention_days`           | `30`           | Auto-purge rows older than this many days. Set `0` to keep forever.                              |
+| `scroll_config.offload_dialog`                   | `false`        | Also write legacy `dialog/*.jsonl` archive. `history.db` remains the source of truth.            |
+
+## Manual Compaction
+
+`/compact` still exists, but under scroll it means "force the scroll manager to reclaim live context and show the current eviction-index map", not "generate a compact summary".
+
+Typical result:
+
+```text
+Context compressed.
+
+===== Tier 0 (recently compressed) =====
+  [seq 81-96]
+    · seq 84  ⟦ implemented context builder wiring ⟧
+```
+
+If no messages are eligible or the context is already small enough, there may be no new eviction.
+
+## Native Strategy
+
+Set this when you want AgentScope's built-in behavior instead of scroll:
+
+```json
+{
+  "running": {
+    "light_context_config": {
+      "strategy": "native"
+    }
+  }
+}
+```
+
+Native mode does not wire `ScrollContextManager`, `ToolResultCapMiddleware`, or `recall_history_python`. It uses AgentScope context compression with the same `compact_threshold_ratio` and `reserve_threshold_ratio` mapping.
