@@ -412,13 +412,18 @@ class QwenPawACPAgent(Agent):
         try:
             from ...modes.coding import CodingMode
             from ...modes.mission import MissionMode
+            from ...modes.goal import GoalMode
 
             kwargs["builtin_mode_clses"] = [
                 CodingMode,
                 MissionMode,
+                GoalMode,
             ]
         except Exception:
-            logger.debug("ACP bootstrap: modes skipped", exc_info=True)
+            logger.debug(
+                "ACP bootstrap: modes skipped",
+                exc_info=True,
+            )
 
         return kwargs
 

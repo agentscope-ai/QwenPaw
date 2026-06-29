@@ -4,24 +4,35 @@
 Similar to Codex /goal: user sets a goal, agent works
 until the rubric grader confirms completion or budget
 is exhausted.
+
+Inherits ``AgentMode`` so it plugs into the standard
+``builtin_mode_clses`` bootstrap — all registration
+stays inside this file and ``modes/goal/``.
 """
 from __future__ import annotations
 
 import logging
 import time
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 from agentscope.message import Msg, TextBlock
 
+from ..base import AgentMode
 from ...loop.rubric_grader import (
     RubricVerdict,
     run_rubric_grader,
 )
 from ...loop.stop_handler import (
     StopAction,
+    StopHandlerRegistration,
     StopHandlerResult,
 )
+from ...runtime.hooks import HookBase
+from ...runtime.slash_command_registry import CommandSpec
+
+if TYPE_CHECKING:
+    from ...runtime.prompt_manager import PromptContributor
 
 logger = logging.getLogger(__name__)
 
@@ -123,16 +134,17 @@ class GoalSession:
     )
 
 
-class GoalMode:
-    """Built-in /goal mode.
+class GoalMode(AgentMode):
+    """Built-in /goal mode (AgentMode subclass).
 
     Registers /goal and /cancel slash commands. When
     active, the stop handler blocks agent exit and uses
     LLM-as-Judge rubric grading to determine if the
-    goal is met. If not, continuation feedback is injected.
+    goal is met. If not, continuation feedback is
+    injected.
 
-    This is the ONLY built-in loop mode. All other loops
-    (ralph, ultrawork, etc.) are plugins.
+    This is the ONLY built-in loop mode. All other
+    loops (ralph, ultrawork, etc.) are plugins.
     """
 
     name = "goal"
@@ -140,54 +152,68 @@ class GoalMode:
     def __init__(self) -> None:
         self._sessions: dict[str, GoalSession] = {}
 
-    def register(self, api: Any) -> None:
-        """Register /goal mode via PluginApi.
+    # ---- AgentMode interface ----
 
-        Args:
-            api: PluginApi instance.
-        """
-        api.register_slash_command(
-            name="goal",
-            handler=self._activate_handler,
-            help_text=("Set a goal — agent works " "until done."),
-            metadata={"builtin": True},
-        )
+    def commands(self) -> list[CommandSpec]:
+        """Return /goal and /cancel command specs."""
+        return [
+            CommandSpec(
+                name="goal",
+                handler=self._activate_handler,
+                category="builtin",
+                help_text=("Set a goal \u2014 agent works until done."),
+                metadata={"builtin": True},
+            ),
+            CommandSpec(
+                name="cancel",
+                handler=self._cancel_handler,
+                category="builtin",
+                help_text="Cancel active goal or loop.",
+                metadata={"builtin": True},
+            ),
+        ]
 
-        api.register_slash_command(
-            name="cancel",
-            handler=self._cancel_handler,
-            help_text="Cancel active goal or loop.",
-            metadata={"builtin": True},
-        )
-
-        api.register_agent_stop_handler(
-            handler=self._stop_handler,
-            priority=50,
-            name="goal-mode",
-        )
-
-        api.register_prompt_section(
-            name="goal-mode-skill",
-            after="workspace",
-            provider=self._prompt_provider,
-            condition=self._is_any_goal_active,
-        )
-
+    def hooks(self) -> list[HookBase]:
+        """Return iter-bypass hooks for ReAct max_iters."""
         from ...loop.iter_bypass_hook import (
             LoopIterBypassHook,
             LoopIterRestoreHook,
         )
 
-        api.register_runtime_hook(
+        return [
             LoopIterBypassHook(
                 is_active_fn=lambda: (
                     self._first_active_session() is not None
                 ),
             ),
-        )
-        api.register_runtime_hook(
             LoopIterRestoreHook(),
+        ]
+
+    def prompt_contributors(self) -> list["PromptContributor"]:
+        """Return goal-mode prompt contributor."""
+        from .contributor import GoalPromptContributor
+
+        return [GoalPromptContributor(owner=self)]
+
+    def setup(self, workspace: object) -> None:
+        """Standard setup + stop handler registration."""
+        super().setup(workspace)
+        if not hasattr(workspace.plugins, "stop_handlers"):
+            workspace.plugins.stop_handlers = []
+        workspace.plugins.stop_handlers.append(
+            StopHandlerRegistration(
+                plugin_id="__builtin_goal__",
+                handler=self._stop_handler,
+                priority=50,
+                name="goal-mode",
+            ),
         )
+
+    def is_active(self, ctx: Any) -> bool:
+        """Goal mode is active when any session is live."""
+        return self._first_active_session() is not None
+
+    # ---- slash command handlers ----
 
     async def _activate_handler(
         self,
@@ -236,7 +262,7 @@ class GoalMode:
         ctx: Any,  # pylint: disable=unused-argument
         args: str,  # pylint: disable=unused-argument
     ) -> Optional[Msg]:
-        """Handle /cancel — deactivate all loops."""
+        """Handle /cancel \u2014 deactivate all loops."""
         cancelled = []
         for key, session in list(self._sessions.items()):
             if session.active:
@@ -269,23 +295,7 @@ class GoalMode:
             role="system",
         )
 
-    @staticmethod
-    def _cancel_plugin_loops() -> None:
-        """Cancel all plugin-registered loops."""
-        try:
-            from ...plugins.registry import (
-                PluginRegistry,
-            )
-
-            for h in PluginRegistry.get_stop_handlers():
-                cb = getattr(h, "on_cancel", None)
-                if callable(cb):
-                    try:
-                        cb()
-                    except Exception:  # noqa: BLE001
-                        pass
-        except Exception:  # noqa: BLE001
-            pass
+    # ---- stop handler ----
 
     async def _stop_handler(self, ctx: Any) -> Any:
         """Stop handler: block exit if goal not met."""
@@ -385,10 +395,12 @@ class GoalMode:
         return StopHandlerResult(
             action=StopAction.BLOCK,
             continuation_message=continuation,
-            reason=f"Goal incomplete: iteration " f"{session.iteration}",
+            reason=(f"Goal incomplete: iteration " f"{session.iteration}"),
         )
 
-    def _prompt_provider(
+    # ---- prompt / session helpers ----
+
+    def prompt_provider(
         self,
         agent: Any,  # pylint: disable=unused-argument
     ) -> str:
@@ -418,12 +430,23 @@ class GoalMode:
                 return s
         return None
 
-    def _is_any_goal_active(
-        self,
-        agent: Any,  # pylint: disable=unused-argument
-    ) -> bool:
-        """Check if any goal session is active."""
-        return self._first_active_session() is not None
+    @staticmethod
+    def _cancel_plugin_loops() -> None:
+        """Cancel all plugin-registered loops."""
+        try:
+            from ...plugins.registry import (
+                PluginRegistry,
+            )
+
+            for h in PluginRegistry.get_stop_handlers():
+                cb = getattr(h, "on_cancel", None)
+                if callable(cb):
+                    try:
+                        cb()
+                    except Exception:  # noqa: BLE001
+                        pass
+        except Exception:  # noqa: BLE001
+            pass
 
     @staticmethod
     def _current_session_key(
@@ -440,7 +463,11 @@ class GoalMode:
         if isinstance(ctx, dict):
             agent = ctx.get("agent")
             if agent is not None:
-                rc = getattr(agent, "_request_context", {})
+                rc = getattr(
+                    agent,
+                    "_request_context",
+                    {},
+                )
                 return rc.get("session_id", "default")
             return ctx.get("session_id", "default")
         return "default"

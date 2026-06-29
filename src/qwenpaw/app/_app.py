@@ -380,11 +380,13 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
         try:
             from ..modes.coding import CodingMode
             from ..modes.mission import MissionMode
+            from ..modes.goal import GoalMode
 
             # pylint: disable-next=protected-access
             workspace_registry._bootstrap_kwargs["builtin_mode_clses"] = [
                 CodingMode,
                 MissionMode,
+                GoalMode,
             ]
             logger.debug("Built-in modes collected")
         except Exception:
