@@ -372,7 +372,11 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
         if mgr is None:
             return []
         handlers: list = []
-        workspaces = getattr(mgr, "workspaces", {})
+        workspaces = getattr(
+            mgr,
+            "agents",
+            getattr(mgr, "workspaces", {}),
+        )
         for ws in workspaces.values():
             plugins = getattr(ws, "plugins", None)
             if plugins is None:
