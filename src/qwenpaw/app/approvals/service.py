@@ -85,6 +85,8 @@ class ApprovalService:
         channel_body: str,
     ) -> None:
         """Fire-and-forget: push approval notification to channel."""
+        if self._channel_manager is None:
+            return
         if not pending.channel or pending.channel == "console":
             return
         try:
