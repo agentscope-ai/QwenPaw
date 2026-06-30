@@ -5,10 +5,12 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from qwenpaw.loop.gates import LoopGate
+from qwenpaw.loop.gates import FileLoopGate
+
+_PLUGIN_DIR = Path(__file__).parent
 
 
-class RalphGate(LoopGate):
+class RalphGate(FileLoopGate):
     """Continue until all stories are done."""
 
     _MAX_ITERATIONS = 30
@@ -58,7 +60,7 @@ class RalphPlugin:
             )
             return Msg(
                 name="system",
-                content=(f"Ralph loop activated. " f"Task: {args}"),
+                content=f"Ralph loop activated. Task: {args}",
                 role="system",
             )
 
@@ -73,6 +75,9 @@ class RalphPlugin:
             handler=gate.check,
             priority=gate.priority,
             name=gate.name,
+        )
+        api.register_skill_provider(
+            skills_dir=_PLUGIN_DIR / "skills",
         )
 
 

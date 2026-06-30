@@ -5,10 +5,12 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from qwenpaw.loop.gates import LoopGate
+from qwenpaw.loop.gates import FileLoopGate
+
+_PLUGIN_DIR = Path(__file__).parent
 
 
-class DeepInterviewGate(LoopGate):
+class DeepInterviewGate(FileLoopGate):
     """Continue until interview is synthesized."""
 
     _MAX_ITERATIONS = 20
@@ -56,7 +58,7 @@ class DeepInterviewPlugin:
             )
             return Msg(
                 name="system",
-                content=(f"Deep interview activated. " f"Topic: {args}"),
+                content=(f"Deep interview activated. Topic: {args}"),
                 role="system",
             )
 
@@ -69,6 +71,9 @@ class DeepInterviewPlugin:
             handler=gate.check,
             priority=gate.priority,
             name=gate.name,
+        )
+        api.register_skill_provider(
+            skills_dir=_PLUGIN_DIR / "skills",
         )
 
 

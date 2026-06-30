@@ -5,10 +5,12 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from qwenpaw.loop.gates import LoopGate
+from qwenpaw.loop.gates import FileLoopGate
+
+_PLUGIN_DIR = Path(__file__).parent
 
 
-class UltraworkGate(LoopGate):
+class UltraworkGate(FileLoopGate):
     """Continue until all todos are done."""
 
     _MAX_ITERATIONS = 25
@@ -59,7 +61,7 @@ class UltraworkPlugin:
             )
             return Msg(
                 name="system",
-                content=(f"Ultrawork loop activated. " f"Task: {args}"),
+                content=(f"Ultrawork loop activated. Task: {args}"),
                 role="system",
             )
 
@@ -74,6 +76,9 @@ class UltraworkPlugin:
             handler=gate.check,
             priority=gate.priority,
             name=gate.name,
+        )
+        api.register_skill_provider(
+            skills_dir=_PLUGIN_DIR / "skills",
         )
 
 

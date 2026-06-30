@@ -4,10 +4,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from qwenpaw.loop.gates import LoopGate
+from qwenpaw.loop.gates import FileLoopGate
+
+_PLUGIN_DIR = Path(__file__).parent
 
 
-class AutopilotGate(LoopGate):
+class AutopilotGate(FileLoopGate):
     """Continue until max iterations or budget hit."""
 
     _MAX_ITERATIONS = 50
@@ -45,7 +47,7 @@ class AutopilotPlugin:
             gate.activate()
             return Msg(
                 name="system",
-                content=(f"Autopilot mode activated. " f"Task: {args}"),
+                content=(f"Autopilot mode activated. Task: {args}"),
                 role="system",
             )
 
@@ -61,6 +63,9 @@ class AutopilotPlugin:
             handler=gate.check,
             priority=gate.priority,
             name=gate.name,
+        )
+        api.register_skill_provider(
+            skills_dir=_PLUGIN_DIR / "skills",
         )
 
 
