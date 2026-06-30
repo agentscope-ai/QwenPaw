@@ -153,6 +153,7 @@ def _create_default_registry() -> ToolRegistry:
     registry.register("ChatWithAgent", "internal", "agent_id")
     registry.register("SubmitToAgent", "internal", "agent_id")
     registry.register("CheckAgentTask", "internal", "task_id")
+    registry.register("SpawnSubagent", "internal", "")
     registry.register("DelegateExternalAgent", "internal", "runner")
     registry.register("RecallHistoryPython", "shell", "source")
     registry.register("MemorySearch", "internal", "")
@@ -182,6 +183,7 @@ def _create_default_registry() -> ToolRegistry:
     registry.register_python_name("chat_with_agent", "ChatWithAgent")
     registry.register_python_name("submit_to_agent", "SubmitToAgent")
     registry.register_python_name("check_agent_task", "CheckAgentTask")
+    registry.register_python_name("spawn_subagent", "SpawnSubagent")
     registry.register_python_name("materialize_skill", "MaterializeSkill")
 
     return registry

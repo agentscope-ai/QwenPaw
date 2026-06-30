@@ -6,11 +6,20 @@ import asyncio
 import json
 import logging
 import re
+import time
 import uuid
+from dataclasses import dataclass
 from pathlib import Path
-from typing import AsyncGenerator, Union
+from typing import Any, AsyncGenerator, Dict, Optional, Union
 
-from fastapi import APIRouter, File, HTTPException, Query, Request, UploadFile
+from fastapi import (
+    APIRouter,
+    File,
+    HTTPException,
+    Query,
+    Request,
+    UploadFile,
+)
 from pydantic import BaseModel
 from starlette.responses import StreamingResponse
 
@@ -28,6 +37,24 @@ from ..utils import check_upload_size
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/console", tags=["console"])
+
+
+# ── Background task store ──
+
+
+@dataclass
+class _BackgroundTask:
+    """In-memory state for a background chat task."""
+
+    status: str = "submitted"
+    started_at: Optional[float] = None
+    finished_at: Optional[float] = None
+    result: Optional[Dict[str, Any]] = None
+    asyncio_task: Optional[asyncio.Task] = None
+
+
+_bg_tasks: Dict[str, _BackgroundTask] = {}
+_bg_lock = asyncio.Lock()
 
 
 class MarkInboxReadRequest(BaseModel):
@@ -461,5 +488,143 @@ async def get_inbox_trace(run_id: str):
 
     trace = await get_trace(run_id)
     if trace is None:
-        raise HTTPException(status_code=404, detail="trace not found")
+        raise HTTPException(
+            status_code=404,
+            detail="trace not found",
+        )
     return trace
+
+
+# ── Background chat task endpoints ──
+
+
+def _parse_sse_payload(line: str) -> Optional[Dict[str, Any]]:
+    """Parse a single SSE data line into a dict."""
+    stripped = line.strip()
+    if stripped.startswith("data: "):
+        try:
+            return json.loads(stripped[6:])
+        except (json.JSONDecodeError, ValueError):
+            return None
+    return None
+
+
+@router.post(
+    "/chat/task",
+    status_code=200,
+    summary="Submit a background chat task",
+)
+async def post_console_chat_task(
+    request_data: Union[AgentRequest, dict],
+    request: Request,
+) -> dict:
+    """Run an agent chat as a background task.
+
+    Returns a ``task_id`` immediately. Poll status via
+    ``GET /console/chat/task/{task_id}``.
+    """
+    workspace = await get_agent_for_request(request)
+    console_channel = await workspace.channel_manager.get_channel("console")
+    if console_channel is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Channel Console not found",
+        )
+
+    task_id = f"task-{uuid.uuid4().hex[:12]}"
+    native_payload = _extract_session_and_payload(request_data)
+    session_id = console_channel.resolve_session_id(
+        sender_id=native_payload["sender_id"],
+        channel_meta=native_payload["meta"],
+    )
+
+    task_timeout: Optional[float] = None
+    if isinstance(request_data, dict):
+        task_timeout = request_data.get("timeout")
+    elif hasattr(request_data, "timeout"):
+        task_timeout = getattr(request_data, "timeout", None)
+
+    bg = _BackgroundTask(
+        status="running",
+        started_at=time.time(),
+    )
+
+    async def _run() -> None:
+        last_response: Optional[Dict[str, Any]] = None
+        try:
+            async for sse_line in console_channel.stream_one(
+                native_payload,
+            ):
+                parsed = _parse_sse_payload(sse_line)
+                if parsed and parsed.get("type") != "turn_usage":
+                    last_response = parsed
+        except asyncio.CancelledError:
+            bg.status = "finished"
+            bg.finished_at = time.time()
+            bg.result = {
+                "status": "failed",
+                "error": {"message": "Task cancelled"},
+            }
+            return
+        except Exception as exc:
+            bg.status = "finished"
+            bg.finished_at = time.time()
+            bg.result = {
+                "status": "failed",
+                "error": {"message": str(exc)},
+            }
+            return
+
+        bg.status = "finished"
+        bg.finished_at = time.time()
+        if last_response is not None:
+            bg.result = {
+                "status": "completed",
+                "session_id": session_id,
+                **last_response,
+            }
+        else:
+            bg.result = {
+                "status": "completed",
+                "session_id": session_id,
+                "output": [],
+            }
+
+    atask = asyncio.create_task(_run())
+    bg.asyncio_task = atask
+
+    if task_timeout is not None and task_timeout > 0:
+
+        async def _timeout_guard() -> None:
+            await asyncio.sleep(task_timeout)
+            if not atask.done():
+                atask.cancel()
+
+        asyncio.create_task(_timeout_guard())
+
+    async with _bg_lock:
+        _bg_tasks[task_id] = bg
+
+    return {"task_id": task_id}
+
+
+@router.get(
+    "/chat/task/{task_id}",
+    status_code=200,
+    summary="Check background chat task status",
+)
+async def get_console_chat_task(task_id: str) -> dict:
+    """Return the current status of a background chat task."""
+    async with _bg_lock:
+        bg = _bg_tasks.get(task_id)
+    if bg is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Task not found: {task_id}",
+        )
+    response: Dict[str, Any] = {"status": bg.status}
+    if bg.started_at is not None:
+        response["started_at"] = bg.started_at
+    if bg.status == "finished" and bg.result is not None:
+        response["result"] = bg.result
+    return response
