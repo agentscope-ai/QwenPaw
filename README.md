@@ -31,37 +31,30 @@
 
 Your personal AI assistant — deploy locally or in the cloud, extend with Skills & Plugins, connect across every channel.
 
-> **Core capabilities:**
->
-> **Scroll context management** — Persistent, lossless context built on SQLite. Older turns are evicted — never summarized — and stay fully recallable on demand. Three-layer memory: working memory (live window), episodic memory (verbatim history), and semantic memory (ReMe knowledge distillation).
->
-> **QwenPaw-Flash local models** — Purpose-trained 2B / 4B / 9B models optimized for agent scenarios. Run entirely on-device via the built-in QwenPaw Local (llama.cpp) runtime — no API key, no cloud dependency. Also supports Ollama and LM Studio.
->
-> **Multi-layer security** — Kernel-level Sandbox (Seatbelt on macOS, Bubblewrap / Landlock on Linux), Tool Guard with YAML rule engine, File Guard for sensitive-path protection, and Skill Scanner with block / warn / off modes.
->
-> **Multi-agent & ACP** — Create independent agents with their own memory and skills; spawn sub-agents at runtime; communicate via Agent Communication Protocol (ACP) for cross-system orchestration.
->
-> **Coding Mode** — Three-panel Web IDE with file tree, diff preview, and chat. Includes `lsp` (jump-to-definition / find-references) and `ast_search` (structural syntax queries) for code-aware collaboration.
->
-> **Skills & Plugins** — Extensible skill system (scheduling, PDF/Office, news, browser, etc.) plus a plugin architecture (provider / middleware / hook / command / API / frontend). Plugin Market for one-click install.
->
-> **Every channel** — DingTalk, Lark, WeChat, Discord, Telegram, iMessage, QQ, and more. One instance, all channels.
->
-> **Fully under your control** — Deploy locally (data stays on your machine) or on your own server. No third-party hosting, no data upload.
->
-> <details>
-> <summary><b>What you can do with QwenPaw</b></summary>
->
-> <br>
->
-> - **Automation & scheduling**: Cron-driven workflows — news digests, report generation, multi-channel broadcasting — all on your schedule.
-> - **Code & development**: Coding Mode for reading, editing, reviewing, and testing inside a project; `lsp` + `ast_search` for precise navigation.
-> - **Document processing**: Read, write, and transform PDF, Word, Excel, and PowerPoint files with built-in skills.
-> - **Information gathering**: Web search, RSS aggregation, video summarization, and personal knowledge-base retrieval.
-> - **Multi-channel ops**: Push alerts, summaries, or AI-generated content to DingTalk, Lark, Discord, Telegram, and more — simultaneously or per-channel.
-> - **Custom agentic apps**: Compose Skills, Plugins, MCP tools, and scheduled tasks into purpose-built agent workflows.
->
-> </details>
+| | |
+| --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Never forgets**                       | Three-layer memory — live working context, full verbatim history, and distilled knowledge. Older turns evict but stay recallable on demand; nothing is summarized away or lost.     |
+| **Local or cloud, runs free**           | QwenPaw-Flash models (2B / 4B / 9B) trained for agent tasks. Built-in QwenPaw Local runtime — no API key, no cloud dependency. Also works with Ollama, LM Studio, or 14+ cloud providers.   |
+| **Security built in**                   | Kernel-level Sandbox, Tool Guard, File Guard, and Skill Scanner. Dangerous commands are blocked before they run.                                                                   |
+| **Multi-agent & parallel**              | Spawn independent agents with their own memory and skills. Sub-agents at runtime. Agent Communication Protocol (ACP) for cross-system orchestration.                               |
+| **Coding Mode**                         | Three-panel Web IDE with file tree, diff preview, and chat. Jump-to-definition, find-references, and structural code search built in.                                              |
+| **Extensible**                          | Skills for scheduling, documents, browser, news, and more. Plugin architecture with a marketplace. MCP integration for external tools. Combine them into purpose-built workflows.  |
+| **Lives where you do**                  | DingTalk, Lark, WeChat, Discord, Telegram, iMessage, QQ — one instance, all channels. Console, TUI, and desktop app for direct access.                                            |
+| **Yours, not ours**                     | Deploy locally — data stays on your machine. No third-party hosting, no data upload.                                                                                               |
+
+<details>
+<summary><b>What you can do with QwenPaw</b></summary>
+
+<br>
+
+- **Automation & scheduling**: Cron-driven workflows — news digests, report generation, multi-channel broadcasting — all on your schedule.
+- **Code & development**: Coding Mode for reading, editing, reviewing, and testing inside a project; `lsp` + `ast_search` for precise navigation.
+- **Document processing**: Read, write, and transform PDF, Word, Excel, and PowerPoint files with built-in skills.
+- **Information gathering**: Web search, RSS aggregation, video summarization, and personal knowledge-base retrieval.
+- **Multi-channel ops**: Push alerts, summaries, or AI-generated content to DingTalk, Lark, Discord, Telegram, and more — simultaneously or per-channel.
+- **Custom agentic apps**: Compose Skills, Plugins, MCP tools, and scheduled tasks into purpose-built agent workflows.
+
+</details>
 
 ---
 
@@ -274,13 +267,19 @@ To run QwenPaw on Alibaba Cloud (ECS), use the one-click deployment: open the [Q
 
 ---
 
-### Option 5: Using ModelScope
+### Option 5: AgentScope Platform
 
-**No local install?** [ModelScope Studio](https://modelscope.cn/studios/fork?target=AgentScope/QwenPaw) one-click cloud setup. Set your Studio to **non-public** so others cannot control your QwenPaw.
+[AgentScope Platform](https://platform.agentscope.io/) provides one-click cloud QwenPaw deployment, plugin sharing, and a Skill marketplace. Free, 7/24 online.
 
 ---
 
-### Option 6: Desktop Application (Beta)
+### Option 6: Using ModelScope
+
+[ModelScope Studio](https://modelscope.cn/studios/fork?target=AgentScope/QwenPaw) also supports cloud QwenPaw deployment. Note: set your Studio to **non-public** so others cannot control your QwenPaw.
+
+---
+
+### Option 7: Desktop Application (Beta)
 
 > **Beta Notice**: The desktop application is currently in Beta testing phase with the following known limitations:
 > - **Incomplete compatibility testing**: Not fully tested across all system versions and hardware configurations
@@ -365,7 +364,7 @@ If you use a **cloud LLM API** (e.g., DashScope / Qwen, OpenAI, Anthropic, Googl
 
 Tools that need extra keys (e.g. `TAVILY_API_KEY` for web search) can be set in Console **Settings → Environment variables**, see [Config](https://qwenpaw.agentscope.io/docs/config) for details.
 
-> **Using local models only?** If you use [Local Models](#local-models) (llama.cpp / Ollama / LM Studio), you do **not** need any API key.
+> **Using local models only?** If you use [Local Models](#local-models) (QwenPaw Local / Ollama / LM Studio), you do **not** need any API key.
 
 ## Local Models
 
@@ -389,7 +388,8 @@ QwenPaw includes four core security layers:
 - **Tool Guard** — YAML rule engine with `ShellEvasionGuardian` inspects every tool call before execution, detecting command injection, path traversal, reverse shells, and obfuscated attacks. Configurable approval levels: STRICT / SMART / AUTO / OFF.
 - **File Guard** — Independent of Tool Guard; blocks agent access to sensitive files and directories (default-protects `~/.qwenpaw.secret/`, `~/.ssh`, etc.).
 - **Skill Scanner** — Pre-activation scanning with block / warn / off modes and whitelist support. Detects prompt injection, hardcoded secrets, data exfiltration, and more.
-See [Security documentation](https://qwenpaw.agentscope.io/docs/security) for details.
+
+See [Security](https://qwenpaw.agentscope.io/docs/security) for details.
 
 ---
 
@@ -425,7 +425,7 @@ See [Security documentation](https://qwenpaw.agentscope.io/docs/security) for de
 | [Agent Team Practice](https://qwenpaw.agentscope.io/docs/practice-agent-team) | Multi-agent team deployment guide           |
 | [FAQ](https://qwenpaw.agentscope.io/docs/faq)                           | Common questions and troubleshooting             |
 
-Full docs in this repo: [website/public/docs/](website/public/docs/).
+Full documentation: [qwenpaw.agentscope.io/docs](https://qwenpaw.agentscope.io/docs)
 
 ---
 

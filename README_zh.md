@@ -31,37 +31,30 @@
 
 你的个人 AI 助理 — 本地或云端部署，通过 Skills 与插件扩展能力，全渠道连接。
 
-> **核心能力：**
->
-> **滚动上下文管理** — 基于 SQLite 的持久化、无损上下文。较早轮次会被逐出窗口，但从不摘要压缩，可按需完整召回。三层记忆：工作记忆（实时窗口）、情节记忆（逐字历史）与语义记忆（ReMe 知识蒸馏）。
->
-> **QwenPaw-Flash 本地模型** — 面向 Agent 场景专项训练的 2B / 4B / 9B 模型。通过内置 QwenPaw Local（llama.cpp）运行时完全在本地运行，无需 API Key，不依赖云端。同时支持 Ollama 与 LM Studio。
->
-> **多层安全防护** — 内核级 Sandbox（macOS 上为 Seatbelt，Linux 上为 Bubblewrap / Landlock）、带 YAML 规则引擎的 Tool Guard、敏感路径 File Guard，以及支持 block / warn / off 模式的 Skill Scanner。
->
-> **多智能体与 ACP** — 创建拥有独立记忆与技能的智能体；运行时派生子 Agent；通过 Agent Communication Protocol（ACP）实现跨系统编排。
->
-> **Coding 模式** — 三面板 Web IDE，含文件树、Diff 预览与对话区。内置 `lsp`（跳转定义 / 查找引用）与 `ast_search`（结构化语法查询），支持代码感知协作。
->
-> **Skills 与插件** — 可扩展技能体系（定时任务、PDF/Office、新闻、浏览器等），以及插件架构（provider / middleware / hook / command / API / frontend）。Plugin Market 支持一键安装。
->
-> **全渠道触达** — 钉钉、飞书、微信、Discord、Telegram、iMessage、QQ 等。一个实例，连接所有渠道。
->
-> **完全由你掌控** — 本地部署（数据留在你的机器）或部署在你自己的服务器。无第三方托管，无数据上传。
->
-> <details>
-> <summary><b>你可以用 QwenPaw 做什么</b></summary>
->
-> <br>
->
-> - **自动化与定时任务**：Cron 驱动的工作流 — 新闻摘要、报告生成、多渠道广播 — 全部按你的时间表运行。
-> - **代码与开发**：Coding 模式在项目中阅读、编辑、审查与测试；`lsp` + `ast_search` 实现精准导航。
-> - **文档处理**：通过内置 Skills 读取、写入与转换 PDF、Word、Excel、PowerPoint 文件。
-> - **信息收集**：网页搜索、RSS 聚合、视频摘要与个人知识库检索。
-> - **多渠道运营**：向钉钉、飞书、Discord、Telegram 等推送告警、摘要或 AI 生成内容 — 可同时或按渠道分发。
-> - **自定义 Agent 应用**：组合 Skills、插件、MCP 工具与定时任务，构建面向特定场景的 Agent 工作流。
->
-> </details>
+| | |
+| --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **不遗忘对话**                         | 三层记忆 — 实时工作上下文、完整逐字历史、蒸馏知识。较早轮次会被逐出但可随时召回，不摘要压缩、不丢失信息。                                                                           |
+| **本地云端，自由运行**                    | QwenPaw-Flash 模型（2B / 4B / 9B）面向 Agent 场景专项训练。内置 QwenPaw Local 运行时，无需 API Key、不依赖云端。同时支持 Ollama、LM Studio 及 14+ 云端模型供应商。                  |
+| **安全机制**                         | 内核级 Sandbox、Tool Guard、File Guard 与 Skill Scanner。危险命令在执行前即被拦截。                                        |
+| **多智能体与并行**                        | 创建拥有独立记忆与技能的 Agent；运行时生成子 Agent；通过 Agent Communication Protocol（ACP）实现跨系统编排。                                                                         |
+| **代码模式**                        | 三面板 Web IDE，含文件树、Diff 预览与对话区。内置跳转定义、查找引用与结构化代码搜索。                                                                                                 |
+| **能力可扩展**                        | Skills 覆盖定时任务、文档、浏览器、新闻等。插件架构带 Plugin Market。MCP 集成外部工具。自由组合成面向场景的工作流。                                                                    |
+| **在你活跃的地方**                        | 钉钉、飞书、微信、Discord、Telegram、iMessage、QQ — 一个实例，全频道连接。Console、TUI 与桌面应用可直接访问。                                                                         |
+| **你的，不是我们的**                      | 本地部署，数据留在你的机器，无第三方托管，无数据上传。                                                                                                         |
+
+<details>
+<summary><b>你可以用 QwenPaw 做什么</b></summary>
+
+<br>
+
+- **自动化与定时任务**：Cron 驱动的工作流 — 新闻摘要、报告生成、多渠道广播 — 全部按你的时间表运行。
+- **代码与开发**：Coding 模式在项目中阅读、编辑、审查与测试；`lsp` + `ast_search` 实现精准导航。
+- **文档处理**：通过内置 Skills 读取、写入与转换 PDF、Word、Excel、PowerPoint 文件。
+- **信息收集**：网页搜索、RSS 聚合、视频摘要与个人知识库检索。
+- **多渠道运营**：向钉钉、飞书、Discord、Telegram 等推送告警、摘要或 AI 生成内容 — 可同时或按渠道分发。
+- **自定义 Agent 应用**：组合 Skills、插件、MCP 工具与定时任务，构建面向特定场景的 Agent 工作流。
+
+</details>
 
 ---
 
@@ -274,13 +267,19 @@ docker run -p 127.0.0.1:8088:8088 \
 
 ---
 
-### 方式五：使用魔搭创空间
+### 方式五：AgentScope Platform 部署
 
-**不想本地安装？** 使用 [魔搭创空间](https://modelscope.cn/studios/fork?target=AgentScope/QwenPaw) 一键云端配置。请将创空间设为 **非公开**，否则他人可能操纵你的 QwenPaw。
+[AgentScope Platform](https://platform.agentscope.io/) 提供一键云端 QwenPaw 部署、插件分享与 Skill 市场。完全免费，7/24 在线。
 
 ---
 
-### 方式六：桌面应用（Beta）
+### 方式六：使用魔搭创空间
+
+使用 [魔搭创空间](https://modelscope.cn/studios/fork?target=AgentScope/QwenPaw) 也可进行云端 QwenPaw 部署。注意：请将创空间设为 **非公开**，否则他人可能操纵你的 QwenPaw。
+
+---
+
+### 方式七：桌面应用（Beta）
 
 > **Beta 版本说明**：桌面应用目前处于 Beta 测试阶段，存在以下已知限制：
 > - **兼容性测试不完整**：未在所有系统版本和硬件配置上进行充分测试
@@ -365,7 +364,7 @@ qwenpaw .                   # 在当前代码仓库中启动（Coding 模式）
 
 其他工具所需密钥（如网页搜索的 `TAVILY_API_KEY`）可在控制台 **设置 → 环境变量** 中配置，详见 [配置](https://qwenpaw.agentscope.io/docs/config)。
 
-> **仅用本地模型？** 若使用 [本地模型](#本地模型)（QwenPaw Local / llama.cpp、Ollama、LM Studio），则**无需**任何 API Key。
+> **仅用本地模型？** 若使用 [本地模型](#本地模型)（QwenPaw Local / Ollama / LM Studio），则**无需**任何 API Key。
 
 ## 本地模型
 
@@ -426,7 +425,7 @@ QwenPaw 内置四层核心安全防护：
 | [Agent 团队实践](https://qwenpaw.agentscope.io/docs/practice-agent-team) | 多智能体团队部署指南                         |
 | [FAQ](https://qwenpaw.agentscope.io/docs/faq)                        | 常见问题与故障排查                               |
 
-完整文档见本仓库 [website/public/docs/](website/public/docs/)。
+完整文档：[qwenpaw.agentscope.io/docs](https://qwenpaw.agentscope.io/docs)
 
 ---
 

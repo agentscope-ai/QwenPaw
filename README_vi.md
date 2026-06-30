@@ -31,24 +31,17 @@
 
 Trợ lý AI cá nhân của bạn — triển khai cục bộ hoặc trên đám mây, mở rộng bằng Skills & Plugins, kết nối trên mọi kênh.
 
-> **Năng lực cốt lõi:**
->
-> **Quản lý ngữ cảnh cuộn (Scroll context)** — Ngữ cảnh không mất mát, lưu trữ bền vững trên SQLite. Các lượt cũ bị loại khỏi cửa sổ — không bao giờ tóm tắt — và vẫn có thể truy xuất đầy đủ theo yêu cầu. Bộ nhớ ba lớp: bộ nhớ làm việc (cửa sổ trực tiếp), bộ nhớ sự kiện (lịch sử nguyên văn), và bộ nhớ ngữ nghĩa (chưng cất tri thức ReMe).
->
-> **Mô hình cục bộ QwenPaw-Flash** — Mô hình 2B / 4B / 9B huấn luyện chuyên biệt, tối ưu cho kịch bản tác nhân. Chạy hoàn toàn trên thiết bị qua runtime QwenPaw Local (llama.cpp) tích hợp sẵn — không cần API key, không phụ thuộc đám mây. Cũng hỗ trợ Ollama và LM Studio.
->
-> **Bảo mật đa lớp** — Sandbox cấp kernel (Seatbelt trên macOS, Bubblewrap / Landlock trên Linux), Tool Guard với công cụ quy tắc YAML, File Guard bảo vệ đường dẫn nhạy cảm, và Skill Scanner với chế độ block / warn / off.
->
-> **Đa tác nhân & ACP** — Tạo các tác nhân độc lập với bộ nhớ và Skills riêng; sinh tác nhân con (sub-agent) lúc chạy; giao tiếp qua Agent Communication Protocol (ACP) để điều phối liên hệ thống.
->
-> **Coding Mode** — Web IDE ba khung với cây tệp, xem trước diff và chat. Bao gồm `lsp` (nhảy tới định nghĩa / tìm tham chiếu) và `ast_search` (truy vấn cú pháp cấu trúc) để hợp tác nhận thức mã nguồn.
->
-> **Skills & Plugins** — Hệ thống Skills mở rộng (lập lịch, PDF/Office, tin tức, trình duyệt, v.v.) cùng kiến trúc plugin (provider / middleware / hook / command / API / frontend). Chợ Plugin (Plugin Market) cài đặt một chạm.
->
-> **Mọi kênh** — DingTalk, Lark, WeChat, Discord, Telegram, iMessage, QQ, và nhiều hơn nữa. Một instance, mọi kênh.
->
-> **Hoàn toàn trong tầm kiểm soát** — Triển khai cục bộ (dữ liệu ở lại máy bạn) hoặc trên máy chủ riêng. Không qua bên thứ ba lưu trữ, không tải dữ liệu lên.
->
+| | |
+| --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Không bao giờ quên**                       | Bộ nhớ ba lớp — ngữ cảnh làm việc trực tiếp, lịch sử nguyên văn đầy đủ và tri thức đã chưng cất. Các lượt cũ bị loại khỏi cửa sổ nhưng vẫn truy xuất theo yêu cầu; không bị tóm tắt hay mất mát.     |
+| **Cục bộ hoặc đám mây, chạy tự do**          | Mô hình QwenPaw-Flash (2B / 4B / 9B) huấn luyện cho tác vụ tác nhân. Runtime QwenPaw Local tích hợp sẵn — không cần API key, không phụ thuộc đám mây. Cũng hỗ trợ Ollama, LM Studio hoặc 14+ nhà cung cấp đám mây.   |
+| **Bảo mật tích hợp sẵn**                     | Sandbox cấp kernel, Tool Guard, File Guard và Skill Scanner. Lệnh nguy hiểm bị chặn trước khi chạy.                                            |
+| **Đa tác nhân & song song**                  | Tạo tác nhân độc lập với bộ nhớ và Skills riêng. Tác nhân con lúc chạy. Agent Communication Protocol (ACP) để điều phối liên hệ thống.                               |
+| **Coding Mode**                              | Web IDE ba khung với cây tệp, xem trước diff và chat. Nhảy tới định nghĩa, tìm tham chiếu và tìm kiếm mã cấu trúc tích hợp sẵn.                                              |
+| **Mở rộng**                                  | Skills cho lập lịch, tài liệu, trình duyệt, tin tức và hơn thế. Kiến trúc plugin kèm chợ. Tích hợp MCP cho công cụ bên ngoài. Kết hợp thành quy trình theo mục đích.  |
+| **Ở nơi bạn hoạt động**                      | DingTalk, Lark, WeChat, Discord, Telegram, iMessage, QQ — một instance, mọi kênh. Console, TUI và ứng dụng desktop để truy cập trực tiếp.                                            |
+| **Của bạn, không phải của chúng tôi**        | Triển khai cục bộ — dữ liệu ở lại máy bạn. Không qua bên thứ ba lưu trữ, không tải dữ liệu lên.                                                                         |
+
 > <details>
 > <summary><b>Bạn có thể làm gì với QwenPaw</b></summary>
 >
@@ -274,13 +267,19 @@ Image được xây dựng từ đầu. Để tự xây dựng image, vui lòng 
 
 ---
 
-### Tùy Chọn 5: Sử Dụng ModelScope
+### Tùy Chọn 5: AgentScope Platform
 
-**Không cần cài đặt cục bộ?** [ModelScope Studio](https://modelscope.cn/studios/fork?target=AgentScope/QwenPaw) thiết lập đám mây một chạm. Đặt Studio của bạn ở chế độ **không công khai** để người khác không thể điều khiển QwenPaw của bạn.
+[AgentScope Platform](https://platform.agentscope.io/) cung cấp triển khai QwenPaw trên đám mây một chạm, chia sẻ plugin và Chợ Skills. Miễn phí, trực tuyến 7/24.
 
 ---
 
-### Tùy Chọn 6: Ứng Dụng Desktop (Beta)
+### Tùy Chọn 6: Sử Dụng ModelScope
+
+[ModelScope Studio](https://modelscope.cn/studios/fork?target=AgentScope/QwenPaw) cũng hỗ trợ triển khai QwenPaw trên đám mây. Lưu ý: đặt Studio của bạn ở chế độ **không công khai** để người khác không thể điều khiển QwenPaw của bạn.
+
+---
+
+### Tùy Chọn 7: Ứng Dụng Desktop (Beta)
 
 > **Thông báo Beta**: Ứng dụng desktop hiện đang trong giai đoạn thử nghiệm Beta với các hạn chế đã biết sau:
 > - **Kiểm tra tương thích chưa đầy đủ**: Chưa được kiểm tra đầy đủ trên tất cả các phiên bản hệ thống và cấu hình phần cứng
@@ -389,7 +388,7 @@ QwenPaw bao gồm bốn lớp bảo mật cốt lõi:
 - **Tool Guard** — Công cụ quy tắc YAML với `ShellEvasionGuardian` kiểm tra mọi lệnh gọi công cụ trước khi thực thi, phát hiện command injection, path traversal, reverse shell và tấn công che giấu. Mức phê duyệt cấu hình được: STRICT / SMART / AUTO / OFF.
 - **File Guard** — Độc lập với Tool Guard; chặn tác nhân truy cập tệp và thư mục nhạy cảm (mặc định bảo vệ `~/.qwenpaw.secret/`, `~/.ssh`, v.v.).
 - **Skill Scanner** — Quét trước khi kích hoạt với chế độ block / warn / off và hỗ trợ danh sách trắng. Phát hiện prompt injection, khóa nhúng cứng, rò rỉ dữ liệu, v.v.
-Xem [tài liệu Bảo mật](https://qwenpaw.agentscope.io/docs/security) để biết chi tiết.
+Xem [Bảo mật](https://qwenpaw.agentscope.io/docs/security) để biết chi tiết.
 
 ---
 
@@ -425,7 +424,7 @@ Xem [tài liệu Bảo mật](https://qwenpaw.agentscope.io/docs/security) để
 | [Thực hành Nhóm Tác Nhân](https://qwenpaw.agentscope.io/docs/practice-agent-team) | Hướng dẫn triển khai nhóm đa tác nhân           |
 | [FAQ](https://qwenpaw.agentscope.io/docs/faq)                        | Câu hỏi thường gặp và khắc phục sự cố                 |
 
-Tài liệu đầy đủ trong repo này: [website/public/docs/](website/public/docs/).
+Tài liệu đầy đủ: [qwenpaw.agentscope.io/docs](https://qwenpaw.agentscope.io/docs)
 
 ---
 

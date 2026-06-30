@@ -31,24 +31,17 @@
 
 あなた専用の AI アシスタント — ローカルまたはクラウドに展開し、Skills & Plugins で拡張、あらゆるチャネルで接続。
 
-> **主な機能:**
->
-> **Scroll コンテキスト管理** — SQLite ベースの永続的・ロスレスなコンテキスト。古いターンは要約されず退避され、必要に応じて完全に呼び出し可能。3 層メモリ：ワーキングメモリ（ライブウィンドウ）、エピソードメモリ（逐語的履歴）、セマンティックメモリ（ReMe による知識蒸留）。
->
-> **QwenPaw-Flash ローカルモデル** — エージェントシナリオ向けに目的訓練された 2B / 4B / 9B モデル。内蔵 QwenPaw Local（llama.cpp）ランタイムで完全にデバイス上で実行 — API キー不要、クラウド依存なし。Ollama と LM Studio もサポート。
->
-> **多層セキュリティ** — カーネルレベルの Sandbox（macOS では Seatbelt、Linux では Bubblewrap / Landlock）、YAML ルールエンジン付き Tool Guard、機密パス保護の File Guard、block / warn / off モードの Skill Scanner。
->
-> **マルチエージェント & ACP** — 独自のメモリとスキルを持つ独立エージェントを作成；実行時にサブエージェントを生成；Agent Communication Protocol（ACP）によるクロスシステム連携。
->
-> **Coding Mode** — ファイルツリー、diff プレビュー、チャットを備えた 3 パネル Web IDE。`lsp`（定義へジャンプ / 参照検索）と `ast_search`（構文構造クエリ）でコード対応の協働。
->
-> **Skills & Plugins** — 拡張可能なスキルシステム（スケジューリング、PDF/Office、ニュース、ブラウザなど）とプラグインアーキテクチャ（provider / middleware / hook / command / API / frontend）。ワンクリックインストールの Plugin Market。
->
-> **あらゆるチャネル** — DingTalk、Lark、WeChat、Discord、Telegram、iMessage、QQ など。1 インスタンスですべてのチャネル。
->
-> **完全にあなたの管理下** — ローカル展開（データはローカルマシンに留まる）または自前サーバー。サードパーティホスティングなし、データアップロードなし。
->
+| | |
+| --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **忘れない**                               | 3 層メモリ — ライブな作業コンテキスト、完全な逐語履歴、蒸留された知識。古いターンは退避されるが必要に応じていつでも呼び出し可能。要約で失われることはなく、情報は失われない。                                                                           |
+| **ローカルもクラウドも、自由に動く**        | QwenPaw-Flash モデル（2B / 4B / 9B）— エージェントタスク向けに訓練。内蔵 QwenPaw Local ランタイム — API キー不要、クラウド依存なし。Ollama、LM Studio、14+ クラウドプロバイダーにも対応。                  |
+| **セキュリティ内蔵**                         | カーネルレベルの Sandbox、Tool Guard、File Guard、Skill Scanner。危険なコマンドは実行前にブロック。                                                                                    |
+| **マルチエージェント＆並列**                | 独自のメモリとスキルを持つ独立エージェントを生成。実行時のサブエージェント。Agent Communication Protocol（ACP）によるクロスシステム編成。                                                                         |
+| **Coding Mode**                               | 3 パネル Web IDE — ファイルツリー、Diff プレビュー、チャット。定義へジャンプ、参照検索、構造コード検索を内蔵。                                                                                                 |
+| **拡張可能**                                | スケジューリング、ドキュメント、ブラウザ、ニュースなどの Skills。マーケット付きプラグインアーキテクチャ。MCP で外部ツールを統合。目的別ワークフローに自由に組み合わせ可能。                                                                    |
+| **あなたのいる場所で**                        | DingTalk、Lark、WeChat、Discord、Telegram、iMessage、QQ — 1 インスタンス、全チャネル。Console、TUI、デスクトップアプリで直接アクセス。                                                                         |
+| **あなたのもの、私たちのものではない**          | ローカル展開 — データはあなたのマシンに留まる。サードパーティホスティングなし、データアップロードなし。                                                                                                         |
+
 > <details>
 > <summary><b>QwenPaw でできること</b></summary>
 >
@@ -274,13 +267,19 @@ QwenPaw を Alibaba Cloud（ECS）で実行するには、ワンクリックデ�
 
 ---
 
-### オプション 5: ModelScope を使用
+### オプション 5: AgentScope Platform
 
-**ローカルインストール不要？** [ModelScope Studio](https://modelscope.cn/studios/fork?target=AgentScope/QwenPaw) でワンクリッククラウドセットアップ。他の人があなたの QwenPaw を操作できないよう、Studio を **非公開** に設定してください。
+[AgentScope Platform](https://platform.agentscope.io/) でワンクリックのクラウド QwenPaw デプロイ、プラグイン共有、Skill マーケットに対応。無料、7/24 オンライン。
 
 ---
 
-### オプション 6: Desktop Application (Beta)
+### オプション 6: ModelScope を使用
+
+[ModelScope Studio](https://modelscope.cn/studios/fork?target=AgentScope/QwenPaw) でもクラウド QwenPaw デプロイに対応。注意：他の人があなたの QwenPaw を操作できないよう、Studio を **非公開** に設定してください。
+
+---
+
+### オプション 7: Desktop Application (Beta)
 
 > **Beta 版の注意事項**: デスクトップアプリケーションは現在 Beta 版テスト段階にあり、以下の既知の制限があります：
 > - **互換性テストが不完全**: すべてのシステムバージョンとハードウェア構成で十分にテストされていません
@@ -365,7 +364,7 @@ qwenpaw .                   # 現在のリポジトリで開始（Coding Mode）
 
 その他のキー（例: Web 検索用 `TAVILY_API_KEY`）は、コンソールの **設定 → 環境変数** で設定できます。詳細は [Config](https://qwenpaw.agentscope.io/docs/config) を確認してください。
 
-> **ローカルモデルのみ使用する場合:** [ローカルモデル](#ローカルモデル)（llama.cpp / Ollama / LM Studio）を使用する場合、API キーは **不要** です。
+> **ローカルモデルのみ使用する場合:** [ローカルモデル](#ローカルモデル)（QwenPaw Local / Ollama / LM Studio）を使用する場合、API キーは **不要** です。
 
 ## ローカルモデル
 
@@ -389,7 +388,7 @@ QwenPaw には 4 つのコアセキュリティレイヤーが含まれていま
 - **Tool Guard** — YAML ルールエンジンと `ShellEvasionGuardian` が実行前にすべてのツール呼び出しを検査し、コマンドインジェクション、パストラバーサル、リバースシェル、難読化攻撃を検出。承認レベル設定可能：STRICT / SMART / AUTO / OFF。
 - **File Guard** — Tool Guard とは独立；エージェントの機密ファイル・ディレクトリへのアクセスをブロック（デフォルトで `~/.qwenpaw.secret/`、`~/.ssh` などを保護）。
 - **Skill Scanner** — block / warn / off モードとホワイトリスト対応の事前アクティベーションスキャン。プロンプトインジェクション、ハードコードされた秘密情報、データ流出などを検出。
-詳細は [セキュリティドキュメント](https://qwenpaw.agentscope.io/docs/security) を参照してください。
+詳細は [セキュリティ](https://qwenpaw.agentscope.io/docs/security) を参照してください。
 
 ---
 
@@ -425,7 +424,7 @@ QwenPaw には 4 つのコアセキュリティレイヤーが含まれていま
 | [エージェントチーム実践](https://qwenpaw.agentscope.io/docs/practice-agent-team) | マルチエージェントチームのデプロイガイド           |
 | [FAQ](https://qwenpaw.agentscope.io/docs/faq)                           | よくある質問とトラブルシューティング             |
 
-リポジトリ内の完全なドキュメント: [website/public/docs/](website/public/docs/)
+完全なドキュメント: [qwenpaw.agentscope.io/docs](https://qwenpaw.agentscope.io/docs)
 
 ---
 
