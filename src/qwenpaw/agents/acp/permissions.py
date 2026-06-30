@@ -2,6 +2,7 @@
 """ACP permission handling."""
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Any
 
@@ -10,10 +11,24 @@ from acp.schema import AllowedOutcome, DeniedOutcome, RequestPermissionResponse
 from .core import SuspendedPermission
 
 BLOCKED_COMMAND_PATTERNS = (
-    "rm -rf /",
-    "sudo rm -rf",
-    "mkfs",
-    "dd if=",
+    # Catastrophic recursive deletion targets.
+    (
+        r"\brm\s+-[a-z]*r[a-z]*\s+"
+        r"(?:/|/(?:home|users|etc|var|usr|bin|sbin|lib|opt|private|"
+        r"system|windows)\b|~(?:/|$)|\*)"
+    ),
+    # Filesystem and raw block-device operations.
+    r"\bmkfs(?:\.[a-z0-9_]+)?\b",
+    r"\bmke2fs\b",
+    r"\bdd\s+.*\b(?:if|of)=/dev/",
+    # System shutdown/reboot.
+    r"\b(?:shutdown|reboot|halt|poweroff)\b",
+    # Classic fork bomb.
+    r":\s*\(\s*\)\s*\{\s*:\s*\|\s*:\s*&\s*\}\s*;\s*:",
+)
+
+_COMPILED_BLOCKED_COMMAND_PATTERNS = tuple(
+    re.compile(pattern, re.IGNORECASE) for pattern in BLOCKED_COMMAND_PATTERNS
 )
 
 
@@ -147,6 +162,15 @@ class ACPPermissionAdapter:
                 ]
                 if parts:
                     return " ".join(parts)
+        kind = tool_call.get("kind")
+        title = tool_call.get("title")
+        if (
+            isinstance(kind, str)
+            and kind.strip().lower() == "execute"
+            and isinstance(title, str)
+            and title.strip()
+        ):
+            return title.strip()
         return None
 
     def _paths(self, tool_call: dict[str, Any]) -> list[str]:
@@ -203,8 +227,11 @@ class ACPPermissionAdapter:
             return value
 
     def _is_hard_blocked(self, tool_call: dict[str, Any]) -> bool:
-        command = str(self._command(tool_call) or "").lower()
-        if any(pattern in command for pattern in BLOCKED_COMMAND_PATTERNS):
+        command = str(self._command(tool_call) or "")
+        if any(
+            pattern.search(command)
+            for pattern in _COMPILED_BLOCKED_COMMAND_PATTERNS
+        ):
             return True
 
         for path_value in self._paths(tool_call):
