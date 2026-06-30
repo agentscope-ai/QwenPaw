@@ -84,7 +84,9 @@ const SessionRow = React.memo(function SessionRow({
       <ChatSessionItem
         sessionId={session.id!}
         name={session.name || "New Chat"}
-        time={formatCreatedAt(session.createdAt ?? null)}
+        time={formatCreatedAtCached(
+          session.updatedAt ?? session.createdAt ?? null,
+        )}
         channelKey={channelKey || undefined}
         channelLabel={channelLabel}
         chatStatus={session.status}
@@ -155,6 +157,24 @@ const formatCreatedAt = (raw: string | null | undefined): string => {
   )}`;
 };
 
+/** Simple cache for formatCreatedAt to avoid re-parsing the same timestamp */
+const formatCache = new Map<string, string>();
+const FORMAT_CACHE_MAX = 200;
+
+const formatCreatedAtCached = (raw: string | null | undefined): string => {
+  if (!raw) return "";
+  const cached = formatCache.get(raw);
+  if (cached !== undefined) return cached;
+  const result = formatCreatedAt(raw);
+  if (formatCache.size >= FORMAT_CACHE_MAX) {
+    // Evict oldest entry
+    const firstKey = formatCache.keys().next().value;
+    if (firstKey !== undefined) formatCache.delete(firstKey);
+  }
+  formatCache.set(raw, result);
+  return result;
+};
+
 /** Resolve the real backend UUID from an extended session (id may be a local timestamp) */
 const getBackendId = (session: ExtendedChatSession): string | null => {
   if (session.realId) return session.realId;
@@ -215,6 +235,9 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
   /** Whether the session list is being fetched (default true because destroyOnHidden re-mounts) */
   const [listLoading, setListLoading] = useState(true);
 
+  /** Cache last polled sessions to skip no-op state updates */
+  const lastPolledSessionsRef = useRef<IAgentScopeRuntimeWebUISession[]>([]);
+
   /** Height of the virtual list container, measured via ResizeObserver */
   const [listHeight, setListHeight] = useState(0);
   const observerRef = useRef<ResizeObserver | null>(null);
@@ -254,23 +277,36 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
     string | null
   >(null);
 
-  /** Sessions sorted by pinned first, then by updatedAt/createdAt descending */
+  /** Sessions sorted by pinned first, then by updatedAt/createdAt descending.
+   *  Filter out local temporary sessions (created by clicking "New Chat" but
+   *  not yet persisted to backend). These sessions have local timestamp IDs
+   *  (matching /^\d+-[a-z0-9]+$/) and no realId field. They should only appear
+   *  in the list after the first message is sent and the backend creates them.
+   */
   const sortedSessions = useMemo(() => {
-    return [...sessions].sort((a, b) => {
-      const extA = a as ExtendedChatSession;
-      const extB = b as ExtendedChatSession;
+    return [...sessions]
+      .filter((session) => {
+        const ext = session as ExtendedChatSession;
+        const isLocalId = /^\d+-[a-z0-9]+$/.test(session.id);
+        const hasRealId = !!ext.realId;
+        // Keep if: not a local ID, OR has been resolved to a real backend ID
+        return !isLocalId || hasRealId;
+      })
+      .sort((a, b) => {
+        const extA = a as ExtendedChatSession;
+        const extB = b as ExtendedChatSession;
 
-      if (extA.pinned && !extB.pinned) return -1;
-      if (!extA.pinned && extB.pinned) return 1;
+        if (extA.pinned && !extB.pinned) return -1;
+        if (!extA.pinned && extB.pinned) return 1;
 
-      // ISO 8601 strings are lexicographically sortable — avoid new Date()
-      const aTime = extA.updatedAt ?? extA.createdAt ?? "";
-      const bTime = extB.updatedAt ?? extB.createdAt ?? "";
-      if (!aTime && !bTime) return 0;
-      if (!aTime) return 1;
-      if (!bTime) return -1;
-      return bTime < aTime ? -1 : bTime > aTime ? 1 : 0;
-    });
+        // ISO 8601 strings are lexicographically sortable — avoid new Date()
+        const aTime = extA.updatedAt ?? extA.createdAt ?? "";
+        const bTime = extB.updatedAt ?? extB.createdAt ?? "";
+        if (!aTime && !bTime) return 0;
+        if (!aTime) return 1;
+        if (!bTime) return -1;
+        return bTime < aTime ? -1 : bTime > aTime ? 1 : 0;
+      });
   }, [sessions]);
 
   /** Re-fetch session list from the backend and sync to context state */
@@ -290,7 +326,24 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
       try {
         const list = await sessionApi.getSessionList();
         if (!isCancelled) {
-          setSessions(list);
+          // Shallow compare to avoid unnecessary state updates
+          const changed =
+            list.length !== lastPolledSessionsRef.current.length ||
+            list.some((s, i) => {
+              const prev = lastPolledSessionsRef.current[i];
+              return (
+                !prev ||
+                s.id !== prev.id ||
+                (s as ExtendedChatSession).updatedAt !==
+                  (prev as ExtendedChatSession).updatedAt ||
+                (s as ExtendedChatSession).generating !==
+                  (prev as ExtendedChatSession).generating
+              );
+            });
+          if (changed) {
+            lastPolledSessionsRef.current = list;
+            setSessions(list);
+          }
         }
       } catch (error) {
         console.error("Failed to refresh session list:", error);
@@ -309,7 +362,24 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
       try {
         const list = await sessionApi.getSessionList();
         if (!isCancelled) {
-          setSessions(list);
+          // Shallow compare to avoid unnecessary state updates
+          const changed =
+            list.length !== lastPolledSessionsRef.current.length ||
+            list.some((s, i) => {
+              const prev = lastPolledSessionsRef.current[i];
+              return (
+                !prev ||
+                s.id !== prev.id ||
+                (s as ExtendedChatSession).updatedAt !==
+                  (prev as ExtendedChatSession).updatedAt ||
+                (s as ExtendedChatSession).generating !==
+                  (prev as ExtendedChatSession).generating
+              );
+            });
+          if (changed) {
+            lastPolledSessionsRef.current = list;
+            setSessions(list);
+          }
         }
       } catch {
         // ignore polling errors

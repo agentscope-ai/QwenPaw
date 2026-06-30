@@ -255,7 +255,15 @@
       "noConversations": "Tidak ada percakapan",
       "loadingConversations": "Memuat…"
     },
-    "conversationHistory": "Riwayat Percakapan"
+    "conversationHistory": "Riwayat Percakapan",
+    "history": {
+      "empty": "Tidak ada riwayat obrolan"
+    },
+    "sessionGroup": {
+      "today": "Hari ini",
+      "recent": "7 hari terakhir",
+      "earlier": "Sebelumnya"
+    }
   },
   "modelSelector": {
     "selectModel": "Pilih model",

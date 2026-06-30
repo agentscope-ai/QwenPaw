@@ -92,6 +92,20 @@ def _infer_type_from_meta(
     return PluginType.GENERAL
 
 
+class QwenPawVersionConstraint(BaseModel):
+    """QwenPaw version compatibility range (left-closed, right-open).
+
+    Semantics: ``>=min, <max``.  When ``max`` is omitted the allowed
+    range is all patch versions of the same minor (derived as
+    ``{major}.{minor+1}.0`` from ``min``).
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    min: str
+    max: Optional[str] = None
+
+
 class PluginManifest(BaseModel):
     """Plugin manifest definition.
 
@@ -118,6 +132,8 @@ class PluginManifest(BaseModel):
     entry: PluginEntryPoints = Field(default_factory=PluginEntryPoints)
     dependencies: List[str] = Field(default_factory=list)
     min_version: str = "0.1.0"
+    max_version: Optional[str] = None
+    qwenpaw_version: Optional[QwenPawVersionConstraint] = None
     meta: Dict[str, Any] = Field(default_factory=dict)
     plugin_type: PluginType = PluginType.GENERAL
 

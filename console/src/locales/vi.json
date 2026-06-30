@@ -220,7 +220,15 @@
       "noConversations": "Không có hội thoại",
       "loadingConversations": "Đang tải…"
     },
-    "conversationHistory": "Lịch sử hội thoại"
+    "conversationHistory": "Lịch sử hội thoại",
+    "history": {
+      "empty": "Không có lịch sử trò chuyện"
+    },
+    "sessionGroup": {
+      "today": "Hôm nay",
+      "recent": "7 ngày qua",
+      "earlier": "Trước đó"
+    }
   },
   "debug": {
     "title": "Gỡ lỗi",
