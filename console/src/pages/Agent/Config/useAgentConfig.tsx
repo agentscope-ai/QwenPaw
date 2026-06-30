@@ -55,8 +55,8 @@ export function useAgentConfig() {
         loop: config.loop ?? {
           doom_loop: {
             enabled: true,
-            window_size: 5,
-            similarity_threshold: 0.8,
+            window_size: 3,
+            similarity_threshold: 1.0,
             stages: [
               { after: 3, action: "modify_prompt", prompt: "" },
               { after: 6, action: "stop", prompt: "" },

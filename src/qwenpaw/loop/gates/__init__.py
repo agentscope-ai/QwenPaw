@@ -2,9 +2,9 @@
 """Gates sub-package for the loop stop handler system.
 
 Public API:
-    StopAction, StopGate, LoopGate, StopHandler,
-    StopHandlerResult, StopHandlerRegistration,
-    DoomLoopGate,
+    StopAction, StopGate, LoopGate, FileLoopGate,
+    IterationGate, BudgetGate, DoomLoopGate,
+    StopHandler, StopHandlerResult, StopHandlerRegistration,
     RubricStrategy, GoalStatusRubric, RubricVerdict,
     RubricEvaluation, DefaultRubric, SubAgentRubric.
 """
@@ -14,8 +14,11 @@ from .base import (
     StopHandlerRegistration,
     StopHandlerResult,
 )
+from .budget import BudgetGate
 from .doom_loop import DoomLoopGate
+from .file_loop_gate import FileLoopGate
 from .handler import StopHandler
+from .iteration import IterationGate
 from .loop_gate import LoopGate
 from .rubric import (
     DefaultRubric,
@@ -27,9 +30,12 @@ from .rubric import (
 )
 
 __all__ = [
+    "BudgetGate",
     "DefaultRubric",
     "DoomLoopGate",
+    "FileLoopGate",
     "GoalStatusRubric",
+    "IterationGate",
     "LoopGate",
     "RubricEvaluation",
     "RubricStrategy",

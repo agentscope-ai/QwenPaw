@@ -90,8 +90,8 @@ function makeConfig(overrides: Partial<Config> = {}): Config {
     loop: {
       doom_loop: {
         enabled: true,
-        window_size: 5,
-        similarity_threshold: 0.8,
+        window_size: 3,
+        similarity_threshold: 1.0,
         stages: [],
       },
     },

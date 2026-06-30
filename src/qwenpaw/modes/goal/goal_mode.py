@@ -29,11 +29,13 @@ from ...loop.gates import (
 )
 from ...loop.gates import (
     StopAction,
-    StopGate,
     StopHandler,
     StopHandlerRegistration,
     StopHandlerResult,
 )
+from ...loop.gates.budget import BudgetGate
+from ...loop.gates.iteration import IterationGate
+from ...loop.gates.loop_gate import LoopGate
 from ...runtime.hooks import HookBase
 from ...runtime.slash_command_registry import CommandSpec
 
@@ -149,26 +151,27 @@ class GoalSession:
     )
 
 
-# ---- Stop Gates (registered into universal StopHandler) ----
+# ---- Stop Gates ----
 
 
-class IterationGate(StopGate):
-    """Hard limit: max iterations.
+class GoalIterationGate(IterationGate):
+    """Goal-mode iteration gate.
 
-    Also increments iteration counter and updates
-    token usage (runs first, priority=10).
+    Wraps IterationGate to also update GoalSession
+    iteration count and token usage.
     """
+
+    def __init__(
+        self,
+        goal_mode: GoalMode,
+        max_iterations: int = DEFAULT_MAX_ITERATIONS,
+    ) -> None:
+        super().__init__(max_iterations=max_iterations)
+        self._mode = goal_mode
 
     @property
     def name(self) -> str:
         return "goal-iteration"
-
-    @property
-    def priority(self) -> int:
-        return 10
-
-    def __init__(self, goal_mode: GoalMode) -> None:
-        self._mode = goal_mode
 
     async def check(
         self,
@@ -190,10 +193,6 @@ class IterationGate(StopGate):
 
         if session.iteration >= session.max_iterations:
             session.active = False
-            logger.info(
-                "Goal: max iterations (%d) reached",
-                session.max_iterations,
-            )
             return StopHandlerResult(
                 action=StopAction.STOP,
                 reason="Max iterations reached",
@@ -201,19 +200,24 @@ class IterationGate(StopGate):
         return None
 
 
-class BudgetGate(StopGate):
-    """Hard limit: token budget."""
+class GoalBudgetGate(BudgetGate):
+    """Goal-mode budget gate.
+
+    Wraps BudgetGate to read token usage from
+    GoalSession rather than internal state.
+    """
+
+    def __init__(
+        self,
+        goal_mode: GoalMode,
+        max_tokens: int = DEFAULT_MAX_TOKENS,
+    ) -> None:
+        super().__init__(max_tokens=max_tokens)
+        self._mode = goal_mode
 
     @property
     def name(self) -> str:
         return "goal-budget"
-
-    @property
-    def priority(self) -> int:
-        return 20
-
-    def __init__(self, goal_mode: GoalMode) -> None:
-        self._mode = goal_mode
 
     async def check(
         self,
@@ -232,10 +236,9 @@ class BudgetGate(StopGate):
         )
 
 
-class RubricGate(StopGate):
-    """Rubric evaluation gate.
+class RubricGate(LoopGate):
+    """Rubric evaluation gate (session-safe).
 
-    Checks session.active via GoalStatusRubric.
     SATISFIED (goal completed) -> STOP.
     Otherwise -> None (no objection, continue).
     """
@@ -253,12 +256,13 @@ class RubricGate(StopGate):
         goal_mode: GoalMode,
         rubric: Any,
     ) -> None:
+        super().__init__()
         self._mode = goal_mode
         self._rubric = rubric
 
     async def check(
         self,
-        ctx: Any,
+        ctx: Any,  # pylint: disable=unused-argument
     ) -> Optional[StopHandlerResult]:
         session = self._mode.session_by_ctx_var()
         if session is None:
@@ -434,8 +438,8 @@ class GoalMode(AgentMode):
         doom_gate = _create_doom_loop_gate(workspace)
         if doom_gate is not None:
             handler.register(doom_gate)
-        handler.register(IterationGate(self))
-        handler.register(BudgetGate(self))
+        handler.register(GoalIterationGate(self))
+        handler.register(GoalBudgetGate(self))
         handler.register(RubricGate(self, rubric))
         handler.set_continuation(
             self._build_continuation,

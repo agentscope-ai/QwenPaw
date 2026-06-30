@@ -23,8 +23,7 @@ export function AgentLoopCard() {
   const [advanced, setAdvanced] = useState(false);
 
   const enabled = Form.useWatch(["loop", "doom_loop", "enabled"], form);
-  const stages =
-    Form.useWatch(["loop", "doom_loop", "stages"], form) || [];
+  const stages = Form.useWatch(["loop", "doom_loop", "stages"], form) || [];
 
   return (
     <Card
@@ -62,18 +61,23 @@ export function AgentLoopCard() {
                       marginBottom: 8,
                     }}
                   >
-                    <span style={{ color: "var(--text-secondary)", whiteSpace: "nowrap" }}>
+                    <span
+                      style={{
+                        color: "var(--text-secondary)",
+                        whiteSpace: "nowrap",
+                      }}
+                    >
                       {t("agentConfig.doomLoopAfter", "After")}{" "}
                       <strong>{stage.after}</strong>{" "}
                       {t("agentConfig.doomLoopRepetitions", "repetitions")} →
                     </span>
                     <span>
                       {stage.action === "stop"
-                        ? t("agentConfig.doomLoopStopAction", "Stop & Ask Human")
-                        : t(
-                            "agentConfig.doomLoopWarnAction",
-                            "Inject Warning",
-                          )}
+                        ? t(
+                            "agentConfig.doomLoopStopAction",
+                            "Stop & Ask Human",
+                          )
+                        : t("agentConfig.doomLoopWarnAction", "Inject Warning")}
                     </span>
                   </div>
                 ),
@@ -87,7 +91,9 @@ export function AgentLoopCard() {
             onClick={() => setAdvanced(!advanced)}
             style={{ padding: 0, marginBottom: 16 }}
           >
-            <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+            <span
+              style={{ display: "inline-flex", alignItems: "center", gap: 4 }}
+            >
               {advanced ? (
                 <ChevronDown size={14} />
               ) : (
@@ -136,7 +142,13 @@ export function AgentLoopCard() {
                 </Form.Item>
               </div>
 
-              <hr style={{ border: "none", borderTop: "1px solid var(--border-color)", margin: "12px 0" }} />
+              <hr
+                style={{
+                  border: "none",
+                  borderTop: "1px solid var(--border-color)",
+                  margin: "12px 0",
+                }}
+              />
               <strong style={{ display: "block", marginBottom: 12 }}>
                 {t("agentConfig.doomLoopStages", "Escalation Stages")}
               </strong>
@@ -218,7 +230,11 @@ export function AgentLoopCard() {
                     <Button
                       type="dashed"
                       onClick={() =>
-                        add({ after: (stages.length + 1) * 3, action: "modify_prompt", prompt: "" })
+                        add({
+                          after: (stages.length + 1) * 3,
+                          action: "modify_prompt",
+                          prompt: "",
+                        })
                       }
                       icon={<Plus size={14} />}
                       style={{ width: "100%" }}

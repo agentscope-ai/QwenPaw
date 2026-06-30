@@ -1,21 +1,21 @@
 # -*- coding: utf-8 -*-
-"""DoomLoopGate: self-contained multi-stage doom loop gate.
+"""DoomLoopGate: session-safe doom loop detection.
 
+Inherits LoopGate for per-session state isolation.
 Includes inline sliding-window similarity detection.
-No external dependencies on legacy loop files.
 """
 from __future__ import annotations
 
 import logging
 from collections import deque
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Optional
 
 from .base import (
     StopAction,
-    StopGate,
     StopHandlerResult,
 )
+from .loop_gate import LoopGate
 
 logger = logging.getLogger(__name__)
 
@@ -28,12 +28,20 @@ class _ToolCallRecord:
     args_hash: str
 
 
-class DoomLoopGate(StopGate):
-    """Multi-stage doom loop gate for StopHandler.
+@dataclass
+class _DoomState:
+    """Per-session doom loop state."""
 
-    Self-contained: includes sliding-window repetition
-    detection. Escalates through configured stages.
-    Each stage triggers after N consecutive repetitions.
+    history: deque = field(default_factory=deque)
+    consecutive_hits: int = 0
+    prompt: str = ""
+
+
+class DoomLoopGate(LoopGate):
+    """Multi-stage doom loop gate (session-safe).
+
+    Sliding-window repetition detection that escalates
+    through configured stages.
 
     - action="modify_prompt": inject warning via
       continuation_prompt(), don't stop.
@@ -51,23 +59,29 @@ class DoomLoopGate(StopGate):
     def __init__(
         self,
         *,
-        window_size: int = 5,
-        similarity_threshold: float = 0.8,
+        window_size: int = 3,
+        similarity_threshold: float = 1.0,
         stages: list | None = None,
     ) -> None:
+        super().__init__()
         self._window_size = max(2, window_size)
         self._threshold = similarity_threshold
         self._stages = sorted(
             stages or [],
             key=lambda s: s.after,
         )
-        self._history: deque[_ToolCallRecord] = deque(
-            maxlen=self._window_size * 2,
-        )
-        self._consecutive_hits: int = 0
-        self._prompt: str = ""
 
-    # ---- Public: record tool calls ----
+    def _ensure_state(self) -> _DoomState:
+        """Get or create per-session state."""
+        state = self._state()
+        if state is None:
+            state = _DoomState(
+                history=deque(
+                    maxlen=self._window_size * 2,
+                ),
+            )
+            self.activate(state)
+        return state
 
     def record(
         self,
@@ -75,7 +89,8 @@ class DoomLoopGate(StopGate):
         args_hash: str,
     ) -> None:
         """Record a completed tool call."""
-        self._history.append(
+        state = self._ensure_state()
+        state.history.append(
             _ToolCallRecord(
                 tool_name=tool_name,
                 args_hash=args_hash,
@@ -83,30 +98,30 @@ class DoomLoopGate(StopGate):
         )
 
     def reset(self) -> None:
-        """Clear history and state."""
-        self._history.clear()
-        self._consecutive_hits = 0
-        self._prompt = ""
-
-    # ---- StopGate interface ----
+        """Clear history and state for session."""
+        self.deactivate()
 
     async def check(
         self,
         ctx: Any,  # pylint: disable=unused-argument
     ) -> Optional[StopHandlerResult]:
         """Evaluate doom loop state."""
-        is_looping = self._detect_repetition()
-
-        if not is_looping:
-            self._consecutive_hits = 0
-            self._prompt = ""
+        state = self._state()
+        if state is None:
             return None
 
-        self._consecutive_hits += 1
+        is_looping = self._detect_repetition(state)
+
+        if not is_looping:
+            state.consecutive_hits = 0
+            state.prompt = ""
+            return None
+
+        state.consecutive_hits += 1
 
         active_stage = None
         for stage in reversed(self._stages):
-            if self._consecutive_hits >= stage.after:
+            if state.consecutive_hits >= stage.after:
                 active_stage = stage
                 break
 
@@ -116,32 +131,36 @@ class DoomLoopGate(StopGate):
         if active_stage.action == "stop":
             logger.info(
                 "DoomLoopGate: STOP after %d hits",
-                self._consecutive_hits,
+                state.consecutive_hits,
             )
             return StopHandlerResult(
                 action=StopAction.STOP,
                 reason=active_stage.prompt,
             )
 
-        self._prompt = active_stage.prompt
+        state.prompt = active_stage.prompt
         logger.debug(
             "DoomLoopGate: warning at %d hits",
-            self._consecutive_hits,
+            state.consecutive_hits,
         )
         return None
 
     def continuation_prompt(self) -> str:
         """Return current doom loop warning."""
-        return self._prompt
+        state = self._state()
+        if state is None:
+            return ""
+        return state.prompt
 
-    # ---- Internal detection ----
-
-    def _detect_repetition(self) -> bool:
-        """Check sliding window for repetitive pattern."""
-        if len(self._history) < self._window_size:
+    def _detect_repetition(
+        self,
+        state: _DoomState,
+    ) -> bool:
+        """Check sliding window for repetition."""
+        if len(state.history) < self._window_size:
             return False
 
-        window = list(self._history)[-self._window_size :]
+        window = list(state.history)[-self._window_size :]
         similarity = self._compute_similarity(window)
 
         if similarity >= self._threshold:

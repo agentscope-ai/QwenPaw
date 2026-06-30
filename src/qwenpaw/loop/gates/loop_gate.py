@@ -1,41 +1,29 @@
 # -*- coding: utf-8 -*-
-"""LoopGate — session-safe base class for loop plugins.
+"""LoopGate — generic session-safe base for stateful gates.
 
 Hierarchy:
     StopGate (ABC)
-     └── LoopGate (session management + template method)
-          ├── RalphGate
-          ├── UltraworkGate
-          └── ...
+     └── LoopGate (ABC)  ← session isolation only
+          ├── FileLoopGate ← file state + iterations
+          │    ├── RalphGate, UltraworkGate, ...
+          ├── IterationGate
+          ├── BudgetGate
+          ├── DoomLoopGate
+          └── MissionGate
 
 LoopGate handles:
-    - per-session state isolation via context var
-    - session-scoped state directory
-    - max iteration enforcement
-    - activate / deactivate lifecycle
+    - per-session state isolation via ``_sessions`` dict
+    - ``activate()`` / ``deactivate()`` lifecycle
+    - session ID retrieval from context var
 
-Subclasses implement:
-    - name (property)
-    - _is_complete(state_dir) -> bool
-    - continuation_prompt() -> str
-
-Optional overrides:
-    - priority (property), default 90
-    - _MAX_ITERATIONS (class var), default 30
+Subclasses MUST still implement ``name``, ``check()``.
 """
 from __future__ import annotations
 
 import logging
-from abc import abstractmethod
-from dataclasses import dataclass
-from pathlib import Path
 from typing import Any, Optional
 
-from .base import (
-    StopAction,
-    StopGate,
-    StopHandlerResult,
-)
+from .base import StopGate
 
 logger = logging.getLogger(__name__)
 
@@ -49,42 +37,34 @@ def _session_id() -> str:
     return get_current_session_id() or "default"
 
 
-@dataclass
-class _LoopState:
-    """Per-session loop state managed by LoopGate."""
-
-    active: bool = True
-    iteration: int = 0
-    workspace_dir: Optional[Path] = None
-
-
 class LoopGate(StopGate):
-    """Session-safe base for loop plugin gates.
+    """Session-safe abstract base for all stateful gates.
 
-    Automatically isolates state per session_id.
-    State files are placed under a session-scoped
-    directory to prevent cross-session interference.
+    Manages ``_sessions: dict[str, Any]`` keyed by
+    session ID.  Subclasses store arbitrary per-session
+    state objects via ``activate(state)`` and retrieve
+    them via ``_state()``.
     """
 
-    _MAX_ITERATIONS: int = 30
-
     def __init__(self) -> None:
-        self._sessions: dict[str, _LoopState] = {}
+        self._sessions: dict[str, Any] = {}
 
-    # -- Lifecycle (called by plugin register) --
+    @staticmethod
+    def _session_id() -> str:
+        """Return current session ID."""
+        return _session_id()
+
+    def _state(self) -> Optional[Any]:
+        """Return per-session state or None."""
+        return self._sessions.get(_session_id())
 
     def activate(
         self,
-        workspace_dir: Optional[Path] = None,
+        state: Any = None,
     ) -> None:
-        """Activate loop for current session."""
+        """Activate gate for current session."""
         sid = _session_id()
-        ws = workspace_dir or Path(".")
-        state_dir = self._build_state_dir(ws, sid)
-        state_dir.mkdir(parents=True, exist_ok=True)
-        self._sessions[sid] = _LoopState(
-            workspace_dir=ws,
-        )
+        self._sessions[sid] = state
         logger.debug(
             "LoopGate '%s' activated (session=%s)",
             self.name,
@@ -92,7 +72,7 @@ class LoopGate(StopGate):
         )
 
     def deactivate(self) -> None:
-        """Deactivate loop for current session."""
+        """Deactivate gate for current session."""
         sid = _session_id()
         self._sessions.pop(sid, None)
         logger.debug(
@@ -100,78 +80,6 @@ class LoopGate(StopGate):
             self.name,
             sid,
         )
-
-    # -- StopGate interface --
-
-    @property
-    def priority(self) -> int:
-        return 90
-
-    async def check(
-        self,
-        ctx: Any,  # pylint: disable=unused-argument
-    ) -> Optional[StopHandlerResult]:
-        """Session-aware check with iteration limit."""
-        sid = _session_id()
-        state = self._sessions.get(sid)
-        if state is None or not state.active:
-            return None
-
-        state.iteration += 1
-
-        if state.iteration > self._MAX_ITERATIONS:
-            self._sessions.pop(sid, None)
-            return StopHandlerResult(
-                action=StopAction.STOP,
-                reason=(
-                    f"{self.name} max iterations " f"({self._MAX_ITERATIONS})"
-                ),
-            )
-
-        state_dir = self._build_state_dir(
-            state.workspace_dir or Path("."),
-            sid,
-        )
-        if self._is_complete(state_dir):
-            self._sessions.pop(sid, None)
-            return StopHandlerResult(
-                action=StopAction.STOP,
-                reason=f"{self.name} completed",
-            )
-
-        return StopHandlerResult(
-            action=StopAction.CONTINUE,
-            continuation_message=(self.continuation_prompt()),
-            reason=(
-                f"{self.name} iteration "
-                f"{state.iteration}"
-                f"/{self._MAX_ITERATIONS}"
-            ),
-        )
-
-    # -- Template methods for subclasses --
-
-    @abstractmethod
-    def _is_complete(self, state_dir: Path) -> bool:
-        """Check if the loop task is complete.
-
-        Args:
-            state_dir: Session-scoped directory
-                containing state files.
-
-        Returns:
-            True if the task is done.
-        """
-
-    # -- Internals --
-
-    @staticmethod
-    def _build_state_dir(
-        workspace_dir: Path,
-        sid: str,
-    ) -> Path:
-        """Session-scoped state directory."""
-        return workspace_dir / ".qwenpaw" / "loop_state" / sid
 
 
 __all__ = ["LoopGate"]

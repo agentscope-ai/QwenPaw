@@ -1012,12 +1012,12 @@ class DoomLoopConfig(BaseModel):
         description="Enable doom loop detection",
     )
     window_size: int = Field(
-        default=5,
+        default=3,
         ge=2,
         description=("Sliding window size for " "repetition detection"),
     )
     similarity_threshold: float = Field(
-        default=0.8,
+        default=1.0,
         ge=0.0,
         le=1.0,
         description=(
