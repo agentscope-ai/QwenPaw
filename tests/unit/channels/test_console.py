@@ -634,6 +634,30 @@ class TestConsoleStreaming:
         ):
             await stream_channel.consume_one({"test": "payload"})
 
+    async def test_subagent_wakeup_uses_console_push_path(
+        self,
+        stream_channel,
+    ):
+        """A detached wake has no SSE client, so use BaseChannel send."""
+        from types import SimpleNamespace
+        from unittest.mock import patch, AsyncMock
+
+        payload = SimpleNamespace(
+            request_context={"subagent_wakeup": True},
+        )
+        with (
+            patch.object(
+                stream_channel,
+                "_consume_one_request",
+                new_callable=AsyncMock,
+            ) as consume_request,
+            patch.object(stream_channel, "stream_one") as stream_one,
+        ):
+            await stream_channel.consume_one(payload)
+
+        consume_request.assert_awaited_once_with(payload)
+        stream_one.assert_not_called()
+
 
 # =============================================================================
 # P2: Console Media Handling

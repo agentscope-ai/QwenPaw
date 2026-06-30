@@ -8,6 +8,11 @@ from agentscope.tool import Toolkit
 
 from agentscope.tool import FunctionTool
 from qwenpaw.agents.tools import agent_management
+from qwenpaw.app.subagents.context import (
+    SubagentSpawnContext,
+    reset_subagent_spawn_context,
+    set_subagent_spawn_context,
+)
 
 
 class _FakeResponse:
@@ -391,3 +396,97 @@ async def test_chat_with_agent_returns_clear_error_when_agent_missing(
     )
 
     assert response.content[0].text == "Agent [missing_bot] not exists"
+
+
+async def test_background_spawn_uses_manager_and_forbids_polling():
+    captured = {}
+
+    class _Manager:
+        async def spawn(self, **kwargs):
+            captured.update(kwargs)
+            return type(
+                "Record",
+                (),
+                {"task_id": "subtask-1"},
+            )()
+
+    from qwenpaw.app import agent_context
+
+    agent_context.set_current_agent_id("default")
+    token = set_subagent_spawn_context(
+        SubagentSpawnContext(
+            manager=_Manager(),
+            agent_id="default",
+            session_id="console:parent",
+            root_session_id="console:parent",
+            user_id="parent",
+            channel="console",
+            is_subagent=False,
+        ),
+    )
+    try:
+        response = await agent_management.spawn_subagent(
+            "inspect the repository",
+            background=True,
+        )
+    finally:
+        reset_subagent_spawn_context(token)
+
+    text = response.content[0].text
+    assert captured["parent_session_id"] == "console:parent"
+    assert captured["parent_is_subagent"] is False
+    assert "[TASK_ID: subtask-1]" in text
+    assert "notified automatically" in text
+    assert "Do not call check_agent_task" in text
+
+
+async def test_subagent_cannot_spawn_another_subagent():
+    token = set_subagent_spawn_context(
+        SubagentSpawnContext(
+            manager=object(),
+            agent_id="default",
+            session_id="sub-child",
+            root_session_id="console:parent",
+            user_id="parent",
+            channel="console",
+            is_subagent=True,
+        ),
+    )
+    try:
+        response = await agent_management.spawn_subagent(
+            "try nested delegation",
+            background=False,
+            fork=True,
+        )
+    finally:
+        reset_subagent_spawn_context(token)
+
+    assert "nested subagents are not supported" in response.content[0].text
+
+
+async def test_cancel_subagent_is_scoped_to_parent_session():
+    class _Record:
+        parent_session_id = "console:other"
+
+    class _Manager:
+        async def get(self, _task_id):
+            return _Record()
+
+    token = set_subagent_spawn_context(
+        SubagentSpawnContext(
+            manager=_Manager(),
+            agent_id="default",
+            session_id="console:parent",
+            root_session_id="console:parent",
+            user_id="parent",
+            channel="console",
+        ),
+    )
+    try:
+        response = await agent_management.cancel_subagent("subtask-other")
+    finally:
+        reset_subagent_spawn_context(token)
+
+    assert (
+        "not found for the current parent session" in response.content[0].text
+    )
