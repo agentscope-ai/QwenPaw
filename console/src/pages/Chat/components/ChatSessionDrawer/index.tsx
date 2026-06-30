@@ -84,7 +84,9 @@ const SessionRow = React.memo(function SessionRow({
       <ChatSessionItem
         sessionId={session.id!}
         name={session.name || "New Chat"}
-        time={formatCreatedAtCached(session.updatedAt ?? session.createdAt ?? null)}
+        time={formatCreatedAtCached(
+          session.updatedAt ?? session.createdAt ?? null,
+        )}
         channelKey={channelKey || undefined}
         channelLabel={channelLabel}
         chatStatus={session.status}
