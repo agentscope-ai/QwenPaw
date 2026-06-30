@@ -21,7 +21,7 @@ from .handler import StopHandler
 from .iteration import IterationGate
 from .loop_gate import LoopGate
 from .rubric import (
-    CompletionCheckGate,
+    StandaloneRubricGate,
     DefaultRubric,
     GoalStatusRubric,
     RubricEvaluation,
@@ -32,7 +32,7 @@ from .rubric import (
 
 __all__ = [
     "BudgetGate",
-    "CompletionCheckGate",
+    "StandaloneRubricGate",
     "DefaultRubric",
     "DoomLoopGate",
     "FileLoopGate",

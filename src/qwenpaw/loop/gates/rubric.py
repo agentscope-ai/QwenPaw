@@ -145,7 +145,7 @@ class SubAgentRubric(RubricStrategy):
         )
 
 
-class CompletionCheckGate:
+class StandaloneRubricGate:
     """Re-prompt on text-only responses (StopGate).
 
     Prevents premature stop when the LLM outputs text
@@ -168,7 +168,7 @@ class CompletionCheckGate:
 
     @property
     def name(self) -> str:
-        return "completion_check"
+        return "standalone_rubric"
 
     @property
     def priority(self) -> int:
@@ -187,7 +187,7 @@ class CompletionCheckGate:
 
         self._count += 1
         logger.debug(
-            "CompletionCheckGate: intervene %d/%d",
+            "StandaloneRubricGate: intervene %d/%d",
             self._count,
             self._max,
         )
@@ -203,7 +203,7 @@ class CompletionCheckGate:
 
 
 __all__ = [
-    "CompletionCheckGate",
+    "StandaloneRubricGate",
     "DefaultRubric",
     "GoalStatusRubric",
     "RubricEvaluation",
