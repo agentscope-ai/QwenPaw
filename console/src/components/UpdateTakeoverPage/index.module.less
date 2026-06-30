@@ -1,0 +1,70 @@
+.takeover {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  background: var(--color-bg-base, #fff);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px;
+}
+
+.center {
+  width: 100%;
+  max-width: 480px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+
+.title {
+  margin: 24px 0 8px;
+  font-size: 22px;
+  font-weight: 600;
+  color: var(--color-text, rgba(0, 0, 0, 0.88));
+}
+
+.subtitle {
+  margin: 0 0 4px;
+  font-size: 14px;
+  color: var(--color-text-secondary, rgba(0, 0, 0, 0.65));
+}
+
+.willRestart {
+  margin: 8px 0 24px;
+  font-size: 13px;
+  color: var(--color-text-tertiary, rgba(0, 0, 0, 0.45));
+}
+
+.steps {
+  margin: 16px 0 12px;
+  width: 100%;
+  max-width: 360px;
+}
+
+.progressLine {
+  margin: 4px 0 16px;
+  font-size: 13px;
+  color: var(--color-text-secondary, rgba(0, 0, 0, 0.65));
+  font-variant-numeric: tabular-nums;
+}
+
+.errorMessage {
+  margin: 16px 0 0;
+  padding: 8px 12px;
+  max-width: 100%;
+  font-size: 12px;
+  font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+  white-space: pre-wrap;
+  word-break: break-all;
+  background: rgba(0, 0, 0, 0.04);
+  border-radius: 6px;
+  color: var(--color-text-secondary, rgba(0, 0, 0, 0.65));
+}
+
+.actions {
+  margin-top: 20px;
+  display: flex;
+  gap: 12px;
+}

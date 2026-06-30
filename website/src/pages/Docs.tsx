@@ -168,7 +168,6 @@ const DOC_GROUPS: DocGroup[] = [
       { slug: "console", titleKey: "docs.console" },
       { slug: "channels", titleKey: "docs.channels" },
       { slug: "commands", titleKey: "docs.commands" },
-      { slug: "plan", titleKey: "docs.plan" },
       { slug: "cron", titleKey: "docs.cron" },
       { slug: "heartbeat", titleKey: "docs.heartbeat" },
       { slug: "memory", titleKey: "docs.memory" },

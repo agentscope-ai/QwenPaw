@@ -86,6 +86,7 @@ class MessageRenderer:
 
     def message_to_parts(self, message: Any) -> List[_OutgoingPart]:
         """Convert Message to list of sendable parts (runtime Content)."""
+        from qwenpaw.agents.context.scroll.serialize import strip_headline
         from qwenpaw.schemas import MessageType
 
         msg_type = getattr(message, "type", None)
@@ -315,7 +316,11 @@ class MessageRenderer:
         for c in content:
             ctype = getattr(c, "type", None)
             if ctype == ContentType.TEXT and getattr(c, "text", None):
-                result.append(TextContent(text=c.text))
+                # Hide the scroll headline (⟦ … ⟧) from display; it stays in
+                # context and the durable index. No-op when absent.
+                text = strip_headline(c.text)
+                if text:
+                    result.append(TextContent(text=text))
             elif ctype == ContentType.REFUSAL and getattr(c, "refusal", None):
                 result.append(RefusalContent(refusal=c.refusal))
             elif ctype == ContentType.IMAGE and getattr(c, "image_url", None):

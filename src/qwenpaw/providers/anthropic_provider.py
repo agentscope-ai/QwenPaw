@@ -12,6 +12,7 @@ from typing import Any, Dict, List
 import httpx
 from agentscope.model import ChatModelBase
 import anthropic
+from pydantic import Field
 
 from qwenpaw.providers.multimodal_prober import (
     ProbeResult,
@@ -21,6 +22,9 @@ from qwenpaw.providers.multimodal_prober import (
     evaluate_image_probe_answer,
 )
 from qwenpaw.providers.provider import ModelInfo, Provider
+
+from .capping_formatter import _CappingAnthropicFormatter
+from .capping_formatter import MAX_INLINE_MEDIA_BYTES
 
 logger = logging.getLogger(__name__)
 
@@ -67,6 +71,18 @@ class _StripApiKeyTransport(httpx.AsyncHTTPTransport):
 
 class AnthropicProvider(Provider):
     """Provider implementation for Anthropic API."""
+
+    max_inline_media_bytes: int = Field(
+        default=MAX_INLINE_MEDIA_BYTES,
+        ge=0,
+        description=(
+            "Maximum size (in bytes) of a local media file inlined as "
+            "base64 into the model request body. Media above this is "
+            "replaced with a text placeholder to avoid oversized requests "
+            "when large files (e.g. generated videos) persist in "
+            "conversation history. 0 disables capping."
+        ),
+    )
 
     # Cached AsyncClient for auth_token mode; re-created when auth_mode
     # changes so that the transport is always consistent with the current
@@ -280,6 +296,9 @@ class AnthropicProvider(Provider):
                 else None
             ),
             context_size=self._get_context_size(model_id),
+            formatter=_CappingAnthropicFormatter(
+                max_bytes=self.max_inline_media_bytes,
+            ),
         )
 
     async def probe_model_multimodal(

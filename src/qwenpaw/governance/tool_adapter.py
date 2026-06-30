@@ -533,6 +533,7 @@ async def _ask_user_approval(
                 "tool_name": tool_name,
                 "tool_source": source,
             },
+            "channel_meta": ctx.get("channel_meta"),
         },
     )
 

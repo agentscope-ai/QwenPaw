@@ -90,6 +90,22 @@
   font-weight: 500;
 }
 
+/* ─── Empty state ──────────────────────────────────────────────────────────── */
+.emptyState {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 48px 24px;
+  color: #bbb;
+  font-size: 14px;
+}
+
+.emptyIcon {
+  font-size: 32px;
+  opacity: 0.6;
+}
+
 /* ─── Dark mode ─────────────────────────────────────────────────────────────── */
 :global(.dark-mode) {
   .loading {
@@ -102,6 +118,10 @@
 
   .cardLabel {
     color: rgba(255, 255, 255, 0.45);
+  }
+
+  .emptyState {
+    color: rgba(255, 255, 255, 0.2);
   }
 
   .tableCard {

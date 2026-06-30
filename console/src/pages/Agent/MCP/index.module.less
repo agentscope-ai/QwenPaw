@@ -134,17 +134,31 @@
 
 .cardFooter {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  flex-wrap: wrap;
+  flex-direction: column;
+  align-items: stretch;
   gap: 8px;
   padding-top: 12px;
   margin-top: auto;
   border-top: 1px solid #f0f0f0;
 }
 
+.cardSecondaryActions {
+  display: grid;
+  width: 100%;
+  min-width: 0;
+  gap: 8px;
+}
+
+.cardSecondaryActionsTwo {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.cardSecondaryActionsThree {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
 .toggleButton {
-  flex: 1;
+  width: 100%;
   min-width: 0;
   padding: 6px 10px;
   border-radius: 7px;
@@ -157,6 +171,7 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  justify-content: center;
 
   &:hover {
     color: #333;
@@ -165,7 +180,7 @@
 }
 
 .deleteButton {
-  flex: 1;
+  width: 100%;
   min-width: 0;
   padding: 6px 10px;
   border-radius: 7px;
@@ -178,6 +193,7 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  justify-content: center;
 
   &:hover {
     color: #ff4d4f;
@@ -237,9 +253,10 @@
 
 .mcpGrid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(400px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 400px), 1fr));
   gap: 16px;
   padding: 16px;
+  min-width: 0;
 }
 
 .loading {
@@ -287,7 +304,7 @@
 }
 
 .toolsButton {
-  flex: 1;
+  width: 100%;
   min-width: 0;
   padding: 6px 10px;
   border-radius: 7px;
@@ -297,6 +314,10 @@
   border: 1px solid #d9d9d9;
   cursor: pointer;
   transition: all 0.18s ease;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  justify-content: center;
 
   &:hover {
     border-color: #1677ff;
@@ -306,6 +327,27 @@
     color: rgba(0, 0, 0, 0.25);
     cursor: not-allowed;
     border-color: #d9d9d9;
+  }
+}
+
+@media (max-width: 520px) {
+  .cardSecondaryActionsThree {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .cardSecondaryActionsThree > :first-child {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 360px) {
+  .cardSecondaryActionsTwo,
+  .cardSecondaryActionsThree {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .cardSecondaryActionsThree > :first-child {
+    grid-column: auto;
   }
 }
 
@@ -333,6 +375,8 @@
   display: flex;
   flex-direction: column;
   gap: 14px;
+  min-width: 0;
+  overflow-x: hidden;
 }
 
 .accessClientPanel,
@@ -340,6 +384,7 @@
   display: flex;
   flex-direction: column;
   gap: 12px;
+  min-width: 0;
 }
 
 .accessClientPanel {
@@ -371,18 +416,20 @@
 .accessClientControlRow,
 .accessToolGroupHeader {
   display: grid;
-  grid-template-columns: minmax(360px, 1fr) 280px 112px;
+  grid-template-columns: minmax(0, 1fr) max-content max-content;
   align-items: center;
-  column-gap: 34px;
+  column-gap: 24px;
+  row-gap: 10px;
+  min-width: 0;
 }
 
 .accessClientControlRow {
   box-sizing: border-box;
-  padding: 0 28px;
+  padding: 0;
 }
 
 .accessClientTitle {
-  margin-left: -28px;
+  min-width: 0;
 }
 
 .accessClientControlRow .accessDefaultRow {
@@ -481,7 +528,8 @@
   flex-direction: column;
   gap: 10px;
   max-height: 420px;
-  overflow: auto;
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 
 .accessToolGroup {
@@ -489,6 +537,7 @@
   border: 1px solid #f0f0f0;
   border-radius: 8px;
   background: rgba(250, 250, 250, 0.55);
+  min-width: 0;
 }
 
 .accessToolInfo {
@@ -500,16 +549,26 @@
   align-items: center;
   gap: 6px;
   min-width: 0;
+  overflow: hidden;
+
+  :global(.ant-tag),
+  :global(.qwenpaw-tag) {
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
 }
 
 .accessToolDefault {
   display: flex;
   align-items: center;
   justify-content: flex-start;
+  flex-wrap: wrap;
   gap: 10px;
   min-height: 36px;
+  min-width: 0;
   padding: 1px 0;
-  white-space: nowrap;
 }
 
 .accessToolAddButton {
@@ -528,9 +587,16 @@
 
 .accessRuleRow {
   display: grid;
-  grid-template-columns: 168px 118px 168px 116px 32px;
+  grid-template-columns:
+    minmax(112px, 0.8fr)
+    minmax(148px, 1.1fr)
+    minmax(112px, 0.8fr)
+    minmax(148px, 1.1fr)
+    minmax(112px, 0.8fr)
+    32px;
   align-items: end;
   gap: 8px;
+  min-width: 0;
 }
 
 .accessRuleField {
@@ -546,17 +612,27 @@
   line-height: 1.2;
 }
 
-.accessRuleSubjectType {
-  width: 118px;
-}
-
+.accessRuleSourceType,
+.accessRuleSubjectType,
 .accessRuleSourceValue,
-.accessRuleSubjectValue {
-  width: 168px;
+.accessRuleSubjectValue,
+.accessRuleRecentUser,
+.accessRuleEffect {
+  width: 100%;
+  min-width: 0;
 }
 
-.accessRuleEffect {
-  width: 116px;
+.accessRuleSubjectStack {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.accessRuleWarning {
+  color: #d48806;
+  font-size: 11px;
+  line-height: 1.35;
 }
 
 .accessRuleDeleteButton {
@@ -574,7 +650,37 @@
   font-size: 12px;
 }
 
-@media (max-width: 760px) {
+@media (max-width: 920px) {
+  .accessClientControlRow,
+  .accessToolGroupHeader {
+    grid-template-columns: minmax(0, 1fr) max-content;
+  }
+
+  .accessClientTitle,
+  .accessToolInfo {
+    grid-column: 1 / -1;
+  }
+
+  .accessClientControlRow .accessDefaultRow,
+  .accessToolDefault {
+    grid-column: 1;
+  }
+
+  .accessClientAddButton,
+  .accessToolAddButton {
+    grid-column: 2;
+  }
+
+  .accessRuleRow {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .accessRuleDeleteButton {
+    justify-self: end;
+  }
+}
+
+@media (max-width: 640px) {
   .accessToolGroupHeader,
   .accessDefaultRow,
   .accessClientControlRow,
@@ -584,8 +690,7 @@
 
   .accessClientControlRow,
   .accessToolGroupHeader {
-    display: flex;
-    flex-direction: column;
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .accessClientControlRow {
@@ -596,26 +701,35 @@
     margin-left: 0;
   }
 
-  .accessDefaultRow {
-    flex-direction: column;
-  }
-
   .accessRuleRow {
-    display: flex;
-    flex-direction: column;
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .accessRuleField,
+  .accessRuleSourceType,
   .accessRuleSourceValue,
   .accessRuleSubjectType,
   .accessRuleSubjectValue,
+  .accessRuleRecentUser,
   .accessRuleEffect,
-  .accessRuleDeleteButton,
   .accessClientAddButton,
   .accessToolAddButton,
   .accessToolDefault,
   .accessPolicySegmented {
     width: 100%;
+  }
+
+  .accessClientTitle,
+  .accessToolInfo,
+  .accessClientControlRow .accessDefaultRow,
+  .accessToolDefault,
+  .accessClientAddButton,
+  .accessToolAddButton {
+    grid-column: 1;
+  }
+
+  .accessRuleDeleteButton {
+    justify-self: end;
   }
 }
 

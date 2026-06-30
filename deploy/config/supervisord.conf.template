@@ -14,7 +14,9 @@ stdout_logfile=/var/log/dbus.out.log
 [program:app]
 command=qwenpaw app --host 0.0.0.0 --port ${QWENPAW_PORT}
 autostart=true
-autorestart=true
+autorestart=unexpected
+startretries=5
+startsecs=10
 priority=30
 stopwaitsecs=30
 stderr_logfile=/var/log/app.err.log

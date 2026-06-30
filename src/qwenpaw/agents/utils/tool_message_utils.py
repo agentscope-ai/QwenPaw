@@ -13,6 +13,8 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
+_json_decoder = json.JSONDecoder()
+
 _TOOL_CALL_TYPES = ("tool_use", "tool_call")
 _TOOL_RESULT_TYPES = ("tool_result",)
 
@@ -290,16 +292,26 @@ def _repair_empty_tool_inputs(
 
                 if not input_field and raw_input and raw_input != "{}":
                     try:
-                        parsed = json.loads(
+                        raw_str = (
                             raw_input
                             if isinstance(raw_input, str)
-                            else str(raw_input),
+                            else str(raw_input)
                         )
+                        try:
+                            parsed = json.loads(raw_str)
+                        except json.JSONDecodeError:
+                            parsed, _ = _json_decoder.raw_decode(raw_str)
                         if isinstance(parsed, dict) and parsed:
+                            # All agentscope 2.0 formatters expect
+                            # ToolCallBlock.input to be a JSON string
+                            # (Anthropic/Gemini do json.loads on their side).
+                            # Use json.dumps for both dict and Pydantic blocks
+                            # so the downstream pipeline is consistent.
+                            input_str = json.dumps(parsed, ensure_ascii=False)
                             if isinstance(block, dict):
-                                block["input"] = parsed
+                                block["input"] = input_str
                             else:
-                                block.input = json.dumps(parsed)
+                                block.input = input_str
                             repaired = True
                             logger.info(
                                 "Repaired tool input from raw_input: "
@@ -328,6 +340,110 @@ def _repair_empty_tool_inputs(
     return result if changed else msgs
 
 
+# pylint: disable=too-many-branches
+def _coerce_tool_inputs_to_json(msgs: list) -> list:
+    """Ensure every tool_call block's ``input`` field is a valid JSON string.
+
+    The DashScope (and other OpenAI-compatible) APIs reject requests where
+    ``function.arguments`` is not valid JSON.  This can happen when a
+    historical session stored a ``ToolCallBlock`` whose ``input`` field was
+    saved as a non-JSON value (e.g. an empty string ``""``, or a bare dict),
+    or is missing entirely.
+
+    Coercion rules:
+    * Already-valid JSON string → keep as-is.
+    * ``dict`` / ``list`` → ``json.dumps``.
+    * Empty string ``""`` → ``"{}"`` (treat as no-args call).
+    * Non-empty non-JSON string (e.g. truncated streaming artefact) →
+      **drop the block** so ``_remove_unpaired_tool_messages`` can clean up
+      the orphaned tool_result.  Replacing with ``{}`` would cause the tool
+      to be called with wrong/empty arguments, which is worse.
+    """
+    for msg in msgs:
+        if not isinstance(getattr(msg, "content", None), list):
+            continue
+
+        new_blocks: list = []
+        changed_this_msg = False
+
+        for block in msg.content:
+            if not _is_tool_call(block):
+                new_blocks.append(block)
+                continue
+
+            # Legacy dict blocks go through _coerce_block on load and also
+            # always carry "input". Fall back to "" just in case so
+            # downstream code stays safe.
+            raw = _block_attr(block, "input", "")
+
+            drop_block = False
+            coerced_input: str = raw if isinstance(raw, str) else "{}"
+
+            if isinstance(raw, str):
+                try:
+                    json.loads(raw)
+                    coerced_input = raw  # already a valid JSON string
+                except (json.JSONDecodeError, ValueError) as exc:
+                    if raw == "":
+                        coerced_input = "{}"
+                    else:
+                        # Some models (e.g. DeepSeek-V4-Flash) append garbage
+                        # after valid JSON for no-param tool calls: "{
+                        # }trailing" json.loads raises "Extra data" but
+                        # raw_decode can recover the leading valid object.
+                        try:
+                            recovered, _ = _json_decoder.raw_decode(raw)
+                            if not isinstance(recovered, dict):
+                                raise json.JSONDecodeError(
+                                    "recovered value is not a JSON object",
+                                    raw,
+                                    0,
+                                ) from exc
+                            coerced_input = json.dumps(
+                                recovered,
+                                ensure_ascii=False,
+                            )
+                            logger.info(
+                                "tool_call input had trailing garbage; "
+                                "recovered via raw_decode: id=%r, name=%r",
+                                _block_attr(block, "id"),
+                                _block_attr(block, "name"),
+                            )
+                        except (json.JSONDecodeError, ValueError):
+                            logger.warning(
+                                "tool_call input is not valid JSON; "
+                                "dropping block: id=%r, name=%r, "
+                                "input_preview=%s",
+                                _block_attr(block, "id"),
+                                _block_attr(block, "name"),
+                                repr(raw[:120]),
+                            )
+                            drop_block = True
+            elif isinstance(raw, (dict, list)):
+                coerced_input = json.dumps(raw, ensure_ascii=False)
+            else:
+                # None / bytes / int / … → treat as empty.
+                coerced_input = "{}"
+
+            if drop_block:
+                changed_this_msg = True
+                continue  # omit from new_blocks
+
+            if coerced_input != raw:
+                if isinstance(block, dict):
+                    block["input"] = coerced_input
+                else:
+                    block.input = coerced_input
+                changed_this_msg = True
+
+            new_blocks.append(block)
+
+        if changed_this_msg:
+            msg.content = new_blocks
+
+    return msgs
+
+
 def _sanitize_tool_messages(msgs: list) -> list:
     """Ensure tool_use/tool_result messages are properly paired and ordered.
 
@@ -335,6 +451,9 @@ def _sanitize_tool_messages(msgs: list) -> list:
     """
     # First, repair tool_use blocks with empty input but valid raw_input
     msgs = _repair_empty_tool_inputs(msgs)
+    # Coerce all tool_call input fields to valid JSON strings so that
+    # providers (DashScope, OpenAI, etc.) do not reject the request.
+    msgs = _coerce_tool_inputs_to_json(msgs)
     # Then, remove invalid tool blocks (empty id, None name, etc.)
     msgs = _remove_invalid_tool_blocks(msgs)
     # Finally, remove duplicate tool blocks

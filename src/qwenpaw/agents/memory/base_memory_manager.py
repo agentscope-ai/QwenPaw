@@ -83,6 +83,15 @@ class BaseMemoryManager(ABC):
 
         return [MemoryMiddleware(memory_manager=self)]
 
+    def get_auto_memory_interval(self) -> int:
+        """Return the lifecycle auto-memory interval for this backend.
+
+        ``0`` disables middleware-driven periodic auto-memory. Backends that
+        support automatic persistence should override this with their own
+        configuration or fixed cadence.
+        """
+        return 0
+
     # pylint: disable=unused-argument
     async def summarize(self, messages: list[Msg], **kwargs) -> str:
         """Summarize conversation messages and persist to memory.

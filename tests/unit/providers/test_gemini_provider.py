@@ -300,6 +300,81 @@ def test_normalize_models_display_name_with_models_prefix() -> None:
     assert models[0].name == "gemini-2.5-pro"
 
 
+# -- _sanitize_schema_for_gemini --------------------------------------------
+
+
+def test_sanitize_replaces_standalone_null_type() -> None:
+    from qwenpaw.providers.gemini_provider import _sanitize_schema_for_gemini
+
+    schema = {
+        "type": "object",
+        "properties": {
+            "cwd": {"type": "null"},
+            "command": {"type": "string"},
+        },
+    }
+    result = _sanitize_schema_for_gemini(schema)
+    assert result["properties"]["cwd"] == {"type": "object"}
+    assert result["properties"]["command"] == {"type": "string"}
+
+
+def test_sanitize_handles_anyOf_with_null() -> None:
+    from qwenpaw.providers.gemini_provider import _sanitize_schema_for_gemini
+
+    schema = {
+        "type": "object",
+        "properties": {
+            "cwd": {
+                "anyOf": [{"type": "string"}, {"type": "null"}],
+            },
+        },
+    }
+    result = _sanitize_schema_for_gemini(schema)
+    assert result["properties"]["cwd"] == {"type": "string"}
+
+
+def test_sanitize_nested_standalone_null() -> None:
+    from qwenpaw.providers.gemini_provider import _sanitize_schema_for_gemini
+
+    schema = {
+        "type": "object",
+        "properties": {
+            "config": {
+                "type": "object",
+                "properties": {
+                    "timeout": {"type": "null"},
+                },
+            },
+        },
+    }
+    result = _sanitize_schema_for_gemini(schema)
+    assert result["properties"]["config"]["properties"]["timeout"] == {
+        "type": "object",
+    }
+
+
+def test_sanitize_removes_additional_properties() -> None:
+    from qwenpaw.providers.gemini_provider import _sanitize_schema_for_gemini
+
+    schema = {
+        "type": "object",
+        "additionalProperties": True,
+        "properties": {},
+    }
+    result = _sanitize_schema_for_gemini(schema)
+    assert "additionalProperties" not in result
+
+
+def test_sanitize_all_null_anyOf_becomes_object() -> None:
+    from qwenpaw.providers.gemini_provider import _sanitize_schema_for_gemini
+
+    schema = {
+        "anyOf": [{"type": "null"}, {"type": "null"}],
+    }
+    result = _sanitize_schema_for_gemini(schema)
+    assert "anyOf" not in result
+
+
 # -- update_config ------------------------------------------------------------
 
 

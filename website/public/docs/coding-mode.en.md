@@ -37,6 +37,11 @@ Either way, the selected directory becomes the "project directory" referenced th
 
 > **Open vs Import?** If your project has an IDE open, uncommitted changes, or CI running, consider importing as a copy to keep the Agent away from your active working tree. The copy still includes `.git`, so you can commit / push as usual. If you want the Agent to work directly on the original directory (e.g. quick edits or code review), choose "Open Directory".
 
+**Terminal TUI shortcut:** start QwenPaw from a project directory with
+`qwenpaw .`, or pass an explicit directory with `qwenpaw tui /path/to/repo`.
+This enables Coding Mode prompt and tool behavior for that TUI session only; it
+does not change the project saved in `agent.json` or selected in the Console.
+
 ### 3. Start Working
 
 After the IDE view loads, you get three panels: file tree on the left, tabbed editor with diff preview in the middle, chat panel on the right. Talk to the Agent as usual, for example:

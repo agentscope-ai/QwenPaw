@@ -161,6 +161,7 @@ class ConsoleChannel(BaseChannel):
         on_reply_sent: OnReplySent = None,
         show_tool_details: bool = True,
         filter_tool_messages: bool = False,
+        no_text_debounce: bool = True,
         filter_thinking: bool = False,
         workspace_dir: Optional[Union[str, Path]] = None,
     ) -> "ConsoleChannel":
@@ -444,8 +445,12 @@ class ConsoleChannel(BaseChannel):
                 elif obj == "response":
                     last_response = event
 
-            runner = getattr(self._workspace, "runner", None)
-            session = getattr(runner, "session", None) if runner else None
+            # Session is on ``workspace.session``.
+            session = (
+                getattr(self._workspace, "session", None)
+                if self._workspace is not None
+                else None
+            )
             agent_id = (
                 getattr(self._workspace, "agent_id", "default")
                 if self._workspace is not None

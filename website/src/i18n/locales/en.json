@@ -271,7 +271,6 @@
     "codingMode": "Coding Mode",
     "context": "Context",
     "commands": "Magic commands",
-    "plan": "Plan mode",
     "cron": "Cron Jobs",
     "heartbeat": "Heartbeat",
     "config": "Config & working dir",

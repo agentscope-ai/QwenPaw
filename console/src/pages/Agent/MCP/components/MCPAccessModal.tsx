@@ -3,11 +3,12 @@ import { Button, Empty, Modal } from "@agentscope-ai/design";
 import { Spin } from "antd";
 import { useTranslation } from "react-i18next";
 import api from "../../../../api";
+import { useAppMessage } from "../../../../hooks/useAppMessage";
 import type {
   MCPAccessEffect,
   MCPAccessPolicy,
+  MCPAccessPrincipalOption,
   MCPAccessRule,
-  MCPAccessSubjectType,
   MCPClientInfo,
   MCPToolAccessOverride,
   MCPToolInfo,
@@ -16,16 +17,17 @@ import {
   addClientRule,
   addToolRule,
   buildMCPAccessToolGroups,
+  findMCPAccessPolicyWarning,
   normalizeMCPAccessPolicy,
   removeClientRule,
   removeToolRule,
   upsertClientRule,
   upsertToolDefault,
   upsertToolRule,
+  validateMCPAccessPolicy,
 } from "../accessPolicy";
 import styles from "../index.module.less";
 import { MCPAccessClientPanel } from "./MCPAccessClientPanel";
-import { defaultSubjectValue } from "./MCPAccessRuleRows";
 import { MCPAccessToolPanel } from "./MCPAccessToolPanel";
 
 interface MCPAccessModalProps {
@@ -42,8 +44,12 @@ export const MCPAccessModal: React.FC<MCPAccessModalProps> = ({
   onSave,
 }) => {
   const { t } = useTranslation();
+  const { message } = useAppMessage();
   const [policy, setPolicy] = useState<MCPAccessPolicy | null>(null);
   const [tools, setTools] = useState<MCPToolInfo[]>([]);
+  const [principalOptions, setPrincipalOptions] = useState<
+    MCPAccessPrincipalOption[]
+  >([]);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [toolsError, setToolsError] = useState("");
@@ -55,6 +61,7 @@ export const MCPAccessModal: React.FC<MCPAccessModalProps> = ({
     const load = async () => {
       setLoading(true);
       setTools([]);
+      setPrincipalOptions([]);
       setToolsError("");
       try {
         const savedPolicy = await api.getMCPPolicy(client.key);
@@ -62,6 +69,17 @@ export const MCPAccessModal: React.FC<MCPAccessModalProps> = ({
           const normalized = normalizeMCPAccessPolicy(savedPolicy);
           setPolicy(normalized);
           setInitialPolicySignature(policySignature(normalized));
+        }
+
+        try {
+          const principals = await api.listMCPAccessPrincipals();
+          if (!cancelled) {
+            setPrincipalOptions(principals);
+          }
+        } catch {
+          if (!cancelled) {
+            setPrincipalOptions([]);
+          }
         }
 
         if (!client.enabled) {
@@ -159,6 +177,18 @@ export const MCPAccessModal: React.FC<MCPAccessModalProps> = ({
 
   const handleSave = async () => {
     if (!policy) return;
+    const validationError = validateMCPAccessPolicy(policy);
+    if (validationError) {
+      message.error(t(`mcp.access.validation.${validationError.reason}`));
+      return;
+    }
+    const validationWarning = findMCPAccessPolicyWarning(
+      policy,
+      principalOptions,
+    );
+    if (validationWarning) {
+      message.warning(t(`mcp.access.validation.${validationWarning.reason}`));
+    }
     setSaving(true);
     try {
       const ok = await onSave(policy);
@@ -190,7 +220,7 @@ export const MCPAccessModal: React.FC<MCPAccessModalProps> = ({
       title={`${client.name} - ${t("mcp.tools")}`}
       open={open}
       onCancel={handleClose}
-      width={1040}
+      width="min(1040px, calc(100vw - 32px))"
       footer={
         <div style={{ textAlign: "right" }}>
           <Button onClick={handleClose} style={{ marginRight: 8 }}>
@@ -215,6 +245,7 @@ export const MCPAccessModal: React.FC<MCPAccessModalProps> = ({
         <div className={styles.accessModalBody}>
           <MCPAccessClientPanel
             policy={policy}
+            principalOptions={principalOptions}
             setDefaultEffect={setDefaultEffect}
             addClientAccessRule={() =>
               setPolicy((prev) => (prev ? addClientRule(prev) : prev))
@@ -238,6 +269,7 @@ export const MCPAccessModal: React.FC<MCPAccessModalProps> = ({
           ) : (
             <MCPAccessToolPanel
               groups={groups}
+              principalOptions={principalOptions}
               setToolDefaultEffect={(toolName, effect) =>
                 setPolicy((prev) =>
                   prev ? upsertToolDefault(prev, toolName, effect) : prev,
@@ -272,9 +304,14 @@ function withRuleDefaults<Rule extends MCPAccessRule>(
 ): Rule {
   const nextRule = { ...rule, ...patch };
   if (patch.subject_type) {
-    nextRule.subject_value = defaultSubjectValue(
-      patch.subject_type as MCPAccessSubjectType,
-    );
+    nextRule.subject_value = "";
+  }
+  if (
+    (patch.source_type !== undefined || patch.source_value !== undefined) &&
+    patch.subject_value === undefined &&
+    nextRule.subject_type === "user"
+  ) {
+    nextRule.subject_value = "";
   }
   return nextRule;
 }
