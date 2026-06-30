@@ -159,8 +159,13 @@ class IterationGate(StopGate):
     token usage (runs first, priority=10).
     """
 
-    name = "goal-iteration"
-    priority = 10
+    @property
+    def name(self) -> str:
+        return "goal-iteration"
+
+    @property
+    def priority(self) -> int:
+        return 10
 
     def __init__(self, goal_mode: GoalMode) -> None:
         self._mode = goal_mode
@@ -199,8 +204,13 @@ class IterationGate(StopGate):
 class BudgetGate(StopGate):
     """Hard limit: token budget."""
 
-    name = "goal-budget"
-    priority = 20
+    @property
+    def name(self) -> str:
+        return "goal-budget"
+
+    @property
+    def priority(self) -> int:
+        return 20
 
     def __init__(self, goal_mode: GoalMode) -> None:
         self._mode = goal_mode
@@ -226,12 +236,17 @@ class RubricGate(StopGate):
     """Rubric evaluation gate.
 
     Checks session.active via GoalStatusRubric.
-    SATISFIED (goal completed) → STOP.
-    Otherwise → None (no objection, continue).
+    SATISFIED (goal completed) -> STOP.
+    Otherwise -> None (no objection, continue).
     """
 
-    name = "goal-rubric"
-    priority = 30
+    @property
+    def name(self) -> str:
+        return "goal-rubric"
+
+    @property
+    def priority(self) -> int:
+        return 30
 
     def __init__(
         self,
@@ -743,8 +758,8 @@ def _create_doom_loop_gate(
     try:
         from ...loop.doom_loop import (
             DoomLoopDetector,
-            DoomLoopGate,
         )
+        from ...loop.gates import DoomLoopGate
 
         agent_cfg = getattr(workspace, "agent_config", None)
         if agent_cfg is None:

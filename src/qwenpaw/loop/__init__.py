@@ -1,7 +1,8 @@
 # -*- coding: utf-8 -*-
 """Loop engineering infrastructure package."""
 
-from .stop_handler import (
+from .gates import (
+    DoomLoopGate,
     StopAction,
     StopGate,
     StopHandler,
@@ -10,10 +11,10 @@ from .stop_handler import (
 )
 from .doom_loop import (
     DoomLoopAlert,
+    DoomLoopDetector,
     DoomLoopSignal,
     DoomLoopState,
     ObserverRegistration,
-    DoomLoopDetector,
 )
 from .base_plugin import BaseLoopPlugin
 from .iter_bypass_hook import (
@@ -27,6 +28,7 @@ __all__ = [
     "BaseLoopPlugin",
     "DoomLoopAlert",
     "DoomLoopDetector",
+    "DoomLoopGate",
     "DoomLoopSignal",
     "DoomLoopState",
     "LoopIterBypassHook",

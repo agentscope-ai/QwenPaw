@@ -9,9 +9,9 @@ from qwenpaw.config.config import (
 )
 from qwenpaw.loop.doom_loop import (
     DoomLoopDetector,
-    DoomLoopGate,
 )
-from qwenpaw.loop.stop_handler import (
+from qwenpaw.loop.gates import (
+    DoomLoopGate,
     StopAction,
     StopHandler,
 )
@@ -54,7 +54,7 @@ class TestDoomLoopGate:
         detector.record("tool_c", "h3", True)
         result = await gate.check({})
         assert result is None
-        assert gate.get_warning() == ""
+        assert gate.continuation_prompt() == ""
 
     @pytest.mark.asyncio()
     async def test_stage1_warning(self):
@@ -65,11 +65,11 @@ class TestDoomLoopGate:
 
         await gate.check({})
         assert gate._consecutive_hits == 1
-        assert gate.get_warning() == ""
+        assert gate.continuation_prompt() == ""
 
         await gate.check({})
         assert gate._consecutive_hits == 2
-        assert gate.get_warning() == "Try differently"
+        assert gate.continuation_prompt() == "Try differently"
 
     @pytest.mark.asyncio()
     async def test_stage2_stop(self):
@@ -103,7 +103,7 @@ class TestDoomLoopGate:
         detector.record("tool_d", "h4", True)
         await gate.check({})
         assert gate._consecutive_hits == 0
-        assert gate.get_warning() == ""
+        assert gate.continuation_prompt() == ""
 
     @pytest.mark.asyncio()
     async def test_warning_in_stop_handler(self):
@@ -149,14 +149,14 @@ class TestDoomLoopGate:
         detector.record("tool_a", "h1", True)
 
         await gate.check({})
-        assert gate.get_warning() == "Mild warning"
+        assert gate.continuation_prompt() == "Mild warning"
 
         await gate.check({})
         await gate.check({})
-        assert gate.get_warning() == "Strong warning"
+        assert gate.continuation_prompt() == "Strong warning"
 
         await gate.check({})
-        assert gate.get_warning() == "Strong warning"
+        assert gate.continuation_prompt() == "Strong warning"
 
         result = await gate.check({})
         assert result is not None
