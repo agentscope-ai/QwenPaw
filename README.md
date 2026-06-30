@@ -47,12 +47,12 @@ Your personal AI assistant — deploy locally or in the cloud, extend with Skill
 
 <br>
 
-- **Automation & scheduling**: Cron-driven workflows — news digests, report generation, multi-channel broadcasting — all on your schedule.
-- **Code & development**: Coding Mode for reading, editing, reviewing, and testing inside a project; `lsp` + `ast_search` for precise navigation.
-- **Document processing**: Read, write, and transform PDF, Word, Excel, and PowerPoint files with built-in skills.
-- **Information gathering**: Web search, RSS aggregation, video summarization, and personal knowledge-base retrieval.
-- **Multi-channel ops**: Push alerts, summaries, or AI-generated content to DingTalk, Lark, Discord, Telegram, and more — simultaneously or per-channel.
-- **Custom agentic apps**: Compose Skills, Plugins, MCP tools, and scheduled tasks into purpose-built agent workflows.
+- **Automation & scheduling**: Set up recurring tasks — news digests, report generation, multi-channel broadcasting — all on your schedule.
+- **Code & development**: Read, edit, review, and test code in your projects; Coding Mode helps you quickly find and understand code.
+- **Document processing**: Read, write, and convert PDF, Word, Excel, and PowerPoint files.
+- **Information gathering**: Search the web, follow subscriptions, summarize videos, and find what you need in your personal knowledge base.
+- **Multi-channel ops**: Push alerts, summaries, or AI-generated content to DingTalk, Lark, Discord, Telegram, and more — simultaneously or per channel.
+- **Custom workflows**: Combine built-in capabilities, plugins, and scheduled tasks into workflows tailored to your needs.
 
 </details>
 

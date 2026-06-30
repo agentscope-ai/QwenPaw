@@ -47,12 +47,12 @@ Trợ lý AI cá nhân của bạn — triển khai cục bộ hoặc trên đá
 >
 > <br>
 >
-> - **Tự động hóa & lập lịch**: Quy trình theo Cron — tóm tắt tin tức, tạo báo cáo, phát sóng đa kênh — tất cả theo lịch của bạn.
-> - **Mã nguồn & phát triển**: Coding Mode để đọc, chỉnh sửa, review và kiểm thử trong dự án; `lsp` + `ast_search` để điều hướng chính xác.
-> - **Xử lý tài liệu**: Đọc, ghi và chuyển đổi tệp PDF, Word, Excel và PowerPoint với Skills tích hợp sẵn.
-> - **Thu thập thông tin**: Tìm kiếm web, tổng hợp RSS, tóm tắt video và truy xuất cơ sở tri thức cá nhân.
+> - **Tự động hóa & lập lịch**: Thiết lập tác vụ định kỳ — tóm tắt tin tức, tạo báo cáo, phát sóng đa kênh — tất cả theo lịch của bạn.
+> - **Mã nguồn & phát triển**: Đọc, chỉnh sửa, review và kiểm thử mã trong dự án; Coding Mode giúp bạn nhanh chóng tìm và hiểu mã.
+> - **Xử lý tài liệu**: Đọc, ghi và chuyển đổi tệp PDF, Word, Excel và PowerPoint.
+> - **Thu thập thông tin**: Tìm kiếm web, theo dõi nguồn đăng ký, tóm tắt video và tìm thông tin trong cơ sở tri thức cá nhân.
 > - **Vận hành đa kênh**: Đẩy cảnh báo, tóm tắt hoặc nội dung do AI tạo tới DingTalk, Lark, Discord, Telegram, v.v. — đồng thời hoặc theo từng kênh.
-> - **Ứng dụng tác nhân tùy chỉnh**: Kết hợp Skills, Plugins, công cụ MCP và tác vụ định kỳ thành quy trình tác nhân theo mục đích.
+> - **Quy trình tùy chỉnh**: Kết hợp khả năng tích hợp sẵn, plugin và tác vụ định kỳ thành quy trình phù hợp với nhu cầu của bạn.
 >
 > </details>
 
