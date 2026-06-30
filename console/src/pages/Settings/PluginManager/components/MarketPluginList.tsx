@@ -1,6 +1,15 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Alert, Button, Input, Pagination, Spin, Tag, Tooltip, Typography } from "antd";
+import {
+  Alert,
+  Button,
+  Input,
+  Pagination,
+  Spin,
+  Tag,
+  Tooltip,
+  Typography,
+} from "antd";
 import { Download, ExternalLink, Package, RefreshCw } from "lucide-react";
 import type { MarketPluginEntry } from "@/api/modules/pluginMarket";
 import { useMarketPlugins } from "../hooks/useMarketPlugins";
@@ -224,9 +233,9 @@ export function MarketPluginList({ onInstalled }: MarketPluginListProps) {
                 <Tooltip
                   title={
                     !isCompatible(entry)
-                      ? `This plugin is only compatible with QwenPaw ${entry.qwenpaw_compat_labels?.join(
-                          ", ",
-                        ) ?? "unknown"}`
+                      ? `This plugin is only compatible with QwenPaw ${
+                          entry.qwenpaw_compat_labels?.join(", ") ?? "unknown"
+                        }`
                       : undefined
                   }
                 >

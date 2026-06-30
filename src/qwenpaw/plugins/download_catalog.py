@@ -50,7 +50,7 @@ def _plugin_id_from_file_entry(entry: dict[str, Any]) -> str:
     marker = f"-{version}-"
     idx = file_id.rfind(marker)
     if idx > 0:
-        tail = file_id[idx + len(marker):]
+        tail = file_id[idx + len(marker) :]
         if len(tail) == 8 and all(
             c in "0123456789abcdef" for c in tail.lower()
         ):
