@@ -2,9 +2,9 @@
 """Mission mode — ``AgentMode`` for autonomous iterative tasks.
 
 Exposes hooks and a prompt contributor so the Runtime
-lifecycle drives mission state load/save.  Domain logic
-(state machine, PRD generation, iteration loop) lives in
-``agents.mission``.
+lifecycle drives mission state load/save.  All domain
+logic (command handler, state files, prompts, gate)
+lives under ``modes.mission``.
 
 The Phase 2 execution loop is driven by ``MissionGate``
 registered into the universal ``StopHandler``.
@@ -41,7 +41,7 @@ class MissionMode(AgentMode):
 
     def commands(self) -> list[CommandSpec]:
         """Register ``/mission`` as a standard command."""
-        from ...agents.mission.handler import (
+        from .handler import (
             MISSION_HELP_TEXT,
         )
 
@@ -151,7 +151,7 @@ class MissionMode(AgentMode):
         list, help) and ``None`` for new-mission starts
         so the agent processes the rewritten message.
         """
-        from ...agents.mission.handler import (
+        from .handler import (
             format_help,
             format_list,
             format_status,

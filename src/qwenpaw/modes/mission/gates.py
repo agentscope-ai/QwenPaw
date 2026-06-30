@@ -66,7 +66,7 @@ class MissionGate(LoopGate):
         if state is None or not state.active:
             return None
 
-        from ...agents.mission.state import (
+        from .state import (
             read_loop_config,
             read_prd,
         )
@@ -83,10 +83,7 @@ class MissionGate(LoopGate):
             )
 
         if phase not in _EXEC_PHASES:
-            return StopHandlerResult(
-                action=StopAction.CONTINUE,
-                reason=f"Mission phase: {phase}",
-            )
+            return None
 
         return self._eval_prd(
             read_prd(state.loop_dir),
@@ -99,7 +96,7 @@ class MissionGate(LoopGate):
         cfg: dict,
     ) -> Optional[StopHandlerResult]:
         """Evaluate PRD completion status."""
-        from ...agents.mission.state import (
+        from .state import (
             get_all_passed,
         )
 
@@ -138,7 +135,7 @@ class MissionGate(LoopGate):
         """Activate with mission-specific state."""
         ms = _MissionState(
             loop_dir=loop_dir,
-            phase="execution",
+            phase="prd_generation",
         )
         self.activate(ms)
 
