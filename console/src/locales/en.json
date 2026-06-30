@@ -75,7 +75,33 @@
     "updateModal": {
       "title": "New version available: v{{version}}",
       "viewReleases": "View Releases",
-      "close": "Close"
+      "installDesktopUpdate": "Update Now",
+      "desktopInstallHint": "QwenPaw Desktop {{version}} is ready to install. The app will restart after the update.",
+      "checking": "Checking for updates…",
+      "checkingHint": "Confirming the latest release",
+      "downloading": "Downloading update",
+      "downloadingTo": "Updating to version {{version}}",
+      "downloadProgress": "{{done}} / {{total}} · {{rate}}",
+      "installing": "Installing update",
+      "willRestart": "The app will restart automatically when done.",
+      "stepPrepare": "Prepare",
+      "stepDownloading": "Download",
+      "stepInstalling": "Install",
+      "failedTitle": "Update failed",
+      "back": "Back",
+      "retry": "Retry",
+      "errors": {
+        "network": "Couldn't reach the update server. Check your internet and try again.",
+        "signature": "Update file signature invalid. Try downloading again.",
+        "appLocation": "QwenPaw is running from a read-only macOS location. Move QwenPaw.app to the Applications folder, launch it from there, then try updating again.",
+        "other": "Update failed."
+      },
+      "updateLater": "Download in Background",
+      "backgroundDownloading": "Downloading in background…",
+      "readyToInstall": "Update ready",
+      "readyToInstallHint": "v{{version}} update is downloaded. Restart to install and launch the new version.",
+      "restartNow": "Update Now",
+      "backgroundFailed": "Background download failed"
     },
     "settings": {
       "language": "Language",
@@ -171,7 +197,11 @@
     "detailPayload": "Payload",
     "detailExecutionTrace": "Execution Trace",
     "detailTraceEmpty": "No execution trace available",
-    "filterByAgent": "Filter by agent"
+    "filterByAgent": "Filter by agent",
+    "filterBySourceType": "Filter by source",
+    "sourceTypeCron": "Cron",
+    "sourceTypeHeartbeat": "Heartbeat",
+    "sourceTypeMemory": "Memory"
   },
   "acp": {
     "title": "ACP",
@@ -1130,6 +1160,11 @@
     "wecomAuthHint": "Scan the QR code above with WeCom to authorize. Bot ID and Secret will be filled in automatically.",
     "wecomAuthSuccess": "WeCom bot authorized. Bot ID and Secret have been filled in.",
     "wecomQrcodeFailed": "Failed to get WeCom QR code. Please try again.",
+    "slackBotToken": "Bot Token",
+    "slackBotTokenTooltip": "Slack Bot User OAuth Token, starts with xoxb-",
+    "slackAppToken": "App Token",
+    "slackAppTokenTooltip": "Slack App-Level Token for Socket Mode, starts with xapp-",
+    "slackProxyTooltip": "HTTP proxy URL for connecting to Slack API",
     "dingtalkSetupGuide": "Scan the QR code with DingTalk to create a bot instantly. A DingTalk app will be created automatically and Client ID / Client Secret will be filled in.",
     "dingtalkScanAuth": "Scan to Create Bot",
     "dingtalkGetQrcode": "Get DingTalk QR Code",
@@ -1510,7 +1545,7 @@
     "goConfigureBtn": "Configure a Provider",
     "availableGroup": "Available Providers",
     "clickToConfigure": "Click to configure",
-    "configureAction": "Configure \u2192",
+    "configureAction": "Configure →",
     "endpointCount": "{{count}} endpoints",
     "connect": "OAuth",
     "saveApiKey": "Save",
@@ -1784,8 +1819,6 @@
     "shellCommandExecutable": "Shell Executable",
     "shellCommandExecutableTooltip": "Path to the shell used by execute_shell_command. Linux/macOS: e.g. /bin/bash, /bin/zsh. Windows: supports powershell.exe, pwsh.exe, or POSIX-like shells such as Git Bash. When empty, falls back to the $SHELL environment variable, then to the platform default (/bin/sh on Unix, cmd.exe on Windows).",
     "shellCommandExecutablePlaceholder": "e.g. /bin/bash or powershell.exe (empty = auto-detect)",
-    "planMode": "Plan Mode",
-    "planModeTooltip": "Enable plan mode to use /plan <description> for structured task planning. When enabled, plan tools are registered and the plan panel becomes available.",
     "maxInputLength": "Max Input Length",
     "maxInputLengthTooltip": "Maximum input length (tokens) for the model context window",
     "maxInputLengthPlaceholder": "Enter max input length",
@@ -1969,7 +2002,23 @@
       "restApiKey": "REST API Key",
       "memoryIsolation": "Memory Isolation (per-agent)",
       "searchTimeout": "Search Timeout"
-    }
+    },
+    "rerankerConfigCollapseLabel": "Reranker Config",
+    "rerankerEnabled": "Enable Reranker",
+    "rerankerEnabledTooltip": "Re-rank memory search results to put the most relevant items first. Requires API Key.",
+    "rerankerApiKey": "API Key",
+    "rerankerApiKeyTooltip": "API key for the reranker provider",
+    "rerankerApiKeyPlaceholder": "e.g. sk-xxx",
+    "rerankerBaseUrl": "Base URL",
+    "rerankerBaseUrlTooltip": "Base URL for the reranker API",
+    "rerankerBaseUrlPlaceholder": "e.g. https://api.siliconflow.cn/v1/rerank",
+    "rerankerModelName": "Model Name",
+    "rerankerModelNameTooltip": "Reranker model name",
+    "rerankerModelNamePlaceholder": "e.g. BAAI/bge-reranker-v2-m3",
+    "rerankerCandidateMultiplier": "Candidate Multiplier",
+    "rerankerCandidateMultiplierTooltip": "Fetch N times more candidates before reranking so the reranker has more to choose from.",
+    "rerankerCandidateMultiplierRequired": "Candidate multiplier is required",
+    "rerankerCandidateMultiplierMin": "Candidate multiplier must be at least 1"
   },
   "tools": {
     "title": "Built-in Tools",
@@ -2063,9 +2112,6 @@
       },
       "skills": {
         "description": "List chat-available skills and expose explicit skill commands"
-      },
-      "plan": {
-        "description": "Create a structured plan to decompose the task into subtasks"
       }
     },
     "attachments": {
@@ -2422,19 +2468,6 @@
     "denyFailed": "Failed to deny",
     "timeoutAutoDenied": "Timed out, auto denied",
     "acknowledge": "Got it"
-  },
-  "plan": {
-    "title": "Plan",
-    "noPlan": "No active plan",
-    "noPlanHint": "Use /plan <description> to create a plan",
-    "progress": "Progress",
-    "outcome": "Outcome",
-    "state": {
-      "todo": "Todo",
-      "in_progress": "In Progress",
-      "done": "Done",
-      "abandoned": "Abandoned"
-    }
   },
   "pluginManager": {
     "title": "Plugin Manager",

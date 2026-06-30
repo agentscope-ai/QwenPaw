@@ -80,6 +80,7 @@ export function ReMeLightMemoryCard() {
       </Form.Item>
 
       <Collapse
+        defaultActiveKey={["rerankerConfig"]}
         items={[
           {
             key: "autoMemorySearch",
@@ -305,6 +306,96 @@ export function ReMeLightMemoryCard() {
                     step={1}
                     disabled={!embeddingEnabled}
                   />
+                </Form.Item>
+              </>
+            ),
+          },
+          {
+            key: "rerankerConfig",
+            label: t("agentConfig.rerankerConfigCollapseLabel"),
+            forceRender: true,
+            children: (
+              <>
+                <Form.Item
+                  label={t("agentConfig.rerankerEnabled")}
+                  name={[
+                    "reme_light_memory_config",
+                    "reranker_config",
+                    "enabled",
+                  ]}
+                  valuePropName="checked"
+                  tooltip={t("agentConfig.rerankerEnabledTooltip")}
+                >
+                  <Switch />
+                </Form.Item>
+
+                <Form.Item
+                  label={t("agentConfig.rerankerApiKey")}
+                  name={[
+                    "reme_light_memory_config",
+                    "reranker_config",
+                    "api_key",
+                  ]}
+                  tooltip={t("agentConfig.rerankerApiKeyTooltip")}
+                >
+                  <Input.Password
+                    placeholder={t("agentConfig.rerankerApiKeyPlaceholder")}
+                  />
+                </Form.Item>
+
+                <Form.Item
+                  label={t("agentConfig.rerankerBaseUrl")}
+                  name={[
+                    "reme_light_memory_config",
+                    "reranker_config",
+                    "base_url",
+                  ]}
+                  tooltip={t("agentConfig.rerankerBaseUrlTooltip")}
+                >
+                  <Input
+                    placeholder={t("agentConfig.rerankerBaseUrlPlaceholder")}
+                  />
+                </Form.Item>
+
+                <Form.Item
+                  label={t("agentConfig.rerankerModelName")}
+                  name={[
+                    "reme_light_memory_config",
+                    "reranker_config",
+                    "model_name",
+                  ]}
+                  tooltip={t("agentConfig.rerankerModelNameTooltip")}
+                >
+                  <Input
+                    placeholder={t("agentConfig.rerankerModelNamePlaceholder")}
+                  />
+                </Form.Item>
+
+                <Form.Item
+                  label={t("agentConfig.rerankerCandidateMultiplier")}
+                  name={[
+                    "reme_light_memory_config",
+                    "reranker_config",
+                    "candidate_multiplier",
+                  ]}
+                  rules={[
+                    {
+                      required: true,
+                      message: t(
+                        "agentConfig.rerankerCandidateMultiplierRequired",
+                      ),
+                    },
+                    {
+                      type: "number",
+                      min: 1,
+                      message: t("agentConfig.rerankerCandidateMultiplierMin"),
+                    },
+                  ]}
+                  tooltip={t(
+                    "agentConfig.rerankerCandidateMultiplierTooltip",
+                  )}
+                >
+                  <InputNumber style={{ width: "100%" }} min={1} step={1} />
                 </Form.Item>
               </>
             ),

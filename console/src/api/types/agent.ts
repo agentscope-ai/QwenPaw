@@ -48,12 +48,21 @@ export interface EmbeddingModelConfig {
   max_batch_size: number;
 }
 
+export interface RerankerModelConfig {
+  enabled: boolean;
+  api_key: string;
+  base_url: string;
+  model_name: string;
+  candidate_multiplier: number;
+}
+
 export interface ReMeLightMemoryConfig {
   summarize_when_compact: boolean;
   auto_memory_interval: number | null;
   dream_cron: string;
   auto_memory_search_config: AutoMemorySearchConfig;
   embedding_model_config: EmbeddingModelConfig;
+  reranker_config: RerankerModelConfig;
   rebuild_memory_index_on_start: boolean;
   enable_search_raw_log: boolean;
 }
