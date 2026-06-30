@@ -1,11 +1,28 @@
 /* SidebarSessionList — compact session list embedded in simple-mode sidebar */
 
 .sessionList {
-  display: flex;
-  flex-direction: column;
   flex: 1;
   min-height: 0;
-  overflow: hidden;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(0, 0, 0, 0.12) transparent;
+
+  &::-webkit-scrollbar {
+    width: 4px;
+  }
+
+  &::-webkit-scrollbar-thumb {
+    background: rgba(0, 0, 0, 0.12);
+    border-radius: 2px;
+  }
+}
+
+/* Sticky header: new chat + history title + search */
+.sessionListHeader {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: #f9f8f4;
 }
 
 /* Search bar area */
@@ -31,7 +48,6 @@
 }
 
 .searchContainer {
-  flex-shrink: 0;
   padding: 4px 8px 6px;
 }
 
@@ -40,23 +56,9 @@
   font-size: 12px;
 }
 
-/* Scrollable session area */
+/* Session items container */
 .scroll {
-  flex: 1;
-  min-height: 0;
   padding: 0 4px 8px;
-  overflow-y: auto;
-  scrollbar-width: thin;
-  scrollbar-color: rgba(0, 0, 0, 0.12) transparent;
-
-  &::-webkit-scrollbar {
-    width: 4px;
-  }
-
-  &::-webkit-scrollbar-thumb {
-    background: rgba(0, 0, 0, 0.12);
-    border-radius: 2px;
-  }
 }
 
 /* Date group container */
@@ -100,12 +102,16 @@
 
 /* Dark mode */
 :global(.dark-mode) {
-  .scroll {
+  .sessionList {
     scrollbar-color: rgba(255, 255, 255, 0.15) transparent;
 
     &::-webkit-scrollbar-thumb {
       background: rgba(255, 255, 255, 0.15);
     }
+  }
+
+  .sessionListHeader {
+    background: #1a1a1a;
   }
 
   .groupLabel {
