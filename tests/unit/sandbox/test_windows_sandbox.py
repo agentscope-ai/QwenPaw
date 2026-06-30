@@ -1,178 +1,394 @@
 # -*- coding: utf-8 -*-
 # pylint: disable=unused-argument,protected-access,unused-variable
-"""Unit tests for Windows WSL2 sandbox."""
+"""Unit tests for Windows AppContainer sandbox."""
 
 from __future__ import annotations
 
 import asyncio
-from unittest.mock import AsyncMock, MagicMock, patch
+import json
+import os
+import tempfile
+from pathlib import Path
+from unittest.mock import AsyncMock, MagicMock, mock_open, patch
+
+import pytest
 
 from qwenpaw.sandbox import MountSpec, SandboxConfig, SandboxMode
 from qwenpaw.sandbox.windows_sandbox import (
+    _VIOLATION_RE,
+    CRITICAL_SYSTEM_DIRS,
     WindowsSandbox,
-    _generate_wsl_sandbox_script,
-    probe_wsl2_availability,
-    win_to_wsl_path,
-    wsl_to_win_path,
+    _compute_acl_fingerprint,
+    _compute_network_capabilities,
+    _create_workspace_junction,
+    _find_reusable_container,
+    _load_container_metadata,
+    _save_container_metadata,
 )
 
 # ============================================================================
-# Path translation tests
+# ACL fingerprint tests
 # ============================================================================
 
 
-class TestPathTranslation:
-    """Test Windows ↔ WSL path conversion."""
+class TestACLFingerprint:
+    """Test deterministic fingerprint computation."""
 
-    def test_win_to_wsl_c_drive(self):
-        assert (
-            win_to_wsl_path("C:\\Users\\foo\\project")
-            == "/mnt/c/Users/foo/project"
-        )
-
-    def test_win_to_wsl_d_drive(self):
-        assert win_to_wsl_path("D:\\data\\files") == "/mnt/d/data/files"
-
-    def test_win_to_wsl_lowercase_drive(self):
-        assert win_to_wsl_path("c:\\temp") == "/mnt/c/temp"
-
-    def test_win_to_wsl_forward_slashes(self):
-        assert win_to_wsl_path("C:/Users/foo") == "/mnt/c/Users/foo"
-
-    def test_win_to_wsl_tilde(self):
-        assert win_to_wsl_path("~/foo") == "~/foo"
-
-    def test_win_to_wsl_tilde_only(self):
-        assert win_to_wsl_path("~") == "~"
-
-    def test_win_to_wsl_relative_path(self):
-        assert win_to_wsl_path("relative/path") == "relative/path"
-
-    def test_wsl_to_win_mnt_c(self):
-        assert wsl_to_win_path("/mnt/c/Users/foo") == "C:\\Users\\foo"
-
-    def test_wsl_to_win_mnt_d(self):
-        assert wsl_to_win_path("/mnt/d/data") == "D:\\data"
-
-    def test_wsl_to_win_non_mnt(self):
-        # Non-/mnt paths are returned as-is
-        assert wsl_to_win_path("/home/user/.ssh") == "/home/user/.ssh"
-
-
-# ============================================================================
-# WSL2 probe tests
-# ============================================================================
-
-
-class TestProbeWSL2:
-    """Test WSL2 availability probing."""
-
-    @patch("shutil.which", return_value=None)
-    def test_wsl_not_found(self, mock_which):
-        available, distro, reason = probe_wsl2_availability()
-        assert available is False
-        assert "not found" in reason
-
-    @patch("shutil.which", return_value="C:\\Windows\\System32\\wsl.exe")
-    @patch("subprocess.run")
-    def test_wsl_no_distro(self, mock_run, mock_which):
-        # First call: --status (ok)
-        # Second call: --list --verbose (no WSL2 distros)
-        mock_run.side_effect = [
-            MagicMock(returncode=0, stdout="", stderr=""),
-            MagicMock(
-                returncode=0,
-                stdout="NAME   STATE   VERSION\n",
-                stderr="",
-            ),
-        ]
-        available, distro, reason = probe_wsl2_availability()
-        assert available is False
-        assert "No WSL2" in reason
-
-    @patch("shutil.which", return_value="C:\\Windows\\System32\\wsl.exe")
-    @patch("subprocess.run")
-    def test_wsl2_distro_found(self, mock_run, mock_which):
-        mock_run.side_effect = [
-            MagicMock(returncode=0, stdout="", stderr=""),
-            MagicMock(
-                returncode=0,
-                stdout=(
-                    "  NAME            STATE           VERSION\n"
-                    "* Ubuntu-22.04    Running         2\n"
-                ),
-                stderr="",
-            ),
-        ]
-        available, distro, reason = probe_wsl2_availability()
-        assert available is True
-        assert distro == "Ubuntu-22.04"
-
-
-# ============================================================================
-# Script generation tests
-# ============================================================================
-
-
-class TestWSLScriptGeneration:
-    """Test Landlock enforcement script generation for WSL."""
-
-    def test_basic_script_generation(self):
+    def test_same_config_same_fingerprint(self):
         config = SandboxConfig(
-            mode=SandboxMode.WSL2,
-            workspace_dir="C:\\Users\\foo\\project",
-            mounts=[MountSpec(path="C:\\Users\\foo\\project", writable=True)],
-        )
-        script = _generate_wsl_sandbox_script(
-            config,
-            "echo hello",
-            "/mnt/c/Users/foo/project",
-            1,
-            "/home/foo",
-        )
-        assert "add_path" in script
-        assert "/mnt/c/Users/foo/project" in script
-        assert "echo hello" in script
-        assert "prctl" in script
-
-    def test_deny_paths_excluded(self):
-        config = SandboxConfig(
-            mode=SandboxMode.WSL2,
-            workspace_dir="C:\\Users\\foo\\project",
-            mounts=[MountSpec(path="C:\\Users\\foo\\project", writable=True)],
+            mode=SandboxMode.APPCONTAINER,
+            workspace_dir=r"C:\Users\foo\project",
+            mounts=[MountSpec(path=r"C:\Users\foo\project", writable=True)],
+            deny_paths=["~/.ssh", "~/.aws"],
             allow_read_all=True,
+            network_allow=["*"],
+        )
+        fp1 = _compute_acl_fingerprint(config)
+        fp2 = _compute_acl_fingerprint(config)
+        assert fp1 == fp2
+
+    def test_different_workspace_different_fingerprint(self):
+        config1 = SandboxConfig(
+            mode=SandboxMode.APPCONTAINER,
+            workspace_dir=r"C:\Users\foo\project1",
+        )
+        config2 = SandboxConfig(
+            mode=SandboxMode.APPCONTAINER,
+            workspace_dir=r"C:\Users\foo\project2",
+        )
+        assert _compute_acl_fingerprint(config1) != _compute_acl_fingerprint(
+            config2
+        )
+
+    def test_different_deny_paths_different_fingerprint(self):
+        config1 = SandboxConfig(
+            mode=SandboxMode.APPCONTAINER,
+            workspace_dir=r"C:\Users\foo\project",
+            deny_paths=["~/.ssh"],
+        )
+        config2 = SandboxConfig(
+            mode=SandboxMode.APPCONTAINER,
+            workspace_dir=r"C:\Users\foo\project",
+            deny_paths=["~/.aws"],
+        )
+        assert _compute_acl_fingerprint(config1) != _compute_acl_fingerprint(
+            config2
+        )
+
+    def test_order_independent(self):
+        """Mount order and deny_path order should not affect fingerprint."""
+        config1 = SandboxConfig(
+            mode=SandboxMode.APPCONTAINER,
+            workspace_dir=r"C:\Users\foo\project",
+            mounts=[
+                MountSpec(path=r"C:\a", writable=True),
+                MountSpec(path=r"C:\b", writable=False),
+            ],
             deny_paths=["~/.ssh", "~/.aws"],
         )
-        script = _generate_wsl_sandbox_script(
-            config,
-            "ls",
-            "/mnt/c/Users/foo/project",
-            1,
-            "/home/foo",
+        config2 = SandboxConfig(
+            mode=SandboxMode.APPCONTAINER,
+            workspace_dir=r"C:\Users\foo\project",
+            mounts=[
+                MountSpec(path=r"C:\b", writable=False),
+                MountSpec(path=r"C:\a", writable=True),
+            ],
+            deny_paths=["~/.aws", "~/.ssh"],
         )
-        # deny_paths should NOT appear as static add_path calls
-        # but should appear in dynamic enumeration exclusion
-        assert "/home/foo/.ssh" not in script.split("_deny_set", maxsplit=1)[0]
-        assert "_deny_set" in script  # Dynamic home enumeration
+        assert _compute_acl_fingerprint(config1) == _compute_acl_fingerprint(
+            config2
+        )
 
-    def test_no_deny_paths(self):
+    def test_fingerprint_is_16_chars(self):
         config = SandboxConfig(
-            mode=SandboxMode.WSL2,
-            workspace_dir="C:\\Users\\foo\\project",
-            mounts=[MountSpec(path="C:\\Users\\foo\\project", writable=True)],
-            allow_read_all=True,
-            deny_paths=[],
+            mode=SandboxMode.APPCONTAINER,
+            workspace_dir=r"C:\project",
         )
-        script = _generate_wsl_sandbox_script(
-            config,
-            "ls",
-            "/mnt/c/Users/foo/project",
-            1,
-            "/home/foo",
+        assert len(_compute_acl_fingerprint(config)) == 16
+
+
+# ============================================================================
+# Network capability tests
+# ============================================================================
+
+
+class TestNetworkCapabilities:
+    """Test network capability computation from config."""
+
+    def test_no_network_empty_list(self):
+        config = SandboxConfig(
+            mode=SandboxMode.APPCONTAINER,
+            workspace_dir=r"C:\project",
+            network_allow=[],
         )
-        # Should grant /mnt and home without dynamic enumeration
-        assert "/mnt" in script
-        assert "_deny_set" not in script
+        assert _compute_network_capabilities(config) == []
+
+    def test_no_network_default(self):
+        config = SandboxConfig(
+            mode=SandboxMode.APPCONTAINER,
+            workspace_dir=r"C:\project",
+        )
+        # Default network_allow is [] (empty)
+        assert _compute_network_capabilities(config) == []
+
+    def test_full_network(self):
+        config = SandboxConfig(
+            mode=SandboxMode.APPCONTAINER,
+            workspace_dir=r"C:\project",
+            network_allow=["*"],
+        )
+        caps = _compute_network_capabilities(config)
+        assert "internetClient" in caps
+        assert "internetClientServer" in caps
+        assert "privateNetworkClientServer" in caps
+
+    def test_domain_list_falls_back_to_all(self):
+        config = SandboxConfig(
+            mode=SandboxMode.APPCONTAINER,
+            workspace_dir=r"C:\project",
+            network_allow=["example.com", "api.example.com"],
+        )
+        # Domain-level filtering not supported, falls back to all
+        caps = _compute_network_capabilities(config)
+        assert len(caps) == 3
+        assert "internetClient" in caps
+
+
+# ============================================================================
+# Violation detection tests
+# ============================================================================
+
+
+class TestViolationDetection:
+    """Test that access-denied patterns are correctly flagged."""
+
+    def test_access_is_denied(self):
+        assert _VIOLATION_RE.search("Access is denied")
+
+    def test_error_5(self):
+        assert _VIOLATION_RE.search("System error 5 has occurred")
+
+    def test_hresult(self):
+        assert _VIOLATION_RE.search("Failed with 0x80070005")
+
+    def test_permission_denied(self):
+        assert _VIOLATION_RE.search("Permission denied")
+
+    def test_no_violation(self):
+        assert _VIOLATION_RE.search("Command completed successfully") is None
+
+    def test_case_insensitive(self):
+        assert _VIOLATION_RE.search("ACCESS IS DENIED")
+
+
+# ============================================================================
+# Junction management tests
+# ============================================================================
+
+
+class TestJunctionPath:
+    """Test junction path derivation."""
+
+    @patch("subprocess.run")
+    @patch("os.readlink")
+    def test_creates_junction_when_not_exists(self, mock_readlink, mock_run):
+        with tempfile.TemporaryDirectory() as tmp:
+            state_dir = Path(tmp)
+            workspace = r"C:\Users\foo\project"
+
+            mock_run.return_value = MagicMock(returncode=0)
+
+            result = _create_workspace_junction(workspace, state_dir)
+
+            assert "junctions" in result
+            # mklink /J was called
+            mock_run.assert_called_once()
+            call_args = mock_run.call_args[0][0]
+            assert "mklink" in call_args
+            assert "/J" in call_args
+
+    @patch("os.path.exists", return_value=True)
+    @patch("os.readlink")
+    def test_reuses_existing_junction_with_correct_target(
+        self, mock_readlink, mock_exists
+    ):
+        with tempfile.TemporaryDirectory() as tmp:
+            state_dir = Path(tmp)
+            workspace = r"C:\Users\foo\project"
+
+            # Create the junctions dir and a fake junction
+            junction_dir = state_dir / "junctions"
+            junction_dir.mkdir(parents=True)
+
+            import hashlib
+
+            ws_hash = hashlib.sha256(workspace.encode()).hexdigest()[:12]
+            junction_path = junction_dir / ws_hash
+            junction_path.mkdir()
+
+            # readlink returns the correct target
+            mock_readlink.return_value = workspace
+
+            result = _create_workspace_junction(workspace, state_dir)
+            assert result == str(junction_path)
+
+
+# ============================================================================
+# Sandbox reuse tests
+# ============================================================================
+
+
+class TestSandboxReuse:
+    """Test container reuse logic."""
+
+    def test_save_and_load_metadata(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            state_dir = Path(tmp)
+
+            _save_container_metadata(
+                state_dir,
+                "qwenpaw_test123",
+                "S-1-15-2-12345",
+                "abcdef1234567890",
+                r"C:\project",
+                r"C:\Users\foo\.qwenpaw\junctions\abc",
+            )
+
+            loaded = _load_container_metadata(state_dir)
+            assert len(loaded) == 1
+            assert loaded[0]["container_name"] == "qwenpaw_test123"
+            assert loaded[0]["sid"] == "S-1-15-2-12345"
+            assert loaded[0]["acl_fingerprint"] == "abcdef1234567890"
+
+    @patch(
+        "qwenpaw.sandbox.windows_sandbox._get_appcontainer_sid",
+        return_value="S-1-15-2-12345",
+    )
+    def test_find_reusable_container_match(self, mock_get_sid):
+        with tempfile.TemporaryDirectory() as tmp:
+            state_dir = Path(tmp)
+
+            _save_container_metadata(
+                state_dir,
+                "qwenpaw_test123",
+                "S-1-15-2-12345",
+                "abcdef1234567890",
+                r"C:\project",
+                r"C:\Users\foo\.qwenpaw\junctions\abc",
+            )
+
+            result = _find_reusable_container(state_dir, "abcdef1234567890")
+            assert result is not None
+            assert result["container_name"] == "qwenpaw_test123"
+
+    @patch(
+        "qwenpaw.sandbox.windows_sandbox._get_appcontainer_sid",
+        return_value="S-1-15-2-12345",
+    )
+    def test_find_reusable_container_no_match(self, mock_get_sid):
+        with tempfile.TemporaryDirectory() as tmp:
+            state_dir = Path(tmp)
+
+            _save_container_metadata(
+                state_dir,
+                "qwenpaw_test123",
+                "S-1-15-2-12345",
+                "abcdef1234567890",
+                r"C:\project",
+                "",
+            )
+
+            result = _find_reusable_container(state_dir, "different_fp")
+            assert result is None
+
+    @patch(
+        "qwenpaw.sandbox.windows_sandbox._get_appcontainer_sid",
+        return_value=None,  # Container no longer exists
+    )
+    def test_find_reusable_container_stale(self, mock_get_sid):
+        with tempfile.TemporaryDirectory() as tmp:
+            state_dir = Path(tmp)
+
+            _save_container_metadata(
+                state_dir,
+                "qwenpaw_stale",
+                "S-1-15-2-99999",
+                "abcdef1234567890",
+                r"C:\project",
+                "",
+            )
+
+            result = _find_reusable_container(state_dir, "abcdef1234567890")
+            assert result is None
+
+
+# ============================================================================
+# Probe function tests
+# ============================================================================
+
+
+class TestProbeAppContainer:
+    """Test probe function under various Windows version scenarios."""
+
+    @patch("sys.platform", "linux")
+    def test_non_windows_returns_unsupported(self):
+        from qwenpaw.sandbox.config import _probe_windows_appcontainer
+
+        result = _probe_windows_appcontainer()
+        assert result.supported is False
+        assert "Not running on Windows" in result.reason
+
+    @patch("sys.platform", "win32")
+    def test_old_windows_returns_unsupported(self):
+        import sys
+
+        mock_ver = MagicMock(major=6, minor=3, build=9600)
+        with patch.object(
+            sys, "getwindowsversion", create=True, return_value=mock_ver
+        ):
+            from qwenpaw.sandbox.config import _probe_windows_appcontainer
+
+            result = _probe_windows_appcontainer()
+            assert result.supported is False
+            assert "Windows 10+" in result.reason
+
+    @patch("sys.platform", "win32")
+    @patch("shutil.which", return_value=None)
+    def test_no_icacls_returns_unsupported(self, mock_which):
+        import sys
+
+        mock_ver = MagicMock(major=10, minor=0, build=19045)
+        with patch.object(
+            sys, "getwindowsversion", create=True, return_value=mock_ver
+        ):
+            from qwenpaw.sandbox.config import _probe_windows_appcontainer
+
+            result = _probe_windows_appcontainer()
+            assert result.supported is False
+            assert "icacls" in result.reason
+
+    @patch("sys.platform", "win32")
+    @patch("shutil.which", return_value=r"C:\Windows\System32\icacls.exe")
+    def test_appcontainer_available(self, mock_which):
+        import ctypes
+        import sys
+
+        mock_ver = MagicMock(major=10, minor=0, build=19045)
+        mock_dll = MagicMock()
+        mock_dll.CreateAppContainerProfile = MagicMock()
+
+        with (
+            patch.object(
+                sys, "getwindowsversion", create=True, return_value=mock_ver
+            ),
+            patch.object(ctypes, "WinDLL", create=True, return_value=mock_dll),
+        ):
+            from qwenpaw.sandbox.config import _probe_windows_appcontainer
+
+            result = _probe_windows_appcontainer()
+            assert result.supported is True
+            assert result.mode == SandboxMode.APPCONTAINER
+            assert "AppContainer available" in result.reason
 
 
 # ============================================================================
@@ -181,136 +397,100 @@ class TestWSLScriptGeneration:
 
 
 class TestWindowsSandboxExecution:
-    """Test WindowsSandbox.execute() with mocked WSL calls."""
+    """Test WindowsSandbox.execute() with mocked Win32 API calls."""
 
     def _make_config(self):
         return SandboxConfig(
-            mode=SandboxMode.WSL2,
-            workspace_dir="C:\\Users\\foo\\project",
-            mounts=[MountSpec(path="C:\\Users\\foo\\project", writable=True)],
+            mode=SandboxMode.APPCONTAINER,
+            workspace_dir=r"C:\Users\foo\project",
+            mounts=[MountSpec(path=r"C:\Users\foo\project", writable=True)],
             deny_paths=["~/.ssh"],
             timeout_seconds=30,
+            network_allow=["*"],
         )
 
-    def test_execute_success(self):
-        sandbox_config = self._make_config()
-        sandbox = WindowsSandbox(sandbox_config, distro="Ubuntu-22.04")
-        sandbox._wsl_home = "/home/foo"
-        sandbox._abi_version = 3
+    @patch("qwenpaw.sandbox.windows_sandbox._create_process_in_appcontainer")
+    @patch("qwenpaw.sandbox.windows_sandbox._wait_and_read_process")
+    def test_execute_success(self, mock_wait, mock_create):
+        config = self._make_config()
+        sandbox = WindowsSandbox(config)
+        sandbox._container_sid = "S-1-15-2-12345"
+        sandbox._container_name = "qwenpaw_test"
+        sandbox._junction_path = None
 
-        # Mock asyncio.create_subprocess_exec
-        mock_write_proc = AsyncMock()
-        mock_write_proc.communicate = AsyncMock(return_value=(b"", b""))
-        mock_write_proc.returncode = 0
+        mock_create.return_value = (1234, "handle", "stdout_h", "stderr_h")
 
-        mock_exec_proc = AsyncMock()
-        mock_exec_proc.communicate = AsyncMock(
-            return_value=(b"hello world\n", b""),
-        )
-        mock_exec_proc.returncode = 0
+        async def mock_wait_coro(*args, **kwargs):
+            return (0, "hello world\n", "", False)
 
-        mock_cleanup_proc = AsyncMock()
-        mock_cleanup_proc.communicate = AsyncMock(return_value=(b"", b""))
+        mock_wait.side_effect = mock_wait_coro
 
-        call_count = [0]
-
-        async def mock_create_subprocess(*args, **kwargs):
-            call_count[0] += 1
-            if call_count[0] == 1:
-                return mock_write_proc
-            elif call_count[0] == 2:
-                return mock_exec_proc
-            else:
-                return mock_cleanup_proc
-
-        with patch(
-            "asyncio.create_subprocess_exec",
-            side_effect=mock_create_subprocess,
-        ):
-            result = asyncio.run(sandbox.execute("echo hello world"))
+        result = asyncio.run(sandbox.execute("echo hello world"))
 
         assert result.exit_code == 0
         assert result.stdout == "hello world\n"
         assert result.sandbox_violation is None
+        assert result.timed_out is False
 
-    def test_execute_violation(self):
-        sandbox_config = self._make_config()
-        sandbox = WindowsSandbox(sandbox_config, distro="Ubuntu-22.04")
-        sandbox._wsl_home = "/home/foo"
-        sandbox._abi_version = 3
+    @patch("qwenpaw.sandbox.windows_sandbox._create_process_in_appcontainer")
+    @patch("qwenpaw.sandbox.windows_sandbox._wait_and_read_process")
+    def test_execute_violation(self, mock_wait, mock_create):
+        config = self._make_config()
+        sandbox = WindowsSandbox(config)
+        sandbox._container_sid = "S-1-15-2-12345"
+        sandbox._container_name = "qwenpaw_test"
+        sandbox._junction_path = None
 
-        mock_write_proc = AsyncMock()
-        mock_write_proc.communicate = AsyncMock(return_value=(b"", b""))
-        mock_write_proc.returncode = 0
+        mock_create.return_value = (1234, "handle", "stdout_h", "stderr_h")
 
-        mock_exec_proc = AsyncMock()
-        mock_exec_proc.communicate = AsyncMock(
-            return_value=(
-                b"",
-                b"cat: /home/foo/.ssh/id_rsa: Permission denied\n",
-            ),
+        async def mock_wait_coro(*args, **kwargs):
+            return (1, "", "Access is denied.\n", False)
+
+        mock_wait.side_effect = mock_wait_coro
+
+        result = asyncio.run(
+            sandbox.execute("type C:\\Users\\foo\\.ssh\\id_rsa")
         )
-        mock_exec_proc.returncode = 1
-
-        mock_cleanup_proc = AsyncMock()
-        mock_cleanup_proc.communicate = AsyncMock(return_value=(b"", b""))
-
-        call_count = [0]
-
-        async def mock_create_subprocess(*args, **kwargs):
-            call_count[0] += 1
-            if call_count[0] == 1:
-                return mock_write_proc
-            elif call_count[0] == 2:
-                return mock_exec_proc
-            else:
-                return mock_cleanup_proc
-
-        with patch(
-            "asyncio.create_subprocess_exec",
-            side_effect=mock_create_subprocess,
-        ):
-            result = asyncio.run(sandbox.execute("cat ~/.ssh/id_rsa"))
 
         assert result.exit_code == 1
         assert result.sandbox_violation is not None
-        assert "Permission denied" in result.sandbox_violation
+        assert "Access is denied" in result.sandbox_violation
 
-    def test_execute_timeout(self):
-        sandbox_config = self._make_config()
-        sandbox_config.timeout_seconds = 1
-        sandbox = WindowsSandbox(sandbox_config, distro="Ubuntu-22.04")
-        sandbox._wsl_home = "/home/foo"
-        sandbox._abi_version = 3
+    @patch("qwenpaw.sandbox.windows_sandbox._create_process_in_appcontainer")
+    @patch("qwenpaw.sandbox.windows_sandbox._wait_and_read_process")
+    def test_execute_timeout(self, mock_wait, mock_create):
+        config = self._make_config()
+        config.timeout_seconds = 1
+        sandbox = WindowsSandbox(config)
+        sandbox._container_sid = "S-1-15-2-12345"
+        sandbox._container_name = "qwenpaw_test"
+        sandbox._junction_path = None
 
-        mock_write_proc = AsyncMock()
-        mock_write_proc.communicate = AsyncMock(return_value=(b"", b""))
-        mock_write_proc.returncode = 0
+        mock_create.return_value = (1234, "handle", "stdout_h", "stderr_h")
 
-        mock_exec_proc = AsyncMock()
-        mock_exec_proc.communicate = AsyncMock(
-            side_effect=asyncio.TimeoutError(),
-        )
-        mock_exec_proc.returncode = None
-        mock_exec_proc.kill = MagicMock()
+        async def mock_wait_coro(*args, **kwargs):
+            return (1, "", "Command timed out", True)
 
-        call_count = [0]
+        mock_wait.side_effect = mock_wait_coro
 
-        async def mock_create_subprocess(*args, **kwargs):
-            call_count[0] += 1
-            if call_count[0] == 1:
-                return mock_write_proc
-            else:
-                return mock_exec_proc
-
-        with patch(
-            "asyncio.create_subprocess_exec",
-            side_effect=mock_create_subprocess,
-        ):
-            result = asyncio.run(sandbox.execute("sleep 100"))
+        result = asyncio.run(sandbox.execute("timeout /t 100"))
 
         assert result.timed_out is True
+
+    @patch("qwenpaw.sandbox.windows_sandbox._create_process_in_appcontainer")
+    def test_execute_os_error(self, mock_create):
+        config = self._make_config()
+        sandbox = WindowsSandbox(config)
+        sandbox._container_sid = "S-1-15-2-12345"
+        sandbox._container_name = "qwenpaw_test"
+        sandbox._junction_path = None
+
+        mock_create.side_effect = OSError("CreateProcessW failed: error=5")
+
+        result = asyncio.run(sandbox.execute("echo test"))
+
         assert result.exit_code == -1
+        assert "CreateProcessW failed" in result.stderr
 
 
 # ============================================================================
@@ -318,18 +498,216 @@ class TestWindowsSandboxExecution:
 # ============================================================================
 
 
-class TestFactoryWSL2:
+class TestFactoryAppContainer:
     """Test that create_sandbox correctly routes to WindowsSandbox."""
 
-    def test_create_sandbox_wsl2(self):
+    def test_create_sandbox_appcontainer(self):
         from qwenpaw.sandbox import create_sandbox
 
         config = SandboxConfig(
-            mode=SandboxMode.WSL2,
-            workspace_dir="C:\\Users\\foo\\project",
+            mode=SandboxMode.APPCONTAINER,
+            workspace_dir=r"C:\Users\foo\project",
         )
         sandbox = create_sandbox(config)
         assert isinstance(sandbox, WindowsSandbox)
+
+
+# ============================================================================
+# C:\Users directory workaround tests
+# ============================================================================
+
+
+class TestUsersDirectoryWorkaround:
+    """Test the C:\\Users ACL inheritance fix logic."""
+
+    @patch("qwenpaw.sandbox.windows_sandbox._run_icacls")
+    @patch("os.path.isdir", return_value=True)
+    @patch("os.path.exists", return_value=True)
+    @patch.dict(
+        os.environ,
+        {"SystemDrive": "C:", "USERPROFILE": r"C:\Users\testuser"},
+    )
+    def test_users_dir_gets_explicit_acl_when_allow_read_all(
+        self, mock_exists, mock_isdir, mock_icacls
+    ):
+        """When allow_read_all=True, C:\\Users and USERPROFILE get explicit ACLs."""
+
+        async def fake_icacls(args):
+            return True, ""
+
+        mock_icacls.side_effect = fake_icacls
+
+        config = SandboxConfig(
+            mode=SandboxMode.APPCONTAINER,
+            workspace_dir=r"C:\Users\testuser\project",
+            allow_read_all=True,
+        )
+
+        from qwenpaw.sandbox.windows_sandbox import _apply_all_acls
+
+        asyncio.run(_apply_all_acls(config, "S-1-15-2-12345"))
+
+        # Verify icacls was called for C:\Users and C:\Users\testuser
+        all_calls = mock_icacls.call_args_list
+        all_paths = [call[0][0][0] for call in all_calls]
+        assert r"C:\Users" in all_paths
+        assert r"C:\Users\testuser" in all_paths
+
+    @patch("qwenpaw.sandbox.windows_sandbox._run_icacls")
+    @patch("os.path.isdir", return_value=True)
+    @patch("os.path.exists", return_value=False)
+    @patch.dict(
+        os.environ,
+        {"SystemDrive": "C:", "USERPROFILE": r"C:\Users\testuser"},
+    )
+    def test_no_users_dir_acl_when_allow_read_all_false(
+        self, mock_exists, mock_isdir, mock_icacls
+    ):
+        """When allow_read_all=False, no broad read ACLs are set."""
+
+        async def fake_icacls(args):
+            return True, ""
+
+        mock_icacls.side_effect = fake_icacls
+
+        config = SandboxConfig(
+            mode=SandboxMode.APPCONTAINER,
+            workspace_dir=r"C:\Users\testuser\project",
+            allow_read_all=False,
+        )
+
+        from qwenpaw.sandbox.windows_sandbox import _apply_all_acls
+
+        asyncio.run(_apply_all_acls(config, "S-1-15-2-12345"))
+
+        # Verify icacls was NOT called with C:\ grant
+        all_calls = mock_icacls.call_args_list
+        all_args = [call[0][0] for call in all_calls]
+        # No C:\ root grant
+        root_grants = [
+            a for a in all_args if a[0] == "C:\\" and "/grant" in a[1:]
+        ]
+        # The function only grants system dirs + workspace, not root
+        for args in all_args:
+            assert args[0] != "C:\\" or "/grant" not in " ".join(args)
+
+
+# ============================================================================
+# ACL command generation tests
+# ============================================================================
+
+
+class TestACLCommandGeneration:
+    """Test that correct icacls commands are generated."""
+
+    @patch("qwenpaw.sandbox.windows_sandbox._run_icacls")
+    @patch("os.path.isdir", return_value=True)
+    @patch("os.path.exists", return_value=True)
+    @patch.dict(
+        os.environ,
+        {"SystemDrive": "C:", "USERPROFILE": r"C:\Users\testuser"},
+    )
+    def test_deny_path_uses_deny_flag(
+        self, mock_exists, mock_isdir, mock_icacls
+    ):
+        async def fake_icacls(args):
+            return True, ""
+
+        mock_icacls.side_effect = fake_icacls
+
+        config = SandboxConfig(
+            mode=SandboxMode.APPCONTAINER,
+            workspace_dir=r"C:\project",
+            deny_paths=[r"C:\Users\testuser\.ssh"],
+            allow_read_all=False,
+        )
+
+        from qwenpaw.sandbox.windows_sandbox import _apply_all_acls
+
+        asyncio.run(_apply_all_acls(config, "S-1-15-2-12345"))
+
+        # Find the deny call
+        all_calls = mock_icacls.call_args_list
+        deny_calls = [
+            call[0][0] for call in all_calls if "/deny" in call[0][0]
+        ]
+        assert len(deny_calls) == 1
+        assert r"C:\Users\testuser\.ssh" in deny_calls[0]
+
+    @patch("qwenpaw.sandbox.windows_sandbox._run_icacls")
+    @patch("os.path.isdir", return_value=True)
+    @patch("os.path.exists", return_value=True)
+    @patch.dict(
+        os.environ,
+        {"SystemDrive": "C:", "USERPROFILE": r"C:\Users\testuser"},
+    )
+    def test_workspace_gets_full_access(
+        self, mock_exists, mock_isdir, mock_icacls
+    ):
+        async def fake_icacls(args):
+            return True, ""
+
+        mock_icacls.side_effect = fake_icacls
+
+        config = SandboxConfig(
+            mode=SandboxMode.APPCONTAINER,
+            workspace_dir=r"C:\project",
+            allow_read_all=False,
+        )
+
+        from qwenpaw.sandbox.windows_sandbox import _apply_all_acls
+
+        asyncio.run(_apply_all_acls(config, "S-1-15-2-12345"))
+
+        # Find workspace grant
+        all_calls = mock_icacls.call_args_list
+        workspace_calls = [
+            call[0][0]
+            for call in all_calls
+            if call[0][0][0] == r"C:\project" and "/grant" in call[0][0]
+        ]
+        assert len(workspace_calls) == 1
+        assert "(F)" in workspace_calls[0][2]  # Full access
+
+    @patch("qwenpaw.sandbox.windows_sandbox._run_icacls")
+    @patch("os.path.isdir", return_value=True)
+    @patch("os.path.exists", return_value=True)
+    @patch.dict(
+        os.environ,
+        {"SystemDrive": "C:", "USERPROFILE": r"C:\Users\testuser"},
+    )
+    def test_readonly_mount_gets_rx(
+        self, mock_exists, mock_isdir, mock_icacls
+    ):
+        async def fake_icacls(args):
+            return True, ""
+
+        mock_icacls.side_effect = fake_icacls
+
+        config = SandboxConfig(
+            mode=SandboxMode.APPCONTAINER,
+            workspace_dir=r"C:\project",
+            mounts=[
+                MountSpec(
+                    path=r"C:\readonly_dir", writable=False, executable=True
+                )
+            ],
+            allow_read_all=False,
+        )
+
+        from qwenpaw.sandbox.windows_sandbox import _apply_all_acls
+
+        asyncio.run(_apply_all_acls(config, "S-1-15-2-12345"))
+
+        # Find mount grant
+        all_calls = mock_icacls.call_args_list
+        mount_calls = [
+            call[0][0]
+            for call in all_calls
+            if len(call[0][0]) > 0 and call[0][0][0] == r"C:\readonly_dir"
+        ]
+        assert len(mount_calls) == 1
+        assert "(RX)" in mount_calls[0][2]
 
 
 # ============================================================================
@@ -338,17 +716,22 @@ class TestFactoryWSL2:
 
 
 class TestConfigProbeWindows:
-    """Test probe_sandbox_support disables Windows sandbox at probe time."""
+    """Test probe_sandbox_support delegates to AppContainer probe on Windows."""
 
     @patch("sys.platform", "win32")
-    @patch("qwenpaw.sandbox.config._probe_windows_wsl2")
-    def test_windows_disabled_returns_none(self, mock_probe):
-        from qwenpaw.sandbox.config import probe_sandbox_support
+    @patch("qwenpaw.sandbox.config._probe_windows_appcontainer")
+    def test_windows_calls_appcontainer_probe(self, mock_probe):
+        from qwenpaw.sandbox.config import (
+            SandboxCapability,
+            probe_sandbox_support,
+        )
 
-        # Windows sandbox is currently disabled at probe time — it should
-        # NOT call ``_probe_windows_wsl2`` and should return ``mode=NONE``.
+        mock_probe.return_value = SandboxCapability(
+            supported=True,
+            mode=SandboxMode.APPCONTAINER,
+            reason="AppContainer available",
+        )
         result = probe_sandbox_support()
-        assert result.supported is False
-        assert result.mode == SandboxMode.NONE
-        assert "disabled" in result.reason.lower()
-        mock_probe.assert_not_called()
+        mock_probe.assert_called_once()
+        assert result.supported is True
+        assert result.mode == SandboxMode.APPCONTAINER

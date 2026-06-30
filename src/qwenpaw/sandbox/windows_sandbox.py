@@ -1,34 +1,40 @@
 # -*- coding: utf-8 -*-
-"""Windows sandbox — WSL2 delegation.
+"""Windows AppContainer sandbox implementation.
 
-Delegates command execution to a WSL2 Linux distribution where Landlock LSM
-is available for kernel-level filesystem isolation.
+Uses Windows AppContainer for native process isolation:
+  - Filesystem access controlled via icacls ACLs on the AppContainer SID
+  - Network controlled via AppContainer capabilities
+  - Process launched with PROC_THREAD_ATTRIBUTE_SECURITY_CAPABILITIES
 
 Architecture:
-    1. Detect WSL2 availability (wsl.exe --status)
-    2. Translate Windows paths to WSL mount paths (/mnt/c/...)
-    3. Generate a Landlock enforcement script (reuses linux_sandbox logic)
-    4. Execute via: wsl.exe -d <distro> -- python3 <script>
+    1. Create (or reuse) an AppContainer profile → obtain SID
+    2. Set filesystem ACLs via icacls.exe (one command per directory, parallel)
+    3. Create NTFS junction for CWD traversal
+    4. Launch cmd.exe /c <command> with AppContainer security token
     5. Capture stdout/stderr and detect violations
 
-Path mapping:
-    - C:\\Users\\foo\\project → /mnt/c/Users/foo/project
-    - deny_paths like ~\\.ssh → /home/<wsl_user>/.ssh (inside WSL)
-
 Requirements:
-    - Windows 10 21H2+ or Windows 11 with WSL2 enabled
-    - A WSL2 distro with kernel >= 5.13 (Ubuntu 22.04+ recommended)
-    - python3 installed inside the WSL2 distro
+    - Windows 10 1507+ (build 10240)
+    - icacls.exe (ships with Windows)
+    - Python ctypes (for Win32 API calls)
 """
 
 from __future__ import annotations
 
 import asyncio
+import ctypes
+import ctypes.wintypes
+import hashlib
+import json
 import logging
+import os
 import re
-import shutil
+import subprocess
+import sys
 import time
-from typing import List, Optional, Tuple
+import uuid
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple
 
 from .config import ExecutionResult, SandboxConfig
 
@@ -36,398 +42,1025 @@ logger = logging.getLogger(__name__)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# Path translation: Windows ↔ WSL
+# Constants
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# Critical system directories that always get read+execute
+CRITICAL_SYSTEM_DIRS: List[str] = [
+    r"C:\Windows",
+    r"C:\Windows\System32",
+    r"C:\Windows\SysWOW64",
+    r"C:\Program Files",
+    r"C:\Program Files (x86)",
+]
+
+# AppContainer network capability well-known SIDs
+# These are the string names recognized by the Windows API
+_CAP_INTERNET_CLIENT = "internetClient"
+_CAP_INTERNET_CLIENT_SERVER = "internetClientServer"
+_CAP_PRIVATE_NETWORK = "privateNetworkClientServer"
+
+# Well-known capability SID strings (S-1-15-3-N)
+# internetClient = S-1-15-3-1
+# internetClientServer = S-1-15-3-2
+# privateNetworkClientServer = S-1-15-3-3
+_CAPABILITY_SIDS: Dict[str, str] = {
+    _CAP_INTERNET_CLIENT: "S-1-15-3-1",
+    _CAP_INTERNET_CLIENT_SERVER: "S-1-15-3-2",
+    _CAP_PRIVATE_NETWORK: "S-1-15-3-3",
+}
+
+# Violation detection regex (includes Chinese locale patterns)
+_VIOLATION_RE = re.compile(
+    r"Access is denied"
+    r"|error 5\b"
+    r"|0x80070005"
+    r"|Permission denied"
+    r"|\u62d2\u7edd\u8bbf\u95ee"  # 拒绝访问 (Chinese: Access denied)
+    r"|\u6743\u9650\u4e0d\u8db3"  # 权限不足 (Chinese: Insufficient permissions)
+    r"|\u7cfb\u7edf\u65e0\u6cd5\u6267\u884c\u6307\u5b9a\u7684\u7a0b\u5e8f",  # 系统无法执行指定的程序
+    re.IGNORECASE | re.MULTILINE,
+)
+
+# Win32 constants
+_EXTENDED_STARTUPINFO_PRESENT = 0x00080000
+_CREATE_UNICODE_ENVIRONMENT = 0x00000400
+_CREATE_NO_WINDOW = 0x08000000
+_PROC_THREAD_ATTRIBUTE_SECURITY_CAPABILITIES = 0x00020009
+_STARTF_USESTDHANDLES = 0x00000100
+_HANDLE_FLAG_INHERIT = 0x00000001
+_INFINITE = 0xFFFFFFFF
+_WAIT_OBJECT_0 = 0x00000000
+_WAIT_TIMEOUT = 0x00000102
+_STILL_ACTIVE = 259
+_HRESULT_ERROR_ALREADY_EXISTS = -2147023649  # 0x800700B7
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Win32 API wrappers (ctypes)
 # ═══════════════════════════════════════════════════════════════════════════════
 
 
-def win_to_wsl_path(win_path: str) -> str:
-    """Convert a Windows path to its WSL /mnt/<drive>/... equivalent.
+def _create_appcontainer_profile(
+    container_name: str,
+    display_name: str,
+    description: str,
+) -> str:
+    """Create an AppContainer profile and return its SID string.
 
-    Examples:
-        C:\\Users\\foo\\project → /mnt/c/Users/foo/project
-        D:\\data → /mnt/d/data
-        ~/foo → ~/foo (relative paths passed as-is)
+    Uses userenv.dll:CreateAppContainerProfile.
+    Returns the SID as a string like 'S-1-15-2-...'.
+
+    Raises:
+        OSError: If profile creation fails (and it doesn't already exist).
     """
-    # Normalize backslashes
-    path = win_path.replace("\\", "/")
+    userenv = ctypes.WinDLL("userenv.dll", use_last_error=True)
+    advapi32 = ctypes.WinDLL("advapi32.dll", use_last_error=True)
 
-    # Match drive letter pattern: C:/ or c:/
-    match = re.match(r"^([A-Za-z]):/(.*)$", path)
-    if match:
-        drive = match.group(1).lower()
-        rest = match.group(2)
-        return f"/mnt/{drive}/{rest}".rstrip("/")
+    # HRESULT CreateAppContainerProfile(
+    #   PCWSTR pszAppContainerName,
+    #   PCWSTR pszDisplayName,
+    #   PCWSTR pszDescription,
+    #   PSID_AND_ATTRIBUTES pCapabilities,
+    #   DWORD dwCapabilityCount,
+    #   PSID *ppSidAppContainerSid
+    # )
+    psid = ctypes.c_void_p()
+    hr = userenv.CreateAppContainerProfile(
+        ctypes.c_wchar_p(container_name),
+        ctypes.c_wchar_p(display_name),
+        ctypes.c_wchar_p(description),
+        None,  # No capabilities at profile creation time
+        ctypes.c_uint32(0),
+        ctypes.byref(psid),
+    )
 
-    # Handle ~ (user home) — map to WSL home
-    if path.startswith("~/") or path == "~":
-        return path  # Let WSL expand ~ natively
+    if hr != 0 and hr != _HRESULT_ERROR_ALREADY_EXISTS:
+        raise OSError(
+            f"CreateAppContainerProfile failed: HRESULT=0x{hr & 0xFFFFFFFF:08x}"
+        )
 
-    return path
+    # If already exists, get the SID via DeriveAppContainerSidFromAppContainerName
+    if hr == _HRESULT_ERROR_ALREADY_EXISTS:
+        sid_str = _get_appcontainer_sid(container_name)
+        if sid_str is None:
+            raise OSError("AppContainer profile exists but cannot derive SID")
+        return sid_str
+
+    # Convert PSID to string
+    try:
+        sid_str = _sid_to_string(psid, advapi32)
+    finally:
+        ctypes.windll.ole32.CoTaskMemFree(psid)
+
+    return sid_str
 
 
-def wsl_to_win_path(wsl_path: str) -> str:
-    """Convert a WSL /mnt/<drive>/... path back to Windows format.
+def _delete_appcontainer_profile(container_name: str) -> bool:
+    """Delete an AppContainer profile.
 
-    Examples:
-        /mnt/c/Users/foo → C:\\Users\\foo
+    Returns True if deleted successfully, False otherwise.
     """
-    match = re.match(r"^/mnt/([a-z])/(.*)$", wsl_path)
-    if match:
-        drive = match.group(1).upper()
-        rest = match.group(2).replace("/", "\\")
-        return f"{drive}:\\{rest}"
-    return wsl_path
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# WSL2 probe helpers
-# ═══════════════════════════════════════════════════════════════════════════════
-
-
-def probe_wsl2_availability() -> Tuple[bool, str, str]:
-    """Probe whether WSL2 is available and find a suitable distro.
-
-    Returns:
-        (available, distro_name, reason)
-    """
-    # Check wsl.exe exists
-    wsl_exe = shutil.which("wsl") or shutil.which("wsl.exe")
-    if not wsl_exe:
-        return False, "", "wsl.exe not found in PATH"
-
-    import subprocess
-
-    # Check WSL status
     try:
-        result = subprocess.run(
-            ["wsl", "--status"],
-            capture_output=True,
-            text=True,
-            timeout=10,
-            encoding="utf-8",
-            errors="replace",
-            check=False,
+        userenv = ctypes.WinDLL("userenv.dll", use_last_error=True)
+        hr = userenv.DeleteAppContainerProfile(
+            ctypes.c_wchar_p(container_name),
         )
-        # On some systems --status might not be available; continue anyway
-    except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as e:
-        return False, "", f"wsl --status failed: {e}"
-
-    # List distributions and find a WSL2 one
-    try:
-        result = subprocess.run(
-            ["wsl", "--list", "--verbose"],
-            capture_output=True,
-            text=True,
-            timeout=10,
-            encoding="utf-16-le",
-            errors="replace",
-            check=False,
-        )
-        output = result.stdout
-        # Parse output: NAME   STATE   VERSION
-        # Look for lines with VERSION=2 and STATE=Running or Stopped
-        lines = output.strip().split("\n")
-        for line in lines[1:]:  # skip header
-            # Remove leading * (default marker)
-            clean = line.strip().lstrip("*").strip()
-            parts = clean.split()
-            if len(parts) >= 3:
-                name = parts[0]
-                version = parts[-1]
-                if version == "2":
-                    return True, name, f"WSL2 distro found: {name}"
-    except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as e:
-        return False, "", f"wsl --list failed: {e}"
-
-    return False, "", "No WSL2 distribution found"
-
-
-def check_wsl_python3(distro: str) -> bool:
-    """Check if python3 is available in the given WSL2 distro."""
-    import subprocess
-
-    try:
-        result = subprocess.run(
-            ["wsl", "-d", distro, "--", "which", "python3"],
-            capture_output=True,
-            text=True,
-            timeout=10,
-            check=False,
-        )
-        return result.returncode == 0
-    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+        return hr == 0
+    except OSError:
         return False
 
 
-def check_wsl_landlock(distro: str) -> Tuple[bool, int]:
-    """Check if Landlock is supported in the WSL2 distro's kernel.
+def _get_appcontainer_sid(container_name: str) -> Optional[str]:
+    """Get SID string for an existing AppContainer profile.
 
-    Returns:
-        (supported, abi_version)
+    Uses userenv.dll:DeriveAppContainerSidFromAppContainerName.
+    Returns None if the profile does not exist or the call fails.
     """
-    import subprocess
-
-    check_script = (
-        "import ctypes, ctypes.util, os, struct; "
-        "libc = ctypes.CDLL("
-        "ctypes.util.find_library('c') or 'libc.so.6', "
-        "use_errno=True); "
-        "libc.syscall.restype = ctypes.c_long; "
-        "abi = libc.syscall("
-        "ctypes.c_long(444), None, ctypes.c_size_t(0), "
-        "ctypes.c_uint32(1)); "
-        "print(abi)"
-    )
     try:
-        result = subprocess.run(
-            ["wsl", "-d", distro, "--", "python3", "-c", check_script],
-            capture_output=True,
-            text=True,
-            timeout=15,
-            check=False,
+        userenv = ctypes.WinDLL("userenv.dll", use_last_error=True)
+        advapi32 = ctypes.WinDLL("advapi32.dll", use_last_error=True)
+
+        psid = ctypes.c_void_p()
+        hr = userenv.DeriveAppContainerSidFromAppContainerName(
+            ctypes.c_wchar_p(container_name),
+            ctypes.byref(psid),
         )
-        if result.returncode == 0:
-            abi = int(result.stdout.strip())
-            if abi > 0:
-                return True, abi
-    except (subprocess.TimeoutExpired, FileNotFoundError, OSError, ValueError):
-        pass
+        if hr != 0:
+            return None
 
-    return False, 0
+        try:
+            return _sid_to_string(psid, advapi32)
+        finally:
+            ctypes.windll.ole32.CoTaskMemFree(psid)
+    except OSError:
+        return None
+
+
+def _sid_to_string(psid: ctypes.c_void_p, advapi32: Any = None) -> str:
+    """Convert a PSID to a string representation (S-1-15-2-...)."""
+    if advapi32 is None:
+        advapi32 = ctypes.WinDLL("advapi32.dll", use_last_error=True)
+
+    string_sid = ctypes.c_wchar_p()
+    ret = advapi32.ConvertSidToStringSidW(
+        psid,
+        ctypes.byref(string_sid),
+    )
+    if not ret:
+        raise OSError(
+            f"ConvertSidToStringSidW failed: error={ctypes.get_last_error()}"
+        )
+    try:
+        return string_sid.value
+    finally:
+        ctypes.windll.kernel32.LocalFree(string_sid)
+
+
+def _string_to_sid(sid_string: str) -> ctypes.c_void_p:
+    """Convert a SID string (S-1-15-2-...) to a PSID."""
+    advapi32 = ctypes.WinDLL("advapi32.dll", use_last_error=True)
+    psid = ctypes.c_void_p()
+    ret = advapi32.ConvertStringSidToSidW(
+        ctypes.c_wchar_p(sid_string),
+        ctypes.byref(psid),
+    )
+    if not ret:
+        raise OSError(
+            f"ConvertStringSidToSidW failed for '{sid_string}': "
+            f"error={ctypes.get_last_error()}"
+        )
+    return psid
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# Landlock script generation (WSL-adapted)
+# ACL management (icacls.exe)
 # ═══════════════════════════════════════════════════════════════════════════════
 
-# Reuse constants from linux_sandbox
-_FS_READ_ACCESS = 0x0C  # READ_FILE | READ_DIR
-_FS_WRITE_ACCESS = 0x1FE2  # All write-related bits
-_FS_EXEC_ACCESS = 0x01  # EXECUTE
-_FS_ALL_ACCESS_V1 = _FS_READ_ACCESS | _FS_WRITE_ACCESS | _FS_EXEC_ACCESS
 
-# Syscall numbers (same for x86_64 and aarch64)
-SYS_LANDLOCK_CREATE_RULESET = 444
-SYS_LANDLOCK_ADD_RULE = 445
-SYS_LANDLOCK_RESTRICT_SELF = 446
-LANDLOCK_RULE_PATH_BENEATH = 1
-PR_SET_NO_NEW_PRIVS = 38
+async def _run_icacls(args: List[str], timeout: int = 120) -> Tuple[bool, str]:
+    """Run icacls.exe with the given arguments.
 
+    Args:
+        args: Arguments to pass to icacls.
+        timeout: Maximum seconds to wait (default 120 for large dirs).
 
-def _get_all_fs_access_wsl(abi_version: int) -> int:
-    """Get all filesystem access rights for given ABI version."""
-    access = _FS_ALL_ACCESS_V1
-    if abi_version >= 2:
-        access |= 1 << 13  # REFER
-    if abi_version >= 3:
-        access |= 1 << 14  # TRUNCATE
-    return access
-
-
-def _generate_wsl_sandbox_script(  # pylint: disable=too-many-branches
-    config: SandboxConfig,
-    cmd: str,
-    wsl_cwd: str,
-    abi_version: int,
-    wsl_home: str = "/root",
-) -> str:
-    """Generate a Python Landlock enforcement script for WSL2 execution.
-
-    Similar to linux_sandbox._generate_sandbox_script but operates on
-    WSL paths.
+    Returns (success, output_text).
+    Decodes output using _decode_pipe_output to handle OEM code pages.
     """
-    handled_fs = _get_all_fs_access_wsl(abi_version)
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "icacls",
+            *args,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+        )
+        stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+        return proc.returncode == 0, _decode_pipe_output(stdout)
+    except asyncio.TimeoutError:
+        return False, "icacls timed out"
+    except OSError as e:
+        return False, str(e)
 
-    # Build path rules: (wsl_path, access_mask)
-    path_rules: List[Tuple[str, int]] = []
 
-    # System paths (always readable inside WSL)
-    system_read_paths = [
-        "/usr",
-        "/lib",
-        "/lib64",
-        "/etc",
-        "/proc",
-        "/sys",
-        "/dev",
-        "/run",
-        "/bin",
-        "/sbin",
-    ]
-    for sp in system_read_paths:
-        path_rules.append((sp, _FS_READ_ACCESS | _FS_EXEC_ACCESS))
+async def _set_acl_deny(path: str, sid: str) -> bool:
+    """Set deny-all ACL on path for the AppContainer SID.
 
-    # /tmp always writable
-    path_rules.append(
-        ("/tmp", _FS_READ_ACCESS | _FS_WRITE_ACCESS | _FS_EXEC_ACCESS),
+    icacls <path> /deny *<SID>:(OI)(CI)(F)
+    """
+    ok, err = await _run_icacls([path, "/deny", f"*{sid}:(OI)(CI)(F)"])
+    if not ok:
+        logger.warning("Failed to set deny ACL on %s: %s", path, err)
+    return ok
+
+
+async def _set_acl_grant(path: str, sid: str, permission: str) -> bool:
+    """Set grant ACL on path for the AppContainer SID.
+
+    Args:
+        permission: One of "F" (full), "RX" (read+execute), "R" (read-only)
+    """
+    ok, err = await _run_icacls(
+        [path, "/grant", f"*{sid}:(OI)(CI)({permission})"]
+    )
+    if not ok:
+        logger.warning("Failed to set %s ACL on %s: %s", permission, path, err)
+    return ok
+
+
+async def _set_acl_deny_write(path: str, sid: str) -> bool:
+    """Enforce read-only on a path that may inherit writable ACLs.
+
+    Strategy: break ACL inheritance on the target directory, convert
+    inherited ACEs to explicit (preserving SYSTEM/Administrators), then
+    remove the AppContainer SID's Full-access ACE and re-grant only RX.
+
+    This is necessary because AppContainer tokens ignore explicit deny
+    ACEs when an inherited allow ACE with higher permissions exists.
+    The only reliable way to restrict permissions is to eliminate the
+    inherited Full-access ACE entirely.
+
+    Steps:
+        1. /inheritance:d — convert inherited ACEs to explicit
+           (SYSTEM, Administrators, OWNER RIGHTS become explicit,
+            the inherited (I)(OI)(CI)(F) for our SID also becomes explicit)
+        2. /remove *SID — remove the now-explicit Full ACE for our SID
+        3. /grant *SID:(OI)(CI)(RX) — re-add only read+execute
+    """
+    # Step 1: Convert inherited ACEs to explicit (preserves SYSTEM etc.)
+    ok1, err1 = await _run_icacls([path, "/inheritance:d"])
+    if not ok1:
+        logger.warning("Failed to disable inheritance on %s: %s", path, err1)
+
+    # Step 2: Remove the now-explicit Full ACE for this SID
+    ok2, err2 = await _run_icacls([path, "/remove", f"*{sid}"])
+    if not ok2:
+        logger.warning("Failed to remove ACL for SID on %s: %s", path, err2)
+
+    # Step 3: Grant only read+execute (inheritable to children)
+    ok3, err3 = await _run_icacls([path, "/grant", f"*{sid}:(OI)(CI)(RX)"])
+    if not ok3:
+        logger.warning("Failed to re-grant RX ACL on %s: %s", path, err3)
+    return ok1 and ok2 and ok3
+
+
+async def _apply_all_acls(config: SandboxConfig, sid: str) -> None:
+    """Apply all ACLs for the AppContainer profile.
+
+    Executes icacls commands in three sequential phases to ensure correct
+    ACL evaluation order. Within each phase, commands run in parallel.
+
+    Phase 1 — Grants: read/execute, full access, mount permissions
+    Phase 2 — Deny-write: enforce read-only on mounts that inherit writable
+    Phase 3 — Deny-all: completely block deny_paths
+
+    This ordering guarantees that deny ACEs are applied after grants
+    propagate, preventing race conditions where inherited Full access
+    from a parent directory overrides a simultaneously-applied deny.
+    """
+    grant_tasks: List[asyncio.Task] = []
+    deny_write_tasks: List[asyncio.Task] = []
+    deny_all_tasks: List[asyncio.Task] = []
+
+    # 1. Critical system directories — NOT granted explicitly.
+    # On Windows 10+, C:\Windows, C:\Program Files etc. already have an ACE
+    # for "ALL APPLICATION PACKAGES" (S-1-15-2-1) granting read+execute.
+    # Attempting to icacls these dirs fails even as admin (TrustedInstaller).
+    logger.debug(
+        "Skipping explicit ACL on system dirs (already have "
+        "ALL APPLICATION PACKAGES ACE on Win10+)"
     )
 
-    # /mnt (for access to Windows drives through WSL)
-    # This allows reading mounted Windows drives
+    # 2. allow_read_all: grant read+execute broadly
     if config.allow_read_all:
-        # Build deny set in WSL path space
-        deny_wsl_paths = set()
-        for dp in config.deny_paths or []:
-            # deny_paths can be Windows paths or ~ paths
-            if dp.startswith("~"):
-                # Map to WSL home
-                deny_wsl_paths.add(
-                    (
-                        wsl_home + "/" + dp[2:]
-                        if dp.startswith("~/")
-                        else wsl_home
-                    ),
-                )
-            else:
-                deny_wsl_paths.add(win_to_wsl_path(dp))
+        # Grant on the root of the system drive (inheritable)
+        sys_drive = os.environ.get("SystemDrive", "C:")
+        grant_tasks.append(
+            asyncio.ensure_future(_set_acl_grant(sys_drive + "\\", sid, "RX"))
+        )
+        # C:\Users and user profile don't inherit from C:\
+        users_dir = sys_drive + "\\Users"
+        if os.path.isdir(users_dir):
+            grant_tasks.append(
+                asyncio.ensure_future(_set_acl_grant(users_dir, sid, "RX"))
+            )
+        user_profile = os.environ.get("USERPROFILE", "")
+        if user_profile and os.path.isdir(user_profile):
+            grant_tasks.append(
+                asyncio.ensure_future(_set_acl_grant(user_profile, sid, "RX"))
+            )
 
-        if deny_wsl_paths:
-            # Selective grant: grant /mnt paths excluding deny,
-            # grant home excluding deny
-            # Grant /mnt for Windows drive access
-            path_rules.append(("/mnt", _FS_READ_ACCESS | _FS_EXEC_ACCESS))
+    # 2b. Python interpreter directory.
+    # Some environments (e.g., conda) disable ACL inheritance on their root
+    # directory, so the inheritable grant on USERPROFILE doesn't propagate.
+    # Grant RX explicitly on the Python interpreter's directory to ensure
+    # it's accessible from inside the AppContainer.
+    python_dir = os.path.dirname(sys.executable)
+    if python_dir and os.path.isdir(python_dir):
+        grant_tasks.append(
+            asyncio.ensure_future(_set_acl_grant(python_dir, sid, "RX"))
+        )
 
-            # Grant WSL home subdirectories individually, skipping deny_paths
-            path_rules.append((wsl_home, _FS_READ_ACCESS))
-            # Note: The actual HOME enumeration happens at runtime inside WSL
-            # so we add a dynamic enumeration block in the script
-        else:
-            # No deny paths — safe to grant broadly
-            path_rules.append(("/mnt", _FS_READ_ACCESS | _FS_EXEC_ACCESS))
-            path_rules.append((wsl_home, _FS_READ_ACCESS))
-
-    # Workspace mount (writable)
-    wsl_workspace = win_to_wsl_path(config.workspace_dir)
-    path_rules.append(
-        (wsl_workspace, _FS_READ_ACCESS | _FS_WRITE_ACCESS | _FS_EXEC_ACCESS),
-    )
-
-    # Extra mounts from config
+    # 3. Mounts (user-specified permissions)
+    # Read-only mounts are handled in phase 2 (remove inherited + grant RX)
+    readonly_mounts: List[str] = []
     for mount in config.mounts:
-        wsl_mount_path = win_to_wsl_path(mount.path)
-        access = _FS_READ_ACCESS
         if mount.writable:
-            access |= _FS_WRITE_ACCESS
-        if mount.executable:
-            access |= _FS_EXEC_ACCESS
-        path_rules.append((wsl_mount_path, access))
-
-    # Build deny set for filtering
-    deny_wsl_set = set()
-    for dp in config.deny_paths or []:
-        if dp.startswith("~"):
-            deny_wsl_set.add(
-                wsl_home + "/" + dp[2:] if dp.startswith("~/") else wsl_home,
+            perm = "F"
+            grant_tasks.append(
+                asyncio.ensure_future(_set_acl_grant(mount.path, sid, perm))
+            )
+        elif mount.executable:
+            perm = "RX"
+            grant_tasks.append(
+                asyncio.ensure_future(_set_acl_grant(mount.path, sid, perm))
             )
         else:
-            deny_wsl_set.add(win_to_wsl_path(dp))
+            # Read-only: defer to phase 2 which removes inherited writable
+            # ACEs and grants only RX
+            readonly_mounts.append(mount.path)
 
-    # Generate script
-    script_lines = [
-        "import ctypes, ctypes.util, os, struct, sys",
-        "",
-        (
-            "libc = ctypes.CDLL("
-            "ctypes.util.find_library('c') or 'libc.so.6', "
-            "use_errno=True)"
-        ),
-        "libc.syscall.restype = ctypes.c_long",
-        "",
-        "# prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0)",
-        "libc.prctl.restype = ctypes.c_int",
-        (
-            "libc.prctl.argtypes = [ctypes.c_int, ctypes.c_ulong, "
-            "ctypes.c_ulong, ctypes.c_ulong, ctypes.c_ulong]"
-        ),
-        (
-            f"assert libc.prctl({PR_SET_NO_NEW_PRIVS}, 1, 0, 0, 0) "
-            f"== 0, 'prctl failed'"
-        ),
-        "",
-        f"# Create ruleset (handled_fs=0x{handled_fs:x})",
-        f"attr = struct.pack('Q', 0x{handled_fs:x})",
-        "attr_buf = ctypes.create_string_buffer(attr)",
-        (
-            f"fd = libc.syscall(ctypes.c_long({SYS_LANDLOCK_CREATE_RULESET}), "
-            "ctypes.cast(attr_buf, ctypes.c_void_p), "
-            "ctypes.c_size_t(len(attr)), ctypes.c_uint32(0))"
-        ),
-        "assert fd >= 0, f'create_ruleset failed: {ctypes.get_errno()}'",
-        "",
-        "O_PATH = 0o10000000",
-        "",
-        "def add_path(path, access):",
-        "    try:",
-        "        pfd = os.open(path, O_PATH | os.O_CLOEXEC)",
-        "    except OSError:",
-        "        return",
-        "    try:",
-        "        a = struct.pack('Qi', access, pfd)",
-        "        ab = ctypes.create_string_buffer(a)",
-        (
-            f"        libc.syscall(ctypes.c_long({SYS_LANDLOCK_ADD_RULE}), "
-            f"ctypes.c_int(fd), "
-            f"ctypes.c_int({LANDLOCK_RULE_PATH_BENEATH}), "
-            f"ctypes.cast(ab, ctypes.c_void_p), ctypes.c_uint32(0))"
-        ),
-        "    finally:",
-        "        os.close(pfd)",
-        "",
-    ]
+    # 4. Workspace (full access)
+    grant_tasks.append(
+        asyncio.ensure_future(_set_acl_grant(config.workspace_dir, sid, "F"))
+    )
 
-    # Add static path rules (excluding deny paths)
-    for path, access in path_rules:
-        skip = False
-        for dp in deny_wsl_set:
-            if path == dp or path.startswith(dp + "/"):
-                skip = True
-                break
-        if not skip:
-            script_lines.append(f"add_path({path!r}, 0x{access:x})")
+    # 5. Enforce read-only on mounts that may inherit writable ACLs from
+    # workspace or other writable parents. Removes all inherited ACEs for
+    # the SID, then grants only RX (no write/delete).
+    for ro_path in readonly_mounts:
+        deny_write_tasks.append(
+            asyncio.ensure_future(_set_acl_deny_write(ro_path, sid))
+        )
 
-    # If we have deny_paths under WSL home, enumerate home subdirs dynamically
-    home_deny_paths = [
-        dp for dp in deny_wsl_set if dp.startswith(wsl_home + "/")
-    ]
-    if home_deny_paths and config.allow_read_all:
-        script_lines += [
-            "",
-            "# Enumerate WSL home subdirs, skipping deny_paths",
-            f"_deny_set = {set(home_deny_paths)!r}",
-            f"_home = {wsl_home!r}",
-            "if os.path.isdir(_home):",
-            "    for _entry in os.listdir(_home):",
-            "        _full = os.path.join(_home, _entry)",
-            "        if _full not in _deny_set:",
-            f"            add_path(_full, 0x{_FS_READ_ACCESS:x})",
+    # 6. Deny paths (override all grants)
+    for deny_path in config.deny_paths:
+        # Expand ~ to user profile
+        expanded = os.path.expanduser(deny_path)
+        if os.path.exists(expanded):
+            deny_all_tasks.append(
+                asyncio.ensure_future(_set_acl_deny(expanded, sid))
+            )
+
+    # Execute in three sequential phases: grants → deny-write → deny-all
+    if grant_tasks:
+        await asyncio.gather(*grant_tasks, return_exceptions=True)
+    if deny_write_tasks:
+        await asyncio.gather(*deny_write_tasks, return_exceptions=True)
+    if deny_all_tasks:
+        await asyncio.gather(*deny_all_tasks, return_exceptions=True)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# NTFS Junction management
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+def _create_workspace_junction(workspace_dir: str, state_dir: Path) -> str:
+    """Create an NTFS junction for CWD traversal.
+
+    Creates: <state_dir>\\junctions\\<hash> → workspace_dir
+
+    Returns the junction path. If the junction already exists and points
+    to the correct target, returns it as-is.
+    """
+    ws_hash = hashlib.sha256(workspace_dir.encode()).hexdigest()[:12]
+    junction_dir = state_dir / "junctions"
+    junction_dir.mkdir(parents=True, exist_ok=True)
+    junction_path = junction_dir / ws_hash
+
+    if junction_path.exists():
+        # Verify it points to the right place
+        try:
+            target = os.readlink(str(junction_path))
+            if os.path.normpath(target) == os.path.normpath(workspace_dir):
+                return str(junction_path)
+            # Wrong target, remove and recreate
+            os.rmdir(str(junction_path))
+        except (OSError, ValueError):
+            pass
+
+    if not junction_path.exists():
+        # Create junction: mklink /J <junction_path> <workspace_dir>
+        try:
+            subprocess.run(
+                [
+                    "cmd",
+                    "/c",
+                    "mklink",
+                    "/J",
+                    str(junction_path),
+                    workspace_dir,
+                ],
+                check=True,
+                capture_output=True,
+            )
+        except subprocess.CalledProcessError as e:
+            logger.warning(
+                "Failed to create junction %s -> %s: %s",
+                junction_path,
+                workspace_dir,
+                e.stderr.decode("utf-8", errors="replace"),
+            )
+            # Fall back to using the workspace path directly
+            return workspace_dir
+
+    return str(junction_path)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Network capability computation
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+def _compute_network_capabilities(
+    config: SandboxConfig,
+) -> List[str]:
+    """Determine AppContainer network capabilities from config.
+
+    Rules (matching linux_sandbox approach):
+        - network_allow == [] or None: NO capabilities (all network blocked)
+        - network_allow == ["*"]: all capabilities (full network)
+        - network_allow has specific domains: all capabilities + warning
+    """
+    if not config.network_allow:
+        return []  # Block all network (AppContainer default: no network)
+
+    if "*" in config.network_allow:
+        return [
+            _CAP_INTERNET_CLIENT,
+            _CAP_INTERNET_CLIENT_SERVER,
+            _CAP_PRIVATE_NETWORK,
         ]
 
-    # Restrict self and exec
-    script_lines += [
-        "",
-        "# Restrict self",
-        f"ret = libc.syscall(ctypes.c_long({SYS_LANDLOCK_RESTRICT_SELF}), "
-        "ctypes.c_int(fd), ctypes.c_uint32(0))",
-        "os.close(fd)",
-        "assert ret == 0, f'restrict_self failed: {ctypes.get_errno()}'",
-        "",
+    # Partial domain list — domain-level filtering not possible
+    logger.warning(
+        "WindowsSandbox: domain-level network filtering not supported "
+        "by AppContainer. Allowing all network access."
+    )
+    return [
+        _CAP_INTERNET_CLIENT,
+        _CAP_INTERNET_CLIENT_SERVER,
+        _CAP_PRIVATE_NETWORK,
     ]
 
-    # Apply env_vars (e.g. mask blacklisted env keys with empty string)
-    if config.env_vars:
-        env_vars_repr = repr(list(config.env_vars.items()))
-        script_lines.append("# Apply env_vars (override / mask)")
-        script_lines.append(f"for _k, _v in {env_vars_repr}:")
-        script_lines.append("    os.environ[_k] = _v")
-        script_lines.append("")
 
-    script_lines += [
-        "# Exec the command",
-        f"os.chdir({wsl_cwd!r})",
-        f"os.execvp('/bin/sh', ['/bin/sh', '-c', {cmd!r}])",
+# ═══════════════════════════════════════════════════════════════════════════════
+# Pipe output decoding (handles OEM/ANSI/UTF-16LE code pages)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+_cached_oem_encoding: Optional[str] = None
+_cached_ansi_encoding: Optional[str] = None
+
+
+def _get_system_ansi_encoding() -> str:
+    """Return the codec name for the system ANSI code page."""
+    global _cached_ansi_encoding
+    if _cached_ansi_encoding is not None:
+        return _cached_ansi_encoding
+    try:
+        acp = ctypes.windll.kernel32.GetACP()
+        _cached_ansi_encoding = f"cp{acp}"
+    except (AttributeError, OSError):
+        _cached_ansi_encoding = "utf-8"
+    return _cached_ansi_encoding
+
+
+def _get_system_oem_encoding() -> str:
+    """Return the codec name for the system OEM code page."""
+    global _cached_oem_encoding
+    if _cached_oem_encoding is not None:
+        return _cached_oem_encoding
+    try:
+        oem_cp = ctypes.windll.kernel32.GetOEMCP()
+        _cached_oem_encoding = f"cp{oem_cp}"
+    except (AttributeError, OSError):
+        _cached_oem_encoding = _get_system_ansi_encoding()
+    return _cached_oem_encoding
+
+
+def _try_decode_utf16le(raw: bytes) -> Optional[str]:
+    """Try to decode raw bytes as UTF-16LE using BOM and heuristic detection."""
+    if len(raw) < 2:
+        return None
+
+    # Check for UTF-16LE BOM
+    if raw[:2] == b"\xff\xfe":
+        try:
+            return raw.decode("utf-16-le")
+        except (UnicodeDecodeError, ValueError):
+            return None
+
+    # Heuristic: if >25% of bytes at odd positions are \x00, it's UTF-16LE
+    if len(raw) >= 4:
+        sample = raw[: min(64, len(raw))]
+        null_at_odd = sum(
+            1 for i in range(1, len(sample), 2) if sample[i] == 0
+        )
+        total_odd = len(sample) // 2
+        if total_odd > 0 and null_at_odd > total_odd * 0.25:
+            try:
+                return raw.decode("utf-16-le")
+            except (UnicodeDecodeError, ValueError):
+                pass
+
+    return None
+
+
+def _decode_pipe_output(raw: bytes) -> str:
+    """Decode raw pipe output using multi-codec strategy.
+
+    Handles the encoding complexity of Windows console output:
+        1. UTF-16LE with BOM detection.
+        2. UTF-16LE heuristic (>25% null bytes at odd positions).
+        3. System OEM code page (GetOEMCP) — used by cmd.exe.
+        4. System ANSI code page (GetACP).
+        5. UTF-8 with replacement (final fallback).
+
+    This is necessary because cmd.exe outputs in the OEM code page
+    (e.g., cp936/GBK on Chinese Windows), not UTF-8.
+    """
+    if not raw:
+        return ""
+
+    # Try UTF-16LE detection (BOM and heuristic)
+    result = _try_decode_utf16le(raw)
+    if result is not None:
+        return result
+
+    for enc in (
+        _get_system_oem_encoding(),
+        _get_system_ansi_encoding(),
+        "utf-8",
+    ):
+        try:
+            return raw.decode(enc)
+        except (UnicodeDecodeError, LookupError):
+            pass
+    return raw.decode("utf-8", errors="replace")
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Process launch with AppContainer token
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+# ctypes structure definitions for CreateProcess with AppContainer
+
+
+class _SID_AND_ATTRIBUTES(ctypes.Structure):
+    _fields_ = [
+        ("Sid", ctypes.c_void_p),
+        ("Attributes", ctypes.wintypes.DWORD),
     ]
 
-    return "\n".join(script_lines)
+
+class _SECURITY_CAPABILITIES(ctypes.Structure):
+    _fields_ = [
+        ("AppContainerSid", ctypes.c_void_p),
+        ("Capabilities", ctypes.POINTER(_SID_AND_ATTRIBUTES)),
+        ("CapabilityCount", ctypes.wintypes.DWORD),
+        ("Reserved", ctypes.wintypes.DWORD),
+    ]
+
+
+class _STARTUPINFOW(ctypes.Structure):
+    _fields_ = [
+        ("cb", ctypes.wintypes.DWORD),
+        ("lpReserved", ctypes.c_wchar_p),
+        ("lpDesktop", ctypes.c_wchar_p),
+        ("lpTitle", ctypes.c_wchar_p),
+        ("dwX", ctypes.wintypes.DWORD),
+        ("dwY", ctypes.wintypes.DWORD),
+        ("dwXSize", ctypes.wintypes.DWORD),
+        ("dwYSize", ctypes.wintypes.DWORD),
+        ("dwXCountChars", ctypes.wintypes.DWORD),
+        ("dwYCountChars", ctypes.wintypes.DWORD),
+        ("dwFillAttribute", ctypes.wintypes.DWORD),
+        ("dwFlags", ctypes.wintypes.DWORD),
+        ("wShowWindow", ctypes.wintypes.WORD),
+        ("cbReserved2", ctypes.wintypes.WORD),
+        ("lpReserved2", ctypes.c_void_p),
+        ("hStdInput", ctypes.wintypes.HANDLE),
+        ("hStdOutput", ctypes.wintypes.HANDLE),
+        ("hStdError", ctypes.wintypes.HANDLE),
+    ]
+
+
+class _STARTUPINFOEXW(ctypes.Structure):
+    _fields_ = [
+        ("StartupInfo", _STARTUPINFOW),
+        ("lpAttributeList", ctypes.c_void_p),
+    ]
+
+
+class _PROCESS_INFORMATION(ctypes.Structure):
+    _fields_ = [
+        ("hProcess", ctypes.wintypes.HANDLE),
+        ("hThread", ctypes.wintypes.HANDLE),
+        ("dwProcessId", ctypes.wintypes.DWORD),
+        ("dwThreadId", ctypes.wintypes.DWORD),
+    ]
+
+
+def _create_process_in_appcontainer(
+    cmd: str,
+    container_sid: str,
+    capabilities: List[str],
+    cwd: str,
+    env: Optional[Dict[str, str]] = None,
+) -> Tuple[
+    int, ctypes.wintypes.HANDLE, ctypes.wintypes.HANDLE, ctypes.wintypes.HANDLE
+]:
+    """Launch a process inside the AppContainer.
+
+    Uses CreateProcessW with PROC_THREAD_ATTRIBUTE_SECURITY_CAPABILITIES.
+
+    Args:
+        cmd: Command line to execute.
+        container_sid: AppContainer SID string.
+        capabilities: List of capability names.
+        cwd: Working directory.
+        env: Environment variables (full environment to pass).
+
+    Returns:
+        (process_id, process_handle, stdout_read_handle, stderr_read_handle)
+    """
+    kernel32 = ctypes.WinDLL("kernel32.dll", use_last_error=True)
+
+    # Create pipes for stdout and stderr
+    stdout_read = ctypes.wintypes.HANDLE()
+    stdout_write = ctypes.wintypes.HANDLE()
+    stderr_read = ctypes.wintypes.HANDLE()
+    stderr_write = ctypes.wintypes.HANDLE()
+
+    # Security attributes for inheritable handles
+    sa = ctypes.c_byte * 24  # SECURITY_ATTRIBUTES size
+    sa_buf = sa()
+    ctypes.memmove(
+        ctypes.addressof(sa_buf),
+        ctypes.c_uint32(24).value.to_bytes(4, "little")
+        + b"\x00" * 8  # lpSecurityDescriptor = NULL
+        + b"\x01\x00\x00\x00"  # bInheritHandle = TRUE
+        + b"\x00" * 8,  # padding
+        24,
+    )
+
+    # Use a simpler approach: SECURITY_ATTRIBUTES struct
+    class _SECURITY_ATTRIBUTES(ctypes.Structure):
+        _fields_ = [
+            ("nLength", ctypes.wintypes.DWORD),
+            ("lpSecurityDescriptor", ctypes.c_void_p),
+            ("bInheritHandle", ctypes.wintypes.BOOL),
+        ]
+
+    sa = _SECURITY_ATTRIBUTES()
+    sa.nLength = ctypes.sizeof(sa)
+    sa.lpSecurityDescriptor = None
+    sa.bInheritHandle = True
+
+    if not kernel32.CreatePipe(
+        ctypes.byref(stdout_read),
+        ctypes.byref(stdout_write),
+        ctypes.byref(sa),
+        0,
+    ):
+        raise OSError(
+            f"CreatePipe(stdout) failed: error={ctypes.get_last_error()}"
+        )
+
+    if not kernel32.CreatePipe(
+        ctypes.byref(stderr_read),
+        ctypes.byref(stderr_write),
+        ctypes.byref(sa),
+        0,
+    ):
+        kernel32.CloseHandle(stdout_read)
+        kernel32.CloseHandle(stdout_write)
+        raise OSError(
+            f"CreatePipe(stderr) failed: error={ctypes.get_last_error()}"
+        )
+
+    # Make read ends non-inheritable
+    kernel32.SetHandleInformation(stdout_read, _HANDLE_FLAG_INHERIT, 0)
+    kernel32.SetHandleInformation(stderr_read, _HANDLE_FLAG_INHERIT, 0)
+
+    # Convert AppContainer SID string to PSID
+    app_container_psid = _string_to_sid(container_sid)
+
+    # Build capability SID array
+    cap_sids = []
+    cap_psids = []  # Keep references alive
+    for cap_name in capabilities:
+        cap_sid_str = _CAPABILITY_SIDS.get(cap_name)
+        if cap_sid_str:
+            cap_psid = _string_to_sid(cap_sid_str)
+            cap_psids.append(cap_psid)
+            cap_sids.append(
+                _SID_AND_ATTRIBUTES(Sid=cap_psid, Attributes=0x00000004)
+            )  # SE_GROUP_ENABLED
+
+    # Build SECURITY_CAPABILITIES
+    sec_cap = _SECURITY_CAPABILITIES()
+    sec_cap.AppContainerSid = app_container_psid
+    sec_cap.CapabilityCount = len(cap_sids)
+    sec_cap.Reserved = 0
+    if cap_sids:
+        cap_array = (_SID_AND_ATTRIBUTES * len(cap_sids))(*cap_sids)
+        sec_cap.Capabilities = ctypes.cast(
+            cap_array, ctypes.POINTER(_SID_AND_ATTRIBUTES)
+        )
+    else:
+        sec_cap.Capabilities = None
+
+    # Initialize proc thread attribute list
+    size = ctypes.c_size_t(0)
+    kernel32.InitializeProcThreadAttributeList(None, 1, 0, ctypes.byref(size))
+    attr_list_buf = (ctypes.c_byte * size.value)()
+    attr_list = ctypes.cast(attr_list_buf, ctypes.c_void_p)
+
+    if not kernel32.InitializeProcThreadAttributeList(
+        attr_list, 1, 0, ctypes.byref(size)
+    ):
+        raise OSError(
+            f"InitializeProcThreadAttributeList failed: "
+            f"error={ctypes.get_last_error()}"
+        )
+
+    # Update attribute list with security capabilities
+    if not kernel32.UpdateProcThreadAttribute(
+        attr_list,
+        0,
+        _PROC_THREAD_ATTRIBUTE_SECURITY_CAPABILITIES,
+        ctypes.byref(sec_cap),
+        ctypes.sizeof(sec_cap),
+        None,
+        None,
+    ):
+        kernel32.DeleteProcThreadAttributeList(attr_list)
+        raise OSError(
+            f"UpdateProcThreadAttribute failed: "
+            f"error={ctypes.get_last_error()}"
+        )
+
+    # Build STARTUPINFOEXW
+    si_ex = _STARTUPINFOEXW()
+    si_ex.StartupInfo.cb = ctypes.sizeof(si_ex)
+    si_ex.StartupInfo.dwFlags = _STARTF_USESTDHANDLES
+    si_ex.StartupInfo.hStdInput = None
+    si_ex.StartupInfo.hStdOutput = stdout_write
+    si_ex.StartupInfo.hStdError = stderr_write
+    si_ex.lpAttributeList = attr_list
+
+    # Build environment block
+    env_block = None
+    if env:
+        env_str = "\x00".join(f"{k}={v}" for k, v in env.items()) + "\x00\x00"
+        env_block = ctypes.create_unicode_buffer(env_str)
+
+    # CreateProcessW
+    pi = _PROCESS_INFORMATION()
+    creation_flags = (
+        _EXTENDED_STARTUPINFO_PRESENT
+        | _CREATE_UNICODE_ENVIRONMENT
+        | _CREATE_NO_WINDOW
+    )
+
+    cmd_line = f'cmd.exe /c "{cmd}"'
+
+    success = kernel32.CreateProcessW(
+        None,  # lpApplicationName
+        ctypes.c_wchar_p(cmd_line),  # lpCommandLine
+        None,  # lpProcessAttributes
+        None,  # lpThreadAttributes
+        True,  # bInheritHandles
+        creation_flags,
+        ctypes.cast(env_block, ctypes.c_void_p) if env_block else None,
+        ctypes.c_wchar_p(cwd),
+        ctypes.byref(si_ex),
+        ctypes.byref(pi),
+    )
+
+    # Clean up attribute list
+    kernel32.DeleteProcThreadAttributeList(attr_list)
+
+    # Close write ends of pipes (parent doesn't need them)
+    kernel32.CloseHandle(stdout_write)
+    kernel32.CloseHandle(stderr_write)
+
+    if not success:
+        kernel32.CloseHandle(stdout_read)
+        kernel32.CloseHandle(stderr_read)
+        # Free SIDs
+        kernel32.LocalFree(app_container_psid)
+        for psid in cap_psids:
+            kernel32.LocalFree(psid)
+        raise OSError(
+            f"CreateProcessW failed: error={ctypes.get_last_error()}"
+        )
+
+    # Close thread handle (not needed)
+    kernel32.CloseHandle(pi.hThread)
+
+    # Free SIDs (they were copied into the token)
+    kernel32.LocalFree(app_container_psid)
+    for psid in cap_psids:
+        kernel32.LocalFree(psid)
+
+    return (pi.dwProcessId, pi.hProcess, stdout_read, stderr_read)
+
+
+async def _wait_and_read_process(
+    process_handle: ctypes.wintypes.HANDLE,
+    stdout_handle: ctypes.wintypes.HANDLE,
+    stderr_handle: ctypes.wintypes.HANDLE,
+    timeout_seconds: int,
+) -> Tuple[int, str, str, bool]:
+    """Wait for process completion and read output.
+
+    Returns (exit_code, stdout, stderr, timed_out).
+    """
+    kernel32 = ctypes.WinDLL("kernel32.dll", use_last_error=True)
+
+    loop = asyncio.get_event_loop()
+
+    def _blocking_wait():
+        """Blocking wait in a thread."""
+        timeout_ms = timeout_seconds * 1000
+        result = kernel32.WaitForSingleObject(process_handle, timeout_ms)
+        timed_out = result == _WAIT_TIMEOUT
+
+        if timed_out:
+            kernel32.TerminateProcess(process_handle, 1)
+            kernel32.WaitForSingleObject(process_handle, 5000)
+
+        # Get exit code
+        exit_code = ctypes.wintypes.DWORD()
+        kernel32.GetExitCodeProcess(process_handle, ctypes.byref(exit_code))
+
+        # Read stdout
+        stdout_data = _read_pipe(stdout_handle, kernel32)
+        stderr_data = _read_pipe(stderr_handle, kernel32)
+
+        # Close handles
+        kernel32.CloseHandle(stdout_handle)
+        kernel32.CloseHandle(stderr_handle)
+        kernel32.CloseHandle(process_handle)
+
+        return exit_code.value, stdout_data, stderr_data, timed_out
+
+    (
+        exit_code,
+        stdout_data,
+        stderr_data,
+        timed_out,
+    ) = await loop.run_in_executor(None, _blocking_wait)
+
+    stdout = _decode_pipe_output(stdout_data)
+    stderr = _decode_pipe_output(stderr_data)
+
+    return exit_code, stdout, stderr, timed_out
+
+
+def _read_pipe(handle: ctypes.wintypes.HANDLE, kernel32: Any) -> bytes:
+    """Read all data from a pipe handle until EOF.
+
+    Handles ERROR_BROKEN_PIPE (109) which signals the write end was closed.
+    """
+    _ERROR_BROKEN_PIPE = 109
+    chunks: List[bytes] = []
+    buf_size = 8192
+    buf = (ctypes.c_ubyte * buf_size)()
+    bytes_read = ctypes.c_uint32()
+
+    while True:
+        ok = kernel32.ReadFile(
+            handle,
+            buf,
+            buf_size,
+            ctypes.byref(bytes_read),
+            None,
+        )
+        if not ok:
+            # Capture any partial data before the failure
+            if bytes_read.value > 0:
+                chunks.append(bytes(buf[: bytes_read.value]))
+            err = ctypes.get_last_error()
+            if err == _ERROR_BROKEN_PIPE:
+                break  # Normal EOF — writer closed the pipe
+            break
+        if bytes_read.value == 0:
+            break
+        chunks.append(bytes(buf[: bytes_read.value]))
+
+    return b"".join(chunks)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Sandbox reuse (fingerprint + metadata)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+def _compute_acl_fingerprint(config: SandboxConfig) -> str:
+    """Compute a deterministic hash of the ACL configuration.
+
+    Used to identify whether an existing container can be reused.
+    """
+    data = {
+        "workspace_dir": os.path.normpath(config.workspace_dir),
+        "deny_paths": sorted(
+            os.path.normpath(os.path.expanduser(p)) for p in config.deny_paths
+        ),
+        "mounts": sorted(
+            (os.path.normpath(m.path), m.writable, m.executable)
+            for m in config.mounts
+        ),
+        "allow_read_all": config.allow_read_all,
+        "network_allow": sorted(config.network_allow),
+        "python_dir": os.path.normpath(os.path.dirname(sys.executable)),
+    }
+    return hashlib.sha256(
+        json.dumps(data, sort_keys=True).encode()
+    ).hexdigest()[:16]
+
+
+def _load_container_metadata(state_dir: Path) -> List[Dict[str, Any]]:
+    """Load all container metadata files from state directory."""
+    containers_dir = state_dir / "containers"
+    if not containers_dir.is_dir():
+        return []
+
+    results = []
+    for meta_file in containers_dir.glob("*.json"):
+        try:
+            with open(meta_file, "r", encoding="utf-8") as f:
+                results.append(json.load(f))
+        except (json.JSONDecodeError, OSError):
+            continue
+    return results
+
+
+def _save_container_metadata(
+    state_dir: Path,
+    container_name: str,
+    sid: str,
+    fingerprint: str,
+    workspace_dir: str,
+    junction_path: str,
+) -> None:
+    """Save container metadata to state directory."""
+    containers_dir = state_dir / "containers"
+    containers_dir.mkdir(parents=True, exist_ok=True)
+
+    meta = {
+        "container_name": container_name,
+        "sid": sid,
+        "acl_fingerprint": fingerprint,
+        "workspace_dir": workspace_dir,
+        "junction_path": junction_path,
+        "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+    }
+
+    meta_file = containers_dir / f"{container_name}.json"
+    with open(meta_file, "w", encoding="utf-8") as f:
+        json.dump(meta, f, indent=2)
+
+
+def _find_reusable_container(
+    state_dir: Path, fingerprint: str
+) -> Optional[Dict[str, Any]]:
+    """Find an existing container with matching ACL fingerprint.
+
+    Returns metadata dict if found and valid, None otherwise.
+    """
+    for meta in _load_container_metadata(state_dir):
+        if meta.get("acl_fingerprint") == fingerprint:
+            # Verify the container still exists
+            container_name = meta.get("container_name", "")
+            sid = _get_appcontainer_sid(container_name)
+            if sid and sid == meta.get("sid"):
+                return meta
+    return None
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -436,209 +1069,177 @@ def _generate_wsl_sandbox_script(  # pylint: disable=too-many-branches
 
 
 class WindowsSandbox:
-    """Windows sandbox using WSL2 + Landlock delegation.
+    """Windows AppContainer sandbox.
 
-    Executes commands inside a WSL2 Linux environment where Landlock LSM
-    provides kernel-level filesystem isolation.
+    Uses Windows AppContainer (SID S-1-15-2-*) for native process isolation.
+    Filesystem access is controlled via icacls ACLs on the AppContainer SID.
+    Network access is controlled via AppContainer capabilities.
 
-    Lifecycle: per-tool-call (create, execute, stop/discard).
+    Lifecycle:
+        __aenter__: Create or reuse AppContainer profile, set ACLs if new
+        execute: Launch process with AppContainer security token
+        __aexit__/stop: Kill running process (profile preserved for reuse)
     """
 
-    def __init__(self, config: SandboxConfig, distro: str = ""):
-        """
-        Args:
-            config: Sandbox configuration.
-            distro: WSL2 distribution name. If empty, auto-detect.
-        """
+    def __init__(self, config: SandboxConfig):
         self._config = config
-        self._distro = distro
-        self._process: Optional[asyncio.subprocess.Process] = None
-        self._abi_version = 1  # Will be detected on first execute
-        self._wsl_home = "/root"  # Will be detected
+        self._process_handle: Optional[ctypes.wintypes.HANDLE] = None
+        self._process_id: Optional[int] = None
+        self._container_name: Optional[str] = None
+        self._container_sid: Optional[str] = None
+        self._junction_path: Optional[str] = None
+        self._state_dir = (
+            Path(os.environ.get("USERPROFILE", os.path.expanduser("~")))
+            / ".qwenpaw"
+        )
 
     @property
     def config(self) -> SandboxConfig:
         return self._config
 
-    @property
-    def distro(self) -> str:
-        return self._distro
+    async def __aenter__(self):
+        """Set up the AppContainer sandbox (create or reuse)."""
+        fingerprint = _compute_acl_fingerprint(self._config)
 
-    async def _detect_wsl_info(self) -> None:
-        """Detect WSL distro name, home dir, and Landlock ABI version."""
-        if not self._distro:
-            available, distro, reason = probe_wsl2_availability()
-            if not available:
-                raise RuntimeError(f"WSL2 not available: {reason}")
-            self._distro = distro
+        # Try to reuse an existing container
+        existing = _find_reusable_container(self._state_dir, fingerprint)
+        if existing:
+            self._container_name = existing["container_name"]
+            self._container_sid = existing["sid"]
+            self._junction_path = existing.get("junction_path")
+            logger.debug(
+                "Reusing AppContainer '%s' (fingerprint=%s)",
+                self._container_name,
+                fingerprint,
+            )
+        else:
+            # Create a new container
+            self._container_name = f"qwenpaw_{uuid.uuid4().hex[:12]}"
+            self._container_sid = _create_appcontainer_profile(
+                self._container_name,
+                "QwenPaw Sandbox",
+                "Sandboxed execution environment for QwenPaw",
+            )
 
-        # Detect WSL home directory
-        try:
-            proc = await asyncio.create_subprocess_exec(
-                "wsl",
-                "-d",
-                self._distro,
-                "--",
-                "sh",
-                "-c",
-                "echo $HOME",
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=10)
-            home = stdout.decode().strip()
-            if home:
-                self._wsl_home = home
-        except (asyncio.TimeoutError, OSError):
-            pass
+            # Apply ACLs
+            await _apply_all_acls(self._config, self._container_sid)
 
-        # Detect Landlock ABI version
-        try:
-            check_cmd = (
-                "import ctypes,ctypes.util;"
-                "libc=ctypes.CDLL("
-                "ctypes.util.find_library('c') or 'libc.so.6',"
-                "use_errno=True);"
-                "libc.syscall.restype=ctypes.c_long;"
-                "print(libc.syscall("
-                "ctypes.c_long(444),None,ctypes.c_size_t(0),"
-                "ctypes.c_uint32(1)))"
+            # Create junction for CWD traversal
+            self._junction_path = _create_workspace_junction(
+                self._config.workspace_dir, self._state_dir
             )
-            proc = await asyncio.create_subprocess_exec(
-                "wsl",
-                "-d",
-                self._distro,
-                "--",
-                "python3",
-                "-c",
-                check_cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
+
+            # Grant AppContainer access to the junction directory
+            junction_dir = str(self._state_dir / "junctions")
+            await _set_acl_grant(junction_dir, self._container_sid, "F")
+
+            # Save metadata for reuse
+            _save_container_metadata(
+                self._state_dir,
+                self._container_name,
+                self._container_sid,
+                fingerprint,
+                self._config.workspace_dir,
+                self._junction_path or "",
             )
-            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=15)
-            abi = int(stdout.decode().strip())
-            if abi > 0:
-                self._abi_version = abi
-        except (asyncio.TimeoutError, OSError, ValueError):
-            pass
+
+            logger.debug(
+                "Created AppContainer '%s' (sid=%s, fingerprint=%s)",
+                self._container_name,
+                self._container_sid,
+                fingerprint,
+            )
+
+        return self
 
     async def execute(
         self,
         cmd: str,
         cwd: Optional[str] = None,
     ) -> ExecutionResult:
-        """Execute a command inside WSL2 with Landlock isolation.
+        """Execute a command inside the AppContainer.
 
         Steps:
-            1. Auto-detect WSL info (first call only)
-            2. Translate paths to WSL equivalents
-            3. Generate Landlock enforcement script
-            4. Run via wsl.exe -d <distro> -- python3 /tmp/script.py
-            5. Return ExecutionResult
+            1. Resolve working directory (use junction if needed)
+            2. Compute network capabilities
+            3. Build environment
+            4. Launch process with AppContainer security token
+            5. Wait for completion with timeout
+            6. Detect sandbox violations
+            7. Return ExecutionResult
         """
-        # Lazy initialization
-        if not self._distro:
-            await self._detect_wsl_info()
-
-        cwd = cwd or self._config.workspace_dir
-        wsl_cwd = win_to_wsl_path(cwd)
+        if not self._container_sid:
+            # Lazy init if not entered via context manager
+            await self.__aenter__()
 
         start = time.monotonic()
 
-        # Generate the enforcement script
-        script = _generate_wsl_sandbox_script(
-            self._config,
-            cmd,
-            wsl_cwd,
-            self._abi_version,
-            self._wsl_home,
-        )
+        # Resolve CWD
+        effective_cwd = cwd or self._config.workspace_dir
+        # If the CWD is the workspace dir and we have a junction, use it
+        if self._junction_path and os.path.normpath(
+            effective_cwd
+        ) == os.path.normpath(self._config.workspace_dir):
+            effective_cwd = self._junction_path
 
-        # Write script to a temp location accessible from WSL
-        # Use /tmp inside WSL (write via wsl command)
-        import hashlib
+        # Compute network capabilities
+        capabilities = _compute_network_capabilities(self._config)
 
-        script_name = (
-            f"landlock_wsl_{hashlib.md5(cmd.encode()).hexdigest()[:8]}.py"
-        )
-        wsl_script_path = f"/tmp/{script_name}"
+        # Build environment
+        env = dict(os.environ)
+        if self._config.env_vars:
+            for k, v in self._config.env_vars.items():
+                env[k] = v
 
         try:
-            # Write script into WSL's /tmp via stdin
-            write_proc = await asyncio.create_subprocess_exec(
-                "wsl",
-                "-d",
-                self._distro,
-                "--",
-                "sh",
-                "-c",
-                f"cat > {wsl_script_path} && chmod +x {wsl_script_path}",
-                stdin=asyncio.subprocess.PIPE,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            await asyncio.wait_for(
-                write_proc.communicate(input=script.encode("utf-8")),
-                timeout=10,
-            )
-
-            if write_proc.returncode != 0:
-                duration_ms = int((time.monotonic() - start) * 1000)
-                return ExecutionResult(
-                    exit_code=-1,
-                    stdout="",
-                    stderr="Failed to write sandbox script to WSL",
-                    duration_ms=duration_ms,
+            # Launch process
+            pid, proc_handle, stdout_handle, stderr_handle = (
+                _create_process_in_appcontainer(
+                    cmd,
+                    self._container_sid,
+                    capabilities,
+                    effective_cwd,
+                    env,
                 )
+            )
+            self._process_handle = proc_handle
+            self._process_id = pid
 
-            # Execute the script inside WSL
-            self._process = await asyncio.create_subprocess_exec(
-                "wsl",
-                "-d",
-                self._distro,
-                "--",
-                "python3",
-                wsl_script_path,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
+            # Wait and read output
+            (
+                exit_code,
+                stdout,
+                stderr,
+                timed_out,
+            ) = await _wait_and_read_process(
+                proc_handle,
+                stdout_handle,
+                stderr_handle,
+                self._config.timeout_seconds,
             )
-            stdout_bytes, stderr_bytes = await asyncio.wait_for(
-                self._process.communicate(),
-                timeout=self._config.timeout_seconds,
-            )
+            self._process_handle = None  # Handle closed by _wait_and_read
+
             duration_ms = int((time.monotonic() - start) * 1000)
-            stdout = stdout_bytes.decode("utf-8", errors="replace")
-            stderr = stderr_bytes.decode("utf-8", errors="replace")
 
             # Detect sandbox violation
+            # Check stderr for access-denied patterns regardless of exit code,
+            # because some Windows commands (e.g., del) return exit_code=0
+            # even when the operation fails due to ACL denial.
             violation = None
-            if self._process.returncode != 0 and (
-                "permission denied" in stderr.lower()
-                or "operation not permitted" in stderr.lower()
-                or "landlock" in stderr.lower()
-                or "eacces" in stderr.lower()
-            ):
+            if _VIOLATION_RE.search(stderr):
                 violation = stderr.strip()
+            elif exit_code != 0 and _VIOLATION_RE.search(stdout):
+                violation = stdout.strip()
 
             return ExecutionResult(
-                exit_code=self._process.returncode or 0,
+                exit_code=exit_code,
                 stdout=stdout,
                 stderr=stderr,
-                timed_out=False,
+                timed_out=timed_out,
                 duration_ms=duration_ms,
                 sandbox_violation=violation,
             )
-        except asyncio.TimeoutError:
-            duration_ms = int((time.monotonic() - start) * 1000)
-            await self.stop()
-            return ExecutionResult(
-                exit_code=-1,
-                stdout="",
-                stderr="Command timed out",
-                timed_out=True,
-                duration_ms=duration_ms,
-            )
-        except Exception as e:
+        except OSError as e:
             duration_ms = int((time.monotonic() - start) * 1000)
             return ExecutionResult(
                 exit_code=-1,
@@ -646,34 +1247,17 @@ class WindowsSandbox:
                 stderr=str(e),
                 duration_ms=duration_ms,
             )
-        finally:
-            # Clean up script inside WSL
-            try:
-                cleanup = await asyncio.create_subprocess_exec(
-                    "wsl",
-                    "-d",
-                    self._distro,
-                    "--",
-                    "rm",
-                    "-f",
-                    wsl_script_path,
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE,
-                )
-                await asyncio.wait_for(cleanup.communicate(), timeout=5)
-            except (asyncio.TimeoutError, OSError):
-                pass
 
     async def stop(self) -> None:
-        """Kill any running subprocess."""
-        if self._process and self._process.returncode is None:
+        """Kill any running process (do NOT delete the container profile)."""
+        if self._process_handle is not None:
             try:
-                self._process.kill()
-            except (ProcessLookupError, OSError):
+                kernel32 = ctypes.WinDLL("kernel32.dll", use_last_error=True)
+                kernel32.TerminateProcess(self._process_handle, 1)
+                kernel32.CloseHandle(self._process_handle)
+            except OSError:
                 pass
-
-    async def __aenter__(self):
-        return self
+            self._process_handle = None
 
     async def __aexit__(self, exc_type, exc, tb):
         await self.stop()
