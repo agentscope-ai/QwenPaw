@@ -45,7 +45,8 @@ export function useMarketPlugins({ onInstalled }: UseMarketPluginsOptions) {
   const [qwenpawVersion, setQwenpawVersion] = useState<string | null>(null);
 
   useEffect(() => {
-    fetch("/api/version")
+    const controller = new AbortController();
+    fetch("/api/version", { signal: controller.signal })
       .then((res) => {
         if (!res.ok) {
           throw new Error(`HTTP ${res.status}`);
@@ -58,10 +59,16 @@ export function useMarketPlugins({ onInstalled }: UseMarketPluginsOptions) {
         setQwenpawVersion(typeof version === "string" ? version : null);
       })
       .catch((err) => {
+        if (err instanceof Error && err.name === "AbortError") {
+          return;
+        }
         // eslint-disable-next-line no-console
         console.error("[useMarketPlugins] failed to fetch version:", err);
         setQwenpawVersion(null);
       });
+    return () => {
+      controller.abort();
+    };
   }, []);
 
   const loadPlugins = useCallback(
