@@ -391,9 +391,7 @@ export function ReMeLightMemoryCard() {
                       message: t("agentConfig.rerankerCandidateMultiplierMin"),
                     },
                   ]}
-                  tooltip={t(
-                    "agentConfig.rerankerCandidateMultiplierTooltip",
-                  )}
+                  tooltip={t("agentConfig.rerankerCandidateMultiplierTooltip")}
                 >
                   <InputNumber style={{ width: "100%" }} min={1} step={1} />
                 </Form.Item>
