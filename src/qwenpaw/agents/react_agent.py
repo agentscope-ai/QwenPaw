@@ -23,7 +23,6 @@ from agentscope.tool import Toolkit
 from .skill_system import get_workspace_skills_dir
 from ..modes.coding import CodingModeMixin
 from ..constant import (
-    AUTO_CONTINUE_MESSAGE_TAG,
     MEDIA_UNSUPPORTED_PLACEHOLDER,
     QWENPAW_MESSAGE_TAG_KEY,
     WORKING_DIR,
@@ -264,50 +263,6 @@ class QwenPawAgent(CodingModeMixin, Agent):
     _MEDIA_BLOCK_TYPES = {"image", "audio", "video", "file"}
     _MEDIA_MIME_PREFIXES = ("image/", "audio/", "video/")
 
-    _AUTO_CONTINUE_MAX_EXTRA = 2
-    _AUTO_CONTINUE_TAIL_CHARS = 600
-
-    _AUTO_CONTINUE_HINT_EN = (
-        "<system-hint>"
-        "Your previous assistant turn had text only (no tool calls). "
-        "Use the trailing excerpt in <previous-assistant-tail> (if present) "
-        "plus the conversation to decide in this **reasoning** step: if the "
-        "user's task still needs tools, emit tool_use now; if it is fully "
-        "done, reply with a short text only (no tools). "
-        "Do not stop with plans or code fences alone when tools are still "
-        "needed."
-        "</system-hint>"
-    )
-    _AUTO_CONTINUE_HINT_ZH = (
-        "<system-hint>"
-        "上轮助手仅文字、未调工具。请结合上下文与 <previous-assistant-tail> "
-        "（若有）在本轮推理中判断：仍需执行则立刻 tool；已完结则简短收尾。"
-        "需要操作时勿只输出计划或代码块。"
-        "</system-hint>"
-    )
-
-    def _auto_continue_system_hint(self) -> str:
-        """Pick hint by agent language (zh vs others)."""
-        raw_lang = getattr(self._agent_config, "language", None)
-        lang = (raw_lang or "").strip().lower()
-        if lang == "zh":
-            return self._AUTO_CONTINUE_HINT_ZH
-        return self._AUTO_CONTINUE_HINT_EN
-
-    @staticmethod
-    def _auto_continue_tail_context(msg: Msg, max_chars: int) -> str:
-        """Assistant text suffix for hint (fixed cut, not sentence NLP)."""
-        raw = msg.get_text_content() if msg is not None else ""
-        text = (raw or "").strip()
-        if not text:
-            return ""
-        if len(text) <= max_chars:
-            return text
-        return text[-max_chars:].lstrip()
-
-    # _auto_continue_if_text_only — replaced by inline logic in _reasoning()
-    # which leverages the 2.0 outer react loop instead of a manual while-loop.
-
     def _get_model_key(self) -> str | None:
         """Return the capability-cache key for the active model."""
         model = getattr(self, "model", None)
@@ -414,36 +369,6 @@ class QwenPawAgent(CodingModeMixin, Agent):
         if final_msg is None:
             return
 
-        # ── Auto-continue: text-only → inject hint, let outer loop retry ──
-        if self._should_auto_continue(final_msg, tool_choice):
-            hint_body = self._auto_continue_system_hint()
-            tail = self._auto_continue_tail_context(
-                final_msg,
-                self._AUTO_CONTINUE_TAIL_CHARS,
-            )
-            if tail:
-                hint_body += (
-                    "\n\n<previous-assistant-tail>\n"
-                    f"{tail}\n"
-                    "</previous-assistant-tail>"
-                )
-            logger.info(
-                "Auto-continue: text-only response; injecting hint "
-                "(tool_choice=%r)",
-                tool_choice,
-            )
-            self.state.context.append(
-                Msg(
-                    name="user",
-                    role="user",
-                    content=[TextBlock(type="text", text=hint_body)],
-                    metadata={
-                        QWENPAW_MESSAGE_TAG_KEY: AUTO_CONTINUE_MESSAGE_TAG,
-                    },
-                ),
-            )
-            return  # outer loop continues → _check_next_action → reasoning
-
         # ── Stop Hook: check registered handlers before stopping ──
         stop_result = await self._run_stop_handlers(final_msg)
         if stop_result.action == StopAction.CONTINUE:
@@ -473,32 +398,6 @@ class QwenPawAgent(CodingModeMixin, Agent):
             return  # outer loop continues
 
         yield final_msg
-
-    def _should_auto_continue(
-        self,
-        msg: Msg,
-        tool_choice: Literal["auto", "none", "required"] | None,
-    ) -> bool:
-        """Check if auto-continue should be triggered."""
-        running = getattr(self, "_agent_config", None)
-        running = getattr(running, "running", None)
-        if running is None or not getattr(
-            running,
-            "auto_continue_on_text_only",
-            False,
-        ):
-            return False
-
-        if msg is None or msg.has_content_blocks("tool_call"):
-            return False
-
-        if tool_choice == "none":
-            return False
-
-        if self.state.cur_iter >= self.react_config.max_iters - 1:
-            return False
-
-        return True
 
     @staticmethod
     def _is_bad_request_or_media_error(exc: Exception) -> bool:

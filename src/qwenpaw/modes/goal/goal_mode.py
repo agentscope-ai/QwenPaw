@@ -60,8 +60,7 @@ instructions.
 Goal tools available:
 - get_goal: check current status and budget.
 - update_goal: call with status="complete" when \
-the objective is fully achieved, or "blocked" \
-when stuck after 3+ turns on the same blocker.
+the objective is fully achieved.
 
 Budget:
 - Max iterations: {max_iterations}
@@ -82,7 +81,7 @@ evidence, then inspect the source.
 fail to find remaining work.
 
 Do not call update_goal unless the goal is truly \
-complete or the strict blocked audit is satisfied.\
+complete.\
 """
 
 CONTINUATION_PROMPT = """\
@@ -112,10 +111,7 @@ Budget:
 
 When the objective is achieved, call \
 update_goal(status="complete"). Do not call it \
-merely because budget is nearly exhausted.
-
-If blocked on the same issue for 3+ consecutive \
-turns, call update_goal(status="blocked").\
+merely because budget is nearly exhausted.\
 """
 
 BUDGET_LIMIT_PROMPT = """\
@@ -420,6 +416,9 @@ class GoalMode(AgentMode):
         rubric = GoalStatusRubric(
             get_session_fn=self.session_by_ctx_var,
         )
+        doom_gate = _create_doom_loop_gate(workspace)
+        if doom_gate is not None:
+            handler.register(doom_gate)
         handler.register(IterationGate(self))
         handler.register(BudgetGate(self))
         handler.register(RubricGate(self, rubric))
@@ -731,6 +730,49 @@ def _register_goal_tools_governance() -> None:
         logger.debug(
             "Goal governance registration skipped",
         )
+
+
+def _create_doom_loop_gate(
+    workspace: object,
+) -> Any:
+    """Create DoomLoopGate from agent config.
+
+    Returns None if doom loop detection is disabled
+    or config is unavailable.
+    """
+    try:
+        from ...loop.doom_loop import (
+            DoomLoopDetector,
+            DoomLoopGate,
+        )
+
+        agent_cfg = getattr(workspace, "agent_config", None)
+        if agent_cfg is None:
+            return None
+        running = getattr(agent_cfg, "running", None)
+        if running is None:
+            return None
+        loop_cfg = getattr(running, "loop", None)
+        if loop_cfg is None:
+            return None
+        doom_cfg = getattr(loop_cfg, "doom_loop", None)
+        if doom_cfg is None or not doom_cfg.enabled:
+            return None
+
+        detector = DoomLoopDetector(
+            window_size=doom_cfg.window_size,
+            similarity_threshold=(doom_cfg.similarity_threshold),
+        )
+        return DoomLoopGate(
+            detector=detector,
+            stages=doom_cfg.stages,
+        )
+    except Exception:  # noqa: BLE001
+        logger.debug(
+            "DoomLoopGate creation skipped",
+            exc_info=True,
+        )
+        return None
 
 
 __all__ = ["GoalMode", "GoalSession"]

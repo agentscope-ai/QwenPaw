@@ -885,6 +885,77 @@ class AutoTitleConfig(BaseModel):
     )
 
 
+class DoomLoopStageConfig(BaseModel):
+    """One escalation stage in doom loop detection."""
+
+    after: int = Field(
+        ge=1,
+        description=("Trigger after N consecutive repetitions"),
+    )
+    action: str = Field(
+        default="modify_prompt",
+        description=("Action when triggered: " "'modify_prompt' or 'stop'"),
+    )
+    prompt: str = Field(
+        default="",
+        description=("Warning text (modify_prompt) " "or stop reason (stop)"),
+    )
+
+
+class DoomLoopConfig(BaseModel):
+    """Doom loop detection configuration."""
+
+    enabled: bool = Field(
+        default=True,
+        description="Enable doom loop detection",
+    )
+    window_size: int = Field(
+        default=5,
+        ge=2,
+        description=("Sliding window size for " "repetition detection"),
+    )
+    similarity_threshold: float = Field(
+        default=0.8,
+        ge=0.0,
+        le=1.0,
+        description=(
+            "Similarity threshold to consider " "calls as repetitive"
+        ),
+    )
+    stages: List[DoomLoopStageConfig] = Field(
+        default_factory=lambda: [
+            DoomLoopStageConfig(
+                after=3,
+                action="modify_prompt",
+                prompt=(
+                    "[WARNING] Repetitive pattern "
+                    "detected. You are repeating "
+                    "similar actions without progress."
+                    " Try a completely different "
+                    "approach."
+                ),
+            ),
+            DoomLoopStageConfig(
+                after=6,
+                action="stop",
+                prompt=(
+                    "Doom loop: agent stuck after " "6 consecutive repetitions"
+                ),
+            ),
+        ],
+        description="Escalation stages (sorted by after)",
+    )
+
+
+class LoopConfig(BaseModel):
+    """Loop engineering configuration."""
+
+    doom_loop: DoomLoopConfig = Field(
+        default_factory=DoomLoopConfig,
+        description="Doom loop detection settings",
+    )
+
+
 class AgentsRunningConfig(BaseModel):
     """Agent runtime behavior configuration."""
 
@@ -898,16 +969,9 @@ class AgentsRunningConfig(BaseModel):
         ),
     )
 
-    auto_continue_on_text_only: bool = Field(
-        default=False,
-        description=(
-            "When the model returns a text-only assistant message (no tool "
-            "calls), inject one follow-up hint and run one extra reasoning "
-            "pass with the same tool_choice as the current step (typically "
-            "'auto'), so the model can either emit tool calls or finish with "
-            "text. Does not use tool_choice='required' (that would force "
-            "tools and prevent a natural summary when the task is done)."
-        ),
+    loop: LoopConfig = Field(
+        default_factory=LoopConfig,
+        description="Loop engineering configuration",
     )
 
     llm_retry_enabled: bool = Field(

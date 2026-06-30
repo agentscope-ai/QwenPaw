@@ -161,9 +161,94 @@ class DoomLoopAlert:
         }
 
 
+class DoomLoopGate:
+    """Multi-stage doom loop gate for StopHandler.
+
+    Checks DoomLoopDetector signal and escalates
+    through configured stages. Each stage triggers
+    after N consecutive repetitions.
+
+    - action="modify_prompt": inject warning via
+      get_warning(), don't stop.
+    - action="stop": return STOP immediately.
+    """
+
+    name = "doom-loop"
+    priority = 5
+
+    def __init__(
+        self,
+        detector: DoomLoopDetector,
+        stages: list | None = None,
+    ) -> None:
+        self._detector = detector
+        self._stages = sorted(
+            stages or [],
+            key=lambda s: s.after,
+        )
+        self._consecutive_hits: int = 0
+        self._warning: str = ""
+
+    async def check(
+        self,
+        ctx: Any,  # pylint: disable=unused-argument
+    ):
+        """Evaluate doom loop state."""
+        from .stop_handler import (
+            StopAction,
+            StopHandlerResult,
+        )
+
+        signal = self._detector.check()
+
+        if signal == DoomLoopSignal.OK:
+            self._consecutive_hits = 0
+            self._warning = ""
+            return None
+
+        self._consecutive_hits += 1
+
+        if signal == DoomLoopSignal.FORCE_STOP:
+            return StopHandlerResult(
+                action=StopAction.STOP,
+                reason="Doom loop: force stop",
+            )
+
+        active_stage = None
+        for stage in reversed(self._stages):
+            if self._consecutive_hits >= stage.after:
+                active_stage = stage
+                break
+
+        if active_stage is None:
+            return None
+
+        if active_stage.action == "stop":
+            logger.info(
+                "DoomLoopGate: STOP after %d hits",
+                self._consecutive_hits,
+            )
+            return StopHandlerResult(
+                action=StopAction.STOP,
+                reason=active_stage.prompt,
+            )
+
+        self._warning = active_stage.prompt
+        logger.debug(
+            "DoomLoopGate: warning at %d hits",
+            self._consecutive_hits,
+        )
+        return None
+
+    def get_warning(self) -> str:
+        """Return current doom loop warning."""
+        return self._warning
+
+
 __all__ = [
     "DoomLoopAlert",
     "DoomLoopDetector",
+    "DoomLoopGate",
     "DoomLoopSignal",
     "DoomLoopState",
     "ObserverRegistration",

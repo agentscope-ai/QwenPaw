@@ -34,7 +34,7 @@ class StopAction(str, Enum):
 class StopHandlerResult:
     """Return value from a stop handler / gate.
 
-    When ``action`` is BLOCK, ``continuation_message``
+    When ``action`` is CONTINUE, ``continuation_message``
     is injected as the next user turn to keep the
     agent running.
     """
@@ -62,6 +62,9 @@ class StopGate(ABC):
 
     Return StopHandlerResult(STOP) to stop the agent.
     Return None to pass (no objection, next gate).
+    Optionally override get_warning() to inject
+    warnings into the continuation prompt without
+    triggering a stop.
     """
 
     name: str = ""
@@ -75,9 +78,18 @@ class StopGate(ABC):
         """Evaluate one stop condition.
 
         Returns:
-            StopHandlerResult(STOP) → agent stops.
-            None → no objection, check next gate.
+            StopHandlerResult(STOP) -> agent stops.
+            None -> no objection, check next gate.
         """
+
+    def get_warning(self) -> str:
+        """Optional warning to prepend to continuation.
+
+        Called after check() returns None. StopHandler
+        collects all warnings and prepends them to the
+        continuation message.
+        """
+        return ""
 
 
 class StopHandler:
@@ -120,14 +132,15 @@ class StopHandler:
     ) -> StopHandlerResult:
         """Run all gates in priority order.
 
-        Any STOP → stop. No gates → stop.
-        All None → continue.
+        Any STOP -> stop. No gates -> stop.
+        All None -> continue (with collected warnings).
         """
         if not self._gates:
             return StopHandlerResult(
                 action=StopAction.STOP,
             )
 
+        warnings: list[str] = []
         for gate in self._gates:
             try:
                 result = await gate.check(ctx)
@@ -145,6 +158,9 @@ class StopHandler:
                     result.action.value,
                 )
                 return result
+            warning = gate.get_warning()
+            if warning:
+                warnings.append(warning)
 
         msg = ""
         if self._continuation_fn:
@@ -155,6 +171,8 @@ class StopHandler:
                     "continuation_fn raised",
                     exc_info=True,
                 )
+        if warnings:
+            msg = "\n\n".join(warnings) + "\n\n" + msg
         return StopHandlerResult(
             action=StopAction.CONTINUE,
             continuation_message=msg,
