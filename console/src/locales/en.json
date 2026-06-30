@@ -870,6 +870,10 @@
     "every": "Interval",
     "everyRequired": "Required",
     "everyMin": "Must be at least 1",
+    "timeoutSeconds": "Execution timeout (seconds)",
+    "timeoutRequired": "Required",
+    "timeoutMin": "Must be at least 1",
+    "timeoutMax": "Must be at most 3600",
     "unitMinutes": "Minutes",
     "unitHours": "Hours",
     "target": "Reply target",
@@ -1109,6 +1113,8 @@
     "filterToolMessagesTooltip": "Show tool call and output messages to users (turn off to hide)",
     "filterThinking": "Show Thinking",
     "filterThinkingTooltip": "Show model thinking/reasoning content to users (turn off to hide)",
+    "noTextDebounce": "No-text Debounce",
+    "noTextDebounceTooltip": "When enabled, media-only messages (image/video/file) are buffered until a text message arrives, then merged. Disable to process all messages immediately. Voice messages are always processed immediately.",
     "streamingEnabled": "Streaming Output",
     "streamingEnabledDingtalkHint": "Only effective when message type is Card",
     "streamingEnabledFeishuHint": "Requires enabling cardkit:card:write permission in the Feishu Open Platform permission management page",
@@ -1545,7 +1551,7 @@
     "goConfigureBtn": "Configure a Provider",
     "availableGroup": "Available Providers",
     "clickToConfigure": "Click to configure",
-    "configureAction": "Configure \u2192",
+    "configureAction": "Configure →",
     "endpointCount": "{{count}} endpoints",
     "connect": "OAuth",
     "saveApiKey": "Save",
@@ -1835,8 +1841,6 @@
     "shellCommandExecutable": "Shell Executable",
     "shellCommandExecutableTooltip": "Path to the shell used by execute_shell_command. Linux/macOS: e.g. /bin/bash, /bin/zsh. Windows: supports powershell.exe, pwsh.exe, or POSIX-like shells such as Git Bash. When empty, falls back to the $SHELL environment variable, then to the platform default (/bin/sh on Unix, cmd.exe on Windows).",
     "shellCommandExecutablePlaceholder": "e.g. /bin/bash or powershell.exe (empty = auto-detect)",
-    "planMode": "Plan Mode",
-    "planModeTooltip": "Enable plan mode to use /plan <description> for structured task planning. When enabled, plan tools are registered and the plan panel becomes available.",
     "maxInputLength": "Max Input Length",
     "maxInputLengthTooltip": "Maximum input length (tokens) for the model context window",
     "maxInputLengthPlaceholder": "Enter max input length",
@@ -1999,6 +2003,10 @@
     "autoMemoryIntervalPlaceholder": "Leave empty to disable periodic auto memory",
     "contextManagerBackend": "Context Manager Backend",
     "contextManagerBackendTooltip": "Backend type for the context manager. Currently only Light is supported.",
+    "contextStrategy": "Context Strategy",
+    "contextStrategyTooltip": "How the agent manages long context. Scroll (recommended) persists evicted turns to a durable history store and recalls them on demand; Native uses in-place compression. Restart QwenPaw for changes to take effect.",
+    "contextStrategyScroll": "Scroll",
+    "contextStrategyNative": "Native",
     "backendRestartWarning": "Switching backends does not support hot reload. Save and restart QwenPaw for changes to take effect.",
     "adbpgMemoryTitle": "ADBPG Long-term Memory",
     "adbpgConfig": {
@@ -2476,19 +2484,6 @@
     "denyFailed": "Failed to deny",
     "timeoutAutoDenied": "Timed out, auto denied",
     "acknowledge": "Got it"
-  },
-  "plan": {
-    "title": "Plan",
-    "noPlan": "No active plan",
-    "noPlanHint": "Use /plan <description> to create a plan",
-    "progress": "Progress",
-    "outcome": "Outcome",
-    "state": {
-      "todo": "Todo",
-      "in_progress": "In Progress",
-      "done": "Done",
-      "abandoned": "Abandoned"
-    }
   },
   "pluginManager": {
     "title": "Plugin Manager",

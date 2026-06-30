@@ -151,6 +151,7 @@ def _register_builtin_tools(r: ToolRegistry) -> None:
     # ── Network / Shell ──
     r.register("Browser", "network", "url")
     r.register("Bash", "shell", "command")
+    r.register("RecallHistoryPython", "shell", "source")
 
     # ── Internal tools ──
     for name, param in [
