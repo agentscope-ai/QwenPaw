@@ -8,7 +8,7 @@ QwenPaw's security system consists of four core security layers:
 
 ```
 Security Architecture:
-├─ Tool Guard — Runtime tool call protection
+├─ Governance Policy — Runtime tool call protection
 │  Detects dangerous command patterns, injection attacks, and malicious operations
 │  using YAML regex rules plus a quote-aware shell evasion guardian
 │
@@ -28,7 +28,7 @@ Security Architecture:
 
 **Key concepts**:
 
-- **Tool Guard** inspects tool calls in real-time before execution, using YAML regex rules and a dedicated shell evasion guardian to detect dangerous patterns
+- **Governance Policy** inspects tool calls in real-time before execution, using YAML regex rules and a dedicated shell evasion guardian to detect dangerous patterns
 - **File Guard** operates independently to protect sensitive files and directories from unauthorized access
 - **Sandbox** executes shell commands inside an OS kernel-enforced isolation boundary, restricting filesystem access to only declared paths
 - **Skill Scanner** runs before skills are enabled to detect malicious code and security threats
@@ -351,15 +351,14 @@ The sandbox sits between the governance decision and actual command execution:
 
 ```
 Tool call flow:
-  1. Tool Guard  → pattern detection (pre-check, blocks known-dangerous patterns)
-  2. Governance  → policy evaluation (ALLOW / DENY / ASK / SANDBOX_FALLBACK)
-  3. Sandbox     → kernel-enforced execution isolation (runtime)
-  4. Result      → violation detection + output capture
+  1. Governance Policy → pattern detection + policy evaluation (ALLOW / DENY / ASK / SANDBOX_FALLBACK)
+  2. Sandbox           → kernel-enforced execution isolation (runtime)
+  3. Result            → violation detection + output capture
 ```
 
 **Division of responsibility**:
 
-- **Tool Guard** = static pattern matching before execution (regex-based, fast, no isolation)
+- **Governance Policy** = pattern detection + rule-based policy evaluation before execution (regex signatures, shell evasion heuristics, user/builtin rules)
 - **File Guard** = path-level access control (blocks specific files/dirs)
 - **Sandbox** = runtime kernel isolation (the command literally cannot see or write to paths outside the whitelist)
 
