@@ -30,6 +30,18 @@
     "clear": "クリア",
     "paste": "貼り付け"
   },
+  "desktop": {
+    "closeWindow": {
+      "title": "ウィンドウを閉じる",
+      "description": "ウィンドウを閉じるときに実行する操作を選択してください。アプリを終了すると、実行中のすべてのタスクとスケジュール済みタスクが停止します。",
+      "remember": "選択を記憶する",
+      "showWindow": "ウィンドウを表示",
+      "minimizeToTray": "トレイに最小化",
+      "quitApp": "アプリを終了",
+      "preference": "ウィンドウを閉じる",
+      "askEveryTime": "毎回確認する"
+    }
+  },
   "chunkError": {
     "title": "ページの読み込みに失敗しました",
     "subTitle": "ネットワークの問題またはアプリの更新が原因の可能性があります。",

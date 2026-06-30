@@ -33,6 +33,18 @@
     "yes": "Yes",
     "no": "No"
   },
+  "desktop": {
+    "closeWindow": {
+      "title": "Close Window",
+      "description": "What would you like to do when closing the window? Quitting the app stops all running tasks and scheduled jobs.",
+      "remember": "Remember my choice",
+      "showWindow": "Show Window",
+      "minimizeToTray": "Minimize to Tray",
+      "quitApp": "Quit App",
+      "preference": "Close Window",
+      "askEveryTime": "Ask every time"
+    }
+  },
   "chunkError": {
     "title": "Failed to load page",
     "subTitle": "This may be caused by a network issue or an application update.",
@@ -143,6 +155,10 @@
     "summaryPushUnread": "Unread Push",
     "summaryHarvests": "Harvests",
     "from": "From:",
+    "skillAutoUpdateTitle": "Skill auto-sync",
+    "skillPoolSender": "Skill Pool",
+    "skillAutoUpdated": "Skill \"{{skill}}\" changed — auto-synced to: {{agents}}",
+    "skillAutoUpdateFailed": "Skill \"{{skill}}\" auto-sync failed for: {{agents}}",
     "requestedBy": "By",
     "markRead": "Mark Read",
     "markAllRead": "Mark All Read",
@@ -642,6 +658,17 @@
     "deleteExternalConfirm": "This deletes the external skill files at {{path}} from disk.",
     "deleteExternalBatchWarning": "Selected external skills will be permanently deleted from disk.",
     "broadcastTitle": "Broadcast {{name}}",
+    "autoUpdate": "Auto Sync",
+    "autoUpdateOnHint": "Auto Sync is on; content changes sync to its agents automatically.",
+    "autoUpdateEnableHint": "Turn on Auto Sync: push content changes to agents that already have this skill.",
+    "autoUpdateDisableHint": "Turn off Auto Sync for this skill.",
+    "autoUpdateEnabled": "Auto Sync enabled for {{name}}",
+    "autoUpdateDisabled": "Auto Sync disabled for {{name}}",
+    "autoUpdateFailed": "Failed to update Auto Sync setting",
+    "autoUpdateAgentsPlaceholder": "All agents that have this skill",
+    "autoUpdateAgentsHint": "Leave empty to sync every agent that already has the skill. Selecting agents pins updates to them (and installs the skill where missing).",
+    "renameAffectsTitle": "Rename in agents too?",
+    "renameAffectsContent": "\"{{from}}\" is installed in {{count}} agent(s). Rename to \"{{to}}\"",
     "importBuiltin": "Update Built-in Skills",
     "importBuiltinHint": "Update built-in skills to the latest version",
     "importBuiltinAlertHint": "{{count}} built-in changes need review",

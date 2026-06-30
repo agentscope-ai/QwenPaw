@@ -5,7 +5,7 @@ from .models import (
     SkillConflictError,
     SkillInfo,
 )
-from .pool_service import SkillPoolService
+from .pool_service import SkillPoolService, run_pool_auto_update_sync
 from .registry import (
     apply_skill_config_env_overrides,
     ensure_skill_pool_initialized,
@@ -41,4 +41,5 @@ __all__ = [
     "resolve_pool_skill_dir",
     "reconcile_workspace_manifest",
     "resolve_effective_skills",
+    "run_pool_auto_update_sync",
 ]

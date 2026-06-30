@@ -256,6 +256,7 @@ function SkillPoolPage() {
                 onEdit={pool.openEdit}
                 onBroadcast={pool.openBroadcast}
                 onDelete={pool.handleDelete}
+                onToggleAutoUpdate={pool.handleToggleAutoUpdate}
               />
             ))}
             {hasMore && <div ref={sentinelRef} style={{ height: 1 }} />}
@@ -315,12 +316,17 @@ function SkillPoolPage() {
         showMarkdown={pool.showMarkdown}
         configText={pool.configText}
         availableTags={pool.allTags}
+        workspaces={pool.workspaces}
+        autoUpdateEnabled={pool.autoUpdateEnabled}
+        autoUpdateTargets={pool.autoUpdateTargets}
         onClose={pool.closeDrawer}
         onSave={pool.handleSavePoolSkill}
         onContentChange={pool.handleDrawerContentChange}
         onShowMarkdownChange={pool.setShowMarkdown}
         onConfigTextChange={pool.setConfigText}
         onChangeBuiltinLanguage={pool.handleBuiltinLanguageSwitch}
+        onAutoUpdateEnabledChange={pool.setAutoUpdateEnabled}
+        onAutoUpdateTargetsChange={pool.setAutoUpdateTargets}
         validateFrontmatter={pool.validateFrontmatter}
       />
 

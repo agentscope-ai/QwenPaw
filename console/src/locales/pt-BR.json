@@ -32,6 +32,18 @@
     "yes": "Sim",
     "no": "Nao"
   },
+  "desktop": {
+    "closeWindow": {
+      "title": "Fechar Janela",
+      "description": "O que deseja fazer ao fechar a janela? Sair do aplicativo interrompe todas as tarefas em execução e tarefas agendadas.",
+      "remember": "Lembrar minha escolha",
+      "showWindow": "Mostrar janela",
+      "minimizeToTray": "Minimizar para a bandeja",
+      "quitApp": "Sair do aplicativo",
+      "preference": "Fechar Janela",
+      "askEveryTime": "Perguntar sempre"
+    }
+  },
   "chunkError": {
     "title": "Falha ao carregar pagina",
     "subTitle": "This may be caused by a network issue or an application update.",

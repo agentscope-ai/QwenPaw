@@ -32,6 +32,18 @@
     "yes": "Có",
     "no": "Không"
   },
+  "desktop": {
+    "closeWindow": {
+      "title": "Đóng cửa sổ",
+      "description": "Bạn muốn thực hiện thao tác nào khi đóng cửa sổ? Thoát ứng dụng sẽ dừng tất cả tác vụ đang chạy và tác vụ đã lên lịch.",
+      "remember": "Ghi nhớ lựa chọn của tôi",
+      "showWindow": "Hiển thị cửa sổ",
+      "minimizeToTray": "Thu nhỏ xuống khay hệ thống",
+      "quitApp": "Thoát ứng dụng",
+      "preference": "Đóng cửa sổ",
+      "askEveryTime": "Hỏi mỗi lần"
+    }
+  },
   "chunkError": {
     "title": "Không thể tải trang",
     "subTitle": "Có thể do lỗi mạng hoặc ứng dụng vừa được cập nhật.",

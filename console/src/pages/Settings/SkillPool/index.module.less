@@ -628,6 +628,18 @@
   border: 1px solid rgba(250, 173, 20, 0.2);
 }
 
+.autoUpdateTag {
+  font-size: 11px;
+  padding: 1px 8px;
+  border-radius: 4px;
+  font-weight: 500;
+  background-color: rgba(240, 249, 235, 0.9);
+  color: #389e0d;
+  flex-shrink: 0;
+  white-space: nowrap;
+  border: 1px solid rgba(82, 196, 26, 0.2);
+}
+
 /* Meta info rows: Updated / Tags */
 .metaInfoRow {
   display: flex;
@@ -866,6 +878,14 @@
   color: rgba(20, 20, 19, 0.55);
 }
 
+.autoUpdateButton {
+  flex: 0 0 auto;
+  width: 34px;
+  height: 34px;
+  cursor: pointer;
+  border-radius: 8px;
+}
+
 /* ─── Dark Mode ───────────────────────────────────────────────────────────── */
 :global(.dark-mode) {
   .fileIcon {
@@ -1017,6 +1037,12 @@
     background-color: rgba(255, 247, 230, 0.15);
     color: #ffc53d;
     border-color: rgba(250, 173, 20, 0.25);
+  }
+
+  .autoUpdateTag {
+    background-color: rgba(82, 196, 26, 0.15);
+    color: #73d13d;
+    border-color: rgba(82, 196, 26, 0.25);
   }
 
   .metaInfoRow {
