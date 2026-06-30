@@ -17,6 +17,7 @@ register them. The literal names still appear in
 ``security/tool_guard`` guardians for backward compatibility with
 pre-existing allowlists.
 """
+
 from __future__ import annotations
 
 from typing import Callable
@@ -39,6 +40,7 @@ from .agent_management import (
     submit_to_agent,
     check_agent_task,
     spawn_subagent,
+    cancel_subagent,
 )
 from .delegate_external_agent import delegate_external_agent
 from .make_skill_tools import materialize_skill
@@ -83,6 +85,7 @@ __all__ = [
     "submit_to_agent",
     "check_agent_task",
     "spawn_subagent",
+    "cancel_subagent",
     "materialize_skill",
     "ast_search",
 ]

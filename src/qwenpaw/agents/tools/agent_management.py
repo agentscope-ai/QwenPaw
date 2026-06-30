@@ -640,6 +640,32 @@ async def check_agent_task(
             "ERROR: 'task_id' is required to check task status",
         )
 
+    # ``spawn_subagent(background=True)`` is managed in-process and wakes the
+    # parent automatically.  Keep this branch only as a human/manual fallback;
+    # the spawn tool explicitly tells the model not to poll it.
+    from ...app.subagents.context import get_subagent_spawn_context
+
+    spawn_context = get_subagent_spawn_context()
+    if spawn_context is not None:
+        record = await spawn_context.manager.get(normalized_task_id)
+        if (
+            record is not None
+            and record.parent_session_id == spawn_context.session_id
+        ):
+            return _tool_text_response(
+                "\n".join(
+                    [
+                        f"[TASK_ID: {record.task_id}]",
+                        f"[STATUS: {record.status.value}]",
+                        f"[SESSION: {record.child_session_id}]",
+                        "",
+                        record.result
+                        or record.error
+                        or "No terminal result yet.",
+                    ],
+                ),
+            )
+
     result = await asyncio.to_thread(
         get_agent_chat_task_status,
         None,
@@ -657,6 +683,21 @@ def _generate_subagent_session_id() -> str:
     return f"sub-{str(uuid4())[:8]}"
 
 
+def _format_subagent_submission(task_id: str, session_id: str) -> str:
+    return "\n".join(
+        [
+            f"[TASK_ID: {task_id}]",
+            f"[SESSION: {session_id}]",
+            "",
+            "Background subagent started. You will be notified automatically ",
+            "when it completes, fails, or is cancelled.",
+            "Do not call check_agent_task, sleep, wait, or any polling tool ",
+            "for this task. Continue independent work, or end this turn.",
+        ],
+    )
+
+
+# pylint: disable=too-many-return-statements
 @tool_descriptor(async_execution=True)
 async def spawn_subagent(
     task: str,
@@ -681,9 +722,11 @@ async def spawn_subagent(
             back to workspace; no worktree if not a git repo).
             If False (default), starts with a fresh empty session.
         background: If True, submit as background task and return
-            immediately with a task_id. Use check_agent_task(task_id)
-            to poll status and retrieve the result.
-        timeout: Foreground wait timeout in seconds (default 600).
+            immediately with a task_id. Completion automatically wakes this
+            parent session and injects the result; do not poll.
+        timeout: Foreground wait timeout in seconds (default 600). Background
+            subagents have no total runtime limit; this value is ignored when
+            ``background=True``.
 
     Returns:
         Foreground: subagent result text with [SESSION: <id>].
@@ -693,6 +736,15 @@ async def spawn_subagent(
     if not task or not task.strip():
         return _tool_text_response(
             "ERROR: 'task' is required for spawn_subagent",
+        )
+
+    from ...app.subagents.context import get_subagent_spawn_context
+
+    spawn_context = get_subagent_spawn_context()
+    if spawn_context is not None and spawn_context.is_subagent:
+        return _tool_text_response(
+            "ERROR: nested subagents are not supported; only a top-level "
+            "agent may call spawn_subagent",
         )
 
     from ...app.agent_context import get_current_agent_id
@@ -726,18 +778,28 @@ async def spawn_subagent(
     }
 
     if background:
-        result = await asyncio.to_thread(
-            submit_agent_chat_task,
-            None,
-            request_payload,
-            current_agent_id,
-            int(DEFAULT_AGENT_API_TIMEOUT),
-        )
+        if spawn_context is None:
+            return _tool_text_response(
+                "ERROR: background subagent manager is unavailable outside "
+                "a QwenPaw Runtime request",
+            )
+        try:
+            record = await spawn_context.manager.spawn(
+                prompt=task,
+                parent_agent_id=spawn_context.agent_id,
+                parent_session_id=spawn_context.session_id,
+                root_session_id=spawn_context.root_session_id,
+                child_agent_id=current_agent_id,
+                child_session_id=subagent_session_id,
+                user_id=spawn_context.user_id,
+                channel=spawn_context.channel,
+                channel_meta=spawn_context.channel_meta,
+                parent_is_subagent=spawn_context.is_subagent,
+            )
+        except (RuntimeError, ValueError) as exc:
+            return _tool_text_response(f"ERROR: {exc}")
         return _tool_text_response(
-            format_background_submission_text(
-                result,
-                subagent_session_id,
-            ),
+            _format_subagent_submission(record.task_id, subagent_session_id),
         )
 
     response_data = await asyncio.to_thread(
@@ -757,6 +819,41 @@ async def spawn_subagent(
             response_data,
             session_id=subagent_session_id,
         ),
+    )
+
+
+@tool_descriptor(async_execution=True)
+async def cancel_subagent(task_id: str) -> ToolChunk:
+    """Cancel a background subagent created by this parent session.
+
+    This is an explicit control operation, not a status/polling tool.  A task
+    can only be cancelled from the parent session that created it.
+    """
+    normalized_task_id = normalize_id(task_id)
+    if not normalized_task_id:
+        return _tool_text_response("ERROR: 'task_id' is required")
+
+    from ...app.subagents.context import get_subagent_spawn_context
+
+    spawn_context = get_subagent_spawn_context()
+    if spawn_context is None:
+        return _tool_text_response("ERROR: subagent manager unavailable")
+    record = await spawn_context.manager.get(normalized_task_id)
+    if record is None or record.parent_session_id != spawn_context.session_id:
+        return _tool_text_response(
+            f"ERROR: subagent task '{normalized_task_id}' not found for "
+            "the current parent session",
+        )
+    cancelled = await spawn_context.manager.cancel_task(
+        normalized_task_id,
+        reason="cancelled explicitly by parent agent",
+    )
+    if not cancelled:
+        return _tool_text_response(
+            f"Task {normalized_task_id} is already terminal.",
+        )
+    return _tool_text_response(
+        f"Cancellation requested for subagent task {normalized_task_id}.",
     )
 
 
@@ -832,6 +929,7 @@ async def _maybe_cleanup_worktree(
     return await asyncio.to_thread(_cleanup)
 
 
+# pylint: disable=too-many-branches
 async def _spawn_forked_subagent(
     task: str,
     current_agent_id: str,
@@ -887,15 +985,33 @@ async def _spawn_forked_subagent(
     }
 
     if background:
-        result = await asyncio.to_thread(
-            submit_agent_chat_task,
-            None,
-            request_payload,
-            current_agent_id,
-            int(DEFAULT_AGENT_API_TIMEOUT),
-        )
-        submission_text = format_background_submission_text(
-            result,
+        from ...app.subagents.context import get_subagent_spawn_context
+
+        spawn_context = get_subagent_spawn_context()
+        if spawn_context is None:
+            return _tool_text_response(
+                "ERROR: background subagent manager is unavailable outside "
+                "a QwenPaw Runtime request",
+            )
+        try:
+            record = await spawn_context.manager.spawn(
+                prompt=task,
+                parent_agent_id=spawn_context.agent_id,
+                parent_session_id=spawn_context.session_id,
+                root_session_id=spawn_context.root_session_id,
+                child_agent_id=current_agent_id,
+                child_session_id=fork_session_id,
+                user_id=user_id,
+                channel=channel,
+                channel_meta=spawn_context.channel_meta,
+                parent_is_subagent=spawn_context.is_subagent,
+                request_context=request_context,
+                worktree_branch=worktree_branch,
+            )
+        except (RuntimeError, ValueError) as exc:
+            return _tool_text_response(f"ERROR: {exc}")
+        submission_text = _format_subagent_submission(
+            record.task_id,
             fork_session_id,
         )
         if worktree_path:

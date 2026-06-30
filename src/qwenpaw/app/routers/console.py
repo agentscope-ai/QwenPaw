@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """Console APIs: push messages, chat, and file upload for chat."""
+
 from __future__ import annotations
 
 import asyncio
@@ -32,7 +33,6 @@ from ..agent_context import get_agent_for_request
 from ..approvals.display import approval_display_fields
 from ..chats.title_generator import generate_and_update_title
 from ..utils import check_upload_size
-
 
 logger = logging.getLogger(__name__)
 
@@ -193,6 +193,7 @@ async def post_console_chat(
     Stop via POST /console/chat/stop. Reconnect with body.reconnect=true.
     """
     workspace = await get_agent_for_request(request)
+
     console_channel = await workspace.channel_manager.get_channel("console")
     if console_channel is None:
         raise HTTPException(
@@ -283,6 +284,13 @@ async def post_console_chat_stop(
     logger.debug("[STOP API] Received stop request for chat_id=%s", chat_id)
     workspace = await get_agent_for_request(request)
 
+    # Resolve the parent session independently of the stream task lookup so
+    # already-idle parents can still cancel their background children.
+    parent_session_id = chat_id
+    chat_spec = await workspace.chat_manager.get_chat(chat_id)
+    if chat_spec is not None:
+        parent_session_id = chat_spec.session_id
+
     # Try to stop with the provided chat_id first
     logger.debug(
         "[STOP API] Got workspace, calling task_tracker.request_stop...",
@@ -316,7 +324,17 @@ async def post_console_chat_stop(
         "[STOP API] task_tracker.request_stop returned: stopped=%s",
         stopped,
     )
-    return {"stopped": stopped}
+    subagents_cancelled = 0
+    subagent_manager = getattr(workspace, "subagent_task_manager", None)
+    if subagent_manager is not None:
+        subagents_cancelled = await subagent_manager.cancel_by_parent(
+            parent_session_id,
+            reason="parent session stopped from console",
+        )
+    return {
+        "stopped": stopped or subagents_cancelled > 0,
+        "subagents_cancelled": subagents_cancelled,
+    }
 
 
 @router.post("/upload", response_model=dict, summary="Upload file for chat")
