@@ -371,7 +371,7 @@ function MarketPage() {
       {install.queue.length > 0 && (
         <InstallQueuePanel
           queue={install.queue}
-          onClearCompleted={install.clearCompleted}
+          onClearCompleted={install.clearFinished}
           onCancel={install.cancel}
           onRetry={install.retry}
         />

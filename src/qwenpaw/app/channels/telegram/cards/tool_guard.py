@@ -144,15 +144,6 @@ def build_approval_text(body_text: str) -> str:
     return body_text or "🛡️ Tool Approval Required"
 
 
-def build_compact_text(tool_name: str, severity: str) -> str:
-    """Build a compact card text (streaming mode — body already sent)."""
-    return (
-        f"🛡️ *Tool Approval Required*\n"
-        f"*Tool*: `{_escape_mdv2(tool_name)}`"
-        f"  \\|  *Severity*: {_escape_mdv2(severity)}"
-    )
-
-
 def build_resolved_text(
     tool_name: str,
     action: str,
@@ -206,14 +197,9 @@ async def render(
     event: Any,
     send_meta: Dict[str, Any],
     meta: Dict[str, Any],
-    *,
-    compact: bool = False,
+    **_kwargs: Any,
 ) -> bool:
-    """Render a tool-guard event as an inline keyboard message.
-
-    Non-streaming (compact=False): full body text + buttons in one message.
-    Streaming (compact=True): compact text (tool name only) + buttons.
-    """
+    """Render a tool-guard event as an inline keyboard message."""
     request_id = str(meta.get("approval_request_id") or "")
     if not request_id or not channel.enabled or not channel._application:
         return False
@@ -234,26 +220,16 @@ async def render(
     body_text = context.extract_body_text(getattr(event, "content", None))
     session_ctx = context.build_session_ctx(to_handle, send_meta)
 
-    # Cache full context for the callback handler.
-    # In compact mode (streaming), don't cache body_text — it was already
-    # sent in the streamed message above, so the resolved card should
-    # stay compact and not repeat the body.
     _cache_request_context(
         request_id,
         tool_name,
         severity,
-        "" if compact else body_text,
+        body_text,
         session_ctx,
     )
 
     keyboard = build_approval_keyboard(request_id)
-
-    if compact:
-        text = build_compact_text(tool_name, severity)
-        parse_mode = ParseMode.MARKDOWN_V2
-    else:
-        text = build_approval_text(body_text)
-        parse_mode = None  # raw body text, no formatting
+    text = build_approval_text(body_text)
 
     try:
         kwargs: Dict[str, Any] = {
@@ -261,17 +237,14 @@ async def render(
             "text": text,
             "reply_markup": keyboard,
         }
-        if parse_mode:
-            kwargs["parse_mode"] = parse_mode
         if message_thread_id is not None:
             kwargs["message_thread_id"] = message_thread_id
 
         await bot.send_message(**kwargs)
         logger.info(
-            "telegram approval card sent: request_id=%s tool=%s compact=%s",
+            "telegram approval card sent: request_id=%s tool=%s",
             request_id[:8],
             tool_name,
-            compact,
         )
         return True
     except BadRequest:

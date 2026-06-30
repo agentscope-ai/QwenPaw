@@ -7,7 +7,8 @@ QwenPaw 提供了插件系统，允许用户扩展 QwenPaw 的功能。
 插件系统支持以下扩展能力：
 
 - **Provider 插件**：添加新的 LLM Provider 和模型
-- **Hook 插件**：在应用启动/关闭时执行自定义代码
+- **Middleware 插件**：注册 AgentScope `MiddlewareBase` 工厂，在 agent 推理循环中包裹 `on_acting` / `on_reasoning` 等钩子
+- **Hook 插件**：在应用启动/关闭时执行自定义代码（app 生命周期级别，仅执行一次）
 - **Command 插件**：注册自定义的 `/command` 魔法命令
 - **HTTP API 插件**：通过 FastAPI `APIRouter` 在 `/api` 下暴露自定义 REST 接口
 - **前端扩展插件**：在浏览器中运行的 JS 插件，共享宿主的 React / Ant Design 运行时，通过声明式 `window.QwenPaw.*` API 扩展界面——注册侧边栏菜单、页面路由、UI 插槽、聊天定制等，无需修改宿主代码
@@ -95,27 +96,32 @@ my-plugin/
     "backend": "plugin.py"
   },
   "dependencies": [],
-  "min_version": "0.1.0",
+  "qwenpaw_version": {
+    "min": "1.0.0",
+    "max": "2.1.0"
+  },
   "meta": {}
 }
 ```
 
 #### 清单字段说明
 
-| 字段             | 类型            | 必填 | 说明                                                                                                                                             |
-| ---------------- | --------------- | ---- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `id`             | `string`        | 是   | 插件唯一标识，同时作为安装目录名，不能包含路径分隔符。                                                                                           |
-| `version`        | `string`        | 是   | 插件语义化版本号（例如 `1.0.0`）。                                                                                                               |
-| `name`           | `string` 或对象 | 否   | 显示名称，缺省取 `id`。也可写成 `{"zh-CN": "...", "en-US": "..."}`，运行时按"英文优先"的顺序取第一个非空值。                                     |
-| `type`           | `string`        | 否   | 取值之一：`tool`、`provider`、`hook`、`command`、`frontend`、`general`。省略时会按 `meta` / `entry` 推断（仅为兼容旧插件），新插件建议显式声明。 |
-| `description`    | `string` 或对象 | 否   | 插件列表里的简短描述，支持本地化对象形式（同 `name`）。                                                                                          |
-| `author`         | `string`        | 否   | 作者或组织名称。                                                                                                                                 |
-| `entry.backend`  | `string`        | 否\* | 相对插件目录的 Python 入口文件路径，需在其中导出 `plugin`。                                                                                      |
-| `entry.frontend` | `string`        | 否\* | 已构建的前端 bundle 路径（如 `dist/index.js`）。                                                                                                 |
-| `dependencies`   | `string[]`      | 否   | Python 依赖列表，安装时通过 pip / uv 自动安装。                                                                                                  |
-| `min_version`    | `string`        | 否   | 需要的最低 QwenPaw 版本，缺省 `0.1.0`。                                                                                                          |
-| `meta`           | `object`        | 否   | 自由元数据。前端 UI 与 `type` 推断都会读取（如 `meta.tools[]`、`meta.hook_type`、`meta.provider_id`）。                                          |
-| `entry_point`    | `string`        | 否   | **遗留字段。** 等价于 `entry.backend`，仅为兼容老插件保留，新插件请使用 `entry.backend`。                                                        |
+| 字段              | 类型            | 必填 | 说明                                                                                                                                              |
+| ----------------- | --------------- | ---- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `id`              | `string`        | 是   | 插件唯一标识，同时作为安装目录名，不能包含路径分隔符。                                                                                            |
+| `version`         | `string`        | 是   | 插件语义化版本号（例如 `1.0.0`）。                                                                                                                |
+| `name`            | `string` 或对象 | 否   | 显示名称，缺省取 `id`。也可写成 `{"zh-CN": "...", "en-US": "..."}`，运行时按"英文优先"的顺序取第一个非空值。                                      |
+| `type`            | `string`        | 否   | 取值之一：`tool`、`provider`、`hook`、`command`、`frontend`、`general`。省略时会按 `meta` / `entry` 推断（仅为兼容旧插件），新插件建议显式声明。  |
+| `description`     | `string` 或对象 | 否   | 插件列表里的简短描述，支持本地化对象形式（同 `name`）。                                                                                           |
+| `author`          | `string`        | 否   | 作者或组织名称。                                                                                                                                  |
+| `entry.backend`   | `string`        | 否\* | 相对插件目录的 Python 入口文件路径，需在其中导出 `plugin`。                                                                                       |
+| `entry.frontend`  | `string`        | 否\* | 已构建的前端 bundle 路径（如 `dist/index.js`）。                                                                                                  |
+| `dependencies`    | `string[]`      | 否   | Python 依赖列表，安装时通过 pip / uv 自动安装。                                                                                                   |
+| `qwenpaw_version` | `object`        | 否   | QwenPaw 版本约束（推荐）。包含 `min`（包含）和 `max`（不包含，可选）两个子字段，语义为 `>=min, <max`。省略 `max` 时默认取 `{major}.{minor+1}.0`。 |
+| `min_version`     | `string`        | 否   | **遗留字段。** 需要的最低 QwenPaw 版本。当 `qwenpaw_version` 存在时被忽略，仅为兼容第三方旧插件保留。                                             |
+| `max_version`     | `string`        | 否   | **遗留字段。** 不兼容的第一个 QwenPaw 版本（不包含）。配合 `min_version` 使用；省略时从 `min_version` 推导。                                      |
+| `meta`            | `object`        | 否   | 自由元数据。前端 UI 与 `type` 推断都会读取（如 `meta.tools[]`、`meta.hook_type`、`meta.provider_id`）。                                           |
+| `entry_point`     | `string`        | 否   | **遗留字段。** 等价于 `entry.backend`，仅为兼容老插件保留，新插件请使用 `entry.backend`。                                                         |
 
 \* `entry.backend`、`entry.frontend`（或遗留 `entry_point`）至少需要提供其中之一。
 
@@ -125,7 +131,7 @@ my-plugin/
 | ---------- | ---------------------------------------------------- |
 | `tool`     | 注册一个或多个 Agent 工具（LLM 可调用的函数）。      |
 | `provider` | 注册自定义 LLM 提供商 / 模型端点。                   |
-| `hook`     | 在应用启动 / 关闭时执行代码。                        |
+| `hook`     | 在应用启动 / 关闭时执行代码（app 生命周期级别）。    |
 | `command`  | 注册 `/slash` 控制命令。                             |
 | `frontend` | 提供前端 JS bundle，由 UI 动态加载。                 |
 | `general`  | 兜底类型，用于组合型插件或不属于以上任何类别的插件。 |
@@ -669,7 +675,10 @@ cd my-llm-provider
     "backend": "plugin.py"
   },
   "dependencies": ["httpx>=0.24.0"],
-  "min_version": "0.1.0",
+  "qwenpaw_version": {
+    "min": "1.0.0",
+    "max": "2.1.0"
+  },
   "meta": {
     "api_key_url": "https://example.com/get-api-key",
     "api_key_hint": "Get your API key from example.com"
@@ -760,7 +769,6 @@ class MyLLMProviderPlugin:
             provider_class=MyLLMProvider,
             label="My LLM",
             base_url="https://api.example.com/v1",
-            metadata={},
         )
 
         logger.info("✓ My LLM Provider registered")
@@ -808,7 +816,10 @@ cd monitoring-hook
     "backend": "plugin.py"
   },
   "dependencies": [],
-  "min_version": "0.1.0"
+  "qwenpaw_version": {
+    "min": "1.0.0",
+    "max": "2.1.0"
+  }
 }
 ```
 
@@ -898,41 +909,14 @@ cd status-command
     "backend": "plugin.py"
   },
   "dependencies": [],
-  "min_version": "0.1.0"
+  "qwenpaw_version": {
+    "min": "1.0.0",
+    "max": "2.1.0"
+  }
 }
 ```
 
-#### 3. 创建 query_rewriter.py
-
-```python
-# -*- coding: utf-8 -*-
-"""Query rewriter for status command."""
-
-
-class StatusQueryRewriter:
-    """Rewrite /status queries to agent prompts."""
-
-    @staticmethod
-    def should_rewrite(query: str) -> bool:
-        """Check if query should be rewritten."""
-        if not query:
-            return False
-        return query.strip().lower().startswith("/status")
-
-    @staticmethod
-    def rewrite(query: str) -> str:
-        """Rewrite /status query to agent prompt."""
-        return """请帮我检查系统状态，包括：
-
-1. 当前使用的模型和 Provider
-2. 内存使用情况
-3. 最近的对话数量
-4. 插件加载情况
-
-请用清晰的格式展示这些信息。"""
-```
-
-#### 4. 创建 plugin.py
+#### 3. 创建 plugin.py
 
 ```python
 # -*- coding: utf-8 -*-
@@ -949,68 +933,35 @@ class StatusCommandPlugin:
     """Status Command Plugin."""
 
     def register(self, api: PluginApi):
-        """Register the status command.
-
-        Args:
-            api: PluginApi instance
-        """
-        logger.info("Registering status command...")
-
-        # Register startup hook to patch query handler
-        api.register_startup_hook(
-            hook_name="status_query_rewriter",
-            callback=self._patch_query_handler,
-            priority=50,
+        """Register the status command."""
+        from qwenpaw.runtime.commands.control.base import (
+            BaseControlCommandHandler,
         )
 
+        class StatusCommandHandler(BaseControlCommandHandler):
+            command_name = "status"
+            help_text = "Check system status"
+
+            async def handle(self, ctx, args: str):
+                from agentscope.message import Msg
+                return Msg(
+                    name="system",
+                    role="assistant",
+                    content="System is running normally.",
+                )
+
+        api.register_control_command(
+            handler=StatusCommandHandler(),
+            priority_level=10,
+        )
         logger.info("✓ Status command registered: /status")
-
-    def _patch_query_handler(self):
-        """Patch AgentRunner.query_handler to rewrite /status queries."""
-        from qwenpaw.app.runner.runner import AgentRunner
-        from .query_rewriter import StatusQueryRewriter
-
-        original_query_handler = AgentRunner.query_handler
-
-        async def patched_query_handler(self, msgs, request=None, **kwargs):
-            """Patched query handler."""
-            if msgs and len(msgs) > 0:
-                last_msg = msgs[-1]
-                if hasattr(last_msg, 'content'):
-                    content_list = (
-                        last_msg.content
-                        if isinstance(last_msg.content, list)
-                        else [last_msg.content]
-                    )
-                    for content_item in content_list:
-                        if (
-                            isinstance(content_item, dict)
-                            and content_item.get('type') == 'text'
-                        ):
-                            text = content_item.get('text', '')
-                            if StatusQueryRewriter.should_rewrite(text):
-                                rewritten = StatusQueryRewriter.rewrite(text)
-                                logger.info("Rewriting /status query")
-                                content_item['text'] = rewritten
-                                break
-
-            async for result in original_query_handler(
-                self,
-                msgs,
-                request,
-                **kwargs,
-            ):
-                yield result
-
-        AgentRunner.query_handler = patched_query_handler
-        logger.info("✓ Patched AgentRunner.query_handler for /status")
 
 
 # Export plugin instance
 plugin = StatusCommandPlugin()
 ```
 
-#### 5. 安装和使用
+#### 4. 安装和使用
 
 ```bash
 qwenpaw plugin install status-command
@@ -1157,7 +1108,10 @@ mkdir pet-api-plugin && cd pet-api-plugin
     "backend": "plugin.py"
   },
   "dependencies": [],
-  "min_version": "1.1.5"
+  "qwenpaw_version": {
+    "min": "1.1.5",
+    "max": "2.1.0"
+  }
 }
 ```
 
@@ -1283,6 +1237,174 @@ curl -X POST http://127.0.0.1:8088/api/pets \
 - 每个前缀只能被一个插件占用；重复注册相同前缀会抛出 `ValueError`。
 - `tags` 可选；省略时路由在 OpenAPI 中会默认打上 `plugin:<插件 id>` 标签。
 - 插件卸载或禁用时会自动卸载对应路由。
+
+### 示例 8：Tracing Middleware（工具调用追踪）
+
+本示例展示如何注册一个 `on_acting` middleware，当设置环境变量 `QWENPAW_TRACE` 时记录每次 tool call 的名称、参数和执行耗时。
+
+**plugin.json：**
+
+```json
+{
+  "id": "middleware-demo-tracing",
+  "name": "Tracing Middleware Demo",
+  "version": "1.0.0",
+  "description": "Demo: logs tool calls with execution timing to a trace file",
+  "author": "QwenPaw Team",
+  "type": "general",
+  "entry": {
+    "backend": "tracing_plugin.py"
+  },
+  "dependencies": [],
+  "qwenpaw_version": {
+    "min": "1.0.0",
+    "max": "2.1.0"
+  }
+}
+```
+
+**tracing_plugin.py：**
+
+```python
+import os
+import time
+from pathlib import Path
+from typing import Any, AsyncGenerator, Callable
+
+from agentscope.middleware import MiddlewareBase
+from qwenpaw.plugins.api import PluginApi
+
+
+class TracingMiddleware(MiddlewareBase):
+    """Logs tool call name, input, and execution duration."""
+
+    def __init__(self, trace_file: Path) -> None:
+        self._trace_file = trace_file
+        self._trace_file.parent.mkdir(parents=True, exist_ok=True)
+
+    async def on_acting(
+        self,
+        agent: Any,
+        input_kwargs: dict[str, Any],
+        next_handler: Callable[..., AsyncGenerator[Any, None]],
+    ) -> AsyncGenerator[Any, None]:
+        tool_call = input_kwargs["tool_call"]
+        tool_name = getattr(tool_call, "name", str(tool_call))
+        tool_input = getattr(tool_call, "input", "")
+
+        start = time.perf_counter()
+        try:
+            async for item in next_handler():
+                yield item
+        finally:
+            elapsed_ms = (time.perf_counter() - start) * 1000
+            line = f"[{time.strftime('%H:%M:%S')}] {tool_name}({tool_input[:100]}) — {elapsed_ms:.1f}ms\n"
+            with open(self._trace_file, "a", encoding="utf-8") as f:
+                f.write(line)
+
+
+def _tracing_factory(ctx: Any, agent_config: Any) -> TracingMiddleware | None:
+    """Create TracingMiddleware when QWENPAW_TRACE env var is set."""
+    if not os.environ.get("QWENPAW_TRACE"):
+        return None
+    workspace_dir = getattr(ctx, "workspace_dir", None)
+    if workspace_dir is None:
+        return None
+    trace_file = Path(workspace_dir) / ".qwenpaw" / "trace.log"
+    return TracingMiddleware(trace_file=trace_file)
+
+
+class TracingPlugin:
+    def register(self, api: PluginApi) -> None:
+        api.register_middleware(_tracing_factory, priority=50)
+
+
+plugin = TracingPlugin()
+```
+
+**要点：**
+
+- **条件激活**：工厂函数检测环境变量 `QWENPAW_TRACE`，仅设置时启用
+- **`priority=50`**：比默认优先级更高（数值更小 = 更靠外层），确保 tracing 包裹其他 middleware
+- **`on_acting` 钩子**：在 tool call 执行前/后测量耗时
+- 完整源码参见 `plugins/middleware-demo/tracing-middleware/tracing_plugin.py`
+
+---
+
+### 示例 9：Thinking Log Middleware（推理过程日志）
+
+本示例展示如何注册一个 `on_reasoning` middleware，捕获并打印模型的思维链。
+
+**plugin.json：**
+
+```json
+{
+  "id": "middleware-demo-thinking-log",
+  "name": "Thinking Log Middleware Demo",
+  "version": "1.0.0",
+  "description": "Demo: prints model reasoning steps to stdout",
+  "author": "QwenPaw Team",
+  "type": "general",
+  "entry": {
+    "backend": "thinking_log_plugin.py"
+  },
+  "dependencies": [],
+  "qwenpaw_version": {
+    "min": "1.0.0",
+    "max": "2.1.0"
+  }
+}
+```
+
+**thinking_log_plugin.py：**
+
+```python
+import sys
+from typing import Any, AsyncGenerator, Callable
+
+from agentscope.middleware import MiddlewareBase
+from agentscope.event import ThinkingBlockDeltaEvent, TextBlockDeltaEvent
+from qwenpaw.plugins.api import PluginApi
+
+
+class ThinkingLogMiddleware(MiddlewareBase):
+    """Prints reasoning stream events to stdout."""
+
+    async def on_reasoning(
+        self,
+        agent: Any,
+        input_kwargs: dict[str, Any],
+        next_handler: Callable[..., AsyncGenerator[Any, None]],
+    ) -> AsyncGenerator[Any, None]:
+        async for item in next_handler():
+            if isinstance(item, ThinkingBlockDeltaEvent):
+                print(f"[THINKING] {item.delta}", end="", file=sys.stdout, flush=True)
+            elif isinstance(item, TextBlockDeltaEvent):
+                print(f"[TEXT] {item.delta}", end="", file=sys.stdout, flush=True)
+            yield item
+
+
+def _thinking_log_factory(ctx: Any, agent_config: Any) -> ThinkingLogMiddleware:
+    """Always create the middleware (unconditional activation)."""
+    return ThinkingLogMiddleware()
+
+
+class ThinkingLogPlugin:
+    def register(self, api: PluginApi) -> None:
+        api.register_middleware(_thinking_log_factory, priority=80)
+
+
+plugin = ThinkingLogPlugin()
+```
+
+**要点：**
+
+- **无条件激活**：工厂始终返回实例，适用于所有请求
+- **`on_reasoning` 钩子**：在模型推理阶段捕获流式事件（`ThinkingBlockDeltaEvent` 为思维链，`TextBlockDeltaEvent` 为文本响应）
+- **实时打印**：每收到一个 delta 事件即打印，同时 yield 给下游，不阻塞流式响应
+- 完整源码参见 `plugins/middleware-demo/thinking-log-middleware/thinking_log_plugin.py`
+
+---
 
 ## 依赖管理
 
@@ -1412,15 +1534,15 @@ api.register_startup_hook("late", callback, priority=200)
 ### 命令未响应
 
 1. 确认插件已安装
-2. 检查 startup hook 是否成功执行
-3. 查看日志中的 patch 信息
+2. 检查日志中命令处理器是否注册成功
+3. 确认命令名称是否匹配（如 `/status`）
 
 ## 安全注意事项
 
 1. **只安装可信插件**：插件代码会在 QwenPaw 进程中执行
 2. **检查依赖**：确保插件依赖来自可信源
 3. **审查代码**：安装前审查插件源代码
-4. **离线操作**：插件安装/卸载需要 QwenPaw 离线
+4. **热加载注意**：当前版本支持运行中通过 API 热安装/热卸载插件，无需重启。请注意热加载时的状态一致性
 
 ## PluginApi 参考
 
@@ -1430,11 +1552,11 @@ api.register_startup_hook("late", callback, priority=200)
 
 ```python
 api.register_provider(
-    provider_id: str,          # Provider 唯一标识符
-    provider_class: Type,      # Provider 类
-    label: str,                # 显示名称
-    base_url: str,             # API base URL
-    metadata: Dict[str, Any],  # 额外元数据
+    provider_id: str,              # Provider 唯一标识符（必填）
+    provider_class: Type,          # Provider 类（必填）
+    label: str = "",               # 显示名称（可选，默认为 provider_id）
+    base_url: str = "",            # API base URL（可选）
+    **metadata,                    # 额外关键字参数（chat_model, require_api_key 等）
 )
 ```
 
@@ -1477,29 +1599,99 @@ api.register_http_router(
 
 完整步骤见上文「示例 7：暴露 FastAPI 接口」。
 
-## 高级功能
+### register_control_command
 
-### Monkey Patch
-
-对于需要修改 QwenPaw 行为的插件（如自定义命令），可以使用 monkey patch：
+注册自定义 `/slash` 控制命令。
 
 ```python
-def _patch_query_handler(self):
-    """Patch AgentRunner to intercept queries."""
-    from qwenpaw.app.runner.runner import AgentRunner
-
-    original_handler = AgentRunner.query_handler
-
-    async def patched_handler(self, msgs, request=None, **kwargs):
-        # 你的自定义逻辑
-        # 修改 msgs 或添加额外处理
-
-        # 调用原始 handler
-        async for result in original_handler(self, msgs, request, **kwargs):
-            yield result
-
-    AgentRunner.query_handler = patched_handler
+api.register_control_command(
+    handler: BaseControlCommandHandler,  # 命令处理器实例
+    priority_level: int = 10,            # 命令优先级（默认: 10）
+)
 ```
+
+handler 必须继承 `qwenpaw.runtime.commands.control.base.BaseControlCommandHandler`，并实现 `command_name`、`help_text` 和 `async handle(self, ctx, args)` 方法。
+
+### register_tool
+
+将工具函数注册到 Agent 的工具集中。
+
+```python
+api.register_tool(
+    tool_name: str,          # 工具函数的唯一名称
+    tool_func: Callable,     # 要注册的工具函数
+    description: str = "",   # UI 中显示的描述
+    icon: str = "🔧",        # 显示图标（emoji 字符串）
+    enabled: bool = False,   # 是否默认启用
+)
+```
+
+### register_uninstall_hook
+
+注册卸载钩子，仅在插件被显式卸载时执行。
+
+```python
+api.register_uninstall_hook(
+    hook_name: str,      # 钩子名称
+    callback: Callable,  # 回调函数
+    priority: int = 100, # 优先级（越低越早执行）
+)
+```
+
+### register_workspace_created_hook
+
+注册 workspace 创建时触发的钩子。
+
+```python
+api.register_workspace_created_hook(
+    hook_name: str,      # 钩子名称
+    callback: Callable,  # 回调函数: (workspace_info: dict) -> None
+    priority: int = 100, # 优先级（越低越早执行）
+)
+```
+
+### get_tool_config / set_tool_config
+
+获取或保存每个 Agent 的工具配置。
+
+```python
+config = api.get_tool_config(tool_name: str, agent_id: str)  # 返回 dict
+api.set_tool_config(tool_name: str, agent_id: str, config: dict)
+```
+
+### register_middleware
+
+注册 AgentScope `MiddlewareBase` 工厂。
+
+```python
+api.register_middleware(
+    middleware_factory: Callable,   # 工厂函数
+    *,
+    priority: int = 100,           # 优先级（越低越靠外层）
+)
+```
+
+工厂函数签名：`(ctx: HookContext, agent_config: AgentProfileConfig) -> MiddlewareBase | None`
+
+- `ctx` 包含 `session_id`、`agent_id`、`workspace_dir` 等请求级上下文
+- 返回 `None` 表示本次请求跳过该 middleware
+- `priority` 越小越先进入洋葱模型（即越靠外层）
+
+工厂在每次请求的 `AgentBuilder.build()` 阶段被调用，返回的 middleware 实例将被插入到 agent 的中间件链中。
+
+完整步骤见上文「示例 8」和「示例 9」。
+
+## 高级功能
+
+### 修改 Agent 行为
+
+如需拦截或增强 agent 的请求处理，推荐以下方式：
+
+- **增强 agent 推理循环**：使用 `register_middleware` 注册 AgentScope middleware（`on_acting` / `on_reasoning` 钩子）
+- **拦截特定命令**：使用 `register_control_command` 注册自定义命令处理器
+- **在请求生命周期中注入逻辑**：使用 `HookRegistry`（8 阶段 hook）
+
+当前请求流程为 `Runtime.run()` → `AgentBuilder.build()` → `AgentExecutor.run()`。
 
 ### 访问运行时信息
 
@@ -1536,13 +1728,15 @@ qwenpaw plugin install https://example.com/my-plugin-1.0.0.zip
 A: 插件通过 `PluginApi` 访问核心功能，包括：
 
 - Provider 注册
+- Middleware 注册（`register_middleware`）
 - Hook 注册
+- 自定义命令注册（`register_control_command`）
 - HTTP 路由注册（`register_http_router`）
 - Runtime helpers（provider_manager 等）
 
 ### Q: 插件可以修改 QwenPaw 的核心行为吗？
 
-A: 可以，通过 monkey patch 或 hook 机制。但请谨慎使用，确保不会破坏核心功能。
+A: 可以，通过 `register_middleware`（注入 AgentScope middleware）、`register_control_command`、`register_tool`、runtime hooks 和其他 PluginApi 方法。请谨慎使用，确保不会破坏核心功能。
 
 ### Q: 插件之间会冲突吗？
 

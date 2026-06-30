@@ -903,17 +903,6 @@ Please fix the PRD format before confirming.
 
 ---
 
-## Plan Mode
-
-Plan Mode provides structured task planning and step-by-step execution. For full documentation, see [Plan Mode](./plan).
-
-| Command               | Description                                                    | Chat |
-| --------------------- | -------------------------------------------------------------- | ---- |
-| `/plan`               | Show plan mode status (enabled/disabled) and current plan info | ✅   |
-| `/plan <description>` | Create a new structured plan and begin step-by-step execution  | ✅   |
-
----
-
 ## Proactive Mode - Proactive Notification Mode
 
 Proactive Mode is an intelligent feature that allows the AI agent to actively analyze the user's current session context and screen activities after detecting that the user has been inactive for a prolonged period, and provide relevant assistance and information.

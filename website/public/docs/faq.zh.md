@@ -24,7 +24,7 @@ irm https://qwenpaw.agentscope.io/install.ps1 | iex
 
 2. pip 安装
 
-Python环境要求版本号 >= 3.10，<3.14
+Python环境要求版本号 >= 3.11，<3.14
 
 ```
 pip install qwenpaw

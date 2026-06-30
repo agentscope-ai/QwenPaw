@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import pytest
+from helpers import default_http_timeout
 
-_MCP_OAUTH_HTTP_TIMEOUT = 15.0
+_MCP_OAUTH_HTTP_TIMEOUT = default_http_timeout(15.0)
 
 
 @pytest.mark.integration

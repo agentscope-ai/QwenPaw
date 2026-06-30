@@ -14,8 +14,9 @@ from __future__ import annotations
 import time
 
 import pytest
+from helpers import default_http_timeout
 
-_CHANNEL_HTTP_TIMEOUT = 15.0
+_CHANNEL_HTTP_TIMEOUT = default_http_timeout(15.0)
 
 
 # ------------------------------------------------------------------ #

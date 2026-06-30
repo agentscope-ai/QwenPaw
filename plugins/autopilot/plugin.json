@@ -1,13 +1,16 @@
 {
   "id": "autopilot",
   "name": "Autopilot Multi-Phase",
-  "version": "1.0.0",
-  "type": "loop",
+  "version": "2.0.0",
   "description": "Multi-phase autonomous execution — plan, execute, QA, validate.",
   "author": "QwenPaw Team",
-  "entry_point": "plugin.py",
+  "entry": {
+    "backend": "plugin.py"
+  },
   "dependencies": [],
-  "min_version": "2.0.0",
+  "qwenpaw_version": {
+    "min": "2.0.0"
+  },
   "meta": {
     "command": "/autopilot",
     "loop_skill": true,

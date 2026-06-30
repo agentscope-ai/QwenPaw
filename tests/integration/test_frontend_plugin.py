@@ -7,8 +7,9 @@ login page can fetch the plugin list and load plugin bundles.
 from __future__ import annotations
 
 import pytest
+from helpers import default_http_timeout
 
-_FRONTEND_PLUGIN_HTTP_TIMEOUT = 15.0
+_FRONTEND_PLUGIN_HTTP_TIMEOUT = default_http_timeout(15.0)
 
 
 @pytest.mark.integration

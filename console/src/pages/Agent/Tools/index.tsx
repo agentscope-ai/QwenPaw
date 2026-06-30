@@ -235,8 +235,12 @@ export default function ToolsPage() {
     return { enabledTools: enabled, disabledTools: disabled };
   }, [tools]);
 
+  const isToolConfigured = (tool: ToolInfo) =>
+    !tool.requires_config ||
+    (tool.config_values && Object.keys(tool.config_values).length > 0);
+
   const handleAvailableItemClick = (tool: ToolInfo) => {
-    if (tool.requires_config) {
+    if (tool.requires_config && !isToolConfigured(tool)) {
       handleConfigure(tool);
     } else {
       toggleEnabled(tool);
@@ -404,7 +408,7 @@ export default function ToolsPage() {
                         {tool.name}
                       </span>
                       <span className={styles.availableItemAction}>
-                        {tool.requires_config
+                        {tool.requires_config && !isToolConfigured(tool)
                           ? t("tools.configureAction")
                           : t("tools.enableAction")}
                       </span>

@@ -7,6 +7,7 @@ ensure fixes (e.g. TimeoutException handling) apply everywhere.
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import time
 from http.server import BaseHTTPRequestHandler
@@ -15,7 +16,30 @@ from typing import Any
 
 import httpx
 
-PLUGIN_HTTP_TIMEOUT = 60.0
+
+def default_http_timeout(default: float = 15.0) -> float:
+    """Return the per-request HTTP timeout for integration tests.
+
+    Falls back to ``default`` unless the
+    ``QWENPAW_INTEGRATION_HTTP_TIMEOUT`` environment variable is set,
+    in which case the returned value is ``max(env, default)`` — i.e.
+    the env acts as a *floor* and never shortens a per-module default
+    that already chose a longer timeout (e.g. plugin/console paths).
+
+    Use this in module-level constants so a slow runner (Windows
+    nightly in particular) can lift every HTTP call's timeout in one
+    place without each module having to opt in.
+    """
+    raw = os.environ.get("QWENPAW_INTEGRATION_HTTP_TIMEOUT")
+    if raw:
+        try:
+            return max(float(raw), default)
+        except ValueError:
+            return default
+    return default
+
+
+PLUGIN_HTTP_TIMEOUT = default_http_timeout(60.0)
 LOADER_READY_TIMEOUT = 20.0
 AGENT_SCOPED_PREFIX = "/api/agents"
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -238,7 +262,7 @@ def make_event(
 # Cron history polling helpers (with disk + log fallback)
 # ------------------------------------------------------------------ #
 
-_CRON_HISTORY_HTTP_TIMEOUT = 15.0
+_CRON_HISTORY_HTTP_TIMEOUT = default_http_timeout()
 
 
 def poll_history(app_server, job_id, deadline, *, min_count=1):
@@ -330,7 +354,7 @@ def wait_cron_executed(app_server, job_id, deadline):
 
 MOCK_LLM_RESPONSE = "Mock heartbeat response from integration test."
 MOCK_LLM_PROVIDER_ID = "integ-mock-llm"
-_HTTP_TIMEOUT = 15.0
+_HTTP_TIMEOUT = default_http_timeout()
 
 
 class MockLLMHandler(BaseHTTPRequestHandler):

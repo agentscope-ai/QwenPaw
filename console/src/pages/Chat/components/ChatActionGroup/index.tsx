@@ -15,28 +15,10 @@ import { useTranslation } from "react-i18next";
 import { Dropdown, Flex, Tooltip } from "antd";
 import type { MenuProps } from "antd";
 import ChatSearchPanel from "../ChatSearchPanel";
-import PlanPanel from "../../../../components/PlanPanel";
 import { useCreateNewSession } from "../../hooks/useCreateNewSession";
 import { useIsMobile } from "../../../../hooks/useIsMobile";
 
-const PlanIcon = () => (
-  <svg
-    width="1em"
-    height="1em"
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="2"
-    strokeLinecap="round"
-    strokeLinejoin="round"
-  >
-    <path d="M9 11l3 3L22 4" />
-    <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />
-  </svg>
-);
-
 interface ChatActionGroupProps {
-  planEnabled?: boolean;
   /** Callback to toggle the right-side history panel */
   onToggleHistory?: () => void;
   /** Whether the history panel is currently visible */
@@ -46,7 +28,6 @@ interface ChatActionGroupProps {
 }
 
 const ChatActionGroup: React.FC<ChatActionGroupProps> = ({
-  planEnabled = false,
   onToggleHistory,
   historyOpen = false,
   isWideMode = false,
@@ -55,25 +36,14 @@ const ChatActionGroup: React.FC<ChatActionGroupProps> = ({
   const { t } = useTranslation();
 
   const [searchOpen, setSearchOpen] = useState(false);
-  const [planOpen, setPlanOpen] = useState(false);
   const createNewSession = useCreateNewSession();
 
   // Compact mode follows the viewport: collapse secondary actions only on
-  // mobile. This keeps Plan visible on desktop while saving space on phones.
+  // mobile. This saves space on phones while keeping actions visible on desktop.
   const isCompact = useIsMobile();
 
-  // Build "more" dropdown items for compact mode: Plan, History, WideMode.
+  // Build "more" dropdown items for compact mode: History, WideMode.
   const moreItems: MenuProps["items"] = [];
-  if (planEnabled) {
-    moreItems.push({
-      key: "plan",
-      icon: <PlanIcon />,
-      label: (
-        <div style={{ textAlign: "center" }}>{t("plan.title", "Plan")}</div>
-      ),
-      onClick: () => setPlanOpen(true),
-    });
-  }
   if (onToggleHistory) {
     moreItems.push({
       key: "history",
@@ -101,17 +71,6 @@ const ChatActionGroup: React.FC<ChatActionGroupProps> = ({
 
   return (
     <Flex gap={8} align="center">
-      {/* Plan icon: only render inline when NOT compact */}
-      {!isCompact && planEnabled && (
-        <Tooltip title={t("plan.title", "Plan")} mouseEnterDelay={0.5}>
-          <IconButton
-            bordered={false}
-            icon={<PlanIcon />}
-            onClick={() => setPlanOpen(true)}
-          />
-        </Tooltip>
-      )}
-
       {/* Essential actions always visible */}
       <Tooltip title={t("chat.newChatTooltip")} mouseEnterDelay={0.5}>
         <IconButton
@@ -158,7 +117,7 @@ const ChatActionGroup: React.FC<ChatActionGroupProps> = ({
         </Tooltip>
       )}
 
-      {/* Compact mode: collapse Plan/History/WideMode into more dropdown */}
+      {/* Compact mode: collapse History/WideMode into more dropdown */}
       {isCompact && moreItems.length > 0 && (
         <Dropdown
           menu={{ items: moreItems }}
@@ -170,9 +129,6 @@ const ChatActionGroup: React.FC<ChatActionGroupProps> = ({
       )}
 
       <ChatSearchPanel open={searchOpen} onClose={() => setSearchOpen(false)} />
-      {planEnabled && (
-        <PlanPanel open={planOpen} onClose={() => setPlanOpen(false)} />
-      )}
     </Flex>
   );
 };

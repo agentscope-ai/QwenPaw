@@ -1,13 +1,16 @@
 {
   "id": "browser-mission",
   "name": "Browser Mission Loop",
-  "version": "1.0.0",
-  "type": "loop",
-  "description": "Browser automation loop skill — drives a browser to complete multi-step web tasks with doom-loop detection and budget control.",
+  "version": "2.0.0",
+  "description": "Browser automation loop — drives a browser to complete multi-step web tasks.",
   "author": "QwenPaw Team",
-  "entry_point": "plugin.py",
+  "entry": {
+    "backend": "plugin.py"
+  },
   "dependencies": [],
-  "min_version": "2.0.0",
+  "qwenpaw_version": {
+    "min": "2.0.0"
+  },
   "meta": {
     "command": "/browser-mission",
     "loop_skill": true,

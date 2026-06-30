@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import sys
 import time
 from pathlib import Path
 
@@ -782,6 +783,15 @@ def test_mcp_agent_scoped_routes_update_toggle_delete(app_server) -> None:
         assert update_client.status_code == 200, app_server.logs_tail()
         assert update_client.json().get("name") == "scoped mcp after"
         assert update_client.json().get("enabled") is False
+
+        # On Windows, PUT triggers a fire-and-forget
+        # reload_driver_best_effort that opens the yaml file in a
+        # background task. If PATCH toggle fires before that task
+        # finishes, os.replace in dump_card hits WinError 5 (target
+        # held open). POSIX allows rename-over-open, so this only
+        # affects Windows.
+        if sys.platform == "win32":
+            time.sleep(1.0)
 
         toggle_client = app_server.api_request(
             "PATCH",

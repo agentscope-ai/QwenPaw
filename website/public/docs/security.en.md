@@ -4,16 +4,20 @@ QwenPaw includes built-in security features to protect your agent from malicious
 
 ## Overview
 
-QwenPaw's security system consists of three core security layers:
+QwenPaw's security system consists of four core security layers:
 
 ```
 Security Architecture:
-├─ Tool Guard — Runtime tool call protection
+├─ Governance Policy — Runtime tool call protection
 │  Detects dangerous command patterns, injection attacks, and malicious operations
 │  using YAML regex rules plus a quote-aware shell evasion guardian
 │
 ├─ File Guard — Sensitive file access control
 │  Blocks agent access to protected files and directories
+│
+├─ Sandbox — OS kernel-level execution isolation
+│  Confines shell commands to a restricted filesystem view using
+│  platform-native mechanisms (Seatbelt / bubblewrap / Landlock)
 │
 └─ Skill Scanner — Pre-activation skill security scanning
    Scans for malicious code, hardcoded secrets, and security threats
@@ -24,8 +28,9 @@ Security Architecture:
 
 **Key concepts**:
 
-- **Tool Guard** inspects tool calls in real-time before execution, using YAML regex rules and a dedicated shell evasion guardian to detect dangerous patterns
+- **Governance Policy** inspects tool calls in real-time before execution, using YAML regex rules and a dedicated shell evasion guardian to detect dangerous patterns
 - **File Guard** operates independently to protect sensitive files and directories from unauthorized access
+- **Sandbox** executes shell commands inside an OS kernel-enforced isolation boundary, restricting filesystem access to only declared paths
 - **Skill Scanner** runs before skills are enabled to detect malicious code and security threats
 - **Web Authentication** (optional) controls access to the Console interface
 
@@ -333,6 +338,148 @@ In the Console under **Settings → Security → File Guard** tab, you can:
 - **Remove protection** — Click the delete button to remove paths that no longer need protection
 - **Save configuration** — Click "Save" to persist changes to `config.json`; **changes take effect immediately**
 - **Reset changes** — Click "Reset" to revert to the last saved state
+
+---
+
+## Sandbox
+
+The **Sandbox** provides OS kernel-level execution isolation for shell commands. When the governance layer decides a tool call should run in a sandbox, commands execute inside a restricted filesystem view where only explicitly declared paths are accessible.
+
+### How it works
+
+The sandbox sits between the governance decision and actual command execution:
+
+```
+Tool call flow:
+  1. Governance Policy → pattern detection + policy evaluation (ALLOW / DENY / ASK / SANDBOX_FALLBACK)
+  2. Sandbox           → kernel-enforced execution isolation (runtime)
+  3. Result            → violation detection + output capture
+```
+
+**Division of responsibility**:
+
+- **Governance Policy** = pattern detection + rule-based policy evaluation before execution (regex signatures, shell evasion heuristics, user/builtin rules)
+- **File Guard** = path-level access control (blocks specific files/dirs)
+- **Sandbox** = runtime kernel isolation (the command literally cannot see or write to paths outside the whitelist)
+
+Even if a command passes Tool Guard and File Guard checks, the sandbox ensures it cannot access anything beyond its declared filesystem view at the OS level.
+
+### Supported platforms
+
+QwenPaw automatically detects the best available sandbox backend on startup:
+
+| Platform | Backend                    | Mechanism                                          | Detection                                |
+| -------- | -------------------------- | -------------------------------------------------- | ---------------------------------------- |
+| macOS    | **Seatbelt**               | `sandbox-exec` with S-expression profiles          | `sandbox-exec` binary on PATH            |
+| Linux    | **Bubblewrap** (preferred) | Mount namespaces + user namespaces + PID namespace | `bwrap` binary + user namespace support  |
+| Linux    | **Landlock** (fallback)    | Landlock LSM kernel module (5.13+)                 | Kernel version + LSM probe + ABI syscall |
+| Windows  | Experimental               | Under development                                  | —                                        |
+| Any      | **None**                   | No isolation (passthrough)                         | Used when no backend is available        |
+
+**Probe priority on Linux**: bubblewrap > Landlock > None. If `bwrap` is installed and user namespaces work, bubblewrap is chosen. Otherwise falls back to Landlock if the kernel supports it.
+
+**Capability comparison**:
+
+| Capability               | Seatbelt (macOS)   | Bubblewrap (Linux)       | Landlock (Linux)     |
+| ------------------------ | ------------------ | ------------------------ | -------------------- |
+| Filesystem read control  | Yes                | Yes                      | Yes                  |
+| Filesystem write control | Yes                | Yes                      | Yes                  |
+| deny_paths invisible     | No (access denied) | Yes (not mounted)        | No (access denied)   |
+| PID namespace isolation  | No                 | Yes                      | No                   |
+| Minimal /dev             | Yes (allowlist)    | Yes (synthetic devtmpfs) | No                   |
+| Network control          | Yes (allow/deny)   | Planned                  | No (requires ABI v4) |
+
+### Isolation model
+
+The sandbox uses a **deny-default whitelist** model:
+
+1. **Base filesystem**: By default, everything is either read-only (`allow_read_all=True`) or invisible (`allow_read_all=False`)
+2. **Writable paths**: Only explicitly declared `mounts` with `writable=True` can be written to (typically just the workspace directory)
+3. **Denied paths**: Paths in `deny_paths` are blocked even if they would otherwise be readable:
+   - Bubblewrap: path is not mounted at all (invisible, `ls` shows nothing)
+   - Landlock/Seatbelt: access returns `Permission denied`
+4. **Minimal /dev**: Only essential device nodes are available (`/dev/null`, `/dev/zero`, `/dev/urandom`, `/dev/tty`)
+5. **PID isolation** (Bubblewrap only): processes inside the sandbox cannot see host PIDs
+
+### Configuration
+
+Sandbox configuration is compiled automatically by the governance policy engine. Users typically do not need to set these values manually. The key fields are:
+
+| Field             | Type   | Default                     | Description                                                        |
+| ----------------- | ------ | --------------------------- | ------------------------------------------------------------------ |
+| `mode`            | string | auto-detected               | `seatbelt`, `bubblewrap`, `landlock`, or `none`                    |
+| `workspace_dir`   | string | agent workspace             | Primary working directory (always writable)                        |
+| `mounts`          | list   | workspace only              | Declared filesystem paths with permissions                         |
+| `deny_paths`      | list   | `["~/.ssh", "~/.aws", ...]` | Sensitive paths to block                                           |
+| `allow_read_all`  | bool   | `true`                      | If true, entire filesystem is readable by default (deny-list mode) |
+| `network_allow`   | list   | `["*"]`                     | Network access policy (currently allows all)                       |
+| `timeout_seconds` | int    | `30`                        | Maximum execution time before kill                                 |
+| `env_vars`        | dict   | `{}`                        | Additional environment variables for sandboxed process             |
+
+**MountSpec** entries in `mounts`:
+
+| Field        | Type   | Default | Description                           |
+| ------------ | ------ | ------- | ------------------------------------- |
+| `path`       | string | —       | Filesystem path                       |
+| `writable`   | bool   | `false` | Allow write access                    |
+| `executable` | bool   | `true`  | Allow executing binaries (macOS only) |
+
+### Violation detection
+
+When a sandboxed command attempts to access a path outside its allowed view, the OS kernel blocks the operation. QwenPaw detects these violations by matching stderr patterns:
+
+| Platform   | Detection patterns                                                               |
+| ---------- | -------------------------------------------------------------------------------- |
+| Seatbelt   | `deny(N) file-read-data`, `Sandbox:`, `sandbox-exec:`, `Operation not permitted` |
+| Bubblewrap | `Permission denied`, `bwrap:`, `Operation not permitted`, `EACCES`               |
+| Landlock   | `Permission denied`, `Operation not permitted`                                   |
+
+When a violation is detected:
+
+1. The `sandbox_violation` field is populated in the execution result
+2. The governance layer logs the violation
+3. Depending on policy, the agent may be prompted to request user approval for expanded access
+
+### Current limitations
+
+- **Network isolation**: Not implemented in the current version. All sandboxed processes have full network access regardless of `network_allow` settings. Network namespace isolation (`--unshare-net` for bubblewrap) is planned.
+- **Resource limits**: `max_processes` and `max_memory_mb` fields exist in the config but are not enforced by any current backend.
+- **Windows**: Native Windows sandbox support is experimental and not production-ready.
+- **deny_paths for files (Bubblewrap)**: Individual files in `deny_paths` appear as empty (bound to `/dev/null`) rather than non-existent. Directory-level deny uses `--tmpfs` and is truly invisible.
+
+### Troubleshooting
+
+**macOS: `sandbox-exec` reports syntax error**
+
+The Seatbelt profile uses S-expression syntax. If you see `expecting ')'` errors, this typically indicates a malformed profile. Check that the `deny_paths` entries do not contain special characters (quotes, newlines, backslashes).
+
+**Linux: bwrap probe failed**
+
+Bubblewrap requires user namespace support. Check:
+
+```bash
+# Verify bwrap is installed
+which bwrap
+
+# Check user namespaces are enabled
+cat /proc/sys/kernel/unprivileged_userns_clone
+# Should output: 1
+
+# Manual probe
+bwrap --ro-bind / / --dev /dev --unshare-user --unshare-pid --proc /proc -- /bin/echo OK
+```
+
+If user namespaces are disabled (Docker containers, some hardened kernels), QwenPaw automatically falls back to Landlock.
+
+**Verifying sandbox is active**
+
+Check the governance log (`qwenpaw.log`) for lines containing:
+
+```
+governance decision: tool=Bash target="..." action=sandbox_fallback sandbox=bubblewrap ...
+```
+
+The `sandbox=` field shows which backend is actually being used. If it shows `-`, sandbox is not active for that call.
 
 ---
 

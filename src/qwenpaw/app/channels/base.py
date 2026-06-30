@@ -130,6 +130,7 @@ class BaseChannel(ABC):
         allow_from: Optional[list] = None,
         deny_message: str = "",
         require_mention: bool = False,
+        no_text_debounce: bool = True,
         streaming_enabled: bool = False,
         access_control_dm: bool = False,
         access_control_group: bool = False,
@@ -139,6 +140,7 @@ class BaseChannel(ABC):
         self._show_tool_details = show_tool_details
         self._filter_tool_messages = filter_tool_messages
         self._filter_thinking = filter_thinking
+        self._no_text_debounce = no_text_debounce
         self.streaming_enabled = streaming_enabled
         # Legacy fields — stored for backward compat but not used for
         # filtering (new ACL gate handles access control).
@@ -308,6 +310,9 @@ class BaseChannel(ABC):
         Audio-only messages bypass debounce and are processed immediately
         (voice messages are standalone user input, not partial uploads).
         """
+        if not self._no_text_debounce:
+            pending = self._pending_content_by_session.pop(session_id, [])
+            return (True, pending + list(content_parts))
         if not self._content_has_text(content_parts):
             if self._content_has_audio(content_parts):
                 # Audio-only messages (e.g. voice messages) should be
@@ -1004,6 +1009,40 @@ class BaseChannel(ABC):
             return out
         return value
 
+    @staticmethod
+    def _strip_event_headlines(event: Any, fallback: str) -> str:
+        """Drop scroll headlines (``<!-- ⟦ … ⟧ -->``) from an SSE payload.
+
+        Channels strip headlines via ``MessageRenderer``, but this raw-event
+        SSE path (console + web UI) bypasses it, so the comment leaks into the
+        rendered chat. We strip a dumped *copy* here — the live event, the
+        persisted ``conversation_history`` row, and the durable index all keep
+        the headline verbatim (those go through separate paths). A no-op on any
+        text block that holds no headline, so user/tool text is untouched.
+        """
+        from qwenpaw.agents.context.scroll.serialize import strip_headline
+
+        try:
+            payload = event.model_dump(mode="json")
+        except Exception:  # noqa: BLE001 - fall back to the unstripped data
+            return fallback
+
+        def walk(node: Any) -> None:
+            if isinstance(node, dict):
+                if node.get("type") == "text" and isinstance(
+                    node.get("text"),
+                    str,
+                ):
+                    node["text"] = strip_headline(node["text"])
+                for value in node.values():
+                    walk(value)
+            elif isinstance(node, list):
+                for value in node:
+                    walk(value)
+
+        walk(payload)
+        return json.dumps(payload, ensure_ascii=False, default=str)
+
     def _serialize_event_for_sse(self, event: Any) -> str:
         try:
             if hasattr(event, "model_dump_json"):
@@ -1012,6 +1051,12 @@ class BaseChannel(ABC):
                 data = event.json()
             else:
                 data = json.dumps({"text": str(event)}, ensure_ascii=True)
+
+            # Headlines reach the UI only through this raw-event path; rewrite
+            # to strip them, but only when a fence marker is actually present
+            # so the common (headline-free) event pays nothing.
+            if hasattr(event, "model_dump") and ("⟦" in data or "〚" in data):
+                data = self._strip_event_headlines(event, data)
 
             return self._sanitize_surrogate_text(data)
 
@@ -1058,6 +1103,7 @@ class BaseChannel(ABC):
         on_reply_sent: OnReplySent = None,
         show_tool_details: bool = True,
         filter_tool_messages: bool = False,
+        no_text_debounce: bool = True,
         filter_thinking: bool = False,
     ) -> "BaseChannel":
         raise NotImplementedError
@@ -1890,3 +1936,61 @@ class BaseChannel(ABC):
             session_id=session_id,
         )
         await self.send_message_content(to_handle, event, meta)
+
+    async def send_approval_notification(
+        self,
+        *,
+        session_id: str,
+        user_id: str,
+        request_id: str,
+        tool_name: str,
+        severity: str,
+        result_summary: str,
+        channel_meta: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        """Push a tool-guard approval notification.
+
+        Constructs a mock event with metadata.message_type=tool_guard_approval
+        so card-capable channels render interactive cards, while others fall
+        back to plain text.
+        """
+        from qwenpaw.schemas import AgentRequest, Event
+
+        to_handle = self.to_handle_from_target(
+            user_id=user_id,
+            session_id=session_id,
+        )
+        send_meta: Dict[str, Any] = dict(channel_meta or {})
+        send_meta.setdefault("session_id", session_id)
+        send_meta.setdefault("user_id", user_id)
+        bot_prefix = getattr(self, "bot_prefix", None) or getattr(
+            self,
+            "_bot_prefix",
+            "",
+        )
+        if bot_prefix and "bot_prefix" not in send_meta:
+            send_meta["bot_prefix"] = bot_prefix
+
+        event = Event(
+            object="message",
+            status=RunStatus.Completed,
+            metadata={
+                "metadata": {
+                    "message_type": "tool_guard_approval",
+                    "approval_request_id": request_id,
+                    "tool_name": tool_name,
+                    "severity": severity,
+                },
+            },
+            content=[
+                TextContent(type=ContentType.TEXT, text=result_summary),
+            ],
+        )
+        request = AgentRequest(session_id=session_id, user_id=user_id)
+
+        await self.on_event_message_completed(
+            request,
+            to_handle,
+            event,
+            send_meta,
+        )

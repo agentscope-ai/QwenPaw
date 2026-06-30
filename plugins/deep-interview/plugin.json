@@ -1,13 +1,16 @@
 {
   "id": "deep-interview",
   "name": "Deep Interview",
-  "version": "1.0.0",
-  "type": "loop",
+  "version": "2.0.0",
   "description": "Socratic interview — deep-dive into requirements with ambiguity scoring.",
   "author": "QwenPaw Team",
-  "entry_point": "plugin.py",
+  "entry": {
+    "backend": "plugin.py"
+  },
   "dependencies": [],
-  "min_version": "2.0.0",
+  "qwenpaw_version": {
+    "min": "2.0.0"
+  },
   "meta": {
     "command": "/deep-interview",
     "loop_skill": true,

@@ -754,6 +754,10 @@
     "every": "Intervalo",
     "everyRequired": "Obrigatório",
     "everyMin": "Deve ser no mínimo 1",
+    "timeoutSeconds": "Tempo limite de execução (segundos)",
+    "timeoutRequired": "Obrigatório",
+    "timeoutMin": "Deve ser no mínimo 1",
+    "timeoutMax": "Deve ser no máximo 3600",
     "unitMinutes": "Minutos",
     "unitHours": "Horas",
     "target": "Destino da resposta",
@@ -993,6 +997,8 @@
     "filterToolMessagesTooltip": "Show tool call and output messages to users (turn off to hide)",
     "filterThinking": "Mostrar Thinking",
     "filterThinkingTooltip": "Show model thinking/reasoning content to users (turn off to hide)",
+    "noTextDebounce": "Debounce sem texto",
+    "noTextDebounceTooltip": "Quando ativado, mensagens apenas com mídia (imagem/vídeo/arquivo) são armazenadas em buffer até que uma mensagem de texto chegue, depois mescladas. Desative para processar todas as mensagens imediatamente. Mensagens de voz são sempre processadas imediatamente.",
     "streamingEnabled": "Saída em Streaming",
     "streamingEnabledDingtalkHint": "Apenas efetivo quando o tipo de mensagem é Card",
     "streamingEnabledFeishuHint": "Requer habilitar a permissão cardkit:card:write na página de gerenciamento de permissões da Plataforma Aberta Feishu",
@@ -1682,8 +1688,6 @@
     "shellCommandExecutable": "Shell Executável",
     "shellCommandExecutableTooltip": "Caminho para o shell usado pelo execute_shell_command. Linux/macOS: ex. /bin/bash, /bin/zsh. Windows: suporta powershell.exe, pwsh.exe ou shells POSIX como Git Bash. Quando vazio, usa a variável de ambiente $SHELL, depois o padrão da plataforma (/bin/sh no Unix, cmd.exe no Windows).",
     "shellCommandExecutablePlaceholder": "ex.: /bin/bash ou powershell.exe (vazio = detecção automática)",
-    "planMode": "Plan Modo",
-    "planModeTooltip": "Enable plan mode to use /plan <description> for structured task planning. When enabled, plan tools are registered and the plan panel becomes available.",
     "maxInputLength": "Max Input Length",
     "maxInputLengthTooltip": "Maximum input length (tokens) for the model context window",
     "maxInputLengthPlaceholder": "Enter max input length",
@@ -1846,6 +1850,10 @@
     "autoMemoryIntervalPlaceholder": "Leave empty to disable periodic auto memory",
     "contextManagerBackend": "Context Manager Backend",
     "contextManagerBackendTooltip": "Backend type for the context manager. Currently only Light is supported.",
+    "contextStrategy": "Context Strategy",
+    "contextStrategyTooltip": "How the agent manages long context. Scroll (recommended) persists evicted turns to a durable history store and recalls them on demand; Native uses in-place compression. Restart QwenPaw for changes to take effect.",
+    "contextStrategyScroll": "Scroll",
+    "contextStrategyNative": "Native",
     "backendRestartWarning": "Switching backends does not support hot reload. Save and restart QwenPaw for changes to take effect."
   },
   "tools": {
@@ -1981,9 +1989,6 @@
       },
       "skills": {
         "description": "List chat-available skills and expose explicit skill commands"
-      },
-      "plan": {
-        "description": "Create a structured plan to decompose the task into subtasks"
       }
     },
     "attachments": {
@@ -2389,19 +2394,6 @@
     "marketDetails": "Details",
     "marketDownloads": "Downloads",
     "marketDeveloper": "Developer"
-  },
-  "plan": {
-    "title": "Plan",
-    "noPlan": "Nao Ativo plan",
-    "noPlanHint": "Use /plan <description> to create a plan",
-    "progress": "Progress",
-    "outcome": "Outcome",
-    "state": {
-      "todo": "Todo",
-      "in_progress": "In Progress",
-      "done": "Done",
-      "abandoned": "Abandoned"
-    }
   },
   "inbox": {
     "title": "Colheita diária de IA",

@@ -1,13 +1,16 @@
 {
   "id": "ultrawork",
   "name": "Ultrawork Parallel Execution",
-  "version": "1.0.0",
-  "type": "loop",
+  "version": "2.0.0",
   "description": "Parallel delegation — decompose into todos and complete them all.",
   "author": "QwenPaw Team",
-  "entry_point": "plugin.py",
+  "entry": {
+    "backend": "plugin.py"
+  },
   "dependencies": [],
-  "min_version": "2.0.0",
+  "qwenpaw_version": {
+    "min": "2.0.0"
+  },
   "meta": {
     "command": "/ultrawork",
     "loop_skill": true,

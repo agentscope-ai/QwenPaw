@@ -25,6 +25,7 @@ from helpers import (
     MockLLMHandler,
     clean_inbox,
     create_agent,
+    default_http_timeout,
     delete_agent_quietly,
     register_mock_provider,
     scoped,
@@ -32,7 +33,7 @@ from helpers import (
     unregister_mock_provider,
 )
 
-_HTTP_TIMEOUT = 15.0
+_HTTP_TIMEOUT = default_http_timeout(15.0)
 
 
 @pytest.fixture(scope="module")

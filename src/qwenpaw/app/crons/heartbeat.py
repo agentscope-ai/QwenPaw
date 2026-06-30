@@ -48,15 +48,33 @@ _EVERY_PATTERN = re.compile(
 _CRON_FIELD_PATTERN = re.compile(
     r"^[\d\*\-/,]+$",
 )
+# DOW field accepts named abbreviations (mon-sun) per
+# POSIX/APScheduler.  Supports: numeric cron chars, named
+# abbreviations, or named ranges like mon-fri.
+_DOW_NAMED = "(?:mon|tue|wed|thu|fri|sat|sun)"
+_DOW_FIELD_PATTERN = re.compile(
+    r"^(?:[\d\*\-/,]+|" + _DOW_NAMED + r"(?:-" + _DOW_NAMED + r")?(/[\d]+)?$)",
+    re.IGNORECASE,
+)
 _HEARTBEAT_SOURCE_ID = "_heartbeat"
 
 
 def is_cron_expression(every: str) -> bool:
-    """Return True if *every* looks like a 5-field cron expression."""
+    """Return True if *every* looks like a 5-field cron expression.
+
+    The first four fields (minute, hour, day, month) accept only numeric
+    cron characters.  The fifth field (day-of-week) additionally accepts
+    the three-letter English abbreviations *mon*–*sun* which are valid in
+    both POSIX cron and APScheduler's ``CronTrigger``.
+    """
     parts = (every or "").strip().split()
     if len(parts) != 5:
         return False
-    return all(_CRON_FIELD_PATTERN.match(p) for p in parts)
+    # First 4 fields: minute, hour, day, month — numeric only
+    if not all(_CRON_FIELD_PATTERN.match(p) for p in parts[:4]):
+        return False
+    # 5th field: day-of-week — numeric OR named abbreviations
+    return bool(_DOW_FIELD_PATTERN.match(parts[4]))
 
 
 def parse_heartbeat_cron(every: str) -> tuple:
@@ -182,6 +200,7 @@ async def run_heartbeat_once(
     if not _in_active_hours(hb.active_hours):
         logger.debug("heartbeat skipped: outside active hours")
         return
+    timeout_seconds = hb.timeout_seconds
 
     # Use workspace_dir if provided, otherwise fall back to global path
     if workspace_dir:
@@ -241,9 +260,15 @@ async def run_heartbeat_once(
                     )
 
             try:
-                await asyncio.wait_for(_run_and_dispatch(), timeout=120)
+                await asyncio.wait_for(
+                    _run_and_dispatch(),
+                    timeout=timeout_seconds,
+                )
             except asyncio.TimeoutError:
-                logger.warning("heartbeat run timed out")
+                logger.warning(
+                    "heartbeat run timed out after %ss",
+                    timeout_seconds,
+                )
             return
 
     if target == HEARTBEAT_TARGET_INBOX:
@@ -274,7 +299,7 @@ async def run_heartbeat_once(
                 pass
 
         try:
-            await asyncio.wait_for(_run_only(), timeout=120)
+            await asyncio.wait_for(_run_only(), timeout=timeout_seconds)
             delta = await append_trace_from_session_delta(
                 run_id=run_id,
                 runner=workspace,
@@ -303,7 +328,10 @@ async def run_heartbeat_once(
                 },
             )
         except asyncio.TimeoutError:
-            logger.warning("heartbeat run timed out")
+            logger.warning(
+                "heartbeat run timed out after %ss",
+                timeout_seconds,
+            )
             await append_trace_from_session_delta(
                 run_id=run_id,
                 runner=workspace,
@@ -315,7 +343,7 @@ async def run_heartbeat_once(
             await finalize_trace(
                 run_id,
                 status="timeout",
-                error="timed out after 120s",
+                error=f"timed out after {timeout_seconds}s",
             )
             await append_inbox_event(
                 agent_id=agent_id,
@@ -325,7 +353,7 @@ async def run_heartbeat_once(
                 status="error",
                 severity="error",
                 title="Heartbeat timed out",
-                body="Heartbeat run timed out after 120s.",
+                body=f"Heartbeat run timed out after {timeout_seconds}s.",
                 payload={
                     "run_id": run_id,
                     "target": target,
@@ -367,6 +395,12 @@ async def run_heartbeat_once(
             pass
 
     try:
-        await asyncio.wait_for(_run_without_dispatch(), timeout=120)
+        await asyncio.wait_for(
+            _run_without_dispatch(),
+            timeout=timeout_seconds,
+        )
     except asyncio.TimeoutError:
-        logger.warning("heartbeat run timed out")
+        logger.warning(
+            "heartbeat run timed out after %ss",
+            timeout_seconds,
+        )

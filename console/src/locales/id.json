@@ -180,9 +180,6 @@
       },
       "skills": {
         "description": "Tampilkan skill yang tersedia untuk chat dan perintah skill eksplisit"
-      },
-      "plan": {
-        "description": "Buat rencana terstruktur untuk memecah tugas menjadi subtugas"
       }
     },
     "attachments": {
@@ -642,6 +639,10 @@
     "every": "Interval",
     "everyRequired": "Wajib",
     "everyMin": "Minimal 1",
+    "timeoutSeconds": "Batas waktu eksekusi (detik)",
+    "timeoutRequired": "Wajib",
+    "timeoutMin": "Minimal 1",
+    "timeoutMax": "Maksimal 3600",
     "unitMinutes": "Menit",
     "unitHours": "Jam",
     "target": "Target balasan",
@@ -1285,19 +1286,6 @@
     "timeoutAutoDenied": "Waktu habis, otomatis ditolak",
     "acknowledge": "Mengerti"
   },
-  "plan": {
-    "title": "Rencana",
-    "noPlan": "Tidak ada rencana aktif",
-    "noPlanHint": "Gunakan /plan <deskripsi> untuk membuat rencana",
-    "progress": "Progres",
-    "outcome": "Hasil",
-    "state": {
-      "todo": "Akan Dikerjakan",
-      "in_progress": "Sedang Dikerjakan",
-      "done": "Selesai",
-      "abandoned": "Dibatalkan"
-    }
-  },
   "account": {
     "title": "Akun",
     "currentPassword": "Kata Sandi Saat Ini",
@@ -1843,8 +1831,6 @@
     "shellCommandExecutable": "Shell yang Dapat Dieksekusi",
     "shellCommandExecutableTooltip": "Jalur ke shell yang digunakan oleh execute_shell_command.",
     "shellCommandExecutablePlaceholder": "mis. /bin/bash atau powershell.exe (kosong = deteksi otomatis)",
-    "planMode": "Mode Rencana",
-    "planModeTooltip": "Aktifkan mode rencana untuk menggunakan /plan <deskripsi> untuk perencanaan tugas terstruktur.",
     "maxInputLength": "Panjang Input Maksimum",
     "maxInputLengthTooltip": "Panjang input maksimum (token) untuk jendela konteks model",
     "maxInputLengthPlaceholder": "Masukkan panjang input maksimum",
@@ -2009,6 +1995,10 @@
     "recursiveFileWatcherTooltip": "Pantau direktori memori secara rekursif untuk menyertakan file di subdirektori.",
     "contextManagerBackend": "Backend Manajer Konteks",
     "contextManagerBackendTooltip": "Jenis backend untuk manajer konteks. Saat ini hanya Light yang didukung.",
+    "contextStrategy": "Strategi Konteks",
+    "contextStrategyTooltip": "Cara agen mengelola konteks panjang. Scroll (disarankan) menyimpan giliran yang dievakuasi ke penyimpanan riwayat permanen dan memanggilnya kembali sesuai kebutuhan; Native menggunakan kompresi di tempat. Mulai ulang QwenPaw agar perubahan diterapkan.",
+    "contextStrategyScroll": "Scroll",
+    "contextStrategyNative": "Native",
     "backendRestartWarning": "Mengalihkan backend tidak mendukung hot reload. Simpan dan restart QwenPaw agar perubahan berlaku.",
     "adbpgMemoryTitle": "Memori Jangka Panjang ADBPG",
     "adbpgConfig": {
