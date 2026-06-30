@@ -260,6 +260,7 @@
     "desktop": "Desktop App",
     "demo": "Feature Demos",
     "console": "Console",
+    "tui": "Terminal UI",
     "multiAgent": "Multi-Agent",
     "models": "Models",
     "channels": "Channels",

@@ -260,6 +260,7 @@
     "desktop": "桌面应用",
     "demo": "功能演示",
     "console": "控制台",
+    "tui": "终端界面",
     "multiAgent": "多智能体",
     "models": "模型",
     "channels": "频道配置",
