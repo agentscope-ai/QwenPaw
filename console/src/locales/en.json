@@ -2189,7 +2189,15 @@
       "noConversations": "No conversations yet",
       "loadingConversations": "Loading…"
     },
-    "conversationHistory": "Conversation History"
+    "conversationHistory": "Conversation History",
+    "history": {
+      "empty": "No chat history"
+    },
+    "sessionGroup": {
+      "today": "Today",
+      "recent": "Last 7 days",
+      "earlier": "Earlier"
+    }
   },
   "security": {
     "parent": "Settings",

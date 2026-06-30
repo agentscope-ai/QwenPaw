@@ -68,22 +68,29 @@ MODELSCOPE_MODELS: List[ModelInfo] = [
 
 DASHSCOPE_MODELS: List[ModelInfo] = [
     ModelInfo(
-        id="qwen3-max",
-        name="Qwen3 Max",
+        id="qwen3.7-max",
+        name="Qwen3.7 Max",
         supports_image=False,
         supports_video=False,
         probe_source="documentation",
     ),
     ModelInfo(
-        id="qwen3-235b-a22b-thinking-2507",
-        name="Qwen3 235B A22B Thinking",
-        supports_image=False,
-        supports_video=False,
+        id="qwen3.7-plus",
+        name="Qwen3.7 Plus",
+        supports_image=True,
+        supports_video=True,
         probe_source="documentation",
     ),
     ModelInfo(
-        id="deepseek-v3.2",
-        name="DeepSeek-V3.2",
+        id="qwen3.6-plus",
+        name="Qwen3.6 Plus",
+        supports_image=True,
+        supports_video=True,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="deepseek-v4-pro",
+        name="DeepSeek-V4 Pro",
         supports_image=False,
         supports_video=False,
         probe_source="documentation",

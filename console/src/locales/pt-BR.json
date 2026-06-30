@@ -2072,7 +2072,15 @@
       "noConversations": "Sem conversas",
       "loadingConversations": "Carregando…"
     },
-    "conversationHistory": "Histórico de conversas"
+    "conversationHistory": "Histórico de conversas",
+    "history": {
+      "empty": "Sem histórico de conversas"
+    },
+    "sessionGroup": {
+      "today": "Hoje",
+      "recent": "Últimos 7 dias",
+      "earlier": "Anteriores"
+    }
   },
   "security": {
     "parent": "Configuracoes",

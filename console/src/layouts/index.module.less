@@ -56,7 +56,7 @@
 .sider {
   background: #f9f8f4 !important;
   overflow: auto;
-  height: calc(100vh - 64px);
+  height: calc(100vh - 64px) !important;
   padding: 0 16px;
   display: flex;
   flex-direction: column;
@@ -82,8 +82,21 @@
   -ms-overflow-style: none;
   /* IE and Edge */
 
+  // Ant Design wraps children in .qwenpaw-layout-sider-children; make it a
+  // flex column so our direct children (agentScopedSection, sessionList,
+  // collapseToggleContainer) become flex items and fill the sider correctly.
+  :global {
+    .qwenpaw-layout-sider-children {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+    }
+  }
+
   // Agent-scoped section: selector + Chat + Control + Workspace
   .agentScopedSection {
+    flex-shrink: 0;
     background: rgba(43, 18, 0, 0.02);
     border-radius: 12px;
     border: 1px solid rgba(0, 0, 0, 0.06);
@@ -152,6 +165,16 @@
 
     scrollbar-width: none;
     -ms-overflow-style: none;
+  }
+
+  &.siderSimple {
+    overflow: hidden;
+
+    :global {
+      .qwenpaw-layout-sider-children {
+        overflow: hidden;
+      }
+    }
   }
 
   &.siderCollapsed {
@@ -387,6 +410,7 @@
 
 // ─── Auth actions (account + logout) ──────────────────────────────────────────
 .authActions {
+  flex-shrink: 0;
   padding: 12px 16px;
   border-top: 1px solid #f0f0f0;
 }
@@ -660,7 +684,7 @@
 
 @media (max-width: 768px) {
   .sider {
-    height: calc(100vh - 56px);
+    height: calc(100vh - 56px) !important;
     padding: 0 8px;
     flex: 0 0 auto !important;
     max-width: 240px !important;

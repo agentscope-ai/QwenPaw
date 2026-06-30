@@ -1,13 +1,16 @@
 # -*- coding: utf-8 -*-
-# pylint: disable=protected-access
+# pylint: disable=protected-access,too-few-public-methods
 from __future__ import annotations
 
 from types import SimpleNamespace
+from typing import Any, AsyncGenerator, cast
 
 import pytest
 
+from qwenpaw.providers.model_capability_cache import get_capability_cache
 from qwenpaw.providers.retry_chat_model import (
     RETRYABLE_STATUS_CODES,
+    RetryChatModel,
     RetryConfig,
     RateLimitConfig,
     _compute_backoff,
@@ -19,6 +22,40 @@ from qwenpaw.providers.retry_chat_model import (
     _normalize_rate_limit_config,
     _normalize_retry_config,
 )
+
+
+async def _failing_reasoning_stream() -> AsyncGenerator[Any, None]:
+    for chunk in ():
+        yield chunk
+    exc = Exception("The `reasoning_content` in thinking mode is required")
+    exc.status_code = 400  # type: ignore[attr-defined]
+    raise exc
+
+
+async def _successful_stream() -> AsyncGenerator[Any, None]:
+    yield SimpleNamespace(content="ok")
+
+
+class _ReasoningRetryStreamModel:
+    model = "reasoning-stream-test"
+    stream = True
+    context_size = 32768
+    parameters = None
+    _provider_id = "unit"
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    async def __call__(
+        self,
+        *_args: Any,
+        **_kwargs: Any,
+    ) -> AsyncGenerator[Any, None]:
+        self.calls += 1
+        if self.calls == 1:
+            return _failing_reasoning_stream()
+        return _successful_stream()
+
 
 # ---------------------------------------------------------------------------
 # _is_retryable
@@ -251,3 +288,41 @@ def test_normalize_rate_limit_config_clamps() -> None:
     assert result.pause_seconds >= 1.0
     assert result.jitter_range >= 0.0
     assert result.acquire_timeout >= 10.0
+
+
+# ---------------------------------------------------------------------------
+# RetryChatModel streaming reasoning_content recovery
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_stream_recovers_missing_reasoning_content_error() -> None:
+    cache = get_capability_cache()
+    model_key = "unit:reasoning-stream-test"
+    cache.clear(model_key)
+
+    try:
+        inner = _ReasoningRetryStreamModel()
+        model = RetryChatModel(
+            inner,  # type: ignore[arg-type]
+            retry_config=RetryConfig(enabled=False),
+            rate_limit_config=RateLimitConfig(
+                max_concurrent=1,
+                max_qpm=0,
+                pause_seconds=1.0,
+                jitter_range=0.0,
+                acquire_timeout=10.0,
+            ),
+        )
+        messages = [{"role": "assistant", "content": "previous reply"}]
+
+        result = await model(messages=messages)
+        stream = cast(AsyncGenerator[Any, None], result)
+        chunks = [chunk async for chunk in stream]
+
+        assert [chunk.content for chunk in chunks] == ["ok"]
+        assert inner.calls == 2
+        assert messages[0]["reasoning_content"] == " "
+        assert cache.get(model_key, "needs_reasoning_content") is True
+    finally:
+        cache.clear(model_key)

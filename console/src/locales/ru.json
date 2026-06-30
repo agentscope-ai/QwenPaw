@@ -1871,7 +1871,15 @@
       "noConversations": "Нет диалогов",
       "loadingConversations": "Загрузка…"
     },
-    "conversationHistory": "История диалогов"
+    "conversationHistory": "История диалогов",
+    "history": {
+      "empty": "Нет истории чатов"
+    },
+    "sessionGroup": {
+      "today": "Сегодня",
+      "recent": "За 7 дней",
+      "earlier": "Ранее"
+    }
   },
   "security": {
     "parent": "Настройки",

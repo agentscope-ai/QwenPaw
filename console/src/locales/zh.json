@@ -2047,7 +2047,15 @@
       "noConversations": "暂无对话",
       "loadingConversations": "加载中…"
     },
-    "conversationHistory": "历史对话"
+    "conversationHistory": "历史对话",
+    "history": {
+      "empty": "暂无聊天记录"
+    },
+    "sessionGroup": {
+      "today": "今天",
+      "recent": "近 7 天",
+      "earlier": "更早"
+    }
   },
   "security": {
     "parent": "设置",
