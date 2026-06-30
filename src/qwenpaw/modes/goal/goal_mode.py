@@ -756,9 +756,6 @@ def _create_doom_loop_gate(
     or config is unavailable.
     """
     try:
-        from ...loop.doom_loop import (
-            DoomLoopDetector,
-        )
         from ...loop.gates import DoomLoopGate
 
         agent_cfg = getattr(workspace, "agent_config", None)
@@ -774,12 +771,9 @@ def _create_doom_loop_gate(
         if doom_cfg is None or not doom_cfg.enabled:
             return None
 
-        detector = DoomLoopDetector(
+        return DoomLoopGate(
             window_size=doom_cfg.window_size,
             similarity_threshold=(doom_cfg.similarity_threshold),
-        )
-        return DoomLoopGate(
-            detector=detector,
             stages=doom_cfg.stages,
         )
     except Exception:  # noqa: BLE001

@@ -7,9 +7,6 @@ from qwenpaw.config.config import (
     DoomLoopConfig,
     DoomLoopStageConfig,
 )
-from qwenpaw.loop.doom_loop import (
-    DoomLoopDetector,
-)
 from qwenpaw.loop.gates import (
     DoomLoopGate,
     StopAction,
@@ -21,10 +18,6 @@ class TestDoomLoopGate:
     """Multi-stage DoomLoopGate tests."""
 
     def _make_gate(self, stages=None):
-        detector = DoomLoopDetector(
-            window_size=3,
-            similarity_threshold=0.8,
-        )
         if stages is None:
             stages = [
                 DoomLoopStageConfig(
@@ -38,30 +31,28 @@ class TestDoomLoopGate:
                     prompt="Agent stuck",
                 ),
             ]
-        return (
-            DoomLoopGate(
-                detector=detector,
-                stages=stages,
-            ),
-            detector,
+        return DoomLoopGate(
+            window_size=3,
+            similarity_threshold=0.8,
+            stages=stages,
         )
 
     @pytest.mark.asyncio()
     async def test_no_doom_returns_none(self):
-        gate, detector = self._make_gate()
-        detector.record("tool_a", "h1", True)
-        detector.record("tool_b", "h2", True)
-        detector.record("tool_c", "h3", True)
+        gate = self._make_gate()
+        gate.record("tool_a", "h1")
+        gate.record("tool_b", "h2")
+        gate.record("tool_c", "h3")
         result = await gate.check({})
         assert result is None
         assert gate.continuation_prompt() == ""
 
     @pytest.mark.asyncio()
     async def test_stage1_warning(self):
-        gate, detector = self._make_gate()
-        detector.record("tool_a", "h1", True)
-        detector.record("tool_a", "h1", True)
-        detector.record("tool_a", "h1", True)
+        gate = self._make_gate()
+        gate.record("tool_a", "h1")
+        gate.record("tool_a", "h1")
+        gate.record("tool_a", "h1")
 
         await gate.check({})
         assert gate._consecutive_hits == 1
@@ -73,10 +64,10 @@ class TestDoomLoopGate:
 
     @pytest.mark.asyncio()
     async def test_stage2_stop(self):
-        gate, detector = self._make_gate()
-        detector.record("tool_a", "h1", True)
-        detector.record("tool_a", "h1", True)
-        detector.record("tool_a", "h1", True)
+        gate = self._make_gate()
+        gate.record("tool_a", "h1")
+        gate.record("tool_a", "h1")
+        gate.record("tool_a", "h1")
 
         for _ in range(3):
             result = await gate.check({})
@@ -89,28 +80,28 @@ class TestDoomLoopGate:
 
     @pytest.mark.asyncio()
     async def test_reset_on_ok(self):
-        gate, detector = self._make_gate()
-        detector.record("tool_a", "h1", True)
-        detector.record("tool_a", "h1", True)
-        detector.record("tool_a", "h1", True)
+        gate = self._make_gate()
+        gate.record("tool_a", "h1")
+        gate.record("tool_a", "h1")
+        gate.record("tool_a", "h1")
 
         await gate.check({})
         await gate.check({})
         assert gate._consecutive_hits == 2
 
-        detector.record("tool_b", "h2", True)
-        detector.record("tool_c", "h3", True)
-        detector.record("tool_d", "h4", True)
+        gate.record("tool_b", "h2")
+        gate.record("tool_c", "h3")
+        gate.record("tool_d", "h4")
         await gate.check({})
         assert gate._consecutive_hits == 0
         assert gate.continuation_prompt() == ""
 
     @pytest.mark.asyncio()
     async def test_warning_in_stop_handler(self):
-        gate, detector = self._make_gate()
-        detector.record("tool_a", "h1", True)
-        detector.record("tool_a", "h1", True)
-        detector.record("tool_a", "h1", True)
+        gate = self._make_gate()
+        gate.record("tool_a", "h1")
+        gate.record("tool_a", "h1")
+        gate.record("tool_a", "h1")
 
         handler = StopHandler()
         handler.register(gate)
@@ -143,10 +134,10 @@ class TestDoomLoopGate:
                 prompt="Final stop",
             ),
         ]
-        gate, detector = self._make_gate(stages)
-        detector.record("tool_a", "h1", True)
-        detector.record("tool_a", "h1", True)
-        detector.record("tool_a", "h1", True)
+        gate = self._make_gate(stages)
+        gate.record("tool_a", "h1")
+        gate.record("tool_a", "h1")
+        gate.record("tool_a", "h1")
 
         await gate.check({})
         assert gate.continuation_prompt() == "Mild warning"

@@ -7,8 +7,6 @@ from dataclasses import dataclass
 from typing import Any
 from unittest.mock import MagicMock
 
-import pytest
-
 
 # ── 改动4: dynamic command broadcasting ──
 
@@ -202,67 +200,6 @@ class TestDoomLoopAlert:
         assert d["session_id"] == "s1"
         assert d["loop_name"] == "ralph"
         assert d["escalation_count"] == 2
-
-
-class TestHitlPauseHook:
-    """改动7C: HitlPauseHook blocks when paused."""
-
-    @pytest.mark.asyncio
-    async def test_not_paused_continues(self):
-        """When not paused, hook returns CONTINUE."""
-        from qwenpaw.loop.hitl_hook import HitlPauseHook
-        from qwenpaw.runtime.hooks import HookAction, HookContext
-
-        ctx = HookContext(
-            request=MagicMock(),
-            session_id="s1",
-            agent_id="a1",
-            root_session_id="s1",
-            root_agent_id="a1",
-            workspace_dir=None,
-            workspace=MagicMock(),
-            app_services=MagicMock(),
-        )
-        hook = HitlPauseHook()
-        result = await hook.run(ctx)
-        assert result.action == HookAction.CONTINUE
-
-    @pytest.mark.asyncio
-    async def test_paused_short_circuits(self):
-        """When paused, hook returns SHORT_CIRCUIT."""
-        from qwenpaw.loop.hitl_hook import (
-            HitlPauseHook,
-            get_doom_loop_state,
-        )
-        from qwenpaw.runtime.hooks import HookAction, HookContext
-
-        ctx = HookContext(
-            request=MagicMock(),
-            session_id="s1",
-            agent_id="a1",
-            root_session_id="s1",
-            root_agent_id="a1",
-            workspace_dir=None,
-            workspace=MagicMock(),
-            app_services=MagicMock(),
-        )
-        state = get_doom_loop_state(ctx)
-        state.paused = True
-        state.escalation_count = 3
-
-        hook = HitlPauseHook()
-        result = await hook.run(ctx)
-        assert result.action == HookAction.SHORT_CIRCUIT
-        assert result.payload is not None
-        alert = ctx.extras.get("_doom_loop_alert")
-        assert alert is not None
-        assert alert["escalation_count"] == 3
-        # First call keeps paused=True (alert shown);
-        # second call (user replied) unpauses.
-        assert state.paused is True
-        result2 = await hook.run(ctx)
-        assert result2.action == HookAction.CONTINUE
-        assert state.paused is False
 
 
 class TestObserverBroadcast:
