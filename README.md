@@ -29,33 +29,37 @@
 
 </div>
 
-Your personal AI assistant — easy to install, deploy locally or in the cloud, connect across channels, extend with ease.
+Your personal AI assistant — deploy locally or in the cloud, extend with Skills & Plugins, connect across every channel.
 
 > **Core capabilities:**
 >
-> **Under your control** — Memory and personalization fully under your control. Deploy locally (data stays on your machine) or in the cloud (your chosen server). No third-party hosting, no data upload.
+> **Scroll context management** — Persistent, lossless context built on SQLite. Older turns are evicted — never summarized — and stay fully recallable on demand. Three-layer memory: working memory (live window), episodic memory (verbatim history), and semantic memory (ReMe knowledge distillation).
 >
-> **Skills extension** — Built-in scheduling, PDF/Office processing, news digest, and more; custom skills auto-loaded, no lock-in. Skills determine what QwenPaw can do.
+> **QwenPaw-Flash local models** — Purpose-trained 2B / 4B / 9B models optimized for agent scenarios. Run entirely on-device via the built-in QwenPaw Local (llama.cpp) runtime — no API key, no cloud dependency. Also supports Ollama and LM Studio.
 >
-> **Multi-agent collaboration** — Create multiple independent agents, each with their own role; enable collaboration skills for inter-agent communication to tackle complex tasks together.
+> **Multi-layer security** — Kernel-level Sandbox (Seatbelt on macOS, Bubblewrap / Landlock on Linux), Tool Guard with YAML rule engine, File Guard for sensitive-path protection, and Skill Scanner with block / warn / off modes.
 >
-> **Multi-layer security** — Tool guard, file access control, skill security scanning to ensure safe operation.
+> **Multi-agent & ACP** — Create independent agents with their own memory and skills; spawn sub-agents at runtime; communicate via Agent Communication Protocol (ACP) for cross-system orchestration.
 >
-> **Every channel** — DingTalk, Feishu, WeChat, Discord, Telegram, and more. One QwenPaw, connect as needed.
+> **Coding Mode** — Three-panel Web IDE with file tree, diff preview, and chat. Includes `lsp` (jump-to-definition / find-references) and `ast_search` (structural syntax queries) for code-aware collaboration.
 >
-> **Memory-evolving & proactive** — Agent learns from interactions, reflects on experience, and proactively serves you. Gets smarter the more you use it.
+> **Skills & Plugins** — Extensible skill system (scheduling, PDF/Office, news, browser, etc.) plus a plugin architecture (provider / middleware / hook / command / API / frontend). Plugin Market for one-click install.
+>
+> **Every channel** — DingTalk, Lark, WeChat, Discord, Telegram, iMessage, QQ, and more. One instance, all channels.
+>
+> **Fully under your control** — Deploy locally (data stays on your machine) or on your own server. No third-party hosting, no data upload.
 >
 > <details>
 > <summary><b>What you can do with QwenPaw</b></summary>
 >
 > <br>
 >
-> - **Social media**: Daily hot post digests (Xiaohongshu, Zhihu, Reddit), Bilibili/YouTube video summaries.
-> - **Productivity**: Email & newsletter highlights pushed to DingTalk/Feishu/QQ; email & calendar contact organization.
-> - **Creative & building**: Describe your goal before sleep, auto-execute, wake up to a prototype; full workflow from topic selection to final video.
-> - **Research & learning**: Track tech & AI news, personal knowledge base search and reuse.
-> - **Desktop & files**: Organize and search local files, read & summarize documents, request files in chat.
-> - **Explore more**: Combine Skills with scheduled tasks into your own agentic app.
+> - **Automation & scheduling**: Cron-driven workflows — news digests, report generation, multi-channel broadcasting — all on your schedule.
+> - **Code & development**: Coding Mode for reading, editing, reviewing, and testing inside a project; `lsp` + `ast_search` for precise navigation.
+> - **Document processing**: Read, write, and transform PDF, Word, Excel, and PowerPoint files with built-in skills.
+> - **Information gathering**: Web search, RSS aggregation, video summarization, and personal knowledge-base retrieval.
+> - **Multi-channel ops**: Push alerts, summaries, or AI-generated content to DingTalk, Lark, Discord, Telegram, and more — simultaneously or per-channel.
+> - **Custom agentic apps**: Compose Skills, Plugins, MCP tools, and scheduled tasks into purpose-built agent workflows.
 >
 > </details>
 
@@ -81,47 +85,31 @@ Your personal AI assistant — easy to install, deploy locally or in the cloud, 
 
 - [2026-06-01] **v1.1.10** — Spawn Subagent, Open Directory, Tencent Yuanbao channel. [v1.1.10 Release Notes →](https://qwenpaw.agentscope.io/release-notes#v1.1.10)
 
-- [2026-05-27] **v1.1.9** — Coding Mode (three-panel Web IDE), Tauri desktop app, unified access control. [v1.1.9 Release Notes →](https://qwenpaw.agentscope.io/release-notes#v1.1.9)
-
-- [2026-05-19] **v1.1.8** — Official plugin distribution, QwenPaw Pet, streaming cards for DingTalk / Feishu / Telegram. [v1.1.8 Release Notes →](https://qwenpaw.agentscope.io/release-notes#v1.1.8)
-
-- [2026-05-14] **v1.1.7** — Browser batch actions, OAuth 2.1 MCP, Cron calendar view, multiple file attachments. [v1.1.7 Release Notes →](https://qwenpaw.agentscope.io/release-notes#v1.1.7)
-
-- [2026-05-09] **v1.1.6** — Whisper voice input, GPT Image 2 plugin, Volcano Engine provider, Mermaid diagrams. [v1.1.6 Release Notes →](https://qwenpaw.agentscope.io/release-notes#v1.1.6)
-
-- [2026-04-12] **CoPaw rebrands to QwenPaw** — deeper Qwen ecosystem integration, same open-source mission. [v1.0.0 Release Notes →](https://qwenpaw.agentscope.io/release-notes#v1.0.0)
+[All release notes →](https://qwenpaw.agentscope.io/release-notes)
 
 ---
 
 ## Table of Contents
 
-> **Recommended reading:**
->
-> - **🚀 I'm new and want to try quickly**: [Quick Start](#quick-start) → three commands to run → [Configure model](#api-key) → chat in Console
-> - **💬 I want to use in DingTalk/Feishu/WeChat**: Complete Quick Start → [Configure model](#api-key) → [Channel setup](https://qwenpaw.agentscope.io/docs/channels)
-> - **🐍 I don't want to install Python**: [Desktop app](#option-6-desktop-application-beta) or [Script install](#option-2-script-install) or [ModelScope Studio](https://modelscope.cn/studios/fork?target=AgentScope/QwenPaw)
-> - **💻 I want to use local models (no API key needed)**: [Local Models](#local-models) → download model → start using
-> - **🛠️ I want to contribute code or develop new features**: [Install from source](#install-from-source) → [Contributing](#contributing)
 - [News](#news)
 - [Quick Start](#quick-start)
 - [API Key](#api-key)
 - [Local Models](#local-models)
-- [Documentation](#documentation)
 - [Security Features](#security-features)
+- [Documentation](#documentation)
 - [FAQ](#faq)
-- [Staying ahead](#staying-ahead)
 - [Roadmap](#roadmap)
-- [Install from source](#install-from-source)
 - [Contributing](#contributing)
+- [Install From Source](#install-from-source)
 - [Why QwenPaw?](#why-qwenpaw)
-- [Built by](#built-by)
+- [Built By](#built-by)
 - [License](#license)
 
 ---
 
 ## Quick Start
 
-### Option 1: pip install
+### Option 1: Pip Install
 
 If you prefer managing Python yourself (requires Python >= 3.11, < 3.14):
 
@@ -131,13 +119,13 @@ qwenpaw init --defaults
 qwenpaw app
 ```
 
-Then open the Console in your browser at **http://127.0.0.1:8088/** to configure your model. To chat in DingTalk, Feishu, WeChat, etc., see the [Channel setup](https://qwenpaw.agentscope.io/docs/channels) documentation.
+Then open the Console in your browser at **http://127.0.0.1:8088/** to configure your model. To chat in DingTalk, Lark, WeChat, etc., see the [Channel setup](https://qwenpaw.agentscope.io/docs/channels) documentation.
 
 ![Console](https://img.alicdn.com/imgextra/i2/O1CN01EP1ra01iOAcBvF0TC_!!6000000004402-2-tps-3822-2070.png)
 
 ---
 
-### Option 2: Script install
+### Option 2: Script Install
 
 No Python setup required, one command installs everything. The script will automatically download uv (Python package manager), create a virtual environment, and install QwenPaw with all dependencies (including Node.js and frontend assets). Note: May not work in restricted network environments or corporate firewalls.
 
@@ -215,7 +203,7 @@ qwenpaw uninstall --purge  # removes everything
 
 ```powershell
 # Install a specific version
-irm ... | iex; .\install.ps1 -Version 0.0.2
+irm ... | iex; .\install.ps1 -Version 1.1.12
 
 # Install from source (dev/testing)
 .\install.ps1 -FromSource
@@ -303,7 +291,7 @@ If you're not comfortable with command-line tools, you can download and use Qwen
 
 #### Download
 
-Download the desktop app from [GitHub Releases](https://github.com/agentscope-ai/QwenPaw/releases):
+Download the desktop app from [the official download page](https://qwenpaw.agentscope.io/downloads):
 - **Windows**: `QwenPaw-Setup-<version>.exe`
 - **macOS**: `QwenPaw-<version>-macOS.zip` (Apple Silicon recommended)
 
@@ -337,6 +325,18 @@ For detailed usage instructions, troubleshooting, and common issues, see the [De
 
 ---
 
+### What's Next?
+
+After installation, configure your model in **Console → Settings → Models**, then explore:
+
+- [Add Skills](https://qwenpaw.agentscope.io/docs/skills) to extend capabilities (PDF, Office, browser, news, etc.)
+- [Set up Channels](https://qwenpaw.agentscope.io/docs/channels) for DingTalk, Lark, Discord, and more
+- [Configure Cron](https://qwenpaw.agentscope.io/docs/cron) for scheduled tasks and automation
+- [Try Coding Mode](https://qwenpaw.agentscope.io/docs/coding-mode) for IDE-style code collaboration
+- See the full [Quick Start guide](https://qwenpaw.agentscope.io/docs/quickstart) for all options and verification steps
+
+---
+
 ## Terminal UI (TUI)
 
 Prefer to stay in the terminal? Run `qwenpaw` to open a full-screen chat **TUI** that drives the _same_ agent as the Console and the IM Channels — same memory, skills, MCP tools, and sessions — without leaving your keyboard.
@@ -355,7 +355,7 @@ It supports streaming replies, slash commands (`/help`, `/resume`, `/theme`, plu
 
 ## API Key
 
-If you use a **cloud LLM API** (e.g., Qianwen, Gemini, OpenAI), you must configure an API key before chatting. QwenPaw will not work until a valid key is set. See the [official docs](https://qwenpaw.agentscope.io/docs/models) for details.
+If you use a **cloud LLM API** (e.g., DashScope / Qwen, OpenAI, Anthropic, Google Gemini, DeepSeek, Kimi, OpenRouter, and more), you must configure an API key before chatting. QwenPaw will not work until a valid key is set. See the [official docs](https://qwenpaw.agentscope.io/docs/models) for details.
 
 **How to configure:**
 
@@ -371,11 +371,25 @@ Tools that need extra keys (e.g. `TAVILY_API_KEY` for web search) can be set in 
 
 QwenPaw can run LLMs entirely on your machine — no API keys or cloud services required. See the [official docs](https://qwenpaw.agentscope.io/docs/models) for details.
 
-| Backend       | Best for                                 | Install                                                              |
-| ------------- | ---------------------------------------- | -------------------------------------------------------------------- |
-| **llama.cpp** | Cross-platform (macOS / Linux / Windows) | No extra installation required; click "Download Llama.cpp" in the web UI. |
-| **Ollama**    | Cross-platform (requires Ollama service) | Install and start the Ollama app in advance. |
-| **LM Studio** | Cross-platform (requires LM Studio service) | Install and start the LM Studio app in advance. |
+QwenPaw also provides the **QwenPaw-Flash** series — purpose-trained 2B / 4B / 9B models for agent scenarios, with Q4 and Q8 quantizations. Available on [ModelScope](https://www.modelscope.cn/organization/AgentScope?tab=model) and [Hugging Face](https://huggingface.co/agentscope-ai/models).
+
+| Backend              | Best for                                 | Install                                                              |
+| -------------------- | ---------------------------------------- | -------------------------------------------------------------------- |
+| **QwenPaw Local** (llama.cpp) | Cross-platform (macOS / Linux / Windows) | Built-in; click "Download" in the web UI. Supports QwenPaw-Flash with hardware-aware recommendations. |
+| **Ollama**           | Cross-platform (requires Ollama service) | Install and start Ollama; set context length ≥ 32k. |
+| **LM Studio**        | Cross-platform (requires LM Studio)      | Install and start LM Studio; enable Local Server. |
+
+---
+
+## Security Features
+
+QwenPaw includes four core security layers:
+
+- **Sandbox** — Kernel-level execution isolation using Seatbelt (macOS) and Bubblewrap / Landlock (Linux). Shell commands run inside a restricted filesystem view.
+- **Tool Guard** — YAML rule engine with `ShellEvasionGuardian` inspects every tool call before execution, detecting command injection, path traversal, reverse shells, and obfuscated attacks. Configurable approval levels: STRICT / SMART / AUTO / OFF.
+- **File Guard** — Independent of Tool Guard; blocks agent access to sensitive files and directories (default-protects `~/.qwenpaw.secret/`, `~/.ssh`, etc.).
+- **Skill Scanner** — Pre-activation scanning with block / warn / off modes and whitelist support. Detects prompt injection, hardcoded secrets, data exfiltration, and more.
+See [Security documentation](https://qwenpaw.agentscope.io/docs/security) for details.
 
 ---
 
@@ -387,52 +401,37 @@ QwenPaw can run LLMs entirely on your machine — no API keys or cloud services 
 | [Quick start](https://qwenpaw.agentscope.io/docs/quickstart)            | Install and run (local or ModelScope Studio)    |
 | [Console](https://qwenpaw.agentscope.io/docs/console)                   | Web UI: chat and agent configuration            |
 | [Terminal UI (TUI)](https://qwenpaw.agentscope.io/docs/tui)             | Full-screen terminal chat, same agent as Console |
+| [Desktop App](https://qwenpaw.agentscope.io/docs/desktop)               | Desktop application installation and usage       |
 | [Models](https://qwenpaw.agentscope.io/docs/models)                     | Configure cloud, local, and custom providers    |
-| [Channels](https://qwenpaw.agentscope.io/docs/channels)                  | DingTalk, Feishu, QQ, Discord, iMessage, and more |
+| [Channels](https://qwenpaw.agentscope.io/docs/channels)                  | DingTalk, Lark, QQ, Discord, iMessage, and more |
+| [Coding Mode](https://qwenpaw.agentscope.io/docs/coding-mode)           | Three-panel Web IDE for code-centric tasks       |
 | [Skills](https://qwenpaw.agentscope.io/docs/skills)                      | Extend and customize capabilities               |
-| [Plugins](https://qwenpaw.agentscope.io/docs/plugins)                    | Plugin system                                    |
+| [Plugins](https://qwenpaw.agentscope.io/docs/plugins)                    | Plugin system and Plugin Market                  |
 | [MCP](https://qwenpaw.agentscope.io/docs/mcp)                            | Manage MCP clients                               |
-| [Memory](https://qwenpaw.agentscope.io/docs/memory)                     | Long-term memory                     |
+| [Persona](https://qwenpaw.agentscope.io/docs/persona)                   | Agent personality customization (SOUL / PROFILE)  |
+| [Memory](https://qwenpaw.agentscope.io/docs/memory)                     | Long-term semantic memory (ReMe)                 |
 | [Memory-Evolving & Proactive](https://qwenpaw.agentscope.io/docs/memory-evolving-and-proactive) | Agent memory evolution and proactive interaction |
-| [Context](https://qwenpaw.agentscope.io/docs/context)                   | Context management mechanism                     |
+| [Context](https://qwenpaw.agentscope.io/docs/context)                   | Scroll-based context management                  |
 | [Magic commands](https://qwenpaw.agentscope.io/docs/commands)           | Control conversation state without waiting for the AI |
 | [Heartbeat](https://qwenpaw.agentscope.io/docs/heartbeat)                | Scheduled check-in and digest                    |
+| [Cron / Scheduled Tasks](https://qwenpaw.agentscope.io/docs/cron)       | Scheduled tasks and automation                   |
 | [Multi-Agent](https://qwenpaw.agentscope.io/docs/multi-agent)           | Create multiple agents and enable collaboration  |
+| [Security](https://qwenpaw.agentscope.io/docs/security)                 | Sandbox, tool guard, file guard, skill scanner   |
+| [Backup & Restore](https://qwenpaw.agentscope.io/docs/backup)           | Data backup and recovery                         |
 | [Config & working dir](https://qwenpaw.agentscope.io/docs/config) | Working directory and config file                |
+| [REST API](https://qwenpaw.agentscope.io/docs/api-tutorial)             | HTTP API for integration and automation          |
+| [ACP Integration](https://qwenpaw.agentscope.io/docs/acp-integration)   | Agent Communication Protocol integration         |
 | [CLI](https://qwenpaw.agentscope.io/docs/cli)                            | Init, cron jobs, skills, clean                   |
+| [Agent Team Practice](https://qwenpaw.agentscope.io/docs/practice-agent-team) | Multi-agent team deployment guide           |
 | [FAQ](https://qwenpaw.agentscope.io/docs/faq)                           | Common questions and troubleshooting             |
 
 Full docs in this repo: [website/public/docs/](website/public/docs/).
 
 ---
 
-## Security Features
-
-QwenPaw includes multi-layer security mechanisms to protect your data and system:
-
-- **Tool guard** — Automatically intercepts dangerous shell commands (e.g., `rm -rf /`, fork bombs, reverse shells, etc.)
-- **File access guard** — Restricts agent access to sensitive paths (e.g., `~/.ssh`, key files, system directories, etc.)
-- **Skill security scanning** — Automatically scans before installing skills, detecting risks like prompt injection, command injection, hardcoded keys, data exfiltration, etc.
-- **Local deployment** — All data and memory stored locally, no third-party upload (when using cloud LLM APIs, conversation content is sent to the corresponding API provider)
-- **Web Authentication** — Optional login protection for the Console. Disabled by default; set `QWENPAW_AUTH_ENABLED=true` to enable. See [Web Authentication](https://qwenpaw.agentscope.io/docs/security#Web-Authentication) for details.
-
-See [Security documentation](https://qwenpaw.agentscope.io/docs/security) for details.
-
----
-
 ## FAQ
 
 For common questions, troubleshooting tips, and known issues, please visit the **[FAQ page](https://qwenpaw.agentscope.io/docs/faq)**.
-
----
-
-## Staying ahead
-
-<a href="https://github.com/agentscope-ai/QwenPaw">
-  <img src="https://img.alicdn.com/imgextra/i1/O1CN01V8HYv61By0HYcIDaq_!!6000000000013-1-tps-1698-954.gif" width="600" alt="Star QwenPaw" />
-</a>
-
-Star QwenPaw on GitHub and be instantly notified of new releases.
 
 ---
 
@@ -453,7 +452,20 @@ Star QwenPaw on GitHub and be instantly notified of new releases.
 
 _Status:_ **In Progress** — actively being worked on; **Planned** — queued or under design, also welcome contributions; **Seeking Contributors** — we strongly encourage community contributions.
 
-## Install from source
+---
+
+## Contributing
+
+QwenPaw evolves through open collaboration, and we welcome all forms of contribution! Check the [Roadmap](#roadmap) above (especially items marked **Seeking Contributors**) to find areas that interest you, and read [CONTRIBUTING](https://github.com/agentscope-ai/QwenPaw/blob/main/CONTRIBUTING.md) to get started. We particularly welcome:
+
+- **Horizontal expansion** — new channels, model providers, skills, MCPs.
+- **Existing feature extension & refinement** — display and interaction improvements, download hints, Windows path compatibility, etc.
+
+Join [GitHub Discussions](https://github.com/agentscope-ai/QwenPaw/discussions) to discuss ideas or pick up tasks.
+
+---
+
+## Install From Source
 
 ```bash
 git clone https://github.com/agentscope-ai/QwenPaw.git
@@ -478,17 +490,6 @@ pip install -e .
 
 ---
 
-## Contributing
-
-QwenPaw evolves through open collaboration, and we welcome all forms of contribution! Check the [Roadmap](#roadmap) above (especially items marked **Seeking Contributors**) to find areas that interest you, and read [CONTRIBUTING](https://github.com/agentscope-ai/QwenPaw/blob/main/CONTRIBUTING.md) to get started. We particularly welcome:
-
-- **Horizontal expansion** — new channels, model providers, skills, MCPs.
-- **Existing feature extension & refinement** — display and interaction improvements, download hints, Windows path compatibility, etc.
-
-Join [GitHub Discussions](https://github.com/agentscope-ai/QwenPaw/discussions) to discuss ideas or pick up tasks.
-
----
-
 ## Why QwenPaw?
 
 QwenPaw stands for Qwen Personal Agent Workstation, and also embodies the wisdom of Qwen and the warmth of a Paw.
@@ -496,17 +497,27 @@ We hope it is not a cold tool, but an intelligent and warm "little paw" always r
 
 ---
 
-## Built by
+## Built By
 
 [AgentScope team](https://github.com/agentscope-ai) · [AgentScope](https://github.com/agentscope-ai/agentscope) · [AgentScope Runtime](https://github.com/agentscope-ai/agentscope-runtime) · [ReMe](https://github.com/agentscope-ai/ReMe)
 
 ---
 
-## Contact us
+## Contact Us
 
 | [Discord](https://discord.gg/eYMpfnkG8h)                     | [X (Twitter)](https://x.com/agentscope_ai)                   | [DingTalk](https://qr.dingtalk.com/action/joingroup?code=v1,k1,OmDlBXpjW+I2vWjKDsjvI9dhcXjGZi3bQiojOq3dlDw=&_dt_no_comment=1&origin=11) | [RedNote](https://www.xiaohongshu.com/user/profile/691c18db0000000037032be9) |
 | ------------------------------------------------------------ | ------------------------------------------------------------ | ------------------------------------------------------------ | ------------------------------------------------------------ |
 | [<img src="https://gw.alicdn.com/imgextra/i1/O1CN01hhD1mu1Dd3BWVUvxN_!!6000000000238-2-tps-400-400.png" width="80" height="80" alt="Discord">](https://discord.gg/eYMpfnkG8h) | [<img src="https://img.shields.io/badge/X-black.svg?logo=x&logoColor=white" width="80" height="80" alt="X">](https://x.com/agentscope_ai) | [<img src="https://img.alicdn.com/imgextra/i2/O1CN01vCWI8a1skHtLGXEMQ_!!6000000005804-2-tps-458-460.png" width="80" height="80" alt="DingTalk">](https://qr.dingtalk.com/action/joingroup?code=v1,k1,OmDlBXpjW+I2vWjKDsjvI9dhcXjGZi3bQiojOq3dlDw=&_dt_no_comment=1&origin=11) | [<img src="https://img.alicdn.com/imgextra/i3/O1CN016BoEPS1l33CE9mHb9_!!6000000004762-0-tps-160-160.jpg" width="80" height="80" alt="RedNote">](https://www.xiaohongshu.com/user/profile/691c18db0000000037032be9) |
+
+---
+
+## Staying Ahead
+
+<a href="https://github.com/agentscope-ai/QwenPaw">
+  <img src="https://img.alicdn.com/imgextra/i1/O1CN01V8HYv61By0HYcIDaq_!!6000000000013-1-tps-1698-954.gif" width="600" alt="Star QwenPaw" />
+</a>
+
+Star QwenPaw on GitHub and be instantly notified of new releases.
 
 ---
 
@@ -516,7 +527,7 @@ QwenPaw collects **anonymous** usage data during `qwenpaw init` to help us under
 
 **What we collect:**
 
-- QwenPaw version (e.g., 0.0.7)
+- QwenPaw version (e.g., 1.1.12)
 - Install method (pip, Docker, or desktop app)
 - OS and version (e.g., macOS 14.0, Ubuntu 22.04)
 - Python version (e.g., 3.13)
