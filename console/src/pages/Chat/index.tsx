@@ -2339,7 +2339,7 @@ export default function ChatPage() {
       },
       {
         command: "/mission",
-        value: "mission",
+        value: "__loop__mission",
         description: t("chat.commands.mission.description"),
       },
       {
