@@ -287,6 +287,7 @@ class OneBotConfig(BaseChannelConfig):
 
 class TelegramConfig(BaseChannelConfig):
     bot_token: str = ""
+    base_url: str = ""
     http_proxy: str = ""
     http_proxy_auth: str = ""
     show_typing: Optional[bool] = None

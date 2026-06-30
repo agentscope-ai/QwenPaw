@@ -617,6 +617,9 @@ export function ChannelDrawer({
             >
               <Input.Password placeholder="Telegram bot token from BotFather" />
             </Form.Item>
+            <Form.Item name="base_url" label="API Base URL">
+              <Input placeholder="https://tg-api.yourdomain.com" />
+            </Form.Item>
             <Form.Item name="http_proxy" label="HTTP Proxy">
               <Input placeholder="http://127.0.0.1:18118" />
             </Form.Item>
