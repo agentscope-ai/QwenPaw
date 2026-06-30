@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Alert, Button, Input, Pagination, Spin, Tag, Typography } from "antd";
+import { Alert, Button, Input, Pagination, Spin, Tag, Tooltip, Typography } from "antd";
 import { Download, ExternalLink, Package, RefreshCw } from "lucide-react";
 import type { MarketPluginEntry } from "@/api/modules/pluginMarket";
 import { useMarketPlugins } from "../hooks/useMarketPlugins";
@@ -58,6 +58,8 @@ export function MarketPluginList({ onInstalled }: MarketPluginListProps) {
     pageSize,
     category,
     installingId,
+    qwenpawVersion,
+    isCompatible,
     handleSearch,
     handleCategoryChange,
     handlePageChange,
@@ -178,6 +180,16 @@ export function MarketPluginList({ onInstalled }: MarketPluginListProps) {
                       {entry.locales[lang].category}
                     </Tag>
                   )}
+                  {qwenpawVersion && entry.qwenpaw_compat_labels && (
+                    <Tag
+                      color={isCompatible(entry) ? "green" : "red"}
+                      style={{ margin: 0, fontSize: 11 }}
+                    >
+                      {isCompatible(entry)
+                        ? `QwenPaw ${entry.qwenpaw_compat_labels.join(", ")}`
+                        : `Incompatible with QwenPaw ${qwenpawVersion}`}
+                    </Tag>
+                  )}
                 </div>
                 {entry.locales && (
                   <div className={styles.catalogDescription}>
@@ -209,16 +221,31 @@ export function MarketPluginList({ onInstalled }: MarketPluginListProps) {
                     {t("pluginManager.marketDetails")}
                   </Button>
                 )}
-                <Button
-                  type="primary"
-                  size="small"
-                  icon={<Download size={14} />}
-                  loading={installingId === entry.id}
-                  disabled={installingId !== null && installingId !== entry.id}
-                  onClick={() => void handleInstall(entry)}
+                <Tooltip
+                  title={
+                    !isCompatible(entry)
+                      ? `This plugin is only compatible with QwenPaw ${entry.qwenpaw_compat_labels?.join(
+                          ", ",
+                        ) ?? "unknown"}`
+                      : undefined
+                  }
                 >
-                  {t("pluginManager.catalogInstall")}
-                </Button>
+                  <Button
+                    type="primary"
+                    size="small"
+                    icon={<Download size={14} />}
+                    loading={installingId === entry.id}
+                    disabled={
+                      !isCompatible(entry) ||
+                      (installingId !== null && installingId !== entry.id)
+                    }
+                    onClick={() => void handleInstall(entry)}
+                  >
+                    {isCompatible(entry)
+                      ? t("pluginManager.catalogInstall")
+                      : "Incompatible"}
+                  </Button>
+                </Tooltip>
               </div>
             </div>
           ))}
