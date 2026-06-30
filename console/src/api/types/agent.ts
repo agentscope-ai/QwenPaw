@@ -85,9 +85,26 @@ export interface ADBPGMemoryConfig {
   pool_maxconn: number;
 }
 
+export interface DoomLoopStageConfig {
+  after: number;
+  action: string;
+  prompt: string;
+}
+
+export interface DoomLoopConfig {
+  enabled: boolean;
+  window_size: number;
+  similarity_threshold: number;
+  stages: DoomLoopStageConfig[];
+}
+
+export interface LoopConfig {
+  doom_loop: DoomLoopConfig;
+}
+
 export interface AgentsRunningConfig {
   max_iters: number;
-  auto_continue_on_text_only: boolean;
+  loop: LoopConfig;
   shell_command_timeout: number;
   shell_command_executable: string;
   llm_retry_enabled: boolean;

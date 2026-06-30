@@ -50,9 +50,19 @@ export function useAgentConfig() {
           : "remelight";
       form.setFieldsValue({
         max_iters: config.max_iters,
-        auto_continue_on_text_only: config.auto_continue_on_text_only ?? false,
         shell_command_timeout: config.shell_command_timeout ?? 60.0,
         shell_command_executable: config.shell_command_executable ?? "",
+        loop: config.loop ?? {
+          doom_loop: {
+            enabled: true,
+            window_size: 5,
+            similarity_threshold: 0.8,
+            stages: [
+              { after: 3, action: "modify_prompt", prompt: "" },
+              { after: 6, action: "stop", prompt: "" },
+            ],
+          },
+        },
         llm_retry_enabled: config.llm_retry_enabled,
         llm_max_retries: config.llm_max_retries,
         llm_backoff_base: config.llm_backoff_base,

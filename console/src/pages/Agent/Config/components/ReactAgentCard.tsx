@@ -174,15 +174,6 @@ export function ReactAgentCard({
       </div>
 
       <Form.Item
-        label={t("agentConfig.autoContinueOnTextOnly")}
-        name="auto_continue_on_text_only"
-        valuePropName="checked"
-        tooltip={t("agentConfig.autoContinueOnTextOnlyTooltip")}
-      >
-        <Switch />
-      </Form.Item>
-
-      <Form.Item
         label={t("agentConfig.autoGenerateSessionTitle")}
         name={["auto_title_config", "enabled"]}
         valuePropName="checked"

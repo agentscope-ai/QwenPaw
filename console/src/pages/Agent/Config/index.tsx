@@ -7,6 +7,7 @@ import {
   LlmRetryCard,
   LlmRateLimiterCard,
   ToolExecutionLevelCard,
+  AgentLoopCard,
 } from "./components";
 import { PageHeader } from "@/components/PageHeader";
 import {
@@ -82,6 +83,19 @@ function AgentConfigPage() {
               savingTimezone={savingTimezone}
               onTimezoneChange={handleTimezoneChange}
             />
+          </div>
+        ),
+      },
+      {
+        key: "agentLoop",
+        label: (
+          <span className={styles.tabLabel}>
+            {t("agentConfig.agentLoopTitle", "Agent Loop")}
+          </span>
+        ),
+        children: (
+          <div className={styles.tabContent}>
+            <AgentLoopCard />
           </div>
         ),
       },
