@@ -9,55 +9,30 @@ export interface LoopSkillInfo {
   icon?: string;
 }
 
-export interface LoopRuntime {
-  skillName: string;
-  iteration: number;
-  maxIterations: number;
-  budgetUsedPercent: number;
-  statusText: string;
-  paused: boolean;
-}
-
 interface LoopState {
   selectedSkill: LoopSkillInfo | null;
   budgetLevel: BudgetLevel;
   chipHighlighted: boolean;
-  runtime: LoopRuntime | null;
 
   availableSkills: LoopSkillInfo[];
 
   setSelectedSkill: (skill: LoopSkillInfo | null) => void;
   setBudgetLevel: (level: BudgetLevel) => void;
   setChipHighlighted: (highlighted: boolean) => void;
-  setRuntime: (runtime: LoopRuntime | null) => void;
   setAvailableSkills: (skills: LoopSkillInfo[]) => void;
-  pauseLoop: () => void;
-  resumeLoop: () => void;
-  stopLoop: () => void;
 }
 
 export const useLoopStore = create<LoopState>((set) => ({
   selectedSkill: null,
   budgetLevel: "medium",
   chipHighlighted: false,
-  runtime: null,
   availableSkills: [],
 
   setSelectedSkill: (skill) =>
     set({ selectedSkill: skill, chipHighlighted: false }),
   setBudgetLevel: (level) => set({ budgetLevel: level }),
   setChipHighlighted: (highlighted) => set({ chipHighlighted: highlighted }),
-  setRuntime: (runtime) => set({ runtime }),
   setAvailableSkills: (skills) => set({ availableSkills: skills }),
-  pauseLoop: () =>
-    set((state) =>
-      state.runtime ? { runtime: { ...state.runtime, paused: true } } : state,
-    ),
-  resumeLoop: () =>
-    set((state) =>
-      state.runtime ? { runtime: { ...state.runtime, paused: false } } : state,
-    ),
-  stopLoop: () => set({ runtime: null }),
 }));
 
 interface CommandsResponse {

@@ -30,7 +30,6 @@ import { useLoopStore, fetchAvailableLoopSkills } from "../../stores/loopStore";
 import {
   LoopCommandChip,
   LoopBudgetSelector,
-  LoopStatusBar,
 } from "../../components/LoopInput";
 import { useChatAnywhereInput } from "@agentscope-ai/chat";
 import styles from "./index.module.less";
@@ -2689,7 +2688,6 @@ export default function ChatPage() {
         allowSpeech: whisperChecked && !whisperEnabled,
         beforeUI: (
           <>
-            <LoopStatusBar />
             {!isOwner || messageQueue.length > 0 ? (
               <>
                 {messageQueue.length > 0 ? (

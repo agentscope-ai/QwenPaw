@@ -15,11 +15,13 @@ const DOT_COLORS: Record<BudgetLevel, string> = {
   high: "var(--ant-color-warning-border, #ffa940)",
 };
 
+const NO_BUDGET_SKILLS = new Set(["mission"]);
+
 export const LoopBudgetSelector: React.FC = () => {
   const { t } = useTranslation();
   const { selectedSkill, budgetLevel, setBudgetLevel } = useLoopStore();
 
-  if (!selectedSkill) return null;
+  if (!selectedSkill || NO_BUDGET_SKILLS.has(selectedSkill.name)) return null;
 
   return (
     <div className={styles.budgetSelector}>
