@@ -13,7 +13,9 @@ from agentscope.tool import ToolResponse
 
 from qwenpaw.tool_calls import ToolCoordinator, ToolCoordinatorMiddleware
 from qwenpaw.tool_calls._context import ToolCallContext
+from qwenpaw.tool_calls._entry import ToolCallEntry
 from qwenpaw.tool_calls._result_limiter import ToolResultLimiter
+from qwenpaw.tool_calls._stream import ToolStream
 
 
 @dataclass
@@ -251,3 +253,51 @@ async def test_background_completion_hint_uses_finalized_response(tmp_path):
     assert hint.role == "assistant"
     assert _tool_result_output_text_bytes(tool_result) <= 512
     assert finalizer_calls == 1
+
+
+@pytest.mark.asyncio
+async def test_caller_cancellation_does_not_cancel_background_task():
+    # pylint: disable=protected-access
+    bg_started = asyncio.Event()
+    bg_can_finish = asyncio.Event()
+    tool_call = _ToolCall(id="call-cancel", name="slow_tool")
+
+    async def background() -> None:
+        bg_started.set()
+        await bg_can_finish.wait()
+
+    bg_task = asyncio.create_task(background())
+    entry = ToolCallEntry(
+        ctx=ToolCallContext(
+            tool_call_id=tool_call.id,
+            tool_name=tool_call.name,
+            session_id="session-cancel",
+            agent_id="agent-1",
+            root_session_id="root-1",
+            started_at=0.0,
+            deadline=None,
+            cancel_event=asyncio.Event(),
+        ),
+        stream=ToolStream(
+            tool_call_id=tool_call.id,
+            session_id="session-cancel",
+        ),
+        final_response=ToolResponse(id=tool_call.id),
+        background_task=bg_task,
+    )
+
+    waiter = asyncio.create_task(
+        ToolCoordinator._await_background_task(entry),
+    )
+    await asyncio.wait_for(bg_started.wait(), timeout=1)
+    await asyncio.sleep(0)
+
+    waiter.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await waiter
+
+    assert not bg_task.cancelled()
+    assert not bg_task.done()
+
+    bg_can_finish.set()
+    await asyncio.wait_for(bg_task, timeout=1)

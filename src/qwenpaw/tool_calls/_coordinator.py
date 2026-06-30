@@ -640,11 +640,11 @@ class ToolCoordinator:
         if bg is None:
             return
         try:
-            await bg
+            await asyncio.shield(bg)
         except asyncio.CancelledError:
             # Distinguish: bg task cancelled vs caller task cancelled.
             current = asyncio.current_task()
-            if current is not None and current.cancelled():
+            if current is not None and current.cancelling():
                 raise
 
     async def _finalize_completed(self, entry: ToolCallEntry) -> ToolResponse:
