@@ -47,7 +47,7 @@ class QwenPawLocalWorkspace(AgentScopeLocalWorkspace):
         *,
         agent_config: Any = None,
         agent_id: str | None = None,  # pylint: disable=unused-argument
-        request_context: dict[str, str] | None = None,
+        request_context: dict[str, Any] | None = None,
         active_modes: tuple[str, ...] | set[str] = (),
         active_skills: tuple[str, ...] | set[str] = (),
         enabled_features: tuple[str, ...] | set[str] = (),
@@ -66,6 +66,12 @@ class QwenPawLocalWorkspace(AgentScopeLocalWorkspace):
             allowed, denied = self._resolve_config_gates(agent_config)
         else:
             allowed, denied = None, set()
+
+        # Background subagents are deliberately leaves.  Hiding delegation
+        # tools from their schema prevents the model from attempting a nested
+        # call; SubagentTaskManager repeats the check defensively at runtime.
+        if request_context and request_context.get("is_subagent"):
+            denied.update({"spawn_subagent", "cancel_subagent"})
 
         descs = self._tool_registry.filter(
             active_modes=set(active_modes),

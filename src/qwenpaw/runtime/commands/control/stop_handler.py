@@ -56,7 +56,19 @@ class StopCommandHandler(BaseControlCommandHandler):
             channel_id,
         )
 
-        if chat_id is None:
+        subagents_cancelled = 0
+        subagent_manager = getattr(
+            workspace,
+            "subagent_task_manager",
+            None,
+        )
+        if subagent_manager is not None:
+            subagents_cancelled = await subagent_manager.cancel_by_parent(
+                target_session_id,
+                reason="parent session stopped with /stop",
+            )
+
+        if chat_id is None and subagents_cancelled == 0:
             logger.warning(
                 f"/stop: No active chat found for "
                 f"session={target_session_id[:30]} channel={channel_id}",
@@ -67,7 +79,11 @@ class StopCommandHandler(BaseControlCommandHandler):
                 f"`{target_session_id[:40]}`."
             )
 
-        stopped = await workspace.task_tracker.request_stop(chat_id)
+        stopped = (
+            await workspace.task_tracker.request_stop(chat_id)
+            if chat_id is not None
+            else False
+        )
 
         cleared = await workspace.channel_manager.clear_queue(
             channel_id,
@@ -75,7 +91,7 @@ class StopCommandHandler(BaseControlCommandHandler):
             20,
         )
 
-        if stopped or cleared > 0:
+        if stopped or cleared > 0 or subagents_cancelled > 0:
             logger.info(
                 f"/stop: stopped={stopped} cleared={cleared} "
                 f"chat_id={chat_id} session={target_session_id[:30]}",
@@ -85,6 +101,10 @@ class StopCommandHandler(BaseControlCommandHandler):
                 status_parts.append("running task stopped")
             if cleared > 0:
                 status_parts.append(f"{cleared} queued message(s) cleared")
+            if subagents_cancelled > 0:
+                status_parts.append(
+                    f"{subagents_cancelled} background subagent(s) cancelled",
+                )
             status_text = " and ".join(status_parts)
             return (
                 f"**Task Stopped**\n\n"

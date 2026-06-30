@@ -206,7 +206,7 @@ class TestAssertPolicySSHCommands:
 # ---------------------------------------------------------------------------
 
 
-class TestGovernancePolicyEvaluate:
+class TestGovernancePolicyEvaluate:  # pylint: disable=too-many-public-methods
     """Direct evaluate() tests on GovernancePolicy."""
 
     @pytest.fixture()
@@ -250,6 +250,26 @@ class TestGovernancePolicyEvaluate:
         """Internal tools should be ALLOW from user_rules."""
         tc = _tc("GetCurrentTime", "")
         decision = policy.evaluate(tc)
+        assert decision.action == GovernanceAction.ALLOW
+
+    @pytest.mark.parametrize(
+        ("python_name", "policy_name"),
+        [
+            ("spawn_subagent", "SpawnSubagent"),
+            ("cancel_subagent", "CancelSubagent"),
+        ],
+    )
+    def test_subagent_tools_are_registered_internal_tools(
+        self,
+        policy,
+        python_name,
+        policy_name,
+    ):
+        assert (
+            DEFAULT_REGISTRY.python_to_policy_name(python_name) == policy_name
+        )
+        assert DEFAULT_REGISTRY.get_type(policy_name) == "internal"
+        decision = policy.evaluate(_tc(policy_name, ""))
         assert decision.action == GovernanceAction.ALLOW
 
     def test_workspace_read_allow(self, policy):
@@ -309,6 +329,24 @@ class TestGovernancePolicyEvaluate:
         tc = _tc("SomeRandomTool", "/etc/passwd")
         decision = policy.evaluate(tc)
         assert decision.action == GovernanceAction.DENY
+
+    def test_spawn_subagent_is_registered_internal_tool(self, policy):
+        """spawn_subagent should pass governance as an internal tool."""
+        policy_name = DEFAULT_REGISTRY.python_to_policy_name(
+            "spawn_subagent",
+        )
+        target = DEFAULT_REGISTRY.extract_target(
+            policy_name,
+            {"task": "Analyze the repository", "background": True},
+        )
+
+        assert policy_name == "SpawnSubagent"
+        assert target == "Analyze the repository"
+        assert DEFAULT_REGISTRY.get_type(policy_name) == "internal"
+        assert (
+            policy.evaluate(_tc(policy_name, target)).action
+            == GovernanceAction.ALLOW
+        )
 
     def test_ssh_dir_match_patterns(self, policy):
         """Various .ssh path patterns should match the builtin rule."""

@@ -713,6 +713,26 @@ class AgentBuilder:
             except Exception:
                 _logger.debug("Memory middlewares not created", exc_info=True)
 
+        # AgentScope 2.0-native subagent lifecycle integration.  The inbox
+        # middleware is always present so an idle parent can be woken with an
+        # empty request and receive child terminal results as HintBlocks.
+        workspace = getattr(ctx, "workspace", None)
+        subagent_manager = (
+            getattr(workspace, "subagent_task_manager", None)
+            if workspace is not None
+            else None
+        )
+        if subagent_manager is not None:
+            from ..app.subagents.middleware import (
+                SubagentInboxMiddleware,
+            )
+
+            mws.append(
+                SubagentInboxMiddleware(
+                    subagent_manager,
+                    ctx.session_id,
+                ),
+            )
         # Tiered tool-result pruning (ported from LightContextManager)
         try:
             import os

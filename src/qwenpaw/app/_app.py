@@ -353,6 +353,12 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
                 ErrorNormalizeHook,
                 CancelCleanupHook,
             )
+            from .subagents.hooks import (
+                SubagentContextCleanupHook,
+                SubagentContextSetupHook,
+                SubagentEventAckHook,
+                SubagentWakeGuardHook,
+            )
 
             # pylint: disable-next=protected-access
             workspace_registry._bootstrap_kwargs["builtin_hook_clses"] = [
@@ -368,6 +374,10 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
                 MediaProcessHook,
                 ErrorNormalizeHook,
                 CancelCleanupHook,
+                SubagentWakeGuardHook,
+                SubagentContextSetupHook,
+                SubagentEventAckHook,
+                SubagentContextCleanupHook,
             ]
 
             try:

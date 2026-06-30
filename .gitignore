@@ -19,6 +19,9 @@ sessions_mount_dir/
 # testing
 /coverage
 .coverage
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
 coverage.xml
 htmlcov/
 htmlcov.zip

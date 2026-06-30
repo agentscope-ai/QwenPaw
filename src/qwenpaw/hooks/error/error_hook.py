@@ -110,6 +110,21 @@ class CancelCleanupHook(LifecycleHook):
                 except Exception:
                     pass
 
+        # A parent request owns the lifetime of its direct background child.
+        # Subagents are leaves, so cancellation never recurses further.
+        manager = getattr(ctx.workspace, "subagent_task_manager", None)
+        if manager is not None:
+            try:
+                await manager.cancel_by_parent(
+                    ctx.session_id,
+                    reason="parent request cancelled",
+                )
+            except Exception:
+                logger.debug(
+                    "cancel_cleanup: subagent cancellation failed",
+                    exc_info=True,
+                )
+
         return HookResult()
 
 

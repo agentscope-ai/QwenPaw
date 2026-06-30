@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """Console APIs: push messages, chat, and file upload for chat."""
+
 from __future__ import annotations
 
 import asyncio
@@ -7,6 +8,7 @@ import json
 import logging
 import re
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import AsyncGenerator, Union
 
@@ -24,10 +26,13 @@ from ..approvals.display import approval_display_fields
 from ..chats.title_generator import generate_and_update_title
 from ..utils import check_upload_size
 
-
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/console", tags=["console"])
+
+_CHAT_TASKS: dict[str, dict] = {}
+_CHAT_RUNTIME_TASKS: dict[str, asyncio.Task] = {}
+_MAX_FINISHED_CHAT_TASKS = 100
 
 
 class MarkInboxReadRequest(BaseModel):
@@ -36,6 +41,112 @@ class MarkInboxReadRequest(BaseModel):
 
 
 MAX_DEBUG_LOG_LINES = 1000
+
+
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+def _parse_sse_payload(event_data: str) -> dict | None:
+    for line in event_data.splitlines():
+        if not line.startswith("data: "):
+            continue
+        try:
+            parsed = json.loads(line[6:])
+        except json.JSONDecodeError:
+            continue
+        if isinstance(parsed, dict):
+            return parsed
+    return None
+
+
+def _public_chat_task_record(record: dict) -> dict:
+    return {key: value for key, value in record.items() if key != "agent_id"}
+
+
+def _prune_finished_chat_tasks() -> None:
+    finished_task_ids = [
+        task_id
+        for task_id, record in _CHAT_TASKS.items()
+        if record.get("status") == "finished"
+    ]
+    overflow = len(finished_task_ids) - _MAX_FINISHED_CHAT_TASKS
+    if overflow <= 0:
+        return
+
+    finished_task_ids.sort(
+        key=lambda task_id: (
+            _CHAT_TASKS[task_id].get("finished_at")
+            or _CHAT_TASKS[task_id].get("submitted_at")
+            or ""
+        ),
+    )
+    for task_id in finished_task_ids[:overflow]:
+        if task_id not in _CHAT_RUNTIME_TASKS:
+            _CHAT_TASKS.pop(task_id, None)
+
+
+async def _run_console_chat_task(
+    *,
+    task_id: str,
+    workspace,
+    console_channel,
+    native_payload: dict,
+    session_id: str,
+    timeout: float | None,
+) -> None:
+    record = _CHAT_TASKS[task_id]
+    record["status"] = "running"
+    record["started_at"] = _now_iso()
+    run_key = f"console-task-{task_id}"
+    await workspace.task_tracker.register_external_task(run_key)
+
+    async def _collect() -> dict:
+        response_data: dict | None = None
+        fallback_data: dict | None = None
+        async for event_data in console_channel.stream_one(native_payload):
+            parsed = _parse_sse_payload(event_data)
+            if parsed is None:
+                continue
+            fallback_data = parsed
+            if parsed.get("object") == "response" or "output" in parsed:
+                response_data = parsed
+        return response_data or fallback_data or {}
+
+    result = {
+        "status": "failed",
+        "session_id": session_id,
+        "error": {"message": "Task did not complete"},
+    }
+    try:
+        if timeout is not None:
+            response_data = await asyncio.wait_for(_collect(), timeout=timeout)
+        else:
+            response_data = await _collect()
+        result = dict(response_data)
+        result["status"] = "completed"
+        result["session_id"] = session_id
+    except asyncio.CancelledError:
+        result = {
+            "status": "failed",
+            "session_id": session_id,
+            "error": {"message": "Task cancelled"},
+        }
+        raise
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("Background console chat task failed: %s", task_id)
+        result = {
+            "status": "failed",
+            "session_id": session_id,
+            "error": {"message": str(exc)},
+        }
+    finally:
+        record["status"] = "finished"
+        record["finished_at"] = _now_iso()
+        record["result"] = result
+        _CHAT_RUNTIME_TASKS.pop(task_id, None)
+        _prune_finished_chat_tasks()
+        await workspace.task_tracker.unregister_external_task(run_key)
 
 
 def _safe_filename(name: str) -> str:
@@ -156,6 +267,7 @@ async def post_console_chat(
     Stop via POST /console/chat/stop. Reconnect with body.reconnect=true.
     """
     workspace = await get_agent_for_request(request)
+
     console_channel = await workspace.channel_manager.get_channel("console")
     if console_channel is None:
         raise HTTPException(
@@ -234,6 +346,98 @@ async def post_console_chat(
 
 
 @router.post(
+    "/chat/task",
+    status_code=200,
+    summary="Submit console chat as a background task",
+)
+async def post_console_chat_task(
+    request_data: Union[AgentRequest, dict],
+    request: Request,
+) -> dict:
+    """Submit a detached chat run and return a task id immediately."""
+    workspace = await get_agent_for_request(request)
+    console_channel = await workspace.channel_manager.get_channel("console")
+    if console_channel is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Channel Console not found",
+        )
+    try:
+        native_payload = _extract_session_and_payload(request_data)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    session_id = console_channel.resolve_session_id(
+        sender_id=native_payload["sender_id"],
+        channel_meta=native_payload["meta"],
+    )
+    timeout = None
+    if (
+        isinstance(request_data, dict)
+        and request_data.get("timeout") is not None
+    ):
+        try:
+            timeout = float(request_data["timeout"])
+        except (TypeError, ValueError) as exc:
+            raise HTTPException(
+                status_code=400,
+                detail="timeout must be a number",
+            ) from exc
+        if timeout <= 0:
+            raise HTTPException(
+                status_code=400,
+                detail="timeout must be greater than zero",
+            )
+
+    task_id = str(uuid.uuid4())
+    record = {
+        "task_id": task_id,
+        "agent_id": workspace.agent_id,
+        "session_id": session_id,
+        "status": "submitted",
+        "submitted_at": _now_iso(),
+    }
+    _CHAT_TASKS[task_id] = record
+    runtime_task = asyncio.create_task(
+        _run_console_chat_task(
+            task_id=task_id,
+            workspace=workspace,
+            console_channel=console_channel,
+            native_payload=native_payload,
+            session_id=session_id,
+            timeout=timeout,
+        ),
+        name=f"console-chat-task-{task_id}",
+    )
+    _CHAT_RUNTIME_TASKS[task_id] = runtime_task
+    return {
+        "task_id": task_id,
+        "status": "submitted",
+        "session_id": session_id,
+    }
+
+
+@router.get(
+    "/chat/task/{task_id}",
+    status_code=200,
+    summary="Get background console chat task status",
+)
+async def get_console_chat_task_status(
+    task_id: str,
+    request: Request,
+) -> dict:
+    """Return task lifecycle state and final response when available."""
+    workspace = await get_agent_for_request(request)
+    record = _CHAT_TASKS.get(task_id)
+    if record is None or record.get("agent_id") != workspace.agent_id:
+        raise HTTPException(status_code=404, detail="Task not found")
+    response = _public_chat_task_record(record)
+    if record.get("status") == "finished":
+        _CHAT_TASKS.pop(task_id, None)
+    return response
+
+
+@router.post(
     "/chat/stop",
     status_code=200,
     summary="Stop running console chat",
@@ -245,6 +449,13 @@ async def post_console_chat_stop(
     """Stop the running chat. Only stops when called."""
     logger.debug("[STOP API] Received stop request for chat_id=%s", chat_id)
     workspace = await get_agent_for_request(request)
+
+    # Resolve the parent session independently of the stream task lookup so
+    # already-idle parents can still cancel their background children.
+    parent_session_id = chat_id
+    chat_spec = await workspace.chat_manager.get_chat(chat_id)
+    if chat_spec is not None:
+        parent_session_id = chat_spec.session_id
 
     # Try to stop with the provided chat_id first
     logger.debug(
@@ -279,7 +490,17 @@ async def post_console_chat_stop(
         "[STOP API] task_tracker.request_stop returned: stopped=%s",
         stopped,
     )
-    return {"stopped": stopped}
+    subagents_cancelled = 0
+    subagent_manager = getattr(workspace, "subagent_task_manager", None)
+    if subagent_manager is not None:
+        subagents_cancelled = await subagent_manager.cancel_by_parent(
+            parent_session_id,
+            reason="parent session stopped from console",
+        )
+    return {
+        "stopped": stopped or subagents_cancelled > 0,
+        "subagents_cancelled": subagents_cancelled,
+    }
 
 
 @router.post("/upload", response_model=dict, summary="Upload file for chat")

@@ -118,11 +118,13 @@ class ToolRegistry:
 
 
 # ---------------------------------------------------------------------------
-# Default registry instance (21 tools)
+# Default registry instance
 # ---------------------------------------------------------------------------
 
 
-def _create_default_registry() -> ToolRegistry:
+def _create_default_registry() -> (
+    ToolRegistry
+):  # pylint: disable=too-many-statements
     """Create and populate the default ToolRegistry."""
     registry = ToolRegistry()
 
@@ -153,8 +155,11 @@ def _create_default_registry() -> ToolRegistry:
     registry.register("ChatWithAgent", "internal", "agent_id")
     registry.register("SubmitToAgent", "internal", "agent_id")
     registry.register("CheckAgentTask", "internal", "task_id")
+    # Keep the upstream registration semantics from PR #5524: governance
+    # evaluates a spawn request against its primary ``task`` argument.
+    registry.register("SpawnSubagent", "internal", "task")
+    registry.register("CancelSubagent", "internal", "task_id")
     registry.register("DelegateExternalAgent", "internal", "runner")
-    registry.register("RecallHistoryPython", "shell", "source")
     registry.register("MemorySearch", "internal", "")
 
     # ── Python function name mappings ──
@@ -182,6 +187,8 @@ def _create_default_registry() -> ToolRegistry:
     registry.register_python_name("chat_with_agent", "ChatWithAgent")
     registry.register_python_name("submit_to_agent", "SubmitToAgent")
     registry.register_python_name("check_agent_task", "CheckAgentTask")
+    registry.register_python_name("spawn_subagent", "SpawnSubagent")
+    registry.register_python_name("cancel_subagent", "CancelSubagent")
     registry.register_python_name("materialize_skill", "MaterializeSkill")
 
     return registry

@@ -81,7 +81,9 @@ class SessionSaveHook(LifecycleHook):
                 channel=channel,
                 agent=proxy,
             )
+            ctx.extras["session_save_succeeded"] = True
         except Exception:
+            ctx.extras["session_save_succeeded"] = False
             logger.debug("session_save: failed", exc_info=True)
         return HookResult()
 
