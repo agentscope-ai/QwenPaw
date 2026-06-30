@@ -197,7 +197,9 @@ class GoalIterationGate(IterationGate):
                 action=StopAction.STOP,
                 reason="Max iterations reached",
             )
-        return None
+        return StopHandlerResult(
+            action=StopAction.CONTINUE,
+        )
 
 
 class GoalBudgetGate(BudgetGate):

@@ -24,6 +24,8 @@ from ...runtime.slash_command_registry import CommandSpec
 if TYPE_CHECKING:
     from typing import Any
 
+    from .gates import MissionGate
+
 logger = logging.getLogger(__name__)
 
 
@@ -31,6 +33,9 @@ class MissionMode(AgentMode):
     """Bundle for mission-mode behaviour."""
 
     name = "mission"
+
+    def __init__(self) -> None:
+        self._gate: MissionGate | None = None
 
     # ── commands ──
 
@@ -53,14 +58,29 @@ class MissionMode(AgentMode):
     # ── hooks / contributors ──
 
     def hooks(self) -> list[HookBase]:
+        from ...loop.iter_bypass_hook import (
+            LoopIterBypassHook,
+            LoopIterRestoreHook,
+        )
+
         from .hooks import (
             MissionStateLoadHook,
             MissionStateSaveHook,
         )
 
+        bypass = LoopIterBypassHook(
+            is_active_fn=self._is_gate_active,
+        )
+        bypass.name = "mission_iter_bypass"
+
+        restore = LoopIterRestoreHook()
+        restore.name = "mission_iter_restore"
+
         return [
             MissionStateLoadHook(owner_mode=self),
             MissionStateSaveHook(owner_mode=self),
+            bypass,
+            restore,
         ]
 
     def prompt_contributors(self) -> list:
@@ -76,7 +96,7 @@ class MissionMode(AgentMode):
         """Register gates into universal StopHandler."""
         super().setup(workspace)
 
-        from .gates import MissionGate
+        from .gates import MissionGate as _MG
         from ...loop.gates import (
             StopHandler,
             StopHandlerRegistration,
@@ -107,8 +127,9 @@ class MissionMode(AgentMode):
                     ),
                 )
 
-        gate = MissionGate()  # pylint: disable=abstract-class-instantiated
+        gate = _MG()  # pylint: disable=abstract-class-instantiated
         handler.register(gate)
+        self._gate = gate
 
     def is_active(self, ctx: HookContext) -> bool:
         return bool(
@@ -145,7 +166,11 @@ class MissionMode(AgentMode):
         # --- info sub-commands ---
         if task_text.strip().lower() == "status":
             workspace_dir = getattr(ctx, "workspace_dir")
-            session_id = getattr(ctx, "session_id", "")
+            session_id = getattr(
+                ctx,
+                "session_id",
+                "",
+            )
             text = format_status(
                 workspace_dir,
                 session_id,
@@ -177,7 +202,7 @@ class MissionMode(AgentMode):
         agent_id = getattr(ctx, "agent_id", "")
         session_id = getattr(ctx, "session_id", "")
 
-        prompt = await start_mission(
+        prompt, loop_dir = await start_mission(
             task_text=task_text,
             workspace_dir=workspace_dir,
             agent_id=agent_id,
@@ -186,12 +211,21 @@ class MissionMode(AgentMode):
             max_iterations=parsed["max_iterations"],
         )
 
+        if self._gate is not None:
+            self._gate.activate_for_mission(loop_dir)
+
         _rewrite_user_msg(ctx, prompt)
         logger.info(
-            "Mission started for session %s",
-            session_id,
+            f"Mission started session={session_id}" f" loop_dir={loop_dir}",
         )
         return None
+
+    def _is_gate_active(self) -> bool:
+        """Check if MissionGate has active state."""
+        if self._gate is None:
+            return False
+        # pylint: disable=protected-access
+        return self._gate._state() is not None
 
 
 def _info_msg(text: str) -> Msg:

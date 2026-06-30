@@ -86,7 +86,8 @@ class StopGate(ABC):
 
         Returns:
             StopHandlerResult(STOP) -> agent stops.
-            None -> no objection, check next gate.
+            StopHandlerResult(CONTINUE) -> loop active.
+            None -> gate idle / no opinion.
         """
 
     def continuation_prompt(self) -> str:

@@ -195,11 +195,12 @@ async def start_mission(
     session_id: str,
     verify_commands: str,
     max_iterations: int,
-) -> str:
-    """Create state files and return the prompt to inject.
+) -> tuple[str, Path]:
+    """Create state files and return (prompt, loop_dir).
 
     The caller is responsible for rewriting the user
-    message with the returned prompt string.
+    message with the returned prompt string, and for
+    activating the MissionGate with the loop_dir.
     """
     loop_dir = create_loop_dir(workspace_dir)
     write_task_md(loop_dir, task_text)
@@ -241,7 +242,7 @@ async def start_mission(
         workspace_dir=str(workspace_dir),
     )
 
-    return (
+    prompt = (
         f"Starting Mission Mode: `{loop_dir.name}`.\n\n"
         f"Task (saved in `{loop_dir}/task.md`):\n"
         f"> {task_text}\n\n"
@@ -253,3 +254,4 @@ async def start_mission(
         f"`{loop_dir}/loop_config.json` setting "
         f"`current_phase` to `execution_confirmed`."
     )
+    return prompt, loop_dir

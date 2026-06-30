@@ -83,7 +83,10 @@ class MissionGate(LoopGate):
             )
 
         if phase not in _EXEC_PHASES:
-            return None
+            return StopHandlerResult(
+                action=StopAction.CONTINUE,
+                reason=f"Mission phase: {phase}",
+            )
 
         return self._eval_prd(
             read_prd(state.loop_dir),
@@ -144,7 +147,10 @@ class MissionGate(LoopGate):
         ctx: Any,
     ) -> Optional[_MissionState]:
         """Lazy-restore from session_state."""
-        ss = getattr(ctx, "session_state", None)
+        if isinstance(ctx, dict):
+            ss = ctx.get("session_state")
+        else:
+            ss = getattr(ctx, "session_state", None)
         if not ss or not ss.get("mission_active"):
             return None
         loop_dir_str = ss.get("mission_loop_dir")

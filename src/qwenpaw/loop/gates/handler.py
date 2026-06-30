@@ -5,8 +5,8 @@ Architecture:
     StopHandler holds an ordered list of StopGate.
     Gates are checked in priority order (lower first).
     Any gate returning STOP -> agent stops immediately.
-    No gates registered -> STOP (normal non-loop exit).
-    All gates return None -> CONTINUE (loop keeps going).
+    Any gate returning CONTINUE -> loop keeps going.
+    No gates registered OR all None -> STOP.
 """
 from __future__ import annotations
 
@@ -26,10 +26,8 @@ class StopHandler:
     """Universal stop handler with composable gates.
 
     Any gate returning STOP -> agent stops immediately.
-    No gates registered -> STOP (normal non-loop exit).
-    All gates return None -> CONTINUE with the
-    continuation message from ``continuation_fn``
-    plus all gate continuation_prompt() contributions.
+    Any gate returning CONTINUE -> loop keeps going.
+    No gates registered OR all None -> STOP.
     """
 
     def __init__(self) -> None:
@@ -63,8 +61,9 @@ class StopHandler:
     ) -> StopHandlerResult:
         """Run all gates in priority order.
 
-        Any STOP -> stop. No gates -> stop.
-        All None -> continue (with collected prompts).
+        Any STOP  -> stop immediately.
+        Any CONTINUE -> loop keeps going.
+        All None / no gates -> STOP (no active loop).
         """
         if not self._gates:
             return StopHandlerResult(
@@ -72,6 +71,9 @@ class StopHandler:
             )
 
         prompts: list[str] = []
+        has_continue = False
+        continue_result: StopHandlerResult | None = None
+
         for gate in self._gates:
             try:
                 result = await gate.check(ctx)
@@ -82,32 +84,51 @@ class StopHandler:
                     exc_info=True,
                 )
                 continue
+
             if result is not None:
                 logger.debug(
                     "StopGate '%s' fired: %s",
                     gate.name,
                     result.action.value,
                 )
-                return result
+                if result.action == StopAction.STOP:
+                    return result
+                has_continue = True
+                if continue_result is None:
+                    continue_result = result
+
             prompt = gate.continuation_prompt()
             if prompt:
                 prompts.append(prompt)
 
-        msg = ""
+        if not has_continue:
+            return StopHandlerResult(
+                action=StopAction.STOP,
+            )
+
+        msg = continue_result.continuation_message if continue_result else ""
         if self._continuation_fn:
             try:
-                msg = self._continuation_fn(ctx)
+                fn_msg = self._continuation_fn(ctx)
             except Exception:
                 logger.warning(
                     "continuation_fn raised",
                     exc_info=True,
                 )
+                fn_msg = ""
+            if fn_msg:
+                msg = f"{msg}\n\n{fn_msg}" if msg else fn_msg
         if prompts:
-            msg = "\n\n".join(prompts) + "\n\n" + msg
+            prefix = "\n\n".join(prompts)
+            msg = f"{prefix}\n\n{msg}" if msg else prefix
         return StopHandlerResult(
             action=StopAction.CONTINUE,
             continuation_message=msg,
-            reason="All gates passed",
+            reason=(
+                continue_result.reason
+                if continue_result
+                else "Active gate continues"
+            ),
         )
 
 

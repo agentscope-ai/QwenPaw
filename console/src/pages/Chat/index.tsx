@@ -2418,6 +2418,9 @@ export default function ChatPage() {
           userId: window.currentUserId || DEFAULT_USER_ID,
           channel: window.currentChannel || DEFAULT_CHANNEL,
         });
+        if (loopSkill) {
+          useLoopStore.getState().setSelectedSkill(null);
+        }
         pendingFileListRef.current = [];
         if (textarea) setTextareaValue(textarea, "");
         // Clear sender attachment preview (deferred to next tick)
@@ -2444,6 +2447,7 @@ export default function ChatPage() {
             setTextareaValue(textarea, `${prefix}${current}`);
           }
         }
+        loopState.setSelectedSkill(null);
       }
 
       return true;
