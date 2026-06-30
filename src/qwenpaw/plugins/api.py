@@ -322,6 +322,41 @@ class PluginApi:
                 f"'{handler.command_name}' (priority={priority_level})",
             )
 
+    def register_middleware(
+        self,
+        middleware_factory: Callable,
+        *,
+        priority: int = 100,
+    ) -> None:
+        """Register an AgentScope MiddlewareBase factory.
+
+        The factory is called once per request during agent assembly:
+            ``factory(ctx, agent_config) -> MiddlewareBase | None``
+
+        Returning None means the middleware is skipped for this request.
+        Priority controls ordering (lower = outermost in onion model).
+
+        Args:
+            middleware_factory: Callable that receives ``(ctx, agent_config)``
+                and returns a ``MiddlewareBase`` instance or None.
+            priority: Ordering priority (lower = outermost). Default: 100.
+
+        Example:
+            >>> def my_factory(ctx, agent_config):
+            ...     return MyMiddleware()
+            >>> api.register_middleware(my_factory, priority=50)
+        """
+        if self._registry:
+            self._registry.register_middleware(
+                plugin_id=self.plugin_id,
+                factory=middleware_factory,
+                priority=priority,
+            )
+            logger.info(
+                f"Plugin '{self.plugin_id}' registered middleware "
+                f"factory (priority={priority})",
+            )
+
     @property
     def runtime(self):
         """Access runtime helper functions.

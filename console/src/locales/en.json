@@ -53,7 +53,7 @@
     "skills": "Skills",
     "skillPool": "Skill Pool",
     "market": "Skill Market",
-    "tools": "Tools & Permissions",
+    "tools": "Tools",
     "mcp": "MCP",
     "acp": "ACP",
     "agentConfig": "Configuration",
@@ -75,7 +75,33 @@
     "updateModal": {
       "title": "New version available: v{{version}}",
       "viewReleases": "View Releases",
-      "close": "Close"
+      "installDesktopUpdate": "Update Now",
+      "desktopInstallHint": "QwenPaw Desktop {{version}} is ready to install. The app will restart after the update.",
+      "checking": "Checking for updates…",
+      "checkingHint": "Confirming the latest release",
+      "downloading": "Downloading update",
+      "downloadingTo": "Updating to version {{version}}",
+      "downloadProgress": "{{done}} / {{total}} · {{rate}}",
+      "installing": "Installing update",
+      "willRestart": "The app will restart automatically when done.",
+      "stepPrepare": "Prepare",
+      "stepDownloading": "Download",
+      "stepInstalling": "Install",
+      "failedTitle": "Update failed",
+      "back": "Back",
+      "retry": "Retry",
+      "errors": {
+        "network": "Couldn't reach the update server. Check your internet and try again.",
+        "signature": "Update file signature invalid. Try downloading again.",
+        "appLocation": "QwenPaw is running from a read-only macOS location. Move QwenPaw.app to the Applications folder, launch it from there, then try updating again.",
+        "other": "Update failed."
+      },
+      "updateLater": "Download in Background",
+      "backgroundDownloading": "Downloading in background…",
+      "readyToInstall": "Update ready",
+      "readyToInstallHint": "v{{version}} update is downloaded. Restart to install and launch the new version.",
+      "restartNow": "Update Now",
+      "backgroundFailed": "Background download failed"
     },
     "settings": {
       "language": "Language",
@@ -171,7 +197,11 @@
     "detailPayload": "Payload",
     "detailExecutionTrace": "Execution Trace",
     "detailTraceEmpty": "No execution trace available",
-    "filterByAgent": "Filter by agent"
+    "filterByAgent": "Filter by agent",
+    "filterBySourceType": "Filter by source",
+    "sourceTypeCron": "Cron",
+    "sourceTypeHeartbeat": "Heartbeat",
+    "sourceTypeMemory": "Memory"
   },
   "acp": {
     "title": "ACP",
@@ -599,7 +629,10 @@
     "exitBatch": "Exit Batch",
     "noSearchResults": "No skills found matching your search",
     "filterByTag": "Filter by tag",
-    "noTags": "No tags available"
+    "noTags": "No tags available",
+    "enabledSkills": "Enabled Skills",
+    "disabledSkills": "Disabled Skills",
+    "active": "active"
   },
   "skillPool": {
     "description": "Shared local skill pool for built-in skills and workspace uploads. External hub imports such as ClawHub or LobeHub are separate.",
@@ -729,7 +762,7 @@
       "title": "Access",
       "button": "Access",
       "summary": "MCP access policy",
-      "clientSection": "Client Access",
+      "clientSection": "Overall Access",
       "toolSection": "Tool Access",
       "default": "Default",
       "sourceType": "Source",
@@ -749,7 +782,18 @@
         "channel": "console / dingtalk"
       },
       "subjectValuePlaceholder": "e.g. alice",
+      "subjectValuePlaceholderSelectedSource": "user ID in selected source",
+      "subjectValuePlaceholderScoped": "{{source}} user ID",
       "subjectValueAll": "All",
+      "recentUserPlaceholder": "User ID is scoped to the selected source; type or select again",
+      "noRecentUsers": "No recent users for this source; type a user ID manually",
+      "ambiguousUserSourceWarning": "User IDs are scoped by source. Select a specific channel to avoid cross-channel matches.",
+      "unknownUserValueWarning": "This user ID is not in recent active users. Saving is allowed.",
+      "validation": {
+        "missingUserValue": "Select a specific source and enter a valid user ID.",
+        "ambiguousUserSource": "User rules must target a specific channel, not all channels.",
+        "unknownUserValue": "This user ID is not in recent active users. Saving is allowed."
+      },
       "addRule": "Add Rule",
       "deleteRule": "Delete Rule",
       "noClientRules": "No rules",
@@ -826,6 +870,10 @@
     "every": "Interval",
     "everyRequired": "Required",
     "everyMin": "Must be at least 1",
+    "timeoutSeconds": "Execution timeout (seconds)",
+    "timeoutRequired": "Required",
+    "timeoutMin": "Must be at least 1",
+    "timeoutMax": "Must be at most 3600",
     "unitMinutes": "Minutes",
     "unitHours": "Hours",
     "target": "Reply target",
@@ -1065,6 +1113,8 @@
     "filterToolMessagesTooltip": "Show tool call and output messages to users (turn off to hide)",
     "filterThinking": "Show Thinking",
     "filterThinkingTooltip": "Show model thinking/reasoning content to users (turn off to hide)",
+    "noTextDebounce": "No-text Debounce",
+    "noTextDebounceTooltip": "When enabled, media-only messages (image/video/file) are buffered until a text message arrives, then merged. Disable to process all messages immediately. Voice messages are always processed immediately.",
     "streamingEnabled": "Streaming Output",
     "streamingEnabledDingtalkHint": "Only effective when message type is Card",
     "streamingEnabledFeishuHint": "Requires enabling cardkit:card:write permission in the Feishu Open Platform permission management page",
@@ -1116,6 +1166,11 @@
     "wecomAuthHint": "Scan the QR code above with WeCom to authorize. Bot ID and Secret will be filled in automatically.",
     "wecomAuthSuccess": "WeCom bot authorized. Bot ID and Secret have been filled in.",
     "wecomQrcodeFailed": "Failed to get WeCom QR code. Please try again.",
+    "slackBotToken": "Bot Token",
+    "slackBotTokenTooltip": "Slack Bot User OAuth Token, starts with xoxb-",
+    "slackAppToken": "App Token",
+    "slackAppTokenTooltip": "Slack App-Level Token for Socket Mode, starts with xapp-",
+    "slackProxyTooltip": "HTTP proxy URL for connecting to Slack API",
     "dingtalkSetupGuide": "Scan the QR code with DingTalk to create a bot instantly. A DingTalk app will be created automatically and Client ID / Client Secret will be filled in.",
     "dingtalkScanAuth": "Scan to Create Bot",
     "dingtalkGetQrcode": "Get DingTalk QR Code",
@@ -1132,6 +1187,8 @@
     "qqQrcodeExpired": "The QR code has expired; please retrieve a new one",
     "atSenderOnReply": "@ Sender on Reply",
     "atSenderOnReplyTooltip": "When enabled, the bot will @mention the sender in its first reply message in group chats. Note: In card mode, @mention only works for enterprise internal members.",
+    "dingtalkEndpoint": "API Endpoint",
+    "dingtalkEndpointTooltip": "Custom API endpoint for private DingTalk deployments. Leave empty to use the official default.",
     "wecomCancelled": "Authorization cancelled",
     "wecomAuthFailed": "Authorization failed: {{msg}}",
     "voiceSetupGuide": "Set up a Twilio account, purchase a phone number, then enter your credentials below. Find your Account SID and Auth Token on the Twilio Console dashboard. The Phone Number SID is listed under Phone Numbers → Active Numbers.",
@@ -1238,7 +1295,13 @@
     "batchDismissConfirm": "Dismiss {{count}} selected users?",
     "batchSuccess": "{{count}} users processed successfully",
     "batchRemove": "Delete",
-    "batchRemoveConfirm": "Delete {{count}} selected users?"
+    "batchRemoveConfirm": "Delete {{count}} selected users?",
+    "enabledSection": "Enabled",
+    "enabledCount": "{{count}}",
+    "availableSection": "Available",
+    "enableAction": "Enable",
+    "noEnabledChannels": "No enabled channels",
+    "goEnableChannels": "Enable channels"
   },
   "sessions": {
     "title": "Sessions",
@@ -1421,6 +1484,7 @@
     "protocolHint": "Choose the provider API protocol for this configuration.",
     "selectProtocol": "Please select a protocol",
     "protocolOpenAI": "OpenAI-compatible (Chat Completions)",
+    "protocolOpenAIResponse": "OpenAI-compatible (Response API)",
     "protocolAnthropic": "Anthropic (Messages API)",
     "currentKey": "Current: {{key}}",
     "startsWith": "Starts with \"{{prefix}}\"",
@@ -1487,7 +1551,7 @@
     "goConfigureBtn": "Configure a Provider",
     "availableGroup": "Available Providers",
     "clickToConfigure": "Click to configure",
-    "configureAction": "Configure \u2192",
+    "configureAction": "Configure →",
     "endpointCount": "{{count}} endpoints",
     "connect": "OAuth",
     "saveApiKey": "Save",
@@ -1761,8 +1825,6 @@
     "shellCommandExecutable": "Shell Executable",
     "shellCommandExecutableTooltip": "Path to the shell used by execute_shell_command. Linux/macOS: e.g. /bin/bash, /bin/zsh. Windows: supports powershell.exe, pwsh.exe, or POSIX-like shells such as Git Bash. When empty, falls back to the $SHELL environment variable, then to the platform default (/bin/sh on Unix, cmd.exe on Windows).",
     "shellCommandExecutablePlaceholder": "e.g. /bin/bash or powershell.exe (empty = auto-detect)",
-    "planMode": "Plan Mode",
-    "planModeTooltip": "Enable plan mode to use /plan <description> for structured task planning. When enabled, plan tools are registered and the plan panel becomes available.",
     "maxInputLength": "Max Input Length",
     "maxInputLengthTooltip": "Maximum input length (tokens) for the model context window",
     "maxInputLengthPlaceholder": "Enter max input length",
@@ -1849,9 +1911,8 @@
     "autoMaxResultsTooltip": "Maximum number of results returned when auto memory search is enabled",
     "autoMaxResultsRequired": "Max results is required",
     "autoMaxResultsMin": "Max results must be at least 1",
-    "autoMinScore": "Auto Search Min Score",
-    "autoMinScoreTooltip": "Minimum relevance score threshold (0–1) when auto memory search is enabled",
-    "autoMinScoreRequired": "Min score is required",
+    "autoMemorySearchPersistToContext": "Persist Search Result to Context",
+    "autoMemorySearchPersistToContextTooltip": "When enabled, the auto memory search tool call and result are saved into the conversation context. Disable it to use the search result only for the current model call.",
     "embeddingConfigTitle": "Embedding Model Config",
     "embeddingBackend": "Backend",
     "embeddingBackendTooltip": "Embedding backend provider, e.g. openai",
@@ -1926,6 +1987,10 @@
     "autoMemoryIntervalPlaceholder": "Leave empty to disable periodic auto memory",
     "contextManagerBackend": "Context Manager Backend",
     "contextManagerBackendTooltip": "Backend type for the context manager. Currently only Light is supported.",
+    "contextStrategy": "Context Strategy",
+    "contextStrategyTooltip": "How the agent manages long context. Scroll (recommended) persists evicted turns to a durable history store and recalls them on demand; Native uses in-place compression. Restart QwenPaw for changes to take effect.",
+    "contextStrategyScroll": "Scroll",
+    "contextStrategyNative": "Native",
     "backendRestartWarning": "Switching backends does not support hot reload. Save and restart QwenPaw for changes to take effect.",
     "adbpgMemoryTitle": "ADBPG Long-term Memory",
     "adbpgConfig": {
@@ -1970,7 +2035,13 @@
     "configured": "Configured",
     "requiresConfig": "Requires configuration",
     "configSaved": "Configuration saved",
-    "configSaveError": "Failed to save configuration"
+    "configSaveError": "Failed to save configuration",
+    "active": "active",
+    "available": "Available",
+    "noEnabled": "No tools enabled",
+    "goEnableBtn": "Go enable",
+    "configureAction": "Configure →",
+    "enableAction": "Enable →"
   },
   "modelConfig": {
     "promptTitle": "LLM Model Required — Select in Chat After Configuration",
@@ -2035,9 +2106,6 @@
       },
       "skills": {
         "description": "List chat-available skills and expose explicit skill commands"
-      },
-      "plan": {
-        "description": "Create a structured plan to decompose the task into subtasks"
       }
     },
     "attachments": {
@@ -2395,19 +2463,6 @@
     "timeoutAutoDenied": "Timed out, auto denied",
     "acknowledge": "Got it"
   },
-  "plan": {
-    "title": "Plan",
-    "noPlan": "No active plan",
-    "noPlanHint": "Use /plan <description> to create a plan",
-    "progress": "Progress",
-    "outcome": "Outcome",
-    "state": {
-      "todo": "Todo",
-      "in_progress": "In Progress",
-      "done": "Done",
-      "abandoned": "Abandoned"
-    }
-  },
   "pluginManager": {
     "title": "Plugin Manager",
     "description": "Install, manage, and remove plugins without restarting the service.",
@@ -2601,7 +2656,7 @@
     "getCurrentTime": "Get current time",
     "setTimezone": "Set {{timezone}}",
     "getTokenUsage": "Query token usage",
-    "memorySearch": "Search {{query}}",
+    "memorySearch": "Search memory {{query}}",
     "memorySearchDefault": "Search memory",
     "listAgents": "List agents",
     "chatWithAgent": "Chat {{agent}}",

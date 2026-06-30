@@ -184,7 +184,13 @@ class Runtime:
 
     def _build_context(self, request: Any) -> HookContext:
         workspace_dir = getattr(self.workspace, "workspace_dir", None)
-        agent_id = getattr(request, "agent_id", None) or "default"
+        # Prefer the workspace's resolved agent id over a bare "default", so an
+        # agent selected by header (no body agent_id) loads its own config.
+        agent_id = (
+            getattr(request, "agent_id", None)
+            or getattr(self.workspace, "agent_id", None)
+            or "default"
+        )
         session_id = request.session_id
         root_session_id = getattr(request, "root_session_id", "") or session_id
         root_agent_id = getattr(request, "root_agent_id", "") or agent_id

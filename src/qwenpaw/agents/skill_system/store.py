@@ -251,7 +251,9 @@ def _directory_tree(directory: Path) -> dict[str, Any]:
 
 
 def extract_version(post: Any) -> str:
-    metadata = post.get("metadata") or {}
+    metadata = post.get("metadata")
+    if not isinstance(metadata, dict):
+        metadata = {}
     for value in (
         post.get("version"),
         metadata.get("version"),
@@ -844,6 +846,11 @@ def validate_skill_content(content: str) -> tuple[str, str]:
                 "SKILL.md must include non-empty frontmatter "
                 "name and description"
             ),
+        )
+    metadata = post.get("metadata")
+    if metadata is not None and not isinstance(metadata, dict):
+        raise SkillsError(
+            message="SKILL.md frontmatter 'metadata' must be a dict",
         )
     return skill_name, skill_description
 

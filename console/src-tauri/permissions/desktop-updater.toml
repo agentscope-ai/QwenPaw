@@ -1,0 +1,15 @@
+"$schema" = "schemas/schema.json"
+
+[[permission]]
+identifier = "desktop-updater-check"
+description = "Allows the frontend to check desktop update availability and cached update state."
+commands.allow = ["check_desktop_update", "check_cached_update"]
+
+[[permission]]
+identifier = "desktop-updater-install"
+description = "Allows the frontend to download, install, and restart into desktop updates."
+commands.allow = [
+    "download_desktop_update",
+    "install_desktop_update",
+    "install_downloaded_update",
+]

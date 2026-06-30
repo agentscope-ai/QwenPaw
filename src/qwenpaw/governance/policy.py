@@ -469,6 +469,11 @@ DEFAULT_USER_RULES: List[GovernanceRule] = [
         action=GovernanceAction.ALLOW,
         reason="File send within workspace",
     ),
+    GovernanceRule(
+        match="DesktopScreenshot(WORKSPACE_DIR/**)",
+        action=GovernanceAction.ALLOW,
+        reason="File send within workspace",
+    ),
     # ── Browser (treat as always allowed for now) ──
     GovernanceRule(
         match="Browser(**)",

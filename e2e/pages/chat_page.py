@@ -133,13 +133,14 @@ class ChatPage(BasePage):
     def open(self) -> "ChatPage":
         """Open the Chat page."""
         logger.info("Opening Chat page")
-        try:
-            self.goto()
-        except Exception:
-            # networkidle may time out due to long-lived connections / SSE; fall back to 'load'
-            logger.warning("Chat page networkidle timeout, falling back to 'load'")
-            self.page.goto(self.PAGE_URL, wait_until="load", timeout=60000)
-        self.wait_for_loading()
+        self.goto()
+        # The chat page keeps SSE connections open, so ``networkidle``
+        # never fires. Wait for the textarea to be visible instead —
+        # that's a strong signal that React has booted and the page is
+        # interactive.
+        self.page.locator(self.CHAT_INPUT).first.wait_for(
+            state="visible", timeout=self.timeout
+        )
         self.step_shot("open_chat_page")
         return self
     

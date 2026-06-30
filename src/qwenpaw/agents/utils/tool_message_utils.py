@@ -13,6 +13,8 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
+_json_decoder = json.JSONDecoder()
+
 _TOOL_CALL_TYPES = ("tool_use", "tool_call")
 _TOOL_RESULT_TYPES = ("tool_result",)
 
@@ -290,11 +292,15 @@ def _repair_empty_tool_inputs(
 
                 if not input_field and raw_input and raw_input != "{}":
                     try:
-                        parsed = json.loads(
+                        raw_str = (
                             raw_input
                             if isinstance(raw_input, str)
-                            else str(raw_input),
+                            else str(raw_input)
                         )
+                        try:
+                            parsed = json.loads(raw_str)
+                        except json.JSONDecodeError:
+                            parsed, _ = _json_decoder.raw_decode(raw_str)
                         if isinstance(parsed, dict) and parsed:
                             # All agentscope 2.0 formatters expect
                             # ToolCallBlock.input to be a JSON string
@@ -377,21 +383,42 @@ def _coerce_tool_inputs_to_json(msgs: list) -> list:
                 try:
                     json.loads(raw)
                     coerced_input = raw  # already a valid JSON string
-                except (json.JSONDecodeError, ValueError):
+                except (json.JSONDecodeError, ValueError) as exc:
                     if raw == "":
                         coerced_input = "{}"
                     else:
-                        # Non-empty but unparseable (e.g. truncated during
-                        # streaming).  Drop rather than silently sending "{}".
-                        logger.warning(
-                            "tool_call input is not valid JSON; "
-                            "dropping block: id=%r, name=%r, "
-                            "input_preview=%s",
-                            _block_attr(block, "id"),
-                            _block_attr(block, "name"),
-                            repr(raw[:120]),
-                        )
-                        drop_block = True
+                        # Some models (e.g. DeepSeek-V4-Flash) append garbage
+                        # after valid JSON for no-param tool calls: "{
+                        # }trailing" json.loads raises "Extra data" but
+                        # raw_decode can recover the leading valid object.
+                        try:
+                            recovered, _ = _json_decoder.raw_decode(raw)
+                            if not isinstance(recovered, dict):
+                                raise json.JSONDecodeError(
+                                    "recovered value is not a JSON object",
+                                    raw,
+                                    0,
+                                ) from exc
+                            coerced_input = json.dumps(
+                                recovered,
+                                ensure_ascii=False,
+                            )
+                            logger.info(
+                                "tool_call input had trailing garbage; "
+                                "recovered via raw_decode: id=%r, name=%r",
+                                _block_attr(block, "id"),
+                                _block_attr(block, "name"),
+                            )
+                        except (json.JSONDecodeError, ValueError):
+                            logger.warning(
+                                "tool_call input is not valid JSON; "
+                                "dropping block: id=%r, name=%r, "
+                                "input_preview=%s",
+                                _block_attr(block, "id"),
+                                _block_attr(block, "name"),
+                                repr(raw[:120]),
+                            )
+                            drop_block = True
             elif isinstance(raw, (dict, list)):
                 coerced_input = json.dumps(raw, ensure_ascii=False)
             else:

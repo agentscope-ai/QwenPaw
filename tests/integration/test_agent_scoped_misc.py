@@ -11,11 +11,12 @@ import pytest
 
 from tests.integration.helpers import (
     create_agent,
+    default_http_timeout,
     delete_agent_quietly,
     scoped,
 )
 
-_HTTP_TIMEOUT = 15.0
+_HTTP_TIMEOUT = default_http_timeout(15.0)
 
 
 # ------------------------------------------------------------------ #

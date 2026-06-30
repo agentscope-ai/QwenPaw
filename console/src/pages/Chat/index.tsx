@@ -6,6 +6,7 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button, Modal, Result, Tooltip } from "antd";
 import { useAppMessage } from "../../hooks/useAppMessage";
+import { useIsMobile } from "../../hooks/useIsMobile";
 import { ExclamationCircleOutlined, SettingOutlined } from "@ant-design/icons";
 import { SparkCopyLine, SparkAttachmentLine } from "@agentscope-ai/icons";
 import { usePlugins } from "../../plugins/PluginContext";
@@ -39,7 +40,6 @@ import ChatSessionInitializer from "./components/ChatSessionInitializer";
 import { ApprovalCard } from "../../components/ApprovalCard/ApprovalCard";
 import { commandsApi } from "../../api/modules/commands";
 import { useApprovalContext } from "../../contexts/ApprovalContext";
-import { planApi } from "../../api/modules/plan";
 import {
   useChatScalarSnapshot,
   useChatListSnapshot,
@@ -742,9 +742,13 @@ export default function ChatPage() {
   const [approvalRequests, setApprovalRequests] = useState<
     Map<string, ApprovalMessageData>
   >(new Map());
-  const [planEnabled, setPlanEnabled] = useState(false);
   const { mode: sidebarMode } = useSidebarModeStore();
   const isFullMode = sidebarMode === "full";
+
+  // On mobile viewports the right-side history panel should always be
+  // available regardless of the sidebar mode setting.
+  const isMobile = useIsMobile();
+  const effectiveIsFullMode = isFullMode || isMobile;
 
   // Right-side history panel state
   const [historyPanelOpen, setHistoryPanelOpen] = useState(() => {
@@ -774,19 +778,6 @@ export default function ChatPage() {
     () => chatSkills.filter(isSkillAvailableInConsole),
     [chatSkills],
   );
-
-  useEffect(() => {
-    let cancelled = false;
-    planApi
-      .getPlanConfig()
-      .then((cfg) => {
-        if (!cancelled) setPlanEnabled(cfg.enabled);
-      })
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
-  }, [selectedAgent]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1450,13 +1441,6 @@ export default function ChatPage() {
         description: t("chat.commands.skills.description"),
       },
     ];
-    if (planEnabled) {
-      commandSuggestions.push({
-        command: "/plan",
-        value: "plan ",
-        description: t("chat.commands.plan.description"),
-      });
-    }
     const reservedCommands = new Set(
       commandSuggestions.map((item) => item.value.trim()),
     );
@@ -1639,6 +1623,10 @@ export default function ChatPage() {
         value: item.value,
       }),
     );
+    const userMessageAnchorsConfig = {
+      ...defaultConfig.theme.bubbleList.userMessageAnchors,
+      variant: "navigator" as const,
+    };
 
     // leftHeader: whole-section render wins, otherwise partial merge {logo, title}.
     const mergedLeftHeader: any =
@@ -1663,6 +1651,10 @@ export default function ChatPage() {
         ...defaultConfig.theme,
         darkMode: isDark,
         ...(extColorPrimary ? { colorPrimary: extColorPrimary } : {}),
+        bubbleList: {
+          ...defaultConfig.theme.bubbleList,
+          userMessageAnchors: userMessageAnchorsConfig,
+        },
         leftHeader: mergedLeftHeader,
         rightHeader: (
           <>
@@ -1671,9 +1663,10 @@ export default function ChatPage() {
             <span style={{ flex: 1 }} />
             <ModelSelector />
             <ChatActionGroup
-              planEnabled={planEnabled}
-              onToggleHistory={isFullMode ? toggleHistoryPanel : undefined}
-              historyOpen={isFullMode ? historyPanelOpen : false}
+              onToggleHistory={
+                effectiveIsFullMode ? toggleHistoryPanel : undefined
+              }
+              historyOpen={effectiveIsFullMode ? historyPanelOpen : false}
               isWideMode={isWideMode}
               onToggleWideMode={toggleWideMode}
             />
@@ -1918,7 +1911,6 @@ export default function ChatPage() {
     extScalar,
     extLists,
     scheduleHistoryClear,
-    planEnabled,
     consoleSkills,
     selectedAgent,
     inputQueueEnabled,
@@ -2106,19 +2098,29 @@ export default function ChatPage() {
       {/* End of main chat area */}
 
       {/* Right-side history panel (full mode only) */}
-      {isFullMode && historyPanelOpen && (
+      {effectiveIsFullMode && historyPanelOpen && (
         <>
-          <div
-            className={styles.historyPanelMask}
-            onClick={toggleHistoryPanel}
-          />
-          <div className={styles.historyPanel}>
+          {isMobile ? (
             <ChatSessionDrawer
               open={historyPanelOpen}
               onClose={toggleHistoryPanel}
-              embedded
+              embedded={false}
             />
-          </div>
+          ) : (
+            <>
+              <div
+                className={styles.historyPanelMask}
+                onClick={toggleHistoryPanel}
+              />
+              <div className={styles.historyPanel}>
+                <ChatSessionDrawer
+                  open={historyPanelOpen}
+                  onClose={toggleHistoryPanel}
+                  embedded
+                />
+              </div>
+            </>
+          )}
         </>
       )}
     </div>

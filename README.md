@@ -5,7 +5,7 @@
 [![GitHub Repo](https://img.shields.io/badge/GitHub-Repo-black.svg?logo=github)](https://github.com/agentscope-ai/QwenPaw)
 [![PyPI](https://img.shields.io/pypi/v/qwenpaw?color=3775A9&label=PyPI&logo=pypi)](https://pypi.org/project/qwenpaw/)
 [![Documentation](https://img.shields.io/badge/Docs-Website-green.svg?logo=readthedocs&label=Docs)](https://qwenpaw.agentscope.io/)
-[![Python Version](https://img.shields.io/badge/python-3.10%20~%20%3C3.14-blue.svg?logo=python&label=Python)](https://www.python.org/downloads/)
+[![Python Version](https://img.shields.io/badge/python-3.11%20~%20%3C3.14-blue.svg?logo=python&label=Python)](https://www.python.org/downloads/)
 [![Last Commit](https://img.shields.io/github/last-commit/agentscope-ai/QwenPaw)](https://github.com/agentscope-ai/QwenPaw)
 [![License](https://img.shields.io/badge/license-Apache%202.0-red.svg?logo=apache&label=License)](LICENSE)
 [![Code Style](https://img.shields.io/badge/code%20style-black-black.svg?logo=python&label=CodeStyle)](https://github.com/psf/black)
@@ -16,6 +16,8 @@
 [![X](https://img.shields.io/badge/X-Follow_Us-black.svg?logo=x)](https://x.com/agentscope_ai)
 [![DingTalk](https://img.shields.io/badge/DingTalk-Join_Us-orange.svg)](https://qr.dingtalk.com/action/joingroup?code=v1,k1,OmDlBXpjW+I2vWjKDsjvI9dhcXjGZi3bQiojOq3dlDw=&_dt_no_comment=1&origin=11)
 [![AgentScope Platform](https://img.shields.io/badge/%E2%98%81_AgentScope_Platform-%F0%9F%90%BE_7%2F24_Online_%26_Free-FF6B2B.svg)](https://platform.agentscope.io/)
+
+<a href="https://trendshift.io/repositories/25882" target="_blank"><img src="https://trendshift.io/api/badge/trendshift/repositories/25882/daily" alt="agentscope-ai%2FQwenPaw | Trendshift" style="width: 250px; height: 55px;" width="250" height="55"/></a>
 
 [[Documentation](https://qwenpaw.agentscope.io/)] [[中文](README_zh.md)] [[日本語](README_ja.md)] [[Русский](README_ru.md)]
 
@@ -121,7 +123,7 @@ Your personal AI assistant — easy to install, deploy locally or in the cloud, 
 
 ### Option 1: pip install
 
-If you prefer managing Python yourself:
+If you prefer managing Python yourself (requires Python >= 3.11, < 3.14):
 
 ```bash
 pip install qwenpaw
@@ -335,6 +337,22 @@ For detailed usage instructions, troubleshooting, and common issues, see the [De
 
 ---
 
+## Terminal UI (TUI)
+
+Prefer to stay in the terminal? Run `qwenpaw` to open a full-screen chat **TUI** that drives the _same_ agent as the Console and the IM Channels — same memory, skills, MCP tools, and sessions — without leaving your keyboard.
+
+```bash
+qwenpaw                     # open a chat with the active agent
+qwenpaw tui --resume <id>   # resume a previous session
+qwenpaw .                   # start in the current repo (Coding Mode)
+```
+
+It supports streaming replies, slash commands (`/help`, `/resume`, `/theme`, plus the agent's own `/model`, `/clear`, …), pasting files/long text as attachments, and inline tool-permission prompts. See the [Terminal UI guide](https://qwenpaw.agentscope.io/docs/tui) for details.
+
+![QwenPaw TUI](https://img.alicdn.com/imgextra/i2/O1CN01IULzib1TRAzigIcqG_!!6000000002378-2-tps-2350-1312.png)
+
+---
+
 ## API Key
 
 If you use a **cloud LLM API** (e.g., Qianwen, Gemini, OpenAI), you must configure an API key before chatting. QwenPaw will not work until a valid key is set. See the [official docs](https://qwenpaw.agentscope.io/docs/models) for details.
@@ -368,6 +386,7 @@ QwenPaw can run LLMs entirely on your machine — no API keys or cloud services 
 | [Introduction](https://qwenpaw.agentscope.io/docs/intro)                | What QwenPaw is and how to use it                  |
 | [Quick start](https://qwenpaw.agentscope.io/docs/quickstart)            | Install and run (local or ModelScope Studio)    |
 | [Console](https://qwenpaw.agentscope.io/docs/console)                   | Web UI: chat and agent configuration            |
+| [Terminal UI (TUI)](https://qwenpaw.agentscope.io/docs/tui)             | Full-screen terminal chat, same agent as Console |
 | [Models](https://qwenpaw.agentscope.io/docs/models)                     | Configure cloud, local, and custom providers    |
 | [Channels](https://qwenpaw.agentscope.io/docs/channels)                  | DingTalk, Feishu, QQ, Discord, iMessage, and more |
 | [Skills](https://qwenpaw.agentscope.io/docs/skills)                      | Extend and customize capabilities               |

@@ -60,7 +60,7 @@ from .widgets import (
     ErrorMessage,
     FileLinkBox,
     InfoMessage,
-    PermissionModal,
+    PermissionOverlay,
     PromptInput,
     PushMessageBox,
     QueuedMessage,
@@ -199,6 +199,7 @@ class PawApp(App):
         self._stream_chars = 0
         self._suggester = CommandSuggester()
         self._menu = CommandMenu()
+        self._permission = PermissionOverlay()
         self._agent_commands: list[SlashCommand] = []
         self._local_commands = _local_commands()
         # Recent resumable sessions, surfaced as `/resume <id>` auto-suggest
@@ -216,12 +217,13 @@ class PawApp(App):
         yield StatusBar()
         yield VerticalScroll(id="transcript")
         yield self._menu
+        yield self._permission
         yield PromptInput(
             self._menu,
             placeholder=(
                 "type a message  "
                 "(/ commands · enter send/queue · shift+enter newline · "
-                "paste files/long text)"
+                "esc interrupt/cancel input · paste files/long text)"
             ),
             id="prompt",
             show_line_numbers=False,
@@ -378,6 +380,40 @@ class PawApp(App):
             self._queued.append((text, widget))
             return
         await self._submit(text)
+
+    def _permission_active(self) -> bool:
+        return (
+            self._permission.display and self._permission.request is not None
+        )
+
+    async def _handle_permission_key(self, key: str) -> None:
+        if key == "down":
+            self._permission.cursor_down()
+            return
+        if key == "up":
+            self._permission.cursor_up()
+            return
+        if key in ("enter", "tab"):
+            option_id = self._permission.selected
+            if option_id is not None:
+                self._resolve_permission(option_id)
+            return
+        if key == "escape":
+            self._resolve_permission(self._permission.deny_option_id)
+
+    def _resolve_permission(self, option_id: str | None) -> None:
+        request = self._permission.request
+        if request is None:
+            return
+        self._permission.clear_request()
+        self.query_one("#prompt", PromptInput).focus()
+        self.run_worker(
+            self._transport.resolve_permission(
+                request.request_id,
+                option_id,
+            ),
+            exclusive=False,
+        )
 
     async def _submit(self, text: str) -> None:
         """Deliver one user turn now."""
@@ -930,6 +966,7 @@ class PawApp(App):
         elif isinstance(event, TurnEnded):
             self._busy = False
             self._awaiting_backend_update = False
+            self._permission.clear_request()
             if self._thought is not None:
                 self._thought.done()
             if self._activity is not None:
@@ -992,16 +1029,10 @@ class PawApp(App):
         )
 
     def _on_permission(self, event: PermissionRequest) -> None:
-        def _resolve(option_id: str | None) -> None:
-            self.run_worker(
-                self._transport.resolve_permission(
-                    event.request_id,
-                    option_id,
-                ),
-                exclusive=False,
-            )
-
-        self.push_screen(PermissionModal(event), _resolve)
+        self._mark_backend_update()
+        self._menu.display = False
+        self._permission.show_request(event)
+        self.query_one("#prompt", PromptInput).focus()
 
     async def on_unmount(self) -> None:
         await self._transport.close()

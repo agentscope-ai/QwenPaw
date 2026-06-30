@@ -84,6 +84,15 @@ class ControlCommandRegistration:
 
 
 @dataclass
+class MiddlewareRegistration:
+    """Middleware factory registration record."""
+
+    plugin_id: str
+    factory: Callable
+    priority: int = 100
+
+
+@dataclass
 class HttpRouterRegistration:
     """HTTP routes contributed by a backend plugin under ``/api``."""
 
@@ -134,6 +143,7 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
         self._control_commands: List[ControlCommandRegistration] = []
         self._runtime_helpers = None
         self._plugin_manifests: Dict[str, Dict[str, Any]] = {}
+        self._middleware_registrations: List[MiddlewareRegistration] = []
         self._plugin_http_app: Optional[Any] = None
         self._http_router_registrations: List[HttpRouterRegistration] = []
         self._http_prefix_to_plugin: Dict[str, str] = {}
@@ -141,6 +151,44 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
         self._prompt_section_names: set = set()
 
         self._initialized = True
+
+    def register_middleware(
+        self,
+        plugin_id: str,
+        factory: Callable,
+        priority: int = 100,
+    ) -> None:
+        """Register a middleware factory.
+
+        The factory is invoked per request during agent assembly:
+        ``factory(ctx, agent_config) -> MiddlewareBase | None``.
+
+        Args:
+            plugin_id: Plugin identifier
+            factory: Callable returning a MiddlewareBase or None
+            priority: Ordering priority (lower = outermost in onion model)
+        """
+        self._middleware_registrations.append(
+            MiddlewareRegistration(
+                plugin_id=plugin_id,
+                factory=factory,
+                priority=priority,
+            ),
+        )
+        self._middleware_registrations.sort(key=lambda r: r.priority)
+        logger.info(
+            "Registered middleware factory from plugin '%s' (priority=%d)",
+            plugin_id,
+            priority,
+        )
+
+    def get_middleware_factories(self) -> List[MiddlewareRegistration]:
+        """Get all middleware factory registrations sorted by priority.
+
+        Returns:
+            List of MiddlewareRegistration
+        """
+        return self._middleware_registrations.copy()
 
     def set_plugin_http_app(self, app: Any) -> None:
         """Attach the FastAPI application used to mount plugin HTTP routes.
@@ -691,6 +739,11 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
         ]
         self._control_commands = [
             c for c in self._control_commands if c.plugin_id != plugin_id
+        ]
+        self._middleware_registrations = [
+            r
+            for r in self._middleware_registrations
+            if r.plugin_id != plugin_id
         ]
         removed_sections = [
             s for s in self._prompt_sections if s.plugin_id == plugin_id

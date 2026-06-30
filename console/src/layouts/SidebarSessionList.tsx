@@ -139,7 +139,6 @@ export default function SidebarSessionList({
   const {
     sortedSessions,
     loading,
-    switchingSessionId,
     editingSessionId,
     editValue,
     handleSessionClick,
@@ -183,8 +182,6 @@ export default function SidebarSessionList({
       ? getChannelLabel(channelKey, t)
       : undefined;
     const isEditing = editingSessionId === session.id;
-    const isDisabled =
-      !!switchingSessionId && session.id !== switchingSessionId;
 
     return (
       <SidebarSessionItem
@@ -200,7 +197,7 @@ export default function SidebarSessionList({
           session.id === currentSessionId ||
           (!!currentSessionId && session.realId === currentSessionId)
         }
-        disabled={isDisabled}
+        disabled={false}
         editing={isEditing}
         editValue={isEditing ? editValue : undefined}
         onClick={handleSessionClick}
@@ -215,10 +212,7 @@ export default function SidebarSessionList({
   };
 
   return (
-    <div
-      className={styles.sessionList}
-      style={switchingSessionId ? { pointerEvents: "none" } : undefined}
-    >
+    <div className={styles.sessionList}>
       {/* New Chat button */}
       <button className={styles.newChatBtn} onClick={handleNewChat}>
         <SparkPlusLine size={14} />

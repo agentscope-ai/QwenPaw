@@ -17,7 +17,7 @@ interface LanguageConfig {
   icon: React.ReactElement;
 }
 
-const LANGUAGE_LIST: LanguageConfig[] = [
+export const LANGUAGE_LIST: LanguageConfig[] = [
   { key: "en", label: "English", icon: <SparkEnglish02Line /> },
   { key: "zh", label: "简体中文", icon: <SparkChinese02Line /> },
   { key: "ja", label: "日本語", icon: <SparkJapanLine /> },
