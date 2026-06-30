@@ -1,22 +1,23 @@
 # -*- coding: utf-8 -*-
 """Windows AppContainer sandbox implementation.
 
-Uses Windows AppContainer for native process isolation:
-  - Filesystem access controlled via icacls ACLs on the AppContainer SID
-  - Network controlled via AppContainer capabilities
-  - Process launched with PROC_THREAD_ATTRIBUTE_SECURITY_CAPABILITIES
+Uses Windows AppContainer (SID ``S-1-15-2-*``) for native process isolation.
 
 Architecture:
-    1. Create (or reuse) an AppContainer profile → obtain SID
-    2. Set filesystem ACLs via icacls.exe (one command per directory, parallel)
-    3. Create NTFS junction for CWD traversal
-    4. Launch cmd.exe /c <command> with AppContainer security token
-    5. Capture stdout/stderr and detect violations
+    1. Create (or reuse) an AppContainer profile via ``userenv.dll``.
+    2. Set filesystem ACLs via ``icacls.exe`` (parallel for global grants,
+       serial with inheritance-break for mounts and deny paths).
+    3. Create an NTFS junction for CWD traversal into the workspace.
+    4. Launch ``cmd.exe /c <command>`` with the AppContainer security token
+       attached via ``PROC_THREAD_ATTRIBUTE_SECURITY_CAPABILITIES``.
+    5. Capture stdout/stderr, decode with OEM code page awareness, and
+       detect access-denied violations via regex.
 
 Requirements:
-    - Windows 10 1507+ (build 10240)
-    - icacls.exe (ships with Windows)
-    - Python ctypes (for Win32 API calls)
+    - Windows 10 1507+ (build 10240).
+    - ``icacls.exe`` (ships with all Windows editions).
+    - Python ``ctypes`` (for Win32 API calls via ``kernel32``,
+      ``userenv``, ``advapi32``).
 """
 
 from __future__ import annotations
@@ -41,18 +42,9 @@ from .config import ExecutionResult, SandboxConfig
 logger = logging.getLogger(__name__)
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
+# ═══════════════════════════════════════════════════════════════════════════
 # Constants
-# ═══════════════════════════════════════════════════════════════════════════════
-
-# Critical system directories that always get read+execute
-CRITICAL_SYSTEM_DIRS: List[str] = [
-    r"C:\Windows",
-    r"C:\Windows\System32",
-    r"C:\Windows\SysWOW64",
-    r"C:\Program Files",
-    r"C:\Program Files (x86)",
-]
+# ═══════════════════════════════════════════════════════════════════════════
 
 # AppContainer network capability well-known SIDs
 # These are the string names recognized by the Windows API
@@ -77,8 +69,9 @@ _VIOLATION_RE = re.compile(
     r"|0x80070005"
     r"|Permission denied"
     r"|\u62d2\u7edd\u8bbf\u95ee"  # 拒绝访问 (Chinese: Access denied)
-    r"|\u6743\u9650\u4e0d\u8db3"  # 权限不足 (Chinese: Insufficient permissions)
-    r"|\u7cfb\u7edf\u65e0\u6cd5\u6267\u884c\u6307\u5b9a\u7684\u7a0b\u5e8f",  # 系统无法执行指定的程序
+    r"|\u6743\u9650\u4e0d\u8db3"  # 权限不足
+    r"|\u7cfb\u7edf\u65e0\u6cd5\u6267\u884c"
+    r"\u6307\u5b9a\u7684\u7a0b\u5e8f",  # 系统无法执行指定的程序
     re.IGNORECASE | re.MULTILINE,
 )
 
@@ -89,16 +82,43 @@ _CREATE_NO_WINDOW = 0x08000000
 _PROC_THREAD_ATTRIBUTE_SECURITY_CAPABILITIES = 0x00020009
 _STARTF_USESTDHANDLES = 0x00000100
 _HANDLE_FLAG_INHERIT = 0x00000001
-_INFINITE = 0xFFFFFFFF
-_WAIT_OBJECT_0 = 0x00000000
 _WAIT_TIMEOUT = 0x00000102
-_STILL_ACTIVE = 259
 _HRESULT_ERROR_ALREADY_EXISTS = -2147023649  # 0x800700B7
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
+# ═══════════════════════════════════════════════════════════════════════════
+# Cached DLL accessors (avoid repeated ctypes.WinDLL instantiation)
+# ═══════════════════════════════════════════════════════════════════════════
+
+_dll_kernel32: Optional[Any] = None
+_dll_userenv: Optional[Any] = None
+_dll_advapi32: Optional[Any] = None
+
+
+def _get_kernel32():
+    global _dll_kernel32
+    if _dll_kernel32 is None:
+        _dll_kernel32 = ctypes.WinDLL("kernel32.dll", use_last_error=True)
+    return _dll_kernel32
+
+
+def _get_userenv():
+    global _dll_userenv
+    if _dll_userenv is None:
+        _dll_userenv = ctypes.WinDLL("userenv.dll", use_last_error=True)
+    return _dll_userenv
+
+
+def _get_advapi32():
+    global _dll_advapi32
+    if _dll_advapi32 is None:
+        _dll_advapi32 = ctypes.WinDLL("advapi32.dll", use_last_error=True)
+    return _dll_advapi32
+
+
+# ═══════════════════════════════════════════════════════════════════════════
 # Win32 API wrappers (ctypes)
-# ═══════════════════════════════════════════════════════════════════════════════
+# ═══════════════════════════════════════════════════════════════════════════
 
 
 def _create_appcontainer_profile(
@@ -106,16 +126,25 @@ def _create_appcontainer_profile(
     display_name: str,
     description: str,
 ) -> str:
-    """Create an AppContainer profile and return its SID string.
+    """Creates an AppContainer profile and returns its SID string.
 
-    Uses userenv.dll:CreateAppContainerProfile.
-    Returns the SID as a string like 'S-1-15-2-...'.
+    Calls ``userenv.dll:CreateAppContainerProfile``. If the profile already
+    exists (``HRESULT 0x800700B7``), derives the SID from the name instead.
+
+    Args:
+        container_name: Unique name for the AppContainer profile.
+        display_name: Human-readable display name.
+        description: Profile description text.
+
+    Returns:
+        The AppContainer SID as a string (e.g. ``S-1-15-2-...``).
 
     Raises:
-        OSError: If profile creation fails (and it doesn't already exist).
+        OSError: If profile creation fails for a reason other than
+            already-existing.
     """
-    userenv = ctypes.WinDLL("userenv.dll", use_last_error=True)
-    advapi32 = ctypes.WinDLL("advapi32.dll", use_last_error=True)
+    userenv = _get_userenv()
+    advapi32 = _get_advapi32()
 
     # HRESULT CreateAppContainerProfile(
     #   PCWSTR pszAppContainerName,
@@ -135,12 +164,13 @@ def _create_appcontainer_profile(
         ctypes.byref(psid),
     )
 
-    if hr != 0 and hr != _HRESULT_ERROR_ALREADY_EXISTS:
+    if hr not in (0, _HRESULT_ERROR_ALREADY_EXISTS):
         raise OSError(
-            f"CreateAppContainerProfile failed: HRESULT=0x{hr & 0xFFFFFFFF:08x}"
+            f"CreateAppContainerProfile failed: "
+            f"HRESULT=0x{hr & 0xFFFFFFFF:08x}",
         )
 
-    # If already exists, get the SID via DeriveAppContainerSidFromAppContainerName
+    # If already exists, get SID via DeriveAppContainerSid
     if hr == _HRESULT_ERROR_ALREADY_EXISTS:
         sid_str = _get_appcontainer_sid(container_name)
         if sid_str is None:
@@ -157,12 +187,16 @@ def _create_appcontainer_profile(
 
 
 def _delete_appcontainer_profile(container_name: str) -> bool:
-    """Delete an AppContainer profile.
+    """Deletes an AppContainer profile by name.
 
-    Returns True if deleted successfully, False otherwise.
+    Args:
+        container_name: Name of the AppContainer profile to delete.
+
+    Returns:
+        True if deleted successfully, False otherwise.
     """
     try:
-        userenv = ctypes.WinDLL("userenv.dll", use_last_error=True)
+        userenv = _get_userenv()
         hr = userenv.DeleteAppContainerProfile(
             ctypes.c_wchar_p(container_name),
         )
@@ -172,14 +206,18 @@ def _delete_appcontainer_profile(container_name: str) -> bool:
 
 
 def _get_appcontainer_sid(container_name: str) -> Optional[str]:
-    """Get SID string for an existing AppContainer profile.
+    """Derives the SID string for an existing AppContainer profile.
 
-    Uses userenv.dll:DeriveAppContainerSidFromAppContainerName.
-    Returns None if the profile does not exist or the call fails.
+    Args:
+        container_name: Name of the AppContainer profile.
+
+    Returns:
+        The SID string, or None if the profile does not exist or the
+        call fails.
     """
     try:
-        userenv = ctypes.WinDLL("userenv.dll", use_last_error=True)
-        advapi32 = ctypes.WinDLL("advapi32.dll", use_last_error=True)
+        userenv = _get_userenv()
+        advapi32 = _get_advapi32()
 
         psid = ctypes.c_void_p()
         hr = userenv.DeriveAppContainerSidFromAppContainerName(
@@ -198,9 +236,20 @@ def _get_appcontainer_sid(container_name: str) -> Optional[str]:
 
 
 def _sid_to_string(psid: ctypes.c_void_p, advapi32: Any = None) -> str:
-    """Convert a PSID to a string representation (S-1-15-2-...)."""
+    """Converts a PSID pointer to its string representation.
+
+    Args:
+        psid: Pointer to a SID structure.
+        advapi32: Optional pre-loaded advapi32 DLL handle.
+
+    Returns:
+        SID string in the form ``S-1-15-2-...``.
+
+    Raises:
+        OSError: If ``ConvertSidToStringSidW`` fails.
+    """
     if advapi32 is None:
-        advapi32 = ctypes.WinDLL("advapi32.dll", use_last_error=True)
+        advapi32 = _get_advapi32()
 
     string_sid = ctypes.c_wchar_p()
     ret = advapi32.ConvertSidToStringSidW(
@@ -209,17 +258,31 @@ def _sid_to_string(psid: ctypes.c_void_p, advapi32: Any = None) -> str:
     )
     if not ret:
         raise OSError(
-            f"ConvertSidToStringSidW failed: error={ctypes.get_last_error()}"
+            f"ConvertSidToStringSidW failed: error={ctypes.get_last_error()}",
         )
     try:
-        return string_sid.value
+        sid_value = string_sid.value
+        if sid_value is None:
+            raise OSError("ConvertSidToStringSidW returned NULL")
+        return sid_value
     finally:
         ctypes.windll.kernel32.LocalFree(string_sid)
 
 
 def _string_to_sid(sid_string: str) -> ctypes.c_void_p:
-    """Convert a SID string (S-1-15-2-...) to a PSID."""
-    advapi32 = ctypes.WinDLL("advapi32.dll", use_last_error=True)
+    """Converts a SID string to a PSID pointer.
+
+    Args:
+        sid_string: SID in string form (e.g. ``S-1-15-2-...``).
+
+    Returns:
+        Pointer to the allocated SID structure. Caller must free with
+        ``LocalFree``.
+
+    Raises:
+        OSError: If ``ConvertStringSidToSidW`` fails.
+    """
+    advapi32 = _get_advapi32()
     psid = ctypes.c_void_p()
     ret = advapi32.ConvertStringSidToSidW(
         ctypes.c_wchar_p(sid_string),
@@ -228,25 +291,26 @@ def _string_to_sid(sid_string: str) -> ctypes.c_void_p:
     if not ret:
         raise OSError(
             f"ConvertStringSidToSidW failed for '{sid_string}': "
-            f"error={ctypes.get_last_error()}"
+            f"error={ctypes.get_last_error()}",
         )
     return psid
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
+# ═══════════════════════════════════════════════════════════════════════════
 # ACL management (icacls.exe)
-# ═══════════════════════════════════════════════════════════════════════════════
+# ═══════════════════════════════════════════════════════════════════════════
 
 
 async def _run_icacls(args: List[str], timeout: int = 120) -> Tuple[bool, str]:
-    """Run icacls.exe with the given arguments.
+    """Runs ``icacls.exe`` asynchronously with the given arguments.
 
     Args:
-        args: Arguments to pass to icacls.
-        timeout: Maximum seconds to wait (default 120 for large dirs).
+        args: Command-line arguments to pass to ``icacls``.
+        timeout: Maximum seconds to wait before declaring failure.
 
-    Returns (success, output_text).
-    Decodes output using _decode_pipe_output to handle OEM code pages.
+    Returns:
+        A tuple of ``(success, output_text)``. Output is decoded using
+        the OEM code page strategy via ``_decode_pipe_output``.
     """
     try:
         proc = await asyncio.create_subprocess_exec(
@@ -263,144 +327,163 @@ async def _run_icacls(args: List[str], timeout: int = 120) -> Tuple[bool, str]:
         return False, str(e)
 
 
-async def _set_acl_deny_mount(path: str, sid: str) -> bool:
-    """Completely block access to a path by breaking inheritance and denying.
+async def _break_and_set_acl(
+    path: str,
+    sid: str,
+    ace_type: str,
+    permission: str,
+) -> bool:
+    """Breaks inheritance, removes existing ACEs for SID, then applies an ACE.
 
+    This is the shared implementation for both mount grants and deny paths.
     AppContainer tokens ignore explicit deny ACEs when an inherited allow
-    ACE exists. The only reliable way to block access is to:
-      1. Break inheritance (stop inheriting parent's allow ACE)
-      2. Remove any existing allow ACE for the SID
-      3. Add an explicit deny ACE for defense-in-depth
+    ACE exists, so breaking inheritance is always required first.
 
-    After this, the SID has zero access to this path and its children.
+    Args:
+        path: Filesystem path to set ACL on.
+        sid: AppContainer SID string (``S-1-15-2-...``).
+        ace_type: Either ``"grant"`` or ``"deny"``.
+        permission: Permission string: ``"F"``, ``"RX"``, or ``"R"`` for
+            grants; ``"F"`` for deny (full deny).
+
+    Returns:
+        True only if all three icacls steps succeed.
     """
-    # Step 1: Break inheritance
+    # Step 1: Break inheritance (convert inherited ACEs to explicit)
     ok1, err1 = await _run_icacls([path, "/inheritance:d"])
     if not ok1:
         logger.warning("Failed to disable inheritance on %s: %s", path, err1)
 
-    # Step 2: Remove all ACEs for this SID
+    # Step 2: Remove all existing ACEs for this SID
     ok2, err2 = await _run_icacls([path, "/remove", f"*{sid}"])
     if not ok2:
         logger.warning("Failed to remove ACL for SID on %s: %s", path, err2)
 
-    # Step 3: Add explicit deny (defense-in-depth, inheritable to children)
-    ok3, err3 = await _run_icacls([path, "/deny", f"*{sid}:(OI)(CI)(F)"])
+    # Step 3: Apply the grant or deny ACE (inheritable to children)
+    ace_flag = "/deny" if ace_type == "deny" else "/grant"
+    ok3, err3 = await _run_icacls(
+        [path, ace_flag, f"*{sid}:(OI)(CI)({permission})"],
+    )
     if not ok3:
-        logger.warning("Failed to set deny ACL on %s: %s", path, err3)
+        logger.warning(
+            "Failed to %s %s ACL on %s: %s",
+            ace_type,
+            permission,
+            path,
+            err3,
+        )
 
     return ok1 and ok2 and ok3
 
 
 async def _set_acl_grant(path: str, sid: str, permission: str) -> bool:
-    """Set grant ACL on path for the AppContainer SID.
+    """Grants an inheritable ACE on a path for the AppContainer SID.
+
+    Unlike ``_break_and_set_acl``, this does NOT break inheritance. It is
+    used for additive grants (e.g. system drive RX, workspace F) where
+    inherited permissions from parent directories should be preserved.
 
     Args:
-        permission: One of "F" (full), "RX" (read+execute), "R" (read-only)
+        path: Filesystem path to grant access on.
+        sid: AppContainer SID string.
+        permission: One of ``"F"`` (full), ``"RX"`` (read+execute),
+            ``"R"`` (read-only).
+
+    Returns:
+        True if the icacls command succeeded.
     """
     ok, err = await _run_icacls(
-        [path, "/grant", f"*{sid}:(OI)(CI)({permission})"]
+        [path, "/grant", f"*{sid}:(OI)(CI)({permission})"],
     )
     if not ok:
         logger.warning("Failed to set %s ACL on %s: %s", permission, path, err)
     return ok
 
 
-async def _set_acl_mount(path: str, sid: str, permission: str) -> bool:
-    """Set exact permissions on a mount path, breaking inheritance first.
+async def _apply_all_acls(config: SandboxConfig, sid: str) -> Dict[str, Any]:
+    """Applies all filesystem ACLs for an AppContainer profile.
 
-    Strategy: break ACL inheritance, remove any existing ACE for the SID,
-    then grant the exact permission requested. This ensures the mount's
-    effective permission is exactly what is specified, regardless of what
-    the parent directory grants via inheritance.
+    Executes ``icacls`` commands in three sequential phases:
+
+    Phase 1 - Global read grants (parallel):
+        When ``allow_read_all`` is True, grants RX on the system drive root,
+        ``C:\\Users``, and the current user profile. Also grants RX on the
+        Python interpreter directory unconditionally.
+
+    Phase 2 - Workspace (single command):
+        Grants full access (F) on ``workspace_dir``.
+
+    Phase 3 - Mounts + deny paths (serial, depth-sorted):
+        Each entry breaks inheritance, removes existing ACEs for the SID,
+        then applies the exact permission (grant for mounts, deny for
+        ``deny_paths``). Processed shallowest-first to ensure parent paths
+        are handled before child paths.
+
+    This ordering guarantees that workspace inheritable ACEs are established
+    before overrides break them, and that deny paths reliably block access
+    regardless of parent grants.
 
     Args:
-        path: Filesystem path to set ACL on.
-        sid: AppContainer SID string.
-        permission: "F" for full access, "RX" for read+execute.
+        config: Sandbox configuration specifying paths and permissions.
+        sid: AppContainer SID string to grant/deny.
+
+    Returns:
+        An ACL manifest dict recording all paths that were modified::
+
+            {
+                "grant_paths": ["C:\\\\", "C:\\\\Users", ...],
+                "inheritance_broken_paths": ["~/.ssh", "/mount/path", ...],
+            }
+
+        ``grant_paths`` are paths where an ACE was added (simple grant,
+        no inheritance break). ``inheritance_broken_paths`` are paths where
+        ``/inheritance:d`` was applied before setting the ACE.
     """
-    # Step 1: Convert inherited ACEs to explicit
-    ok1, err1 = await _run_icacls([path, "/inheritance:d"])
-    if not ok1:
-        logger.warning("Failed to disable inheritance on %s: %s", path, err1)
+    # Track all paths modified for the ACL manifest
+    grant_paths: List[str] = []
+    inheritance_broken_paths: List[str] = []
 
-    # Step 2: Remove existing ACEs for this SID
-    ok2, err2 = await _run_icacls([path, "/remove", f"*{sid}"])
-    if not ok2:
-        logger.warning("Failed to remove ACL for SID on %s: %s", path, err2)
-
-    # Step 3: Grant exact permission (inheritable to children)
-    ok3, err3 = await _run_icacls(
-        [path, "/grant", f"*{sid}:(OI)(CI)({permission})"]
-    )
-    if not ok3:
-        logger.warning(
-            "Failed to grant %s ACL on %s: %s", permission, path, err3
-        )
-    return ok1 and ok2 and ok3
-
-
-async def _apply_all_acls(config: SandboxConfig, sid: str) -> None:
-    """Apply all ACLs for the AppContainer profile.
-
-    Executes icacls commands in three sequential phases:
-
-    Phase 1 — Global read grants: allow_read_all broad RX, Python dir
-              (parallel within phase)
-    Phase 2 — Workspace: grant full access on workspace_dir
-    Phase 3 — Mounts + Deny paths: all path-level ACL overrides, sorted by
-              depth (shallowest first), executed serially. Each entry breaks
-              inheritance, removes the SID, then sets the exact permission
-              (grant for mounts, deny for deny_paths).
-
-    This ordering guarantees that:
-    - Workspace inheritable ACEs are established before overrides break them
-    - All overrides use break-inheritance to eliminate inherited allow ACEs
-      (required because AppContainer ignores deny ACEs when inherited allow
-      ACEs exist)
-    - Parent paths are processed before child paths
-    """
-    # ── Phase 1: Global read grants (parallel) ──────────────────────────────
-    grant_tasks: List[asyncio.Task] = []
-
-    # Critical system directories — NOT granted explicitly.
-    # On Windows 10+, C:\Windows, C:\Program Files etc. already have an ACE
+    # ── Phase 1: Global read grants (parallel) ─────────────────────
+    # Note: Critical system directories (C:\Windows, C:\Program Files, etc.)
+    # are NOT granted explicitly — on Windows 10+ they already have an ACE
     # for "ALL APPLICATION PACKAGES" (S-1-15-2-1) granting read+execute.
-    logger.debug(
-        "Skipping explicit ACL on system dirs (already have "
-        "ALL APPLICATION PACKAGES ACE on Win10+)"
-    )
+    grant_tasks: List[asyncio.Task] = []
 
     if config.allow_read_all:
         sys_drive = os.environ.get("SystemDrive", "C:")
+        grant_paths.append(sys_drive + "\\")
         grant_tasks.append(
-            asyncio.ensure_future(_set_acl_grant(sys_drive + "\\", sid, "RX"))
+            asyncio.ensure_future(_set_acl_grant(sys_drive + "\\", sid, "RX")),
         )
         users_dir = sys_drive + "\\Users"
         if os.path.isdir(users_dir):
+            grant_paths.append(users_dir)
             grant_tasks.append(
-                asyncio.ensure_future(_set_acl_grant(users_dir, sid, "RX"))
+                asyncio.ensure_future(_set_acl_grant(users_dir, sid, "RX")),
             )
         user_profile = os.environ.get("USERPROFILE", "")
         if user_profile and os.path.isdir(user_profile):
+            grant_paths.append(user_profile)
             grant_tasks.append(
-                asyncio.ensure_future(_set_acl_grant(user_profile, sid, "RX"))
+                asyncio.ensure_future(_set_acl_grant(user_profile, sid, "RX")),
             )
 
     # Python interpreter directory
     python_dir = os.path.dirname(sys.executable)
     if python_dir and os.path.isdir(python_dir):
+        grant_paths.append(python_dir)
         grant_tasks.append(
-            asyncio.ensure_future(_set_acl_grant(python_dir, sid, "RX"))
+            asyncio.ensure_future(_set_acl_grant(python_dir, sid, "RX")),
         )
 
     if grant_tasks:
         await asyncio.gather(*grant_tasks, return_exceptions=True)
 
-    # ── Phase 2: Workspace full access ──────────────────────────────────────
+    # ── Phase 2: Workspace full access ─────────────────────────────
+    grant_paths.append(config.workspace_dir)
     await _set_acl_grant(config.workspace_dir, sid, "F")
 
-    # ── Phase 3: Mounts + Deny paths (serial, depth-sorted) ────────────────
+    # ── Phase 3: Mounts + Deny paths (serial, depth-sorted) ────
     # Merge mounts and deny_paths into a single list of (path, action) entries.
     # action is either a permission string ("F", "RX") for mounts, or "DENY"
     # for deny_paths. All entries break inheritance before applying their ACL
@@ -424,24 +507,37 @@ async def _apply_all_acls(config: SandboxConfig, sid: str) -> None:
     path_entries.sort(key=lambda e: len(_WP(e[0]).parts))
 
     for path, action in path_entries:
+        inheritance_broken_paths.append(path)
         if action == "DENY":
-            await _set_acl_deny_mount(path, sid)
+            await _break_and_set_acl(path, sid, "deny", "F")
         else:
-            await _set_acl_mount(path, sid, action)
+            await _break_and_set_acl(path, sid, "grant", action)
+
+    return {
+        "grant_paths": grant_paths,
+        "inheritance_broken_paths": inheritance_broken_paths,
+    }
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
+# ═══════════════════════════════════════════════════════════════════════════
 # NTFS Junction management
-# ═══════════════════════════════════════════════════════════════════════════════
+# ═══════════════════════════════════════════════════════════════════════════
 
 
 def _create_workspace_junction(workspace_dir: str, state_dir: Path) -> str:
-    """Create an NTFS junction for CWD traversal.
+    """Creates an NTFS junction for CWD traversal into the workspace.
 
-    Creates: <state_dir>\\junctions\\<hash> → workspace_dir
+    The junction is placed at ``<state_dir>/junctions/<sha256[:12]>`` and
+    points to ``workspace_dir``. If a junction already exists and points
+    to the correct target, it is reused.
 
-    Returns the junction path. If the junction already exists and points
-    to the correct target, returns it as-is.
+    Args:
+        workspace_dir: Absolute path to the workspace directory.
+        state_dir: QwenPaw state directory (``~/.qwenpaw``).
+
+    Returns:
+        The junction path string. Falls back to ``workspace_dir`` itself
+        if junction creation fails.
     """
     ws_hash = hashlib.sha256(workspace_dir.encode()).hexdigest()[:12]
     junction_dir = state_dir / "junctions"
@@ -487,36 +583,37 @@ def _create_workspace_junction(workspace_dir: str, state_dir: Path) -> str:
     return str(junction_path)
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
+# ═══════════════════════════════════════════════════════════════════════════
 # Network capability computation
-# ═══════════════════════════════════════════════════════════════════════════════
+# ═══════════════════════════════════════════════════════════════════════════
 
 
 def _compute_network_capabilities(
     config: SandboxConfig,
 ) -> List[str]:
-    """Determine AppContainer network capabilities from config.
+    """Determines AppContainer network capabilities from sandbox config.
 
-    Rules (matching linux_sandbox approach):
-        - network_allow == [] or None: NO capabilities (all network blocked)
-        - network_allow == ["*"]: all capabilities (full network)
-        - network_allow has specific domains: all capabilities + warning
+    AppContainer network isolation is binary: either all network capabilities
+    are granted or none are. Domain-level filtering is not supported natively;
+    if specific domains are listed, a warning is logged and full access is
+    granted.
+
+    Args:
+        config: Sandbox configuration containing ``network_allow`` list.
+
+    Returns:
+        A list of capability name strings to pass to
+        ``SECURITY_CAPABILITIES``. Empty list means all network blocked.
     """
     if not config.network_allow:
         return []  # Block all network (AppContainer default: no network)
 
-    if "*" in config.network_allow:
-        return [
-            _CAP_INTERNET_CLIENT,
-            _CAP_INTERNET_CLIENT_SERVER,
-            _CAP_PRIVATE_NETWORK,
-        ]
+    if "*" not in config.network_allow:
+        logger.warning(
+            "WindowsSandbox: domain-level network filtering not supported "
+            "by AppContainer. Allowing all network access.",
+        )
 
-    # Partial domain list — domain-level filtering not possible
-    logger.warning(
-        "WindowsSandbox: domain-level network filtering not supported "
-        "by AppContainer. Allowing all network access."
-    )
     return [
         _CAP_INTERNET_CLIENT,
         _CAP_INTERNET_CLIENT_SERVER,
@@ -524,16 +621,16 @@ def _compute_network_capabilities(
     ]
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
+# ═══════════════════════════════════════════════════════════════════════════
 # Pipe output decoding (handles OEM/ANSI/UTF-16LE code pages)
-# ═══════════════════════════════════════════════════════════════════════════════
+# ═══════════════════════════════════════════════════════════════════════════
 
 _cached_oem_encoding: Optional[str] = None
 _cached_ansi_encoding: Optional[str] = None
 
 
 def _get_system_ansi_encoding() -> str:
-    """Return the codec name for the system ANSI code page."""
+    """Returns the Python codec name for the system ANSI code page (GetACP)."""
     global _cached_ansi_encoding
     if _cached_ansi_encoding is not None:
         return _cached_ansi_encoding
@@ -546,7 +643,7 @@ def _get_system_ansi_encoding() -> str:
 
 
 def _get_system_oem_encoding() -> str:
-    """Return the codec name for the system OEM code page."""
+    """Returns the codec name for the system OEM code page."""
     global _cached_oem_encoding
     if _cached_oem_encoding is not None:
         return _cached_oem_encoding
@@ -559,7 +656,17 @@ def _get_system_oem_encoding() -> str:
 
 
 def _try_decode_utf16le(raw: bytes) -> Optional[str]:
-    """Try to decode raw bytes as UTF-16LE using BOM and heuristic detection."""
+    """Attempts to decode raw bytes as UTF-16LE.
+
+    Uses BOM detection first, then a heuristic (>25% null bytes at odd
+    positions in the first 64 bytes).
+
+    Args:
+        raw: Raw byte data from pipe output.
+
+    Returns:
+        Decoded string if UTF-16LE was detected, None otherwise.
+    """
     if len(raw) < 2:
         return None
 
@@ -587,17 +694,21 @@ def _try_decode_utf16le(raw: bytes) -> Optional[str]:
 
 
 def _decode_pipe_output(raw: bytes) -> str:
-    """Decode raw pipe output using multi-codec strategy.
+    """Decodes raw pipe output using a multi-codec fallback strategy.
 
-    Handles the encoding complexity of Windows console output:
-        1. UTF-16LE with BOM detection.
-        2. UTF-16LE heuristic (>25% null bytes at odd positions).
-        3. System OEM code page (GetOEMCP) — used by cmd.exe.
-        4. System ANSI code page (GetACP).
-        5. UTF-8 with replacement (final fallback).
+    ``cmd.exe`` outputs in the OEM code page (e.g. ``cp936``/GBK on Chinese
+    Windows), not UTF-8. This function tries codecs in priority order:
 
-    This is necessary because cmd.exe outputs in the OEM code page
-    (e.g., cp936/GBK on Chinese Windows), not UTF-8.
+    1. UTF-16LE (BOM detection and null-byte heuristic).
+    2. System OEM code page (``GetOEMCP``).
+    3. System ANSI code page (``GetACP``).
+    4. UTF-8 with replacement characters (final fallback).
+
+    Args:
+        raw: Raw bytes read from a pipe handle.
+
+    Returns:
+        Decoded string. Never raises on encoding errors.
     """
     if not raw:
         return ""
@@ -619,12 +730,9 @@ def _decode_pipe_output(raw: bytes) -> str:
     return raw.decode("utf-8", errors="replace")
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
+# ═══════════════════════════════════════════════════════════════════════════
 # Process launch with AppContainer token
-# ═══════════════════════════════════════════════════════════════════════════════
-
-
-# ctypes structure definitions for CreateProcess with AppContainer
+# ═══════════════════════════════════════════════════════════════════════════
 
 
 class _SID_AND_ATTRIBUTES(ctypes.Structure):
@@ -682,61 +790,40 @@ class _PROCESS_INFORMATION(ctypes.Structure):
     ]
 
 
-def _create_process_in_appcontainer(
-    cmd: str,
-    container_sid: str,
-    capabilities: List[str],
-    cwd: str,
-    env: Optional[Dict[str, str]] = None,
+def _create_stdio_pipes(
+    kernel32: Any,
 ) -> Tuple[
-    int, ctypes.wintypes.HANDLE, ctypes.wintypes.HANDLE, ctypes.wintypes.HANDLE
+    ctypes.wintypes.HANDLE,
+    ctypes.wintypes.HANDLE,
+    ctypes.wintypes.HANDLE,
+    ctypes.wintypes.HANDLE,
 ]:
-    """Launch a process inside the AppContainer.
-
-    Uses CreateProcessW with PROC_THREAD_ATTRIBUTE_SECURITY_CAPABILITIES.
-
-    Args:
-        cmd: Command line to execute.
-        container_sid: AppContainer SID string.
-        capabilities: List of capability names.
-        cwd: Working directory.
-        env: Environment variables (full environment to pass).
+    """Creates inheritable stdout/stderr pipes for child process I/O.
 
     Returns:
-        (process_id, process_handle, stdout_read_handle, stderr_read_handle)
+        A 4-tuple of (stdout_read, stdout_write,
+        stderr_read, stderr_write) handles.
+
+    Raises:
+        OSError: If CreatePipe fails.
     """
-    kernel32 = ctypes.WinDLL("kernel32.dll", use_last_error=True)
 
-    # Create pipes for stdout and stderr
-    stdout_read = ctypes.wintypes.HANDLE()
-    stdout_write = ctypes.wintypes.HANDLE()
-    stderr_read = ctypes.wintypes.HANDLE()
-    stderr_write = ctypes.wintypes.HANDLE()
-
-    # Security attributes for inheritable handles
-    sa = ctypes.c_byte * 24  # SECURITY_ATTRIBUTES size
-    sa_buf = sa()
-    ctypes.memmove(
-        ctypes.addressof(sa_buf),
-        ctypes.c_uint32(24).value.to_bytes(4, "little")
-        + b"\x00" * 8  # lpSecurityDescriptor = NULL
-        + b"\x01\x00\x00\x00"  # bInheritHandle = TRUE
-        + b"\x00" * 8,  # padding
-        24,
-    )
-
-    # Use a simpler approach: SECURITY_ATTRIBUTES struct
-    class _SECURITY_ATTRIBUTES(ctypes.Structure):
+    class _SA(ctypes.Structure):
         _fields_ = [
             ("nLength", ctypes.wintypes.DWORD),
             ("lpSecurityDescriptor", ctypes.c_void_p),
             ("bInheritHandle", ctypes.wintypes.BOOL),
         ]
 
-    sa = _SECURITY_ATTRIBUTES()
+    sa = _SA()
     sa.nLength = ctypes.sizeof(sa)
     sa.lpSecurityDescriptor = None
     sa.bInheritHandle = True
+
+    stdout_read = ctypes.wintypes.HANDLE()
+    stdout_write = ctypes.wintypes.HANDLE()
+    stderr_read = ctypes.wintypes.HANDLE()
+    stderr_write = ctypes.wintypes.HANDLE()
 
     if not kernel32.CreatePipe(
         ctypes.byref(stdout_read),
@@ -745,7 +832,7 @@ def _create_process_in_appcontainer(
         0,
     ):
         raise OSError(
-            f"CreatePipe(stdout) failed: error={ctypes.get_last_error()}"
+            f"CreatePipe(stdout) failed: error={ctypes.get_last_error()}",
         )
 
     if not kernel32.CreatePipe(
@@ -757,26 +844,48 @@ def _create_process_in_appcontainer(
         kernel32.CloseHandle(stdout_read)
         kernel32.CloseHandle(stdout_write)
         raise OSError(
-            f"CreatePipe(stderr) failed: error={ctypes.get_last_error()}"
+            f"CreatePipe(stderr) failed: error={ctypes.get_last_error()}",
         )
 
     # Make read ends non-inheritable
     kernel32.SetHandleInformation(stdout_read, _HANDLE_FLAG_INHERIT, 0)
     kernel32.SetHandleInformation(stderr_read, _HANDLE_FLAG_INHERIT, 0)
 
-    # Convert AppContainer SID string to PSID
+    return stdout_read, stdout_write, stderr_read, stderr_write
+
+
+def _setup_security_capabilities(
+    kernel32: Any,
+    container_sid: str,
+    capabilities: List[str],
+) -> Tuple[ctypes.c_void_p, List[ctypes.c_void_p], Any, Any]:
+    """Builds SECURITY_CAPABILITIES and proc thread attribute list.
+
+    Args:
+        kernel32: Pre-loaded kernel32 DLL handle.
+        container_sid: AppContainer SID string.
+        capabilities: List of capability name strings.
+
+    Returns:
+        A 4-tuple of (app_container_psid, cap_psids,
+        sec_cap, attr_list). Caller must free psids and
+        delete the attribute list after use.
+
+    Raises:
+        OSError: If attribute list initialization fails.
+    """
     app_container_psid = _string_to_sid(container_sid)
 
     # Build capability SID array
     cap_sids = []
-    cap_psids = []  # Keep references alive
+    cap_psids: List[ctypes.c_void_p] = []
     for cap_name in capabilities:
         cap_sid_str = _CAPABILITY_SIDS.get(cap_name)
         if cap_sid_str:
             cap_psid = _string_to_sid(cap_sid_str)
             cap_psids.append(cap_psid)
             cap_sids.append(
-                _SID_AND_ATTRIBUTES(Sid=cap_psid, Attributes=0x00000004)
+                _SID_AND_ATTRIBUTES(Sid=cap_psid, Attributes=0x00000004),
             )  # SE_GROUP_ENABLED
 
     # Build SECURITY_CAPABILITIES
@@ -787,7 +896,8 @@ def _create_process_in_appcontainer(
     if cap_sids:
         cap_array = (_SID_AND_ATTRIBUTES * len(cap_sids))(*cap_sids)
         sec_cap.Capabilities = ctypes.cast(
-            cap_array, ctypes.POINTER(_SID_AND_ATTRIBUTES)
+            cap_array,
+            ctypes.POINTER(_SID_AND_ATTRIBUTES),
         )
     else:
         sec_cap.Capabilities = None
@@ -799,14 +909,17 @@ def _create_process_in_appcontainer(
     attr_list = ctypes.cast(attr_list_buf, ctypes.c_void_p)
 
     if not kernel32.InitializeProcThreadAttributeList(
-        attr_list, 1, 0, ctypes.byref(size)
+        attr_list,
+        1,
+        0,
+        ctypes.byref(size),
     ):
         raise OSError(
             f"InitializeProcThreadAttributeList failed: "
-            f"error={ctypes.get_last_error()}"
+            f"error={ctypes.get_last_error()}",
         )
 
-    # Update attribute list with security capabilities
+    # Attach security capabilities to attribute list
     if not kernel32.UpdateProcThreadAttribute(
         attr_list,
         0,
@@ -819,8 +932,60 @@ def _create_process_in_appcontainer(
         kernel32.DeleteProcThreadAttributeList(attr_list)
         raise OSError(
             f"UpdateProcThreadAttribute failed: "
-            f"error={ctypes.get_last_error()}"
+            f"error={ctypes.get_last_error()}",
         )
+
+    return app_container_psid, cap_psids, sec_cap, attr_list
+
+
+def _create_process_in_appcontainer(
+    cmd: str,
+    container_sid: str,
+    capabilities: List[str],
+    cwd: str,
+    env: Optional[Dict[str, str]] = None,
+) -> Tuple[
+    int,
+    ctypes.wintypes.HANDLE,
+    ctypes.wintypes.HANDLE,
+    ctypes.wintypes.HANDLE,
+]:
+    """Launches a process inside the AppContainer via ``CreateProcessW``.
+
+    Creates stdout/stderr pipes, builds a ``SECURITY_CAPABILITIES`` struct
+    with the container SID and requested capabilities, then launches
+    ``cmd.exe /c "<cmd>"`` with
+    ``PROC_THREAD_ATTRIBUTE_SECURITY_CAPABILITIES``.
+
+    Args:
+        cmd: Shell command string to execute.
+        container_sid: AppContainer SID string (``S-1-15-2-...``).
+        capabilities: List of capability names (e.g. ``"internetClient"``).
+        cwd: Working directory for the child process.
+        env: Full environment dict to pass. If None, no environment block
+            is passed (child inherits nothing).
+
+    Returns:
+        A 4-tuple of ``(process_id, process_handle, stdout_read_handle,
+        stderr_read_handle)``. Caller owns all handles and must close them.
+
+    Raises:
+        OSError: If ``CreatePipe``, attribute list setup, or
+            ``CreateProcessW`` fails.
+    """
+    kernel32 = _get_kernel32()
+
+    # Create pipes and set up security capabilities
+    stdout_read, stdout_write, stderr_read, stderr_write = _create_stdio_pipes(
+        kernel32,
+    )
+    (
+        app_container_psid,
+        cap_psids,
+        sec_cap,
+        attr_list,
+    ) = _setup_security_capabilities(kernel32, container_sid, capabilities)
+    del sec_cap
 
     # Build STARTUPINFOEXW
     si_ex = _STARTUPINFOEXW()
@@ -875,7 +1040,7 @@ def _create_process_in_appcontainer(
         for psid in cap_psids:
             kernel32.LocalFree(psid)
         raise OSError(
-            f"CreateProcessW failed: error={ctypes.get_last_error()}"
+            f"CreateProcessW failed: error={ctypes.get_last_error()}",
         )
 
     # Close thread handle (not needed)
@@ -895,16 +1060,28 @@ async def _wait_and_read_process(
     stderr_handle: ctypes.wintypes.HANDLE,
     timeout_seconds: int,
 ) -> Tuple[int, str, str, bool]:
-    """Wait for process completion and read output.
+    """Waits for process completion, reads pipe output, and closes handles.
 
-    Returns (exit_code, stdout, stderr, timed_out).
+    Runs the blocking wait in a thread executor to avoid blocking the
+    async event loop. If the process exceeds ``timeout_seconds``, it is
+    terminated.
+
+    Args:
+        process_handle: Handle to the child process.
+        stdout_handle: Read end of the stdout pipe.
+        stderr_handle: Read end of the stderr pipe.
+        timeout_seconds: Maximum wait time before termination.
+
+    Returns:
+        A 4-tuple of ``(exit_code, stdout_str, stderr_str, timed_out)``.
+        All handles are closed before returning.
     """
-    kernel32 = ctypes.WinDLL("kernel32.dll", use_last_error=True)
+    kernel32 = _get_kernel32()
 
     loop = asyncio.get_event_loop()
 
     def _blocking_wait():
-        """Blocking wait in a thread."""
+        """Blocks until process exits or timeout, then reads pipes."""
         timeout_ms = timeout_seconds * 1000
         result = kernel32.WaitForSingleObject(process_handle, timeout_ms)
         timed_out = result == _WAIT_TIMEOUT
@@ -942,9 +1119,15 @@ async def _wait_and_read_process(
 
 
 def _read_pipe(handle: ctypes.wintypes.HANDLE, kernel32: Any) -> bytes:
-    """Read all data from a pipe handle until EOF.
+    """Reads all data from a pipe handle until EOF.
 
-    Handles ERROR_BROKEN_PIPE (109) which signals the write end was closed.
+    Args:
+        handle: Read end of a pipe handle.
+        kernel32: Pre-loaded kernel32 DLL handle.
+
+    Returns:
+        Concatenated bytes read from the pipe. Returns empty bytes if
+        the pipe was already closed (``ERROR_BROKEN_PIPE = 109``).
     """
     _ERROR_BROKEN_PIPE = 109
     chunks: List[bytes] = []
@@ -975,15 +1158,22 @@ def _read_pipe(handle: ctypes.wintypes.HANDLE, kernel32: Any) -> bytes:
     return b"".join(chunks)
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
+# ═══════════════════════════════════════════════════════════════════════════
 # Sandbox reuse (fingerprint + metadata)
-# ═══════════════════════════════════════════════════════════════════════════════
+# ═══════════════════════════════════════════════════════════════════════════
 
 
 def _compute_acl_fingerprint(config: SandboxConfig) -> str:
-    """Compute a deterministic hash of the ACL configuration.
+    """Computes a deterministic hash of the ACL-relevant configuration.
 
-    Used to identify whether an existing container can be reused.
+    Used to determine whether an existing AppContainer profile with
+    matching ACLs can be reused, avoiding redundant ``icacls`` calls.
+
+    Args:
+        config: Sandbox configuration to fingerprint.
+
+    Returns:
+        A 16-character hex digest string.
     """
     data = {
         "workspace_dir": os.path.normpath(config.workspace_dir),
@@ -999,12 +1189,19 @@ def _compute_acl_fingerprint(config: SandboxConfig) -> str:
         "python_dir": os.path.normpath(os.path.dirname(sys.executable)),
     }
     return hashlib.sha256(
-        json.dumps(data, sort_keys=True).encode()
+        json.dumps(data, sort_keys=True).encode(),
     ).hexdigest()[:16]
 
 
 def _load_container_metadata(state_dir: Path) -> List[Dict[str, Any]]:
-    """Load all container metadata files from state directory."""
+    """Loads all container metadata JSON files from the state directory.
+
+    Args:
+        state_dir: QwenPaw state directory (``~/.qwenpaw``).
+
+    Returns:
+        List of parsed metadata dicts. Malformed files are silently skipped.
+    """
     containers_dir = state_dir / "containers"
     if not containers_dir.is_dir():
         return []
@@ -1026,12 +1223,26 @@ def _save_container_metadata(
     fingerprint: str,
     workspace_dir: str,
     junction_path: str,
+    acl_manifest: Optional[Dict[str, Any]] = None,
 ) -> None:
-    """Save container metadata to state directory."""
+    """Persists container metadata to a JSON file for future reuse.
+
+    Args:
+        state_dir: QwenPaw state directory (``~/.qwenpaw``).
+        container_name: Unique AppContainer profile name.
+        sid: AppContainer SID string.
+        fingerprint: ACL configuration fingerprint hash.
+        workspace_dir: Workspace directory path.
+        junction_path: NTFS junction path (or empty string if none).
+        acl_manifest: Optional dict recording all ACL-modified paths.
+            Contains ``grant_paths`` (simple grants, no inheritance break)
+            and ``inheritance_broken_paths`` (paths where inheritance was
+            disabled). Used by the cleanup script for complete ACL removal.
+    """
     containers_dir = state_dir / "containers"
     containers_dir.mkdir(parents=True, exist_ok=True)
 
-    meta = {
+    meta: Dict[str, Any] = {
         "container_name": container_name,
         "sid": sid,
         "acl_fingerprint": fingerprint,
@@ -1039,6 +1250,8 @@ def _save_container_metadata(
         "junction_path": junction_path,
         "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
     }
+    if acl_manifest is not None:
+        meta["acl_manifest"] = acl_manifest
 
     meta_file = containers_dir / f"{container_name}.json"
     with open(meta_file, "w", encoding="utf-8") as f:
@@ -1046,11 +1259,20 @@ def _save_container_metadata(
 
 
 def _find_reusable_container(
-    state_dir: Path, fingerprint: str
+    state_dir: Path,
+    fingerprint: str,
 ) -> Optional[Dict[str, Any]]:
-    """Find an existing container with matching ACL fingerprint.
+    """Finds an existing container whose ACL fingerprint matches.
 
-    Returns metadata dict if found and valid, None otherwise.
+    Verifies that the container profile still exists by deriving its SID
+    and comparing against the stored value.
+
+    Args:
+        state_dir: QwenPaw state directory (``~/.qwenpaw``).
+        fingerprint: ACL configuration fingerprint to match.
+
+    Returns:
+        The metadata dict if a valid match is found, None otherwise.
     """
     for meta in _load_container_metadata(state_dir):
         if meta.get("acl_fingerprint") == fingerprint:
@@ -1062,22 +1284,33 @@ def _find_reusable_container(
     return None
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
+# ═══════════════════════════════════════════════════════════════════════════
 # WindowsSandbox class
-# ═══════════════════════════════════════════════════════════════════════════════
+# ═══════════════════════════════════════════════════════════════════════════
 
 
 class WindowsSandbox:
-    """Windows AppContainer sandbox.
+    """Windows AppContainer sandbox providing native process isolation.
 
-    Uses Windows AppContainer (SID S-1-15-2-*) for native process isolation.
-    Filesystem access is controlled via icacls ACLs on the AppContainer SID.
-    Network access is controlled via AppContainer capabilities.
+    Filesystem access is controlled via ``icacls`` ACLs on the AppContainer
+    SID. Network access is controlled via AppContainer capabilities
+    (``internetClient``, ``internetClientServer``,
+    ``privateNetworkClientServer``).
+
+    Intended usage as an async context manager::
+
+        async with WindowsSandbox(config) as sandbox:
+            result = await sandbox.execute("python script.py")
 
     Lifecycle:
-        __aenter__: Create or reuse AppContainer profile, set ACLs if new
-        execute: Launch process with AppContainer security token
-        __aexit__/stop: Kill running process (profile preserved for reuse)
+        ``__aenter__``: Creates or reuses an AppContainer profile and sets
+            filesystem ACLs (only on first creation).
+        ``execute``: Launches a command with the AppContainer security token.
+        ``__aexit__`` / ``stop``: Terminates any running child process.
+            The AppContainer profile is preserved for reuse.
+
+    Attributes:
+        config: The ``SandboxConfig`` this sandbox was created with.
     """
 
     def __init__(self, config: SandboxConfig):
@@ -1097,7 +1330,7 @@ class WindowsSandbox:
         return self._config
 
     async def __aenter__(self):
-        """Set up the AppContainer sandbox (create or reuse)."""
+        """Sets up the AppContainer sandbox (creates or reuses a profile)."""
         fingerprint = _compute_acl_fingerprint(self._config)
 
         # Try to reuse an existing container
@@ -1121,16 +1354,21 @@ class WindowsSandbox:
             )
 
             # Apply ACLs
-            await _apply_all_acls(self._config, self._container_sid)
+            acl_manifest = await _apply_all_acls(
+                self._config,
+                self._container_sid,
+            )
 
             # Create junction for CWD traversal
             self._junction_path = _create_workspace_junction(
-                self._config.workspace_dir, self._state_dir
+                self._config.workspace_dir,
+                self._state_dir,
             )
 
-            # Grant AppContainer access to the junction directory
+            # Grant AppContainer read+traverse access to the junction directory
             junction_dir = str(self._state_dir / "junctions")
-            await _set_acl_grant(junction_dir, self._container_sid, "F")
+            await _set_acl_grant(junction_dir, self._container_sid, "RX")
+            acl_manifest["grant_paths"].append(junction_dir)
 
             # Save metadata for reuse
             _save_container_metadata(
@@ -1140,6 +1378,7 @@ class WindowsSandbox:
                 fingerprint,
                 self._config.workspace_dir,
                 self._junction_path or "",
+                acl_manifest,
             )
 
             logger.debug(
@@ -1156,28 +1395,34 @@ class WindowsSandbox:
         cmd: str,
         cwd: Optional[str] = None,
     ) -> ExecutionResult:
-        """Execute a command inside the AppContainer.
+        """Executes a command inside the AppContainer.
 
-        Steps:
-            1. Resolve working directory (use junction if needed)
-            2. Compute network capabilities
-            3. Build environment
-            4. Launch process with AppContainer security token
-            5. Wait for completion with timeout
-            6. Detect sandbox violations
-            7. Return ExecutionResult
+        Resolves the working directory (using the NTFS junction when CWD
+        matches the workspace), launches the process with the AppContainer
+        token, waits for completion (with timeout), and checks for
+        access-denied violations in the output.
+
+        Args:
+            cmd: Shell command string to execute via ``cmd.exe /c``.
+            cwd: Working directory override. Defaults to
+                ``config.workspace_dir``.
+
+        Returns:
+            An ``ExecutionResult`` with exit code, stdout, stderr,
+            timeout status, and any detected sandbox violation.
         """
         if not self._container_sid:
             # Lazy init if not entered via context manager
             await self.__aenter__()
 
+        assert self._container_sid is not None
         start = time.monotonic()
 
         # Resolve CWD
         effective_cwd = cwd or self._config.workspace_dir
         # If the CWD is the workspace dir and we have a junction, use it
         if self._junction_path and os.path.normpath(
-            effective_cwd
+            effective_cwd,
         ) == os.path.normpath(self._config.workspace_dir):
             effective_cwd = self._junction_path
 
@@ -1192,14 +1437,17 @@ class WindowsSandbox:
 
         try:
             # Launch process
-            pid, proc_handle, stdout_handle, stderr_handle = (
-                _create_process_in_appcontainer(
-                    cmd,
-                    self._container_sid,
-                    capabilities,
-                    effective_cwd,
-                    env,
-                )
+            (
+                pid,
+                proc_handle,
+                stdout_handle,
+                stderr_handle,
+            ) = _create_process_in_appcontainer(
+                cmd,
+                self._container_sid,
+                capabilities,
+                effective_cwd,
+                env,
             )
             self._process_handle = proc_handle
             self._process_id = pid
@@ -1248,10 +1496,14 @@ class WindowsSandbox:
             )
 
     async def stop(self) -> None:
-        """Kill any running process (do NOT delete the container profile)."""
+        """Terminates any running child process.
+
+        Does NOT delete the AppContainer profile (it is preserved for
+        reuse by future invocations with the same ACL fingerprint).
+        """
         if self._process_handle is not None:
             try:
-                kernel32 = ctypes.WinDLL("kernel32.dll", use_last_error=True)
+                kernel32 = _get_kernel32()
                 kernel32.TerminateProcess(self._process_handle, 1)
                 kernel32.CloseHandle(self._process_handle)
             except OSError:

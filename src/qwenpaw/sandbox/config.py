@@ -7,11 +7,11 @@ the current platform actually supports, and ships the factory that maps a
 ``SandboxConfig`` to a concrete backend.
 
 Backend layout (``create_sandbox`` dispatches to these by ``SandboxMode``):
-  - SEATBELT      → :mod:`qwenpaw.sandbox.macos_sandbox`      (MacOSSandbox)
-  - BUBBLEWRAP    → :mod:`qwenpaw.sandbox.bubblewrap_sandbox` (BubblewrapSandbox)
-  - LANDLOCK      → :mod:`qwenpaw.sandbox.linux_sandbox`      (LinuxSandbox)
-  - APPCONTAINER  → :mod:`qwenpaw.sandbox.windows_sandbox`    (WindowsSandbox)
-  - NONE          → :mod:`qwenpaw.sandbox.local_sandbox`      (NoneSandbox)
+  - SEATBELT     → mod:`qwenpaw.sandbox.macos_sandbox`      (MacOSSandbox)
+  - BUBBLEWRAP   → mod:`qwenpaw.sandbox.bubblewrap_sandbox` (BubblewrapSandbox)
+  - LANDLOCK     → mod:`qwenpaw.sandbox.linux_sandbox`      (LinuxSandbox)
+  - APPCONTAINER → mod:`qwenpaw.sandbox.windows_sandbox`    (WindowsSandbox)
+  - NONE         → mod:`qwenpaw.sandbox.local_sandbox`      (NoneSandbox)
 
 Shared base class for all backends:
   - :class:`qwenpaw.sandbox.local_sandbox.LocalSandbox`
