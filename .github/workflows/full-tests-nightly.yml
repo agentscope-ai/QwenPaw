@@ -280,6 +280,10 @@ jobs:
         shell: bash
         env:
           QWENPAW_INTEGRATION_COVERAGE: ${{ steps.cov_flag.outputs.enabled }}
+          # Windows runners are 2-core and IO-bound; under xdist parallel
+          # the default 15s HTTP timeout is too tight and intermittently
+          # surfaces as ``httpx.ReadTimeout``. Lift the floor here.
+          QWENPAW_INTEGRATION_HTTP_TIMEOUT: ${{ matrix.os == 'windows-latest' && '120' || '' }}
         run: |
           # Nightly always runs the full -m integration sweep (p0 + p1 +
           # p2), unlike tests.yml which gates by GITHUB_EVENT_NAME.
@@ -287,7 +291,7 @@ jobs:
             # Subprocess coverage entry. Parent process must not carry
             # --cov, hence --no-cov here.
             pytest tests/integration -v --no-cov \
-              -n auto --dist=loadscope -m integration
+              -n auto --dist=loadscope --timeout=300 -m integration
             cp .integration_coverage/integration_subproc \
               .coverage.integration
             # `coverage xml` honours fail_under and exits 2 when below;
@@ -296,7 +300,7 @@ jobs:
               -o coverage.integration.xml || [ "$?" -eq 2 ]
           else
             pytest tests/integration -v \
-              -n auto --dist=loadscope -m integration
+              -n auto --dist=loadscope --timeout=300 -m integration
           fi
 
       - name: Upload integration coverage data

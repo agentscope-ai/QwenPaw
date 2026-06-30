@@ -257,6 +257,7 @@
     "quickstart": "Inicio rapido",
     "desktop": "App Desktop",
     "console": "Console",
+    "tui": "Interface de Terminal",
     "multiAgent": "Multi-Agente",
     "models": "Modelos",
     "channels": "Canais",

@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Unit tests for ``qwenpaw.app.runner.session``.
+"""Unit tests for ``qwenpaw.app.chats.session``.
 
 Covers:
 - ``_safe_json_loads`` recovery from corrupted JSON
@@ -9,7 +9,7 @@ Covers:
 - ``migrate_legacy_weixin_session_files`` weixin -> wechat rename
 - ``AgentStateError`` raised for missing-file ``allow_not_exist=False``
 """
-# pylint: disable=protected-access,redefined-outer-name,unused-argument,wrong-import-position,no-name-in-module
+# pylint: disable=protected-access,redefined-outer-name,unused-argument
 from __future__ import annotations
 
 import json
@@ -17,17 +17,8 @@ from pathlib import Path
 
 import pytest
 
-# pylint: disable=no-name-in-module
-# flake8: noqa: E402,E501
-pytest.importorskip(
-    "qwenpaw.app.runner.session",
-    reason="qwenpaw.app.runner was removed in AgentScope 2.0",
-)
-session_mod = pytest.importorskip(  # type: ignore[assignment]
-    "qwenpaw.app.runner.session",
-    reason="qwenpaw.app.runner was removed in AgentScope 2.0",
-)
-from qwenpaw.app.runner.session import (  # type: ignore[import]
+import qwenpaw.app.chats.session as session_mod
+from qwenpaw.app.chats.session import (
     SafeJSONSession,
     _safe_json_loads,
     migrate_legacy_weixin_session_files,

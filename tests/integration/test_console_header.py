@@ -15,8 +15,9 @@ will be revisited in Sprint 2.3 with a mock LLM.
 from __future__ import annotations
 
 import pytest
+from helpers import default_http_timeout
 
-_CONSOLE_HTTP_TIMEOUT = 30.0
+_CONSOLE_HTTP_TIMEOUT = default_http_timeout(30.0)
 _MAX_UPLOAD_BYTES = 10 * 1024 * 1024  # mirrors console.py MAX_UPLOAD_BYTES
 
 

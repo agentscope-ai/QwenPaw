@@ -464,7 +464,9 @@ class AgentBuilder:
         _cm = getattr(agent_config, "coding_mode", None)
         _project_dir = (
             _cm.project_dir
-            if _cm and getattr(_cm, "project_dir", None)
+            if _cm
+            and getattr(_cm, "enabled", False)
+            and getattr(_cm, "project_dir", None)
             else None
         )
         _configured_shell = getattr(

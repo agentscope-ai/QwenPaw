@@ -23,6 +23,8 @@ from .timezone import detect_system_timezone
 from ..constant import (
     HEARTBEAT_DEFAULT_EVERY,
     HEARTBEAT_DEFAULT_TARGET,
+    HEARTBEAT_DEFAULT_TIMEOUT_SECONDS,
+    HEARTBEAT_MAX_TIMEOUT_SECONDS,
     LLM_ACQUIRE_TIMEOUT,
     LLM_BACKOFF_BASE,
     LLM_BACKOFF_CAP,
@@ -549,6 +551,13 @@ class HeartbeatConfig(BaseModel):
     enabled: bool = Field(default=False, description="Whether heartbeat is on")
     every: str = Field(default=HEARTBEAT_DEFAULT_EVERY)
     target: str = Field(default=HEARTBEAT_DEFAULT_TARGET)
+    timeout_seconds: int = Field(
+        default=HEARTBEAT_DEFAULT_TIMEOUT_SECONDS,
+        ge=1,
+        le=HEARTBEAT_MAX_TIMEOUT_SECONDS,
+        alias="timeoutSeconds",
+        description="Maximum seconds for one heartbeat execution",
+    )
     active_hours: Optional[ActiveHoursConfig] = Field(
         default=None,
         alias="activeHours",

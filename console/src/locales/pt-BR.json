@@ -754,6 +754,10 @@
     "every": "Intervalo",
     "everyRequired": "Obrigatório",
     "everyMin": "Deve ser no mínimo 1",
+    "timeoutSeconds": "Tempo limite de execução (segundos)",
+    "timeoutRequired": "Obrigatório",
+    "timeoutMin": "Deve ser no mínimo 1",
+    "timeoutMax": "Deve ser no máximo 3600",
     "unitMinutes": "Minutos",
     "unitHours": "Horas",
     "target": "Destino da resposta",
@@ -1846,6 +1850,10 @@
     "autoMemoryIntervalPlaceholder": "Leave empty to disable periodic auto memory",
     "contextManagerBackend": "Context Manager Backend",
     "contextManagerBackendTooltip": "Backend type for the context manager. Currently only Light is supported.",
+    "contextStrategy": "Context Strategy",
+    "contextStrategyTooltip": "How the agent manages long context. Scroll (recommended) persists evicted turns to a durable history store and recalls them on demand; Native uses in-place compression. Restart QwenPaw for changes to take effect.",
+    "contextStrategyScroll": "Scroll",
+    "contextStrategyNative": "Native",
     "backendRestartWarning": "Switching backends does not support hot reload. Save and restart QwenPaw for changes to take effect."
   },
   "tools": {

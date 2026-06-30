@@ -399,6 +399,22 @@ docker run -p 127.0.0.1:8088:8088 \
 
 ---
 
+## 终端界面（TUI）
+
+更喜欢待在终端里？运行 `qwenpaw` 即可打开一个全屏聊天 **TUI**，它驱动的是与控制台、IM 频道**完全相同**的智能体——同一份记忆、技能、MCP 工具与会话——无需离开键盘。
+
+```bash
+qwenpaw                     # 与当前激活的智能体开启对话
+qwenpaw tui --resume <id>   # 恢复之前的某个会话
+qwenpaw .                   # 在当前代码仓库中启动（Coding 模式）
+```
+
+支持流式回复、斜杠命令（`/help`、`/resume`、`/theme`，以及智能体自身的 `/model`、`/clear` 等）、把文件 / 长文本作为附件粘贴，以及行内工具授权提示。详见[终端界面指南](https://qwenpaw.agentscope.io/docs/tui)。
+
+![QwenPaw 终端界面](https://img.alicdn.com/imgextra/i2/O1CN01IULzib1TRAzigIcqG_!!6000000002378-2-tps-2350-1312.png)
+
+---
+
 ## API Key
 
 若使用**云端大模型 API**（如通义千问、Gemini、OpenAI），在开始对话前必须配置 API Key。未配置有效 Key 前，QwenPaw 无法正常工作。详情请参考[官方文档](https://qwenpaw.agentscope.io/docs/models)。
@@ -435,6 +451,7 @@ QwenPaw 可在本机完全本地运行大模型，无需 API Key 或云端服务
 | [项目介绍](https://qwenpaw.agentscope.io/docs/intro)        | QwenPaw 是什么、怎么用                 |
 | [快速开始](https://qwenpaw.agentscope.io/docs/quickstart)   | 安装与运行（本地或魔搭创空间）       |
 | [控制台](https://qwenpaw.agentscope.io/docs/console)        | Web 界面：对话、配置与定时任务       |
+| [终端界面（TUI）](https://qwenpaw.agentscope.io/docs/tui)   | 终端全屏对话，与控制台共用同一智能体 |
 | [模型](https://qwenpaw.agentscope.io/docs/models)           | 配置云/本地/自定义提供商             |
 | [频道配置](https://qwenpaw.agentscope.io/docs/channels)     | 钉钉、飞书、微信、Discord、Telegram 等 |
 | [Skills](https://qwenpaw.agentscope.io/docs/skills)         | 扩展与自定义能力                     |

@@ -204,6 +204,7 @@ $QWENPAW_SECRET_DIR/                       # 默认 ~/.qwenpaw.secret
     "enabled": false,
     "every": "30m",
     "target": "main",
+    "timeoutSeconds": 300,
     "activeHours": null
   },
   "running": {
@@ -296,12 +297,13 @@ MCP（模型上下文协议）允许智能体连接外部服务（如 Filesystem
 
 心跳是定时自检功能，按固定间隔执行 `HEARTBEAT.md` 中的任务。
 
-| 字段          | 类型           | 默认值   | 说明                                                                         |
-| ------------- | -------------- | -------- | ---------------------------------------------------------------------------- |
-| `enabled`     | bool           | `false`  | 是否启用心跳功能                                                             |
-| `every`       | string         | `"30m"`  | 运行间隔。支持 `Nh`、`Nm`、`Ns` 组合，如 `"1h"`、`"30m"`、`"2h30m"`、`"90s"` |
-| `target`      | string         | `"main"` | `"main"` = 只在主会话运行；`"last"` = 把结果发到最后一个发消息的频道/用户    |
-| `activeHours` | object \| null | `null`   | 可选活跃时段（`start`、`end` 时间，24 小时制）                               |
+| 字段             | 类型           | 默认值   | 说明                                                                         |
+| ---------------- | -------------- | -------- | ---------------------------------------------------------------------------- |
+| `enabled`        | bool           | `false`  | 是否启用心跳功能                                                             |
+| `every`          | string         | `"30m"`  | 运行间隔。支持 `Nh`、`Nm`、`Ns` 组合，如 `"1h"`、`"30m"`、`"2h30m"`、`"90s"` |
+| `target`         | string         | `"main"` | `"main"` = 只在主会话运行；`"last"` = 把结果发到最后一个发消息的频道/用户    |
+| `timeoutSeconds` | int            | `300`    | 单次心跳执行的最长时间，单位秒。有效范围：`1`–`3600`                         |
+| `activeHours`    | object \| null | `null`   | 可选活跃时段（`start`、`end` 时间，24 小时制）                               |
 
 详细说明请看 [心跳](./heartbeat)。
 
