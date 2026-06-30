@@ -145,7 +145,65 @@ class SubAgentRubric(RubricStrategy):
         )
 
 
+class CompletionCheckGate:
+    """Re-prompt on text-only responses (StopGate).
+
+    Prevents premature stop when the LLM outputs text
+    without any tool calls.  Counts interventions per
+    request cycle; stops re-prompting after
+    ``max_interventions``.
+
+    Implements the StopGate interface without inheriting
+    to avoid circular imports.
+    """
+
+    def __init__(
+        self,
+        prompt: str = "",
+        max_interventions: int = 1,
+    ) -> None:
+        self._prompt = prompt
+        self._max = max_interventions
+        self._count = 0
+
+    @property
+    def name(self) -> str:
+        return "completion_check"
+
+    @property
+    def priority(self) -> int:
+        return 90
+
+    async def check(
+        self,
+        ctx: Any,  # pylint: disable=unused-argument
+    ) -> Optional[Any]:
+        """Return CONTINUE up to max_interventions."""
+        from .base import StopAction, StopHandlerResult
+
+        if self._count >= self._max:
+            self._count = 0
+            return None
+
+        self._count += 1
+        logger.debug(
+            "CompletionCheckGate: intervene %d/%d",
+            self._count,
+            self._max,
+        )
+        return StopHandlerResult(
+            action=StopAction.CONTINUE,
+            continuation_message=self._prompt,
+            reason="text-only response re-prompt",
+        )
+
+    def continuation_prompt(self) -> str:
+        """No extra context needed."""
+        return ""
+
+
 __all__ = [
+    "CompletionCheckGate",
     "DefaultRubric",
     "GoalStatusRubric",
     "RubricEvaluation",

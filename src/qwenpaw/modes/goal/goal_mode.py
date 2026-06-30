@@ -797,13 +797,13 @@ def _create_doom_loop_gate(
 def _create_completion_gate(
     workspace: object,
 ) -> Any:
-    """Create ReactCompletionGate from config.
+    """Create CompletionCheckGate from config.
 
     Returns None when the rubric completion check
     is disabled or the config is missing.
     """
     try:
-        from ...loop.gates import ReactCompletionGate
+        from ...loop.gates import CompletionCheckGate
 
         agent_cfg = getattr(
             workspace,
@@ -822,13 +822,13 @@ def _create_completion_gate(
         if rubric_cfg is None or not rubric_cfg.enabled:
             return None
 
-        return ReactCompletionGate(
+        return CompletionCheckGate(
             prompt=rubric_cfg.prompt,
             max_interventions=(rubric_cfg.max_interventions),
         )
     except Exception:  # noqa: BLE001
         logger.debug(
-            "ReactCompletionGate creation skipped",
+            "CompletionCheckGate creation skipped",
             exc_info=True,
         )
         return None

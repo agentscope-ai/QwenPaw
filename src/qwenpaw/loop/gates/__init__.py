@@ -15,13 +15,13 @@ from .base import (
     StopHandlerResult,
 )
 from .budget import BudgetGate
-from .completion_gate import ReactCompletionGate
 from .doom_loop import DoomLoopGate
 from .file_loop_gate import FileLoopGate
 from .handler import StopHandler
 from .iteration import IterationGate
 from .loop_gate import LoopGate
 from .rubric import (
+    CompletionCheckGate,
     DefaultRubric,
     GoalStatusRubric,
     RubricEvaluation,
@@ -32,8 +32,8 @@ from .rubric import (
 
 __all__ = [
     "BudgetGate",
+    "CompletionCheckGate",
     "DefaultRubric",
-    "ReactCompletionGate",
     "DoomLoopGate",
     "FileLoopGate",
     "GoalStatusRubric",
