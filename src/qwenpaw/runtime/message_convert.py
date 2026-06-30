@@ -38,6 +38,9 @@ def _get_last_user_text(msgs: List[Any]) -> str | None:
 def _ensure_url_scheme(url: str) -> str:
     """Prepend ``file://`` when *url* is an absolute local path.
 
+    Handles both Unix paths (``/``, ``~``) and Windows paths
+    (e.g. ``C:\\`` or ``C:/``).
+
     Always ``unquote()`` first so percent-encoded non-ASCII characters
     (e.g. ``%E6%B5%8B%E8%AF%95`` → ``测试``) resolve to the real
     filename on disk.  Then uses ``file://`` + raw path (not
@@ -45,8 +48,15 @@ def _ensure_url_scheme(url: str) -> str:
     """
     if url.startswith(("/", "~")):
         resolved = str(Path(unquote(url)).expanduser().resolve())
-        return "file://" + resolved
-    return url
+    elif len(url) >= 3 and url[1] == ":" and url[2] in ("/", "\\"):
+        resolved = str(Path(unquote(url)).resolve())
+    else:
+        return url
+
+    resolved = resolved.replace("\\", "/")
+    if not resolved.startswith("/"):
+        resolved = "/" + resolved
+    return "file://" + resolved
 
 
 # pylint: disable=too-many-branches

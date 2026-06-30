@@ -671,9 +671,7 @@ def _fixup_media_list(items: list) -> None:
             source = getattr(block, "source", None)
             url_str = str(getattr(source, "url", "")) if source else ""
             if url_str.startswith("file://"):
-                local_path = unquote(
-                    url_str.removeprefix("file://"),
-                )
+                local_path = _file_url_to_path(url_str)
                 if not os.path.exists(local_path):
                     mt = getattr(source, "media_type", "") or ""
                     media_name = mt.split("/")[0] or "media"
@@ -690,7 +688,7 @@ def _fixup_media_list(items: list) -> None:
                         ),
                     )
                 elif unquote(url_str) != url_str:
-                    source.url = "file://" + local_path
+                    source.url = unquote(url_str)
         elif btype == "file":
             if isinstance(block, dict):
                 source = block.get("source") or {}
