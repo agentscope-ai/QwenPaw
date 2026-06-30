@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any, Optional
 from urllib.parse import unquote
 
-from agentscope.message import Msg
+from agentscope.message import DataBlock, Msg, TextBlock, URLSource
 
 from ..config.config import ModelSlotConfig
 
@@ -32,17 +32,66 @@ _MAX_FILE_SIZE_BYTES = 100 * 1024 * 1024
 _VISUAL_FALLBACK_SUFFIX = " (visual fallback)"
 
 
+def _safe_attr(obj: Any, name: str) -> Any:
+    if isinstance(obj, dict):
+        return obj.get(name)
+    try:
+        return getattr(obj, name, None)
+    except (AttributeError, KeyError, TypeError):
+        return None
+
+
+def _block_type_name(block: Any) -> Optional[str]:
+    """Return ``image`` or ``video`` for dict or 2.0 DataBlock media."""
+    if isinstance(block, dict):
+        btype = block.get("type", "")
+        return btype if btype in _MEDIA else None
+    btype = getattr(block, "type", None)
+    if btype in _MEDIA:
+        return btype
+    if btype == "data":
+        source = getattr(block, "source", None)
+        mt = getattr(source, "media_type", "") or ""
+        if mt.startswith("image/"):
+            return "image"
+        if mt.startswith("video/"):
+            return "video"
+    return None
+
+
+def _block_source_dict(block: Any) -> Optional[dict]:
+    """Normalize media block source for ``_transcribe``."""
+    if isinstance(block, dict):
+        btype = block.get("type", "")
+        if btype not in _MEDIA:
+            return None
+        source = block.get("source")
+        return source if isinstance(source, dict) else None
+    if getattr(block, "type", None) == "data":
+        source = getattr(block, "source", None)
+        if source is None:
+            return None
+        return {"type": "url", "url": str(getattr(source, "url", ""))}
+    return None
+
+
+def _tool_result_output(block: Any) -> Optional[list]:
+    if _safe_attr(block, "type") != "tool_result":
+        return None
+    output = _safe_attr(block, "output")
+    return output if isinstance(output, list) else None
+
+
 def _msg_has_media(msg: Any) -> bool:
     if not isinstance(msg, Msg) or not isinstance(msg.content, list):
         return False
     for block in msg.content:
-        if not isinstance(block, dict):
-            continue
-        if block.get("type") in _MEDIA:
+        if _block_type_name(block):
             return True
-        if block.get("type") == "tool_result":
-            for item in block.get("output") or []:
-                if isinstance(item, dict) and item.get("type") in _MEDIA:
+        output = _tool_result_output(block)
+        if output:
+            for item in output:
+                if _block_type_name(item):
                     return True
     return False
 
@@ -91,25 +140,39 @@ def _media_url(source: dict, media_type: str) -> Optional[str]:
     return None
 
 
+def _first_block_text(content: list) -> str:
+    for item in content:
+        if isinstance(item, dict) and isinstance(item.get("text"), str):
+            return item["text"]
+        inner = _safe_attr(item, "text")
+        if isinstance(inner, str) and inner:
+            return inner
+    return ""
+
+
 def _response_text(response: Any) -> str:
+    if not response:
+        return ""
     if isinstance(response, str):
         return response
-    for name in ("text", "content"):
-        val = (
-            getattr(response, name, None)
-            if not isinstance(response, dict)
-            else response.get(name)
-        )
-        if isinstance(val, str) and val:
-            return val
-        if isinstance(val, list):
-            for item in val:
-                if isinstance(item, dict) and isinstance(
-                    item.get("text"),
-                    str,
-                ):
-                    return item["text"]
+    text = _safe_attr(response, "text")
+    if isinstance(text, str) and text:
+        return text
+    content = _safe_attr(response, "content")
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return _first_block_text(content)
     return ""
+
+
+def _media_data_block(url: str, media_type: str) -> DataBlock:
+    mime, _ = mimetypes.guess_type(url)
+    if url.startswith("data:"):
+        mime = url.split(";", 1)[0].removeprefix("data:")
+    if not mime:
+        mime = "image/jpeg" if media_type == "image" else "video/mp4"
+    return DataBlock(source=URLSource(url=url, media_type=mime))
 
 
 def _usage_tokens(usage: Any) -> tuple[int, int]:
@@ -158,43 +221,6 @@ def _record_visual_usage(
     )
 
 
-async def _chat_text(
-    model: Any,
-    messages: list,
-    *,
-    provider_id: str = "",
-    model_name: str = "",
-) -> str:
-    response = await model(messages)
-    last_usage: Any = None
-    if hasattr(response, "__aiter__"):
-        text = ""
-        async for chunk in response:
-            part = _response_text(chunk)
-            if part:
-                text = part
-            usage = getattr(chunk, "usage", None)
-            if usage is not None:
-                last_usage = usage
-        result = text.strip()
-    else:
-        last_usage = getattr(response, "usage", None)
-        result = _response_text(response).strip()
-    if provider_id and model_name:
-        _record_visual_usage(provider_id, model_name, last_usage)
-    return result
-
-
-def _visual_model_slot(agent_id: str) -> Optional[ModelSlotConfig]:
-    from ..config.config import load_agent_config
-
-    cfg = load_agent_config(agent_id)
-    slot = cfg.visual_model if cfg else None
-    if not slot or not slot.provider_id or not slot.model:
-        return None
-    return slot
-
-
 async def _transcribe(
     source: dict,
     slot: ModelSlotConfig,
@@ -223,24 +249,33 @@ async def _transcribe(
     if not provider:
         return None
     chat_model = provider.get_chat_model_instance(slot.model)
-    media_part = (
-        {"type": "video_url", "video_url": {"url": url}}
-        if media_type == "video"
-        else {"type": "image_url", "image_url": {"url": url}}
-    )
     messages = [
-        {
-            "role": "user",
-            "content": [{"type": "text", "text": _DEFAULT_PROMPT}, media_part],
-        },
+        Msg(
+            name="user",
+            role="user",
+            content=[
+                TextBlock(type="text", text=_DEFAULT_PROMPT),
+                _media_data_block(url, media_type),
+            ],
+        ),
     ]
     try:
-        text = await _chat_text(
-            chat_model,
-            messages,
-            provider_id=slot.provider_id,
-            model_name=slot.model,
-        )
+        response = await chat_model(messages)
+        last_usage: Any = None
+        if hasattr(response, "__aiter__"):
+            text = ""
+            async for chunk in response:
+                part = _response_text(chunk)
+                if part:
+                    text = part
+                usage = _safe_attr(chunk, "usage")
+                if usage is not None:
+                    last_usage = usage
+            text = text.strip()
+        else:
+            last_usage = _safe_attr(response, "usage")
+            text = _response_text(response).strip()
+        _record_visual_usage(slot.provider_id, slot.model, last_usage)
     except Exception as exc:
         logger.warning(
             "Visual fallback: %s/%s call failed: %s",
@@ -269,42 +304,41 @@ async def _transcribe(
     return text
 
 
-async def _replace_block(block: dict, slot: ModelSlotConfig) -> Optional[dict]:
-    btype, source = block.get("type", ""), block.get("source")
-    if btype not in _MEDIA or not isinstance(source, dict):
+async def _replace_block(block: Any, slot: ModelSlotConfig) -> Any | None:
+    media_type = _block_type_name(block)
+    if not media_type:
+        return None
+    source = _block_source_dict(block)
+    if not source:
         return None
     desc = (
-        await _transcribe(source, slot, btype) or "(transcription unavailable)"
+        await _transcribe(source, slot, media_type)
+        or "(transcription unavailable)"
     )
-    return {
-        "type": "text",
-        "text": f"[{btype.capitalize()} description: {desc}]",
-    }
+    return TextBlock(
+        type="text",
+        text=f"[{media_type.capitalize()} description: {desc}]",
+    )
 
 
 async def _rewrite_content(content: list, slot: ModelSlotConfig) -> list:
     out = []
     for block in content:
-        if not isinstance(block, dict):
-            out.append(block)
-            continue
         replaced = await _replace_block(block, slot)
         if replaced:
             out.append(replaced)
             continue
-        if block.get("type") == "tool_result" and isinstance(
-            block.get("output"),
-            list,
-        ):
+        output = _tool_result_output(block)
+        if output is not None:
             new_output = []
-            for item in block["output"]:
-                sub = (
-                    await _replace_block(item, slot)
-                    if isinstance(item, dict)
-                    else None
-                )
+            for item in output:
+                sub = await _replace_block(item, slot)
                 new_output.append(sub or item)
-            out.append({**block, "output": new_output})
+            if isinstance(block, dict):
+                out.append({**block, "output": new_output})
+            else:
+                block.output = new_output
+                out.append(block)
             continue
         out.append(block)
     return out
@@ -317,16 +351,20 @@ async def apply_visual_fallback_to_messages(msgs: list) -> list:
 
     from ..agents.prompt import get_active_model_supports_multimodal
     from ..app.agent_context import get_current_agent_id
+    from ..config.config import load_agent_config
 
     if get_active_model_supports_multimodal():
         return msgs
 
     try:
         agent_id = get_current_agent_id()
-        slot = _visual_model_slot(agent_id) if agent_id else None
+        if not agent_id:
+            return msgs
+        cfg = load_agent_config(agent_id)
+        slot = cfg.visual_model if cfg else None
+        if not slot or not slot.provider_id or not slot.model:
+            return msgs
     except Exception:
-        return msgs
-    if not slot:
         return msgs
 
     logger.info(

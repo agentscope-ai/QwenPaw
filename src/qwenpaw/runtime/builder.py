@@ -180,7 +180,7 @@ class AgentBuilder:
 
         # Model + formatter (built before the toolkit so the scroll context
         # strategy, which needs the model for token counting, can wire in).
-        model, _formatter = self.build_model(agent_config)
+        model, formatter = self.build_model(agent_config)
 
         # Built once and shared: the agent's native offloader, and (when
         # ``offload_dialog`` is on) scroll's optional dialog archive.
@@ -260,6 +260,8 @@ class AgentBuilder:
             effective_skills=effective_skills,
             governor=governor,
         )
+        if formatter is not None:
+            agent.formatter = formatter
 
         # Load session state if SessionLoadHook populated it.
         if ctx.session_state:
