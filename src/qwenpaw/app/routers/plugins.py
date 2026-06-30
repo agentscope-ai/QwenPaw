@@ -19,8 +19,31 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from ..utils import schedule_agent_reload
+from ...__version__ import __version__
 
 logger = logging.getLogger(__name__)
+
+
+def _current_qwenpaw_compat_label() -> str:
+    """Return the major-version compatibility label for the running QwenPaw.
+
+    Examples: ``2.0.0b2`` -> ``2.x``.
+    """
+    major = __version__.split(".", 1)[0]
+    return f"{major}.x"
+
+
+def _plugin_has_compat_label(plugin: dict, label: str) -> bool:
+    """Return True when a platform plugin advertises compatibility with label.
+
+    Plugins that do not declare ``qwenpaw_compat_labels`` are treated as
+    compatible for backwards compatibility.
+    """
+    labels = plugin.get("qwenpaw_compat_labels")
+    if not isinstance(labels, list) or not labels:
+        return True
+    return label in labels
+
 
 router = APIRouter(prefix="/plugins", tags=["plugins"])
 
@@ -924,7 +947,18 @@ async def search_market_plugins(
                 params=params,
             )
             resp.raise_for_status()
-            return resp.json()
+            data = resp.json()
+            plugins_data = data.get("data") or {}
+            plugins = plugins_data.get("plugins") or []
+            current_label = _current_qwenpaw_compat_label()
+            filtered = [
+                p
+                for p in plugins
+                if _plugin_has_compat_label(p, current_label)
+            ]
+            plugins_data["plugins"] = filtered
+            plugins_data["total"] = len(filtered)
+            return data
     except Exception as exc:
         logger.warning("Plugin market search failed: %s", exc)
         raise HTTPException(

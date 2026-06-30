@@ -12,6 +12,9 @@ from typing import Any
 
 from packaging.version import InvalidVersion, Version
 
+from .._version_compat import check_plugin_version_compat
+from ..plugins.architecture import PluginManifest
+
 logger = logging.getLogger(__name__)
 
 PLUGIN_DOWNLOAD_CDN = "https://download.qwenpaw.agentscope.io"
@@ -47,7 +50,7 @@ def _plugin_id_from_file_entry(entry: dict[str, Any]) -> str:
     marker = f"-{version}-"
     idx = file_id.rfind(marker)
     if idx > 0:
-        tail = file_id[idx + len(marker) :]
+        tail = file_id[idx + len(marker):]
         if len(tail) == 8 and all(
             c in "0123456789abcdef" for c in tail.lower()
         ):
@@ -107,6 +110,48 @@ def _installed_plugin_ids() -> dict[str, str]:
     return installed
 
 
+def _is_entry_compatible(entry: dict[str, Any]) -> bool:
+    """Return True when a CDN index entry supports the running QwenPaw.
+
+    Falls back to ``min_version`` / ``max_version`` when ``qwenpaw_version``
+    is absent, and treats missing version constraints as compatible.
+    """
+    plugin_id = str(entry.get("plugin_id") or entry.get("id") or "")
+    version = str(entry.get("version") or "0.0.0")
+
+    qwenpaw_version = entry.get("qwenpaw_version")
+    min_version = entry.get("min_version")
+    max_version = entry.get("max_version")
+
+    # No constraints advertised -> assume compatible for backwards compat.
+    no_qv = not isinstance(qwenpaw_version, dict)
+    if no_qv and not min_version and not max_version:
+        return True
+
+    manifest_data: dict[str, Any] = {
+        "id": plugin_id,
+        "version": version,
+    }
+    if isinstance(qwenpaw_version, dict):
+        manifest_data["qwenpaw_version"] = qwenpaw_version
+    else:
+        manifest_data["min_version"] = str(min_version or "0.1.0")
+        if max_version:
+            manifest_data["max_version"] = str(max_version)
+
+    try:
+        manifest = PluginManifest.from_dict(manifest_data)
+        compatible, _ = check_plugin_version_compat(manifest)
+        return compatible
+    except Exception as exc:
+        logger.warning(
+            "Plugin catalog: skipping %s due to manifest validation error: %s",
+            plugin_id,
+            exc,
+        )
+        return False
+
+
 def build_plugin_catalog() -> dict[str, Any]:
     """Download main + plugins index from CDN and normalize for the console.
 
@@ -151,6 +196,8 @@ def build_plugin_catalog() -> dict[str, Any]:
             continue
         rel_url = str(entry.get("url") or "")
         if not rel_url.startswith("/"):
+            continue
+        if not _is_entry_compatible(entry):
             continue
         plugin_id = _plugin_id_from_file_entry(entry)
         catalog_version = str(entry.get("version") or "")

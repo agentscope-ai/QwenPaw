@@ -151,7 +151,7 @@ def _build_metadata(
     cdn_path: str,
 ) -> dict[str, Any]:
     size_bytes = zip_path.stat().st_size
-    return {
+    metadata: dict[str, Any] = {
         "id": file_id,
         "plugin_id": plugin_id,
         "name": _localized_field(manifest.get("name") or plugin_id),
@@ -168,6 +168,21 @@ def _build_metadata(
         "updated_at": datetime.now(timezone.utc).isoformat(),
         "type": "zip",
     }
+
+    qwenpaw_version = manifest.get("qwenpaw_version")
+    if isinstance(qwenpaw_version, dict):
+        metadata["qwenpaw_version"] = {
+            k: str(v) for k, v in qwenpaw_version.items() if k in ("min", "max")
+        }
+    else:
+        min_version = str(manifest.get("min_version") or "")
+        if min_version:
+            metadata["min_version"] = min_version
+        max_version = manifest.get("max_version")
+        if max_version:
+            metadata["max_version"] = str(max_version)
+
+    return metadata
 
 
 def discover_and_pack(
