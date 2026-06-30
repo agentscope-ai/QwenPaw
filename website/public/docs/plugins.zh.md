@@ -7,7 +7,7 @@ QwenPaw 提供了插件系统，允许用户扩展 QwenPaw 的功能。
 插件系统支持以下扩展能力：
 
 - **Provider 插件**：添加新的 LLM Provider 和模型
-- **Hook 插件**：在应用启动/关闭时执行自定义代码
+- **Hook 插件**：在应用启动/关闭时执行自定义代码（app 生命周期级别，仅执行一次）
 - **Command 插件**：注册自定义的 `/command` 魔法命令
 - **HTTP API 插件**：通过 FastAPI `APIRouter` 在 `/api` 下暴露自定义 REST 接口
 - **前端扩展插件**：在浏览器中运行的 JS 插件，共享宿主的 React / Ant Design 运行时，通过声明式 `window.QwenPaw.*` API 扩展界面——注册侧边栏菜单、页面路由、UI 插槽、聊天定制等，无需修改宿主代码
@@ -125,7 +125,7 @@ my-plugin/
 | ---------- | ---------------------------------------------------- |
 | `tool`     | 注册一个或多个 Agent 工具（LLM 可调用的函数）。      |
 | `provider` | 注册自定义 LLM 提供商 / 模型端点。                   |
-| `hook`     | 在应用启动 / 关闭时执行代码。                        |
+| `hook`     | 在应用启动 / 关闭时执行代码（app 生命周期级别）。    |
 | `command`  | 注册 `/slash` 控制命令。                             |
 | `frontend` | 提供前端 JS bundle，由 UI 动态加载。                 |
 | `general`  | 兜底类型，用于组合型插件或不属于以上任何类别的插件。 |
@@ -760,7 +760,6 @@ class MyLLMProviderPlugin:
             provider_class=MyLLMProvider,
             label="My LLM",
             base_url="https://api.example.com/v1",
-            metadata={},
         )
 
         logger.info("✓ My LLM Provider registered")
@@ -902,37 +901,7 @@ cd status-command
 }
 ```
 
-#### 3. 创建 query_rewriter.py
-
-```python
-# -*- coding: utf-8 -*-
-"""Query rewriter for status command."""
-
-
-class StatusQueryRewriter:
-    """Rewrite /status queries to agent prompts."""
-
-    @staticmethod
-    def should_rewrite(query: str) -> bool:
-        """Check if query should be rewritten."""
-        if not query:
-            return False
-        return query.strip().lower().startswith("/status")
-
-    @staticmethod
-    def rewrite(query: str) -> str:
-        """Rewrite /status query to agent prompt."""
-        return """请帮我检查系统状态，包括：
-
-1. 当前使用的模型和 Provider
-2. 内存使用情况
-3. 最近的对话数量
-4. 插件加载情况
-
-请用清晰的格式展示这些信息。"""
-```
-
-#### 4. 创建 plugin.py
+#### 3. 创建 plugin.py
 
 ```python
 # -*- coding: utf-8 -*-
@@ -949,68 +918,35 @@ class StatusCommandPlugin:
     """Status Command Plugin."""
 
     def register(self, api: PluginApi):
-        """Register the status command.
-
-        Args:
-            api: PluginApi instance
-        """
-        logger.info("Registering status command...")
-
-        # Register startup hook to patch query handler
-        api.register_startup_hook(
-            hook_name="status_query_rewriter",
-            callback=self._patch_query_handler,
-            priority=50,
+        """Register the status command."""
+        from qwenpaw.runtime.commands.control.base import (
+            BaseControlCommandHandler,
         )
 
+        class StatusCommandHandler(BaseControlCommandHandler):
+            command_name = "status"
+            help_text = "Check system status"
+
+            async def handle(self, ctx, args: str):
+                from agentscope.message import Msg
+                return Msg(
+                    name="system",
+                    role="assistant",
+                    content="System is running normally.",
+                )
+
+        api.register_control_command(
+            handler=StatusCommandHandler(),
+            priority_level=10,
+        )
         logger.info("✓ Status command registered: /status")
-
-    def _patch_query_handler(self):
-        """Patch AgentRunner.query_handler to rewrite /status queries."""
-        from qwenpaw.app.runner.runner import AgentRunner
-        from .query_rewriter import StatusQueryRewriter
-
-        original_query_handler = AgentRunner.query_handler
-
-        async def patched_query_handler(self, msgs, request=None, **kwargs):
-            """Patched query handler."""
-            if msgs and len(msgs) > 0:
-                last_msg = msgs[-1]
-                if hasattr(last_msg, 'content'):
-                    content_list = (
-                        last_msg.content
-                        if isinstance(last_msg.content, list)
-                        else [last_msg.content]
-                    )
-                    for content_item in content_list:
-                        if (
-                            isinstance(content_item, dict)
-                            and content_item.get('type') == 'text'
-                        ):
-                            text = content_item.get('text', '')
-                            if StatusQueryRewriter.should_rewrite(text):
-                                rewritten = StatusQueryRewriter.rewrite(text)
-                                logger.info("Rewriting /status query")
-                                content_item['text'] = rewritten
-                                break
-
-            async for result in original_query_handler(
-                self,
-                msgs,
-                request,
-                **kwargs,
-            ):
-                yield result
-
-        AgentRunner.query_handler = patched_query_handler
-        logger.info("✓ Patched AgentRunner.query_handler for /status")
 
 
 # Export plugin instance
 plugin = StatusCommandPlugin()
 ```
 
-#### 5. 安装和使用
+#### 4. 安装和使用
 
 ```bash
 qwenpaw plugin install status-command
@@ -1412,8 +1348,8 @@ api.register_startup_hook("late", callback, priority=200)
 ### 命令未响应
 
 1. 确认插件已安装
-2. 检查 startup hook 是否成功执行
-3. 查看日志中的 patch 信息
+2. 检查日志中命令处理器是否注册成功
+3. 确认命令名称是否匹配（如 `/status`）
 
 ## 安全注意事项
 
@@ -1430,11 +1366,11 @@ api.register_startup_hook("late", callback, priority=200)
 
 ```python
 api.register_provider(
-    provider_id: str,          # Provider 唯一标识符
-    provider_class: Type,      # Provider 类
-    label: str,                # 显示名称
-    base_url: str,             # API base URL
-    metadata: Dict[str, Any],  # 额外元数据
+    provider_id: str,              # Provider 唯一标识符（必填）
+    provider_class: Type,          # Provider 类（必填）
+    label: str = "",               # 显示名称（可选，默认为 provider_id）
+    base_url: str = "",            # API base URL（可选）
+    **metadata,                    # 额外关键字参数（chat_model, require_api_key 等）
 )
 ```
 
@@ -1477,28 +1413,91 @@ api.register_http_router(
 
 完整步骤见上文「示例 7：暴露 FastAPI 接口」。
 
-## 高级功能
+### register_control_command
 
-### Monkey Patch
-
-对于需要修改 QwenPaw 行为的插件（如自定义命令），可以使用 monkey patch：
+注册自定义 `/slash` 控制命令。
 
 ```python
-def _patch_query_handler(self):
-    """Patch AgentRunner to intercept queries."""
-    from qwenpaw.app.runner.runner import AgentRunner
+api.register_control_command(
+    handler: BaseControlCommandHandler,  # 命令处理器实例
+    priority_level: int = 10,            # 命令优先级（默认: 10）
+)
+```
 
-    original_handler = AgentRunner.query_handler
+handler 必须继承 `qwenpaw.runtime.commands.control.base.BaseControlCommandHandler`，并实现 `command_name`、`help_text` 和 `async handle(self, ctx, args)` 方法。
 
-    async def patched_handler(self, msgs, request=None, **kwargs):
-        # 你的自定义逻辑
-        # 修改 msgs 或添加额外处理
+### register_tool
 
-        # 调用原始 handler
-        async for result in original_handler(self, msgs, request, **kwargs):
-            yield result
+将工具函数注册到 Agent 的工具集中。
 
-    AgentRunner.query_handler = patched_handler
+```python
+api.register_tool(
+    tool_name: str,          # 工具函数的唯一名称
+    tool_func: Callable,     # 要注册的工具函数
+    description: str = "",   # UI 中显示的描述
+    icon: str = "🔧",        # 显示图标（emoji 字符串）
+    enabled: bool = False,   # 是否默认启用
+)
+```
+
+### register_uninstall_hook
+
+注册卸载钩子，仅在插件被显式卸载时执行。
+
+```python
+api.register_uninstall_hook(
+    hook_name: str,      # 钩子名称
+    callback: Callable,  # 回调函数
+    priority: int = 100, # 优先级（越低越早执行）
+)
+```
+
+### register_workspace_created_hook
+
+注册 workspace 创建时触发的钩子。
+
+```python
+api.register_workspace_created_hook(
+    hook_name: str,      # 钩子名称
+    callback: Callable,  # 回调函数: (workspace_info: dict) -> None
+    priority: int = 100, # 优先级（越低越早执行）
+)
+```
+
+### get_tool_config / set_tool_config
+
+获取或保存每个 Agent 的工具配置。
+
+```python
+config = api.get_tool_config(tool_name: str, agent_id: str)  # 返回 dict
+api.set_tool_config(tool_name: str, agent_id: str, config: dict)
+```
+
+## 高级功能
+
+### 自定义命令
+
+在 2.0 中，推荐通过 `api.register_control_command()` 添加自定义 `/slash` 命令，取代旧版的 monkey patching 方式：
+
+```python
+from qwenpaw.runtime.commands.control.base import BaseControlCommandHandler
+
+class MyCommandHandler(BaseControlCommandHandler):
+    command_name = "mycommand"
+    help_text = "Description of my command"
+
+    async def handle(self, ctx, args: str):
+        from agentscope.message import Msg
+        return Msg(
+            name="system",
+            role="assistant",
+            content="Command result here.",
+        )
+
+api.register_control_command(
+    handler=MyCommandHandler(),
+    priority_level=10,
+)
 ```
 
 ### 访问运行时信息
@@ -1542,7 +1541,7 @@ A: 插件通过 `PluginApi` 访问核心功能，包括：
 
 ### Q: 插件可以修改 QwenPaw 的核心行为吗？
 
-A: 可以，通过 monkey patch 或 hook 机制。但请谨慎使用，确保不会破坏核心功能。
+A: 可以，通过 `register_control_command`、`register_tool`、runtime hooks 和其他 PluginApi 方法。请谨慎使用，确保不会破坏核心功能。
 
 ### Q: 插件之间会冲突吗？
 

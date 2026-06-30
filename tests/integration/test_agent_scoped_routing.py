@@ -30,6 +30,7 @@ from tests.integration.helpers import (
     PLUGIN_HTTP_TIMEOUT,
     clean_inbox,
     create_agent,
+    default_http_timeout,
     delete_agent_quietly,
     delete_plugin_quietly,
     make_event,
@@ -38,7 +39,7 @@ from tests.integration.helpers import (
     wait_until_plugin_loader_ready,
 )
 
-_HTTP_TIMEOUT = 15.0
+_HTTP_TIMEOUT = default_http_timeout(15.0)
 
 
 # ------------------------------------------------------------------ #

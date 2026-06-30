@@ -23,7 +23,7 @@ const GlobSearchCard: React.FC<GlobSearchCardProps> = ({
     : t("tool.globSearchDefault");
 
   const resultText = stringifyResult(content.result);
-  const lineCount = countLines(content.result);
+  const lineCount = countLines(resultText);
 
   const badge =
     content.status === "done" && lineCount > 0 ? (

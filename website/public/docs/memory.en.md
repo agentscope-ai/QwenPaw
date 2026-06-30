@@ -1,7 +1,8 @@
 # Long-term Memory
 
-**Long-term Memory** gives QwenPaw persistent memory across conversations: writes key information to Markdown files for
-long-term storage, with semantic search for recall at any time.
+**Long-term Memory** gives QwenPaw persistent memory across conversations. In the default backend, QwenPaw embeds the
+ReMe application in-process and runs ReMe jobs to save conversation facts, build daily notes, extract digest memories,
+watch resource files, and search the memory vault.
 
 > The long-term memory mechanism is inspired by [OpenClaw](https://github.com/openclaw/openclaw) and implemented via **ReMeLight** from [ReMe](https://github.com/agentscope-ai/ReMe) — a file-based memory backend where memories are plain Markdown files that can be read, edited, and migrated directly.
 
@@ -11,76 +12,97 @@ long-term storage, with semantic search for recall at any time.
 
 ```mermaid
 graph TB
-    User[User / Agent] --> MM[MemoryManager]
-    MM --> MemoryMgmt[Long-term Memory Management]
-    MemoryMgmt --> FileTools[Memory Update]
-    MemoryMgmt --> Watcher[Memory Index Update]
-    MemoryMgmt --> SearchLayer[Hybrid Memory Search]
-    FileTools --> LTM[MEMORY.md]
-    FileTools --> DailyLog[memory/YYYY-MM-DD.md]
-    Watcher --> Index[Async DB Update]
-    SearchLayer --> VectorSearch[Vector Semantic Search]
-    SearchLayer --> BM25[BM25 Full-text Search]
+    User[User / Agent] --> Middleware[MemoryMiddleware]
+    Middleware --> Manager[ReMeLightMemoryManager]
+    Manager --> ReMe[Embedded ReMe Application]
+    ReMe --> Jobs[ReMe Jobs]
+    Jobs --> AutoMemory[auto_memory]
+    Jobs --> AutoDream[auto_dream]
+    Jobs --> Search[search]
+    Jobs --> Resource[auto_resource]
+    Jobs --> Reindex[reindex / index_update_loop]
+    AutoMemory --> Daily[memory/YYYY-MM-DD/*.md]
+    AutoMemory --> Session[mem_session/dialog/*.jsonl]
+    AutoDream --> Digest[digest/*.md and interests.yaml]
+    Resource --> ResourceDir[resource/*]
+    Search --> Store[mem_metadata file store + BM25 + optional embeddings]
 ```
 
 Long-term memory management includes the following capabilities:
 
-| Capability             | Description                                                                                                        |
-| ---------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| **Memory Persistence** | Writes key information to Markdown files via file tools (`read` / `write` / `edit`); files are the source of truth |
-| **File Watching**      | Monitors file changes via `watchfile`, asynchronously updating the local database (semantic index & vector index)  |
-| **Semantic Search**    | Recalls relevant memories by semantics using vector embeddings + BM25 hybrid search                                |
-| **File Reading**       | Reads the corresponding Memory Markdown files directly via file tools, loading on demand to keep the context lean  |
-| **Dream Optimization** | Automatically optimizes MEMORY.md at scheduled intervals, removing redundancy and preserving high-quality memories |
+| Capability             | Description                                                                                                      |
+| ---------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| **Embedded ReMe app**  | QwenPaw starts ReMe in-process and injects the active QwenPaw model into ReMe's default LLM component            |
+| **Auto-Memory**        | After a configurable number of user turns, ReMe extracts useful conversation facts into daily Markdown notes     |
+| **Context compaction** | Before context compression, pending turns can be flushed into the same `auto_memory` pipeline                    |
+| **Auto-Dream**         | A cron job extracts higher-level digest units and proactive-interest topics from recent daily notes              |
+| **Hybrid Search**      | `memory_search` calls ReMe's `search` job, using BM25 plus optional vector search and reciprocal-rank fusion     |
+| **Resource Memory**    | Files under `resource/` are cataloged and can be interpreted into source-linked daily notes                      |
+| **Inbox Results**      | `auto_memory`, `auto_dream`, and `auto_resource` results are pushed to QwenPaw's inbox when they produce changes |
 
 ---
 
 ## Memory File Structure
 
-Memories are stored as plain Markdown files, operated directly by the Agent via file tools. The default workspace uses the following hierarchical structure:
+Memories are stored as plain files under the agent workspace. ReMe's Markdown files are the readable source of memory,
+while `mem_metadata/` stores search indexes, catalogs, graphs, and embedding caches.
 
 ```
 {workspace}/
-├── MEMORY.md              ← Auto-Dream optimized long-term memory (crystallized)
-│   Contains: Core decisions, user preferences, reusable experiences
+├── memory/                         ← Daily memory notes
+│   └── 2026-06-29/
+│       ├── project-plan.md          ← One note written/updated by auto_memory
+│       └── index.md                 ← Day index generated from the day's notes
 │
-├── memory/                ← Auto-Memory written daily memories (raw records)
-│   ├── 2026-04-20.md
-│   ├── 2026-04-21.md      ← Auto-Dream reads today's log
-│   └── ...
+├── mem_session/
+│   └── dialog/
+│       └── <session_id>.jsonl       ← Sanitized conversation history used as note source
 │
-└── backup/                ← Auto-Dream created backups
-    ├── memory_backup_20260421_230000.md
-    └── ...                ← Can be used to restore historical versions
+├── digest/                         ← Auto-Dream digest memory and interest topics
+├── resource/                       ← External assets watched by auto_resource
+└── mem_metadata/                   ← ReMe persistent indexes and catalogs
 ```
 
-### MEMORY.md (Long-term Memory, Optional)
+### memory/YYYY-MM-DD/\*.md (Daily Notes)
 
-Stores long-lasting, rarely changing key information.
+Daily notes are the default Auto-Memory output. ReMe writes one or more notes per day, keyed by the source conversation
+session. Each note includes frontmatter such as `session_id` and `source_conversation`, so later updates can find and
+modify the existing note instead of creating duplicates.
 
-- **Location**: `{working_dir}/MEMORY.md`
-- **Purpose**: Stores decisions, preferences, persistent facts and reusable experiences
-- **Updates**: Written by the Agent via `write` / `edit` file tools, or automatically optimized by **Auto-Dream**
+- **Location**: `{working_dir}/memory/YYYY-MM-DD/*.md`
+- **Purpose**: Stores durable conversation facts, decisions, preferences, and work notes
+- **Updates**: ReMe `auto_memory` creates or edits notes using ReMe file jobs such as `daily_write`, `read`, `edit`,
+  `frontmatter_update`, and `write`
+- **Index**: After each successful write, ReMe refreshes the day's `index.md`
 
-### memory/YYYY-MM-DD.md (Daily Log)
+### mem_session/dialog/\*.jsonl (Conversation Source)
 
-One page per day, appended with the day's work and interactions.
+Before extracting memory, ReMe saves the relevant messages into a session log. Tool-result blocks and base64 data blocks
+are stripped so recalled memory or large media cannot be mistaken for user-provided facts in future extraction runs.
 
-- **Location**: `{working_dir}/memory/YYYY-MM-DD.md`
-- **Purpose**: Records daily notes and runtime context
-- **Updates**: Appended by the Agent via `write` / `edit` file tools; automatically triggered when conversations become
-  too long and need summarization
-- **Role**: Serves as input source for **Auto-Dream** optimization
+- **Location**: `{working_dir}/mem_session/dialog/<session_id>.jsonl` by default
+- **Purpose**: Source traceability for daily notes
+- **Linking**: Daily-note frontmatter links back to the source conversation with `[[mem_session/dialog/<session_id>.jsonl]]`
 
-### backup/ (Backup Directory)
+### digest/ (Dream Memory)
 
-Stores backups of MEMORY.md created before each Auto-Dream optimization.
+Auto-Dream reads recent daily notes, extracts merged digest units, updates the dream catalog, and writes user-interest
+topics for proactive use.
 
-- **Location**: `{working_dir}/backup/`
-- **Purpose**: Automatic backup before each Auto-Dream execution, enabling historical version recovery
-- **Naming format**: `memory_backup_YYYYMMDD_HHMMSS.md`
+- **Location**: `{working_dir}/digest/`
+- **Purpose**: Higher-level, cross-session memory and proactive-interest topics
+- **Updates**: ReMe `auto_dream`, usually triggered by `dream_cron`
 
-> For a complete walkthrough of Auto-Memory, Auto-Dream, Auto-Memory-Search, and Proactive, see [Memory-Evolving & Proactive Interaction](./memory-evolving-and-proactive.en.md). The sections below cover technical implementation details and configuration only.
+### resource/ (Resource Memory)
+
+Files placed under `resource/` are watched and cataloged. When supported files change, ReMe can interpret them into
+source-linked daily notes via `auto_resource`.
+
+- **Location**: `{working_dir}/resource/`
+- **Supported default suffixes**: `md`, `txt`, `json`, `jsonl`, `csv`, `yaml`, `html`
+- **Inbox behavior**: Resource processing results are pushed to the inbox only when memory changed
+
+> For a complete walkthrough of Auto-Memory, Auto-Dream, Auto-Memory-Search, and Proactive, see [Memory-Evolving & Proactive Interaction](./memory-evolving-and-proactive). The sections below cover technical implementation details and configuration only.
 
 ---
 
@@ -88,14 +110,16 @@ Stores backups of MEMORY.md created before each Auto-Dream optimization.
 
 The Agent has two ways to retrieve past memories:
 
-| Method          | Tool            | Use Case                                                    | Example                                        |
-| --------------- | --------------- | ----------------------------------------------------------- | ---------------------------------------------- |
-| Semantic search | `memory_search` | Unsure which file contains the info; fuzzy recall by intent | "Previous discussion about deployment process" |
-| Direct read     | `read_file`     | Known specific date or file path; precise lookup            | Read `memory/2025-02-13.md`                    |
+| Method        | Tool            | Use Case                                                    | Example                                        |
+| ------------- | --------------- | ----------------------------------------------------------- | ---------------------------------------------- |
+| Hybrid search | `memory_search` | Unsure which file contains the info; fuzzy recall by intent | "Previous discussion about deployment process" |
+| Direct read   | File tools      | Known specific date or file path; precise lookup            | Read `memory/2026-06-29/project-plan.md`       |
 
 ### Hybrid Search Explained
 
-Memory search uses **Vector + BM25 hybrid search** by default. The two search methods complement each other's strengths.
+`memory_search` calls ReMe's `search` job. Search always tries keyword retrieval through BM25 and also runs vector
+retrieval when an embedding model is configured. When both paths return results, ReMe fuses the ranked lists with
+**Reciprocal Rank Fusion (RRF)**.
 
 #### Vector Semantic Search
 
@@ -111,7 +135,7 @@ with similar meaning but different wording:
 However, vector search is weaker on **precise, high-signal tokens**, as embedding models tend to capture overall
 semantics rather than exact matches of individual tokens.
 
-#### BM25 Full-text Search
+#### BM25 Keyword Search
 
 Based on term frequency statistics for substring matching, excellent for precise token hits, but weaker on semantic
 understanding (synonyms, paraphrasing).
@@ -121,48 +145,37 @@ understanding (synonyms, paraphrasing).
 | `handleWebSocketReconnect` | Memory fragments containing that function name | "WebSocket disconnection reconnection handling logic" |
 | `ECONNREFUSED`             | Log entries containing that error code         | "Database connection refused"                         |
 
-**Scoring logic**: Splits the query into terms, counts the hit ratio of each term in the target text, and awards a bonus
-for complete phrase matches:
-
-```
-base_score = hit_terms / total_query_terms           # range [0, 1]
-phrase_bonus = 0.2 (only when multi-word query matches the complete phrase)
-score = min(1.0, base_score + phrase_bonus)           # capped at 1.0
-```
-
-Example: Query `"database connection timeout"` hits a passage containing only "database" and "timeout" →
-`base_score = 2/3 ≈ 0.67`, no complete phrase match → `score = 0.67`
-
-> To handle ChromaDB's case-sensitive `$contains` behavior, the search automatically generates multiple case variants
-> for each term (original, lowercase, capitalized, uppercase) to improve recall.
+ReMe maintains a local BM25 index over indexed files. This gives reliable hits for exact identifiers, error codes,
+filenames, and uncommon words even when embeddings are unavailable.
 
 #### Hybrid Search Fusion
 
-Uses both vector and BM25 recall signals simultaneously, performing **weighted fusion** on results (default vector
-weight `0.7`, BM25 weight `0.3`):
+When both vector and BM25 return candidates, ReMe uses weighted RRF. The default vector weight is `0.7`; the remaining
+`0.3` goes to keyword search.
 
 1. **Expand candidate pool**: Multiply the desired result count by `candidate_multiplier` (default 3×, capped at 200);
    each path retrieves more candidates independently
-2. **Independent scoring**: Vector and BM25 each return scored result lists
-3. **Weighted merging**: Deduplicate and fuse by chunk's unique identifier (`path + start_line + end_line`)
-   - Recalled by vector only → `final_score = vector_score × 0.7`
-   - Recalled by BM25 only → `final_score = bm25_score × 0.3`
-   - **Recalled by both** → `final_score = vector_score × 0.7 + bm25_score × 0.3`
+2. **Independent ranking**: Vector and BM25 each return ranked result lists
+3. **RRF merging**: Deduplicate by chunk id and add rank-based contributions:
+   - Vector contribution: `0.7 / (60 + vector_rank)`
+   - Keyword contribution: `0.3 / (60 + keyword_rank)`
+   - Chunks found by both paths receive both contributions
 4. **Sort and truncate**: Sort by `final_score` descending, return top-N results
+5. **Link expansion**: Search can include nearby linked files to provide additional context
 
 **Example**: Query `"handleWebSocketReconnect disconnection reconnect"`
 
-| Memory Fragment                                                               | Vector Score | BM25 Score | Fused Score                    | Rank |
-| ----------------------------------------------------------------------------- | ------------ | ---------- | ------------------------------ | ---- |
-| "handleWebSocketReconnect function handles WebSocket disconnection reconnect" | 0.85         | 1.0        | 0.85×0.7 + 1.0×0.3 = **0.895** | 1    |
-| "Logic for automatic retry after network disconnection"                       | 0.78         | 0.0        | 0.78×0.7 = **0.546**           | 2    |
-| "Fixed null pointer exception in handleWebSocketReconnect"                    | 0.40         | 0.5        | 0.40×0.7 + 0.5×0.3 = **0.430** | 3    |
+| Memory Fragment                                                               | Vector Rank | BM25 Rank | Why It Ranks Well                                   |
+| ----------------------------------------------------------------------------- | ----------- | --------- | --------------------------------------------------- |
+| "handleWebSocketReconnect function handles WebSocket disconnection reconnect" | 2           | 1         | Strong semantic match plus exact keyword hit        |
+| "Logic for automatic retry after network disconnection"                       | 1           | -         | Strong semantic match even without exact identifier |
+| "Fixed null pointer exception in handleWebSocketReconnect"                    | -           | 2         | Exact identifier hit keeps it in the candidate set  |
 
 ```mermaid
 graph LR
     Query[Search Query] --> Vector[Vector Semantic Search x0.7]
-    Query --> BM25[BM25 Full-text Search x0.3]
-    Vector --> Merge[Deduplicate by chunk + Weighted sum]
+    Query --> BM25[BM25 Keyword Search x0.3]
+    Vector --> Merge[Deduplicate by chunk + Weighted RRF]
     BM25 --> Merge
     Merge --> Sort[Sort by fused score descending]
     Sort --> Results[Return top-N results]
@@ -219,23 +232,28 @@ Before restoring, the system prompts to create a snapshot of the current state. 
 
 Memory configuration is located in `agent.json` under `running.reme_light_memory_config`:
 
-| Field                           | Description                                                                           | Default        |
-| ------------------------------- | ------------------------------------------------------------------------------------- | -------------- |
-| `summarize_when_compact`        | Whether to save long-term memory in background during context compaction              | `true`         |
-| `auto_memory_interval`          | Auto memory every N user queries. `1` runs after every user message; null disables it | `1`            |
-| `dream_cron`                    | Cron expression for dream-based memory optimization job (empty string to disable)     | `"0 23 * * *"` |
-| `rebuild_memory_index_on_start` | Whether to clear and rebuild memory search index on startup; false to skip rebuild    | `false`        |
-| `recursive_file_watcher`        | Whether to watch memory directory recursively (includes subdirectories)               | `false`        |
+| Field                           | Description                                                                    | Default          |
+| ------------------------------- | ------------------------------------------------------------------------------ | ---------------- |
+| `metadata_dir`                  | ReMe persistent state directory for indexes, catalogs, graph data, and caches  | `"mem_metadata"` |
+| `session_dir`                   | Directory for saved source conversations                                       | `"mem_session"`  |
+| `resource_dir`                  | Directory watched by `auto_resource`                                           | `"resource"`     |
+| `daily_dir`                     | Directory for daily memory notes                                               | `"memory"`       |
+| `digest_dir`                    | Directory for dream/digest memory                                              | `"digest"`       |
+| `enable_search_raw_log`         | Whether search also indexes raw session/resource JSONL-style data              | `false`          |
+| `summarize_when_compact`        | Whether pending turns are flushed to Auto-Memory before context compression    | `true`           |
+| `auto_memory_interval`          | Auto-Memory every N user turns. `None` or `<= 0` disables periodic Auto-Memory | `5`              |
+| `dream_cron`                    | Cron expression for the Auto-Dream job (empty string disables it)              | `"0 23 * * *"`   |
+| `rebuild_memory_index_on_start` | Whether to clear and rebuild the ReMe search index on agent startup            | `false`          |
 
 ### Auto Memory Search Configuration
 
 Configure in `running.reme_light_memory_config.auto_memory_search_config`:
 
-| Field         | Description                                              | Default |
-| ------------- | -------------------------------------------------------- | ------- |
-| `enabled`     | Whether to auto search memory on every conversation turn | `false` |
-| `max_results` | Maximum results for auto memory search                   | `1`     |
-| `timeout`     | Timeout in seconds for auto memory search                | `10.0`  |
+| Field                | Description                                                                       | Default |
+| -------------------- | --------------------------------------------------------------------------------- | ------- |
+| `enabled`            | Whether to auto search memory on every conversation turn                          | `false` |
+| `max_results`        | Maximum results for auto memory search                                            | `2`     |
+| `persist_to_context` | Whether the injected auto-search tool call/result is kept in conversation context | `false` |
 
 ### Embedding Configuration (Optional)
 
@@ -250,52 +268,25 @@ Embedding configuration for vector semantic search, located in `running.reme_lig
 | `dimensions`       | Vector dimensions for initializing vector DB | `1024`   |
 | `enable_cache`     | Whether to enable Embedding cache            | `true`   |
 | `use_dimensions`   | Whether to pass dimensions parameter in API  | `false`  |
-| `max_cache_size`   | Maximum Embedding cache entries              | `3000`   |
+| `max_cache_size`   | Maximum Embedding cache entries              | `10000`  |
 | `max_input_length` | Maximum input length per Embedding request   | `8192`   |
 | `max_batch_size`   | Maximum batch size for Embedding requests    | `10`     |
 
 > `use_dimensions` is for cases where some vLLM models don't support the dimensions parameter. Set to `false` to skip it.
 
-#### Via Environment Variables (Fallback)
-
-When not set in config file, these environment variables serve as fallback:
-
-| Environment Variable   | Description                       | Default |
-| ---------------------- | --------------------------------- | ------- |
-| `EMBEDDING_API_KEY`    | API Key for the Embedding service | ``      |
-| `EMBEDDING_BASE_URL`   | URL of the Embedding service      | ``      |
-| `EMBEDDING_MODEL_NAME` | Embedding model name              | ``      |
-
 > `base_url` and `model_name` must both be non-empty to enable vector search in hybrid retrieval (`api_key` is not required).
 
-### Full-text Search Configuration
+### Indexing Behavior
 
-Control BM25 full-text search via the `FTS_ENABLED` environment variable:
+The embedded ReMe configuration uses a local file store with:
 
-| Environment Variable | Description                        | Default |
-| -------------------- | ---------------------------------- | ------- |
-| `FTS_ENABLED`        | Whether to enable full-text search | `true`  |
-
-> Even without Embedding configured, enabling full-text search allows keyword search via BM25.
-
-### Underlying Database
-
-Configure the memory storage backend via the `MEMORY_STORE_BACKEND` environment variable:
-
-| Environment Variable   | Description                                                    | Default |
-| ---------------------- | -------------------------------------------------------------- | ------- |
-| `MEMORY_STORE_BACKEND` | Memory storage backend: `auto`, `local`, `chroma`, or `sqlite` | `auto`  |
-
-**Storage backend options:**
-
-| Backend  | Description                                                                                     |
-| -------- | ----------------------------------------------------------------------------------------------- |
-| `auto`   | Auto-select: uses `local` on Windows, `chroma` on other systems                                 |
-| `local`  | Local file storage, no extra dependencies, best compatibility                                   |
-| `chroma` | Chroma vector database, supports efficient vector retrieval; may core dump on some Windows envs |
-| `sqlite` | SQLite database + vector extension; may freeze or crash on macOS 14 and below                   |
-
-> **Recommended**: Use the default `auto` mode, which automatically selects the most stable backend for your platform.
+| Component        | Behavior                                                                                       |
+| ---------------- | ---------------------------------------------------------------------------------------------- |
+| File store       | Local ReMe file store under `mem_metadata/`                                                    |
+| Keyword index    | BM25 keyword index enabled by default                                                          |
+| Vector index     | Enabled only when both `embedding_model_config.base_url` and `model_name` are set              |
+| Watched dirs     | `daily_dir` and `digest_dir`; `resource_dir` is also indexed when `enable_search_raw_log=true` |
+| Watched suffixes | `md` by default; `jsonl` is included when raw-log search is enabled                            |
 
 ---
 
@@ -405,8 +396,8 @@ The full configuration can be written into `running.adbpg_memory_config` of `age
 
 ## Related Pages
 
-- [Memory-Evolving & Proactive Interaction](./memory-evolving-and-proactive.en.md) — Auto-Memory, Auto-Dream, Auto-Memory-Search, Proactive complete workflow
-- [Introduction](./intro.en.md) — What this project can do
-- [Console](./console.en.md) — Manage memory and configuration in the console
-- [Skills](./skills.en.md) — Built-in and custom capabilities
-- [Configuration & Working Directory](./config.en.md) — Working directory and config
+- [Memory-Evolving & Proactive Interaction](./memory-evolving-and-proactive) — Auto-Memory, Auto-Dream, Auto-Memory-Search, Proactive complete workflow
+- [Introduction](./intro) — What this project can do
+- [Console](./console) — Manage memory and configuration in the console
+- [Skills](./skills) — Built-in and custom capabilities
+- [Configuration & Working Directory](./config) — Working directory and config

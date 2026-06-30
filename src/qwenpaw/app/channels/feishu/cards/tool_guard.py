@@ -158,86 +158,6 @@ def build_approval_card(
     return json.dumps(card, ensure_ascii=False)
 
 
-def build_compact_card(
-    *,
-    request_id: str,
-    tool_name: str,
-    severity: str,
-    body_text: str,
-    session_ctx: Optional[Dict[str, Any]] = None,
-) -> str:
-    """Build a compact card with only header and buttons.
-
-    Used in streaming mode where the full approval body has already been
-    rendered in the streaming card.  The ``body`` field in button value
-    is intentionally left empty so that the resolved card will NOT
-    display the original tool_guard details (they were sent separately
-    in the stream).
-    """
-    del body_text  # intentionally unused; kept for signature parity
-    ctx_snapshot = dict(session_ctx or {})
-    approve_value = {
-        "type": ACTION_TYPE,
-        "action": APPROVE_KEY,
-        "request_id": request_id,
-        "tool_name": tool_name,
-        "severity": severity or "medium",
-        "body": "",
-        "session_ctx": ctx_snapshot,
-    }
-    deny_value = {**approve_value, "action": DENY_KEY}
-
-    card: Dict[str, Any] = {
-        "config": {"wide_screen_mode": True},
-        "header": {
-            "template": _severity_template(severity),
-            "title": {
-                "tag": "plain_text",
-                "content": "🛡️ Tool Approval Required",
-            },
-        },
-        "elements": [
-            {
-                "tag": "markdown",
-                "content": f"**Tool**: `{tool_name}`",
-            },
-            {
-                "tag": "markdown",
-                "content": (
-                    "ⓘ <font color='orange'>**"
-                    "[Buttons not working?  Click here]"
-                    f"({_FEISHU_CALLBACK_CONFIG_DOC_URL})"
-                    "**</font>"
-                ),
-            },
-            {
-                "tag": "action",
-                "actions": [
-                    {
-                        "tag": "button",
-                        "text": {
-                            "tag": "plain_text",
-                            "content": "✅ Approve",
-                        },
-                        "type": "primary",
-                        "value": approve_value,
-                    },
-                    {
-                        "tag": "button",
-                        "text": {
-                            "tag": "plain_text",
-                            "content": "❌ Deny",
-                        },
-                        "type": "danger",
-                        "value": deny_value,
-                    },
-                ],
-            },
-        ],
-    }
-    return json.dumps(card, ensure_ascii=False)
-
-
 def build_resolved_card(
     *,
     tool_name: str,
@@ -334,15 +254,9 @@ async def render(
     event: Any,
     send_meta: Dict[str, Any],
     meta: Dict[str, Any],
-    *,
-    compact: bool = False,
+    **_kwargs: Any,
 ) -> bool:
-    """Send a tool-guard approval interactive card.
-
-    When ``compact=True`` (streaming mode), send a minimal card with
-    only the header and approve/deny buttons — the full approval
-    body has already been rendered in the streaming card.
-    """
+    """Send a tool-guard approval interactive card."""
     if not meta.get("approval_request_id"):
         return False
     if not channel.enabled:
@@ -365,8 +279,7 @@ async def render(
         receive_id_type,
     )
 
-    builder = build_compact_card if compact else build_approval_card
-    content = builder(
+    content = build_approval_card(
         request_id=str(meta.get("approval_request_id") or ""),
         tool_name=str(meta.get("tool_name") or "tool"),
         severity=str(meta.get("severity") or "medium"),
@@ -383,10 +296,9 @@ async def render(
     if msg_id:
         send_meta["_last_sent_message_id"] = msg_id
         logger.info(
-            "feishu approval card sent: request_id=%s msg_id=%s compact=%s",
+            "feishu approval card sent: request_id=%s msg_id=%s",
             str(meta.get("approval_request_id") or "")[:8],
             msg_id[:24],
-            compact,
         )
         return True
     logger.warning(

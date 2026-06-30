@@ -45,6 +45,10 @@ SYSTEM_COMMAND_DESCRIPTIONS: dict[str, str] = {
         "Compact the conversation context; optional instruction supported"
     ),
 }
+# Manual ``/compact`` skips the auto ``trigger_ratio`` gate and runs compaction
+# directly; the field is constrained ``gt=0``, so we use a negligible value
+# rather than zero.
+_FORCE_TRIGGER_RATIO = 1e-6
 
 
 def _fmt_tokens(n: int) -> str:
@@ -113,6 +117,9 @@ class CommandHandler(ConversationCommandHandlerMixin):
         *,
         state: "AgentState | None" = None,
         agent_id: str = "default",
+        workspace_dir: str | None = None,
+        scroll_state: dict | None = None,
+        session_id: str | None = None,
         prompt_context: Any = None,
     ):
         """Initialize command handler.
@@ -133,6 +140,12 @@ class CommandHandler(ConversationCommandHandlerMixin):
             state: Direct AgentState (standalone mode). Mutually
                 exclusive with ``agent``.
             agent_id: Agent ID for config loading (standalone mode).
+            workspace_dir: Workspace directory (standalone mode) — needed to
+                open the scroll ``history.db`` when ``/compact`` runs under the
+                scroll strategy.
+            scroll_state: The session's persisted scroll checkpoint block, used
+                to seed a standalone ``/compact`` so its eviction index stays
+                continuous with prior compactions.
             prompt_context: Optional runtime HookContext used to rebuild
                 the current system prompt in standalone slash-command mode.
         """
@@ -147,7 +160,23 @@ class CommandHandler(ConversationCommandHandlerMixin):
         self._agent_id = agent_id
         self.memory_manager: "BaseMemoryManager" = memory_manager
         self._offloader = offloader
+        self._workspace_dir = workspace_dir
+        self._scroll_state = scroll_state
+        self._session_id = session_id
         self._prompt_context = prompt_context
+        # Set by a standalone scroll ``/compact`` to the manager's refreshed
+        # checkpoint, so the adapter can persist it back to the session.
+        self._updated_scroll_state: dict | None = None
+
+    @property
+    def updated_scroll_state(self) -> dict | None:
+        """The scroll checkpoint a standalone ``/compact`` produced, if any.
+
+        ``None`` means no scroll compaction ran (native strategy, agent-backed
+        mode, or a non-compacting command); the caller should then leave the
+        session's existing scroll block untouched.
+        """
+        return self._updated_scroll_state
 
     def _get_agent_config(self):
         """Get hot-reloaded agent config."""
@@ -206,6 +235,29 @@ class CommandHandler(ConversationCommandHandlerMixin):
         """Check if memory manager is available."""
         return self.memory_manager is not None
 
+    def _forced_context_config(self, agent: "Agent"):
+        """Clone the agent's ContextConfig for a manual ``/compact``.
+
+        Only drops ``trigger_ratio`` so compaction runs now instead of waiting
+        for the auto threshold. The ``reserve_ratio`` recent-tail budget is
+        left untouched, so a manual ``/compact`` keeps the same tail as auto
+        compaction under both strategies. (A side effect: a conversation that
+        already fits inside the reserve has nothing to evict, so ``/compact``
+        reports "nothing to compact" — which is honest, it doesn't need
+        compacting.) Falls back to the agent's config if cloning fails."""
+        base = getattr(agent, "context_config", None)
+        if base is None:
+            return None
+        update: dict[str, Any] = {"trigger_ratio": _FORCE_TRIGGER_RATIO}
+        try:
+            return base.model_copy(update=update)
+        except Exception:
+            logger.warning(
+                "Could not clone context_config to force /compact; "
+                "falling back to the auto-gated config.",
+            )
+            return base
+
     async def _process_compact(
         self,
         messages: list[Msg],
@@ -246,12 +298,36 @@ class CommandHandler(ConversationCommandHandlerMixin):
                     "- Check that an active model is configured",
                 )
 
+        # Manual command: force compaction, and measure before/after so the
+        # reply reports what was actually evicted.
+        forced_cfg = self._forced_context_config(agent)
+        before = len(self._state.context)
+        # Scroll keeps its compaction map in the eviction index
+        # (``state.summary`` stays empty); native fills ``state.summary``.
+        # Capture whichever applies.
+        index_text = ""
         try:
-            await agent.compress_context(
-                context_config=self._build_manual_context_config(
-                    agent_config,
-                ),
+            # Agent-backed mode: ``QwenPawAgent.compress_context`` already
+            # routes to scroll or native by itself. Standalone mode builds a
+            # bare AgentScope ``Agent`` whose ``compress_context`` is always
+            # native, so under the scroll strategy we drive the scroll manager
+            # directly here. Native sessions fall through untouched.
+            scroll_mgr = (
+                self._build_standalone_scroll_manager()
+                if self._agent is None
+                else None
             )
+            if scroll_mgr is not None:
+                try:
+                    scroll_mgr.load_state(self._scroll_state or {})
+                    await scroll_mgr.compress(agent, forced_cfg)
+                    self._updated_scroll_state = scroll_mgr.to_dict()
+                    index_text = scroll_mgr.describe_index()
+                finally:
+                    scroll_mgr.close()
+            else:
+                await agent.compress_context(forced_cfg)
+                index_text = self._scroll_index_text(agent)
         except Exception as e:
             logger.exception("compress_context failed: %s", e)
             return await self._make_system_msg(
@@ -259,16 +335,36 @@ class CommandHandler(ConversationCommandHandlerMixin):
                 f"- Use `/clear` to reset the context if needed",
             )
 
+        after = len(self._state.context)
+        evicted = max(0, before - after)
         reme_cfg = agent_config.running.reme_light_memory_config
         if self._has_memory_manager() and reme_cfg.summarize_when_compact:
             self.memory_manager.add_summarize_task(messages=messages)
 
         summary = self._get_summary()
+        if evicted == 0 and not summary and not index_text:
+            return await self._make_system_msg(
+                "ℹ️ **Nothing to compact.**\n\n"
+                f"- Context is already minimal ({before} message(s))\n"
+                "- No turns were evicted",
+            )
+        if index_text:
+            detail = f"**Eviction Index:**\n{index_text}\n"
+        else:
+            detail = f"**Compressed Summary:**\n{summary}\n"
         return await self._make_system_msg(
             f"✅ **Compact Complete!**\n\n"
-            f"- Messages compacted: {len(messages)}\n"
-            f"**Compressed Summary:**\n{summary}\n",
+            f"- Messages compacted: {evicted}\n"
+            f"{detail}",
         )
+
+    @staticmethod
+    def _scroll_index_text(agent: "Agent") -> str:
+        """Scroll eviction-index map for a live agent, or '' under native."""
+        cm = getattr(agent, "_context_manager", None)
+        if cm is not None and hasattr(cm, "describe_index"):
+            return cm.describe_index()
+        return ""
 
     @staticmethod
     def _build_manual_context_config(agent_config: Any) -> Any:
@@ -311,6 +407,50 @@ class CommandHandler(ConversationCommandHandlerMixin):
             )
         except Exception:
             logger.exception("Failed to build temporary agent for /compact")
+            return None
+
+    def _build_standalone_scroll_manager(self):
+        """Build a ScrollContextManager for a standalone ``/compact``.
+
+        Returns ``None`` unless the strategy is ``scroll`` and a workspace is
+        known — in which case the caller stays on native compression. The
+        manager opens the workspace ``history.db``; the caller must
+        ``close()`` it. No model is needed at construction (compaction reads it
+        from the agent passed to ``compress``).
+        """
+        try:
+            lcc = self._get_agent_config().running.light_context_config
+        except Exception:
+            return None
+        if (
+            getattr(lcc, "strategy", "native") != "scroll"
+            or not self._workspace_dir
+        ):
+            return None
+        try:
+            from .context.scroll.history import HistoryStore
+            from .context.scroll.manager import ScrollContextManager
+
+            sc = lcc.scroll_config
+            history = HistoryStore(Path(self._workspace_dir) / sc.db_filename)
+            # Must match the id normal turns persist under (the builder uses
+            # ``ctx.session_id``), so these rows align with the live history.
+            session_id = (
+                self._session_id
+                or getattr(self._state, "session_id", "")
+                or "local"
+            )
+            return ScrollContextManager(
+                history=history,
+                session_id=session_id,
+                agent_id=self._agent_id,
+                pinned=sc.pinned,
+                # Already gated: the adapter only supplies an offloader when
+                # ``offload_dialog`` is on, so this archives iff configured.
+                offloader=self._offloader,
+            )
+        except Exception:
+            logger.exception("Failed to build scroll manager for /compact")
             return None
 
     async def _process_new(self, messages: list[Msg], _args: str = "") -> Msg:

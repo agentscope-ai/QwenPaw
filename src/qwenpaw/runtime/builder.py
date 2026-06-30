@@ -88,7 +88,10 @@ class AgentBuilder:
 
     # ----------------------------------------------------------------- build
 
-    async def build(self, ctx: Any) -> Any:
+    async def build(  # pylint: disable=too-many-statements
+        self,
+        ctx: Any,
+    ) -> Any:
         """Construct a fully-wired :class:`QwenPawAgent` for one request.
 
         Integrates all per-workspace registries: QwenPawLocalWorkspace
@@ -175,6 +178,49 @@ class AgentBuilder:
             ctx.extras = {}
         ctx.extras["driver_prompt_hints"] = driver_prompt_hints
 
+        # Model + formatter (built before the toolkit so the scroll context
+        # strategy, which needs the model for token counting, can wire in).
+        model, _formatter = self.build_model(agent_config)
+
+        # Built once and shared: the agent's native offloader, and (when
+        # ``offload_dialog`` is on) scroll's optional dialog archive.
+        offloader = self._build_offloader(ctx, agent_config)
+
+        # Optional scroll context strategy (None unless strategy="scroll").
+        scroll = self._build_scroll_components(
+            ctx,
+            agent_config,
+            model,
+            offloader=offloader,
+        )
+        # Eviction and recall must live or die together. Scroll's only recall
+        # path is the sandboxed recall_history_python tool, which fails closed
+        # without a sandbox_config — that config is injected solely by the
+        # governor (PolicyGuardedTool). If the governor never came up and the
+        # operator
+        # hasn't opted into unsandboxed recall, wiring scroll would evict
+        # history into an index nothing can read back. Degrade to native so the
+        # full history stays in-context instead.
+        if scroll is not None and not self._scroll_recall_runnable(
+            agent_config,
+            governor,
+        ):
+            _logger.warning(
+                "scroll: recall tool cannot run (governor unavailable and "
+                "allow_unsandboxed is off) — falling back to native context "
+                "management so evicted history stays accessible",
+            )
+            scroll = None
+        if scroll is not None:
+            extra_tools.append(
+                self._wrap_tool(
+                    scroll.repl_tool,
+                    agent_id,
+                    request_context,
+                    governor,
+                ),
+            )
+
         toolkit = await self.build_toolkit(
             agent_config,
             agent_id=agent_id,
@@ -189,10 +235,9 @@ class AgentBuilder:
         # System prompt.
         sys_prompt = self.build_prompt(ctx, agent_config)
 
-        # Model + formatter.
-        model, _formatter = self.build_model(agent_config)
-
         middlewares = self._build_middlewares(ctx, agent_config)
+        if scroll is not None:
+            middlewares.append(scroll.cap_middleware)
 
         running_config = agent_config.running
 
@@ -207,8 +252,11 @@ class AgentBuilder:
             workspace_dir=workspace_dir,
             request_context=request_context,
             memory_manager=self._get_memory_manager(ctx),
-            offloader=self._build_offloader(ctx, agent_config),
+            offloader=offloader,
             context_config=self._build_context_config(agent_config),
+            context_manager=(
+                scroll.context_manager if scroll is not None else None
+            ),
             effective_skills=effective_skills,
             governor=governor,
         )
@@ -358,6 +406,7 @@ class AgentBuilder:
             user_name = _channel_meta.get("user_name")
             if user_name:
                 rc["user_name"] = user_name
+            rc["channel_meta"] = _channel_meta
         _payload_ctx = (
             getattr(request, "request_context", None) if request else None
         )
@@ -415,7 +464,9 @@ class AgentBuilder:
         _cm = getattr(agent_config, "coding_mode", None)
         _project_dir = (
             _cm.project_dir
-            if _cm and getattr(_cm, "project_dir", None)
+            if _cm
+            and getattr(_cm, "enabled", False)
+            and getattr(_cm, "project_dir", None)
             else None
         )
         _configured_shell = getattr(
@@ -507,6 +558,97 @@ class AgentBuilder:
             )
         except Exception:
             return ContextConfig()
+
+    @staticmethod
+    def _build_scroll_components(
+        ctx: Any,
+        agent_config: Any,
+        model: Any,
+        offloader: Any = None,
+    ) -> Any:
+        """Build the scroll context strategy, or None when not selected.
+
+        Returns ``None`` for the native strategy (the default) so nothing
+        changes unless ``light_context_config.strategy == "scroll"``. The
+        shared ``offloader`` is forwarded so scroll can archive evicted turns
+        to ``dialog/*.jsonl`` (``offload_dialog``, on by default).
+        """
+        workspace = getattr(ctx, "workspace", None)
+        workspace_dir = (
+            str(getattr(workspace, "workspace_dir", ""))
+            if workspace is not None
+            else ""
+        )
+        session_id = getattr(ctx, "session_id", None) or "local"
+        agent_id = (
+            getattr(agent_config, "id", None)
+            or getattr(ctx, "agent_id", None)
+            or "default"
+        )
+
+        from ..agents.context import build_scroll_components
+
+        # history.db is shared across sessions in this workspace; rows are
+        # keyed by session_id (the conversation) and agent_id (which agent
+        # wrote them).
+        return build_scroll_components(
+            agent_config=agent_config,
+            workspace_dir=workspace_dir,
+            model=model,
+            session_id=session_id,
+            agent_id=agent_id,
+            offloader=offloader,
+        )
+
+    @staticmethod
+    def _scroll_recall_runnable(agent_config: Any, governor: Any) -> bool:
+        """Whether scroll's recall tool can actually execute in this build.
+
+        Scroll's recall is the sandboxed ``recall_history_python`` tool, which
+        fails closed unless a ``sandbox_config`` is supplied. That config is
+        injected only by the governor (via ``PolicyGuardedTool``); the
+        ``GuardedFunctionTool`` fallback used when the governor is absent never
+        supplies one. So recall is runnable iff the governor is present, or the
+        deployment has opted into unsandboxed recall — which requires BOTH the
+        ``QWENPAW_ALLOW_UNSANDBOXED_RECALL`` env var and
+        ``scroll_config.allow_unsandboxed`` (see ``scroll_unsandboxed_allowed``
+        — agent.json alone can never bypass the sandbox). When neither holds,
+        wiring scroll would evict history that nothing can read back, so the
+        caller degrades to native context management.
+        """
+        if governor is not None:
+            return True
+        try:
+            from ..agents.context import scroll_unsandboxed_allowed
+
+            sc = agent_config.running.light_context_config.scroll_config
+            return scroll_unsandboxed_allowed(sc)
+        except Exception:
+            return False
+
+    @staticmethod
+    def _wrap_tool(
+        fn: Any,
+        agent_id: str,
+        request_context: dict[str, Any],
+        governor: Any,
+    ) -> Any:
+        """Wrap a raw tool fn in the repo's standard guard (policy or tool)."""
+        if governor is not None:
+            from ..governance import PolicyGuardedTool
+
+            return PolicyGuardedTool(
+                fn,
+                governor=governor,
+                request_context=request_context,
+            )
+        from .tool_guard import GuardedFunctionTool
+
+        return GuardedFunctionTool(
+            fn,
+            agent_id=agent_id,
+            request_context=request_context,
+        )
 
     @staticmethod
     def _build_offloader(ctx: Any, agent_config: Any) -> Any:
@@ -613,6 +755,20 @@ class AgentBuilder:
         except Exception:
             _logger.debug(
                 "ToolResultPruningMiddleware not created",
+                exc_info=True,
+            )
+
+        # Langfuse tool observability
+        try:
+            from ..observability.langfuse import is_langfuse_enabled
+
+            if is_langfuse_enabled():
+                from ..agents.middlewares import LangfuseToolSpanMiddleware
+
+                mws.append(LangfuseToolSpanMiddleware())
+        except Exception:
+            _logger.debug(
+                "LangfuseToolSpanMiddleware not created",
                 exc_info=True,
             )
 

@@ -22,6 +22,7 @@ import styles from "./index.module.less";
 dayjs.extend(customParseFormat);
 
 const TIME_FORMAT = "HH:mm";
+const HEARTBEAT_MAX_TIMEOUT_SECONDS = 3600;
 
 /** TimePicker that uses "HH:mm" string as value for Form. */
 function TimePickerHHmm({
@@ -87,6 +88,7 @@ function HeartbeatPage() {
         everyNumber: everyParts.number,
         everyUnit: everyParts.unit,
         target: data.target ?? "main",
+        timeoutSeconds: data.timeoutSeconds ?? 300,
         useActiveHours: !!data.activeHours,
         activeHoursStart: data.activeHours?.start ?? "08:00",
         activeHoursEnd: data.activeHours?.end ?? "22:00",
@@ -116,6 +118,7 @@ function HeartbeatPage() {
       enabled: values.enabled ?? false,
       every,
       target: values.target ?? "main",
+      timeoutSeconds: values.timeoutSeconds ?? 300,
       activeHours:
         values.useActiveHours &&
         values.activeHoursStart &&
@@ -165,6 +168,7 @@ function HeartbeatPage() {
               everyNumber: 6,
               everyUnit: "h",
               target: "main",
+              timeoutSeconds: 300,
               useActiveHours: false,
               activeHoursStart: "08:00",
               activeHoursEnd: "22:00",
@@ -208,6 +212,33 @@ function HeartbeatPage() {
                   />
                 </Form.Item>
               </div>
+            </Form.Item>
+
+            <Form.Item
+              name="timeoutSeconds"
+              label={t("heartbeat.timeoutSeconds")}
+              rules={[
+                {
+                  required: true,
+                  message: t("heartbeat.timeoutRequired"),
+                },
+                {
+                  type: "number",
+                  min: 1,
+                  message: t("heartbeat.timeoutMin"),
+                },
+                {
+                  type: "number",
+                  max: HEARTBEAT_MAX_TIMEOUT_SECONDS,
+                  message: t("heartbeat.timeoutMax"),
+                },
+              ]}
+            >
+              <InputNumber
+                min={1}
+                max={HEARTBEAT_MAX_TIMEOUT_SECONDS}
+                className={styles.timeoutNumber}
+              />
             </Form.Item>
 
             <Form.Item

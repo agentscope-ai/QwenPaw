@@ -167,6 +167,10 @@ class ChannelManager:
                     False,
                 )
                 filter_thinking = ch_cfg.get("filter_thinking", False)
+                no_text_debounce = ch_cfg.get(
+                    "no_text_debounce",
+                    True,
+                )
             else:
                 filter_tool_messages = getattr(
                     ch_cfg,
@@ -178,6 +182,11 @@ class ChannelManager:
                     "filter_thinking",
                     False,
                 )
+                no_text_debounce = getattr(
+                    ch_cfg,
+                    "no_text_debounce",
+                    True,
+                )
 
             from_config_kwargs = {
                 "process": process,
@@ -186,6 +195,7 @@ class ChannelManager:
                 "show_tool_details": show_tool_details,
                 "filter_tool_messages": filter_tool_messages,
                 "filter_thinking": filter_thinking,
+                "no_text_debounce": no_text_debounce,
                 "workspace_dir": workspace_dir,
             }
 
@@ -860,4 +870,34 @@ class ChannelManager:
             to_handle,
             [TextContent(type=ContentType.TEXT, text=text)],
             merged_meta,
+        )
+
+    async def push_approval_notification(
+        self,
+        *,
+        channel: str,
+        session_id: str,
+        user_id: str,
+        request_id: str,
+        tool_name: str,
+        severity: str,
+        result_summary: str,
+        channel_meta: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        """Push approval notification to a specific channel."""
+        ch = await self.get_channel(channel.lower())
+        if not ch:
+            logger.warning(
+                "push_approval_notification: channel not found: %s",
+                channel,
+            )
+            return
+        await ch.send_approval_notification(
+            session_id=session_id,
+            user_id=user_id,
+            request_id=request_id,
+            tool_name=tool_name,
+            severity=severity,
+            result_summary=result_summary,
+            channel_meta=channel_meta,
         )

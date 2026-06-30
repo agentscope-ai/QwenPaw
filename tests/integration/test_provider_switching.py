@@ -21,13 +21,14 @@ import pytest
 from helpers import (
     MOCK_LLM_PROVIDER_ID,
     MockLLMHandler,
+    default_http_timeout,
     register_mock_provider,
     scoped,
     unregister_mock_provider,
     wait_cron_executed,
 )
 
-_HTTP_TIMEOUT = 15.0
+_HTTP_TIMEOUT = default_http_timeout(15.0)
 _NEVER_FIRE_SCHEDULE = "0 0 1 1 *"
 
 

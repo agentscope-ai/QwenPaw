@@ -23,12 +23,13 @@ from helpers import (
     MOCK_LLM_PROVIDER_ID,
     MockLLMHandler,
     clean_inbox,
+    default_http_timeout,
     register_mock_provider,
     unregister_mock_provider,
     wait_cron_executed,
 )
 
-_CRON_HTTP_TIMEOUT = 15.0
+_CRON_HTTP_TIMEOUT = default_http_timeout(15.0)
 _NEVER_FIRE_SCHEDULE = "0 0 1 1 *"
 
 

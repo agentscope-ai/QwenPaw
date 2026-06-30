@@ -23,6 +23,8 @@ from .timezone import detect_system_timezone
 from ..constant import (
     HEARTBEAT_DEFAULT_EVERY,
     HEARTBEAT_DEFAULT_TARGET,
+    HEARTBEAT_DEFAULT_TIMEOUT_SECONDS,
+    HEARTBEAT_MAX_TIMEOUT_SECONDS,
     LLM_ACQUIRE_TIMEOUT,
     LLM_BACKOFF_BASE,
     LLM_BACKOFF_CAP,
@@ -203,6 +205,9 @@ class BaseChannelConfig(BaseModel):
     allow_from: List[str] = Field(default_factory=list)
     deny_message: str = ""
     require_mention: bool = False
+    # Buffer media-only messages until a text message arrives, then merge.
+    # Disable to process all messages immediately.
+    no_text_debounce: bool = True
     access_control_dm: bool = False
     access_control_group: bool = False
     # Channel-level mute: completely disable DM or group messages
@@ -546,6 +551,13 @@ class HeartbeatConfig(BaseModel):
     enabled: bool = Field(default=False, description="Whether heartbeat is on")
     every: str = Field(default=HEARTBEAT_DEFAULT_EVERY)
     target: str = Field(default=HEARTBEAT_DEFAULT_TARGET)
+    timeout_seconds: int = Field(
+        default=HEARTBEAT_DEFAULT_TIMEOUT_SECONDS,
+        ge=1,
+        le=HEARTBEAT_MAX_TIMEOUT_SECONDS,
+        alias="timeoutSeconds",
+        description="Maximum seconds for one heartbeat execution",
+    )
     active_hours: Optional[ActiveHoursConfig] = Field(
         default=None,
         alias="activeHours",
@@ -825,10 +837,97 @@ class ToolResultPruningConfig(BaseModel):
     )
 
 
+class ScrollContextConfig(BaseModel):
+    """Scroll (retrieval-driven) context manager configuration.
+
+    Only consulted when ``LightContextConfig.strategy == "scroll"``. The
+    durable history lives at ``{working_dir}/{db_filename}``; evicted turns
+    fold into an in-context eviction index recallable from the sandboxed
+    ``execute_python`` REPL.
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    db_filename: str = Field(
+        default="history.db",
+        description="SQLite history store filename, relative to working_dir.",
+    )
+
+    tool_output_token_cap: int = Field(
+        default=3000,
+        ge=100,
+        description=(
+            "In-context cap for a single tool result; the full output is "
+            "written through to history and recalled by tool_call_id."
+        ),
+    )
+
+    pinned: int = Field(
+        default=1,
+        ge=0,
+        description=(
+            "Leading messages never evicted: the first user request (the "
+            "task). The first agent reply is intentionally NOT pinned — it "
+            "can be a huge multi-tool turn, and pinning it would make "
+            "/compact unable to reclaim it."
+        ),
+    )
+
+    repl_timeout_s: int = Field(
+        default=300,
+        ge=1,
+        description="Per-call timeout for the execute_python REPL tool.",
+    )
+
+    history_retention_days: int = Field(
+        default=30,
+        ge=0,
+        description=(
+            "Days of durable history to keep; rows older than this are "
+            "purged automatically on startup and on agent teardown. Default "
+            "30 keeps roughly the last month. Set 0 to keep history forever "
+            "(unbounded growth — only the capacity warning fires)."
+        ),
+    )
+
+    allow_unsandboxed: bool = Field(
+        default=False,
+        description=(
+            "UNSAFE escape hatch. The execute_python recall REPL runs "
+            "model-authored Python and is only isolated by the sandbox; the "
+            "sandbox config is injected by the governance layer. When that "
+            "layer is degraded the tool fails closed and refuses to run. Set "
+            "this to true to run the REPL with NO isolation (arbitrary host "
+            "code as the agent user) — trusted local/dev use only."
+        ),
+    )
+
+    offload_dialog: bool = Field(
+        default=False,
+        description=(
+            "Also archive evicted turns to legacy ``dialog/{date}.jsonl`` "
+            "files. Off by default: under scroll the durable ``history.db`` "
+            "is already the full record, so dialog files are a redundant "
+            "opt-in for external consumers (analytics, backup). When on, "
+            "dialog is written on every eviction AND on /clear, /new, "
+            "/compact; when off, scroll never writes dialog anywhere."
+        ),
+    )
+
+
 class LightContextConfig(BaseModel):
     """Light context manager configuration."""
 
     model_config = ConfigDict(extra="ignore")
+
+    strategy: Literal["native", "scroll"] = Field(
+        default="scroll",
+        description=(
+            "Context management strategy. 'native' = AgentScope compression; "
+            "'scroll' = retrieval-driven history.db + eviction index with a "
+            "sandboxed execute_python recall REPL (the default)."
+        ),
+    )
 
     dialog_path: str = Field(
         default="dialog",
@@ -850,6 +949,9 @@ class LightContextConfig(BaseModel):
     )
     tool_result_pruning_config: ToolResultPruningConfig = Field(
         default_factory=ToolResultPruningConfig,
+    )
+    scroll_config: ScrollContextConfig = Field(
+        default_factory=ScrollContextConfig,
     )
 
 

@@ -64,6 +64,7 @@ class QwenPawAgent(CodingModeMixin, Agent):
         memory_manager: "BaseMemoryManager | None" = None,
         offloader: Any = None,
         context_config: Any = None,
+        context_manager: Any = None,
         effective_skills: Optional[list[str]] = None,
         governor: Any = None,
     ):
@@ -77,6 +78,10 @@ class QwenPawAgent(CodingModeMixin, Agent):
         self._request_context = dict(request_context or {})
         self._workspace_dir = workspace_dir
         self._language = agent_config.language
+        # Optional context-management strategy. When None, the agent keeps its
+        # native AgentScope compression (see compress_context /
+        # _save_to_context).
+        self._context_manager = context_manager
 
         # Register skills metadata on toolkit
         self._register_skills(toolkit, effective_skills=effective_skills or [])
@@ -132,7 +137,15 @@ class QwenPawAgent(CodingModeMixin, Agent):
         self,
         context_config: Any = None,
     ) -> None:
-        """Respect ``context_compact_config.enabled``."""
+        """Delegate to the context manager, else native compression.
+
+        With a ``context_manager`` injected (e.g. the scroll strategy), it owns
+        compression. Otherwise fall back to AgentScope's native path, gated on
+        ``context_compact_config.enabled``.
+        """
+        if self._context_manager is not None:
+            await self._context_manager.compress(self, context_config)
+            return
         try:
             lcc = self._agent_config.running.light_context_config
             if not lcc.context_compact_config.enabled:
@@ -141,6 +154,12 @@ class QwenPawAgent(CodingModeMixin, Agent):
             pass
         await super().compress_context(context_config)
 
+    def _save_to_context(self, blocks: Any, usage: Any = None) -> None:
+        """Append blocks, then let the context manager write them through."""
+        super()._save_to_context(blocks, usage)
+        if self._context_manager is not None:
+            self._context_manager.on_save(self, blocks)
+
     # Session persistence calls state_dict/load_state_dict on the agent;
     # these round-trip through self.state (AgentState pydantic model).
     def state_dict(self) -> dict:
@@ -148,7 +167,13 @@ class QwenPawAgent(CodingModeMixin, Agent):
         state = getattr(self, "state", None)
         if state is None:
             return {}
-        return {"state": state.model_dump(mode="json")}
+        out = {"state": state.model_dump(mode="json")}
+        # Persist the scroll manager's dedup bookkeeping + eviction index so a
+        # resumed session doesn't re-append its restored window to history.db.
+        cm = getattr(self, "_context_manager", None)
+        if cm is not None and hasattr(cm, "to_dict"):
+            out["scroll"] = cm.to_dict()
+        return out
 
     def load_state_dict(self, state_dict: dict, strict: bool = True) -> None:
         """Restore ``self.state`` from a dict produced by :meth:`state_dict`.
@@ -173,6 +198,16 @@ class QwenPawAgent(CodingModeMixin, Agent):
                 raise KeyError(
                     f"Could not load AgentState from snapshot: {exc}",
                 ) from exc
+            # Rehydrate the scroll manager's bookkeeping so the restored window
+            # is recognized as already durable (no re-append on resume).
+            cm = getattr(self, "_context_manager", None)
+            scroll = state_dict.get("scroll")
+            if (
+                cm is not None
+                and scroll is not None
+                and hasattr(cm, "load_state")
+            ):
+                cm.load_state(scroll)
             return
 
         # --- 1.x legacy format: migrate ``memory`` → ``state`` ---
@@ -197,13 +232,37 @@ class QwenPawAgent(CodingModeMixin, Agent):
             )
 
     async def close(self) -> None:
-        """Shut down governor and clean up expired tool-result files."""
+        """Shut down governor, release the history store, and clean up expired
+        tool-result files."""
         gov = getattr(self, "_governor", None)
         if gov is not None:
             try:
                 gov.stop()
             except Exception:
                 logger.debug("governor stop failed", exc_info=True)
+
+        # Scroll history: apply the retention window (if any) while the
+        # connection is still open, then release it (db + -wal + -shm fds —
+        # otherwise they accumulate across requests on a long-lived server).
+        cm = getattr(self, "_context_manager", None)
+        if cm is not None:
+            if hasattr(cm, "purge_old"):
+                try:
+                    lcc = self._agent_config.running.light_context_config
+                    cm.purge_old(lcc.scroll_config.history_retention_days)
+                except Exception:
+                    logger.debug(
+                        "history retention purge failed",
+                        exc_info=True,
+                    )
+            if hasattr(cm, "close"):
+                try:
+                    cm.close()
+                except Exception:
+                    logger.debug(
+                        "context manager close failed",
+                        exc_info=True,
+                    )
 
         offloader = getattr(self, "offloader", None)
         if offloader is not None and hasattr(
@@ -472,6 +531,22 @@ class QwenPawAgent(CodingModeMixin, Agent):
         return True
 
     @staticmethod
+    def _is_content_safety_error(exc: Exception) -> bool:
+        """Return True for provider-side content safety rejections."""
+        error_str = str(exc).lower()
+        safety_markers = (
+            "new_sensitive",
+            "image is sensitive",
+            "content policy",
+            "content_policy",
+            "moderation",
+            "content_safety",
+            "safety_filter",
+            "(1026)",
+        )
+        return any(marker in error_str for marker in safety_markers)
+
+    @staticmethod
     def _is_bad_request_or_media_error(exc: Exception) -> bool:
         """Return True only for errors that genuinely look media-related.
 
@@ -482,6 +557,11 @@ class QwenPawAgent(CodingModeMixin, Agent):
         subsequent requests to silently drop user-uploaded images.
         """
         error_str = str(exc).lower()
+
+        # Veto: content safety/moderation rejections are about a
+        # particular input, not about whether the model supports media.
+        if QwenPawAgent._is_content_safety_error(exc):
+            return False
 
         # Veto: errors clearly about request size / context length are
         # never about media support — stripping media may incidentally

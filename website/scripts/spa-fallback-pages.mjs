@@ -20,7 +20,6 @@ const DOC_SLUGS = [
   "memory",
   "compact",
   "commands",
-  "plan",
   "heartbeat",
   "config",
   "backup",

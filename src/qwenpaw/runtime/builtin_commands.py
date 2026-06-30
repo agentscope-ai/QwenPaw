@@ -279,16 +279,21 @@ _CONVERSATION_COMMANDS = frozenset(
 )
 
 
-async def _load_agent_state(ctx: Any) -> "Any":
-    """Load AgentState from workspace.session without building the agent."""
+async def _load_agent_state(ctx: Any) -> "tuple[Any, dict]":
+    """Load AgentState from workspace.session without building the agent.
+
+    Returns ``(state, payload)`` where ``payload`` is the raw saved session
+    dict — so callers can read/preserve the persisted ``"scroll"`` checkpoint
+    block (the scroll context manager's bookkeeping) instead of dropping it.
+    """
     from agentscope.state import AgentState
 
     workspace = getattr(ctx, "workspace", None)
     if workspace is None:
-        return None
+        return None, {}
     session = getattr(workspace, "session", None)
     if session is None:
-        return None
+        return None, {}
 
     request = getattr(ctx, "request", None)
     user_id = (getattr(request, "user_id", "") if request else "") or ""
@@ -301,15 +306,16 @@ async def _load_agent_state(ctx: Any) -> "Any":
         channel=channel,
         agent=proxy,
     )
-    if not proxy.data:
-        return AgentState()
+    payload = proxy.data or {}
+    if not payload:
+        return AgentState(), {}
 
-    raw = proxy.data.get("state")
+    raw = payload.get("state")
     if raw is not None:
-        return AgentState.model_validate(raw)
+        return AgentState.model_validate(raw), payload
 
     # Legacy 1.x format
-    memory_raw = proxy.data.get("memory")
+    memory_raw = payload.get("memory")
     if isinstance(memory_raw, dict):
         from ..app.chats.utils import parse_legacy_memory_state
 
@@ -317,13 +323,24 @@ async def _load_agent_state(ctx: Any) -> "Any":
         state = AgentState()
         state.context.extend(msgs)
         state.summary = summary
-        return state
+        return state, payload
 
-    return AgentState()
+    return AgentState(), payload
 
 
-async def _save_agent_state(ctx: Any, state: "Any") -> None:
-    """Save AgentState back to workspace.session."""
+async def _save_agent_state(
+    ctx: Any,
+    state: "Any",
+    *,
+    scroll_block: dict | None = None,
+) -> None:
+    """Save AgentState back to workspace.session.
+
+    ``scroll_block`` is the scroll context manager's checkpoint to persist
+    alongside the state (mirroring ``QwenPawAgent.state_dict``'s ``"scroll"``
+    key). Passing ``None`` writes no scroll block — callers that want to
+    *preserve* the existing one must pass it back in explicitly.
+    """
     workspace = getattr(ctx, "workspace", None)
     if workspace is None:
         return
@@ -337,12 +354,38 @@ async def _save_agent_state(ctx: Any, state: "Any") -> None:
 
     proxy = StateProxy()
     proxy.data = {"state": state.model_dump(mode="json")}
+    if scroll_block is not None:
+        proxy.data["scroll"] = scroll_block
     await session.save_session_state(
         session_id=ctx.session_id,
         user_id=user_id or ctx.session_id,
         channel=channel,
         agent=proxy,
     )
+
+
+def _resolve_scroll_block(
+    *,
+    updated: dict | None,
+    context_empty: bool,
+    existing: dict | None,
+) -> dict | None:
+    """Decide which scroll checkpoint a conversation command should persist.
+
+    Keeps the scroll context manager's bookkeeping consistent with the
+    command's effect on ``state.context``:
+
+    * ``updated`` set    — a scroll ``/compact`` refreshed it → save it.
+    * ``context_empty``  — ``/clear`` / ``/new`` wiped the window → drop it
+      (reset), so a stale eviction index doesn't resurface old turns.
+    * otherwise          — preserve the existing block (read-only commands must
+      not nuke it, which was the prior bug).
+    """
+    if updated is not None:
+        return updated
+    if context_empty:
+        return None
+    return existing
 
 
 def _make_conversation_adapter(name: str) -> CommandSpec:
@@ -362,30 +405,41 @@ def _make_conversation_adapter(name: str) -> CommandSpec:
         if workspace is None:
             return None
 
-        state = await _load_agent_state(ctx)
+        state, payload = await _load_agent_state(ctx)
         if state is None:
             return None
+        existing_scroll = payload.get("scroll")
 
         agent_id = getattr(ctx, "agent_id", None) or "default"
+        ws_dir = str(getattr(workspace, "workspace_dir", "")) or None
 
         offloader = None
         from ..agents.offloader import QwenPawOffloader
-        from ..config.config import load_agent_config
 
         try:
-            ws_dir = str(getattr(workspace, "workspace_dir", ""))
             if ws_dir:
                 import os
 
+                from ..config.config import load_agent_config
+
                 cfg = load_agent_config(agent_id)
                 lcc = cfg.running.light_context_config
-                offloader = QwenPawOffloader(
-                    dialog_path=os.path.join(ws_dir, lcc.dialog_path),
-                    tool_results_dir=os.path.join(
-                        ws_dir,
-                        lcc.tool_result_pruning_config.tool_results_cache,
-                    ),
+                # Under scroll, dialog archiving is opt-in (history.db is the
+                # source of truth); only wire an offloader for the commands
+                # when ``offload_dialog`` is on. Native keeps it always.
+                want_dialog = lcc.strategy != "scroll" or getattr(
+                    lcc.scroll_config,
+                    "offload_dialog",
+                    False,
                 )
+                if want_dialog:
+                    offloader = QwenPawOffloader(
+                        dialog_path=os.path.join(ws_dir, lcc.dialog_path),
+                        tool_results_dir=os.path.join(
+                            ws_dir,
+                            lcc.tool_result_pruning_config.tool_results_cache,
+                        ),
+                    )
         except Exception:
             pass
 
@@ -401,13 +455,21 @@ def _make_conversation_adapter(name: str) -> CommandSpec:
             agent_id=agent_id,
             memory_manager=getattr(workspace, "memory_manager", None),
             offloader=offloader,
+            workspace_dir=ws_dir,
+            scroll_state=existing_scroll,
+            session_id=getattr(ctx, "session_id", None),
             prompt_context=ctx,
         )
 
         full_query = f"/{name} {args}".strip() if args else f"/{name}"
         result = await cmd_handler.handle_command(full_query)
 
-        await _save_agent_state(ctx, state)
+        scroll_block = _resolve_scroll_block(
+            updated=cmd_handler.updated_scroll_state,
+            context_empty=not state.context,
+            existing=existing_scroll,
+        )
+        await _save_agent_state(ctx, state, scroll_block=scroll_block)
         return result
 
     return CommandSpec(

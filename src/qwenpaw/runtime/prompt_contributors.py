@@ -243,6 +243,29 @@ class CodingModeContributor(SyncPromptContributor):
         return None
 
 
+class ScrollContextContributor(SyncPromptContributor):
+    """Inject memory/recall guidance when the scroll context strategy is on."""
+
+    name = "scroll_context"
+    priority = 86
+
+    def contribute_sync(self, ctx: "HookContext") -> str | None:
+        extras = getattr(ctx, "extras", {}) or {}
+        agent_config = extras.get("agent_config")
+        if agent_config is None:
+            return None
+        try:
+            strategy = agent_config.running.light_context_config.strategy
+        except Exception:
+            return None
+        if strategy != "scroll":
+            return None
+        from ..agents.context.scroll.prompt import build_scroll_system_prompt
+
+        language = getattr(agent_config, "language", "en")
+        return build_scroll_system_prompt(language)
+
+
 class EnvContextContributor(SyncPromptContributor):
     """Append the environment context block (time / session / OS)."""
 
@@ -278,6 +301,7 @@ _ALL_CONTRIBUTORS = (
     ProfileMdContributor,
     MultimodalHintContributor,
     CodingModeContributor,
+    ScrollContextContributor,
     DriverPolicyHintContributor,
     EnvContextContributor,
 )
@@ -298,6 +322,7 @@ __all__ = [
     "ProfileMdContributor",
     "MultimodalHintContributor",
     "CodingModeContributor",
+    "ScrollContextContributor",
     "DriverPolicyHintContributor",
     "EnvContextContributor",
     "build_default_prompt_manager",

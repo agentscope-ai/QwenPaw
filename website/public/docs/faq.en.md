@@ -26,7 +26,7 @@ irm https://qwenpaw.agentscope.io/install.ps1 | iex
 
 2. Install with pip
 
-Python version requirement: >= 3.10, < 3.14
+Python version requirement: >= 3.11, < 3.14
 
 ```
 pip install qwenpaw

@@ -25,9 +25,10 @@ from typing import Iterator
 
 import httpx
 import pytest
+from helpers import default_http_timeout
 
 
-_HTTP_TIMEOUT = 15.0
+_HTTP_TIMEOUT = default_http_timeout(15.0)
 _AUTH_USERNAME = "integ-admin"
 _AUTH_PASSWORD = "integ-pass-12345"
 

@@ -242,7 +242,10 @@ def desktop_health() -> dict[str, Any] | None:
     return None
 
 
-def _living_desktop_present(host: str, port: int) -> bool:
+def _living_desktop_present(
+    host: str,  # pylint: disable=unused-argument
+    port: int,  # pylint: disable=unused-argument
+) -> bool:
     """True when a pet desktop is up or still starting on the bridge port."""
     health = desktop_health()
     if health and health.get("ok"):
@@ -250,6 +253,11 @@ def _living_desktop_present(host: str, port: int) -> bool:
     try:
         from qwenpaw_pet_desktop import runtime as pet_rt
 
+        # A recent spawn claim is authoritative: the child process may
+        # not have written its PID or bound the port yet (especially on
+        # Windows cold starts where PySide6 + uvicorn can take seconds).
+        # Treating the claim as "starting" prevents duplicate spawns
+        # from rapid UI clicks.
         if pet_rt.spawn_claim_active():
             return True
         pid = pet_rt.read_pid()
@@ -257,9 +265,6 @@ def _living_desktop_present(host: str, port: int) -> bool:
             return True
     except ImportError:
         pass
-    # Uvicorn may have bound the port before /health responds.
-    if not _tcp_bind_test(host, port):
-        return True
     return False
 
 
@@ -365,9 +370,7 @@ def _spawn_desktop_background_impl() -> tuple[bool, str | None]:
                 "Could not pre-create pet bridge token",
                 exc_info=True,
             )
-        if not _tcp_bind_test(host, preferred_port):
-            return False, "Desktop pet is already running or starting."
-        port = preferred_port
+        port = _pick_listen_port(host, preferred_port)
         pet_rt.write_spawn_claim(host, port)
         display_host = (
             "127.0.0.1" if host in ("0.0.0.0", "::", "[::]") else host
