@@ -253,7 +253,7 @@
       "file": "File",
       "noChatWarning": "Kirim pesan terlebih dahulu untuk membuat percakapan sebelum menggunakan antrean",
       "queueFull": "Antrean penuh (maks. {{max}} item). Kirim atau hapus beberapa pesan terlebih dahulu",
-      "otherTabOwner": "Percakapan ini sedang dikirim dari tab lain. Tab ini hanya dapat menambahkan input ke antrean."
+      "otherTabOwner": "This tab queues only; sending is handled by another tab"
     },
     "group": {
       "pinned": "Disematkan",

@@ -218,7 +218,7 @@
       "file": "Tệp",
       "noChatWarning": "Vui lòng gửi một tin nhắn đầu tiên để tạo cuộc trò chuyện trước khi sử dụng hàng đợi",
       "queueFull": "Hàng đợi đầy (tối đa {{max}} mục), vui lòng gửi hoặc xóa một số tin nhắn trước",
-      "otherTabOwner": "Cuộc trò chuyện này đang được gửi từ một tab khác. Tab này chỉ có thể thêm vào hàng đợi; mọi thao tác gửi được xử lý bởi tab kia."
+      "otherTabOwner": "This tab queues only; sending is handled by another tab"
     },
     "group": {
       "pinned": "Đã ghim",

@@ -4,7 +4,7 @@ import {
   type IAgentScopeRuntimeWebUIRef,
 } from "@agentscope-ai/chat";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Button, Modal, Result, Tooltip } from "antd";
+import { Alert, Button, Modal, Result, Tooltip } from "antd";
 import { useAppMessage } from "../../hooks/useAppMessage";
 import { useIsMobile } from "../../hooks/useIsMobile";
 import { ExclamationCircleOutlined, SettingOutlined } from "@ant-design/icons";
@@ -2568,7 +2568,14 @@ export default function ChatPage() {
         beforeUI:
           !isOwner || messageQueue.length > 0 ? (
             <>
-              {null}
+              {!isOwner && (
+                <Alert
+                  type="info"
+                  showIcon
+                  banner
+                  message={t("chat.queue.otherTabOwner")}
+                />
+              )}
               {messageQueue.length > 0 ? (
                 <MessageQueuePanel
                   items={messageQueue}

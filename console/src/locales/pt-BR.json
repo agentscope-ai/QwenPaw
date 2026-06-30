@@ -2070,7 +2070,7 @@
       "file": "Arquivo",
       "noChatWarning": "Envie uma mensagem primeiro para criar uma conversa antes de usar a fila",
       "queueFull": "Fila cheia (máx. {{max}} itens). Envie ou remova algumas mensagens primeiro",
-      "otherTabOwner": "Esta conversa está sendo enviada de outra aba. Nesta aba, você só pode adicionar entradas à fila."
+      "otherTabOwner": "This tab queues only; sending is handled by another tab"
     },
     "group": {
       "pinned": "Fixados",

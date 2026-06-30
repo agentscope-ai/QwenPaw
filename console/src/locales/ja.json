@@ -1854,7 +1854,7 @@
       "file": "ファイル",
       "noChatWarning": "キューを使用する前に、まずメッセージを送信して会話を作成してください",
       "queueFull": "キューが満杯です（最大 {{max}} 件）。メッセージを送信または削除してください",
-      "otherTabOwner": "この会話は別のタブから送信中です。このタブでは入力をキューに追加することのみ可能です。"
+      "otherTabOwner": "This tab queues only; sending is handled by another tab"
     },
     "group": {
       "pinned": "ピン留め",

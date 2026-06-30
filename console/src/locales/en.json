@@ -2202,7 +2202,7 @@
       "file": "File",
       "noChatWarning": "Please send a message first to create a conversation before using the queue",
       "queueFull": "Queue is full (max {{max}} items), please send or remove some messages first",
-      "otherTabOwner": "This conversation is being sent from another tab. This tab can only add inputs to the queue; all send operations are handled by the other tab."
+      "otherTabOwner": "This tab queues only; sending is handled by another tab"
     },
     "group": {
       "pinned": "Pinned",
