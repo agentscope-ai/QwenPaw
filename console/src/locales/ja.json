@@ -1853,6 +1853,11 @@
     "conversationHistory": "会話履歴",
     "history": {
       "empty": "チャット履歴なし"
+    },
+    "sessionGroup": {
+      "today": "今日",
+      "recent": "過去7日間",
+      "earlier": "それ以前"
     }
   },
   "security": {

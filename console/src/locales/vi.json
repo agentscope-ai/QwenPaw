@@ -223,6 +223,11 @@
     "conversationHistory": "Lịch sử hội thoại",
     "history": {
       "empty": "Không có lịch sử trò chuyện"
+    },
+    "sessionGroup": {
+      "today": "Hôm nay",
+      "recent": "7 ngày qua",
+      "earlier": "Trước đó"
     }
   },
   "debug": {
