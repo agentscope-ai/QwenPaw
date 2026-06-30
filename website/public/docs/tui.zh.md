@@ -4,7 +4,7 @@ QwenPaw **终端界面（TUI）** 是一个完全运行在终端里的全屏聊�
 
 它也是 **Coding 模式** 最自然的入口：在某个代码仓库目录中启动，智能体就会把该目录当作它的工作场所。
 
-![QwenPaw 终端界面](/docs/images/qwenpaw-tui.jpg)
+![QwenPaw 终端界面](https://img.alicdn.com/imgextra/i2/O1CN01IULzib1TRAzigIcqG_!!6000000002378-2-tps-2350-1312.png)
 
 ---
 
