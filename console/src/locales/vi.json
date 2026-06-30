@@ -181,9 +181,6 @@
       },
       "history": {
         "description": "Hiển thị lịch sử cuộc trò chuyện"
-      },
-      "plan": {
-        "description": "Lên kế hoạch cho tác vụ được mô tả"
       }
     },
     "contextMenu": {
@@ -311,7 +308,11 @@
     "detailPayload": "Payload",
     "detailExecutionTrace": "Trace thực thi",
     "detailTraceEmpty": "Không có trace",
-    "filterByAgent": "Lọc theo agent"
+    "filterByAgent": "Lọc theo agent",
+    "filterBySourceType": "Lọc theo nguồn",
+    "sourceTypeCron": "Cron",
+    "sourceTypeHeartbeat": "Heartbeat",
+    "sourceTypeMemory": "Memory"
   },
   "acp": {
     "title": "ACP",
@@ -354,6 +355,10 @@
     "every": "Chu kỳ",
     "everyRequired": "Bắt buộc",
     "everyMin": "Phải ít nhất 1",
+    "timeoutSeconds": "Thời gian chờ thực thi (giây)",
+    "timeoutRequired": "Bắt buộc",
+    "timeoutMin": "Phải ít nhất 1",
+    "timeoutMax": "Tối đa 3600",
     "unitMinutes": "Phút",
     "unitHours": "Giờ",
     "target": "Nơi gửi phản hồi",
@@ -468,7 +473,13 @@
     "configured": "Đã cấu hình",
     "requiresConfig": "Cần cấu hình",
     "configSaved": "Đã lưu cấu hình",
-    "configSaveError": "Lưu cấu hình thất bại"
+    "configSaveError": "Lưu cấu hình thất bại",
+    "active": "đang hoạt động",
+    "available": "Có sẵn",
+    "noEnabled": "Không có công cụ nào được bật",
+    "goEnableBtn": "Bật ngay",
+    "configureAction": "Cấu hình →",
+    "enableAction": "Bật →"
   },
   "mcp": {
     "title": "MCP Client",
@@ -489,7 +500,12 @@
     "deleteConfirm": "Bạn có chắc muốn xóa MCP client này không?",
     "deleteSuccess": "Xóa MCP client thành công",
     "deleteError": "Xóa MCP client thất bại",
-    "maskedFieldHint": "Các trường nhạy cảm được ẩn bằng ***. Chỉnh sửa trực tiếp không được hỗ trợ — thay thế bằng giá trị mới."
+    "maskedFieldHint": "Các trường nhạy cảm được ẩn bằng ***. Chỉnh sửa trực tiếp không được hỗ trợ — thay thế bằng giá trị mới.",
+    "tools": "Công cụ & Quyền",
+    "noTools": "Không có công cụ nào từ máy chủ MCP này",
+    "toolsLoadError": "Tải danh sách công cụ từ máy chủ MCP thất bại",
+    "toolsConnecting": "Máy chủ MCP đang kết nối, vui lòng thử lại sau",
+    "toolSchema": "Mô tả & Tham số"
   },
   "market": {
     "searchPlaceholder": "Tìm kiếm kỹ năng trên các nền tảng",
@@ -581,19 +597,6 @@
     "totalTokens": "Tổng token",
     "noData": "Chưa có dữ liệu",
     "period": "Khoảng thời gian"
-  },
-  "plan": {
-    "title": "Kế hoạch",
-    "create": "Tạo kế hoạch",
-    "empty": "Chưa có kế hoạch nào",
-    "status": {
-      "pending": "Đang chờ",
-      "inProgress": "Đang thực hiện",
-      "done": "Hoàn thành",
-      "cancelled": "Đã hủy"
-    },
-    "deleteConfirm": "Xóa kế hoạch này?",
-    "deleteSuccess": "Đã xóa kế hoạch"
   },
   "approval": {
     "title": "Yêu cầu phê duyệt",
@@ -737,8 +740,6 @@
     "shellCommandExecutable": "Shell thực thi",
     "shellCommandExecutableTooltip": "Đường dẫn shell dùng cho execute_shell_command. Để trống để tự phát hiện.",
     "shellCommandExecutablePlaceholder": "Ví dụ: /bin/bash hoặc powershell.exe (để trống = tự phát hiện)",
-    "planMode": "Chế độ kế hoạch",
-    "planModeTooltip": "Bật để dùng /plan <mô tả> lên kế hoạch tác vụ có cấu trúc.",
     "maxInputLength": "Độ dài đầu vào tối đa",
     "maxInputLengthTooltip": "Độ dài tối đa (token) cho cửa sổ ngữ cảnh mô hình",
     "maxInputLengthPlaceholder": "Nhập độ dài tối đa",
@@ -939,6 +940,8 @@
     "filterToolMessagesTooltip": "Hiển thị lời gọi công cụ và kết quả cho người dùng (tắt để ẩn)",
     "filterThinking": "Hiển thị suy luận",
     "filterThinkingTooltip": "Hiển thị nội dung suy luận của mô hình (tắt để ẩn)",
+    "noTextDebounce": "Debounce không văn bản",
+    "noTextDebounceTooltip": "Khi bật, các tin nhắn chỉ chứa phương tiện (ảnh/video/tệp) sẽ được lưu tạm, đợi tin nhắn văn bản tiếp theo đến rồi gộp xử lý. Tắt để xử lý ngay tất cả tin nhắn. Tin nhắn thoại luôn được xử lý ngay.",
     "streamingEnabled": "Xuất streaming",
     "ackMessage": "Tin nhắn xác nhận",
     "ackMessageTooltip": "Gửi phản hồi tức thì khi nhận được tin nhắn, trước khi xử lý",
@@ -947,7 +950,18 @@
     "wechatBotTokenTooltip": "Bearer token sau khi đăng nhập bằng mã QR. Để trống để kích hoạt đăng nhập bằng mã QR.",
     "wechatBotTokenPlaceholder": "Tự điền sau khi quét QR, hoặc dán thủ công",
     "wechatBotTokenFile": "Đường dẫn file token",
-    "wechatMediaDir": "Thư mục media"
+    "wechatMediaDir": "Thư mục media",
+    "enabledSection": "Đã kích hoạt",
+    "enabledCount": "{{count}}",
+    "availableSection": "Chưa kích hoạt",
+    "enableAction": "Kích hoạt",
+    "noEnabledChannels": "Không có kênh nào được kích hoạt",
+    "goEnableChannels": "Kích hoạt kênh",
+    "slackBotToken": "Bot Token",
+    "slackBotTokenTooltip": "Slack Bot User OAuth Token, bắt đầu bằng xoxb-",
+    "slackAppToken": "App Token",
+    "slackAppTokenTooltip": "Slack App-Level Token cho Socket Mode, bắt đầu bằng xapp-",
+    "slackProxyTooltip": "URL proxy HTTP để kết nối đến Slack API"
   },
   "cronJobs": {
     "title": "Tác vụ định kỳ",
@@ -1052,7 +1066,10 @@
     "loadFailed": "Tải kỹ năng thất bại",
     "saveSuccess": "Đã lưu kỹ năng",
     "saveFailed": "Lưu kỹ năng thất bại",
-    "emptyState": "Chưa có kỹ năng nào"
+    "emptyState": "Chưa có kỹ năng nào",
+    "enabledSkills": "Kỹ năng đã kích hoạt",
+    "disabledSkills": "Kỹ năng chưa kích hoạt",
+    "active": "kích hoạt"
   },
   "skillPool": {
     "description": "Kho kỹ năng cục bộ dùng chung cho kỹ năng tích hợp và tải lên từ workspace.",
@@ -1108,6 +1125,8 @@
     "sendMessage": "Gửi tin nhắn",
     "createMemory": "Tạo bộ nhớ",
     "searchMemory": "Tìm bộ nhớ",
+    "memorySearch": "Tìm bộ nhớ {{query}}",
+    "memorySearchDefault": "Tìm bộ nhớ",
     "updateMemory": "Cập nhật bộ nhớ",
     "deleteMemory": "Xóa bộ nhớ"
   },

@@ -1,6 +1,7 @@
 import { type ReactNode, useEffect } from "react";
 import BackendLoadingPage from "./BackendLoadingPage";
 import useBackendReadyPolling from "./useBackendReadyPolling";
+import { withDesktopMarker } from "./backendRuntime";
 
 interface Props {
   children: ReactNode;
@@ -19,7 +20,7 @@ export default function BackendReadyGate({ children }: Props) {
 
   useEffect(() => {
     if (shouldGate && status === "ready" && readyUrl) {
-      window.location.replace(readyUrl);
+      window.location.replace(withDesktopMarker(readyUrl));
     }
   }, [readyUrl, shouldGate, status]);
 

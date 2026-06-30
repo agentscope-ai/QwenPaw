@@ -29,9 +29,16 @@ pytest tests/integration/test_agents.py -v --no-cov
 pytest tests/integration/test_agents.py::test_api_agents_list_create_get_delete -v --no-cov
 ```
 
-Tests run sequentially (not validated under `pytest-xdist`). Use `--no-cov`
-to skip parent-process coverage; see [Coverage](#coverage-optional) for
-subprocess coverage.
+Tests support parallel execution via `pytest-xdist`:
+
+```bash
+pytest tests/integration -n auto --dist=loadscope
+```
+
+The `loadscope` strategy groups by module — matching the module-scoped
+`app_server` fixture (one subprocess per test file, shared within).
+Use `--no-cov` to skip parent-process coverage; see [Coverage](#coverage-optional)
+for subprocess coverage.
 
 ---
 
@@ -168,7 +175,8 @@ This:
 > parent process would otherwise enforce `fail_under=30` on near-zero
 > host-process coverage and fail the run.
 
-This flow is **not validated under `pytest-xdist`**.
+This flow is fully compatible with `pytest-xdist` (`-n auto --dist=loadscope`).
+Each worker combines its own subprocess data; the controller merges all at the end.
 
 ---
 
@@ -210,12 +218,15 @@ This flow is **not validated under `pytest-xdist`**.
 
 ## Known constraints
 
-- **Sequential only**: not validated under `pytest-xdist`.
 - **Cold-start cost**: each module re-launches the app subprocess
-  (~4s setup). Full suite ~3 min; P0 set ~2 min.
+  (~4s setup). With xdist (`-n auto`): full suite ~4 min; P0 set ~1.5 min.
 - **No real LLM calls**: messaging tests use the `console` channel and do
   not exercise model providers.
 - **No real channel I/O**: only configuration-layer tests for channels;
   IM webhook/long-poll paths are not covered here.
-- **Coverage mode is single-worker**: `QWENPAW_INTEGRATION_COVERAGE=1`
-  cannot be combined with `pytest-xdist`.
+- **Windows coverage is opt-in**: by default Windows skips subprocess
+  coverage. To collect it, trigger `full-tests-nightly.yml` via
+  `workflow_dispatch` with `coverage_platforms=windows` (or `all`).
+  Scheduled nightly runs collect all 4 platforms automatically.
+  `tests.yml` (PR/push gate) always collects coverage on ubuntu/py3.10
+  only.

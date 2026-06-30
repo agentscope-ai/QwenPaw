@@ -14,24 +14,30 @@ Currently provided:
   outputs so oversized results don't exhaust the context budget.
 """
 
-from __future__ import annotations
-
 import logging
 import uuid
+from copy import deepcopy
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, AsyncGenerator, Callable, Set
 
 from agentscope.middleware import MiddlewareBase
-from agentscope.message import SystemMsg
+from agentscope.message import Msg, TextBlock, ToolCallBlock, ToolResultBlock
 
 from .tools.utils import truncate_text_output, DEFAULT_MAX_BYTES
-from ..constant import TRUNCATION_NOTICE_MARKER
+from ..constant import (
+    AUTO_CONTINUE_MESSAGE_TAG,
+    AUTO_MEMORY_SEARCH_MESSAGE_TAG,
+    AUTO_MEMORY_SEARCH_TEXT,
+    QWENPAW_MESSAGE_TAG_KEY,
+    TRUNCATION_NOTICE_MARKER,
+)
 
 if TYPE_CHECKING:
     from agentscope.agent import Agent
-    from agentscope.message import Msg
 
 logger = logging.getLogger(__name__)
+MAX_AUTO_MEMORY_TURN_MARKERS = 1000
+_AUTOMATION_MEMORY_SKIP_SOURCES = frozenset({"cron", "heartbeat"})
 
 
 class MemoryMiddleware(MiddlewareBase):
@@ -48,16 +54,17 @@ class MemoryMiddleware(MiddlewareBase):
 
     def __init__(self, *, memory_manager: Any) -> None:
         self._memory_manager = memory_manager
-        self._searched_reply_ids: set[str] = set()
-        self._persisted_reply_ids: set[str] = set()
+        self._searched_user_turn_marker: str | None = None
+        self._pending_auto_memory_turn_markers: list[str] = []
+        self._seen_auto_memory_turn_markers: dict[str, None] = {}
 
     async def on_system_prompt(
         self,
+        # pylint: disable=unused-argument
         agent: "Agent",
         current_prompt: str,
     ) -> str:
-        language = getattr(agent, "_language", "zh")
-        prompt = self._memory_manager.get_memory_prompt(language)
+        prompt = self._memory_manager.get_memory_prompt()
         if not prompt or prompt in current_prompt:
             return current_prompt
         if current_prompt.strip():
@@ -70,12 +77,37 @@ class MemoryMiddleware(MiddlewareBase):
         input_kwargs: dict[str, Any],
         next_handler: Callable[..., Any],
     ) -> Any:
-        reply_id = getattr(agent.state, "reply_id", "") or ""
-        if reply_id and reply_id not in self._searched_reply_ids:
-            self._searched_reply_ids.add(reply_id)
-            await self._inject_memory_context(agent, input_kwargs)
+        if self._is_automation_request(agent):
+            return await next_handler(**input_kwargs)
+
+        turn_marker = self._latest_user_turn_marker(agent.state.context)
+        if turn_marker and turn_marker != self._searched_user_turn_marker:
+            self._searched_user_turn_marker = turn_marker
+            try:
+                result = await self._memory_manager.auto_memory_search(
+                    list(agent.state.context),
+                    agent_name=agent.name,
+                    session_id=agent.state.session_id,
+                    user_turn_id=turn_marker,
+                )
+            except Exception:
+                logger.exception(
+                    "MemoryMiddleware auto_memory_search failed",
+                )
+            else:
+                messages = list(input_kwargs.get("messages") or [])
+                memory_msgs = self._extract_memory_messages(
+                    result,
+                    context_len=len(agent.state.context),
+                )
+                if memory_msgs:
+                    messages.extend(memory_msgs)
+                    input_kwargs["messages"] = messages
+                    if self._persist_auto_memory_search_to_context():
+                        agent.state.context.extend(memory_msgs)
         return await next_handler(**input_kwargs)
 
+    # pylint: disable=stop-iteration-return
     async def on_reply(
         self,
         agent: "Agent",
@@ -85,74 +117,287 @@ class MemoryMiddleware(MiddlewareBase):
         async for item in next_handler(**input_kwargs):
             yield item
 
-        reply_id = getattr(agent.state, "reply_id", "") or ""
-        if reply_id and reply_id in self._persisted_reply_ids:
+        if self._is_automation_request(agent):
             return
-        if reply_id:
-            self._persisted_reply_ids.add(reply_id)
+
+        self._repair_tagged_auto_memory_search_context(agent)
+        turn_marker = self._latest_user_turn_marker(agent.state.context)
+        if (
+            not turn_marker
+            or turn_marker in self._seen_auto_memory_turn_markers
+        ):
+            return
+
+        self._seen_auto_memory_turn_markers[turn_marker] = None
+        if (
+            len(self._seen_auto_memory_turn_markers)
+            > MAX_AUTO_MEMORY_TURN_MARKERS
+        ):
+            oldest_key = next(iter(self._seen_auto_memory_turn_markers))
+            self._seen_auto_memory_turn_markers.pop(oldest_key)
+        self._pending_auto_memory_turn_markers.append(turn_marker)
+
+        interval = self._auto_memory_interval()
+        if interval <= 0:
+            self._pending_auto_memory_turn_markers.clear()
+            return
+        if len(self._pending_auto_memory_turn_markers) < interval:
+            return
+
+        await self._flush_auto_memory(
+            agent,
+            count=interval,
+            repair_context=False,
+        )
+
+    async def on_compress_context(
+        self,
+        agent: "Agent",
+        input_kwargs: dict[str, Any],
+        next_handler: Callable[..., Any],
+    ) -> None:
+        if self._is_automation_request(agent):
+            await next_handler(**input_kwargs)
+            return
+
+        cfg = self._memory_config()
+        if (
+            cfg.summarize_when_compact
+            and self._pending_auto_memory_turn_markers
+            and await self._will_compress_context(agent, input_kwargs)
+        ):
+            await self._flush_auto_memory(agent)
+
+        await next_handler(**input_kwargs)
+
+    async def _flush_auto_memory(
+        self,
+        agent: "Agent",
+        *,
+        count: int | None = None,
+        repair_context: bool = True,
+    ) -> None:
+        if self._is_automation_request(agent):
+            logger.debug(
+                "MemoryMiddleware auto_memory skipped for automation source: "
+                "agent=%s",
+                agent.name,
+            )
+            # Defensive: clear in case on_reply guard was bypassed
+            self._pending_auto_memory_turn_markers.clear()
+            return
+
+        if not self._pending_auto_memory_turn_markers:
+            return
+
+        if count is None:
+            turn_markers = list(self._pending_auto_memory_turn_markers)
+            self._pending_auto_memory_turn_markers.clear()
+        else:
+            turn_markers = self._pending_auto_memory_turn_markers[:count]
+            del self._pending_auto_memory_turn_markers[:count]
+
+        if repair_context:
+            self._repair_tagged_auto_memory_search_context(agent)
+        normal_messages = self._normal_memory_messages(
+            list(agent.state.context),
+        )
+        messages = self._messages_for_user_turns(
+            normal_messages,
+            turn_markers=turn_markers,
+        )
+        if not messages:
+            return
 
         try:
             await self._memory_manager.auto_memory(
-                list(agent.state.context),
-                session_id=getattr(agent.state, "session_id", ""),
-                reply_id=reply_id,
+                messages,
+                session_id=self._agent_session_id(agent),
             )
         except Exception:
             logger.exception("MemoryMiddleware auto_memory failed")
 
-    async def _inject_memory_context(
-        self,
-        agent: "Agent",
-        input_kwargs: dict[str, Any],
-    ) -> None:
-        try:
-            result = await self._memory_manager.auto_memory_search(
-                list(agent.state.context),
-                agent_name=getattr(agent, "name", ""),
-                session_id=getattr(agent.state, "session_id", ""),
-                reply_id=getattr(agent.state, "reply_id", ""),
-            )
-        except Exception:
-            logger.exception("MemoryMiddleware auto_memory_search failed")
-            return
-
-        text = self._extract_memory_text(result)
-        if not text:
-            return
-
-        messages = list(input_kwargs.get("messages") or [])
-        memory_msg = SystemMsg(
-            name="memory",
-            content=(
-                "Relevant long-term memory retrieved for this turn:\n\n"
-                f"{text}"
-            ),
-        )
-
-        # Keep the original system prompt first, then add transient memory
-        # context before the conversation messages.
-        insert_at = 1 if messages else 0
-        messages.insert(insert_at, memory_msg)
-        input_kwargs["messages"] = messages
+    @staticmethod
+    def _agent_session_id(agent: "Agent") -> str:
+        session_id = str(getattr(agent.state, "session_id", "") or "")
+        if session_id:
+            return session_id
+        request_context = getattr(agent, "_request_context", None) or {}
+        if isinstance(request_context, dict):
+            return str(request_context.get("session_id") or "")
+        return ""
 
     @staticmethod
-    def _extract_memory_text(result: Any) -> str:
-        if result is None:
+    def _is_automation_request(agent: "Agent") -> bool:
+        """Return True when the request originates from non-user automation."""
+        request_context = getattr(agent, "_request_context", None) or {}
+        if not isinstance(request_context, dict):
+            return False
+        source = str(request_context.get("source") or "").strip().lower()
+        return source in _AUTOMATION_MEMORY_SKIP_SOURCES
+
+    @staticmethod
+    async def _will_compress_context(
+        agent: "Agent",
+        input_kwargs: dict[str, Any],
+    ) -> bool:
+        cfg = input_kwargs.get("context_config") or agent.context_config
+        # pylint: disable=protected-access
+        kwargs = await agent._prepare_model_input()
+        estimated_tokens = await agent.model.count_tokens(**kwargs)
+        threshold = cfg.trigger_ratio * agent.model.context_size
+        return estimated_tokens >= threshold
+
+    @staticmethod
+    def _extract_memory_messages(
+        result: Any,
+        *,
+        context_len: int,
+    ) -> list["Msg"]:
+        if not isinstance(result, dict):
+            return []
+        msgs = result.get("msg") or result.get("messages")
+        if not isinstance(msgs, list):
+            return []
+
+        injected = msgs[context_len:] if len(msgs) > context_len else msgs
+        return [
+            msg
+            for msg in injected
+            if hasattr(msg, "has_content_blocks")
+            and (
+                msg.has_content_blocks("tool_call")
+                or msg.has_content_blocks("tool_result")
+            )
+        ]
+
+    def _auto_memory_interval(self) -> int:
+        return int(self._memory_manager.get_auto_memory_interval())
+
+    def _memory_config(self) -> Any:
+        from ..config.config import load_agent_config
+
+        agent_config = load_agent_config(self._memory_manager.agent_id)
+        return agent_config.running.reme_light_memory_config
+
+    def _persist_auto_memory_search_to_context(self) -> bool:
+        search_cfg = self._memory_config().auto_memory_search_config
+        return bool(getattr(search_cfg, "persist_to_context", True))
+
+    @staticmethod
+    def _message_tag(msg: "Msg") -> str:
+        metadata = getattr(msg, "metadata", None)
+        if not isinstance(metadata, dict):
             return ""
-        if isinstance(result, str):
-            return result.strip()
-        if isinstance(result, dict):
-            text = result.get("text") or result.get("content")
-            if isinstance(text, str) and text.strip():
-                return text.strip()
-            msgs = result.get("msg")
-            if isinstance(msgs, list):
-                parts = [
-                    getattr(msg, "get_text_content", lambda: "")()
-                    for msg in msgs
-                ]
-                return "\n".join(p for p in parts if p).strip()
+        return str(metadata.get(QWENPAW_MESSAGE_TAG_KEY) or "")
+
+    @classmethod
+    def _is_auto_memory_search_msg(cls, msg: "Msg") -> bool:
+        return cls._message_tag(msg) == AUTO_MEMORY_SEARCH_MESSAGE_TAG
+
+    @classmethod
+    def _is_memory_user_turn(cls, msg: "Msg") -> bool:
+        return msg.role == "user" and cls._message_tag(msg) not in {
+            AUTO_CONTINUE_MESSAGE_TAG,
+        }
+
+    @classmethod
+    def _normal_memory_messages(cls, messages: list["Msg"]) -> list["Msg"]:
+        return [msg for msg in messages if not cls._message_tag(msg)]
+
+    @staticmethod
+    def _is_auto_memory_search_block(block: Any) -> bool:
+        if isinstance(block, TextBlock):
+            return block.text == AUTO_MEMORY_SEARCH_TEXT
+        if isinstance(block, (ToolCallBlock, ToolResultBlock)):
+            return block.name == "memory_search"
+        return False
+
+    @classmethod
+    def _repair_tagged_auto_memory_search_context(
+        cls,
+        agent: "Agent",
+    ) -> None:
+        """Split real reply blocks merged into tagged auto-search messages."""
+        context = getattr(agent.state, "context", None) or []
+        if not context:
+            return
+
+        for idx in range(len(context) - 1, -1, -1):
+            msg = context[idx]
+            if (
+                getattr(msg, "role", None) != "assistant"
+                or getattr(msg, "name", None) != agent.name
+                or not cls._is_auto_memory_search_msg(msg)
+            ):
+                continue
+
+            auto_blocks = []
+            reply_blocks = []
+            for block in msg.get_content_blocks():
+                if cls._is_auto_memory_search_block(block):
+                    auto_blocks.append(block)
+                else:
+                    reply_blocks.append(block)
+
+            if not reply_blocks:
+                return
+
+            msg.content = auto_blocks
+            context.insert(
+                idx + 1,
+                Msg(
+                    id=agent.state.reply_id,
+                    name=agent.name,
+                    role="assistant",
+                    content=deepcopy(reply_blocks),
+                    usage=deepcopy(getattr(msg, "usage", None)),
+                ),
+            )
+            return
+
+    @staticmethod
+    def _latest_user_turn_marker(messages: list["Msg"]) -> str:
+        for idx in range(len(messages) - 1, -1, -1):
+            msg = messages[idx]
+            if not MemoryMiddleware._is_memory_user_turn(msg):
+                continue
+            return msg.id
         return ""
+
+    @staticmethod
+    def _messages_for_user_turns(
+        messages: list["Msg"],
+        *,
+        turn_markers: list[str],
+    ) -> list["Msg"]:
+        targets = set(turn_markers)
+        if not targets:
+            return []
+
+        first_idx: int | None = None
+        last_idx: int | None = None
+        for idx, msg in enumerate(messages):
+            if (
+                MemoryMiddleware._is_memory_user_turn(msg)
+                and msg.id in targets
+            ):
+                if first_idx is None:
+                    first_idx = idx
+                last_idx = idx
+
+        if first_idx is None or last_idx is None:
+            return []
+
+        end_idx = len(messages)
+        for idx in range(last_idx + 1, len(messages)):
+            if MemoryMiddleware._is_memory_user_turn(messages[idx]):
+                end_idx = idx
+                break
+
+        return MemoryMiddleware._normal_memory_messages(
+            messages[first_idx:end_idx],
+        )
 
 
 class ToolResultPruningMiddleware(MiddlewareBase):
@@ -392,3 +637,51 @@ class ToolResultPruningMiddleware(MiddlewareBase):
             file_path=saved_path,
             encoding=encoding,
         )
+
+
+class LangfuseToolSpanMiddleware(MiddlewareBase):
+    """Record each tool execution as a Langfuse tool observation.
+
+    Yields ``None`` from ``tool_span`` when Langfuse is disabled or the
+    client is unavailable; the ``observation is not None`` guard handles
+    this gracefully.
+    """
+
+    async def on_acting(
+        self,
+        agent: "Agent",  # pylint: disable=unused-argument
+        input_kwargs: dict[str, Any],
+        next_handler: Callable[..., AsyncGenerator[Any, None]],
+    ) -> AsyncGenerator[Any, None]:
+        from agentscope.tool import ToolResponse
+
+        from ..observability.langfuse import get_current_trace, tool_span
+
+        if get_current_trace() is None:
+            async for event in next_handler():
+                yield event
+            return
+
+        tool_call = input_kwargs.get("tool_call")
+        tool_name = getattr(tool_call, "name", "unknown")
+        tool_input = getattr(tool_call, "input", None)
+
+        async with tool_span(
+            name=tool_name,
+            input=tool_input,
+            metadata={"tool_call_id": getattr(tool_call, "id", None)},
+        ) as observation:
+            final_response = None
+            async for event in next_handler():
+                if isinstance(event, ToolResponse):
+                    final_response = event
+                yield event
+            if observation is not None and final_response is not None:
+                observation.update(
+                    output={
+                        "content": [
+                            getattr(b, "text", str(b))
+                            for b in (final_response.content or [])
+                        ],
+                    },
+                )

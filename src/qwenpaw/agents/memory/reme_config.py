@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Embedded ReMe4 application configuration for QwenPaw memory.
+"""Embedded ReMe application configuration for QwenPaw memory.
 
 ReMe's standalone CLI normally loads YAML such as
 ``reme/config/default.yaml`` or ``reme/config/qwenpaw.yaml``.  QwenPaw embeds
@@ -10,38 +10,51 @@ dict directly to ``reme.application.Application`` / ``reme.reme.ReMe``.
 from copy import deepcopy
 from typing import Any
 
+from qwenpaw.config.config import AgentProfileConfig, EmbeddingModelConfig
+
 
 def build_reme_app_config(
     *,
     working_dir: str,
-    agent_config: Any,
+    agent_config: AgentProfileConfig,
     user_timezone: str | None = None,
 ) -> dict[str, Any]:
-    """Build ReMe4 ``Application`` kwargs for embedded QwenPaw usage."""
-    cfg = _base_config()
+    """Build ReMe ``Application`` kwargs for embedded QwenPaw usage."""
+    reme_config = agent_config.running.reme_light_memory_config
+    cfg = _base_config(reme_config.enable_search_raw_log)
+    _apply_embedding_config(
+        cfg,
+        reme_config.embedding_model_config,
+    )
     cfg.update(
         {
-            "vault_dir": working_dir,
-            "language": getattr(agent_config, "language", "zh"),
+            "workspace_dir": working_dir,
+            "metadata_dir": reme_config.metadata_dir,
+            "session_dir": reme_config.session_dir,
+            "resource_dir": reme_config.resource_dir,
+            "daily_dir": reme_config.daily_dir,
+            "digest_dir": reme_config.digest_dir,
+            "language": agent_config.language,
             "timezone": user_timezone or "Asia/Shanghai",
             "enable_logo": False,
             "log_to_console": False,
         },
     )
 
-    _configure_embedding(cfg, agent_config, enabled=False)
     return cfg
 
 
-def _base_config() -> dict[str, Any]:
-    """Return the ReMe4 config shape used by QwenPaw."""
+def _base_config(enable_search_raw_log: bool = False) -> dict[str, Any]:
+    """Return the ReMe config shape used by QwenPaw."""
+    watch_dirs, watch_suffixes = _index_watch_rules(enable_search_raw_log)
+
     return {
         "service": {"backend": "http"},
         "jobs": {
             "index_update_loop": {
                 "backend": "background",
-                "watch_dirs": ["daily_dir", "digest_dir"],
-                "watch_suffixes": ["md"],
+                "watch_dirs": watch_dirs,
+                "watch_suffixes": watch_suffixes,
                 "steps": [
                     {
                         "backend": "init_changes_step",
@@ -51,7 +64,9 @@ def _base_config() -> dict[str, Any]:
                     },
                     {
                         "backend": "watch_changes_step",
-                        "dispatch_steps": ["update_index_step"],
+                        "dispatch_steps": [
+                            {"backend": "update_index_step", "persist": False},
+                        ],
                     },
                 ],
             },
@@ -104,8 +119,8 @@ def _base_config() -> dict[str, Any]:
                     "wipe the file store and rebuild it from the existing "
                     "files"
                 ),
-                "watch_dirs": ["daily_dir", "digest_dir", "resource_dir"],
-                "watch_suffixes": ["md", "jsonl"],
+                "watch_dirs": watch_dirs,
+                "watch_suffixes": watch_suffixes,
                 "parameters": {"type": "object", "properties": {}},
                 "steps": [
                     {"backend": "clear_store_step"},
@@ -120,7 +135,7 @@ def _base_config() -> dict[str, Any]:
             "search": {
                 "backend": "base",
                 "description": (
-                    "Hybrid vault search (vector + BM25, RRF-fused)."
+                    "Hybrid workspace search (vector + BM25, RRF-fused)."
                 ),
                 "parameters": {
                     "type": "object",
@@ -154,7 +169,11 @@ def _base_config() -> dict[str, Any]:
             },
             "node_search": {
                 "backend": "base",
-                "description": "Digest node recall.",
+                "description": (
+                    "Digest node recall — given a candidate abstraction's "
+                    "name+description, surface existing digest nodes similar "
+                    "enough to either dedup against or link to as related."
+                ),
                 "parameters": {
                     "type": "object",
                     "properties": {
@@ -178,35 +197,33 @@ def _base_config() -> dict[str, Any]:
                     },
                 ],
             },
-            "daily_create": {
-                "backend": "base",
-                "description": (
-                    "Provision a session note under a daily folder."
-                ),
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "session_id": {"type": "string", "default": ""},
-                        "date": {"type": "string", "default": ""},
-                    },
-                },
-                "steps": [{"backend": "daily_create_step"}],
-            },
             "daily_list": {
                 "backend": "base",
                 "description": "List notes under a single day.",
                 "parameters": {
                     "type": "object",
-                    "properties": {"date": {"type": "string", "default": ""}},
+                    "properties": {
+                        "date": {
+                            "type": "string",
+                            "description": "YYYY-MM-DD; empty = today",
+                            "default": "",
+                        },
+                    },
                 },
                 "steps": [{"backend": "daily_list_step"}],
             },
             "daily_reindex": {
                 "backend": "base",
-                "description": "Rebuild the day-index page.",
+                "description": "Rebuild the day-index page daily/<date>.md.",
                 "parameters": {
                     "type": "object",
-                    "properties": {"date": {"type": "string", "default": ""}},
+                    "properties": {
+                        "date": {
+                            "type": "string",
+                            "description": "YYYY-MM-DD; empty = today",
+                            "default": "",
+                        },
+                    },
                 },
                 "steps": [{"backend": "daily_reindex_step"}],
             },
@@ -328,7 +345,10 @@ def _base_config() -> dict[str, Any]:
             },
             "write": {
                 "backend": "base",
-                "description": "Write a markdown file.",
+                "description": (
+                    "Write a markdown file (create or overwrite) with "
+                    "name/description frontmatter."
+                ),
                 "parameters": {
                     "type": "object",
                     "properties": {
@@ -342,9 +362,54 @@ def _base_config() -> dict[str, Any]:
                 },
                 "steps": [{"backend": "write_step"}],
             },
+            "daily_write": {
+                "backend": "base",
+                "description": (
+                    "Write a daily markdown note with conversation source "
+                    "frontmatter."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "name": {
+                            "type": "string",
+                            "description": (
+                                "daily note filename stem and frontmatter name"
+                            ),
+                        },
+                        "description": {
+                            "type": "string",
+                            "description": "frontmatter description",
+                        },
+                        "session_id": {
+                            "type": "string",
+                            "description": "source conversation session "
+                            "identifier",
+                        },
+                        "content": {
+                            "type": "string",
+                            "description": "body",
+                        },
+                        "metadata": {
+                            "type": "object",
+                            "description": "Optional extra frontmatter "
+                            "fields.",
+                        },
+                    },
+                    "required": [
+                        "name",
+                        "description",
+                        "session_id",
+                        "content",
+                    ],
+                },
+                "steps": [{"backend": "daily_write_step"}],
+            },
             "edit": {
                 "backend": "base",
-                "description": "Find-and-replace in a markdown file.",
+                "description": (
+                    "Find-and-replace in a markdown file (all occurrences)."
+                ),
                 "parameters": {
                     "type": "object",
                     "properties": {
@@ -358,12 +423,19 @@ def _base_config() -> dict[str, Any]:
             },
             "auto_dream": {
                 "backend": "base",
-                "description": "Auto-dream memory consolidation.",
+                "description": (
+                    "Auto-dream: scan today's day-index and daily notes, "
+                    "globally extract merged units/topics, integrate digest "
+                    "units, write interests.yaml, and persist the dream "
+                    "catalog."
+                ),
                 "parameters": {
                     "type": "object",
                     "properties": {
                         "date": {"type": "string", "default": ""},
                         "hint": {"type": "string", "default": ""},
+                        "scan_days": {"type": "integer", "default": 2},
+                        "max_units": {"type": "integer", "default": 5},
                         "topic_count": {"type": "integer", "default": 3},
                         "topic_diversity_days": {
                             "type": "integer",
@@ -376,6 +448,8 @@ def _base_config() -> dict[str, Any]:
                         "backend": "dream_extract_step",
                         "file_catalog": "dream",
                         "topic_session_id": "interests",
+                        "scan_days": 2,
+                        "max_units": 5,
                     },
                     {"backend": "dream_integrate_step"},
                     {
@@ -431,7 +505,22 @@ def _base_config() -> dict[str, Any]:
                     "properties": {
                         "changes": {
                             "type": "array",
-                            "items": {"type": "object"},
+                            "description": (
+                                "resource change batch, each item has "
+                                "path/file_path and change"
+                            ),
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "path": {"type": "string"},
+                                    "file_path": {"type": "string"},
+                                    "change": {
+                                        "type": "string",
+                                        "description": "added/"
+                                        "modified/deleted",
+                                    },
+                                },
+                            },
                         },
                     },
                     "required": ["changes"],
@@ -441,6 +530,15 @@ def _base_config() -> dict[str, Any]:
         },
         "components": _base_components(),
     }
+
+
+def _index_watch_rules(
+    enable_search_raw_log: bool,
+) -> tuple[list[str], list[str]]:
+    """Return directories/suffixes indexed by ReMe search jobs."""
+    if enable_search_raw_log:
+        return ["daily_dir", "digest_dir", "resource_dir"], ["md", "jsonl"]
+    return ["daily_dir", "digest_dir"], ["md"]
 
 
 def _base_components() -> dict[str, Any]:
@@ -493,11 +591,29 @@ def _base_components() -> dict[str, Any]:
         "keyword_index": {
             "default": {"backend": "bm25", "tokenizer": "default"},
         },
+        "as_embedding": {
+            "default": {
+                "backend": "openai",
+                "model": "",
+                "credential": {"api_key": "", "base_url": ""},
+                "parameters": {},
+            },
+        },
+        "embedding_store": {
+            "default": {
+                "backend": "local",
+                "as_embedding": "default",
+                "enable_cache": True,
+                "max_cache_size": 3000,
+                "max_input_length": 8192,
+                "max_batch_size": 10,
+            },
+        },
         "file_store": {
             "default": {
                 "backend": "local",
                 "store_name": "local",
-                "embedding_store": "",
+                "embedding_store": "default",
                 "keyword_index": "default",
                 "file_graph": "default",
             },
@@ -505,68 +621,50 @@ def _base_components() -> dict[str, Any]:
     }
 
 
-def _configure_embedding(
-    config: dict[str, Any],
-    agent_config: Any,
-    *,
-    enabled: bool,
+def _apply_embedding_config(
+    cfg: dict[str, Any],
+    embedding_config: EmbeddingModelConfig,
 ) -> None:
-    """Add optional ReMe embedding config.
+    """Map QwenPaw embedding config into ReMe component config."""
+    components = cfg["components"]
+    parameters: dict[str, Any] = {}
+    if embedding_config.use_dimensions:
+        parameters["dimensions"] = embedding_config.dimensions
+    embedding_store_name = (
+        "default"
+        if embedding_config.base_url.strip()
+        and embedding_config.model_name.strip()
+        else ""
+    )
 
-    QwenPaw keeps embedding settings in the generated ReMe config, but does
-    not wire them into ``file_store`` by default.  This keeps ReMe memory
-    usable via BM25 when embedding is unavailable or the ReMe/AgentScope
-    embedding APIs are out of sync.
-    """
-    reme_cfg = agent_config.running.reme_light_memory_config
-    emb = reme_cfg.embedding_model_config
-
-    api_key = emb.api_key or ""
-    base_url = emb.base_url or ""
-    model_name = emb.model_name or ""
-
-    # Embedding is optional.  If the provider config is incomplete, ReMe uses
-    # keyword/BM25 search only and does not start embedding components.
-    if not api_key or not base_url or not model_name:
-        return
-
-    components = config["components"]
-    embedding_components = {
-        "as_embedding": {
-            "default": {
-                "backend": emb.backend,
-                "model": model_name,
-                "credential": {
-                    "api_key": api_key,
-                    "base_url": base_url,
-                },
-                "parameters": {
-                    "dimensions": emb.dimensions,
-                },
+    components["as_embedding"]["default"].update(
+        {
+            "backend": embedding_config.backend,
+            "model": embedding_config.model_name,
+            "credential": {
+                "api_key": embedding_config.api_key,
+                "base_url": embedding_config.base_url,
             },
+            "parameters": parameters,
         },
-        "embedding_store": {
-            "default": {
-                "backend": "local",
-                "as_embedding": "default",
-                "enable_cache": emb.enable_cache,
-                "max_cache_size": emb.max_cache_size,
-            },
+    )
+    components["embedding_store"]["default"].update(
+        {
+            "enable_cache": embedding_config.enable_cache,
+            "max_cache_size": embedding_config.max_cache_size,
+            "max_input_length": embedding_config.max_input_length,
+            "max_batch_size": embedding_config.max_batch_size,
         },
-    }
-    if not enabled:
-        config.setdefault("_qwenpaw_optional_embedding", embedding_components)
-        return
-
-    components["as_embedding"] = embedding_components["as_embedding"]
-    components["embedding_store"] = embedding_components["embedding_store"]
-    components["file_store"]["default"]["embedding_store"] = "default"
+    )
+    components["file_store"]["default"][
+        "embedding_store"
+    ] = embedding_store_name
 
 
 def get_reme_app_config(
     *,
     working_dir: str,
-    agent_config: Any,
+    agent_config: AgentProfileConfig,
     user_timezone: str | None = None,
 ) -> dict[str, Any]:
     """Public wrapper returning a deep copy safe for caller mutation."""

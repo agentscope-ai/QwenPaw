@@ -52,6 +52,7 @@ class SIPChannel(BaseChannel):
         on_reply_sent: OnReplySent = None,
         show_tool_details: bool = True,
         filter_tool_messages: bool = False,
+        no_text_debounce: bool = True,
         filter_thinking: bool = False,
     ) -> None:
         super().__init__(
@@ -59,6 +60,7 @@ class SIPChannel(BaseChannel):
             on_reply_sent,
             show_tool_details,
             filter_tool_messages=filter_tool_messages,
+            no_text_debounce=no_text_debounce,
             filter_thinking=filter_thinking,
         )
         self.backend: Optional[SipBackend] = None
@@ -81,6 +83,7 @@ class SIPChannel(BaseChannel):
         on_reply_sent: OnReplySent = None,
         show_tool_details: bool = True,
         filter_tool_messages: bool = False,
+        no_text_debounce: bool = True,
         filter_thinking: bool = False,
     ) -> "SIPChannel":
         instance = cls(
@@ -88,6 +91,7 @@ class SIPChannel(BaseChannel):
             on_reply_sent,
             show_tool_details,
             filter_tool_messages=filter_tool_messages,
+            no_text_debounce=no_text_debounce,
             filter_thinking=filter_thinking,
         )
         instance._config = config

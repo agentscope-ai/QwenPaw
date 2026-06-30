@@ -145,10 +145,10 @@ export function LightContextCard({ maxInputLength }: LightContextCardProps) {
                   tooltip={t("agentConfig.contextCompactReserveRatioTooltip")}
                 >
                   <SliderWithValue
-                    min={0}
+                    min={0.01}
                     max={0.3}
                     step={0.01}
-                    marks={{ 0: "0", 0.15: "0.15", 0.3: "0.3" }}
+                    marks={{ 0.01: "0.01", 0.15: "0.15", 0.3: "0.3" }}
                   />
                 </Form.Item>
 
@@ -169,19 +169,6 @@ export function LightContextCard({ maxInputLength }: LightContextCardProps) {
                       "agentConfig.contextCompactReserveThresholdPlaceholder",
                     )}
                   />
-                </Form.Item>
-
-                <Form.Item
-                  label={t("agentConfig.compactWithThinkingBlock")}
-                  name={[
-                    "light_context_config",
-                    "context_compact_config",
-                    "compact_with_thinking_block",
-                  ]}
-                  valuePropName="checked"
-                  tooltip={t("agentConfig.compactWithThinkingBlockTooltip")}
-                >
-                  <Switch />
                 </Form.Item>
               </>
             ),

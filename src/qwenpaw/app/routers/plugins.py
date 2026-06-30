@@ -41,9 +41,13 @@ def _list_plugins_from_disk() -> list[dict]:
     if not plugins_dir.exists():
         return []
 
+    from ...plugins.loader import _is_disabled_plugin_dir
+
     result: list[dict] = []
     for item in sorted(plugins_dir.iterdir()):
         if not item.is_dir():
+            continue
+        if _is_disabled_plugin_dir(item):
             continue
         manifest_path = item / "plugin.json"
         if not manifest_path.exists():

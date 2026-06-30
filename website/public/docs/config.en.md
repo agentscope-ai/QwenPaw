@@ -244,6 +244,7 @@ Each agent has an independent `agent.json` in its workspace directory (`~/.qwenp
     "enabled": false,
     "every": "30m",
     "target": "main",
+    "timeoutSeconds": 300,
     "activeHours": null
   },
   "running": {
@@ -336,12 +337,13 @@ Management: Console (Agent → MCP) or directly edit `agent.json`.
 
 Heartbeat is a scheduled self-check feature that executes tasks from `HEARTBEAT.md` at regular intervals.
 
-| Field         | Type           | Default  | Description                                                                                                  |
-| ------------- | -------------- | -------- | ------------------------------------------------------------------------------------------------------------ |
-| `enabled`     | bool           | `false`  | Whether to enable heartbeat feature                                                                          |
-| `every`       | string         | `"30m"`  | Run interval. Supports `Nh`, `Nm`, `Ns` combos, e.g. `"1h"`, `"30m"`, `"2h30m"`, `"90s"`                     |
-| `target`      | string         | `"main"` | `"main"` = run in main session only; `"last"` = dispatch result to the last channel/user that sent a message |
-| `activeHours` | object \| null | `null`   | Optional time window (if set, heartbeat only runs during this period)                                        |
+| Field            | Type           | Default  | Description                                                                                                  |
+| ---------------- | -------------- | -------- | ------------------------------------------------------------------------------------------------------------ |
+| `enabled`        | bool           | `false`  | Whether to enable heartbeat feature                                                                          |
+| `every`          | string         | `"30m"`  | Run interval. Supports `Nh`, `Nm`, `Ns` combos, e.g. `"1h"`, `"30m"`, `"2h30m"`, `"90s"`                     |
+| `target`         | string         | `"main"` | `"main"` = run in main session only; `"last"` = dispatch result to the last channel/user that sent a message |
+| `timeoutSeconds` | int            | `300`    | Maximum execution time for one heartbeat run, in seconds. Valid range: `1`–`3600`                            |
+| `activeHours`    | object \| null | `null`   | Optional time window (if set, heartbeat only runs during this period)                                        |
 
 **`heartbeat.activeHours`** (when not null):
 
@@ -401,12 +403,11 @@ Controls agent runtime behavior, retry strategies, context management, and memor
 
 **Light Context Compaction (`light_context_config.context_compact_config` object):**
 
-| Field                         | Type  | Default | Description                                                               |
-| ----------------------------- | ----- | ------- | ------------------------------------------------------------------------- |
-| `enabled`                     | bool  | `true`  | Whether to enable automatic context compaction                            |
-| `compact_threshold_ratio`     | float | `0.8`   | Threshold ratio (relative to `max_input_length`) that triggers compaction |
-| `reserve_threshold_ratio`     | float | `0.1`   | Ratio of recent context to preserve after compaction for continuity       |
-| `compact_with_thinking_block` | bool  | `true`  | Whether to include thinking blocks during compaction                      |
+| Field                     | Type  | Default | Description                                                               |
+| ------------------------- | ----- | ------- | ------------------------------------------------------------------------- |
+| `enabled`                 | bool  | `true`  | Whether to enable automatic context compaction                            |
+| `compact_threshold_ratio` | float | `0.8`   | Threshold ratio (relative to `max_input_length`) that triggers compaction |
+| `reserve_threshold_ratio` | float | `0.1`   | Ratio of recent context to preserve after compaction for continuity       |
 
 **Light Tool Result Pruning (`light_context_config.tool_result_pruning_config` object):**
 
@@ -432,12 +433,11 @@ Controls agent runtime behavior, retry strategies, context management, and memor
 
 **Auto Memory Search Configuration (`reme_light_memory_config.auto_memory_search_config` object):**
 
-| Field         | Type  | Default | Description                                                |
-| ------------- | ----- | ------- | ---------------------------------------------------------- |
-| `enabled`     | bool  | `false` | Whether to auto search memory on every conversation turn   |
-| `max_results` | int   | `1`     | Maximum results for auto memory search                     |
-| `min_score`   | float | `0.1`   | Minimum relevance score for auto memory search (0.0 - 1.0) |
-| `timeout`     | float | `10.0`  | Timeout in seconds for auto memory search                  |
+| Field         | Type  | Default | Description                                              |
+| ------------- | ----- | ------- | -------------------------------------------------------- |
+| `enabled`     | bool  | `false` | Whether to auto search memory on every conversation turn |
+| `max_results` | int   | `1`     | Maximum results for auto memory search                   |
+| `timeout`     | float | `10.0`  | Timeout in seconds for auto memory search                |
 
 **Embedding Configuration (`reme_light_memory_config.embedding_model_config` object):**
 
@@ -502,16 +502,6 @@ Specifies the model used by this agent.
 | `model`       | string | `""`    | Model name (e.g., `"qwen-max"`, `"gpt-4"`)          |
 
 When `null`, uses the global default model. Can be configured in Console (Agent → Model Settings).
-
----
-
-#### `plan` — Plan mode configuration
-
-| Field     | Type | Default | Description                 |
-| --------- | ---- | ------- | --------------------------- |
-| `enabled` | bool | `false` | Whether to enable plan mode |
-
-When enabled, the agent supports `/plan` commands for structured task planning and execution. See [Plan Mode](./plan) for detailed documentation.
 
 ---
 

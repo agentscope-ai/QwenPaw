@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Card, Button, Checkbox, Tooltip } from "@agentscope-ai/design";
 import {
   CalendarFilled,
@@ -28,6 +28,21 @@ interface SkillCardProps {
   onToggleEnabled: (e: React.MouseEvent) => void;
   onDelete?: (e?: React.MouseEvent) => void;
 }
+
+const useIsMobile = () => {
+  const [isMobile, setIsMobile] = useState(
+    typeof window !== "undefined" ? window.innerWidth <= 768 : false,
+  );
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const handleResize = () => setIsMobile(window.innerWidth <= 768);
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
+
+  return isMobile;
+};
 
 const normalizeSkillIconKey = (value: string) =>
   value
@@ -135,6 +150,7 @@ export const SkillCard = React.memo(function SkillCard({
   const { t } = useTranslation();
   const batchMode = selected !== undefined;
   const [isHover, setIsHover] = useState(false);
+  const isMobile = useIsMobile();
 
   const handleToggleClick = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -259,8 +275,8 @@ export const SkillCard = React.memo(function SkillCard({
         <p className={styles.descriptionText}>{skill.description || "-"}</p>
       </div>
 
-      {/* Footer - only show on hover or batch mode */}
-      {(isHover || batchMode) && (
+      {/* Footer - only show on hover or batch mode, always on mobile */}
+      {(isHover || batchMode || isMobile) && (
         <div className={styles.cardFooter}>
           <Button
             type="default"

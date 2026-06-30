@@ -309,13 +309,11 @@ export const createColumns = (
           {
             key: "edit",
             label: handlers.t("cronJobs.edit"),
-            disabled: record.enabled,
             onClick: () => handlers.onEdit(record),
           },
           {
             key: "delete",
             label: handlers.t("cronJobs.delete"),
-            disabled: record.enabled,
             danger: true,
             onClick: () => handlers.onDelete(record.id),
           },

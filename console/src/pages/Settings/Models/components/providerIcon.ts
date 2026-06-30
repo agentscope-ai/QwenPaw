@@ -23,6 +23,7 @@ export const providerIcon = (provider: string) => {
     case "minimax":
       return "https://gw.alicdn.com/imgextra/i1/O1CN01B0FaVn1VzBcO4nF1C_!!6000000002723-2-tps-400-400.png";
     case "openai":
+    case "openai-response":
       return "https://gw.alicdn.com/imgextra/i3/O1CN01rQSexq1D7S4AYstKh_!!6000000000169-2-tps-400-400.png";
     case "dashscope":
       return "https://gw.alicdn.com/imgextra/i4/O1CN01aDHDeq1mgj7gbRkhi_!!6000000004984-2-tps-400-400.png";

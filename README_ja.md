@@ -5,7 +5,7 @@
 [![GitHub Repo](https://img.shields.io/badge/GitHub-Repo-black.svg?logo=github)](https://github.com/agentscope-ai/QwenPaw)
 [![PyPI](https://img.shields.io/pypi/v/qwenpaw?color=3775A9&label=PyPI&logo=pypi)](https://pypi.org/project/qwenpaw/)
 [![Documentation](https://img.shields.io/badge/Docs-Website-green.svg?logo=readthedocs&label=Docs)](https://qwenpaw.agentscope.io/)
-[![Python Version](https://img.shields.io/badge/python-3.10%20~%20%3C3.14-blue.svg?logo=python&label=Python)](https://www.python.org/downloads/)
+[![Python Version](https://img.shields.io/badge/python-3.11%20~%20%3C3.14-blue.svg?logo=python&label=Python)](https://www.python.org/downloads/)
 [![Last Commit](https://img.shields.io/github/last-commit/agentscope-ai/QwenPaw)](https://github.com/agentscope-ai/QwenPaw)
 [![License](https://img.shields.io/badge/license-Apache%202.0-red.svg?logo=apache&label=License)](LICENSE)
 [![Code Style](https://img.shields.io/badge/code%20style-black-black.svg?logo=python&label=CodeStyle)](https://github.com/psf/black)
@@ -16,6 +16,8 @@
 [![X](https://img.shields.io/badge/X-Follow_Us-black.svg?logo=x)](https://x.com/agentscope_ai)
 [![DingTalk](https://img.shields.io/badge/DingTalk-Join_Us-orange.svg)](https://qr.dingtalk.com/action/joingroup?code=v1,k1,OmDlBXpjW+I2vWjKDsjvI9dhcXjGZi3bQiojOq3dlDw=&_dt_no_comment=1&origin=11)
 [![AgentScope Platform](https://img.shields.io/badge/%E2%98%81_AgentScope_Platform-%F0%9F%90%BE_7%2F24_Online_%26_Free-FF6B2B.svg)](https://platform.agentscope.io/)
+
+<a href="https://trendshift.io/repositories/25882" target="_blank"><img src="https://trendshift.io/api/badge/trendshift/repositories/25882/daily" alt="agentscope-ai%2FQwenPaw | Trendshift" style="width: 250px; height: 55px;" width="250" height="55"/></a>
 
 [[ドキュメント](https://qwenpaw.agentscope.io/)] [[English](README.md)] [[中文](README_zh.md)] [[Русский](README_ru.md)]
 
@@ -123,7 +125,7 @@
 
 ### オプション 1: pip install
 
-Pythonを自分で管理する場合:
+Pythonを自分で管理する場合（Python >= 3.11, < 3.14 が必要）:
 
 ```bash
 pip install qwenpaw
@@ -436,18 +438,14 @@ GitHubでQwenPawにスターを付けて、新しいリリースの通知を即�
 | ------------------------ | -------------------------------------------------------------------------------------------- | ------------ |
 | **横展開**               | より多くのチャネル、モデル、スキル、MCP など — **コミュニティの貢献歓迎**                    | 貢献者募集中 |
 | **既存機能の拡張・改善** | 表示の最適化、ダウンロードヒント、Windows パス互換など — **コミュニティの貢献歓迎**          | 貢献者募集中 |
-| **インフラ**             | QwenPaw OS 基盤                                                                              | 進行中       |
 | **モデル**               | マルチモデル切り替え                                                                         | 進行中       |
-|                          | Response API                                                                                 | 計画中       |
-| **ワークスペース**       | サブディレクトリ分割（設定・本番ファイルなど）                                               | 計画中       |
-| **Coding 能力**          | Claude Code など既存 Agent との互換                                                          | 計画中       |
-| **マルチエージェント**   | グループチャット                                                                             | 計画中       |
-|                          | Subagent の可視化                                                                            | 計画中       |
-|                          | HiClaw エンタープライズ機能                                                                  | 計画中       |
-| **コンテキスト管理**     | 個人ナレッジベース                                                                           | 進行中       |
-|                          | ユーザー選択による圧縮（細粒度制御）                                                         | 計画中       |
+| **Browser-use**          | Chrome 拡張機能のサポート                                                                    | 進行中       |
+| **長期記憶**             | 個人ナレッジベース                                                                           | 進行中       |
 | **QwenPaw アプリケーション** | QwenPaw Creator                                                                           | 進行中       |
 |                          | QwenPaw Insight                                                                              | 進行中       |
+| **マルチエージェント**   | Claude Code など既存 Agent との互換                                                          | 計画中       |
+|                          | グループチャット                                                                             | 計画中       |
+|                          | Subagent の可視化                                                                            | 計画中       |
 
 _状態説明：**進行中** — 積極的に開発中；**計画中** — キューまたは設計段階、貢献も歓迎；**貢献者募集中** — コミュニティの参加を強く推奨。_
 

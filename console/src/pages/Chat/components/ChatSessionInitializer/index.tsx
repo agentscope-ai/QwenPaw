@@ -71,6 +71,9 @@ const ChatSessionInitializer: React.FC = () => {
   const createNewSessionRef = useRef(createNewSession);
   createNewSessionRef.current = createNewSession;
 
+  /** AbortController for embedded session switch — aborted when a new switch starts. */
+  const switchControllerRef = useRef<AbortController | null>(null);
+
   /** Track the last chatId for which we called setCurrentSessionId, so that
    *  subsequent sessions array reference changes (from polling in pinned drawer)
    *  don't re-trigger setCurrentSessionId and cause infinite getSession loops. */
@@ -149,10 +152,16 @@ const ChatSessionInitializer: React.FC = () => {
       const matching = currentSessions.find((s) => s.id === sessionId);
 
       if (matching) {
+        // Abort any previous embedded switch
+        switchControllerRef.current?.abort();
+        const controller = new AbortController();
+        switchControllerRef.current = controller;
+
         sessionApi.isSessionSwitching = true;
         sessionApi
-          .preloadSession(sessionId)
+          .preloadSession(sessionId, controller.signal)
           .then(({ realId }) => {
+            if (controller.signal.aborted) return;
             const effectiveId = sessionApi.getEffectiveSessionId(
               sessionId,
               realId,
@@ -162,26 +171,17 @@ const ChatSessionInitializer: React.FC = () => {
             navigate(targetUrl, { replace: true });
             setCurrentSessionId(sessionId);
           })
-          .catch(() => {
+          .catch((err) => {
+            if (err?.name === "AbortError") return;
             setCurrentSessionId(sessionId);
           })
           .finally(() => {
-            sessionApi.finishSessionSwitch();
-            window.dispatchEvent(
-              new CustomEvent("qwenpaw:sidebar-switch-done"),
-            );
-            // Fallback: resolve after 2000ms to ensure finally() always runs
-            // even if rAF is dropped (background tab, fast re-clicks, etc.).
-            return new Promise<void>(() => {
-              requestAnimationFrame(() => {
-                requestAnimationFrame(() => {
-                  sessionApi.finishSessionSwitch();
-                });
-              });
-              setTimeout(() => {
-                sessionApi.finishSessionSwitch();
-              }, 2000);
-            });
+            if (!controller.signal.aborted) {
+              sessionApi.finishSessionSwitch();
+              window.dispatchEvent(
+                new CustomEvent("qwenpaw:sidebar-switch-done"),
+              );
+            }
           });
       }
     };
@@ -214,7 +214,6 @@ const ChatSessionInitializer: React.FC = () => {
       );
       window.removeEventListener("qwenpaw:sidebar-new-chat", handleNewChat);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [navigate, setCurrentSessionId]);
 
   return null;

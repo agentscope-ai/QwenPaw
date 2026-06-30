@@ -84,11 +84,37 @@ class TestModelListDisplay:
         else:
             logger.info("Server status card not found (may use different selector)")
 
-        # Step 4: Verify model list area exists
-        log_test_step("4. Verify model list area")
-        model_list = page.locator('[class*="modelList"], .qwenpaw-list, .qwenpaw-card').all()
-        assert len(model_list) > 0, "Models page should have at least one list or card element"
-        logger.info(f"Found {len(model_list)} model-related elements")
+        # Step 4: Verify Providers area is rendered
+        log_test_step("4. Verify Providers area")
+        providers_heading = page.locator('text="Providers"').first
+        try:
+            providers_heading.wait_for(state="visible", timeout=15000)
+            logger.info("Providers heading visible")
+        except Exception:
+            logger.info("Providers heading not visible within 15s")
+
+        provider_tiles = page.locator(
+            '[class*="providerCard"], [class*="providerCards"], '
+            '[class*="modelList"], .qwenpaw-list, .qwenpaw-card'
+        ).all()
+
+        page_text = page.locator("body").inner_text()
+        known_provider_hits = [
+            kw for kw in (
+                "DashScope", "Aliyun", "OpenCode", "Kilo Code",
+                "Add Provider", "Available Providers",
+            )
+            if kw in page_text
+        ]
+
+        assert len(provider_tiles) > 0 or known_provider_hits, (
+            "Models page should render provider tiles or known "
+            "provider names; saw neither"
+        )
+        logger.info(
+            f"Found {len(provider_tiles)} provider tile elements; "
+            f"keyword hits: {known_provider_hits}"
+        )
 
         # Step 5: Click a Provider card to verify interaction
         log_test_step("5. Click a Provider card to verify interaction")

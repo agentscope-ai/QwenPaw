@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 import sys
 import time
 
@@ -62,6 +63,18 @@ class LazyGroup(click.Group):
         super().__init__(*args, **kwargs)
         self.lazy_subcommands = lazy_subcommands or {}
 
+    def parse_args(self, ctx, args):
+        """Treat ``qwenpaw .`` as bare TUI launch with a project dir."""
+        args = list(args)
+        # Registered commands win; otherwise path-like first tokens launch TUI.
+        if (
+            args
+            and args[0] not in self.list_commands(ctx)
+            and _looks_like_project_path(args[0])
+        ):
+            ctx.meta["tui_project"] = args.pop(0)
+        return super().parse_args(ctx, args)
+
     def list_commands(self, ctx):
         """Return all command names (both eager and lazy)."""
         base = super().list_commands(ctx)
@@ -90,6 +103,17 @@ class LazyGroup(click.Group):
                 return None
 
         return None
+
+
+def _looks_like_project_path(value: str) -> bool:
+    """Return True for path-like CLI tokens intended for ``qwenpaw`` TUI."""
+    if not value or value.startswith("-"):
+        return False
+    if value in {".", ".."}:
+        return True
+    if "/" in value or "\\" in value:
+        return True
+    return Path(value).expanduser().is_dir()
 
 
 @click.group(
@@ -181,4 +205,4 @@ def cli(ctx: click.Context, host: str | None, port: int | None) -> None:
     if ctx.invoked_subcommand is None:
         from .tui.launch import run_tui
 
-        run_tui()
+        run_tui(project=ctx.meta.get("tui_project"))

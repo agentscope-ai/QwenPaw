@@ -52,6 +52,23 @@ qwenpaw app --log-level debug           # Verbose logging
 
 > **Note:** The `--workers` option is deprecated for stability reasons. QwenPaw is designed to run with a single worker process. Multi-worker mode can cause issues with in-memory state management and WebSocket connections. This option will be removed in a future version.
 
+### qwenpaw tui
+
+Open the bundled terminal chat UI. It runs QwenPaw through the current Python
+environment, so it is useful for development installs and shell-first
+workflows.
+
+```bash
+qwenpaw                         # Open the TUI with the active agent
+qwenpaw tui --agent writer      # Open the TUI with a specific agent
+qwenpaw .                       # Bind this TUI session to the current project
+qwenpaw tui /path/to/repo       # Bind this TUI session to another project
+```
+
+Passing a project directory enables Coding Mode for that TUI session and uses
+the directory as the active project. This is session-scoped; it does not write
+to `agent.json` or change the project selected in the Console.
+
 ### Console
 
 Once `qwenpaw app` is running, open `http://127.0.0.1:8088/` in your browser to

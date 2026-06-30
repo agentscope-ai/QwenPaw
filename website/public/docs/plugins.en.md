@@ -7,7 +7,7 @@ QwenPaw provides a plugin system that allows users to extend QwenPaw's functiona
 The plugin system supports the following extension capabilities:
 
 - **Provider Plugins**: Add new LLM providers and models
-- **Hook Plugins**: Execute custom code during application startup/shutdown
+- **Hook Plugins**: Execute custom code during application startup/shutdown (app lifespan level, runs once)
 - **Command Plugins**: Register custom `/command` magic commands
 - **HTTP API Plugins**: Expose custom REST endpoints under `/api` via a FastAPI `APIRouter`
 - **Frontend Extension Plugins**: Browser-side JS plugins that share the host's React / Ant Design runtime and declaratively extend the UI via `window.QwenPaw.*` API — register sidebar menus, page routes, UI slots, chat customizations, and more without modifying host code
@@ -121,14 +121,14 @@ my-plugin/
 
 #### `type` values
 
-| Value      | When to use                                                           |
-| ---------- | --------------------------------------------------------------------- |
-| `tool`     | Registers one or more agent tools (functions the LLM can call).       |
-| `provider` | Registers a custom LLM provider / model endpoint.                     |
-| `hook`     | Runs code during application startup or shutdown.                     |
-| `command`  | Registers one or more `/slash` control commands.                      |
-| `frontend` | Ships a frontend JS bundle loaded dynamically by the UI.              |
-| `general`  | Fallback for plugins that combine multiple capabilities or don't fit. |
+| Value      | When to use                                                            |
+| ---------- | ---------------------------------------------------------------------- |
+| `tool`     | Registers one or more agent tools (functions the LLM can call).        |
+| `provider` | Registers a custom LLM provider / model endpoint.                      |
+| `hook`     | Runs code during application startup or shutdown (app lifespan level). |
+| `command`  | Registers one or more `/slash` control commands.                       |
+| `frontend` | Ships a frontend JS bundle loaded dynamically by the UI.               |
+| `general`  | Fallback for plugins that combine multiple capabilities or don't fit.  |
 
 #### plugin.py
 
@@ -760,7 +760,6 @@ class MyLLMProviderPlugin:
             provider_class=MyLLMProvider,
             label="My LLM",
             base_url="https://api.example.com/v1",
-            metadata={},
         )
 
         logger.info("✓ My LLM Provider registered")
@@ -899,37 +898,7 @@ cd status-command
 }
 ```
 
-#### 3. Create query_rewriter.py
-
-```python
-# -*- coding: utf-8 -*-
-"""Query rewriter for status command."""
-
-
-class StatusQueryRewriter:
-    """Rewrite /status queries to agent prompts."""
-
-    @staticmethod
-    def should_rewrite(query: str) -> bool:
-        """Check if query should be rewritten."""
-        if not query:
-            return False
-        return query.strip().lower().startswith("/status")
-
-    @staticmethod
-    def rewrite(query: str) -> str:
-        """Rewrite /status query to agent prompt."""
-        return """Please check the system status, including:
-
-1. Current model and provider
-2. Memory usage
-3. Recent conversation count
-4. Plugin loading status
-
-Please present this information in a clear format."""
-```
-
-#### 4. Create plugin.py
+#### 3. Create plugin.py
 
 ```python
 # -*- coding: utf-8 -*-
@@ -946,68 +915,35 @@ class StatusCommandPlugin:
     """Status Command Plugin."""
 
     def register(self, api: PluginApi):
-        """Register the status command.
-
-        Args:
-            api: PluginApi instance
-        """
-        logger.info("Registering status command...")
-
-        # Register startup hook to patch query handler
-        api.register_startup_hook(
-            hook_name="status_query_rewriter",
-            callback=self._patch_query_handler,
-            priority=50,
+        """Register the status command."""
+        from qwenpaw.runtime.commands.control.base import (
+            BaseControlCommandHandler,
         )
 
+        class StatusCommandHandler(BaseControlCommandHandler):
+            command_name = "status"
+            help_text = "Check system status"
+
+            async def handle(self, ctx, args: str):
+                from agentscope.message import Msg
+                return Msg(
+                    name="system",
+                    role="assistant",
+                    content="System is running normally.",
+                )
+
+        api.register_control_command(
+            handler=StatusCommandHandler(),
+            priority_level=10,
+        )
         logger.info("✓ Status command registered: /status")
-
-    def _patch_query_handler(self):
-        """Patch AgentRunner.query_handler to rewrite /status queries."""
-        from qwenpaw.app.runner.runner import AgentRunner
-        from .query_rewriter import StatusQueryRewriter
-
-        original_query_handler = AgentRunner.query_handler
-
-        async def patched_query_handler(self, msgs, request=None, **kwargs):
-            """Patched query handler."""
-            if msgs and len(msgs) > 0:
-                last_msg = msgs[-1]
-                if hasattr(last_msg, 'content'):
-                    content_list = (
-                        last_msg.content
-                        if isinstance(last_msg.content, list)
-                        else [last_msg.content]
-                    )
-                    for content_item in content_list:
-                        if (
-                            isinstance(content_item, dict)
-                            and content_item.get('type') == 'text'
-                        ):
-                            text = content_item.get('text', '')
-                            if StatusQueryRewriter.should_rewrite(text):
-                                rewritten = StatusQueryRewriter.rewrite(text)
-                                logger.info("Rewriting /status query")
-                                content_item['text'] = rewritten
-                                break
-
-            async for result in original_query_handler(
-                self,
-                msgs,
-                request,
-                **kwargs,
-            ):
-                yield result
-
-        AgentRunner.query_handler = patched_query_handler
-        logger.info("✓ Patched AgentRunner.query_handler for /status")
 
 
 # Export plugin instance
 plugin = StatusCommandPlugin()
 ```
 
-#### 5. Install and Use
+#### 4. Install and Use
 
 ```bash
 qwenpaw plugin install status-command
@@ -1423,8 +1359,8 @@ api.register_startup_hook("late", callback, priority=200)
 ### Command Not Responding
 
 1. Confirm plugin is installed
-2. Check if startup hook executed successfully
-3. Review patch information in logs
+2. Check if the command handler was registered successfully in logs
+3. Verify the command name matches (e.g. `/status`)
 
 ## Security Considerations
 
@@ -1441,11 +1377,11 @@ Register a custom LLM provider.
 
 ```python
 api.register_provider(
-    provider_id: str,          # Unique provider identifier
-    provider_class: Type,      # Provider class
-    label: str,                # Display name
-    base_url: str,             # API base URL
-    metadata: Dict[str, Any],  # Additional metadata
+    provider_id: str,              # Unique provider identifier (required)
+    provider_class: Type,          # Provider class (required)
+    label: str = "",               # Display name (optional, defaults to provider_id)
+    base_url: str = "",            # API base URL (optional)
+    **metadata,                    # Additional keyword args (chat_model, require_api_key, etc.)
 )
 ```
 
@@ -1489,28 +1425,91 @@ api.register_http_router(
 See [Example 7](#example-7-expose-a-fastapi-endpoint) for a full
 walkthrough.
 
-## Advanced Features
+### register_control_command
 
-### Monkey Patching
-
-For plugins that need to modify QwenPaw behavior (like custom commands), you can use monkey patching:
+Register a custom `/slash` control command.
 
 ```python
-def _patch_query_handler(self):
-    """Patch AgentRunner to intercept queries."""
-    from qwenpaw.app.runner.runner import AgentRunner
+api.register_control_command(
+    handler: BaseControlCommandHandler,  # Command handler instance
+    priority_level: int = 10,            # Command priority (default: 10)
+)
+```
 
-    original_handler = AgentRunner.query_handler
+The handler must inherit from `qwenpaw.runtime.commands.control.base.BaseControlCommandHandler` and implement `command_name`, `help_text`, and `async handle(self, ctx, args)`.
 
-    async def patched_handler(self, msgs, request=None, **kwargs):
-        # Your custom logic
-        # Modify msgs or add extra processing
+### register_tool
 
-        # Call original handler
-        async for result in original_handler(self, msgs, request, **kwargs):
-            yield result
+Register a tool function into the Agent's toolkit.
 
-    AgentRunner.query_handler = patched_handler
+```python
+api.register_tool(
+    tool_name: str,          # Unique tool function name
+    tool_func: Callable,     # The tool callable to register
+    description: str = "",   # Human-readable description shown in the UI
+    icon: str = "🔧",        # Display icon (emoji string)
+    enabled: bool = False,   # Whether the tool is enabled by default
+)
+```
+
+### register_uninstall_hook
+
+Register a hook that runs only when the plugin is explicitly uninstalled.
+
+```python
+api.register_uninstall_hook(
+    hook_name: str,      # Hook name
+    callback: Callable,  # Callback function
+    priority: int = 100, # Priority (lower = earlier)
+)
+```
+
+### register_workspace_created_hook
+
+Register a hook that fires when a new workspace is created.
+
+```python
+api.register_workspace_created_hook(
+    hook_name: str,      # Hook name
+    callback: Callable,  # Callback: (workspace_info: dict) -> None
+    priority: int = 100, # Priority (lower = earlier)
+)
+```
+
+### get_tool_config / set_tool_config
+
+Get or save per-agent tool configuration.
+
+```python
+config = api.get_tool_config(tool_name: str, agent_id: str)  # Returns dict
+api.set_tool_config(tool_name: str, agent_id: str, config: dict)
+```
+
+## Advanced Features
+
+### Custom Commands
+
+In 2.0, the recommended way to add custom `/slash` commands is via `api.register_control_command()`. This replaces the old monkey patching approach:
+
+```python
+from qwenpaw.runtime.commands.control.base import BaseControlCommandHandler
+
+class MyCommandHandler(BaseControlCommandHandler):
+    command_name = "mycommand"
+    help_text = "Description of my command"
+
+    async def handle(self, ctx, args: str):
+        from agentscope.message import Msg
+        return Msg(
+            name="system",
+            role="assistant",
+            content="Command result here.",
+        )
+
+api.register_control_command(
+    handler=MyCommandHandler(),
+    priority_level=10,
+)
 ```
 
 ### Access Runtime Information
@@ -1553,7 +1552,7 @@ A: Plugins access core functionality through `PluginApi`, including:
 
 ### Q: Can plugins modify QwenPaw's core behavior?
 
-A: Yes, through monkey patching or hook mechanisms. But use with caution to avoid breaking core functionality.
+A: Yes, through `register_control_command`, `register_tool`, runtime hooks, and other PluginApi methods. Use with caution to avoid breaking core functionality.
 
 ### Q: Will plugins conflict with each other?
 

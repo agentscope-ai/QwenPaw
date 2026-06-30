@@ -21,6 +21,7 @@ export interface PushMessage {
     | "telegram"
     | "discord"
     | "email"
+    | "memory"
     | "heartbeat";
   channelName: string;
   title: string;

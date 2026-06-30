@@ -1,6 +1,7 @@
 import type {
   MCPAccessEffect,
   MCPAccessPolicy,
+  MCPAccessPrincipalOption,
   MCPAccessRule,
   MCPAccessSourceType,
   MCPAccessSubjectType,
@@ -26,7 +27,23 @@ type RuleIdentity = Pick<
 
 type ToolRuleIdentity = RuleIdentity & Pick<MCPToolAccessOverride, "tool_name">;
 
+const DEFAULT_ACCESS_SOURCE_TYPE: MCPAccessSourceType = "channel";
 const DEFAULT_CHANNEL_SOURCE = "console";
+
+export interface MCPAccessPolicyValidationError {
+  reason: "missingUserValue" | "ambiguousUserSource";
+  rule: MCPAccessRule | MCPToolAccessOverride;
+}
+
+export interface MCPAccessPolicyValidationWarning {
+  reason: "unknownUserValue";
+  rule: MCPAccessRule | MCPToolAccessOverride;
+}
+
+export interface MCPSubjectValueOption {
+  label: string;
+  value: string;
+}
 
 export const MCP_CHANNEL_SOURCE_VALUES = [
   "console",
@@ -254,6 +271,148 @@ export function removeToolRule(
   };
 }
 
+export function applyPrincipalOptionToRule(
+  principal: MCPAccessPrincipalOption,
+): Pick<
+  MCPAccessRule,
+  "source_type" | "source_value" | "subject_type" | "subject_value"
+> {
+  return {
+    source_type: principal.source_type,
+    source_value: principal.source_value,
+    subject_type: principal.subject_type,
+    subject_value: principal.subject_value,
+  };
+}
+
+export function filterPrincipalOptionsForRule(
+  principals: MCPAccessPrincipalOption[],
+  rule: MCPAccessRule,
+): MCPAccessPrincipalOption[] {
+  const sourceType = normalizeSourceType(rule.source_type);
+  const sourceValue = normalizeSourceValue(rule.source_value);
+  if (isWildcardSourceValue(sourceValue)) {
+    return [];
+  }
+
+  const bySubjectValue = new Map<string, MCPAccessPrincipalOption>();
+  principals.forEach((principal) => {
+    if (
+      normalizeSourceType(principal.source_type) !== sourceType ||
+      normalizeSourceValue(principal.source_value) !== sourceValue
+    ) {
+      return;
+    }
+    const subjectValue = (principal.subject_value || "").trim();
+    if (!subjectValue || bySubjectValue.has(subjectValue)) {
+      return;
+    }
+    bySubjectValue.set(subjectValue, principal);
+  });
+  return Array.from(bySubjectValue.values());
+}
+
+export function buildSubjectValueOptions(
+  principals: MCPAccessPrincipalOption[],
+  rule: MCPAccessRule,
+): MCPSubjectValueOption[] {
+  return filterPrincipalOptionsForRule(principals, rule).map((principal) => ({
+    label: principal.subject_value,
+    value: principal.subject_value,
+  }));
+}
+
+export function ruleHasAmbiguousUserSource(rule: MCPAccessRule): boolean {
+  return (
+    normalizeSourceType(rule.source_type) === "channel" &&
+    isWildcardSourceValue(rule.source_value) &&
+    normalizeSubjectType(rule.subject_type) === "user" &&
+    Boolean((rule.subject_value || "").trim())
+  );
+}
+
+export function ruleHasUnknownUserValue(
+  principals: MCPAccessPrincipalOption[],
+  rule: MCPAccessRule,
+): boolean {
+  const normalized = normalizeMCPAccessRule(rule);
+  return (
+    normalized.subject_type === "user" &&
+    Boolean(normalized.subject_value) &&
+    normalized.subject_value !== "*" &&
+    principalOptionsCoverSourceType(principals, normalized.source_type) &&
+    !ruleHasAmbiguousUserSource(normalized) &&
+    !filterPrincipalOptionsForRule(principals, normalized).some(
+      (principal) => principal.subject_value === normalized.subject_value,
+    )
+  );
+}
+
+export function sourceScopedSubjectPlaceholder(rule: MCPAccessRule): string {
+  const sourceValue = normalizeSourceValue(rule.source_value);
+  if (
+    normalizeSourceType(rule.source_type) !== "channel" ||
+    isWildcardSourceValue(sourceValue)
+  ) {
+    return "user ID in selected source";
+  }
+  return `${sourceValue} user ID`;
+}
+
+export function validateMCPAccessPolicy(
+  policy: MCPAccessPolicy,
+): MCPAccessPolicyValidationError | null {
+  const rules: Array<MCPAccessRule | MCPToolAccessOverride> = [
+    ...(policy.client_overrides || []),
+    ...(policy.tool_overrides || []),
+  ];
+  for (const rule of rules) {
+    const normalized = normalizeMCPAccessRule(rule);
+    if (normalized.subject_type !== "user") {
+      continue;
+    }
+    if (
+      !normalized.subject_value ||
+      normalized.subject_value === "*" ||
+      !normalized.source_value
+    ) {
+      return { reason: "missingUserValue", rule };
+    }
+    if (ruleHasAmbiguousUserSource(normalized)) {
+      return { reason: "ambiguousUserSource", rule };
+    }
+  }
+  return null;
+}
+
+export function findMCPAccessPolicyWarning(
+  policy: MCPAccessPolicy,
+  principals: MCPAccessPrincipalOption[] = [],
+): MCPAccessPolicyValidationWarning | null {
+  const rules: Array<MCPAccessRule | MCPToolAccessOverride> = [
+    ...(policy.client_overrides || []),
+    ...(policy.tool_overrides || []),
+  ];
+  for (const rule of rules) {
+    if (ruleHasUnknownUserValue(principals, rule)) {
+      return { reason: "unknownUserValue", rule };
+    }
+  }
+  return null;
+}
+
+function principalOptionsCoverSourceType(
+  principals: MCPAccessPrincipalOption[],
+  sourceType: MCPAccessSourceType,
+): boolean {
+  return (
+    sourceType === DEFAULT_ACCESS_SOURCE_TYPE ||
+    principals.some(
+      (principal) => normalizeSourceType(principal.source_type) === sourceType,
+    )
+  );
+}
+
 export function accessRuleIdentityKey(rule: RuleIdentity): string {
   const normalized = normalizeAccessRuleIdentity(rule);
   return [
@@ -327,6 +486,11 @@ function nextDefaultSourceValue(
 function normalizeSourceValue(sourceValue: string): string {
   const trimmed = (sourceValue || "").trim();
   return trimmed;
+}
+
+function isWildcardSourceValue(sourceValue: string): boolean {
+  const normalized = normalizeSourceValue(sourceValue);
+  return normalized === "" || normalized === "*";
 }
 
 function normalizeSourceType(

@@ -65,6 +65,7 @@ class OneBotChannel(BaseChannel):
         on_reply_sent: OnReplySent = None,
         show_tool_details: bool = True,
         filter_tool_messages: bool = False,
+        no_text_debounce: bool = True,
         filter_thinking: bool = False,
         dm_policy: str = "open",
         group_policy: str = "open",
@@ -80,6 +81,7 @@ class OneBotChannel(BaseChannel):
             on_reply_sent=on_reply_sent,
             show_tool_details=show_tool_details,
             filter_tool_messages=filter_tool_messages,
+            no_text_debounce=no_text_debounce,
             filter_thinking=filter_thinking,
             dm_policy=dm_policy,
             group_policy=group_policy,
@@ -153,6 +155,7 @@ class OneBotChannel(BaseChannel):
         on_reply_sent: OnReplySent = None,
         show_tool_details: bool = True,
         filter_tool_messages: bool = False,
+        no_text_debounce: bool = True,
         filter_thinking: bool = False,
     ) -> "OneBotChannel":
         return cls(
@@ -165,6 +168,7 @@ class OneBotChannel(BaseChannel):
             on_reply_sent=on_reply_sent,
             show_tool_details=show_tool_details,
             filter_tool_messages=filter_tool_messages,
+            no_text_debounce=no_text_debounce,
             filter_thinking=filter_thinking,
             dm_policy=config.dm_policy,
             group_policy=config.group_policy,
@@ -672,31 +676,6 @@ class OneBotChannel(BaseChannel):
                 resolved.append(part)
 
         return resolved
-
-    # ------------------------------------------------------------------
-    # Debounce override: process media-only messages immediately
-    # ------------------------------------------------------------------
-
-    def _apply_no_text_debounce(
-        self,
-        session_id: str,
-        content_parts: list,
-    ) -> tuple[bool, list]:
-        """Process media-only messages without waiting for text.
-
-        Same approach as TelegramChannel: if the message contains any
-        media (image, audio, video, file), process it immediately
-        instead of buffering until a text message arrives.
-        """
-        has_media = any(
-            getattr(part, "type", None)
-            not in (ContentType.TEXT, ContentType.REFUSAL)
-            for part in content_parts
-        )
-        if has_media:
-            pending = self._pending_content_by_session.pop(session_id, [])
-            return True, pending + list(content_parts)
-        return super()._apply_no_text_debounce(session_id, content_parts)
 
     # ------------------------------------------------------------------
     # Build AgentRequest

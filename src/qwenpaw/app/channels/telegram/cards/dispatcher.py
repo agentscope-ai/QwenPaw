@@ -100,16 +100,11 @@ class TelegramCardHandler:
         to_handle: str,
         event: Any,
         send_meta: Dict[str, Any],
-        *,
-        compact: bool = False,
     ) -> bool:
         """Render ``event`` as an inline keyboard card if any kind matches.
 
         Returns ``True`` when a card was sent so the caller can skip
         the default text rendering.
-
-        When ``compact=True`` (streaming mode), the render function
-        produces a minimal card (buttons only, no body text).
         """
         meta = context.extract_meta(event)
         if meta is None:
@@ -125,7 +120,6 @@ class TelegramCardHandler:
                 event,
                 send_meta,
                 meta,
-                compact=compact,
             )
         except Exception:
             logger.exception(
@@ -152,14 +146,6 @@ class TelegramCardHandler:
                 "telegram card handle failed: kind=%s",
                 kind.name,
             )
-
-    def is_card_event(self, event: Any) -> bool:
-        """Check if the event matches a registered interactive card kind."""
-        meta = context.extract_meta(event)
-        if meta is None:
-            return False
-        message_type = str(meta.get("message_type") or "")
-        return message_type in self._by_message_type
 
     def _lookup_kind_for_callback(
         self,

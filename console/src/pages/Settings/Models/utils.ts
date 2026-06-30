@@ -9,6 +9,10 @@ export function getIsConfigured(provider: ProviderInfo): boolean {
   return false;
 }
 
+export function countConfiguredProviders(providers: ProviderInfo[]): number {
+  return providers.filter(getIsConfigured).length;
+}
+
 export interface ProviderGroup {
   groupKey: string;
   groupName: string;

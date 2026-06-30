@@ -5,7 +5,7 @@
 [![GitHub 仓库](https://img.shields.io/badge/GitHub-仓库-black.svg?logo=github)](https://github.com/agentscope-ai/QwenPaw)
 [![PyPI](https://img.shields.io/pypi/v/qwenpaw?color=3775A9&label=PyPI&logo=pypi)](https://pypi.org/project/qwenpaw/)
 [![文档](https://img.shields.io/badge/文档-在线-green.svg?logo=readthedocs&label=Docs)](https://qwenpaw.agentscope.io/)
-[![Python 版本](https://img.shields.io/badge/python-3.10%20~%20%3C3.14-blue.svg?logo=python&label=Python)](https://www.python.org/downloads/)
+[![Python 版本](https://img.shields.io/badge/python-3.11%20~%20%3C3.14-blue.svg?logo=python&label=Python)](https://www.python.org/downloads/)
 [![最后提交](https://img.shields.io/github/last-commit/agentscope-ai/QwenPaw)](https://github.com/agentscope-ai/QwenPaw)
 [![许可证](https://img.shields.io/badge/license-Apache%202.0-red.svg?logo=apache&label=%E8%AE%B8%E5%8F%AF%E8%AF%81)](LICENSE)
 [![代码风格](https://img.shields.io/badge/code%20style-black-black.svg?logo=python&label=%E4%BB%A3%E7%A0%81%E9%A3%8E%E6%A0%BC)](https://github.com/psf/black)
@@ -16,6 +16,8 @@
 [![X](https://img.shields.io/badge/X-Follow_Us-black.svg?logo=x)](https://x.com/agentscope_ai)
 [![钉钉群](https://img.shields.io/badge/DingTalk-Join_Us-orange.svg)](https://qr.dingtalk.com/action/joingroup?code=v1,k1,OmDlBXpjW+I2vWjKDsjvI9dhcXjGZi3bQiojOq3dlDw=&_dt_no_comment=1&origin=11)
 [![AgentScope 体验平台](https://img.shields.io/badge/%E2%98%81_AgentScope_Platform-%F0%9F%90%BE_7%2F24_Online_%26_Free-FF6B2B.svg)](https://platform.agentscope.io/)
+
+<a href="https://trendshift.io/repositories/25882" target="_blank"><img src="https://trendshift.io/api/badge/trendshift/repositories/25882/daily" alt="agentscope-ai%2FQwenPaw | Trendshift" style="width: 250px; height: 55px;" width="250" height="55"/></a>
 
 [[文档](https://qwenpaw.agentscope.io/)] [[English](README.md)] [[日本語](README_ja.md)] [[Русский](README_ru.md)]
 
@@ -122,7 +124,7 @@
 
 ### 方式一：pip 安装
 
-如果你习惯自行管理 Python 环境：
+如果你习惯自行管理 Python 环境（需 Python >= 3.11, < 3.14）：
 
 ```bash
 pip install qwenpaw
@@ -397,6 +399,22 @@ docker run -p 127.0.0.1:8088:8088 \
 
 ---
 
+## 终端界面（TUI）
+
+更喜欢待在终端里？运行 `qwenpaw` 即可打开一个全屏聊天 **TUI**，它驱动的是与控制台、IM 频道**完全相同**的智能体——同一份记忆、技能、MCP 工具与会话——无需离开键盘。
+
+```bash
+qwenpaw                     # 与当前激活的智能体开启对话
+qwenpaw tui --resume <id>   # 恢复之前的某个会话
+qwenpaw .                   # 在当前代码仓库中启动（Coding 模式）
+```
+
+支持流式回复、斜杠命令（`/help`、`/resume`、`/theme`，以及智能体自身的 `/model`、`/clear` 等）、把文件 / 长文本作为附件粘贴，以及行内工具授权提示。详见[终端界面指南](https://qwenpaw.agentscope.io/docs/tui)。
+
+![QwenPaw 终端界面](https://img.alicdn.com/imgextra/i2/O1CN01IULzib1TRAzigIcqG_!!6000000002378-2-tps-2350-1312.png)
+
+---
+
 ## API Key
 
 若使用**云端大模型 API**（如通义千问、Gemini、OpenAI），在开始对话前必须配置 API Key。未配置有效 Key 前，QwenPaw 无法正常工作。详情请参考[官方文档](https://qwenpaw.agentscope.io/docs/models)。
@@ -433,6 +451,7 @@ QwenPaw 可在本机完全本地运行大模型，无需 API Key 或云端服务
 | [项目介绍](https://qwenpaw.agentscope.io/docs/intro)        | QwenPaw 是什么、怎么用                 |
 | [快速开始](https://qwenpaw.agentscope.io/docs/quickstart)   | 安装与运行（本地或魔搭创空间）       |
 | [控制台](https://qwenpaw.agentscope.io/docs/console)        | Web 界面：对话、配置与定时任务       |
+| [终端界面（TUI）](https://qwenpaw.agentscope.io/docs/tui)   | 终端全屏对话，与控制台共用同一智能体 |
 | [模型](https://qwenpaw.agentscope.io/docs/models)           | 配置云/本地/自定义提供商             |
 | [频道配置](https://qwenpaw.agentscope.io/docs/channels)     | 钉钉、飞书、微信、Discord、Telegram 等 |
 | [Skills](https://qwenpaw.agentscope.io/docs/skills)         | 扩展与自定义能力                     |
@@ -489,18 +508,14 @@ QwenPaw 内置多层安全防护机制，保障你的数据与系统安全：
 | ------------------------ | ----------------------------------------------------------------------------------------- | ------ |
 | **横向拓展**             | 更多频道、模型、技能、MCP 等 — **欢迎社区贡献**                                           | 征集中 |
 | **已有功能扩展与完善**   | 展示优化、下载提示、Windows 路径兼容等 — **欢迎社区贡献**                                 | 征集中 |
-| **基础设施**             | QwenPaw OS 基础                                                                           | 进行中 |
 | **模型**                 | 多模型切换                                                                                | 进行中 |
-|                          | Response API                                                                              | 计划中 |
-| **工作区**               | 子目录划分（配置、生产文件等）                                                            | 计划中 |
-| **Coding 能力**          | 兼容 Claude Code 等既有 Agent                                                             | 计划中 |
-| **多智能体**             | 群聊                                                                                      | 计划中 |
-|                          | Subagent 可视化                                                                           | 计划中 |
-|                          | HiClaw 企业级能力                                                                         | 计划中 |
-| **上下文管理**           | 个人知识库                                                                                | 进行中 |
-|                          | 用户可选压缩（细粒度控制）                                                                | 计划中 |
+| **Browser-use**          | 支持 Chrome 扩展                                                                          | 进行中 |
+| **长期记忆**             | 个人知识库                                                                                | 进行中 |
 | **QwenPaw 应用**         | QwenPaw Creator                                                                           | 进行中 |
 |                          | QwenPaw Insight                                                                           | 进行中 |
+| **多智能体**             | 兼容 Claude Code 等既有 Agent                                                             | 计划中 |
+|                          | 群聊                                                                                      | 计划中 |
+|                          | Subagent 可视化                                                                           | 计划中 |
 
 _状态说明：**进行中** — 正在积极开发；**计划中** — 已排队或设计中，也欢迎贡献；**征集中** — 我们强烈鼓励社区参与。_
 

@@ -54,6 +54,7 @@ class MQTTChannel(BaseChannel):
         on_reply_sent: OnReplySent = None,
         show_tool_details: bool = True,
         filter_tool_messages: bool = False,
+        no_text_debounce: bool = True,
         filter_thinking: bool = False,
         access_control_dm: bool = False,
         access_control_group: bool = False,
@@ -63,6 +64,7 @@ class MQTTChannel(BaseChannel):
             on_reply_sent=on_reply_sent,
             show_tool_details=show_tool_details,
             filter_tool_messages=filter_tool_messages,
+            no_text_debounce=no_text_debounce,
             filter_thinking=filter_thinking,
             access_control_dm=access_control_dm,
             access_control_group=access_control_group,
@@ -130,6 +132,7 @@ class MQTTChannel(BaseChannel):
         on_reply_sent: OnReplySent = None,
         show_tool_details: bool = True,
         filter_tool_messages: bool = False,
+        no_text_debounce: bool = True,
         filter_thinking: bool = False,
     ) -> "MQTTChannel":
         if isinstance(config, dict):
@@ -168,6 +171,7 @@ class MQTTChannel(BaseChannel):
                 on_reply_sent=on_reply_sent,
                 show_tool_details=show_tool_details,
                 filter_thinking=filter_thinking,
+                no_text_debounce=no_text_debounce,
                 access_control_dm=bool(
                     config.get("access_control_dm", False),
                 ),
@@ -200,6 +204,7 @@ class MQTTChannel(BaseChannel):
             on_reply_sent=on_reply_sent,
             show_tool_details=show_tool_details,
             filter_tool_messages=filter_tool_messages,
+            no_text_debounce=no_text_debounce,
             filter_thinking=filter_thinking,
             access_control_dm=bool(
                 getattr(config, "access_control_dm", False),

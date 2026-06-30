@@ -10,7 +10,6 @@ export interface ContextCompactConfig {
   enabled: boolean;
   compact_threshold_ratio: number;
   reserve_threshold_ratio: number;
-  compact_with_thinking_block: boolean;
 }
 
 export interface ToolResultPruningConfig {
@@ -23,7 +22,10 @@ export interface ToolResultPruningConfig {
   exempt_tool_names: string[];
 }
 
+export type ContextStrategy = "native" | "scroll";
+
 export interface LightContextConfig {
+  strategy: ContextStrategy;
   dialog_path: string;
   token_count_estimate_divisor: number;
   context_compact_config: ContextCompactConfig;
@@ -33,7 +35,7 @@ export interface LightContextConfig {
 export interface AutoMemorySearchConfig {
   enabled: boolean;
   max_results: number;
-  min_score: number;
+  persist_to_context: boolean;
 }
 
 export interface EmbeddingModelConfig {
@@ -56,7 +58,7 @@ export interface ReMeLightMemoryConfig {
   auto_memory_search_config: AutoMemorySearchConfig;
   embedding_model_config: EmbeddingModelConfig;
   rebuild_memory_index_on_start: boolean;
-  recursive_file_watcher: boolean;
+  enable_search_raw_log: boolean;
 }
 
 export interface AutoTitleConfig {
