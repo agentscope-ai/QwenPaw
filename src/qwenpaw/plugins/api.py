@@ -733,49 +733,6 @@ class PluginApi:
                 f"(priority={priority})",
             )
 
-    def register_tool_call_observer(
-        self,
-        observer: Callable,
-        *,
-        name: str = "",
-    ) -> None:
-        """Register an observer called after every tool call.
-
-        Unlike per-tool hooks, this observer fires for ALL tool
-        calls. It receives tool_name, args, result, and history.
-
-        Args:
-            observer: Async callable
-                ``(tool_name, args, result, history) -> Signal``.
-            name: Human-readable name for debugging.
-        """
-        from dataclasses import dataclass
-
-        @dataclass
-        class _ObserverReg:
-            plugin_id: str
-            observer: object
-            name: str = ""
-
-        reg = _ObserverReg(
-            plugin_id=self.plugin_id,
-            observer=observer,
-            name=name or f"{self.plugin_id}_observer",
-        )
-
-        def _register():
-            self._register_observer_to_coordinator(reg)
-
-        self.register_startup_hook(
-            hook_name=(f"observer_{self.plugin_id}_{reg.name}"),
-            callback=_register,
-            priority=75,
-        )
-        logger.info(
-            f"Plugin '{self.plugin_id}' scheduled tool call "
-            f"observer '{reg.name}'",
-        )
-
     # ================================================================
     # Internal helpers for workspace registration
     # ================================================================
@@ -919,35 +876,6 @@ class PluginApi:
         if not hasattr(ws.plugins, "stop_handlers"):
             ws.plugins.stop_handlers = []
         ws.plugins.stop_handlers.append(reg)
-
-    def _register_observer_to_coordinator(self, reg):
-        """Register tool call observer to the coordinator."""
-        try:
-            from .registry import PluginRegistry
-
-            registry = PluginRegistry()
-            mgr = registry.get_workspace_manager()
-            if mgr is None:
-                return
-            app_services = getattr(mgr, "app_services", None)
-            if app_services is None:
-                return
-            coordinator = getattr(
-                app_services,
-                "tool_coordinator",
-                None,
-            )
-            if coordinator is None:
-                return
-            if not hasattr(coordinator, "_observers"):
-                coordinator._observers = []  # pylint: disable=protected-access
-            coordinator._observers.append(  # pylint: disable=protected-access
-                reg,
-            )
-        except Exception as exc:
-            logger.warning(
-                f"Failed to register observer: {exc}",
-            )
 
     # ================================================================
     # End Loop Engineering

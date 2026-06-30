@@ -650,46 +650,8 @@ class ToolCoordinator:
             entry.end_state = (
                 "interrupted" if entry.ctx.cancel_event.is_set() else "success"
             )
-        self._broadcast_observers(entry)
         self._entries.pop(entry.ctx.tool_call_id, None)
         return entry.final_response
-
-    def _broadcast_observers(
-        self,
-        entry: ToolCallEntry,
-    ) -> None:
-        """Notify registered tool call observers.
-
-        Awaits each observer and processes any returned signal.
-        """
-        observers: list = getattr(self, "_observers", [])
-        if not observers:
-            return
-        tool_name = entry.ctx.tool_name
-        args = entry.ctx.tool_input or {}
-        result = entry.final_response
-        for reg in observers:
-            try:
-                coro = reg.observer(
-                    tool_name,
-                    args,
-                    result,
-                    [],
-                )
-                if asyncio.iscoroutine(coro):
-                    future = asyncio.ensure_future(coro)
-
-                    def _cb(  # type: ignore[no-untyped-def]
-                        f: asyncio.Future,  # type: ignore[type-arg]
-                        r: Any = reg,
-                    ) -> None:
-                        _handle_observer_signal(f, r)
-
-                    future.add_done_callback(_cb)
-            except Exception as exc:
-                logger.debug(
-                    f"observer {reg.name} error: {exc}",
-                )
 
     def _resolve_timeout(
         self,
@@ -709,27 +671,6 @@ class ToolCoordinator:
         if hook.default_timeout_secs is not None:
             return hook.default_timeout_secs
         return self._default_timeout
-
-
-def _handle_observer_signal(
-    future: asyncio.Future,
-    reg: Any,
-) -> None:
-    """Process signal returned by a tool call observer."""
-    try:
-        signal = future.result()
-    except Exception as exc:
-        logger.debug(
-            f"observer {reg.name} raised: {exc}",
-        )
-        return
-    if signal is None:
-        return
-    signal_str = str(signal)
-    if "escalate" in signal_str or "force_stop" in signal_str:
-        logger.warning(
-            f"Observer '{reg.name}' emitted signal: " f"{signal_str}",
-        )
 
 
 def _parse_tool_input(tool_call: Any) -> dict[str, Any]:

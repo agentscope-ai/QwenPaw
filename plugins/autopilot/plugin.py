@@ -1,53 +1,102 @@
 # -*- coding: utf-8 -*-
-"""Autopilot — Multi-Phase Autonomous Execution plugin."""
-from qwenpaw.loop.base_plugin import BaseLoopPlugin
+"""Autopilot — Autonomous Execution Loop plugin.
+
+Registers a StopGate that keeps the agent freely executing
+until the task is complete or budget is exhausted.
+"""
+from qwenpaw.loop.gates import (
+    StopAction,
+    StopGate,
+    StopHandlerResult,
+)
 
 
-class AutopilotPlugin(BaseLoopPlugin):
-    """Autopilot multi-phase execution loop."""
+class AutopilotGate(StopGate):
+    """Gate: continue until task is done or budget hit."""
 
-    LOOP_SKILL_CONFIG = {
-        "name": "autopilot",
-        "slash_command": "autopilot",
-        "description": (
-            "Multi-phase autonomous execution — "
-            "plan, execute, QA, validate."
-        ),
-        "skill_prompt": "",
-        "rubric": {
-            "mode": "hard_check",
-            "check_expression": "phase === 'complete'",
-            "continuation_prompt": (
-                "Autopilot is not complete. Current "
-                "phase: {phase}. Continue to the "
-                "next phase."
+    _MAX_ITERATIONS = 50
+
+    def __init__(self) -> None:
+        self._iteration = 0
+        self._active = False
+
+    @property
+    def name(self) -> str:
+        return "autopilot"
+
+    @property
+    def priority(self) -> int:
+        return 100
+
+    def activate(self) -> None:
+        """Activate the autopilot loop."""
+        self._active = True
+        self._iteration = 0
+
+    def deactivate(self) -> None:
+        """Deactivate the autopilot loop."""
+        self._active = False
+
+    async def check(self, ctx) -> StopHandlerResult:
+        """Continue until budget exhausted."""
+        if not self._active:
+            return StopHandlerResult(action=StopAction.STOP)
+
+        self._iteration += 1
+        if self._iteration > self._MAX_ITERATIONS:
+            self._active = False
+            return StopHandlerResult(
+                action=StopAction.STOP,
+                reason="Autopilot max iterations reached",
+            )
+
+        return StopHandlerResult(
+            action=StopAction.CONTINUE,
+            continuation_message=self.continuation_prompt(),
+            reason=(
+                f"Autopilot iteration {self._iteration}"
+                f"/{self._MAX_ITERATIONS}"
             ),
-        },
-        "state": {
-            "mode": "json_file",
-            "filename": "autopilot-state.json",
-            "schema_hint": (
-                "phase: expansion|planning|execution" "|qa|validation|complete"
+        )
+
+    def continuation_prompt(self) -> str:
+        """Prompt injected to continue autonomous work."""
+        return (
+            "Continue working autonomously. " "Complete the task step by step."
+        )
+
+
+class AutopilotPlugin:
+    """Plugin entry point for autopilot loop."""
+
+    def register(self, api) -> None:
+        """Register autopilot loop plugin via PluginApi."""
+        gate = AutopilotGate()
+
+        async def _activate_handler(_ctx, args: str):
+            from agentscope.message import Msg
+
+            gate.activate()
+            return Msg(
+                name="system",
+                content=(f"Autopilot mode activated. " f"Task: {args}"),
+                role="system",
+            )
+
+        api.register_slash_command(
+            name="autopilot",
+            handler=_activate_handler,
+            help_text=(
+                "Autonomous execution loop — "
+                "free execution with budget control."
             ),
-        },
-        "doom_loop": {
-            "enabled": True,
-            "window_size": 4,
-            "similarity_threshold": 0.75,
-            "action": "hitl",
-        },
-        "safety": {
-            "max_iterations": 40,
-            "thinking_only_streak_limit": 3,
-            "consecutive_error_limit": 5,
-            "budget": {
-                "max_tokens": 500000,
-                "max_cost_usd": 5.0,
-                "on_exceed": "hitl",
-            },
-        },
-        "priority": 80,
-    }
+        )
+
+        api.register_agent_stop_handler(
+            handler=gate.check,
+            priority=gate.priority,
+            name=gate.name,
+        )
 
 
 plugin = AutopilotPlugin()

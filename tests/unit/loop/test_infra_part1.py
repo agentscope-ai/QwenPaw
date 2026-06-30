@@ -3,8 +3,6 @@
 """Unit tests for Checklist Part 1: infra items 4, 6B, 7C."""
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Any
 from unittest.mock import MagicMock
 
 
@@ -176,54 +174,3 @@ class TestContextInjection:
         ctx.input_msgs = []
         Runtime._apply_context_injections(ctx)
         assert len(ctx.input_msgs) == 0
-
-
-# ── 改动7C: HITL triggering ──
-
-
-class TestObserverBroadcast:
-    """改动7C: ToolCoordinator._broadcast_observers."""
-
-    def test_broadcast_calls_observers(self):
-        """_broadcast_observers calls all registered observers."""
-        from qwenpaw.tool_calls._coordinator import (
-            ToolCoordinator,
-        )
-
-        coordinator = ToolCoordinator.__new__(ToolCoordinator)
-        coordinator._observers = []
-
-        called = []
-
-        async def mock_observer(name, args, result, history):
-            called.append(name)
-            return "ok"
-
-        @dataclass
-        class FakeReg:
-            plugin_id: str = "test"
-            observer: Any = None
-            name: str = "test_obs"
-
-        reg = FakeReg(observer=mock_observer)
-        coordinator._observers = [reg]
-
-        entry = MagicMock()
-        entry.ctx.tool_name = "read_file"
-        entry.ctx.tool_input = {"path": "/a/b"}
-        entry.final_response = MagicMock()
-
-        coordinator._broadcast_observers(entry)
-
-    def test_no_observers_no_error(self):
-        """No observers registered => no error."""
-        from qwenpaw.tool_calls._coordinator import (
-            ToolCoordinator,
-        )
-
-        coordinator = ToolCoordinator.__new__(ToolCoordinator)
-        entry = MagicMock()
-        entry.ctx.tool_name = "read_file"
-        entry.ctx.tool_input = {}
-        entry.final_response = MagicMock()
-        coordinator._broadcast_observers(entry)

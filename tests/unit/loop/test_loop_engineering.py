@@ -56,7 +56,6 @@ class TestPluginApiLoopMethods:
         assert hasattr(api, "register_runtime_hook")
         assert hasattr(api, "register_agent_stop_handler")
         assert hasattr(api, "register_prompt_section")
-        assert hasattr(api, "register_tool_call_observer")
 
     # pylint: disable=protected-access
     def test_register_slash_command_deferred(self):
