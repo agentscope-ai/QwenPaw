@@ -61,27 +61,26 @@ def _is_execution_level_off() -> bool:
 
 def _resolve_agent_approval_level(
     request_context: dict[str, str] | None,
-) -> str:
+) -> Optional[Any]:
     """Resolve the per-agent approval_level from agent.json.
 
     This is what the Web UI 'Tool Execution Security' card saves to.
-    Returns the canonical level string ('off'/'auto'/'smart'/'strict'),
-    or empty string if unresolvable.
+    Returns the ToolExecutionLevel enum, or None if unresolvable.
     """
     if not request_context:
-        return ""
+        return None
     agent_id = request_context.get("agent_id", "")
     if not agent_id:
-        return ""
+        return None
     try:
         from ..config.config import load_agent_config
         from ..security.tool_guard.execution_level import ToolExecutionLevel
 
         profile = load_agent_config(agent_id)
         raw = getattr(profile, "approval_level", None)
-        return ToolExecutionLevel.from_config(raw).value
+        return ToolExecutionLevel.from_config(raw)
     except Exception:
-        return ""
+        return None
 
 
 # ---------------------------------------------------------------------------
@@ -191,7 +190,7 @@ async def _policy_tool_check_permissions(
     # the agent-level setting so the UI toggle works.
     request_ctx = getattr(self, "_qp_request_context", None) or {}
     agent_level = _resolve_agent_approval_level(request_ctx)
-    if agent_level == "off":
+    if agent_level is not None and agent_level.is_disabled():
         return PermissionDecision(
             behavior=PermissionBehavior.ALLOW,
             message="governance: approval_level=off, all tools allowed.",
@@ -199,8 +198,8 @@ async def _policy_tool_check_permissions(
 
     # Sync agent-level approval_level to the governor's policy
     # so the three-phase evaluation uses the correct threshold.
-    if governor is not None and agent_level:
-        governor.policy.execution_level = agent_level
+    if governor is not None and agent_level is not None:
+        governor.policy.execution_level = agent_level.value
 
     if governor is None:
         # Check if execution_level is "off" (dev mode) — allow pass-through
