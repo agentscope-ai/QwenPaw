@@ -3,7 +3,13 @@
 
 Registers a StopGate that keeps the agent freely executing
 until the task is complete or budget is exhausted.
+Session-safe: state is keyed by session_id.
 """
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Any, Optional
+
 from qwenpaw.loop.gates import (
     StopAction,
     StopGate,
@@ -11,14 +17,32 @@ from qwenpaw.loop.gates import (
 )
 
 
+@dataclass
+class _SessionState:
+    iteration: int = 0
+    active: bool = False
+
+
+def _session_id() -> str:
+    from qwenpaw.app.agent_context import (
+        get_current_session_id,
+    )
+
+    return get_current_session_id() or "default"
+
+
 class AutopilotGate(StopGate):
-    """Gate: continue until task is done or budget hit."""
+    """Gate: continue until budget exhausted."""
 
     _MAX_ITERATIONS = 50
 
     def __init__(self) -> None:
-        self._iteration = 0
-        self._active = False
+        self._sessions: dict[str, _SessionState] = {}
+
+    def _get(self, sid: str) -> _SessionState:
+        if sid not in self._sessions:
+            self._sessions[sid] = _SessionState()
+        return self._sessions[sid]
 
     @property
     def name(self) -> str:
@@ -29,22 +53,31 @@ class AutopilotGate(StopGate):
         return 100
 
     def activate(self) -> None:
-        """Activate the autopilot loop."""
-        self._active = True
-        self._iteration = 0
+        """Activate for current session."""
+        sid = _session_id()
+        state = self._get(sid)
+        state.active = True
+        state.iteration = 0
 
     def deactivate(self) -> None:
-        """Deactivate the autopilot loop."""
-        self._active = False
+        """Deactivate for current session."""
+        sid = _session_id()
+        self._sessions.pop(sid, None)
 
-    async def check(self, ctx) -> StopHandlerResult:
+    async def check(  # pylint: disable=unused-argument
+        self,
+        ctx: Any,
+    ) -> Optional[StopHandlerResult]:
         """Continue until budget exhausted."""
-        if not self._active:
-            return StopHandlerResult(action=StopAction.STOP)
+        sid = _session_id()
+        state = self._get(sid)
 
-        self._iteration += 1
-        if self._iteration > self._MAX_ITERATIONS:
-            self._active = False
+        if not state.active:
+            return None
+
+        state.iteration += 1
+        if state.iteration > self._MAX_ITERATIONS:
+            self._sessions.pop(sid, None)
             return StopHandlerResult(
                 action=StopAction.STOP,
                 reason="Autopilot max iterations reached",
@@ -54,7 +87,7 @@ class AutopilotGate(StopGate):
             action=StopAction.CONTINUE,
             continuation_message=self.continuation_prompt(),
             reason=(
-                f"Autopilot iteration {self._iteration}"
+                f"Autopilot iteration {state.iteration}"
                 f"/{self._MAX_ITERATIONS}"
             ),
         )

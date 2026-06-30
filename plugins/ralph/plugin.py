@@ -3,14 +3,34 @@
 
 Registers a StopGate that keeps the agent looping until
 all stories in ralph-state.json are done and verified.
+Session-safe: state is keyed by session_id.
 """
+from __future__ import annotations
+
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Any, Optional
 
 from qwenpaw.loop.gates import (
     StopAction,
     StopGate,
     StopHandlerResult,
 )
+
+
+@dataclass
+class _SessionState:
+    iteration: int = 0
+    active: bool = False
+    workspace_dir: Optional[Path] = None
+
+
+def _session_id() -> str:
+    from qwenpaw.app.agent_context import (
+        get_current_session_id,
+    )
+
+    return get_current_session_id() or "default"
 
 
 class RalphGate(StopGate):
@@ -20,9 +40,12 @@ class RalphGate(StopGate):
     _STATE_FILE = ".qwenpaw/loop_state/ralph-state.json"
 
     def __init__(self) -> None:
-        self._iteration = 0
-        self._active = False
-        self._workspace_dir: Path | None = None
+        self._sessions: dict[str, _SessionState] = {}
+
+    def _get(self, sid: str) -> _SessionState:
+        if sid not in self._sessions:
+            self._sessions[sid] = _SessionState()
+        return self._sessions[sid]
 
     @property
     def name(self) -> str:
@@ -33,30 +56,39 @@ class RalphGate(StopGate):
         return 90
 
     def activate(self, workspace_dir: Path) -> None:
-        """Activate the ralph loop."""
-        self._active = True
-        self._iteration = 0
-        self._workspace_dir = workspace_dir
+        """Activate the ralph loop for current session."""
+        sid = _session_id()
+        state = self._get(sid)
+        state.active = True
+        state.iteration = 0
+        state.workspace_dir = workspace_dir
 
     def deactivate(self) -> None:
-        """Deactivate the ralph loop."""
-        self._active = False
+        """Deactivate the ralph loop for current session."""
+        sid = _session_id()
+        self._sessions.pop(sid, None)
 
-    async def check(self, ctx) -> StopHandlerResult:
+    async def check(  # pylint: disable=unused-argument
+        self,
+        ctx: Any,
+    ) -> Optional[StopHandlerResult]:
         """Check if all stories are done."""
-        if not self._active:
-            return StopHandlerResult(action=StopAction.STOP)
+        sid = _session_id()
+        state = self._get(sid)
 
-        self._iteration += 1
-        if self._iteration > self._MAX_ITERATIONS:
-            self._active = False
+        if not state.active:
+            return None
+
+        state.iteration += 1
+        if state.iteration > self._MAX_ITERATIONS:
+            self._sessions.pop(sid, None)
             return StopHandlerResult(
                 action=StopAction.STOP,
                 reason="Ralph max iterations reached",
             )
 
-        if self._check_all_done():
-            self._active = False
+        if self._check_all_done(state):
+            self._sessions.pop(sid, None)
             return StopHandlerResult(
                 action=StopAction.STOP,
                 reason="All stories completed",
@@ -66,7 +98,7 @@ class RalphGate(StopGate):
             action=StopAction.CONTINUE,
             continuation_message=self.continuation_prompt(),
             reason=(
-                f"Ralph iteration {self._iteration}" f"/{self._MAX_ITERATIONS}"
+                f"Ralph iteration {state.iteration}" f"/{self._MAX_ITERATIONS}"
             ),
         )
 
@@ -78,11 +110,14 @@ class RalphGate(StopGate):
             "working on the next pending story."
         )
 
-    def _check_all_done(self) -> bool:
+    def _check_all_done(
+        self,
+        state: _SessionState,
+    ) -> bool:
         """Read state file and check completion."""
-        if self._workspace_dir is None:
+        if state.workspace_dir is None:
             return False
-        state_path = self._workspace_dir / self._STATE_FILE
+        state_path = state.workspace_dir / self._STATE_FILE
         if not state_path.exists():
             return False
         try:
@@ -112,7 +147,9 @@ class RalphPlugin:
         async def _activate_handler(ctx, args: str):
             from agentscope.message import Msg
 
-            ws_dir = Path(ctx.get("workspace_dir", "."))
+            ws_dir = Path(
+                ctx.get("workspace_dir", "."),
+            )
             gate.activate(ws_dir)
             return Msg(
                 name="system",
