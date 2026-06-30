@@ -406,6 +406,7 @@ class AgentBuilder:
             user_name = _channel_meta.get("user_name")
             if user_name:
                 rc["user_name"] = user_name
+            rc["channel_meta"] = _channel_meta
         _payload_ctx = (
             getattr(request, "request_context", None) if request else None
         )
@@ -752,6 +753,20 @@ class AgentBuilder:
         except Exception:
             _logger.debug(
                 "ToolResultPruningMiddleware not created",
+                exc_info=True,
+            )
+
+        # Langfuse tool observability
+        try:
+            from ..observability.langfuse import is_langfuse_enabled
+
+            if is_langfuse_enabled():
+                from ..agents.middlewares import LangfuseToolSpanMiddleware
+
+                mws.append(LangfuseToolSpanMiddleware())
+        except Exception:
+            _logger.debug(
+                "LangfuseToolSpanMiddleware not created",
                 exc_info=True,
             )
 

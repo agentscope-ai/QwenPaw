@@ -79,6 +79,35 @@ class ApprovalService:
         """Store a reference to the channel manager for push notifications."""
         self._channel_manager = channel_manager
 
+    async def _notify_channel(
+        self,
+        pending: PendingApproval,
+        channel_body: str,
+    ) -> None:
+        """Fire-and-forget: push approval notification to channel."""
+        if self._channel_manager is None:
+            return
+        if not pending.channel or pending.channel == "console":
+            return
+        try:
+            channel_meta = (pending.extra or {}).get("channel_meta")
+            await self._channel_manager.push_approval_notification(
+                channel=pending.channel,
+                session_id=pending.session_id,
+                user_id=pending.user_id,
+                request_id=pending.request_id,
+                tool_name=pending.tool_name,
+                severity=pending.severity,
+                result_summary=channel_body,
+                channel_meta=channel_meta,
+            )
+        except Exception:
+            logger.warning(
+                "Failed to push approval notification: request_id=%s",
+                pending.request_id[:8],
+                exc_info=True,
+            )
+
     # ------------------------------------------------------------------
     # Core approval lifecycle
     # ------------------------------------------------------------------
@@ -98,7 +127,10 @@ class ApprovalService:
         extra: dict[str, Any] | None = None,
     ) -> PendingApproval:
         """Create a pending approval record and return it."""
-        from ...security.tool_guard.approval import format_findings_summary
+        from ...security.tool_guard.approval import (
+            format_channel_approval_body,
+            format_findings_summary,
+        )
 
         request_id = str(uuid.uuid4())
         loop = asyncio.get_running_loop()
@@ -135,6 +167,13 @@ class ApprovalService:
             session_id[:8],
             root_session_id[:8],
         )
+
+        if self._channel_manager and channel and channel != "console":
+            channel_body = format_channel_approval_body(result)
+            asyncio.create_task(
+                self._notify_channel(pending, channel_body),
+                name=f"approval-notify-{request_id[:8]}",
+            )
 
         return pending
 
@@ -189,6 +228,13 @@ class ApprovalService:
             session_id[:8],
             root_session_id[:8],
         )
+
+        if self._channel_manager and channel and channel != "console":
+            asyncio.create_task(
+                self._notify_channel(pending, pending.result_summary),
+                name=f"approval-notify-{request_id[:8]}",
+            )
+
         return pending
 
     async def resolve_request(

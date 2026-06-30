@@ -229,17 +229,6 @@ def test_slash_proactive_status(clean_chat_page: ChatPage):
 
 
 @pytest.mark.slash_commands
-@pytest.mark.p1
-@pytest.mark.test_id("SLASH-006")
-@pytest.mark.xfail(strict=False, reason=_XFAIL_FIRST_MSG_RERENDER)
-def test_slash_plan_status(clean_chat_page: ChatPage):
-    """Bare ``/plan`` shows plan-mode status (enabled or disabled hint)."""
-    chat = clean_chat_page.open()
-    text = _send_slash(chat, "/plan")
-    _assert_any(text, "Plan", "plan", "Settings")
-
-
-@pytest.mark.slash_commands
 @pytest.mark.p2
 @pytest.mark.test_id("SLASH-007")
 @pytest.mark.xfail(strict=False, reason=_XFAIL_FIRST_MSG_RERENDER)

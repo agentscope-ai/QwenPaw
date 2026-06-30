@@ -130,16 +130,11 @@ class FeishuCardHandler:
         to_handle: str,
         event: Any,
         send_meta: Dict[str, Any],
-        *,
-        compact: bool = False,
     ) -> bool:
         """Render ``event`` as an interactive card if any kind matches.
 
         Returns ``True`` when a card was sent (the caller should skip
         the default text/post rendering), ``False`` otherwise.
-
-        When ``compact=True`` (streaming mode), the render function
-        receives ``compact=True`` so it can produce a minimal card.
         """
         meta = context.extract_meta(event)
         if meta is None:
@@ -154,7 +149,6 @@ class FeishuCardHandler:
                 event,
                 send_meta,
                 meta,
-                compact=compact,
             )
         except Exception:  # pragma: no cover
             logger.exception(

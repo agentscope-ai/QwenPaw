@@ -37,6 +37,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 MAX_AUTO_MEMORY_TURN_MARKERS = 1000
+_AUTOMATION_MEMORY_SKIP_SOURCES = frozenset({"cron", "heartbeat"})
 
 
 class MemoryMiddleware(MiddlewareBase):
@@ -76,6 +77,9 @@ class MemoryMiddleware(MiddlewareBase):
         input_kwargs: dict[str, Any],
         next_handler: Callable[..., Any],
     ) -> Any:
+        if self._is_automation_request(agent):
+            return await next_handler(**input_kwargs)
+
         turn_marker = self._latest_user_turn_marker(agent.state.context)
         if turn_marker and turn_marker != self._searched_user_turn_marker:
             self._searched_user_turn_marker = turn_marker
@@ -113,6 +117,9 @@ class MemoryMiddleware(MiddlewareBase):
         async for item in next_handler(**input_kwargs):
             yield item
 
+        if self._is_automation_request(agent):
+            return
+
         self._repair_tagged_auto_memory_search_context(agent)
         turn_marker = self._latest_user_turn_marker(agent.state.context)
         if (
@@ -149,6 +156,10 @@ class MemoryMiddleware(MiddlewareBase):
         input_kwargs: dict[str, Any],
         next_handler: Callable[..., Any],
     ) -> None:
+        if self._is_automation_request(agent):
+            await next_handler(**input_kwargs)
+            return
+
         cfg = self._memory_config()
         if (
             cfg.summarize_when_compact
@@ -166,6 +177,16 @@ class MemoryMiddleware(MiddlewareBase):
         count: int | None = None,
         repair_context: bool = True,
     ) -> None:
+        if self._is_automation_request(agent):
+            logger.debug(
+                "MemoryMiddleware auto_memory skipped for automation source: "
+                "agent=%s",
+                agent.name,
+            )
+            # Defensive: clear in case on_reply guard was bypassed
+            self._pending_auto_memory_turn_markers.clear()
+            return
+
         if not self._pending_auto_memory_turn_markers:
             return
 
@@ -205,6 +226,15 @@ class MemoryMiddleware(MiddlewareBase):
         if isinstance(request_context, dict):
             return str(request_context.get("session_id") or "")
         return ""
+
+    @staticmethod
+    def _is_automation_request(agent: "Agent") -> bool:
+        """Return True when the request originates from non-user automation."""
+        request_context = getattr(agent, "_request_context", None) or {}
+        if not isinstance(request_context, dict):
+            return False
+        source = str(request_context.get("source") or "").strip().lower()
+        return source in _AUTOMATION_MEMORY_SKIP_SOURCES
 
     @staticmethod
     async def _will_compress_context(
@@ -607,3 +637,51 @@ class ToolResultPruningMiddleware(MiddlewareBase):
             file_path=saved_path,
             encoding=encoding,
         )
+
+
+class LangfuseToolSpanMiddleware(MiddlewareBase):
+    """Record each tool execution as a Langfuse tool observation.
+
+    Yields ``None`` from ``tool_span`` when Langfuse is disabled or the
+    client is unavailable; the ``observation is not None`` guard handles
+    this gracefully.
+    """
+
+    async def on_acting(
+        self,
+        agent: "Agent",  # pylint: disable=unused-argument
+        input_kwargs: dict[str, Any],
+        next_handler: Callable[..., AsyncGenerator[Any, None]],
+    ) -> AsyncGenerator[Any, None]:
+        from agentscope.tool import ToolResponse
+
+        from ..observability.langfuse import get_current_trace, tool_span
+
+        if get_current_trace() is None:
+            async for event in next_handler():
+                yield event
+            return
+
+        tool_call = input_kwargs.get("tool_call")
+        tool_name = getattr(tool_call, "name", "unknown")
+        tool_input = getattr(tool_call, "input", None)
+
+        async with tool_span(
+            name=tool_name,
+            input=tool_input,
+            metadata={"tool_call_id": getattr(tool_call, "id", None)},
+        ) as observation:
+            final_response = None
+            async for event in next_handler():
+                if isinstance(event, ToolResponse):
+                    final_response = event
+                yield event
+            if observation is not None and final_response is not None:
+                observation.update(
+                    output={
+                        "content": [
+                            getattr(b, "text", str(b))
+                            for b in (final_response.content or [])
+                        ],
+                    },
+                )

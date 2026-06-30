@@ -48,17 +48,46 @@ def _desktop_python() -> Optional[str]:
     return path if path and Path(path).is_file() else None
 
 
-def _plugin_site_dir() -> Path:
-    """User-writable, ABI-bucketed directory holding installed plugin deps."""
+def _plugin_runtime_dir() -> Path:
+    """Root dir holding plugin runtime data (installed deps, locks)."""
     from ..constant import WORKING_DIR
 
+    return Path(WORKING_DIR) / "plugin_runtime"
+
+
+def _plugin_site_dir() -> Path:
+    """User-writable, ABI-bucketed directory holding installed plugin deps."""
     bucket = (
         f"py{sys.version_info.major}.{sys.version_info.minor}"
         f"-{platform.system().lower()}-{platform.machine().lower()}"
     )
-    site_dir = Path(WORKING_DIR) / "plugin_runtime" / bucket / "site"
+    site_dir = _plugin_runtime_dir() / bucket / "site"
     site_dir.mkdir(parents=True, exist_ok=True)
     return site_dir
+
+
+def _install_lock_path(plugin_id: str) -> Path:
+    """Path to the inter-process lock guarding *plugin_id* installs.
+
+    Keyed per plugin so unrelated plugins can install concurrently, but
+    every process installing the *same* plugin serialises through one lock.
+    """
+    safe_id = "".join(
+        c if c.isalnum() or c in "-_." else "_" for c in plugin_id
+    )
+    return _plugin_runtime_dir() / "install-locks" / f"{safe_id}.lock"
+
+
+def _is_disabled_plugin_dir(path: Path) -> bool:
+    """Return whether *path* is a hidden or explicitly disabled plugin dir.
+
+    A plugin is "disabled" by renaming its directory with a ``.disabled``
+    suffix (e.g. ``remote-ssh.disabled``); hidden dirs (``.git`` etc.) are
+    never plugins. Both are skipped during discovery so a disabled plugin no
+    longer loads or installs its dependencies (issue #5550).
+    """
+    name = path.name
+    return name.startswith(".") or name.endswith(".disabled")
 
 
 def _ensure_plugin_site_on_path() -> None:
@@ -117,6 +146,13 @@ class PluginLoader:
 
             for item in plugin_dir.iterdir():
                 if not item.is_dir():
+                    continue
+
+                if _is_disabled_plugin_dir(item):
+                    logger.info(
+                        "Skipping disabled/hidden plugin directory: %s",
+                        item.name,
+                    )
                     continue
 
                 manifest_path = item / "plugin.json"
@@ -193,7 +229,7 @@ class PluginLoader:
             return False
 
     @staticmethod
-    def _check_dependencies_satisfied(
+    def _find_unsatisfied_dependencies(
         requirements_file: Path,
     ) -> List[str]:
         """Return requirement lines that are not importable / out of spec."""
@@ -234,7 +270,7 @@ class PluginLoader:
         _ensure_plugin_site_on_path()
 
         requirements_file = source_path / "requirements.txt"
-        missing_deps = self._check_dependencies_satisfied(requirements_file)
+        missing_deps = self._find_unsatisfied_dependencies(requirements_file)
         if not missing_deps:
             return
         logger.info(
@@ -245,10 +281,40 @@ class PluginLoader:
             ", ".join(missing_deps),
         )
         await asyncio.to_thread(
-            self._install_requirements,
+            self._install_requirements_locked,
             requirements_file,
             plugin_id,
         )
+
+    def _install_requirements_locked(
+        self,
+        requirements_file: Path,
+        plugin_id: str,
+    ) -> None:
+        """Install deps under a per-plugin inter-process lock (blocking).
+
+        Multiple backend processes (e.g. an orphaned one plus a new launch,
+        issue #5550) must not run ``pip install`` for the same plugin into
+        the same target dir concurrently. The lock serialises them, and the
+        double-check after acquiring it means only the first installer does
+        the work — the rest see the dependencies already satisfied and skip,
+        avoiding the reinstall storm that exhausted memory.
+        """
+        from .install_lock import plugin_install_lock
+
+        with plugin_install_lock(_install_lock_path(plugin_id)):
+            # Another process may have installed while we waited; re-probe
+            # with fresh import caches before spending resources on pip.
+            _ensure_plugin_site_on_path()
+            importlib.invalidate_caches()
+            if not self._find_unsatisfied_dependencies(requirements_file):
+                logger.info(
+                    "Plugin '%s' dependencies already satisfied by a "
+                    "concurrent installer; skipping pip install",
+                    plugin_id,
+                )
+                return
+            self._install_requirements(requirements_file, plugin_id)
 
     async def load_plugin(
         self,
@@ -753,7 +819,7 @@ class PluginLoader:
         requirements_file = target_dir / "requirements.txt"
         if requirements_file.exists():
             await asyncio.to_thread(
-                self._install_requirements,
+                self._install_requirements_locked,
                 requirements_file,
                 plugin_id,
             )

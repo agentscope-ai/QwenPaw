@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from datetime import datetime
 from types import SimpleNamespace
 from typing import Any, AsyncGenerator, Callable
@@ -15,6 +16,8 @@ from qwenpaw.local_models.tag_parser import (
     parse_tool_calls_from_text,
     text_contains_tool_call_tag,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def _battr(block: Any, key: str, default: Any = None) -> Any:
@@ -591,6 +594,25 @@ class OpenAIChatModelCompat(OpenAIChatModel):
         self._default_headers = default_headers
         self._extra_generate_kwargs = extra_generate_kwargs or {}
         super().__init__(**kwargs)
+
+    async def __call__(self, *args: Any, **kwargs: Any) -> Any:
+        try:
+            from ..observability.langfuse import (
+                current_generation_kwargs,
+            )
+        except ImportError:
+            pass
+        else:
+            try:
+                langfuse_kwargs = current_generation_kwargs(self.model)
+                if langfuse_kwargs:
+                    kwargs = {**langfuse_kwargs, **kwargs}
+            except Exception:
+                logger.debug(
+                    "langfuse generation kwargs failed",
+                    exc_info=True,
+                )
+        return await super().__call__(*args, **kwargs)
 
     async def _call_api(
         self,

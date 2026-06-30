@@ -531,6 +531,22 @@ class QwenPawAgent(CodingModeMixin, Agent):
         return True
 
     @staticmethod
+    def _is_content_safety_error(exc: Exception) -> bool:
+        """Return True for provider-side content safety rejections."""
+        error_str = str(exc).lower()
+        safety_markers = (
+            "new_sensitive",
+            "image is sensitive",
+            "content policy",
+            "content_policy",
+            "moderation",
+            "content_safety",
+            "safety_filter",
+            "(1026)",
+        )
+        return any(marker in error_str for marker in safety_markers)
+
+    @staticmethod
     def _is_bad_request_or_media_error(exc: Exception) -> bool:
         """Return True only for errors that genuinely look media-related.
 
@@ -541,6 +557,11 @@ class QwenPawAgent(CodingModeMixin, Agent):
         subsequent requests to silently drop user-uploaded images.
         """
         error_str = str(exc).lower()
+
+        # Veto: content safety/moderation rejections are about a
+        # particular input, not about whether the model supports media.
+        if QwenPawAgent._is_content_safety_error(exc):
+            return False
 
         # Veto: errors clearly about request size / context length are
         # never about media support — stripping media may incidentally

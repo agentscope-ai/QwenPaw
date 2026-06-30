@@ -369,6 +369,24 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
                 ErrorNormalizeHook,
                 CancelCleanupHook,
             ]
+
+            try:
+                from ..hooks.observability.langfuse_hook import (
+                    LangfuseTraceHook,
+                    LangfuseTraceCleanupHook,
+                )
+
+                # pylint: disable=protected-access
+                workspace_registry._bootstrap_kwargs.setdefault(
+                    "builtin_hook_clses",
+                    [],
+                ).extend([LangfuseTraceHook, LangfuseTraceCleanupHook])
+            except Exception:
+                logger.debug(
+                    "Langfuse hooks not available",
+                    exc_info=True,
+                )
+
             logger.debug("Built-in lifecycle hooks collected")
         except Exception:
             logger.debug(

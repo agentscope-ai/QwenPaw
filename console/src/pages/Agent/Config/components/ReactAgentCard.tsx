@@ -1,4 +1,3 @@
-import { useCallback, useEffect, useState } from "react";
 import {
   Form,
   Input,
@@ -10,8 +9,6 @@ import {
 } from "@agentscope-ai/design";
 import { useTranslation } from "react-i18next";
 import { useTimezoneOptions } from "../../../../hooks/useTimezoneOptions";
-import { planApi } from "../../../../api/modules/plan";
-import { useAgentStore } from "../../../../stores/agentStore";
 import {
   CONTEXT_MANAGER_BACKEND_OPTIONS,
   MEMORY_MANAGER_BACKEND_OPTIONS,
@@ -43,39 +40,6 @@ export function ReactAgentCard({
   onTimezoneChange,
 }: ReactAgentCardProps) {
   const { t } = useTranslation();
-  const { selectedAgent } = useAgentStore();
-  const [planEnabled, setPlanEnabled] = useState(false);
-  const [planLoading, setPlanLoading] = useState(false);
-
-  useEffect(() => {
-    let cancelled = false;
-    planApi
-      .getPlanConfig()
-      .then((cfg) => {
-        if (!cancelled) setPlanEnabled(cfg.enabled);
-      })
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
-  }, [selectedAgent]);
-
-  const handlePlanToggle = useCallback(
-    async (checked: boolean) => {
-      setPlanLoading(true);
-      const prev = planEnabled;
-      setPlanEnabled(checked);
-      try {
-        const res = await planApi.updatePlanConfig({ enabled: checked });
-        setPlanEnabled(res.enabled);
-      } catch {
-        setPlanEnabled(prev);
-      } finally {
-        setPlanLoading(false);
-      }
-    },
-    [planEnabled],
-  );
 
   return (
     <Card className={styles.formCard} title={t("agentConfig.reactAgentTitle")}>
@@ -222,20 +186,6 @@ export function ReactAgentCard({
         message={t("agentConfig.backendRestartWarning")}
         style={{ marginBottom: 16 }}
       />
-
-      <Form.Item
-        label={t("agentConfig.planMode", "Plan Mode")}
-        tooltip={t(
-          "agentConfig.planModeTooltip",
-          "Enable plan mode to use /plan <description> for structured task planning",
-        )}
-      >
-        <Switch
-          checked={planEnabled}
-          loading={planLoading}
-          onChange={handlePlanToggle}
-        />
-      </Form.Item>
     </Card>
   );
 }

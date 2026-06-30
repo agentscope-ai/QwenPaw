@@ -180,9 +180,6 @@
       },
       "skills": {
         "description": "Tampilkan skill yang tersedia untuk chat dan perintah skill eksplisit"
-      },
-      "plan": {
-        "description": "Buat rencana terstruktur untuk memecah tugas menjadi subtugas"
       }
     },
     "attachments": {
@@ -1285,19 +1282,6 @@
     "timeoutAutoDenied": "Waktu habis, otomatis ditolak",
     "acknowledge": "Mengerti"
   },
-  "plan": {
-    "title": "Rencana",
-    "noPlan": "Tidak ada rencana aktif",
-    "noPlanHint": "Gunakan /plan <deskripsi> untuk membuat rencana",
-    "progress": "Progres",
-    "outcome": "Hasil",
-    "state": {
-      "todo": "Akan Dikerjakan",
-      "in_progress": "Sedang Dikerjakan",
-      "done": "Selesai",
-      "abandoned": "Dibatalkan"
-    }
-  },
   "account": {
     "title": "Akun",
     "currentPassword": "Kata Sandi Saat Ini",
@@ -1843,8 +1827,6 @@
     "shellCommandExecutable": "Shell yang Dapat Dieksekusi",
     "shellCommandExecutableTooltip": "Jalur ke shell yang digunakan oleh execute_shell_command.",
     "shellCommandExecutablePlaceholder": "mis. /bin/bash atau powershell.exe (kosong = deteksi otomatis)",
-    "planMode": "Mode Rencana",
-    "planModeTooltip": "Aktifkan mode rencana untuk menggunakan /plan <deskripsi> untuk perencanaan tugas terstruktur.",
     "maxInputLength": "Panjang Input Maksimum",
     "maxInputLengthTooltip": "Panjang input maksimum (token) untuk jendela konteks model",
     "maxInputLengthPlaceholder": "Masukkan panjang input maksimum",

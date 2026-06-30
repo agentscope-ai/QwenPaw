@@ -146,6 +146,7 @@ class WecomChannel(BaseChannel):
         on_reply_sent: OnReplySent = None,
         show_tool_details: bool = True,
         filter_tool_messages: bool = False,
+        no_text_debounce: bool = True,
         filter_thinking: bool = False,
         dm_policy: str = "open",
         group_policy: str = "open",
@@ -161,6 +162,7 @@ class WecomChannel(BaseChannel):
             on_reply_sent=on_reply_sent,
             show_tool_details=show_tool_details,
             filter_tool_messages=filter_tool_messages,
+            no_text_debounce=no_text_debounce,
             filter_thinking=filter_thinking,
             dm_policy=dm_policy,
             group_policy=group_policy,
@@ -254,6 +256,7 @@ class WecomChannel(BaseChannel):
         on_reply_sent: OnReplySent = None,
         show_tool_details: bool = True,
         filter_tool_messages: bool = False,
+        no_text_debounce: bool = True,
         filter_thinking: bool = False,
         workspace_dir: Path | None = None,
     ) -> "WecomChannel":
@@ -272,6 +275,7 @@ class WecomChannel(BaseChannel):
             on_reply_sent=on_reply_sent,
             show_tool_details=show_tool_details,
             filter_tool_messages=filter_tool_messages,
+            no_text_debounce=no_text_debounce,
             filter_thinking=filter_thinking,
             dm_policy=getattr(config, "dm_policy", "open") or "open",
             group_policy=getattr(config, "group_policy", "open") or "open",
@@ -1259,13 +1263,6 @@ class WecomChannel(BaseChannel):
                 "wecom streaming end failed stream_id=%s",
                 stream_id[:20],
             )
-
-        await self._card_handler.try_send_card_for_event(
-            to_handle,
-            event,
-            send_meta,
-            skip_stream_detail=True,
-        )
 
     # ------------------------------------------------------------------
     # Session processing state management
