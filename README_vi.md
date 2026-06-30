@@ -39,7 +39,7 @@ Trợ lý AI cá nhân của bạn — triển khai cục bộ hoặc trên đá
 | **Đa tác nhân & song song**                  | Tạo tác nhân độc lập với bộ nhớ và Skills riêng. Tác nhân con lúc chạy. Agent Communication Protocol (ACP) để điều phối liên hệ thống.                               |
 | **Coding Mode**                              | Web IDE ba khung với cây tệp, xem trước diff và chat. Nhảy tới định nghĩa, tìm tham chiếu và tìm kiếm mã cấu trúc tích hợp sẵn.                                              |
 | **Mở rộng**                                  | Skills cho lập lịch, tài liệu, trình duyệt, tin tức và hơn thế. Kiến trúc plugin kèm chợ. Tích hợp MCP cho công cụ bên ngoài. Kết hợp thành quy trình theo mục đích.  |
-| **Ở nơi bạn hoạt động**                      | DingTalk, Lark, WeChat, Discord, Telegram, iMessage, QQ — một instance, mọi kênh. Console, TUI và ứng dụng desktop để truy cập trực tiếp.                                            |
+| **Sẵn sàng mọi nơi**                      | DingTalk, Lark, WeChat, Discord, Telegram, iMessage, QQ — một instance, mọi kênh. Console, TUI và ứng dụng desktop để truy cập trực tiếp.                                            |
 | **Của bạn, không phải của chúng tôi**        | Triển khai cục bộ — dữ liệu ở lại máy bạn. Không qua bên thứ ba lưu trữ, không tải dữ liệu lên.                                                                         |
 
 > <details>
