@@ -970,6 +970,27 @@ class AgentBuilder:
         if tool_coordinator is None and pruning_middleware is not None:
             mws.append(pruning_middleware)
 
+        # AgentScope 2.0-native subagent lifecycle integration.  The inbox
+        # middleware is always present so an idle parent can be woken with an
+        # empty request and receive child terminal results as HintBlocks.
+        workspace = getattr(ctx, "workspace", None)
+        subagent_manager = (
+            getattr(workspace, "subagent_task_manager", None)
+            if workspace is not None
+            else None
+        )
+        if subagent_manager is not None:
+            from ..app.subagents.middleware import (
+                SubagentInboxMiddleware,
+            )
+
+            mws.append(
+                SubagentInboxMiddleware(
+                    subagent_manager,
+                    ctx.session_id,
+                ),
+            )
+
         # Langfuse tool observability
         try:
             from ..observability.langfuse import is_langfuse_enabled
