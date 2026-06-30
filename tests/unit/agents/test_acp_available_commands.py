@@ -394,3 +394,73 @@ def test_usage_meta_includes_context_size(monkeypatch):
     assert meta["usage"]["inputTokens"] == 123_000
     assert meta["usage"]["contextSize"] == 1_000_000
     assert meta["usage"]["compactRatio"] == 0.8
+
+
+def _usage_updates(conn):
+    return [
+        u
+        for _, u in conn.updates
+        if getattr(u, "session_update", None) == "usage_update"
+    ]
+
+
+async def test_emit_usage_emits_usage_update_with_threshold(monkeypatch):
+    from qwenpaw.token_usage.model_wrapper import TokenRecordingModelWrapper
+
+    monkeypatch.setattr(
+        TokenRecordingModelWrapper,
+        "pop_usage_for_session",
+        classmethod(
+            lambda cls, _sid: {
+                "model_name": "qwen-plus",
+                "prompt_tokens": 123_000,
+                "completion_tokens": 34,
+                "total_tokens": 123_034,
+                "context_size": 1_000_000,
+                "compact_threshold": 0.8,
+            },
+        ),
+    )
+    agent = QwenPawACPAgent(agent_id="default")
+    conn = _FakeConn()
+    agent.on_connect(conn)
+
+    await agent._emit_usage_if_available("sess-u")
+
+    ups = _usage_updates(conn)
+    assert len(ups) == 1
+    assert ups[0].used == 123_000
+    assert ups[0].size == 1_000_000
+    assert ups[0].field_meta == {"compactRatio": 0.8}
+
+
+async def test_emit_usage_clears_bar_when_window_unknown(monkeypatch):
+    # used/size == 0 must STILL emit a usage_update so the TUI hides a stale
+    # bar (e.g. after switching to a model with an unknown window) instead of
+    # retaining the previous turn's values.
+    from qwenpaw.token_usage.model_wrapper import TokenRecordingModelWrapper
+
+    monkeypatch.setattr(
+        TokenRecordingModelWrapper,
+        "pop_usage_for_session",
+        classmethod(
+            lambda cls, _sid: {
+                "model_name": "mystery",
+                "prompt_tokens": 0,
+                "completion_tokens": 5,
+                "total_tokens": 5,
+                "context_size": 0,
+            },
+        ),
+    )
+    agent = QwenPawACPAgent(agent_id="default")
+    conn = _FakeConn()
+    agent.on_connect(conn)
+
+    await agent._emit_usage_if_available("sess-u")
+
+    ups = _usage_updates(conn)
+    assert len(ups) == 1
+    assert ups[0].used == 0
+    assert ups[0].size == 0
+    assert ups[0].field_meta is None

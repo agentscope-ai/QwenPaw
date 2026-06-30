@@ -941,27 +941,30 @@ class QwenPawACPAgent(Agent):
             # can render a live context-usage bar. ``used`` is the tokens in
             # context right now (the last call's input); ``size`` is the model
             # context window. This is distinct from the cumulative ``tok``
-            # tallies carried in the chunk meta above. Skip when either is
-            # unknown — a bar without a denominator is meaningless.
+            # tallies carried in the chunk meta above. We emit even with 0s so
+            # the bar clears deterministically when the window or occupancy
+            # becomes unknown (e.g. after a model switch) — the TUI treats 0 as
+            # "hide the bar".
             usage = usage_meta.get("usage", {})
             used = int(usage.get("inputTokens", 0) or 0)
             size = int(usage.get("contextSize", 0) or 0)
-            if used > 0 and size > 0:
-                # Carry the compaction threshold (if known) via ``_meta`` so
-                # the TUI can mark it; usage_update has no field for it.
-                ratio = usage.get("compactRatio")
-                field_meta = None
-                if isinstance(ratio, (int, float)) and 0 < ratio < 1:
-                    field_meta = {"compactRatio": float(ratio)}
-                await self._conn.session_update(
-                    session_id=session_id,
-                    update=UsageUpdate(
-                        sessionUpdate="usage_update",
-                        used=used,
-                        size=size,
-                        field_meta=field_meta,
-                    ),
-                )
+            # Carry the compaction threshold (if known) via ``_meta`` so the
+            # TUI can mark it; usage_update has no field for it. Only attach it
+            # when there's a meaningful bar to mark.
+            ratio = usage.get("compactRatio")
+            field_meta = None
+            valid_ratio = isinstance(ratio, (int, float)) and 0 < ratio < 1
+            if used > 0 and size > 0 and valid_ratio:
+                field_meta = {"compactRatio": float(ratio)}
+            await self._conn.session_update(
+                session_id=session_id,
+                update=UsageUpdate(
+                    sessionUpdate="usage_update",
+                    used=used,
+                    size=size,
+                    field_meta=field_meta,
+                ),
+            )
 
     @staticmethod
     def _pop_session_usage(
