@@ -487,6 +487,12 @@ DEFAULT_USER_RULES: List[GovernanceRule] = [
         action=GovernanceAction.ALLOW,
         reason="Scratch directory access for tmp",
     ),
+    # Coding Mode, project dir
+    GovernanceRule(
+        match="*(CODING_PROJECT_DIR/**)",
+        action=GovernanceAction.ALLOW,
+        reason="Coding project dir",
+    ),
 ]
 
 
@@ -908,27 +914,30 @@ def _findings_source(findings: list[Any]) -> str:
 def load_governance_policy(
     policy_dir: str,
     workspace_dir: str,
+    coding_project_dir: str = "",
 ) -> GovernancePolicy:
     """Load from policy_dir/policy.yaml; return default policy if missing.
 
     Args:
         policy_dir: directory containing policy.yaml
         workspace_dir: used to replace WORKSPACE_DIR placeholders in rules
+        coding_project_dir: used to replace CODING_PROJECT_DIR placeholders
+            in rules; defaults to ``workspace_dir`` when empty
 
     Supports both v1.0 and v2.0 YAML formats.
     """
     path = Path(policy_dir) / "policy.yaml"
     if not path.exists():
-        return _create_default_policy(workspace_dir)
+        return _create_default_policy(workspace_dir, coding_project_dir)
 
     try:
         with open(path, "r", encoding="utf-8") as f:
             data = yaml.safe_load(f)
     except Exception:
-        return _create_default_policy(workspace_dir)
+        return _create_default_policy(workspace_dir, coding_project_dir)
 
     if not isinstance(data, dict):
-        return _create_default_policy(workspace_dir)
+        return _create_default_policy(workspace_dir, coding_project_dir)
 
     version = data.get("version", "1.0")
     audit_level = data.get("audit_level", "all")
@@ -984,10 +993,11 @@ def load_governance_policy(
         data.get("detection_rules", []),
     )
 
-    # ── Replace WORKSPACE_DIR with actual path ──
+    # ── Replace WORKSPACE_DIR / CODING_PROJECT_DIR with actual paths ──
+    cpd = coding_project_dir or workspace_dir
     if workspace_dir:
-        _resolve_workspace_dir(builtin_rules, workspace_dir)
-        _resolve_workspace_dir(user_rules, workspace_dir)
+        _resolve_placeholders(builtin_rules, workspace_dir, cpd)
+        _resolve_placeholders(user_rules, workspace_dir, cpd)
 
     return GovernancePolicy(
         version=version,
@@ -1006,6 +1016,7 @@ def save_governance_policy(
     policy: GovernancePolicy,
     policy_dir: str,
     workspace_dir: str = "",
+    coding_project_dir: str = "",
 ) -> None:
     """Write policy.yaml (v2.0 format).
 
@@ -1014,14 +1025,17 @@ def save_governance_policy(
         policy_dir: directory to write policy.yaml
         workspace_dir: workspace path, used to restore actual paths back to
                        WORKSPACE_DIR placeholders (keeps yaml portable)
+        coding_project_dir: coding project path, used to restore actual
+                       paths back to CODING_PROJECT_DIR placeholders
     """
     builtin_rules = copy.deepcopy(policy.builtin_rules)
     user_rules = copy.deepcopy(policy.user_rules)
 
-    # ── Restore actual paths to WORKSPACE_DIR placeholders ──
+    # ── Restore actual paths to WORKSPACE_DIR / CODING_PROJECT_DIR ──
     if workspace_dir:
-        _unresolve_workspace_dir(builtin_rules, workspace_dir)
-        _unresolve_workspace_dir(user_rules, workspace_dir)
+        cpd = coding_project_dir or workspace_dir
+        _unresolve_placeholders(builtin_rules, workspace_dir, cpd)
+        _unresolve_placeholders(user_rules, workspace_dir, cpd)
 
     path = Path(policy_dir) / "policy.yaml"
     # NOTE: builtin_rules are NOT written to YAML. They are always loaded
@@ -1088,13 +1102,17 @@ _DEFAULT_SENSITIVE_PATHS: List[str] = [
 ]
 
 
-def _create_default_policy(workspace_dir: str = "") -> GovernancePolicy:
+def _create_default_policy(
+    workspace_dir: str = "",
+    coding_project_dir: str = "",
+) -> GovernancePolicy:
     """Create a policy with full default rules (cold start, v2.0)."""
     builtin_rules = copy.deepcopy(DEFAULT_BUILTIN_RULES)
     user_rules = copy.deepcopy(DEFAULT_USER_RULES)
     if workspace_dir:
-        _resolve_workspace_dir(builtin_rules, workspace_dir)
-        _resolve_workspace_dir(user_rules, workspace_dir)
+        cpd = coding_project_dir or workspace_dir
+        _resolve_placeholders(builtin_rules, workspace_dir, cpd)
+        _resolve_placeholders(user_rules, workspace_dir, cpd)
     return GovernancePolicy(
         version="2.0",
         builtin_rules=builtin_rules,
@@ -1106,17 +1124,47 @@ def _create_default_policy(workspace_dir: str = "") -> GovernancePolicy:
     )
 
 
-def _resolve_workspace_dir(rules: List[GovernanceRule], workspace_dir: str):
-    """Replace WORKSPACE_DIR in rules with actual paths (in-place)."""
+def _resolve_placeholders(
+    rules: List[GovernanceRule],
+    workspace_dir: str,
+    coding_project_dir: str = "",
+):
+    """Replace WORKSPACE_DIR / CODING_PROJECT_DIR placeholders in rules
+    with the actual paths (in-place)."""
     for rule in rules:
-        if "WORKSPACE_DIR" in rule.match:
+        if workspace_dir and "WORKSPACE_DIR" in rule.match:
             rule.match = rule.match.replace("WORKSPACE_DIR", workspace_dir)
+        if coding_project_dir and "CODING_PROJECT_DIR" in rule.match:
+            rule.match = rule.match.replace(
+                "CODING_PROJECT_DIR",
+                coding_project_dir,
+            )
 
 
-def _unresolve_workspace_dir(rules: List[GovernanceRule], workspace_dir: str):
-    """Restore actual paths in rules back to WORKSPACE_DIR placeholders."""
+def _unresolve_placeholders(
+    rules: List[GovernanceRule],
+    workspace_dir: str,
+    coding_project_dir: str = "",
+):
+    """Restore actual paths in rules back to WORKSPACE_DIR /
+    CODING_PROJECT_DIR placeholders (in-place).
+
+    When ``coding_project_dir`` coincides with ``workspace_dir`` the two
+    cannot be distinguished in an already-resolved pattern, so the shared
+    path is restored as ``WORKSPACE_DIR`` (the coding dir is still covered
+    by the workspace rules in that case).
+    """
     for rule in rules:
-        if workspace_dir in rule.match:
+        if (
+            coding_project_dir
+            and coding_project_dir != workspace_dir
+            and coding_project_dir in rule.match
+        ):
+            rule.match = rule.match.replace(
+                coding_project_dir,
+                "CODING_PROJECT_DIR",
+            )
+        if workspace_dir and workspace_dir in rule.match:
             rule.match = rule.match.replace(workspace_dir, "WORKSPACE_DIR")
 
 

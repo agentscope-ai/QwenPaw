@@ -150,7 +150,13 @@ class AgentBuilder:
                 active_modes = plugins.active_mode_names(ctx)
 
         # Governor (governance policy layer).
-        governor = self._init_governor(workspace_dir)
+        _cm = getattr(agent_config, "coding_mode", None)
+        _project_dir = (
+            _cm.project_dir
+            if _cm and getattr(_cm, "project_dir", None)
+            else None
+        )
+        governor = self._init_governor(workspace_dir, _project_dir)
 
         # Inject governor into local_workspace so list_tools() can
         # wrap tools with PolicyGuardedTool.
@@ -339,10 +345,11 @@ class AgentBuilder:
                 innermost.formatter = formatter
         return model, formatter
 
-    # ------------------------------------------------------- helpers
-
     @staticmethod
-    def _init_governor(workspace_dir: Any) -> Any:
+    def _init_governor(
+        workspace_dir: Any,
+        coding_project_dir: Any = None,
+    ) -> Any:
         """Initialize ResourceGovernor if governance is available.
 
         Returns the started governor, or ``None`` when governance cannot
@@ -353,7 +360,12 @@ class AgentBuilder:
         try:
             from ..governance import ResourceGovernor
 
-            governor = ResourceGovernor(str(workspace_dir))
+            governor = ResourceGovernor(
+                str(workspace_dir),
+                coding_project_dir=(
+                    str(coding_project_dir) if coding_project_dir else None
+                ),
+            )
             governor.start()
             _logger.info("Governance started: dir=%s", workspace_dir)
             return governor
