@@ -7,7 +7,6 @@ import {
   type MarketPluginEntry,
 } from "@/api/modules/pluginMarket";
 import { installPlugin } from "@/api/modules/plugin";
-import { rootApi } from "@/api/modules/root";
 
 function deriveCompatLabel(version: string): string {
   const major = version.split(".")[0];
@@ -46,10 +45,23 @@ export function useMarketPlugins({ onInstalled }: UseMarketPluginsOptions) {
   const [qwenpawVersion, setQwenpawVersion] = useState<string | null>(null);
 
   useEffect(() => {
-    void rootApi
-      .getVersion()
-      .then((res) => setQwenpawVersion(res.version))
-      .catch(() => setQwenpawVersion(null));
+    fetch("/api/version")
+      .then((res) => {
+        if (!res.ok) {
+          throw new Error(`HTTP ${res.status}`);
+        }
+        return res.json();
+      })
+      .then((data) => {
+        const version =
+          typeof data === "object" && data !== null ? data.version : null;
+        setQwenpawVersion(typeof version === "string" ? version : null);
+      })
+      .catch((err) => {
+        // eslint-disable-next-line no-console
+        console.error("[useMarketPlugins] failed to fetch version:", err);
+        setQwenpawVersion(null);
+      });
   }, []);
 
   const loadPlugins = useCallback(
@@ -106,14 +118,6 @@ export function useMarketPlugins({ onInstalled }: UseMarketPluginsOptions) {
 
   const handleInstall = useCallback(
     async (entry: MarketPluginEntry) => {
-      if (!isCompatible(entry)) {
-        message.error(
-          `This plugin is only compatible with QwenPaw ${
-            entry.qwenpaw_compat_labels?.join(", ") ?? "unknown"
-          }; current QwenPaw is ${qwenpawVersion ?? "unknown"}.`,
-        );
-        return;
-      }
       setInstallingId(entry.id);
       try {
         const downloadUrl = buildMarketDownloadUrl(entry);
@@ -133,7 +137,7 @@ export function useMarketPlugins({ onInstalled }: UseMarketPluginsOptions) {
         setInstallingId(null);
       }
     },
-    [isCompatible, message, onInstalled, qwenpawVersion],
+    [message, onInstalled],
   );
 
   return {

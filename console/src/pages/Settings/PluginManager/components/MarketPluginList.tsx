@@ -4,6 +4,7 @@ import {
   Alert,
   Button,
   Input,
+  Modal,
   Pagination,
   Spin,
   Tag,
@@ -189,16 +190,15 @@ export function MarketPluginList({ onInstalled }: MarketPluginListProps) {
                       {entry.locales[lang].category}
                     </Tag>
                   )}
-                  {qwenpawVersion && entry.qwenpaw_compat_labels && (
-                    <Tag
-                      color={isCompatible(entry) ? "green" : "red"}
-                      style={{ margin: 0, fontSize: 11 }}
-                    >
-                      {isCompatible(entry)
-                        ? `QwenPaw ${entry.qwenpaw_compat_labels.join(", ")}`
-                        : `Incompatible with QwenPaw ${qwenpawVersion}`}
-                    </Tag>
-                  )}
+                  {entry.qwenpaw_compat_labels &&
+                    entry.qwenpaw_compat_labels.length > 0 && (
+                      <Tag
+                        color={isCompatible(entry) ? "green" : "orange"}
+                        style={{ margin: 0, fontSize: 11 }}
+                      >
+                        {`QwenPaw ${entry.qwenpaw_compat_labels.join(", ")}`}
+                      </Tag>
+                    )}
                 </div>
                 {entry.locales && (
                   <div className={styles.catalogDescription}>
@@ -233,9 +233,11 @@ export function MarketPluginList({ onInstalled }: MarketPluginListProps) {
                 <Tooltip
                   title={
                     !isCompatible(entry)
-                      ? `This plugin is only compatible with QwenPaw ${
+                      ? `This plugin is labeled for QwenPaw ${
                           entry.qwenpaw_compat_labels?.join(", ") ?? "unknown"
-                        }`
+                        }; compatibility with QwenPaw ${
+                          qwenpawVersion ?? "unknown"
+                        } is unverified.`
                       : undefined
                   }
                 >
@@ -245,14 +247,36 @@ export function MarketPluginList({ onInstalled }: MarketPluginListProps) {
                     icon={<Download size={14} />}
                     loading={installingId === entry.id}
                     disabled={
-                      !isCompatible(entry) ||
-                      (installingId !== null && installingId !== entry.id)
+                      installingId !== null && installingId !== entry.id
                     }
-                    onClick={() => void handleInstall(entry)}
+                    onClick={() => {
+                      if (!isCompatible(entry)) {
+                        Modal.confirm({
+                          title: t(
+                            "pluginManager.compatWarningTitle",
+                            "Compatibility Warning",
+                          ),
+                          content: t("pluginManager.compatWarningContent", {
+                            defaultValue:
+                              "This plugin is labeled for QwenPaw {{labels}}. Your QwenPaw version is {{version}}. Installing it may cause errors. Are you sure you want to continue?",
+                            labels:
+                              entry.qwenpaw_compat_labels?.join(", ") ??
+                              "unknown",
+                            version: qwenpawVersion ?? "unknown",
+                          }),
+                          okText: t(
+                            "pluginManager.compatWarningConfirm",
+                            "Install anyway",
+                          ),
+                          cancelText: t("common.cancel", "Cancel"),
+                          onOk: () => void handleInstall(entry),
+                        });
+                      } else {
+                        void handleInstall(entry);
+                      }
+                    }}
                   >
-                    {isCompatible(entry)
-                      ? t("pluginManager.catalogInstall")
-                      : "Incompatible"}
+                    {t("pluginManager.catalogInstall")}
                   </Button>
                 </Tooltip>
               </div>
