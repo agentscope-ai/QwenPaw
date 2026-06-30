@@ -53,6 +53,11 @@ export function useAgentConfig() {
         shell_command_timeout: config.shell_command_timeout ?? 60.0,
         shell_command_executable: config.shell_command_executable ?? "",
         loop: config.loop ?? {
+          iteration: {
+            enabled: true,
+            max_iterations: 50,
+            in_loop_modes: false,
+          },
           doom_loop: {
             enabled: true,
             window_size: 3,
@@ -61,6 +66,18 @@ export function useAgentConfig() {
               { after: 3, action: "modify_prompt", prompt: "" },
               { after: 6, action: "stop", prompt: "" },
             ],
+            in_loop_modes: false,
+          },
+          rubric: {
+            enabled: false,
+            prompt:
+              "You did not call any tool in the last turn. If the task is truly complete, confirm it. Otherwise, continue working with tool calls.",
+            max_interventions: 1,
+            in_loop_modes: false,
+          },
+          thinking_budget: {
+            enabled: false,
+            budget_tokens: 10000,
           },
         },
         llm_retry_enabled: config.llm_retry_enabled,

@@ -21,7 +21,6 @@ from agentscope.message import Msg, TextBlock
 from ..base import AgentMode
 from ...app.agent_context import (
     get_current_session_id,
-    set_current_session_id,
 )
 from ...loop.gates import (
     GoalStatusRubric,
@@ -447,6 +446,12 @@ class GoalMode(AgentMode):
             self._build_continuation,
         )
 
+        completion_gate = _create_completion_gate(
+            workspace,
+        )
+        if completion_gate is not None:
+            handler.register(completion_gate)
+
         _register_goal_tools_governance()
 
     def is_active(self, ctx: Any) -> bool:
@@ -486,7 +491,6 @@ class GoalMode(AgentMode):
         session_key = self._current_session_key(ctx)
         session = GoalSession(goal=goal_text)
         self._sessions[session_key] = session
-        set_current_session_id(session_key)
 
         logger.info(
             "Goal mode activated: %s (key=%s)",
@@ -785,6 +789,46 @@ def _create_doom_loop_gate(
     except Exception:  # noqa: BLE001
         logger.debug(
             "DoomLoopGate creation skipped",
+            exc_info=True,
+        )
+        return None
+
+
+def _create_completion_gate(
+    workspace: object,
+) -> Any:
+    """Create ReactCompletionGate from config.
+
+    Returns None when the rubric completion check
+    is disabled or the config is missing.
+    """
+    try:
+        from ...loop.gates import ReactCompletionGate
+
+        agent_cfg = getattr(
+            workspace,
+            "agent_config",
+            None,
+        )
+        if agent_cfg is None:
+            return None
+        running = getattr(agent_cfg, "running", None)
+        if running is None:
+            return None
+        loop_cfg = getattr(running, "loop", None)
+        if loop_cfg is None:
+            return None
+        rubric_cfg = getattr(loop_cfg, "rubric", None)
+        if rubric_cfg is None or not rubric_cfg.enabled:
+            return None
+
+        return ReactCompletionGate(
+            prompt=rubric_cfg.prompt,
+            max_interventions=(rubric_cfg.max_interventions),
+        )
+    except Exception:  # noqa: BLE001
+        logger.debug(
+            "ReactCompletionGate creation skipped",
             exc_info=True,
         )
         return None

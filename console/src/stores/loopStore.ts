@@ -1,8 +1,6 @@
 import { create } from "zustand";
 import { request } from "@/api/request";
 
-export type BudgetLevel = "low" | "medium" | "high";
-
 export interface LoopSkillInfo {
   name: string;
   description: string;
@@ -11,26 +9,22 @@ export interface LoopSkillInfo {
 
 interface LoopState {
   selectedSkill: LoopSkillInfo | null;
-  budgetLevel: BudgetLevel;
   chipHighlighted: boolean;
 
   availableSkills: LoopSkillInfo[];
 
   setSelectedSkill: (skill: LoopSkillInfo | null) => void;
-  setBudgetLevel: (level: BudgetLevel) => void;
   setChipHighlighted: (highlighted: boolean) => void;
   setAvailableSkills: (skills: LoopSkillInfo[]) => void;
 }
 
 export const useLoopStore = create<LoopState>((set) => ({
   selectedSkill: null,
-  budgetLevel: "medium",
   chipHighlighted: false,
   availableSkills: [],
 
   setSelectedSkill: (skill) =>
     set({ selectedSkill: skill, chipHighlighted: false }),
-  setBudgetLevel: (level) => set({ budgetLevel: level }),
   setChipHighlighted: (highlighted) => set({ chipHighlighted: highlighted }),
   setAvailableSkills: (skills) => set({ availableSkills: skills }),
 }));

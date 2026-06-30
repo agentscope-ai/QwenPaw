@@ -27,10 +27,7 @@ import { useTheme } from "../../contexts/ThemeContext";
 import { useAgentStore } from "../../stores/agentStore";
 import { useCodingMode } from "../../stores/codingModeStore";
 import { useLoopStore, fetchAvailableLoopSkills } from "../../stores/loopStore";
-import {
-  LoopCommandChip,
-  LoopBudgetSelector,
-} from "../../components/LoopInput";
+import { LoopCommandChip } from "../../components/LoopInput";
 import { useChatAnywhereInput } from "@agentscope-ai/chat";
 import styles from "./index.module.less";
 import { IconButton } from "@agentscope-ai/design";
@@ -1078,6 +1075,7 @@ export default function ChatPage() {
   const { codingMode, initialized } = useCodingMode();
   const codingModeRef = useRef(codingMode);
   codingModeRef.current = codingMode;
+  const loopSelectedSkill = useLoopStore((s) => s.selectedSkill);
 
   // Wide mode toggle: expand chat content to full available width
   const [isWideMode, setIsWideMode] = useState(() => {
@@ -2721,7 +2719,21 @@ export default function ChatPage() {
               />
             ) : null}
             <LoopCommandChip />
-            <LoopBudgetSelector />
+            {loopSelectedSkill ? (
+              <Tooltip
+                title={t("loop.gotoSettings", "Loop Engineering Settings")}
+              >
+                <SettingOutlined
+                  style={{
+                    fontSize: 14,
+                    cursor: "pointer",
+                    color: "var(--text-secondary, rgba(0,0,0,0.45))",
+                    padding: "4px 6px",
+                  }}
+                  onClick={() => navigate("/agent-config")}
+                />
+              </Tooltip>
+            ) : null}
             {pluginSenderPrefix}
           </>
         ),

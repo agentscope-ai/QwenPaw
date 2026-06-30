@@ -7,36 +7,203 @@ import {
   Switch,
   Input,
   Button,
+  Tabs,
+  Tag,
 } from "@agentscope-ai/design";
-import { Plus, Trash2, ChevronDown, ChevronRight } from "lucide-react";
+import {
+  Plus,
+  Trash2,
+  ChevronDown,
+  ChevronRight,
+  Repeat,
+  Shield,
+  CheckCircle,
+  Target,
+  Rocket,
+  Gauge,
+  Wallet,
+  Lock,
+  Brain,
+} from "lucide-react";
 import { useTranslation } from "react-i18next";
 import styles from "../index.module.less";
 
 const ACTION_OPTIONS = [
-  { value: "modify_prompt", label: "Inject Warning" },
-  { value: "stop", label: "Stop & Ask Human" },
+  { value: "modify_prompt", label: "Send Reminder" },
+  { value: "stop", label: "Pause & Ask for Help" },
 ];
 
-export function AgentLoopCard() {
+function SectionHeader({
+  icon,
+  title,
+}: {
+  icon: React.ReactNode;
+  title: string;
+}) {
+  return (
+    <div
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 8,
+        marginBottom: 16,
+        paddingBottom: 8,
+        borderBottom: "1px solid var(--border-color, #f0f0f0)",
+      }}
+    >
+      {icon}
+      <span style={{ fontWeight: 600, fontSize: 14 }}>{title}</span>
+    </div>
+  );
+}
+
+function SectionDivider() {
+  return (
+    <hr
+      style={{
+        border: "none",
+        borderTop: "1px solid var(--border-color, #f0f0f0)",
+        margin: "24px 0",
+      }}
+    />
+  );
+}
+
+function MockGateCard({
+  icon,
+  title,
+  description,
+}: {
+  icon: React.ReactNode;
+  title: string;
+  description: string;
+}) {
+  const { t } = useTranslation();
+  return (
+    <div
+      style={{
+        border: "1px solid var(--border-color, #f0f0f0)",
+        borderRadius: 8,
+        padding: "16px 20px",
+        marginBottom: 12,
+        opacity: 0.6,
+        position: "relative",
+      }}
+    >
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+        }}
+      >
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+          }}
+        >
+          {icon}
+          <span style={{ fontWeight: 500, fontSize: 13 }}>{title}</span>
+        </div>
+        <Tag
+          style={{
+            fontSize: 11,
+            borderRadius: 4,
+            display: "flex",
+            alignItems: "center",
+            gap: 4,
+          }}
+        >
+          <Lock size={10} />
+          {t("agentConfig.comingSoon", "Coming Soon")}
+        </Tag>
+      </div>
+      <p
+        style={{
+          margin: "8px 0 0",
+          fontSize: 12,
+          color: "var(--text-secondary, rgba(0,0,0,0.45))",
+        }}
+      >
+        {description}
+      </p>
+      <p
+        style={{
+          margin: "6px 0 0",
+          fontSize: 11,
+          color: "var(--text-quaternary, rgba(0,0,0,0.25))",
+          fontStyle: "italic",
+        }}
+      >
+        {t(
+          "agentConfig.comingSoonEditable",
+          "Custom configuration will be available in a future release.",
+        )}
+      </p>
+    </div>
+  );
+}
+
+function IterationSection() {
+  const { t } = useTranslation();
+  const form = Form.useFormInstance();
+  const enabled = Form.useWatch(["loop", "iteration", "enabled"], form);
+
+  return (
+    <div>
+      <SectionHeader
+        icon={<Repeat size={16} style={{ opacity: 0.7 }} />}
+        title={t("agentConfig.iterationTitle", "Iteration Limit")}
+      />
+      <Form.Item
+        name={["loop", "iteration", "enabled"]}
+        label={t("agentConfig.iterationEnabled", "Enable Iteration Limit")}
+        valuePropName="checked"
+        tooltip={t(
+          "agentConfig.iterationEnabledTooltip",
+          "Stop the agent after a fixed number of loop turns",
+        )}
+      >
+        <Switch />
+      </Form.Item>
+      {enabled && (
+        <Form.Item
+          name={["loop", "iteration", "max_iterations"]}
+          label={t("agentConfig.iterationMaxIterations", "Maximum Iterations")}
+          tooltip={t(
+            "agentConfig.iterationMaxIterationsTooltip",
+            "Maximum number of loop turns before stopping",
+          )}
+        >
+          <InputNumber min={1} max={500} style={{ width: 200 }} />
+        </Form.Item>
+      )}
+    </div>
+  );
+}
+
+function DoomLoopSection() {
   const { t } = useTranslation();
   const form = Form.useFormInstance();
   const [advanced, setAdvanced] = useState(false);
-
   const enabled = Form.useWatch(["loop", "doom_loop", "enabled"], form);
   const stages = Form.useWatch(["loop", "doom_loop", "stages"], form) || [];
 
   return (
-    <Card
-      className={styles.formCard}
-      title={t("agentConfig.agentLoopTitle", "Agent Loop")}
-    >
+    <div>
+      <SectionHeader
+        icon={<Shield size={16} style={{ opacity: 0.7 }} />}
+        title={t("agentConfig.doomLoopEnabled", "Repetition Protection")}
+      />
       <Form.Item
         name={["loop", "doom_loop", "enabled"]}
-        label={t("agentConfig.doomLoopEnabled", "Doom Loop Detection")}
+        label={t("agentConfig.doomLoopEnabled", "Repetition Protection")}
         valuePropName="checked"
         tooltip={t(
           "agentConfig.doomLoopEnabledTooltip",
-          "Detect repetitive agent behavior and intervene",
+          "Automatically intervene when the agent gets stuck repeating the same actions",
         )}
       >
         <Switch />
@@ -44,12 +211,15 @@ export function AgentLoopCard() {
 
       {enabled && (
         <>
-          {/* Simple mode: show summary of stages */}
           {!advanced && (
             <div style={{ marginBottom: 16 }}>
               {stages.map(
                 (
-                  stage: { after: number; action: string; prompt: string },
+                  stage: {
+                    after: number;
+                    action: string;
+                    prompt: string;
+                  },
                   idx: number,
                 ) => (
                   <div
@@ -69,15 +239,19 @@ export function AgentLoopCard() {
                     >
                       {t("agentConfig.doomLoopAfter", "After")}{" "}
                       <strong>{stage.after}</strong>{" "}
-                      {t("agentConfig.doomLoopRepetitions", "repetitions")} →
+                      {t(
+                        "agentConfig.doomLoopRepetitions",
+                        "identical actions",
+                      )}{" "}
+                      →
                     </span>
                     <span>
                       {stage.action === "stop"
                         ? t(
                             "agentConfig.doomLoopStopAction",
-                            "Stop & Ask Human",
+                            "Pause & Ask for Help",
                           )
-                        : t("agentConfig.doomLoopWarnAction", "Inject Warning")}
+                        : t("agentConfig.doomLoopWarnAction", "Send Reminder")}
                     </span>
                   </div>
                 ),
@@ -92,7 +266,11 @@ export function AgentLoopCard() {
             style={{ padding: 0, marginBottom: 16 }}
           >
             <span
-              style={{ display: "inline-flex", alignItems: "center", gap: 4 }}
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 4,
+              }}
             >
               {advanced ? (
                 <ChevronDown size={14} />
@@ -100,21 +278,20 @@ export function AgentLoopCard() {
                 <ChevronRight size={14} />
               )}
               {advanced
-                ? t("agentConfig.doomLoopSimpleMode", "Simple")
-                : t("agentConfig.doomLoopAdvancedMode", "Advanced")}
+                ? t("agentConfig.simpleMode", "Simple")
+                : t("agentConfig.advancedMode", "Advanced")}
             </span>
           </Button>
 
-          {/* Advanced mode: full config */}
           {advanced && (
             <>
               <div className={styles.reactAgentRow}>
                 <Form.Item
                   name={["loop", "doom_loop", "window_size"]}
-                  label={t("agentConfig.doomLoopWindowSize", "Window Size")}
+                  label={t("agentConfig.doomLoopWindowSize", "Detection Range")}
                   tooltip={t(
                     "agentConfig.doomLoopWindowSizeTooltip",
-                    "Sliding window size for repetition detection",
+                    "How many recent actions to check for repetition",
                   )}
                   className={styles.reactAgentField}
                 >
@@ -125,11 +302,11 @@ export function AgentLoopCard() {
                   name={["loop", "doom_loop", "similarity_threshold"]}
                   label={t(
                     "agentConfig.doomLoopSimilarity",
-                    "Similarity Threshold",
+                    "Match Sensitivity",
                   )}
                   tooltip={t(
                     "agentConfig.doomLoopSimilarityTooltip",
-                    "Similarity threshold to consider calls as repetitive (0-1)",
+                    "How similar actions must be to count as repetition (lower = stricter)",
                   )}
                   className={styles.reactAgentField}
                 >
@@ -150,7 +327,7 @@ export function AgentLoopCard() {
                 }}
               />
               <strong style={{ display: "block", marginBottom: 12 }}>
-                {t("agentConfig.doomLoopStages", "Escalation Stages")}
+                {t("agentConfig.doomLoopStages", "Intervention Rules")}
               </strong>
 
               <Form.List name={["loop", "doom_loop", "stages"]}>
@@ -203,7 +380,7 @@ export function AgentLoopCard() {
                           name={[name, "prompt"]}
                           label={
                             name === 0
-                              ? t("agentConfig.doomLoopPrompt", "Prompt")
+                              ? t("agentConfig.doomLoopPrompt", "Message")
                               : undefined
                           }
                           style={{ flex: 3 }}
@@ -213,7 +390,7 @@ export function AgentLoopCard() {
                             autoSize={{ minRows: 1, maxRows: 3 }}
                             placeholder={t(
                               "agentConfig.doomLoopPromptPlaceholder",
-                              "Warning or stop reason...",
+                              "Reminder message or pause reason...",
                             )}
                           />
                         </Form.Item>
@@ -239,7 +416,7 @@ export function AgentLoopCard() {
                       icon={<Plus size={14} />}
                       style={{ width: "100%" }}
                     >
-                      {t("agentConfig.doomLoopAddStage", "Add Stage")}
+                      {t("agentConfig.doomLoopAddStage", "Add Rule")}
                     </Button>
                   </>
                 )}
@@ -248,6 +425,352 @@ export function AgentLoopCard() {
           )}
         </>
       )}
+    </div>
+  );
+}
+
+function RubricSection() {
+  const { t } = useTranslation();
+  const form = Form.useFormInstance();
+  const [advanced, setAdvanced] = useState(false);
+  const enabled = Form.useWatch(["loop", "rubric", "enabled"], form);
+
+  return (
+    <div>
+      <SectionHeader
+        icon={<CheckCircle size={16} style={{ opacity: 0.7 }} />}
+        title={t("agentConfig.rubricTitle", "Completion Check")}
+      />
+      <p
+        style={{
+          fontSize: 12,
+          color: "var(--text-secondary, rgba(0,0,0,0.45))",
+          marginBottom: 12,
+          lineHeight: 1.6,
+        }}
+      >
+        {t(
+          "agentConfig.rubricDesc",
+          "Some LLMs may stop with a text-only response without calling any tool, causing the agent to end prematurely. Enable this to re-prompt the agent and improve task completion.",
+        )}
+      </p>
+      <Form.Item
+        name={["loop", "rubric", "enabled"]}
+        label={t("agentConfig.rubricEnabled", "Enable Completion Check")}
+        valuePropName="checked"
+        tooltip={t(
+          "agentConfig.rubricEnabledTooltip",
+          "Re-prompt the agent when it produces a text-only response without tool calls",
+        )}
+      >
+        <Switch />
+      </Form.Item>
+      {enabled && (
+        <>
+          <Form.Item
+            name={["loop", "rubric", "prompt"]}
+            label={t("agentConfig.rubricPrompt", "Re-prompt Message")}
+            tooltip={t(
+              "agentConfig.rubricPromptTooltip",
+              "The prompt injected when the agent outputs text without tool calls",
+            )}
+          >
+            <Input.TextArea
+              autoSize={{ minRows: 2, maxRows: 5 }}
+              placeholder={t(
+                "agentConfig.rubricPromptPlaceholder",
+                "You did not call any tool. If the task is complete, confirm. Otherwise, continue with tool calls.",
+              )}
+            />
+          </Form.Item>
+
+          <Button
+            type="link"
+            size="small"
+            onClick={() => setAdvanced(!advanced)}
+            style={{ padding: 0, marginBottom: 12 }}
+          >
+            <span
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 4,
+              }}
+            >
+              {advanced ? (
+                <ChevronDown size={14} />
+              ) : (
+                <ChevronRight size={14} />
+              )}
+              {advanced
+                ? t("agentConfig.simpleMode", "Simple")
+                : t("agentConfig.advancedMode", "Advanced")}
+            </span>
+          </Button>
+
+          {advanced && (
+            <Form.Item
+              name={["loop", "rubric", "max_interventions"]}
+              label={t(
+                "agentConfig.rubricMaxInterventions",
+                "Max Interventions per Turn",
+              )}
+              tooltip={t(
+                "agentConfig.rubricMaxInterventionsTooltip",
+                "Maximum times to re-prompt per turn. Prevents infinite re-prompting if the LLM keeps producing text-only responses.",
+              )}
+            >
+              <InputNumber min={1} max={10} style={{ width: 200 }} />
+            </Form.Item>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+function ThinkingBudgetSection() {
+  const { t } = useTranslation();
+  const form = Form.useFormInstance();
+  const enabled = Form.useWatch(["loop", "thinking_budget", "enabled"], form);
+
+  return (
+    <div>
+      <SectionHeader
+        icon={<Brain size={16} style={{ opacity: 0.7 }} />}
+        title={t("agentConfig.thinkingBudgetTitle", "Thinking Budget")}
+      />
+      <p
+        style={{
+          fontSize: 12,
+          color: "var(--text-secondary, rgba(0,0,0,0.45))",
+          marginBottom: 12,
+          lineHeight: 1.6,
+        }}
+      >
+        {t(
+          "agentConfig.thinkingBudgetDesc",
+          "Control the token budget for extended thinking / reasoning. Applies to models that support thinking mode (e.g. Claude, Qwen).",
+        )}
+      </p>
+      <Form.Item
+        name={["loop", "thinking_budget", "enabled"]}
+        label={t("agentConfig.thinkingBudgetEnabled", "Enable Thinking Budget")}
+        valuePropName="checked"
+        tooltip={t(
+          "agentConfig.thinkingBudgetEnabledTooltip",
+          "Set a token limit for the model's internal reasoning process",
+        )}
+      >
+        <Switch />
+      </Form.Item>
+      {enabled && (
+        <Form.Item
+          name={["loop", "thinking_budget", "budget_tokens"]}
+          label={t("agentConfig.thinkingBudgetTokens", "Budget Tokens")}
+          tooltip={t(
+            "agentConfig.thinkingBudgetTokensTooltip",
+            "Maximum number of tokens allocated for thinking / extended reasoning per request",
+          )}
+        >
+          <InputNumber
+            min={0}
+            max={1000000}
+            step={1000}
+            style={{ width: 200 }}
+          />
+        </Form.Item>
+      )}
+    </div>
+  );
+}
+
+function ReactTab() {
+  return (
+    <>
+      <IterationSection />
+      <SectionDivider />
+      <DoomLoopSection />
+      <SectionDivider />
+      <RubricSection />
+      <SectionDivider />
+      <ThinkingBudgetSection />
+    </>
+  );
+}
+
+function GoalModeTab() {
+  const { t } = useTranslation();
+  return (
+    <div>
+      <p
+        style={{
+          fontSize: 13,
+          color: "var(--text-secondary, rgba(0,0,0,0.45))",
+          marginBottom: 16,
+        }}
+      >
+        {t(
+          "agentConfig.goalModeDesc",
+          "Gates automatically managed by /goal mode. Custom configuration coming soon.",
+        )}
+      </p>
+      <MockGateCard
+        icon={<Repeat size={14} style={{ opacity: 0.5 }} />}
+        title={t("agentConfig.goalIterationGate", "Goal Iteration Gate")}
+        description={t(
+          "agentConfig.goalIterationGateDesc",
+          "Limits the number of agent turns within a goal session. Tracks iteration count and token usage.",
+        )}
+      />
+      <MockGateCard
+        icon={<Wallet size={14} style={{ opacity: 0.5 }} />}
+        title={t("agentConfig.goalBudgetGate", "Token Budget Gate")}
+        description={t(
+          "agentConfig.goalBudgetGateDesc",
+          "Enforces a token spending limit for the goal session. Stops the agent when budget is exceeded.",
+        )}
+      />
+      <MockGateCard
+        icon={<CheckCircle size={14} style={{ opacity: 0.5 }} />}
+        title={t("agentConfig.goalRubricGate", "Goal Completion Rubric")}
+        description={t(
+          "agentConfig.goalRubricGateDesc",
+          "Evaluates whether the goal has been achieved by checking the session status.",
+        )}
+      />
+      <MockGateCard
+        icon={<Shield size={14} style={{ opacity: 0.5 }} />}
+        title={t("agentConfig.goalDoomGate", "Repetition Protection")}
+        description={t(
+          "agentConfig.goalDoomGateDesc",
+          "Detects repetitive patterns during goal execution and triggers intervention.",
+        )}
+      />
+    </div>
+  );
+}
+
+function MissionModeTab() {
+  const { t } = useTranslation();
+  return (
+    <div>
+      <p
+        style={{
+          fontSize: 13,
+          color: "var(--text-secondary, rgba(0,0,0,0.45))",
+          marginBottom: 16,
+        }}
+      >
+        {t(
+          "agentConfig.missionModeDesc",
+          "Gates automatically managed by /mission mode. Custom configuration coming soon.",
+        )}
+      </p>
+      <MockGateCard
+        icon={<Gauge size={14} style={{ opacity: 0.5 }} />}
+        title={t("agentConfig.missionProgressGate", "Mission Progress Gate")}
+        description={t(
+          "agentConfig.missionProgressGateDesc",
+          "Tracks PRD user story completion. Continues until all stories pass or max iterations reached.",
+        )}
+      />
+      <MockGateCard
+        icon={<Repeat size={14} style={{ opacity: 0.5 }} />}
+        title={t("agentConfig.missionIterBypass", "Iteration Bypass")}
+        description={t(
+          "agentConfig.missionIterBypassDesc",
+          "Temporarily lifts the ReAct iteration limit during mission execution to allow long-running phases.",
+        )}
+      />
+    </div>
+  );
+}
+
+export function AgentLoopCard() {
+  const { t } = useTranslation();
+
+  const tabItems = [
+    {
+      key: "react",
+      label: "ReAct",
+      children: <ReactTab />,
+    },
+    {
+      key: "goal",
+      label: (
+        <span
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 6,
+          }}
+        >
+          <Target size={13} />
+          {t("agentConfig.goalModeTab", "Goal Mode")}
+        </span>
+      ),
+      children: <GoalModeTab />,
+    },
+    {
+      key: "mission",
+      label: (
+        <span
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 6,
+          }}
+        >
+          <Rocket size={13} />
+          {t("agentConfig.missionModeTab", "Mission Mode")}
+        </span>
+      ),
+      children: <MissionModeTab />,
+    },
+    {
+      key: "add",
+      label: (
+        <span
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 4,
+            color: "var(--text-quaternary, rgba(0,0,0,0.25))",
+          }}
+        >
+          <Plus size={13} />
+        </span>
+      ),
+      children: (
+        <div
+          style={{
+            textAlign: "center",
+            padding: "40px 0",
+            color: "var(--text-secondary, rgba(0,0,0,0.45))",
+          }}
+        >
+          <Plus size={32} style={{ opacity: 0.3, marginBottom: 12 }} />
+          <p style={{ fontSize: 14, fontWeight: 500 }}>
+            {t("agentConfig.customLoopTitle", "Custom Loop Modes")}
+          </p>
+          <p style={{ fontSize: 12 }}>
+            {t(
+              "agentConfig.customLoopDesc",
+              "Create your own loop modes with custom gate combinations. Coming soon.",
+            )}
+          </p>
+        </div>
+      ),
+    },
+  ];
+
+  return (
+    <Card
+      className={styles.formCard}
+      title={t("agentConfig.agentLoopTitle", "Loop Engineering Settings")}
+    >
+      <Tabs defaultActiveKey="react" items={tabItems} size="small" />
     </Card>
   );
 }

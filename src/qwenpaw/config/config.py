@@ -1032,9 +1032,9 @@ class DoomLoopConfig(BaseModel):
                 prompt=(
                     "[WARNING] Repetitive pattern "
                     "detected. You are repeating "
-                    "similar actions without progress."
-                    " Try a completely different "
-                    "approach."
+                    "similar actions without "
+                    "progress. Try a completely "
+                    "different approach."
                 ),
             ),
             DoomLoopStageConfig(
@@ -1045,16 +1045,107 @@ class DoomLoopConfig(BaseModel):
                 ),
             ),
         ],
-        description="Escalation stages (sorted by after)",
+        description=("Escalation stages (sorted by after)"),
+    )
+    in_loop_modes: bool = Field(
+        default=False,
+        description=("Also run during /goal and " "/mission loop modes"),
+    )
+
+
+class IterationGateConfig(BaseModel):
+    """Standalone iteration gate configuration."""
+
+    enabled: bool = Field(
+        default=True,
+        description="Enable iteration limit",
+    )
+    max_iterations: int = Field(
+        default=50,
+        ge=1,
+        le=500,
+        description=("Maximum loop turns before stopping"),
+    )
+    in_loop_modes: bool = Field(
+        default=False,
+        description=("Also run during /goal and " "/mission loop modes"),
+    )
+
+
+class RubricGateConfig(BaseModel):
+    """Completion check gate configuration.
+
+    Prevents premature agent stop when the LLM
+    outputs text-only responses without tool calls.
+    """
+
+    enabled: bool = Field(
+        default=False,
+        description=(
+            "Enable completion check to prevent "
+            "early stop on text-only responses"
+        ),
+    )
+    prompt: str = Field(
+        default=(
+            "You did not call any tool in the "
+            "last turn. If the task is truly "
+            "complete, confirm it. Otherwise, "
+            "continue working with tool calls."
+        ),
+        description=(
+            "Prompt injected when the agent " "produces a text-only response"
+        ),
+    )
+    max_interventions: int = Field(
+        default=1,
+        ge=1,
+        le=10,
+        description=(
+            "Max times to re-prompt per loop " "turn to avoid infinite retries"
+        ),
+    )
+    in_loop_modes: bool = Field(
+        default=False,
+        description=("Also run during /goal and " "/mission loop modes"),
+    )
+
+
+class ThinkingBudgetConfig(BaseModel):
+    """Thinking / reasoning token budget gate."""
+
+    enabled: bool = Field(
+        default=False,
+        description="Enable thinking budget limit",
+    )
+    budget_tokens: int = Field(
+        default=10000,
+        ge=0,
+        le=1000000,
+        description=(
+            "Max tokens allocated for model " "thinking / extended reasoning"
+        ),
     )
 
 
 class LoopConfig(BaseModel):
     """Loop engineering configuration."""
 
+    iteration: IterationGateConfig = Field(
+        default_factory=IterationGateConfig,
+        description="Iteration limit settings",
+    )
     doom_loop: DoomLoopConfig = Field(
         default_factory=DoomLoopConfig,
-        description="Doom loop detection settings",
+        description="Repetition protection settings",
+    )
+    rubric: RubricGateConfig = Field(
+        default_factory=RubricGateConfig,
+        description="Completion check settings",
+    )
+    thinking_budget: ThinkingBudgetConfig = Field(
+        default_factory=ThinkingBudgetConfig,
+        description="Thinking budget settings",
     )
 
 
