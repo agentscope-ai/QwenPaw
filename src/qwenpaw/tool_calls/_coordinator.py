@@ -660,8 +660,7 @@ class ToolCoordinator:
     ) -> None:
         """Notify registered tool call observers.
 
-        Awaits each observer and processes the returned
-        DoomLoopSignal to trigger HITL pausing.
+        Awaits each observer and processes any returned signal.
         """
         observers: list = getattr(self, "_observers", [])
         if not observers:
@@ -716,7 +715,7 @@ def _handle_observer_signal(
     future: asyncio.Future,
     reg: Any,
 ) -> None:
-    """Process DoomLoopSignal from observer future."""
+    """Process signal returned by a tool call observer."""
     try:
         signal = future.result()
     except Exception as exc:
@@ -727,22 +726,10 @@ def _handle_observer_signal(
     if signal is None:
         return
     signal_str = str(signal)
-    if "escalate_hitl" in signal_str:
-        from ..loop.doom_loop import DoomLoopState
-
-        state: DoomLoopState | None = getattr(
-            reg,
-            "_doom_loop_state",
-            None,
+    if "escalate" in signal_str or "force_stop" in signal_str:
+        logger.warning(
+            f"Observer '{reg.name}' emitted signal: " f"{signal_str}",
         )
-        if state is not None:
-            state.paused = True
-            state.escalation_count += 1
-            logger.warning(
-                f"HITL triggered by observer "
-                f"'{reg.name}': escalation "
-                f"#{state.escalation_count}",
-            )
 
 
 def _parse_tool_input(tool_call: Any) -> dict[str, Any]:

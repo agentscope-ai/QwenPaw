@@ -638,7 +638,7 @@ class PluginApi:
             priority: Lower number = higher priority.
             name: Human-readable name for debugging.
         """
-        from ..loop.stop_handler import (
+        from ..loop.gates import (
             StopHandlerRegistration,
         )
 
@@ -743,16 +743,21 @@ class PluginApi:
 
         Unlike per-tool hooks, this observer fires for ALL tool
         calls. It receives tool_name, args, result, and history.
-        The observer can return a DoomLoopSignal to trigger HITL.
 
         Args:
             observer: Async callable
                 ``(tool_name, args, result, history) -> Signal``.
             name: Human-readable name for debugging.
         """
-        from ..loop.doom_loop import ObserverRegistration
+        from dataclasses import dataclass
 
-        reg = ObserverRegistration(
+        @dataclass
+        class _ObserverReg:
+            plugin_id: str
+            observer: object
+            name: str = ""
+
+        reg = _ObserverReg(
             plugin_id=self.plugin_id,
             observer=observer,
             name=name or f"{self.plugin_id}_observer",

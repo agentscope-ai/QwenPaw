@@ -6,8 +6,8 @@ import pytest
 from qwenpaw.app.agent_context import (
     set_current_session_id,
 )
-from qwenpaw.loop.rubric_grader import GoalStatusRubric
-from qwenpaw.loop.stop_handler import (
+from qwenpaw.loop.gates.rubric import GoalStatusRubric
+from qwenpaw.loop.gates import (
     StopAction,
     StopHandler,
 )

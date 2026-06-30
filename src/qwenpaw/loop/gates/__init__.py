@@ -4,7 +4,9 @@
 Public API:
     StopAction, StopGate, StopHandler,
     StopHandlerResult, StopHandlerRegistration,
-    DoomLoopGate.
+    DoomLoopGate,
+    RubricStrategy, GoalStatusRubric, RubricVerdict,
+    RubricEvaluation, DefaultRubric, SubAgentRubric.
 """
 from .base import (
     StopAction,
@@ -14,12 +16,26 @@ from .base import (
 )
 from .doom_loop import DoomLoopGate
 from .handler import StopHandler
+from .rubric import (
+    DefaultRubric,
+    GoalStatusRubric,
+    RubricEvaluation,
+    RubricStrategy,
+    RubricVerdict,
+    SubAgentRubric,
+)
 
 __all__ = [
+    "DefaultRubric",
     "DoomLoopGate",
+    "GoalStatusRubric",
+    "RubricEvaluation",
+    "RubricStrategy",
+    "RubricVerdict",
     "StopAction",
     "StopGate",
     "StopHandler",
     "StopHandlerRegistration",
     "StopHandlerResult",
+    "SubAgentRubric",
 ]

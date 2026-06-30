@@ -181,27 +181,6 @@ class TestContextInjection:
 # ── 改动7C: HITL triggering ──
 
 
-class TestDoomLoopAlert:
-    """改动7C: DoomLoopAlert data structure."""
-
-    def test_alert_to_dict(self):
-        """DoomLoopAlert serializes correctly."""
-        from qwenpaw.loop.doom_loop import DoomLoopAlert
-
-        alert = DoomLoopAlert(
-            session_id="s1",
-            loop_name="ralph",
-            signal="escalate_hitl",
-            message="Repetitive behavior detected",
-            escalation_count=2,
-        )
-        d = alert.to_dict()
-        assert d["type"] == "doom_loop_alert"
-        assert d["session_id"] == "s1"
-        assert d["loop_name"] == "ralph"
-        assert d["escalation_count"] == 2
-
-
 class TestObserverBroadcast:
     """改动7C: ToolCoordinator._broadcast_observers."""
 

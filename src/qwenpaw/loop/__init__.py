@@ -1,35 +1,41 @@
 # -*- coding: utf-8 -*-
-"""Loop engineering infrastructure package."""
+"""Loop engineering infrastructure package.
+
+Core architecture:
+    StopHandler + StopGate (in gates/ sub-package)
+    ├── DoomLoopGate  — multi-stage repetition detection
+    ├── RubricGate    — rubric-based evaluation (GoalMode)
+    ├── IterationGate — iteration limit (GoalMode)
+    └── BudgetGate    — token budget (GoalMode)
+
+Hooks:
+    LoopIterBypassHook  — lifts ReAct max_iters during loop
+    LoopIterRestoreHook — restores original max_iters
+"""
 
 from .gates import (
     DoomLoopGate,
+    GoalStatusRubric,
+    RubricStrategy,
+    RubricVerdict,
     StopAction,
     StopGate,
     StopHandler,
     StopHandlerRegistration,
     StopHandlerResult,
 )
-from .doom_loop import (
-    DoomLoopDetector,
-    DoomLoopSignal,
-)
-from .base_plugin import BaseLoopPlugin
 from .iter_bypass_hook import (
     LoopIterBypassHook,
     LoopIterRestoreHook,
 )
-from .schema import LoopSkillConfig
-from .loader import LoopLoader
 
 __all__ = [
-    "BaseLoopPlugin",
-    "DoomLoopDetector",
     "DoomLoopGate",
-    "DoomLoopSignal",
+    "GoalStatusRubric",
     "LoopIterBypassHook",
     "LoopIterRestoreHook",
-    "LoopLoader",
-    "LoopSkillConfig",
+    "RubricStrategy",
+    "RubricVerdict",
     "StopAction",
     "StopGate",
     "StopHandler",

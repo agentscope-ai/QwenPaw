@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from qwenpaw.loop.stop_handler import (
+from qwenpaw.loop.gates import (
     StopAction,
     StopHandlerRegistration,
     StopHandlerResult,

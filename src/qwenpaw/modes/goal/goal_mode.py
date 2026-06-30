@@ -23,11 +23,11 @@ from ...app.agent_context import (
     get_current_session_id,
     set_current_session_id,
 )
-from ...loop.rubric_grader import (
+from ...loop.gates import (
     GoalStatusRubric,
     RubricVerdict,
 )
-from ...loop.stop_handler import (
+from ...loop.gates import (
     StopAction,
     StopGate,
     StopHandler,

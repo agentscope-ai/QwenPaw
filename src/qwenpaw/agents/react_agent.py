@@ -27,7 +27,7 @@ from ..constant import (
     QWENPAW_MESSAGE_TAG_KEY,
     WORKING_DIR,
 )
-from ..loop.stop_handler import StopAction, StopHandlerResult
+from ..loop.gates import StopAction, StopHandlerResult
 from ..providers.model_capability_cache import get_capability_cache
 
 if TYPE_CHECKING:
