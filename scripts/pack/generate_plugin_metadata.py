@@ -172,7 +172,9 @@ def _build_metadata(
     qwenpaw_version = manifest.get("qwenpaw_version")
     if isinstance(qwenpaw_version, dict):
         metadata["qwenpaw_version"] = {
-            k: str(v) for k, v in qwenpaw_version.items() if k in ("min", "max")
+            k: str(v)
+            for k, v in qwenpaw_version.items()
+            if k in ("min", "max")
         }
     else:
         min_version = str(manifest.get("min_version") or "")
