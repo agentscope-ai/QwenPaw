@@ -351,7 +351,7 @@ def _resolve_token(
             return parsed
         if missing_var_default is not None:
             return missing_var_default
-        return stripped
+        raise ValueError(f"Undefined variable: {stripped}")
     resolved = _resolve_ref_string(stripped, results, variables)
     return _parse_scalar(resolved)
 
@@ -661,7 +661,7 @@ async def _run_steps(  # pylint: disable=too-many-branches,too-many-statements
             results.append(
                 _step_error(
                     pc,
-                    ("Exceeded maximum execution steps " f"({maxstep})"),
+                    f"Exceeded maximum execution steps ({maxstep})",
                 ),
             )
             break
@@ -997,7 +997,7 @@ def _coerce_batch_actions(
     try:
         return json.loads(actions)
     except (json.JSONDecodeError, TypeError):
-        return actions
+        raise ValueError("actions string is not valid JSON") from None
 
 
 def _load_actions_from_file(

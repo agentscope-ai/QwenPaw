@@ -105,6 +105,7 @@ function collectRawBlocks(value: unknown, acc: unknown[] = []): unknown[] {
     }
   }
 
+  const visited = new Set<string>();
   for (const nestedKey of [
     "content",
     "contents",
@@ -125,16 +126,18 @@ function collectRawBlocks(value: unknown, acc: unknown[] = []): unknown[] {
     "source",
   ]) {
     if (nestedKey in record) {
+      visited.add(nestedKey);
       collectRawBlocks(record[nestedKey], acc);
     }
   }
 
   if (typeof record.text === "string") {
+    visited.add("text");
     collectRawBlocks(record.text, acc);
   }
 
-  for (const nestedValue of Object.values(record)) {
-    if (nestedValue && typeof nestedValue === "object") {
+  for (const [key, nestedValue] of Object.entries(record)) {
+    if (!visited.has(key) && nestedValue && typeof nestedValue === "object") {
       collectRawBlocks(nestedValue, acc);
     }
   }
