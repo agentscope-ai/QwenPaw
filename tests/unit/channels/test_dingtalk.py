@@ -1607,11 +1607,40 @@ class TestDingTalkSendContentParts:
 
             mock_send.assert_not_called()
 
-    async def test_send_content_parts_text_failure_raises(
+    async def test_send_content_parts_text_failure_logs_without_strict_meta(
         self,
         dingtalk_channel,
     ):
-        """Text delivery failure should surface to callers."""
+        """Conversation replies should not fail the whole agent pipeline."""
+        from qwenpaw.app.channels.base import TextContent, ContentType
+
+        parts = [TextContent(type=ContentType.TEXT, text="Hello")]
+
+        with (
+            patch.object(
+                dingtalk_channel,
+                "_send_via_session_webhook",
+                new_callable=AsyncMock,
+                return_value=False,
+            ),
+            patch.object(
+                dingtalk_channel,
+                "_try_open_api_fallback",
+                new_callable=AsyncMock,
+                return_value=False,
+            ),
+        ):
+            await dingtalk_channel.send_content_parts(
+                to_handle="dingtalk:sw:test",
+                parts=parts,
+                meta={"session_webhook": "http://webhook.url"},
+            )
+
+    async def test_send_content_parts_text_failure_raises_for_api_send(
+        self,
+        dingtalk_channel,
+    ):
+        """Explicit API delivery failure should surface to callers."""
         from qwenpaw.app.channels.base import TextContent, ContentType
 
         parts = [TextContent(type=ContentType.TEXT, text="Hello")]
@@ -1634,7 +1663,10 @@ class TestDingTalkSendContentParts:
                 await dingtalk_channel.send_content_parts(
                     to_handle="dingtalk:sw:test",
                     parts=parts,
-                    meta={"session_webhook": "http://webhook.url"},
+                    meta={
+                        "_api_send": True,
+                        "session_webhook": "http://webhook.url",
+                    },
                 )
 
     async def test_send_content_parts_with_file(
@@ -2701,7 +2733,21 @@ class TestDingTalkSendMethodsExtended:
             meta={},
         )
 
-    async def test_send_no_delivery_target_raises(
+    async def test_send_no_delivery_target_logs_without_strict_meta(
+        self,
+        dingtalk_channel,
+        mock_http_session,
+    ):
+        """Conversation replies should not raise on missing target metadata."""
+        dingtalk_channel._http = mock_http_session
+
+        await dingtalk_channel.send(
+            to_handle="unknown_handle",
+            text="Test message",
+            meta={},
+        )
+
+    async def test_send_no_delivery_target_raises_for_api_send(
         self,
         dingtalk_channel,
         mock_http_session,
@@ -2713,10 +2759,10 @@ class TestDingTalkSendMethodsExtended:
             await dingtalk_channel.send(
                 to_handle="unknown_handle",
                 text="Test message",
-                meta={},
+                meta={"_api_send": True},
             )
 
-    async def test_send_open_api_fallback_failure_raises(
+    async def test_send_open_api_fallback_failure_raises_for_api_send(
         self,
         dingtalk_channel,
         mock_http_session,
@@ -2734,7 +2780,10 @@ class TestDingTalkSendMethodsExtended:
                 await dingtalk_channel.send(
                     to_handle="unknown_handle",
                     text="Test message",
-                    meta={"conversation_id": "cid_test"},
+                    meta={
+                        "_api_send": True,
+                        "conversation_id": "cid_test",
+                    },
                 )
 
 
