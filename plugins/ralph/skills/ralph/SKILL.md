@@ -1,8 +1,3 @@
-<!--
-  Based on oh-my-claudecode (https://github.com/nicobailon/oh-my-claudecode)
-  Adapted for QwenPaw loop plugin infrastructure.
-  License: MIT — see original project for full terms.
--->
 ---
 name: ralph
 description: PRD-driven persistence loop until task completion with verification

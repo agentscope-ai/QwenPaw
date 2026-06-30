@@ -1,8 +1,3 @@
-<!--
-  Based on oh-my-claudecode (https://github.com/nicobailon/oh-my-claudecode)
-  Adapted for QwenPaw loop plugin infrastructure.
-  License: MIT — see original project for full terms.
--->
 ---
 name: autopilot
 description: Full autonomous execution from idea to working code

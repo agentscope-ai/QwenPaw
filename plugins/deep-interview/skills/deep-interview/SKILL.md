@@ -1,8 +1,3 @@
-<!--
-  Based on oh-my-claudecode (https://github.com/nicobailon/oh-my-claudecode)
-  Adapted for QwenPaw loop plugin infrastructure.
-  License: MIT — see original project for full terms.
--->
 ---
 name: deep-interview
 description: Socratic deep interview with mathematical ambiguity gating before execution
