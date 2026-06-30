@@ -1,10 +1,14 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 
+from agentscope.message import Msg
+
 from qwenpaw.app.chats.utils import (
     _abspath_from_url,
     _is_local_file_url,
     _resolve_content_url,
+    agentscope_msg_to_message,
+    clean_display_text,
     strip_injected_skill_block,
 )
 from qwenpaw.app.chats.title_generator import _clean_title
@@ -93,6 +97,45 @@ def test_strip_skill_block_skips_non_user_role():
 
 def test_strip_skill_block_skips_when_no_skill_tag():
     assert strip_injected_skill_block("plain text", "user") == "plain text"
+
+
+# ---------------------------------------------------------------------------
+# clean_display_text — headline hidden in the HTTP history path too
+# ---------------------------------------------------------------------------
+
+
+def test_clean_display_text_strips_headline_comment():
+    text = "done\n<!-- ⟦ milestone here ⟧ -->"
+    assert clean_display_text(text, "assistant") == "done"
+
+
+def test_clean_display_text_strips_lookalike_brackets():
+    # Qwen substitutes U+301A/U+301B for the intended U+27E6/U+27E7.
+    assert clean_display_text("ok\n〚 lookalike 〛", "assistant") == "ok"
+
+
+def test_clean_display_text_keeps_plain_text():
+    assert clean_display_text("hello world", "user") == "hello world"
+
+
+def test_clean_display_text_strips_both_skill_and_headline():
+    text = "/run<skill name='x'>body</skill>\n<!-- ⟦ h ⟧ -->"
+    out = clean_display_text(text, "user")
+    assert "<skill" not in out and "⟦" not in out and "/run" in out
+
+
+def test_msg_to_message_hides_headline_in_history_path():
+    """Regression: the GET /chats/{id} path now strips the ⟦…⟧ headline, so it
+    no longer reappears after navigating away from the chat and back."""
+    msg = Msg(
+        name="assistant",
+        role="assistant",
+        content=[{"type": "text", "text": "all set\n<!-- ⟦ shipped ⟧ -->"}],
+    )
+    [message] = agentscope_msg_to_message(msg)
+    rendered = "".join(c.text for c in message.content)
+    assert "⟦" not in rendered and "shipped" not in rendered
+    assert "all set" in rendered
 
 
 # ---------------------------------------------------------------------------
