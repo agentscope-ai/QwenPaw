@@ -263,15 +263,33 @@ async def _run_icacls(args: List[str], timeout: int = 120) -> Tuple[bool, str]:
         return False, str(e)
 
 
-async def _set_acl_deny(path: str, sid: str) -> bool:
-    """Set deny-all ACL on path for the AppContainer SID.
+async def _set_acl_deny_mount(path: str, sid: str) -> bool:
+    """Completely block access to a path by breaking inheritance and denying.
 
-    icacls <path> /deny *<SID>:(OI)(CI)(F)
+    AppContainer tokens ignore explicit deny ACEs when an inherited allow
+    ACE exists. The only reliable way to block access is to:
+      1. Break inheritance (stop inheriting parent's allow ACE)
+      2. Remove any existing allow ACE for the SID
+      3. Add an explicit deny ACE for defense-in-depth
+
+    After this, the SID has zero access to this path and its children.
     """
-    ok, err = await _run_icacls([path, "/deny", f"*{sid}:(OI)(CI)(F)"])
-    if not ok:
-        logger.warning("Failed to set deny ACL on %s: %s", path, err)
-    return ok
+    # Step 1: Break inheritance
+    ok1, err1 = await _run_icacls([path, "/inheritance:d"])
+    if not ok1:
+        logger.warning("Failed to disable inheritance on %s: %s", path, err1)
+
+    # Step 2: Remove all ACEs for this SID
+    ok2, err2 = await _run_icacls([path, "/remove", f"*{sid}"])
+    if not ok2:
+        logger.warning("Failed to remove ACL for SID on %s: %s", path, err2)
+
+    # Step 3: Add explicit deny (defense-in-depth, inheritable to children)
+    ok3, err3 = await _run_icacls([path, "/deny", f"*{sid}:(OI)(CI)(F)"])
+    if not ok3:
+        logger.warning("Failed to set deny ACL on %s: %s", path, err3)
+
+    return ok1 and ok2 and ok3
 
 
 async def _set_acl_grant(path: str, sid: str, permission: str) -> bool:
@@ -288,77 +306,76 @@ async def _set_acl_grant(path: str, sid: str, permission: str) -> bool:
     return ok
 
 
-async def _set_acl_deny_write(path: str, sid: str) -> bool:
-    """Enforce read-only on a path that may inherit writable ACLs.
+async def _set_acl_mount(path: str, sid: str, permission: str) -> bool:
+    """Set exact permissions on a mount path, breaking inheritance first.
 
-    Strategy: break ACL inheritance on the target directory, convert
-    inherited ACEs to explicit (preserving SYSTEM/Administrators), then
-    remove the AppContainer SID's Full-access ACE and re-grant only RX.
+    Strategy: break ACL inheritance, remove any existing ACE for the SID,
+    then grant the exact permission requested. This ensures the mount's
+    effective permission is exactly what is specified, regardless of what
+    the parent directory grants via inheritance.
 
-    This is necessary because AppContainer tokens ignore explicit deny
-    ACEs when an inherited allow ACE with higher permissions exists.
-    The only reliable way to restrict permissions is to eliminate the
-    inherited Full-access ACE entirely.
-
-    Steps:
-        1. /inheritance:d — convert inherited ACEs to explicit
-           (SYSTEM, Administrators, OWNER RIGHTS become explicit,
-            the inherited (I)(OI)(CI)(F) for our SID also becomes explicit)
-        2. /remove *SID — remove the now-explicit Full ACE for our SID
-        3. /grant *SID:(OI)(CI)(RX) — re-add only read+execute
+    Args:
+        path: Filesystem path to set ACL on.
+        sid: AppContainer SID string.
+        permission: "F" for full access, "RX" for read+execute.
     """
-    # Step 1: Convert inherited ACEs to explicit (preserves SYSTEM etc.)
+    # Step 1: Convert inherited ACEs to explicit
     ok1, err1 = await _run_icacls([path, "/inheritance:d"])
     if not ok1:
         logger.warning("Failed to disable inheritance on %s: %s", path, err1)
 
-    # Step 2: Remove the now-explicit Full ACE for this SID
+    # Step 2: Remove existing ACEs for this SID
     ok2, err2 = await _run_icacls([path, "/remove", f"*{sid}"])
     if not ok2:
         logger.warning("Failed to remove ACL for SID on %s: %s", path, err2)
 
-    # Step 3: Grant only read+execute (inheritable to children)
-    ok3, err3 = await _run_icacls([path, "/grant", f"*{sid}:(OI)(CI)(RX)"])
+    # Step 3: Grant exact permission (inheritable to children)
+    ok3, err3 = await _run_icacls(
+        [path, "/grant", f"*{sid}:(OI)(CI)({permission})"]
+    )
     if not ok3:
-        logger.warning("Failed to re-grant RX ACL on %s: %s", path, err3)
+        logger.warning(
+            "Failed to grant %s ACL on %s: %s", permission, path, err3
+        )
     return ok1 and ok2 and ok3
 
 
 async def _apply_all_acls(config: SandboxConfig, sid: str) -> None:
     """Apply all ACLs for the AppContainer profile.
 
-    Executes icacls commands in three sequential phases to ensure correct
-    ACL evaluation order. Within each phase, commands run in parallel.
+    Executes icacls commands in three sequential phases:
 
-    Phase 1 — Grants: read/execute, full access, mount permissions
-    Phase 2 — Deny-write: enforce read-only on mounts that inherit writable
-    Phase 3 — Deny-all: completely block deny_paths
+    Phase 1 — Global read grants: allow_read_all broad RX, Python dir
+              (parallel within phase)
+    Phase 2 — Workspace: grant full access on workspace_dir
+    Phase 3 — Mounts + Deny paths: all path-level ACL overrides, sorted by
+              depth (shallowest first), executed serially. Each entry breaks
+              inheritance, removes the SID, then sets the exact permission
+              (grant for mounts, deny for deny_paths).
 
-    This ordering guarantees that deny ACEs are applied after grants
-    propagate, preventing race conditions where inherited Full access
-    from a parent directory overrides a simultaneously-applied deny.
+    This ordering guarantees that:
+    - Workspace inheritable ACEs are established before overrides break them
+    - All overrides use break-inheritance to eliminate inherited allow ACEs
+      (required because AppContainer ignores deny ACEs when inherited allow
+      ACEs exist)
+    - Parent paths are processed before child paths
     """
+    # ── Phase 1: Global read grants (parallel) ──────────────────────────────
     grant_tasks: List[asyncio.Task] = []
-    deny_write_tasks: List[asyncio.Task] = []
-    deny_all_tasks: List[asyncio.Task] = []
 
-    # 1. Critical system directories — NOT granted explicitly.
+    # Critical system directories — NOT granted explicitly.
     # On Windows 10+, C:\Windows, C:\Program Files etc. already have an ACE
     # for "ALL APPLICATION PACKAGES" (S-1-15-2-1) granting read+execute.
-    # Attempting to icacls these dirs fails even as admin (TrustedInstaller).
     logger.debug(
         "Skipping explicit ACL on system dirs (already have "
         "ALL APPLICATION PACKAGES ACE on Win10+)"
     )
 
-    # 2. allow_read_all: grant read+execute broadly
     if config.allow_read_all:
-        # Grant on the root of the system drive (inheritable)
         sys_drive = os.environ.get("SystemDrive", "C:")
         grant_tasks.append(
             asyncio.ensure_future(_set_acl_grant(sys_drive + "\\", sid, "RX"))
         )
-        # C:\Users and user profile don't inherit from C:\
         users_dir = sys_drive + "\\Users"
         if os.path.isdir(users_dir):
             grant_tasks.append(
@@ -370,65 +387,47 @@ async def _apply_all_acls(config: SandboxConfig, sid: str) -> None:
                 asyncio.ensure_future(_set_acl_grant(user_profile, sid, "RX"))
             )
 
-    # 2b. Python interpreter directory.
-    # Some environments (e.g., conda) disable ACL inheritance on their root
-    # directory, so the inheritable grant on USERPROFILE doesn't propagate.
-    # Grant RX explicitly on the Python interpreter's directory to ensure
-    # it's accessible from inside the AppContainer.
+    # Python interpreter directory
     python_dir = os.path.dirname(sys.executable)
     if python_dir and os.path.isdir(python_dir):
         grant_tasks.append(
             asyncio.ensure_future(_set_acl_grant(python_dir, sid, "RX"))
         )
 
-    # 3. Mounts (user-specified permissions)
-    # Read-only mounts are handled in phase 2 (remove inherited + grant RX)
-    readonly_mounts: List[str] = []
-    for mount in config.mounts:
-        if mount.writable:
-            perm = "F"
-            grant_tasks.append(
-                asyncio.ensure_future(_set_acl_grant(mount.path, sid, perm))
-            )
-        elif mount.executable:
-            perm = "RX"
-            grant_tasks.append(
-                asyncio.ensure_future(_set_acl_grant(mount.path, sid, perm))
-            )
-        else:
-            # Read-only: defer to phase 2 which removes inherited writable
-            # ACEs and grants only RX
-            readonly_mounts.append(mount.path)
-
-    # 4. Workspace (full access)
-    grant_tasks.append(
-        asyncio.ensure_future(_set_acl_grant(config.workspace_dir, sid, "F"))
-    )
-
-    # 5. Enforce read-only on mounts that may inherit writable ACLs from
-    # workspace or other writable parents. Removes all inherited ACEs for
-    # the SID, then grants only RX (no write/delete).
-    for ro_path in readonly_mounts:
-        deny_write_tasks.append(
-            asyncio.ensure_future(_set_acl_deny_write(ro_path, sid))
-        )
-
-    # 6. Deny paths (override all grants)
-    for deny_path in config.deny_paths:
-        # Expand ~ to user profile
-        expanded = os.path.expanduser(deny_path)
-        if os.path.exists(expanded):
-            deny_all_tasks.append(
-                asyncio.ensure_future(_set_acl_deny(expanded, sid))
-            )
-
-    # Execute in three sequential phases: grants → deny-write → deny-all
     if grant_tasks:
         await asyncio.gather(*grant_tasks, return_exceptions=True)
-    if deny_write_tasks:
-        await asyncio.gather(*deny_write_tasks, return_exceptions=True)
-    if deny_all_tasks:
-        await asyncio.gather(*deny_all_tasks, return_exceptions=True)
+
+    # ── Phase 2: Workspace full access ──────────────────────────────────────
+    await _set_acl_grant(config.workspace_dir, sid, "F")
+
+    # ── Phase 3: Mounts + Deny paths (serial, depth-sorted) ────────────────
+    # Merge mounts and deny_paths into a single list of (path, action) entries.
+    # action is either a permission string ("F", "RX") for mounts, or "DENY"
+    # for deny_paths. All entries break inheritance before applying their ACL
+    # to eliminate inherited allow ACEs from parent directories.
+    from pathlib import PureWindowsPath as _WP
+
+    path_entries: List[tuple] = []
+
+    # Add mounts
+    for mount in config.mounts:
+        perm = "F" if mount.writable else "RX"
+        path_entries.append((mount.path, perm))
+
+    # Add deny_paths
+    for deny_path in config.deny_paths:
+        expanded = os.path.expanduser(deny_path)
+        if os.path.exists(expanded):
+            path_entries.append((expanded, "DENY"))
+
+    # Sort by path depth (shallowest first) to ensure parent before child.
+    path_entries.sort(key=lambda e: len(_WP(e[0]).parts))
+
+    for path, action in path_entries:
+        if action == "DENY":
+            await _set_acl_deny_mount(path, sid)
+        else:
+            await _set_acl_mount(path, sid, action)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
