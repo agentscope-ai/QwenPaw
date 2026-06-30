@@ -5,6 +5,7 @@ import pytest
 from pydantic import ValidationError
 
 from qwenpaw.app.crons.models import (
+    CronJobRequest,
     CronJobSpec,
     DispatchSpec,
     DispatchTarget,
@@ -93,6 +94,12 @@ def test_cron_job_spec_agent_syncs_request_with_target():
     assert spec.request is not None
     assert spec.request.user_id == "alice"
     assert spec.request.session_id == "console:alice"
+
+
+def test_cron_job_request_declares_model_field():
+    assert "model" in CronJobRequest.model_fields
+    req = CronJobRequest(model="provider:model-name")
+    assert req.model_dump(mode="json")["model"] == "provider:model-name"
 
 
 def test_cron_job_spec_text_rejects_empty_text():

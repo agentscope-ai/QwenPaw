@@ -172,6 +172,7 @@ class CronJobRequest(BaseModel):
 
     model_config = ConfigDict(extra="allow")
 
+    model: Optional[str] = None
     input: Optional[Any] = None
     session_id: Optional[str] = None
     user_id: Optional[str] = None

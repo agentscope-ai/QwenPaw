@@ -255,6 +255,7 @@ class AgentRequest(BaseModel):
 
     model_config = ConfigDict(extra="allow")
 
+    model: Optional[str] = None
     input: List[Message] = Field(default_factory=list)
     session_id: Optional[str] = None
     user_id: Optional[str] = None

@@ -118,12 +118,20 @@ class AgentBuilder:
             request_context,
         )
         ctx.agent_config = agent_config
+        request_model = getattr(getattr(ctx, "request", None), "model", None)
+        has_request_model = isinstance(request_model, str) and bool(
+            request_model.strip()
+        )
 
         # Validate model availability.
         active = agent_config.active_model
-        if not (active and active.provider_id and active.model):
+        if not has_request_model and not (
+            active and active.provider_id and active.model
+        ):
             active = ProviderManager.get_instance().get_active_model()
-        if active is None or not active.provider_id or not active.model:
+        if not has_request_model and (
+            active is None or not active.provider_id or not active.model
+        ):
             raise RuntimeError(
                 "No active model configured; pick one in the UI",
             )
@@ -180,7 +188,10 @@ class AgentBuilder:
 
         # Model + formatter (built before the toolkit so the scroll context
         # strategy, which needs the model for token counting, can wire in).
-        model, _formatter = self.build_model(agent_config)
+        model, _formatter = self.build_model(
+            agent_config,
+            model_override=request_model,
+        )
 
         # Built once and shared: the agent's native offloader, and (when
         # ``offload_dialog`` is on) scroll's optional dialog archive.
@@ -265,13 +276,18 @@ class AgentBuilder:
         if ctx.session_state:
             agent.load_state_dict(ctx.session_state)
 
+        if has_request_model:
+            provider_id, _, model_name = request_model.strip().partition(":")
+        else:
+            provider_id = active.provider_id
+            model_name = active.model
         _logger.info(
             "builder: built agent for session=%s agent=%s"
             " model=%s/%s tools=%d",
             getattr(ctx, "session_id", ""),
             agent_id,
-            active.provider_id,
-            active.model,
+            provider_id,
+            model_name,
             len(agent.toolkit.tool_groups[0].tools),
         )
         return agent
@@ -320,12 +336,17 @@ class AgentBuilder:
 
         return build_default_prompt_manager().build_sync(prompt_ctx)
 
-    def build_model(self, agent_config: Any) -> tuple[Any, Any]:
+    def build_model(
+        self,
+        agent_config: Any,
+        model_override: str | None = None,
+    ) -> tuple[Any, Any]:
         """Create model and formatter using the factory method."""
         from ..agents.model_factory import create_model_and_formatter
 
         model, formatter = create_model_and_formatter(
             agent_id=agent_config.id,
+            model_override=model_override,
         )
         if formatter is not None:
             innermost = model

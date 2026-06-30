@@ -38,7 +38,11 @@ except ImportError:
 from .utils.message_request_normalizer import (
     normalize_messages_for_model_request,
 )
-from ..exceptions import ProviderError, ModelFormatterError
+from ..exceptions import (
+    ModelNotFoundException,
+    ProviderError,
+    ModelFormatterError,
+)
 from ..providers import ProviderManager
 from ..providers.capping_formatter import MAX_INLINE_MEDIA_BYTES
 from ..providers.retry_chat_model import (
@@ -1054,8 +1058,55 @@ def _strip_top_level_message_name(
     return messages
 
 
+def _request_model_slot(model_override: str | None) -> Any | None:
+    raw = (model_override or "").strip()
+    if not raw:
+        return None
+
+    provider_id, sep, model_id = raw.partition(":")
+    provider_id = provider_id.strip()
+    model_id = model_id.strip()
+    if not sep or not provider_id or not model_id:
+        raise ProviderError(
+            message=(
+                "Invalid request model override; expected "
+                "'provider:model'."
+            ),
+        )
+
+    from ..config.config import ModelSlotConfig
+
+    return ModelSlotConfig(provider_id=provider_id, model=model_id)
+
+
+def _model_from_slot(
+    model_slot: Any,
+    *,
+    validate_model: bool = False,
+) -> tuple[ChatModelBase, str]:
+    manager = ProviderManager.get_instance()
+    provider = manager.get_provider(model_slot.provider_id)
+    if provider is None:
+        raise ProviderError(
+            message=f"Provider '{model_slot.provider_id}' not found.",
+        )
+    if validate_model and not provider.has_model(model_slot.model):
+        raise ModelNotFoundException(
+            model_name=f"{model_slot.provider_id}/{model_slot.model}",
+            details={
+                "provider_id": model_slot.provider_id,
+                "model_id": model_slot.model,
+            },
+        )
+    return (
+        provider.get_chat_model_instance(model_slot.model),
+        model_slot.provider_id,
+    )
+
+
 def create_model_and_formatter(
     agent_id: Optional[str] = None,
+    model_override: str | None = None,
 ) -> Tuple[ChatModelBase, FormatterBase]:
     """Factory method to create model and formatter instances.
 
@@ -1065,6 +1116,7 @@ def create_model_and_formatter(
     Args:
         agent_id: Optional agent ID to load agent-specific model config.
             If None, tries to get from context, then falls back to global.
+        model_override: Optional request-level ``provider:model`` override.
 
     Returns:
         Tuple of (model_instance, formatter_instance)
@@ -1082,14 +1134,16 @@ def create_model_and_formatter(
         except Exception:
             pass
 
-    # Try to get agent-specific model first
-    model_slot = None
+    # Try request-level override first, then agent-specific model.
+    model_slot = _request_model_slot(model_override)
+    is_request_override = model_slot is not None
     retry_config = None
     rate_limit_config = None
     if agent_id:
         try:
             agent_config = load_agent_config(agent_id)
-            model_slot = agent_config.active_model
+            if model_slot is None:
+                model_slot = agent_config.active_model
             retry_config = RetryConfig(
                 enabled=agent_config.running.llm_retry_enabled,
                 max_retries=agent_config.running.llm_max_retries,
@@ -1108,16 +1162,10 @@ def create_model_and_formatter(
 
     # Create chat model from agent-specific or global config
     if model_slot and model_slot.provider_id and model_slot.model:
-        # Use agent-specific model
-        manager = ProviderManager.get_instance()
-        provider = manager.get_provider(model_slot.provider_id)
-        if provider is None:
-            raise ProviderError(
-                message=f"Provider '{model_slot.provider_id}' not found.",
-            )
-
-        model = provider.get_chat_model_instance(model_slot.model)
-        provider_id = model_slot.provider_id
+        model, provider_id = _model_from_slot(
+            model_slot,
+            validate_model=is_request_override,
+        )
     else:
         # Fallback to global active model
         model = ProviderManager.get_active_chat_model()
