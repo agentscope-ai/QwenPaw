@@ -2179,7 +2179,10 @@
       "noConversations": "No conversations yet",
       "loadingConversations": "Loading…"
     },
-    "conversationHistory": "Conversation History"
+    "conversationHistory": "Conversation History",
+    "history": {
+      "empty": "No chat history"
+    }
   },
   "security": {
     "parent": "Settings",

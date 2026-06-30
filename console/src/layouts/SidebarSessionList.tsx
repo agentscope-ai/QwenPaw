@@ -1,7 +1,8 @@
-import { useCallback, useMemo, useState } from "react";
+import React, { useCallback, useMemo, useState } from "react";
 import { Input, Spin } from "antd";
 import { useTranslation } from "react-i18next";
 import { useLocation } from "react-router-dom";
+import { FixedSizeList, type ListChildComponentProps } from "react-window";
 import { SparkPlusLine, SparkDownArrowLine } from "@agentscope-ai/icons";
 import { getChannelLabel } from "../pages/Control/Channels/components";
 import {
@@ -17,78 +18,70 @@ import {
 import SidebarSessionItem from "./SidebarSessionItem";
 import styles from "./sidebarSessionList.module.less";
 
-// ── Date grouping ─────────────────────────────────────────────────────────
+// ── Virtual list constants ────────────────────────────────────────────────
 
-type DateGroup = "pinned" | "today" | "week" | "month" | "older";
+/** SidebarSessionItem: padding 8+8 + line-height 20 + margin-bottom 2 = 38px */
+const SESSION_ITEM_HEIGHT = 38;
 
-interface SessionGroup {
-  key: DateGroup;
-  label: string;
+/** Data passed to each row via FixedSizeList's itemData prop */
+interface SessionRowData {
   sessions: ExtendedChatSession[];
+  currentSessionId: string | undefined;
+  editingSessionId: string | null;
+  editValue: string;
+  t: ReturnType<typeof useTranslation>["t"];
+  handleSessionClick: (sessionId: string) => void;
+  handleEditStart: (sessionId: string, currentName: string) => void;
+  handleDelete: (sessionId: string) => void;
+  handlePinToggle: (sessionId: string) => void;
+  handleEditChange: (value: string) => void;
+  handleEditSubmit: () => void;
+  handleEditCancel: () => void;
 }
 
-function getDateGroup(
-  timestamp: string | null | undefined,
-): Exclude<DateGroup, "pinned"> {
-  if (!timestamp) return "older";
-  const date = new Date(timestamp);
-  if (isNaN(date.getTime())) return "older";
+/** Memoized row renderer — only re-renders when its specific props change */
+const SessionRow = React.memo(function SessionRow({
+  index,
+  style,
+  data,
+}: ListChildComponentProps<SessionRowData>) {
+  const session = data.sessions[index];
+  if (!session) return null;
 
-  // Use calendar dates (not elapsed-time differences) so that
-  // "today" always means the same Y/M/D, regardless of the hour.
-  const now = new Date();
-  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const dateStart = new Date(
-    date.getFullYear(),
-    date.getMonth(),
-    date.getDate(),
+  const channelKey = session.channel?.trim() || "";
+  const channelLabel = channelKey
+    ? getChannelLabel(channelKey, data.t)
+    : undefined;
+  const isEditing = data.editingSessionId === session.id;
+
+  return (
+    <div style={style}>
+      <SidebarSessionItem
+        sessionId={session.id!}
+        name={session.name || "New Chat"}
+        channelKey={channelKey || undefined}
+        channelLabel={channelLabel}
+        chatStatus={session.status}
+        generating={session.generating}
+        pinned={session.pinned}
+        active={
+          session.id === data.currentSessionId ||
+          (!!data.currentSessionId && session.realId === data.currentSessionId)
+        }
+        disabled={false}
+        editing={isEditing}
+        editValue={isEditing ? data.editValue : undefined}
+        onClick={data.handleSessionClick}
+        onEdit={data.handleEditStart}
+        onDelete={data.handleDelete}
+        onPin={data.handlePinToggle}
+        onEditChange={data.handleEditChange}
+        onEditSubmit={data.handleEditSubmit}
+        onEditCancel={data.handleEditCancel}
+      />
+    </div>
   );
-  const calendarDays = Math.floor(
-    (todayStart.getTime() - dateStart.getTime()) / (1000 * 60 * 60 * 24),
-  );
-
-  if (calendarDays <= 0) return "today"; // same calendar day (or future)
-  if (calendarDays < 7) return "week";
-  if (calendarDays < 30) return "month";
-  return "older";
-}
-
-function groupSessions(
-  sessions: ExtendedChatSession[],
-  t: (key: string, fallback: string) => string,
-): SessionGroup[] {
-  const buckets: Record<DateGroup, ExtendedChatSession[]> = {
-    pinned: [],
-    today: [],
-    week: [],
-    month: [],
-    older: [],
-  };
-
-  for (const s of sessions) {
-    if (s.pinned) {
-      buckets.pinned.push(s);
-    } else {
-      buckets[getDateGroup(s.updatedAt ?? s.createdAt)].push(s);
-    }
-  }
-
-  const order: Array<{ key: DateGroup; fallback: string }> = [
-    { key: "pinned", fallback: "Pinned" },
-    { key: "today", fallback: "Today" },
-    { key: "week", fallback: "Within 7 days" },
-    { key: "month", fallback: "Within 30 days" },
-    { key: "older", fallback: "Earlier" },
-  ];
-
-  return order
-    .filter(({ key }) => buckets[key].length > 0)
-    .map(({ key, fallback }) => ({
-      key,
-      label: t(`chat.group.${key}`, fallback),
-      sessions: buckets[key],
-    }));
-}
+});
 
 // ── Component ─────────────────────────────────────────────────────────────
 
@@ -137,7 +130,7 @@ export default function SidebarSessionList({
   );
 
   const {
-    sortedSessions,
+    sortedSessions: allSortedSessions,
     loading,
     editingSessionId,
     editValue,
@@ -154,6 +147,19 @@ export default function SidebarSessionList({
     onSessionClick,
   });
 
+  // Filter out local temporary sessions (created by clicking "New Chat" but
+  // not yet persisted to backend). These sessions have local timestamp IDs
+  // (matching /^\d+-[a-z0-9]+$/) and no realId field. They should only appear
+  // in the list after the first message is sent and the backend creates them.
+  const sortedSessions = useMemo(() => {
+    return allSortedSessions.filter((session) => {
+      const isLocalId = /^\d+-[a-z0-9]+$/.test(session.id);
+      const hasRealId = !!(session as ExtendedChatSession).realId;
+      // Keep if: not a local ID, OR has been resolved to a real backend ID
+      return !isLocalId || hasRealId;
+    });
+  }, [allSortedSessions]);
+
   const handleNewChat = useCallback(() => {
     if (onNewChat) {
       onNewChat();
@@ -163,7 +169,7 @@ export default function SidebarSessionList({
   }, [onNewChat]);
 
   // Filter sessions by search query
-  const filteredSessions = useMemo(() => {
+  const displaySessions = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
     if (!q) return sortedSessions;
     return sortedSessions.filter((s) =>
@@ -171,45 +177,52 @@ export default function SidebarSessionList({
     );
   }, [sortedSessions, searchQuery]);
 
-  const groups = useMemo(
-    () => (searchQuery.trim() ? null : groupSessions(sortedSessions, t)),
-    [sortedSessions, searchQuery, t],
+  // Stable itemData for FixedSizeList
+  const itemData = useMemo<SessionRowData>(
+    () => ({
+      sessions: displaySessions,
+      currentSessionId,
+      editingSessionId,
+      editValue,
+      t,
+      handleSessionClick,
+      handleEditStart,
+      handleDelete,
+      handlePinToggle,
+      handleEditChange,
+      handleEditSubmit,
+      handleEditCancel,
+    }),
+    [
+      displaySessions,
+      currentSessionId,
+      editingSessionId,
+      editValue,
+      t,
+      handleSessionClick,
+      handleEditStart,
+      handleDelete,
+      handlePinToggle,
+      handleEditChange,
+      handleEditSubmit,
+      handleEditCancel,
+    ],
   );
 
-  const renderItem = (session: ExtendedChatSession) => {
-    const channelKey = session.channel?.trim() || "";
-    const channelLabel = channelKey
-      ? getChannelLabel(channelKey, t)
-      : undefined;
-    const isEditing = editingSessionId === session.id;
-
-    return (
-      <SidebarSessionItem
-        key={session.id}
-        sessionId={session.id!}
-        name={session.name || "New Chat"}
-        channelKey={channelKey || undefined}
-        channelLabel={channelLabel}
-        chatStatus={session.status}
-        generating={session.generating}
-        pinned={session.pinned}
-        active={
-          session.id === currentSessionId ||
-          (!!currentSessionId && session.realId === currentSessionId)
+  // Measure list container height via ResizeObserver
+  const [listHeight, setListHeight] = useState(300);
+  const listWrapperRef = useCallback((node: HTMLDivElement | null) => {
+    if (!node) return;
+    const observer = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        if (entry.contentRect.height > 0) {
+          setListHeight(entry.contentRect.height);
         }
-        disabled={false}
-        editing={isEditing}
-        editValue={isEditing ? editValue : undefined}
-        onClick={handleSessionClick}
-        onEdit={handleEditStart}
-        onDelete={handleDelete}
-        onPin={handlePinToggle}
-        onEditChange={handleEditChange}
-        onEditSubmit={handleEditSubmit}
-        onEditCancel={handleEditCancel}
-      />
-    );
-  };
+      }
+    });
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, []);
 
   return (
     <div className={styles.sessionList}>
@@ -253,28 +266,29 @@ export default function SidebarSessionList({
 
       {/* Session list */}
       {!historyCollapsed && (
-        <div className={styles.scroll}>
-          {loading && sortedSessions.length === 0 && (
+        <div className={styles.scroll} ref={listWrapperRef}>
+          {loading && displaySessions.length === 0 && (
             <div className={styles.loadingState}>
               <Spin size="small" />
             </div>
           )}
-          {!loading && sortedSessions.length === 0 && (
+          {!loading && displaySessions.length === 0 && (
             <div className={styles.emptyState}>
               {t("chat.sessionPanel.noConversations", "No conversations")}
             </div>
           )}
-
-          {/* Search results — flat list */}
-          {searchQuery.trim()
-            ? filteredSessions.map(renderItem)
-            : /* Grouped by date */
-              groups?.map((group) => (
-                <div key={group.key} className={styles.group}>
-                  <div className={styles.groupLabel}>{group.label}</div>
-                  {group.sessions.map(renderItem)}
-                </div>
-              ))}
+          {displaySessions.length > 0 && (
+            <FixedSizeList
+              height={listHeight}
+              width="100%"
+              itemCount={displaySessions.length}
+              itemSize={SESSION_ITEM_HEIGHT}
+              overscanCount={10}
+              itemData={itemData}
+            >
+              {SessionRow}
+            </FixedSizeList>
+          )}
         </div>
       )}
     </div>

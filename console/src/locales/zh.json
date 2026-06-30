@@ -2037,7 +2037,10 @@
       "noConversations": "暂无对话",
       "loadingConversations": "加载中…"
     },
-    "conversationHistory": "历史对话"
+    "conversationHistory": "历史对话",
+    "history": {
+      "empty": "暂无聊天记录"
+    }
   },
   "security": {
     "parent": "设置",

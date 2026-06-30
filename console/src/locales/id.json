@@ -255,7 +255,10 @@
       "noConversations": "Tidak ada percakapan",
       "loadingConversations": "Memuat…"
     },
-    "conversationHistory": "Riwayat Percakapan"
+    "conversationHistory": "Riwayat Percakapan",
+    "history": {
+      "empty": "Tidak ada riwayat obrolan"
+    }
   },
   "modelSelector": {
     "selectModel": "Pilih model",

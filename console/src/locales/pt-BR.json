@@ -2062,7 +2062,10 @@
       "noConversations": "Sem conversas",
       "loadingConversations": "Carregando…"
     },
-    "conversationHistory": "Histórico de conversas"
+    "conversationHistory": "Histórico de conversas",
+    "history": {
+      "empty": "Sem histórico de conversas"
+    }
   },
   "security": {
     "parent": "Configuracoes",

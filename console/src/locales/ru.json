@@ -1865,7 +1865,10 @@
       "noConversations": "Нет диалогов",
       "loadingConversations": "Загрузка…"
     },
-    "conversationHistory": "История диалогов"
+    "conversationHistory": "История диалогов",
+    "history": {
+      "empty": "Нет истории чатов"
+    }
   },
   "security": {
     "parent": "Настройки",

@@ -40,25 +40,13 @@
   font-size: 12px;
 }
 
-/* Scrollable session area */
+/* Scrollable session area — FixedSizeList manages its own scroll */
 .scroll {
   flex: 1;
-  overflow-y: auto;
   min-height: 0;
   padding: 0 4px 8px;
-
-  /* Thin visible scrollbar */
-  scrollbar-width: thin;
-  scrollbar-color: rgba(0, 0, 0, 0.12) transparent;
-
-  &::-webkit-scrollbar {
-    width: 4px;
-  }
-
-  &::-webkit-scrollbar-thumb {
-    background: rgba(0, 0, 0, 0.12);
-    border-radius: 2px;
-  }
+  position: relative;
+  overflow: hidden; /* FixedSizeList handles scrolling internally */
 }
 
 /* Date group container */
