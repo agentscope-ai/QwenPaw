@@ -1154,18 +1154,19 @@ def _unresolve_placeholders(
     path is restored as ``WORKSPACE_DIR`` (the coding dir is still covered
     by the workspace rules in that case).
     """
+    # Build (actual_path, placeholder) pairs, longest path first.
+    # avoiding CODING_PROJECT_DIR is substring of WORKSPACE_DIR
+    pairs: list[tuple[str, str]] = []
+    if coding_project_dir and coding_project_dir != workspace_dir:
+        pairs.append((coding_project_dir, "CODING_PROJECT_DIR"))
+    if workspace_dir:
+        pairs.append((workspace_dir, "WORKSPACE_DIR"))
+    pairs.sort(key=lambda pair: len(pair[0]), reverse=True)
+
     for rule in rules:
-        if (
-            coding_project_dir
-            and coding_project_dir != workspace_dir
-            and coding_project_dir in rule.match
-        ):
-            rule.match = rule.match.replace(
-                coding_project_dir,
-                "CODING_PROJECT_DIR",
-            )
-        if workspace_dir and workspace_dir in rule.match:
-            rule.match = rule.match.replace(workspace_dir, "WORKSPACE_DIR")
+        for actual, placeholder in pairs:
+            if actual and actual in rule.match:
+                rule.match = rule.match.replace(actual, placeholder)
 
 
 def _parse_rules(

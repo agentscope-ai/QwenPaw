@@ -185,6 +185,83 @@ class TestDefaultPolicyLoad:
         decision = reloaded.evaluate(_tc("Edit", f"{cpd}/app.py"))
         assert decision.action is GovernanceAction.ALLOW
 
+    @pytest.mark.parametrize(
+        "ws, cpd, label",
+        [
+            # coding dir nested inside the workspace: cpd is the longer path
+            # and a substring-match of ws (the parent) inside it must not fire.
+            ("/home/u/work", "/home/u/work/coding", "cpd_inside_ws"),
+            # workspace nested inside the coding dir: ws is the longer path;
+            # this is the direction the original bug corrupted.
+            ("/home/u/work/sub", "/home/u/work", "ws_inside_cpd"),
+        ],
+    )
+    def test_unresolve_nested_dirs_replaces_longest_path_first(
+        self,
+        tmp_path,
+        ws,
+        cpd,
+        label,
+    ):
+        """Regression for the parent/child ordering bug in
+        ``_unresolve_placeholders``.
+
+        When one of workspace_dir / coding_project_dir is a parent of the
+        other, the shorter path is a substring of the longer one. The
+        unresolver must replace the longer (more specific) path first;
+        otherwise the shorter path matches inside the longer path's region
+        and corrupts the rule.
+
+        Symptom before the fix: with ``ws=/home/u/work/sub`` and
+        ``cpd=/home/u/work``, the workspace rule
+        ``Read(/home/u/work/sub/**)`` was rewritten via the shorter cpd to
+        ``Read(CODING_PROJECT_DIR/sub/**)`` — the WORKSPACE_DIR placeholder
+        was lost from YAML, the rule became non-portable, and after reload
+        a real workspace write fell through to ASK ("No rule hit").
+        """
+        policy = _create_default_policy(
+            workspace_dir=ws,
+            coding_project_dir=cpd,
+        )
+        policy_dir = tmp_path / "policy"
+        policy_dir.mkdir()
+
+        # Before save: the workspace write is ALLOWed by the default rule.
+        assert (
+            policy.evaluate(_tc("Write", f"{ws}/x.py")).action
+            is GovernanceAction.ALLOW
+        )
+
+        save_governance_policy(policy, str(policy_dir), ws, cpd)
+
+        # The YAML must not leak either absolute path and must carry the
+        # WORKSPACE_DIR placeholder for the workspace rule. A shorter-path
+        # match would have left a CODING_PROJECT_DIR-prefixed half-rewrite
+        # in place of WORKSPACE_DIR.
+        yaml_text = (policy_dir / "policy.yaml").read_text(encoding="utf-8")
+        assert ws not in yaml_text, f"[{label}] workspace path leaked: {ws}"
+        assert cpd not in yaml_text, f"[{label}] coding path leaked: {cpd}"
+        assert "WORKSPACE_DIR" in yaml_text
+
+        # After save: the live in-memory rules are untouched (no mutation
+        # regression) and still ALLOW the workspace write.
+        for rule in policy.user_rules:
+            assert (
+                "WORKSPACE_DIR" not in rule.match
+            ), f"[{label}] save mutated live rule: {rule.match!r}"
+        assert (
+            policy.evaluate(_tc("Write", f"{ws}/x.py")).action
+            is GovernanceAction.ALLOW
+        )
+
+        # Reload reproduces a portable policy that still ALLOWs the workspace
+        # write — the corrupted-rule symptom would surface here as ASK.
+        reloaded = load_governance_policy(str(policy_dir), ws, cpd)
+        decision = reloaded.evaluate(_tc("Write", f"{ws}/x.py"))
+        assert (
+            decision.action is GovernanceAction.ALLOW
+        ), f"[{label}] reload lost workspace ALLOW: {decision.action}"
+
 
 # ---------------------------------------------------------------------------
 # Test: assert_policy with SSH-related Bash commands
