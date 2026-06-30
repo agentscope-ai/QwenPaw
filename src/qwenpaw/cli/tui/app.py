@@ -644,6 +644,9 @@ class PawApp(App):
         self._tok_out = 0
         self._stream_chars = 0
         self._refresh_tokens()
+        # Clear the context-usage bar too; the next model call on the resumed
+        # session reports fresh occupancy via ``usage_update``.
+        self._status().set(used=0, size=0)
         # Mounted before the load so it sits above the replayed transcript;
         # the replay updates only land once load_session is awaited below.
         await self._mount(
@@ -920,7 +923,13 @@ class PawApp(App):
             await self._mount(PushMessageBox(event.text))
 
         elif isinstance(event, Usage):
-            self._status().set(used=event.used, size=event.size)
+            # ``or 0.0`` so a None threshold is still applied (set() ignores
+            # None), clearing any stale marker — 0.0 renders no tick.
+            self._status().set(
+                used=event.used,
+                size=event.size,
+                ctx_threshold=event.threshold or 0.0,
+            )
 
         elif isinstance(event, TokenUsage):
             # Exact usage for the just-finished call replaces our estimate.

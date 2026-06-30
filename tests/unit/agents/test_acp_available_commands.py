@@ -360,5 +360,37 @@ def test_usage_meta_includes_model(monkeypatch):
             "outputTokens": 34,
             "totalTokens": 46,
             "model": "qwen-plus",
+            # Absent in the recorded usage -> 0 (window unknown), which the TUI
+            # treats as "hide the context bar".
+            "contextSize": 0,
+            # No compaction threshold recorded -> None (no marker).
+            "compactRatio": None,
         },
     }
+
+
+def test_usage_meta_includes_context_size(monkeypatch):
+    from qwenpaw.token_usage.model_wrapper import TokenRecordingModelWrapper
+
+    monkeypatch.setattr(
+        TokenRecordingModelWrapper,
+        "pop_usage_for_session",
+        classmethod(
+            lambda cls, _session_id: {
+                "model_name": "qwen-plus",
+                "prompt_tokens": 123_000,
+                "completion_tokens": 34,
+                "total_tokens": 123_034,
+                "context_size": 1_000_000,
+                "compact_threshold": 0.8,
+            },
+        ),
+    )
+
+    # The model context window and the compaction threshold flow through so the
+    # TUI can render occupancy (inputTokens / contextSize) and mark the point
+    # where context starts getting evicted.
+    meta = QwenPawACPAgent._pop_session_usage("sess-usage")
+    assert meta["usage"]["inputTokens"] == 123_000
+    assert meta["usage"]["contextSize"] == 1_000_000
+    assert meta["usage"]["compactRatio"] == 0.8
