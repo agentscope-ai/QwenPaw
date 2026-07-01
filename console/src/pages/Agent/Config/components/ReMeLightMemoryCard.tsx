@@ -154,7 +154,11 @@ export function ReMeLightMemoryCard() {
               <>
                 <Form.Item
                   label={t("agentConfig.rerankerEnabled")}
-                  name={["reme_light_memory_config", "reranker_config", "enabled"]}
+                  name={[
+                    "reme_light_memory_config",
+                    "reranker_config",
+                    "enabled",
+                  ]}
                   valuePropName="checked"
                   tooltip={t("agentConfig.rerankerEnabledTooltip")}
                 >
@@ -165,31 +169,57 @@ export function ReMeLightMemoryCard() {
                   <>
                     <Form.Item
                       label={t("agentConfig.rerankerModelName")}
-                      name={["reme_light_memory_config", "reranker_config", "model_name"]}
+                      name={[
+                        "reme_light_memory_config",
+                        "reranker_config",
+                        "model_name",
+                      ]}
                       tooltip={t("agentConfig.rerankerModelNameTooltip")}
                     >
-                      <Input placeholder={t("agentConfig.rerankerModelNamePlaceholder")} />
+                      <Input
+                        placeholder={t(
+                          "agentConfig.rerankerModelNamePlaceholder",
+                        )}
+                      />
                     </Form.Item>
 
                     <Form.Item
                       label={t("agentConfig.rerankerBaseUrl")}
-                      name={["reme_light_memory_config", "reranker_config", "base_url"]}
+                      name={[
+                        "reme_light_memory_config",
+                        "reranker_config",
+                        "base_url",
+                      ]}
                       tooltip={t("agentConfig.rerankerBaseUrlTooltip")}
                     >
-                      <Input placeholder={t("agentConfig.rerankerBaseUrlPlaceholder")} />
+                      <Input
+                        placeholder={t(
+                          "agentConfig.rerankerBaseUrlPlaceholder",
+                        )}
+                      />
                     </Form.Item>
 
                     <Form.Item
                       label={t("agentConfig.rerankerApiKey")}
-                      name={["reme_light_memory_config", "reranker_config", "api_key"]}
+                      name={[
+                        "reme_light_memory_config",
+                        "reranker_config",
+                        "api_key",
+                      ]}
                       tooltip={t("agentConfig.rerankerApiKeyTooltip")}
                     >
-                      <Input.Password placeholder={t("agentConfig.rerankerApiKeyPlaceholder")} />
+                      <Input.Password
+                        placeholder={t("agentConfig.rerankerApiKeyPlaceholder")}
+                      />
                     </Form.Item>
 
                     <Form.Item
                       label={t("agentConfig.rerankerTemperature")}
-                      name={["reme_light_memory_config", "reranker_config", "temperature"]}
+                      name={[
+                        "reme_light_memory_config",
+                        "reranker_config",
+                        "temperature",
+                      ]}
                       tooltip={t("agentConfig.rerankerTemperatureTooltip")}
                     >
                       <InputNumber
@@ -197,11 +227,17 @@ export function ReMeLightMemoryCard() {
                         min={0}
                         max={2}
                         step={0.1}
-                        placeholder={t("agentConfig.rerankerTemperaturePlaceholder")}
+                        placeholder={t(
+                          "agentConfig.rerankerTemperaturePlaceholder",
+                        )}
                       />
                     </Form.Item>
 
-                    <Alert type="info" showIcon message={t("agentConfig.rerankerInfoHint")} />
+                    <Alert
+                      type="info"
+                      showIcon
+                      message={t("agentConfig.rerankerInfoHint")}
+                    />
                   </>
                 )}
               </>
