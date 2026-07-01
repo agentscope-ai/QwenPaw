@@ -80,4 +80,77 @@ async def run_stop_handlers(
     return StopHandlerResult(action=StopAction.STOP)
 
 
-__all__ = ["run_stop_handlers"]
+def apply_stop_result(  # pylint: disable=protected-access
+    agent: Any,
+    stop_result: StopHandlerResult,
+    *,
+    is_tool_call: bool,
+) -> None:
+    """Process stop_result and set pending state on agent.
+
+    Called after _run_stop_handlers in a tool-call iteration.
+    Defers both STOP and CONTINUE actions to next iteration.
+    """
+    if is_tool_call:
+        if stop_result.action == StopAction.STOP and stop_result.reason:
+            logger.info(
+                "Gate wants stop (deferred): %s",
+                stop_result.reason,
+            )
+            agent._gate_pending_stop = stop_result
+        elif (
+            stop_result.action == StopAction.CONTINUE
+            and stop_result.continuation_message
+        ):
+            agent._gate_pending_continue = stop_result.continuation_message
+
+
+def check_pending_gates(  # pylint: disable=protected-access
+    agent: Any,
+) -> StopHandlerResult | None:
+    """Check and consume pending gate state.
+
+    Returns:
+        StopHandlerResult if a pending STOP should be applied,
+        None otherwise (also injects pending continue into ctx).
+    """
+    pending = getattr(agent, "_gate_pending_stop", None)
+    if pending is not None:
+        agent._gate_pending_stop = None
+        logger.info(
+            "Gate pending stop applied: %s",
+            pending.reason,
+        )
+        return pending
+
+    cont_msg = getattr(
+        agent,
+        "_gate_pending_continue",
+        None,
+    )
+    if cont_msg:
+        agent._gate_pending_continue = None
+        from agentscope.message import Msg, TextBlock
+
+        from ...constant import QWENPAW_MESSAGE_TAG_KEY
+
+        agent.state.context.append(
+            Msg(
+                name="user",
+                role="user",
+                content=[
+                    TextBlock(type="text", text=cont_msg),
+                ],
+                metadata={
+                    QWENPAW_MESSAGE_TAG_KEY: ("loop_continuation"),
+                },
+            ),
+        )
+    return None
+
+
+__all__ = [
+    "run_stop_handlers",
+    "apply_stop_result",
+    "check_pending_gates",
+]

@@ -12,10 +12,16 @@ as constructor parameters and does not build them internally.
 from __future__ import annotations
 
 import logging
+import uuid
 from pathlib import Path
 from typing import Any, Literal, Optional, TYPE_CHECKING
 
 from agentscope.agent import Agent, ReActConfig
+from agentscope.event import (
+    TextBlockDeltaEvent,
+    TextBlockEndEvent,
+    TextBlockStartEvent,
+)
 from agentscope.message import Msg, TextBlock
 from agentscope.state import AgentState
 from agentscope.tool import Toolkit
@@ -362,22 +368,31 @@ class QwenPawAgent(CodingModeMixin, Agent):
         stripping, passive bad-request retry, and auto-continue on
         text-only responses."""
 
-        # ── Pre-check: pending gate stop from previous iteration ──
-        pending = getattr(self, "_gate_pending_stop", None)
-        if pending is not None:
-            self._gate_pending_stop = None
-            logger.info(
-                "Gate pending stop applied: %s",
-                pending.reason,
+        # ── Pre-check: pending gate actions from previous iter ──
+        from ..loop.gates.runner import check_pending_gates
+
+        pending_stop = check_pending_gates(self)
+        if pending_stop is not None:
+            stop_text = pending_stop.reason or "Stopped by loop gate."
+            block_id = uuid.uuid4().hex
+            yield TextBlockStartEvent(
+                reply_id=self.state.reply_id,
+                block_id=block_id,
+            )
+            yield TextBlockDeltaEvent(
+                reply_id=self.state.reply_id,
+                block_id=block_id,
+                delta=stop_text,
+            )
+            yield TextBlockEndEvent(
+                reply_id=self.state.reply_id,
+                block_id=block_id,
             )
             yield Msg(
                 name=self.name,
                 role="assistant",
                 content=[
-                    TextBlock(
-                        type="text",
-                        text=(pending.reason or "Stopped by loop gate."),
-                    ),
+                    TextBlock(type="text", text=stop_text),
                 ],
             )
             return
@@ -449,33 +464,13 @@ class QwenPawAgent(CodingModeMixin, Agent):
         stop_result = await self._run_stop_handlers(final_msg)
 
         if final_msg is None:
-            # Model produced tool calls (yielded above).
-            # Never interrupt mid-call; defer to next iteration.
-            if stop_result.action == StopAction.STOP and stop_result.reason:
-                logger.info(
-                    "Gate wants stop (deferred): %s",
-                    stop_result.reason,
-                )
-                self._gate_pending_stop = stop_result
-            elif (
-                stop_result.action == StopAction.CONTINUE
-                and stop_result.continuation_message
-            ):
-                self.state.context.append(
-                    Msg(
-                        name="user",
-                        role="user",
-                        content=[
-                            TextBlock(
-                                type="text",
-                                text=(stop_result.continuation_message),
-                            ),
-                        ],
-                        metadata={
-                            QWENPAW_MESSAGE_TAG_KEY: ("loop_continuation"),
-                        },
-                    ),
-                )
+            from ..loop.gates.runner import apply_stop_result
+
+            apply_stop_result(
+                self,
+                stop_result,
+                is_tool_call=True,
+            )
             return
 
         # Model produced text (wants to stop).
