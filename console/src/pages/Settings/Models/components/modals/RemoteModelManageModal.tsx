@@ -98,7 +98,12 @@ function ModelConfigEditor({
     setMaxInputLength(model.max_input_length ?? 131072);
     setPreserveThinking(model.preserve_thinking ?? true);
     setDirty(false);
-  }, [initialText, model.max_tokens, model.max_input_length, model.preserve_thinking]);
+  }, [
+    initialText,
+    model.max_tokens,
+    model.max_input_length,
+    model.preserve_thinking,
+  ]);
 
   const effectiveMaxTokens = maxTokens ?? 8192;
   const effectiveMaxInputLength = maxInputLength ?? 131072;
