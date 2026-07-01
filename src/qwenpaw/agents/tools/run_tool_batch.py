@@ -14,9 +14,11 @@ from pathlib import Path
 from typing import Any
 
 from agentscope.message import TextBlock
-from agentscope.tool import ToolResponse
+from agentscope.message import ToolResultState
+from agentscope.tool import ToolChunk
 
-from ...config.context import get_current_toolkit
+from ...config.context import get_current_agent_state, get_current_toolkit
+from ...runtime.tool_registry import tool_descriptor
 
 logger = logging.getLogger(__name__)
 
@@ -78,9 +80,11 @@ _ARITHMETIC_EXPR_CHARS_PATTERN = re.compile(
 # --- Helpers --------------------------------------------------------------
 
 
-def _json_tool_response(payload: dict[str, Any]) -> ToolResponse:
-    """Wrap a JSON-serialisable dict in a single-TextBlock ToolResponse."""
-    return ToolResponse(
+def _json_tool_response(payload: dict[str, Any]) -> ToolChunk:
+    """Wrap a JSON-serialisable dict in a single-TextBlock ToolChunk."""
+    ok = payload.get("ok", True)
+    return ToolChunk(
+        state=ToolResultState.SUCCESS if ok else ToolResultState.ERROR,
         content=[
             TextBlock(
                 type="text",
@@ -90,8 +94,8 @@ def _json_tool_response(payload: dict[str, Any]) -> ToolResponse:
     )
 
 
-def _extract_text(response: ToolResponse) -> str:
-    """Extract text from the first TextBlock in a ToolResponse.
+def _extract_text(response: ToolChunk) -> str:
+    """Extract text from the first TextBlock in a ToolChunk.
 
     Some tools (``view_image``, ``send_file``, etc.) return an
     ``ImageBlock`` / ``FileBlock`` / ``VideoBlock`` before the
@@ -131,10 +135,34 @@ def _is_error_text(text: str) -> bool:
     return any(lower.startswith(p) for p in _ERROR_PREFIXES)
 
 
-def _response_payload(response: ToolResponse) -> dict[str, Any]:
-    """Convert a ToolResponse into a normalised result dict.
+def _extract_files_info(blocks: list[Any]) -> list[dict[str, str]]:
+    """Extract file URL/name from DataBlocks for the step result."""
+    files: list[dict[str, str]] = []
+    for block in blocks:
+        if isinstance(block, dict):
+            btype = block.get("type", "")
+            source = block.get("source")
+            name = block.get("name", "")
+        else:
+            btype = getattr(block, "type", "")
+            source = getattr(block, "source", None)
+            name = getattr(block, "name", "")
+        if btype != "data" or source is None:
+            continue
+        if isinstance(source, dict):
+            url = source.get("url", "")
+        else:
+            url = getattr(source, "url", "")
+        if url:
+            files.append({"url": str(url), "name": str(name) or ""})
+    return files
+
+
+def _response_payload(response: ToolChunk) -> dict[str, Any]:
+    """Convert a ToolChunk into a normalised result dict.
 
     The ``ok`` field is inferred from:
+    - The response ``state`` (ERROR / DENIED → not ok).
     - JSON responses with an explicit ``ok`` field (``browser_use``,
       ``desktop_screenshot``).
     - Plain-text error prefixes (``Error:``, ``Command failed``).
@@ -144,6 +172,12 @@ def _response_payload(response: ToolResponse) -> dict[str, Any]:
     (an internal key that avoids colliding with tool payloads that
     contain their own ``content`` field).
     """
+    resp_state = getattr(response, "state", None)
+    is_error_state = resp_state in (
+        ToolResultState.ERROR,
+        ToolResultState.DENIED,
+    )
+
     text = _extract_text(response)
     content = list(response.content or [])
 
@@ -152,15 +186,21 @@ def _response_payload(response: ToolResponse) -> dict[str, Any]:
         payload = json.loads(text)
         if isinstance(payload, dict):
             if "ok" not in payload:
-                payload["ok"] = "error" not in payload
+                payload["ok"] = not is_error_state and "error" not in payload
+            elif is_error_state:
+                payload["ok"] = False
             payload["_raw_blocks"] = content
             return payload
-        return {"ok": True, "value": payload, "_raw_blocks": content}
+        return {
+            "ok": not is_error_state,
+            "value": payload,
+            "_raw_blocks": content,
+        }
     except (json.JSONDecodeError, TypeError):
         pass
 
-    # Plain-text response — check for known error patterns.
-    if _is_error_text(text):
+    # Plain-text response — check state and known error patterns.
+    if is_error_state or _is_error_text(text):
         return {"ok": False, "error": text, "_raw_blocks": content}
     return {"ok": True, "text": text, "_raw_blocks": content}
 
@@ -549,33 +589,41 @@ def _lookup_arg(path: str, args: dict[str, Any]) -> Any:
 async def _call_tool(
     tool_name: str,
     arguments: dict[str, Any],
-) -> ToolResponse:
+) -> ToolChunk:
     """Call a registered tool function by name via the current Toolkit.
 
-    Uses ``Toolkit.call_tool_function`` so that ToolGuard interception,
-    preset kwargs, postprocess hooks, and group-activity checks all
-    apply — the same pipeline as a normal agent tool call.
+    Uses ``Toolkit.call_tool`` so that permission checking (including
+    ``PolicyGuardedTool.check_permissions``), tool-group activation
+    guards, and state injection all apply — the same pipeline as a
+    normal agent tool call.
     """
+    from agentscope.message import ToolCallBlock
+
     toolkit = get_current_toolkit()
     if toolkit is None:
         return _json_tool_response(
             {"ok": False, "error": "No toolkit available in current context"},
         )
 
-    if tool_name not in toolkit.tools:
+    agent_state = get_current_agent_state()
+    if agent_state is None:
         return _json_tool_response(
             {
                 "ok": False,
-                "error": f"Unknown tool: {tool_name}",
-                "available": sorted(toolkit.tools.keys()),
+                "error": "No agent state available in current context",
             },
         )
 
-    tool_call = {"name": tool_name, "input": arguments}
+    tool_call = ToolCallBlock(
+        id=f"batch_{id(arguments):x}",
+        name=tool_name,
+        input=json.dumps(arguments, ensure_ascii=False),
+    )
+
     tool_stream = None
     try:
-        response: ToolResponse | None = None
-        tool_stream = await toolkit.call_tool_function(tool_call)
+        response: ToolChunk | None = None
+        tool_stream = toolkit.call_tool(tool_call, agent_state)
         async for chunk in tool_stream:
             if getattr(chunk, "is_interrupted", False):
                 raise asyncio.CancelledError()
@@ -830,8 +878,8 @@ async def _run_steps(  # pylint: disable=too-many-branches,too-many-statements
             continue
 
         response = await _call_tool(tool_name, arguments)
-        if getattr(response, "is_interrupted", False):
-            raise asyncio.CancelledError()
+        if getattr(response, "state", None) == ToolResultState.INTERRUPTED:
+            break
         result = _response_payload(response)
 
         step_content = result.pop("_raw_blocks", [])
@@ -850,6 +898,10 @@ async def _run_steps(  # pylint: disable=too-many-branches,too-many-statements
 
         last_text_block = current_text_block
         all_content_blocks.extend(non_text_blocks)
+
+        files_info = _extract_files_info(non_text_blocks)
+        if files_info:
+            result["files"] = files_info
 
         results.append(
             {"step": index, "tool_name": tool_name, **result},
@@ -872,8 +924,8 @@ def _build_batch_response(
     *,
     last_only: bool = False,
     last_text_block: Any | None = None,
-) -> ToolResponse:
-    """Build the final ToolResponse for a batch run."""
+) -> ToolChunk:
+    """Build the final ToolChunk for a batch run."""
     completed = sum(1 for r in results if r.get("ok", False))
     failed = next((r for r in results if not r.get("ok", False)), None)
     all_ok = failed is None and completed == len(results)
@@ -896,18 +948,22 @@ def _build_batch_response(
     if failed and "error" in failed:
         payload["error"] = failed["error"]
 
+    state = ToolResultState.SUCCESS if all_ok else ToolResultState.ERROR
     summary = TextBlock(
         type="text",
-        text=json.dumps(payload, ensure_ascii=False),
+        text=json.dumps(payload, ensure_ascii=False, default=str),
     )
     if not last_only:
-        return ToolResponse(content=[summary, *all_content_blocks])
+        return ToolChunk(
+            state=state,
+            content=[summary, *all_content_blocks],
+        )
 
     content: list[Any] = [summary]
     if _should_include_last_text_block(last_text_block, results):
         content.append(last_text_block)
     content.extend(all_content_blocks)
-    return ToolResponse(content=content)
+    return ToolChunk(state=state, content=content)
 
 
 def _should_include_last_text_block(
@@ -1041,14 +1097,19 @@ def _validate_maxstep(maxstep: int) -> int:
 # --- Main entry point -----------------------------------------------------
 
 
+@tool_descriptor(
+    async_execution=True,
+    tool_type="internal",
+    policy_name="RunToolBatch",
+)
 async def run_tool_batch(  # pylint: disable=too-many-return-statements
-    actions: list[dict[str, Any]] | None = None,
+    actions: list[dict[str, Any]] | str | None = None,
     file_path: str = "",
-    args: dict[str, Any] | None = None,
+    args: dict[str, Any] | str | None = None,
     stop_on_error: bool = True,
     last_only: bool = False,
     maxstep: int = DEFAULT_MAX_EXECUTION_STEPS,
-) -> ToolResponse:
+) -> ToolChunk:
     """Execute a batch of tool calls from a JSON file.
 
     Load actions from a JSON batch file and execute them sequentially.
@@ -1090,54 +1151,69 @@ async def run_tool_batch(  # pylint: disable=too-many-return-statements
     syntax is required so that placeholders are unambiguous inside
     mixed-content strings (e.g. shell commands).
 
-    Example::
+    Combine ``set_var``, ``goto``, and ``label`` to build loops — for
+    example, iterating over a dynamic list, retrying until a condition
+    is met, or coordinating multiple variables in a single pass.
+
+    Once a batch script is stable, set ``last_only=True`` to return only
+    the final step's result and reduce token consumption. To make the
+    most of this mode, consolidate useful output into a file or place a
+    summary step at the end of the actions list.
+
+    Usage::
 
         run_tool_batch(
             file_path="path/to/example.json",
-            args={"query": "database"},
-            maxstep=20,
+            args={"folder": "/data/reports"},
+            last_only=True,
         )
 
-    Example ``path/to/example.json``::
+    Example — find PDFs and send each to the user
+    (``path/to/example.json``)::
 
         {
           "actions": [
             {
-              "tool_name": "set_var",
-              "arguments": {"expr": "i=0"}
-            },
-            {
-              "tool_name": "label",
-              "arguments": {"name": "retry"}
-            },
-            {
-              "tool_name": "grep_search",
-              "arguments": {"pattern": "${args.query}", "path": "src"}
-            },
-            {
-              "tool_name": "set_var",
-              "arguments": {"expr": "i=${vars.i}+1"}
-            },
-            {
-              "tool_name": "goto",
+              "tool_name": "execute_shell_command",
               "arguments": {
-                "label": "retry",
-                "condition": "${vars.i}<3"
+                "command": "find ${args.folder} -name '*.pdf' | sort"
               }
             },
             {
-              "tool_name": "grep_search",
+              "tool_name": "execute_shell_command",
               "arguments": {
-                "pattern": "${steps.2.text}",
-                "path": "tests"
+                "command": "echo '${steps.0.text}' | wc -l | tr -d ' '"
+              }
+            },
+            {"tool_name": "set_var",
+             "arguments": {"expr": "total=${steps.1.value}"}},
+            {"tool_name": "set_var",
+             "arguments": {"expr": "i=1"}},
+            {"tool_name": "label",
+             "arguments": {"name": "next_pdf"}},
+            {
+              "tool_name": "execute_shell_command",
+              "arguments": {
+                "command": "echo '${steps.0.text}' | sed -n '${vars.i}p'"
+              }
+            },
+            {
+              "tool_name": "send_file_to_user",
+              "arguments": {
+                "file_path": "${steps.5.text}"
+              }
+            },
+            {"tool_name": "set_var",
+             "arguments": {"expr": "i=${vars.i}+1"}},
+            {
+              "tool_name": "goto",
+              "arguments": {
+                "label": "next_pdf",
+                "condition": "${vars.i}<=${vars.total}"
               }
             }
           ]
         }
-
-    In this example, ``${steps.2.text}`` always refers to action index 2,
-    the ``grep_search`` action inside the loop. It does not become
-    ``steps.3`` or ``steps.4`` after loop iterations.
 
     Args:
         file_path: Absolute path to a JSON batch file.
@@ -1154,8 +1230,8 @@ async def run_tool_batch(  # pylint: disable=too-many-return-statements
             500.
 
     Returns:
-        ToolResponse containing a JSON summary TextBlock followed by
-        all content blocks collected from each step's ToolResponse
+        ToolChunk containing a JSON summary TextBlock followed by
+        all content blocks collected from each step's ToolChunk
         (ImageBlock, FileBlock, VideoBlock, etc.).
     """
     try:

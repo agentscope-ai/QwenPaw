@@ -30,6 +30,8 @@ class ContextVarsSetupHook(LifecycleHook):
             set_current_recent_max_bytes,
             set_current_shell_command_timeout,
             set_current_shell_command_executable,
+            set_current_toolkit,
+            set_current_agent_state,
         )
         from ...app.agent_context import (
             set_current_agent_id,
@@ -40,6 +42,9 @@ class ContextVarsSetupHook(LifecycleHook):
             set_current_user_id,
         )
 
+        if ctx.agent is not None:
+            set_current_toolkit(getattr(ctx.agent, "toolkit", None))
+            set_current_agent_state(getattr(ctx.agent, "state", None))
         set_current_agent_id(ctx.agent_id or "default")
         _session_id = ctx.session_id or ""
         set_current_session_id(_session_id)

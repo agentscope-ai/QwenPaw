@@ -93,10 +93,21 @@ function collectRawBlocks(value: unknown, acc: unknown[] = []): unknown[] {
     recordType === "image" ||
     recordType === "audio" ||
     recordType === "video" ||
-    ((recordType === "tool_result" || recordType === "tool_use") &&
-      hasFileLikeSource)
+    recordType === "data" ||
+    (hasFileLikeSource &&
+      (recordType === "tool_result" || recordType === "tool_use"))
   ) {
     acc.push(record);
+  }
+
+  // Collect from step-level "files" array (batch step results)
+  if (Array.isArray(record.files)) {
+    for (const f of record.files) {
+      const fileRecord = asRecord(f);
+      if (fileRecord && typeof fileRecord.url === "string") {
+        acc.push({ type: "file", ...fileRecord });
+      }
+    }
   }
 
   if (Array.isArray(record._raw_blocks)) {
