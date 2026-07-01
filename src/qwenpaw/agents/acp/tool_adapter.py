@@ -160,7 +160,7 @@ def format_final_assistant_response(
     if body is None and final_event is None:
         body = "completed without text output"
     if body is None:
-        body = ""
+        body = "completed"
     return response_blocks(
         [
             _text_block(
