@@ -199,6 +199,80 @@ def test_tool_call_renders_raw_input_params():
     assert multi.params == "pattern: TODO\nmax: 5"
 
 
+def test_tool_call_pretty_prints_long_nested_params():
+    """A nested value too long to read inline becomes indented JSON."""
+    [ev] = normalize_update(
+        start_tool_call(
+            "t4",
+            "web_search",
+            raw_input={
+                "query": "textual collapsible",
+                "options": {
+                    "max_results": 10,
+                    "domains": ["docs.textual.io", "github.com"],
+                },
+            },
+        ),
+    )
+    lines = ev.params.splitlines()
+    # The scalar param stays inline (and first, for the title summary)…
+    assert lines[0] == "query: textual collapsible"
+    # …while the long nested value spreads over indented lines.
+    assert "options: {" in lines
+    assert '  "max_results": 10,' in lines
+
+
+def test_tool_call_keeps_short_containers_inline():
+    [ev] = normalize_update(
+        start_tool_call("t5", "grep", raw_input={"tags": ["a", "b"]}),
+    )
+    assert ev.params == 'tags: ["a", "b"]'
+
+
+def test_tool_call_string_json_input_is_pretty_printed():
+    raw = (
+        '{"path": "/tmp/x.py", "recursive": true,'
+        ' "filters": ["*.py", "*.md"]}'
+    )
+    [ev] = normalize_update(start_tool_call("t6", "find", raw_input=raw))
+    lines = ev.params.splitlines()
+    assert lines[0] == "{"
+    assert '  "path": "/tmp/x.py",' in lines
+
+
+def test_tool_output_json_is_pretty_printed():
+    [ev] = normalize_update(
+        update_tool_call(
+            "t7",
+            status="completed",
+            content=[
+                tool_content(
+                    text_block(
+                        '{"status": "ok", "files": ["a.py", "b.py"],'
+                        ' "total_matches": 42}',
+                    ),
+                ),
+            ],
+        ),
+    )
+    lines = ev.output.splitlines()
+    assert lines[0] == "{"
+    assert '  "status": "ok",' in lines
+    assert '  "total_matches": 42' in lines
+
+
+def test_tool_output_non_json_is_unchanged():
+    text = "3 files changed, 42 insertions(+) {not json trailing}"
+    [ev] = normalize_update(
+        update_tool_call(
+            "t8",
+            status="completed",
+            content=[tool_content(text_block(text))],
+        ),
+    )
+    assert ev.output == text
+
+
 def test_plan_update():
     upd = AgentPlanUpdate(
         session_update="plan",

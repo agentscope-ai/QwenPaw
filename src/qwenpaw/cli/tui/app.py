@@ -74,6 +74,65 @@ from .widgets import (
 )
 
 
+class TranscriptScroll(VerticalScroll):
+    """The transcript container; follows the end only when requested.
+
+    Textual's ``anchor()`` immediately calls ``scroll_end()``, which
+    bottom-aligns underfilled launch content like the welcome logo. Keep the
+    first transcript unanchored, then arm the anchor lazily after explicit
+    user actions request following and the transcript has real scroll range.
+    """
+
+    def __init__(self, *children, **kwargs) -> None:
+        super().__init__(*children, **kwargs)
+        self._follow_end = False
+
+    def follow_end(self) -> None:
+        """Keep subsequent content pinned to the end once scrolling exists."""
+        self._follow_end = True
+        self._anchor_released = False
+        self.sync_follow_end()
+
+    def follow_future_content(self) -> None:
+        """Follow later transcript growth without moving current content."""
+        self._follow_end = True
+
+    def sync_follow_end(self) -> None:
+        """Apply the requested end-follow state after layout has settled."""
+        self.call_after_refresh(self._sync_follow_end)
+
+    def release_anchor(self) -> None:
+        super().release_anchor()
+        self.sync_follow_end()
+
+    def watch_scroll_y(self, old_value: float, new_value: float) -> None:
+        super().watch_scroll_y(old_value, new_value)
+        self.sync_follow_end()
+
+    def _sync_follow_end(self) -> None:
+        if self.max_scroll_y <= 0:
+            if self.is_anchored:
+                self.anchor(False)
+            self._anchor_released = False
+            return
+
+        if self._anchor_released:
+            if self.scroll_y >= self.max_scroll_y:
+                self._anchor_released = False
+                self._follow_end = True
+            else:
+                self._follow_end = False
+                return
+
+        if not self._follow_end:
+            return
+
+        if self.is_anchored:
+            self.scroll_end(immediate=True, animate=False)
+        else:
+            self.anchor()
+
+
 class PawApp(App):
     """Streaming chat over a :class:`TuiTransport` (ACP)."""
 
@@ -215,7 +274,7 @@ class PawApp(App):
     # -- layout --------------------------------------------------------------
     def compose(self) -> ComposeResult:
         yield StatusBar()
-        yield VerticalScroll(id="transcript")
+        yield TranscriptScroll(id="transcript")
         yield self._menu
         yield self._permission
         yield PromptInput(
@@ -232,11 +291,15 @@ class PawApp(App):
 
     async def on_mount(self) -> None:
         self.query_one("#prompt", PromptInput).focus()
+        # Do not anchor the launch transcript: Textual's anchor immediately
+        # scrolls to the end, which can bottom-align the welcome logo before
+        # any chat content exists. Submitting input requests following later.
         self._status().set(agent=self._agent)
         self._apply_theme_prompt(self._theme_prompt, notify=False)
         if self._resume_session_id is not None:
             await self._mount(
                 InfoMessage("Resumed previous session — replaying history…"),
+                sync_follow=False,
             )
         else:
             await self._mount(
@@ -244,15 +307,17 @@ class PawApp(App):
                     palette_for_prompt(self._theme_prompt),
                     accent_for_prompt(self._theme_prompt),
                 ),
+                sync_follow=False,
             )
+            self._transcript().follow_future_content()
         self._consume()
 
     # -- helpers -------------------------------------------------------------
     def _status(self) -> StatusBar:
         return self.query_one(StatusBar)
 
-    def _transcript(self) -> VerticalScroll:
-        return self.query_one("#transcript", VerticalScroll)
+    def _transcript(self) -> TranscriptScroll:
+        return self.query_one("#transcript", TranscriptScroll)
 
     def _set_command_catalog(self) -> None:
         seen: set[str] = set()
@@ -297,17 +362,21 @@ class PawApp(App):
             return
         self._set_recent_sessions(sessions)
 
-    async def _mount(self, widget) -> None:
+    async def _mount(self, widget, *, sync_follow: bool = True) -> None:
         await self._transcript().mount(widget)
-        self._scroll_transcript_end()
+        # No unconditional scroll: if following was requested and the user
+        # hasn't scrolled away, the transcript lazily anchors after layout.
+        if sync_follow:
+            self._transcript().sync_follow_end()
 
-    def _scroll_transcript_end(self, *, defer: bool = False) -> None:
-        if defer:
-            self.call_after_refresh(
-                lambda: self._transcript().scroll_end(animate=False),
-            )
-            return
-        self._transcript().scroll_end(animate=False)
+    def _scroll_transcript_end(self) -> None:
+        """Jump to the end of the transcript and resume following.
+
+        Reserved for explicit user actions (submitting input): scroll_end
+        re-arms the anchor even if the user had scrolled away, so it must
+        never run for agent-driven events.
+        """
+        self._transcript().follow_end()
 
     async def _ensure_activity_line(self) -> ActivityLine:
         await self._ensure_turn_label()
@@ -369,6 +438,11 @@ class PawApp(App):
         prompt.set_programmatic_value("")
         self._resize_prompt("")
         self._menu.display = False
+        # Submitting input is the one action that jumps back to the end:
+        # the user wants to see their message land and the reply follow.
+        # (Queue auto-delivery on turn end deliberately does not — it isn't
+        # a user action, so it must not move a reading user's viewport.)
+        self._scroll_transcript_end()
         if text.startswith("/"):
             await self._handle_local_command(text)
             return
@@ -497,9 +571,15 @@ class PawApp(App):
             thought.collapsed = not self._inspection_mode
             thought.set_class(not self._inspection_mode, "hidden")
         for panel in self.query(ToolPanel):
+            # Inspection opens every panel so params + output are readable
+            # without a click per tool; leaving restores the tidy default
+            # (finished collapsed, running open).
+            panel.collapsed = not self._inspection_mode and panel.is_done
             self._apply_tool_visibility(panel)
         self._apply_activity_visibility()
-        self._scroll_transcript_end(defer=True)
+        # No explicit scroll: if the user is following, the anchor keeps the
+        # end pinned through the re-layout; if they scrolled up to inspect
+        # something specific, toggling modes must not yank them away.
         mode = "inspection" if self._inspection_mode else "friendly"
         self.notify(f"{mode} mode", timeout=2)
 
@@ -828,7 +908,6 @@ class PawApp(App):
                 self._assistant = AssistantMessage()
                 await self._mount(self._assistant)
             await self._assistant.append(event.text)
-            self._scroll_transcript_end()
             self._stream_chars += len(event.text)
             self._refresh_tokens()
 
@@ -885,6 +964,7 @@ class PawApp(App):
                 status=event.status,
                 output=event.output,
                 params=event.params,
+                auto_collapse=not self._inspection_mode,
             )
             self._apply_tool_visibility(panel)
             # Surface any files the tool returned (e.g. send_file_to_user) as

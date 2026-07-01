@@ -12,6 +12,7 @@ from textual.widget import Widget
 from textual.widgets import Collapsible, Markdown, Static
 
 from ._anim import TICK, pulse, spinner
+from ._format import summarize_params
 
 
 class _Bubble(Static):
@@ -559,10 +560,7 @@ class ActivityLine(_Bubble):
         return kind or "tool"
 
     def _tool_summary(self, params: str | None) -> str:
-        if not params:
-            return ""
-        first = params.strip().splitlines()[0].strip()
-        return first[:72] + " ..." if len(first) > 72 else first
+        return summarize_params(params)
 
 
 class FileLinkBox(_Bubble):
