@@ -24,7 +24,7 @@ import logging
 import os
 import secrets
 import time
-from typing import Optional
+from typing import Awaitable, Callable, Optional
 
 from fastapi import Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -70,6 +70,58 @@ _PUBLIC_PREFIXES: tuple[str, ...] = (
     "/qwenpaw-symbol.svg",
     "/api/frontend_plugin/",
 )
+
+
+# ---------------------------------------------------------------------------
+# External identity resolvers (e.g. NocoBase SSO plugin)
+# ---------------------------------------------------------------------------
+# A resolver maps an incoming request to an identity string (the sender_id
+# used by channel ACL) or None when it has no opinion. Mirrors the
+# BaseChannel._external_acl_checkers pattern: the core stays ignorant of any
+# specific identity provider; plugins fill this in.
+IdentityResolver = Callable[["Request"], Awaitable[Optional[str]]]
+_external_identity_resolvers: list[IdentityResolver] = []
+
+
+def register_external_identity_resolver(resolver: IdentityResolver) -> None:
+    """Register a resolver consulted when no valid QwenPaw token is present."""
+    if resolver not in _external_identity_resolvers:
+        _external_identity_resolvers.append(resolver)
+
+
+def unregister_external_identity_resolver(
+    resolver: IdentityResolver,
+) -> None:
+    """Remove a previously registered resolver (no-op if absent)."""
+    try:
+        _external_identity_resolvers.remove(resolver)
+    except ValueError:
+        pass
+
+
+def has_external_identity_resolvers() -> bool:
+    """Return True if at least one external identity resolver is registered."""
+    return bool(_external_identity_resolvers)
+
+
+async def _resolve_external_identity(request: Request) -> Optional[str]:
+    """Return the first non-empty identity from registered resolvers.
+
+    A resolver that raises is logged and skipped so one bad plugin never
+    fails the request pipeline.
+    """
+    for resolver in _external_identity_resolvers:
+        try:
+            identity = await resolver(request)
+        except Exception:
+            logger.exception(
+                "external identity resolver %s failed",
+                getattr(resolver, "__qualname__", repr(resolver)),
+            )
+            continue
+        if identity:
+            return identity
+    return None
 
 
 # ---------------------------------------------------------------------------
