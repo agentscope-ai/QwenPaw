@@ -1271,18 +1271,21 @@ export default function ChatPage() {
       session_id?: string;
       user_id?: string;
       channel?: string;
+      agent_id?: string;
       biz_params?: Record<string, unknown>;
       signal?: AbortSignal;
     }): Promise<Response> => {
+      const requestAgent = data.agent_id || selectedAgent;
       const headers: Record<string, string> = {
         "Content-Type": "application/json",
         ...buildAuthHeaders(),
+        ...(requestAgent ? { "X-Agent-Id": requestAgent } : {}),
       };
 
       try {
         const activeModels = await providerApi.getActiveModels({
           scope: "effective",
-          agent_id: selectedAgent,
+          agent_id: requestAgent,
         });
         if (
           !activeModels?.active_llm?.provider_id ||
@@ -1716,6 +1719,17 @@ export default function ChatPage() {
           getSessionId: (sessionId?: string) => {
             if (!sessionId) return undefined;
             return sessionApi.getBackendSessionId(sessionId);
+          },
+          getRequestContext: (sessionId?: string) => {
+            const identity = sessionApi.getSessionIdentity();
+            return {
+              session_id: sessionId
+                ? sessionApi.getBackendSessionId(sessionId)
+                : identity.sessionId,
+              user_id: identity.userId,
+              channel: identity.channel,
+              agent_id: selectedAgentRef.current,
+            };
           },
         },
         attachments: {
