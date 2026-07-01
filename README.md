@@ -35,7 +35,7 @@ Your personal AI assistant — deploy locally or in the cloud, extend with Skill
 | --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | **Never forgets**                       | Three-layer memory — live working context, full verbatim history, and distilled knowledge. Older turns evict but stay recallable on demand; nothing is summarized away or lost.     |
 | **Local or cloud, runs free**           | QwenPaw-Flash models (2B / 4B / 9B) trained for agent tasks. Built-in QwenPaw Local runtime — no API key, no cloud dependency. Also works with Ollama, LM Studio, or 14+ cloud providers.   |
-| **Security built in**                   | Kernel-level Sandbox, Tool Guard, File Guard, and Skill Scanner. Dangerous commands are blocked before they run.                                                                   |
+| **Security built in**                   | Kernel-level Sandbox, Tool Guard, File Guard, Skill Scanner, and Access Policy. Dangerous commands are blocked before they run.                                                                   |
 | **Multi-agent & parallel**              | Spawn independent agents with their own memory and skills. Sub-agents at runtime. Agent Communication Protocol (ACP) for cross-system orchestration.                               |
 | **Coding Mode**                         | Three-panel Web IDE with file tree, diff preview, and chat. Jump-to-definition, find-references, and structural code search built in.                                              |
 | **Extensible**                          | Skills for scheduling, documents, browser, news, and more. Plugin architecture with a marketplace. MCP integration for external tools. Combine them into purpose-built workflows.  |
@@ -416,7 +416,7 @@ See [Security](https://qwenpaw.agentscope.io/docs/security) for details.
 | [Heartbeat](https://qwenpaw.agentscope.io/docs/heartbeat)                | Scheduled check-in and digest                    |
 | [Cron / Scheduled Tasks](https://qwenpaw.agentscope.io/docs/cron)       | Scheduled tasks and automation                   |
 | [Multi-Agent](https://qwenpaw.agentscope.io/docs/multi-agent)           | Create multiple agents and enable collaboration  |
-| [Security](https://qwenpaw.agentscope.io/docs/security)                 | Sandbox, tool guard, file guard, skill scanner   |
+| [Security](https://qwenpaw.agentscope.io/docs/security)                 | Sandbox, tool guard, file guard, skill scanner, access policy |
 | [Backup & Restore](https://qwenpaw.agentscope.io/docs/backup)           | Data backup and recovery                         |
 | [Config & working dir](https://qwenpaw.agentscope.io/docs/config) | Working directory and config file                |
 | [REST API](https://qwenpaw.agentscope.io/docs/api-tutorial)             | HTTP API for integration and automation          |
