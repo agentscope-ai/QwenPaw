@@ -676,7 +676,7 @@ class AgentBuilder:
         )
 
     @staticmethod
-    def _build_middlewares(
+    def _build_middlewares(  # pylint: disable=too-many-statements
         ctx: Any,
         agent_config: Any,
     ) -> list[Any]:
