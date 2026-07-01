@@ -15,10 +15,7 @@ This script performs the following cleanup steps:
 Safe to run multiple times (idempotent).
 """
 
-from __future__ import annotations
-
 import ctypes
-import ctypes.wintypes
 import json
 import os
 import shutil
@@ -126,6 +123,18 @@ def main():
     if sys.platform != "win32":
         print("ERROR: This script must run on Windows.")
         sys.exit(1)
+
+    print("=" * 60)
+    print("WARNING: This will clean up ALL QwenPaw AppContainer sandboxes,")
+    print("including any that are currently RUNNING.")
+    print("Please make sure no sandbox is currently in use before proceeding.")
+    print("=" * 60)
+    print()
+    choice = input("Do you want to continue? (Y/N): ").strip().upper()
+    if choice != "Y":
+        print("Aborted by user.")
+        sys.exit(0)
+    print()
 
     state_dir = _get_state_dir()
     print("=" * 60)
