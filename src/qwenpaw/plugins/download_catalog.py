@@ -110,23 +110,65 @@ def _installed_plugin_ids() -> dict[str, str]:
     return installed
 
 
+def _normalize_ver(raw: str) -> str:
+    """Strip leading 'v' and surrounding whitespace from a version string."""
+    s = raw.strip()
+    if s.lower().startswith("v"):
+        s = s[1:]
+    return s
+
+
+def _get_version_constraint(
+    entry: dict[str, Any],
+) -> dict[str, str] | None:
+    """Extract a structured ``qwenpaw_version`` from a CDN index entry.
+
+    Reuses the same normalization logic as
+    ``scripts/pack/generate_plugin_metadata.get_version``:
+      1. If ``qwenpaw_version`` dict exists, use directly.
+      2. Otherwise synthesize from ``min_version`` / ``max_version``.
+
+    Returns ``None`` when no version constraint is declared.
+    """
+    qwenpaw_version = entry.get("qwenpaw_version")
+    if isinstance(qwenpaw_version, dict):
+        return {
+            k: _normalize_ver(str(v))
+            for k, v in qwenpaw_version.items()
+            if k in ("min", "max")
+        }
+
+    min_ver = _normalize_ver(str(entry.get("min_version") or ""))
+    max_ver = _normalize_ver(str(entry.get("max_version") or ""))
+    if not min_ver and not max_ver:
+        return None
+
+    result: dict[str, str] = {}
+    if min_ver:
+        result["min"] = min_ver
+    if max_ver:
+        result["max"] = max_ver
+    return result
+
+
 def _is_entry_compatible(entry: dict[str, Any]) -> bool:
     """Return True when a CDN index entry supports the running QwenPaw.
 
-    Only the structured ``qwenpaw_version`` field is honored.  Missing
-    constraints are treated as compatible for backwards compat.
+    Checks the structured ``qwenpaw_version`` field first, then falls
+    back to ``min_version`` / ``max_version``.  Missing constraints
+    are treated as compatible for backwards compat.
     """
     plugin_id = str(entry.get("plugin_id") or entry.get("id") or "")
     version = str(entry.get("version") or "0.0.0")
 
-    qwenpaw_version = entry.get("qwenpaw_version")
-    if not isinstance(qwenpaw_version, dict):
+    version_constraint = _get_version_constraint(entry)
+    if version_constraint is None:
         return True
 
     manifest_data: dict[str, Any] = {
         "id": plugin_id,
         "version": version,
-        "qwenpaw_version": qwenpaw_version,
+        "qwenpaw_version": version_constraint,
     }
 
     try:
@@ -135,7 +177,8 @@ def _is_entry_compatible(entry: dict[str, Any]) -> bool:
         return compatible
     except Exception as exc:
         logger.warning(
-            "Plugin catalog: skipping %s due to manifest validation error: %s",
+            "Plugin catalog: skipping %s due to manifest"
+            " validation error: %s",
             plugin_id,
             exc,
         )
