@@ -482,7 +482,9 @@ def assert_no_governance_gaps() -> list[str]:
 # ---------------------------------------------------------------------------
 
 
-def _create_default_registry() -> ToolRegistry:
+def _create_default_registry() -> (
+    ToolRegistry
+):  # pylint: disable=too-many-statements
     """Create and populate the default ToolRegistry."""
     registry = ToolRegistry()
     _register_from_descriptors(registry)
