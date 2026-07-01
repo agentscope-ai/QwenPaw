@@ -181,6 +181,12 @@
       },
       "history": {
         "description": "Hiển thị lịch sử cuộc trò chuyện"
+      },
+      "mission": {
+        "description": "Chế độ Mission — Phân tách nhiệm vụ cho sub-agent với ngữ cảnh tách biệt"
+      },
+      "goal": {
+        "description": "Loop Goal — Agent theo đuổi mục tiêu liên tục, tự đánh giá qua Rubric"
       }
     },
     "contextMenu": {
@@ -766,10 +772,13 @@
     "simpleMode": "Đơn giản",
     "advancedMode": "Nâng cao",
     "comingSoon": "Sắp ra mắt",
-    "goalModeTab": "Chế độ Goal",
-    "missionModeTab": "Chế độ Mission",
-    "goalModeDesc": "Các cổng được quản lý tự động bởi chế độ /goal. Cấu hình tùy chỉnh sắp ra mắt.",
-    "missionModeDesc": "Các cổng được quản lý tự động bởi chế độ /mission. Cấu hình tùy chỉnh sắp ra mắt.",
+    "reactModeTab": "Mẫu Loop - Mặc định",
+    "goalModeTab": "Mẫu Loop - Goal",
+    "missionModeTab": "Mẫu Loop - Mission",
+    "goalModeInfoTitle": "Chế độ Goal vs Mặc định",
+    "goalModeInfo": "Chế độ mặc định dừng sau khi tạo phản hồi. Chế độ Goal giữ agent lặp hướng tới mục tiêu, sử dụng đánh giá Rubric để xác định hoàn thành. Tất cả hoạt động chạy trong ngữ cảnh agent hiện tại.",
+    "missionModeInfoTitle": "Chế độ Mission vs Goal",
+    "missionModeInfo": "Chế độ Mission tự động phân tách nhiệm vụ phức tạp, được thực thi bởi các Worker sub-agent độc lập và xác minh bởi Verifier sub-agent. Mỗi nhiệm vụ con chạy trong ngữ cảnh riêng, ngăn ô nhiễm phiên chính.",
     "goalIterationGate": "Cổng Lặp Mục tiêu",
     "goalIterationGateDesc": "Giới hạn số lượt của agent trong phiên mục tiêu, theo dõi số lần lặp và sử dụng token.",
     "goalBudgetGate": "Cổng Ngân sách Token",

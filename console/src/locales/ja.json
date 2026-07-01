@@ -1498,10 +1498,13 @@
     "simpleMode": "シンプル",
     "advancedMode": "詳細",
     "comingSoon": "近日公開",
-    "goalModeTab": "Goal モード",
-    "missionModeTab": "Mission モード",
-    "goalModeDesc": "/goal モードで自動管理されるゲートです。カスタム設定は近日公開予定。",
-    "missionModeDesc": "/mission モードで自動管理されるゲートです。カスタム設定は近日公開予定。",
+    "reactModeTab": "Loopテンプレート - デフォルト",
+    "goalModeTab": "Loopテンプレート - Goal",
+    "missionModeTab": "Loopテンプレート - Mission",
+    "goalModeInfoTitle": "Goalモード vs デフォルト",
+    "goalModeInfo": "デフォルトモードは応答後に停止します。Goalモードはエージェントを目標に向かってループさせ、Rubric評価で完了を判断します。すべての操作は現在のエージェントコンテキスト内で実行されます。",
+    "missionModeInfoTitle": "Missionモード vs Goalモード",
+    "missionModeInfo": "Missionモードは複雑なタスクを自動分解し、独立したWorkerサブエージェントが実行、Verifierサブエージェントが検証します。各サブタスクは独自のコンテキストで実行され、メインセッションのコンテキスト汚染を防ぎます。",
     "goalIterationGate": "目標イテレーションゲート",
     "goalIterationGateDesc": "目標セッション内のエージェントターン数を制限し、イテレーション数とトークン使用量を追跡します。",
     "goalBudgetGate": "トークン予算ゲート",
@@ -1825,10 +1828,13 @@
         "description": "保留中のツール操作を拒否"
       },
       "mission": {
-        "description": "ミッションモードを起動 — 複雑なタスクを自動的に分解し、実装し、検証します ⚠️ このモードではツールのガードレールを回避します"
+        "description": "Missionモード — タスクをサブエージェントに分解委任、独立コンテキストでメイン会話を汚染しない"
       },
       "skills": {
         "description": "チャットで利用可能なスキルを一覧し、明示的なスキルコマンドを表示します"
+      },
+      "goal": {
+        "description": "Goalループ — エージェントが目標に向かって継続実行し、Rubric評価で完了を自動判定"
       }
     },
     "attachments": {

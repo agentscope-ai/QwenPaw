@@ -1709,10 +1709,13 @@
     "simpleMode": "简单",
     "advancedMode": "高级",
     "comingSoon": "即将推出",
-    "goalModeTab": "Goal 模式",
-    "missionModeTab": "Mission 模式",
-    "goalModeDesc": "/goal 模式自动管理的 Gate，自定义配置即将推出。",
-    "missionModeDesc": "/mission 模式自动管理的 Gate，自定义配置即将推出。",
+    "reactModeTab": "Loop模板 - 默认",
+    "goalModeTab": "Loop模板 - Goal模式",
+    "missionModeTab": "Loop模板 - Mission模式",
+    "goalModeInfoTitle": "Goal模式 vs 默认模式",
+    "goalModeInfo": "默认模式在产生回复后即停止。Goal模式让 Agent 围绕目标持续循环执行，通过 Rubric 评估自动判断是否完成，未完成则继续推进。所有操作在当前 Agent 上下文中进行。",
+    "missionModeInfoTitle": "Mission模式 vs Goal模式",
+    "missionModeInfo": "Mission模式将复杂任务自动分解为子任务，由 Worker 子Agent独立执行，Verifier 子Agent验证结果。每个子任务有独立上下文，不会污染主会话历史。适合需要长时间、多步骤协作的复杂工程任务。",
     "goalIterationGate": "目标迭代 Gate",
     "goalIterationGateDesc": "限制目标会话中的 Agent 执行轮次，跟踪迭代次数和 Token 使用量。",
     "goalBudgetGate": "Token 预算 Gate",
@@ -2014,7 +2017,7 @@
         "description": "拒绝待执行的工具操作"
       },
       "mission": {
-        "description": "启动任务模式 — 自动分解、实现、验证复杂任务 ⚠️ 该模式会避开安全护栏"
+        "description": "Mission模式 — 分解任务委派子Agent，独立上下文不污染主会话"
       },
       "skills": {
         "description": "列出当前对话可用的技能，并显示可显式调用的技能命令"
@@ -2023,7 +2026,7 @@
         "description": "创建结构化计划，将任务分解为多个子任务"
       },
       "goal": {
-        "description": "目标驱动循环 — 通过 Rubric 验证持续追求目标直至完成"
+        "description": "Goal循环 — Agent围绕目标持续执行，通过Rubric评估自动判断完成"
       }
     },
     "attachments": {

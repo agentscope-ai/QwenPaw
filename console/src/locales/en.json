@@ -1851,10 +1851,13 @@
     "simpleMode": "Simple",
     "advancedMode": "Advanced",
     "comingSoon": "Coming Soon",
-    "goalModeTab": "Goal Mode",
-    "missionModeTab": "Mission Mode",
-    "goalModeDesc": "Gates automatically managed by /goal mode. Custom configuration coming soon.",
-    "missionModeDesc": "Gates automatically managed by /mission mode. Custom configuration coming soon.",
+    "reactModeTab": "Loop Template - Default",
+    "goalModeTab": "Loop Template - Goal",
+    "missionModeTab": "Loop Template - Mission",
+    "goalModeInfoTitle": "Goal Mode vs Default",
+    "goalModeInfo": "Default mode stops after producing a reply. Goal mode keeps the agent looping toward a goal, using Rubric evaluation to determine completion. All operations run within the current agent context.",
+    "missionModeInfoTitle": "Mission Mode vs Goal Mode",
+    "missionModeInfo": "Mission mode auto-decomposes complex tasks into sub-tasks, executed by independent Worker sub-agents and verified by Verifier sub-agents. Each sub-task runs in its own context, preventing context pollution of the main session. Best for complex multi-step engineering tasks.",
     "goalIterationGate": "Goal Iteration Gate",
     "goalIterationGateDesc": "Limits the number of agent turns within a goal session. Tracks iteration count and token usage.",
     "goalBudgetGate": "Token Budget Gate",
@@ -2156,7 +2159,7 @@
         "description": "Deny the pending tool action"
       },
       "mission": {
-        "description": "Launch mission mode — Automatically decompose, implement, and verify complex tasks ⚠️ This mode will bypass tool guardrails"
+        "description": "Mission mode — Decomposes tasks into sub-agents with isolated context"
       },
       "skills": {
         "description": "List chat-available skills and expose explicit skill commands"
@@ -2165,7 +2168,7 @@
         "description": "Create a structured plan to decompose the task into subtasks"
       },
       "goal": {
-        "description": "Goal-driven loop — pursue a goal with rubric verification until done"
+        "description": "Goal loop — Agent pursues a goal continuously, auto-evaluates via Rubric"
       }
     },
     "attachments": {

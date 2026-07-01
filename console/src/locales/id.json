@@ -176,10 +176,13 @@
         "description": "Tolak tindakan tool yang tertunda"
       },
       "mission": {
-        "description": "Jalankan mode misi - uraikan, implementasikan, dan verifikasi tugas kompleks secara otomatis"
+        "description": "Mode Mission — Memecah tugas ke sub-agen dengan konteks terisolasi"
       },
       "skills": {
         "description": "Tampilkan skill yang tersedia untuk chat dan perintah skill eksplisit"
+      },
+      "goal": {
+        "description": "Loop Goal — Agen mengejar tujuan secara terus-menerus, evaluasi otomatis via Rubric"
       }
     },
     "attachments": {
@@ -1857,10 +1860,13 @@
     "simpleMode": "Sederhana",
     "advancedMode": "Lanjutan",
     "comingSoon": "Segera Hadir",
-    "goalModeTab": "Mode Goal",
-    "missionModeTab": "Mode Mission",
-    "goalModeDesc": "Gate dikelola otomatis oleh mode /goal. Konfigurasi kustom segera hadir.",
-    "missionModeDesc": "Gate dikelola otomatis oleh mode /mission. Konfigurasi kustom segera hadir.",
+    "reactModeTab": "Template Loop - Default",
+    "goalModeTab": "Template Loop - Goal",
+    "missionModeTab": "Template Loop - Mission",
+    "goalModeInfoTitle": "Mode Goal vs Default",
+    "goalModeInfo": "Mode default berhenti setelah menghasilkan respons. Mode Goal membuat agen terus berulang menuju tujuan, menggunakan evaluasi Rubric untuk menentukan penyelesaian. Semua operasi berjalan dalam konteks agen saat ini.",
+    "missionModeInfoTitle": "Mode Mission vs Goal",
+    "missionModeInfo": "Mode Mission otomatis memecah tugas kompleks menjadi sub-tugas, dieksekusi oleh sub-agen Worker independen dan diverifikasi oleh sub-agen Verifier. Setiap sub-tugas berjalan dalam konteksnya sendiri, mencegah polusi sesi utama.",
     "goalIterationGate": "Gate Iterasi Tujuan",
     "goalIterationGateDesc": "Membatasi jumlah giliran agen dalam sesi tujuan, melacak iterasi dan penggunaan token.",
     "goalBudgetGate": "Gate Anggaran Token",

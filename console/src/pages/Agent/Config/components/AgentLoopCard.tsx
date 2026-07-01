@@ -1,5 +1,6 @@
 import { useState } from "react";
 import {
+  Alert,
   Card,
   Form,
   InputNumber,
@@ -18,6 +19,7 @@ import {
   Repeat,
   Shield,
   CheckCircle,
+  Info,
   Target,
   Rocket,
   Gauge,
@@ -544,18 +546,17 @@ function GoalModeTab() {
   const { t } = useTranslation();
   return (
     <div>
-      <p
-        style={{
-          fontSize: 13,
-          color: "var(--text-secondary, rgba(0,0,0,0.45))",
-          marginBottom: 16,
-        }}
-      >
-        {t(
-          "agentConfig.goalModeDesc",
-          "Gates automatically managed by /goal mode. Custom configuration coming soon.",
+      <Alert
+        type="info"
+        showIcon
+        icon={<Info size={14} />}
+        message={t("agentConfig.goalModeInfoTitle", "Goal Mode vs Default")}
+        description={t(
+          "agentConfig.goalModeInfo",
+          "Default mode stops after a single reply. Goal mode keeps the agent looping toward a goal, using Rubric evaluation to determine completion. All operations run within the current agent context.",
         )}
-      </p>
+        style={{ marginBottom: 16 }}
+      />
       <MockGateCard
         icon={<Repeat size={14} style={{ opacity: 0.5 }} />}
         title={t("agentConfig.goalIterationGate", "Goal Iteration Gate")}
@@ -596,18 +597,20 @@ function MissionModeTab() {
   const { t } = useTranslation();
   return (
     <div>
-      <p
-        style={{
-          fontSize: 13,
-          color: "var(--text-secondary, rgba(0,0,0,0.45))",
-          marginBottom: 16,
-        }}
-      >
-        {t(
-          "agentConfig.missionModeDesc",
-          "Gates automatically managed by /mission mode. Custom configuration coming soon.",
+      <Alert
+        type="info"
+        showIcon
+        icon={<Info size={14} />}
+        message={t(
+          "agentConfig.missionModeInfoTitle",
+          "Mission Mode vs Goal Mode",
         )}
-      </p>
+        description={t(
+          "agentConfig.missionModeInfo",
+          "Mission mode decomposes complex tasks and delegates sub-tasks to independent sub-agents. Each sub-task runs in its own context, preventing context pollution of the main session. Best for complex engineering tasks.",
+        )}
+        style={{ marginBottom: 16 }}
+      />
       <MockGateCard
         icon={<Gauge size={14} style={{ opacity: 0.5 }} />}
         title={t("agentConfig.missionProgressGate", "Mission Progress Gate")}
@@ -634,7 +637,18 @@ export function AgentLoopCard() {
   const tabItems = [
     {
       key: "react",
-      label: "ReAct",
+      label: (
+        <span
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 6,
+          }}
+        >
+          <Repeat size={13} />
+          {t("agentConfig.reactModeTab", "Loop Template - Default")}
+        </span>
+      ),
       children: <ReactTab />,
     },
     {
@@ -648,7 +662,7 @@ export function AgentLoopCard() {
           }}
         >
           <Target size={13} />
-          {t("agentConfig.goalModeTab", "Goal Mode")}
+          {t("agentConfig.goalModeTab", "Loop Template - Goal")}
         </span>
       ),
       children: <GoalModeTab />,
@@ -664,7 +678,7 @@ export function AgentLoopCard() {
           }}
         >
           <Rocket size={13} />
-          {t("agentConfig.missionModeTab", "Mission Mode")}
+          {t("agentConfig.missionModeTab", "Loop Template - Mission")}
         </span>
       ),
       children: <MissionModeTab />,
