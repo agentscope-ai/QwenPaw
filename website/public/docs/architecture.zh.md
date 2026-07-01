@@ -12,67 +12,108 @@ QwenPaw 完全跑在你自己的环境里，是一个常驻服务。一次安装
 
 可以把 QwenPaw 看成一个面向智能体的小型操作系统。它的“内核”是 [AgentScope 2.0](https://github.com/agentscope-ai/agentscope)，在进程内提供智能体循环、会话存储、事件流和工具层。QwenPaw 是其上的操作系统层，管着智能体要用到的**资源维度**——工作区文件、记忆、Skills、驱动（连接器）和模型——以及管控这些资源访问的信任主干。
 
-<svg viewBox="0 0 860 572" width="100%" role="img" aria-label="QwenPaw 智能体操作系统（Agent OS）的分层架构：入口位于应用服务器之上，应用服务器之下是各智能体专属的工作区，并由资源维度、信任主干和 AgentScope 基座支撑。" xmlns="http://www.w3.org/2000/svg" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif">
+<svg viewBox="0 0 900 684" width="100%" role="img" aria-label="一图看懂 QwenPaw 智能体操作系统：上层是运行时调度层；下层是每个智能体专属的工作区，内含按颜色区分的资源泳道（记忆、Skills、工具、其他）、治理面板和沙箱执行底座，旁边是独立的驱动（连接器）栏；整体构建在 AgentScope 基座之上。" xmlns="http://www.w3.org/2000/svg" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif">
   <defs>
-    <marker id="qpHeroArrow" markerWidth="10" markerHeight="10" refX="6" refY="3" orient="auto" markerUnits="strokeWidth">
-      <path d="M0,0 L6,3 L0,6 Z" fill="#ff9d4d"/>
+    <marker id="qpMapArrow" markerWidth="9" markerHeight="9" refX="5.5" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L6,3 L0,6 Z" fill="currentColor" fill-opacity="0.45"/>
     </marker>
   </defs>
-  <!-- Band 1: Surfaces -->
-  <rect x="20" y="16" width="820" height="76" rx="10" fill="currentColor" fill-opacity="0.03" stroke="currentColor" stroke-opacity="0.18"/>
-  <text x="34" y="36" font-size="11" letter-spacing="1.5" font-weight="700" fill="#ff9d4d">入口</text>
-  <g font-size="12.5" fill="currentColor">
-    <rect x="40" y="50" width="180" height="30" rx="7" fill="currentColor" fill-opacity="0.05" stroke="currentColor" stroke-opacity="0.25"/><text x="130" y="69" text-anchor="middle">频道（IM）</text>
-    <rect x="240" y="50" width="180" height="30" rx="7" fill="currentColor" fill-opacity="0.05" stroke="currentColor" stroke-opacity="0.25"/><text x="330" y="69" text-anchor="middle">控制台（Web）</text>
-    <rect x="440" y="50" width="180" height="30" rx="7" fill="currentColor" fill-opacity="0.05" stroke="currentColor" stroke-opacity="0.25"/><text x="530" y="69" text-anchor="middle">终端 UI</text>
-    <rect x="640" y="50" width="180" height="30" rx="7" fill="currentColor" fill-opacity="0.05" stroke="currentColor" stroke-opacity="0.25"/><text x="730" y="69" text-anchor="middle">CLI</text>
+  <!-- Title -->
+  <text x="450" y="30" text-anchor="middle" font-size="16" font-weight="700" fill="currentColor">QwenPaw Agent OS · 一图看懂</text>
+  <text x="450" y="49" text-anchor="middle" font-size="10.5" fill="currentColor" fill-opacity="0.6">上层 Runtime ／ 下层 Workspace ‖ Drivers · 构建于 AgentScope 基座之上</text>
+  <!-- Surfaces strip -->
+  <rect x="20" y="60" width="860" height="40" rx="9" fill="currentColor" fill-opacity="0.03" stroke="currentColor" stroke-opacity="0.18"/>
+  <text x="34" y="84" font-size="10" letter-spacing="1.2" font-weight="700" fill="currentColor" fill-opacity="0.7">入口</text>
+  <g font-size="11" fill="currentColor">
+    <rect x="170" y="68" width="168" height="24" rx="6" fill="currentColor" fill-opacity="0.05" stroke="currentColor" stroke-opacity="0.25"/><text x="254" y="84" text-anchor="middle">频道（IM）</text>
+    <rect x="348" y="68" width="168" height="24" rx="6" fill="currentColor" fill-opacity="0.05" stroke="currentColor" stroke-opacity="0.25"/><text x="432" y="84" text-anchor="middle">控制台（Web）</text>
+    <rect x="526" y="68" width="168" height="24" rx="6" fill="currentColor" fill-opacity="0.05" stroke="currentColor" stroke-opacity="0.25"/><text x="610" y="84" text-anchor="middle">终端 UI</text>
+    <rect x="704" y="68" width="168" height="24" rx="6" fill="currentColor" fill-opacity="0.05" stroke="currentColor" stroke-opacity="0.25"/><text x="788" y="84" text-anchor="middle">CLI</text>
   </g>
-  <line x1="430" y1="92" x2="430" y2="112" stroke="#ff9d4d" stroke-width="1.5" marker-end="url(#qpHeroArrow)"/>
-  <text x="446" y="108" font-size="10.5" fill="currentColor" fill-opacity="0.6">一个请求 / 一条流式回复</text>
-  <!-- Band 2: Application server -->
-  <rect x="20" y="114" width="820" height="76" rx="10" fill="currentColor" fill-opacity="0.03" stroke="currentColor" stroke-opacity="0.18"/>
-  <text x="34" y="134" font-size="11" letter-spacing="1.5" font-weight="700" fill="#ff9d4d">应用服务器</text>
-  <g font-size="12.5" fill="currentColor">
-    <rect x="40" y="148" width="180" height="30" rx="7" fill="currentColor" fill-opacity="0.05" stroke="currentColor" stroke-opacity="0.25"/><text x="130" y="167" text-anchor="middle">智能体注册表</text>
-    <rect x="240" y="148" width="180" height="30" rx="7" fill="currentColor" fill-opacity="0.05" stroke="currentColor" stroke-opacity="0.25"/><text x="330" y="167" text-anchor="middle">请求路由器</text>
-    <rect x="440" y="148" width="180" height="30" rx="7" fill="currentColor" fill-opacity="0.05" stroke="currentColor" stroke-opacity="0.25"/><text x="530" y="167" text-anchor="middle">REST + 流式 API</text>
-    <rect x="640" y="148" width="180" height="30" rx="7" fill="currentColor" fill-opacity="0.05" stroke="currentColor" stroke-opacity="0.25"/><text x="730" y="167" text-anchor="middle">共享服务</text>
+  <line x1="450" y1="100" x2="450" y2="112" stroke="currentColor" stroke-opacity="0.4" stroke-width="1.4" marker-end="url(#qpMapArrow)"/>
+  <!-- Runtime tier -->
+  <rect x="20" y="114" width="860" height="118" rx="10" fill="#a855f7" fill-opacity="0.05" stroke="#a855f7" stroke-opacity="0.45"/>
+  <rect x="30" y="124" width="12" height="12" rx="3" fill="#a855f7"/>
+  <text x="50" y="134" font-size="11.5" font-weight="700" fill="#a855f7">运行时 · 请求调度 · 上层</text>
+  <text x="30" y="153" font-size="10" fill="currentColor" fill-opacity="0.62">一次安装托管多个智能体 —— 编排 · 路由 · 组装 · 运行 · 流式返回</text>
+  <g>
+    <rect x="40" y="164" width="193" height="54" rx="7" fill="#a855f7" fill-opacity="0.1" stroke="#a855f7" stroke-opacity="0.55"/><text x="136" y="188" text-anchor="middle" font-size="12" font-weight="600" fill="currentColor">请求路由器</text><text x="136" y="205" text-anchor="middle" font-size="9.5" fill="currentColor" fill-opacity="0.62">路由到目标智能体</text>
+    <rect x="249" y="164" width="193" height="54" rx="7" fill="#a855f7" fill-opacity="0.1" stroke="#a855f7" stroke-opacity="0.55"/><text x="345" y="188" text-anchor="middle" font-size="12" font-weight="600" fill="currentColor">运行时生命周期</text><text x="345" y="205" text-anchor="middle" font-size="9.5" fill="currentColor" fill-opacity="0.62">钩子阶段 · 模式</text>
+    <rect x="458" y="164" width="193" height="54" rx="7" fill="#a855f7" fill-opacity="0.1" stroke="#a855f7" stroke-opacity="0.55"/><text x="554" y="188" text-anchor="middle" font-size="12" font-weight="600" fill="currentColor">智能体 — ReAct 循环</text><text x="554" y="205" text-anchor="middle" font-size="9.5" fill="currentColor" fill-opacity="0.62">上下文策略 · 按请求组装</text>
+    <rect x="667" y="164" width="193" height="54" rx="7" fill="#a855f7" fill-opacity="0.1" stroke="#a855f7" stroke-opacity="0.55"/><text x="763" y="188" text-anchor="middle" font-size="12" font-weight="600" fill="currentColor">Harness 适配器</text><text x="763" y="205" text-anchor="middle" font-size="9.5" fill="currentColor" fill-opacity="0.62">外部 agent · ACP</text>
   </g>
-  <line x1="430" y1="190" x2="430" y2="210" stroke="#ff9d4d" stroke-width="1.5" marker-end="url(#qpHeroArrow)"/>
-  <text x="446" y="206" font-size="10.5" fill="currentColor" fill-opacity="0.6">路由到目标智能体</text>
-  <!-- Band 3: Workspace -->
-  <rect x="20" y="212" width="820" height="76" rx="10" fill="currentColor" fill-opacity="0.03" stroke="currentColor" stroke-opacity="0.18"/>
-  <text x="34" y="232" font-size="11" letter-spacing="1.5" font-weight="700" fill="#ff9d4d">工作区 · 每个智能体一个，相互隔离</text>
-  <g font-size="12.5" fill="currentColor">
-    <rect x="40" y="246" width="180" height="30" rx="7" fill="currentColor" fill-opacity="0.05" stroke="currentColor" stroke-opacity="0.25"/><text x="130" y="265" text-anchor="middle">运行时（生命周期）</text>
-    <rect x="240" y="246" width="180" height="30" rx="7" fill="currentColor" fill-opacity="0.05" stroke="currentColor" stroke-opacity="0.25"/><text x="330" y="265" text-anchor="middle">智能体（ReAct 循环）</text>
-    <rect x="440" y="246" width="180" height="30" rx="7" fill="currentColor" fill-opacity="0.05" stroke="currentColor" stroke-opacity="0.25"/><text x="530" y="265" text-anchor="middle">智能体专属服务</text>
-    <rect x="640" y="246" width="180" height="30" rx="7" fill="currentColor" fill-opacity="0.05" stroke="currentColor" stroke-opacity="0.25"/><text x="730" y="265" text-anchor="middle">扩展注册表</text>
-  </g>
-  <!-- Band 4: Resource axes -->
-  <rect x="20" y="310" width="820" height="76" rx="10" fill="#ff9d4d" fill-opacity="0.08" stroke="#ff9d4d" stroke-opacity="0.5"/>
-  <text x="34" y="330" font-size="11" letter-spacing="1.5" font-weight="700" fill="#ff9d4d">资源维度 · 智能体所使用的对象</text>
-  <g font-size="12.5" fill="currentColor">
-    <rect x="50" y="344" width="140" height="30" rx="7" fill="currentColor" fill-opacity="0.05" stroke="#ff9d4d" stroke-opacity="0.45"/><text x="120" y="363" text-anchor="middle">文件</text>
-    <rect x="205" y="344" width="140" height="30" rx="7" fill="currentColor" fill-opacity="0.05" stroke="#ff9d4d" stroke-opacity="0.45"/><text x="275" y="363" text-anchor="middle">记忆</text>
-    <rect x="360" y="344" width="140" height="30" rx="7" fill="currentColor" fill-opacity="0.05" stroke="#ff9d4d" stroke-opacity="0.45"/><text x="430" y="363" text-anchor="middle">Skills</text>
-    <rect x="515" y="344" width="140" height="30" rx="7" fill="currentColor" fill-opacity="0.05" stroke="#ff9d4d" stroke-opacity="0.45"/><text x="585" y="363" text-anchor="middle">驱动</text>
-    <rect x="670" y="344" width="140" height="30" rx="7" fill="currentColor" fill-opacity="0.05" stroke="#ff9d4d" stroke-opacity="0.45"/><text x="740" y="363" text-anchor="middle">模型</text>
-  </g>
-  <!-- Band 5: Trust spine -->
-  <rect x="20" y="408" width="820" height="76" rx="10" fill="currentColor" fill-opacity="0.03" stroke="currentColor" stroke-opacity="0.18"/>
-  <text x="34" y="428" font-size="11" letter-spacing="1.5" font-weight="700" fill="#ff9d4d">信任主干 · 每个对外动作都要经过</text>
-  <g font-size="12" fill="currentColor">
-    <rect x="50" y="442" width="140" height="30" rx="7" fill="currentColor" fill-opacity="0.05" stroke="currentColor" stroke-opacity="0.25"/><text x="120" y="461" text-anchor="middle">工具守卫</text>
-    <rect x="205" y="442" width="140" height="30" rx="7" fill="currentColor" fill-opacity="0.05" stroke="currentColor" stroke-opacity="0.25"/><text x="275" y="461" text-anchor="middle">治理策略</text>
-    <rect x="360" y="442" width="140" height="30" rx="7" fill="currentColor" fill-opacity="0.05" stroke="currentColor" stroke-opacity="0.25"/><text x="430" y="461" text-anchor="middle">审批</text>
-    <rect x="515" y="442" width="140" height="30" rx="7" fill="currentColor" fill-opacity="0.05" stroke="currentColor" stroke-opacity="0.25"/><text x="585" y="461" text-anchor="middle">沙箱</text>
-    <rect x="670" y="442" width="140" height="30" rx="7" fill="currentColor" fill-opacity="0.05" stroke="currentColor" stroke-opacity="0.25"/><text x="740" y="461" text-anchor="middle">技能扫描器</text>
-  </g>
+  <line x1="450" y1="232" x2="450" y2="246" stroke="currentColor" stroke-opacity="0.4" stroke-width="1.4" marker-end="url(#qpMapArrow)"/>
+  <text x="462" y="244" font-size="9" fill="currentColor" fill-opacity="0.55">路由到工作区</text>
+  <!-- Workspace container -->
+  <rect x="20" y="248" width="690" height="336" rx="10" fill="currentColor" fill-opacity="0.02" stroke="currentColor" stroke-opacity="0.2"/>
+  <text x="34" y="272" font-size="12" font-weight="700" fill="currentColor">工作区 · 每个智能体一个隔离空间</text>
+  <text x="34" y="288" font-size="10" fill="currentColor" fill-opacity="0.6">= 资源 · 治理 · 沙箱（治理 + 沙箱 = 信任主干）</text>
+  <!-- Resources sub-box -->
+  <rect x="32" y="300" width="456" height="192" rx="8" fill="currentColor" fill-opacity="0.02" stroke="currentColor" stroke-opacity="0.2"/>
+  <text x="44" y="320" font-size="10.5" font-weight="700" fill="currentColor" fill-opacity="0.82">被治理资源 · 智能体所用之物</text>
+  <!-- memory lane -->
+  <rect x="44" y="330" width="102" height="140" rx="7" fill="#2fb26b" fill-opacity="0.07" stroke="#2fb26b" stroke-opacity="0.4"/>
+  <text x="95" y="348" text-anchor="middle" font-size="11" font-weight="700" fill="#2fb26b">记忆</text>
+  <rect x="52" y="358" width="86" height="42" rx="6" fill="#2fb26b" fill-opacity="0.1" stroke="#2fb26b" stroke-opacity="0.5"/><text x="95" y="384" text-anchor="middle" font-size="10" fill="currentColor">召回 / 写入</text>
+  <rect x="52" y="408" width="86" height="42" rx="6" fill="#2fb26b" fill-opacity="0.1" stroke="#2fb26b" stroke-opacity="0.5"/><text x="95" y="434" text-anchor="middle" font-size="10" fill="currentColor">Markdown 文件</text>
+  <!-- skills lane -->
+  <rect x="154" y="330" width="102" height="140" rx="7" fill="#e0a021" fill-opacity="0.07" stroke="#e0a021" stroke-opacity="0.4"/>
+  <text x="205" y="348" text-anchor="middle" font-size="11" font-weight="700" fill="#e0a021">Skills</text>
+  <rect x="162" y="358" width="86" height="42" rx="6" fill="#e0a021" fill-opacity="0.1" stroke="#e0a021" stroke-opacity="0.5"/><text x="205" y="384" text-anchor="middle" font-size="10" fill="currentColor">Skill 目录</text>
+  <rect x="162" y="408" width="86" height="42" rx="6" fill="#e0a021" fill-opacity="0.1" stroke="#e0a021" stroke-opacity="0.5"/><text x="205" y="434" text-anchor="middle" font-size="10" fill="currentColor">共享池</text>
+  <!-- tools lane -->
+  <rect x="264" y="330" width="102" height="140" rx="7" fill="#12b0c6" fill-opacity="0.07" stroke="#12b0c6" stroke-opacity="0.4"/>
+  <text x="315" y="348" text-anchor="middle" font-size="11" font-weight="700" fill="#12b0c6">工具</text>
+  <rect x="272" y="358" width="86" height="42" rx="6" fill="#12b0c6" fill-opacity="0.1" stroke="#12b0c6" stroke-opacity="0.5"/><text x="315" y="384" text-anchor="middle" font-size="10" fill="currentColor">文件 · Shell</text>
+  <rect x="272" y="408" width="86" height="42" rx="6" fill="#12b0c6" fill-opacity="0.1" stroke="#12b0c6" stroke-opacity="0.5"/><text x="315" y="434" text-anchor="middle" font-size="10" fill="currentColor">搜索 · 网页</text>
+  <!-- others lane -->
+  <rect x="374" y="330" width="102" height="140" rx="7" fill="#9d8579" fill-opacity="0.07" stroke="#9d8579" stroke-opacity="0.4"/>
+  <text x="425" y="348" text-anchor="middle" font-size="11" font-weight="700" fill="#9d8579">其他</text>
+  <rect x="382" y="358" width="86" height="42" rx="6" fill="#9d8579" fill-opacity="0.1" stroke="#9d8579" stroke-opacity="0.5"/><text x="425" y="384" text-anchor="middle" font-size="10" fill="currentColor">模型</text>
+  <rect x="382" y="408" width="86" height="42" rx="6" fill="#9d8579" fill-opacity="0.1" stroke="#9d8579" stroke-opacity="0.5"/><text x="425" y="434" text-anchor="middle" font-size="10" fill="currentColor">会话</text>
+  <text x="260" y="484" text-anchor="middle" font-size="9.5" fill="currentColor" fill-opacity="0.6">全部落地为磁盘文件 —— Markdown、JSON、目录。</text>
+  <!-- Governance sub-box -->
+  <rect x="500" y="300" width="198" height="192" rx="8" fill="#4f8cf7" fill-opacity="0.06" stroke="#4f8cf7" stroke-opacity="0.5"/>
+  <text x="512" y="320" font-size="11" font-weight="700" fill="#4f8cf7">治理面</text>
+  <text x="512" y="335" font-size="9.5" fill="currentColor" fill-opacity="0.6">每个动作都要经过</text>
+  <rect x="512" y="344" width="174" height="40" rx="6" fill="#4f8cf7" fill-opacity="0.1" stroke="#4f8cf7" stroke-opacity="0.5"/><text x="599" y="361" text-anchor="middle" font-size="10.5" font-weight="600" fill="currentColor">治理策略</text><text x="599" y="376" text-anchor="middle" font-size="9" fill="currentColor" fill-opacity="0.62">允许 · 拒绝 · 询问 · 沙箱</text>
+  <rect x="512" y="390" width="174" height="26" rx="6" fill="#4f8cf7" fill-opacity="0.1" stroke="#4f8cf7" stroke-opacity="0.5"/><text x="599" y="407" text-anchor="middle" font-size="10" fill="currentColor">工具守卫 · 内容审查</text>
+  <rect x="512" y="422" width="174" height="26" rx="6" fill="#4f8cf7" fill-opacity="0.1" stroke="#4f8cf7" stroke-opacity="0.5"/><text x="599" y="439" text-anchor="middle" font-size="10" fill="currentColor">审批 · 技能扫描器</text>
+  <rect x="512" y="454" width="174" height="26" rx="6" fill="#4f8cf7" fill-opacity="0.1" stroke="#4f8cf7" stroke-opacity="0.5"/><text x="599" y="471" text-anchor="middle" font-size="10" fill="currentColor">加密密钥库</text>
+  <!-- Sandbox band -->
+  <rect x="32" y="504" width="666" height="62" rx="8" fill="#f0921f" fill-opacity="0.08" stroke="#f0921f" stroke-opacity="0.5"/>
+  <rect x="44" y="514" width="12" height="12" rx="3" fill="#f0921f"/>
+  <text x="62" y="524" font-size="11" font-weight="700" fill="#f0921f">沙箱 · 执行底座</text>
+  <text x="250" y="524" font-size="9.5" fill="currentColor" fill-opacity="0.6">每次工具调用新建，用完销毁</text>
+  <text x="365" y="548" text-anchor="middle" font-size="10.5" fill="currentColor">原生 OS 隔离 —— macOS seatbelt · Linux bubblewrap/landlock · Windows（开发中）· 或不用</text>
+  <!-- Drivers column -->
+  <rect x="722" y="248" width="158" height="336" rx="10" fill="#eb5545" fill-opacity="0.05" stroke="#eb5545" stroke-opacity="0.45"/>
+  <rect x="734" y="266" width="12" height="12" rx="3" fill="#eb5545"/>
+  <text x="752" y="276" font-size="11.5" font-weight="700" fill="#eb5545">驱动</text>
+  <text x="734" y="294" font-size="9.5" fill="currentColor" fill-opacity="0.6">对接外部系统</text>
+  <rect x="734" y="304" width="134" height="50" rx="7" fill="#eb5545" fill-opacity="0.1" stroke="#eb5545" stroke-opacity="0.55"/><text x="801" y="326" text-anchor="middle" font-size="11" font-weight="600" fill="currentColor">连接器</text><text x="801" y="342" text-anchor="middle" font-size="9" fill="currentColor" fill-opacity="0.62">协议中立层</text>
+  <rect x="734" y="362" width="134" height="50" rx="7" fill="#eb5545" fill-opacity="0.1" stroke="#eb5545" stroke-opacity="0.55"/><text x="801" y="384" text-anchor="middle" font-size="11" font-weight="600" fill="currentColor">MCP 服务</text><text x="801" y="400" text-anchor="middle" font-size="9" fill="currentColor" fill-opacity="0.62">外部工具 → agent</text>
+  <rect x="734" y="420" width="134" height="50" rx="7" fill="#eb5545" fill-opacity="0.1" stroke="#eb5545" stroke-opacity="0.55"/><text x="801" y="442" text-anchor="middle" font-size="11" font-weight="600" fill="currentColor">凭据 + 策略</text><text x="801" y="458" text-anchor="middle" font-size="9" fill="currentColor" fill-opacity="0.62">按次调用管控</text>
+  <text x="801" y="500" text-anchor="middle" font-size="9" fill="currentColor" fill-opacity="0.6">与频道不同 ——</text>
+  <text x="801" y="513" text-anchor="middle" font-size="9" fill="currentColor" fill-opacity="0.6">频道是人找 agent 的入口。</text>
+  <line x1="450" y1="584" x2="450" y2="596" stroke="currentColor" stroke-opacity="0.4" stroke-width="1.4" marker-end="url(#qpMapArrow)"/>
   <!-- Foundation -->
-  <rect x="20" y="506" width="820" height="48" rx="10" fill="#ff9d4d" fill-opacity="0.14" stroke="#ff9d4d" stroke-opacity="0.6"/>
-  <text x="430" y="530" text-anchor="middle" font-size="12.5" font-weight="600" fill="currentColor">基座 · AgentScope 2.0 — 智能体循环 · 会话 · 事件流 · 工具层（进程内）</text>
-  <text x="430" y="546" text-anchor="middle" font-size="10.5" fill="currentColor" fill-opacity="0.6">作为库使用；QwenPaw 在这些基础原语之上构建其操作系统层</text>
+  <rect x="20" y="596" width="860" height="48" rx="10" fill="currentColor" fill-opacity="0.05" stroke="currentColor" stroke-opacity="0.25"/>
+  <text x="450" y="618" text-anchor="middle" font-size="12" font-weight="700" fill="currentColor">基座 · AgentScope 2.0</text>
+  <text x="450" y="634" text-anchor="middle" font-size="9.5" fill="currentColor" fill-opacity="0.62">智能体循环 · 会话 · 事件流 · 工具层 —— 作为库在进程内使用</text>
+  <!-- Legend -->
+  <text x="20" y="669" font-size="10" font-weight="700" fill="currentColor" fill-opacity="0.7">图例</text>
+  <g font-size="10" fill="currentColor">
+    <rect x="64" y="659" width="12" height="12" rx="3" fill="#4f8cf7"/><text x="80" y="669">治理</text>
+    <rect x="140" y="659" width="12" height="12" rx="3" fill="#2fb26b"/><text x="156" y="669">记忆</text>
+    <rect x="216" y="659" width="12" height="12" rx="3" fill="#e0a021"/><text x="232" y="669">Skills</text>
+    <rect x="302" y="659" width="12" height="12" rx="3" fill="#12b0c6"/><text x="318" y="669">工具</text>
+    <rect x="378" y="659" width="12" height="12" rx="3" fill="#9d8579"/><text x="394" y="669">其他</text>
+    <rect x="454" y="659" width="12" height="12" rx="3" fill="#f0921f"/><text x="470" y="669">沙箱</text>
+    <rect x="530" y="659" width="12" height="12" rx="3" fill="#eb5545"/><text x="546" y="669">驱动</text>
+    <rect x="606" y="659" width="12" height="12" rx="3" fill="#a855f7"/><text x="622" y="669">运行时</text>
+  </g>
+  <text x="690" y="669" font-size="9" fill="currentColor" fill-opacity="0.5">颜色按关注点划分 OS</text>
 </svg>
 
 ---

@@ -12,67 +12,108 @@ QwenPaw runs entirely in your own environment as a long-lived service. One insta
 
 Think of QwenPaw as a small operating system for agents. The "kernel" is [AgentScope 2.0](https://github.com/agentscope-ai/agentscope), which provides the agent loop, session store, event stream, and tool layer in-process. QwenPaw is the OS layer on top. It owns the **resource axes** an agent works with — workspace files, memory, skills, drivers (connectors), and models — plus the trust spine that controls access to them.
 
-<svg viewBox="0 0 860 572" width="100%" role="img" aria-label="QwenPaw Agent OS layered architecture: surfaces over an application server over per-agent workspaces, backed by resource axes, a trust spine, and the AgentScope foundation." xmlns="http://www.w3.org/2000/svg" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif">
+<svg viewBox="0 0 900 684" width="100%" role="img" aria-label="QwenPaw Agent OS at a glance: a runtime scheduling tier on top; below it a per-agent workspace holding colour-coded resource lanes (memory, skills, tools, others), a governance panel, and a sandbox execution base, next to a separate drivers (connectors) column; the whole thing sits on the AgentScope foundation." xmlns="http://www.w3.org/2000/svg" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif">
   <defs>
-    <marker id="qpHeroArrow" markerWidth="10" markerHeight="10" refX="6" refY="3" orient="auto" markerUnits="strokeWidth">
-      <path d="M0,0 L6,3 L0,6 Z" fill="#ff9d4d"/>
+    <marker id="qpMapArrow" markerWidth="9" markerHeight="9" refX="5.5" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L6,3 L0,6 Z" fill="currentColor" fill-opacity="0.45"/>
     </marker>
   </defs>
-  <!-- Band 1: Surfaces -->
-  <rect x="20" y="16" width="820" height="76" rx="10" fill="currentColor" fill-opacity="0.03" stroke="currentColor" stroke-opacity="0.18"/>
-  <text x="34" y="36" font-size="11" letter-spacing="1.5" font-weight="700" fill="#ff9d4d">SURFACES</text>
-  <g font-size="12.5" fill="currentColor">
-    <rect x="40" y="50" width="180" height="30" rx="7" fill="currentColor" fill-opacity="0.05" stroke="currentColor" stroke-opacity="0.25"/><text x="130" y="69" text-anchor="middle">Channels (IM)</text>
-    <rect x="240" y="50" width="180" height="30" rx="7" fill="currentColor" fill-opacity="0.05" stroke="currentColor" stroke-opacity="0.25"/><text x="330" y="69" text-anchor="middle">Console (Web)</text>
-    <rect x="440" y="50" width="180" height="30" rx="7" fill="currentColor" fill-opacity="0.05" stroke="currentColor" stroke-opacity="0.25"/><text x="530" y="69" text-anchor="middle">Terminal UI</text>
-    <rect x="640" y="50" width="180" height="30" rx="7" fill="currentColor" fill-opacity="0.05" stroke="currentColor" stroke-opacity="0.25"/><text x="730" y="69" text-anchor="middle">CLI</text>
+  <!-- Title -->
+  <text x="450" y="30" text-anchor="middle" font-size="16" font-weight="700" fill="currentColor">QwenPaw Agent OS — one picture</text>
+  <text x="450" y="49" text-anchor="middle" font-size="10.5" fill="currentColor" fill-opacity="0.6">Runtime on top · Workspace ‖ Drivers below · built on the AgentScope foundation</text>
+  <!-- Surfaces strip -->
+  <rect x="20" y="60" width="860" height="40" rx="9" fill="currentColor" fill-opacity="0.03" stroke="currentColor" stroke-opacity="0.18"/>
+  <text x="34" y="84" font-size="10" letter-spacing="1.2" font-weight="700" fill="currentColor" fill-opacity="0.7">SURFACES</text>
+  <g font-size="11" fill="currentColor">
+    <rect x="170" y="68" width="168" height="24" rx="6" fill="currentColor" fill-opacity="0.05" stroke="currentColor" stroke-opacity="0.25"/><text x="254" y="84" text-anchor="middle">Channels (IM)</text>
+    <rect x="348" y="68" width="168" height="24" rx="6" fill="currentColor" fill-opacity="0.05" stroke="currentColor" stroke-opacity="0.25"/><text x="432" y="84" text-anchor="middle">Console (Web)</text>
+    <rect x="526" y="68" width="168" height="24" rx="6" fill="currentColor" fill-opacity="0.05" stroke="currentColor" stroke-opacity="0.25"/><text x="610" y="84" text-anchor="middle">Terminal UI</text>
+    <rect x="704" y="68" width="168" height="24" rx="6" fill="currentColor" fill-opacity="0.05" stroke="currentColor" stroke-opacity="0.25"/><text x="788" y="84" text-anchor="middle">CLI</text>
   </g>
-  <line x1="430" y1="92" x2="430" y2="112" stroke="#ff9d4d" stroke-width="1.5" marker-end="url(#qpHeroArrow)"/>
-  <text x="446" y="108" font-size="10.5" fill="currentColor" fill-opacity="0.6">a request / a streamed reply</text>
-  <!-- Band 2: Application server -->
-  <rect x="20" y="114" width="820" height="76" rx="10" fill="currentColor" fill-opacity="0.03" stroke="currentColor" stroke-opacity="0.18"/>
-  <text x="34" y="134" font-size="11" letter-spacing="1.5" font-weight="700" fill="#ff9d4d">APPLICATION SERVER</text>
-  <g font-size="12.5" fill="currentColor">
-    <rect x="40" y="148" width="180" height="30" rx="7" fill="currentColor" fill-opacity="0.05" stroke="currentColor" stroke-opacity="0.25"/><text x="130" y="167" text-anchor="middle">Agent registry</text>
-    <rect x="240" y="148" width="180" height="30" rx="7" fill="currentColor" fill-opacity="0.05" stroke="currentColor" stroke-opacity="0.25"/><text x="330" y="167" text-anchor="middle">Request router</text>
-    <rect x="440" y="148" width="180" height="30" rx="7" fill="currentColor" fill-opacity="0.05" stroke="currentColor" stroke-opacity="0.25"/><text x="530" y="167" text-anchor="middle">REST + streaming API</text>
-    <rect x="640" y="148" width="180" height="30" rx="7" fill="currentColor" fill-opacity="0.05" stroke="currentColor" stroke-opacity="0.25"/><text x="730" y="167" text-anchor="middle">Shared services</text>
+  <line x1="450" y1="100" x2="450" y2="112" stroke="currentColor" stroke-opacity="0.4" stroke-width="1.4" marker-end="url(#qpMapArrow)"/>
+  <!-- Runtime tier -->
+  <rect x="20" y="114" width="860" height="118" rx="10" fill="#a855f7" fill-opacity="0.05" stroke="#a855f7" stroke-opacity="0.45"/>
+  <rect x="30" y="124" width="12" height="12" rx="3" fill="#a855f7"/>
+  <text x="50" y="134" font-size="11.5" font-weight="700" fill="#a855f7">RUNTIME · request scheduling · top layer</text>
+  <text x="30" y="153" font-size="10" fill="currentColor" fill-opacity="0.62">One installation hosts many agents — orchestrate · route · assemble · run · stream.</text>
+  <g>
+    <rect x="40" y="164" width="193" height="54" rx="7" fill="#a855f7" fill-opacity="0.1" stroke="#a855f7" stroke-opacity="0.55"/><text x="136" y="188" text-anchor="middle" font-size="12" font-weight="600" fill="currentColor">Request router</text><text x="136" y="205" text-anchor="middle" font-size="9.5" fill="currentColor" fill-opacity="0.62">to the addressed agent</text>
+    <rect x="249" y="164" width="193" height="54" rx="7" fill="#a855f7" fill-opacity="0.1" stroke="#a855f7" stroke-opacity="0.55"/><text x="345" y="188" text-anchor="middle" font-size="12" font-weight="600" fill="currentColor">Runtime lifecycle</text><text x="345" y="205" text-anchor="middle" font-size="9.5" fill="currentColor" fill-opacity="0.62">hook stages · modes</text>
+    <rect x="458" y="164" width="193" height="54" rx="7" fill="#a855f7" fill-opacity="0.1" stroke="#a855f7" stroke-opacity="0.55"/><text x="554" y="188" text-anchor="middle" font-size="12" font-weight="600" fill="currentColor">Agent — ReAct loop</text><text x="554" y="205" text-anchor="middle" font-size="9.5" fill="currentColor" fill-opacity="0.62">context strategy · per request</text>
+    <rect x="667" y="164" width="193" height="54" rx="7" fill="#a855f7" fill-opacity="0.1" stroke="#a855f7" stroke-opacity="0.55"/><text x="763" y="188" text-anchor="middle" font-size="12" font-weight="600" fill="currentColor">Harness adapters</text><text x="763" y="205" text-anchor="middle" font-size="9.5" fill="currentColor" fill-opacity="0.62">external agents · ACP</text>
   </g>
-  <line x1="430" y1="190" x2="430" y2="210" stroke="#ff9d4d" stroke-width="1.5" marker-end="url(#qpHeroArrow)"/>
-  <text x="446" y="206" font-size="10.5" fill="currentColor" fill-opacity="0.6">route to the addressed agent</text>
-  <!-- Band 3: Workspace -->
-  <rect x="20" y="212" width="820" height="76" rx="10" fill="currentColor" fill-opacity="0.03" stroke="currentColor" stroke-opacity="0.18"/>
-  <text x="34" y="232" font-size="11" letter-spacing="1.5" font-weight="700" fill="#ff9d4d">WORKSPACE · one per agent, isolated</text>
-  <g font-size="12.5" fill="currentColor">
-    <rect x="40" y="246" width="180" height="30" rx="7" fill="currentColor" fill-opacity="0.05" stroke="currentColor" stroke-opacity="0.25"/><text x="130" y="265" text-anchor="middle">Runtime (lifecycle)</text>
-    <rect x="240" y="246" width="180" height="30" rx="7" fill="currentColor" fill-opacity="0.05" stroke="currentColor" stroke-opacity="0.25"/><text x="330" y="265" text-anchor="middle">Agent (ReAct loop)</text>
-    <rect x="440" y="246" width="180" height="30" rx="7" fill="currentColor" fill-opacity="0.05" stroke="currentColor" stroke-opacity="0.25"/><text x="530" y="265" text-anchor="middle">Per-agent services</text>
-    <rect x="640" y="246" width="180" height="30" rx="7" fill="currentColor" fill-opacity="0.05" stroke="currentColor" stroke-opacity="0.25"/><text x="730" y="265" text-anchor="middle">Extension registries</text>
-  </g>
-  <!-- Band 4: Resource axes -->
-  <rect x="20" y="310" width="820" height="76" rx="10" fill="#ff9d4d" fill-opacity="0.08" stroke="#ff9d4d" stroke-opacity="0.5"/>
-  <text x="34" y="330" font-size="11" letter-spacing="1.5" font-weight="700" fill="#ff9d4d">RESOURCE AXES · what an agent works with</text>
-  <g font-size="12.5" fill="currentColor">
-    <rect x="50" y="344" width="140" height="30" rx="7" fill="currentColor" fill-opacity="0.05" stroke="#ff9d4d" stroke-opacity="0.45"/><text x="120" y="363" text-anchor="middle">Files</text>
-    <rect x="205" y="344" width="140" height="30" rx="7" fill="currentColor" fill-opacity="0.05" stroke="#ff9d4d" stroke-opacity="0.45"/><text x="275" y="363" text-anchor="middle">Memory</text>
-    <rect x="360" y="344" width="140" height="30" rx="7" fill="currentColor" fill-opacity="0.05" stroke="#ff9d4d" stroke-opacity="0.45"/><text x="430" y="363" text-anchor="middle">Skills</text>
-    <rect x="515" y="344" width="140" height="30" rx="7" fill="currentColor" fill-opacity="0.05" stroke="#ff9d4d" stroke-opacity="0.45"/><text x="585" y="363" text-anchor="middle">Drivers</text>
-    <rect x="670" y="344" width="140" height="30" rx="7" fill="currentColor" fill-opacity="0.05" stroke="#ff9d4d" stroke-opacity="0.45"/><text x="740" y="363" text-anchor="middle">Models</text>
-  </g>
-  <!-- Band 5: Trust spine -->
-  <rect x="20" y="408" width="820" height="76" rx="10" fill="currentColor" fill-opacity="0.03" stroke="currentColor" stroke-opacity="0.18"/>
-  <text x="34" y="428" font-size="11" letter-spacing="1.5" font-weight="700" fill="#ff9d4d">TRUST SPINE · every external action passes through</text>
-  <g font-size="12" fill="currentColor">
-    <rect x="50" y="442" width="140" height="30" rx="7" fill="currentColor" fill-opacity="0.05" stroke="currentColor" stroke-opacity="0.25"/><text x="120" y="461" text-anchor="middle">Tool guard</text>
-    <rect x="205" y="442" width="140" height="30" rx="7" fill="currentColor" fill-opacity="0.05" stroke="currentColor" stroke-opacity="0.25"/><text x="275" y="461" text-anchor="middle">Governance policy</text>
-    <rect x="360" y="442" width="140" height="30" rx="7" fill="currentColor" fill-opacity="0.05" stroke="currentColor" stroke-opacity="0.25"/><text x="430" y="461" text-anchor="middle">Approvals</text>
-    <rect x="515" y="442" width="140" height="30" rx="7" fill="currentColor" fill-opacity="0.05" stroke="currentColor" stroke-opacity="0.25"/><text x="585" y="461" text-anchor="middle">Sandbox</text>
-    <rect x="670" y="442" width="140" height="30" rx="7" fill="currentColor" fill-opacity="0.05" stroke="currentColor" stroke-opacity="0.25"/><text x="740" y="461" text-anchor="middle">Skill scanner</text>
-  </g>
+  <line x1="450" y1="232" x2="450" y2="246" stroke="currentColor" stroke-opacity="0.4" stroke-width="1.4" marker-end="url(#qpMapArrow)"/>
+  <text x="462" y="244" font-size="9" fill="currentColor" fill-opacity="0.55">route to a workspace</text>
+  <!-- Workspace container -->
+  <rect x="20" y="248" width="690" height="336" rx="10" fill="currentColor" fill-opacity="0.02" stroke="currentColor" stroke-opacity="0.2"/>
+  <text x="34" y="272" font-size="12" font-weight="700" fill="currentColor">WORKSPACE · one isolated space per agent</text>
+  <text x="34" y="288" font-size="10" fill="currentColor" fill-opacity="0.6">= resources · governance · sandbox  (governance + sandbox = the trust spine)</text>
+  <!-- Resources sub-box -->
+  <rect x="32" y="300" width="456" height="192" rx="8" fill="currentColor" fill-opacity="0.02" stroke="currentColor" stroke-opacity="0.2"/>
+  <text x="44" y="320" font-size="10.5" font-weight="700" fill="currentColor" fill-opacity="0.82">RESOURCES · what an agent works with</text>
+  <!-- memory lane -->
+  <rect x="44" y="330" width="102" height="140" rx="7" fill="#2fb26b" fill-opacity="0.07" stroke="#2fb26b" stroke-opacity="0.4"/>
+  <text x="95" y="348" text-anchor="middle" font-size="11" font-weight="700" fill="#2fb26b">memory</text>
+  <rect x="52" y="358" width="86" height="42" rx="6" fill="#2fb26b" fill-opacity="0.1" stroke="#2fb26b" stroke-opacity="0.5"/><text x="95" y="384" text-anchor="middle" font-size="10" fill="currentColor">Recall / write</text>
+  <rect x="52" y="408" width="86" height="42" rx="6" fill="#2fb26b" fill-opacity="0.1" stroke="#2fb26b" stroke-opacity="0.5"/><text x="95" y="434" text-anchor="middle" font-size="10" fill="currentColor">Markdown files</text>
+  <!-- skills lane -->
+  <rect x="154" y="330" width="102" height="140" rx="7" fill="#e0a021" fill-opacity="0.07" stroke="#e0a021" stroke-opacity="0.4"/>
+  <text x="205" y="348" text-anchor="middle" font-size="11" font-weight="700" fill="#e0a021">skills</text>
+  <rect x="162" y="358" width="86" height="42" rx="6" fill="#e0a021" fill-opacity="0.1" stroke="#e0a021" stroke-opacity="0.5"/><text x="205" y="384" text-anchor="middle" font-size="10" fill="currentColor">Skill folders</text>
+  <rect x="162" y="408" width="86" height="42" rx="6" fill="#e0a021" fill-opacity="0.1" stroke="#e0a021" stroke-opacity="0.5"/><text x="205" y="434" text-anchor="middle" font-size="10" fill="currentColor">Shared pool</text>
+  <!-- tools lane -->
+  <rect x="264" y="330" width="102" height="140" rx="7" fill="#12b0c6" fill-opacity="0.07" stroke="#12b0c6" stroke-opacity="0.4"/>
+  <text x="315" y="348" text-anchor="middle" font-size="11" font-weight="700" fill="#12b0c6">tools</text>
+  <rect x="272" y="358" width="86" height="42" rx="6" fill="#12b0c6" fill-opacity="0.1" stroke="#12b0c6" stroke-opacity="0.5"/><text x="315" y="384" text-anchor="middle" font-size="10" fill="currentColor">Files · shell</text>
+  <rect x="272" y="408" width="86" height="42" rx="6" fill="#12b0c6" fill-opacity="0.1" stroke="#12b0c6" stroke-opacity="0.5"/><text x="315" y="434" text-anchor="middle" font-size="10" fill="currentColor">Search · web</text>
+  <!-- others lane -->
+  <rect x="374" y="330" width="102" height="140" rx="7" fill="#9d8579" fill-opacity="0.07" stroke="#9d8579" stroke-opacity="0.4"/>
+  <text x="425" y="348" text-anchor="middle" font-size="11" font-weight="700" fill="#9d8579">others</text>
+  <rect x="382" y="358" width="86" height="42" rx="6" fill="#9d8579" fill-opacity="0.1" stroke="#9d8579" stroke-opacity="0.5"/><text x="425" y="384" text-anchor="middle" font-size="10" fill="currentColor">Models</text>
+  <rect x="382" y="408" width="86" height="42" rx="6" fill="#9d8579" fill-opacity="0.1" stroke="#9d8579" stroke-opacity="0.5"/><text x="425" y="434" text-anchor="middle" font-size="10" fill="currentColor">Sessions</text>
+  <text x="260" y="484" text-anchor="middle" font-size="9.5" fill="currentColor" fill-opacity="0.6">All transparent on disk — Markdown, JSON, folders.</text>
+  <!-- Governance sub-box -->
+  <rect x="500" y="300" width="198" height="192" rx="8" fill="#4f8cf7" fill-opacity="0.06" stroke="#4f8cf7" stroke-opacity="0.5"/>
+  <text x="512" y="320" font-size="11" font-weight="700" fill="#4f8cf7">GOVERNANCE</text>
+  <text x="512" y="335" font-size="9.5" fill="currentColor" fill-opacity="0.6">every action passes through</text>
+  <rect x="512" y="344" width="174" height="40" rx="6" fill="#4f8cf7" fill-opacity="0.1" stroke="#4f8cf7" stroke-opacity="0.5"/><text x="599" y="361" text-anchor="middle" font-size="10.5" font-weight="600" fill="currentColor">Governance policy</text><text x="599" y="376" text-anchor="middle" font-size="9" fill="currentColor" fill-opacity="0.62">allow · deny · ask · sandbox</text>
+  <rect x="512" y="390" width="174" height="26" rx="6" fill="#4f8cf7" fill-opacity="0.1" stroke="#4f8cf7" stroke-opacity="0.5"/><text x="599" y="407" text-anchor="middle" font-size="10" fill="currentColor">Tool guard — content screening</text>
+  <rect x="512" y="422" width="174" height="26" rx="6" fill="#4f8cf7" fill-opacity="0.1" stroke="#4f8cf7" stroke-opacity="0.5"/><text x="599" y="439" text-anchor="middle" font-size="10" fill="currentColor">Approvals · skill scanner</text>
+  <rect x="512" y="454" width="174" height="26" rx="6" fill="#4f8cf7" fill-opacity="0.1" stroke="#4f8cf7" stroke-opacity="0.5"/><text x="599" y="471" text-anchor="middle" font-size="10" fill="currentColor">Encrypted secrets</text>
+  <!-- Sandbox band -->
+  <rect x="32" y="504" width="666" height="62" rx="8" fill="#f0921f" fill-opacity="0.08" stroke="#f0921f" stroke-opacity="0.5"/>
+  <rect x="44" y="514" width="12" height="12" rx="3" fill="#f0921f"/>
+  <text x="62" y="524" font-size="11" font-weight="700" fill="#f0921f">SANDBOX · execution base</text>
+  <text x="250" y="524" font-size="9.5" fill="currentColor" fill-opacity="0.6">a fresh sandbox per tool call, destroyed after</text>
+  <text x="365" y="548" text-anchor="middle" font-size="10.5" fill="currentColor">Native OS isolation — macOS seatbelt · Linux bubblewrap/landlock · Windows (in development) · or none</text>
+  <!-- Drivers column -->
+  <rect x="722" y="248" width="158" height="336" rx="10" fill="#eb5545" fill-opacity="0.05" stroke="#eb5545" stroke-opacity="0.45"/>
+  <rect x="734" y="266" width="12" height="12" rx="3" fill="#eb5545"/>
+  <text x="752" y="276" font-size="11.5" font-weight="700" fill="#eb5545">DRIVERS</text>
+  <text x="734" y="294" font-size="9.5" fill="currentColor" fill-opacity="0.6">reach external systems</text>
+  <rect x="734" y="304" width="134" height="50" rx="7" fill="#eb5545" fill-opacity="0.1" stroke="#eb5545" stroke-opacity="0.55"/><text x="801" y="326" text-anchor="middle" font-size="11" font-weight="600" fill="currentColor">Connectors</text><text x="801" y="342" text-anchor="middle" font-size="9" fill="currentColor" fill-opacity="0.62">protocol-neutral layer</text>
+  <rect x="734" y="362" width="134" height="50" rx="7" fill="#eb5545" fill-opacity="0.1" stroke="#eb5545" stroke-opacity="0.55"/><text x="801" y="384" text-anchor="middle" font-size="11" font-weight="600" fill="currentColor">MCP servers</text><text x="801" y="400" text-anchor="middle" font-size="9" fill="currentColor" fill-opacity="0.62">external tools → agent</text>
+  <rect x="734" y="420" width="134" height="50" rx="7" fill="#eb5545" fill-opacity="0.1" stroke="#eb5545" stroke-opacity="0.55"/><text x="801" y="442" text-anchor="middle" font-size="11" font-weight="600" fill="currentColor">Credential + policy</text><text x="801" y="458" text-anchor="middle" font-size="9" fill="currentColor" fill-opacity="0.62">gated per call</text>
+  <text x="801" y="500" text-anchor="middle" font-size="9" fill="currentColor" fill-opacity="0.6">Distinct from channels —</text>
+  <text x="801" y="513" text-anchor="middle" font-size="9" fill="currentColor" fill-opacity="0.6">how people reach the agent.</text>
+  <line x1="450" y1="584" x2="450" y2="596" stroke="currentColor" stroke-opacity="0.4" stroke-width="1.4" marker-end="url(#qpMapArrow)"/>
   <!-- Foundation -->
-  <rect x="20" y="506" width="820" height="48" rx="10" fill="#ff9d4d" fill-opacity="0.14" stroke="#ff9d4d" stroke-opacity="0.6"/>
-  <text x="430" y="530" text-anchor="middle" font-size="12.5" font-weight="600" fill="currentColor">FOUNDATION · AgentScope 2.0 — agent loop · session · event stream · tool layer (in-process)</text>
-  <text x="430" y="546" text-anchor="middle" font-size="10.5" fill="currentColor" fill-opacity="0.6">used as a library; QwenPaw builds its OS layer on these primitives</text>
+  <rect x="20" y="596" width="860" height="48" rx="10" fill="currentColor" fill-opacity="0.05" stroke="currentColor" stroke-opacity="0.25"/>
+  <text x="450" y="618" text-anchor="middle" font-size="12" font-weight="700" fill="currentColor">FOUNDATION · AgentScope 2.0</text>
+  <text x="450" y="634" text-anchor="middle" font-size="9.5" fill="currentColor" fill-opacity="0.62">agent loop · session · event stream · tool layer — used in-process as a library</text>
+  <!-- Legend -->
+  <text x="20" y="669" font-size="10" font-weight="700" fill="currentColor" fill-opacity="0.7">Legend</text>
+  <g font-size="10" fill="currentColor">
+    <rect x="76" y="659" width="12" height="12" rx="3" fill="#4f8cf7"/><text x="92" y="669">governance</text>
+    <rect x="168" y="659" width="12" height="12" rx="3" fill="#2fb26b"/><text x="184" y="669">memory</text>
+    <rect x="244" y="659" width="12" height="12" rx="3" fill="#e0a021"/><text x="260" y="669">skills</text>
+    <rect x="308" y="659" width="12" height="12" rx="3" fill="#12b0c6"/><text x="324" y="669">tools</text>
+    <rect x="370" y="659" width="12" height="12" rx="3" fill="#9d8579"/><text x="386" y="669">others</text>
+    <rect x="440" y="659" width="12" height="12" rx="3" fill="#f0921f"/><text x="456" y="669">sandbox</text>
+    <rect x="522" y="659" width="12" height="12" rx="3" fill="#eb5545"/><text x="538" y="669">drivers</text>
+    <rect x="596" y="659" width="12" height="12" rx="3" fill="#a855f7"/><text x="612" y="669">runtime</text>
+  </g>
+  <text x="690" y="669" font-size="9" fill="currentColor" fill-opacity="0.5">colours group the OS by concern</text>
 </svg>
 
 ---
