@@ -1212,6 +1212,13 @@ export default function ChatPage() {
     };
   }, [queueSessionId]);
 
+  // Whether this tab is confirmed to be a non-owner (queue-only) tab.
+  // Stays false until ownership check completes, preventing a flash of
+  // the "other tab is owner" banner on every session switch.
+  const isQueueOnlyTab = ownershipResolved && !isOwner;
+  const hasQueueItems = messageQueue.length > 0;
+  const showSenderBeforeUI = isQueueOnlyTab || hasQueueItems;
+
   const scheduleNextSend = useCallback(() => {
     if (autoSendTimerRef.current) clearTimeout(autoSendTimerRef.current);
     autoSendTimerRef.current = setTimeout(() => {
@@ -2580,33 +2587,32 @@ export default function ChatPage() {
         ...(i18nConfig as any)?.sender,
         beforeSubmit: handleBeforeSubmit,
         allowSpeech: whisperChecked && !whisperEnabled,
-        beforeUI:
-          (ownershipResolved && !isOwner) || messageQueue.length > 0 ? (
-            <>
-              {ownershipResolved && !isOwner && (
-                <Alert
-                  type="info"
-                  showIcon
-                  banner
-                  message={t("chat.queue.otherTabOwner")}
-                />
-              )}
-              {messageQueue.length > 0 ? (
-                <MessageQueuePanel
-                  items={messageQueue}
-                  runState={runState}
-                  onRemove={handleQueueRemove}
-                  onEdit={handleQueueEdit}
-                  onReorder={handleQueueReorder}
-                  onInterruptAndSend={handleQueueInterruptAndSend}
-                  onClear={handleQueueClear}
-                  onPauseResume={handleQueuePauseResume}
-                  onRetry={handleQueueRetry}
-                  onSkip={handleQueueSkip}
-                />
-              ) : null}
-            </>
-          ) : undefined,
+        beforeUI: showSenderBeforeUI ? (
+          <>
+            {isQueueOnlyTab && (
+              <Alert
+                type="info"
+                showIcon
+                banner
+                message={t("chat.queue.otherTabOwner")}
+              />
+            )}
+            {hasQueueItems ? (
+              <MessageQueuePanel
+                items={messageQueue}
+                runState={runState}
+                onRemove={handleQueueRemove}
+                onEdit={handleQueueEdit}
+                onReorder={handleQueueReorder}
+                onInterruptAndSend={handleQueueInterruptAndSend}
+                onClear={handleQueueClear}
+                onPauseResume={handleQueuePauseResume}
+                onRetry={handleQueueRetry}
+                onSkip={handleQueueSkip}
+              />
+            ) : null}
+          </>
+        ) : undefined,
         prefix:
           whisperEnabled || pluginSenderPrefix.length > 0 ? (
             <>
