@@ -41,7 +41,10 @@ def test_welcome_message_shows_workspace_and_project_dirs():
     )
 
     plain = welcome.content.plain
-    assert "Workspace directory: /tmp/qwenpaw/workspaces/default" in plain
+    assert (
+        "Agent directory (sessions, memory & skills): "
+        "/tmp/qwenpaw/workspaces/default"
+    ) in plain
     assert "Project directory: /tmp/project" in plain
 
 

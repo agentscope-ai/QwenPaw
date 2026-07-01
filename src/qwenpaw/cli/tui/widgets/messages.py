@@ -171,7 +171,12 @@ class WelcomeMessage(Static):
     def _append_context(self, body: Text) -> None:
         lines = []
         if self._workspace_dir:
-            lines.append(("Workspace directory: ", self._workspace_dir))
+            lines.append(
+                (
+                    "Agent directory (sessions, memory & skills): ",
+                    self._workspace_dir,
+                ),
+            )
         if self._project_dir:
             lines.append(("Project directory: ", self._project_dir))
         if not lines:
