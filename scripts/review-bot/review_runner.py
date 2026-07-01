@@ -20,6 +20,10 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from prompts import (
     build_review_prompt,
 )  # noqa: E402
+from qwenpaw.agents.tools.agent_management import (  # noqa: E402
+    extract_agent_text_content,
+    parse_agent_sse_line,
+)
 
 # pylint: enable=wrong-import-position
 
@@ -38,6 +42,28 @@ def read_pr_data():
     return meta, diff
 
 
+def _extract_stream_text(evt: dict) -> str:
+    """Extract text from a single SSE payload (streaming or final)."""
+    text = extract_agent_text_content(evt)
+    if text:
+        return text
+
+    content = evt.get("content")
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts = []
+        for item in content:
+            if isinstance(item, dict) and item.get("type") == "text":
+                parts.append(item.get("text", ""))
+            elif isinstance(item, dict) and "text" in item:
+                parts.append(str(item["text"]))
+        return "".join(parts)
+
+    fallback = evt.get("text")
+    return fallback if isinstance(fallback, str) else ""
+
+
 def call_qwenpaw(prompt: str, session_id: str) -> str:
     """Send prompt to QwenPaw console chat API and collect SSE response."""
     payload = {
@@ -47,11 +73,12 @@ def call_qwenpaw(prompt: str, session_id: str) -> str:
         "input": [{"content": [{"type": "text", "text": prompt}]}],
     }
 
-    full_response = ""
-
     for attempt in range(1, MAX_RETRIES + 1):
         try:
             print(f"[attempt {attempt}/{MAX_RETRIES}] Calling QwenPaw...")
+            final_event = None
+            stream_errors = []
+
             with httpx.Client(timeout=TIMEOUT_SECONDS) as client:
                 with client.stream(
                     "POST",
@@ -64,22 +91,26 @@ def call_qwenpaw(prompt: str, session_id: str) -> str:
                         continue
 
                     for line in resp.iter_lines():
-                        if not line.startswith("data: "):
+                        if not line or not line.startswith("data: "):
                             continue
-                        data = line[6:]
-                        if data == "[DONE]":
+                        if line[6:] == "[DONE]":
                             break
-                        try:
-                            evt = json.loads(data)
-                            if evt.get("error"):
-                                print(f"  Stream error: {evt['error']}")
-                            chunk = evt.get("content", evt.get("text", ""))
-                            full_response += chunk
-                        except json.JSONDecodeError:
-                            pass
 
-            if full_response.strip():
-                return full_response
+                        parsed = parse_agent_sse_line(line)
+                        if not parsed:
+                            continue
+                        if parsed.get("error"):
+                            stream_errors.append(str(parsed["error"]))
+                        if parsed.get("type") == "turn_usage":
+                            continue
+                        final_event = parsed
+
+            if stream_errors:
+                print(f"  Stream errors: {'; '.join(stream_errors)}")
+
+            response = _extract_stream_text(final_event or {})
+            if response.strip():
+                return response
 
             print("  Empty response, retrying...")
             time.sleep(5)
@@ -88,7 +119,7 @@ def call_qwenpaw(prompt: str, session_id: str) -> str:
             print(f"  Error: {e}, retrying...")
             time.sleep(5)
 
-    return full_response
+    return ""
 
 
 def parse_verdict(response: str) -> str:
