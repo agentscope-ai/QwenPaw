@@ -13,6 +13,8 @@ import userEvent from "@testing-library/user-event";
 import { renderWithProviders } from "@/test/common_setup";
 import ChatPage from "./index";
 import { chatExtensions } from "@/plugins/registry/chatExtensions";
+import { useMessageQueueStore } from "@/stores/messageQueueStore";
+import { useUploadLimitStore } from "@/stores/uploadLimitStore";
 
 // ---------------------------------------------------------------------------
 // Capture AgentScopeRuntimeWebUI options
@@ -27,6 +29,8 @@ const {
   mockGetApiUrl,
   mockSelectedAgent,
   mockSetSelectedAgent,
+  mockSetLastChatId,
+  mockGetLastChatId,
   mockGetTranscriptionProviderType,
 } = vi.hoisted(() => ({
   mockListProviders: vi.fn(),
@@ -36,6 +40,8 @@ const {
   mockGetApiUrl: vi.fn((p: string) => `/api${p}`),
   mockSelectedAgent: vi.fn(() => "default"),
   mockSetSelectedAgent: vi.fn(),
+  mockSetLastChatId: vi.fn(),
+  mockGetLastChatId: vi.fn(() => null),
   mockGetTranscriptionProviderType: vi.fn(),
 }));
 
@@ -63,6 +69,11 @@ vi.mock("../../plugins/PluginContext", () => ({
 
 vi.mock("./components/ChatSessionInitializer", () => ({
   default: () => null,
+}));
+
+vi.mock("./HostBubbles", () => ({
+  HostRequestCard: () => null,
+  HostResponseCard: () => null,
 }));
 
 vi.mock("@agentscope-ai/chat", () => ({
@@ -98,9 +109,24 @@ vi.mock("@/api/modules/chat", () => ({
     stopChat: vi.fn(),
   },
   sessionApi: {
+    lastActiveChatId: null,
+    preferredChatId: null,
+    isSessionSwitching: false,
     getRealIdForSession: vi.fn(() => null),
+    getBackendSessionId: vi.fn((id: string) => id),
+    getEffectiveSessionId: vi.fn((id: string) => id),
+    getSessionIdentity: vi.fn(() => ({ userId: "user-1", channel: "web" })),
+    isUnresolvedLocalSession: vi.fn(() => false),
+    trackNavigatedSession: vi.fn(),
+    triggerResolve: vi.fn(),
     setLastUserMessage: vi.fn(),
     getSessionList: vi.fn(() => Promise.resolve([])),
+  },
+}));
+
+vi.mock("@/api/modules/skill", () => ({
+  skillApi: {
+    listSkills: vi.fn(() => Promise.resolve([])),
   },
 }));
 
@@ -134,6 +160,8 @@ vi.mock("@/stores/agentStore", () => ({
   useAgentStore: vi.fn(() => ({
     selectedAgent: mockSelectedAgent(),
     setSelectedAgent: mockSetSelectedAgent,
+    setLastChatId: mockSetLastChatId,
+    getLastChatId: mockGetLastChatId,
   })),
 }));
 
@@ -147,15 +175,27 @@ vi.mock("./sessionApi", () => ({
     onSessionRemoved: null,
     onSessionSelected: null,
     onSessionCreated: null,
+    lastActiveChatId: null,
+    preferredChatId: null,
+    isSessionSwitching: false,
     getRealIdForSession: vi.fn(() => null),
+    getBackendSessionId: vi.fn((id: string) => id),
+    getEffectiveSessionId: vi.fn((id: string) => id),
+    getSessionIdentity: vi.fn(() => ({ userId: "user-1", channel: "web" })),
+    isUnresolvedLocalSession: vi.fn(() => false),
+    trackNavigatedSession: vi.fn(),
+    triggerResolve: vi.fn(),
     setLastUserMessage: vi.fn(),
   },
 }));
 
 vi.mock("./OptionsPanel/defaultConfig", () => ({
-  default: { theme: { leftHeader: {} }, api: {} },
+  default: {
+    theme: { leftHeader: {}, bubbleList: { userMessageAnchors: {} } },
+    api: {},
+  },
   getDefaultConfig: vi.fn(() => ({
-    theme: { leftHeader: {} },
+    theme: { leftHeader: {}, bubbleList: { userMessageAnchors: {} } },
     welcome: {},
     sender: {},
   })),
@@ -195,6 +235,45 @@ const mockProviders = [
     extra_models: [],
   },
 ];
+const modelPromptTitle =
+  "LLM Model Required — Select in Chat After Configuration";
+const modelPromptSkip = "Skip";
+
+function addSenderTextarea(value = "") {
+  const sender = document.createElement("div");
+  sender.className = "qwenpaw-sender";
+  const textarea = document.createElement("textarea");
+  textarea.value = value;
+  sender.appendChild(textarea);
+  document.body.appendChild(sender);
+  return textarea;
+}
+
+async function uploadSmallAttachment() {
+  await capturedOptions.sender.attachments.customRequest({
+    file: new File(["content"], "note.txt", { type: "text/plain" }),
+    onSuccess: vi.fn(),
+    onError: vi.fn(),
+    onProgress: vi.fn(),
+  });
+}
+
+async function renderOwnerChat(value = "") {
+  addSenderTextarea(value);
+  renderWithProviders(<ChatPage />, { initialEntries: ["/chat/session-1"] });
+  await screen.findByTestId("chat-ui");
+  await waitFor(() => expect(capturedOptions.sender.beforeUI).toBeUndefined());
+}
+
+async function renderQueueOnlyChat(value = "") {
+  Object.defineProperty(navigator, "locks", {
+    configurable: true,
+    value: { request: vi.fn(() => Promise.resolve(undefined)) },
+  });
+  addSenderTextarea(value);
+  renderWithProviders(<ChatPage />, { initialEntries: ["/chat/session-1"] });
+  await screen.findByTestId("chat-ui");
+}
 
 // ---------------------------------------------------------------------------
 // tests
@@ -203,6 +282,22 @@ describe("ChatPage", () => {
   beforeEach(() => {
     chatExtensions.__resetForTests();
     capturedOptions = null;
+    document.querySelectorAll(".qwenpaw-sender").forEach((node) => {
+      node.remove();
+    });
+    Object.defineProperty(navigator, "locks", {
+      configurable: true,
+      value: undefined,
+    });
+    localStorage.clear();
+    sessionStorage.clear();
+    useMessageQueueStore.setState({
+      queues: {},
+      runStates: {},
+      currentSendingId: null,
+      lastMigratedTo: null,
+    });
+    useUploadLimitStore.setState({ uploadMaxSizeMb: 10 });
     mockListProviders.mockResolvedValue(mockProviders);
     mockGetActiveModels.mockResolvedValue(mockActiveModel);
     mockUploadFile.mockResolvedValue({
@@ -216,6 +311,9 @@ describe("ChatPage", () => {
 
   afterEach(() => {
     chatExtensions.__resetForTests();
+    document.querySelectorAll(".qwenpaw-sender").forEach((node) => {
+      node.remove();
+    });
     vi.clearAllMocks();
   });
 
@@ -248,9 +346,7 @@ describe("ChatPage", () => {
       signal: undefined,
     });
     expect(response.status).toBe(400);
-    expect(
-      await screen.findByText("modelConfig.promptTitle"),
-    ).toBeInTheDocument();
+    expect(await screen.findByText(modelPromptTitle)).toBeInTheDocument();
   });
 
   it("shows model config modal when provider API throws", async () => {
@@ -263,9 +359,7 @@ describe("ChatPage", () => {
       signal: undefined,
     });
     expect(response.status).toBe(400);
-    expect(
-      await screen.findByText("modelConfig.promptTitle"),
-    ).toBeInTheDocument();
+    expect(await screen.findByText(modelPromptTitle)).toBeInTheDocument();
   });
 
   // ── modal interaction ─────────────────────────────────────────────────────
@@ -277,15 +371,12 @@ describe("ChatPage", () => {
     await screen.findByTestId("chat-ui");
 
     await capturedOptions.api.fetch({ input: [], signal: undefined });
-    await screen.findByText("modelConfig.promptTitle");
+    await screen.findByText(modelPromptTitle);
 
-    await user.click(screen.getByText("modelConfig.skipButton"));
+    await user.click(screen.getByText(modelPromptSkip));
     // antd Modal has animations; wait for DOM removal
     await waitFor(
-      () =>
-        expect(
-          screen.queryByText("modelConfig.skipButton"),
-        ).not.toBeInTheDocument(),
+      () => expect(screen.queryByText(modelPromptSkip)).not.toBeInTheDocument(),
       { timeout: 3000 },
     );
   });
@@ -390,6 +481,54 @@ describe("ChatPage", () => {
     expect(mockUploadFile).toHaveBeenCalledWith(smallFile);
     expect(onSuccess).toHaveBeenCalledWith({ url: "/preview/uploaded.png" });
     expect(onError).not.toHaveBeenCalled();
+  });
+
+  it("beforeSubmit allows text-only messages", async () => {
+    await renderOwnerChat("hello");
+
+    await expect(capturedOptions.sender.beforeSubmit()).resolves.toBe(true);
+  });
+
+  it("beforeSubmit allows messages with text and attachments", async () => {
+    await renderOwnerChat("hello");
+    await uploadSmallAttachment();
+
+    await expect(capturedOptions.sender.beforeSubmit()).resolves.toBe(true);
+  });
+
+  it("queues attachment-only messages instead of blocking them", async () => {
+    await renderQueueOnlyChat("");
+    await uploadSmallAttachment();
+
+    await expect(capturedOptions.sender.beforeSubmit()).resolves.toBe(false);
+
+    const queue = useMessageQueueStore.getState().getQueue("session-1");
+    expect(queue).toHaveLength(1);
+    expect(queue[0]).toMatchObject({
+      text: "",
+      attachments: [
+        {
+          url: "/preview/uploaded.png",
+          name: "note.txt",
+          type: "text/plain",
+        },
+      ],
+    });
+  });
+
+  it("shows a send action for attachment-only input", async () => {
+    await renderOwnerChat("");
+    await uploadSmallAttachment();
+
+    await waitFor(() =>
+      expect(capturedOptions.sender.actionAffix).toBeTruthy(),
+    );
+  });
+
+  it("blocks empty messages without attachments", async () => {
+    await renderOwnerChat("");
+
+    await expect(capturedOptions.sender.beforeSubmit()).resolves.toBe(false);
   });
 
   // ── voice input mode ───────────────────────────────────────────────────────

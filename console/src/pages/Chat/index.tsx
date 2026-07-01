@@ -7,7 +7,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Alert, Button, Modal, Result, Tooltip } from "antd";
 import { useAppMessage } from "../../hooks/useAppMessage";
 import { useIsMobile } from "../../hooks/useIsMobile";
-import { ExclamationCircleOutlined, SettingOutlined } from "@ant-design/icons";
+import {
+  ArrowUpOutlined,
+  ExclamationCircleOutlined,
+  SettingOutlined,
+} from "@ant-design/icons";
 import { SparkCopyLine, SparkAttachmentLine } from "@agentscope-ai/icons";
 import { usePlugins } from "../../plugins/PluginContext";
 import { useTranslation } from "react-i18next";
@@ -1150,6 +1154,25 @@ export default function ChatPage() {
       size?: number;
     }[]
   >([]);
+  const [pendingFileCount, setPendingFileCount] = useState(0);
+  const [senderTextValue, setSenderTextValue] = useState("");
+  const setPendingFiles = useCallback(
+    (files: typeof pendingFileListRef.current) => {
+      pendingFileListRef.current = files;
+      setPendingFileCount(files.length);
+    },
+    [],
+  );
+  const getPendingAttachments = useCallback(
+    () =>
+      pendingFileListRef.current.map((f) => ({
+        url: f.url,
+        name: f.name,
+        type: f.type,
+        size: f.size,
+      })),
+    [],
+  );
 
   // Build SDK fileList from QueueItem.attachments
   // SDK reads file.response.url for image_url / file_url (see AgentScopeRuntimeRequestBuilder)
@@ -1581,6 +1604,20 @@ export default function ChatPage() {
     }
   }, []);
 
+  useEffect(() => {
+    const handleInput = (e: Event) => {
+      const target = e.target;
+      if (
+        target instanceof HTMLTextAreaElement &&
+        target.closest('[class*="sender"]')
+      ) {
+        setSenderTextValue(target.value);
+      }
+    };
+    document.addEventListener("input", handleInput, true);
+    return () => document.removeEventListener("input", handleInput, true);
+  }, []);
+
   useMessageHistoryNavigation(chatRef, isChatActive, isComposingRef);
   useChatInputDraft(isChatActive, selectedAgent);
   useChatPasteFromEditor();
@@ -1689,7 +1726,8 @@ export default function ChatPage() {
         : null;
       if (!textarea) return;
       const val = textarea.value.trim();
-      if (!val) return;
+      const pendingAttachments = getPendingAttachments();
+      if (!val && pendingAttachments.length === 0) return;
       e.preventDefault();
       e.stopPropagation();
       if (!chatId) {
@@ -1703,19 +1741,12 @@ export default function ChatPage() {
       useMessageQueueStore.getState().enqueue(queueSessionId, {
         text: val,
         attachments:
-          pendingFileListRef.current.length > 0
-            ? pendingFileListRef.current.map((f) => ({
-                url: f.url,
-                name: f.name,
-                type: f.type,
-                size: f.size,
-              }))
-            : undefined,
+          pendingAttachments.length > 0 ? pendingAttachments : undefined,
         userId: window.currentUserId || DEFAULT_USER_ID,
         channel: window.currentChannel || DEFAULT_CHANNEL,
       });
       // Clear tracked attachments after enqueuing
-      pendingFileListRef.current = [];
+      setPendingFiles([]);
       setTextareaValue(textarea, "");
       // Clear sender attachment preview. Defer to next tick so React commits
       // any pending state updates (e.g. from setTextareaValue) before we
@@ -1725,7 +1756,16 @@ export default function ChatPage() {
     document.addEventListener("keydown", handleEnterEnqueue, true);
     return () =>
       document.removeEventListener("keydown", handleEnterEnqueue, true);
-  }, [isChatActive, queueSessionId]);
+  }, [
+    chatId,
+    getPendingAttachments,
+    isChatActive,
+    isComposingRef,
+    message,
+    queueSessionId,
+    setPendingFiles,
+    t,
+  ]);
 
   const handleQueueRemove = useCallback(
     (id: string) => {
@@ -2227,7 +2267,7 @@ export default function ChatPage() {
         const previewUrl = chatApi.filePreviewUrl(res.url);
         onSuccess({ url: previewUrl });
         // Track uploaded file for queue attachment support
-        pendingFileListRef.current = [
+        setPendingFiles([
           ...pendingFileListRef.current,
           {
             uid: res.url,
@@ -2236,12 +2276,12 @@ export default function ChatPage() {
             type: file.type,
             size: file.size,
           },
-        ];
+        ]);
       } catch (e) {
         onError?.(e instanceof Error ? e : new Error(String(e)));
       }
     },
-    [multimodalCaps, t],
+    [multimodalCaps, setPendingFiles, t],
   );
 
   const options = useMemo(() => {
@@ -2281,16 +2321,17 @@ export default function ChatPage() {
       }));
     const handleBeforeSubmit = async () => {
       if (isComposingRef.current) return false;
+      const textarea = document
+        .querySelector('[class*="sender"]')
+        ?.querySelector("textarea") as HTMLTextAreaElement | null;
+      const val = textarea?.value.trim() ?? "";
+      const pendingAttachments = getPendingAttachments();
+      if (!val && pendingAttachments.length === 0) return false;
       // Single-tab ownership: non-owner tabs are queue-only. Re-route every
       // submit (Enter / send button / programmatic) to the shared queue and
       // abort the actual SDK send. The owner tab will pick the item up via
       // cross-tab broadcast and send it.
       if (!isOwnerRef.current) {
-        const textarea = document
-          .querySelector('[class*="sender"]')
-          ?.querySelector("textarea") as HTMLTextAreaElement | null;
-        const val = textarea?.value.trim() ?? "";
-        if (!val) return false;
         if (!chatId) {
           return false;
         }
@@ -2304,18 +2345,11 @@ export default function ChatPage() {
         useMessageQueueStore.getState().enqueue(queueSessionId, {
           text: val,
           attachments:
-            pendingFileListRef.current.length > 0
-              ? pendingFileListRef.current.map((f) => ({
-                  url: f.url,
-                  name: f.name,
-                  type: f.type,
-                  size: f.size,
-                }))
-              : undefined,
+            pendingAttachments.length > 0 ? pendingAttachments : undefined,
           userId: window.currentUserId || DEFAULT_USER_ID,
           channel: window.currentChannel || DEFAULT_CHANNEL,
         });
-        pendingFileListRef.current = [];
+        setPendingFiles([]);
         if (textarea) setTextareaValue(textarea, "");
         // Clear sender attachment preview (deferred to next tick)
         clearSenderAttachments();
@@ -2326,7 +2360,7 @@ export default function ChatPage() {
       localStorage.removeItem(getDraftStorageKey(selectedAgent));
       draftSuppressed = true;
       // Clear pending attachments when sending directly (not through queue)
-      pendingFileListRef.current = [];
+      setPendingFiles([]);
       return true;
     };
 
@@ -2604,6 +2638,51 @@ export default function ChatPage() {
               {pluginSenderPrefix}
             </>
           ) : undefined,
+        actionAffix:
+          pendingFileCount > 0 && senderTextValue.trim().length === 0 ? (
+            <IconButton
+              className={styles.attachmentOnlySendButton}
+              icon={<ArrowUpOutlined />}
+              bordered={false}
+              aria-label="Send"
+              onClick={() => {
+                const attachments = getPendingAttachments();
+                if (attachments.length === 0) return;
+                const textarea = document
+                  .querySelector('[class*="sender"]')
+                  ?.querySelector("textarea") as HTMLTextAreaElement | null;
+                const val = textarea?.value.trim() ?? "";
+                if (!isOwnerRef.current || chatLoadingRef.current) {
+                  if (!chatId) return;
+                  const currentQ = useMessageQueueStore
+                    .getState()
+                    .getQueue(queueSessionId);
+                  if (currentQ.length >= MAX_QUEUE_SIZE) {
+                    message.warning(
+                      t("chat.queue.queueFull", { max: MAX_QUEUE_SIZE }),
+                    );
+                    return;
+                  }
+                  useMessageQueueStore.getState().enqueue(queueSessionId, {
+                    text: val,
+                    attachments,
+                    userId: window.currentUserId || DEFAULT_USER_ID,
+                    channel: window.currentChannel || DEFAULT_CHANNEL,
+                  });
+                } else {
+                  chatRef.current?.input.submit({
+                    query: val,
+                    fileList: buildFileList({ attachments }),
+                  });
+                  localStorage.removeItem(getDraftStorageKey(selectedAgent));
+                  draftSuppressed = true;
+                }
+                setPendingFiles([]);
+                if (textarea) setTextareaValue(textarea, "");
+                clearSenderAttachments();
+              }}
+            />
+          ) : undefined,
         attachments: {
           multiple: true,
           trigger: function (props: any) {
@@ -2793,8 +2872,16 @@ export default function ChatPage() {
     } as unknown as IAgentScopeRuntimeWebUIOptions;
   }, [
     customFetch,
+    buildFileList,
+    chatId,
     copyResponse,
+    getPendingAttachments,
     handleFileUpload,
+    message,
+    pendingFileCount,
+    queueSessionId,
+    senderTextValue,
+    setPendingFiles,
     t,
     i18n.language,
     isDark,
@@ -2829,11 +2916,15 @@ export default function ChatPage() {
       {/* Main chat area */}
       <div className={styles.chatMainArea}>
         <div
-          className={
-            isWideMode
-              ? `${styles.chatMessagesArea} ${styles.wideMode}`
-              : styles.chatMessagesArea
-          }
+          className={[
+            styles.chatMessagesArea,
+            isWideMode ? styles.wideMode : "",
+            pendingFileCount > 0 && senderTextValue.trim().length === 0
+              ? styles.attachmentOnlySendMode
+              : "",
+          ]
+            .filter(Boolean)
+            .join(" ")}
         >
           <AgentScopeRuntimeWebUI
             ref={chatRef}
