@@ -17,7 +17,9 @@ const defaultConfig = {
   },
   sender: {
     attachments: true,
-    maxLength: 10000,
+    // maxLength is intentionally omitted: modern LLMs support 256 k–1 M+ token
+    // context windows, so a hard character cap in the UI is unnecessarily
+    // restrictive.  See: https://github.com/agentscope-ai/QwenPaw/issues/5670
     disclaimer: "Works for you, grows with you",
   },
   welcome: {
