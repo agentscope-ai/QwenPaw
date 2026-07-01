@@ -20,8 +20,6 @@ Requirements:
       ``userenv``, ``advapi32``).
 """
 
-from __future__ import annotations
-
 import asyncio
 import ctypes
 import ctypes.wintypes
@@ -982,7 +980,7 @@ def _create_process_in_appcontainer(
     (
         app_container_psid,
         cap_psids,
-        _sec_cap_keepalive,  # Must stay alive: attr_list holds a pointer into it
+        _sec_cap,
         attr_list,
     ) = _setup_security_capabilities(kernel32, container_sid, capabilities)
 
@@ -1347,7 +1345,7 @@ class WindowsSandbox:
         if not _is_admin():
             print(
                 "[QwenPaw Sandbox] WARNING: Not running as administrator. "
-                "Sandbox ACL setup may fail."
+                "Sandbox ACL setup may fail.",
             )
 
         fingerprint = _compute_acl_fingerprint(self._config)
@@ -1360,7 +1358,7 @@ class WindowsSandbox:
             self._junction_path = existing.get("junction_path")
             print(
                 f"[QwenPaw Sandbox] Reusing existing sandbox "
-                f"'{self._container_name}'."
+                f"'{self._container_name}'.",
             )
             logger.debug(
                 "Reusing AppContainer '%s' (fingerprint=%s)",
@@ -1370,7 +1368,7 @@ class WindowsSandbox:
         else:
             print(
                 "[QwenPaw Sandbox] Initializing new sandbox "
-                "(first run may take longer due to ACL setup)..."
+                "(first run may take longer due to ACL setup)...",
             )
             # Create a new container
             self._container_name = f"qwenpaw_{uuid.uuid4().hex[:12]}"
@@ -1410,7 +1408,7 @@ class WindowsSandbox:
 
             print(
                 f"[QwenPaw Sandbox] Sandbox '{self._container_name}' "
-                f"initialized successfully."
+                f"initialized successfully.",
             )
             logger.debug(
                 "Created AppContainer '%s' (sid=%s, fingerprint=%s)",

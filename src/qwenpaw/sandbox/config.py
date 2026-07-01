@@ -155,7 +155,9 @@ class SandboxCapability:
     )
 
 
-def _probe_linux_landlock() -> SandboxCapability:  # pylint: disable=too-many-return-statements
+def _probe_linux_landlock() -> (
+    SandboxCapability
+):  # pylint: disable=too-many-return-statements
     """Probe Linux Landlock support.
 
     Detection steps:

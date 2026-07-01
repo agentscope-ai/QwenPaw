@@ -12,8 +12,6 @@ Test structure aligns with test_linux_sandbox.py:
     7. Factory (create_sandbox routing)
 """
 
-from __future__ import annotations
-
 import asyncio
 import os
 import tempfile

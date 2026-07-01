@@ -53,7 +53,7 @@ def _delete_appcontainer_profile(container_name: str) -> bool:
     try:
         userenv = ctypes.WinDLL("userenv.dll", use_last_error=True)
         hr = userenv.DeleteAppContainerProfile(
-            ctypes.c_wchar_p(container_name)
+            ctypes.c_wchar_p(container_name),
         )
         return hr == 0
     except OSError:
@@ -67,7 +67,8 @@ def _get_appcontainer_sid(container_name: str) -> Optional[str]:
         advapi32 = ctypes.WinDLL("advapi32.dll", use_last_error=True)
         psid = ctypes.c_void_p()
         hr = userenv.DeriveAppContainerSidFromAppContainerName(
-            ctypes.c_wchar_p(container_name), ctypes.byref(psid)
+            ctypes.c_wchar_p(container_name),
+            ctypes.byref(psid),
         )
         if hr != 0:
             return None
@@ -88,6 +89,7 @@ def _run_icacls(args: List[str]) -> bool:
             ["icacls"] + args,
             capture_output=True,
             timeout=30,
+            check=False,
         )
         return result.returncode == 0
     except (subprocess.TimeoutExpired, OSError):
@@ -119,7 +121,165 @@ def _remove_junction(junction_path: str) -> bool:
     return False
 
 
-def main():
+def _cleanup_container_acls(
+    meta: dict,
+    state_dir: Path,
+    fallback_global_paths: List[str],
+) -> Optional[Path]:
+    """Remove ACLs and delete profile for a single container.
+
+    Returns the metadata file Path if it should be deleted, or None.
+    """
+    container_name = meta.get("container_name", "")
+    sid = meta.get("sid", "")
+    workspace_dir = meta.get("workspace_dir", "")
+    acl_manifest = meta.get("acl_manifest")
+
+    print(f"\n  Container: {container_name}")
+    print(f"    SID: {sid}")
+
+    # Track the metadata file for deletion
+    meta_file: Optional[Path] = None
+    if container_name:
+        candidate = state_dir / "containers" / f"{container_name}.json"
+        if candidate.exists():
+            meta_file = candidate
+
+    if not sid:
+        # Try to derive SID from container name
+        sid = _get_appcontainer_sid(container_name) or ""
+        if sid:
+            print(f"    Derived SID: {sid}")
+        else:
+            print("    WARNING: Cannot determine SID, skipping ACL removal.")
+
+    if sid:
+        _remove_container_acl_entries(
+            sid,
+            acl_manifest,
+            workspace_dir,
+            state_dir,
+            fallback_global_paths,
+        )
+
+    # Delete the AppContainer profile
+    if container_name:
+        ok = _delete_appcontainer_profile(container_name)
+        print(
+            f"    Delete profile: {'OK' if ok else 'FAILED (may not exist)'}",
+        )
+
+    return meta_file
+
+
+def _remove_container_acl_entries(
+    sid: str,
+    acl_manifest: Optional[dict],
+    workspace_dir: str,
+    state_dir: Path,
+    fallback_global_paths: List[str],
+) -> None:
+    """Remove ACL entries for a container SID."""
+    if acl_manifest:
+        # Use the precise ACL manifest recorded at creation time
+        grant_paths = acl_manifest.get("grant_paths", [])
+        inheritance_broken_paths = acl_manifest.get(
+            "inheritance_broken_paths",
+            [],
+        )
+
+        # Remove ACEs from grant paths
+        for path in grant_paths:
+            if path and os.path.exists(path):
+                print(f"    Removing ACL from: {path}")
+                _remove_acl_from_path(path, sid)
+
+        # Recursively remove ACEs from workspace (set with (OI)(CI))
+        if workspace_dir and os.path.exists(workspace_dir):
+            print(
+                f"    Removing ACLs from workspace (recursive): {workspace_dir}",
+            )
+            _remove_acl_recursive(workspace_dir, sid)
+
+        # Remove ACEs and restore inheritance on broken paths
+        for path in inheritance_broken_paths:
+            if path and os.path.exists(path):
+                print(f"    Removing ACL + restoring inheritance: {path}")
+                _remove_acl_from_path(path, sid)
+                _run_icacls([path, "/inheritance:e"])
+    else:
+        # Legacy metadata without manifest — use best-effort fallback
+        print("    (legacy metadata, using fallback path list)")
+        for path in fallback_global_paths:
+            if path and os.path.exists(path):
+                _remove_acl_from_path(path, sid)
+
+        if workspace_dir and os.path.exists(workspace_dir):
+            print(f"    Removing ACLs from workspace: {workspace_dir}")
+            _remove_acl_recursive(workspace_dir, sid)
+
+        junctions_dir_str = str(state_dir / "junctions")
+        if os.path.exists(junctions_dir_str):
+            _remove_acl_recursive(junctions_dir_str, sid)
+
+        if workspace_dir and os.path.exists(workspace_dir):
+            _run_icacls([workspace_dir, "/inheritance:e"])
+
+
+def _cleanup_junctions(state_dir: Path) -> None:
+    """Remove all NTFS junctions from the junctions directory."""
+    junctions_dir = state_dir / "junctions"
+    print(f"\n[3] Removing NTFS junctions from: {junctions_dir}")
+    if junctions_dir.is_dir():
+        count = 0
+        for entry in junctions_dir.iterdir():
+            if entry.is_dir():
+                if _remove_junction(str(entry)):
+                    count += 1
+                else:
+                    print(f"    WARNING: Failed to remove junction: {entry}")
+        print(f"    Removed {count} junction(s).")
+    else:
+        print("    No junctions directory found.")
+
+
+def _cleanup_state_dirs(state_dir: Path) -> None:
+    """Remove state directories (containers/, junctions/) and clean up."""
+    print("\n[4] Removing state directories...")
+    junctions_dir = state_dir / "junctions"
+    containers_dir = state_dir / "containers"
+    for d in [containers_dir, junctions_dir]:
+        if d.is_dir():
+            try:
+                shutil.rmtree(str(d))
+                print(f"    Removed: {d}")
+            except OSError as e:
+                print(f"    WARNING: Failed to remove {d}: {e}")
+        elif d.exists():
+            # Handle case where path exists but isn't a directory
+            try:
+                d.unlink()
+                print(f"    Removed file: {d}")
+            except OSError as e:
+                print(f"    WARNING: Failed to remove {d}: {e}")
+
+    # Remove any remaining files in .qwenpaw (stray files, logs, etc.)
+    if state_dir.is_dir():
+        remaining = list(state_dir.iterdir())
+        if not remaining:
+            try:
+                state_dir.rmdir()
+                print(f"    Removed empty state dir: {state_dir}")
+            except OSError:
+                pass
+        else:
+            print(
+                f"    State dir not empty, remaining items: "
+                f"{[e.name for e in remaining]}",
+            )
+
+
+def main() -> None:
     if sys.platform != "win32":
         print("ERROR: This script must run on Windows.")
         sys.exit(1)
@@ -150,13 +310,14 @@ def main():
     if not metadata_list:
         # Try to find any qwenpaw_ containers by brute-force pattern
         print(
-            "    No metadata found. Attempting to find containers by name pattern..."
+            "    No metadata found. Attempting to find containers"
+            " by name pattern...",
         )
         # We can't enumerate AppContainer profiles directly without metadata,
         # but we'll still clean up junctions and directories below.
 
     # Step 2: Remove ACLs and delete profiles
-    print(f"\n[2] Removing ACLs and deleting AppContainer profiles...")
+    print("\n[2] Removing ACLs and deleting AppContainer profiles...")
 
     # Fallback paths for legacy metadata without acl_manifest
     sys_drive = os.environ.get("SystemDrive", "C:")
@@ -172,88 +333,18 @@ def main():
     metadata_files_to_delete: List[Path] = []
 
     for meta in metadata_list:
-        container_name = meta.get("container_name", "")
-        sid = meta.get("sid", "")
-        workspace_dir = meta.get("workspace_dir", "")
-        acl_manifest = meta.get("acl_manifest")
-
-        print(f"\n  Container: {container_name}")
-        print(f"    SID: {sid}")
-
-        # Track the metadata file for deletion
-        if container_name:
-            meta_file = state_dir / "containers" / f"{container_name}.json"
-            if meta_file.exists():
-                metadata_files_to_delete.append(meta_file)
-
-        if not sid:
-            # Try to derive SID from container name
-            sid = _get_appcontainer_sid(container_name) or ""
-            if sid:
-                print(f"    Derived SID: {sid}")
-            else:
-                print(
-                    f"    WARNING: Cannot determine SID, skipping ACL removal."
-                )
-
-        if sid:
-            if acl_manifest:
-                # Use the precise ACL manifest recorded at creation time
-                grant_paths = acl_manifest.get("grant_paths", [])
-                inheritance_broken_paths = acl_manifest.get(
-                    "inheritance_broken_paths", []
-                )
-
-                # Remove ACEs from grant paths
-                for path in grant_paths:
-                    if path and os.path.exists(path):
-                        print(f"    Removing ACL from: {path}")
-                        _remove_acl_from_path(path, sid)
-
-                # Recursively remove ACEs from workspace (set with (OI)(CI))
-                if workspace_dir and os.path.exists(workspace_dir):
-                    print(
-                        f"    Removing ACLs from workspace (recursive): {workspace_dir}"
-                    )
-                    _remove_acl_recursive(workspace_dir, sid)
-
-                # Remove ACEs and restore inheritance on broken paths
-                for path in inheritance_broken_paths:
-                    if path and os.path.exists(path):
-                        print(
-                            f"    Removing ACL + restoring inheritance: {path}"
-                        )
-                        _remove_acl_from_path(path, sid)
-                        _run_icacls([path, "/inheritance:e"])
-            else:
-                # Legacy metadata without manifest — use best-effort fallback
-                print("    (legacy metadata, using fallback path list)")
-                for path in fallback_global_paths:
-                    if path and os.path.exists(path):
-                        _remove_acl_from_path(path, sid)
-
-                if workspace_dir and os.path.exists(workspace_dir):
-                    print(f"    Removing ACLs from workspace: {workspace_dir}")
-                    _remove_acl_recursive(workspace_dir, sid)
-
-                junctions_dir_str = str(state_dir / "junctions")
-                if os.path.exists(junctions_dir_str):
-                    _remove_acl_recursive(junctions_dir_str, sid)
-
-                if workspace_dir and os.path.exists(workspace_dir):
-                    _run_icacls([workspace_dir, "/inheritance:e"])
-
-        # Delete the AppContainer profile
-        if container_name:
-            ok = _delete_appcontainer_profile(container_name)
-            print(
-                f"    Delete profile: {'OK' if ok else 'FAILED (may not exist)'}"
-            )
+        meta_file = _cleanup_container_acls(
+            meta,
+            state_dir,
+            fallback_global_paths,
+        )
+        if meta_file:
+            metadata_files_to_delete.append(meta_file)
 
     # Delete metadata JSON files
     if metadata_files_to_delete:
         print(
-            f"\n  Deleting {len(metadata_files_to_delete)} metadata file(s)..."
+            f"\n  Deleting {len(metadata_files_to_delete)} metadata file(s)...",
         )
         for meta_file in metadata_files_to_delete:
             try:
@@ -263,54 +354,12 @@ def main():
                 print(f"    WARNING: Failed to delete {meta_file}: {e}")
 
     # Step 3: Remove all junctions
-    junctions_dir = state_dir / "junctions"
-    print(f"\n[3] Removing NTFS junctions from: {junctions_dir}")
-    if junctions_dir.is_dir():
-        count = 0
-        for entry in junctions_dir.iterdir():
-            if entry.is_dir():
-                if _remove_junction(str(entry)):
-                    count += 1
-                else:
-                    print(f"    WARNING: Failed to remove junction: {entry}")
-        print(f"    Removed {count} junction(s).")
-    else:
-        print("    No junctions directory found.")
+    _cleanup_junctions(state_dir)
 
-    # Step 4: Remove state directories (containers/, junctions/, and their contents)
-    print(f"\n[4] Removing state directories...")
-    containers_dir = state_dir / "containers"
-    for d in [containers_dir, junctions_dir]:
-        if d.is_dir():
-            try:
-                shutil.rmtree(str(d))
-                print(f"    Removed: {d}")
-            except OSError as e:
-                print(f"    WARNING: Failed to remove {d}: {e}")
-        elif d.exists():
-            # Handle case where path exists but isn't a directory
-            try:
-                d.unlink()
-                print(f"    Removed file: {d}")
-            except OSError as e:
-                print(f"    WARNING: Failed to remove {d}: {e}")
+    # Step 4: Remove state directories
+    _cleanup_state_dirs(state_dir)
 
-    # Remove any remaining files in .qwenpaw (stray files, logs, etc.)
-    if state_dir.is_dir():
-        remaining = list(state_dir.iterdir())
-        if not remaining:
-            try:
-                state_dir.rmdir()
-                print(f"    Removed empty state dir: {state_dir}")
-            except OSError:
-                pass
-        else:
-            print(
-                f"    State dir not empty, remaining items: "
-                f"{[e.name for e in remaining]}"
-            )
-
-    print(f"\n{'=' * 60}")
+    print("\n" + "=" * 60)
     print("Cleanup complete.")
     print("=" * 60)
 
