@@ -761,6 +761,9 @@ def _create_file_block_support_formatter(
                 base_formatter_class,
                 AnthropicChatFormatter,
             ):
+                # Direct assignment (not setdefault): kwargs comes from
+                # model_dump() and may carry the base class's narrower
+                # input_types; we must override to include "video/*".
                 kwargs["input_types"] = [
                     "text/plain",
                     "image/*",

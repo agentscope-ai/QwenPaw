@@ -4,9 +4,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import uuid
-from datetime import datetime, timezone
 from typing import Any, Dict
-from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from ..inbox_trace_store import (
     append_trace_from_session_delta,
@@ -115,13 +113,6 @@ class CronExecutor:
                 else f"cron:{job.id}"
             )
             req["session_source"] = "cron"
-
-        # Prepend current date to the first user message so that thinking
-        # models (e.g. QwQ / DeepSeek-R1) do not hallucinate the date from
-        # training-data priors.  The env_context in the system prompt already
-        # carries this, but it sits at the end of a long prompt and is often
-        # ignored during extended thinking.
-        _inject_current_date_into_input(req)
 
         # Register a ChatSpec so the session appears in the frontend list.
         chat_manager = getattr(self._workspace, "chat_manager", None)
@@ -267,41 +258,3 @@ class CronExecutor:
                         job.id,
                         exc_info=True,
                     )
-
-
-def _inject_current_date_into_input(req: Dict[str, Any]) -> None:
-    """Prepend the current date to the first user message in the request.
-
-    Thinking models (QwQ, DeepSeek-R1, etc.) sometimes ignore the date in
-    the system prompt when reasoning through extended thinking chains.  By
-    injecting the date directly into the user-facing message we make it
-    impossible for the model to overlook.
-    """
-    from ...config import load_config
-
-    user_tz = load_config().user_timezone or "UTC"
-    try:
-        now = datetime.now(ZoneInfo(user_tz))
-    except (ZoneInfoNotFoundError, KeyError):
-        now = datetime.now(timezone.utc)
-        user_tz = "UTC"
-
-    date_prefix = (
-        f"[Current date: {now.strftime('%Y-%m-%d')} "
-        f"{user_tz} ({now.strftime('%A')})]"
-    )
-
-    input_msgs = req.get("input") or []
-    for msg in input_msgs:
-        if not isinstance(msg, dict) or msg.get("role") != "user":
-            continue
-        content = msg.get("content")
-        if isinstance(content, list):
-            for block in content:
-                if isinstance(block, dict) and block.get("type") == "text":
-                    block["text"] = f"{date_prefix}\n\n{block['text']}"
-                    return
-        elif isinstance(content, str):
-            msg["content"] = f"{date_prefix}\n\n{content}"
-            return
-        break
