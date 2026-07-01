@@ -16,7 +16,8 @@ jobs:
     runs-on: ubuntu-latest
     environment: ai-review-approved
     steps:
-      - run: echo "Maintainer approved AI review for PR #${{ github.event.pull_request.number }}"
+      - run: |
+          echo "Maintainer approved AI review for PR #${{ github.event.pull_request.number }}"
 
   ai-review:
     name: QwenPaw AI Review
