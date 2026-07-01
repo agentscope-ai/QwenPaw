@@ -241,12 +241,18 @@ class AgentBuilder:
 
         running_config = agent_config.running
 
+        from ..loop.react_gates import (
+            resolve_max_iterations,
+        )
+
+        effective_max = resolve_max_iterations(running_config)
+
         agent = QwenPawAgent(
             name=agent_config.name or "QwenPaw",
             model=model,
             system_prompt=sys_prompt,
             toolkit=toolkit,
-            react_config=ReActConfig(max_iters=running_config.max_iters),
+            react_config=ReActConfig(max_iters=effective_max),
             middlewares=middlewares,
             agent_config=agent_config,
             workspace_dir=workspace_dir,
@@ -260,6 +266,14 @@ class AgentBuilder:
             effective_skills=effective_skills,
             governor=governor,
         )
+
+        # Register default ReAct gates (StopHandler).
+        if workspace is not None:
+            from ..loop.react_gates import (
+                register_react_gates,
+            )
+
+            register_react_gates(workspace, running_config)
 
         # Load session state if SessionLoadHook populated it.
         if ctx.session_state:

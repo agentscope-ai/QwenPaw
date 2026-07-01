@@ -362,6 +362,26 @@ class QwenPawAgent(CodingModeMixin, Agent):
         stripping, passive bad-request retry, and auto-continue on
         text-only responses."""
 
+        # ── Pre-check: pending gate stop from previous iteration ──
+        pending = getattr(self, "_gate_pending_stop", None)
+        if pending is not None:
+            self._gate_pending_stop = None
+            logger.info(
+                "Gate pending stop applied: %s",
+                pending.reason,
+            )
+            yield Msg(
+                name=self.name,
+                role="assistant",
+                content=[
+                    TextBlock(
+                        type="text",
+                        text=(pending.reason or "Stopped by loop gate."),
+                    ),
+                ],
+            )
+            return
+
         # ── Proactive media stripping ──
         from .model_factory import _supports_multimodal_for_current_model
 
@@ -425,11 +445,40 @@ class QwenPawAgent(CodingModeMixin, Agent):
             if should_strip and self._uses_request_time_media_normalization():
                 self._set_formatter_media_strip(False)
 
+        # ── Stop Hook: run every iteration ──
+        stop_result = await self._run_stop_handlers(final_msg)
+
         if final_msg is None:
+            # Model produced tool calls (yielded above).
+            # Never interrupt mid-call; defer to next iteration.
+            if stop_result.action == StopAction.STOP and stop_result.reason:
+                logger.info(
+                    "Gate wants stop (deferred): %s",
+                    stop_result.reason,
+                )
+                self._gate_pending_stop = stop_result
+            elif (
+                stop_result.action == StopAction.CONTINUE
+                and stop_result.continuation_message
+            ):
+                self.state.context.append(
+                    Msg(
+                        name="user",
+                        role="user",
+                        content=[
+                            TextBlock(
+                                type="text",
+                                text=(stop_result.continuation_message),
+                            ),
+                        ],
+                        metadata={
+                            QWENPAW_MESSAGE_TAG_KEY: ("loop_continuation"),
+                        },
+                    ),
+                )
             return
 
-        # ── Stop Hook: check registered handlers before stopping ──
-        stop_result = await self._run_stop_handlers(final_msg)
+        # Model produced text (wants to stop).
         if stop_result.action == StopAction.CONTINUE:
             logger.info(
                 "Stop handler BLOCKED exit: %s",
@@ -617,87 +666,36 @@ class QwenPawAgent(CodingModeMixin, Agent):
     # ------------------------------------------------------------------
 
     def _get_stop_handlers(self) -> list:
-        """Retrieve registered stop handlers from PluginRegistry."""
-        try:
-            from ..plugins.registry import PluginRegistry
+        """Retrieve stop handlers for this agent."""
+        from ..app.agent_context import (
+            get_current_agent_id,
+        )
+        from ..plugins.registry import PluginRegistry
 
-            return list(
-                PluginRegistry.get_stop_handlers(),
-            )
-        except Exception:  # pylint: disable=broad-except
-            return []
+        agent_id = get_current_agent_id()
+        handlers = PluginRegistry.get_stop_handlers(
+            agent_id=agent_id,
+        )
+        logger.debug(
+            "stop_handlers: agent=%s count=%d",
+            agent_id,
+            len(handlers),
+        )
+        return handlers
 
     async def _run_stop_handlers(
         self,
-        final_msg: Msg,
+        final_msg: Optional[Msg],
     ) -> StopHandlerResult:
-        """Run registered stop handlers in priority order.
+        """Run registered stop handlers every iteration."""
+        from ..loop.gates.runner import run_stop_handlers
 
-        If any handler returns BLOCK, the agent continues
-        working instead of stopping. Handlers are sorted by
-        priority (lower number = higher priority).
-
-        Args:
-            final_msg: The agent's final text-only Msg.
-
-        Returns:
-            StopHandlerResult with STOP or CONTINUE.
-        """
         handlers = self._get_stop_handlers()
-        if not handlers:
-            return StopHandlerResult(
-                action=StopAction.STOP,
-            )
-
-        handlers.sort(key=lambda h: h.priority)
-
-        for reg in handlers:
-            try:
-                result = await reg.handler(
-                    {
-                        "final_msg": final_msg,
-                        "agent": self,
-                        "iteration": (self.state.cur_iter),
-                    },
-                )
-                if isinstance(
-                    result,
-                    StopHandlerResult,
-                ):
-                    if result.action == StopAction.CONTINUE:
-                        return result
-                elif isinstance(result, dict):
-                    action = result.get(
-                        "action",
-                        "stop",
-                    )
-                    if action in (
-                        "continue",
-                        "block",
-                    ):
-                        return StopHandlerResult(
-                            action=StopAction.CONTINUE,
-                            continuation_message=(
-                                result.get(
-                                    "message",
-                                    "",
-                                )
-                            ),
-                            reason=result.get(
-                                "reason",
-                                "",
-                            ),
-                        )
-            except Exception as exc:  # pylint: disable=broad-except
-                logger.warning(
-                    "Stop handler '%s' raised: %s",
-                    reg.name,
-                    exc,
-                )
-                continue
-
-        return StopHandlerResult(
-            action=StopAction.STOP,
+        return await run_stop_handlers(
+            handlers,
+            agent=self,
+            final_msg=final_msg,
+            iteration=self.state.cur_iter,
         )
 
     # pylint: disable=too-many-nested-blocks
