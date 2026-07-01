@@ -664,19 +664,15 @@ class AuthMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
 
         token = self._extract_token(request)
-        if not token:
-            return Response(
-                content=json.dumps({"detail": "Not authenticated"}),
-                status_code=401,
-                media_type="application/json",
-            )
-
-        user = verify_token(token)
+        user = verify_token(token) if token else None
         if user is None:
+            user = await _resolve_external_identity(request)
+        if user is None:
+            detail = (
+                "Invalid or expired token" if token else "Not authenticated"
+            )
             return Response(
-                content=json.dumps(
-                    {"detail": "Invalid or expired token"},
-                ),
+                content=json.dumps({"detail": detail}),
                 status_code=401,
                 media_type="application/json",
             )

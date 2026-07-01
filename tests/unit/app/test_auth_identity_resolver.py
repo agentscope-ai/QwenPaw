@@ -3,7 +3,12 @@
 from __future__ import annotations
 
 import pytest
+from starlette.applications import Starlette
+from starlette.responses import JSONResponse
+from starlette.routing import Route
+from starlette.testclient import TestClient
 
+from qwenpaw.app import auth as auth_mod
 from qwenpaw.app.auth import (
     _external_identity_resolvers,
     _resolve_external_identity,
@@ -71,3 +76,70 @@ async def test_resolve_all_none():
 
     register_external_identity_resolver(r)
     assert await _resolve_external_identity(object()) is None
+
+
+class _FakeSecurity:
+    def __init__(self) -> None:
+        self.allow_no_auth_hosts: list[str] = []
+
+
+class _FakeConfig:
+    security = _FakeSecurity()
+
+
+def _build_client(monkeypatch) -> TestClient:
+    # Force auth enforcement regardless of local registered users.
+    monkeypatch.setattr(auth_mod, "is_auth_enabled", lambda: True)
+    monkeypatch.setattr(auth_mod, "has_registered_users", lambda: True)
+    monkeypatch.setattr(auth_mod, "_get_config_cached", lambda: _FakeConfig())
+
+    async def whoami(request):
+        return JSONResponse({"user": getattr(request.state, "user", None)})
+
+    app = Starlette(
+        routes=[Route("/api/console/chat", whoami, methods=["POST"])],
+    )
+    app.add_middleware(auth_mod.AuthMiddleware)
+    return TestClient(app)
+
+
+def test_middleware_uses_resolver_when_no_qwenpaw_token(monkeypatch):
+    async def r(request):
+        if request.headers.get("X-NocoBase-Token"):
+            return "carol@example.com"
+        return None
+
+    register_external_identity_resolver(r)
+    client = _build_client(monkeypatch)
+    resp = client.post(
+        "/api/console/chat",
+        headers={"X-NocoBase-Token": "tok"},
+    )
+    assert resp.status_code == 200
+    assert resp.json() == {"user": "carol@example.com"}
+
+
+def test_middleware_401_when_no_token_and_no_resolver(monkeypatch):
+    client = _build_client(monkeypatch)
+    resp = client.post("/api/console/chat")
+    assert resp.status_code == 401
+    assert resp.json()["detail"] == "Not authenticated"
+
+
+def test_middleware_qwenpaw_token_wins_over_resolver(monkeypatch):
+    calls = {"n": 0}
+
+    async def r(_request):
+        calls["n"] += 1
+        return "should-not-be-used@example.com"
+
+    register_external_identity_resolver(r)
+    client = _build_client(monkeypatch)
+    token = auth_mod.create_token("dave@example.com")
+    resp = client.post(
+        "/api/console/chat",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 200
+    assert resp.json() == {"user": "dave@example.com"}
+    assert calls["n"] == 0  # resolver not consulted when token valid
