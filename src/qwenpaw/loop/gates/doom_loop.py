@@ -6,6 +6,8 @@ Includes inline sliding-window similarity detection.
 """
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
 from collections import deque
 from dataclasses import dataclass, field
@@ -35,6 +37,7 @@ class _DoomState:
     history: deque = field(default_factory=deque)
     consecutive_hits: int = 0
     prompt: str = ""
+    last_recorded_iter: int = -1
 
 
 class DoomLoopGate(LoopGate):
@@ -103,12 +106,15 @@ class DoomLoopGate(LoopGate):
 
     async def check(
         self,
-        ctx: Any,  # pylint: disable=unused-argument
+        ctx: Any,
     ) -> Optional[StopHandlerResult]:
-        """Evaluate doom loop state."""
-        state = self._state()
-        if state is None:
-            return None
+        """Evaluate doom loop state.
+
+        Auto-records tool calls from agent context when
+        available (no explicit record() needed).
+        """
+        state = self._ensure_state()
+        self._auto_record_from_ctx(ctx, state)
 
         is_looping = self._detect_repetition(state)
 
@@ -117,7 +123,10 @@ class DoomLoopGate(LoopGate):
             state.prompt = ""
             return None
 
-        state.consecutive_hits += 1
+        if state.consecutive_hits == 0:
+            state.consecutive_hits = self._window_size
+        else:
+            state.consecutive_hits += 1
 
         active_stage = None
         for stage in reversed(self._stages):
@@ -139,11 +148,15 @@ class DoomLoopGate(LoopGate):
             )
 
         state.prompt = active_stage.prompt
-        logger.debug(
+        logger.warning(
             "DoomLoopGate: warning at %d hits",
             state.consecutive_hits,
         )
-        return None
+        return StopHandlerResult(
+            action=StopAction.CONTINUE,
+            continuation_message=active_stage.prompt,
+            reason="doom_loop repetition warning",
+        )
 
     def continuation_prompt(self) -> str:
         """Return current doom loop warning."""
@@ -151,6 +164,68 @@ class DoomLoopGate(LoopGate):
         if state is None:
             return ""
         return state.prompt
+
+    def _auto_record_from_ctx(
+        self,
+        ctx: Any,
+        state: _DoomState,
+    ) -> None:
+        """Extract latest tool call from agent context."""
+        if not isinstance(ctx, dict):
+            return
+        agent = ctx.get("agent")
+        if agent is None:
+            return
+        cur_iter = ctx.get("iteration", 0)
+        if cur_iter <= state.last_recorded_iter:
+            return
+        state.last_recorded_iter = cur_iter
+
+        context = getattr(
+            getattr(agent, "state", None),
+            "context",
+            [],
+        )
+        if not context:
+            return
+        last_msg = context[-1]
+        content = getattr(last_msg, "content", None)
+        if not content or not isinstance(content, list):
+            return
+        for block in reversed(content):
+            btype = getattr(block, "type", None)
+            if isinstance(block, dict):
+                btype = block.get("type")
+            if btype in ("tool_call", "tool_use"):
+                name = (
+                    block.get("name", "")
+                    if isinstance(block, dict)
+                    else getattr(block, "name", "")
+                )
+                raw_input = (
+                    block.get("input", "")
+                    if isinstance(block, dict)
+                    else getattr(block, "input", "")
+                )
+                if isinstance(raw_input, str):
+                    args_hash = hashlib.md5(
+                        raw_input.encode(),
+                    ).hexdigest()[:8]
+                else:
+                    args_hash = hashlib.md5(
+                        json.dumps(
+                            raw_input,
+                            sort_keys=True,
+                            default=str,
+                        ).encode(),
+                    ).hexdigest()[:8]
+                state.history.append(
+                    _ToolCallRecord(
+                        tool_name=name,
+                        args_hash=args_hash,
+                    ),
+                )
+                return
 
     def _detect_repetition(
         self,
