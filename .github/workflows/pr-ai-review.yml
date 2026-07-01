@@ -27,6 +27,8 @@ jobs:
 
     env:
       DASHSCOPE_API_KEY: ${{ secrets.REVIEW_DASHSCOPE_API_KEY }}
+      REVIEW_PROVIDER: dashscope
+      REVIEW_MODEL: qwen3.7-plus
       PR_NUMBER: ${{ github.event.pull_request.number }}
       PR_TITLE: ${{ github.event.pull_request.title }}
       PR_AUTHOR: ${{ github.event.pull_request.user.login }}
@@ -91,6 +93,26 @@ jobs:
           done
           echo "QwenPaw failed to start within 90 seconds"
           exit 1
+
+      - name: Verify review model is configured
+        run: |
+          python - <<'PY'
+          import json
+          import sys
+          import urllib.request
+
+          with urllib.request.urlopen("http://localhost:8088/api/models/active?scope=global") as resp:
+              data = json.load(resp)
+
+          active = data.get("active_llm") or {}
+          provider = active.get("provider_id")
+          model = active.get("model")
+          print(f"Active model: {provider}/{model}")
+
+          if provider != "dashscope" or model != "qwen3.7-plus":
+              print("ERROR: expected dashscope/qwen3.7-plus")
+              sys.exit(1)
+          PY
 
       - name: Fetch PR diff
         uses: actions/github-script@v7

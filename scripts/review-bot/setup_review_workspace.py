@@ -3,10 +3,15 @@
 """Setup QwenPaw workspace for the AI Review Bot.
 
 Runs after `qwenpaw init --defaults --accept-security` to customize
-the agent identity for code review tasks.
+the agent identity for code review tasks and configure the LLM provider.
 """
+import asyncio
 import os
+import sys
 from pathlib import Path
+
+REVIEW_PROVIDER = os.environ.get("REVIEW_PROVIDER", "dashscope")
+REVIEW_MODEL = os.environ.get("REVIEW_MODEL", "qwen3.7-plus")
 
 
 WORKING_DIR = Path(
@@ -117,6 +122,40 @@ read_when:
 """
 
 
+def configure_review_model() -> None:
+    """Configure DashScope API key and activate the review model.
+
+    ``qwenpaw init --defaults`` may pick QwenPaw Local (no default model)
+    and skip cloud providers. CI must explicitly set dashscope + qwen3.7-plus
+    using the secret injected as DASHSCOPE_API_KEY.
+    """
+    api_key = os.environ.get("DASHSCOPE_API_KEY", "").strip()
+    if not api_key:
+        print(
+            "ERROR: DASHSCOPE_API_KEY is not set.\n"
+            "Add REVIEW_DASHSCOPE_API_KEY to your fork's GitHub secrets.",
+        )
+        sys.exit(1)
+
+    from qwenpaw.providers.provider_manager import ProviderManager
+
+    manager = ProviderManager.get_instance()
+    if not manager.update_provider(REVIEW_PROVIDER, {"api_key": api_key}):
+        print(f"ERROR: Failed to configure provider '{REVIEW_PROVIDER}'")
+        sys.exit(1)
+    print(f"  Configured provider: {REVIEW_PROVIDER}")
+
+    try:
+        asyncio.run(manager.activate_model(REVIEW_PROVIDER, REVIEW_MODEL))
+    except Exception as exc:
+        print(
+            f"ERROR: Failed to activate {REVIEW_PROVIDER}/{REVIEW_MODEL}: "
+            f"{exc}",
+        )
+        sys.exit(1)
+    print(f"  Active model: {REVIEW_PROVIDER}/{REVIEW_MODEL}")
+
+
 def main():
     print(f"Setting up review bot workspace at: {WORKSPACE_DIR}")
 
@@ -137,6 +176,9 @@ def main():
     if bootstrap.exists():
         bootstrap.unlink()
         print(f"  Removed: {bootstrap}")
+
+    print("\nConfiguring review LLM...")
+    configure_review_model()
 
     print("\nReview bot workspace ready!")
 

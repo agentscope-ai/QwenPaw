@@ -71,6 +71,8 @@ def call_qwenpaw(prompt: str, session_id: str) -> str:
                             break
                         try:
                             evt = json.loads(data)
+                            if evt.get("error"):
+                                print(f"  Stream error: {evt['error']}")
                             chunk = evt.get("content", evt.get("text", ""))
                             full_response += chunk
                         except json.JSONDecodeError:
