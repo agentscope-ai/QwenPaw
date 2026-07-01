@@ -68,7 +68,9 @@ async def _drain() -> None:
 
 
 def test_build_available_commands_set():
-    commands = QwenPawACPAgent._build_available_commands()
+    agent = object.__new__(QwenPawACPAgent)
+    agent._workspace = None
+    commands = agent._build_available_commands()
     names = {c.name for c in commands}
 
     # Exactly the curated user-facing subset is advertised. Everything else

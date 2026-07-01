@@ -52,14 +52,6 @@ class IterationGate(LoopGate):
             _IterState(max_iterations=limit),
         )
 
-    def increment(self) -> int:
-        """Increment and return current iteration."""
-        state: Optional[_IterState] = self._state()
-        if state is None:
-            return 0
-        state.iteration += 1
-        return state.iteration
-
     async def check(
         self,
         ctx: Any,  # pylint: disable=unused-argument
