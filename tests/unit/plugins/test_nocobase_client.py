@@ -3,6 +3,7 @@
 """Unit tests for the NocoBase REST client."""
 from __future__ import annotations
 
+import httpx
 import pytest
 from pytest_httpx import HTTPXMock
 
@@ -170,3 +171,58 @@ async def test_user_id_field_custom(
 
     users = await client.list_users("phone")
     assert users[0]["sender_id"] == "+8612345678900"
+
+
+@pytest.mark.asyncio
+async def test_verify_user_token_success(httpx_mock: HTTPXMock) -> None:
+    httpx_mock.add_response(
+        url="http://nb.local/api/auth:check",
+        json={"data": {"id": 7, "email": "eve@example.com"}},
+        status_code=200,
+    )
+    client = NocoBaseClient(base_url="http://nb.local", api_token="admin")
+    user = await client.verify_user_token("user-tok")
+    assert user is not None
+    assert user["email"] == "eve@example.com"
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_verify_user_token_invalid_returns_none(
+    httpx_mock: HTTPXMock,
+) -> None:
+    httpx_mock.add_response(
+        url="http://nb.local/api/auth:check",
+        json={"errors": [{"code": "INVALID_TOKEN"}]},
+        status_code=401,
+    )
+    client = NocoBaseClient(base_url="http://nb.local", api_token="admin")
+    assert await client.verify_user_token("bad") is None
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_verify_user_token_network_error_raises(
+    httpx_mock: HTTPXMock,
+) -> None:
+    httpx_mock.add_exception(httpx.ConnectError("down"))
+    client = NocoBaseClient(base_url="http://nb.local", api_token="admin")
+    with pytest.raises(NocoBaseRequestError):
+        await client.verify_user_token("tok")
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_verify_user_token_uses_user_token_not_admin(
+    httpx_mock: HTTPXMock,
+) -> None:
+    httpx_mock.add_response(
+        url="http://nb.local/api/auth:check",
+        json={"data": {"id": 1, "email": "a@b.com"}},
+        status_code=200,
+    )
+    client = NocoBaseClient(base_url="http://nb.local", api_token="ADMIN-TOK")
+    await client.verify_user_token("USER-TOK")
+    req = httpx_mock.get_requests()[-1]
+    assert req.headers["Authorization"] == "Bearer USER-TOK"
+    await client.close()

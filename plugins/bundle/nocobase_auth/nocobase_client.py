@@ -150,6 +150,46 @@ class NocoBaseClient:
             for row in rows
         ]
 
+    async def verify_user_token(
+        self,
+        user_token: str,
+    ) -> Optional[Dict[str, Any]]:
+        """Verify a NocoBase *user* token via ``auth:check``.
+
+        Uses the caller's own token (not the plugin's admin api_token), so a
+        one-off client is created rather than reusing ``_get_client()``.
+
+        Returns:
+            The user dict on success; ``None`` when the token is invalid
+            (HTTP 401). Raises :class:`NocoBaseRequestError` on network or
+            server errors so the caller can treat "could not verify" as a
+            non-cacheable outcome.
+        """
+        try:
+            async with httpx.AsyncClient(
+                base_url=self.base_url,
+                headers={"Authorization": f"Bearer {user_token}"},
+                timeout=self.timeout,
+                follow_redirects=True,
+                trust_env=False,
+            ) as client:
+                response = await client.get("/api/auth:check")
+        except httpx.HTTPError as exc:
+            raise NocoBaseRequestError(
+                f"auth:check request failed: {exc}",
+            ) from exc
+
+        if response.status_code == 401:
+            return None
+        if response.status_code >= 400:
+            raise NocoBaseRequestError(
+                f"auth:check failed: {response.status_code}",
+                status_code=response.status_code,
+            )
+        payload = response.json()
+        data = payload.get("data") if isinstance(payload, dict) else None
+        return data if isinstance(data, dict) else None
+
     @staticmethod
     def _extract_sender_id(row: Dict[str, Any], user_id_field: str) -> str:
         """Extract the channel sender_id from a user row."""
