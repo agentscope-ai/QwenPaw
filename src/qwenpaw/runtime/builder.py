@@ -679,8 +679,8 @@ class AgentBuilder:
     def _resolve_tool_results_dir(
         ctx: Any,
         trc: Any,
-        fallback: str | None = "",
-    ) -> str | None:
+        fallback: str = "",
+    ) -> str:
         """Return the tool-results cache directory path."""
         import os
 
@@ -719,12 +719,11 @@ class AgentBuilder:
             tool_results_dir = AgentBuilder._resolve_tool_results_dir(
                 ctx,
                 trc,
-                fallback=None,
             )
             result_limiter = ToolResultLimiter(
                 enabled=trc.enabled,
                 max_text_bytes=trc.execution_layer_max_bytes,
-                cache_dir=tool_results_dir,
+                cache_dir=tool_results_dir or None,
             )
         except Exception:
             _logger.debug("ToolResultLimiter not created", exc_info=True)
