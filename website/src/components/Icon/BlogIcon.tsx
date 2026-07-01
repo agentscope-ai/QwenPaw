@@ -1,7 +1,7 @@
 import React from "react";
 import type { IconProps } from "./types";
 
-export const BolgsIcon: React.FC<IconProps> = ({
+export const BlogIcon: React.FC<IconProps> = ({
   size = 18,
   className = "",
   color = "currentColor",
@@ -25,4 +25,4 @@ export const BolgsIcon: React.FC<IconProps> = ({
   );
 };
 
-export default BolgsIcon;
+export default BlogIcon;

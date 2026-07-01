@@ -5,7 +5,7 @@ import { QwenpawMascot } from "./QwenpawMascot";
 import { useTranslation } from "react-i18next";
 import { useSiteLanguage } from "@/i18n/SiteLanguageContext";
 import { useSiteConfig } from "@/config-context";
-import { GitHubIcon, BolgsIcon, NoteIcon } from "./Icon";
+import { GitHubIcon, BlogIcon, NoteIcon } from "./Icon";
 
 const AGENTSCOPE_LOGO_SIZE = 22;
 
@@ -96,7 +96,7 @@ export function Nav() {
             <span>{t("nav.docs")}</span>
           </Link>
           <Link to="/blog" className={navLinkOrangeClass}>
-            <BolgsIcon size={18} aria-hidden />
+            <BlogIcon size={18} aria-hidden />
             <span>{t("nav.blog")}</span>
           </Link>
           <a
@@ -172,7 +172,7 @@ export function Nav() {
           className={navLinkOrangeClass}
           onClick={() => setOpen(false)}
         >
-          <BolgsIcon size={18} aria-hidden /> {t("nav.blog")}
+          <BlogIcon size={18} aria-hidden /> {t("nav.blog")}
         </Link>
         <a
           href="https://github.com/agentscope-ai/QwenPaw"

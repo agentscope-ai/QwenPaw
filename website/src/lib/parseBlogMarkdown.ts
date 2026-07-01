@@ -1,3 +1,5 @@
+import yaml from "js-yaml";
+
 export interface BlogFrontmatter {
   title: string;
   date: string;
@@ -11,46 +13,49 @@ export interface ParsedBlogPost {
   frontmatter: BlogFrontmatter;
   body: string;
   readMinutes: number;
-  /** Set when the post lists developer-day sessions (`**title**` lines). */
+  /** Set when the post lists developer-day sessions. */
   sessionCount?: number;
 }
 
-/** Count session entries formatted as a standalone `**title**` markdown line. */
+export type ParseBlogMarkdownOptions = {
+  /** When true, count developer-day session titles in the body. */
+  sessionList?: boolean;
+};
+
+/** Match session titles like `**06-30 QwenPaw 开发者日会：…**`. */
+const SESSION_TITLE_LINE =
+  /^\*\*\d{2}-\d{2}\s+.*(?:开发者日会|Developer Day).*\*\*$/;
+
 export function countDeveloperDaySessions(body: string): number {
-  return body.split("\n").filter((line) => /^\*\*.+\*\*$/.test(line.trim()))
+  return body.split("\n").filter((line) => SESSION_TITLE_LINE.test(line.trim()))
     .length;
 }
 
-function parseYamlValue(raw: string): string | string[] {
-  const trimmed = raw.trim();
-  if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
-    return trimmed
-      .slice(1, -1)
-      .split(",")
-      .map((s) => s.trim().replace(/^["']|["']$/g, ""))
-      .filter(Boolean);
+function normalizeTags(raw: unknown): string[] {
+  if (Array.isArray(raw)) {
+    return raw.map(String).filter(Boolean);
   }
-  return trimmed.replace(/^["']|["']$/g, "");
+  if (typeof raw === "string" && raw.trim()) {
+    return [raw.trim()];
+  }
+  return [];
 }
 
-function parseFrontmatterBlock(block: string): BlogFrontmatter {
-  const data: Record<string, string | string[]> = {};
-  for (const line of block.split("\n")) {
-    const idx = line.indexOf(":");
-    if (idx === -1) continue;
-    const key = line.slice(0, idx).trim();
-    const value = parseYamlValue(line.slice(idx + 1));
-    data[key] = value;
+function formatFrontmatterValue(value: unknown): string {
+  if (value instanceof Date) {
+    return value.toISOString().slice(0, 10);
   }
+  return String(value);
+}
 
-  const tags = data.tags;
+function normalizeFrontmatter(data: Record<string, unknown>): BlogFrontmatter {
   return {
     title: String(data.title ?? "Untitled"),
-    date: String(data.date ?? ""),
-    author: data.author ? String(data.author) : undefined,
-    tags: Array.isArray(tags) ? tags : [],
-    cover: data.cover ? String(data.cover) : undefined,
-    excerpt: data.excerpt ? String(data.excerpt) : undefined,
+    date: data.date != null ? formatFrontmatterValue(data.date) : "",
+    author: data.author != null ? String(data.author) : undefined,
+    tags: normalizeTags(data.tags),
+    cover: data.cover != null ? String(data.cover) : undefined,
+    excerpt: data.excerpt != null ? String(data.excerpt) : undefined,
   };
 }
 
@@ -80,7 +85,10 @@ function extractExcerpt(body: string): string {
   return paragraphs[0] ?? stripMarkdown(body);
 }
 
-export function parseBlogMarkdown(md: string): ParsedBlogPost {
+export function parseBlogMarkdown(
+  md: string,
+  options: ParseBlogMarkdownOptions = {},
+): ParsedBlogPost {
   const match = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/.exec(md);
   if (!match) {
     const body = md.trim();
@@ -95,11 +103,23 @@ export function parseBlogMarkdown(md: string): ParsedBlogPost {
     };
   }
 
-  const frontmatter = parseFrontmatterBlock(match[1]);
+  let data: Record<string, unknown> = {};
+  try {
+    const parsed = yaml.load(match[1]);
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      data = parsed as Record<string, unknown>;
+    }
+  } catch {
+    data = {};
+  }
+
+  const frontmatter = normalizeFrontmatter(data);
   let body = match[2].trim();
-  // Drop duplicated H1 when it matches the frontmatter title.
   body = body.replace(/^#\s+.+\n+/, "");
-  const sessionCount = countDeveloperDaySessions(body);
+
+  const sessionCount = options.sessionList
+    ? countDeveloperDaySessions(body)
+    : undefined;
 
   return {
     frontmatter: {
@@ -108,7 +128,7 @@ export function parseBlogMarkdown(md: string): ParsedBlogPost {
     },
     body,
     readMinutes: estimateReadMinutes(body),
-    ...(sessionCount > 0 ? { sessionCount } : {}),
+    ...(sessionCount != null && sessionCount > 0 ? { sessionCount } : {}),
   };
 }
 

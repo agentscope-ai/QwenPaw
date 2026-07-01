@@ -11,6 +11,8 @@ import {
 
 type BlogListItem = ParsedBlogPost & { slug: string; cover?: string };
 
+const DEVELOPER_DAY_COLLECTION_SLUG = "qwenpaw-developer-day-collection";
+
 async function fetchBlogPost(
   slug: string,
   isZh: boolean,
@@ -23,7 +25,9 @@ async function fetchBlogPost(
   }
   if (!response.ok) return null;
   const md = await response.text();
-  return parseBlogMarkdown(md);
+  return parseBlogMarkdown(md, {
+    sessionList: slug === DEVELOPER_DAY_COLLECTION_SLUG,
+  });
 }
 
 function BlogCover({ title, cover }: { title: string; cover?: string }) {

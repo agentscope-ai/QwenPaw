@@ -24,6 +24,8 @@ function linkifySessionUrls(body: string): string {
   );
 }
 
+const DEVELOPER_DAY_COLLECTION_SLUG = "qwenpaw-developer-day-collection";
+
 async function fetchBlogPost(
   slug: string,
   isZh: boolean,
@@ -35,7 +37,9 @@ async function fetchBlogPost(
     response = await fetch(`${base}/blog/${slug}.en.md`);
   }
   if (!response.ok) return null;
-  return parseBlogMarkdown(await response.text());
+  return parseBlogMarkdown(await response.text(), {
+    sessionList: slug === DEVELOPER_DAY_COLLECTION_SLUG,
+  });
 }
 
 function BlogPostShell({ children }: { children: ReactNode }) {
