@@ -56,9 +56,7 @@ export function useAgentConfig() {
           iteration: {
             ...config.loop?.iteration,
             max_iterations:
-              config.loop?.iteration?.max_iterations ??
-              config.max_iters ??
-              100,
+              config.loop?.iteration?.max_iterations ?? config.max_iters ?? 100,
           },
         },
         llm_retry_enabled: config.llm_retry_enabled,

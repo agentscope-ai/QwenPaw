@@ -78,7 +78,7 @@ class MissionMode(AgentMode):
     # ── setup ──
 
     def setup(self, workspace: object) -> None:
-        """Register gates into universal StopHandler."""
+        """Register MissionGate in a separate handler."""
         super().setup(workspace)
 
         from .gates import MissionGate as _MG
@@ -87,34 +87,24 @@ class MissionMode(AgentMode):
             StopHandlerRegistration,
         )
 
-        handler = getattr(
-            workspace,
-            "_stop_handler",
-            None,
-        )
-        if not isinstance(handler, StopHandler):
-            handler = StopHandler()
-            setattr(
-                workspace,
-                "_stop_handler",
-                handler,
-            )
-            plugins = getattr(workspace, "plugins", None)
-            if plugins is not None:
-                if not hasattr(plugins, "stop_handlers"):
-                    plugins.stop_handlers = []
-                plugins.stop_handlers.append(
-                    StopHandlerRegistration(
-                        plugin_id="__mission__",
-                        handler=handler,
-                        priority=0,
-                        name="mission-stop-handler",
-                    ),
-                )
-
-        gate = _MG()  # pylint: disable=abstract-class-instantiated
+        handler = StopHandler()
+        gate = _MG()
         handler.register(gate)
         self._gate = gate
+
+        plugins = getattr(workspace, "plugins", None)
+        if plugins is not None:
+            if not hasattr(plugins, "stop_handlers"):
+                plugins.stop_handlers = []
+            plugins.stop_handlers.append(
+                StopHandlerRegistration(
+                    plugin_id="__mission__",
+                    handler=handler,
+                    priority=0,
+                    name="mission-stop-handler",
+                    scope="mission",
+                ),
+            )
 
     def is_active(self, ctx: HookContext) -> bool:
         return bool(

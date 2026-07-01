@@ -354,23 +354,23 @@ worker prompt that includes:
 
 ### 3. Dispatch batch — all at once
 
-**⚠️ You MUST use Agent Chat tools to dispatch workers.  You are the
+**⚠️ You MUST use `spawn_subagent` to dispatch workers.  You are the
 controller — NEVER run implementation commands (npm, pip, python,
 make, cargo, etc.) yourself.  NEVER create/edit source files yourself.
 ALL implementation work is done by workers.**
 
 For each story in the current batch, compose a worker prompt and
-dispatch it using the `submit_to_agent` tool.
+dispatch it using the `spawn_subagent` tool.
 
 **Example dispatch pattern:**
 - Build a prompt string containing loop_dir, story details, and Worker
   Instructions
-- Estimate complexity and set `task_timeout` accordingly:
+- Estimate complexity and set `timeout` accordingly:
   - Simple tasks (single file edit, config change): 120–300s
   - Medium tasks (new feature, multi-file changes): 300–600s
   - Complex tasks (full-stack feature, large refactors): 600–1200s
-- Call `submit_to_agent(to_agent=WORKER_AGENT_ID,
-  text=worker_prompt, task_timeout=<seconds>)`
+- Call `spawn_subagent(task=worker_prompt, fork=True,
+  background=True, timeout=<seconds>)`
 - Save the returned task_id for monitoring
 
 Repeat for **all** stories in the current batch (same priority).
@@ -380,28 +380,33 @@ Save **all** returned task_ids for monitoring.
 
 **CRITICAL: Do NOT stop or end your turn while workers are running.**
 
-Poll **all** running tasks in a loop using `check_agent_task`:
+Poll **all** running tasks in a loop using `check_agent_task`.
+**Use `execute_shell_command` to sleep between checks** so you do not
+flood the server:
 
-- Wait 30 seconds before first check
+- **Sleep 10 seconds** before the first check: `sleep 10`
 - For each task_id, call `check_agent_task(task_id=TASK_ID)`
 - Examine the status field in the response
 - As each task finishes (status "completed" or "failed"), record it
   and stop polling that ID.
+- **Sleep between polls** — increase the interval gradually:
+  10s → 20s → 30s → 60s (cap).  Call `sleep <seconds>` before
+  retrying.  Do NOT poll more frequently than every 10 seconds.
 - Continue polling the remaining tasks.
-- Increase interval for long tasks (30s → 60s → 120s).
-- While waiting, you may **do useful work** — read progress.txt,
-  check prd.json, prepare prompts for the next batch, etc.
+- While waiting (after sleep returns), you may **do useful work** —
+  read progress.txt, check prd.json, prepare prompts for the next
+  batch, etc.
 
 ### 5. Verify batch (worker → verifier pipeline)
 Once ALL **workers** in the batch finish:
 
 For **each completed story**, dispatch a **verification session**
-using `submit_to_agent`.
+using `spawn_subagent`.
 
 **Verifier dispatch pattern:**
 - Compose verifier prompt with loop_dir, story JSON, and Verifier
   Instructions block
-- Call `submit_to_agent(to_agent=VERIFIER_AGENT_ID, text=verifier_prompt)`
+- Call `spawn_subagent(task=verifier_prompt, background=True)`
 - Wait for result and check VERDICT
 
 The verifier is an **adversarial agent** that tries to break the
@@ -446,7 +451,7 @@ pass or you hit the iteration limit.
 ## Rules
 
 **⚠️ RULE #1: You are the CONTROLLER.**  In Phase 2, you dispatch
-workers using Agent Chat tools (`submit_to_agent`, `check_agent_task`).
+workers using `spawn_subagent` and monitor with `check_agent_task`.
 ALL coding, building, and testing is done by workers.
 
 **Phase 2 continuity:** The system automatically loops back to you after
@@ -455,14 +460,14 @@ polling results, and reporting progress.  Do not worry about "ending
 your turn" — the system handles iteration control.
 
 **Delegation rule in Phase 2:**  You can read files, dispatch workers
-via Agent Chat tools (`submit_to_agent`, `check_agent_task`), and
-update progress files.  Delegate ALL implementation work to workers
-using these tools.  Workers will have appropriate tool access
-configured via their `approval_level` setting.
+via `spawn_subagent` (with `check_agent_task` to monitor), and
+update progress files.  Delegate ALL implementation work to workers.
+Workers run in the same workspace and inherit your tool access.
 
 ---
 
-- Each worker is a **fresh session** with no memory.  Pass all context.
+- Each worker is a **fresh session** (use `fork=True` for git worktree
+  isolation).  Pass all context in the task prompt.
 - **Dispatch all stories in a batch simultaneously.**
 - Update the user on progress after each batch completes.
 - If stuck (same error 3× on same story), ask the user.

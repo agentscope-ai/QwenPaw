@@ -39,12 +39,19 @@ class StopHandlerResult:
 
 @dataclass
 class StopHandlerRegistration:
-    """A registered stop handler with metadata."""
+    """A registered stop handler with metadata.
+
+    ``scope`` isolates handlers by mode. When a handler
+    with a non-"default" scope is active, handlers with
+    ``scope="default"`` are skipped so that mode-specific
+    gates take precedence.
+    """
 
     plugin_id: str
     handler: Any
     priority: int = 100
     name: str = ""
+    scope: str = ""
 
 
 class StopGate(ABC):

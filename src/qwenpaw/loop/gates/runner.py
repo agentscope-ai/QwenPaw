@@ -13,6 +13,51 @@ from .base import StopAction, StopHandlerResult
 logger = logging.getLogger(__name__)
 
 
+def _filter_by_scope(
+    handlers: list,
+) -> list:
+    """Keep only the active scope's handlers.
+
+    If any handler with a non-"default" scope has at
+    least one active gate, only that scope's handlers
+    run; "default"-scoped handlers are skipped.
+    Handlers without a scope (``scope=""``) always run.
+    """
+    from .loop_gate import LoopGate
+
+    active_scope: str = ""
+    for reg in handlers:
+        scope = getattr(reg, "scope", "")
+        if scope and scope != "default":
+            handler = reg.handler
+            gates = getattr(handler, "gates", [])
+            for g in gates:
+                # pylint: disable=protected-access
+                has_state = isinstance(g, LoopGate) and g._state() is not None
+                if has_state:
+                    active_scope = scope
+                    break
+            if active_scope:
+                break
+
+    if not active_scope:
+        return handlers
+
+    result: list = []
+    for reg in handlers:
+        scope = getattr(reg, "scope", "")
+        if not scope:
+            result.append(reg)
+        elif scope == active_scope:
+            result.append(reg)
+        else:
+            logger.debug(
+                f"Skipping handler '{reg.name}' "
+                f"scope={scope} active={active_scope}",
+            )
+    return result
+
+
 async def run_stop_handlers(
     handlers: list,
     *,
@@ -21,6 +66,10 @@ async def run_stop_handlers(
     iteration: int = 0,
 ) -> StopHandlerResult:
     """Execute stop handlers in priority order.
+
+    Handlers are first filtered by scope so that
+    mode-specific handlers take precedence over
+    default ones.
 
     Args:
         handlers: List of StopHandlerRegistration objects.
@@ -34,6 +83,7 @@ async def run_stop_handlers(
     if not handlers:
         return StopHandlerResult(action=StopAction.STOP)
 
+    handlers = _filter_by_scope(handlers)
     handlers = sorted(handlers, key=lambda h: h.priority)
 
     ctx = {

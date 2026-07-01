@@ -121,6 +121,7 @@ def _get_or_create_handler(
                 handler=handler,
                 priority=0,
                 name=_REACT_HANDLER_NAME,
+                scope="default",
             ),
         )
     else:
