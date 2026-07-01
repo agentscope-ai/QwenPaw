@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+# pylint: disable=wrong-import-position,redefined-outer-name
 """Identity resolver + NocoBase channel gate, wired together."""
 from __future__ import annotations
 

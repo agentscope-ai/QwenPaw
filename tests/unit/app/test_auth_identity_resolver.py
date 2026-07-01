@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+# pylint: disable=unnecessary-lambda,protected-access
 """Unit tests for the external identity resolver registry in auth.py."""
 from __future__ import annotations
 

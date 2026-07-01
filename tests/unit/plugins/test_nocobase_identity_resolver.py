@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+# pylint: disable=unused-argument
 """Unit tests for the NocoBase identity resolver."""
 from __future__ import annotations
 

@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+# pylint: disable=protected-access,unused-argument
 """The plugin registers/unregisters an identity resolver with core auth."""
 from __future__ import annotations
 

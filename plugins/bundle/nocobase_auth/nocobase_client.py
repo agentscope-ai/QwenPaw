@@ -108,7 +108,7 @@ class NocoBaseClient:
 
         users = []
         for row in rows:
-            sender_id = self._extract_sender_id(row, user_id_field)
+            sender_id = self.extract_sender_id(row, user_id_field)
             roles = self._extract_roles(row)
             users.append(
                 {
@@ -191,7 +191,7 @@ class NocoBaseClient:
         return data if isinstance(data, dict) else None
 
     @staticmethod
-    def _extract_sender_id(row: Dict[str, Any], user_id_field: str) -> str:
+    def extract_sender_id(row: Dict[str, Any], user_id_field: str) -> str:
         """Extract the channel sender_id from a user row."""
         value = row.get(user_id_field)
         if value is None:

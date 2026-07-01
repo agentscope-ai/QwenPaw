@@ -27,6 +27,7 @@ def build_identity_resolver(
     """
 
     async def resolve(request: Any) -> Optional[str]:
+        # pylint: disable=too-many-return-statements
         config = getattr(engine, "config", None)
         if not (config and getattr(config, "enabled", False)):
             return None
@@ -50,7 +51,7 @@ def build_identity_resolver(
             cache.put(token, None)  # definitively invalid -> negative cache
             return None
 
-        sender_id = NocoBaseClient._extract_sender_id(
+        sender_id = NocoBaseClient.extract_sender_id(
             user,
             config.user_id_field,
         )

@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+# pylint: disable=protected-access
 """Unit tests for SyncEngine.verify_user_token delegation."""
 from __future__ import annotations
 
