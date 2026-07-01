@@ -154,3 +154,18 @@ class SyncEngine:
         except Exception as exc:
             logger.exception("NocoBase connection test failed")
             return {"ok": False, "error": str(exc)}
+
+    async def verify_user_token(
+        self,
+        user_token: str,
+    ) -> Optional[Dict[str, Any]]:
+        """Verify a NocoBase user token, delegating to the client.
+
+        Returns ``None`` when the integration is not configured or the token
+        is invalid; propagates :class:`NocoBaseClientError` on network errors
+        so the resolver can avoid caching a "could not verify" outcome.
+        """
+        client = self._get_client()
+        if client is None:
+            return None
+        return await client.verify_user_token(user_token)
