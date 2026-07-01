@@ -1982,7 +1982,9 @@
       "auto": "Auto Mode",
       "autoDesc": "Only tools explicitly marked for approval require approval (default)",
       "off": "Off Mode",
-      "offDesc": "Disable all tool approvals, all tools execute automatically"
+      "offDesc": "Disable all tool approvals, all tools execute automatically",
+      "inherit": "Default Mode",
+      "inheritDesc": "Use the agent's tool execution security level as default"
     },
     "saveLevelSuccess": "Tool execution security level saved",
     "saveLevelFailed": "Failed to save tool execution security level",
@@ -2555,7 +2557,10 @@
     "marketSearchResult": "Found {{count}} plugins matching \"{{keyword}}\"",
     "marketDetails": "Details",
     "marketDownloads": "Downloads",
-    "marketDeveloper": "Developer"
+    "marketDeveloper": "Developer",
+    "compatWarningTitle": "Compatibility Warning",
+    "compatWarningContent": "This plugin is labeled for QwenPaw {{labels}}. Your QwenPaw version is {{version}}. Installing it may cause errors. Are you sure you want to continue?",
+    "compatWarningConfirm": "Install anyway"
   },
   "codingMode": {
     "title": "Coding Mode",

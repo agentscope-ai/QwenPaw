@@ -97,6 +97,9 @@ import { openExternalLink } from "../../utils/openExternalLink";
 import { getLastEditorCopy } from "../Coding/lastEditorCopy";
 import { useUploadLimitStore } from "../../stores/uploadLimitStore";
 import MessageQueuePanel from "./components/MessageQueuePanel";
+import ApprovalLevelToggle, {
+  type ToolExecutionLevel,
+} from "./components/ApprovalLevelToggle";
 import {
   useMessageQueueStore,
   type QueueItem,
@@ -1139,6 +1142,8 @@ export default function ChatPage() {
   const autoSendTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const prevQueueLenRef = useRef(messageQueue.length);
 
+  const sessionApprovalLevelRef = useRef<ToolExecutionLevel | null>(null);
+
   // Track pending attachments for queue support
   const pendingFileListRef = useRef<
     {
@@ -1186,16 +1191,38 @@ export default function ChatPage() {
   // determined by an exclusive Web Lock keyed by sessionId; when the owner
   // tab closes, another tab acquires the lock and becomes the owner.
   const [isOwner, setIsOwner] = useState(false);
+  const [ownershipResolved, setOwnershipResolved] = useState(false);
   const isOwnerRef = useRef(false);
   isOwnerRef.current = isOwner;
   useEffect(() => {
     setIsOwner(false);
+    setOwnershipResolved(false);
     const ctrl = new AbortController();
-    void holdOwnershipLock(queueSessionId, () => setIsOwner(true), ctrl.signal);
+    void holdOwnershipLock(
+      queueSessionId,
+      () => {
+        setIsOwner(true);
+        setOwnershipResolved(true);
+      },
+      ctrl.signal,
+    );
+    // If the lock callback never fires (e.g. another tab holds it), resolve
+    // after a short delay so the non-owner Alert appears without flashing.
+    const fallbackTimer = setTimeout(() => {
+      setOwnershipResolved(true);
+    }, 300);
     return () => {
       ctrl.abort();
+      clearTimeout(fallbackTimer);
     };
   }, [queueSessionId]);
+
+  // Whether this tab is confirmed to be a non-owner (queue-only) tab.
+  // Stays false until ownership check completes, preventing a flash of
+  // the "other tab is owner" banner on every session switch.
+  const isQueueOnlyTab = ownershipResolved && !isOwner;
+  const hasQueueItems = messageQueue.length > 0;
+  const showSenderBeforeUI = isQueueOnlyTab || hasQueueItems;
 
   const scheduleNextSend = useCallback(() => {
     if (autoSendTimerRef.current) clearTimeout(autoSendTimerRef.current);
@@ -2146,6 +2173,15 @@ export default function ChatPage() {
         }
       }
 
+      // Inject session-level approval_level into request_context
+      const sessionLevel = sessionApprovalLevelRef.current;
+      if (sessionLevel) {
+        const rc =
+          (requestBody.request_context as Record<string, unknown>) || {};
+        rc.approval_level = sessionLevel;
+        requestBody.request_context = rc;
+      }
+
       const backendChatId =
         sessionApi.getRealIdForSession(String(requestBody.session_id || "")) ??
         chatIdRef.current ??
@@ -2565,33 +2601,32 @@ export default function ChatPage() {
         ...(i18nConfig as any)?.sender,
         beforeSubmit: handleBeforeSubmit,
         allowSpeech: whisperChecked && !whisperEnabled,
-        beforeUI:
-          !isOwner || messageQueue.length > 0 ? (
-            <>
-              {!isOwner && (
-                <Alert
-                  type="info"
-                  showIcon
-                  banner
-                  message={t("chat.queue.otherTabOwner")}
-                />
-              )}
-              {messageQueue.length > 0 ? (
-                <MessageQueuePanel
-                  items={messageQueue}
-                  runState={runState}
-                  onRemove={handleQueueRemove}
-                  onEdit={handleQueueEdit}
-                  onReorder={handleQueueReorder}
-                  onInterruptAndSend={handleQueueInterruptAndSend}
-                  onClear={handleQueueClear}
-                  onPauseResume={handleQueuePauseResume}
-                  onRetry={handleQueueRetry}
-                  onSkip={handleQueueSkip}
-                />
-              ) : null}
-            </>
-          ) : undefined,
+        beforeUI: showSenderBeforeUI ? (
+          <>
+            {isQueueOnlyTab && (
+              <Alert
+                type="info"
+                showIcon
+                banner
+                message={t("chat.queue.otherTabOwner")}
+              />
+            )}
+            {hasQueueItems ? (
+              <MessageQueuePanel
+                items={messageQueue}
+                runState={runState}
+                onRemove={handleQueueRemove}
+                onEdit={handleQueueEdit}
+                onReorder={handleQueueReorder}
+                onInterruptAndSend={handleQueueInterruptAndSend}
+                onClear={handleQueueClear}
+                onPauseResume={handleQueuePauseResume}
+                onRetry={handleQueueRetry}
+                onSkip={handleQueueSkip}
+              />
+            ) : null}
+          </>
+        ) : undefined,
         prefix:
           whisperEnabled || pluginSenderPrefix.length > 0 ? (
             <>
@@ -2604,6 +2639,14 @@ export default function ChatPage() {
               {pluginSenderPrefix}
             </>
           ) : undefined,
+        actionAffix: (
+          <ApprovalLevelToggle
+            chatId={chatId}
+            onChange={(level) => {
+              sessionApprovalLevelRef.current = level;
+            }}
+          />
+        ),
         attachments: {
           multiple: true,
           trigger: function (props: any) {

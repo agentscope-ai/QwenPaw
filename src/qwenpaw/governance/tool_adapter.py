@@ -59,22 +59,39 @@ def _is_execution_level_off() -> bool:
         return False
 
 
-def _resolve_agent_approval_level(
+def _resolve_effective_approval_level(
     request_context: dict[str, str] | None,
 ) -> Optional[Any]:
-    """Resolve the per-agent approval_level from agent.json.
+    """Resolve the effective approval_level for this tool call.
 
-    This is what the Web UI 'Tool Execution Security' card saves to.
-    Returns the ToolExecutionLevel enum, or None if unresolvable.
+    Priority:
+      1. ``request_context["approval_level"]`` — session-level override
+         injected by the frontend (localStorage per chat, carried in each
+         request). Zero I/O: already in memory.
+      2. ``agent.json`` → ``AgentProfileConfig.approval_level`` — the
+         agent-level default set via the Web UI 'Tool Execution Security' card.
+      3. ``None`` — unresolvable (caller falls back to AUTO).
+
+    Returns the :class:`ToolExecutionLevel` enum, or ``None``.
     """
     if not request_context:
         return None
+
+    from ..security.tool_guard.execution_level import ToolExecutionLevel
+
+    # Session-level override (injected by frontend per request)
+    session_raw = request_context.get("approval_level")
+    if session_raw:
+        level = ToolExecutionLevel.from_config(session_raw)
+        if level is not None:
+            return level
+
+    # Agent-level default from agent.json
     agent_id = request_context.get("agent_id", "")
     if not agent_id:
         return None
     try:
         from ..config.config import load_agent_config
-        from ..security.tool_guard.execution_level import ToolExecutionLevel
 
         profile = load_agent_config(agent_id)
         raw = getattr(profile, "approval_level", None)
@@ -184,22 +201,19 @@ async def _policy_tool_check_permissions(
 
     governor = getattr(self, "_qp_governor", None)
 
-    # ── Agent-level approval_level check ──
-    # Web UI saves approval_level to agent.json; governance
-    # policy.yaml has its own execution_level.  We must honour
-    # the agent-level setting so the UI toggle works.
+    # ── Effective approval_level check (session > agent) ──
     request_ctx = getattr(self, "_qp_request_context", None) or {}
-    agent_level = _resolve_agent_approval_level(request_ctx)
-    if agent_level is not None and agent_level.is_disabled():
+    effective_level = _resolve_effective_approval_level(request_ctx)
+    if effective_level is not None and effective_level.is_disabled():
         return PermissionDecision(
             behavior=PermissionBehavior.ALLOW,
             message="governance: approval_level=off, all tools allowed.",
         )
 
-    # Sync agent-level approval_level to the governor's policy
+    # Sync effective approval_level to the governor's policy
     # so the three-phase evaluation uses the correct threshold.
-    if governor is not None and agent_level is not None:
-        governor.policy.execution_level = agent_level.value
+    if governor is not None and effective_level is not None:
+        governor.policy.execution_level = effective_level.value
 
     if governor is None:
         # Check if execution_level is "off" (dev mode) — allow pass-through

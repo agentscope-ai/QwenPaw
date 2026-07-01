@@ -250,6 +250,8 @@ export function useSessionListData(
       const backendId = session ? getBackendId(session) : null;
       if (backendId) await chatApi.deleteChat(backendId);
 
+      localStorage.removeItem(`approval_level-${sessionId}`);
+
       // Fetch fresh session list after deletion
       const freshList =
         (await sessionApi.getSessionList()) as ExtendedChatSession[];
