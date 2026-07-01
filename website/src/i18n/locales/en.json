@@ -1,6 +1,7 @@
 {
   "nav": {
     "docs": "Docs",
+    "blog": "Blog",
     "more": "More",
     "releaseNotes": "Release Notes",
     "qwenpaw": "Qwenpaw",
@@ -253,6 +254,19 @@
       "name": "anthropics/skills",
       "suffix": " for the Agent Skills spec and examples."
     }
+  },
+  "blog": {
+    "breadcrumbHome": "Home",
+    "breadcrumbCurrent": "Blog",
+    "title": "QwenPaw Team Blog",
+    "subtitle": "Latest news, deep dives, and stories from the QwenPaw team.",
+    "latestUpdate": "Last updated {{date}}",
+    "totalPosts": "{{count}} posts",
+    "readTime": "{{minutes}} min read",
+    "sessionCount": "{{count}} developer day sessions",
+    "backToList": "Back to blog",
+    "notFound": "Post not found",
+    "empty": "No blog posts yet"
   },
   "docs": {
     "intro": "Introduction",
