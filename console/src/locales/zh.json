@@ -2546,7 +2546,10 @@
     "marketSearchResult": "\"{{keyword}}\" 相关插件共搜索到 {{count}} 个结果",
     "marketDetails": "详情",
     "marketDownloads": "下载量",
-    "marketDeveloper": "开发者"
+    "marketDeveloper": "开发者",
+    "compatWarningTitle": "兼容性警告",
+    "compatWarningContent": "该插件标注适配 QwenPaw {{labels}}，而您当前的 QwenPaw 版本为 {{version}}。安装后可能出现错误，是否确认继续？",
+    "compatWarningConfirm": "仍然安装"
   },
   "codingMode": {
     "title": "编程模式",

@@ -140,6 +140,14 @@ def _localized_description(manifest: dict[str, Any]) -> dict[str, str]:
     return _localized_field(manifest.get("description") or "")
 
 
+def _normalize_ver(raw: str) -> str:
+    """Strip leading 'v' and surrounding whitespace from a version string."""
+    s = raw.strip()
+    if s.lower().startswith("v"):
+        s = s[1:]
+    return s
+
+
 def get_version(manifest: dict[str, Any]) -> dict[str, str] | None:
     """Return a normalized ``qwenpaw_version`` for CDN metadata.
 
@@ -153,20 +161,21 @@ def get_version(manifest: dict[str, Any]) -> dict[str, str] | None:
          (e.g. ``_is_entry_compatible``) always see a consistent
          structure.
 
+    Version strings are sanitized (leading 'v' and whitespace removed).
     Returns ``None`` when no version constraint is declared.
     """
     # --- Case 1: structured field available, use directly ---
     qwenpaw_version = manifest.get("qwenpaw_version")
     if isinstance(qwenpaw_version, dict):
         return {
-            k: str(v)
+            k: _normalize_ver(str(v))
             for k, v in qwenpaw_version.items()
             if k in ("min", "max")
         }
 
     # --- Case 2: legacy min/max, synthesize structured dict ---
-    min_ver_str = str(manifest.get("min_version") or "")
-    max_ver_str = str(manifest.get("max_version") or "")
+    min_ver_str = _normalize_ver(str(manifest.get("min_version") or ""))
+    max_ver_str = _normalize_ver(str(manifest.get("max_version") or ""))
     if not min_ver_str and not max_ver_str:
         return None
 

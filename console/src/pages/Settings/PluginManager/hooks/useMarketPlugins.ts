@@ -8,9 +8,15 @@ import {
 } from "@/api/modules/pluginMarket";
 import { installPlugin } from "@/api/modules/plugin";
 
-function deriveCompatLabel(version: string): string {
-  const major = version.split(".")[0];
-  return `${major}.x`;
+/**
+ * Derive a compatibility label (e.g. "2.x") from a version string.
+ * Handles leading "v", pre-release suffixes, and invalid inputs gracefully.
+ */
+function deriveCompatLabel(version: string): string | null {
+  const trimmed = version.trim().replace(/^v/i, "");
+  const match = trimmed.match(/^(\d+)/);
+  if (!match) return null;
+  return `${match[1]}.x`;
 }
 
 export function isMarketPluginCompatible(
@@ -20,7 +26,9 @@ export function isMarketPluginCompatible(
   if (!currentVersion) return true;
   const labels = entry.qwenpaw_compat_labels;
   if (!labels || labels.length === 0) return true;
-  return labels.includes(deriveCompatLabel(currentVersion));
+  const label = deriveCompatLabel(currentVersion);
+  if (!label) return true; // Cannot parse version → treat as compatible
+  return labels.includes(label);
 }
 
 interface UseMarketPluginsOptions {

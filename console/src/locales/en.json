@@ -2528,7 +2528,10 @@
     "marketSearchResult": "Found {{count}} plugins matching \"{{keyword}}\"",
     "marketDetails": "Details",
     "marketDownloads": "Downloads",
-    "marketDeveloper": "Developer"
+    "marketDeveloper": "Developer",
+    "compatWarningTitle": "Compatibility Warning",
+    "compatWarningContent": "This plugin is labeled for QwenPaw {{labels}}. Your QwenPaw version is {{version}}. Installing it may cause errors. Are you sure you want to continue?",
+    "compatWarningConfirm": "Install anyway"
   },
   "codingMode": {
     "title": "Coding Mode",
