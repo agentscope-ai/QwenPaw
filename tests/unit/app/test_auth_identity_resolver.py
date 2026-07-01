@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 from starlette.applications import Starlette
+from starlette.requests import Request as _Req
 from starlette.responses import JSONResponse
 from starlette.routing import Route
 from starlette.testclient import TestClient
@@ -143,3 +144,47 @@ def test_middleware_qwenpaw_token_wins_over_resolver(monkeypatch):
     assert resp.status_code == 200
     assert resp.json() == {"user": "dave@example.com"}
     assert calls["n"] == 0  # resolver not consulted when token valid
+
+
+def _make_request(path="/api/console/chat", method="POST") -> _Req:
+    scope = {
+        "type": "http",
+        "method": method,
+        "path": path,
+        "headers": [],
+        "client": ("127.0.0.1", 12345),
+        "query_string": b"",
+    }
+    return _Req(scope)
+
+
+def test_skip_auth_enforced_when_resolver_present_no_local_user(monkeypatch):
+    monkeypatch.setattr(auth_mod, "is_auth_enabled", lambda: True)
+    monkeypatch.setattr(auth_mod, "has_registered_users", lambda: False)
+    monkeypatch.setattr(auth_mod, "_get_config_cached", lambda: _FakeConfig())
+
+    async def r(_request):
+        return None
+
+    register_external_identity_resolver(r)
+    assert auth_mod.AuthMiddleware._should_skip_auth(_make_request()) is False
+
+
+def test_skip_auth_skips_when_no_user_and_no_resolver(monkeypatch):
+    monkeypatch.setattr(auth_mod, "is_auth_enabled", lambda: True)
+    monkeypatch.setattr(auth_mod, "has_registered_users", lambda: False)
+    monkeypatch.setattr(auth_mod, "_get_config_cached", lambda: _FakeConfig())
+    assert auth_mod.AuthMiddleware._should_skip_auth(_make_request()) is True
+
+
+def test_skip_auth_public_path_always_skipped(monkeypatch):
+    monkeypatch.setattr(auth_mod, "is_auth_enabled", lambda: True)
+    monkeypatch.setattr(auth_mod, "has_registered_users", lambda: True)
+    monkeypatch.setattr(auth_mod, "_get_config_cached", lambda: _FakeConfig())
+
+    async def r(_request):
+        return None
+
+    register_external_identity_resolver(r)
+    req = _make_request(path="/api/auth/login", method="POST")
+    assert auth_mod.AuthMiddleware._should_skip_auth(req) is True

@@ -683,7 +683,16 @@ class AuthMiddleware(BaseHTTPMiddleware):
     @staticmethod
     def _should_skip_auth(request: Request) -> bool:
         """Return ``True`` when the request does not require auth."""
-        if not is_auth_enabled() or not has_registered_users():
+        if not is_auth_enabled():
+            return True
+        # Enforce auth when SOMEONE can be authenticated: either a local
+        # registered user OR an external identity provider (NocoBase SSO).
+        # Only skip when neither exists — preserving first-user bootstrap in
+        # local-only mode (register/login stay in _PUBLIC_PATHS regardless).
+        if (
+            not has_registered_users()
+            and not has_external_identity_resolvers()
+        ):
             return True
 
         path = request.url.path
