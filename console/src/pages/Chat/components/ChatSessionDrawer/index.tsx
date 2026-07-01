@@ -403,16 +403,6 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
         return;
       }
 
-      if (props.embedded) {
-        setSwitchingSessionId(sessionId);
-        window.dispatchEvent(
-          new CustomEvent("qwenpaw:sidebar-select-session", {
-            detail: { sessionId },
-          }),
-        );
-        return;
-      }
-
       // Start a new cancellable switch (aborts any in-flight switch)
       const controller = sessionApi.startNewSwitch();
       setSwitchingSessionId(sessionId);
@@ -425,24 +415,45 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
             sessionId,
             realId,
           );
-          // Issue #4987: In coding mode, skip URL navigation to /chat/<id>.
-          // The redirect effect in ChatPage would immediately navigate back
-          // to /coding before session data loads, causing the switch to fail.
-          if (!codingMode) {
-            const targetUrl = buildSessionPath("chat", effectiveId);
-            navigate(targetUrl, { replace: true });
+
+          if (props.embedded) {
+            // Embedded mode: dispatch event after preload completes to avoid
+            // intermediate state where URL changes before session data loads.
+            // This prevents the "flash to fallback page" issue.
+            window.dispatchEvent(
+              new CustomEvent("qwenpaw:sidebar-select-session", {
+                detail: { sessionId, effectiveId },
+              }),
+            );
+          } else {
+            // Non-embedded mode: navigate directly
+            // Issue #4987: In coding mode, skip URL navigation to /chat/<id>.
+            // The redirect effect in ChatPage would immediately navigate back
+            // to /coding before session data loads, causing the switch to fail.
+            if (!codingMode) {
+              const targetUrl = buildSessionPath("chat", effectiveId);
+              navigate(targetUrl, { replace: true });
+            }
+            sessionApi.trackNavigatedSession(
+              effectiveId,
+              setLastChatId,
+              selectedAgent,
+            );
+            setCurrentSessionId(sessionId);
           }
-          sessionApi.trackNavigatedSession(
-            effectiveId,
-            setLastChatId,
-            selectedAgent,
-          );
-          setCurrentSessionId(sessionId);
         })
         .catch((err) => {
           if (err?.name === "AbortError") return;
           // On non-abort error, still try to switch normally.
-          setCurrentSessionId(sessionId);
+          if (props.embedded) {
+            window.dispatchEvent(
+              new CustomEvent("qwenpaw:sidebar-select-session", {
+                detail: { sessionId },
+              }),
+            );
+          } else {
+            setCurrentSessionId(sessionId);
+          }
         })
         .finally(() => {
           // Only clean up if this switch was NOT superseded by a newer one

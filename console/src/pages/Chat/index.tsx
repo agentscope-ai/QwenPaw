@@ -1186,14 +1186,29 @@ export default function ChatPage() {
   // determined by an exclusive Web Lock keyed by sessionId; when the owner
   // tab closes, another tab acquires the lock and becomes the owner.
   const [isOwner, setIsOwner] = useState(false);
+  const [ownershipResolved, setOwnershipResolved] = useState(false);
   const isOwnerRef = useRef(false);
   isOwnerRef.current = isOwner;
   useEffect(() => {
     setIsOwner(false);
+    setOwnershipResolved(false);
     const ctrl = new AbortController();
-    void holdOwnershipLock(queueSessionId, () => setIsOwner(true), ctrl.signal);
+    void holdOwnershipLock(
+      queueSessionId,
+      () => {
+        setIsOwner(true);
+        setOwnershipResolved(true);
+      },
+      ctrl.signal,
+    );
+    // If the lock callback never fires (e.g. another tab holds it), resolve
+    // after a short delay so the non-owner Alert appears without flashing.
+    const fallbackTimer = setTimeout(() => {
+      setOwnershipResolved(true);
+    }, 300);
     return () => {
       ctrl.abort();
+      clearTimeout(fallbackTimer);
     };
   }, [queueSessionId]);
 
@@ -2566,9 +2581,9 @@ export default function ChatPage() {
         beforeSubmit: handleBeforeSubmit,
         allowSpeech: whisperChecked && !whisperEnabled,
         beforeUI:
-          !isOwner || messageQueue.length > 0 ? (
+          (ownershipResolved && !isOwner) || messageQueue.length > 0 ? (
             <>
-              {!isOwner && (
+              {ownershipResolved && !isOwner && (
                 <Alert
                   type="info"
                   showIcon
