@@ -297,6 +297,13 @@ class BaseChannel(ABC):
             for c in (contents or [])
         )
 
+    def _content_has_file(self, contents: List[Any]) -> bool:
+        """True if contents has at least one FILE block."""
+        return any(
+            getattr(c, "type", None) == ContentType.FILE
+            for c in (contents or [])
+        )
+
     def _apply_no_text_debounce(
         self,
         session_id: str,
@@ -312,6 +319,17 @@ class BaseChannel(ABC):
             if self._content_has_audio(content_parts):
                 # Audio-only messages (e.g. voice messages) should be
                 # processed immediately — they are complete user input.
+                pending = self._pending_content_by_session.pop(
+                    session_id,
+                    [],
+                )
+                merged = pending + list(content_parts)
+                return (True, merged)
+            if self._content_has_file(content_parts):
+                # File-only messages should be processed immediately —
+                # they are complete user input (e.g. sending an Excel
+                # file via WeChat Work). Buffering them would cause them
+                # to be silently dropped if no text follows.
                 pending = self._pending_content_by_session.pop(
                     session_id,
                     [],
