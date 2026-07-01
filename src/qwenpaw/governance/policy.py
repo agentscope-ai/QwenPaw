@@ -672,6 +672,14 @@ class GovernancePolicy:
 
         # ── Phase 3: Fallback + execution_level threshold ──
         if tool_type == "shell":
+            # STRICT mode: shell commands also require approval
+            if is_strict:
+                return GovernanceDecision(
+                    action=GovernanceAction.ASK,
+                    reason="STRICT mode: all tool calls " "require approval",
+                    findings=findings or None,
+                    source="STRICT mode",
+                )
             return GovernanceDecision(
                 action=GovernanceAction.SANDBOX_FALLBACK,
                 reason="sandbox fallback",
