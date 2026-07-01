@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from qwenpaw.app.console_push_store import console_push_store
 from pathlib import Path
 
 from typing import (
@@ -440,6 +441,12 @@ class ChannelManager:
 
                 # Process batch (with merge logic)
                 await _process_batch(ch, batch)
+                    # Notify console UI to refresh this session's messages
+                    try:
+                        from qwenpaw.app.console_push_store import console_push_store as _cps
+                        _cps.append(f"session_updated:{session_id}")
+                    except Exception:
+                        pass
 
                 # Update processed count
                 if self._queue_manager is not None:
