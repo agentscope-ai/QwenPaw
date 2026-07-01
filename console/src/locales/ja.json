@@ -1168,6 +1168,8 @@
     "maxTokensHint": "1回のレスポンスあたりの最大出力トークン数",
     "maxInputLengthLabel": "最大コンテキスト長",
     "maxInputLengthHint": "モデルのコンテキストウィンドウサイズ、コンテキスト圧縮のしきい値を制御します（≥1000）",
+    "preserveThinkingLabel": "思考内容を保持",
+    "preserveThinkingHint": "思考内容（thinking contents）を後続の会話ターンに引き継ぎます",
     "protocol": "プロトコル",
     "protocolHint": "この設定のプロバイダーAPIプロトコルを選択してください。",
     "selectProtocol": "プロトコルを選択してください",

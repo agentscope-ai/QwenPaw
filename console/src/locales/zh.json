@@ -1365,6 +1365,8 @@
     "maxTokensHint": "每次响应的最大输出 token 数",
     "maxInputLengthLabel": "最大上下文长度",
     "maxInputLengthHint": "模型上下文窗口大小，控制上下文压缩阈值（≥1000）",
+    "preserveThinkingLabel": "保留推理内容",
+    "preserveThinkingHint": "将推理内容（thinking contents）回传至后续对话轮次",
     "protocol": "协议",
     "protocolHint": "为当前配置选择提供商 API 协议。",
     "selectProtocol": "请选择协议",

@@ -1506,6 +1506,8 @@
     "maxTokensHint": "Token output maksimum per respons",
     "maxInputLengthLabel": "Panjang Konteks Maksimum",
     "maxInputLengthHint": "Ukuran jendela konteks model, mengontrol ambang kompaksi konteks (≥1000)",
+    "preserveThinkingLabel": "Pertahankan Pemikiran",
+    "preserveThinkingHint": "Teruskan konten pemikiran ke giliran percakapan berikutnya",
     "protocol": "Protokol",
     "protocolHint": "Pilih protokol API penyedia untuk konfigurasi ini.",
     "selectProtocol": "Harap pilih protokol",

@@ -849,6 +849,8 @@
     "addHeader": "+ Thêm header",
     "generateConfig": "Tham số tạo văn bản",
     "generateConfigHint": "Tham số dạng JSON object, sẽ được mở rộng vào mỗi yêu cầu.",
+    "preserveThinkingLabel": "Giữ nội dung suy luận",
+    "preserveThinkingHint": "Chuyển tiếp nội dung suy luận sang các lượt hội thoại tiếp theo",
     "saveSuccess": "Đã lưu cấu hình nhà cung cấp",
     "saveFailed": "Lưu cấu hình thất bại",
     "loadFailed": "Tải cấu hình thất bại",

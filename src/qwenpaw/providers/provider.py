@@ -61,6 +61,12 @@ class ModelInfo(BaseModel):
         description="Per-model generation parameters that override "
         "provider-level generate_kwargs.",
     )
+    preserve_thinking: bool = Field(
+        default=True,
+        description="Whether to relay reasoning_content (thinking traces) "
+        "back in subsequent turns. When False the formatter omits "
+        "reasoning_content from assistant wire messages.",
+    )
 
 
 class ExtendedModelInfo(ModelInfo):
@@ -376,6 +382,11 @@ class Provider(ProviderInfo, ABC):
                     and config["max_input_length"] is not None
                 ):
                     model.max_input_length = int(config["max_input_length"])
+                if (
+                    "preserve_thinking" in config
+                    and config["preserve_thinking"] is not None
+                ):
+                    model.preserve_thinking = bool(config["preserve_thinking"])
                 return True
         return False
 
@@ -391,6 +402,14 @@ class Provider(ProviderInfo, ABC):
             if model.id == model_id:
                 return model
         return None
+
+    def _get_preserve_thinking(self, model_id: str) -> bool:
+        """Return the ``preserve_thinking`` flag for *model_id* (default
+        True)."""
+        model_info = self.get_model_info(model_id)
+        if model_info is not None:
+            return model_info.preserve_thinking
+        return True
 
     def _get_context_size(self, model_id: str) -> int:
         """Return the context size for *model_id* from ``ModelInfo``.

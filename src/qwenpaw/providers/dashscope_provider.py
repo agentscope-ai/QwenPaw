@@ -140,6 +140,7 @@ class DashScopeProvider(OpenAIProvider):
             extra_generate_kwargs=extra_generate_kwargs,
             formatter=_CappingDashScopeFormatter(
                 max_bytes=self.max_inline_media_bytes,
+                relay_reasoning_content=self._get_preserve_thinking(model_id),
             ),
         )
 

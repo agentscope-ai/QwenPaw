@@ -11,6 +11,7 @@ import {
   Input,
   InputNumber,
   Modal,
+  Switch,
   Tag,
   Tooltip,
 } from "@agentscope-ai/design";
@@ -55,12 +56,14 @@ function ModelConfigEditor({
   providerId,
   model,
   onSaved,
+  onProviderUpdated,
   onClose,
   isDark,
 }: {
   providerId: string;
   model: ModelInfo;
   onSaved: () => void | Promise<void>;
+  onProviderUpdated?: (provider: ProviderInfo) => void;
   onClose: () => void;
   isDark: boolean;
 }) {
@@ -73,6 +76,9 @@ function ModelConfigEditor({
   );
   const [maxInputLength, setMaxInputLength] = useState<number | null>(
     model.max_input_length ?? 131072,
+  );
+  const [preserveThinking, setPreserveThinking] = useState<boolean>(
+    model.preserve_thinking ?? true,
   );
 
   const initialText = useMemo(
@@ -90,8 +96,9 @@ function ModelConfigEditor({
     setText(initialText);
     setMaxTokens(model.max_tokens ?? 8192);
     setMaxInputLength(model.max_input_length ?? 131072);
+    setPreserveThinking(model.preserve_thinking ?? true);
     setDirty(false);
-  }, [initialText, model.max_tokens, model.max_input_length]);
+  }, [initialText, model.max_tokens, model.max_input_length, model.preserve_thinking]);
 
   const effectiveMaxTokens = maxTokens ?? 8192;
   const effectiveMaxInputLength = maxInputLength ?? 131072;
@@ -130,14 +137,16 @@ function ModelConfigEditor({
 
     setSaving(true);
     try {
-      await api.configureModel(providerId, model.id, {
+      const updated = await api.configureModel(providerId, model.id, {
         max_tokens: effectiveMaxTokens,
         max_input_length: effectiveMaxInputLength,
         generate_kwargs: parsed,
+        preserve_thinking: preserveThinking,
       });
       message.success(t("models.modelConfigSaved", { name: model.name }));
       setDirty(false);
-      await onSaved();
+      onProviderUpdated?.(updated);
+      onSaved();
       onClose();
     } catch (error) {
       const errMsg =
@@ -206,6 +215,42 @@ function ModelConfigEditor({
             )}
           </div>
         </div>
+      </div>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          marginBottom: 8,
+          padding: "6px 0",
+        }}
+      >
+        <div>
+          <span
+            style={{
+              fontSize: 13,
+              color: isDark ? "rgba(255,255,255,0.85)" : "#333",
+            }}
+          >
+            {t("models.preserveThinkingLabel")}
+          </span>
+          <div
+            style={{
+              fontSize: 11,
+              color: isDark ? "rgba(255,255,255,0.35)" : "#999",
+              marginTop: 2,
+            }}
+          >
+            {t("models.preserveThinkingHint")}
+          </div>
+        </div>
+        <Switch
+          checked={preserveThinking}
+          onChange={(checked) => {
+            setPreserveThinking(checked);
+            setDirty(true);
+          }}
+        />
       </div>
       <div
         style={{
@@ -291,6 +336,7 @@ interface RemoteModelManageModalProps {
   open: boolean;
   onClose: () => void;
   onSaved: () => void | Promise<void>;
+  onProviderUpdated?: (provider: ProviderInfo) => void;
 }
 
 function CapabilityTags({
@@ -347,6 +393,7 @@ export function RemoteModelManageModal({
   open,
   onClose,
   onSaved,
+  onProviderUpdated,
 }: RemoteModelManageModalProps) {
   const { t } = useTranslation();
   const { isDark } = useTheme();
@@ -849,6 +896,7 @@ export function RemoteModelManageModal({
                         providerId={provider.id}
                         model={m}
                         onSaved={onSaved}
+                        onProviderUpdated={onProviderUpdated}
                         onClose={() => setConfigOpenModelId(null)}
                         isDark={isDark}
                       />

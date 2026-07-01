@@ -2140,6 +2140,7 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
                         "generate_kwargs": m.generate_kwargs,
                         "max_tokens": m.max_tokens,
                         "max_input_length": m.max_input_length,
+                        "preserve_thinking": m.preserve_thinking,
                     }
                 for m in provider.extra_models:
                     if m.id in builtin_model_ids:
@@ -2149,6 +2150,7 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
                                 "generate_kwargs": m.generate_kwargs,
                                 "max_tokens": m.max_tokens,
                                 "max_input_length": m.max_input_length,
+                                "preserve_thinking": m.preserve_thinking,
                             },
                         )
                 if stored_model_config:
@@ -2162,6 +2164,10 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
                             if cfg["max_input_length"] is not None:
                                 model.max_input_length = cfg[
                                     "max_input_length"
+                                ]
+                            if cfg.get("preserve_thinking") is not None:
+                                model.preserve_thinking = cfg[
+                                    "preserve_thinking"
                                 ]
         # Load custom providers
         for provider_file in self.custom_path.glob("*.json"):

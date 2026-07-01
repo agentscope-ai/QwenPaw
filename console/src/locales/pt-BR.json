@@ -1371,6 +1371,8 @@
     "maxTokensHint": "Número máximo de tokens de saída por resposta",
     "maxInputLengthLabel": "Comprimento Máximo do Contexto",
     "maxInputLengthHint": "Tamanho da janela de contexto do modelo, controla o limite de compactação do contexto (≥1000)",
+    "preserveThinkingLabel": "Preservar Raciocínio",
+    "preserveThinkingHint": "Retransmitir o conteúdo de raciocínio para os turnos de conversa subsequentes",
     "protocol": "Protocol",
     "protocolHint": "Choose the provider API protocol for this configuration.",
     "selectProtocol": "Please Selecionar a protocol",

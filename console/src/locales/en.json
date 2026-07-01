@@ -1507,6 +1507,8 @@
     "maxTokensHint": "Maximum output tokens per response",
     "maxInputLengthLabel": "Max Context Length",
     "maxInputLengthHint": "Model context window size, controls context compaction threshold (≥1000)",
+    "preserveThinkingLabel": "Preserve Thinking",
+    "preserveThinkingHint": "Relay thinking contents back to subsequent conversation turns",
     "protocol": "Protocol",
     "protocolHint": "Choose the provider API protocol for this configuration.",
     "selectProtocol": "Please select a protocol",

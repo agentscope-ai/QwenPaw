@@ -9,6 +9,7 @@ export interface ModelInfo {
   max_tokens: number;
   max_input_length: number;
   generate_kwargs: Record<string, unknown>;
+  preserve_thinking: boolean;
 }
 
 export interface ProviderInfo {
@@ -116,6 +117,7 @@ export interface ModelConfigRequest {
   max_tokens?: number;
   max_input_length?: number;
   generate_kwargs?: Record<string, unknown>;
+  preserve_thinking?: boolean;
 }
 
 export interface LocalModelConfig {
