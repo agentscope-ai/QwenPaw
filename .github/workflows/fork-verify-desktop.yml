@@ -44,7 +44,7 @@ jobs:
 
       - name: Get version
         id: version
-        run: echo "version=$(sed -n 's/^__version__[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' src/qwenpaw/__version__.py)" >> $GITHUB_OUTPUT
+        uses: ./.github/actions/get-version
 
       - name: Set up Node
         uses: actions/setup-node@v4
@@ -75,50 +75,13 @@ jobs:
         with:
           python-version: "3.10"
 
-      - name: Install verify deps (Playwright + Chromium)
-        env:
-          RUNNER_PYTHON: ${{ steps.runner-python.outputs.python-path }}
-        run: |
-          set -euo pipefail
-          "$RUNNER_PYTHON" -m pip install --upgrade pip
-          "$RUNNER_PYTHON" -m pip install \
-            -r scripts/verify/requirements-verify.txt
-          "$RUNNER_PYTHON" -m playwright install chromium --with-deps
-
       - name: Verify desktop (Legacy macOS)
-        env:
-          QWENPAW_DASHSCOPE_API_KEY: ${{ secrets.QWENPAW_DASHSCOPE_API_KEY }}
-          RUNNER_PYTHON: ${{ steps.runner-python.outputs.python-path }}
-        run: |
-          set -euo pipefail
-          mkdir -p dist/verify-legacy
-          unzip -q dist/QwenPaw-*-macOS.zip -d dist/verify-legacy
-          APP="$(find dist/verify-legacy -maxdepth 2 -name '*.app' -type d | head -1)"
-          if [ -z "$APP" ]; then echo "::error::QwenPaw.app not found"; exit 1; fi
-          ENV_DIR="$APP/Contents/Resources/env"
-          PYTHON="$ENV_DIR/bin/python"
-          (cd "$ENV_DIR" && ./bin/conda-unpack 2>/dev/null || true)
-          export PYTHONHOME="$ENV_DIR" PYTHONNOUSERSITE=1
-          export PATH="$ENV_DIR/bin:$PATH"
-          CERT_FILE="$("$PYTHON" -c 'import certifi,sys; sys.stdout.write(certifi.where())' 2>/dev/null || true)"
-          if [ -n "${CERT_FILE:-}" ] && [ -f "$CERT_FILE" ]; then
-            export SSL_CERT_FILE="$CERT_FILE" REQUESTS_CA_BUNDLE="$CERT_FILE"
-          fi
-          "$PYTHON" -m qwenpaw init --defaults --accept-security
-          rm -f "$HOME/.qwenpaw/workspaces/default/BOOTSTRAP.md"
-          nohup "$PYTHON" -m qwenpaw app --host 127.0.0.1 --port 8088 \
-            > "$RUNNER_TEMP/qwenpaw-desktop-stdout.log" \
-            2> "$RUNNER_TEMP/qwenpaw-desktop-stderr.log" &
-          echo $! > "$RUNNER_TEMP/qwenpaw-desktop.pid"
-          for i in $(seq 1 60); do
-            if curl -sf http://127.0.0.1:8088/api/version >/dev/null; then
-              echo "Server up after ~$((i*2))s"; break
-            fi
-            if [ "$i" = "60" ]; then echo "::error::Server timeout"; exit 1; fi
-            sleep 2
-          done
-          "$RUNNER_PYTHON" scripts/verify/desktop_verify.py \
-            --base-url http://127.0.0.1:8088 --ui-mode legacy --headed --allow-flaky-llm
+        uses: ./.github/actions/verify-legacy-macos
+        with:
+          dashscope-api-key: ${{ secrets.QWENPAW_DASHSCOPE_API_KEY }}
+          version: ${{ steps.version.outputs.version }}
+          runner-python: ${{ steps.runner-python.outputs.python-path }}
+          allow-flaky-llm: "true"
 
       - name: Stop desktop server
         if: always()
@@ -143,15 +106,7 @@ jobs:
 
       - name: Get version
         id: version
-        shell: pwsh
-        run: |
-          $content = Get-Content src/qwenpaw/__version__.py -Raw
-          if ($content -match '__version__\s*=\s*"([^"]+)"') {
-            $v = $Matches[1]
-          } else { throw "Failed to extract version" }
-          "version<<EOF" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
-          $v | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
-          "EOF" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+        uses: ./.github/actions/get-version
 
       - name: Set up Node
         uses: actions/setup-node@v4
@@ -182,56 +137,13 @@ jobs:
         with:
           python-version: "3.10"
 
-      - name: Install verify deps (Playwright + Chromium)
-        shell: pwsh
-        env:
-          RUNNER_PYTHON: ${{ steps.runner-python.outputs.python-path }}
-        run: |
-          $ErrorActionPreference = "Stop"
-          & $env:RUNNER_PYTHON -m pip install --upgrade pip
-          & $env:RUNNER_PYTHON -m pip install -r scripts/verify/requirements-verify.txt
-          & $env:RUNNER_PYTHON -m playwright install chromium --with-deps
-
       - name: Verify desktop (Legacy Windows)
-        shell: pwsh
-        env:
-          QWENPAW_DASHSCOPE_API_KEY: ${{ secrets.QWENPAW_DASHSCOPE_API_KEY }}
-          RUNNER_PYTHON: ${{ steps.runner-python.outputs.python-path }}
-          PYTHONIOENCODING: utf-8
-        run: |
-          $ErrorActionPreference = "Stop"
-          $installer = Get-ChildItem dist/QwenPaw-Setup-*.exe | Select-Object -First 1
-          if (-not $installer) { throw "No installer found" }
-          $installDir = Join-Path $env:RUNNER_TEMP "QwenPaw-Verify"
-          if (Test-Path $installDir) { Remove-Item -Recurse -Force $installDir }
-          Start-Process -FilePath $installer.FullName -ArgumentList "/S /D=$installDir" -Wait
-          $bundledPython = Join-Path $installDir "python.exe"
-          $deadline = (Get-Date).AddSeconds(120)
-          while (-not (Test-Path $bundledPython)) {
-            if ((Get-Date) -gt $deadline) { throw "python.exe not found after 120s" }
-            Start-Sleep -Seconds 2
-          }
-          $env:PYTHONNOUSERSITE = "1"
-          & $bundledPython -m qwenpaw init --defaults --accept-security
-          if ($LASTEXITCODE -ne 0) { throw "init failed" }
-          $bootstrapMd = Join-Path $env:USERPROFILE ".qwenpaw\workspaces\default\BOOTSTRAP.md"
-          if (Test-Path $bootstrapMd) { Remove-Item -Force $bootstrapMd }
-          $stdoutLog = Join-Path $env:RUNNER_TEMP "qwenpaw-desktop-stdout.log"
-          $stderrLog = Join-Path $env:RUNNER_TEMP "qwenpaw-desktop-stderr.log"
-          $proc = Start-Process -PassThru -NoNewWindow -FilePath $bundledPython `
-            -ArgumentList "-m","qwenpaw","app","--host","127.0.0.1","--port","8088" `
-            -RedirectStandardOutput $stdoutLog -RedirectStandardError $stderrLog
-          $proc.Id | Out-File -FilePath (Join-Path $env:RUNNER_TEMP "qwenpaw-desktop.pid") -Encoding ascii
-          $ready = $false
-          for ($i = 1; $i -le 60; $i++) {
-            try {
-              $r = Invoke-WebRequest -Uri http://127.0.0.1:8088/api/version -UseBasicParsing -TimeoutSec 5 -ErrorAction Stop
-              if ($r.StatusCode -eq 200) { Write-Host "Server up"; $ready = $true; break }
-            } catch { Start-Sleep -Seconds 2 }
-          }
-          if (-not $ready) { Write-Host "::error::Server timeout"; exit 1 }
-          & $env:RUNNER_PYTHON scripts/verify/desktop_verify.py --base-url http://127.0.0.1:8088 --ui-mode legacy --headed --allow-flaky-llm
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+        uses: ./.github/actions/verify-legacy-windows
+        with:
+          dashscope-api-key: ${{ secrets.QWENPAW_DASHSCOPE_API_KEY }}
+          version: ${{ steps.version.outputs.version }}
+          runner-python: ${{ steps.runner-python.outputs.python-path }}
+          allow-flaky-llm: "true"
 
       - name: Stop desktop server
         if: always()
@@ -239,8 +151,8 @@ jobs:
         run: |
           $pidFile = Join-Path $env:RUNNER_TEMP "qwenpaw-desktop.pid"
           if (Test-Path $pidFile) {
-            $pid = (Get-Content $pidFile | Select-Object -First 1).Trim()
-            if ($pid) { taskkill /F /PID $pid 2>$null | Out-Null }
+            $pidValue = (Get-Content $pidFile | Select-Object -First 1).Trim()
+            if ($pidValue) { taskkill /F /PID $pidValue 2>$null | Out-Null }
           }
           exit 0
 
@@ -259,12 +171,15 @@ jobs:
 
       - name: Get version
         id: version
-        run: echo "version=$(sed -n 's/^__version__[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' src/qwenpaw/__version__.py)" >> $GITHUB_OUTPUT
+        uses: ./.github/actions/get-version
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.10"
+
+      - name: Install packaging helper dependencies
+        run: python -m pip install packaging
 
       - name: Set up uv
         uses: astral-sh/setup-uv@v5
@@ -282,25 +197,29 @@ jobs:
       - name: Build Tauri macOS package
         env:
           NODE_OPTIONS: "--max-old-space-size=8192"
+          # Authenticate the python-build-standalone release lookup in
+          # stage_python_runtime.py to avoid anonymous API rate limits.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Required for cargo tauri build to produce the *.app.tar.gz
+          # updater archive that generate_update_manifest.py stage
+          # expects at the end of build_macos_pyinstaller.sh. Forks
+          # can use a self-generated minisign key pair — the signed
+          # archive is only consumed by the verify step, never by
+          # real users (who validate updates against the upstream
+          # pubkey baked into tauri.conf.json).
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          TAURI_UPDATER_PUBKEY: ${{ vars.TAURI_UPDATER_PUBKEY }}
         run: |
           chmod +x scripts/pack-tauri/build_macos_pyinstaller.sh
           bash scripts/pack-tauri/build_macos_pyinstaller.sh
 
-      - name: Install verify deps (Playwright + WebKit)
-        run: |
-          set -euo pipefail
-          python -m pip install --upgrade pip
-          python -m pip install -r scripts/verify/requirements-verify.txt
-          python -m playwright install webkit --with-deps
-
       - name: Verify desktop (Tauri macOS)
         timeout-minutes: 10
-        env:
-          QWENPAW_DASHSCOPE_API_KEY: ${{ secrets.QWENPAW_DASHSCOPE_API_KEY }}
-        run: |
-          set -euo pipefail
-          source scripts/verify/launch_tauri_macos.sh
-          python scripts/verify/desktop_verify.py --base-url "$BASE_URL" --ui-mode tauri-macos --headed --allow-flaky-llm
+        uses: ./.github/actions/verify-tauri-macos
+        with:
+          dashscope-api-key: ${{ secrets.QWENPAW_DASHSCOPE_API_KEY }}
+          allow-flaky-llm: "true"
 
       - name: Stop desktop server
         if: always()
@@ -326,20 +245,15 @@ jobs:
 
       - name: Get version
         id: version
-        shell: pwsh
-        run: |
-          $content = Get-Content src/qwenpaw/__version__.py -Raw
-          if ($content -match '__version__\s*=\s*"([^"]+)"') {
-            $v = $Matches[1]
-          } else { throw "Failed to extract version" }
-          "version<<EOF" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
-          $v | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
-          "EOF" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+        uses: ./.github/actions/get-version
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.10"
+
+      - name: Install packaging helper dependencies
+        run: python -m pip install packaging
 
       - name: Set up uv
         uses: astral-sh/setup-uv@v5
@@ -359,31 +273,29 @@ jobs:
 
       - name: Build Tauri Windows package
         shell: pwsh
+        env:
+          # Authenticate the python-build-standalone release lookup in
+          # stage_python_runtime.py to avoid anonymous API rate limits.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: ./scripts/pack-tauri/build_win_pyinstaller.ps1
 
-      - name: Install verify deps (Playwright + Chromium)
+      - name: Stage Tauri Windows installer
         shell: pwsh
         run: |
-          $ErrorActionPreference = "Stop"
-          python -m pip install --upgrade pip
-          python -m pip install -r scripts/verify/requirements-verify.txt
-          python -m playwright install chromium --with-deps
+          $installer = Get-ChildItem "console/src-tauri/target/release/bundle/nsis/*.exe" |
+            Select-Object -First 1
+          if (-not $installer) { throw "No Tauri Windows installer found" }
+          $target = "dist/QwenPaw-Tauri-${{ steps.version.outputs.version }}-Windows-setup.exe"
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          Copy-Item -Force $installer.FullName $target
+          Write-Host "Staged: $target"
 
       - name: Verify desktop (Tauri Windows)
         timeout-minutes: 10
-        shell: pwsh
-        env:
-          QWENPAW_DASHSCOPE_API_KEY: ${{ secrets.QWENPAW_DASHSCOPE_API_KEY }}
-          PYTHONIOENCODING: utf-8
-        run: |
-          . scripts/verify/launch_tauri_windows.ps1
-          python scripts/verify/desktop_verify.py `
-            --base-url $env:BASE_URL `
-            --ui-mode tauri-windows `
-            --headed `
-            --cdp-url $env:CDP_URL `
-            --allow-flaky-llm
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+        uses: ./.github/actions/verify-tauri-windows
+        with:
+          dashscope-api-key: ${{ secrets.QWENPAW_DASHSCOPE_API_KEY }}
+          allow-flaky-llm: "true"
 
       - name: Stop desktop server
         if: always()

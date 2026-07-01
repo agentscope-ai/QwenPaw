@@ -1,0 +1,17 @@
+{
+  "id": "middleware-demo-thinking-log",
+  "name": "Thinking Log Middleware Demo",
+  "version": "1.0.0",
+  "description": "Demo: prints model reasoning steps to stdout",
+  "author": "QwenPaw Team",
+  "type": "general",
+  "entry": {
+    "backend": "thinking_log_plugin.py"
+  },
+  "dependencies": [],
+  "qwenpaw_version": {
+    "min": "1.0.0",
+    "max": "2.1.0"
+  },
+  "meta": {}
+}

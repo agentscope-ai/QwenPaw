@@ -32,6 +32,18 @@
     "yes": "Ya",
     "no": "Tidak"
   },
+  "desktop": {
+    "closeWindow": {
+      "title": "Tutup Jendela",
+      "description": "Apa yang ingin Anda lakukan saat menutup jendela? Keluar dari aplikasi akan menghentikan semua tugas yang sedang berjalan dan tugas terjadwal.",
+      "remember": "Ingat pilihan saya",
+      "showWindow": "Tampilkan Jendela",
+      "minimizeToTray": "Minimalkan ke baki sistem",
+      "quitApp": "Keluar dari Aplikasi",
+      "preference": "Tutup Jendela",
+      "askEveryTime": "Tanya setiap saat"
+    }
+  },
   "chunkError": {
     "title": "Gagal memuat halaman",
     "subTitle": "Ini mungkin disebabkan oleh masalah jaringan atau pembaruan aplikasi.",
@@ -241,7 +253,7 @@
       "file": "File",
       "noChatWarning": "Kirim pesan terlebih dahulu untuk membuat percakapan sebelum menggunakan antrean",
       "queueFull": "Antrean penuh (maks. {{max}} item). Kirim atau hapus beberapa pesan terlebih dahulu",
-      "otherTabOwner": "Percakapan ini sedang dikirim dari tab lain. Tab ini hanya dapat menambahkan input ke antrean."
+      "otherTabOwner": "This tab queues only; sending is handled by another tab"
     },
     "group": {
       "pinned": "Disematkan",
@@ -255,7 +267,15 @@
       "noConversations": "Tidak ada percakapan",
       "loadingConversations": "Memuat…"
     },
-    "conversationHistory": "Riwayat Percakapan"
+    "conversationHistory": "Riwayat Percakapan",
+    "history": {
+      "empty": "Tidak ada riwayat obrolan"
+    },
+    "sessionGroup": {
+      "today": "Hari ini",
+      "recent": "7 hari terakhir",
+      "earlier": "Sebelumnya"
+    }
   },
   "modelSelector": {
     "selectModel": "Pilih model",

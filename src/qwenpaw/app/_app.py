@@ -615,6 +615,19 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
             except Exception as e:
                 logger.warning(f"Approval service setup skipped: {e}")
 
+            # ---- Skill pool auto-update sync ----
+            try:
+                from ..agents.skill_system import run_pool_auto_update_sync
+                from .routers.skills import post_auto_update_inbox
+
+                au_result = await asyncio.to_thread(run_pool_auto_update_sync)
+                await post_auto_update_inbox(au_result)
+            except Exception:
+                logger.warning(
+                    "Skill pool auto-update sync skipped on startup",
+                    exc_info=True,
+                )
+
             startup_elapsed = time.time() - startup_start_time
             logger.info(
                 "Background startup completed in "

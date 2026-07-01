@@ -69,6 +69,8 @@ Pool-side operations:
   name that already exists, QwenPaw returns a conflict instead of silently
   overwriting. The UI/API includes a suggested renamed target so you can retry
   with that name.
+- **Auto sync:** Once enabled for a skill, any change to its pool content is
+  pushed to the relevant workspaces automatically (see **Auto sync** below).
 
 Adding skills to the pool:
 
@@ -328,6 +330,23 @@ This skill is used for…
 
 Manually placed skills are detected on the next manifest reconcile and added
 to `skill.json` as **disabled**. Enable them in the Console or CLI.
+
+### Auto sync (Skill Pool & Workspace)
+
+Turn on **Auto sync** for a pool skill and any change to its pool content is
+synced to the relevant workspaces automatically — no manual broadcast needed.
+
+- **How to enable:** Toggle it on the skill card in **Settings → Skill Pool**
+  (applies immediately), or enable it and pick associated agents in the skill
+  drawer (applies on save).
+- **Sync scope:**
+  - **Default** (no associated agents configured): syncs only to workspaces that
+    **already have the skill**; agents that never had it are not installed.
+  - **Explicit agents:** syncs to exactly those agents; ones in the list that
+    lack the skill get it installed, while agents not listed are left untouched.
+- **Change detection:** based on the content of `SKILL.md`.
+- **Inbox notification:** each run posts one message to the [Inbox](./console)
+  listing which agents each skill was synced to (sender shown as "Skill Pool").
 
 ### 6. Create from current session via /make-skill (Beta)
 

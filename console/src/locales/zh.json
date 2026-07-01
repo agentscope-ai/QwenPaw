@@ -33,6 +33,18 @@
     "yes": "是",
     "no": "否"
   },
+  "desktop": {
+    "closeWindow": {
+      "title": "关闭窗口",
+      "description": "关闭窗口时您希望执行什么操作？退出应用将停止所有正在运行的任务和定时任务。",
+      "remember": "记住我的选择",
+      "showWindow": "显示窗口",
+      "minimizeToTray": "最小化到托盘",
+      "quitApp": "退出应用",
+      "preference": "关闭窗口",
+      "askEveryTime": "每次询问"
+    }
+  },
   "chunkError": {
     "title": "页面加载失败",
     "subTitle": "可能由网络问题或应用更新导致，请稍后重试。",
@@ -143,6 +155,10 @@
     "summaryPushUnread": "未读推送",
     "summaryHarvests": "收获任务",
     "from": "来自：",
+    "skillAutoUpdateTitle": "技能自动同步",
+    "skillPoolSender": "技能池",
+    "skillAutoUpdated": "{{skill}}技能发生修改，自动同步至以下智能体：{{agents}}",
+    "skillAutoUpdateFailed": "{{skill}}技能自动同步失败，目标智能体：{{agents}}",
     "requestedBy": "请求方",
     "markRead": "标记已读",
     "markAllRead": "全部标记已读",
@@ -481,6 +497,17 @@
     "deleteExternalConfirm": "将从磁盘删除外部技能文件:{{path}}。",
     "deleteExternalBatchWarning": "所选的外部技能将从磁盘永久删除。",
     "broadcastTitle": "广播 {{name}}",
+    "autoUpdate": "自动同步",
+    "autoUpdateOnHint": "已开启自动同步；内容变更会自动同步到关联的智能体。",
+    "autoUpdateEnableHint": "开启自动同步：内容变更后推送到已安装该技能的智能体。",
+    "autoUpdateDisableHint": "关闭该技能的自动同步。",
+    "autoUpdateEnabled": "已为 {{name}} 开启自动同步",
+    "autoUpdateDisabled": "已为 {{name}} 关闭自动同步",
+    "autoUpdateFailed": "更新自动同步设置失败",
+    "autoUpdateAgentsPlaceholder": "所有已安装该技能的智能体",
+    "autoUpdateAgentsHint": "留空则同步到所有已安装该技能的智能体；选择智能体后仅同步到所选项（缺失时会自动安装）。",
+    "renameAffectsTitle": "同时在智能体中重命名？",
+    "renameAffectsContent": "“{{from}}”已安装在 {{count}} 个智能体中。重命名为“{{to}}”",
     "importBuiltin": "更新内置技能",
     "importBuiltinHint": "将内置技能更新到最新版本",
     "importBuiltinAlertHint": "有 {{count}} 项内置技能变更需要查看",
@@ -1813,7 +1840,9 @@
       "auto": "自动模式",
       "autoDesc": "仅被明确标记为需要审批的工具才会要求审批（默认）",
       "off": "关闭模式",
-      "offDesc": "关闭所有工具审批，所有工具自动执行"
+      "offDesc": "关闭所有工具审批，所有工具自动执行",
+      "inherit": "默认模式",
+      "inheritDesc": "默认使用Agent的工具执行安全级别"
     },
     "saveLevelSuccess": "工具执行安全级别已保存",
     "saveLevelFailed": "保存工具执行安全级别失败",
@@ -2033,7 +2062,7 @@
       "file": "文件",
       "noChatWarning": "请先发送一条消息创建对话，再使用队列功能",
       "queueFull": "队列已满（最多 {{max}} 条），请先发送或删除部分消息",
-      "otherTabOwner": "当前对话已在另一个标签页中发送，本标签页只能将输入加入队列；所有发送操作均由其他标签页完成。"
+      "otherTabOwner": "当前标签页仅入队，发送由其他标签页完成"
     },
     "group": {
       "pinned": "置顶",
@@ -2047,7 +2076,15 @@
       "noConversations": "暂无对话",
       "loadingConversations": "加载中…"
     },
-    "conversationHistory": "历史对话"
+    "conversationHistory": "历史对话",
+    "history": {
+      "empty": "暂无聊天记录"
+    },
+    "sessionGroup": {
+      "today": "今天",
+      "recent": "近 7 天",
+      "earlier": "更早"
+    }
   },
   "security": {
     "parent": "设置",
@@ -2538,7 +2575,10 @@
     "marketSearchResult": "\"{{keyword}}\" 相关插件共搜索到 {{count}} 个结果",
     "marketDetails": "详情",
     "marketDownloads": "下载量",
-    "marketDeveloper": "开发者"
+    "marketDeveloper": "开发者",
+    "compatWarningTitle": "兼容性警告",
+    "compatWarningContent": "该插件标注适配 QwenPaw {{labels}}，而您当前的 QwenPaw 版本为 {{version}}。安装后可能出现错误，是否确认继续？",
+    "compatWarningConfirm": "仍然安装"
   },
   "codingMode": {
     "title": "编程模式",

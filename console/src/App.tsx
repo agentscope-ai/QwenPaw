@@ -36,6 +36,7 @@ import { authApi } from "./api/modules/auth";
 import { languageApi } from "./api/modules/language";
 import { useUploadLimitStore } from "./stores/uploadLimitStore";
 import { getApiUrl, getApiToken, clearAuthToken } from "./api/config";
+import CloseWindowPrompt from "./tauri/CloseWindowPrompt";
 import "./styles/layout.css";
 import "./styles/form-override.css";
 
@@ -191,6 +192,7 @@ function AppInner() {
         }}
       >
         <AntdApp>
+          <CloseWindowPrompt />
           <DesktopUpdateProvider>
             <UpdateTakeoverGate>
               <ApprovalProvider>

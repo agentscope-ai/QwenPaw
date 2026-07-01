@@ -56,10 +56,8 @@
 .sider {
   background: #f9f8f4 !important;
   overflow: auto;
-  height: calc(100vh - 64px);
+  height: calc(100vh - 64px) !important;
   padding: 0 16px;
-  display: flex;
-  flex-direction: column;
 
   // Hide scrollbar in browser
   &::-webkit-scrollbar {
@@ -84,6 +82,7 @@
 
   // Agent-scoped section: selector + Chat + Control + Workspace
   .agentScopedSection {
+    flex-shrink: 0;
     background: rgba(43, 18, 0, 0.02);
     border-radius: 12px;
     border: 1px solid rgba(0, 0, 0, 0.06);
@@ -154,7 +153,28 @@
     -ms-overflow-style: none;
   }
 
+  &.siderSimple {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+
+    // In simple mode the children wrapper must itself be a flex column so that
+    // agentScopedSection / sessionList / collapseToggleContainer become flex
+    // items and only the sessionList scrolls.
+    :global {
+      .qwenpaw-layout-sider-children {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        min-height: 0;
+        overflow: hidden;
+      }
+    }
+  }
+
   &.siderCollapsed {
+    display: flex;
+    flex-direction: column;
     padding: 0 8px;
 
     .agentSelectorContainer {
@@ -387,6 +407,7 @@
 
 // ─── Auth actions (account + logout) ──────────────────────────────────────────
 .authActions {
+  flex-shrink: 0;
   padding: 12px 16px;
   border-top: 1px solid #f0f0f0;
 }
@@ -660,7 +681,7 @@
 
 @media (max-width: 768px) {
   .sider {
-    height: calc(100vh - 56px);
+    height: calc(100vh - 56px) !important;
     padding: 0 8px;
     flex: 0 0 auto !important;
     max-width: 240px !important;

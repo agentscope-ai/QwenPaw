@@ -685,6 +685,7 @@ class AgentBuilder:
         Order (onion model, outermost first):
         1. ToolCoordinatorMiddleware — tool call lifecycle management
         2. ToolResultPruningMiddleware — tiered tool result pruning
+        3. Plugin-registered middlewares (sorted by priority)
         """
         mws: list[Any] = []
 
@@ -771,6 +772,22 @@ class AgentBuilder:
                 "LangfuseToolSpanMiddleware not created",
                 exc_info=True,
             )
+
+        # Plugin-registered middlewares
+        from ..plugins.registry import PluginRegistry
+
+        registry = PluginRegistry()
+        for reg in registry.get_middleware_factories():
+            try:
+                mw = reg.factory(ctx, agent_config)
+                if mw is not None:
+                    mws.append(mw)
+            except Exception:
+                _logger.warning(
+                    "plugin %s middleware factory failed",
+                    reg.plugin_id,
+                    exc_info=True,
+                )
 
         return mws
 

@@ -32,6 +32,18 @@
     "yes": "Có",
     "no": "Không"
   },
+  "desktop": {
+    "closeWindow": {
+      "title": "Đóng cửa sổ",
+      "description": "Bạn muốn thực hiện thao tác nào khi đóng cửa sổ? Thoát ứng dụng sẽ dừng tất cả tác vụ đang chạy và tác vụ đã lên lịch.",
+      "remember": "Ghi nhớ lựa chọn của tôi",
+      "showWindow": "Hiển thị cửa sổ",
+      "minimizeToTray": "Thu nhỏ xuống khay hệ thống",
+      "quitApp": "Thoát ứng dụng",
+      "preference": "Đóng cửa sổ",
+      "askEveryTime": "Hỏi mỗi lần"
+    }
+  },
   "chunkError": {
     "title": "Không thể tải trang",
     "subTitle": "Có thể do lỗi mạng hoặc ứng dụng vừa được cập nhật.",
@@ -206,7 +218,7 @@
       "file": "Tệp",
       "noChatWarning": "Vui lòng gửi một tin nhắn đầu tiên để tạo cuộc trò chuyện trước khi sử dụng hàng đợi",
       "queueFull": "Hàng đợi đầy (tối đa {{max}} mục), vui lòng gửi hoặc xóa một số tin nhắn trước",
-      "otherTabOwner": "Cuộc trò chuyện này đang được gửi từ một tab khác. Tab này chỉ có thể thêm vào hàng đợi; mọi thao tác gửi được xử lý bởi tab kia."
+      "otherTabOwner": "This tab queues only; sending is handled by another tab"
     },
     "group": {
       "pinned": "Đã ghim",
@@ -220,7 +232,15 @@
       "noConversations": "Không có hội thoại",
       "loadingConversations": "Đang tải…"
     },
-    "conversationHistory": "Lịch sử hội thoại"
+    "conversationHistory": "Lịch sử hội thoại",
+    "history": {
+      "empty": "Không có lịch sử trò chuyện"
+    },
+    "sessionGroup": {
+      "today": "Hôm nay",
+      "recent": "7 ngày qua",
+      "earlier": "Trước đó"
+    }
   },
   "debug": {
     "title": "Gỡ lỗi",

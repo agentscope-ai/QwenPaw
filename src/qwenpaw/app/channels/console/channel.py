@@ -275,6 +275,9 @@ class ConsoleChannel(BaseChannel):
             channel_meta=meta,
         )
         request.channel_meta = meta
+        rc = meta.get("request_context")
+        if isinstance(rc, dict) and rc:
+            request.request_context = rc
         return request
 
     async def _extract_media_message(self, message: Message) -> Message | None:

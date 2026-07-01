@@ -30,6 +30,18 @@
     "clear": "クリア",
     "paste": "貼り付け"
   },
+  "desktop": {
+    "closeWindow": {
+      "title": "ウィンドウを閉じる",
+      "description": "ウィンドウを閉じるときに実行する操作を選択してください。アプリを終了すると、実行中のすべてのタスクとスケジュール済みタスクが停止します。",
+      "remember": "選択を記憶する",
+      "showWindow": "ウィンドウを表示",
+      "minimizeToTray": "トレイに最小化",
+      "quitApp": "アプリを終了",
+      "preference": "ウィンドウを閉じる",
+      "askEveryTime": "毎回確認する"
+    }
+  },
   "chunkError": {
     "title": "ページの読み込みに失敗しました",
     "subTitle": "ネットワークの問題またはアプリの更新が原因の可能性があります。",
@@ -1842,7 +1854,7 @@
       "file": "ファイル",
       "noChatWarning": "キューを使用する前に、まずメッセージを送信して会話を作成してください",
       "queueFull": "キューが満杯です（最大 {{max}} 件）。メッセージを送信または削除してください",
-      "otherTabOwner": "この会話は別のタブから送信中です。このタブでは入力をキューに追加することのみ可能です。"
+      "otherTabOwner": "This tab queues only; sending is handled by another tab"
     },
     "group": {
       "pinned": "ピン留め",
@@ -1856,7 +1868,15 @@
       "noConversations": "会話なし",
       "loadingConversations": "読み込み中…"
     },
-    "conversationHistory": "会話履歴"
+    "conversationHistory": "会話履歴",
+    "history": {
+      "empty": "チャット履歴なし"
+    },
+    "sessionGroup": {
+      "today": "今日",
+      "recent": "過去7日間",
+      "earlier": "それ以前"
+    }
   },
   "security": {
     "parent": "設定",

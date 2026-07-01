@@ -83,6 +83,7 @@ def _provider_plugin_zip(plugin_id: str) -> bytes:
         "plugin_type": "provider",
         "entry": {"backend": "plugin.py"},
         "meta": {"provider_id": f"{plugin_id}-prov"},
+        "qwenpaw_version": {"min": "2.0.0", "max": "2.1.0"},
     }
     return _build_zip(plugin_id, manifest, {"plugin.py": backend})
 
@@ -134,6 +135,7 @@ def _hook_plugin_zip(plugin_id: str) -> bytes:
         "plugin_type": "hook",
         "entry": {"backend": "plugin.py"},
         "meta": {"hook_type": "startup"},
+        "qwenpaw_version": {"min": "2.0.0", "max": "2.1.0"},
     }
     return _build_zip(plugin_id, manifest, {"plugin.py": backend})
 
@@ -172,6 +174,7 @@ def _command_plugin_zip(plugin_id: str) -> bytes:
         "plugin_type": "command",
         "entry": {"backend": "plugin.py"},
         "meta": {"command_name": f"/{plugin_id}-cmd"},
+        "qwenpaw_version": {"min": "2.0.0", "max": "2.1.0"},
     }
     return _build_zip(plugin_id, manifest, {"plugin.py": backend})
 
@@ -207,6 +210,7 @@ def _http_router_plugin_zip(plugin_id: str) -> bytes:
         "name": plugin_id,
         "plugin_type": "general",
         "entry": {"backend": "plugin.py"},
+        "qwenpaw_version": {"min": "2.0.0", "max": "2.1.0"},
     }
     return _build_zip(plugin_id, manifest, {"plugin.py": backend})
 
@@ -235,6 +239,7 @@ def _frontend_plugin_zip(plugin_id: str) -> bytes:
             "backend": "plugin.py",
             "frontend": "dist/index.js",
         },
+        "qwenpaw_version": {"min": "2.0.0", "max": "2.1.0"},
     }
     return _build_zip(
         plugin_id,
@@ -963,6 +968,7 @@ def _composite_plugin_zip(plugin_id: str) -> bytes:
             "backend": "plugin.py",
             "frontend": "dist/index.js",
         },
+        "qwenpaw_version": {"min": "2.0.0", "max": "2.1.0"},
     }
     return _build_zip(
         plugin_id,
@@ -979,6 +985,7 @@ def _no_entry_plugin_zip(plugin_id: str) -> bytes:
         "name": plugin_id,
         "plugin_type": "general",
         "entry": {},  # empty — no backend nor frontend
+        "qwenpaw_version": {"min": "2.0.0", "max": "2.1.0"},
     }
     return _build_zip(plugin_id, manifest, {})
 

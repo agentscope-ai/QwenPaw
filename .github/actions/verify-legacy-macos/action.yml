@@ -1,0 +1,124 @@
+name: Verify Desktop (Legacy macOS)
+description: |
+  Unpack conda-pack zip, start the bundled backend, and run the shared
+  Playwright UI verifier. Stop / cleanup / log upload steps live in the
+  caller workflow because composite actions cannot use `if: always()`.
+
+inputs:
+  dashscope-api-key:
+    description: DashScope API key (empty -> verifier skips LLM round)
+    required: false
+    default: ""
+  version:
+    description: Expected backend version (used for cross-version sanity)
+    required: true
+  runner-python:
+    description: Absolute path to the runner's Python interpreter
+    required: true
+  allow-flaky-llm:
+    description: If 'true', verifier exits 0 on LLM retry exhaustion
+    required: false
+    default: "false"
+
+runs:
+  using: composite
+  steps:
+    - name: Install verify deps (Playwright + Chromium)
+      shell: bash
+      env:
+        RUNNER_PYTHON: ${{ inputs.runner-python }}
+      run: |
+        set -euo pipefail
+        "$RUNNER_PYTHON" -m pip install --upgrade pip
+        "$RUNNER_PYTHON" -m pip install \
+          -r scripts/verify/requirements-verify.txt
+        "$RUNNER_PYTHON" -m playwright install chromium --with-deps
+
+    - name: Verify desktop (Legacy macOS)
+      shell: bash
+      env:
+        QWENPAW_DASHSCOPE_API_KEY: ${{ inputs.dashscope-api-key }}
+        RUNNER_PYTHON: ${{ inputs.runner-python }}
+        EXPECTED_VERSION: ${{ inputs.version }}
+        ALLOW_FLAKY_LLM: ${{ inputs.allow-flaky-llm }}
+      run: |
+        set -euo pipefail
+
+        # 1. Unpack the freshly built zip into an isolated verify dir.
+        mkdir -p dist/verify-legacy
+        unzip -q dist/QwenPaw-*-macOS.zip -d dist/verify-legacy
+        APP="$(find dist/verify-legacy -maxdepth 2 -name '*.app' -type d | head -1)"
+        if [ -z "$APP" ]; then
+          echo "::error::QwenPaw.app not found inside zip"
+          exit 1
+        fi
+        ENV_DIR="$APP/Contents/Resources/env"
+        PYTHON="$ENV_DIR/bin/python"
+
+        # 2. Fix conda-pack paths (mandatory or python crashes on launch).
+        (cd "$ENV_DIR" && ./bin/conda-unpack 2>/dev/null || true)
+
+        # 3. Force only the bundled interpreter to ignore user site-packages.
+        # Keep PYTHONHOME scoped so the runner Python used by Playwright does
+        # not inherit the packaged stdlib path.
+        export PYTHONNOUSERSITE=1
+        export PATH="$ENV_DIR/bin:$PATH"
+        bundled_python() {
+          env PYTHONHOME="$ENV_DIR" PYTHONNOUSERSITE=1 \
+            PATH="$ENV_DIR/bin:$PATH" "$PYTHON" "$@"
+        }
+
+        # 4. SSL certificates — required for DashScope HTTPS calls.
+        CERT_FILE="$(bundled_python -c 'import certifi,sys; sys.stdout.write(certifi.where())' 2>/dev/null || true)"
+        if [ -n "${CERT_FILE:-}" ] && [ -f "$CERT_FILE" ]; then
+          export SSL_CERT_FILE="$CERT_FILE"
+          export REQUESTS_CA_BUNDLE="$CERT_FILE"
+        fi
+
+        # 5. Init workspace and start the desktop backend in the background.
+        bundled_python -m qwenpaw init --defaults --accept-security
+        # Skip the BootstrapHook onboarding script so the verifier
+        # can drive the agent in normal QA mode (see
+        # scripts/verify/desktop_verify.py::verify_ui_chat docstring).
+        rm -f "$HOME/.qwenpaw/workspaces/default/BOOTSTRAP.md"
+        nohup env PYTHONHOME="$ENV_DIR" PYTHONNOUSERSITE=1 \
+          PATH="$ENV_DIR/bin:$PATH" \
+          "$PYTHON" -m qwenpaw app --host 127.0.0.1 --port 8088 \
+          > "$RUNNER_TEMP/qwenpaw-desktop-stdout.log" \
+          2> "$RUNNER_TEMP/qwenpaw-desktop-stderr.log" &
+        echo $! > "$RUNNER_TEMP/qwenpaw-desktop.pid"
+
+        # 6. Wait for /api/version (~120s budget).
+        for i in $(seq 1 60); do
+          if curl -sf http://127.0.0.1:8088/api/version >/dev/null; then
+            echo "Server up after ~$((i*2))s"
+            break
+          fi
+          if [ "$i" = "60" ]; then
+            echo "::error::Server did not respond within 120s"
+            exit 1
+          fi
+          sleep 2
+        done
+
+        # 7. Cross-version sanity: backend version must match source.
+        expected="$EXPECTED_VERSION"
+        actual="$(curl -sf http://127.0.0.1:8088/api/version | env -u PYTHONHOME -u PYTHONPATH "$RUNNER_PYTHON" -c 'import sys,json; print(json.load(sys.stdin)["version"])')"
+        if [ "$actual" != "$expected" ]; then
+          echo "::error::Desktop version mismatch: expected=$expected actual=$actual"
+          exit 1
+        fi
+
+        # 8. Run the shared verifier with the runner's python (where
+        #    Playwright + Chromium are installed). The bundled conda-pack
+        #    python stays untouched so we don't pollute the actual env
+        #    that ships to users.
+        extra_flags=()
+        if [ "$ALLOW_FLAKY_LLM" = "true" ]; then
+          extra_flags+=("--allow-flaky-llm")
+        fi
+        env -u PYTHONHOME -u PYTHONPATH "$RUNNER_PYTHON" scripts/verify/desktop_verify.py \
+          --base-url http://127.0.0.1:8088 \
+          --ui-mode legacy \
+          --headed \
+          "${extra_flags[@]}"

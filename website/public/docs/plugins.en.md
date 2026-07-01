@@ -7,6 +7,7 @@ QwenPaw provides a plugin system that allows users to extend QwenPaw's functiona
 The plugin system supports the following extension capabilities:
 
 - **Provider Plugins**: Add new LLM providers and models
+- **Middleware Plugins**: Register AgentScope `MiddlewareBase` factories to wrap `on_acting` / `on_reasoning` hooks in the agent reasoning loop
 - **Hook Plugins**: Execute custom code during application startup/shutdown (app lifespan level, runs once)
 - **Command Plugins**: Register custom `/command` magic commands
 - **HTTP API Plugins**: Expose custom REST endpoints under `/api` via a FastAPI `APIRouter`
@@ -95,27 +96,32 @@ my-plugin/
     "backend": "plugin.py"
   },
   "dependencies": [],
-  "min_version": "0.1.0",
+  "qwenpaw_version": {
+    "min": "1.0.0",
+    "max": "2.1.0"
+  },
   "meta": {}
 }
 ```
 
 #### Manifest Field Reference
 
-| Field            | Type               | Required | Description                                                                                                                                                                |
-| ---------------- | ------------------ | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `id`             | `string`           | yes      | Unique plugin identifier. Used as the install directory name; must not contain path separators.                                                                            |
-| `version`        | `string`           | yes      | Semantic version of the plugin (e.g. `1.0.0`).                                                                                                                             |
-| `name`           | `string` \| object | no       | Display name. Defaults to `id`. May also be `{"zh-CN": "...", "en-US": "..."}`; the first non-empty localised value is used (English preferred).                           |
-| `type`           | `string`           | no       | One of `tool`, `provider`, `hook`, `command`, `frontend`, `general`. When omitted, the type is inferred from `meta` / `entry` (legacy plugins). Prefer setting explicitly. |
-| `description`    | `string` \| object | no       | Short description shown in the plugin list. Localised form is accepted (see `name`).                                                                                       |
-| `author`         | `string`           | no       | Author or organisation name.                                                                                                                                               |
-| `entry.backend`  | `string`           | no\*     | Path (relative to plugin dir) of the Python entry file that exports `plugin`.                                                                                              |
-| `entry.frontend` | `string`           | no\*     | Path of the built frontend bundle (e.g. `dist/index.js`).                                                                                                                  |
-| `dependencies`   | `string[]`         | no       | Python package requirements installed via pip/uv at install time.                                                                                                          |
-| `min_version`    | `string`           | no       | Minimum QwenPaw version required. Defaults to `0.1.0`.                                                                                                                     |
-| `meta`           | `object`           | no       | Free-form plugin metadata. Used by the UI and by `type` inference (e.g. `meta.tools[]`, `meta.hook_type`, `meta.provider_id`).                                             |
-| `entry_point`    | `string`           | no       | **Legacy.** Equivalent to `entry.backend`. Still accepted for backwards compatibility with older plugins; new plugins should use `entry.backend`.                          |
+| Field             | Type               | Required | Description                                                                                                                                                                                          |
+| ----------------- | ------------------ | -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `id`              | `string`           | yes      | Unique plugin identifier. Used as the install directory name; must not contain path separators.                                                                                                      |
+| `version`         | `string`           | yes      | Semantic version of the plugin (e.g. `1.0.0`).                                                                                                                                                       |
+| `name`            | `string` \| object | no       | Display name. Defaults to `id`. May also be `{"zh-CN": "...", "en-US": "..."}`; the first non-empty localised value is used (English preferred).                                                     |
+| `type`            | `string`           | no       | One of `tool`, `provider`, `hook`, `command`, `frontend`, `general`. When omitted, the type is inferred from `meta` / `entry` (legacy plugins). Prefer setting explicitly.                           |
+| `description`     | `string` \| object | no       | Short description shown in the plugin list. Localised form is accepted (see `name`).                                                                                                                 |
+| `author`          | `string`           | no       | Author or organisation name.                                                                                                                                                                         |
+| `entry.backend`   | `string`           | no\*     | Path (relative to plugin dir) of the Python entry file that exports `plugin`.                                                                                                                        |
+| `entry.frontend`  | `string`           | no\*     | Path of the built frontend bundle (e.g. `dist/index.js`).                                                                                                                                            |
+| `dependencies`    | `string[]`         | no       | Python package requirements installed via pip/uv at install time.                                                                                                                                    |
+| `qwenpaw_version` | `object`           | no       | QwenPaw version constraint (recommended). Contains `min` (inclusive) and `max` (exclusive, optional) sub-fields. Semantics: `>=min, <max`. When `max` is omitted, defaults to `{major}.{minor+1}.0`. |
+| `min_version`     | `string`           | no       | **Legacy.** Minimum QwenPaw version required. Ignored when `qwenpaw_version` is present. Retained only for backward compatibility with third-party plugins.                                          |
+| `max_version`     | `string`           | no       | **Legacy.** First incompatible QwenPaw version (exclusive). Used with `min_version`; when omitted, derived from `min_version`.                                                                       |
+| `meta`            | `object`           | no       | Free-form plugin metadata. Used by the UI and by `type` inference (e.g. `meta.tools[]`, `meta.hook_type`, `meta.provider_id`).                                                                       |
+| `entry_point`     | `string`           | no       | **Legacy.** Equivalent to `entry.backend`. Still accepted for backwards compatibility with older plugins; new plugins should use `entry.backend`.                                                    |
 
 \* At least one of `entry.backend` / `entry.frontend` (or legacy `entry_point`) must be provided.
 
@@ -669,7 +675,10 @@ cd my-llm-provider
     "backend": "plugin.py"
   },
   "dependencies": ["httpx>=0.24.0"],
-  "min_version": "0.1.0",
+  "qwenpaw_version": {
+    "min": "1.0.0",
+    "max": "2.1.0"
+  },
   "meta": {
     "api_key_url": "https://example.com/get-api-key",
     "api_key_hint": "Get your API key from example.com"
@@ -804,7 +813,10 @@ cd monitoring-hook
     "backend": "plugin.py"
   },
   "dependencies": [],
-  "min_version": "0.1.0"
+  "qwenpaw_version": {
+    "min": "1.0.0",
+    "max": "2.1.0"
+  }
 }
 ```
 
@@ -894,7 +906,10 @@ cd status-command
     "backend": "plugin.py"
   },
   "dependencies": [],
-  "min_version": "0.1.0"
+  "qwenpaw_version": {
+    "min": "1.0.0",
+    "max": "2.1.0"
+  }
 }
 ```
 
@@ -1099,7 +1114,10 @@ mkdir pet-api-plugin && cd pet-api-plugin
     "backend": "plugin.py"
   },
   "dependencies": [],
-  "min_version": "1.1.5"
+  "qwenpaw_version": {
+    "min": "1.1.5",
+    "max": "2.1.0"
+  }
 }
 ```
 
@@ -1230,6 +1248,174 @@ curl -X POST http://127.0.0.1:8088/api/pets \
   `plugin:<plugin_id>` automatically for OpenAPI grouping.
 - Routes are unmounted automatically when the plugin is uninstalled
   or disabled.
+
+### Example 8: Tracing Middleware (Tool Call Tracing)
+
+This example demonstrates how to register an `on_acting` middleware that logs every tool call with timing information when the `QWENPAW_TRACE` environment variable is set.
+
+**plugin.json:**
+
+```json
+{
+  "id": "middleware-demo-tracing",
+  "name": "Tracing Middleware Demo",
+  "version": "1.0.0",
+  "description": "Demo: logs tool calls with execution timing to a trace file",
+  "author": "QwenPaw Team",
+  "type": "general",
+  "entry": {
+    "backend": "tracing_plugin.py"
+  },
+  "dependencies": [],
+  "qwenpaw_version": {
+    "min": "1.0.0",
+    "max": "2.1.0"
+  }
+}
+```
+
+**tracing_plugin.py:**
+
+```python
+import os
+import time
+from pathlib import Path
+from typing import Any, AsyncGenerator, Callable
+
+from agentscope.middleware import MiddlewareBase
+from qwenpaw.plugins.api import PluginApi
+
+
+class TracingMiddleware(MiddlewareBase):
+    """Logs tool call name, input, and execution duration."""
+
+    def __init__(self, trace_file: Path) -> None:
+        self._trace_file = trace_file
+        self._trace_file.parent.mkdir(parents=True, exist_ok=True)
+
+    async def on_acting(
+        self,
+        agent: Any,
+        input_kwargs: dict[str, Any],
+        next_handler: Callable[..., AsyncGenerator[Any, None]],
+    ) -> AsyncGenerator[Any, None]:
+        tool_call = input_kwargs["tool_call"]
+        tool_name = getattr(tool_call, "name", str(tool_call))
+        tool_input = getattr(tool_call, "input", "")
+
+        start = time.perf_counter()
+        try:
+            async for item in next_handler():
+                yield item
+        finally:
+            elapsed_ms = (time.perf_counter() - start) * 1000
+            line = f"[{time.strftime('%H:%M:%S')}] {tool_name}({tool_input[:100]}) — {elapsed_ms:.1f}ms\n"
+            with open(self._trace_file, "a", encoding="utf-8") as f:
+                f.write(line)
+
+
+def _tracing_factory(ctx: Any, agent_config: Any) -> TracingMiddleware | None:
+    """Create TracingMiddleware when QWENPAW_TRACE env var is set."""
+    if not os.environ.get("QWENPAW_TRACE"):
+        return None
+    workspace_dir = getattr(ctx, "workspace_dir", None)
+    if workspace_dir is None:
+        return None
+    trace_file = Path(workspace_dir) / ".qwenpaw" / "trace.log"
+    return TracingMiddleware(trace_file=trace_file)
+
+
+class TracingPlugin:
+    def register(self, api: PluginApi) -> None:
+        api.register_middleware(_tracing_factory, priority=50)
+
+
+plugin = TracingPlugin()
+```
+
+**Key points:**
+
+- **Conditional activation**: The factory checks the `QWENPAW_TRACE` environment variable and only activates when set
+- **`priority=50`**: Higher priority (lower number = outermost in onion), ensuring tracing wraps other middlewares
+- **`on_acting` hook**: Measures execution time before/after tool calls
+- Full source: `plugins/middleware-demo/tracing-middleware/tracing_plugin.py`
+
+---
+
+### Example 9: Thinking Log Middleware (Reasoning Process Logger)
+
+This example demonstrates how to register an `on_reasoning` middleware that captures and prints the model's chain-of-thought.
+
+**plugin.json:**
+
+```json
+{
+  "id": "middleware-demo-thinking-log",
+  "name": "Thinking Log Middleware Demo",
+  "version": "1.0.0",
+  "description": "Demo: prints model reasoning steps to stdout",
+  "author": "QwenPaw Team",
+  "type": "general",
+  "entry": {
+    "backend": "thinking_log_plugin.py"
+  },
+  "dependencies": [],
+  "qwenpaw_version": {
+    "min": "1.0.0",
+    "max": "2.1.0"
+  }
+}
+```
+
+**thinking_log_plugin.py:**
+
+```python
+import sys
+from typing import Any, AsyncGenerator, Callable
+
+from agentscope.middleware import MiddlewareBase
+from agentscope.event import ThinkingBlockDeltaEvent, TextBlockDeltaEvent
+from qwenpaw.plugins.api import PluginApi
+
+
+class ThinkingLogMiddleware(MiddlewareBase):
+    """Prints reasoning stream events to stdout."""
+
+    async def on_reasoning(
+        self,
+        agent: Any,
+        input_kwargs: dict[str, Any],
+        next_handler: Callable[..., AsyncGenerator[Any, None]],
+    ) -> AsyncGenerator[Any, None]:
+        async for item in next_handler():
+            if isinstance(item, ThinkingBlockDeltaEvent):
+                print(f"[THINKING] {item.delta}", end="", file=sys.stdout, flush=True)
+            elif isinstance(item, TextBlockDeltaEvent):
+                print(f"[TEXT] {item.delta}", end="", file=sys.stdout, flush=True)
+            yield item
+
+
+def _thinking_log_factory(ctx: Any, agent_config: Any) -> ThinkingLogMiddleware:
+    """Always create the middleware (unconditional activation)."""
+    return ThinkingLogMiddleware()
+
+
+class ThinkingLogPlugin:
+    def register(self, api: PluginApi) -> None:
+        api.register_middleware(_thinking_log_factory, priority=80)
+
+
+plugin = ThinkingLogPlugin()
+```
+
+**Key points:**
+
+- **Unconditional activation**: The factory always returns an instance, applied to every request
+- **`on_reasoning` hook**: Captures streaming events during the model's reasoning phase (`ThinkingBlockDeltaEvent` for chain-of-thought, `TextBlockDeltaEvent` for text responses)
+- **Real-time printing**: Each delta event is printed immediately while being yielded downstream — does not block streaming
+- Full source: `plugins/middleware-demo/thinking-log-middleware/thinking_log_plugin.py`
+
+---
 
 ## Dependency Management
 
@@ -1367,7 +1553,7 @@ api.register_startup_hook("late", callback, priority=200)
 1. **Only install trusted plugins**: Plugin code executes in the QwenPaw process
 2. **Check dependencies**: Ensure plugin dependencies come from trusted sources
 3. **Review code**: Review plugin source code before installation
-4. **Offline operations**: Plugin install/uninstall requires QwenPaw to be offline
+4. **Hot-loading awareness**: The current version supports hot-installing/uninstalling plugins via API while the app is running. Be mindful of state consistency during hot-loading
 
 ## PluginApi Reference
 
@@ -1485,7 +1671,39 @@ config = api.get_tool_config(tool_name: str, agent_id: str)  # Returns dict
 api.set_tool_config(tool_name: str, agent_id: str, config: dict)
 ```
 
+### register_middleware
+
+Register an AgentScope `MiddlewareBase` factory.
+
+```python
+api.register_middleware(
+    middleware_factory: Callable,   # Factory function
+    *,
+    priority: int = 100,           # Priority (lower = outermost)
+)
+```
+
+Factory signature: `(ctx: HookContext, agent_config: AgentProfileConfig) -> MiddlewareBase | None`
+
+- `ctx` contains request-level context such as `session_id`, `agent_id`, `workspace_dir`
+- Returning `None` means this middleware is skipped for the current request
+- Lower `priority` values place the middleware further out in the onion model (executed first)
+
+The factory is called during `AgentBuilder.build()` for each request. The returned middleware instance is inserted into the agent's middleware chain.
+
+See [Example 8](#example-8-tracing-middleware) and [Example 9](#example-9-thinking-log-middleware) above for full walkthroughs.
+
 ## Advanced Features
+
+### Modifying Agent Behavior
+
+To intercept or enhance agent request processing, use one of these approaches:
+
+- **Enhance the agent reasoning loop**: use `register_middleware` to inject AgentScope middlewares (`on_acting` / `on_reasoning` hooks)
+- **Intercept specific commands**: use `register_control_command` to register a custom command handler
+- **Inject logic into the request lifecycle**: use `HookRegistry` (8-phase hooks)
+
+The current request flow is `Runtime.run()` → `AgentBuilder.build()` → `AgentExecutor.run()`.
 
 ### Custom Commands
 
@@ -1547,12 +1765,15 @@ qwenpaw plugin install https://example.com/my-plugin-1.0.0.zip
 A: Plugins access core functionality through `PluginApi`, including:
 
 - Provider registration
+- Middleware registration (`register_middleware`)
 - Hook registration
+- Custom command registration (`register_control_command`)
+- HTTP router registration (`register_http_router`)
 - Runtime helpers (provider_manager, etc.)
 
 ### Q: Can plugins modify QwenPaw's core behavior?
 
-A: Yes, through `register_control_command`, `register_tool`, runtime hooks, and other PluginApi methods. Use with caution to avoid breaking core functionality.
+A: Yes, through `register_middleware` (inject AgentScope middlewares), `register_control_command`, `register_tool`, runtime hooks, and other PluginApi methods. Use with caution to avoid breaking core functionality.
 
 ### Q: Will plugins conflict with each other?
 
