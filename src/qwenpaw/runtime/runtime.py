@@ -140,7 +140,16 @@ class Runtime:
 
         except (asyncio.CancelledError, KeyboardInterrupt) as e:
             ctx.error = e
-            await hooks.run(Phase.ON_ERROR, ctx)
+            # The Task's _must_cancel flag may still be True after
+            # catching CancelledError, causing the next await to raise
+            # CancelledError again.  Wrap ON_ERROR hooks so that
+            # cancel_envelope is always yielded — the frontend SDK
+            # needs the {object:response, status:completed} event to
+            # exit loading state.
+            try:
+                await hooks.run(Phase.ON_ERROR, ctx)
+            except asyncio.CancelledError:
+                pass
             async for ev in envelope.cancel_envelope():
                 yield ev
             raise
