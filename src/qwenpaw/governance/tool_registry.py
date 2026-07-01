@@ -162,6 +162,7 @@ def _register_builtin_tools(r: ToolRegistry) -> None:
         ("ChatWithAgent", "agent_id"),
         ("SubmitToAgent", "agent_id"),
         ("CheckAgentTask", "task_id"),
+        ("SpawnSubagent", ""),
         ("DelegateExternalAgent", "runner"),
         ("MemorySearch", ""),
     ]:
@@ -194,6 +195,7 @@ def _register_python_name_mappings(
         "chat_with_agent": "ChatWithAgent",
         "submit_to_agent": "SubmitToAgent",
         "check_agent_task": "CheckAgentTask",
+        "spawn_subagent": "SpawnSubagent",
         "materialize_skill": "MaterializeSkill",
     }
     for py_name, policy_name in mappings.items():

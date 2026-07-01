@@ -29,7 +29,6 @@ import { chatApi } from "../../../../api/modules/chat";
 import sessionApi from "../../sessionApi";
 import { useCreateNewSession } from "../../hooks/useCreateNewSession";
 import { useCodingMode } from "../../../../stores/codingModeStore";
-import { useAgentStore } from "../../../../stores/agentStore";
 import ChatSessionItem from "../ChatSessionItem";
 import { getChannelLabel } from "../../../Control/Channels/components";
 import {
@@ -84,7 +83,9 @@ const SessionRow = React.memo(function SessionRow({
       <ChatSessionItem
         sessionId={session.id!}
         name={session.name || "New Chat"}
-        time={formatCreatedAt(session.createdAt ?? null)}
+        time={formatCreatedAtCached(
+          session.updatedAt ?? session.createdAt ?? null,
+        )}
         channelKey={channelKey || undefined}
         channelLabel={channelLabel}
         chatStatus={session.status}
@@ -155,6 +156,24 @@ const formatCreatedAt = (raw: string | null | undefined): string => {
   )}`;
 };
 
+/** Simple cache for formatCreatedAt to avoid re-parsing the same timestamp */
+const formatCache = new Map<string, string>();
+const FORMAT_CACHE_MAX = 200;
+
+const formatCreatedAtCached = (raw: string | null | undefined): string => {
+  if (!raw) return "";
+  const cached = formatCache.get(raw);
+  if (cached !== undefined) return cached;
+  const result = formatCreatedAt(raw);
+  if (formatCache.size >= FORMAT_CACHE_MAX) {
+    // Evict oldest entry
+    const firstKey = formatCache.keys().next().value;
+    if (firstKey !== undefined) formatCache.delete(firstKey);
+  }
+  formatCache.set(raw, result);
+  return result;
+};
+
 /** Resolve the real backend UUID from an extended session (id may be a local timestamp) */
 const getBackendId = (session: ExtendedChatSession): string | null => {
   if (session.realId) return session.realId;
@@ -169,7 +188,6 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
   const location = useLocation();
   const sdkState = useChatAnywhereSessionsState();
   const { codingMode } = useCodingMode();
-  const { selectedAgent, setLastChatId } = useAgentStore();
 
   const createNewSession = useCreateNewSession();
 
@@ -181,8 +199,7 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
   >([]);
 
   const sessions = props.embedded ? localSessions : sdkState.sessions;
-  const { currentSessionId: sdkCurrentSessionId, setCurrentSessionId } =
-    sdkState;
+  const { currentSessionId: sdkCurrentSessionId } = sdkState;
   // In embedded mode, prefer URL-derived chatId for active-state matching
   // because the SDK context may not be accessible from outside the provider.
   const urlCurrentSessionId = props.embedded
@@ -214,6 +231,9 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
 
   /** Whether the session list is being fetched (default true because destroyOnHidden re-mounts) */
   const [listLoading, setListLoading] = useState(true);
+
+  /** Cache last polled sessions to skip no-op state updates */
+  const lastPolledSessionsRef = useRef<IAgentScopeRuntimeWebUISession[]>([]);
 
   /** Height of the virtual list container, measured via ResizeObserver */
   const [listHeight, setListHeight] = useState(0);
@@ -254,23 +274,36 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
     string | null
   >(null);
 
-  /** Sessions sorted by pinned first, then by updatedAt/createdAt descending */
+  /** Sessions sorted by pinned first, then by updatedAt/createdAt descending.
+   *  Filter out local temporary sessions (created by clicking "New Chat" but
+   *  not yet persisted to backend). These sessions have local timestamp IDs
+   *  (matching /^\d+-[a-z0-9]+$/) and no realId field. They should only appear
+   *  in the list after the first message is sent and the backend creates them.
+   */
   const sortedSessions = useMemo(() => {
-    return [...sessions].sort((a, b) => {
-      const extA = a as ExtendedChatSession;
-      const extB = b as ExtendedChatSession;
+    return [...sessions]
+      .filter((session) => {
+        const ext = session as ExtendedChatSession;
+        const isLocalId = /^\d+-[a-z0-9]+$/.test(session.id);
+        const hasRealId = !!ext.realId;
+        // Keep if: not a local ID, OR has been resolved to a real backend ID
+        return !isLocalId || hasRealId;
+      })
+      .sort((a, b) => {
+        const extA = a as ExtendedChatSession;
+        const extB = b as ExtendedChatSession;
 
-      if (extA.pinned && !extB.pinned) return -1;
-      if (!extA.pinned && extB.pinned) return 1;
+        if (extA.pinned && !extB.pinned) return -1;
+        if (!extA.pinned && extB.pinned) return 1;
 
-      // ISO 8601 strings are lexicographically sortable — avoid new Date()
-      const aTime = extA.updatedAt ?? extA.createdAt ?? "";
-      const bTime = extB.updatedAt ?? extB.createdAt ?? "";
-      if (!aTime && !bTime) return 0;
-      if (!aTime) return 1;
-      if (!bTime) return -1;
-      return bTime < aTime ? -1 : bTime > aTime ? 1 : 0;
-    });
+        // ISO 8601 strings are lexicographically sortable — avoid new Date()
+        const aTime = extA.updatedAt ?? extA.createdAt ?? "";
+        const bTime = extB.updatedAt ?? extB.createdAt ?? "";
+        if (!aTime && !bTime) return 0;
+        if (!aTime) return 1;
+        if (!bTime) return -1;
+        return bTime < aTime ? -1 : bTime > aTime ? 1 : 0;
+      });
   }, [sessions]);
 
   /** Re-fetch session list from the backend and sync to context state */
@@ -290,7 +323,24 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
       try {
         const list = await sessionApi.getSessionList();
         if (!isCancelled) {
-          setSessions(list);
+          // Shallow compare to avoid unnecessary state updates
+          const changed =
+            list.length !== lastPolledSessionsRef.current.length ||
+            list.some((s, i) => {
+              const prev = lastPolledSessionsRef.current[i];
+              return (
+                !prev ||
+                s.id !== prev.id ||
+                (s as ExtendedChatSession).updatedAt !==
+                  (prev as ExtendedChatSession).updatedAt ||
+                (s as ExtendedChatSession).generating !==
+                  (prev as ExtendedChatSession).generating
+              );
+            });
+          if (changed) {
+            lastPolledSessionsRef.current = list;
+            setSessions(list);
+          }
         }
       } catch (error) {
         console.error("Failed to refresh session list:", error);
@@ -309,7 +359,24 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
       try {
         const list = await sessionApi.getSessionList();
         if (!isCancelled) {
-          setSessions(list);
+          // Shallow compare to avoid unnecessary state updates
+          const changed =
+            list.length !== lastPolledSessionsRef.current.length ||
+            list.some((s, i) => {
+              const prev = lastPolledSessionsRef.current[i];
+              return (
+                !prev ||
+                s.id !== prev.id ||
+                (s as ExtendedChatSession).updatedAt !==
+                  (prev as ExtendedChatSession).updatedAt ||
+                (s as ExtendedChatSession).generating !==
+                  (prev as ExtendedChatSession).generating
+              );
+            });
+          if (changed) {
+            lastPolledSessionsRef.current = list;
+            setSessions(list);
+          }
         }
       } catch {
         // ignore polling errors
@@ -333,64 +400,19 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
         return;
       }
 
-      if (props.embedded) {
-        setSwitchingSessionId(sessionId);
-        window.dispatchEvent(
-          new CustomEvent("qwenpaw:sidebar-select-session", {
-            detail: { sessionId },
-          }),
-        );
-        return;
-      }
-
-      // Start a new cancellable switch (aborts any in-flight switch)
-      const controller = sessionApi.startNewSwitch();
+      // Both embedded and non-embedded modes use the same switching logic
+      // as simple mode's SidebarSessionList: just navigate to the session
+      // URL. ChatSessionInitializer's useEffect will pick up the URL change
+      // and call setCurrentSessionId(matching.id) to notify the SDK.
+      // This avoids the preload / isSessionSwitching complexity that caused
+      // the "flash to new chat" issue.
       setSwitchingSessionId(sessionId);
-
-      sessionApi
-        .preloadSession(sessionId, controller.signal)
-        .then(({ realId }) => {
-          if (controller.signal.aborted) return;
-          const effectiveId = sessionApi.getEffectiveSessionId(
-            sessionId,
-            realId,
-          );
-          // Issue #4987: In coding mode, skip URL navigation to /chat/<id>.
-          // The redirect effect in ChatPage would immediately navigate back
-          // to /coding before session data loads, causing the switch to fail.
-          if (!codingMode) {
-            const targetUrl = buildSessionPath("chat", effectiveId);
-            navigate(targetUrl, { replace: true });
-          }
-          sessionApi.trackNavigatedSession(
-            effectiveId,
-            setLastChatId,
-            selectedAgent,
-          );
-          setCurrentSessionId(sessionId);
-        })
-        .catch((err) => {
-          if (err?.name === "AbortError") return;
-          // On non-abort error, still try to switch normally.
-          setCurrentSessionId(sessionId);
-        })
-        .finally(() => {
-          // Only clean up if this switch was NOT superseded by a newer one
-          if (!controller.signal.aborted) {
-            sessionApi.finishSessionSwitch();
-            setSwitchingSessionId(null);
-          }
-        });
+      const mode = codingMode ? "coding" : "chat";
+      const effectiveId = sessionApi.getEffectiveSessionId(sessionId);
+      const targetPath = buildSessionPath(mode, effectiveId);
+      navigate(targetPath);
     },
-    [
-      currentSessionId,
-      setCurrentSessionId,
-      navigate,
-      codingMode,
-      selectedAgent,
-      setLastChatId,
-      props.embedded,
-    ],
+    [currentSessionId, navigate, codingMode],
   );
 
   // Listen for embedded switch completion so we can clear switchingSessionId.
@@ -423,6 +445,8 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
       if (backendId) {
         await chatApi.deleteChat(backendId);
       }
+
+      localStorage.removeItem(`approval_level-${sessionId}`);
 
       // Fetch the updated session list after deletion
       const freshList =

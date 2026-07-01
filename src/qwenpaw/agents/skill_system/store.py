@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import io
 import json
 import logging
@@ -20,6 +21,7 @@ from pathlib import Path
 from typing import Any, TypeVar
 
 import frontmatter
+import yaml
 
 from ...exceptions import SkillsError
 from ...security.skill_scanner import scan_skill_directory
@@ -233,6 +235,18 @@ def get_skill_mtime(skill_dir: Path) -> str:
         )
     except OSError:
         return ""
+
+
+def compute_skill_md_hash(skill_dir: Path) -> str:
+    """Return a SHA-256 hex digest of the skill's ``SKILL.md`` content."""
+    skill_md = skill_dir / "SKILL.md"
+    if not skill_md.exists():
+        return ""
+    try:
+        content = read_text_file_with_encoding_fallback(skill_md)
+    except OSError:
+        return ""
+    return hashlib.sha256(content.encode("utf-8")).hexdigest()
 
 
 def _directory_tree(directory: Path) -> dict[str, Any]:
@@ -837,7 +851,12 @@ def read_skill_from_dir(skill_dir: Path, source: str) -> SkillInfo | None:
 
 
 def validate_skill_content(content: str) -> tuple[str, str]:
-    post = frontmatter.loads(content)
+    try:
+        post = frontmatter.loads(content)
+    except yaml.YAMLError as exc:
+        raise SkillsError(
+            message=f"SKILL.md frontmatter is not valid YAML: {exc}",
+        ) from exc
     skill_name = str(post.get("name") or "").strip()
     skill_description = str(post.get("description") or "").strip()
     if not skill_name or not skill_description:

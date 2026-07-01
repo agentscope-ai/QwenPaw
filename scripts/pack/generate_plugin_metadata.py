@@ -140,6 +140,53 @@ def _localized_description(manifest: dict[str, Any]) -> dict[str, str]:
     return _localized_field(manifest.get("description") or "")
 
 
+def _normalize_ver(raw: str) -> str:
+    """Strip leading 'v' and surrounding whitespace from a version string."""
+    s = raw.strip()
+    if s.lower().startswith("v"):
+        s = s[1:]
+    return s
+
+
+def get_version(manifest: dict[str, Any]) -> dict[str, str] | None:
+    """Return a normalized ``qwenpaw_version`` for CDN metadata.
+
+    Strategy:
+      1. If the manifest already provides the structured
+         ``qwenpaw_version`` field, return it directly — the plugin
+         explicitly declares its compatibility.
+      2. For legacy plugins that only declare ``min_version`` /
+         ``max_version``, synthesize a proper ``qwenpaw_version`` dict
+         with ``min`` and/or ``max`` keys so downstream consumers
+         (e.g. ``_is_entry_compatible``) always see a consistent
+         structure.
+
+    Version strings are sanitized (leading 'v' and whitespace removed).
+    Returns ``None`` when no version constraint is declared.
+    """
+    # --- Case 1: structured field available, use directly ---
+    qwenpaw_version = manifest.get("qwenpaw_version")
+    if isinstance(qwenpaw_version, dict):
+        return {
+            k: _normalize_ver(str(v))
+            for k, v in qwenpaw_version.items()
+            if k in ("min", "max")
+        }
+
+    # --- Case 2: legacy min/max, synthesize structured dict ---
+    min_ver_str = _normalize_ver(str(manifest.get("min_version") or ""))
+    max_ver_str = _normalize_ver(str(manifest.get("max_version") or ""))
+    if not min_ver_str and not max_ver_str:
+        return None
+
+    result: dict[str, str] = {}
+    if min_ver_str:
+        result["min"] = min_ver_str
+    if max_ver_str:
+        result["max"] = max_ver_str
+    return result
+
+
 def _build_metadata(
     manifest: dict[str, Any],
     *,
@@ -151,7 +198,7 @@ def _build_metadata(
     cdn_path: str,
 ) -> dict[str, Any]:
     size_bytes = zip_path.stat().st_size
-    return {
+    metadata: dict[str, Any] = {
         "id": file_id,
         "plugin_id": plugin_id,
         "name": _localized_field(manifest.get("name") or plugin_id),
@@ -168,6 +215,12 @@ def _build_metadata(
         "updated_at": datetime.now(timezone.utc).isoformat(),
         "type": "zip",
     }
+
+    version_constraint = get_version(manifest)
+    if version_constraint:
+        metadata["qwenpaw_version"] = version_constraint
+
+    return metadata
 
 
 def discover_and_pack(

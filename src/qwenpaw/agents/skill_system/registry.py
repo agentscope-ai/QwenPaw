@@ -780,6 +780,13 @@ def import_builtin_skills(
                 entry["config"] = existing.get("config")
             if "tags" in existing:
                 entry["tags"] = existing.get("tags")
+            for au_key in (
+                "auto_update",
+                "auto_update_targets",
+                "auto_update_synced_hash",
+            ):
+                if au_key in existing:
+                    entry[au_key] = existing.get(au_key)
             skills[skill_name] = entry
 
         return {
@@ -948,6 +955,13 @@ def _build_reconciled_pool_entry(
     existing_installed_from = existing.get("installed_from")
     if existing_installed_from:
         new_entry["installed_from"] = existing_installed_from
+    for au_key in (
+        "auto_update",
+        "auto_update_targets",
+        "auto_update_synced_hash",
+    ):
+        if au_key in existing:
+            new_entry[au_key] = existing.get(au_key)
     return new_entry
 
 
@@ -1478,6 +1492,13 @@ def update_single_builtin(
             entry["config"] = current["config"]
         if "tags" in current:
             entry["tags"] = current["tags"]
+        for au_key in (
+            "auto_update",
+            "auto_update_targets",
+            "auto_update_synced_hash",
+        ):
+            if au_key in current:
+                entry[au_key] = current.get(au_key)
         payload["skills"][canonical_name] = entry
         return entry
 

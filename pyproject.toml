@@ -50,8 +50,11 @@ dependencies = [
     "pillow>=10.0.0",
     "agent-client-protocol>=0.9.0",
     # Streaming-markdown terminal UI for the bundled `qwenpaw` TUI
-    # (v4+ adds the streaming Markdown widget).
-    "textual>=4.0",
+    # (v4+ adds the streaming Markdown widget). 8.2.8 fixes parsing of
+    # multi-codepoint Kitty "associated text" so input methods (Chinese,
+    # Japanese, accents, ...) no longer leak escape sequences into the prompt
+    # (Textualize/textual#6592).
+    "textual>=8.2.8",
     "psutil>=6.0.0",
     "openai>=2.0.0,<=2.33.0",
     # anyio 4.13.0: _deliver_cancellation busy-loop / getpid storm (QwenPaw#2632)

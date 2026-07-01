@@ -25,7 +25,7 @@ semver = "1"
 base64 = "0.22"
 minisign-verify = "0.2"
 sha2 = "0.10"
-tauri = { version = "2.10.3", features = [] }
+tauri = { version = "2.10.3", features = ["tray-icon"] }
 tauri-plugin-log = "2"
 tauri-plugin-shell = "2"
 tauri-plugin-dialog = "2"

@@ -32,6 +32,18 @@
     "yes": "Sim",
     "no": "Nao"
   },
+  "desktop": {
+    "closeWindow": {
+      "title": "Fechar Janela",
+      "description": "O que deseja fazer ao fechar a janela? Sair do aplicativo interrompe todas as tarefas em execução e tarefas agendadas.",
+      "remember": "Lembrar minha escolha",
+      "showWindow": "Mostrar janela",
+      "minimizeToTray": "Minimizar para a bandeja",
+      "quitApp": "Sair do aplicativo",
+      "preference": "Fechar Janela",
+      "askEveryTime": "Perguntar sempre"
+    }
+  },
   "chunkError": {
     "title": "Falha ao carregar pagina",
     "subTitle": "This may be caused by a network issue or an application update.",
@@ -2120,7 +2132,7 @@
       "file": "Arquivo",
       "noChatWarning": "Envie uma mensagem primeiro para criar uma conversa antes de usar a fila",
       "queueFull": "Fila cheia (máx. {{max}} itens). Envie ou remova algumas mensagens primeiro",
-      "otherTabOwner": "Esta conversa está sendo enviada de outra aba. Nesta aba, você só pode adicionar entradas à fila."
+      "otherTabOwner": "This tab queues only; sending is handled by another tab"
     },
     "group": {
       "pinned": "Fixados",
@@ -2134,7 +2146,15 @@
       "noConversations": "Sem conversas",
       "loadingConversations": "Carregando…"
     },
-    "conversationHistory": "Histórico de conversas"
+    "conversationHistory": "Histórico de conversas",
+    "history": {
+      "empty": "Sem histórico de conversas"
+    },
+    "sessionGroup": {
+      "today": "Hoje",
+      "recent": "Últimos 7 dias",
+      "earlier": "Anteriores"
+    }
   },
   "security": {
     "parent": "Configuracoes",
