@@ -1268,6 +1268,9 @@ export default function ChatPage() {
   const customFetch = useCallback(
     async (data: {
       input?: Array<Record<string, unknown>>;
+      session_id?: string;
+      user_id?: string;
+      channel?: string;
       biz_params?: Record<string, unknown>;
       signal?: AbortSignal;
     }): Promise<Response> => {
@@ -1310,9 +1313,12 @@ export default function ChatPage() {
       const identity = sessionApi.getSessionIdentity();
       let requestBody: Record<string, unknown> = {
         input: rewrittenInput,
-        session_id: identity.sessionId || session?.session_id || "",
-        user_id: identity.userId || session?.user_id || DEFAULT_USER_ID,
-        channel: identity.channel || session?.channel || DEFAULT_CHANNEL,
+        session_id:
+          data.session_id || identity.sessionId || session?.session_id || "",
+        user_id:
+          data.user_id || identity.userId || session?.user_id || DEFAULT_USER_ID,
+        channel:
+          data.channel || identity.channel || session?.channel || DEFAULT_CHANNEL,
         stream: true,
         ...biz_params,
       };
