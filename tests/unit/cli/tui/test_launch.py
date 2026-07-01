@@ -20,6 +20,7 @@ from click.testing import CliRunner
 
 from qwenpaw.cli.tui import launch
 from qwenpaw.cli.tui.launch import _build_transport, _resolve_workspace_dir
+from qwenpaw.cli.tui.launch import _resume_command
 from qwenpaw.cli.tui.launch import tui_cmd
 
 pytestmark = [pytest.mark.unit, pytest.mark.p1]
@@ -105,6 +106,47 @@ def test_workspace_dir_falls_back_to_requested_agent(tmp_path, monkeypatch):
 
     assert _resolve_workspace_dir("writer") == str(
         (tmp_path / "workspaces" / "writer").resolve(),
+    )
+
+
+def test_resume_command_quotes_agent_session_and_project_path():
+    command = _resume_command(
+        "sess abc",
+        agent="writer",
+        project_dir="/tmp/project with spaces",
+    )
+
+    assert command == (
+        "qwenpaw tui --agent writer --resume 'sess abc' "
+        "'/tmp/project with spaces'"
+    )
+
+
+def test_run_tui_prints_resume_hint(monkeypatch, capsys, tmp_path):
+    class FakeTransport:
+        session_id = "sess-123"
+        _project_dir = str(tmp_path)
+
+    class FakeApp:
+        def __init__(self, transport, **kwargs):
+            self.transport = transport
+            self.kwargs = kwargs
+
+        def run(self):
+            return None
+
+    monkeypatch.setattr(
+        launch,
+        "_build_transport",
+        lambda **_: (FakeTransport(), "fake transport"),
+    )
+    monkeypatch.setattr("qwenpaw.cli.tui.app.PawApp", FakeApp)
+
+    launch.run_tui(agent="writer")
+
+    assert capsys.readouterr().out == (
+        f"Bye! To resume this session, run: "
+        f"qwenpaw tui --agent writer --resume sess-123 {tmp_path}\n"
     )
 
 

@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import shlex
 import sys
 
 import click
@@ -59,6 +60,38 @@ def _resolve_workspace_dir(agent: str | None) -> str:
     except (OSError, ValueError, TypeError):
         pass
     return str((WORKING_DIR / "workspaces" / fallback_agent).resolve())
+
+
+def _resume_command(
+    session_id: str,
+    *,
+    agent: str | None,
+    project_dir: str | None,
+) -> str:
+    parts = ["qwenpaw", "tui"]
+    if agent:
+        parts.extend(["--agent", agent])
+    parts.extend(["--resume", session_id])
+    if project_dir:
+        parts.append(project_dir)
+    return " ".join(shlex.quote(part) for part in parts)
+
+
+def _print_resume_hint(
+    session_id: str | None,
+    *,
+    agent: str | None,
+    project_dir: str | None,
+) -> None:
+    if not session_id:
+        click.echo("Bye!")
+        return
+    command = _resume_command(
+        session_id,
+        agent=agent,
+        project_dir=project_dir,
+    )
+    click.echo(f"Bye! To resume this session, run: {command}")
 
 
 def _build_transport(
@@ -113,14 +146,20 @@ def run_tui(
 
     from .app import PawApp
 
+    project_dir = getattr(transport, "_project_dir", None)
     PawApp(
         transport,
         agent=agent or "default",
         target=description,
         resume_session_id=resume,
         workspace_dir=_resolve_workspace_dir(agent),
-        project_dir=getattr(transport, "_project_dir", None),
+        project_dir=project_dir,
     ).run()
+    _print_resume_hint(
+        transport.session_id,
+        agent=agent,
+        project_dir=project_dir,
+    )
 
 
 @click.command(
