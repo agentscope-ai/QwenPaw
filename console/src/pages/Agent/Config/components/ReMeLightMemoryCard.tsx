@@ -25,6 +25,12 @@ export function ReMeLightMemoryCard() {
   ]);
   const embeddingEnabled = !!(baseUrl?.trim() && modelName?.trim());
 
+  const rerankerEnabled = Form.useWatch([
+    "reme_light_memory_config",
+    "reranker_config",
+    "enabled",
+  ]);
+
   return (
     <Card
       className={styles.formCard}
@@ -137,6 +143,67 @@ export function ReMeLightMemoryCard() {
                 >
                   <Switch />
                 </Form.Item>
+              </>
+            ),
+          },
+          {
+            key: "rerankerConfig",
+            label: t("agentConfig.rerankerConfigCollapseLabel"),
+            forceRender: true,
+            children: (
+              <>
+                <Form.Item
+                  label={t("agentConfig.rerankerEnabled")}
+                  name={["reme_light_memory_config", "reranker_config", "enabled"]}
+                  valuePropName="checked"
+                  tooltip={t("agentConfig.rerankerEnabledTooltip")}
+                >
+                  <Switch />
+                </Form.Item>
+
+                {rerankerEnabled && (
+                  <>
+                    <Form.Item
+                      label={t("agentConfig.rerankerModelName")}
+                      name={["reme_light_memory_config", "reranker_config", "model_name"]}
+                      tooltip={t("agentConfig.rerankerModelNameTooltip")}
+                    >
+                      <Input placeholder={t("agentConfig.rerankerModelNamePlaceholder")} />
+                    </Form.Item>
+
+                    <Form.Item
+                      label={t("agentConfig.rerankerBaseUrl")}
+                      name={["reme_light_memory_config", "reranker_config", "base_url"]}
+                      tooltip={t("agentConfig.rerankerBaseUrlTooltip")}
+                    >
+                      <Input placeholder={t("agentConfig.rerankerBaseUrlPlaceholder")} />
+                    </Form.Item>
+
+                    <Form.Item
+                      label={t("agentConfig.rerankerApiKey")}
+                      name={["reme_light_memory_config", "reranker_config", "api_key"]}
+                      tooltip={t("agentConfig.rerankerApiKeyTooltip")}
+                    >
+                      <Input.Password placeholder={t("agentConfig.rerankerApiKeyPlaceholder")} />
+                    </Form.Item>
+
+                    <Form.Item
+                      label={t("agentConfig.rerankerTemperature")}
+                      name={["reme_light_memory_config", "reranker_config", "temperature"]}
+                      tooltip={t("agentConfig.rerankerTemperatureTooltip")}
+                    >
+                      <InputNumber
+                        style={{ width: "100%" }}
+                        min={0}
+                        max={2}
+                        step={0.1}
+                        placeholder={t("agentConfig.rerankerTemperaturePlaceholder")}
+                      />
+                    </Form.Item>
+
+                    <Alert type="info" showIcon message={t("agentConfig.rerankerInfoHint")} />
+                  </>
+                )}
               </>
             ),
           },

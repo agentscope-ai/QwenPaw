@@ -33,18 +33,6 @@
     "yes": "Yes",
     "no": "No"
   },
-  "desktop": {
-    "closeWindow": {
-      "title": "Close Window",
-      "description": "What would you like to do when closing the window? Quitting the app stops all running tasks and scheduled jobs.",
-      "remember": "Remember my choice",
-      "showWindow": "Show Window",
-      "minimizeToTray": "Minimize to Tray",
-      "quitApp": "Quit App",
-      "preference": "Close Window",
-      "askEveryTime": "Ask every time"
-    }
-  },
   "chunkError": {
     "title": "Failed to load page",
     "subTitle": "This may be caused by a network issue or an application update.",
@@ -155,10 +143,6 @@
     "summaryPushUnread": "Unread Push",
     "summaryHarvests": "Harvests",
     "from": "From:",
-    "skillAutoUpdateTitle": "Skill auto-sync",
-    "skillPoolSender": "Skill Pool",
-    "skillAutoUpdated": "Skill \"{{skill}}\" changed — auto-synced to: {{agents}}",
-    "skillAutoUpdateFailed": "Skill \"{{skill}}\" auto-sync failed for: {{agents}}",
     "requestedBy": "By",
     "markRead": "Mark Read",
     "markAllRead": "Mark All Read",
@@ -658,17 +642,6 @@
     "deleteExternalConfirm": "This deletes the external skill files at {{path}} from disk.",
     "deleteExternalBatchWarning": "Selected external skills will be permanently deleted from disk.",
     "broadcastTitle": "Broadcast {{name}}",
-    "autoUpdate": "Auto Sync",
-    "autoUpdateOnHint": "Auto Sync is on; content changes sync to its agents automatically.",
-    "autoUpdateEnableHint": "Turn on Auto Sync: push content changes to agents that already have this skill.",
-    "autoUpdateDisableHint": "Turn off Auto Sync for this skill.",
-    "autoUpdateEnabled": "Auto Sync enabled for {{name}}",
-    "autoUpdateDisabled": "Auto Sync disabled for {{name}}",
-    "autoUpdateFailed": "Failed to update Auto Sync setting",
-    "autoUpdateAgentsPlaceholder": "All agents that have this skill",
-    "autoUpdateAgentsHint": "Leave empty to sync every agent that already has the skill. Selecting agents pins updates to them (and installs the skill where missing).",
-    "renameAffectsTitle": "Rename in agents too?",
-    "renameAffectsContent": "\"{{from}}\" is installed in {{count}} agent(s). Rename to \"{{to}}\"",
     "importBuiltin": "Update Built-in Skills",
     "importBuiltinHint": "Update built-in skills to the latest version",
     "importBuiltinAlertHint": "{{count}} built-in changes need review",
@@ -2095,7 +2068,23 @@
       "restApiKey": "REST API Key",
       "memoryIsolation": "Memory Isolation (per-agent)",
       "searchTimeout": "Search Timeout"
-    }
+    },
+    "rerankerConfigCollapseLabel": "Search Result Reranker",
+    "rerankerEnabled": "Enable Reranker",
+    "rerankerEnabledTooltip": "When enabled, search results will be reranked by an LLM model for better relevance",
+    "rerankerModelName": "Model Name",
+    "rerankerModelNameTooltip": "Reranker model name, e.g. bge-reranker-v2-gemma, Qwen3-Reranker-8B",
+    "rerankerModelNamePlaceholder": "e.g. bge-reranker-v2-gemma",
+    "rerankerBaseUrl": "API Base URL",
+    "rerankerBaseUrlTooltip": "OpenAI-compatible API base URL",
+    "rerankerBaseUrlPlaceholder": "e.g. https://api.siliconflow.cn/v1",
+    "rerankerApiKey": "API Key",
+    "rerankerApiKeyTooltip": "API key for the reranker provider",
+    "rerankerApiKeyPlaceholder": "Enter API key",
+    "rerankerTemperature": "Temperature",
+    "rerankerTemperatureTooltip": "Sampling temperature for reranking (0-2)",
+    "rerankerTemperaturePlaceholder": "0.0",
+    "rerankerInfoHint": "After the initial hybrid search, an extra LLM API call re-orders results for better relevance. Requires model_name, base_url, and api_key to be configured correctly. Note: each search triggers an extra API call that may incur costs."
   },
   "tools": {
     "title": "Built-in Tools",
@@ -2264,7 +2253,7 @@
       "file": "File",
       "noChatWarning": "Please send a message first to create a conversation before using the queue",
       "queueFull": "Queue is full (max {{max}} items), please send or remove some messages first",
-      "otherTabOwner": "This tab queues only; sending is handled by another tab"
+      "otherTabOwner": "This conversation is being sent from another tab. This tab can only add inputs to the queue; all send operations are handled by the other tab."
     },
     "group": {
       "pinned": "Pinned",
@@ -2279,15 +2268,7 @@
       "noConversations": "No conversations yet",
       "loadingConversations": "Loading…"
     },
-    "conversationHistory": "Conversation History",
-    "history": {
-      "empty": "No chat history"
-    },
-    "sessionGroup": {
-      "today": "Today",
-      "recent": "Last 7 days",
-      "earlier": "Earlier"
-    }
+    "conversationHistory": "Conversation History"
   },
   "security": {
     "parent": "Settings",
