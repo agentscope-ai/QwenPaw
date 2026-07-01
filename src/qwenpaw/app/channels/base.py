@@ -871,6 +871,7 @@ class BaseChannel(ABC):
         reasoning / message events alongside the normal path.
         """
         request = self._payload_to_request(payload)
+        request.channel_instance = self
 
         if isinstance(payload, dict):
             send_meta = dict(payload.get("meta") or {})

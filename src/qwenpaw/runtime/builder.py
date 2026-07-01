@@ -419,6 +419,11 @@ class AgentBuilder:
             if user_name:
                 rc["user_name"] = user_name
             rc["channel_meta"] = _channel_meta
+        rc["_channel_instance"] = getattr(
+            request,
+            "channel_instance",
+            None,
+        )
         _payload_ctx = (
             getattr(request, "request_context", None) if request else None
         )
