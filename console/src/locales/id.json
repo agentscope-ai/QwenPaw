@@ -1819,7 +1819,7 @@
     "maxItersPlaceholder": "Masukkan iterasi maksimum",
     "maxItersRequired": "Iterasi maksimum wajib diisi",
     "maxItersMin": "Iterasi maksimum minimal 1",
-    "agentLoopTitle": "Pengaturan Loop Engineering",
+    "agentLoopTitle": "Pengaturan Loop Agen",
     "doomLoopEnabled": "Perlindungan Perilaku Berulang",
     "doomLoopEnabledTooltip": "Intervensi otomatis saat agen terjebak mengulangi tindakan yang sama",
     "doomLoopAfter": "Setelah",
@@ -1853,12 +1853,6 @@
     "rubricMaxInterventionsTooltip": "Jumlah maksimum permintaan ulang per giliran. Mencegah permintaan ulang tak terbatas jika LLM terus menghasilkan teks saja.",
     "inLoopModes": "Aktifkan dalam mode /goal & /mission",
     "inLoopModesTooltip": "Juga berlaku saat mode /goal atau /mission aktif",
-    "thinkingBudgetTitle": "Anggaran Berpikir",
-    "thinkingBudgetDesc": "Kontrol anggaran token untuk berpikir / penalaran diperluas. Berlaku untuk model yang mendukung mode berpikir (mis. Claude, Qwen).",
-    "thinkingBudgetEnabled": "Aktifkan Anggaran Berpikir",
-    "thinkingBudgetEnabledTooltip": "Tetapkan batas token untuk proses penalaran internal model",
-    "thinkingBudgetTokens": "Token Anggaran",
-    "thinkingBudgetTokensTooltip": "Jumlah token maksimum untuk berpikir / penalaran diperluas per permintaan",
     "comingSoonEditable": "Konfigurasi kustom akan tersedia di rilis mendatang.",
     "simpleMode": "Sederhana",
     "advancedMode": "Lanjutan",
@@ -2085,6 +2079,6 @@
     }
   },
   "loop": {
-    "gotoSettings": "Pengaturan Loop Engineering"
+    "gotoSettings": "Pengaturan Loop Agen"
   }
 }

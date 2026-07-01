@@ -1671,7 +1671,7 @@
     "maxItersPlaceholder": "请输入最大迭代次数",
     "maxItersRequired": "最大迭代次数为必填项",
     "maxItersMin": "最大迭代次数必须大于等于 1",
-    "agentLoopTitle": "Loop 工程设置",
+    "agentLoopTitle": "智能体 Loop 设置",
     "doomLoopEnabled": "重复行为保护",
     "doomLoopEnabledTooltip": "当 Agent 陷入重复相同操作时自动介入",
     "doomLoopAfter": "连续重复",
@@ -1705,12 +1705,6 @@
     "rubricMaxInterventionsTooltip": "每轮最多重新提示的次数，防止 LLM 持续输出纯文本导致无限循环。",
     "inLoopModes": "在 /goal、/mission 模式中启用",
     "inLoopModesTooltip": "当 /goal 或 /mission 循环模式激活时也启用此功能",
-    "thinkingBudgetTitle": "思考预算",
-    "thinkingBudgetDesc": "控制模型扩展思考/推理的 Token 预算。适用于支持思考模式的模型（如 Claude、Qwen）。",
-    "thinkingBudgetEnabled": "启用思考预算",
-    "thinkingBudgetEnabledTooltip": "为模型的内部推理过程设置 Token 上限",
-    "thinkingBudgetTokens": "预算 Token 数",
-    "thinkingBudgetTokensTooltip": "每次请求分配给思考/扩展推理的最大 Token 数",
     "comingSoonEditable": "自定义配置将在未来版本中开放。",
     "simpleMode": "简单",
     "advancedMode": "高级",
@@ -2845,6 +2839,6 @@
       "resume": "继续",
       "stop": "停止"
     },
-    "gotoSettings": "Loop 工程设置"
+    "gotoSettings": "智能体 Loop 设置"
   }
 }

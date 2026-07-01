@@ -1475,7 +1475,7 @@
     "maxItersPlaceholder": "Введите макс. число итераций",
     "maxItersRequired": "Требуется указать макс. число итераций",
     "maxItersMin": "Макс. число итераций должно быть не меньше 1",
-    "agentLoopTitle": "Настройки Loop Engineering",
+    "agentLoopTitle": "Настройки Loop агента",
     "doomLoopEnabled": "Защита от повторений",
     "doomLoopEnabledTooltip": "Автоматическое вмешательство, когда агент застревает на повторении одних и тех же действий",
     "doomLoopAfter": "После",
@@ -1509,12 +1509,6 @@
     "rubricMaxInterventionsTooltip": "Максимальное количество повторных запросов за ход. Предотвращает бесконечный повторный запрос, если LLM продолжает выводить только текст.",
     "inLoopModes": "Включить в режимах /goal и /mission",
     "inLoopModesTooltip": "Также применять, когда активен режим /goal или /mission",
-    "thinkingBudgetTitle": "Бюджет мышления",
-    "thinkingBudgetDesc": "Управление бюджетом токенов для расширенного мышления / рассуждения. Применяется к моделям с поддержкой режима мышления (Claude, Qwen и т.д.).",
-    "thinkingBudgetEnabled": "Включить бюджет мышления",
-    "thinkingBudgetEnabledTooltip": "Установить лимит токенов для внутреннего процесса рассуждения модели",
-    "thinkingBudgetTokens": "Токены бюджета",
-    "thinkingBudgetTokensTooltip": "Максимальное количество токенов для мышления / расширенного рассуждения на запрос",
     "comingSoonEditable": "Пользовательская настройка будет доступна в будущем выпуске.",
     "simpleMode": "Простой",
     "advancedMode": "Расширенный",
@@ -2722,6 +2716,6 @@
     "executeDefault": "Запустить инструмент"
   },
   "loop": {
-    "gotoSettings": "Настройки Loop Engineering"
+    "gotoSettings": "Настройки Loop агента"
   }
 }

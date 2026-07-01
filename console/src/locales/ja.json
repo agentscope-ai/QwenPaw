@@ -1460,7 +1460,7 @@
     "maxItersPlaceholder": "最大反復回数を入力",
     "maxItersRequired": "最大反復回数は必須です",
     "maxItersMin": "最大反復回数は1以上である必要があります",
-    "agentLoopTitle": "Loop エンジニアリング設定",
+    "agentLoopTitle": "エージェント Loop 設定",
     "doomLoopEnabled": "繰り返し行動保護",
     "doomLoopEnabledTooltip": "エージェントが同じ操作を繰り返している場合に自動的に介入します",
     "doomLoopAfter": "連続",
@@ -1494,12 +1494,6 @@
     "rubricMaxInterventionsTooltip": "ターンあたりの最大再プロンプト回数。LLMがテキストのみを出力し続ける場合の無限ループを防止します。",
     "inLoopModes": "/goal・/mission モードでも有効化",
     "inLoopModesTooltip": "/goal または /mission ループモードがアクティブな時もこのゲートを適用",
-    "thinkingBudgetTitle": "思考バジェット",
-    "thinkingBudgetDesc": "拡張思考/推論のトークン予算を制御します。思考モード対応モデル（Claude、Qwenなど）に適用されます。",
-    "thinkingBudgetEnabled": "思考バジェットを有効化",
-    "thinkingBudgetEnabledTooltip": "モデルの内部推論プロセスにトークン上限を設定",
-    "thinkingBudgetTokens": "バジェットトークン数",
-    "thinkingBudgetTokensTooltip": "リクエストあたりの思考/拡張推論に割り当てる最大トークン数",
     "comingSoonEditable": "カスタム設定は将来のリリースで利用可能になります。",
     "simpleMode": "シンプル",
     "advancedMode": "詳細",
@@ -2707,6 +2701,6 @@
     "executeDefault": "ツールを実行"
   },
   "loop": {
-    "gotoSettings": "ループエンジニアリング設定"
+    "gotoSettings": "エージェント Loop 設定"
   }
 }

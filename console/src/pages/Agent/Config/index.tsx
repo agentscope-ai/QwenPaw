@@ -90,7 +90,7 @@ function AgentConfigPage() {
         key: "agentLoop",
         label: (
           <span className={styles.tabLabel}>
-            {t("agentConfig.agentLoopTitle", "Loop Engineering Settings")}
+            {t("agentConfig.agentLoopTitle", "Agent Loop Settings")}
           </span>
         ),
         children: (

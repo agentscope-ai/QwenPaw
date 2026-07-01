@@ -23,7 +23,6 @@ import {
   Gauge,
   Wallet,
   Lock,
-  Brain,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import styles from "../index.module.less";
@@ -529,61 +528,6 @@ function RubricSection() {
   );
 }
 
-function ThinkingBudgetSection() {
-  const { t } = useTranslation();
-  const form = Form.useFormInstance();
-  const enabled = Form.useWatch(["loop", "thinking_budget", "enabled"], form);
-
-  return (
-    <div>
-      <SectionHeader
-        icon={<Brain size={16} style={{ opacity: 0.7 }} />}
-        title={t("agentConfig.thinkingBudgetTitle", "Thinking Budget")}
-      />
-      <p
-        style={{
-          fontSize: 12,
-          color: "var(--text-secondary, rgba(0,0,0,0.45))",
-          marginBottom: 12,
-          lineHeight: 1.6,
-        }}
-      >
-        {t(
-          "agentConfig.thinkingBudgetDesc",
-          "Control the token budget for extended thinking / reasoning. Applies to models that support thinking mode (e.g. Claude, Qwen).",
-        )}
-      </p>
-      <Form.Item
-        name={["loop", "thinking_budget", "enabled"]}
-        label={t("agentConfig.thinkingBudgetEnabled", "Enable Thinking Budget")}
-        valuePropName="checked"
-        tooltip={t(
-          "agentConfig.thinkingBudgetEnabledTooltip",
-          "Set a token limit for the model's internal reasoning process",
-        )}
-      >
-        <Switch />
-      </Form.Item>
-      {enabled && (
-        <Form.Item
-          name={["loop", "thinking_budget", "budget_tokens"]}
-          label={t("agentConfig.thinkingBudgetTokens", "Budget Tokens")}
-          tooltip={t(
-            "agentConfig.thinkingBudgetTokensTooltip",
-            "Maximum number of tokens allocated for thinking / extended reasoning per request",
-          )}
-        >
-          <InputNumber
-            min={0}
-            max={1000000}
-            step={1000}
-            style={{ width: 200 }}
-          />
-        </Form.Item>
-      )}
-    </div>
-  );
-}
 
 function ReactTab() {
   return (
@@ -593,8 +537,6 @@ function ReactTab() {
       <DoomLoopSection />
       <SectionDivider />
       <RubricSection />
-      <SectionDivider />
-      <ThinkingBudgetSection />
     </>
   );
 }
@@ -768,7 +710,7 @@ export function AgentLoopCard() {
   return (
     <Card
       className={styles.formCard}
-      title={t("agentConfig.agentLoopTitle", "Loop Engineering Settings")}
+      title={t("agentConfig.agentLoopTitle", "Agent Loop Settings")}
     >
       <Tabs defaultActiveKey="react" items={tabItems} size="small" />
     </Card>

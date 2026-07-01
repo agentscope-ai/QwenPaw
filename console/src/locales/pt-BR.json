@@ -1678,7 +1678,7 @@
     "maxItersPlaceholder": "Enter max iterations",
     "maxItersRequired": "Max iterations is Obrigatorio",
     "maxItersMin": "Max iterations must be at least 1",
-    "agentLoopTitle": "Configurações de Loop Engineering",
+    "agentLoopTitle": "Configurações de Loop do Agente",
     "doomLoopEnabled": "Proteção contra Repetição",
     "doomLoopEnabledTooltip": "Intervir automaticamente quando o agente fica preso repetindo as mesmas ações",
     "doomLoopAfter": "Após",
@@ -1712,12 +1712,6 @@
     "rubricMaxInterventionsTooltip": "Máximo de vezes para re-solicitar por turno. Previne re-solicitação infinita se o LLM continuar produzindo apenas texto.",
     "inLoopModes": "Ativar nos modos /goal e /mission",
     "inLoopModesTooltip": "Também aplicar quando o modo /goal ou /mission estiver ativo",
-    "thinkingBudgetTitle": "Orçamento de Pensamento",
-    "thinkingBudgetDesc": "Controle o orçamento de tokens para pensamento estendido / raciocínio. Aplica-se a modelos que suportam modo de pensamento (ex: Claude, Qwen).",
-    "thinkingBudgetEnabled": "Ativar Orçamento de Pensamento",
-    "thinkingBudgetEnabledTooltip": "Definir um limite de tokens para o processo de raciocínio interno do modelo",
-    "thinkingBudgetTokens": "Tokens de Orçamento",
-    "thinkingBudgetTokensTooltip": "Número máximo de tokens alocados para pensamento / raciocínio estendido por requisição",
     "comingSoonEditable": "Configuração personalizada estará disponível em uma versão futura.",
     "simpleMode": "Simples",
     "advancedMode": "Avançado",
@@ -2755,6 +2749,6 @@
     "executeDefault": "Executar ferramenta"
   },
   "loop": {
-    "gotoSettings": "Configurações de Loop Engineering"
+    "gotoSettings": "Configurações de Loop do Agente"
   }
 }

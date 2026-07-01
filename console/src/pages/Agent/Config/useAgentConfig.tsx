@@ -75,10 +75,6 @@ export function useAgentConfig() {
             max_interventions: 1,
             in_loop_modes: false,
           },
-          thinking_budget: {
-            enabled: false,
-            budget_tokens: 10000,
-          },
         },
         llm_retry_enabled: config.llm_retry_enabled,
         llm_max_retries: config.llm_max_retries,

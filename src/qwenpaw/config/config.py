@@ -1111,23 +1111,6 @@ class RubricGateConfig(BaseModel):
     )
 
 
-class ThinkingBudgetConfig(BaseModel):
-    """Thinking / reasoning token budget gate."""
-
-    enabled: bool = Field(
-        default=False,
-        description="Enable thinking budget limit",
-    )
-    budget_tokens: int = Field(
-        default=10000,
-        ge=0,
-        le=1000000,
-        description=(
-            "Max tokens allocated for model " "thinking / extended reasoning"
-        ),
-    )
-
-
 class LoopConfig(BaseModel):
     """Loop engineering configuration."""
 
@@ -1142,10 +1125,6 @@ class LoopConfig(BaseModel):
     rubric: RubricGateConfig = Field(
         default_factory=RubricGateConfig,
         description="Completion check settings",
-    )
-    thinking_budget: ThinkingBudgetConfig = Field(
-        default_factory=ThinkingBudgetConfig,
-        description="Thinking budget settings",
     )
 
 

@@ -728,7 +728,7 @@
     "maxItersPlaceholder": "Nhập số vòng lặp",
     "maxItersRequired": "Bắt buộc",
     "maxItersMin": "Phải ít nhất 1",
-    "agentLoopTitle": "Cài đặt Loop Engineering",
+    "agentLoopTitle": "Cài đặt Loop Agent",
     "doomLoopEnabled": "Bảo vệ hành vi lặp lại",
     "doomLoopEnabledTooltip": "Tự động can thiệp khi agent bị kẹt lặp lại cùng một hành động",
     "doomLoopAfter": "Sau",
@@ -762,12 +762,6 @@
     "rubricMaxInterventionsTooltip": "Số lần nhắc lại tối đa mỗi lượt. Ngăn nhắc lại vô hạn nếu LLM liên tục chỉ xuất văn bản.",
     "inLoopModes": "Bật trong chế độ /goal & /mission",
     "inLoopModesTooltip": "Cũng áp dụng khi chế độ /goal hoặc /mission đang hoạt động",
-    "thinkingBudgetTitle": "Ngân sách Suy nghĩ",
-    "thinkingBudgetDesc": "Kiểm soát ngân sách token cho suy nghĩ mở rộng / lý luận. Áp dụng cho các mô hình hỗ trợ chế độ suy nghĩ (ví dụ: Claude, Qwen).",
-    "thinkingBudgetEnabled": "Bật Ngân sách Suy nghĩ",
-    "thinkingBudgetEnabledTooltip": "Đặt giới hạn token cho quá trình lý luận nội bộ của mô hình",
-    "thinkingBudgetTokens": "Token Ngân sách",
-    "thinkingBudgetTokensTooltip": "Số token tối đa phân bổ cho suy nghĩ / lý luận mở rộng mỗi yêu cầu",
     "comingSoonEditable": "Cấu hình tùy chỉnh sẽ có trong phiên bản tương lai.",
     "simpleMode": "Đơn giản",
     "advancedMode": "Nâng cao",
@@ -1213,6 +1207,6 @@
     "sessionNamePlaceholder": "Tên phiên"
   },
   "loop": {
-    "gotoSettings": "Cài đặt Loop Engineering"
+    "gotoSettings": "Cài đặt Loop Agent"
   }
 }
