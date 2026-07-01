@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 """Factory for creating chat models and formatters.
 
 This module provides a unified factory for creating chat model instances
@@ -190,7 +190,7 @@ def _format_anthropic_video_data_block(block: Any) -> dict | None:
 
     media_type = getattr(source, "media_type", None) or ""
 
-    # Base64Source — pass data straight through (after the size cap).
+    # Base64Source 鈥?pass data straight through (after the size cap).
     data_attr = getattr(source, "data", None)
     if data_attr is not None:
         # base64 length -> approximate raw byte count.
@@ -582,8 +582,8 @@ def _fix_image_mime_types(messages: list[dict]) -> None:
     """Fix non-standard MIME types in base64 data URLs in-place.
 
     agentscope derives MIME from the file extension literally
-    (e.g. ``.jpg`` → ``image/jpg``), but ``image/jpg`` is not a
-    valid IANA MIME type — the correct form is ``image/jpeg``.
+    (e.g. ``.jpg`` 鈫?``image/jpg``), but ``image/jpg`` is not a
+    valid IANA MIME type 鈥?the correct form is ``image/jpeg``.
     Some APIs (Bedrock via litellm) reject the non-standard form.
     """
     for msg in messages:
@@ -608,7 +608,7 @@ _MEDIA_BLOCK_TYPES = ("image", "audio", "video")
 # messages will vanish from the formatted output and stay in sync.  Keep
 # this in lockstep with the ``else: logger.warning("Unsupported block
 # type ...")`` branch in agentscope's ``_openai_formatter``.
-_FORMATTER_SKIPPED_TYPES = frozenset({"thinking", "file"})
+_FORMATTER_SKIPPED_TYPES = frozenset({"thinking", "file", "audio"})
 
 
 # pylint: disable=too-many-branches
@@ -618,7 +618,7 @@ def _fixup_media_list(items: list) -> None:
     - Strips ``file://`` prefixes from source URLs (dict blocks).
     - Replaces media blocks whose local file no longer exists with
       a text placeholder so the downstream formatter won't throw.
-    - Converts ``file`` blocks to text placeholders — neither the
+    - Converts ``file`` blocks to text placeholders 鈥?neither the
       OpenAI nor the Anthropic top-level formatters accept them and
       the upstream OpenAI path silently drops the whole message when
       nothing else survives.
@@ -660,20 +660,18 @@ def _fixup_media_list(items: list) -> None:
                     type="text",
                     text=(
                         f"[{btype.title()} unavailable"
-                        f" — file deleted from disk]"
+                        f" 鈥?file deleted from disk]"
                     ),
                 )
         elif btype == "data":
-            # 2.0 DataBlock — decode percent-encoded file:// URLs and
+            # 2.0 DataBlock 鈥?decode percent-encoded file:// URLs and
             # check if local file still exists.  Pydantic's AnyUrl
             # re-encodes non-ASCII chars; we must undo that before
             # the DashScope formatter tries to open() the path.
             source = getattr(block, "source", None)
             url_str = str(getattr(source, "url", "")) if source else ""
             if url_str.startswith("file://"):
-                local_path = unquote(
-                    url_str.removeprefix("file://"),
-                )
+                local_path = _file_url_to_path(url_str)
                 if not os.path.exists(local_path):
                     mt = getattr(source, "media_type", "") or ""
                     media_name = mt.split("/")[0] or "media"
@@ -686,11 +684,11 @@ def _fixup_media_list(items: list) -> None:
                         type="text",
                         text=(
                             f"[{media_name.title()} unavailable"
-                            f" — file deleted from disk]"
+                            f" 鈥?file deleted from disk]"
                         ),
                     )
                 elif unquote(url_str) != url_str:
-                    source.url = "file://" + local_path
+                    source.url = unquote(url_str)
         elif btype == "file":
             if isinstance(block, dict):
                 source = block.get("source") or {}
@@ -755,7 +753,7 @@ def _create_file_block_support_formatter(
 
         def __init__(self, **kwargs):
             # Expand the Anthropic formatter's supported_input_media_types
-            # to include video — third-party Anthropic-compatible
+            # to include video 鈥?third-party Anthropic-compatible
             # providers can accept video even though Anthropic's own API
             # cannot.  Without this, ``_format_anthropic_data_block``
             # short-circuits and our override below never runs.
@@ -777,7 +775,7 @@ def _create_file_block_support_formatter(
             the second appearance of a given source becomes a short
             text placeholder instead of another base64 copy.
 
-            Only the Anthropic base invokes this method — it lives on
+            Only the Anthropic base invokes this method 鈥?it lives on
             our subclass as dead code for OpenAI / Gemini bases.
             """
             source = getattr(block, "source", None)
@@ -792,7 +790,7 @@ def _create_file_block_support_formatter(
                     return {
                         "type": "text",
                         "text": (
-                            f"[{main_type.title()} omitted — "
+                            f"[{main_type.title()} omitted 鈥?"
                             f"already shown above]"
                         ),
                     }
@@ -808,7 +806,7 @@ def _create_file_block_support_formatter(
             reasoning_content relay, and provider-specific fixups.
             """
 
-            # Per-wire-request dedup scope — second occurrence of the
+            # Per-wire-request dedup scope 鈥?second occurrence of the
             # same media source becomes a text placeholder.  Reset on
             # every call so state never leaks across requests.
             self._seen_media_keys = set()
@@ -857,7 +855,7 @@ def _create_file_block_support_formatter(
             # OpenAI-family formatters reject video blocks; substitute
             # them with text placeholders before formatting and restore
             # the wire dicts afterwards.  Anthropic and Gemini skip
-            # this dance — Anthropic now handles video via our
+            # this dance 鈥?Anthropic now handles video via our
             # ``_format_anthropic_data_block`` override, Gemini accepts
             # video natively.
             _needs_video = not _is_gemini_formatter and not (
@@ -914,7 +912,7 @@ def _create_file_block_support_formatter(
                         continue
                     # Split prediction: DashScope / OpenAI-family
                     # formatters produce one assistant wire msg per
-                    # "segment" — where tool_result blocks act as
+                    # "segment" 鈥?where tool_result blocks act as
                     # separators (they become role="tool" messages).
                     # Each contiguous run of text/tool_call between
                     # tool_results becomes one assistant message.
@@ -1171,7 +1169,7 @@ def _create_formatter_instance(
     Reading from the instance lets runtime-built compat subclasses
     (``_AnthropicChatModelCompat._Compat(AnthropicChatModel)``) resolve to
     the correct formatter without having to register every subclass in a
-    class→formatter map.
+    class鈫抐ormatter map.
 
     Returns:
         Formatter instance with file-block support (same wire format as
@@ -1198,7 +1196,7 @@ def _create_formatter_instance(
     )
     kwargs: dict[str, Any] = {}
     # OpenAI / Gemini wire formats can't carry image bytes inside tool
-    # results — promote them into a follow-up user message instead.
+    # results 鈥?promote them into a follow-up user message instead.
     # Anthropic format keeps images in tool_result natively, so no
     # promotion needed.
     _promote_types = (OpenAIChatFormatter, GeminiChatFormatter)
@@ -1212,3 +1210,4 @@ def _create_formatter_instance(
 __all__ = [
     "create_model_and_formatter",
 ]
+
