@@ -13,7 +13,7 @@ from .core import SuspendedPermission
 BLOCKED_COMMAND_PATTERNS = (
     # Catastrophic recursive deletion targets.
     (
-        r"\brm\s+-[a-z]*r[a-z]*\s+"
+        r"\brm\s+(?:-[a-z]*r[a-z]*|--recursive)(?:\s+(?:-\S+|--\S+))*\s+"
         r"(?:/|/(?:home|users|etc|var|usr|bin|sbin|lib|opt|private|"
         r"system|windows)\b|~(?:/|$)|\*)"
     ),
@@ -162,6 +162,11 @@ class ACPPermissionAdapter:
                 ]
                 if parts:
                     return " ".join(parts)
+        # Fallback: when rawInput has no command/argv, use title for
+        # execute-kind calls.  Title is human-readable text (e.g. "Shutdown
+        # the dev server") so hard-block regexes like \bshutdown\b may
+        # false-positive here.  This is an accepted trade-off: blocking a
+        # benign title is safer than letting an unvetted command through.
         kind = tool_call.get("kind")
         title = tool_call.get("title")
         if (
