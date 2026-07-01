@@ -16,22 +16,49 @@ subcommands stay fast.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 import sys
 
 import click
 
+from ...constant import WORKING_DIR
+
 
 def _resolve_project_dir(project: str | None) -> str | None:
     """Return an absolute project directory path for a TUI code session."""
-    if not project:
-        return None
-    project_path = Path(project).expanduser().resolve()
+    project_path = Path(project).expanduser() if project else Path.cwd()
+    project_path = project_path.resolve()
     if not project_path.is_dir():
-        raise click.ClickException(
-            f"Project path is not a directory: {project}",
-        )
+        label = project or str(project_path)
+        raise click.ClickException(f"Project path is not a directory: {label}")
     return str(project_path)
+
+
+def _resolve_workspace_dir(agent: str | None) -> str:
+    """Return the workspace directory shown in the TUI welcome message."""
+    fallback_agent = agent or "default"
+    try:
+        config_path = WORKING_DIR / "config.json"
+        data = json.loads(config_path.read_text(encoding="utf-8"))
+        agents = data.get("agents") if isinstance(data, dict) else None
+        if isinstance(agents, dict):
+            agent_id = agent or agents.get("active_agent") or "default"
+            fallback_agent = str(agent_id)
+            profiles = agents.get("profiles")
+            if isinstance(profiles, dict):
+                profile = profiles.get(agent_id)
+                if profile is None and agent is None:
+                    profile = profiles.get("default")
+                if isinstance(profile, dict):
+                    workspace_dir = profile.get("workspace_dir")
+                    if isinstance(workspace_dir, str) and workspace_dir:
+                        return str(
+                            Path(workspace_dir).expanduser().resolve(),
+                        )
+    except (OSError, ValueError, TypeError):
+        pass
+    return str((WORKING_DIR / "workspaces" / fallback_agent).resolve())
 
 
 def _build_transport(
@@ -91,6 +118,8 @@ def run_tui(
         agent=agent or "default",
         target=description,
         resume_session_id=resume,
+        workspace_dir=_resolve_workspace_dir(agent),
+        project_dir=getattr(transport, "_project_dir", None),
     ).run()
 
 

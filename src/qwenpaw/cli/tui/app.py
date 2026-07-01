@@ -217,6 +217,8 @@ class PawApp(App):
         agent: str = "default",
         target: str | None = None,
         resume_session_id: str | None = None,
+        workspace_dir: str | None = None,
+        project_dir: str | None = None,
     ) -> None:
         super().__init__()
         self._transport = transport
@@ -225,6 +227,8 @@ class PawApp(App):
         # When launched with --resume, the transport opens this session and
         # replays its history; skip the welcome banner so the two don't mix.
         self._resume_session_id = resume_session_id
+        self._workspace_dir = workspace_dir
+        self._project_dir = project_dir
         self._assistant: AssistantMessage | None = None
         self._thought: ThoughtMessage | None = None
         self._activity: ActivityLine | None = None
@@ -306,6 +310,8 @@ class PawApp(App):
                 WelcomeMessage(
                     palette_for_prompt(self._theme_prompt),
                     accent_for_prompt(self._theme_prompt),
+                    workspace_dir=self._workspace_dir,
+                    project_dir=self._project_dir,
                 ),
                 sync_follow=False,
             )

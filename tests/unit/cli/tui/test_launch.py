@@ -11,19 +11,23 @@ from __future__ import annotations
 # Tests assert on transport internals and use a stub run_tui.
 # pylint: disable=protected-access,unused-argument
 
+import json
 import sys
 
 import pytest
 
 from click.testing import CliRunner
 
-from qwenpaw.cli.tui.launch import _build_transport, tui_cmd
+from qwenpaw.cli.tui import launch
+from qwenpaw.cli.tui.launch import _build_transport, _resolve_workspace_dir
+from qwenpaw.cli.tui.launch import tui_cmd
 
 pytestmark = [pytest.mark.unit, pytest.mark.p1]
 
 
-def test_default_transport_targets_current_interpreter():
+def test_default_transport_targets_current_interpreter(tmp_path, monkeypatch):
     """Default spawns this very ``python -m qwenpaw acp`` (no PATH lookup)."""
+    monkeypatch.chdir(tmp_path)
     transport, description = _build_transport(agent=None, resume=None)
     assert transport._command == [
         sys.executable,
@@ -32,8 +36,12 @@ def test_default_transport_targets_current_interpreter():
         "acp",
         "--local-diagnostics",
     ]
+    project_dir = str(tmp_path.resolve())
+    assert transport._cwd == project_dir
+    assert transport._project_dir == project_dir
     assert "qwenpaw acp" in description
     assert "--local-diagnostics" in description
+    assert f"cwd={project_dir}" in description
 
 
 def test_default_transport_appends_agent_once():
@@ -65,6 +73,39 @@ def test_project_path_threads_into_transport(tmp_path):
     assert transport._cwd == project_dir
     assert transport._project_dir == project_dir
     assert f"cwd={project_dir}" in description
+
+
+def test_workspace_dir_resolves_active_agent_from_config(
+    tmp_path,
+    monkeypatch,
+):
+    workspace = tmp_path / "workspaces" / "writer"
+    config = {
+        "agents": {
+            "active_agent": "writer",
+            "profiles": {
+                "writer": {
+                    "id": "writer",
+                    "workspace_dir": str(workspace),
+                },
+            },
+        },
+    }
+    (tmp_path / "config.json").write_text(
+        json.dumps(config),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(launch, "WORKING_DIR", tmp_path)
+
+    assert _resolve_workspace_dir(None) == str(workspace.resolve())
+
+
+def test_workspace_dir_falls_back_to_requested_agent(tmp_path, monkeypatch):
+    monkeypatch.setattr(launch, "WORKING_DIR", tmp_path)
+
+    assert _resolve_workspace_dir("writer") == str(
+        (tmp_path / "workspaces" / "writer").resolve(),
+    )
 
 
 def test_tui_help():
