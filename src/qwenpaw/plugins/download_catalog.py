@@ -113,31 +113,21 @@ def _installed_plugin_ids() -> dict[str, str]:
 def _is_entry_compatible(entry: dict[str, Any]) -> bool:
     """Return True when a CDN index entry supports the running QwenPaw.
 
-    Falls back to ``min_version`` / ``max_version`` when ``qwenpaw_version``
-    is absent, and treats missing version constraints as compatible.
+    Only the structured ``qwenpaw_version`` field is honored.  Missing
+    constraints are treated as compatible for backwards compat.
     """
     plugin_id = str(entry.get("plugin_id") or entry.get("id") or "")
     version = str(entry.get("version") or "0.0.0")
 
     qwenpaw_version = entry.get("qwenpaw_version")
-    min_version = entry.get("min_version")
-    max_version = entry.get("max_version")
-
-    # No constraints advertised -> assume compatible for backwards compat.
-    no_qv = not isinstance(qwenpaw_version, dict)
-    if no_qv and not min_version and not max_version:
+    if not isinstance(qwenpaw_version, dict):
         return True
 
     manifest_data: dict[str, Any] = {
         "id": plugin_id,
         "version": version,
+        "qwenpaw_version": qwenpaw_version,
     }
-    if isinstance(qwenpaw_version, dict):
-        manifest_data["qwenpaw_version"] = qwenpaw_version
-    else:
-        manifest_data["min_version"] = str(min_version or "0.1.0")
-        if max_version:
-            manifest_data["max_version"] = str(max_version)
 
     try:
         manifest = PluginManifest.from_dict(manifest_data)

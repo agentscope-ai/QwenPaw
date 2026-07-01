@@ -178,11 +178,13 @@ def _build_metadata(
         }
     else:
         min_version = str(manifest.get("min_version") or "")
-        if min_version:
-            metadata["min_version"] = min_version
-        max_version = manifest.get("max_version")
-        if max_version:
-            metadata["max_version"] = str(max_version)
+        max_version = str(manifest.get("max_version") or "")
+        if min_version or max_version:
+            metadata["qwenpaw_version"] = {
+                "min": min_version or "0.1.0",
+            }
+            if max_version:
+                metadata["qwenpaw_version"]["max"] = max_version
 
     return metadata
 

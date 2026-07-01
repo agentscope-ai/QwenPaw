@@ -33,20 +33,20 @@ def test_entry_with_qwenpaw_version_incompatible() -> None:
     assert _is_entry_compatible(entry) is False
 
 
-def test_entry_with_min_version_compatible() -> None:
+def test_entry_with_only_min_version_compatible() -> None:
     entry = {
         "id": "demo",
         "version": "1.0.0",
-        "min_version": "2.0.0",
+        "qwenpaw_version": {"min": "2.0.0"},
     }
     assert _is_entry_compatible(entry) is True
 
 
-def test_entry_with_min_version_incompatible() -> None:
+def test_entry_with_only_min_version_incompatible() -> None:
     entry = {
         "id": "demo",
         "version": "1.0.0",
-        "min_version": "3.0.0",
+        "qwenpaw_version": {"min": "3.0.0"},
     }
     assert _is_entry_compatible(entry) is False
 
@@ -55,8 +55,7 @@ def test_entry_with_min_max_version() -> None:
     entry = {
         "id": "demo",
         "version": "1.0.0",
-        "min_version": "1.1.6",
-        "max_version": "2.1.0",
+        "qwenpaw_version": {"min": "1.1.6", "max": "2.1.0"},
     }
     assert _is_entry_compatible(entry) is True
 
