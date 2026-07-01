@@ -18,9 +18,10 @@ class NocoBaseAuthPlugin:
     """Registers NocoBase auth capabilities via QwenPaw plugin hooks."""
 
     def __init__(self):
-        self._checker: Optional[
-            Callable[[str, str, dict], Optional[str]]
-        ] = None
+        self._checker: Optional[Callable[[str, str, dict], Optional[str]]] = (
+            None
+        )
+        self._identity_resolver: Optional[Callable[..., Any]] = None
         self._sync_engine: Optional[Any] = None
 
     def register(self, api: Any) -> None:
@@ -65,6 +66,27 @@ class NocoBaseAuthPlugin:
         except Exception as exc:
             logger.error("Failed to register channel gate checker: %s", exc)
 
+        try:
+            from qwenpaw.app.auth import (
+                register_external_identity_resolver,
+            )
+
+            from .identity_cache import TokenIdentityCache
+            from .identity_resolver import build_identity_resolver
+
+            cache = TokenIdentityCache()
+            self._identity_resolver = build_identity_resolver(
+                self._sync_engine,
+                cache,
+            )
+            register_external_identity_resolver(self._identity_resolver)
+            logger.info("NocoBase auth identity resolver registered")
+        except Exception as exc:
+            logger.error(
+                "Failed to register identity resolver: %s",
+                exc,
+            )
+
     async def _on_uninstall(
         self,
         plugin_id: str,  # pylint: disable=unused-argument
@@ -84,6 +106,23 @@ class NocoBaseAuthPlugin:
                     exc,
                 )
             self._checker = None
+
+        if self._identity_resolver is not None:
+            try:
+                from qwenpaw.app.auth import (
+                    unregister_external_identity_resolver,
+                )
+
+                unregister_external_identity_resolver(
+                    self._identity_resolver,
+                )
+                logger.info("NocoBase auth identity resolver removed")
+            except Exception as exc:
+                logger.error(
+                    "Failed to unregister identity resolver: %s",
+                    exc,
+                )
+            self._identity_resolver = None
 
         if self._sync_engine is not None:
             from .sync_engine import set_sync_engine
