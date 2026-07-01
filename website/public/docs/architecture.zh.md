@@ -53,7 +53,7 @@ QwenPaw 完全跑在你自己的环境里，是一个常驻服务。一次安装
   <rect x="20" y="310" width="820" height="76" rx="10" fill="#ff9d4d" fill-opacity="0.08" stroke="#ff9d4d" stroke-opacity="0.5"/>
   <text x="34" y="330" font-size="11" letter-spacing="1.5" font-weight="700" fill="#ff9d4d">资源维度 · 智能体所使用的对象</text>
   <g font-size="12.5" fill="currentColor">
-    <rect x="50" y="344" width="140" height="30" rx="7" fill="currentColor" fill-opacity="0.05" stroke="#ff9d4d" stroke-opacity="0.45"/><text x="120" y="363" text-anchor="middle">工作区文件</text>
+    <rect x="50" y="344" width="140" height="30" rx="7" fill="currentColor" fill-opacity="0.05" stroke="#ff9d4d" stroke-opacity="0.45"/><text x="120" y="363" text-anchor="middle">文件</text>
     <rect x="205" y="344" width="140" height="30" rx="7" fill="currentColor" fill-opacity="0.05" stroke="#ff9d4d" stroke-opacity="0.45"/><text x="275" y="363" text-anchor="middle">记忆</text>
     <rect x="360" y="344" width="140" height="30" rx="7" fill="currentColor" fill-opacity="0.05" stroke="#ff9d4d" stroke-opacity="0.45"/><text x="430" y="363" text-anchor="middle">Skills</text>
     <rect x="515" y="344" width="140" height="30" rx="7" fill="currentColor" fill-opacity="0.05" stroke="#ff9d4d" stroke-opacity="0.45"/><text x="585" y="363" text-anchor="middle">驱动</text>
@@ -343,7 +343,7 @@ QwenPaw 把**频道**（人怎么联系到智能体）和**驱动**（智能体�
   <line x1="683" y1="226" x2="683" y2="252" stroke="#ff9d4d" stroke-width="1.5" marker-end="url(#qpSecArrow)"/>
   <rect x="560" y="256" width="246" height="40" rx="8" fill="currentColor" fill-opacity="0.05" stroke="currentColor" stroke-opacity="0.3"/><text x="683" y="275" text-anchor="middle" font-size="12" fill="currentColor">工具守卫 — 内容筛查</text><text x="683" y="289" text-anchor="middle" font-size="10" fill="currentColor" fill-opacity="0.65">路径 · 模式 · Shell 规避检查</text>
   <line x1="683" y1="296" x2="683" y2="320" stroke="#ff9d4d" stroke-width="1.5" marker-end="url(#qpSecArrow)"/>
-  <rect x="560" y="324" width="246" height="44" rx="8" fill="#ff9d4d" fill-opacity="0.12" stroke="#ff9d4d" stroke-opacity="0.55"/><text x="683" y="343" text-anchor="middle" font-size="12" font-weight="600" fill="currentColor">在原生 OS 沙箱中执行</text><text x="683" y="358" text-anchor="middle" font-size="10" fill="currentColor" fill-opacity="0.7">seatbelt · bubblewrap · landlock · WSL2 · 无</text>
+  <rect x="560" y="324" width="246" height="44" rx="8" fill="#ff9d4d" fill-opacity="0.12" stroke="#ff9d4d" stroke-opacity="0.55"/><text x="683" y="343" text-anchor="middle" font-size="12" font-weight="600" fill="currentColor">在原生 OS 沙箱中执行</text><text x="683" y="358" text-anchor="middle" font-size="10" fill="currentColor" fill-opacity="0.7">seatbelt · bubblewrap · landlock · 无</text>
   <!-- side: skill scanner + secrets -->
   <rect x="40" y="256" width="280" height="40" rx="8" fill="currentColor" fill-opacity="0.05" stroke="currentColor" stroke-opacity="0.3"/><text x="180" y="275" text-anchor="middle" font-size="11.5" fill="currentColor">技能扫描器 — 把关技能安装</text><text x="180" y="289" text-anchor="middle" font-size="9.5" fill="currentColor" fill-opacity="0.6">代码运行前先静态分析</text>
   <rect x="40" y="324" width="280" height="40" rx="8" fill="currentColor" fill-opacity="0.05" stroke="currentColor" stroke-opacity="0.3"/><text x="180" y="343" text-anchor="middle" font-size="11.5" fill="currentColor">加密凭据存储</text><text x="180" y="357" text-anchor="middle" font-size="9.5" fill="currentColor" fill-opacity="0.6">静态存储的提供商密钥和连接器密钥</text>
@@ -353,7 +353,7 @@ QwenPaw 把**频道**（人怎么联系到智能体）和**驱动**（智能体�
 
 - **治理策略**——每次工具调用都拿内置规则和你自己的规则比对，给出放行、拒绝、询问或沙箱之一。工具在智能体调用之前就已经包好，所以这道检查绕不过去。给出*询问*时会弹出一个审批，你可以在控制台或自己的 IM 频道里回应。
 - **工具守卫**——对已放行的调用再查一遍内容，盯着路径穿越、敏感文件、危险写法和 Shell 绕过手法。
-- **沙箱**——把有风险的执行放进宿主自带的隔离里跑：macOS 用 seatbelt，Linux 用 bubblewrap（首选）或 landlock，Windows 用 WSL2，也可以不隔离。每次工具调用都新建一个沙箱，带上声明好的挂载点和禁止访问的路径。
+- **沙箱**——把有风险的执行放进宿主自带的隔离里跑：macOS 用 seatbelt，Linux 用 bubblewrap（首选）或 landlock，也可以不隔离。每次工具调用都新建一个沙箱，带上声明好的挂载点和禁止访问的路径。Windows 上的原生沙箱仍在开发中（参见[路线图](./roadmap)）。
 - **技能扫描器**——技能安装前先对它的文件做一遍静态分析。
 - **加密密钥**——提供商密钥和连接器凭据都加密存放。
 

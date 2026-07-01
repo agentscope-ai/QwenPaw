@@ -53,7 +53,7 @@ Think of QwenPaw as a small operating system for agents. The "kernel" is [AgentS
   <rect x="20" y="310" width="820" height="76" rx="10" fill="#ff9d4d" fill-opacity="0.08" stroke="#ff9d4d" stroke-opacity="0.5"/>
   <text x="34" y="330" font-size="11" letter-spacing="1.5" font-weight="700" fill="#ff9d4d">RESOURCE AXES · what an agent works with</text>
   <g font-size="12.5" fill="currentColor">
-    <rect x="50" y="344" width="140" height="30" rx="7" fill="currentColor" fill-opacity="0.05" stroke="#ff9d4d" stroke-opacity="0.45"/><text x="120" y="363" text-anchor="middle">Workspace files</text>
+    <rect x="50" y="344" width="140" height="30" rx="7" fill="currentColor" fill-opacity="0.05" stroke="#ff9d4d" stroke-opacity="0.45"/><text x="120" y="363" text-anchor="middle">Files</text>
     <rect x="205" y="344" width="140" height="30" rx="7" fill="currentColor" fill-opacity="0.05" stroke="#ff9d4d" stroke-opacity="0.45"/><text x="275" y="363" text-anchor="middle">Memory</text>
     <rect x="360" y="344" width="140" height="30" rx="7" fill="currentColor" fill-opacity="0.05" stroke="#ff9d4d" stroke-opacity="0.45"/><text x="430" y="363" text-anchor="middle">Skills</text>
     <rect x="515" y="344" width="140" height="30" rx="7" fill="currentColor" fill-opacity="0.05" stroke="#ff9d4d" stroke-opacity="0.45"/><text x="585" y="363" text-anchor="middle">Drivers</text>
@@ -343,7 +343,7 @@ Every tool call and every external action passes through a layered trust spine b
   <line x1="683" y1="226" x2="683" y2="252" stroke="#ff9d4d" stroke-width="1.5" marker-end="url(#qpSecArrow)"/>
   <rect x="560" y="256" width="246" height="40" rx="8" fill="currentColor" fill-opacity="0.05" stroke="currentColor" stroke-opacity="0.3"/><text x="683" y="275" text-anchor="middle" font-size="12" fill="currentColor">Tool guard — content screening</text><text x="683" y="289" text-anchor="middle" font-size="10" fill="currentColor" fill-opacity="0.65">path · pattern · shell-evasion checks</text>
   <line x1="683" y1="296" x2="683" y2="320" stroke="#ff9d4d" stroke-width="1.5" marker-end="url(#qpSecArrow)"/>
-  <rect x="560" y="324" width="246" height="44" rx="8" fill="#ff9d4d" fill-opacity="0.12" stroke="#ff9d4d" stroke-opacity="0.55"/><text x="683" y="343" text-anchor="middle" font-size="12" font-weight="600" fill="currentColor">Execute in native OS sandbox</text><text x="683" y="358" text-anchor="middle" font-size="10" fill="currentColor" fill-opacity="0.7">seatbelt · bubblewrap · landlock · WSL2 · none</text>
+  <rect x="560" y="324" width="246" height="44" rx="8" fill="#ff9d4d" fill-opacity="0.12" stroke="#ff9d4d" stroke-opacity="0.55"/><text x="683" y="343" text-anchor="middle" font-size="12" font-weight="600" fill="currentColor">Execute in native OS sandbox</text><text x="683" y="358" text-anchor="middle" font-size="10" fill="currentColor" fill-opacity="0.7">seatbelt · bubblewrap · landlock · none</text>
   <!-- side: skill scanner + secrets -->
   <rect x="40" y="256" width="280" height="40" rx="8" fill="currentColor" fill-opacity="0.05" stroke="currentColor" stroke-opacity="0.3"/><text x="180" y="275" text-anchor="middle" font-size="11.5" fill="currentColor">Skill scanner — gates skill installs</text><text x="180" y="289" text-anchor="middle" font-size="9.5" fill="currentColor" fill-opacity="0.6">static analysis before code can run</text>
   <rect x="40" y="324" width="280" height="40" rx="8" fill="currentColor" fill-opacity="0.05" stroke="currentColor" stroke-opacity="0.3"/><text x="180" y="343" text-anchor="middle" font-size="11.5" fill="currentColor">Encrypted credential store</text><text x="180" y="357" text-anchor="middle" font-size="9.5" fill="currentColor" fill-opacity="0.6">provider keys &amp; connector secrets at rest</text>
@@ -353,7 +353,7 @@ The layers:
 
 - **Governance policy** — every tool call is checked against built-in rules plus your own rules and resolved to _allow_, _deny_, _ask_, or _sandbox_. The check is unavoidable because tools are wrapped before the agent can call them. An _ask_ raises an approval you answer from the Console or your IM channel.
 - **Tool guard** — screens the _content_ of an allowed call for path traversal, sensitive files, risky patterns, and shell-evasion tricks.
-- **Sandbox** — runs risky execution inside the host's native isolation: seatbelt on macOS, bubblewrap (preferred) or landlock on Linux, WSL2 on Windows, or none. A fresh sandbox is created per tool call with declared mounts and deny paths.
+- **Sandbox** — runs risky execution inside the host's native isolation: seatbelt on macOS, bubblewrap (preferred) or landlock on Linux, or none. A fresh sandbox is created per tool call with declared mounts and deny paths. Native sandboxing on Windows is still under development (see the [Roadmap](./roadmap)).
 - **Skill scanner** — statically analyzes a skill's files before installation.
 - **Encrypted secrets** — provider keys and connector credentials are encrypted at rest.
 
