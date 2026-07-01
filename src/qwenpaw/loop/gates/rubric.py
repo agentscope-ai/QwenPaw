@@ -176,10 +176,16 @@ class StandaloneRubricGate:
 
     async def check(
         self,
-        ctx: Any,  # pylint: disable=unused-argument
+        ctx: Any,
     ) -> Optional[Any]:
-        """Return CONTINUE up to max_interventions."""
+        """Return CONTINUE up to max_interventions.
+
+        Only triggers on text-only responses (no tool calls).
+        """
         from .base import StopAction, StopHandlerResult
+
+        if isinstance(ctx, dict) and ctx.get("has_tool_calls"):
+            return None
 
         if self._count >= self._max:
             self._count = 0

@@ -1060,15 +1060,15 @@ class IterationGateConfig(BaseModel):
         default=True,
         description="Enable iteration limit",
     )
-    max_iterations: int = Field(
-        default=50,
+    max_iterations: Optional[int] = Field(
+        default=None,
         ge=1,
         le=500,
-        description=("Maximum loop turns before stopping"),
-    )
-    in_loop_modes: bool = Field(
-        default=False,
-        description=("Also run during /goal and " "/mission loop modes"),
+        description=(
+            "Maximum loop turns before stopping. "
+            "Falls back to AgentsRunningConfig.max_iters "
+            "when not set (legacy compat)."
+        ),
     )
 
 

@@ -6,12 +6,12 @@ Core architecture:
     ├── LoopGate      — session-safe base for loop plugins
     ├── DoomLoopGate  — multi-stage repetition detection
     ├── RubricGate    — rubric-based evaluation (GoalMode)
-    ├── IterationGate — iteration limit (GoalMode)
+    ├── IterationGate — iteration limit (universal)
     └── BudgetGate    — token budget (GoalMode)
 
-Hooks:
-    LoopIterBypassHook  — lifts ReAct max_iters during loop
-    LoopIterRestoreHook — restores original max_iters
+ReactGates:
+    register_react_gates — always-on Gate registration
+    for ReAct default mode.
 """
 
 from .gates import (
@@ -26,17 +26,12 @@ from .gates import (
     StopHandlerRegistration,
     StopHandlerResult,
 )
-from .iter_bypass_hook import (
-    LoopIterBypassHook,
-    LoopIterRestoreHook,
-)
+from .react_gates import register_react_gates, resolve_max_iterations
 
 __all__ = [
     "DoomLoopGate",
     "GoalStatusRubric",
     "LoopGate",
-    "LoopIterBypassHook",
-    "LoopIterRestoreHook",
     "RubricStrategy",
     "RubricVerdict",
     "StopAction",
@@ -44,4 +39,6 @@ __all__ = [
     "StopHandler",
     "StopHandlerRegistration",
     "StopHandlerResult",
+    "register_react_gates",
+    "resolve_max_iterations",
 ]

@@ -19,6 +19,7 @@ from .doom_loop import DoomLoopGate
 from .file_loop_gate import FileLoopGate
 from .handler import StopHandler
 from .iteration import IterationGate
+from .runner import run_stop_handlers
 from .loop_gate import LoopGate
 from .rubric import (
     StandaloneRubricGate,
@@ -48,4 +49,5 @@ __all__ = [
     "StopHandlerRegistration",
     "StopHandlerResult",
     "SubAgentRubric",
+    "run_stop_handlers",
 ]

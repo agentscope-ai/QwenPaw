@@ -403,20 +403,8 @@ class GoalMode(AgentMode):
         ]
 
     def hooks(self) -> list[HookBase]:
-        """Return iter-bypass hooks for ReAct max_iters."""
-        from ...loop.iter_bypass_hook import (
-            LoopIterBypassHook,
-            LoopIterRestoreHook,
-        )
-
-        return [
-            LoopIterBypassHook(
-                is_active_fn=lambda: (
-                    self._first_active_session() is not None
-                ),
-            ),
-            LoopIterRestoreHook(),
-        ]
+        """No bypass hooks needed — Gate controls iteration."""
+        return []
 
     def prompt_contributors(
         self,

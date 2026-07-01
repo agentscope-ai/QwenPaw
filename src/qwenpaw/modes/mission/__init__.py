@@ -58,29 +58,14 @@ class MissionMode(AgentMode):
     # ── hooks / contributors ──
 
     def hooks(self) -> list[HookBase]:
-        from ...loop.iter_bypass_hook import (
-            LoopIterBypassHook,
-            LoopIterRestoreHook,
-        )
-
         from .hooks import (
             MissionStateLoadHook,
             MissionStateSaveHook,
         )
 
-        bypass = LoopIterBypassHook(
-            is_active_fn=self._is_gate_active,
-        )
-        bypass.name = "mission_iter_bypass"
-
-        restore = LoopIterRestoreHook()
-        restore.name = "mission_iter_restore"
-
         return [
             MissionStateLoadHook(owner_mode=self),
             MissionStateSaveHook(owner_mode=self),
-            bypass,
-            restore,
         ]
 
     def prompt_contributors(self) -> list:

@@ -528,7 +528,6 @@ function RubricSection() {
   );
 }
 
-
 function ReactTab() {
   return (
     <>

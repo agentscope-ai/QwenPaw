@@ -2720,9 +2720,7 @@ export default function ChatPage() {
             ) : null}
             <LoopCommandChip />
             {loopSelectedSkill ? (
-              <Tooltip
-                title={t("loop.gotoSettings", "Agent Loop Settings")}
-              >
+              <Tooltip title={t("loop.gotoSettings", "Agent Loop Settings")}>
                 <SettingOutlined
                   style={{
                     fontSize: 14,
