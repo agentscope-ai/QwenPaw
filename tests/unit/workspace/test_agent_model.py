@@ -253,6 +253,38 @@ def test_model_config_included_when_set(
     assert raw_data["active_model"]["model"] == "gpt-4-turbo"
 
 
+def test_agent_config_expands_env_var_refs_without_rewriting_file(
+    mock_agent_workspace,
+    monkeypatch,
+):  # pylint: disable=redefined-outer-name
+    """Test that agent.json can reference secrets through environment vars."""
+    import json
+    from qwenpaw.config.utils import _agent_config_cache
+
+    monkeypatch.setenv("QWENPAW_TEST_MODEL", "qwen-plus")
+    agent_json_path = mock_agent_workspace / "agent.json"
+    raw_data = {
+        "id": "test_agent",
+        "name": "Test Agent",
+        "active_model": {
+            "provider_id": "dashscope",
+            "model": "${QWENPAW_TEST_MODEL}",
+        },
+    }
+    with open(agent_json_path, "w", encoding="utf-8") as f:
+        json.dump(raw_data, f)
+    _agent_config_cache.clear()
+
+    reloaded_config = load_agent_config("test_agent")
+
+    assert reloaded_config.active_model is not None
+    assert reloaded_config.active_model.provider_id == "dashscope"
+    assert reloaded_config.active_model.model == "qwen-plus"
+    with open(agent_json_path, "r", encoding="utf-8") as f:
+        persisted = json.load(f)
+    assert persisted["active_model"]["model"] == "${QWENPAW_TEST_MODEL}"
+
+
 def test_agent_running_config_has_llm_retry_defaults(
     mock_agent_workspace,
 ):  # pylint: disable=redefined-outer-name,unused-argument

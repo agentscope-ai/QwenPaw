@@ -2284,6 +2284,9 @@ def load_agent_config(  # pylint: disable=too-many-branches,too-many-statements
         # Need to reload config from disk
         with open(agent_config_path, "r", encoding="utf-8") as f:
             data = json.load(f)
+        from .utils import expand_env_var_refs
+
+        data = expand_env_var_refs(data)
 
         # One-shot migration: rename legacy ``channels.weixin`` key to
         # ``channels.wechat`` and rewrite the file on disk so future loads

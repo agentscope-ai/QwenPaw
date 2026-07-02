@@ -5,6 +5,7 @@ import json
 import logging
 import os
 import plistlib
+import re
 import shutil
 import socket
 import subprocess
@@ -47,6 +48,37 @@ _config_lock = threading.Lock()
 # Using Any for forward reference to AgentProfileConfig
 _agent_config_cache: dict[str, tuple[Any, float]] = {}
 _agent_config_lock = threading.Lock()
+
+_ENV_VAR_REF_RE = re.compile(r"^\$\{([A-Za-z_][A-Za-z0-9_]*)\}$")
+
+
+def expand_env_var_refs(data: object) -> object:
+    """Recursively resolve string values of the form ``${ENV_VAR}``.
+
+    Missing variables are left unchanged so existing configs remain loadable
+    and validation can report field-specific errors when applicable.
+    """
+
+    def _walk(value: object) -> object:
+        if isinstance(value, dict):
+            return {key: _walk(item) for key, item in value.items()}
+        if isinstance(value, list):
+            return [_walk(item) for item in value]
+        if isinstance(value, str):
+            match = _ENV_VAR_REF_RE.fullmatch(value)
+            if not match:
+                return value
+            env_name = match.group(1)
+            if env_name not in os.environ:
+                logger.warning(
+                    "Environment variable %s referenced in config is unset",
+                    env_name,
+                )
+                return value
+            return os.environ[env_name]
+        return value
+
+    return _walk(data)
 
 
 def _normalize_working_dir_bound_paths(data: object) -> object:
@@ -550,6 +582,7 @@ def _load_and_validate_config(
     data: dict,
 ) -> Config:
     """Load and validate config data, handling validation errors."""
+    data = expand_env_var_refs(data)
     data = _normalize_working_dir_bound_paths(data)
     # Backward compat: top-level last_api_host / last_api_port -> last_api
     if "last_api_host" in data or "last_api_port" in data:
