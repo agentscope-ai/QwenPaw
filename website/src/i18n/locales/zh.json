@@ -285,6 +285,7 @@
     "memoryEvolvingAndProactive": "记忆进化与主动交互",
     "codingMode": "Coding 模式",
     "context": "上下文",
+    "loopEngineering": "循环工程",
     "commands": "魔法命令",
     "cron": "定时任务",
     "heartbeat": "心跳",
