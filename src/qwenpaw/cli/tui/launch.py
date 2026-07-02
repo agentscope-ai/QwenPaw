@@ -63,6 +63,34 @@ def _resolve_workspace_dir(agent: str | None) -> str:
     return str((WORKING_DIR / "workspaces" / fallback_agent).resolve())
 
 
+def _quote_windows_arg(arg: str, *, force: bool = False) -> str:
+    """Render one Windows shell argument.
+
+    ``subprocess.list2cmdline`` only adds quotes when Windows argv parsing
+    requires them. For a pasteable shell command, project paths also need
+    quotes around characters like ``&`` that cmd.exe treats as separators.
+    """
+    rendered = subprocess.list2cmdline([arg])
+    if not force or rendered.startswith('"'):
+        return rendered
+
+    escaped: list[str] = []
+    backslashes = 0
+    for char in arg:
+        if char == "\\":
+            backslashes += 1
+            continue
+        if char == '"':
+            escaped.append("\\" * (backslashes * 2 + 1))
+            escaped.append('"')
+        else:
+            escaped.append("\\" * backslashes)
+            escaped.append(char)
+        backslashes = 0
+    escaped.append("\\" * (backslashes * 2))
+    return f'"{"".join(escaped)}"'
+
+
 def _resume_command(
     session_id: str,
     *,
@@ -73,10 +101,13 @@ def _resume_command(
     if agent:
         parts.extend(["--agent", agent])
     parts.extend(["--resume", session_id])
+    if sys.platform == "win32":
+        rendered = [_quote_windows_arg(part) for part in parts]
+        if project_dir:
+            rendered.append(_quote_windows_arg(project_dir, force=True))
+        return " ".join(rendered)
     if project_dir:
         parts.append(project_dir)
-    if sys.platform == "win32":
-        return subprocess.list2cmdline(parts)
     return " ".join(shlex.quote(part) for part in parts)
 
 

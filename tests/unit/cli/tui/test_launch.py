@@ -134,6 +134,34 @@ def test_resume_command_uses_windows_quoting(monkeypatch):
     assert command == r'qwenpaw tui --resume "sess abc" "C:\Project Dir"'
 
 
+def test_resume_command_quotes_windows_project_path_with_shell_meta(
+    monkeypatch,
+):
+    monkeypatch.setattr(launch.sys, "platform", "win32")
+
+    command = _resume_command(
+        "sess-abc",
+        agent=None,
+        project_dir=r"C:\A&B",
+    )
+
+    assert command == r'qwenpaw tui --resume sess-abc "C:\A&B"'
+
+
+def test_resume_command_quotes_windows_project_path_trailing_backslash(
+    monkeypatch,
+):
+    monkeypatch.setattr(launch.sys, "platform", "win32")
+
+    command = _resume_command(
+        "sess-abc",
+        agent=None,
+        project_dir="C:\\",
+    )
+
+    assert command == r'qwenpaw tui --resume sess-abc "C:\\"'
+
+
 def test_run_tui_prints_resume_hint(monkeypatch, capsys, tmp_path):
     class FakeTransport:
         session_id = "sess-123"
