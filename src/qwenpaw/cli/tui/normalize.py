@@ -135,6 +135,13 @@ def _attr(obj: Any, key: str) -> Any:
     return getattr(obj, key, None)
 
 
+def _raw_input(obj: Any) -> Any:
+    value = _attr(obj, "raw_input")
+    if value is not None:
+        return value
+    return _attr(obj, "rawInput")
+
+
 def _tool_links(content: Any) -> tuple[FileLink, ...]:
     """Pull file/resource links out of a tool-call ``content`` list.
 
@@ -242,8 +249,7 @@ def normalize_update(update: Any) -> list[TuiEvent]:
                 status=getattr(update, "status", None),
                 output=_tool_output_text(getattr(update, "content", None))
                 or None,
-                params=tool_input_text(getattr(update, "raw_input", None))
-                or None,
+                params=tool_input_text(_raw_input(update)) or None,
                 links=_tool_links(getattr(update, "content", None)),
             ),
         ]

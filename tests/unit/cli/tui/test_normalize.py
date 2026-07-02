@@ -6,6 +6,8 @@ from __future__ import annotations
 # ``assert normalize_update(...) == []`` reads clearer than ``not ...`` here.
 # pylint: disable=use-implicit-booleaness-not-comparison
 
+from types import SimpleNamespace
+
 import pytest
 
 from acp import (
@@ -197,6 +199,19 @@ def test_tool_call_renders_raw_input_params():
         ),
     )
     assert multi.params == "pattern: TODO\nmax: 5"
+
+
+def test_tool_call_accepts_raw_input_camel_case_alias():
+    [ev] = normalize_update(
+        SimpleNamespace(
+            session_update="tool_call",
+            tool_call_id="t-camel",
+            title="grep",
+            rawInput={"pattern": "TODO"},
+        ),
+    )
+
+    assert ev.params == "pattern: TODO"
 
 
 def test_tool_call_pretty_prints_long_nested_params():

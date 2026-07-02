@@ -226,7 +226,7 @@ class PawApp(App):
         self._agent = agent
         self._target = target
         # When launched with --resume, the transport opens this session and
-        # replays its history; skip the welcome banner so the two don't mix.
+        # replays its history below the welcome banner.
         self._resume_session_id = resume_session_id
         self._workspace_dir = workspace_dir
         self._project_dir = project_dir
@@ -301,21 +301,13 @@ class PawApp(App):
         # any chat content exists. Submitting input requests following later.
         self._status().set(agent=self._agent)
         self._apply_theme_prompt(self._theme_prompt, notify=False)
+        await self._mount(self._welcome_message(), sync_follow=False)
         if self._resume_session_id is not None:
             await self._mount(
                 InfoMessage("Resumed previous session — replaying history…"),
                 sync_follow=False,
             )
         else:
-            await self._mount(
-                WelcomeMessage(
-                    palette_for_prompt(self._theme_prompt),
-                    accent_for_prompt(self._theme_prompt),
-                    workspace_dir=self._workspace_dir,
-                    project_dir=self._project_dir,
-                ),
-                sync_follow=False,
-            )
             self._transcript().follow_future_content()
         self._consume()
 
@@ -325,6 +317,14 @@ class PawApp(App):
 
     def _transcript(self) -> TranscriptScroll:
         return self.query_one("#transcript", TranscriptScroll)
+
+    def _welcome_message(self) -> WelcomeMessage:
+        return WelcomeMessage(
+            palette_for_prompt(self._theme_prompt),
+            accent_for_prompt(self._theme_prompt),
+            workspace_dir=self._workspace_dir,
+            project_dir=self._project_dir,
+        )
 
     def _set_command_catalog(self) -> None:
         seen: set[str] = set()
@@ -731,10 +731,12 @@ class PawApp(App):
         self._tok_out = 0
         self._stream_chars = 0
         self._refresh_tokens()
+        await self._mount(self._welcome_message(), sync_follow=False)
         # Mounted before the load so it sits above the replayed transcript;
         # the replay updates only land once load_session is awaited below.
         await self._mount(
             InfoMessage("Resumed previous session — replaying history…"),
+            sync_follow=False,
         )
         try:
             await self._transport.load_session(session_id)

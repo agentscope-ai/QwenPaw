@@ -38,6 +38,17 @@ def test_append_assigns_increasing_seq_and_counts(store: HistoryStore):
     assert store.count("other") == 0
 
 
+def test_session_rows_returns_session_oldest_first(store: HistoryStore):
+    store.append(session_id="s", dedup_key="a", entry=_entry("one"))
+    store.append(session_id="other", dedup_key="x", entry=_entry("skip"))
+    store.append(session_id="s", dedup_key="b", entry=_entry("two"))
+
+    rows = store.session_rows("s")
+
+    assert [row["content"] for row in rows] == ["one", "two"]
+    assert [row["kind"] for row in rows] == ["model_turn", "model_turn"]
+
+
 def test_append_is_idempotent_on_session_dedup_key(store: HistoryStore):
     """A second append of the same (session, dedup_key) is a no-op that
     returns the existing seq — the resume/migration safety net."""

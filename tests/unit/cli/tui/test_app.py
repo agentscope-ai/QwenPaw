@@ -1024,8 +1024,8 @@ async def test_resume_opens_picker_and_replays_selected_session():
             await pilot.pause()
             if len(app.query(UserMessage)) >= 2:
                 break
-        # Welcome banner is cleared; the replayed transcript renders instead.
-        assert not list(app.query(WelcomeMessage))
+        # The resumed transcript renders below the welcome banner.
+        assert list(app.query(WelcomeMessage))
         user_msgs = [u.content.plain for u in app.query(UserMessage)]
         assert "How do I write a loop in Rust?" in " ".join(user_msgs)
         assert "Thanks!" in " ".join(user_msgs)
@@ -1147,7 +1147,7 @@ async def test_resume_with_id_arg_resumes_directly_without_picker():
 
 
 @pytest.mark.asyncio
-async def test_resume_flag_skips_welcome_and_replays_at_start():
+async def test_resume_flag_shows_welcome_and_replays_at_start():
     transport = FakeTransport(resume_session_id="old-1")
     app = PawApp(transport, resume_session_id="old-1")
     async with app.run_test() as pilot:
@@ -1161,8 +1161,8 @@ async def test_resume_flag_skips_welcome_and_replays_at_start():
             )
             if "Thanks!" in rendered:
                 break
-        # No welcome banner; the resumed transcript renders instead.
-        assert not list(app.query(WelcomeMessage))
+        # The welcome banner remains above the resumed transcript.
+        assert list(app.query(WelcomeMessage))
         assert transport.loaded == ["old-1"]
         user_msgs = " ".join(u.content.plain for u in app.query(UserMessage))
         assert "How do I write a loop in Rust?" in user_msgs
