@@ -656,7 +656,10 @@ class RerankerConfig(BaseModel):
     )
     endpoint_url: str = Field(
         default="",
-        description="Full reranker API endpoint URL (e.g. https://api.siliconflow.cn/v1/rerank)",
+        description=(
+            "Full reranker API endpoint URL "
+            "(e.g. https://api.siliconflow.cn/v1/rerank)"
+        ),
     )
     model_name: str = Field(
         default="",
