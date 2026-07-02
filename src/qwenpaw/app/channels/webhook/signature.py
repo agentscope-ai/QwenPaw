@@ -47,7 +47,7 @@ def verify_signature(
     if not signature.startswith(SIGNATURE_PREFIX):
         logger.warning("webhook signature missing sha256= prefix")
         return False
-    hex_part = signature[len(SIGNATURE_PREFIX):]
+    hex_part = signature[len(SIGNATURE_PREFIX) :]
     if not hex_part or not _HEX_RE.match(hex_part):
         logger.warning("webhook signature contains non-hex characters")
         return False

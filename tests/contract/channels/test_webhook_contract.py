@@ -62,7 +62,7 @@ class TestWebhookChannelContract(ChannelContractTest):
         assert result == "webhook:default"
 
     def test_webhook_resolve_session_id_honors_meta(self, instance):
-        """Webhook-specific: explicit session_id in meta wins over channel_id."""
+        """explicit session_id in meta wins over channel_id."""
         result = instance.resolve_session_id(
             "any_sender",
             {"session_id": "abc"},
