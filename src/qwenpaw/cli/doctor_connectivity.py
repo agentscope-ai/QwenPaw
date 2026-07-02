@@ -100,10 +100,9 @@ def _probe_telegram(
     cfg: TelegramConfig,
     timeout: float,
 ) -> list[str]:
-    url = (
-        (cfg.base_url or "").strip().rstrip("/")
-        or "https://api.telegram.org"
-    )
+    url = (cfg.base_url or "").strip().rstrip(
+        "/",
+    ) or "https://api.telegram.org"
     err = _http_get_ok(url, timeout)
     if err:
         return [f"{agent_id}: telegram: reach {url} — {err}"]
