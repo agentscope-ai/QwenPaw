@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { Modal, Tooltip } from "antd";
 import { Code, FlaskConical, MessageSquare } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -12,6 +12,7 @@ import {
   buildSessionPath,
   getSessionIdFromPath,
 } from "../../utils/sessionRoute";
+import { useSidebarModeStore } from "../../stores/sidebarModeStore";
 import styles from "./index.module.less";
 
 const CONFIRMED_KEY = "qwenpaw-coding-mode-confirmed";
@@ -23,9 +24,12 @@ export default function CodingModeToggle() {
   const navigate = useNavigate();
   const location = useLocation();
   const { projectDir } = useProjectDir();
+  const { setMode: setSidebarMode } = useSidebarModeStore();
   const [loading, setLoading] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
   const [showProjectSelect, setShowProjectSelect] = useState(false);
+  /** Remember sidebar mode before switching to coding, so we can restore on exit */
+  const previousSidebarModeRef = useRef<"simple" | "full" | null>(null);
 
   const activate = useCallback(async () => {
     if (loading) return;
@@ -41,6 +45,7 @@ export default function CodingModeToggle() {
         body: JSON.stringify({ enabled: true }),
       });
       setCodingMode(true);
+      setSidebarMode("simple");
       const currentSessionId = getSessionIdFromPath(location.pathname);
       navigate(buildSessionPath("coding", currentSessionId));
     } catch {
@@ -48,7 +53,14 @@ export default function CodingModeToggle() {
     } finally {
       setLoading(false);
     }
-  }, [loading, selectedAgent, setCodingMode, navigate, location.pathname]);
+  }, [
+    loading,
+    selectedAgent,
+    setCodingMode,
+    setSidebarMode,
+    navigate,
+    location.pathname,
+  ]);
 
   const deactivate = useCallback(async () => {
     if (loading) return;
@@ -64,6 +76,11 @@ export default function CodingModeToggle() {
         body: JSON.stringify({ enabled: false }),
       });
       setCodingMode(false);
+      // Restore sidebar mode to what it was before entering coding mode
+      if (previousSidebarModeRef.current) {
+        setSidebarMode(previousSidebarModeRef.current);
+        previousSidebarModeRef.current = null;
+      }
       const currentSessionId = getSessionIdFromPath(location.pathname);
       navigate(buildSessionPath("chat", currentSessionId));
     } catch {
@@ -71,7 +88,14 @@ export default function CodingModeToggle() {
     } finally {
       setLoading(false);
     }
-  }, [loading, selectedAgent, setCodingMode, navigate, location.pathname]);
+  }, [
+    loading,
+    selectedAgent,
+    setCodingMode,
+    setSidebarMode,
+    navigate,
+    location.pathname,
+  ]);
 
   const toggle = useCallback(async () => {
     if (codingMode) {
@@ -79,6 +103,8 @@ export default function CodingModeToggle() {
       await deactivate();
       return;
     }
+    // Remember current sidebar mode before switching to coding
+    previousSidebarModeRef.current = useSidebarModeStore.getState().mode;
     // First-time activation: show experimental warning
     const confirmed = localStorage.getItem(CONFIRMED_KEY);
     if (!confirmed) {

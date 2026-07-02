@@ -5,21 +5,28 @@ import { renderWithProviders } from "@/test/common_setup";
 import ChatSessionDrawer from "./index";
 import { useChatAnywhereSessionsState } from "@agentscope-ai/chat";
 
-// Mock react-window's FixedSizeList to render all items directly
-// (jsdom has no layout, so the virtual list never renders rows)
-vi.mock("react-window", () => ({
-  FixedSizeList: ({ children, itemData, itemCount }: any) => {
-    // children is a React component passed as JSX child: <FixedSizeList>{Row}</FixedSizeList>
-    // react-window passes itemData as "data" prop to the row component
-    const Row = children;
+// Mock react-window's VariableSizeList to render all items directly
+// (jsdom has no layout, so the virtual list never renders rows).
+// Must use forwardRef because the component uses ref={listRef} for resetAfterIndex.
+const { MockVariableSizeList } = vi.hoisted(() => {
+  const React = require("react");
+  const MockVariableSizeList = React.forwardRef((props: any, ref: any) => {
+    React.useImperativeHandle(ref, () => ({
+      resetAfterIndex: () => {},
+    }));
+    const Row = props.children;
     return (
       <>
-        {Array.from({ length: itemCount }, (_, i) => (
-          <Row key={i} index={i} style={{}} data={itemData} />
+        {Array.from({ length: props.itemCount }, (_: any, i: number) => (
+          <Row key={i} index={i} style={{}} data={props.itemData} />
         ))}
       </>
     );
-  },
+  });
+  return { MockVariableSizeList };
+});
+vi.mock("react-window", () => ({
+  VariableSizeList: MockVariableSizeList,
 }));
 
 const {
@@ -170,6 +177,9 @@ vi.mock("@agentscope-ai/icons", () => ({
   ),
   SparkLockLine: () => <span data-testid="icon">lock</span>,
   SparkLockFill: () => <span data-testid="icon">lock-fill</span>,
+  SparkDownArrowLine: ({ size }: { size?: number }) => (
+    <span data-testid="icon">chevron-{size}</span>
+  ),
 }));
 
 vi.mock("../../../../components/ContextMenu", () => ({
@@ -182,8 +192,18 @@ vi.mock("../../../../components/ContextMenu", () => ({
 const defaultProps = { open: true, onClose: vi.fn() };
 
 function withSession(overrides: Record<string, unknown> = {}) {
+  // updatedAt ensures the session falls into the "today" group (not collapsed
+  // by default). Without it, sessions without timestamps land in "older"
+  // which is collapsed, causing them to not render in the virtual list.
   vi.mocked(useChatAnywhereSessionsState).mockReturnValue({
-    sessions: [{ id: "s1", name: "Session One", ...overrides }] as any,
+    sessions: [
+      {
+        id: "s1",
+        name: "Session One",
+        updatedAt: new Date().toISOString(),
+        ...overrides,
+      },
+    ] as any,
     currentSessionId: null,
     setCurrentSessionId: mockSetCurrentSessionId,
     setSessions: mockSetSessions,
@@ -310,8 +330,13 @@ describe("ChatSessionDrawer", () => {
   it("pinned sessions sort before unpinned", async () => {
     vi.mocked(useChatAnywhereSessionsState).mockReturnValue({
       sessions: [
-        { id: "s1", name: "Unpinned" },
-        { id: "s2", name: "Pinned", pinned: true },
+        { id: "s1", name: "Unpinned", updatedAt: new Date().toISOString() },
+        {
+          id: "s2",
+          name: "Pinned",
+          pinned: true,
+          updatedAt: new Date().toISOString(),
+        },
       ] as any,
       currentSessionId: null,
       setCurrentSessionId: mockSetCurrentSessionId,

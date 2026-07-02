@@ -14,81 +14,9 @@ import {
   syncSessionsGlobal,
   type ExtendedSession,
 } from "../stores/sessionListStore";
+import { type DateGroup, groupSessions } from "../utils/sessionGrouping";
 import SidebarSessionItem from "./SidebarSessionItem";
 import styles from "./sidebarSessionList.module.less";
-
-// ── Date grouping ─────────────────────────────────────────────────────────
-
-type DateGroup = "pinned" | "today" | "week" | "month" | "older";
-
-interface SessionGroup {
-  key: DateGroup;
-  label: string;
-  sessions: ExtendedChatSession[];
-}
-
-function getDateGroup(
-  timestamp: string | null | undefined,
-): Exclude<DateGroup, "pinned"> {
-  if (!timestamp) return "older";
-  const date = new Date(timestamp);
-  if (isNaN(date.getTime())) return "older";
-
-  // Use calendar dates (not elapsed-time differences) so that
-  // "today" always means the same Y/M/D, regardless of the hour.
-  const now = new Date();
-  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const dateStart = new Date(
-    date.getFullYear(),
-    date.getMonth(),
-    date.getDate(),
-  );
-  const calendarDays = Math.floor(
-    (todayStart.getTime() - dateStart.getTime()) / (1000 * 60 * 60 * 24),
-  );
-
-  if (calendarDays <= 0) return "today"; // same calendar day (or future)
-  if (calendarDays < 7) return "week";
-  if (calendarDays < 30) return "month";
-  return "older";
-}
-
-function groupSessions(
-  sessions: ExtendedChatSession[],
-  t: (key: string, fallback: string) => string,
-): SessionGroup[] {
-  const buckets: Record<DateGroup, ExtendedChatSession[]> = {
-    pinned: [],
-    today: [],
-    week: [],
-    month: [],
-    older: [],
-  };
-
-  for (const s of sessions) {
-    if (s.pinned) {
-      buckets.pinned.push(s);
-    } else {
-      buckets[getDateGroup(s.updatedAt ?? s.createdAt)].push(s);
-    }
-  }
-
-  const order: Array<{ key: DateGroup; fallback: string }> = [
-    { key: "pinned", fallback: "Pinned" },
-    { key: "today", fallback: "Today" },
-    { key: "week", fallback: "Within 7 days" },
-    { key: "month", fallback: "Within 30 days" },
-    { key: "older", fallback: "Earlier" },
-  ];
-
-  return order
-    .filter(({ key }) => buckets[key].length > 0)
-    .map(({ key, fallback }) => ({
-      key,
-      label: t(`chat.group.${key}`, fallback),
-      sessions: buckets[key],
-    }));
-}
 
 // ── Component ─────────────────────────────────────────────────────────────
 
