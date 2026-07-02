@@ -175,14 +175,14 @@ jobs:
             });
 
             // Label logic:
-            // APPROVE (high=0, medium<=2) → add ready_for_human_review
-            // REQUEST_CHANGES → remove ready_for_human_review
+            // APPROVE (high=0, medium<=2) → add ready-for-human-review
+            // REQUEST_CHANGES → remove ready-for-human-review
             if (readyForHumanReview) {
               await github.rest.issues.addLabels({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 issue_number: prNumber,
-                labels: ['ready_for_human_review'],
+                labels: ['ready-for-human-review'],
               });
             } else {
               try {
@@ -190,7 +190,7 @@ jobs:
                   owner: context.repo.owner,
                   repo: context.repo.repo,
                   issue_number: prNumber,
-                  name: 'ready_for_human_review',
+                  name: 'ready-for-human-review',
                 });
               } catch (e) {}
             }
