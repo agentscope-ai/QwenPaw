@@ -125,68 +125,81 @@ class ToolRegistry:
 def _create_default_registry() -> ToolRegistry:
     """Create and populate the default ToolRegistry."""
     registry = ToolRegistry()
-
-    # ── File tools (12) ──
-    registry.register("Read", "file", "file_path")
-    registry.register("Write", "file", "file_path")
-    registry.register("Edit", "file", "file_path")
-    registry.register("Append", "file", "file_path")
-    registry.register("Grep", "file", "path")
-    registry.register("Glob", "file", "path", pattern_param="pattern")
-    registry.register("SendFileToUser", "file", "file_path")
-    registry.register("ViewImage", "file", "image_path")
-    registry.register("ViewVideo", "file", "video_path")
-    registry.register("DesktopScreenshot", "file", "path")
-    registry.register("SetUserTimezone", "file", "timezone")
-
-    # ── Network tools (1) ──
-    registry.register("Browser", "network", "url")
-
-    # ── Shell tools (1) ──
-    registry.register("Bash", "shell", "command")
-
-    # ── Internal tools (7) ──
-    registry.register("GetCurrentTime", "internal", "")
-    registry.register("GetTokenUsage", "internal", "")
-    registry.register("ListAgents", "internal", "")
-    registry.register("MaterializeSkill", "internal", "")
-    registry.register("ChatWithAgent", "internal", "agent_id")
-    registry.register("SubmitToAgent", "internal", "agent_id")
-    registry.register("CheckAgentTask", "internal", "task_id")
-    registry.register("SpawnSubagent", "internal", "")
-    registry.register("DelegateExternalAgent", "internal", "runner")
-    registry.register("RecallHistoryPython", "shell", "source")
-    registry.register("MemorySearch", "internal", "")
-
-    # ── Python function name mappings ──
-    registry.register_python_name("execute_shell_command", "Bash")
-    registry.register_python_name("read_file", "Read")
-    registry.register_python_name("write_file", "Write")
-    registry.register_python_name("edit_file", "Edit")
-    registry.register_python_name("memory_search", "MemorySearch")
-    registry.register_python_name("append_file", "Append")
-    registry.register_python_name("grep_search", "Grep")
-    registry.register_python_name("glob_search", "Glob")
-    registry.register_python_name("browser_use", "Browser")
-    registry.register_python_name("desktop_screenshot", "DesktopScreenshot")
-    registry.register_python_name("send_file_to_user", "SendFileToUser")
-    registry.register_python_name("view_image", "ViewImage")
-    registry.register_python_name("view_video", "ViewVideo")
-    registry.register_python_name("get_current_time", "GetCurrentTime")
-    registry.register_python_name("set_user_timezone", "SetUserTimezone")
-    registry.register_python_name("get_token_usage", "GetTokenUsage")
-    registry.register_python_name(
-        "delegate_external_agent",
-        "DelegateExternalAgent",
-    )
-    registry.register_python_name("list_agents", "ListAgents")
-    registry.register_python_name("chat_with_agent", "ChatWithAgent")
-    registry.register_python_name("submit_to_agent", "SubmitToAgent")
-    registry.register_python_name("check_agent_task", "CheckAgentTask")
-    registry.register_python_name("spawn_subagent", "SpawnSubagent")
-    registry.register_python_name("materialize_skill", "MaterializeSkill")
-
+    _register_builtin_tools(registry)
+    _register_python_name_mappings(registry)
     return registry
+
+
+def _register_builtin_tools(r: ToolRegistry) -> None:
+    """Register all built-in tool types."""
+    # ── File tools ──
+    for name, param in [
+        ("Read", "file_path"),
+        ("Write", "file_path"),
+        ("Edit", "file_path"),
+        ("Append", "file_path"),
+        ("Grep", "path"),
+        ("SendFileToUser", "file_path"),
+        ("ViewImage", "image_path"),
+        ("ViewVideo", "video_path"),
+        ("DesktopScreenshot", "path"),
+        ("SetUserTimezone", "timezone"),
+    ]:
+        r.register(name, "file", param)
+    r.register("Glob", "file", "path", pattern_param="pattern")
+
+    # ── Network / Shell ──
+    r.register("Browser", "network", "url")
+    r.register("Bash", "shell", "command")
+    r.register("RecallHistoryPython", "shell", "source")
+
+    # ── Internal tools ──
+    for name, param in [
+        ("GetCurrentTime", ""),
+        ("GetTokenUsage", ""),
+        ("ListAgents", ""),
+        ("MaterializeSkill", ""),
+        ("ChatWithAgent", "agent_id"),
+        ("SubmitToAgent", "agent_id"),
+        ("CheckAgentTask", "task_id"),
+        ("SpawnSubagent", ""),
+        ("DelegateExternalAgent", "runner"),
+        ("MemorySearch", ""),
+    ]:
+        r.register(name, "internal", param)
+
+
+def _register_python_name_mappings(
+    r: ToolRegistry,
+) -> None:
+    """Register python func name → policy name maps."""
+    mappings = {
+        "execute_shell_command": "Bash",
+        "read_file": "Read",
+        "write_file": "Write",
+        "edit_file": "Edit",
+        "memory_search": "MemorySearch",
+        "append_file": "Append",
+        "grep_search": "Grep",
+        "glob_search": "Glob",
+        "browser_use": "Browser",
+        "desktop_screenshot": "DesktopScreenshot",
+        "send_file_to_user": "SendFileToUser",
+        "view_image": "ViewImage",
+        "view_video": "ViewVideo",
+        "get_current_time": "GetCurrentTime",
+        "set_user_timezone": "SetUserTimezone",
+        "get_token_usage": "GetTokenUsage",
+        "delegate_external_agent": "DelegateExternalAgent",
+        "list_agents": "ListAgents",
+        "chat_with_agent": "ChatWithAgent",
+        "submit_to_agent": "SubmitToAgent",
+        "check_agent_task": "CheckAgentTask",
+        "spawn_subagent": "SpawnSubagent",
+        "materialize_skill": "MaterializeSkill",
+    }
+    for py_name, policy_name in mappings.items():
+        r.register_python_name(py_name, policy_name)
 
 
 DEFAULT_REGISTRY = _create_default_registry()

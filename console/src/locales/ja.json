@@ -1472,6 +1472,65 @@
     "maxItersPlaceholder": "最大反復回数を入力",
     "maxItersRequired": "最大反復回数は必須です",
     "maxItersMin": "最大反復回数は1以上である必要があります",
+    "agentLoopTitle": "エージェント Loop 設定",
+    "doomLoopEnabled": "繰り返し行動保護",
+    "doomLoopEnabledTooltip": "エージェントが同じ操作を繰り返している場合に自動的に介入します",
+    "doomLoopAfter": "連続",
+    "doomLoopRepetitions": "回の同一操作後",
+    "doomLoopStopAction": "一時停止して確認を待つ",
+    "doomLoopWarnAction": "リマインダーを送信",
+    "doomLoopSimpleMode": "シンプル",
+    "doomLoopAdvancedMode": "詳細",
+    "doomLoopWindowSize": "検出範囲",
+    "doomLoopWindowSizeTooltip": "繰り返し検出のために最近何回の操作をチェックするか",
+    "doomLoopSimilarity": "マッチ感度",
+    "doomLoopSimilarityTooltip": "操作がどの程度類似していれば繰り返しとみなすか（低いほど厳格）",
+    "doomLoopStages": "介入ルール",
+    "doomLoopAction": "アクション",
+    "doomLoopPrompt": "メッセージ",
+    "doomLoopPromptPlaceholder": "リマインダーメッセージまたは一時停止の理由...",
+    "doomLoopAddStage": "ルールを追加",
+    "iterationTitle": "イテレーション制限",
+    "iterationEnabled": "イテレーション制限を有効化",
+    "iterationEnabledTooltip": "固定回数のループ後にエージェントを停止",
+    "iterationMaxIterations": "最大イテレーション数",
+    "iterationMaxIterationsTooltip": "停止するまでの最大ループ回数",
+    "rubricTitle": "完了チェック",
+    "rubricEnabled": "完了チェックを有効化",
+    "rubricEnabledTooltip": "各ターン後にエージェントにタスク完了を自己評価させる",
+    "rubricPrompt": "チェックプロンプト",
+    "rubricPromptTooltip": "タスク完了評価を求めるために注入されるプロンプト",
+    "rubricDesc": "一部のLLMはツール呼び出しなしでテキストのみを出力し、エージェントが早期に停止することがあります。有効にすると、エージェントに再プロンプトしてタスク完了を改善します。",
+    "rubricPromptPlaceholder": "前のターンでツールを呼び出しませんでした。タスクが完了している場合は確認してください。そうでなければツールを使って続行してください。",
+    "rubricMaxInterventions": "ターンあたりの最大介入回数",
+    "rubricMaxInterventionsTooltip": "ターンあたりの最大再プロンプト回数。LLMがテキストのみを出力し続ける場合の無限ループを防止します。",
+    "inLoopModes": "/goal・/mission モードでも有効化",
+    "inLoopModesTooltip": "/goal または /mission ループモードがアクティブな時もこのゲートを適用",
+    "comingSoonEditable": "カスタム設定は将来のリリースで利用可能になります。",
+    "simpleMode": "シンプル",
+    "advancedMode": "詳細",
+    "comingSoon": "近日公開",
+    "reactModeTab": "Loopテンプレート - デフォルト",
+    "goalModeTab": "Loopテンプレート - Goal",
+    "missionModeTab": "Loopテンプレート - Mission",
+    "goalModeInfoTitle": "Goalモード vs デフォルト",
+    "goalModeInfo": "デフォルトモードは応答後に停止します。Goalモードはエージェントを目標に向かってループさせ、Rubric評価で完了を判断します。すべての操作は現在のエージェントコンテキスト内で実行されます。",
+    "missionModeInfoTitle": "Missionモード vs Goalモード",
+    "missionModeInfo": "Missionモードは複雑なタスクを自動分解し、独立したWorkerサブエージェントが実行、Verifierサブエージェントが検証します。各サブタスクは独自のコンテキストで実行され、メインセッションのコンテキスト汚染を防ぎます。",
+    "goalIterationGate": "目標イテレーションゲート",
+    "goalIterationGateDesc": "目標セッション内のエージェントターン数を制限し、イテレーション数とトークン使用量を追跡します。",
+    "goalBudgetGate": "トークン予算ゲート",
+    "goalBudgetGateDesc": "目標セッションのトークン消費上限を設定し、予算超過時にエージェントを停止します。",
+    "goalRubricGate": "目標完了ルーブリック",
+    "goalRubricGateDesc": "セッション状態をチェックして目標が達成されたかを評価します。",
+    "goalDoomGate": "繰り返し保護",
+    "goalDoomGateDesc": "目標実行中の繰り返しパターンを検出し、介入をトリガーします。",
+    "missionProgressGate": "ミッション進捗ゲート",
+    "missionProgressGateDesc": "PRDユーザーストーリーの完了状況を追跡します。すべて合格または最大イテレーションに達するまで続行します。",
+    "missionIterBypass": "イテレーションバイパス",
+    "missionIterBypassDesc": "ミッション実行中にReActイテレーション制限を一時的に解除し、長時間のフェーズを許可します。",
+    "customLoopTitle": "カスタムループモード",
+    "customLoopDesc": "カスタムゲート組み合わせで独自のループモードを作成。近日公開予定。",
     "autoContinueOnTextOnly": "テキストのみのステップで自動継続",
     "autoContinueOnTextOnlyTooltip": "推論ステップがツール呼び出しなしのテキストのみで終わった場合、ヒントを挿入し同じツール方針でもう1回推論します。多段階タスクの途中停止を減らします。オフにすると従来どおりです。有効時はトークン消費が増える場合があります。",
     "autoGenerateSessionTitle": "セッションタイトルを自動生成",
@@ -1781,10 +1840,13 @@
         "description": "保留中のツール操作を拒否"
       },
       "mission": {
-        "description": "ミッションモードを起動 — 複雑なタスクを自動的に分解し、実装し、検証します ⚠️ このモードではツールのガードレールを回避します"
+        "description": "Missionモード — タスクをサブエージェントに分解委任、独立コンテキストでメイン会話を汚染しない"
       },
       "skills": {
         "description": "チャットで利用可能なスキルを一覧し、明示的なスキルコマンドを表示します"
+      },
+      "goal": {
+        "description": "Goalループ — エージェントが目標に向かって継続実行し、Rubric評価で完了を自動判定"
       }
     },
     "attachments": {
@@ -2663,5 +2725,8 @@
     },
     "execute": "{{tool}} を実行",
     "executeDefault": "ツールを実行"
+  },
+  "loop": {
+    "gotoSettings": "エージェント Loop 設定"
   }
 }

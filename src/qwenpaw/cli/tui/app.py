@@ -723,6 +723,9 @@ class PawApp(App):
         self._tok_out = 0
         self._stream_chars = 0
         self._refresh_tokens()
+        # Clear the context-usage bar too; the next model call on the resumed
+        # session reports fresh occupancy via ``usage_update``.
+        self._status().set(used=0, size=0)
         await self._mount(self._welcome_message(), sync_follow=False)
         # Mounted before the load so it sits above the replayed transcript;
         # the replay updates only land once load_session is awaited below.
@@ -909,6 +912,7 @@ class PawApp(App):
                 self._assistant = AssistantMessage()
                 await self._mount(self._assistant)
             await self._assistant.append(event.text)
+            self._transcript().sync_follow_end()
             self._stream_chars += len(event.text)
             self._refresh_tokens()
 
@@ -926,6 +930,7 @@ class PawApp(App):
                 await self._mount(self._thought)
                 self._apply_thought_visibility(self._thought)
             self._thought.append(event.text)
+            self._transcript().sync_follow_end()
             # Reasoning counts toward output tokens too.
             self._stream_chars += len(event.text)
             self._refresh_tokens()
@@ -967,6 +972,7 @@ class PawApp(App):
                 params=event.params,
                 auto_collapse=not self._inspection_mode,
             )
+            self._transcript().sync_follow_end()
             self._apply_tool_visibility(panel)
             # Surface any files the tool returned (e.g. send_file_to_user) as
             # their own clickable transcript line, since the panel collapses.
@@ -1001,7 +1007,13 @@ class PawApp(App):
             await self._mount(PushMessageBox(event.text))
 
         elif isinstance(event, Usage):
-            self._status().set(used=event.used, size=event.size)
+            # ``or 0.0`` so a None threshold is still applied (set() ignores
+            # None), clearing any stale marker — 0.0 renders no tick.
+            self._status().set(
+                used=event.used,
+                size=event.size,
+                ctx_threshold=event.threshold or 0.0,
+            )
 
         elif isinstance(event, TokenUsage):
             # Exact usage for the just-finished call replaces our estimate.

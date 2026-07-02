@@ -6,6 +6,8 @@ from __future__ import annotations
 # Tests target request-scope helpers directly.
 # pylint: disable=protected-access
 
+import pytest
+
 from qwenpaw.agents.acp.meta import ACP_CODING_PROJECT_META_KEY
 from qwenpaw.config.config import AgentProfileConfig
 from qwenpaw.runtime.builder import AgentBuilder
@@ -39,6 +41,7 @@ def test_request_coding_project_ignores_non_directory(tmp_path):
     assert config.coding_mode.enabled is False
 
 
+@pytest.mark.usefixtures("capture_qwenpaw_logs")
 def test_request_coding_project_warns_for_unsupported_config(
     caplog,
     tmp_path,

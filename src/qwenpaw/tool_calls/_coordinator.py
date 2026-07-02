@@ -673,7 +673,6 @@ class ToolCoordinator:
             entry.end_state = (
                 "interrupted" if entry.ctx.cancel_event.is_set() else "success"
             )
-        # Safe in cooperative asyncio; dict.pop is atomic within one step.
         self._entries.pop(entry.ctx.tool_call_id, None)
         return entry.final_response
 

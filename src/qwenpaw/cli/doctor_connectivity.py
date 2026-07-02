@@ -97,12 +97,15 @@ def _probe_matrix(
 
 def _probe_telegram(
     agent_id: str,
-    _cfg: TelegramConfig,
+    cfg: TelegramConfig,
     timeout: float,
 ) -> list[str]:
-    err = _http_get_ok("https://api.telegram.org", timeout)
+    url = (cfg.base_url or "").strip().rstrip(
+        "/",
+    ) or "https://api.telegram.org"
+    err = _http_get_ok(url, timeout)
     if err:
-        return [f"{agent_id}: telegram: reach api.telegram.org — {err}"]
+        return [f"{agent_id}: telegram: reach {url} — {err}"]
     return []
 
 

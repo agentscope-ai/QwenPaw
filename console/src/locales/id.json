@@ -188,10 +188,13 @@
         "description": "Tolak tindakan tool yang tertunda"
       },
       "mission": {
-        "description": "Jalankan mode misi - uraikan, implementasikan, dan verifikasi tugas kompleks secara otomatis"
+        "description": "Mode Mission — Memecah tugas ke sub-agen dengan konteks terisolasi"
       },
       "skills": {
         "description": "Tampilkan skill yang tersedia untuk chat dan perintah skill eksplisit"
+      },
+      "goal": {
+        "description": "Loop Goal — Agen mengejar tujuan secara terus-menerus, evaluasi otomatis via Rubric"
       }
     },
     "attachments": {
@@ -1839,6 +1842,65 @@
     "maxItersPlaceholder": "Masukkan iterasi maksimum",
     "maxItersRequired": "Iterasi maksimum wajib diisi",
     "maxItersMin": "Iterasi maksimum minimal 1",
+    "agentLoopTitle": "Pengaturan Loop Agen",
+    "doomLoopEnabled": "Perlindungan Perilaku Berulang",
+    "doomLoopEnabledTooltip": "Intervensi otomatis saat agen terjebak mengulangi tindakan yang sama",
+    "doomLoopAfter": "Setelah",
+    "doomLoopRepetitions": "tindakan identik",
+    "doomLoopStopAction": "Jeda & Minta Bantuan",
+    "doomLoopWarnAction": "Kirim Pengingat",
+    "doomLoopSimpleMode": "Sederhana",
+    "doomLoopAdvancedMode": "Lanjutan",
+    "doomLoopWindowSize": "Rentang Deteksi",
+    "doomLoopWindowSizeTooltip": "Berapa banyak tindakan terbaru yang diperiksa untuk pengulangan",
+    "doomLoopSimilarity": "Sensitivitas Kecocokan",
+    "doomLoopSimilarityTooltip": "Seberapa mirip tindakan harus dianggap pengulangan (semakin rendah = semakin ketat)",
+    "doomLoopStages": "Aturan Intervensi",
+    "doomLoopAction": "Tindakan",
+    "doomLoopPrompt": "Pesan",
+    "doomLoopPromptPlaceholder": "Pesan pengingat atau alasan jeda...",
+    "doomLoopAddStage": "Tambah Aturan",
+    "iterationTitle": "Batas Iterasi",
+    "iterationEnabled": "Aktifkan Batas Iterasi",
+    "iterationEnabledTooltip": "Hentikan agen setelah jumlah putaran loop tetap",
+    "iterationMaxIterations": "Iterasi Maksimum",
+    "iterationMaxIterationsTooltip": "Jumlah putaran loop maksimum sebelum berhenti",
+    "rubricTitle": "Pemeriksaan Penyelesaian",
+    "rubricEnabled": "Aktifkan Pemeriksaan Penyelesaian",
+    "rubricEnabledTooltip": "Minta agen mengevaluasi sendiri apakah tugas selesai setelah setiap putaran",
+    "rubricPrompt": "Prompt Pemeriksaan",
+    "rubricPromptTooltip": "Prompt yang disuntikkan untuk meminta agen mengevaluasi penyelesaian tugas",
+    "rubricDesc": "Beberapa LLM mungkin berhenti dengan respons teks saja tanpa memanggil alat, menyebabkan agen berhenti prematur. Aktifkan untuk meminta ulang agen dan meningkatkan penyelesaian tugas.",
+    "rubricPromptPlaceholder": "Anda tidak memanggil alat apa pun. Jika tugas selesai, konfirmasi. Jika tidak, lanjutkan dengan panggilan alat.",
+    "rubricMaxInterventions": "Maks. Intervensi per Giliran",
+    "rubricMaxInterventionsTooltip": "Jumlah maksimum permintaan ulang per giliran. Mencegah permintaan ulang tak terbatas jika LLM terus menghasilkan teks saja.",
+    "inLoopModes": "Aktifkan dalam mode /goal & /mission",
+    "inLoopModesTooltip": "Juga berlaku saat mode /goal atau /mission aktif",
+    "comingSoonEditable": "Konfigurasi kustom akan tersedia di rilis mendatang.",
+    "simpleMode": "Sederhana",
+    "advancedMode": "Lanjutan",
+    "comingSoon": "Segera Hadir",
+    "reactModeTab": "Template Loop - Default",
+    "goalModeTab": "Template Loop - Goal",
+    "missionModeTab": "Template Loop - Mission",
+    "goalModeInfoTitle": "Mode Goal vs Default",
+    "goalModeInfo": "Mode default berhenti setelah menghasilkan respons. Mode Goal membuat agen terus berulang menuju tujuan, menggunakan evaluasi Rubric untuk menentukan penyelesaian. Semua operasi berjalan dalam konteks agen saat ini.",
+    "missionModeInfoTitle": "Mode Mission vs Goal",
+    "missionModeInfo": "Mode Mission otomatis memecah tugas kompleks menjadi sub-tugas, dieksekusi oleh sub-agen Worker independen dan diverifikasi oleh sub-agen Verifier. Setiap sub-tugas berjalan dalam konteksnya sendiri, mencegah polusi sesi utama.",
+    "goalIterationGate": "Gate Iterasi Tujuan",
+    "goalIterationGateDesc": "Membatasi jumlah giliran agen dalam sesi tujuan, melacak iterasi dan penggunaan token.",
+    "goalBudgetGate": "Gate Anggaran Token",
+    "goalBudgetGateDesc": "Menetapkan batas pengeluaran token untuk sesi tujuan. Menghentikan agen saat anggaran terlampaui.",
+    "goalRubricGate": "Rubrik Penyelesaian Tujuan",
+    "goalRubricGateDesc": "Mengevaluasi apakah tujuan telah tercapai dengan memeriksa status sesi.",
+    "goalDoomGate": "Perlindungan Pengulangan",
+    "goalDoomGateDesc": "Mendeteksi pola berulang selama eksekusi tujuan dan memicu intervensi.",
+    "missionProgressGate": "Gate Kemajuan Misi",
+    "missionProgressGateDesc": "Melacak penyelesaian user story PRD. Melanjutkan hingga semua lolos atau iterasi maksimum tercapai.",
+    "missionIterBypass": "Bypass Iterasi",
+    "missionIterBypassDesc": "Sementara menghapus batas iterasi ReAct selama eksekusi misi untuk memungkinkan fase panjang.",
+    "customLoopTitle": "Mode Loop Kustom",
+    "customLoopDesc": "Buat mode loop Anda sendiri dengan kombinasi gate kustom. Segera hadir.",
     "autoContinueOnTextOnly": "Lanjutkan otomatis pada langkah teks saja",
     "autoContinueOnTextOnlyTooltip": "Jika model mengakhiri langkah penalaran hanya dengan teks (tanpa panggilan alat), suntikkan petunjuk dan jalankan satu penalaran ekstra.",
     "autoGenerateSessionTitle": "Buat judul sesi secara otomatis",
@@ -2041,5 +2103,8 @@
       "memoryIsolation": "Isolasi Memori (per-agen)",
       "searchTimeout": "Timeout Pencarian"
     }
+  },
+  "loop": {
+    "gotoSettings": "Pengaturan Loop Agen"
   }
 }

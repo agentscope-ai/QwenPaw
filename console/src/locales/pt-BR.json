@@ -1690,6 +1690,65 @@
     "maxItersPlaceholder": "Enter max iterations",
     "maxItersRequired": "Max iterations is Obrigatorio",
     "maxItersMin": "Max iterations must be at least 1",
+    "agentLoopTitle": "Configurações de Loop do Agente",
+    "doomLoopEnabled": "Proteção contra Repetição",
+    "doomLoopEnabledTooltip": "Intervir automaticamente quando o agente fica preso repetindo as mesmas ações",
+    "doomLoopAfter": "Após",
+    "doomLoopRepetitions": "ações idênticas",
+    "doomLoopStopAction": "Pausar e Pedir Ajuda",
+    "doomLoopWarnAction": "Enviar Lembrete",
+    "doomLoopSimpleMode": "Simples",
+    "doomLoopAdvancedMode": "Avançado",
+    "doomLoopWindowSize": "Alcance de Detecção",
+    "doomLoopWindowSizeTooltip": "Quantas ações recentes verificar para repetição",
+    "doomLoopSimilarity": "Sensibilidade de Correspondência",
+    "doomLoopSimilarityTooltip": "Quão similares as ações devem ser para contar como repetição (menor = mais rigoroso)",
+    "doomLoopStages": "Regras de Intervenção",
+    "doomLoopAction": "Ação",
+    "doomLoopPrompt": "Mensagem",
+    "doomLoopPromptPlaceholder": "Mensagem de lembrete ou motivo da pausa...",
+    "doomLoopAddStage": "Adicionar Regra",
+    "iterationTitle": "Limite de Iteração",
+    "iterationEnabled": "Ativar Limite de Iteração",
+    "iterationEnabledTooltip": "Parar o agente após um número fixo de turnos de loop",
+    "iterationMaxIterations": "Iterações Máximas",
+    "iterationMaxIterationsTooltip": "Número máximo de turnos de loop antes de parar",
+    "rubricTitle": "Verificação de Conclusão",
+    "rubricEnabled": "Ativar Verificação de Conclusão",
+    "rubricEnabledTooltip": "Pedir ao agente para autoavaliar se a tarefa está completa após cada turno",
+    "rubricPrompt": "Prompt de Verificação",
+    "rubricPromptTooltip": "O prompt injetado para pedir ao agente que avalie a conclusão da tarefa",
+    "rubricDesc": "Alguns LLMs podem parar com uma resposta somente texto sem chamar ferramentas, fazendo o agente encerrar prematuramente. Ative para re-solicitar o agente e melhorar a conclusão de tarefas.",
+    "rubricPromptPlaceholder": "Você não chamou nenhuma ferramenta. Se a tarefa está completa, confirme. Caso contrário, continue com chamadas de ferramentas.",
+    "rubricMaxInterventions": "Máx. Intervenções por Turno",
+    "rubricMaxInterventionsTooltip": "Máximo de vezes para re-solicitar por turno. Previne re-solicitação infinita se o LLM continuar produzindo apenas texto.",
+    "inLoopModes": "Ativar nos modos /goal e /mission",
+    "inLoopModesTooltip": "Também aplicar quando o modo /goal ou /mission estiver ativo",
+    "comingSoonEditable": "Configuração personalizada estará disponível em uma versão futura.",
+    "simpleMode": "Simples",
+    "advancedMode": "Avançado",
+    "comingSoon": "Em breve",
+    "reactModeTab": "Modelo Loop - Padrão",
+    "goalModeTab": "Modelo Loop - Goal",
+    "missionModeTab": "Modelo Loop - Mission",
+    "goalModeInfoTitle": "Modo Goal vs Padrão",
+    "goalModeInfo": "O modo padrão para após produzir uma resposta. O modo Goal mantém o agente em loop em direção a um objetivo, usando avaliação Rubric para determinar a conclusão. Todas as operações são executadas no contexto atual do agente.",
+    "missionModeInfoTitle": "Modo Mission vs Goal",
+    "missionModeInfo": "O modo Mission auto-decompõe tarefas complexas em subtarefas, executadas por sub-agentes Worker independentes e verificadas por sub-agentes Verifier. Cada subtarefa é executada em seu próprio contexto, evitando poluição da sessão principal.",
+    "goalIterationGate": "Gate de Iteração de Objetivo",
+    "goalIterationGateDesc": "Limita o número de turnos do agente em uma sessão de objetivo, rastreando iterações e uso de tokens.",
+    "goalBudgetGate": "Gate de Orçamento de Tokens",
+    "goalBudgetGateDesc": "Define um limite de gasto de tokens para a sessão de objetivo. Para o agente quando o orçamento é excedido.",
+    "goalRubricGate": "Rubrica de Conclusão de Objetivo",
+    "goalRubricGateDesc": "Avalia se o objetivo foi alcançado verificando o status da sessão.",
+    "goalDoomGate": "Proteção contra Repetição",
+    "goalDoomGateDesc": "Detecta padrões repetitivos durante a execução do objetivo e aciona intervenção.",
+    "missionProgressGate": "Gate de Progresso da Missão",
+    "missionProgressGateDesc": "Rastreia a conclusão das user stories do PRD. Continua até que todas passem ou o máximo de iterações seja atingido.",
+    "missionIterBypass": "Bypass de Iteração",
+    "missionIterBypassDesc": "Remove temporariamente o limite de iteração do ReAct durante a execução da missão para permitir fases longas.",
+    "customLoopTitle": "Modos de Loop Personalizados",
+    "customLoopDesc": "Crie seus próprios modos de loop com combinações personalizadas de gates. Em breve.",
     "autoContinueOnTextOnly": "Auto-continue Ligado text-only step",
     "autoContinueOnTextOnlyTooltip": "If the model ends a reasoning step with only text (no tool calls), inject a hint and run one extra reasoning pass with the same tool policy so multi-step tasks are less likely to stop silently. Turn off to match legacy behavior. May increase token usage when enabled.",
     "shellCommandTimeout": "Shell Command Tempo limite (s)",
@@ -1997,10 +2056,13 @@
         "description": "Deny the pending tool action"
       },
       "mission": {
-        "description": "Launch mission mode — Automatically decompose, implement, and verify complex tasks ⚠️ This mode will bypass tool guardrails"
+        "description": "Modo Mission — Decompõe tarefas em sub-agentes com contexto isolado"
       },
       "skills": {
         "description": "List chat-available skills and expose explicit skill commands"
+      },
+      "goal": {
+        "description": "Loop Goal — Agente persegue objetivo continuamente, auto-avalia via Rubric"
       }
     },
     "attachments": {
@@ -2711,5 +2773,8 @@
     },
     "execute": "Executar {{tool}}",
     "executeDefault": "Executar ferramenta"
+  },
+  "loop": {
+    "gotoSettings": "Configurações de Loop do Agente"
   }
 }

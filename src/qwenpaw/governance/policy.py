@@ -569,7 +569,7 @@ class GovernancePolicy:
         """
         return list(self.builtin_rules) + list(self.user_rules)
 
-    def evaluate(  # pylint: disable=too-many-return-statements
+    def evaluate(  # noqa: E501  pylint: disable=too-many-return-statements,too-many-branches
         self,
         tc_spec: ToolCallSpec,
     ) -> GovernanceDecision:
@@ -630,13 +630,26 @@ class GovernancePolicy:
                 )
 
         # ── Phase 2: builtin_rules + user_rules (first-match-wins) ──
+        is_strict = self.execution_level == "strict"
+
         for rule in self.builtin_rules:
             if rule.matches_tool_call(
                 tc_spec,
                 tool_type=tool_type,
             ):
+                action = GovernanceAction(rule.action.value)
+                # STRICT mode: override ALLOW → ASK so every tool
+                # call requires approval (DENY still honoured).
+                if action == GovernanceAction.ALLOW and is_strict:
+                    return GovernanceDecision(
+                        action=GovernanceAction.ASK,
+                        reason="STRICT mode: all tool calls "
+                        "require approval",
+                        findings=findings or None,
+                        source="STRICT mode",
+                    )
                 return GovernanceDecision(
-                    action=GovernanceAction(rule.action.value),
+                    action=action,
                     reason=rule.reason,
                     findings=findings or None,
                     source="builtin-rules",
@@ -647,8 +660,17 @@ class GovernancePolicy:
                 tc_spec,
                 tool_type=tool_type,
             ):
+                action = GovernanceAction(rule.action.value)
+                if action == GovernanceAction.ALLOW and is_strict:
+                    return GovernanceDecision(
+                        action=GovernanceAction.ASK,
+                        reason="STRICT mode: all tool calls "
+                        "require approval",
+                        findings=findings or None,
+                        source="STRICT mode",
+                    )
                 return GovernanceDecision(
-                    action=GovernanceAction(rule.action.value),
+                    action=action,
                     reason=rule.reason,
                     findings=findings or None,
                     source="user-rules",
@@ -656,6 +678,14 @@ class GovernancePolicy:
 
         # ── Phase 3: Fallback + execution_level threshold ──
         if tool_type == "shell":
+            # STRICT mode: shell commands also require approval
+            if is_strict:
+                return GovernanceDecision(
+                    action=GovernanceAction.ASK,
+                    reason="STRICT mode: all tool calls " "require approval",
+                    findings=findings or None,
+                    source="STRICT mode",
+                )
             return GovernanceDecision(
                 action=GovernanceAction.SANDBOX_FALLBACK,
                 reason="sandbox fallback",

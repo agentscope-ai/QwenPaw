@@ -109,7 +109,9 @@ def test_workspace_dir_falls_back_to_requested_agent(tmp_path, monkeypatch):
     )
 
 
-def test_resume_command_quotes_agent_session_and_project_path():
+def test_resume_command_quotes_agent_session_and_project_path(monkeypatch):
+    monkeypatch.setattr(launch.sys, "platform", "linux")
+
     command = _resume_command(
         "sess abc",
         agent="writer",
@@ -163,6 +165,8 @@ def test_resume_command_quotes_windows_project_path_trailing_backslash(
 
 
 def test_run_tui_prints_resume_hint(monkeypatch, capsys, tmp_path):
+    monkeypatch.setattr(launch.sys, "platform", "linux")
+
     class FakeTransport:
         session_id = "sess-123"
         _project_dir = str(tmp_path)

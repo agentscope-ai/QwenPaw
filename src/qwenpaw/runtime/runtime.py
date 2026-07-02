@@ -116,10 +116,18 @@ class Runtime:
                     skip_agent = True
 
             if not skip_agent:
+                self._apply_context_injections(ctx)
                 # --- [fixed 3] execute agent ---
                 async for ev in envelope.emit_response_created():
                     yield ev
                 executor = AgentExecutor(ctx.agent, envelope)
+                logger.debug(
+                    "Agent input: %s",
+                    _get_last_user_text(
+                        ctx.input_msgs,
+                    )
+                    or "(empty)",
+                )
                 async for ev in executor.run(ctx.input_msgs):
                     yield ev
 
@@ -206,6 +214,44 @@ class Runtime:
             app_services=self.app_services,
             input_msgs=_request_input_to_msgs(request.input),
         )
+
+    @staticmethod
+    def _apply_context_injections(ctx: HookContext) -> None:
+        """Merge context_injections into input_msgs as a system hint.
+
+        Sorts injections by priority (ascending) and prepends a
+        single system-role message so the agent sees the dynamic
+        context in its current turn.
+        """
+        injections = ctx.context_injections
+        if not injections:
+            return
+        sorted_inj = sorted(
+            injections,
+            key=lambda x: x.get("priority", 100),
+        )
+        parts = [inj["content"] for inj in sorted_inj if inj.get("content")]
+        if not parts:
+            return
+        try:
+            from agentscope.message import Msg, TextBlock
+
+            hint_msg = Msg(
+                name="system",
+                role="system",
+                content=[
+                    TextBlock(
+                        type="text",
+                        text="\n\n".join(parts),
+                    ),
+                ],
+            )
+            ctx.input_msgs.insert(0, hint_msg)
+        except Exception:
+            logger.debug(
+                "runtime: failed to inject context: %d items",
+                len(parts),
+            )
 
 
 __all__ = ["Runtime"]

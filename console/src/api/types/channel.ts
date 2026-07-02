@@ -57,6 +57,7 @@ export interface QQConfig extends BaseChannelConfig {
 
 export interface TelegramConfig extends BaseChannelConfig {
   bot_token: string;
+  base_url: string;
   http_proxy: string;
   http_proxy_auth: string;
   show_typing?: boolean;

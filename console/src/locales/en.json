@@ -1840,8 +1840,65 @@
     "maxItersPlaceholder": "Enter max iterations",
     "maxItersRequired": "Max iterations is required",
     "maxItersMin": "Max iterations must be at least 1",
-    "autoContinueOnTextOnly": "Auto-continue on text-only step",
-    "autoContinueOnTextOnlyTooltip": "If the model ends a reasoning step with only text (no tool calls), inject a hint and run one extra reasoning pass with the same tool policy so multi-step tasks are less likely to stop silently. Turn off to match legacy behavior. May increase token usage when enabled.",
+    "agentLoopTitle": "Agent Loop Settings",
+    "doomLoopEnabled": "Repetition Protection",
+    "doomLoopEnabledTooltip": "Automatically intervene when the agent gets stuck repeating the same actions",
+    "doomLoopAfter": "After",
+    "doomLoopRepetitions": "identical actions",
+    "doomLoopStopAction": "Pause & Ask for Help",
+    "doomLoopWarnAction": "Send Reminder",
+    "doomLoopSimpleMode": "Simple",
+    "doomLoopAdvancedMode": "Advanced",
+    "doomLoopWindowSize": "Detection Range",
+    "doomLoopWindowSizeTooltip": "How many recent actions to check for repetition",
+    "doomLoopSimilarity": "Match Sensitivity",
+    "doomLoopSimilarityTooltip": "How similar actions must be to count as repetition (lower = stricter)",
+    "doomLoopStages": "Intervention Rules",
+    "doomLoopAction": "Action",
+    "doomLoopPrompt": "Message",
+    "doomLoopPromptPlaceholder": "Reminder message or pause reason...",
+    "doomLoopAddStage": "Add Rule",
+    "iterationTitle": "Iteration Limit",
+    "iterationEnabled": "Enable Iteration Limit",
+    "iterationEnabledTooltip": "Stop the agent after a fixed number of loop turns",
+    "iterationMaxIterations": "Maximum Iterations",
+    "iterationMaxIterationsTooltip": "Maximum number of loop turns before stopping",
+    "rubricTitle": "Completion Check",
+    "rubricEnabled": "Enable Completion Check",
+    "rubricEnabledTooltip": "Ask the agent to self-evaluate whether the task is complete after each turn",
+    "rubricPrompt": "Check Prompt",
+    "rubricPromptTooltip": "The prompt injected to ask the agent to evaluate task completion",
+    "rubricDesc": "Some LLMs may stop with a text-only response without calling any tool, causing the agent to end prematurely. Enable this to re-prompt the agent and improve task completion.",
+    "rubricPromptPlaceholder": "You did not call any tool. If the task is complete, confirm. Otherwise, continue with tool calls.",
+    "rubricMaxInterventions": "Max Interventions per Turn",
+    "rubricMaxInterventionsTooltip": "Maximum times to re-prompt per turn. Prevents infinite re-prompting if the LLM keeps producing text-only responses.",
+    "inLoopModes": "Enable in /goal & /mission modes",
+    "inLoopModesTooltip": "Also apply this gate when /goal or /mission loop mode is active",
+    "comingSoonEditable": "Custom configuration will be available in a future release.",
+    "simpleMode": "Simple",
+    "advancedMode": "Advanced",
+    "comingSoon": "Coming Soon",
+    "reactModeTab": "Loop Template - Default",
+    "goalModeTab": "Loop Template - Goal",
+    "missionModeTab": "Loop Template - Mission",
+    "goalModeInfoTitle": "Goal Mode vs Default",
+    "goalModeInfo": "Default mode stops after producing a reply. Goal mode keeps the agent looping toward a goal, using Rubric evaluation to determine completion. All operations run within the current agent context.",
+    "missionModeInfoTitle": "Mission Mode vs Goal Mode",
+    "missionModeInfo": "Mission mode auto-decomposes complex tasks into sub-tasks, executed by independent Worker sub-agents and verified by Verifier sub-agents. Each sub-task runs in its own context, preventing context pollution of the main session. Best for complex multi-step engineering tasks.",
+    "goalIterationGate": "Goal Iteration Gate",
+    "goalIterationGateDesc": "Limits the number of agent turns within a goal session. Tracks iteration count and token usage.",
+    "goalBudgetGate": "Token Budget Gate",
+    "goalBudgetGateDesc": "Enforces a token spending limit for the goal session. Stops the agent when budget is exceeded.",
+    "goalRubricGate": "Goal Completion Rubric",
+    "goalRubricGateDesc": "Evaluates whether the goal has been achieved by checking the session status.",
+    "goalDoomGate": "Repetition Protection",
+    "goalDoomGateDesc": "Detects repetitive patterns during goal execution and triggers intervention.",
+    "missionProgressGate": "Mission Progress Gate",
+    "missionProgressGateDesc": "Tracks PRD user story completion. Continues until all stories pass or max iterations reached.",
+    "missionIterBypass": "Iteration Bypass",
+    "missionIterBypassDesc": "Temporarily lifts the ReAct iteration limit during mission execution to allow long-running phases.",
+    "customLoopTitle": "Custom Loop Modes",
+    "customLoopDesc": "Create your own loop modes with custom gate combinations. Coming soon.",
     "autoGenerateSessionTitle": "Auto-generate session titles",
     "autoGenerateSessionTitleTooltip": "After the first user message in a new chat, run a short background LLM call to replace the truncated placeholder with a concise title. Costs one extra short LLM call per new chat. Turn off to keep the placeholder and skip the spend.",
     "shellCommandTimeout": "Shell Command Timeout (s)",
@@ -2131,10 +2188,16 @@
         "description": "Deny the pending tool action"
       },
       "mission": {
-        "description": "Launch mission mode — Automatically decompose, implement, and verify complex tasks ⚠️ This mode will bypass tool guardrails"
+        "description": "Mission mode — Decomposes tasks into sub-agents with isolated context"
       },
       "skills": {
         "description": "List chat-available skills and expose explicit skill commands"
+      },
+      "plan": {
+        "description": "Create a structured plan to decompose the task into subtasks"
+      },
+      "goal": {
+        "description": "Goal loop — Agent pursues a goal continuously, auto-evaluates via Rubric"
       }
     },
     "attachments": {
@@ -2789,5 +2852,18 @@
       "LOAD_FAILED": "Failed to load file preview.",
       "LOAD_FAILED_DETAIL": "Failed to load file preview: {{detail}}"
     }
+  },
+  "loop": {
+    "budget": {
+      "low": "Low",
+      "medium": "Med",
+      "high": "High"
+    },
+    "status": {
+      "pause": "Pause",
+      "resume": "Resume",
+      "stop": "Stop"
+    },
+    "gotoSettings": "Agent Loop Settings"
   }
 }
