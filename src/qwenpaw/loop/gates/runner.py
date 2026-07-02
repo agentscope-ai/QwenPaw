@@ -40,20 +40,21 @@ def _filter_by_scope(
             if active_scope:
                 break
 
-    if not active_scope:
-        return handlers
-
     result: list = []
     for reg in handlers:
         scope = getattr(reg, "scope", "")
         if not scope:
             result.append(reg)
-        elif scope == active_scope:
+        elif active_scope and scope == active_scope:
+            result.append(reg)
+        elif not active_scope and scope == "default":
             result.append(reg)
         else:
             logger.debug(
-                f"Skipping handler '{reg.name}' "
-                f"scope={scope} active={active_scope}",
+                "Skipping handler '%s' scope=%s active=%s",
+                reg.name,
+                scope,
+                active_scope or "(none)",
             )
     return result
 
