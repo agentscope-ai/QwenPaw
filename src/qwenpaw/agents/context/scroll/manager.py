@@ -197,9 +197,7 @@ class ScrollContextManager:
             return
         if active_tail:
             head_ids = {m.id for m in head}
-            active_tail = [
-                m for m in active_tail if m.id not in head_ids
-            ]
+            active_tail = [m for m in active_tail if m.id not in head_ids]
             kept_ids = set(active_ids)
             tail = [m for m in tail if m.id not in kept_ids]
             tail.extend(active_tail)
