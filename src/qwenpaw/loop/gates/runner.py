@@ -149,11 +149,6 @@ def apply_stop_result(  # pylint: disable=protected-access
                 stop_result.reason,
             )
             agent._gate_pending_stop = stop_result
-        elif (
-            stop_result.action == StopAction.CONTINUE
-            and stop_result.continuation_message
-        ):
-            agent._gate_pending_continue = stop_result.continuation_message
 
 
 def check_pending_gates(  # pylint: disable=protected-access
