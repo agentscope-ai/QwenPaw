@@ -11,13 +11,12 @@ import {
   Input,
   InputNumber,
   Modal,
-  Select,
   Slider,
   Switch,
   Tag,
   Tooltip,
 } from "@agentscope-ai/design";
-import { AutoComplete } from "antd";
+import { AutoComplete, Segmented } from "antd";
 import {
   DeleteOutlined,
   PlusOutlined,
@@ -361,15 +360,16 @@ function ModelConfigEditor({
                   <div style={labelStyle}>
                     {t("models.reasoningEffortLabel")}
                   </div>
-                  <Select
-                    style={{ width: "100%" }}
+                  <Segmented
+                    block
                     value={reasoningEffort ?? "__auto__"}
-                    onChange={(val: string) => {
-                      setReasoningEffort(val === "__auto__" ? null : val);
+                    onChange={(val) => {
+                      const v = val as string;
+                      setReasoningEffort(v === "__auto__" ? null : v);
                       setDirty(true);
                     }}
                     options={[
-                      { label: "Auto", value: "__auto__" },
+                      { label: t("models.switchToAuto"), value: "__auto__" },
                       ...(
                         reasoningEffortOptions ?? [
                           "none",
@@ -385,15 +385,6 @@ function ModelConfigEditor({
                       })),
                     ]}
                   />
-                  <div
-                    style={{
-                      fontSize: 11,
-                      color: isDark ? "rgba(255,255,255,0.35)" : "#999",
-                      marginTop: 2,
-                    }}
-                  >
-                    {t("models.reasoningEffortHint")}
-                  </div>
                 </div>
               )}
             </div>
