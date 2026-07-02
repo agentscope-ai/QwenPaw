@@ -58,4 +58,34 @@ describe("Chat sessionApi", () => {
       ),
     );
   });
+
+  it("maps a resolved backend chat id back to the SDK session id and backend session id", async () => {
+    const { default: sessionApi } = await import("./index");
+
+    sessionApi.userInitiatedCreate = true;
+    const createdSession: { id?: string; name: string } = { name: "New Chat" };
+    await sessionApi.createSession(createdSession);
+
+    const tempId = createdSession.id;
+    expect(tempId).toBeTruthy();
+
+    mockListChats.mockResolvedValueOnce([
+      {
+        id: "backend-chat-id",
+        name: "New Chat",
+        session_id: tempId,
+        user_id: "default",
+        channel: "console",
+        status: "idle",
+        meta: {},
+      },
+    ]);
+
+    sessionApi.triggerResolve(tempId!);
+
+    await vi.waitFor(() =>
+      expect(sessionApi.getLibrarySessionId("backend-chat-id")).toBe(tempId),
+    );
+    expect(sessionApi.getBackendSessionId("backend-chat-id")).toBe(tempId);
+  });
 });

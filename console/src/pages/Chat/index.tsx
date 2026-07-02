@@ -52,6 +52,10 @@ import {
 import { ChatScalar, ChatList } from "../../plugins/registry/slotKeys";
 import { HostRequestCard, HostResponseCard } from "./HostBubbles";
 import { withGenericFallback } from "../../components/Chat/ToolCards/adapters/v1Adapter";
+import {
+  resolveAgentScopedQueueSessionId,
+  resolveBackendChatSessionId,
+} from "./chatSessionIds";
 
 interface ApprovalMessageData {
   requestId: string;
@@ -737,6 +741,7 @@ export default function ChatPage() {
   const extScalar = useChatScalarSnapshot();
   const extLists = useChatListSnapshot();
   const [refreshKey, setRefreshKey] = useState(0);
+  const controlledSdkSessionId = sessionApi.getLibrarySessionId(chatId);
   const { message } = useAppMessage();
   const { approvals, setApprovals } = useApprovalContext();
   const [approvalRequests, setApprovalRequests] = useState<
@@ -991,6 +996,24 @@ export default function ChatPage() {
   setLastChatIdRef.current = setLastChatId;
   const selectedAgentRef = useRef(selectedAgent);
   selectedAgentRef.current = selectedAgent;
+
+  const resolveBackendSessionId = useCallback(
+    (sessionId?: string) =>
+      resolveBackendChatSessionId(sessionId, (rawSessionId) =>
+        sessionApi.getBackendSessionId(rawSessionId),
+      ),
+    [],
+  );
+
+  const resolveInputQueueSessionId = useCallback(
+    (sessionId?: string) =>
+      resolveAgentScopedQueueSessionId(
+        sessionId,
+        selectedAgentRef.current,
+        (rawSessionId) => sessionApi.getBackendSessionId(rawSessionId),
+      ),
+    [],
+  );
 
   const lastSessionIdRef = useRef<string | null>(null);
   /** Tracks the stale auto-selected session ID that was skipped on init, so we can suppress its late-arriving onSessionSelected callback. */
@@ -1314,10 +1337,14 @@ export default function ChatPage() {
           : lastInput;
 
       const identity = sessionApi.getSessionIdentity();
+      const backendSessionId =
+        resolveBackendSessionId(data.session_id) ||
+        identity.sessionId ||
+        session?.session_id ||
+        "";
       let requestBody: Record<string, unknown> = {
         input: rewrittenInput,
-        session_id:
-          data.session_id || identity.sessionId || session?.session_id || "",
+        session_id: backendSessionId,
         user_id:
           data.user_id || identity.userId || session?.user_id || DEFAULT_USER_ID,
         channel:
@@ -1379,7 +1406,7 @@ export default function ChatPage() {
 
       return wrapChatResponseUsageStream(response, chatRef);
     },
-    [extLists, selectedAgent],
+    [extLists, resolveBackendSessionId, selectedAgent],
   );
 
   const handleFileUpload = useCallback(
@@ -1717,17 +1744,14 @@ export default function ChatPage() {
           // The visible route may switch from a local timestamp to a chat UUID
           // after the first response, but both IDs map back to the same session.
           // The backend still receives the raw session_id through getRequestContext.
-          getSessionId: (sessionId?: string) => {
-            if (!sessionId) return undefined;
-            const backendSessionId = sessionApi.getBackendSessionId(sessionId);
-            return `${selectedAgentRef.current || "__default_agent__"}::${backendSessionId}`;
-          },
+          getSessionId: resolveInputQueueSessionId,
           getRequestContext: (sessionId?: string) => {
             const identity = sessionApi.getSessionIdentity();
+            const backendSessionId = sessionId
+              ? resolveBackendSessionId(sessionId)
+              : identity.sessionId;
             return {
-              session_id: sessionId
-                ? sessionApi.getBackendSessionId(sessionId)
-                : identity.sessionId,
+              session_id: backendSessionId,
               user_id: identity.userId,
               channel: identity.channel,
               agent_id: selectedAgentRef.current,
@@ -1767,6 +1791,9 @@ export default function ChatPage() {
       },
       session: {
         multiple: true,
+        ...(controlledSdkSessionId
+          ? { currentSessionId: controlledSdkSessionId }
+          : {}),
         hideBuiltInSessionList: true,
         api: sessionApi,
       },
@@ -1829,6 +1856,9 @@ export default function ChatPage() {
           const headers: Record<string, string> = {
             "Content-Type": "application/json",
             ...buildAuthHeaders(),
+            ...(selectedAgentRef.current
+              ? { "X-Agent-Id": selectedAgentRef.current }
+              : {}),
           };
 
           const reconnectIdentity = sessionApi.getSessionIdentity();
@@ -1837,7 +1867,7 @@ export default function ChatPage() {
             headers,
             body: JSON.stringify({
               reconnect: true,
-              session_id: sessionApi.getBackendSessionId(data.session_id),
+              session_id: resolveBackendSessionId(data.session_id),
               user_id: reconnectIdentity.userId,
               channel: reconnectIdentity.channel,
             }),
@@ -1936,6 +1966,9 @@ export default function ChatPage() {
     consoleSkills,
     selectedAgent,
     inputQueueEnabled,
+    controlledSdkSessionId,
+    resolveBackendSessionId,
+    resolveInputQueueSessionId,
     onFileCardClick,
     whisperChecked,
     whisperEnabled,

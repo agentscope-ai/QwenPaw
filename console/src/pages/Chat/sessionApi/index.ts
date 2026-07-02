@@ -765,6 +765,19 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     return this.findSession(libraryId)?.sessionId || libraryId;
   }
 
+  /**
+   * Returns the id that should be passed to the AgentScope SDK session context.
+   *
+   * CoPaw routes prefer backend chat UUIDs once a chat is persisted, while the
+   * SDK may still be keyed by the original local timestamp during the first
+   * streaming turn. This keeps URL realId/localId aliases pointing at one SDK
+   * session instead of letting loading and queue state drift across tabs.
+   */
+  getLibrarySessionId(sessionId: string | null | undefined): string | undefined {
+    if (!sessionId) return undefined;
+    return this.findSession(sessionId)?.id || sessionId;
+  }
+
   /** Returns session identity from the session list (authoritative).
    *  Uses lastActiveChatId (set only by intentional user actions) as the
    *  primary lookup key, avoiding the stale window globals problem. */
