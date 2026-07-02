@@ -967,6 +967,27 @@ async def test_theme_command_opens_gallery_without_chat_turn():
 
 
 @pytest.mark.asyncio
+async def test_help_command_shows_current_slash_command_usage():
+    transport = FakeTransport()
+    app = PawApp(transport)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app.query_one("#prompt").value = "/help "
+        await pilot.press("enter")
+        await pilot.pause()
+
+        help_text = "\n".join(i.content.plain for i in app.query(InfoMessage))
+        assert "/resume <id-prefix>" in help_text
+        assert "/theme <theme-id|prompt>" in help_text
+        assert "/inspect" in help_text
+        assert "/model <provider>:<model>" in help_text
+        assert "/clear" in help_text
+        assert "/compact" in help_text
+        assert "/skills" in help_text
+        assert transport.sent == []
+
+
+@pytest.mark.asyncio
 async def test_resume_with_no_sessions_shows_info():
     transport = FakeTransport()  # no past sessions
     app = PawApp(transport)

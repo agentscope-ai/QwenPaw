@@ -600,15 +600,7 @@ class PawApp(App):
         command, _, rest = raw.partition(" ")
         match command:
             case "/help":
-                await self._mount(
-                    InfoMessage(
-                        "Type /resume to pick a recent session from the "
-                        "suggestions (or /resume list to browse all), "
-                        "/theme <prompt> to personalize the background, "
-                        "or /inspect for details. Model and provider "
-                        "commands (e.g. /model) are handled by QwenPaw.",
-                    ),
-                )
+                await self._mount(InfoMessage(_HELP_TEXT))
             case "/resume":
                 await self._handle_resume_command(rest.strip())
             case "/theme":
@@ -1144,6 +1136,23 @@ def _local_commands() -> list[SlashCommand]:
         for theme in THEME_GALLERY
     )
     return commands
+
+
+_HELP_TEXT = """Slash commands:
+/help — show this help
+/resume — pick a recent session
+/resume list — browse all resumable sessions
+/resume <id-prefix> — resume a matching session
+/theme or /theme gallery — open the theme gallery
+/theme <theme-id|prompt> — apply a named or custom theme
+/inspect — toggle thought/tool inspection
+/model — show the current model
+/model list — list available models
+/model <provider>:<model> — switch model
+/model reset — reset to the global default model
+/clear — clear the current session context
+/compact — compact current context
+/skills — list enabled skills"""
 
 
 _LONG_PASTE_CHAR_THRESHOLD = 2000
