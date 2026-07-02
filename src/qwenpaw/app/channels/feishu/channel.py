@@ -403,6 +403,37 @@ class FeishuChannel(BaseChannel):
             return short_session_id_from_full_id(chat_id)
         return f"{self.channel}:{sender_id}"
 
+    def build_message_metadata(
+        self,
+        channel_meta: Optional[Dict[str, Any]],
+    ) -> Optional[Dict[str, Any]]:
+        """Persist a compact, stable subset of Feishu inbound metadata."""
+        if not isinstance(channel_meta, dict) or not channel_meta:
+            return None
+
+        keys = (
+            "channel",
+            "feishu_chat_id",
+            "feishu_message_id",
+            "feishu_sender_id",
+            "feishu_session_sender_id",
+            "sender_display",
+            "sender_label",
+            "user_name",
+            "is_group",
+            "feishu_chat_type",
+            "feishu_thread_id",
+            "feishu_receive_id",
+            "feishu_receive_id_type",
+            "bot_mentioned",
+        )
+        metadata = {
+            key: channel_meta[key]
+            for key in keys
+            if channel_meta.get(key) is not None
+        }
+        return metadata or None
+
     def build_agent_request_from_native(
         self,
         native_payload: Any,
@@ -424,10 +455,13 @@ class FeishuChannel(BaseChannel):
             sender_id,
             meta,
         )
-        # Prefer real open_id from meta for user_id so to_handle is
-        # feishu:sw:{session_id}; fallback to sender_id for display.
+        # Prefer the channel routing id when present, while preserving
+        # meta["feishu_sender_id"] as the real human sender for history.
         user_id = (
-            meta.get("feishu_sender_id") or payload.get("user_id") or sender_id
+            meta.get("feishu_session_sender_id")
+            or meta.get("feishu_sender_id")
+            or payload.get("user_id")
+            or sender_id
         )
         request = self.build_agent_request_from_user_content(
             channel_id=channel_id,
@@ -788,10 +822,15 @@ class FeishuChannel(BaseChannel):
 
             is_group = chat_type == "group"
             meta: Dict[str, Any] = {
+                "channel": self.channel,
                 "feishu_message_id": message_id,
                 "feishu_chat_id": chat_id,
                 "feishu_chat_type": chat_type,
                 "feishu_sender_id": sender_id,
+                "sender_display": sender_display,
+                # Human name for group-history attribution; falls back to the
+                # id-suffixed display (never the "group" routing id).
+                "sender_label": nickname or sender_display,
                 "is_group": is_group,
             }
             # Extract thread_id for topic reply support.
@@ -831,12 +870,12 @@ class FeishuChannel(BaseChannel):
                     f"thread:{short_session_id_from_full_id(thread_id)}"
                 )
                 native["user_id"] = thread_uid
-                meta["feishu_sender_id"] = thread_uid
+                meta["feishu_session_sender_id"] = thread_uid
             # When share_session_in_group is enabled (and no thread), set
-            # feishu_sender_id to "group" so all members share the same
-            # context (session_id already distinguishes different groups).
+            # a separate routing sender id to "group" so all members share the
+            # same context while preserving the real per-message sender above.
             elif is_group and self.share_session_in_group:
-                meta["feishu_sender_id"] = "group"
+                meta["feishu_session_sender_id"] = "group"
             logger.info(
                 "feishu recv from=%s chat=%s msg_id=%s type=%s text_len=%s",
                 sender_display[:40],

@@ -161,5 +161,9 @@ def _request_input_to_msgs(
         if not blocks:
             continue
 
-        out.append(Msg(name=role, role=role, content=blocks))
+        kwargs: dict = {}
+        metadata = getattr(m, "metadata", None)
+        if isinstance(metadata, dict) and metadata:
+            kwargs["metadata"] = dict(metadata)
+        out.append(Msg(name=role, role=role, content=blocks, **kwargs))
     return out

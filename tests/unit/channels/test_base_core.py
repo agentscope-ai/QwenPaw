@@ -174,6 +174,7 @@ class TestBuildAgentRequestCore:
         assert request.user_id == "sender_123"
         assert request.channel == "test_channel"
         assert len(request.input) == 1
+        assert request.input[0].metadata is None
 
     def test_empty_content_gets_default(self, base_channel):
         """Empty content should auto-fill with default empty text"""

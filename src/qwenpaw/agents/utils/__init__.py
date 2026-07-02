@@ -38,7 +38,10 @@ from .message_processing import (
 )
 
 # Message request normalizer
-from .message_request_normalizer import normalize_messages_for_model_request
+from .message_request_normalizer import (
+    normalize_messages_for_model_request,
+    project_group_sender_labels,
+)
 
 # Registry
 from .registry import Registry
@@ -87,6 +90,7 @@ __all__ = [
     "prepend_to_message_content",
     # Message request normalizer
     "normalize_messages_for_model_request",
+    "project_group_sender_labels",
     # Registry
     "Registry",
     # Setup utilities

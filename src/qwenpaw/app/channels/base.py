@@ -1121,6 +1121,32 @@ class BaseChannel(ABC):
         """
         return f"{self.channel}:{sender_id}"
 
+    def build_message_metadata(
+        self,
+        channel_meta: Optional[Dict[str, Any]],
+    ) -> Optional[Dict[str, Any]]:
+        """Return per-message metadata to persist for user messages.
+
+        ``channel_meta`` is also used for routing and may contain large or
+        channel-private values. Subclasses should opt in with a small,
+        stable metadata subset when that information is useful in history.
+
+        Group-sender attribution contract (channel-agnostic): to make the
+        model aware of who spoke in a shared/group session, include these
+        two keys — the model-request projection reads *only* these, so any
+        channel gets the feature for free by populating them:
+
+        * ``is_group`` (bool): ``True`` for shared/group conversations.
+        * ``sender_label`` (str): the real human sender's display name.
+
+        Keep the routing identity (the id used to key the shared session,
+        e.g. ``"group"`` / ``"thread:*"``) in a *separate* field from the
+        real sender, so history retains the true author. See
+        ``FeishuChannel.build_message_metadata`` for a reference impl.
+        """
+        del channel_meta
+        return None
+
     def build_agent_request_from_user_content(
         self,
         channel_id: str,
@@ -1149,6 +1175,7 @@ class BaseChannel(ABC):
             type=MessageType.MESSAGE,
             role=Role.USER,
             content=content_parts,
+            metadata=self.build_message_metadata(channel_meta),
         )
         return AgentRequest(
             session_id=session_id,

@@ -941,6 +941,105 @@ class TestFeishuChannelBuildAgentRequest:
 
         assert result.user_id == "ou_real_sender"
 
+    def test_build_agent_request_uses_session_sender_for_routing(
+        self,
+        feishu_channel,
+    ):
+        """Shared group routing should not overwrite real message sender."""
+        payload = {
+            "channel_id": "feishu",
+            "sender_id": "display#1234",
+            "user_id": "fallback#5678",
+            "session_id": "session_abc",
+            "content_parts": [],
+            "meta": {
+                "feishu_sender_id": "ou_real_sender",
+                "feishu_session_sender_id": "group",
+                "sender_display": "Alice#nder",
+                "sender_label": "Alice",
+                "user_name": "Alice",
+                "is_group": True,
+                "incoming_raw": {"large": "payload"},
+            },
+        }
+
+        result = feishu_channel.build_agent_request_from_native(payload)
+
+        assert result.user_id == "group"
+        assert result.input[0].metadata["feishu_sender_id"] == "ou_real_sender"
+        assert result.input[0].metadata["sender_label"] == "Alice"
+        assert "incoming_raw" not in result.input[0].metadata
+        assert (
+            result.input[0].metadata["feishu_session_sender_id"] == "group"
+        )
+
+    def test_group_approval_card_click_stays_in_shared_session(
+        self,
+        feishu_channel,
+    ):
+        """Shared-group approval card click must route back to the same
+        session even though ``feishu_sender_id`` now holds the real sender.
+
+        Regression guard for repurposing ``feishu_sender_id``: the card
+        round-trip carries ``session_id`` explicitly, so routing must not
+        depend on the (now real-sender) ``feishu_sender_id``.
+        """
+        from qwenpaw.app.channels.feishu.cards.context import (
+            build_session_ctx,
+        )
+
+        # Send-path meta for a message in a shared group session: the real
+        # human sender is preserved while routing uses "group".
+        send_meta = {
+            "feishu_sender_id": "ou_real_sender",
+            "feishu_session_sender_id": "group",
+            "feishu_chat_id": "oc_group_1",
+            "feishu_chat_type": "group",
+            "is_group": True,
+        }
+        to_handle = "feishu:sw:session_shared"
+
+        # 1. Card embeds routing info: session_id from to_handle, sender
+        #    from send_meta["feishu_sender_id"].
+        session_ctx = build_session_ctx(
+            to_handle,
+            send_meta,
+            receive_id="oc_group_1",
+            receive_id_type="chat_id",
+        )
+        assert session_ctx["session_id"] == "session_shared"
+        assert session_ctx["sender_id"] == "ou_real_sender"
+
+        # 2. Card click re-injects an /approval command (mirrors
+        #    _enqueue_approval_command). It sets feishu_sender_id from the
+        #    embedded value and does NOT set feishu_session_sender_id.
+        reinjected = {
+            "channel_id": "feishu",
+            "sender_id": session_ctx["sender_id"],
+            "user_id": session_ctx["sender_id"],
+            "session_id": session_ctx["session_id"],
+            "content_parts": [],
+            "meta": {
+                "feishu_sender_id": session_ctx["sender_id"],
+                "feishu_chat_id": session_ctx["chat_id"],
+                "feishu_chat_type": session_ctx["chat_type"],
+                "feishu_receive_id": session_ctx["receive_id"],
+                "feishu_receive_id_type": session_ctx["receive_id_type"],
+                "is_group": session_ctx["is_group"],
+                "from_card_action": True,
+            },
+        }
+
+        result = feishu_channel.build_agent_request_from_native(reinjected)
+
+        # Routing back to the shared session is preserved via session_id,
+        # independent of the (now real-sender) feishu_sender_id.
+        assert result.session_id == "session_shared"
+        assert (
+            feishu_channel.get_to_handle_from_request(result)
+            == "feishu:sw:session_shared"
+        )
+
 
 # =============================================================================
 # P1: Merge Native Items
