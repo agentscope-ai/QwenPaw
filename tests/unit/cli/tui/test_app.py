@@ -408,6 +408,234 @@ async def test_toggle_hides_finished_tools_only():
         assert not done.has_class("hidden")  # toggled back for inspection
 
 
+async def _overflow_transcript(app, pilot, count: int = 15) -> None:
+    """Mount enough messages that the transcript actually scrolls."""
+    for i in range(count):
+        await app._dispatch(UserTurn(f"replayed message {i}"))
+    await pilot.pause()
+    assert app._transcript().max_scroll_y > 0
+
+
+@pytest.mark.asyncio
+async def test_transcript_follows_new_content_at_bottom():
+    """While the user sits at the end, streaming content keeps the
+    transcript pinned to the bottom (the anchor follows growth)."""
+    transport = FakeTransport()
+    app = PawApp(transport)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await _overflow_transcript(app, pilot)
+        t = app._transcript()
+        assert t.is_vertical_scroll_end
+        await app._dispatch(TextDelta("streamed reply text\n" * 4))
+        await pilot.pause()
+        assert t.is_vertical_scroll_end
+
+
+@pytest.mark.asyncio
+async def test_user_scroll_up_holds_position_while_streaming():
+    """Scrolling up releases the anchor: new content must not move the
+    viewport until the user returns to the bottom."""
+    transport = FakeTransport()
+    app = PawApp(transport)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await _overflow_transcript(app, pilot)
+        t = app._transcript()
+        # Wheel up (the mouse-wheel handler's exact code path).
+        t._scroll_up_for_pointer(animate=False)
+        await pilot.pause()
+        held = t.scroll_y
+        assert not t.is_vertical_scroll_end
+        # A reply streams and new widgets mount — the viewport stays put.
+        await app._dispatch(TextDelta("more streamed text\n" * 5))
+        await app._dispatch(UserTurn("another replayed message"))
+        await pilot.pause()
+        assert t.scroll_y == held
+        assert not t.is_vertical_scroll_end
+        # Wheeling back down to the very end re-engages following.
+        for _ in range(80):
+            t._scroll_down_for_pointer(animate=False)
+        await pilot.pause()
+        assert t.is_vertical_scroll_end
+        await app._dispatch(UserTurn("yet another message"))
+        await pilot.pause()
+        assert t.is_vertical_scroll_end
+
+
+@pytest.mark.asyncio
+async def test_scroll_down_at_bottom_keeps_following():
+    """A clamped downward scroll at the end (down-arrow / page-down with the
+    transcript focused) must not silently stop the auto-follow: Textual
+    releases the anchor on the action but never re-arms it because scroll_y
+    doesn't change."""
+    transport = FakeTransport()
+    app = PawApp(transport)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await _overflow_transcript(app, pilot)
+        t = app._transcript()
+        assert t.is_vertical_scroll_end
+        t.scroll_down(animate=False)  # the down-arrow binding's code path
+        await pilot.pause()
+        await app._dispatch(UserTurn("a fresh message"))
+        await pilot.pause()
+        assert t.is_vertical_scroll_end
+
+
+@pytest.mark.asyncio
+async def test_submit_jumps_back_to_transcript_end():
+    """Sending a message is an explicit user action: the transcript jumps
+    to the end and resumes following, even if they had scrolled up."""
+    transport = FakeTransport()
+    app = PawApp(transport)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await _overflow_transcript(app, pilot)
+        t = app._transcript()
+        t._scroll_up_for_pointer(animate=False)
+        await pilot.pause()
+        assert not t.is_vertical_scroll_end
+        app.query_one("#prompt").value = "hi"
+        await pilot.press("enter")
+        for _ in range(10):
+            await pilot.pause()
+            if not app._busy:
+                break
+        assert t.is_vertical_scroll_end
+
+
+@pytest.mark.asyncio
+async def test_streaming_thought_follows_in_inspection_mode():
+    """An expanded thought growing during inspection keeps the transcript
+    at the end — growth without a new mount is followed too."""
+    transport = FakeTransport()
+    app = PawApp(transport)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("ctrl+i")
+        for i in range(40):
+            await app._dispatch(ThoughtDelta(f"thinking step {i}\n"))
+        t = app._transcript()
+        for _ in range(5):
+            await pilot.pause()
+            if t.is_vertical_scroll_end:
+                break
+        assert t.max_scroll_y > 0
+        assert t.is_vertical_scroll_end
+
+
+@pytest.mark.asyncio
+async def test_inspection_mode_expands_finished_tool_panels():
+    """Ctrl+I opens every panel so params + output are readable without a
+    click per tool; toggling back restores the collapsed summaries."""
+    transport = FakeTransport()
+    app = PawApp(transport)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await app._dispatch(
+            ToolCall(
+                "t1",
+                "read_file",
+                kind="read",
+                status="completed",
+                params="path: README.md",
+                output="# QwenPaw",
+            ),
+        )
+        await pilot.pause()
+        panel = app.query(ToolPanel).first()
+        assert panel.collapsed is True  # friendly default
+
+        await pilot.press("ctrl+i")
+        assert panel.collapsed is False
+        assert not panel.has_class("hidden")
+
+        await pilot.press("ctrl+i")
+        assert panel.collapsed is True
+
+
+@pytest.mark.asyncio
+async def test_tool_finishing_in_inspection_mode_stays_expanded():
+    """In inspection mode a completing tool must not auto-collapse — the
+    whole point of the mode is to watch params and output land."""
+    transport = FakeTransport()
+    app = PawApp(transport)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("ctrl+i")
+        await app._dispatch(
+            ToolCall(
+                "t1",
+                "grep",
+                kind="search",
+                status="in_progress",
+                params="pattern: TODO",
+            ),
+        )
+        await app._dispatch(
+            ToolCall("t1", "", status="completed", output="3 hits"),
+        )
+        await pilot.pause()
+        panel = app.query(ToolPanel).first()
+        assert panel.collapsed is False
+        assert not panel.has_class("hidden")
+
+
+@pytest.mark.asyncio
+async def test_tool_panel_body_shows_labelled_full_params_and_output():
+    """The body labels its input/output sections and no longer truncates at
+    600 chars; content scrolls inside the panel instead."""
+    from textual.containers import VerticalScroll
+
+    transport = FakeTransport()
+    app = PawApp(transport)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        long_cmd = "echo " + "x" * 900  # beyond the old 600-char cap
+        await app._dispatch(
+            ToolCall(
+                "t1",
+                "execute_shell_command",
+                kind="execute",
+                status="completed",
+                params=f"command: {long_cmd}",
+                output="done",
+            ),
+        )
+        await pilot.pause()
+        panel = app.query(ToolPanel).first()
+        body = panel._render_body().plain
+        assert body.startswith("input\n")
+        assert long_cmd in body
+        assert "output\ndone" in body
+        # The body sits in a height-capped scroll container.
+        assert panel.query(VerticalScroll)
+
+
+@pytest.mark.asyncio
+async def test_tool_panel_clips_huge_sections():
+    """A megabyte-scale payload is capped with an explicit truncation note
+    so it cannot stall the renderer."""
+    transport = FakeTransport()
+    app = PawApp(transport)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await app._dispatch(
+            ToolCall(
+                "t1",
+                "take_screenshot",
+                status="completed",
+                output="y" * 50_000,
+            ),
+        )
+        await pilot.pause()
+        panel = app.query(ToolPanel).first()
+        body = panel._render_body().plain
+        assert "… (+40,000 more chars)" in body
+        assert len(body) < 11_000
+
+
 @pytest.mark.asyncio
 async def test_thinking_collapsed_by_default():
     transport = FakeTransport()
@@ -421,6 +649,7 @@ async def test_thinking_collapsed_by_default():
         assert thought.has_class("hidden")
         activity = app.query(ActivityLine).first()
         assert "thinking" in activity.content.plain
+        assert "ctrl+i to inspect" in activity.content.plain
 
 
 @pytest.mark.asyncio
@@ -471,6 +700,7 @@ async def test_friendly_mode_collapses_tool_chain_to_one_activity_line():
         assert len(activities) == 1
         assert "execute_shell_command" in activities[0].content.plain
         assert "pytest -q" in activities[0].content.plain
+        assert "ctrl+i to inspect" in activities[0].content.plain
         assert all(panel.has_class("hidden") for panel in app.query(ToolPanel))
         assert app.query(ThoughtMessage).first().has_class("hidden")
 
@@ -499,6 +729,7 @@ async def test_activity_line_stops_thinking_when_answer_streams():
         await pilot.pause()
         assert "thinking" not in activity.content.plain
         assert "thought complete" in activity.content.plain
+        assert "ctrl+i to inspect" in activity.content.plain
         # The reference is dropped so resumed reasoning starts a fresh line.
         assert app._activity is None
 
@@ -628,6 +859,19 @@ async def test_welcome_message_mounts_with_qwenpaw_greeting():
 
 
 @pytest.mark.asyncio
+async def test_welcome_message_stays_top_aligned_on_launch():
+    """The welcome logo should not be bottom-anchored on first render."""
+    transport = FakeTransport()
+    app = PawApp(transport)
+    async with app.run_test(size=(80, 12)) as pilot:
+        await pilot.pause()
+        transcript = app._transcript()
+        assert transcript.max_scroll_y > 0
+        assert transcript.scroll_y == 0
+        assert not transcript.is_anchored
+
+
+@pytest.mark.asyncio
 async def test_welcome_logo_animates_then_restores_on_live_terminal(
     monkeypatch,
 ):
@@ -726,6 +970,27 @@ async def test_theme_command_opens_gallery_without_chat_turn():
 
 
 @pytest.mark.asyncio
+async def test_help_command_shows_current_slash_command_usage():
+    transport = FakeTransport()
+    app = PawApp(transport)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app.query_one("#prompt").value = "/help "
+        await pilot.press("enter")
+        await pilot.pause()
+
+        help_text = "\n".join(i.content.plain for i in app.query(InfoMessage))
+        assert "/resume <id-prefix>" in help_text
+        assert "/theme <theme-id|prompt>" in help_text
+        assert "/inspect" in help_text
+        assert "/model <provider>:<model>" in help_text
+        assert "/clear" in help_text
+        assert "/compact" in help_text
+        assert "/skills" in help_text
+        assert transport.sent == []
+
+
+@pytest.mark.asyncio
 async def test_resume_with_no_sessions_shows_info():
     transport = FakeTransport()  # no past sessions
     app = PawApp(transport)
@@ -783,8 +1048,8 @@ async def test_resume_opens_picker_and_replays_selected_session():
             await pilot.pause()
             if len(app.query(UserMessage)) >= 2:
                 break
-        # Welcome banner is cleared; the replayed transcript renders instead.
-        assert not list(app.query(WelcomeMessage))
+        # The resumed transcript renders below the welcome banner.
+        assert list(app.query(WelcomeMessage))
         user_msgs = [u.content.plain for u in app.query(UserMessage)]
         assert "How do I write a loop in Rust?" in " ".join(user_msgs)
         assert "Thanks!" in " ".join(user_msgs)
@@ -906,7 +1171,7 @@ async def test_resume_with_id_arg_resumes_directly_without_picker():
 
 
 @pytest.mark.asyncio
-async def test_resume_flag_skips_welcome_and_replays_at_start():
+async def test_resume_flag_shows_welcome_and_replays_at_start():
     transport = FakeTransport(resume_session_id="old-1")
     app = PawApp(transport, resume_session_id="old-1")
     async with app.run_test() as pilot:
@@ -920,8 +1185,8 @@ async def test_resume_flag_skips_welcome_and_replays_at_start():
             )
             if "Thanks!" in rendered:
                 break
-        # No welcome banner; the resumed transcript renders instead.
-        assert not list(app.query(WelcomeMessage))
+        # The welcome banner remains above the resumed transcript.
+        assert list(app.query(WelcomeMessage))
         assert transport.loaded == ["old-1"]
         user_msgs = " ".join(u.content.plain for u in app.query(UserMessage))
         assert "How do I write a loop in Rust?" in user_msgs

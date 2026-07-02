@@ -147,6 +147,11 @@ class ReMeLightMemoryManager(BaseMemoryManager):
             daily_dir=cfg.daily_dir,
         )
 
+    def get_memory_config(self) -> Any:
+        """Return ReMe Light memory configuration."""
+        agent_config = load_agent_config(self.agent_id)
+        return agent_config.running.reme_light_memory_config
+
     def list_memory_tools(self):
         """Return memory tool functions to register with the agent toolkit."""
         return [self.memory_search]

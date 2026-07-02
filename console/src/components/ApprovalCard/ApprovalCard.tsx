@@ -23,7 +23,12 @@ export interface ApprovalCardProps {
   showInboxAgentContext?: boolean;
   sessionId?: string;
   rootSessionId?: string;
-  onApprove: (requestId: string) => Promise<void>;
+  // Approval-scope choice (console-only). When true the card renders
+  // Approve Pattern + Approve Exact; when false, a single Approve button.
+  isGeneralized?: boolean;
+  exactTarget?: string;
+  similarTarget?: string;
+  onApprove: (requestId: string, scope?: "exact" | "similar") => Promise<void>;
   onDeny: (requestId: string) => Promise<void>;
   onCancel?: () => void;
   onAcknowledge?: (requestId: string) => Promise<void>;
@@ -44,6 +49,9 @@ export function ApprovalCard({
   showInboxAgentContext = false,
   sessionId,
   rootSessionId,
+  isGeneralized,
+  exactTarget,
+  similarTarget,
   onApprove,
   onDeny,
   onCancel,
@@ -56,7 +64,7 @@ export function ApprovalCard({
     [agents],
   );
   const [loading, setLoading] = useState<
-    "approve" | "deny" | "acknowledge" | null
+    "approve-pattern" | "approve-exact" | "deny" | "acknowledge" | null
   >(null);
   const [remaining, setRemaining] = useState<number>(timeoutSeconds);
   const [copiedField, setCopiedField] = useState<string | null>(null);
@@ -111,11 +119,18 @@ export function ApprovalCard({
     return () => clearInterval(timer);
   }, [createdAt, timeoutSeconds]);
 
-  const handleApprove = async () => {
-    console.log("[ApprovalCard] Approve button clicked:", requestId);
-    setLoading("approve");
+  const handleApprove = async (scope?: "exact" | "similar") => {
+    const loadingKey =
+      scope === "similar" ? "approve-pattern" : "approve-exact";
+    console.log(
+      "[ApprovalCard] Approve button clicked:",
+      requestId,
+      "scope:",
+      scope,
+    );
+    setLoading(loadingKey);
     try {
-      await onApprove(requestId);
+      await onApprove(requestId, scope);
       console.log("[ApprovalCard] onApprove completed");
     } catch (err) {
       console.error("[ApprovalCard] onApprove failed:", err);
@@ -238,6 +253,31 @@ export function ApprovalCard({
           </div>
         )}
 
+        {isGeneralized && (exactTarget || similarTarget) && (
+          <div className={styles.infoRow}>
+            <Text className={styles.label}>
+              {t("approval.approvalScope", "Approval scope")}:
+            </Text>
+            <div
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                gap: 2,
+                fontSize: 12,
+              }}
+            >
+              <Text className={styles.value} style={{ fontSize: 12 }}>
+                {t("approval.approveExact", "Approve Exact")}:{" "}
+                <code>{exactTarget}</code>
+              </Text>
+              <Text className={styles.value} style={{ fontSize: 12 }}>
+                {t("approval.approvePattern", "Approve Pattern")}:{" "}
+                <code>{similarTarget}</code>
+              </Text>
+            </div>
+          </div>
+        )}
+
         {findingsSummary && (
           <div className={styles.summaryBox}>
             <Text className={styles.summaryText}>{findingsSummary}</Text>
@@ -318,15 +358,38 @@ export function ApprovalCard({
             >
               {t("approval.deny", "Deny")}
             </Button>
-            <Button
-              type="primary"
-              icon={<Check size={14} />}
-              onClick={handleApprove}
-              loading={loading === "approve"}
-              disabled={loading !== null}
-            >
-              {t("approval.approve", "Approve")}
-            </Button>
+            {isGeneralized ? (
+              <>
+                <Button
+                  onClick={() => handleApprove("exact")}
+                  loading={loading === "approve-exact"}
+                  disabled={loading !== null}
+                >
+                  {t("approval.approveExact", "Approve Exact")}
+                </Button>
+                <Button
+                  type="primary"
+                  icon={<Check size={14} />}
+                  onClick={() => handleApprove("similar")}
+                  loading={loading === "approve-pattern"}
+                  disabled={loading !== null}
+                >
+                  {t("approval.approvePattern", "Approve Pattern")}
+                </Button>
+              </>
+            ) : (
+              <Button
+                type="primary"
+                icon={<Check size={14} />}
+                onClick={() => handleApprove()}
+                loading={
+                  loading === "approve-exact" || loading === "approve-pattern"
+                }
+                disabled={loading !== null}
+              >
+                {t("approval.approve", "Approve")}
+              </Button>
+            )}
           </>
         )}
       </div>

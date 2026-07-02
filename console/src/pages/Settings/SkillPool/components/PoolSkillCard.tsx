@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Button, Card, Checkbox, Tooltip } from "@agentscope-ai/design";
+import { SyncOutlined } from "@ant-design/icons";
 import { useTranslation } from "react-i18next";
 import dayjs from "dayjs";
 import type { PoolSkillSpec } from "../../../../api/types";
@@ -19,6 +20,11 @@ interface PoolSkillCardProps {
   onEdit: (skill: PoolSkillSpec) => void;
   onBroadcast: (skill: PoolSkillSpec) => void;
   onDelete: (skill: PoolSkillSpec) => void;
+  onToggleAutoUpdate: (
+    skill: PoolSkillSpec,
+    enabled: boolean,
+    targets?: string[] | null,
+  ) => void | Promise<void>;
 }
 
 export function PoolSkillCard({
@@ -29,6 +35,7 @@ export function PoolSkillCard({
   onEdit,
   onBroadcast,
   onDelete,
+  onToggleAutoUpdate,
 }: PoolSkillCardProps) {
   const { t } = useTranslation();
   const [isHover, setIsHover] = useState(false);
@@ -103,6 +110,13 @@ export function PoolSkillCard({
             ) : (
               <span className={styles.customTag}>{t("skillPool.custom")}</span>
             )}
+            {skill.auto_update && (
+              <Tooltip title={t("skillPool.autoUpdateOnHint")}>
+                <span className={styles.autoUpdateTag}>
+                  {t("skillPool.autoUpdate")}
+                </span>
+              </Tooltip>
+            )}
           </h3>
         </Tooltip>
       </div>
@@ -146,6 +160,24 @@ export function PoolSkillCard({
       {/* Footer - show on hover, batch mode, or mobile (no hover) */}
       {(isHover || batchModeEnabled || isMobile) && (
         <div className={styles.cardFooter}>
+          <Tooltip
+            title={
+              skill.auto_update
+                ? t("skillPool.autoUpdateDisableHint")
+                : t("skillPool.autoUpdateEnableHint")
+            }
+          >
+            <Button
+              className={styles.autoUpdateButton}
+              type={skill.auto_update ? "primary" : "default"}
+              icon={<SyncOutlined />}
+              disabled={batchModeEnabled}
+              onClick={(e) => {
+                e.stopPropagation();
+                void onToggleAutoUpdate(skill, !skill.auto_update, null);
+              }}
+            />
+          </Tooltip>
           <Button
             className={styles.actionButton}
             disabled={batchModeEnabled}

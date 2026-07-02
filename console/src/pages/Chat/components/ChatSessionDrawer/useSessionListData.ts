@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { IAgentScopeRuntimeWebUISession } from "@agentscope-ai/chat";
 import type { ChatStatus } from "../../../../api/types/chat";
@@ -13,6 +13,33 @@ import { getChannelLabel } from "../../../Control/Channels/components";
 import { syncSessionsGlobal } from "../../../../stores/sessionListStore";
 
 export { ContextMenu, useContextMenu, type ContextMenuItem, getChannelLabel };
+
+/**
+ * Shallow-compare two session arrays by visible fields.
+ * Returns true when the list would look identical, so we can skip
+ * the state update and avoid a full re-render cascade.
+ */
+function sessionsEqual(
+  prev: ExtendedChatSession[],
+  next: ExtendedChatSession[],
+): boolean {
+  if (prev.length !== next.length) return false;
+  for (let i = 0; i < prev.length; i++) {
+    const a = prev[i];
+    const b = next[i];
+    if (
+      a.id !== b.id ||
+      a.name !== b.name ||
+      a.updatedAt !== b.updatedAt ||
+      a.pinned !== b.pinned ||
+      a.generating !== b.generating ||
+      a.status !== b.status
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
 
 /** Sessions from QwenPaw backend include extra fields beyond the runtime UI type */
 export interface ExtendedChatSession extends IAgentScopeRuntimeWebUISession {
@@ -110,6 +137,9 @@ export function useSessionListData(
     string | null
   >(null);
 
+  /** Cache last polled sessions to skip no-op state updates */
+  const lastSessionsRef = useRef<ExtendedChatSession[]>([]);
+
   const refreshSessions = useCallback(async () => {
     try {
       const list = await sessionApi.getSessionList();
@@ -131,8 +161,11 @@ export function useSessionListData(
         const list = await sessionApi.getSessionList();
         if (!cancelled) {
           const extended = list as ExtendedChatSession[];
-          setSessions(extended);
-          syncSessionsGlobal(extended);
+          if (!sessionsEqual(lastSessionsRef.current, extended)) {
+            lastSessionsRef.current = extended;
+            setSessions(extended);
+            syncSessionsGlobal(extended);
+          }
         }
       } catch (err) {
         console.error("useSessionListData: failed to fetch sessions", err);
@@ -150,8 +183,11 @@ export function useSessionListData(
         const list = await sessionApi.getSessionList();
         if (!cancelled) {
           const extended = list as ExtendedChatSession[];
-          setSessions(extended);
-          syncSessionsGlobal(extended);
+          if (!sessionsEqual(lastSessionsRef.current, extended)) {
+            lastSessionsRef.current = extended;
+            setSessions(extended);
+            syncSessionsGlobal(extended);
+          }
         }
       } catch {
         // ignore polling errors
@@ -213,6 +249,8 @@ export function useSessionListData(
       const session = sessions.find((s) => s.id === sessionId);
       const backendId = session ? getBackendId(session) : null;
       if (backendId) await chatApi.deleteChat(backendId);
+
+      localStorage.removeItem(`approval_level-${sessionId}`);
 
       // Fetch fresh session list after deletion
       const freshList =

@@ -7,6 +7,7 @@ export interface BaseChannelConfig {
   group_policy?: "open" | "allowlist";
   allow_from?: string[];
   require_mention?: boolean;
+  no_text_debounce?: boolean;
 }
 
 export interface IMessageChannelConfig extends BaseChannelConfig {
@@ -56,6 +57,7 @@ export interface QQConfig extends BaseChannelConfig {
 
 export interface TelegramConfig extends BaseChannelConfig {
   bot_token: string;
+  base_url: string;
   http_proxy: string;
   http_proxy_auth: string;
   show_typing?: boolean;

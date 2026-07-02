@@ -61,6 +61,45 @@ class ModelInfo(BaseModel):
         description="Per-model generation parameters that override "
         "provider-level generate_kwargs.",
     )
+    preserve_thinking: bool = Field(
+        default=True,
+        description="Whether to relay reasoning_content (thinking traces) "
+        "back in subsequent turns. When False the formatter omits "
+        "reasoning_content from assistant wire messages.",
+    )
+    thinking_enabled: bool | None = Field(
+        default=None,
+        description="Tri-state thinking toggle: None=auto (don't send, "
+        "use model default), True=enable, False=disable. "
+        "Provider-specific mapping applies.",
+    )
+    thinking_budget: int | None = Field(
+        default=None,
+        ge=1,
+        description="Token budget for thinking. Provider-specific: "
+        "DashScope/Anthropic use thinking_budget, Gemini uses "
+        "thinking_config.thinking_budget.",
+    )
+    reasoning_effort: str | None = Field(
+        default=None,
+        description="Reasoning effort level: 'low', 'medium', 'high'. "
+        "Used by OpenAI-family providers.",
+    )
+    thinking_param_style: str | None = Field(
+        default=None,
+        description="Override provider-level thinking_param_style for this "
+        "model. 'budget' shows Slider, 'effort' shows Select.",
+    )
+    reasoning_effort_options: List[str] | None = Field(
+        default=None,
+        description="Override provider-level reasoning_effort_options for "
+        "this model.",
+    )
+    thinking_budget_range: List[int] | None = Field(
+        default=None,
+        description="Override provider-level thinking_budget_range [min, max] "
+        "for this model.",
+    )
 
 
 class ExtendedModelInfo(ModelInfo):
@@ -184,6 +223,27 @@ class ProviderInfo(BaseModel):
     provider_variant: str = Field(
         default="",
         description="Variant identifier within a group",
+    )
+    thinking_param_style: str | None = Field(
+        default=None,
+        description="Which thinking-parameter UI to show: "
+        "'budget' (Slider) or 'effort' (Select). "
+        "None means the provider does not support thinking config.",
+    )
+    reasoning_effort_options: List[str] = Field(
+        default_factory=lambda: [
+            "none",
+            "minimal",
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+        ],
+        description="Valid reasoning_effort values for this provider.",
+    )
+    thinking_budget_range: List[int] = Field(
+        default_factory=lambda: [1, 81920],
+        description="[min, max] range for thinking_budget Slider.",
     )
     meta: Dict[str, Any] = Field(
         default_factory=dict,
@@ -376,6 +436,28 @@ class Provider(ProviderInfo, ABC):
                     and config["max_input_length"] is not None
                 ):
                     model.max_input_length = int(config["max_input_length"])
+                if (
+                    "preserve_thinking" in config
+                    and config["preserve_thinking"] is not None
+                ):
+                    model.preserve_thinking = bool(config["preserve_thinking"])
+                if "thinking_enabled" in config:
+                    model.thinking_enabled = (
+                        bool(config["thinking_enabled"])
+                        if config["thinking_enabled"] is not None
+                        else None
+                    )
+                if "thinking_budget" in config:
+                    model.thinking_budget = (
+                        int(config["thinking_budget"])
+                        if config["thinking_budget"] is not None
+                        else None
+                    )
+                if "reasoning_effort" in config:
+                    val = config["reasoning_effort"]
+                    model.reasoning_effort = (
+                        str(val) if val is not None else None
+                    )
                 return True
         return False
 
@@ -391,6 +473,40 @@ class Provider(ProviderInfo, ABC):
             if model.id == model_id:
                 return model
         return None
+
+    def _get_preserve_thinking(self, model_id: str) -> bool:
+        """Return the ``preserve_thinking`` flag for *model_id* (default
+        True)."""
+        model_info = self.get_model_info(model_id)
+        if model_info is not None:
+            return model_info.preserve_thinking
+        return True
+
+    def _get_thinking_config(
+        self,
+        model_id: str,
+    ) -> tuple[bool | None, int | None, str | None]:
+        """Return ``(thinking_enabled, thinking_budget, reasoning_effort)``."""
+        info = self.get_model_info(model_id)
+        if info is None:
+            return None, None, None
+        return (
+            info.thinking_enabled,
+            info.thinking_budget,
+            info.reasoning_effort,
+        )
+
+    def _apply_thinking_config(
+        self,
+        model_id: str,
+        effective: dict,
+    ) -> None:
+        """Inject per-model thinking fields into *effective* kwargs.
+
+        Subclasses override to implement provider-specific mapping.
+        The base implementation is a no-op so providers that don't
+        support thinking are unaffected.
+        """
 
     def _get_context_size(self, model_id: str) -> int:
         """Return the context size for *model_id* from ``ModelInfo``.
@@ -472,5 +588,8 @@ class Provider(ProviderInfo, ABC):
             provider_group=self.provider_group,
             provider_group_name=self.provider_group_name,
             provider_variant=self.provider_variant,
+            thinking_param_style=self.thinking_param_style,
+            reasoning_effort_options=self.reasoning_effort_options,
+            thinking_budget_range=self.thinking_budget_range,
             meta=meta,
         )

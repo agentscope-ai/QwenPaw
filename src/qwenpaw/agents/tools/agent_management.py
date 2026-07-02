@@ -291,7 +291,11 @@ def collect_final_agent_chat_response(
     to_agent: str,
     timeout: int,
 ) -> Optional[Dict[str, Any]]:
-    """Collect the last SSE payload from inter-agent chat."""
+    """Collect the last non-metadata SSE payload from inter-agent chat.
+
+    Skips trailing ``turn_usage`` events so the caller receives
+    the actual agent response instead of usage telemetry.
+    """
     response_data: Optional[Dict[str, Any]] = None
     with create_agent_api_client(base_url) as client:
         with client.stream(
@@ -305,7 +309,7 @@ def collect_final_agent_chat_response(
             for line in response.iter_lines():
                 if line:
                     parsed = parse_agent_sse_line(line)
-                    if parsed:
+                    if parsed and parsed.get("type") != "turn_usage":
                         response_data = parsed
     return response_data
 
@@ -653,6 +657,7 @@ def _generate_subagent_session_id() -> str:
     return f"sub-{str(uuid4())[:8]}"
 
 
+@tool_descriptor(async_execution=True)
 async def spawn_subagent(
     task: str,
     fork: bool = False,

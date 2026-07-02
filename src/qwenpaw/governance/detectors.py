@@ -395,7 +395,8 @@ def detect_dangerous_patterns(
                         severity=rule.severity,
                         title=f"[{rule.severity}] {rule.description}",
                         description=(
-                            f"Rule {rule.id} matched tool "
+                            rule.description
+                            or f"Rule {rule.id} matched tool "
                             f"'{tool_name}' target."
                         ),
                         tool_name=tool_name,

@@ -1,11 +1,28 @@
 /* SidebarSessionList — compact session list embedded in simple-mode sidebar */
 
 .sessionList {
-  display: flex;
-  flex-direction: column;
   flex: 1;
   min-height: 0;
-  overflow: hidden;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(0, 0, 0, 0.12) transparent;
+
+  &::-webkit-scrollbar {
+    width: 4px;
+  }
+
+  &::-webkit-scrollbar-thumb {
+    background: rgba(0, 0, 0, 0.12);
+    border-radius: 2px;
+  }
+}
+
+/* Sticky header: new chat + history title + search */
+.sessionListHeader {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: #f9f8f4;
 }
 
 /* Search bar area */
@@ -31,7 +48,6 @@
 }
 
 .searchContainer {
-  flex-shrink: 0;
   padding: 4px 8px 6px;
 }
 
@@ -40,25 +56,9 @@
   font-size: 12px;
 }
 
-/* Scrollable session area */
+/* Session items container */
 .scroll {
-  flex: 1;
-  overflow-y: auto;
-  min-height: 0;
   padding: 0 4px 8px;
-
-  /* Thin visible scrollbar */
-  scrollbar-width: thin;
-  scrollbar-color: rgba(0, 0, 0, 0.12) transparent;
-
-  &::-webkit-scrollbar {
-    width: 4px;
-  }
-
-  &::-webkit-scrollbar-thumb {
-    background: rgba(0, 0, 0, 0.12);
-    border-radius: 2px;
-  }
 }
 
 /* Date group container */
@@ -66,15 +66,27 @@
   margin-bottom: 4px;
 }
 
-/* Date group label */
+/* Date group label (clickable to collapse/expand) */
 .groupLabel {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
   padding: 6px 10px 2px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
   font-size: 11px;
   font-weight: 600;
   letter-spacing: 0.5px;
   text-transform: uppercase;
   color: var(--colorTextQuaternary, rgba(0, 0, 0, 0.25));
   user-select: none;
+  transition: color 0.15s;
+
+  &:hover {
+    color: var(--colorTextTertiary, rgba(0, 0, 0, 0.45));
+  }
 }
 
 /* Loading / empty state */
@@ -90,7 +102,7 @@
 
 /* Dark mode */
 :global(.dark-mode) {
-  .scroll {
+  .sessionList {
     scrollbar-color: rgba(255, 255, 255, 0.15) transparent;
 
     &::-webkit-scrollbar-thumb {
@@ -98,8 +110,20 @@
     }
   }
 
+  .sessionListHeader {
+    background: #1a1a1a;
+  }
+
   .groupLabel {
     color: rgba(255, 255, 255, 0.2);
+  }
+
+  .groupHeader {
+    color: rgba(255, 255, 255, 0.2);
+
+    &:hover {
+      color: rgba(255, 255, 255, 0.45);
+    }
   }
 
   .loadingState,
@@ -141,6 +165,40 @@
 }
 
 .historyChevron {
+  display: inline-flex;
+  align-items: center;
+  transition: transform 0.2s ease;
+  flex-shrink: 0;
+}
+
+/* ── Time group header (Today / Last 7 days / Earlier) ─────────────────── */
+
+.groupHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 4px 10px 2px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  user-select: none;
+  color: var(--colorTextQuaternary, rgba(0, 0, 0, 0.25));
+  transition: color 0.15s;
+
+  &:hover {
+    color: var(--colorTextTertiary, rgba(0, 0, 0, 0.45));
+  }
+}
+
+.groupHeaderText {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+
+.groupChevron {
   display: inline-flex;
   align-items: center;
   transition: transform 0.2s ease;

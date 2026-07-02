@@ -307,12 +307,16 @@ jobs:
           # not pay the tracer overhead. Multi-platform coverage is opt-in
           # via full-tests-nightly.yml dispatch (coverage_platforms input).
           QWENPAW_INTEGRATION_COVERAGE: ${{ (matrix.os == 'ubuntu-latest' && matrix.python-version == '3.11') && '1' || '' }}
+          # Windows runners are 2-core and IO-bound; under xdist parallel
+          # the default 15s HTTP timeout is too tight and intermittently
+          # surfaces as ``httpx.ReadTimeout``. Lift the floor here.
+          QWENPAW_INTEGRATION_HTTP_TIMEOUT: ${{ matrix.os == 'windows-latest' && '120' || '' }}
         run: |
           if [ -n "$QWENPAW_INTEGRATION_COVERAGE" ]; then
             # Subprocess coverage entry. Parent process must not carry
             # --cov, hence --no-cov here.
             pytest tests/integration -v --no-cov \
-              -n auto --dist=loadscope \
+              -n auto --dist=loadscope --timeout=300 \
               -m "${{ steps.marker.outputs.expr }}"
             cp .integration_coverage/integration_subproc \
               .coverage.integration
@@ -322,7 +326,7 @@ jobs:
               -o coverage.integration.xml || [ "$?" -eq 2 ]
           else
             pytest tests/integration -v \
-              -n auto --dist=loadscope \
+              -n auto --dist=loadscope --timeout=300 \
               -m "${{ steps.marker.outputs.expr }}"
           fi
 

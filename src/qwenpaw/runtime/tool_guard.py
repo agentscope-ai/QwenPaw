@@ -72,21 +72,26 @@ def _guarded_tool_init(
 def _guarded_tool_resolve_execution_level(self: Any) -> str:
     """Return the active tool execution level for this tool.
 
-    Resolves the per-agent ``approval_level`` from the workspace's
-    ``agent.json`` via :func:`load_agent_config`.  Returns one of
-    ``"off"`` / ``"auto"`` / ``"smart"`` / ``"strict"`` (canonical lower-case
-    values from :class:`ToolExecutionLevel`), or ``"bypass"`` when no
-    ``agent_id`` was attached at construction time (mainline single-agent
-    dev path doesn't always set one) or when config loading fails — the
-    bypass branch keeps the tool runnable in environments where the guard
-    can't be initialised.
+    Priority:
+      1. ``request_context["approval_level"]`` — session-level override
+         injected by the frontend (zero I/O).
+      2. ``agent.json`` → ``AgentProfileConfig.approval_level``.
+      3. ``"bypass"`` when no ``agent_id`` was attached or config fails.
     """
+    from ..security.tool_guard.execution_level import ToolExecutionLevel
+
+    # ① Session-level override from request_context
+    request_ctx = getattr(self, "_qp_request_context", None) or {}
+    session_raw = request_ctx.get("approval_level") if request_ctx else None
+    if session_raw:
+        return ToolExecutionLevel.from_config(session_raw).value
+
+    # ② Agent-level from agent.json
     agent_id = getattr(self, "_qp_agent_id", None)
     if not agent_id:
         return "bypass"
     try:
         from ..config.config import load_agent_config
-        from ..security.tool_guard.execution_level import ToolExecutionLevel
 
         profile = load_agent_config(agent_id)
         raw = getattr(profile, "approval_level", None)
@@ -360,6 +365,8 @@ async def _ask_user_approval(
                 "name": tool_name,
                 "input": dict(input_data or {}),
             },
+            "channel_meta": ctx.get("channel_meta"),
+            "_channel_instance": ctx.get("_channel_instance"),
         },
     )
 

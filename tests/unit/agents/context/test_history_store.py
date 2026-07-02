@@ -260,6 +260,7 @@ class _NoFTSConn:
         return getattr(self._real, name)
 
 
+@pytest.mark.usefixtures("capture_qwenpaw_logs")
 def test_init_fts_degrades_and_warns_without_fts5(tmp_path: Path, caplog):
     """A SQLite build without FTS5 must not break the store: history.db still
     works and search degrades to LIKE, with one warning logged."""

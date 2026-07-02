@@ -1,0 +1,45 @@
+name: Verify Desktop (Tauri macOS)
+description: |
+  Unpack Tauri .app zip, launch the shell (open <APP>), and drive the
+  embedded WebKit through the shared Playwright UI verifier. Stop /
+  cleanup / log upload steps live in the caller workflow because
+  composite actions cannot use `if: always()`.
+
+inputs:
+  dashscope-api-key:
+    description: DashScope API key (empty -> verifier skips LLM round)
+    required: false
+    default: ""
+  allow-flaky-llm:
+    description: If 'true', verifier exits 0 on LLM retry exhaustion
+    required: false
+    default: "false"
+
+runs:
+  using: composite
+  steps:
+    - name: Install verify deps (Playwright + WebKit)
+      shell: bash
+      run: |
+        set -euo pipefail
+        python -m pip install --upgrade pip
+        python -m pip install -r scripts/verify/requirements-verify.txt
+        python -m playwright install webkit --with-deps
+
+    - name: Verify desktop (Tauri macOS)
+      shell: bash
+      env:
+        QWENPAW_DASHSCOPE_API_KEY: ${{ inputs.dashscope-api-key }}
+        ALLOW_FLAKY_LLM: ${{ inputs.allow-flaky-llm }}
+      run: |
+        set -euo pipefail
+        source scripts/verify/launch_tauri_macos.sh
+        extra_flags=()
+        if [ "$ALLOW_FLAKY_LLM" = "true" ]; then
+          extra_flags+=("--allow-flaky-llm")
+        fi
+        python scripts/verify/desktop_verify.py \
+          --base-url "$BASE_URL" \
+          --ui-mode tauri-macos \
+          --headed \
+          "${extra_flags[@]}"

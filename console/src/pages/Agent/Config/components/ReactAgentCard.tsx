@@ -82,23 +82,6 @@ export function ReactAgentCard({
         </Form.Item>
 
         <Form.Item
-          label={t("agentConfig.maxIters")}
-          name="max_iters"
-          rules={[
-            { required: true, message: t("agentConfig.maxItersRequired") },
-            { type: "number", min: 1, message: t("agentConfig.maxItersMin") },
-          ]}
-          tooltip={t("agentConfig.maxItersTooltip")}
-          className={styles.reactAgentField}
-        >
-          <InputNumber
-            style={{ width: "100%" }}
-            min={1}
-            placeholder={t("agentConfig.maxItersPlaceholder")}
-          />
-        </Form.Item>
-
-        <Form.Item
           label={t("agentConfig.shellCommandTimeout")}
           name="shell_command_timeout"
           rules={[
@@ -138,15 +121,6 @@ export function ReactAgentCard({
       </div>
 
       <Form.Item
-        label={t("agentConfig.autoContinueOnTextOnly")}
-        name="auto_continue_on_text_only"
-        valuePropName="checked"
-        tooltip={t("agentConfig.autoContinueOnTextOnlyTooltip")}
-      >
-        <Switch />
-      </Form.Item>
-
-      <Form.Item
         label={t("agentConfig.autoGenerateSessionTitle")}
         name={["auto_title_config", "enabled"]}
         valuePropName="checked"
@@ -164,6 +138,27 @@ export function ReactAgentCard({
         >
           <Select
             options={CONTEXT_MANAGER_BACKEND_OPTIONS}
+            style={{ width: "100%" }}
+          />
+        </Form.Item>
+
+        <Form.Item
+          label={t("agentConfig.contextStrategy")}
+          name={["light_context_config", "strategy"]}
+          tooltip={t("agentConfig.contextStrategyTooltip")}
+          className={styles.reactAgentField}
+        >
+          <Select
+            options={[
+              {
+                value: "scroll",
+                label: t("agentConfig.contextStrategyScroll"),
+              },
+              {
+                value: "native",
+                label: t("agentConfig.contextStrategyNative"),
+              },
+            ]}
             style={{ width: "100%" }}
           />
         </Form.Item>

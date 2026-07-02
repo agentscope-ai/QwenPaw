@@ -168,6 +168,7 @@ const ChatSessionInitializer: React.FC = () => {
             );
             const targetUrl = buildSessionPath(mode, effectiveId);
             sessionApi.trackNavigatedSession(effectiveId);
+            sessionApi.preferredChatId = effectiveId;
             navigate(targetUrl, { replace: true });
             setCurrentSessionId(sessionId);
           })

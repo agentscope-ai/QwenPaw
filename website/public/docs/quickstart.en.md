@@ -4,7 +4,7 @@ This section describes multiple ways to install QwenPaw:
 
 | Installation Method   | Best For                                      | Advantages                                                  | Prerequisites         |
 | --------------------- | --------------------------------------------- | ----------------------------------------------------------- | --------------------- |
-| **pip install**       | Developers familiar with Python               | Flexible environment control, easy for development          | Python 3.10~3.13      |
+| **pip install**       | Developers familiar with Python               | Flexible environment control, easy for development          | Python 3.11~3.13      |
 | **Script install**    | Users who don't want manual environment setup | Zero configuration, automatic Python environment management | None                  |
 | **Docker**            | Containerized deployment or production        | Environment isolation, easy migration                       | Docker                |
 | **Alibaba Cloud ECS** | Stable cloud operation                        | One-click deploy, stable and reliable                       | Alibaba Cloud account |
@@ -24,7 +24,7 @@ This section describes multiple ways to install QwenPaw:
 
 ## Option 1: pip install
 
-If you prefer managing Python yourself (requires Python >= 3.10, < 3.14):
+If you prefer managing Python yourself (requires Python >= 3.11, < 3.14):
 
 ```bash
 pip install qwenpaw
@@ -179,7 +179,7 @@ first and then configure channels.
 
 ## Option 2: pip install
 
-If you prefer managing Python yourself (requires Python >= 3.10, < 3.14):
+If you prefer managing Python yourself (requires Python >= 3.11, < 3.14):
 
 ```bash
 pip install qwenpaw

@@ -29,6 +29,7 @@ from helpers import (
     MOCK_LLM_PROVIDER_ID,
     MockLLMHandler,
     clean_inbox,
+    default_http_timeout,
     poll_history as _poll_history,
     register_mock_provider,
     scoped,
@@ -36,7 +37,7 @@ from helpers import (
     wait_cron_executed as _wait_cron_executed,
 )
 
-_HTTP_TIMEOUT = 15.0
+_HTTP_TIMEOUT = default_http_timeout(15.0)
 _NEVER_FIRE_SCHEDULE = "0 0 1 1 *"
 _MOCK_RUNNER_NAME = "mock_runner"
 _MOCK_RUNNER_PATH = Path(__file__).parent / "fixtures" / "acp_mock_runner.py"

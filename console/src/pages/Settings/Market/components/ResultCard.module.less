@@ -12,13 +12,24 @@
   position: relative;
   overflow: hidden;
 
+  // Flex-grow chain (card → body → wrapper) so the wrapper fills the
+  // card's full height; the stats row then pins to the bottom-left
+  // corner via margin-top:auto, independent of description length.
   :global {
     .ant-card-body {
       padding: 0 !important;
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
     }
 
     .qwenpaw-spark-card-wrapper {
       padding: 16px !important;
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
     }
   }
 
@@ -86,6 +97,35 @@
   -webkit-box-orient: vertical;
 }
 
+.statsRow {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  // Pin to the bottom-left corner so downloads/stars stay fixed no
+  // matter the description length (cards stretch to equal row height).
+  margin-top: auto;
+  padding-top: 10px;
+  font-size: 12px;
+  line-height: 18px;
+  color: rgba(20, 20, 19, 0.45);
+}
+
+.statItem {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+
+  svg {
+    flex-shrink: 0;
+  }
+}
+
+.statValue {
+  font-weight: 500;
+  color: rgba(20, 20, 19, 0.7);
+}
+
 .cardFooter {
   position: absolute;
   bottom: 0;
@@ -140,6 +180,14 @@
   .descriptionText {
     background: rgba(255, 255, 255, 0.04);
     border-color: rgba(255, 255, 255, 0.1);
+    color: rgba(255, 255, 255, 0.65);
+  }
+
+  .statsRow {
+    color: rgba(255, 255, 255, 0.45);
+  }
+
+  .statValue {
     color: rgba(255, 255, 255, 0.65);
   }
 

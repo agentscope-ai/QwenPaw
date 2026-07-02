@@ -71,6 +71,9 @@ class HistoryStore:
         # degraded; callers/monitoring can read this.
         self.degraded = False
         self.write_failures = 0
+        # Flipped True by ``close()`` so callers can tell an intentional
+        # teardown race from a real disk outage (see ``closed``).
+        self._closed = False
         try:
             self._open_and_init()
         except sqlite3.DatabaseError as exc:
@@ -472,7 +475,13 @@ class HistoryStore:
                 exc,
             )
 
+    @property
+    def closed(self) -> bool:
+        """True once :meth:`close` has run — the connection is gone."""
+        return self._closed
+
     def close(self) -> None:
+        self._closed = True
         try:
             self._conn.close()
         except sqlite3.Error:

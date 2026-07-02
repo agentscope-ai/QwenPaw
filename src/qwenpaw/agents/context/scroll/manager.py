@@ -108,6 +108,11 @@ class ScrollContextManager:
         result — best-effort) and :meth:`compress` (which must NOT evict when
         this returns ``False``, or it would drop un-persisted turns).
         """
+        # Teardown race: a stop/cancel can close the store while a final
+        # ``on_save`` is still in flight. The connection was retired on
+        # purpose, so skip the write quietly instead of degrading durability.
+        if self._history.closed:
+            return True
         try:
             self._persist_new(agent)
             return True
