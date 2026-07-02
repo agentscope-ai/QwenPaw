@@ -755,12 +755,53 @@ class AgentBuilder:
         """
         mws: list[Any] = []
 
-        coordinator_mw = AgentBuilder._build_coordinator_middleware(
-            ctx,
-            agent_config,
-        )
-        if coordinator_mw is not None:
-            mws.append(coordinator_mw)
+        app_services = getattr(ctx, "app_services", None)
+        if app_services is not None:
+            tool_coordinator = getattr(
+                app_services,
+                "tool_coordinator",
+                None,
+            )
+            if tool_coordinator is not None:
+                from ..tool_calls import (
+                    ToolCoordinatorMiddleware,
+                    ToolResultLimiter,
+                )
+
+                result_limiter = None
+                try:
+                    import os
+
+                    lcc = agent_config.running.light_context_config
+                    trc = lcc.tool_result_pruning_config
+                    workspace = getattr(ctx, "workspace", None)
+                    workspace_dir = (
+                        str(getattr(workspace, "workspace_dir", ""))
+                        if workspace is not None
+                        else ""
+                    )
+                    tool_results_dir = (
+                        os.path.join(workspace_dir, trc.tool_results_cache)
+                        if workspace_dir
+                        else None
+                    )
+                    result_limiter = ToolResultLimiter(
+                        enabled=trc.enabled,
+                        max_text_bytes=trc.execution_layer_max_bytes,
+                        cache_dir=tool_results_dir,
+                    )
+                except Exception:
+                    _logger.debug(
+                        "ToolResultLimiter not created",
+                        exc_info=True,
+                    )
+
+                mws.append(
+                    ToolCoordinatorMiddleware(
+                        coordinator=tool_coordinator,
+                        result_limiter=result_limiter,
+                    ),
+                )
 
         memory_manager = AgentBuilder._get_memory_manager(ctx)
         if memory_manager is not None:
@@ -777,11 +818,24 @@ class AgentBuilder:
 
         # Tiered tool-result pruning (ported from LightContextManager)
         try:
+            import os
+
             from ..agents.middlewares import ToolResultPruningMiddleware
 
             lcc = agent_config.running.light_context_config
             trc = lcc.tool_result_pruning_config
-            tool_results_dir = AgentBuilder._resolve_tool_results_dir(ctx, trc)
+
+            workspace = getattr(ctx, "workspace", None)
+            workspace_dir = (
+                str(getattr(workspace, "workspace_dir", ""))
+                if workspace is not None
+                else ""
+            )
+            tool_results_dir = (
+                os.path.join(workspace_dir, trc.tool_results_cache)
+                if workspace_dir
+                else ""
+            )
 
             mws.append(
                 ToolResultPruningMiddleware(
