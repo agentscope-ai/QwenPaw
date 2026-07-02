@@ -466,8 +466,6 @@ class TelegramChannel(BaseChannel):
                 "meta": meta,
             }
             if self._enqueue is not None:
-                self._start_typing(chat_id)
-                self._is_processing[chat_id] = True
                 self._enqueue(native)
             else:
                 logger.warning("telegram: _enqueue not set, message dropped")
@@ -1148,6 +1146,20 @@ class TelegramChannel(BaseChannel):
         if self._is_processing.get(to_handle, False):
             self._start_typing(to_handle)
 
+    async def _before_consume_process(
+        self,
+        request: Any,
+    ) -> None:
+        """Start typing indicator when processing actually begins.
+
+        Called after the no-text debounce check passes, so the typing
+        indicator only starts for messages that will be processed — not
+        for file-only messages buffered while waiting for text input.
+        """
+        to_handle = self.get_to_handle_from_request(request)
+        self._is_processing[to_handle] = True
+        self._start_typing(to_handle)
+
     async def _on_process_completed(
         self,
         request,
@@ -1157,7 +1169,6 @@ class TelegramChannel(BaseChannel):
         """All events done — clear processing flag and stop typing."""
         self._is_processing.pop(to_handle, None)
         self._stop_typing(to_handle)
-        await super()._on_process_completed(request, to_handle, send_meta)
 
     async def _on_consume_error(
         self,

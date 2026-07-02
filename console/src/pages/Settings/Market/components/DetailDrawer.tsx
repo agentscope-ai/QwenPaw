@@ -18,6 +18,7 @@ interface DetailDrawerProps {
 const STAT_KEY_LABELS: Record<string, string> = {
   downloads: "market.stats.downloads",
   installs: "market.stats.installs",
+  stars: "market.stats.stars",
   likes: "market.stats.likes",
   views: "market.stats.views",
   category: "market.stats.category",

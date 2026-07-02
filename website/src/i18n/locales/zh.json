@@ -1,6 +1,7 @@
 {
   "nav": {
     "docs": "文档",
+    "blog": "博客",
     "more": "更多",
     "releaseNotes": "更新日志",
     "qwenpaw": "Qwenpaw",
@@ -253,6 +254,19 @@
       "name": "anthropics/skills",
       "suffix": " 提供 Agent Skills 规范与示例。"
     }
+  },
+  "blog": {
+    "breadcrumbHome": "首页",
+    "breadcrumbCurrent": "博客",
+    "title": "QwenPaw 团队的博客",
+    "subtitle": "来自 QwenPaw 的最新动态、深度解析和用户故事。",
+    "latestUpdate": "最近更新 {{date}}",
+    "totalPosts": "共 {{count}} 篇",
+    "readTime": "阅读时间 {{minutes}} 分钟",
+    "sessionCount": "共 {{count}} 场开发者日会",
+    "backToList": "返回博客列表",
+    "notFound": "文章未找到",
+    "empty": "暂无博客文章"
   },
   "docs": {
     "intro": "项目介绍",

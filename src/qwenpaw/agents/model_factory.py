@@ -761,10 +761,14 @@ def _create_file_block_support_formatter(
                 base_formatter_class,
                 AnthropicChatFormatter,
             ):
-                kwargs.setdefault(
-                    "input_types",
-                    ["text/plain", "image/*", "video/*"],
-                )
+                # Direct assignment (not setdefault): kwargs comes from
+                # model_dump() and may carry the base class's narrower
+                # input_types; we must override to include "video/*".
+                kwargs["input_types"] = [
+                    "text/plain",
+                    "image/*",
+                    "video/*",
+                ]
             super().__init__(**kwargs)
 
         def _format_anthropic_data_block(self, block):
@@ -891,7 +895,15 @@ def _create_file_block_support_formatter(
                         if ec:
                             tc["extra_content"] = ec
 
-            if reasoning_contents and not is_anthropic_formatter:
+            if (
+                reasoning_contents
+                and not is_anthropic_formatter
+                and getattr(
+                    self,
+                    "relay_reasoning_content",
+                    True,
+                )
+            ):
                 aligned_reasoning = []
                 for m in (
                     msg for msg in normalized_msgs if msg.role == "assistant"
@@ -1205,7 +1217,10 @@ def _create_formatter_instance(
     formatter_class = _create_file_block_support_formatter(
         base_formatter_class,
     )
-    kwargs: dict[str, Any] = {}
+    # Carry over all Pydantic field values (max_bytes,
+    # relay_reasoning_content, etc.) from the provider-constructed
+    # formatter so they are not silently reset to defaults.
+    kwargs: dict[str, Any] = base_formatter.model_dump()
     # OpenAI / Gemini wire formats can't carry image bytes inside tool
     # results — promote them into a follow-up user message instead.
     # Anthropic format keeps images in tool_result natively, so no

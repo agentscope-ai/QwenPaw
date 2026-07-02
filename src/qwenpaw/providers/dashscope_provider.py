@@ -35,6 +35,7 @@ class DashScopeProvider(OpenAIProvider):
     ``DashScopeChatModel``."""
 
     chat_model: str = Field(default="DashScopeChatModel")
+    thinking_param_style: str = Field(default="budget")
 
     max_inline_media_bytes: int = Field(
         default=MAX_INLINE_MEDIA_BYTES,
@@ -47,6 +48,36 @@ class DashScopeProvider(OpenAIProvider):
             "conversation history. 0 disables capping."
         ),
     )
+
+    def _is_builtin_model(self, model_id: str) -> bool:
+        return any(m.id == model_id for m in self.models)
+
+    def _apply_thinking_config(
+        self,
+        model_id: str,
+        effective: dict,
+    ) -> None:
+        if not self._is_builtin_model(model_id):
+            return
+        enabled, budget, effort = self._get_thinking_config(model_id)
+        eb = effective.get("extra_body")
+        eb = eb if isinstance(eb, dict) else {}
+        if enabled is not None:
+            if (
+                "thinking_enable" not in effective
+                and "enable_thinking" not in eb
+            ):
+                effective["thinking_enable"] = enabled
+        if enabled is False:
+            return
+        if budget is not None:
+            if (
+                "thinking_budget" not in effective
+                and "thinking_budget" not in eb
+            ):
+                effective["thinking_budget"] = budget
+        if effort is not None:
+            effective.setdefault("reasoning_effort", effort)
 
     def get_chat_model_instance(self, model_id: str) -> ChatModelBase:
         from agentscope.credential import DashScopeCredential
@@ -68,6 +99,7 @@ class DashScopeProvider(OpenAIProvider):
         )
 
         effective = self.get_effective_generate_kwargs(model_id)
+        self._apply_thinking_config(model_id, effective)
 
         # Back-compat: honour OpenAI-style ``extra_body`` so configs written
         # for the old OpenAIProvider path keep working after migration to the
@@ -140,6 +172,7 @@ class DashScopeProvider(OpenAIProvider):
             extra_generate_kwargs=extra_generate_kwargs,
             formatter=_CappingDashScopeFormatter(
                 max_bytes=self.max_inline_media_bytes,
+                relay_reasoning_content=self._get_preserve_thinking(model_id),
             ),
         )
 

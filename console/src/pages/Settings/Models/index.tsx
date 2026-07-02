@@ -69,7 +69,7 @@ function ModelsPage() {
   }, [providers, searchParams, setSearchParams]);
 
   const refreshProvidersSilently = useCallback(() => {
-    void fetchAll(false);
+    return fetchAll(false);
   }, [fetchAll]);
 
   const handleTabChange = useCallback((tab: "cloud" | "local") => {
@@ -569,6 +569,7 @@ function ModelsPage() {
                 open={!!modelsModalProvider}
                 onClose={() => setModelsModalProvider(null)}
                 onSaved={refreshProvidersSilently}
+                onProviderUpdated={(p) => setModelsModalProvider(p)}
               />
             )}
 

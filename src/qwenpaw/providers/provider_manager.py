@@ -73,6 +73,7 @@ DASHSCOPE_MODELS: List[ModelInfo] = [
         supports_image=False,
         supports_video=False,
         probe_source="documentation",
+        thinking_enabled=True,
     ),
     ModelInfo(
         id="qwen3.7-plus",
@@ -80,6 +81,7 @@ DASHSCOPE_MODELS: List[ModelInfo] = [
         supports_image=True,
         supports_video=True,
         probe_source="documentation",
+        thinking_enabled=True,
     ),
     ModelInfo(
         id="qwen3.6-plus",
@@ -87,6 +89,7 @@ DASHSCOPE_MODELS: List[ModelInfo] = [
         supports_image=True,
         supports_video=True,
         probe_source="documentation",
+        thinking_enabled=True,
     ),
     ModelInfo(
         id="deepseek-v4-pro",
@@ -94,6 +97,9 @@ DASHSCOPE_MODELS: List[ModelInfo] = [
         supports_image=False,
         supports_video=False,
         probe_source="documentation",
+        thinking_enabled=True,
+        thinking_param_style="effort",
+        reasoning_effort_options=["high", "max"],
     ),
 ]
 
@@ -2135,21 +2141,24 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
                 # extra_models (models that were user-added but are now
                 # part of the built-in list).
                 stored_model_config: dict = {}
+                _per_model_keys = (
+                    "generate_kwargs",
+                    "max_tokens",
+                    "max_input_length",
+                    "preserve_thinking",
+                    "thinking_enabled",
+                    "thinking_budget",
+                    "reasoning_effort",
+                )
                 for m in provider.models:
                     stored_model_config[m.id] = {
-                        "generate_kwargs": m.generate_kwargs,
-                        "max_tokens": m.max_tokens,
-                        "max_input_length": m.max_input_length,
+                        k: getattr(m, k) for k in _per_model_keys
                     }
                 for m in provider.extra_models:
                     if m.id in builtin_model_ids:
                         stored_model_config.setdefault(
                             m.id,
-                            {
-                                "generate_kwargs": m.generate_kwargs,
-                                "max_tokens": m.max_tokens,
-                                "max_input_length": m.max_input_length,
-                            },
+                            {k: getattr(m, k) for k in _per_model_keys},
                         )
                 if stored_model_config:
                     for model in builtin.models:
@@ -2162,6 +2171,20 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
                             if cfg["max_input_length"] is not None:
                                 model.max_input_length = cfg[
                                     "max_input_length"
+                                ]
+                            if cfg.get("preserve_thinking") is not None:
+                                model.preserve_thinking = cfg[
+                                    "preserve_thinking"
+                                ]
+                            if cfg.get("thinking_enabled") is not None:
+                                model.thinking_enabled = cfg[
+                                    "thinking_enabled"
+                                ]
+                            if cfg.get("thinking_budget") is not None:
+                                model.thinking_budget = cfg["thinking_budget"]
+                            if cfg.get("reasoning_effort") is not None:
+                                model.reasoning_effort = cfg[
+                                    "reasoning_effort"
                                 ]
         # Load custom providers
         for provider_file in self.custom_path.glob("*.json"):

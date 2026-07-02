@@ -9,6 +9,16 @@ export interface ModelInfo {
   max_tokens: number;
   max_input_length: number;
   generate_kwargs: Record<string, unknown>;
+  preserve_thinking: boolean;
+  thinking_enabled: boolean | null;
+  thinking_budget: number | null;
+  reasoning_effort: string | null;
+  /** Per-model override: 'budget' or 'effort'. Falls back to provider-level. */
+  thinking_param_style?: "budget" | "effort" | null;
+  /** Per-model override for reasoning_effort options. */
+  reasoning_effort_options?: string[] | null;
+  /** Per-model override for thinking_budget [min, max] range. */
+  thinking_budget_range?: [number, number] | null;
 }
 
 export interface ProviderInfo {
@@ -49,6 +59,12 @@ export interface ProviderInfo {
   provider_group_name?: string;
   /** Variant within a group (e.g. "coding_plan_cn"). */
   provider_variant?: string;
+  /** Which thinking-parameter UI to show: 'budget' or 'effort'. null = not supported. */
+  thinking_param_style?: "budget" | "effort" | null;
+  /** Valid reasoning_effort values for this provider. */
+  reasoning_effort_options?: string[];
+  /** [min, max] range for thinking_budget Slider. */
+  thinking_budget_range?: [number, number];
   /** Provider-specific metadata (e.g. base_url_options for region selection). */
   meta?: Record<string, unknown>;
 }
@@ -116,6 +132,10 @@ export interface ModelConfigRequest {
   max_tokens?: number;
   max_input_length?: number;
   generate_kwargs?: Record<string, unknown>;
+  preserve_thinking?: boolean;
+  thinking_enabled?: boolean | null;
+  thinking_budget?: number | null;
+  reasoning_effort?: string | null;
 }
 
 export interface LocalModelConfig {

@@ -209,6 +209,7 @@ class OpenAIProvider(Provider):
             context_size=self._get_context_size(model_id),
             formatter=_CappingOpenAIFormatter(
                 max_bytes=self.max_inline_media_bytes,
+                relay_reasoning_content=self._get_preserve_thinking(model_id),
             ),
         )
 

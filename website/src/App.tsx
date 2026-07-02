@@ -11,6 +11,8 @@ const GA_ID = "G-BEX1XSB9KE";
 // Lazy load page components for better performance
 const Home = lazy(() => import("@/pages/Home"));
 const Docs = lazy(() => import("@/pages/Docs"));
+const Blog = lazy(() => import("@/pages/Blog"));
+const BlogPost = lazy(() => import("@/pages/Blog/Post"));
 const ReleaseNotes = lazy(() => import("@/pages/ReleaseNotes"));
 const Downloads = lazy(() => import("@/pages/Downloads"));
 
@@ -137,6 +139,8 @@ export default function App() {
         <Route element={<SiteLayout showFooter />}>
           <Route path="/" element={<Home />} />
           <Route path="/downloads" element={<Downloads />} />
+          <Route path="/blog" element={<Blog />} />
+          <Route path="/blog/:slug" element={<BlogPost />} />
         </Route>
         <Route element={<SiteLayout showFooter={false} />}>
           <Route path="/docs" element={<Navigate to="/docs/intro" replace />} />
