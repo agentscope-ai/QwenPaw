@@ -1933,16 +1933,13 @@
     "rerankerModelName": "模型名称",
     "rerankerModelNameTooltip": "重排序模型名称,例如 bge-reranker-v2-gemma、Qwen3-Reranker-8B",
     "rerankerModelNamePlaceholder": "例如: bge-reranker-v2-gemma",
-    "rerankerBaseUrl": "API 地址",
-    "rerankerBaseUrlTooltip": "兼容 OpenAI API 格式的基地址",
-    "rerankerBaseUrlPlaceholder": "例如: https://api.siliconflow.cn/v1",
+    "rerankerEndpointUrl": "API 端点地址",
+    "rerankerEndpointUrlTooltip": "完整的重排序端点地址,需包含路径。不同提供商使用不同路径,例如 SiliconFlow /v1/rerank、DashScope /v1/reranks",
+    "rerankerEndpointUrlPlaceholder": "例如: https://api.siliconflow.cn/v1/rerank",
     "rerankerApiKey": "API 密钥",
     "rerankerApiKeyTooltip": "重排序服务提供商的 API 密钥",
     "rerankerApiKeyPlaceholder": "输入 API 密钥",
-    "rerankerTemperature": "温度",
-    "rerankerTemperatureTooltip": "LLM 重排序时的采样温度(0-2)",
-    "rerankerTemperaturePlaceholder": "0.0",
-    "rerankerInfoHint": "重排序功能会在初始混合搜索后,调用额外的 LLM API 对结果进行重新排列。需要确保 model_name、base_url 和 api_key 配置正确才会生效。注意: 每次搜索都会调用额外的 API,可能产生费用。"
+    "rerankerInfoHint": "重排序功能会在初始混合搜索后,调用额外的 LLM API 对结果进行重新排列。需要确保 model_name、endpoint_url(完整端点地址)和 api_key 配置正确才会生效。注意填写完整的端点地址(包含路径),不同提供商路径不同(SiliconFlow 为 /v1/rerank,DashScope 为 /v1/reranks)。注意: 每次搜索都会调用额外的 API,可能产生费用。"
   },
   "tools": {
     "title": "内置工具",

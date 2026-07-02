@@ -184,17 +184,17 @@ export function ReMeLightMemoryCard() {
                     </Form.Item>
 
                     <Form.Item
-                      label={t("agentConfig.rerankerBaseUrl")}
+                      label={t("agentConfig.rerankerEndpointUrl")}
                       name={[
                         "reme_light_memory_config",
                         "reranker_config",
-                        "base_url",
+                        "endpoint_url",
                       ]}
-                      tooltip={t("agentConfig.rerankerBaseUrlTooltip")}
+                      tooltip={t("agentConfig.rerankerEndpointUrlTooltip")}
                     >
                       <Input
                         placeholder={t(
-                          "agentConfig.rerankerBaseUrlPlaceholder",
+                          "agentConfig.rerankerEndpointUrlPlaceholder",
                         )}
                       />
                     </Form.Item>
@@ -210,26 +210,6 @@ export function ReMeLightMemoryCard() {
                     >
                       <Input.Password
                         placeholder={t("agentConfig.rerankerApiKeyPlaceholder")}
-                      />
-                    </Form.Item>
-
-                    <Form.Item
-                      label={t("agentConfig.rerankerTemperature")}
-                      name={[
-                        "reme_light_memory_config",
-                        "reranker_config",
-                        "temperature",
-                      ]}
-                      tooltip={t("agentConfig.rerankerTemperatureTooltip")}
-                    >
-                      <InputNumber
-                        style={{ width: "100%" }}
-                        min={0}
-                        max={2}
-                        step={0.1}
-                        placeholder={t(
-                          "agentConfig.rerankerTemperaturePlaceholder",
-                        )}
                       />
                     </Form.Item>
 

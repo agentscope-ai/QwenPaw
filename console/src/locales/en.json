@@ -2075,16 +2075,13 @@
     "rerankerModelName": "Model Name",
     "rerankerModelNameTooltip": "Reranker model name, e.g. bge-reranker-v2-gemma, Qwen3-Reranker-8B",
     "rerankerModelNamePlaceholder": "e.g. bge-reranker-v2-gemma",
-    "rerankerBaseUrl": "API Base URL",
-    "rerankerBaseUrlTooltip": "OpenAI-compatible API base URL",
-    "rerankerBaseUrlPlaceholder": "e.g. https://api.siliconflow.cn/v1",
+    "rerankerEndpointUrl": "API Endpoint URL",
+    "rerankerEndpointUrlTooltip": "Full reranker endpoint URL including the path. Different providers use different paths: e.g. SiliconFlow /v1/rerank, DashScope /v1/reranks",
+    "rerankerEndpointUrlPlaceholder": "e.g. https://api.siliconflow.cn/v1/rerank",
     "rerankerApiKey": "API Key",
     "rerankerApiKeyTooltip": "API key for the reranker provider",
     "rerankerApiKeyPlaceholder": "Enter API key",
-    "rerankerTemperature": "Temperature",
-    "rerankerTemperatureTooltip": "Sampling temperature for reranking (0-2)",
-    "rerankerTemperaturePlaceholder": "0.0",
-    "rerankerInfoHint": "After the initial hybrid search, an extra LLM API call re-orders results for better relevance. Requires model_name, base_url, and api_key to be configured correctly. Note: each search triggers an extra API call that may incur costs."
+    "rerankerInfoHint": "After the initial hybrid search, an extra LLM API call re-orders results for better relevance. Requires model_name, endpoint_url, and api_key to be configured correctly. Enter the full endpoint URL including the path — different providers use different paths (SiliconFlow /v1/rerank, DashScope /v1/reranks). Note: each search triggers an extra API call that may incur costs."
   },
   "tools": {
     "title": "Built-in Tools",
