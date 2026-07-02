@@ -46,6 +46,7 @@ class AgentBuilder:
         memory_tools: Iterable[Any] | None = None,
         governor: Any = None,
         ctx: Any = None,
+        workspace_dir: str | None = None,
     ) -> Any:
         """Build a populated ``Toolkit`` for one agent invocation.
 
@@ -53,6 +54,7 @@ class AgentBuilder:
         :class:`QwenPawLocalWorkspace` via ``list_tools()``.
         ``extra_tools`` and ``memory_tools`` are appended after the
         workspace tools.
+
         """
         from agentscope.tool import Toolkit
 
@@ -84,7 +86,39 @@ class AgentBuilder:
                     ),
                 )
 
-        return Toolkit(tools=tools)
+        skill_dirs = self._resolve_skill_loader_dirs(
+            effective_skills,
+            workspace_dir,
+        )
+
+        return Toolkit(tools=tools, skills_or_loaders=skill_dirs)
+
+    @staticmethod
+    def _resolve_skill_loader_dirs(
+        effective_skills: Iterable[str] | None,
+        workspace_dir: str | None,
+    ) -> list[str]:
+        """Map effective skill names to their SKILL.md-bearing directories."""
+        names = list(effective_skills or ())
+        if not names:
+            return []
+
+        from ..agents.skill_system import get_workspace_skills_dir
+        from ..constant import WORKING_DIR
+
+        base = get_workspace_skills_dir(Path(workspace_dir or WORKING_DIR))
+        dirs: list[str] = []
+        for name in names:
+            skill_dir = base / name
+            if (skill_dir / "SKILL.md").exists():
+                dirs.append(str(skill_dir))
+            else:
+                _logger.debug(
+                    "skill '%s' has no SKILL.md at %s; not injected",
+                    name,
+                    skill_dir,
+                )
+        return dirs
 
     # ----------------------------------------------------------------- build
 
@@ -236,6 +270,7 @@ class AgentBuilder:
             extra_tools=extra_tools,
             governor=governor,
             ctx=ctx,
+            workspace_dir=workspace_dir,
         )
 
         # System prompt.
@@ -433,6 +468,11 @@ class AgentBuilder:
             if user_name:
                 rc["user_name"] = user_name
             rc["channel_meta"] = _channel_meta
+        rc["_channel_instance"] = getattr(
+            request,
+            "channel_instance",
+            None,
+        )
         _payload_ctx = (
             getattr(request, "request_context", None) if request else None
         )

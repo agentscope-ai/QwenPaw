@@ -73,11 +73,12 @@ class ApprovalService:
     def __init__(self) -> None:
         self._lock = asyncio.Lock()
         self._pending: dict[str, PendingApproval] = {}
-        self._channel_manager: Any | None = None
 
-    def set_channel_manager(self, channel_manager: Any) -> None:
-        """Store a reference to the channel manager for push notifications."""
-        self._channel_manager = channel_manager
+    def set_channel_manager(
+        self,
+        channel_manager: Any,
+    ) -> None:  # noqa: ARG002
+        """Legacy no-op kept for backward compat."""
 
     async def _notify_channel(
         self,
@@ -85,14 +86,14 @@ class ApprovalService:
         channel_body: str,
     ) -> None:
         """Fire-and-forget: push approval notification to channel."""
-        if self._channel_manager is None:
-            return
         if not pending.channel or pending.channel == "console":
             return
+        channel_instance = (pending.extra or {}).get("_channel_instance")
+        if channel_instance is None:
+            return
+        channel_meta = (pending.extra or {}).get("channel_meta")
         try:
-            channel_meta = (pending.extra or {}).get("channel_meta")
-            await self._channel_manager.push_approval_notification(
-                channel=pending.channel,
+            await channel_instance.send_approval_notification(
                 session_id=pending.session_id,
                 user_id=pending.user_id,
                 request_id=pending.request_id,
@@ -168,7 +169,11 @@ class ApprovalService:
             root_session_id[:8],
         )
 
-        if self._channel_manager and channel and channel != "console":
+        if (
+            channel
+            and channel != "console"
+            and (extra or {}).get("_channel_instance")
+        ):
             channel_body = format_channel_approval_body(result)
             asyncio.create_task(
                 self._notify_channel(pending, channel_body),
@@ -229,7 +234,11 @@ class ApprovalService:
             root_session_id[:8],
         )
 
-        if self._channel_manager and channel and channel != "console":
+        if (
+            channel
+            and channel != "console"
+            and (extra or {}).get("_channel_instance")
+        ):
             asyncio.create_task(
                 self._notify_channel(pending, pending.result_summary),
                 name=f"approval-notify-{request_id[:8]}",
