@@ -101,6 +101,16 @@ DASHSCOPE_MODELS: List[ModelInfo] = [
         thinking_param_style="effort",
         reasoning_effort_options=["high", "max"],
     ),
+    ModelInfo(
+        id="glm-5.2",
+        name="GLM-5.2",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+        thinking_enabled=True,
+        thinking_param_style="effort",
+        reasoning_effort_options=["high", "max"],
+    ),
 ]
 
 MIMO_TOKENPLAN_MODELS: List[ModelInfo] = [
@@ -122,10 +132,66 @@ MIMO_TOKENPLAN_MODELS: List[ModelInfo] = [
 
 ALIYUN_TOKENPLAN_MODELS: List[ModelInfo] = [
     ModelInfo(
+        id="qwen3.7-plus",
+        name="Qwen3.7 Plus",
+        supports_image=True,
+        supports_video=True,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="qwen3.7-max",
+        name="Qwen3.7 Max",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+    ),
+    ModelInfo(
         id="qwen3.6-plus",
         name="Qwen3.6 Plus",
         supports_image=True,
         supports_video=True,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="qwen3.6-flash",
+        name="Qwen3.6 Flash",
+        supports_image=True,
+        supports_video=True,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="deepseek-v4-pro",
+        name="DeepSeek-V4 Pro",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="deepseek-v4-flash",
+        name="DeepSeek-V4 Flash",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="deepseek-v3.2",
+        name="DeepSeek-V3.2",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="glm-5.2",
+        name="GLM-5.2",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="glm-5.1",
+        name="GLM-5.1",
+        supports_image=False,
+        supports_video=False,
         probe_source="documentation",
     ),
     ModelInfo(
@@ -143,10 +209,10 @@ ALIYUN_TOKENPLAN_MODELS: List[ModelInfo] = [
         probe_source="documentation",
     ),
     ModelInfo(
-        id="deepseek-v3.2",
-        name="DeepSeek-V3.2",
-        supports_image=False,
-        supports_video=False,
+        id="kimi-k2.6",
+        name="Kimi K2.6",
+        supports_image=True,
+        supports_video=True,
         probe_source="documentation",
     ),
     ModelInfo(
@@ -171,6 +237,20 @@ ALIYUN_CODINGPLAN_MODELS: List[ModelInfo] = [
         name="Qwen3.5 Plus",
         supports_image=True,
         supports_video=True,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="glm-5.2",
+        name="GLM-5.2",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="glm-5.1",
+        name="GLM-5.1",
+        supports_image=False,
+        supports_video=False,
         probe_source="documentation",
     ),
     ModelInfo(
@@ -236,6 +316,13 @@ ZHIPU_MODELS: List[ModelInfo] = [
     ModelInfo(
         id="glm-5",
         name="glm-5",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="glm-5.2",
+        name="glm-5.2",
         supports_image=False,
         supports_video=False,
         probe_source="documentation",

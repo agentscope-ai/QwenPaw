@@ -60,6 +60,33 @@ class DashScopeProvider(OpenAIProvider):
         if not self._is_builtin_model(model_id):
             return
         enabled, budget, effort = self._get_thinking_config(model_id)
+
+        # Resolve the effective thinking_param_style for this model:
+        # model-level override takes precedence over the provider default.
+        model_info = self.get_model_info(model_id)
+        param_style = (
+            model_info.thinking_param_style
+            if model_info and model_info.thinking_param_style
+            else self.thinking_param_style
+        )
+
+        if param_style == "effort":
+            # Effort-style models (e.g. GLM-5.2) pass both ``thinking`` and
+            # ``reasoning_effort`` inside ``extra_body`` (OpenAI-compat path).
+            # They do NOT support ``enable_thinking`` (Qwen-style parameter).
+            eb = effective.setdefault("extra_body", {})
+            if not isinstance(eb, dict):
+                eb = {}
+                effective["extra_body"] = eb
+            if enabled is True:
+                eb.setdefault("thinking", {"type": "enabled"})
+            elif enabled is False:
+                eb.setdefault("thinking", {"type": "disabled"})
+            if effort is not None:
+                eb.setdefault("reasoning_effort", effort)
+            return
+
+        # Budget-style (default for DashScope Qwen models).
         eb = effective.get("extra_body")
         eb = eb if isinstance(eb, dict) else {}
         if enabled is not None:
