@@ -20,6 +20,7 @@ from agentscope.tool import ToolChunk
 from .base_memory_manager import BaseMemoryManager, memory_registry
 from .prompts import build_memory_guidance_prompt
 from .reme_config import get_reme_app_config
+from .reranker import rerank, build_search_answer
 from ..model_factory import create_model_and_formatter
 from ...app.inbox_store import append_event as append_inbox_event
 from ...config import load_config
@@ -28,7 +29,11 @@ from ...constant import (
     AUTO_MEMORY_SEARCH_TEXT,
     QWENPAW_MESSAGE_TAG_KEY,
 )
-from ...config.config import load_agent_config, AgentProfileConfig
+from ...config.config import (
+    load_agent_config,
+    AgentProfileConfig,
+    RerankerConfig,
+)
 
 if TYPE_CHECKING:
     from reme import ReMe
@@ -50,6 +55,18 @@ def _tool_chunk(text: str, *, ok: bool = True) -> ToolChunk:
         state=ToolResultState.SUCCESS if ok else ToolResultState.ERROR,
         content=[TextBlock(type="text", text=text)],
     )
+
+
+def _load_reranker_config(agent_id: str) -> RerankerConfig | None:
+    """Return the reranker config if enabled, or None."""
+    try:
+        agent_cfg = load_agent_config(agent_id)
+        cfg = agent_cfg.running.reme_light_memory_config.reranker_config
+        if cfg and cfg.enabled and cfg.model_name:
+            return cfg
+    except Exception:
+        logger.warning("[rerank] failed to load config", exc_info=True)
+    return None
 
 
 @memory_registry.register("remelight")
@@ -293,9 +310,11 @@ class ReMeLightMemoryManager(BaseMemoryManager):
                 name,
                 event.get("id"),
                 event.get("status"),
-                response_metadata.get("modified")
-                if isinstance(response_metadata, dict)
-                else None,
+                (
+                    response_metadata.get("modified")
+                    if isinstance(response_metadata, dict)
+                    else None
+                ),
             )
             return True
         except Exception:  # pylint: disable=broad-except
@@ -358,18 +377,49 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         if not query:
             return _tool_chunk("Error: query cannot be empty", ok=False)
 
+        reranker_config = _load_reranker_config(self.agent_id)
+        fetch_limit = (
+            max(1, max_results * 3) if reranker_config else max(1, max_results)
+        )
+
         response = await self._run_reme_job(
             "search",
             query=query,
-            limit=max(1, max_results),
+            limit=fetch_limit,
             min_score=max(0.0, min_score),
         )
         if response is None:
             return _tool_chunk("ReMe is not started.", ok=False)
 
-        answer = str(response.answer or "").strip()
-        if not answer:
-            answer = NO_MEMORY_RESULTS
+        answer: str
+        if reranker_config and response.success:
+            candidates = response.metadata.get("results", [])
+            if not candidates:
+                answer = (
+                    str(response.answer or "").strip() or NO_MEMORY_RESULTS
+                )
+            else:
+                try:
+                    candidates = await rerank(
+                        query,
+                        candidates,
+                        api_key=reranker_config.api_key,
+                        base_url=reranker_config.base_url,
+                        model_name=reranker_config.model_name,
+                        top_n=max_results,
+                    )
+                except Exception:
+                    logger.warning(
+                        "[rerank] failed, using original order",
+                        exc_info=True,
+                    )
+                answer = build_search_answer(candidates[:max_results])
+                if not answer.strip():
+                    answer = NO_MEMORY_RESULTS
+        else:
+            answer = str(response.answer or "").strip()
+            if not answer:
+                answer = NO_MEMORY_RESULTS
         return _tool_chunk(answer, ok=response.success)
 
     async def summarize(
@@ -392,7 +442,7 @@ class ReMeLightMemoryManager(BaseMemoryManager):
             return ""
         return str(response.answer or "")
 
-    async def auto_memory_search(
+    async def auto_memory_search(  # pylint: disable=too-many-return-statements
         self,
         messages: list[Msg] | Msg,
         agent_name: str = "",
@@ -405,25 +455,60 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         if not memory_cfg.auto_memory_search_config.enabled:
             return None
 
+        reranker_config = _load_reranker_config(self.agent_id)
+
         msgs = [messages] if isinstance(messages, Msg) else list(messages)
         query = self._build_query(msgs)
         if not query:
             return None
 
         search_cfg = memory_cfg.auto_memory_search_config
+        fetch_limit = (
+            max(1, search_cfg.max_results * 3)
+            if reranker_config
+            else max(1, search_cfg.max_results)
+        )
 
         response = await self._run_reme_job(
             "search",
             query=query,
-            limit=max(1, search_cfg.max_results),
+            limit=fetch_limit,
             min_score=0,
         )
         if response is None or not response.success:
             return None
 
-        text = str(response.answer or "").strip()
-        if not text:
-            return None
+        text: str
+        if reranker_config:
+            candidates = response.metadata.get("results", [])
+            if not candidates:
+                text = str(response.answer or "").strip()
+                if not text:
+                    return None
+            else:
+                try:
+                    candidates = await rerank(
+                        query,
+                        candidates,
+                        api_key=reranker_config.api_key,
+                        base_url=reranker_config.base_url,
+                        model_name=reranker_config.model_name,
+                        top_n=search_cfg.max_results,
+                    )
+                except Exception:
+                    logger.warning(
+                        "[rerank] failed, using original order",
+                        exc_info=True,
+                    )
+                text = build_search_answer(
+                    candidates[: search_cfg.max_results],
+                )
+                if not text.strip():
+                    return None
+        else:
+            text = str(response.answer or "").strip()
+            if not text:
+                return None
 
         tool_call_id = uuid.uuid4().hex
         tool_input = {

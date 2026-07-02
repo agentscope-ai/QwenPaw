@@ -634,6 +634,34 @@ class EmbeddingModelConfig(BaseModel):
     )
 
 
+class RerankerConfig(BaseModel):
+    """Memory search reranker configuration.
+
+    After the initial hybrid search returns top-K results, an external
+    reranker re-orders them by relevance to the query using a standard
+    ``/rerank`` endpoint (SiliconFlow-compatible).
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    enabled: bool = Field(
+        default=False,
+        description="Whether to enable reranking of memory search results",
+    )
+    api_key: str = Field(
+        default="",
+        description="API key for reranker-compatible provider",
+    )
+    base_url: str = Field(
+        default="",
+        description="Base URL for reranker API endpoint",
+    )
+    model_name: str = Field(
+        default="",
+        description="Reranker model name (e.g. bge-reranker-v2-m3)",
+    )
+
+
 class ADBPGMemoryConfig(BaseModel):
     """ADBPG (AnalyticDB for PostgreSQL) memory configuration."""
 
@@ -727,6 +755,10 @@ class ReMeLightMemoryConfig(BaseModel):
 
     auto_memory_search_config: AutoMemorySearchConfig = Field(
         default_factory=AutoMemorySearchConfig,
+    )
+    reranker_config: RerankerConfig = Field(
+        default_factory=RerankerConfig,
+        description="Memory search reranker configuration",
     )
 
     embedding_model_config: EmbeddingModelConfig = Field(
