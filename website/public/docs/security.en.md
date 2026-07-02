@@ -4,7 +4,7 @@ QwenPaw includes built-in security features to protect your agent from malicious
 
 ## Overview
 
-QwenPaw's security system consists of four core security layers:
+QwenPaw's security system consists of five core security layers:
 
 ```
 Security Architecture:
@@ -19,9 +19,13 @@ Security Architecture:
 │  Confines shell commands to a restricted filesystem view using
 │  platform-native mechanisms (Seatbelt / bubblewrap / Landlock)
 │
-└─ Skill Scanner — Pre-activation skill security scanning
-   Scans for malicious code, hardcoded secrets, and security threats
-   before skills are enabled
+├─ Skill Scanner — Pre-activation skill security scanning
+│  Scans for malicious code, hardcoded secrets, and security threats
+│  before skills are enabled
+│
+└─ Access Policy — Declarative access policy
+   Controls who can invoke which capabilities under what conditions
+   with per-tool granularity and source-aware rules
 ```
 
 **Additional feature**: Web Authentication — Optional login protection for the Console interface
@@ -32,6 +36,7 @@ Security Architecture:
 - **File Guard** operates independently to protect sensitive files and directories from unauthorized access
 - **Sandbox** executes shell commands inside an OS kernel-enforced isolation boundary, restricting filesystem access to only declared paths
 - **Skill Scanner** runs before skills are enabled to detect malicious code and security threats
+- **Access Policy** evaluates source, identity, and target for each capability invocation — deciding whether to allow, deny, or request human approval
 - **Web Authentication** (optional) controls access to the Console interface
 
 ---
@@ -678,6 +683,145 @@ In `config.json`:
   }
 }
 ```
+
+---
+
+## Access Policy
+
+**Access Policy** is a declarative policy engine that determines whether to allow, deny, or require human approval for each capability invocation. Each service client carries its own access policy, enabling per-tool granularity with source-aware and identity-aware rules. Currently implemented for MCP and designed to extend to future protocol integrations.
+
+### How it works
+
+1. **Per-client policy** — Each service client (e.g., MCP client) has an independent access policy. Policies are evaluated on every capability invocation.
+2. **Three effects**:
+   - `allow` — The invocation proceeds immediately
+   - `deny` — The invocation is blocked; the agent receives an error
+   - `ask` — The invocation is suspended until a human approves or rejects it in the Console
+3. **Two-level granularity**:
+   - **Client-level** — A default effect that applies to all capabilities in the client
+   - **Tool-level** — Override the default for specific tools (e.g., allow most tools but deny `dangerous_tool`)
+4. **Source-aware rules** — Rules can match based on where the request comes from (e.g., only from Console, only from DingTalk) and who is making the request (e.g., a specific user)
+5. **Priority resolution** — When multiple rules match, the most specific rule wins (see [Policy evaluation](#policy-evaluation) below)
+
+### Policy model
+
+Each client's policy consists of a `default_effect` and a list of `rules`:
+
+| Field            | Description                                                              |
+| ---------------- | ------------------------------------------------------------------------ |
+| `default_effect` | Effect when no rule matches: `allow`, `deny`, or `ask` (default: `deny`) |
+| `rules`          | List of policy rules evaluated in priority order                         |
+
+**Policy rule fields**:
+
+| Field       | Type   | Description                                                                                             |
+| ----------- | ------ | ------------------------------------------------------------------------------------------------------- |
+| `subject`   | string | Caller identity pattern. Typed prefix format: `user:xxx`, `session:xxx`, `channel:xxx`, `*` (match all) |
+| `effect`    | string | `allow`, `deny`, or `ask`                                                                               |
+| `target`    | object | `{ kind, name }` — target capability. `kind`: `"tool"` or `"*"`. `name`: tool name or `"*"`             |
+| `principal` | object | Source matching (optional, see below)                                                                   |
+
+**Principal fields** (source-aware matching):
+
+| Field           | Description                  | Example                          |
+| --------------- | ---------------------------- | -------------------------------- |
+| `source_type`   | Where the request comes from | `"channel"`                      |
+| `source_value`  | Specific source              | `"console"`, `"dingtalk"`, `"*"` |
+| `subject_type`  | Scope within the source      | `"all"`, `"user"`                |
+| `subject_value` | Specific identity            | `"admin"`, `"*"`                 |
+
+### Policy evaluation
+
+When a tool is invoked, the policy engine evaluates all matching rules and selects the most specific one:
+
+**Matching criteria** (all must be satisfied for a rule to match):
+
+1. The rule's `subject` matches any of the request's identities (user, session, channel)
+2. The rule's `principal` matches the request source
+3. The rule's `target` matches the invoked tool
+
+**Priority order** (highest to lowest):
+
+| Priority | Dimension   | More specific wins                                              |
+| -------- | ----------- | --------------------------------------------------------------- |
+| 1        | Target name | Exact tool name > wildcard `*`                                  |
+| 2        | Target kind | `"tool"` > `"*"`                                                |
+| 3        | Principal   | More fields specified > fewer fields                            |
+| 4        | Subject     | Exact (`user:admin`) > typed wildcard (`user:*`) > global (`*`) |
+| 5        | Strictness  | `deny` > `ask` > `allow`                                        |
+
+If no rules match, `default_effect` is applied.
+
+**Example**:
+
+| Request                          | Result | Reason                             |
+| -------------------------------- | ------ | ---------------------------------- |
+| `user:admin` calls any tool      | ALLOW  | Exact subject match (priority 4)   |
+| Anyone calls `dangerous_tool`    | DENY   | Exact target name (priority 1)     |
+| Console user calls `safe_tool`   | ALLOW  | Target name + principal match      |
+| DingTalk user calls `other_tool` | ASK    | No rule matches → `default_effect` |
+
+### Approval flow
+
+When a policy evaluates to `ask`:
+
+1. The tool invocation is **suspended** — the agent pauses execution
+2. An **approval card** appears in the Console showing:
+   - Tool name and arguments
+   - Caller identity and source channel
+   - Service client name
+3. The user can **Approve** or **Reject**:
+   - **Approve** → the tool call proceeds normally
+   - **Reject** → the agent receives a permission-denied error and explains to the user
+4. If no response within the timeout period, the invocation is rejected
+
+> **Tip**: For trusted clients in personal use, set `default_effect: allow` to skip approval. For shared or sensitive deployments, use `ask` as the default and explicitly `allow` trusted sources.
+
+### Usage with MCP
+
+Access Policy is currently available for MCP clients. Each MCP client's policy is stored in its YAML configuration file:
+
+```yaml
+# drivers/mcp/hello-mcp.yaml
+name: hello-mcp
+protocol: mcp
+endpoint:
+  transport: stdio
+  command: python
+  args: ["./mcp_servers/hello_server.py"]
+  env:
+    ECHO_SECRET:
+      source: credential
+      credential: static
+      field: ECHO_SECRET
+config:
+  display_name: Hello MCP
+  description: Local stdio MCP demo with print_content and get_secret_status tools
+enabled: true
+policy:
+  default_effect: ask
+  rules:
+    - subject: "*"
+      effect: deny
+      target: { kind: tool, name: get_secret_status }
+```
+
+#### Console management
+
+In the Console under **Agent → MCP**, click **Tools & Access** on any MCP client card to open the Access Policy panel:
+
+![access policy](https://img.alicdn.com/imgextra/i3/O1CN01tpnV8w1XnOfo2bOIE_!!6000000002968-0-tps-3840-2080.jpg)
+
+- **Set default effect** — Choose the client-wide default: Ask (yellow), Allow (green), or Deny (red)
+- **Add client-level rules** — Override the default for specific sources or users:
+  - Select a source channel (Console, DingTalk, Telegram, etc.)
+  - Optionally restrict to a specific user
+  - Set the effect for that source/user combination
+- **Per-tool defaults** — Set a different default effect for individual tools
+- **Per-tool rules** — Override per-tool defaults with source/user-specific rules
+- **Save** — Click "Save" to persist; **changes take effect immediately without restart**
+
+> **Note**: Rules created via YAML that use advanced subject patterns (e.g., `user:admin`, `session:xxx`) are preserved but not editable from the Console. The modal shows an "unmanaged rules" count when such rules exist.
 
 ---
 

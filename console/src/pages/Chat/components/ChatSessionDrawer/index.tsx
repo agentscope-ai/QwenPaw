@@ -29,7 +29,6 @@ import { chatApi } from "../../../../api/modules/chat";
 import sessionApi from "../../sessionApi";
 import { useCreateNewSession } from "../../hooks/useCreateNewSession";
 import { useCodingMode } from "../../../../stores/codingModeStore";
-import { useAgentStore } from "../../../../stores/agentStore";
 import ChatSessionItem from "../ChatSessionItem";
 import { getChannelLabel } from "../../../Control/Channels/components";
 import {
@@ -189,7 +188,6 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
   const location = useLocation();
   const sdkState = useChatAnywhereSessionsState();
   const { codingMode } = useCodingMode();
-  const { selectedAgent, setLastChatId } = useAgentStore();
 
   const createNewSession = useCreateNewSession();
 
@@ -201,8 +199,7 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
   >([]);
 
   const sessions = props.embedded ? localSessions : sdkState.sessions;
-  const { currentSessionId: sdkCurrentSessionId, setCurrentSessionId } =
-    sdkState;
+  const { currentSessionId: sdkCurrentSessionId } = sdkState;
   // In embedded mode, prefer URL-derived chatId for active-state matching
   // because the SDK context may not be accessible from outside the provider.
   const urlCurrentSessionId = props.embedded
@@ -403,64 +400,19 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
         return;
       }
 
-      if (props.embedded) {
-        setSwitchingSessionId(sessionId);
-        window.dispatchEvent(
-          new CustomEvent("qwenpaw:sidebar-select-session", {
-            detail: { sessionId },
-          }),
-        );
-        return;
-      }
-
-      // Start a new cancellable switch (aborts any in-flight switch)
-      const controller = sessionApi.startNewSwitch();
+      // Both embedded and non-embedded modes use the same switching logic
+      // as simple mode's SidebarSessionList: just navigate to the session
+      // URL. ChatSessionInitializer's useEffect will pick up the URL change
+      // and call setCurrentSessionId(matching.id) to notify the SDK.
+      // This avoids the preload / isSessionSwitching complexity that caused
+      // the "flash to new chat" issue.
       setSwitchingSessionId(sessionId);
-
-      sessionApi
-        .preloadSession(sessionId, controller.signal)
-        .then(({ realId }) => {
-          if (controller.signal.aborted) return;
-          const effectiveId = sessionApi.getEffectiveSessionId(
-            sessionId,
-            realId,
-          );
-          // Issue #4987: In coding mode, skip URL navigation to /chat/<id>.
-          // The redirect effect in ChatPage would immediately navigate back
-          // to /coding before session data loads, causing the switch to fail.
-          if (!codingMode) {
-            const targetUrl = buildSessionPath("chat", effectiveId);
-            navigate(targetUrl, { replace: true });
-          }
-          sessionApi.trackNavigatedSession(
-            effectiveId,
-            setLastChatId,
-            selectedAgent,
-          );
-          setCurrentSessionId(sessionId);
-        })
-        .catch((err) => {
-          if (err?.name === "AbortError") return;
-          // On non-abort error, still try to switch normally.
-          setCurrentSessionId(sessionId);
-        })
-        .finally(() => {
-          // Only clean up if this switch was NOT superseded by a newer one
-          if (!controller.signal.aborted) {
-            sessionApi.finishSessionSwitch();
-            setSwitchingSessionId(null);
-          }
-        });
+      const mode = codingMode ? "coding" : "chat";
+      const effectiveId = sessionApi.getEffectiveSessionId(sessionId);
+      const targetPath = buildSessionPath(mode, effectiveId);
+      navigate(targetPath);
     },
-    [
-      currentSessionId,
-      setCurrentSessionId,
-      navigate,
-      codingMode,
-      selectedAgent,
-      setLastChatId,
-      props.embedded,
-    ],
+    [currentSessionId, navigate, codingMode],
   );
 
   // Listen for embedded switch completion so we can clear switchingSessionId.
@@ -493,6 +445,8 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
       if (backendId) {
         await chatApi.deleteChat(backendId);
       }
+
+      localStorage.removeItem(`approval_level-${sessionId}`);
 
       // Fetch the updated session list after deletion
       const freshList =

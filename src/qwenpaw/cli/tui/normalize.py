@@ -153,6 +153,20 @@ def _tool_input_text(raw_input: Any) -> str:
     return str(raw_input)
 
 
+def _usage_threshold(update: Any) -> float | None:
+    """Extract the compaction threshold (0-1) from a usage_update's ``_meta``.
+
+    The native ``usage_update`` has no field for it, so the agent rides it in
+    ``_meta.compactRatio``. Returns ``None`` when absent or out of range.
+    """
+    meta = getattr(update, "field_meta", None)
+    if isinstance(meta, dict):
+        raw = meta.get("compactRatio")
+        if isinstance(raw, (int, float)) and 0 < raw < 1:
+            return float(raw)
+    return None
+
+
 # pylint: disable-next=too-many-return-statements
 def normalize_update(update: Any) -> list[TuiEvent]:
     """Convert one ACP ``session_update`` payload into zero or more events.
@@ -225,6 +239,7 @@ def normalize_update(update: Any) -> list[TuiEvent]:
             Usage(
                 used=int(getattr(update, "used", 0) or 0),
                 size=int(getattr(update, "size", 0) or 0),
+                threshold=_usage_threshold(update),
             ),
         ]
 

@@ -415,7 +415,7 @@ Xem [Bảo mật](https://qwenpaw.agentscope.io/docs/security) để biết chi 
 | [Nhịp tim](https://qwenpaw.agentscope.io/docs/heartbeat)             | Kiểm tra định kỳ và tóm tắt                           |
 | [Cron / Tác Vụ Định Kỳ](https://qwenpaw.agentscope.io/docs/cron)       | Tác vụ định kỳ và tự động hóa                   |
 | [Đa tác nhân](https://qwenpaw.agentscope.io/docs/multi-agent)        | Tạo nhiều tác nhân và kích hoạt hợp tác                    |
-| [Bảo mật](https://qwenpaw.agentscope.io/docs/security)                 | Sandbox, tool guard, file guard, skill scanner   |
+| [Bảo mật](https://qwenpaw.agentscope.io/docs/security)                  | Sandbox, tool guard, file guard, skill scanner, access policy |
 | [Sao lưu & Khôi phục](https://qwenpaw.agentscope.io/docs/backup)           | Sao lưu và khôi phục dữ liệu                         |
 | [Cấu hình & thư mục làm việc](https://qwenpaw.agentscope.io/docs/config) | Thư mục làm việc và tệp cấu hình                      |
 | [REST API](https://qwenpaw.agentscope.io/docs/api-tutorial)             | HTTP API cho tích hợp và tự động hóa          |

@@ -388,6 +388,8 @@ QwenPaw включает четыре основных уровня безопа
 - **Tool Guard** — YAML-движок правил с `ShellEvasionGuardian` проверяет каждый вызов инструмента перед выполнением, обнаруживая инъекции команд, обход путей, reverse shells и обфусцированные атаки. Настраиваемые уровни одобрения: STRICT / SMART / AUTO / OFF.
 - **File Guard** — Независимо от Tool Guard; блокирует доступ агента к чувствительным файлам и директориям (по умолчанию защищает `~/.qwenpaw.secret/`, `~/.ssh` и т.д.).
 - **Skill Scanner** — Сканирование перед активацией с режимами block / warn / off и поддержкой белого списка. Обнаруживает инъекции промптов, жёстко закодированные секреты, утечку данных и другое.
+- **Access Policy** — Декларативные правила доступа: разрешение, запрет или запрос подтверждения для каждого вызова с гранулярностью до уровня инструмента и учётом источника запроса.
+
 Подробности см. в разделе [Безопасность](https://qwenpaw.agentscope.io/docs/security).
 
 ---
@@ -415,7 +417,7 @@ QwenPaw включает четыре основных уровня безопа
 | [Heartbeat](https://qwenpaw.agentscope.io/docs/heartbeat)            | Запланированная самопроверка и дайджест         |
 | [Cron / Запланированные задачи](https://qwenpaw.agentscope.io/docs/cron) | Запланированные задачи и автоматизация       |
 | [Мультиагенты](https://qwenpaw.agentscope.io/docs/multi-agent)       | Создание нескольких агентов и совместная работа |
-| [Безопасность](https://qwenpaw.agentscope.io/docs/security)          | Sandbox, tool guard, file guard, skill scanner  |
+| [Безопасность](https://qwenpaw.agentscope.io/docs/security)          | Sandbox, tool guard, file guard, skill scanner, access policy |
 | [Резервное копирование и восстановление](https://qwenpaw.agentscope.io/docs/backup) | Резервное копирование и восстановление данных |
 | [Конфигурация и рабочая директория](https://qwenpaw.agentscope.io/docs/config) | Рабочая директория и конфигурационный файл |
 | [REST API](https://qwenpaw.agentscope.io/docs/api-tutorial)          | HTTP API для интеграции и автоматизации         |

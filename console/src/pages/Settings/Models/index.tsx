@@ -339,6 +339,7 @@ function ModelsPage() {
                       prefix={<SearchOutlined />}
                       allowClear
                       autoComplete="off"
+                      name="models-provider-search-nofill"
                       data-form-type="other"
                     />
                     <Button

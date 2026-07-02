@@ -279,6 +279,7 @@
     "backup": "Backup & Restore",
     "cli": "CLI",
     "plugins": "Plugin System",
+    "architecture": "Architecture",
     "faq": "FAQ",
     "apiTutorial": "RESTful API",
     "community": "Bug reports & community",

@@ -415,7 +415,7 @@ QwenPaw には 4 つのコアセキュリティレイヤーが含まれていま
 | [ハートビート](https://qwenpaw.agentscope.io/docs/heartbeat)                | スケジュールされたチェックインとダイジェスト                    |
 | [Cron / スケジュールタスク](https://qwenpaw.agentscope.io/docs/cron)       | スケジュールタスクと自動化                   |
 | [マルチエージェント](https://qwenpaw.agentscope.io/docs/multi-agent)           | 複数エージェントの作成と協調の有効化  |
-| [セキュリティ](https://qwenpaw.agentscope.io/docs/security)                 | Sandbox、Tool Guard、File Guard、Skill Scanner   |
+| [セキュリティ](https://qwenpaw.agentscope.io/docs/security)               | Sandbox、Tool Guard、File Guard、Skill Scanner、Access Policy |
 | [バックアップ & 復元](https://qwenpaw.agentscope.io/docs/backup)           | データバックアップと復旧                         |
 | [設定 & ワーキングディレクトリ](https://qwenpaw.agentscope.io/docs/config) | ワーキングディレクトリと設定ファイル                |
 | [REST API](https://qwenpaw.agentscope.io/docs/api-tutorial)             | 統合と自動化のための HTTP API          |

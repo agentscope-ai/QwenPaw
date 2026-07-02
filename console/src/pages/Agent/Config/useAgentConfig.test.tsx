@@ -87,7 +87,14 @@ type Config = AgentsRunningConfig;
 function makeConfig(overrides: Partial<Config> = {}): Config {
   return {
     max_iters: 10,
-    auto_continue_on_text_only: false,
+    loop: {
+      doom_loop: {
+        enabled: true,
+        window_size: 3,
+        similarity_threshold: 1.0,
+        stages: [],
+      },
+    },
     shell_command_timeout: 60,
     shell_command_executable: "",
     llm_retry_enabled: true,

@@ -57,8 +57,15 @@ class ResourceGovernor:
         self,
         workspace_dir: str,
         governance_dir: Optional[str] = None,
+        coding_project_dir: Optional[str] = None,
     ):
         self.workspace_dir = Path(workspace_dir)
+        # Coding project dir (Coding Mode). Falls back to the workspace
+        # when unset so the CODING_PROJECT_DIR policy placeholder always
+        # resolves to a concrete path.
+        self.coding_project_dir = Path(
+            coding_project_dir or workspace_dir,
+        )
         # Policy is stored outside the workspace to prevent agent tampering.
         # Use ``<basename>_<hash>`` so two workspaces with the same basename
         # but different absolute paths (e.g. ``/Users/a/project`` vs
@@ -101,6 +108,7 @@ class ResourceGovernor:
         self._policy = load_governance_policy(
             str(self._policy_dir),
             str(self.workspace_dir),
+            str(self.coding_project_dir),
         )
 
         self._sandbox_capability = probe_sandbox_support()
@@ -120,6 +128,7 @@ class ResourceGovernor:
                     self._policy,
                     str(self._policy_dir),
                     str(self.workspace_dir),
+                    str(self.coding_project_dir),
                 )
             except Exception:
                 logger.exception(
@@ -288,6 +297,14 @@ class ResourceGovernor:
         # Workspace is always readwrite
         mounts.insert(0, MountSpec(path=ws, writable=True))
 
+        # Coding project dir is readwrite by default (Coding Mode). When
+        # it is distinct from the workspace, mount it explicitly so Bash
+        # can write there; the policy ALLOW rule alone is not enough for
+        # sandboxed shell tools.
+        cpd = str(self.coding_project_dir)
+        if cpd and cpd != ws and not any(m.path == cpd for m in mounts):
+            mounts.append(MountSpec(path=cpd, writable=True))
+
         return SandboxConfig(
             mode=detect_platform_mode(),
             workspace_dir=ws,
@@ -352,6 +369,7 @@ class ResourceGovernor:
                 self._policy,
                 str(self._policy_dir),
                 str(self.workspace_dir),
+                str(self.coding_project_dir),
             )
 
     def add_approved_rule(self, tc_spec: ToolCallSpec) -> bool:

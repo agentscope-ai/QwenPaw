@@ -388,6 +388,7 @@ QwenPaw 内置四层核心安全防护：
 - **Tool Guard** — 带 `ShellEvasionGuardian` 的 YAML 规则引擎，在每次工具调用执行前进行检查，检测命令注入、路径遍历、反向 Shell 与混淆攻击。可配置审批级别：STRICT / SMART / AUTO / OFF。
 - **File Guard** — 独立于 Tool Guard；阻止智能体访问敏感文件与目录（默认保护 `~/.qwenpaw.secret/`、`~/.ssh` 等）。
 - **Skill Scanner** — 激活前扫描，支持 block / warn / off 模式与白名单。检测提示词注入、硬编码密钥、数据外泄等风险。
+- **Access Policy** — 声明式访问策略，对每次能力调用裁定放行(allow)、拒绝(deny)或请求人工审批(ask)，支持工具级粒度和来源感知匹配。
 
 详见 [安全文档](https://qwenpaw.agentscope.io/docs/security)。
 
@@ -416,7 +417,7 @@ QwenPaw 内置四层核心安全防护：
 | [心跳](https://qwenpaw.agentscope.io/docs/heartbeat)                 | 定时自检与摘要                                   |
 | [Cron / 定时任务](https://qwenpaw.agentscope.io/docs/cron)           | 定时任务与自动化                                 |
 | [多智能体](https://qwenpaw.agentscope.io/docs/multi-agent)           | 创建多个智能体并启用协作                         |
-| [安全](https://qwenpaw.agentscope.io/docs/security)                  | Sandbox、Tool Guard、File Guard、Skill Scanner   |
+| [安全](https://qwenpaw.agentscope.io/docs/security)                    | Sandbox、Tool Guard、File Guard、Skill Scanner、Access Policy |
 | [备份与恢复](https://qwenpaw.agentscope.io/docs/backup)              | 数据备份与恢复                                   |
 | [配置与工作目录](https://qwenpaw.agentscope.io/docs/config)          | 工作目录与配置文件                               |
 | [REST API](https://qwenpaw.agentscope.io/docs/api-tutorial)          | 用于集成与自动化的 HTTP API                      |

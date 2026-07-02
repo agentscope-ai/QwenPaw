@@ -103,9 +103,38 @@ class HookContext:
     agent: "Agent | None" = None
     error: BaseException | None = None
 
+    # ── Context injections (改动6B) ──
+    context_injections: list = field(default_factory=list)
+
     # ── Escape hatches ──
     mode_state: dict[str, Any] = field(default_factory=dict)
     extras: dict[str, Any] = field(default_factory=dict)
+
+    def inject_context(
+        self,
+        content: str,
+        *,
+        priority: int = 100,
+        source: str = "",
+    ) -> None:
+        """Append a dynamic context injection.
+
+        Injections are collected during hook execution and later
+        assembled by the runtime into system-level reminders so the
+        agent sees them in the current turn.
+
+        Args:
+            content: Text to inject.
+            priority: Lower = inserted earlier.
+            source: Tag for debugging origin.
+        """
+        self.context_injections.append(
+            {
+                "content": content,
+                "priority": priority,
+                "source": source,
+            },
+        )
 
 
 # ---------------------------------------------------------------------------
