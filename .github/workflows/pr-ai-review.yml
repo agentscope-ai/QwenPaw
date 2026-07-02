@@ -28,7 +28,7 @@ jobs:
     env:
       DASHSCOPE_API_KEY: ${{ secrets.REVIEW_DASHSCOPE_API_KEY }}
       REVIEW_PROVIDER: dashscope
-      REVIEW_MODEL: qwen3.7-plus
+      REVIEW_MODEL: qwen3.7-max
       PR_NUMBER: ${{ github.event.pull_request.number }}
       PR_TITLE: ${{ github.event.pull_request.title }}
       PR_AUTHOR: ${{ github.event.pull_request.user.login }}
@@ -81,8 +81,12 @@ jobs:
         run: |
           python - <<'PY'
           import json
+          import os
           import sys
           import urllib.request
+
+          expected_provider = os.environ.get("REVIEW_PROVIDER", "dashscope")
+          expected_model = os.environ.get("REVIEW_MODEL", "qwen3.7-max")
 
           with urllib.request.urlopen("http://localhost:8088/api/models/active?scope=global") as resp:
               data = json.load(resp)
@@ -92,8 +96,8 @@ jobs:
           model = active.get("model")
           print(f"Active model: {provider}/{model}")
 
-          if provider != "dashscope" or model != "qwen3.7-plus":
-              print("ERROR: expected dashscope/qwen3.7-plus")
+          if provider != expected_provider or model != expected_model:
+              print(f"ERROR: expected {expected_provider}/{expected_model}")
               sys.exit(1)
           PY
 
@@ -117,11 +121,32 @@ jobs:
               per_page: 100,
             });
 
+            // Skip files that add noise without review value
+            const SKIP_PATTERNS = [
+              /package-lock\.json$/,
+              /pnpm-lock\.yaml$/,
+              /yarn\.lock$/,
+              /Cargo\.lock$/,
+              /uv\.lock$/,
+              /\.min\.(js|css)$/,
+              /dist\//,
+              /node_modules\//,
+              /\.snap$/,
+              /\.svg$/,
+              /\.png$/,
+              /\.jpg$/,
+              /\.ico$/,
+            ];
+
+            const reviewFiles = files.filter(f =>
+              !SKIP_PATTERNS.some(p => p.test(f.filename))
+            );
+
             let diff = '';
             let size = 0;
             const MAX_SIZE = 60000;
 
-            for (const f of files) {
+            for (const f of reviewFiles) {
               if (size > MAX_SIZE) {
                 diff += '\n... (diff truncated at 60KB)\n';
                 break;
@@ -129,6 +154,11 @@ jobs:
               const entry = `### ${f.filename} (${f.status}, +${f.additions}/-${f.deletions})\n\`\`\`diff\n${f.patch || '(binary file)'}\n\`\`\`\n\n`;
               diff += entry;
               size += entry.length;
+            }
+
+            const skippedCount = files.length - reviewFiles.length;
+            if (skippedCount > 0) {
+              diff += `\n> ${skippedCount} 个文件已跳过（lock/生成/二进制文件）\n`;
             }
 
             fs.writeFileSync('/tmp/pr_diff.txt', diff);
@@ -139,10 +169,11 @@ jobs:
               author: pr.user.login,
               base: pr.base.ref,
               head: pr.head.ref,
-              file_count: files.length,
-              additions: files.reduce((s, f) => s + f.additions, 0),
-              deletions: files.reduce((s, f) => s + f.deletions, 0),
-              changed_files: files.map(f => f.filename),
+              repo: `${context.repo.owner}/${context.repo.repo}`,
+              file_count: reviewFiles.length,
+              additions: reviewFiles.reduce((s, f) => s + f.additions, 0),
+              deletions: reviewFiles.reduce((s, f) => s + f.deletions, 0),
+              changed_files: reviewFiles.map(f => f.filename),
             }));
 
       - name: Run AI Review
