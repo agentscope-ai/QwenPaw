@@ -304,8 +304,7 @@ def normalize_update(update: Any) -> list[TuiEvent]:
         return [SessionTitle(str(title))] if title else []
 
     if kind == "user_message_chunk":
-        # Emitted only while a resumed session replays its saved transcript;
-        # surface it so the prior user turns render in the rebuilt history.
+        # Some transports surface prior user turns as session updates.
         text = _block_text(getattr(update, "content", None))
         return [UserTurn(text)] if text else []
 

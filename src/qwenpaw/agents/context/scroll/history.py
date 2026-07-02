@@ -350,16 +350,6 @@ class HistoryStore:
         )
         return int(cur.fetchone()["n"])
 
-    def session_rows(self, session_id: str, *, limit: int = 200) -> list[dict]:
-        """Return one session's durable rows oldest-first."""
-        rows = self._conn.execute(
-            "SELECT seq, kind, role, name, content, tool_call_id, "
-            "tool_input, tool_state FROM conversation_history "
-            "WHERE session_id = ? ORDER BY seq LIMIT ?",
-            (session_id, int(limit)),
-        ).fetchall()
-        return [{key: row[key] for key in row.keys()} for row in rows]
-
     @staticmethod
     def _purge_where(
         before: str,

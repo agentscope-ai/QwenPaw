@@ -31,7 +31,6 @@ from acp import (
     tool_content,
     update_agent_message,
     update_agent_thought,
-    update_user_message,
     update_tool_call,
 )
 from acp.interfaces import Client
@@ -570,7 +569,6 @@ class QwenPawACPAgent(Agent):
             session_id,
             cwd,
         )
-        await self._replay_session_history(session_id)
         asyncio.create_task(self._advertise_commands(session_id))
         return LoadSessionResponse(field_meta=self._session_meta())
 
@@ -944,89 +942,6 @@ class QwenPawACPAgent(Agent):
                 session_id,
                 exc_info=True,
             )
-
-    def _history_db_path(self) -> Path:
-        agent_id = self._resolve_agent_id()
-        workspace_dir = self._resolve_workspace_dir(agent_id)
-        filename = "history.db"
-        try:
-            from ...config.config import load_agent_config
-
-            agent_config = load_agent_config(agent_id)
-            lcc = agent_config.running.light_context_config
-            filename = str(lcc.scroll_config.db_filename or filename)
-        except Exception:  # noqa: BLE001 - replay is best-effort
-            logger.debug("ACP history db filename fallback", exc_info=True)
-        return workspace_dir / filename
-
-    @staticmethod
-    def _row_tool_input(row: dict[str, Any]) -> Any:
-        raw = row.get("tool_input")
-        if not isinstance(raw, str) or not raw.strip():
-            return None
-        try:
-            return json.loads(raw)
-        except ValueError:
-            return raw
-
-    @staticmethod
-    def _row_tool_status(row: dict[str, Any]) -> str:
-        state = str(row.get("tool_state") or "").lower()
-        if any(token in state for token in ("fail", "error", "exception")):
-            return "failed"
-        return "completed"
-
-    async def _replay_session_history(self, session_id: str) -> None:
-        try:
-            from ...agents.context.scroll.history import HistoryStore
-
-            path = self._history_db_path()
-            if not path.exists():
-                return
-            history = HistoryStore(path)
-            try:
-                rows = history.session_rows(session_id)
-            finally:
-                history.close()
-        except Exception:  # noqa: BLE001 - resume should still open
-            logger.debug("ACP session history replay failed", exc_info=True)
-            return
-
-        for row in rows:
-            update = self._row_to_replay_update(row)
-            if update is not None:
-                await self._conn.session_update(
-                    session_id=session_id,
-                    update=update,
-                )
-
-    def _row_to_replay_update(self, row: dict[str, Any]) -> Any | None:
-        kind = row.get("kind")
-        role = row.get("role")
-        content = str(row.get("content") or "")
-        if kind == "context_msg" and role == "user":
-            return update_user_message(text_block(content))
-        if kind == "model_turn":
-            tool_call_id = row.get("tool_call_id")
-            if tool_call_id:
-                return start_tool_call(
-                    str(tool_call_id),
-                    str(row.get("name") or "tool"),
-                    status="in_progress",
-                    raw_input=self._row_tool_input(row),
-                )
-            if role == "assistant" and content:
-                return update_agent_message(text_block(content))
-        if kind == "tool_result":
-            tool_call_id = row.get("tool_call_id")
-            if tool_call_id:
-                return update_tool_call(
-                    str(tool_call_id),
-                    title=str(row.get("name") or "tool"),
-                    status=self._row_tool_status(row),
-                    content=[tool_content(text_block(content))],
-                )
-        return None
 
     async def _emit_usage_if_available(
         self,

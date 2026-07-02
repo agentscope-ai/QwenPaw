@@ -304,7 +304,7 @@ class PawApp(App):
         await self._mount(self._welcome_message(), sync_follow=False)
         if self._resume_session_id is not None:
             await self._mount(
-                InfoMessage("Resumed previous session — replaying history…"),
+                InfoMessage("Resumed previous session."),
                 sync_follow=False,
             )
         else:
@@ -727,10 +727,8 @@ class PawApp(App):
         # session reports fresh occupancy via ``usage_update``.
         self._status().set(used=0, size=0)
         await self._mount(self._welcome_message(), sync_follow=False)
-        # Mounted before the load so it sits above the replayed transcript;
-        # the replay updates only land once load_session is awaited below.
         await self._mount(
-            InfoMessage("Resumed previous session — replaying history…"),
+            InfoMessage("Resumed previous session."),
             sync_follow=False,
         )
         try:
