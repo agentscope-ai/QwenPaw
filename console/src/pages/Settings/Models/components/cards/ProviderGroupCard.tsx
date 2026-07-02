@@ -143,8 +143,8 @@ export const ProviderGroupCard = React.memo(function ProviderGroupCard({
                   activeProvider.api_key_prefixes?.length
                     ? `${activeProvider.api_key_prefixes.join(", ")}...`
                     : activeProvider.api_key_prefix
-                      ? `${activeProvider.api_key_prefix}...`
-                      : "sk-..."
+                    ? `${activeProvider.api_key_prefix}...`
+                    : "sk-..."
                 }
                 style={{ flex: 1 }}
               />

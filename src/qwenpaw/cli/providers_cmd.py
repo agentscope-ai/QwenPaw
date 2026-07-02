@@ -218,11 +218,7 @@ def configure_provider_api_key_interactive(
         if defn.api_key_prefix
         else []
     )
-    hint = (
-        f"prefix: {', '.join(prefixes)}"
-        if prefixes
-        else "optional"
-    )
+    hint = f"prefix: {', '.join(prefixes)}" if prefixes else "optional"
     api_key = click.prompt(
         f"API key ({hint})",
         default=current_key or "",
