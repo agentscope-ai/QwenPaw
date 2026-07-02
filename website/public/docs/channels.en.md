@@ -1874,6 +1874,143 @@ in the same plugin to mount routes under `/api`.
 
 ---
 
+## Webhook (generic HTTP)
+
+The Webhook channel is a generic HTTP receiver and sender. It lets you
+integrate QwenPaw with any system that can POST JSON — internal services,
+home automation, custom UIs, CI bots, or your own scripts — without writing
+a channel plugin.
+
+- **Inbound**: `POST /webhooks/<channel_id>` on the configured `bind_address:port`
+- **Outbound**: agent replies are POSTed to `outbound_url` with the agent's text
+- **Signing**: both directions use the same `X-QwenPaw-Signature: sha256=<hex>` header
+  (HMAC-SHA256 of the raw body, hex-encoded, lower-case)
+
+### When to use
+
+- A custom UI or form needs to push prompts into the agent and read the reply
+- You want to bridge QwenPaw with an internal service that does not speak any
+  of the built-in IM protocols
+- A CI pipeline, scheduled job, or home automation event needs to trigger the
+  agent and forward the response somewhere
+
+For tighter integrations (sessions, media, channel-specific UX), prefer a
+custom channel plugin. Use the webhook channel for the simple cases where a
+fire-and-forget JSON request/response is enough.
+
+### Configure the Webhook channel
+
+**Method 1**: Configure in the Console
+
+Go to **Control → Channels**, click **Webhook**, enable it, and fill in:
+
+- **Channel ID**: the inbound URL slug (e.g. `default`, `homeassistant`, `ci`)
+- **Bind address / port**: where the inbound HTTP listener binds (default
+  `127.0.0.1:9070`)
+- **Outbound URL**: where agent replies are POSTed (e.g. `https://my-service/hook`)
+- **Shared secret**: HMAC-SHA256 secret for signing both directions
+  (leave empty to disable signing)
+
+**Method 2**: Edit `agent.json` directly
+
+```json
+{
+  "channels": {
+    "webhook": {
+      "enabled": true,
+      "channel_id": "default",
+      "bind_address": "127.0.0.1",
+      "port": 9070,
+      "outbound_url": "https://my-service/hook",
+      "secret": "shared-hmac-secret"
+    }
+  }
+}
+```
+
+### Webhook-specific fields
+
+| Field          | Type   | Default      | Description                                                                                 |
+| -------------- | ------ | ------------ | ------------------------------------------------------------------------------------------- |
+| `channel_id`   | string | `"default"`  | Inbound URL slug; the receiver listens on `/webhooks/<channel_id>`                          |
+| `bind_address` | string | `"127.0.0.1"` | Interface to bind the inbound HTTP listener (use `0.0.0.0` to accept from any interface)   |
+| `port`         | int    | `9070`       | Inbound listener port                                                                       |
+| `outbound_url` | string | `""`         | Default URL replies are POSTed to when the inbound request did not specify one             |
+| `secret`       | string | `""`         | Shared HMAC-SHA256 secret for signing; empty disables signing in both directions           |
+
+### Inbound payload
+
+`POST /webhooks/<channel_id>` accepts a JSON body. The body is forwarded to
+the agent as a `TextContent` (the raw JSON, stringified), and the request
+headers and raw byte length are exposed in the agent request's `meta`:
+
+```json
+{
+  "sender_id": "user@example.com",
+  "session_id": "thread-123",
+  "text": "Summarize today's alerts",
+  "meta": {"source": "homeassistant"}
+}
+```
+
+`session_id` may also be supplied via the `meta.session_id` key. If neither is
+present, the webhook channel uses `webhook:<channel_id>` as the session id, so
+all events on the same webhook instance share a session.
+
+### Outbound payload
+
+Agent replies are POSTed to `outbound_url` (or to a per-request `to_handle`
+URL, if the agent reply path supplied one) as:
+
+```json
+{
+  "text": "Agent's reply text",
+  "channel": "webhook",
+  "channel_id": "default",
+  "timestamp": "2026-07-01T12:34:56Z",
+  "meta": {"...": "..."}
+}
+```
+
+### Verifying the signature
+
+```python
+import hashlib
+import hmac
+
+SECRET = "shared-hmac-secret"
+
+def verify(raw_body: bytes, header_value: str | None) -> bool:
+    if not header_value or not header_value.startswith("sha256="):
+        return False
+    expected = hmac.new(
+        SECRET.encode("utf-8"), raw_body, hashlib.sha256,
+    ).hexdigest()
+    return hmac.compare_digest(header_value[len("sha256="):], expected)
+```
+
+### Status codes
+
+| Status | When                                                              |
+| ------ | ----------------------------------------------------------------- |
+| `200`  | Payload accepted and dispatched                                   |
+| `400`  | Body was not valid JSON                                           |
+| `401`  | `X-QwenPaw-Signature` did not match (when `secret` is configured) |
+| `404`  | URL slug does not match this channel's `channel_id`               |
+| `413`  | Body exceeded 1 MiB                                               |
+
+### Limits and behaviour
+
+- Maximum body size: **1 MiB**. Larger requests are rejected with `413`.
+- Outbound requests retry on 5xx and network errors with exponential backoff
+  (`1s`, `2s`, `4s`); they do **not** retry on 4xx.
+- The inbound listener runs its own uvicorn server in a background task. It
+  binds only to `bind_address` (defaults to `127.0.0.1`); expose it to other
+  networks with a tunnel (e.g. `cloudflared`, `ngrok`) rather than opening the
+  port directly.
+
+---
+
 ## Related pages
 
 - [Introduction](./intro) — What the project can do

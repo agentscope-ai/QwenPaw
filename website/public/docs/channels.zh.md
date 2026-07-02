@@ -1894,6 +1894,135 @@ def build_agent_request_from_native(self, native_payload):
 
 ---
 
+## Webhook（通用 HTTP）
+
+Webhook 通道是一个通用的 HTTP 接收与发送通道。它让你无需写 channel 插件，
+就能把 QwenPaw 与任何能 POST JSON 的系统集成——内部服务、智能家居、
+自定义 UI、CI 机器人或你自己的脚本。
+
+- **入站**：`POST /webhooks/<channel_id>`，监听在配置的 `bind_address:port`
+- **出站**：Agent 回复会被 POST 到 `outbound_url`
+- **签名**：入站和出站共用同一个 `X-QwenPaw-Signature: sha256=<hex>` 头
+  （对原始 body 做 HMAC-SHA256，十六进制小写）
+
+### 何时使用
+
+- 自定义 UI / 表单需要把请求推给 Agent 并读取回复
+- 想把 QwenPaw 与一个不内置支持任何 IM 协议的内部服务打通
+- CI、定时任务或智能家居事件需要触发 Agent 并把结果转给某个下游
+
+需要更紧密的集成（会话、媒体、专门的 UX），请改用自定义 channel 插件。
+Webhook 通道最适合“请求-响应”就能满足的简单场景。
+
+### 配置 Webhook 通道
+
+**方法 1**：在 Console 中配置
+
+进入 **Control → Channels**，点击 **Webhook**，启用并填写：
+
+- **Channel ID**：入站 URL 段（如 `default`、`homeassistant`、`ci`）
+- **Bind address / port**：入站 HTTP 监听绑定地址（默认 `127.0.0.1:9070`）
+- **Outbound URL**：Agent 回复 POST 到哪里（如 `https://my-service/hook`）
+- **Shared secret**：用于双端签名的 HMAC-SHA256 共享密钥
+  （留空则禁用签名）
+
+**方法 2**：直接编辑 `agent.json`
+
+```json
+{
+  "channels": {
+    "webhook": {
+      "enabled": true,
+      "channel_id": "default",
+      "bind_address": "127.0.0.1",
+      "port": 9070,
+      "outbound_url": "https://my-service/hook",
+      "secret": "shared-hmac-secret"
+    }
+  }
+}
+```
+
+### Webhook 专属字段
+
+| 字段           | 类型   | 默认值         | 说明                                                                            |
+| -------------- | ------ | -------------- | ------------------------------------------------------------------------------- |
+| `channel_id`   | string | `"default"`    | 入站 URL 段；接收端监听 `/webhooks/<channel_id>`                                 |
+| `bind_address` | string | `"127.0.0.1"` | 入站 HTTP 监听绑定地址（如需接收任意来源，改为 `0.0.0.0`）                       |
+| `port`         | int    | `9070`         | 入站监听端口                                                                    |
+| `outbound_url` | string | `""`           | 默认回复 URL；当入站请求未指定时使用                                              |
+| `secret`       | string | `""`           | HMAC-SHA256 共享密钥；为空时禁用双端签名                                          |
+
+### 入站载荷
+
+`POST /webhooks/<channel_id>` 接收 JSON 请求体。请求体作为字符串化的
+`TextContent` 转发给 Agent，请求头和原始字节数会出现在 Agent 请求的 `meta` 中：
+
+```json
+{
+  "sender_id": "user@example.com",
+  "session_id": "thread-123",
+  "text": "总结今天的告警",
+  "meta": {"source": "homeassistant"}
+}
+```
+
+`session_id` 也可以通过 `meta.session_id` 提供。两者都没提供时，Webhook 通道
+默认使用 `webhook:<channel_id>` 作为会话 ID，即同一 webhook 实例上的所有事件
+共享一个会话。
+
+### 出站载荷
+
+Agent 回复会 POST 到 `outbound_url`（或 Agent 回复路径提供的 `to_handle` URL），
+格式如下：
+
+```json
+{
+  "text": "Agent 的回复文本",
+  "channel": "webhook",
+  "channel_id": "default",
+  "timestamp": "2026-07-01T12:34:56Z",
+  "meta": {"...": "..."}
+}
+```
+
+### 验证签名
+
+```python
+import hashlib
+import hmac
+
+SECRET = "shared-hmac-secret"
+
+def verify(raw_body: bytes, header_value: str | None) -> bool:
+    if not header_value or not header_value.startswith("sha256="):
+        return False
+    expected = hmac.new(
+        SECRET.encode("utf-8"), raw_body, hashlib.sha256,
+    ).hexdigest()
+    return hmac.compare_digest(header_value[len("sha256="):], expected)
+```
+
+### 状态码
+
+| 状态 | 说明                                                |
+| ---- | --------------------------------------------------- |
+| `200` | 载荷已接收并派发                                    |
+| `400` | 请求体不是合法 JSON                                  |
+| `401` | `X-QwenPaw-Signature` 校验失败（配置了 `secret` 时） |
+| `404` | URL 段与本通道的 `channel_id` 不匹配                  |
+| `413` | 请求体超过 1 MiB                                      |
+
+### 限制与行为
+
+- 最大请求体：**1 MiB**。超过会被 `413` 拒绝。
+- 出站请求在 5xx 和网络错误时按指数退避重试（`1s`、`2s`、`4s`）；4xx 不重试。
+- 入站监听在后台任务中运行一个独立的 uvicorn 服务，仅绑定到 `bind_address`
+  （默认 `127.0.0.1`）。如需对外暴露，请使用隧道（如 `cloudflared`、`ngrok`），
+  不要直接开放端口。
+
+---
+
 ## 相关页面
 
 - [项目介绍](./intro) — 这个项目可以做什么
