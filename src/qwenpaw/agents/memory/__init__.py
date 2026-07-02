@@ -9,7 +9,7 @@ from .reme_light_memory_manager import ReMeLightMemoryManager
 from .adbpg_memory_manager import (
     ADBPGMemoryManager,
 )  # registers "adbpg" backend
-from .noop_memory_manager import (
+from .dummy import (
     NoopMemoryManager,
 )  # registers "none" backend
 
