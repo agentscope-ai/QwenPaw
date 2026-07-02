@@ -86,6 +86,7 @@ class TranscriptScroll(VerticalScroll):
     def __init__(self, *children, **kwargs) -> None:
         super().__init__(*children, **kwargs)
         self._follow_end = False
+        self._anchor_released = False
 
     def follow_end(self) -> None:
         """Keep subsequent content pinned to the end once scrolling exists."""

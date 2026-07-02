@@ -122,6 +122,18 @@ def test_resume_command_quotes_agent_session_and_project_path():
     )
 
 
+def test_resume_command_uses_windows_quoting(monkeypatch):
+    monkeypatch.setattr(launch.sys, "platform", "win32")
+
+    command = _resume_command(
+        "sess abc",
+        agent=None,
+        project_dir=r"C:\Project Dir",
+    )
+
+    assert command == r'qwenpaw tui --resume "sess abc" "C:\Project Dir"'
+
+
 def test_run_tui_prints_resume_hint(monkeypatch, capsys, tmp_path):
     class FakeTransport:
         session_id = "sess-123"

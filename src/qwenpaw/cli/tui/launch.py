@@ -19,6 +19,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 import shlex
+import subprocess
 import sys
 
 import click
@@ -74,6 +75,8 @@ def _resume_command(
     parts.extend(["--resume", session_id])
     if project_dir:
         parts.append(project_dir)
+    if sys.platform == "win32":
+        return subprocess.list2cmdline(parts)
     return " ".join(shlex.quote(part) for part in parts)
 
 
