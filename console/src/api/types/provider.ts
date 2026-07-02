@@ -67,6 +67,8 @@ export interface ProviderInfo {
   thinking_budget_range?: [number, number];
   /** Provider-specific metadata (e.g. base_url_options for region selection). */
   meta?: Record<string, unknown>;
+  /** Accepted API key prefixes. When present, validation accepts any prefix in this list. */
+  api_key_prefixes?: string[];
 }
 
 /** Predefined base URL option exposed via `ProviderInfo.meta.base_url_options`. */

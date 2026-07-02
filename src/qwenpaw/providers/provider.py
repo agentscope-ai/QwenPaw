@@ -154,6 +154,14 @@ class ProviderInfo(BaseModel):
         default="",
         description="Expected prefix for the API key (e.g., 'sk-')",
     )
+    api_key_prefixes: List[str] = Field(
+        default_factory=list,
+        description=(
+            "List of accepted API key prefixes. "
+            "When non-empty, validation accepts any prefix in this list; "
+            "otherwise it falls back to api_key_prefix."
+        ),
+    )
     is_local: bool = Field(
         default=False,
         description="Whether this provider is for a local hosting platform",
@@ -326,6 +334,13 @@ class Provider(ProviderInfo, ABC):
             self.chat_model = str(config["chat_model"])
         if "api_key_prefix" in config and config["api_key_prefix"] is not None:
             self.api_key_prefix = str(config["api_key_prefix"])
+        if (
+            "api_key_prefixes" in config
+            and config["api_key_prefixes"] is not None
+        ):
+            self.api_key_prefixes = [
+                str(p) for p in config["api_key_prefixes"] if p is not None
+            ]
         if (
             "generate_kwargs" in config
             and config["generate_kwargs"] is not None
@@ -570,6 +585,7 @@ class Provider(ProviderInfo, ABC):
             models=[m.model_dump() for m in self.models],
             extra_models=[m.model_dump() for m in self.extra_models],
             api_key_prefix=self.api_key_prefix,
+            api_key_prefixes=self.api_key_prefixes,
             is_local=self.is_local,
             is_custom=self.is_custom,
             support_model_discovery=self.support_model_discovery,

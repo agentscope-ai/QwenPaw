@@ -1256,10 +1256,11 @@ GITHUB_MODELS_MODELS: List[ModelInfo] = [
 PROVIDER_GITHUB_MODELS = OpenAIProvider(
     id="github-models",
     name="GitHub Models",
-    base_url="https://models.inference.ai.azure.com",
+    base_url="https://models.github.ai/inference",
     api_key_prefix="ghp_",
+    api_key_prefixes=["ghp_", "github_pat_"],
     models=GITHUB_MODELS_MODELS,
-    freeze_url=True,
+    freeze_url=False,
     meta={
         "is_free_tier": True,
     },
