@@ -2938,11 +2938,13 @@ export default function ChatPage() {
             render: ({
               data,
             }: {
-              data: { data?: { created_at?: number } };
+              data: { data?: { created_at?: number; completed_at?: number } };
             }) => {
               return (
                 <span style={timestampStyle}>
-                  {formatMessageTime(data?.data?.created_at ?? 0)}
+                  {formatMessageTime(
+                    data?.data?.completed_at ?? data?.data?.created_at ?? 0,
+                  )}
                 </span>
               );
             },
