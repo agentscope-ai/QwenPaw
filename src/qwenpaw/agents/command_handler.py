@@ -15,6 +15,7 @@ from .utils.context_stats import format_history_str
 from ..config.config import load_agent_config, get_model_max_input_length
 from ..constant import DEBUG_HISTORY_FILE, MAX_LOAD_HISTORY_COUNT
 from ..exceptions import SystemCommandException
+from ..security.redaction import redact_secrets
 
 if TYPE_CHECKING:
     from agentscope.agent import Agent
@@ -931,7 +932,11 @@ class CommandHandler(ConversationCommandHandlerMixin):
             with open(history_file, "w", encoding="utf-8") as f:
                 for msg in dump_messages:
                     f.write(
-                        json.dumps(msg.to_dict(), ensure_ascii=False) + "\n",
+                        json.dumps(
+                            redact_secrets(msg.to_dict()),
+                            ensure_ascii=False,
+                        )
+                        + "\n",
                     )
 
             logger.info(

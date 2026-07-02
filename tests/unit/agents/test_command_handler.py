@@ -6,12 +6,13 @@ import pytest
 from agentscope.message import Msg, TextBlock
 
 from qwenpaw.agents.command_handler import CommandHandler
+from qwenpaw.constant import DEBUG_HISTORY_FILE
 
 
 def _make_agent():
     """Build a minimal fake agent satisfying CommandHandler's expectations."""
     agent = MagicMock()
-    agent.state = SimpleNamespace(context=[], session_id="session-1")
+    agent.state = SimpleNamespace(context=[], session_id="session-1", summary="")
     agent.memory_manager = None
     return agent
 
@@ -221,6 +222,26 @@ async def test_memorize_rejects_invalid_count() -> None:
 
     memory_manager.auto_memory.assert_not_awaited()
     assert "Invalid Count" in msg.get_text_content()
+
+
+@pytest.mark.asyncio
+async def test_dump_history_redacts_secret_tokens(tmp_path) -> None:
+    agent = _make_agent()
+    handler = CommandHandler(agent_name="QwenPaw", agent=agent)
+    # pylint: disable=protected-access
+    handler._get_agent_config = lambda: SimpleNamespace(
+        workspace_dir=str(tmp_path),
+    )
+    secret = "sk-abcdefghijklmnopqrstuvwxyz"
+
+    msg = await handler._process_dump_history(
+        [_msg("assistant", f"tool output token={secret}")],
+    )
+
+    body = (tmp_path / DEBUG_HISTORY_FILE).read_text(encoding="utf-8")
+    assert "History Dumped" in msg.get_text_content()
+    assert secret not in body
+    assert "sk-a****wxyz" in body
 
 
 def _make_config(

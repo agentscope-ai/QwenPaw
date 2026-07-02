@@ -20,6 +20,8 @@ from typing import TYPE_CHECKING
 import aiofiles
 import aiofiles.os
 
+from ..security.redaction import redact_secrets, redact_text
+
 if TYPE_CHECKING:
     from agentscope.message import Msg, ToolResultBlock
 
@@ -91,7 +93,11 @@ class QwenPawOffloader:
             ) as f:
                 for msg in sorted_msgs:
                     await f.write(
-                        json.dumps(msg.to_dict(), ensure_ascii=False) + "\n",
+                        json.dumps(
+                            redact_secrets(msg.to_dict()),
+                            ensure_ascii=False,
+                        )
+                        + "\n",
                     )
             last_path = filepath
             logger.info(
@@ -133,7 +139,7 @@ class QwenPawOffloader:
             content = str(output)
 
         async with aiofiles.open(filepath, mode="w", encoding="utf-8") as f:
-            await f.write(content)
+            await f.write(redact_text(content))
 
         logger.info("Offloaded tool result to %s", filepath)
         return filepath
