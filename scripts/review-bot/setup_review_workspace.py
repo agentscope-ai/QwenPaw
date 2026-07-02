@@ -200,11 +200,11 @@ read_when:
 
 ### 判断标准
 
-- **APPROVE**: High = 0 且 Medium ≤ 3，代码质量可接受，可进入人工审查
-- **REQUEST_CHANGES**: 存在 High 级问题，或 Medium > 3
+- **APPROVE**: High = 0 且 Medium ≤ 2，代码质量可接受，可进入人工审查
+- **REQUEST_CHANGES**: 存在 High 级问题，或 Medium > 2
 
 风格偏好、可选优化（Low）不应作为 REQUEST_CHANGES 的理由。
-Medium 问题超过 3 个时说明代码整体质量需要改进，应要求修改。
+Medium 问题超过 2 个时说明代码整体质量需要改进，应要求修改。
 
 ## 项目编码规范
 
