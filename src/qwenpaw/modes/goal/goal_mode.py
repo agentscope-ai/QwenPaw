@@ -123,20 +123,13 @@ class GoalMode(AgentMode):
     # ---- AgentMode interface ----
 
     def commands(self) -> list[CommandSpec]:
-        """Return /goal and /cancel command specs."""
+        """Return /goal command spec."""
         return [
             CommandSpec(
                 name="goal",
                 handler=self._activate_handler,
                 category="builtin",
                 help_text=("Set a goal \u2014 agent works " "until done."),
-                metadata={"builtin": True},
-            ),
-            CommandSpec(
-                name="cancel",
-                handler=self._cancel_handler,
-                category="builtin",
-                help_text=("Cancel active goal or loop."),
                 metadata={"builtin": True},
             ),
         ]
@@ -269,48 +262,6 @@ class GoalMode(AgentMode):
         rewrite_user_msg(ctx, goal_text)
         return None
 
-    async def _cancel_handler(
-        self,
-        ctx: Any,  # pylint: disable=unused-argument
-        args: str,  # pylint: disable=unused-argument
-    ) -> Optional[Msg]:
-        """Handle /cancel - deactivate all loops."""
-        cancelled = []
-        for key, session in list(
-            self._sessions.items(),
-        ):
-            if session.active:
-                session.active = False
-                cancelled.append(key)
-
-        self._cancel_plugin_loops()
-
-        if cancelled:
-            return Msg(
-                name="system",
-                content=[
-                    TextBlock(
-                        type="text",
-                        text=(
-                            f"Cancelled "
-                            f"{len(cancelled)}"
-                            f" active loop(s)."
-                        ),
-                    ),
-                ],
-                role="system",
-            )
-        return Msg(
-            name="system",
-            content=[
-                TextBlock(
-                    type="text",
-                    text="No active loops.",
-                ),
-            ],
-            role="system",
-        )
-
     def _build_continuation(
         self,
         ctx: Any,  # pylint: disable=unused-argument
@@ -378,30 +329,6 @@ class GoalMode(AgentMode):
         if s is not None and s.active:
             return s
         return None
-
-    @staticmethod
-    def _cancel_plugin_loops() -> None:
-        """Cancel all plugin-registered loops."""
-        try:
-            from ...plugins.registry import (
-                PluginRegistry,
-            )
-
-            for h in PluginRegistry.get_stop_handlers():
-                cb = getattr(h, "on_cancel", None)
-                if callable(cb):
-                    try:
-                        cb()
-                    except Exception:  # noqa: BLE001
-                        logger.debug(
-                            "Plugin loop cancel failed",
-                            exc_info=True,
-                        )
-        except Exception:  # noqa: BLE001
-            logger.debug(
-                "Plugin loops cancel skipped",
-                exc_info=True,
-            )
 
     @staticmethod
     def _current_session_key(
