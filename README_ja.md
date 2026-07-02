@@ -384,7 +384,7 @@ QwenPaw は **QwenPaw-Flash** シリーズも提供 — エージェントシナ
 
 QwenPaw には 4 つのコアセキュリティレイヤーが含まれています：
 
-- **Sandbox** — macOS では Seatbelt、Linux では Bubblewrap / Landlock によるカーネルレベルの実行分離。シェルコマンドは制限されたファイルシステムビュー内で実行されます。
+- **Sandbox** — macOS では Seatbelt、Linux では Bubblewrap / Landlock、Windows では AppContainer によるカーネルレベルの実行分離。シェルコマンドは制限されたファイルシステムビュー内で実行されます。
 - **Tool Guard** — YAML ルールエンジンと `ShellEvasionGuardian` が実行前にすべてのツール呼び出しを検査し、コマンドインジェクション、パストラバーサル、リバースシェル、難読化攻撃を検出。承認レベル設定可能：STRICT / SMART / AUTO / OFF。
 - **File Guard** — Tool Guard とは独立；エージェントの機密ファイル・ディレクトリへのアクセスをブロック（デフォルトで `~/.qwenpaw.secret/`、`~/.ssh` などを保護）。
 - **Skill Scanner** — block / warn / off モードとホワイトリスト対応の事前アクティベーションスキャン。プロンプトインジェクション、ハードコードされた秘密情報、データ流出などを検出。

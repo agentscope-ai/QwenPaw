@@ -384,7 +384,7 @@ QwenPaw also provides the **QwenPaw-Flash** series — purpose-trained 2B / 4B /
 
 QwenPaw includes four core security layers:
 
-- **Sandbox** — Kernel-level execution isolation using Seatbelt (macOS) and Bubblewrap / Landlock (Linux). Shell commands run inside a restricted filesystem view.
+- **Sandbox** — Kernel-level execution isolation using Seatbelt (macOS), Bubblewrap / Landlock (Linux), and AppContainer (Windows). Shell commands run inside a restricted filesystem view.
 - **Tool Guard** — YAML rule engine with `ShellEvasionGuardian` inspects every tool call before execution, detecting command injection, path traversal, reverse shells, and obfuscated attacks. Configurable approval levels: STRICT / SMART / AUTO / OFF.
 - **File Guard** — Independent of Tool Guard; blocks agent access to sensitive files and directories (default-protects `~/.qwenpaw.secret/`, `~/.ssh`, etc.).
 - **Skill Scanner** — Pre-activation scanning with block / warn / off modes and whitelist support. Detects prompt injection, hardcoded secrets, data exfiltration, and more.
