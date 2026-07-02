@@ -5,9 +5,11 @@ Exposes two functions:
 
 * ``build_search_answer`` — format ranked candidates into a ReMe-style
   answer string with score metadata.
-* ``rerank`` — call a standard ``/rerank`` endpoint (SiliconFlow-style),
-  re-order candidates by ``relevance_score``, and attach a ``rerank`` key
-  to each candidate's ``scores`` dict.
+* ``rerank`` — call a rerank API endpoint, re-order candidates by
+  ``relevance_score``, and attach a ``rerank`` key to each candidate's
+  ``scores`` dict. The endpoint URL is configured in full by the user to
+  accommodate different provider path conventions (e.g. ``/rerank`` vs
+  ``/reranks``).
 """
 
 from __future__ import annotations
@@ -52,16 +54,20 @@ async def rerank(
     candidates: list[dict],
     *,
     api_key: str,
-    base_url: str,
+    endpoint_url: str,
     model_name: str,
     top_n: int | None = None,
     text_truncation: int = 500,
 ) -> list[dict]:
-    """Re-rank *candidates* by relevance to *query* via a ``/rerank`` API.
+    """Re-rank *candidates* by relevance to *query* via a rerank API.
 
     Each candidate **must** be a dict with at least ``text`` and ``path`` keys.
     A ``scores`` dict (possibly empty) is expected; the rerank score is merged
     into it under the ``rerank`` key.
+
+    *endpoint_url* must be the full endpoint URL (path included), because
+    different providers use different paths (e.g. SiliconFlow ``/rerank``,
+    DashScope ``/reranks``).
 
     Returns at most *top_n* candidates ordered by ``relevance_score``
     descending.  On any failure the original *candidates* (truncated to
@@ -73,15 +79,14 @@ async def rerank(
     if not candidates:
         return candidates
 
-    if not base_url:
-        logger.warning("[rerank] base_url not configured")
+    if not endpoint_url:
+        logger.warning("[rerank] endpoint_url not configured")
         return candidates[:top_n] if top_n else candidates
 
     if not query:
         return candidates[:top_n] if top_n else candidates
 
-    base_url = base_url.rstrip("/")
-    url = f"{base_url}/rerank"
+    url = endpoint_url.rstrip("/")
 
     texts = [c.get("text", "")[:text_truncation] for c in candidates]
 

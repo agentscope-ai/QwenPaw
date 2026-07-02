@@ -638,8 +638,10 @@ class RerankerConfig(BaseModel):
     """Memory search reranker configuration.
 
     After the initial hybrid search returns top-K results, an external
-    reranker re-orders them by relevance to the query using a standard
-    ``/rerank`` endpoint (SiliconFlow-compatible).
+    reranker re-orders them by relevance to the query. Different providers
+    use different endpoint paths (e.g. SiliconFlow uses ``/rerank``,
+    DashScope uses ``/reranks``), so users must configure the **full**
+    endpoint URL including the path.
     """
 
     model_config = ConfigDict(extra="ignore")
@@ -652,9 +654,9 @@ class RerankerConfig(BaseModel):
         default="",
         description="API key for reranker-compatible provider",
     )
-    base_url: str = Field(
+    endpoint_url: str = Field(
         default="",
-        description="Base URL for reranker API endpoint",
+        description="Full reranker API endpoint URL (e.g. https://api.siliconflow.cn/v1/rerank)",
     )
     model_name: str = Field(
         default="",

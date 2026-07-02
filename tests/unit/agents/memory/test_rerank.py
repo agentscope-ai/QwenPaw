@@ -121,7 +121,7 @@ class TestRerank:
             "test query",
             [c0, c1],
             api_key="test-key",
-            base_url="https://api.example.com/v1",
+            endpoint_url="https://api.example.com/v1/rerank",
             model_name="bge-reranker-v2-m3",
         )
 
@@ -149,7 +149,7 @@ class TestRerank:
             "query",
             candidates,
             api_key="k",
-            base_url="https://api.example.com/v1",
+            endpoint_url="https://api.example.com/v1/rerank",
             model_name="m",
             top_n=3,
         )
@@ -179,7 +179,7 @@ class TestRerank:
             "query",
             candidates,
             api_key="k",
-            base_url="https://api.example.com/v1",
+            endpoint_url="https://api.example.com/v1/rerank",
             model_name="m",
             top_n=2,
         )
@@ -209,7 +209,7 @@ class TestRerank:
                 "query",
                 candidates,
                 api_key="k",
-                base_url="https://api.example.com/v1",
+                endpoint_url="https://api.example.com/v1/rerank",
                 model_name="m",
                 top_n=2,
             )
@@ -237,7 +237,7 @@ class TestRerank:
                 "query",
                 candidates,
                 api_key="k",
-                base_url="https://api.example.com/v1",
+                endpoint_url="https://api.example.com/v1/rerank",
                 model_name="m",
             )
             assert len(result) == 1
@@ -271,7 +271,7 @@ class TestManagerRerankIntegration:
         reranker_cfg = MagicMock()
         reranker_cfg.enabled = True
         reranker_cfg.api_key = "test-key"
-        reranker_cfg.base_url = "https://api.example.com/v1"
+        reranker_cfg.endpoint_url = "https://api.example.com/v1/rerank"
         reranker_cfg.model_name = "bge-reranker"
 
         reme_cfg = MagicMock()

@@ -404,7 +404,7 @@ class ReMeLightMemoryManager(BaseMemoryManager):
                         query,
                         candidates,
                         api_key=reranker_config.api_key,
-                        base_url=reranker_config.base_url,
+                        endpoint_url=reranker_config.endpoint_url,
                         model_name=reranker_config.model_name,
                         top_n=max_results,
                     )
@@ -491,7 +491,7 @@ class ReMeLightMemoryManager(BaseMemoryManager):
                         query,
                         candidates,
                         api_key=reranker_config.api_key,
-                        base_url=reranker_config.base_url,
+                        endpoint_url=reranker_config.endpoint_url,
                         model_name=reranker_config.model_name,
                         top_n=search_cfg.max_results,
                     )
