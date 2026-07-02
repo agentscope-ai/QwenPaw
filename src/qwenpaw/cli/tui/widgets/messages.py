@@ -504,6 +504,7 @@ class ActivityLine(_Bubble):
     """Single friendly row for the current hidden thought/tool chain."""
 
     _TERMINAL = {"completed", "failed"}
+    _INSPECT_HINT = ", ctrl+i to inspect"
 
     def __init__(self) -> None:
         self._mode = "thinking"
@@ -579,6 +580,7 @@ class ActivityLine(_Bubble):
         if self._summary:
             text.append("  ")
             text.append(self._summary, style="#7fb7d9")
+        text.append(self._INSPECT_HINT, style="#5a5a5a")
         return text
 
     def _tool_label(self, title: str | None, kind: str | None) -> str:

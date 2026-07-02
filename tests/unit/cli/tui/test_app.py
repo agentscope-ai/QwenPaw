@@ -646,6 +646,7 @@ async def test_thinking_collapsed_by_default():
         assert thought.has_class("hidden")
         activity = app.query(ActivityLine).first()
         assert "thinking" in activity.content.plain
+        assert "ctrl+i to inspect" in activity.content.plain
 
 
 @pytest.mark.asyncio
@@ -696,6 +697,7 @@ async def test_friendly_mode_collapses_tool_chain_to_one_activity_line():
         assert len(activities) == 1
         assert "execute_shell_command" in activities[0].content.plain
         assert "pytest -q" in activities[0].content.plain
+        assert "ctrl+i to inspect" in activities[0].content.plain
         assert all(panel.has_class("hidden") for panel in app.query(ToolPanel))
         assert app.query(ThoughtMessage).first().has_class("hidden")
 
@@ -724,6 +726,7 @@ async def test_activity_line_stops_thinking_when_answer_streams():
         await pilot.pause()
         assert "thinking" not in activity.content.plain
         assert "thought complete" in activity.content.plain
+        assert "ctrl+i to inspect" in activity.content.plain
         # The reference is dropped so resumed reasoning starts a fresh line.
         assert app._activity is None
 
