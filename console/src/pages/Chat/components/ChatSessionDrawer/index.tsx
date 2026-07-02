@@ -240,15 +240,18 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
     IAgentScopeRuntimeWebUISession[]
   >([]);
 
-  const sessions = props.embedded ? localSessions : sdkState.sessions;
+  // Always use the component's own localSessions state.  In non-embedded
+  // mode (mobile full mode) this component is rendered outside the
+  // AgentScopeRuntimeWebUI context tree, where sdkState.sessions would be
+  // the default empty context value and sdkState.setSessions a no-op.
+  const sessions = localSessions;
   const { currentSessionId: sdkCurrentSessionId } = sdkState;
-  // In embedded mode, prefer URL-derived chatId for active-state matching
-  // because the SDK context may not be accessible from outside the provider.
-  const urlCurrentSessionId = props.embedded
-    ? getSessionIdFromPath(location.pathname) ?? undefined
-    : undefined;
+  // Prefer URL-derived chatId for active-state matching in ALL modes —
+  // the SDK context may not be accessible from outside the provider.
+  const urlCurrentSessionId =
+    getSessionIdFromPath(location.pathname) ?? undefined;
   const currentSessionId = urlCurrentSessionId || sdkCurrentSessionId;
-  const setSessions = props.embedded ? setLocalSessions : sdkState.setSessions;
+  const setSessions = setLocalSessions;
   const { embedded, pinned, onClose } = props;
 
   /** Create a new session; close the drawer only when not pinned */

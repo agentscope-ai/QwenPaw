@@ -192,18 +192,15 @@ vi.mock("../../../../components/ContextMenu", () => ({
 const defaultProps = { open: true, onClose: vi.fn() };
 
 function withSession(overrides: Record<string, unknown> = {}) {
-  // updatedAt ensures the session falls into the "today" group (not collapsed
-  // by default). Without it, sessions without timestamps land in "older"
-  // which is collapsed, causing them to not render in the virtual list.
+  const session = {
+    id: "s1",
+    name: "Session One",
+    updatedAt: new Date().toISOString(),
+    ...overrides,
+  } as any;
+  mockGetSessionList.mockResolvedValue([session]);
   vi.mocked(useChatAnywhereSessionsState).mockReturnValue({
-    sessions: [
-      {
-        id: "s1",
-        name: "Session One",
-        updatedAt: new Date().toISOString(),
-        ...overrides,
-      },
-    ] as any,
+    sessions: [session],
     currentSessionId: null,
     setCurrentSessionId: mockSetCurrentSessionId,
     setSessions: mockSetSessions,
@@ -328,20 +325,20 @@ describe("ChatSessionDrawer", () => {
   });
 
   it("pinned sessions sort before unpinned", async () => {
-    vi.mocked(useChatAnywhereSessionsState).mockReturnValue({
-      sessions: [
-        { id: "s1", name: "Unpinned", updatedAt: new Date().toISOString() },
-        {
-          id: "s2",
-          name: "Pinned",
-          pinned: true,
-          updatedAt: new Date().toISOString(),
-        },
-      ] as any,
-      currentSessionId: null,
-      setCurrentSessionId: mockSetCurrentSessionId,
-      setSessions: mockSetSessions,
-    } as any);
+    mockGetSessionList.mockResolvedValue([
+      {
+        id: "s1",
+        name: "Unpinned",
+        pinned: false,
+        updatedAt: new Date().toISOString(),
+      },
+      {
+        id: "s2",
+        name: "Pinned",
+        pinned: true,
+        updatedAt: new Date().toISOString(),
+      },
+    ]);
     renderWithProviders(<ChatSessionDrawer {...defaultProps} />);
     const items = await screen.findAllByTestId("session-item");
     expect(items[0]).toHaveTextContent("Pinned");
