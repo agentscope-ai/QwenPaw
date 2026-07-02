@@ -1,11 +1,12 @@
 # -*- coding: utf-8 -*-
+# pylint: disable=protected-access,redefined-outer-name
 """Tests for the webhook channel (signature + sender + channel + server)."""
 from __future__ import annotations
 
 import hashlib
 import hmac
 import json
-from typing import Any, Callable, Dict, List
+from typing import Callable, Dict, List
 from unittest.mock import AsyncMock, MagicMock
 
 import httpx
@@ -77,7 +78,7 @@ class TestVerifySignature:
 
     def test_signature_missing_prefix_rejected(self):
         body = b"hello"
-        sig = _make_signature(body, "shhh")[len(SIGNATURE_PREFIX):]
+        sig = _make_signature(body, "shhh")[len(SIGNATURE_PREFIX) :]
         assert verify_signature(body, sig, "shhh") is False
 
     def test_signature_with_non_hex_chars_rejected(self):
@@ -127,7 +128,11 @@ class _FakeClient:
         return None
 
     async def post(
-        self, url: str, *, content: bytes, headers: Dict[str, str],
+        self,
+        url: str,
+        *,
+        content: bytes,
+        headers: Dict[str, str],
     ) -> httpx.Response:
         request = httpx.Request("POST", url, content=content, headers=headers)
         self.requests.append(request)
@@ -140,11 +145,19 @@ class _FakeClient:
 
 def _patch_async_client(monkeypatch, handler):
     client = _FakeClient(handler)
-    monkeypatch.setattr(sender_mod.httpx, "AsyncClient", lambda *a, **kw: client)
+    monkeypatch.setattr(
+        sender_mod.httpx,
+        "AsyncClient",
+        lambda *a, **kw: client,
+    )
     return client
 
 
-def _verify_signature_in_header(body: bytes, header: str | None, secret: str) -> bool:
+def _verify_signature_in_header(
+    body: bytes,
+    header: str | None,
+    secret: str,
+) -> bool:
     if not header or not header.startswith(SIGNATURE_PREFIX):
         return False
     expected = hmac.new(
@@ -152,7 +165,7 @@ def _verify_signature_in_header(body: bytes, header: str | None, secret: str) ->
         body,
         hashlib.sha256,
     ).hexdigest()
-    return hmac.compare_digest(header[len(SIGNATURE_PREFIX):], expected)
+    return hmac.compare_digest(header[len(SIGNATURE_PREFIX) :], expected)
 
 
 @pytest.mark.asyncio
@@ -172,7 +185,9 @@ async def test_sender_returns_true_on_2xx_response(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_sender_includes_signature_header_when_secret_configured(monkeypatch):
+async def test_sender_includes_signature_header_when_secret_configured(
+    monkeypatch,
+):
     client = _patch_async_client(
         monkeypatch,
         lambda _req: httpx.Response(200, json={"ok": True}),
@@ -291,7 +306,9 @@ async def test_sender_retries_on_network_error_then_succeeds(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_sender_returns_false_when_all_attempts_network_error(monkeypatch):
+async def test_sender_returns_false_when_all_attempts_network_error(
+    monkeypatch,
+):
     calls = {"n": 0}
 
     def handler(_req: httpx.Request) -> httpx.Response:
@@ -397,22 +414,28 @@ class TestWebhookChannelSessionId:
 
     def test_session_id_from_channel_id(self):
         ch = WebhookChannel(
-            process=_make_mock_process(), channel_id="svc1",
+            process=_make_mock_process(),
+            channel_id="svc1",
         )
         assert ch.resolve_session_id("sender") == "webhook:svc1"
 
     def test_session_id_meta_overrides_channel_id(self):
         ch = WebhookChannel(
-            process=_make_mock_process(), channel_id="svc1",
+            process=_make_mock_process(),
+            channel_id="svc1",
         )
-        assert ch.resolve_session_id(
-            "sender",
-            {"session_id": "abc"},
-        ) == "webhook:abc"
+        assert (
+            ch.resolve_session_id(
+                "sender",
+                {"session_id": "abc"},
+            )
+            == "webhook:abc"
+        )
 
     def test_session_id_empty_meta_uses_channel_id(self):
         ch = WebhookChannel(
-            process=_make_mock_process(), channel_id="svc1",
+            process=_make_mock_process(),
+            channel_id="svc1",
         )
         assert ch.resolve_session_id("sender", {}) == "webhook:svc1"
 
@@ -547,7 +570,9 @@ class TestWebhookServer:
 
     @pytest.mark.asyncio
     async def test_post_returns_200_on_valid_signed_payload(
-        self, app_and_channel, monkeypatch,
+        self,
+        app_and_channel,
+        monkeypatch,
     ):
         from fastapi.testclient import TestClient
 
@@ -573,7 +598,8 @@ class TestWebhookServer:
 
     @pytest.mark.asyncio
     async def test_post_returns_401_on_bad_signature(
-        self, app_and_channel,
+        self,
+        app_and_channel,
     ):
         from fastapi.testclient import TestClient
 
@@ -591,7 +617,8 @@ class TestWebhookServer:
 
     @pytest.mark.asyncio
     async def test_post_returns_404_for_wrong_channel_id(
-        self, app_and_channel,
+        self,
+        app_and_channel,
     ):
         from fastapi.testclient import TestClient
 
@@ -611,7 +638,8 @@ class TestWebhookServer:
 
     @pytest.mark.asyncio
     async def test_post_returns_413_for_oversized_body(
-        self, app_and_channel,
+        self,
+        app_and_channel,
     ):
         from fastapi.testclient import TestClient
 
@@ -631,7 +659,8 @@ class TestWebhookServer:
 
     @pytest.mark.asyncio
     async def test_post_returns_400_on_malformed_json(
-        self, app_and_channel,
+        self,
+        app_and_channel,
     ):
         from fastapi.testclient import TestClient
 

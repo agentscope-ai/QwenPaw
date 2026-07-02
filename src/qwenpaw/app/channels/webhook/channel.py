@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# pylint: disable=too-many-arguments,too-many-positional-arguments
+# pylint: disable=too-many-arguments
 """Webhook channel — passive HTTP receiver + outbound reply sender."""
 from __future__ import annotations
 
@@ -9,7 +9,6 @@ import logging
 import os
 from dataclasses import dataclass, field
 from datetime import datetime
-from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from qwenpaw.schemas import (
@@ -90,7 +89,6 @@ class WebhookChannel(BaseChannel):
         allow_from: Optional[List[str]] = None,
         deny_message: str = "",
         streaming_enabled: bool = False,
-        workspace_dir: Path | None = None,
     ):
         super().__init__(
             process=process,
@@ -161,7 +159,9 @@ class WebhookChannel(BaseChannel):
             return
         url = to_handle or self.config.outbound_url
         if not url:
-            logger.warning("[webhook] no outbound_url configured, dropping reply")
+            logger.warning(
+                "[webhook] no outbound_url configured, dropping reply",
+            )
             return
         payload: Dict[str, Any] = {
             "text": text,
@@ -170,7 +170,9 @@ class WebhookChannel(BaseChannel):
             "timestamp": datetime.utcnow().isoformat() + "Z",
         }
         if meta:
-            payload["meta"] = {k: v for k, v in meta.items() if not k.startswith("_")}
+            payload["meta"] = {
+                k: v for k, v in meta.items() if not k.startswith("_")
+            }
         await send_webhook_reply(url, payload, self.config.secret)
 
     async def send_content_parts(
@@ -319,7 +321,6 @@ class WebhookChannel(BaseChannel):
         filter_tool_messages: bool = False,
         no_text_debounce: bool = True,
         filter_thinking: bool = False,
-        workspace_dir: Path | None = None,
     ) -> "WebhookChannel":
         """Build a channel from a ``WebhookChannelConfig``-shaped object."""
         return cls(
@@ -340,5 +341,4 @@ class WebhookChannel(BaseChannel):
             group_policy=getattr(config, "group_policy", "open"),
             allow_from=getattr(config, "allow_from", None),
             deny_message=getattr(config, "deny_message", ""),
-            workspace_dir=workspace_dir,
         )

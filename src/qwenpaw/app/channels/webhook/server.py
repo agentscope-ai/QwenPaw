@@ -26,7 +26,10 @@ def create_webhook_app(channel: "WebhookChannel") -> FastAPI:
     app = FastAPI(title="QwenPaw Webhook Channel")
 
     @app.post("/webhooks/{channel_id}")
-    async def receive_webhook(channel_id: str, request: Request) -> JSONResponse:
+    async def receive_webhook(
+        channel_id: str,
+        request: Request,
+    ) -> JSONResponse:
         if channel_id != channel.config.channel_id:
             return JSONResponse(
                 status_code=404,
