@@ -46,7 +46,7 @@ additions,deletions,files`
 | 项目 | 内容 |
 |------|------|
 | PR 编号 | （从 gh 获取） |
-| 作者 | （从 gh 获取） |
+| 作者 | @username 格式，如 @lalaliat |
 | 修改量 | （从 gh 获取） |
 | 合并目标 | （从 gh 获取） |
 | 关联 Issue | （从 PR body 中提取，如有） |

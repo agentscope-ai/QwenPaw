@@ -125,42 +125,22 @@ jobs:
             const readyForHumanReview = verdict === 'APPROVE';
 
             const icon = readyForHumanReview ? '✅' : '⚠️';
-            const title = readyForHumanReview ? '通过 AI 审查，等待人工 Review' : '建议修改';
+            const title = readyForHumanReview
+              ? '通过 AI 审查，等待人工 Review'
+              : '建议修改';
             const header = `## ${icon} QwenPaw AI Review: ${title}\n\n`;
             const footer = '\n\n---\n' +
-              `*🤖 由 QwenPaw Review Bot 自动生成 | ` +
-              `PR #${prNumber} | ` +
-              `High: ${highCount}, Medium: ${mediumCount} | ` +
+              `*由 QwenPaw Review Agent 自动生成 | ` +
               `Triggered by maintainer approval*`;
 
-            const marker = '<!-- qwenpaw-ai-review -->';
-            const fullBody = `${marker}\n${header}${reviewBody}${footer}`;
+            const fullBody = `${header}${reviewBody}${footer}`;
 
-            const comments = await github.paginate(
-              github.rest.issues.listComments,
-              {
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: prNumber,
-              }
-            );
-            const existing = comments.find(c => c.body && c.body.includes(marker));
-
-            if (existing) {
-              await github.rest.issues.updateComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                comment_id: existing.id,
-                body: fullBody,
-              });
-            } else {
-              await github.rest.issues.createComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: prNumber,
-                body: fullBody,
-              });
-            }
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: prNumber,
+              body: fullBody,
+            });
 
             // Label logic:
             // APPROVE (high=0, medium<=3) → add ready_for_human_review
