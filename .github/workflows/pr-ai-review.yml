@@ -30,10 +30,7 @@ jobs:
       REVIEW_PROVIDER: dashscope
       REVIEW_MODEL: qwen3.7-max
       PR_NUMBER: ${{ github.event.pull_request.number }}
-      PR_TITLE: ${{ github.event.pull_request.title }}
-      PR_AUTHOR: ${{ github.event.pull_request.user.login }}
-      PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
-      PR_BASE_REF: ${{ github.event.pull_request.base.ref }}
+      PR_REPO: ${{ github.event.pull_request.base.repo.full_name }}
 
     steps:
       - name: Checkout repository
@@ -47,12 +44,16 @@ jobs:
           python-version: '3.11'
           cache: 'pip'
 
-      # Review bot only calls /api/* (console chat, models). Web UI is not used.
       - name: Install QwenPaw and dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -e ".[dev]"
           pip install httpx
+
+      - name: Verify gh CLI is available
+        run: gh --version
+        env:
+          GH_TOKEN: ${{ github.token }}
 
       - name: Initialize QwenPaw workspace
         run: |
@@ -62,6 +63,8 @@ jobs:
       - name: Start QwenPaw server
         run: |
           QWENPAW_AUTH_ENABLED=false \
+          GH_TOKEN=${{ github.token }} \
+          GITHUB_TOKEN=${{ github.token }} \
           python -m qwenpaw app --host 127.0.0.1 --port 8088 &
           echo $! > /tmp/qwenpaw.pid
 
@@ -101,100 +104,33 @@ jobs:
               sys.exit(1)
           PY
 
-      - name: Fetch PR diff
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const fs = require('fs');
-            const prNumber = context.payload.pull_request.number;
-
-            const { data: pr } = await github.rest.pulls.get({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              pull_number: prNumber,
-            });
-
-            const { data: files } = await github.rest.pulls.listFiles({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              pull_number: prNumber,
-              per_page: 100,
-            });
-
-            // Skip files that add noise without review value
-            const SKIP_PATTERNS = [
-              /package-lock\.json$/,
-              /pnpm-lock\.yaml$/,
-              /yarn\.lock$/,
-              /Cargo\.lock$/,
-              /uv\.lock$/,
-              /\.min\.(js|css)$/,
-              /dist\//,
-              /node_modules\//,
-              /\.snap$/,
-              /\.svg$/,
-              /\.png$/,
-              /\.jpg$/,
-              /\.ico$/,
-            ];
-
-            const reviewFiles = files.filter(f =>
-              !SKIP_PATTERNS.some(p => p.test(f.filename))
-            );
-
-            let diff = '';
-            let size = 0;
-            const MAX_SIZE = 60000;
-
-            for (const f of reviewFiles) {
-              if (size > MAX_SIZE) {
-                diff += '\n... (diff truncated at 60KB)\n';
-                break;
-              }
-              const entry = `### ${f.filename} (${f.status}, +${f.additions}/-${f.deletions})\n\`\`\`diff\n${f.patch || '(binary file)'}\n\`\`\`\n\n`;
-              diff += entry;
-              size += entry.length;
-            }
-
-            const skippedCount = files.length - reviewFiles.length;
-            if (skippedCount > 0) {
-              diff += `\n> ${skippedCount} 个文件已跳过（lock/生成/二进制文件）\n`;
-            }
-
-            fs.writeFileSync('/tmp/pr_diff.txt', diff);
-            fs.writeFileSync('/tmp/pr_meta.json', JSON.stringify({
-              number: prNumber,
-              title: pr.title,
-              body: (pr.body || '').slice(0, 3000),
-              author: pr.user.login,
-              base: pr.base.ref,
-              head: pr.head.ref,
-              repo: `${context.repo.owner}/${context.repo.repo}`,
-              file_count: reviewFiles.length,
-              additions: reviewFiles.reduce((s, f) => s + f.additions, 0),
-              deletions: reviewFiles.reduce((s, f) => s + f.deletions, 0),
-              changed_files: reviewFiles.map(f => f.filename),
-            }));
-
       - name: Run AI Review
         id: review
         run: python scripts/review-bot/review_runner.py
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_TOKEN: ${{ github.token }}
 
-      - name: Post review comment
+      - name: Post review comment and manage labels
         uses: actions/github-script@v7
         with:
           script: |
             const fs = require('fs');
             const prNumber = context.payload.pull_request.number;
             const verdict = '${{ steps.review.outputs.verdict }}';
+            const highCount = parseInt('${{ steps.review.outputs.high_count }}') || 0;
+            const mediumCount = parseInt('${{ steps.review.outputs.medium_count }}') || 0;
             const reviewBody = fs.readFileSync('/tmp/review_result.md', 'utf8');
 
-            const icon = verdict === 'APPROVE' ? '✅' : '⚠️';
-            const title = verdict === 'APPROVE' ? '通过' : '建议修改';
+            const readyForHumanReview = verdict === 'APPROVE';
+
+            const icon = readyForHumanReview ? '✅' : '⚠️';
+            const title = readyForHumanReview ? '通过 AI 审查，等待人工 Review' : '建议修改';
             const header = `## ${icon} QwenPaw AI Review: ${title}\n\n`;
             const footer = '\n\n---\n' +
               `*🤖 由 QwenPaw Review Bot 自动生成 | ` +
               `PR #${prNumber} | ` +
+              `High: ${highCount}, Medium: ${mediumCount} | ` +
               `Triggered by maintainer approval*`;
 
             const marker = '<!-- qwenpaw-ai-review -->';
@@ -226,12 +162,15 @@ jobs:
               });
             }
 
-            if (verdict === 'APPROVE') {
+            // Label logic:
+            // APPROVE (high=0, medium<=3) → add ready_for_human_review
+            // REQUEST_CHANGES → remove ready_for_human_review
+            if (readyForHumanReview) {
               await github.rest.issues.addLabels({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 issue_number: prNumber,
-                labels: ['ready_for_merge'],
+                labels: ['ready_for_human_review'],
               });
             } else {
               try {
@@ -239,7 +178,7 @@ jobs:
                   owner: context.repo.owner,
                   repo: context.repo.repo,
                   issue_number: prNumber,
-                  name: 'ready_for_merge',
+                  name: 'ready_for_human_review',
                 });
               } catch (e) {}
             }

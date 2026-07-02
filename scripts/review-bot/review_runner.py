@@ -3,9 +3,10 @@
 """QwenPaw AI Review Bot - Main runner script.
 
 This script runs inside GitHub Actions to:
-1. Read PR diff from /tmp/pr_diff.txt
-2. Send it to the local QwenPaw instance for review
-3. Parse the response and output verdict + review text
+1. Read PR number and repo from environment variables
+2. Send a task prompt to the local QwenPaw instance
+3. QwenPaw autonomously fetches PR data via `gh` CLI
+4. Parse the response and output verdict + review text
 """
 import json
 import os
@@ -17,9 +18,7 @@ import httpx
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 # pylint: disable=wrong-import-position
-from prompts import (
-    build_review_prompt,
-)  # noqa: E402
+from prompts import build_review_prompt  # noqa: E402
 from qwenpaw.agents.tools.agent_management import (  # noqa: E402
     extract_agent_text_content,
     parse_agent_sse_line,
@@ -30,16 +29,7 @@ from qwenpaw.agents.tools.agent_management import (  # noqa: E402
 QWENPAW_URL = "http://localhost:8088"
 CHAT_ENDPOINT = f"{QWENPAW_URL}/api/console/chat"
 MAX_RETRIES = 3
-TIMEOUT_SECONDS = 180
-
-
-def read_pr_data():
-    """Read PR metadata and diff from temp files written by github-script."""
-    with open("/tmp/pr_meta.json", encoding="utf-8") as f:
-        meta = json.load(f)
-    with open("/tmp/pr_diff.txt", encoding="utf-8") as f:
-        diff = f.read()
-    return meta, diff
+TIMEOUT_SECONDS = 300
 
 
 def _extract_stream_text(evt: dict) -> str:
@@ -122,30 +112,49 @@ def call_qwenpaw(prompt: str, session_id: str) -> str:
     return ""
 
 
-def parse_verdict(response: str) -> str:
-    """Extract verdict from the review response JSON block."""
+def parse_verdict(response: str) -> dict:
+    """Extract verdict and issue counts from the review response JSON block.
+
+    Returns a dict with keys: verdict, high_count, medium_count, low_count.
+    """
+    default = {
+        "verdict": "REQUEST_CHANGES",
+        "high_count": -1,
+        "medium_count": -1,
+        "low_count": -1,
+    }
     match = re.search(
         r"```json\s*(\{.*?\})\s*```",
         response,
         re.DOTALL,
     )
-    if match:
-        try:
-            result = json.loads(match.group(1))
-            verdict = result.get("verdict", "REQUEST_CHANGES")
-            if verdict in ("APPROVE", "REQUEST_CHANGES"):
-                return verdict
-        except json.JSONDecodeError:
-            pass
-    return "REQUEST_CHANGES"
+    if not match:
+        return default
+    try:
+        result = json.loads(match.group(1))
+    except json.JSONDecodeError:
+        return default
+
+    verdict = result.get("verdict", "REQUEST_CHANGES")
+    if verdict not in ("APPROVE", "REQUEST_CHANGES"):
+        verdict = "REQUEST_CHANGES"
+
+    return {
+        "verdict": verdict,
+        "high_count": int(result.get("high_count", -1)),
+        "medium_count": int(result.get("medium_count", -1)),
+        "low_count": int(result.get("low_count", -1)),
+    }
 
 
-def write_outputs(verdict: str, review_text: str):
+def write_outputs(verdict_info: dict, review_text: str):
     """Write results to GITHUB_OUTPUT and temp file for later steps."""
     output_file = os.environ.get("GITHUB_OUTPUT", "")
     if output_file:
         with open(output_file, "a", encoding="utf-8") as f:
-            f.write(f"verdict={verdict}\n")
+            f.write(f"verdict={verdict_info['verdict']}\n")
+            f.write(f"high_count={verdict_info['high_count']}\n")
+            f.write(f"medium_count={verdict_info['medium_count']}\n")
 
     with open("/tmp/review_result.md", "w", encoding="utf-8") as f:
         f.write(review_text)
@@ -156,21 +165,25 @@ def main():
     print("QwenPaw AI Review Bot")
     print("=" * 60)
 
-    meta, diff = read_pr_data()
-    print(f"\nPR #{meta['number']}: {meta['title']}")
-    print(f"Author: {meta['author']}")
-    print(f"Branch: {meta['head']} → {meta['base']}")
-    print(
-        f"Files: {meta['file_count']}, +{meta['additions']}/-{meta['deletions']}",
-    )
-    print(f"Diff size: {len(diff)} chars")
+    pr_number = os.environ.get("PR_NUMBER")
+    repo = os.environ.get("PR_REPO")
 
-    prompt = build_review_prompt(meta, diff)
-    print(f"\nPrompt size: {len(prompt)} chars")
+    if not pr_number or not repo:
+        print(
+            "ERROR: PR_NUMBER and PR_REPO environment variables "
+            "are required.",
+        )
+        sys.exit(1)
 
-    session_id = f"pr-review-{meta['number']}-{int(time.time())}"
-    print(f"\nSession: {session_id}")
-    print("Sending to QwenPaw...")
+    pr_number = int(pr_number)
+    print(f"\nTarget: {repo} PR #{pr_number}")
+
+    prompt = build_review_prompt(pr_number, repo)
+    print(f"Prompt size: {len(prompt)} chars")
+
+    session_id = f"pr-review-{pr_number}-{int(time.time())}"
+    print(f"Session: {session_id}")
+    print("Sending task to QwenPaw (agent will fetch PR data via gh)...")
 
     response = call_qwenpaw(prompt, session_id)
 
@@ -179,19 +192,32 @@ def main():
         fallback = (
             "AI Review Bot 未能生成审查结果。可能的原因：\n"
             "- LLM API 超时或不可用\n"
+            "- `gh` CLI 认证失败\n"
             "- diff 内容过大\n\n"
             "请 maintainer 手动审查此 PR。\n\n"
             '```json\n{"verdict": "REQUEST_CHANGES", '
+            '"high_count": -1, "medium_count": -1, "low_count": -1, '
             '"summary": "Review failed"}\n```'
         )
-        write_outputs("REQUEST_CHANGES", fallback)
+        fail_info = {
+            "verdict": "REQUEST_CHANGES",
+            "high_count": -1,
+            "medium_count": -1,
+            "low_count": -1,
+        }
+        write_outputs(fail_info, fallback)
         sys.exit(0)
 
-    verdict = parse_verdict(response)
+    verdict_info = parse_verdict(response)
+    verdict = verdict_info["verdict"]
+    high = verdict_info["high_count"]
+    medium = verdict_info["medium_count"]
+
     print(f"\n{'✅' if verdict == 'APPROVE' else '⚠️'} Verdict: {verdict}")
+    print(f"Issues: High={high}, Medium={medium}")
     print(f"Response length: {len(response)} chars")
 
-    write_outputs(verdict, response)
+    write_outputs(verdict_info, response)
     print("\n✅ Done! Results written to /tmp/review_result.md")
 
 
