@@ -65,6 +65,7 @@ export const DOC_GROUPS: DocGroup[] = [
   {
     titleKey: "docs.groupOthers",
     children: [
+      { slug: "architecture", titleKey: "docs.architecture" },
       { slug: "faq", titleKey: "docs.faq" },
       { slug: "api-tutorial", titleKey: "docs.apiTutorial" },
       { slug: "acp-integration", titleKey: "docs.acpServer" },

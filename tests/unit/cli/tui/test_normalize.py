@@ -219,7 +219,31 @@ def test_usage_update():
     out = normalize_update(
         UsageUpdate(session_update="usage_update", used=1200, size=8000),
     )
-    assert out == [E.Usage(used=1200, size=8000)]
+    assert out == [E.Usage(used=1200, size=8000, threshold=None)]
+
+
+def test_usage_update_carries_compaction_threshold():
+    out = normalize_update(
+        UsageUpdate(
+            session_update="usage_update",
+            used=800_000,
+            size=1_000_000,
+            field_meta={"compactRatio": 0.8},
+        ),
+    )
+    assert out == [E.Usage(used=800_000, size=1_000_000, threshold=0.8)]
+
+
+def test_usage_update_ignores_out_of_range_threshold():
+    out = normalize_update(
+        UsageUpdate(
+            session_update="usage_update",
+            used=1,
+            size=2,
+            field_meta={"compactRatio": 1.5},  # not in (0, 1) -> dropped
+        ),
+    )
+    assert out == [E.Usage(used=1, size=2, threshold=None)]
 
 
 def test_available_commands_update():

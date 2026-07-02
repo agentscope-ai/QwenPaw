@@ -1086,6 +1086,7 @@ def create_model_and_formatter(
     model_slot = None
     retry_config = None
     rate_limit_config = None
+    compact_threshold: Optional[float] = None
     if agent_id:
         try:
             agent_config = load_agent_config(agent_id)
@@ -1103,6 +1104,12 @@ def create_model_and_formatter(
                 jitter_range=agent_config.running.llm_rate_limit_jitter,
                 acquire_timeout=agent_config.running.llm_acquire_timeout,
             )
+            # Surface the auto-compaction threshold so the UI can mark where
+            # context starts getting evicted — only when compaction is on.
+            lcc = agent_config.running.light_context_config
+            ccc = lcc.context_compact_config
+            if getattr(ccc, "enabled", False):
+                compact_threshold = ccc.compact_threshold_ratio
         except Exception:
             pass
 
@@ -1148,7 +1155,11 @@ def create_model_and_formatter(
         model.max_retries = 0
 
     # Wrap with retry logic for transient LLM API errors
-    wrapped_model = TokenRecordingModelWrapper(provider_id, model)
+    wrapped_model = TokenRecordingModelWrapper(
+        provider_id,
+        model,
+        compact_threshold=compact_threshold,
+    )
     wrapped_model = RetryChatModel(
         wrapped_model,
         retry_config=retry_config,

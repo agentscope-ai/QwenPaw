@@ -149,6 +149,7 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
         self._http_prefix_to_plugin: Dict[str, str] = {}
         self._prompt_sections: List[PromptSectionRegistration] = []
         self._prompt_section_names: set = set()
+        self._workspace_manager: Optional[Any] = None
 
         self._initialized = True
 
@@ -384,6 +385,74 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
             RuntimeHelpers instance or None
         """
         return self._runtime_helpers
+
+    def set_workspace_manager(self, manager) -> None:
+        """Set the workspace manager reference.
+
+        Called once during app lifespan startup so plugins can
+        access workspace instances for registration.
+
+        Args:
+            manager: MultiAgentManager / WorkspaceRegistry instance
+        """
+        self._workspace_manager = manager
+
+    def get_workspace_manager(self):
+        """Get the workspace manager.
+
+        Returns:
+            MultiAgentManager instance or None
+        """
+        return self._workspace_manager
+
+    @classmethod
+    def get_stop_handlers(
+        cls,
+        agent_id: "str | None" = None,
+    ) -> list:
+        """Collect stop handlers.
+
+        Args:
+            agent_id: If provided, only return handlers
+                registered on that workspace. Otherwise
+                return handlers from all workspaces.
+
+        Returns:
+            List of StopHandlerRegistration objects.
+        """
+        inst = cls._instance
+        if inst is None:
+            return []
+        mgr = inst.get_workspace_manager()
+        if mgr is None:
+            return []
+        workspaces = getattr(
+            mgr,
+            "agents",
+            getattr(mgr, "workspaces", {}),
+        )
+        if agent_id is not None:
+            ws = workspaces.get(agent_id)
+            if ws is None:
+                return []
+            plugins = getattr(ws, "plugins", None)
+            if plugins is None:
+                return []
+            return list(
+                getattr(plugins, "stop_handlers", []),
+            )
+        handlers: list = []
+        for ws in workspaces.values():
+            plugins = getattr(ws, "plugins", None)
+            if plugins is None:
+                continue
+            ws_handlers = getattr(
+                plugins,
+                "stop_handlers",
+                [],
+            )
+            handlers.extend(ws_handlers)
+        return handlers
 
     def register_startup_hook(
         self,

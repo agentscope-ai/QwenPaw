@@ -150,7 +150,13 @@ class AgentBuilder:
                 active_modes = plugins.active_mode_names(ctx)
 
         # Governor (governance policy layer).
-        governor = self._init_governor(workspace_dir)
+        _cm = getattr(agent_config, "coding_mode", None)
+        _project_dir = (
+            _cm.project_dir
+            if _cm and getattr(_cm, "project_dir", None)
+            else None
+        )
+        governor = self._init_governor(workspace_dir, _project_dir)
 
         # Inject governor into local_workspace so list_tools() can
         # wrap tools with PolicyGuardedTool.
@@ -241,12 +247,18 @@ class AgentBuilder:
 
         running_config = agent_config.running
 
+        from ..loop.react_gates import (
+            resolve_max_iterations,
+        )
+
+        effective_max = resolve_max_iterations(running_config)
+
         agent = QwenPawAgent(
             name=agent_config.name or "QwenPaw",
             model=model,
             system_prompt=sys_prompt,
             toolkit=toolkit,
-            react_config=ReActConfig(max_iters=running_config.max_iters),
+            react_config=ReActConfig(max_iters=effective_max),
             middlewares=middlewares,
             agent_config=agent_config,
             workspace_dir=workspace_dir,
@@ -260,6 +272,14 @@ class AgentBuilder:
             effective_skills=effective_skills,
             governor=governor,
         )
+
+        # Register default ReAct gates (StopHandler).
+        if workspace is not None:
+            from ..loop.react_gates import (
+                register_react_gates,
+            )
+
+            register_react_gates(workspace, running_config)
 
         # Load session state if SessionLoadHook populated it.
         if ctx.session_state:
@@ -339,10 +359,11 @@ class AgentBuilder:
                 innermost.formatter = formatter
         return model, formatter
 
-    # ------------------------------------------------------- helpers
-
     @staticmethod
-    def _init_governor(workspace_dir: Any) -> Any:
+    def _init_governor(
+        workspace_dir: Any,
+        coding_project_dir: Any = None,
+    ) -> Any:
         """Initialize ResourceGovernor if governance is available.
 
         Returns the started governor, or ``None`` when governance cannot
@@ -353,7 +374,12 @@ class AgentBuilder:
         try:
             from ..governance import ResourceGovernor
 
-            governor = ResourceGovernor(str(workspace_dir))
+            governor = ResourceGovernor(
+                str(workspace_dir),
+                coding_project_dir=(
+                    str(coding_project_dir) if coding_project_dir else None
+                ),
+            )
             governor.start()
             _logger.info("Governance started: dir=%s", workspace_dir)
             return governor
@@ -676,65 +702,7 @@ class AgentBuilder:
         )
 
     @staticmethod
-    def _resolve_tool_results_dir(
-        ctx: Any,
-        trc: Any,
-        fallback: str = "",
-    ) -> str:
-        """Return the tool-results cache directory path."""
-        import os
-
-        workspace = getattr(ctx, "workspace", None)
-        workspace_dir = (
-            str(getattr(workspace, "workspace_dir", ""))
-            if workspace is not None
-            else ""
-        )
-        if not workspace_dir:
-            return fallback
-        return os.path.join(workspace_dir, trc.tool_results_cache)
-
-    @staticmethod
-    def _build_coordinator_middleware(
-        ctx: Any,
-        agent_config: Any,
-    ) -> Any | None:
-        """Build ToolCoordinatorMiddleware if a coordinator is available."""
-        app_services = getattr(ctx, "app_services", None)
-        if app_services is None:
-            return None
-        tool_coordinator = getattr(app_services, "tool_coordinator", None)
-        if tool_coordinator is None:
-            return None
-
-        from ..tool_calls import (
-            ToolCoordinatorMiddleware,
-            ToolResultLimiter,
-        )
-
-        result_limiter = None
-        try:
-            lcc = agent_config.running.light_context_config
-            trc = lcc.tool_result_pruning_config
-            tool_results_dir = AgentBuilder._resolve_tool_results_dir(
-                ctx,
-                trc,
-            )
-            result_limiter = ToolResultLimiter(
-                enabled=trc.enabled,
-                max_text_bytes=trc.execution_layer_max_bytes,
-                cache_dir=tool_results_dir or None,
-            )
-        except Exception:
-            _logger.debug("ToolResultLimiter not created", exc_info=True)
-
-        return ToolCoordinatorMiddleware(
-            coordinator=tool_coordinator,
-            result_limiter=result_limiter,
-        )
-
-    @staticmethod
-    def _build_middlewares(
+    def _build_middlewares(  # pylint: disable=too-many-statements
         ctx: Any,
         agent_config: Any,
     ) -> list[Any]:
