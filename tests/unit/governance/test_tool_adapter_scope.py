@@ -105,8 +105,9 @@ async def _run_approval(scope: ApprovalScope | None, monkeypatch):
         _tool_name,
         _target,
         _source,
-        _agent_id=None,
+        agent_id=None,
     ):  # noqa: ANN
+        del agent_id
         return "git *"
 
     monkeypatch.setattr(
