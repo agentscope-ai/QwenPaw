@@ -149,7 +149,11 @@ class Runtime:
             try:
                 await hooks.run(Phase.ON_ERROR, ctx)
             except asyncio.CancelledError:
-                pass
+                logger.debug(
+                    "ON_ERROR hooks skipped due to asyncio "
+                    "re-cancellation (session=%s)",
+                    getattr(ctx, "session_id", ""),
+                )
             async for ev in envelope.cancel_envelope():
                 yield ev
             raise
