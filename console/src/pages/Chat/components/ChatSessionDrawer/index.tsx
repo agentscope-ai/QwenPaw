@@ -282,8 +282,16 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
     () => new Set<DateGroup>(["month", "older"]),
   );
 
-  /** Search query for filtering sessions */
+  /** Immediate search input value (bound to Input, updates on every keystroke) */
+  const [searchInput, setSearchInput] = useState("");
+  /** Debounced search query used for actual filtering (300ms delay) */
   const [searchQuery, setSearchQuery] = useState("");
+
+  /** Debounce search input to avoid excessive re-renders during fast typing */
+  useEffect(() => {
+    const handle = setTimeout(() => setSearchQuery(searchInput), 300);
+    return () => clearTimeout(handle);
+  }, [searchInput]);
 
   /** Shared context menu — only one instance instead of one per item */
   const sharedContextMenu = useContextMenu();
@@ -789,8 +797,8 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
           size="small"
           allowClear
           placeholder={t("chat.sessionPanel.searchConversations", "Search…")}
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
+          value={searchInput}
+          onChange={(e) => setSearchInput(e.target.value)}
           className={styles.searchInput}
         />
       </div>

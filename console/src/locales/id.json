@@ -267,6 +267,7 @@
     },
     "sessionPanel": {
       "searchConversations": "Cari…",
+      "noResults": "Tidak ada hasil",
       "noConversations": "Tidak ada percakapan",
       "loadingConversations": "Memuat…"
     },

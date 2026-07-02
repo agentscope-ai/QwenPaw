@@ -235,6 +235,7 @@
     },
     "sessionPanel": {
       "searchConversations": "Tìm kiếm…",
+      "noResults": "Không có kết quả",
       "noConversations": "Không có hội thoại",
       "loadingConversations": "Đang tải…"
     },

@@ -2136,6 +2136,7 @@
     },
     "sessionPanel": {
       "searchConversations": "搜索对话…",
+      "noResults": "无匹配结果",
       "noConversations": "暂无对话",
       "loadingConversations": "加载中…"
     },
