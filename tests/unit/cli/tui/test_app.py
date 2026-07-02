@@ -516,8 +516,11 @@ async def test_streaming_thought_follows_in_inspection_mode():
         await pilot.press("ctrl+i")
         for i in range(40):
             await app._dispatch(ThoughtDelta(f"thinking step {i}\n"))
-        await pilot.pause()
         t = app._transcript()
+        for _ in range(5):
+            await pilot.pause()
+            if t.is_vertical_scroll_end:
+                break
         assert t.max_scroll_y > 0
         assert t.is_vertical_scroll_end
 

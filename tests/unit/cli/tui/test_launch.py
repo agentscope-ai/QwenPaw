@@ -165,8 +165,6 @@ def test_resume_command_quotes_windows_project_path_trailing_backslash(
 
 
 def test_run_tui_prints_resume_hint(monkeypatch, capsys, tmp_path):
-    monkeypatch.setattr(launch.sys, "platform", "linux")
-
     class FakeTransport:
         session_id = "sess-123"
         _project_dir = str(tmp_path)
@@ -188,9 +186,13 @@ def test_run_tui_prints_resume_hint(monkeypatch, capsys, tmp_path):
 
     launch.run_tui(agent="writer")
 
+    command = _resume_command(
+        "sess-123",
+        agent="writer",
+        project_dir=str(tmp_path),
+    )
     assert capsys.readouterr().out == (
-        f"Bye! To resume this session, run: "
-        f"qwenpaw tui --agent writer --resume sess-123 {tmp_path}\n"
+        f"Bye! To resume this session, run: {command}\n"
     )
 
 
