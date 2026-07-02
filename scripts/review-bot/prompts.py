@@ -19,89 +19,92 @@ def build_review_prompt(pr_number: int, repo: str) -> str:
         repo: The full repository name (owner/repo).
     """
     return f"""\
-请对 **{repo}** 仓库的 **PR #{pr_number}** 进行全面但精准的代码审查。
+Please perform a thorough yet precise code review for \
+**PR #{pr_number}** in the **{repo}** repository.
 
-## 第一步：获取 PR 信息
+## Step 1: Fetch PR Information
 
-请使用以下命令自行获取 PR 数据：
+Use the following commands to retrieve PR data:
 
-1. 获取 PR 元信息：
+1. Fetch PR metadata:
    `gh pr view {pr_number} --repo {repo} --json \
 number,title,body,author,baseRefName,headRefName,\
 additions,deletions,files`
 
-2. 获取完整 diff：
+2. Fetch the full diff:
    `gh pr diff {pr_number} --repo {repo}`
 
-## 第二步：分析与审查
+## Step 2: Analyze and Review
 
-根据 AGENTS.md 中的审查方法论，对获取到的 diff 进行逐维度分析。
+Follow the review methodology in AGENTS.md to perform a \
+dimension-based analysis of the diff.
 
-## 第三步：输出审查报告
+## Step 3: Output the Review Report
 
-请严格按以下结构输出：
+Please strictly follow this structure:
 
-### 1. 概览
+### 1. Overview
 
-| 项目 | 内容 |
-|------|------|
-| PR 编号 | （从 gh 获取） |
-| 作者 | @username 格式，如 @lalaliat |
-| 修改量 | （从 gh 获取） |
-| 合并目标 | （从 gh 获取） |
-| 关联 Issue | （从 PR body 中提取，如有） |
+| Item | Details |
+|------|---------|
+| PR Number | (from gh) |
+| Author | @username format, e.g. @lalaliat |
+| Changes | (from gh) |
+| Merge Target | (from gh) |
+| Related Issue | (extract from PR body, if any) |
 
-### 2. 问题背景
+### 2. Background
 
-描述这个 PR 要解决的问题和动机。
+Describe the problem this PR solves and the motivation.
 
-### 3. 本次修改的核心内容
+### 3. Core Changes
 
-总结 PR 做了哪几件事（列表形式）。
+Summarize what this PR does (in list form).
 
-### 4. 优点
+### 4. Strengths
 
-列出做得好的地方，具体到文件和代码细节/设计决策。
+List what was done well, with specific file and code details.
 
-### 5. 问题和建议
+### 5. Issues and Suggestions
 
-按严重度分级输出：
+Output by severity:
 
-#### 高 (High)
-#### 中等 (Medium)
-#### 低 (Low)
+#### High
+#### Medium
+#### Low
 
-每个问题包含：
-- **引用代码**：展示问题所在的代码片段
-- **问题说明**：解释为什么这是问题
+Each issue should include:
+- **Code reference**: Show the problematic code snippet
+- **Explanation**: Why this is an issue
 
-如果该级别没有问题，写"无"。
+If no issues at a given level, write "None".
 
-### 6. 总结
+### 6. Summary
 
-- 一句话定性评价
-- 合并前必须处理的 N 件事（如有）
-- 可以 follow-up 的事项
+- One-sentence qualitative assessment
+- N items that must be addressed before merge (if any)
+- Items that can be followed up later
 
-最后，输出一个 JSON 代码块表示结论（注意包含各级别问题数量）：
+Finally, output a JSON code block with the conclusion \
+(include issue counts per severity):
 
 ```json
 {{
-  "verdict": "APPROVE 或 REQUEST_CHANGES",
+  "verdict": "APPROVE or REQUEST_CHANGES",
   "high_count": 0,
   "medium_count": 0,
   "low_count": 0,
-  "summary": "一句话总结审查结论"
+  "summary": "One-sentence summary of the review conclusion"
 }}
 ```
 
-其中 `high_count`、`medium_count`、`low_count` 分别是高/中/低级别问题的数量。
+## Key Principles
 
-## 关键原则提醒
-
-- **聚焦变更**：只审查 diff 涉及的代码
-- **区分阻塞和建议**：明确哪些必须改、哪些后续改
-- **给出具体方案**：每个问题附带改进代码示例
-- **承认优点**：好的设计要明确肯定
-- **不做假设**：不确定的地方用"建议确认"
+- **Focus on changes**: Only review code in the diff
+- **Distinguish blockers from suggestions**: Be clear about \
+what must change vs. what can be improved later
+- **Provide concrete fixes**: Include improvement code examples \
+for each issue
+- **Acknowledge strengths**: Explicitly praise good design decisions
+- **Do not assume**: Use "consider verifying" for uncertain cases
 """

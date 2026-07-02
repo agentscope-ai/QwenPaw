@@ -168,7 +168,7 @@ def parse_verdict(response: str) -> dict:
 
 
 def _strip_summary_verdict_json(text: str) -> str:
-    """Strip the verdict JSON block from the '### 6. 总结' section only.
+    """Strip the verdict JSON block from the '### 6. Summary' section only.
 
     Matches a ```json ... ``` block that contains a "verdict" key
     and appears after the '### 6' heading.  Other JSON blocks
@@ -233,11 +233,12 @@ def main():
     if not response.strip():
         print("\n❌ ERROR: Got empty response from QwenPaw")
         fallback = (
-            "AI Review Bot 未能生成审查结果。可能的原因：\n"
-            "- LLM API 超时或不可用\n"
-            "- `gh` CLI 认证失败\n"
-            "- diff 内容过大\n\n"
-            "请 maintainer 手动审查此 PR。"
+            "AI Review Bot failed to generate a review. "
+            "Possible causes:\n"
+            "- LLM API timeout or unavailable\n"
+            "- `gh` CLI authentication failure\n"
+            "- Diff too large\n\n"
+            "Please have a maintainer review this PR manually."
         )
         fail_info = {
             "verdict": "REQUEST_CHANGES",
