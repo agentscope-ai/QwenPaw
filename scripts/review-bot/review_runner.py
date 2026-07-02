@@ -123,7 +123,7 @@ def validate_response(response: str, pr_number: int) -> list[str]:
             f"Response does not mention PR #{pr_number} — "
             f"agent may not have fetched PR data",
         )
-    structure_markers = ["### 1.", "### 2.", "### 3.", "verdict"]
+    structure_markers = ["### 1.", "### 2.", "### 3."]
     missing = [m for m in structure_markers if m not in response]
     if missing:
         warnings.append(
@@ -167,6 +167,28 @@ def parse_verdict(response: str) -> dict:
     }
 
 
+def _strip_summary_verdict_json(text: str) -> str:
+    """Strip the verdict JSON block from the '### 6. 总结' section only.
+
+    Matches a ```json ... ``` block that contains a "verdict" key
+    and appears after the '### 6' heading.  Other JSON blocks
+    elsewhere in the review (e.g. code examples) are preserved.
+    """
+    summary_match = re.search(r"(###\s*6[.\s])", text)
+    if not summary_match:
+        return text
+
+    before = text[: summary_match.start()]
+    summary_section = text[summary_match.start() :]
+
+    cleaned = re.sub(
+        r"\n*```json\s*\{[^}]*\"verdict\"[^}]*\}\s*```\n*",
+        "\n",
+        summary_section,
+    )
+    return (before + cleaned).rstrip()
+
+
 def write_outputs(verdict_info: dict, review_text: str):
     """Write results to GITHUB_OUTPUT and temp file for later steps."""
     output_file = os.environ.get("GITHUB_OUTPUT", "")
@@ -176,8 +198,9 @@ def write_outputs(verdict_info: dict, review_text: str):
             f.write(f"high_count={verdict_info['high_count']}\n")
             f.write(f"medium_count={verdict_info['medium_count']}\n")
 
+    clean_text = _strip_summary_verdict_json(review_text)
     with open("/tmp/review_result.md", "w", encoding="utf-8") as f:
-        f.write(review_text)
+        f.write(clean_text)
 
 
 def main():
@@ -214,10 +237,7 @@ def main():
             "- LLM API 超时或不可用\n"
             "- `gh` CLI 认证失败\n"
             "- diff 内容过大\n\n"
-            "请 maintainer 手动审查此 PR。\n\n"
-            '```json\n{"verdict": "REQUEST_CHANGES", '
-            '"high_count": -1, "medium_count": -1, "low_count": -1, '
-            '"summary": "Review failed"}\n```'
+            "请 maintainer 手动审查此 PR。"
         )
         fail_info = {
             "verdict": "REQUEST_CHANGES",

@@ -83,6 +83,18 @@ additions,deletions,files`
 - 合并前必须处理的 N 件事（如有）
 - 可以 follow-up 的事项
 
+最后，输出一个 JSON 代码块表示结论（注意包含各级别问题数量）：
+
+```json
+{{
+  "verdict": "APPROVE 或 REQUEST_CHANGES",
+  "high_count": 0,
+  "medium_count": 0,
+  "low_count": 0,
+  "summary": "一句话总结审查结论"
+}}
+```
+
 其中 `high_count`、`medium_count`、`low_count` 分别是高/中/低级别问题的数量。
 
 ## 关键原则提醒
