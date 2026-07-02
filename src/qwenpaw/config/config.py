@@ -489,6 +489,26 @@ class SlackConfig(BaseChannelConfig):
     group_disabled: bool = False
 
 
+class WebhookConfig(BaseChannelConfig):
+    """Generic HTTP webhook channel.
+
+    Inbound: ``POST /webhooks/<channel_id>`` accepts arbitrary JSON payloads,
+    optionally verified against ``X-QwenPaw-Signature`` (HMAC-SHA256 of the
+    raw body). Outbound: agent replies are POSTed to ``outbound_url`` with
+    the same signature scheme.
+
+    The channel runs its own uvicorn server on ``bind_address:port`` in a
+    background task; it does not require the QwenPaw main HTTP app to be
+    running.
+    """
+
+    channel_id: str = "default"
+    port: int = 9070
+    bind_address: str = "127.0.0.1"
+    outbound_url: str = ""
+    secret: str = ""
+
+
 class ChannelConfig(BaseModel):
     """Built-in channel configs; extra keys allowed for plugin channels."""
 
@@ -512,6 +532,7 @@ class ChannelConfig(BaseModel):
     wechat: WeChatConfig = WeChatConfig()
     slack: SlackConfig = SlackConfig()
     onebot: OneBotConfig = OneBotConfig()
+    webhook: WebhookConfig = WebhookConfig()
 
     @model_validator(mode="before")
     @classmethod
