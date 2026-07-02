@@ -50,8 +50,12 @@ jobs:
           pip install -e ".[dev]"
           pip install httpx
 
-      - name: Verify gh CLI is available
-        run: gh --version
+      - name: Verify gh CLI and authentication
+        run: |
+          gh --version
+          gh auth status
+          echo "Verifying PR access..."
+          gh pr view ${{ env.PR_NUMBER }} --repo ${{ env.PR_REPO }} --json number,title --jq '.title'
         env:
           GH_TOKEN: ${{ github.token }}
 
@@ -111,7 +115,34 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GITHUB_TOKEN: ${{ github.token }}
 
+      - name: Fallback on review failure
+        if: failure() && steps.review.outcome == 'failure'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const prNumber = context.payload.pull_request.number;
+            const body = [
+              '## ⚠️ QwenPaw AI Review: 审查失败\n',
+              'AI Review Bot 在执行过程中发生错误，未能生成审查结果。\n',
+              '可能的原因：',
+              '- LLM API 不可用或超时',
+              '- `gh` CLI 认证异常',
+              '- QwenPaw 服务内部错误\n',
+              '**请 maintainer 手动审查此 PR。**\n',
+              '---',
+              '*🤖 由 QwenPaw Review Agent 自动生成 | ',
+              'Review failed — manual review required*',
+            ].join('\n');
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: prNumber,
+              body: body,
+            });
+
       - name: Post review comment and manage labels
+        if: success()
         uses: actions/github-script@v7
         with:
           script: |

@@ -112,6 +112,26 @@ def call_qwenpaw(prompt: str, session_id: str) -> str:
     return ""
 
 
+def validate_response(response: str, pr_number: int) -> list[str]:
+    """Check that the response contains signs of real PR data.
+
+    Returns a list of warning messages (empty = all checks passed).
+    """
+    warnings = []
+    if f"#{pr_number}" not in response and str(pr_number) not in response:
+        warnings.append(
+            f"Response does not mention PR #{pr_number} — "
+            f"agent may not have fetched PR data",
+        )
+    structure_markers = ["### 1.", "### 2.", "### 3.", "verdict"]
+    missing = [m for m in structure_markers if m not in response]
+    if missing:
+        warnings.append(
+            f"Missing expected sections: {', '.join(missing)}",
+        )
+    return warnings
+
+
 def parse_verdict(response: str) -> dict:
     """Extract verdict and issue counts from the review response JSON block.
 
@@ -207,6 +227,11 @@ def main():
         }
         write_outputs(fail_info, fallback)
         sys.exit(0)
+
+    warnings = validate_response(response, pr_number)
+    if warnings:
+        for w in warnings:
+            print(f"  ⚠️  {w}")
 
     verdict_info = parse_verdict(response)
     verdict = verdict_info["verdict"]
