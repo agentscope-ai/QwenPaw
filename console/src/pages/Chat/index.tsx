@@ -1713,12 +1713,14 @@ export default function ChatPage() {
           ) : undefined,
         queue: {
           enable: inputQueueEnabled,
-          // Keep the SDK input queue keyed by CoPaw's stable backend session_id.
+          // Scope the SDK input queue by agent plus CoPaw's stable backend session_id.
           // The visible route may switch from a local timestamp to a chat UUID
           // after the first response, but both IDs map back to the same session.
+          // The backend still receives the raw session_id through getRequestContext.
           getSessionId: (sessionId?: string) => {
             if (!sessionId) return undefined;
-            return sessionApi.getBackendSessionId(sessionId);
+            const backendSessionId = sessionApi.getBackendSessionId(sessionId);
+            return `${selectedAgentRef.current || "__default_agent__"}::${backendSessionId}`;
           },
           getRequestContext: (sessionId?: string) => {
             const identity = sessionApi.getSessionIdentity();
