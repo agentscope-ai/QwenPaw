@@ -189,6 +189,62 @@ def _strip_summary_verdict_json(text: str) -> str:
     return (before + cleaned).rstrip()
 
 
+_SECRET_ENV_NAMES = [
+    "DASHSCOPE_API_KEY",
+    "OPENAI_API_KEY",
+    "ANTHROPIC_API_KEY",
+    "AWS_SECRET_ACCESS_KEY",
+    "AZURE_OPENAI_API_KEY",
+    "GOOGLE_API_KEY",
+    "HUGGINGFACE_TOKEN",
+    "HF_TOKEN",
+    "GH_TOKEN",
+    "GITHUB_TOKEN",
+]
+
+_SECRET_PREFIXES = ("sk-", "ghp_", "gho_", "ghu_", "ghs_", "ghr_")
+
+
+def _scan_for_leaked_secrets(text: str) -> list[str]:
+    """Check review text for potential secret values.
+
+    Returns a list of warning messages for each detected leak.
+    """
+    warnings = []
+    for name in _SECRET_ENV_NAMES:
+        value = os.environ.get(name, "").strip()
+        if value and len(value) >= 8 and value in text:
+            warnings.append(
+                f"Review text contains value of ${name}",
+            )
+    for prefix in _SECRET_PREFIXES:
+        pattern = re.compile(
+            re.escape(prefix) + r"[A-Za-z0-9_\-]{20,}",
+        )
+        if pattern.search(text):
+            warnings.append(
+                f"Review text contains token-like string "
+                f"matching prefix '{prefix}'",
+            )
+    return warnings
+
+
+def _redact_secrets(text: str) -> str:
+    """Replace known secret values in text with [REDACTED]."""
+    result = text
+    for name in _SECRET_ENV_NAMES:
+        value = os.environ.get(name, "").strip()
+        if value and len(value) >= 8:
+            result = result.replace(value, "[REDACTED]")
+    for prefix in _SECRET_PREFIXES:
+        result = re.sub(
+            re.escape(prefix) + r"[A-Za-z0-9_\-]{20,}",
+            "[REDACTED]",
+            result,
+        )
+    return result
+
+
 def write_outputs(verdict_info: dict, review_text: str):
     """Write results to GITHUB_OUTPUT and temp file for later steps."""
     output_file = os.environ.get("GITHUB_OUTPUT", "")
@@ -199,6 +255,14 @@ def write_outputs(verdict_info: dict, review_text: str):
             f.write(f"medium_count={verdict_info['medium_count']}\n")
 
     clean_text = _strip_summary_verdict_json(review_text)
+
+    leak_warnings = _scan_for_leaked_secrets(clean_text)
+    if leak_warnings:
+        for w in leak_warnings:
+            print(f"  🚨 SECRET LEAK DETECTED: {w}")
+        clean_text = _redact_secrets(clean_text)
+        print("  Secrets have been redacted from review output.")
+
     with open("/tmp/review_result.md", "w", encoding="utf-8") as f:
         f.write(clean_text)
 

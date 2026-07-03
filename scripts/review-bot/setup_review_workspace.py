@@ -287,6 +287,60 @@ without cross-platform alternatives
 """
 
 
+def harden_governance_policy() -> None:
+    """Harden governance policy for CI review bot usage.
+
+    Three layers of protection:
+    1. env_blacklist: strip sensitive env vars from sandbox processes
+    2. sensitive_paths: flag access to secret storage as HIGH severity
+    3. deny rules: explicitly block Read/Bash access to secret dir
+    """
+    from qwenpaw.governance.policy import (
+        GovernanceAction,
+        GovernanceRule,
+    )
+    from qwenpaw.governance.resource_governor import ResourceGovernor
+
+    governor = ResourceGovernor(str(WORKSPACE_DIR))
+    governor.start()
+    policy = governor.policy
+
+    extra_env_keys = [
+        "DASHSCOPE_API_KEY",
+        "GH_TOKEN",
+        "GITHUB_TOKEN",
+    ]
+    merged = list(
+        dict.fromkeys(list(policy.env_blacklist) + extra_env_keys),
+    )
+    policy.env_blacklist = merged
+    print("  env_blacklist expanded")
+
+    secret_dir = str(WORKING_DIR) + ".secret"
+    if secret_dir not in policy.sensitive_paths:
+        policy.sensitive_paths.append(secret_dir)
+    print(f"  sensitive_paths: added {secret_dir}")
+
+    deny_rules = [
+        GovernanceRule(
+            match=f"Read({secret_dir}/**)",
+            action=GovernanceAction.DENY,
+            reason="CI review bot: secret storage access denied",
+        ),
+        GovernanceRule(
+            match=f"Bash(*{secret_dir}*)",
+            action=GovernanceAction.DENY,
+            reason="CI review bot: secret storage access denied",
+        ),
+    ]
+    for rule in deny_rules:
+        governor.add_rule(rule)
+    print(f"  deny rules: {len(deny_rules)} rules added for {secret_dir}")
+
+    governor.stop()
+    print("  Governance policy hardened")
+
+
 def configure_review_model() -> None:
     """Configure DashScope API key and activate the review model.
 
@@ -344,6 +398,9 @@ def main():
 
     print("\nConfiguring review LLM...")
     configure_review_model()
+
+    print("\nHardening governance policy for CI...")
+    harden_governance_policy()
 
     print("\nReview bot workspace ready!")
 

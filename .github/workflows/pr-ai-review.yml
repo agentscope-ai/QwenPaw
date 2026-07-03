@@ -26,7 +26,6 @@ jobs:
     timeout-minutes: 20
 
     env:
-      DASHSCOPE_API_KEY: ${{ secrets.REVIEW_DASHSCOPE_API_KEY }}
       REVIEW_PROVIDER: dashscope
       REVIEW_MODEL: qwen3.7-max
       PR_NUMBER: ${{ github.event.pull_request.number }}
@@ -63,6 +62,8 @@ jobs:
         run: |
           qwenpaw init --defaults --accept-security
           python scripts/review-bot/setup_review_workspace.py
+        env:
+          DASHSCOPE_API_KEY: ${{ secrets.REVIEW_DASHSCOPE_API_KEY }}
 
       - name: Start QwenPaw server
         run: |
