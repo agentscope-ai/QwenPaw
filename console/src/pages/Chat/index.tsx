@@ -55,10 +55,12 @@ import { HostRequestCard, HostResponseCard } from "./HostBubbles";
 import { withGenericFallback } from "../../components/Chat/ToolCards/adapters/v1Adapter";
 import {
   buildAgentScopedQueueSessionId,
+  getQueueAgentId,
   resolveAgentScopedQueueSessionId,
   resolveBackendChatSessionId,
   stripQueueAgentPrefix,
 } from "./chatSessionIds";
+import { buildChatSessionOptions } from "./chatSessionOptions";
 import { migrateInputQueueStorage } from "./inputQueueStorage";
 
 interface ApprovalMessageData {
@@ -1385,9 +1387,15 @@ export default function ChatPage() {
             ]
           : lastInput;
 
+      const rawRequestSessionId =
+        stripQueueAgentPrefix(data.session_id) || session?.session_id || "";
       const backendSessionId =
-        resolveBackendSessionId(data.session_id) || session?.session_id || "";
-      const identity = sessionApi.getSessionIdentity(backendSessionId);
+        resolveBackendSessionId(rawRequestSessionId) ||
+        session?.session_id ||
+        "";
+      const identity = sessionApi.getSessionIdentity(
+        rawRequestSessionId || backendSessionId,
+      );
       let requestBody: Record<string, unknown> = {
         input: rewrittenInput,
         session_id: backendSessionId || identity.sessionId,
@@ -1411,7 +1419,7 @@ export default function ChatPage() {
         const next = entry.item.transform({
           payload: requestBody,
           sessionId: String(requestBody.session_id || ""),
-          selectedAgent,
+          selectedAgent: requestAgent,
         });
         if (next && typeof next === "object") {
           requestBody = next;
@@ -1419,17 +1427,33 @@ export default function ChatPage() {
       }
 
       const requestSessionId = String(requestBody.session_id || "");
-      const backendChatId =
-        sessionApi.getRealIdForSession(requestSessionId) ??
-        chatIdRef.current ??
+      const requestChatId =
+        sessionApi.getRoutableSessionId(rawRequestSessionId) ||
+        sessionApi.getRoutableSessionId(requestSessionId) ||
+        (rawRequestSessionId
+          ? sessionApi.getQueueSessionId(rawRequestSessionId)
+          : "") ||
+        chatIdRef.current ||
         requestSessionId;
-      const localIdToResolve = sessionApi.lastActiveChatId ?? chatIdRef.current;
+      const localIdToResolve = [
+        rawRequestSessionId,
+        session?.session_id,
+        chatIdRef.current,
+        sessionApi.lastActiveChatId,
+      ].find(
+        (id): id is string =>
+          !!id &&
+          sessionApi.isLocalSessionId(id) &&
+          sessionApi.isUnresolvedLocalSession(id),
+      );
       const requestAliases = [
-        backendChatId,
+        rawRequestSessionId,
+        requestChatId,
         requestSessionId,
         chatIdRef.current,
         localIdToResolve,
-        sessionApi.getRealIdForSession(requestSessionId),
+        sessionApi.getRoutableSessionId(rawRequestSessionId),
+        sessionApi.getRoutableSessionId(requestSessionId),
         sessionApi.getQueueSessionId(requestSessionId),
       ];
       const userText = rewrittenInput
@@ -1821,15 +1845,18 @@ export default function ChatPage() {
           // The backend still receives the raw session_id through getRequestContext.
           getSessionId: resolveInputQueueSessionId,
           getRequestContext: (sessionId?: string) => {
-            const backendSessionId = sessionId
-              ? resolveBackendSessionId(sessionId)
+            const rawSessionId = stripQueueAgentPrefix(sessionId);
+            const backendSessionId = rawSessionId
+              ? resolveBackendSessionId(rawSessionId)
               : "";
-            const identity = sessionApi.getSessionIdentity(backendSessionId);
+            const identity = sessionApi.getSessionIdentity(
+              rawSessionId || backendSessionId,
+            );
             return {
               session_id: backendSessionId || identity.sessionId,
               user_id: identity.userId,
               channel: identity.channel,
-              agent_id: selectedAgentRef.current,
+              agent_id: getQueueAgentId(sessionId) || selectedAgentRef.current,
             };
           },
           isSessionRunning: async ({
@@ -1838,22 +1865,33 @@ export default function ChatPage() {
           }: IAgentScopeRuntimeWebUIQueueSessionContext) => {
             if (isFrontendChatRunning()) return true;
 
-            const statusChatId =
-              stripQueueAgentPrefix(queueSessionId) ||
-              (sessionId ? sessionApi.getQueueSessionId(sessionId) : "");
-            if (
-              !statusChatId ||
-              sessionApi.isUnresolvedLocalSession(statusChatId)
-            ) {
-              return false;
-            }
+            const candidates = [
+              stripQueueAgentPrefix(queueSessionId),
+              stripQueueAgentPrefix(sessionId),
+              chatIdRef.current,
+              sessionApi.lastActiveChatId,
+            ]
+              .flatMap((id) => [
+                sessionApi.getRoutableSessionId(id),
+                id ? sessionApi.getQueueSessionId(id) : "",
+              ])
+              .filter(
+                (id): id is string =>
+                  !!id &&
+                  !sessionApi.isLocalSessionId(id) &&
+                  !sessionApi.isUnresolvedLocalSession(id),
+              );
 
-            try {
-              const chat = await chatApi.getChat(statusChatId);
-              return chat.status === "running";
-            } catch {
-              return false;
+            for (const statusChatId of Array.from(new Set(candidates))) {
+              try {
+                const chat = await chatApi.getChat(statusChatId);
+                if (chat.status === "running") return true;
+              } catch {
+                // Try the next alias; queue/session ids can arrive before
+                // the local-id to backend-id mapping has propagated.
+              }
             }
+            return false;
           },
         },
         attachments: {
@@ -1887,14 +1925,7 @@ export default function ChatPage() {
         ...(extDisclaimer !== undefined ? { disclaimer: extDisclaimer } : {}),
         suggestions: [...baseSuggestions, ...pluginSuggestions],
       },
-      session: {
-        multiple: true,
-        ...(controlledSdkSessionId
-          ? { currentSessionId: controlledSdkSessionId }
-          : {}),
-        hideBuiltInSessionList: true,
-        api: sessionApi,
-      },
+      session: buildChatSessionOptions(controlledSdkSessionId),
       api: {
         ...defaultConfig.api,
         fetch: customFetch,
@@ -1942,8 +1973,9 @@ export default function ChatPage() {
         },
         onFileCardClick,
         cancel(data: { session_id: string }) {
+          const rawSessionId = stripQueueAgentPrefix(data.session_id);
           const resolvedChatId =
-            sessionApi.getRealIdForSession(data.session_id) ?? data.session_id;
+            sessionApi.getRoutableSessionId(rawSessionId) ?? rawSessionId;
           if (resolvedChatId) {
             chatApi.stopChat(resolvedChatId).catch((err) => {
               console.error("Failed to stop chat:", err);
@@ -1959,8 +1991,13 @@ export default function ChatPage() {
               : {}),
           };
 
-          const reconnectIdentity = sessionApi.getSessionIdentity();
-          const reconnectSessionId = resolveBackendSessionId(data.session_id);
+          const rawReconnectSessionId = stripQueueAgentPrefix(data.session_id);
+          const reconnectSessionId =
+            resolveBackendSessionId(rawReconnectSessionId) ||
+            rawReconnectSessionId;
+          const reconnectIdentity = sessionApi.getSessionIdentity(
+            rawReconnectSessionId || reconnectSessionId,
+          );
           const reconnectBody = {
             reconnect: true,
             session_id: reconnectSessionId,

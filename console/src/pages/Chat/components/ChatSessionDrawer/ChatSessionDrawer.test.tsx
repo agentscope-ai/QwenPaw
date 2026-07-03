@@ -64,6 +64,7 @@ vi.mock("@/api/modules/chat", () => ({
 vi.mock("../../sessionApi", () => ({
   default: {
     getSessionList: mockGetSessionList,
+    prepareBlankSession: vi.fn(() => "1783060000000-local"),
     isSessionSwitching: false,
     startNewSwitch: vi.fn(() => ({ signal: { aborted: false } })),
     preloadSession: vi.fn().mockResolvedValue({ session: {}, realId: null }),

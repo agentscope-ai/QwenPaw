@@ -294,6 +294,19 @@ const chatSpecToSession = (chat: ChatSpec): ExtendedSession =>
     pinned: chat.pinned ?? false,
   }) as ExtendedSession;
 
+const getSessionRecency = (
+  session: Pick<ExtendedSession, "updatedAt" | "createdAt">,
+) => session.updatedAt ?? session.createdAt ?? "";
+
+const compareSessionRecencyDesc = (a: ExtendedSession, b: ExtendedSession) => {
+  const aTime = getSessionRecency(a);
+  const bTime = getSessionRecency(b);
+  if (!aTime && !bTime) return 0;
+  if (!aTime) return 1;
+  if (!bTime) return -1;
+  return bTime < aTime ? -1 : bTime > aTime ? 1 : 0;
+};
+
 /** Returns true when id is a local session id, not a backend UUID. */
 const isLocalTimestamp = (id: string): boolean =>
   /^\d+(?:-[a-z0-9]+)?$/.test(id);
@@ -781,8 +794,10 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     resolvedRealId?: string | null,
   ): string | null {
     if (!sessionId) return null;
-    const realId = resolvedRealId ?? this.getRealIdForSession(sessionId);
+    const session = this.findSessionByIdentity(sessionId);
+    const realId = resolvedRealId ?? session?.realId;
     if (realId) return realId;
+    if (session?.id && !isLocalTimestamp(session.id)) return session.id;
     return isLocalTimestamp(sessionId) ? null : sessionId;
   }
 
@@ -816,9 +831,30 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     return !!session && !session.realId;
   }
 
+  prepareBlankSession(name = DEFAULT_SESSION_NAME): string {
+    const existing = this.sessionList.find(
+      (s) => isLocalTimestamp(s.id) && !(s as ExtendedSession).realId,
+    ) as ExtendedSession | undefined;
+    if (existing) {
+      existing.name = name || existing.name || DEFAULT_SESSION_NAME;
+      this.lastActiveChatId = existing.id;
+      this.updateWindowVariables(existing);
+      return existing.id;
+    }
+
+    const localId = `${Date.now()}-${Math.random()
+      .toString(36)
+      .substring(2, 9)}`;
+    const extended = this.createEmptySession(localId);
+    extended.name = name || DEFAULT_SESSION_NAME;
+    this.sessionList.unshift(extended);
+    this.lastActiveChatId = localId;
+    return localId;
+  }
+
   /** Returns the backend-compatible session_id. Falls back to the id itself. */
   getBackendSessionId(libraryId: string): string {
-    return this.findSession(libraryId)?.sessionId || libraryId;
+    return this.findSessionByIdentity(libraryId)?.sessionId || libraryId;
   }
 
   /**
@@ -909,7 +945,7 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     const newList = chats
       .filter((c) => c.id && c.id !== "undefined" && c.id !== "null")
       .map(chatSpecToSession)
-      .reverse();
+      .sort(compareSessionRecencyDesc);
 
     // Track which existing sessions have already been matched so that
     // sessions sharing the same sessionId (channel:user_id) don't all
@@ -1335,6 +1371,8 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     ) as ExtendedSession | undefined;
     if (existing) {
       session.id = existing.id;
+      this.lastActiveChatId = existing.id;
+      this.updateWindowVariables(existing);
       if (isUserInitiated) this.onSessionCreated?.(existing.id);
       return [...this.sessionList];
     }
@@ -1351,14 +1389,14 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
       return [...this.sessionList];
     }
 
-    const localId = `${Date.now()}-${Math.random()
-      .toString(36)
-      .substring(2, 9)}`;
-    const extended = this.createEmptySession(localId);
-    extended.name = session.name || DEFAULT_SESSION_NAME;
-    this.sessionList.unshift(extended);
+    const localId = this.prepareBlankSession(
+      session.name || DEFAULT_SESSION_NAME,
+    );
+    const extended = this.findSession(localId);
     session.id = localId;
-    this.onSessionCreated?.(localId);
+    this.lastActiveChatId = localId;
+    if (extended) this.updateWindowVariables(extended);
+    if (isUserInitiated) this.onSessionCreated?.(localId);
     return [...this.sessionList];
   }
 

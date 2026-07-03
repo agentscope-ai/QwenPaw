@@ -50,31 +50,57 @@ describe("ChatSessionInitializer", () => {
     sessionApi.preferredChatId = null;
   });
 
-  it("does not auto-open history when a blank local session is first", async () => {
+  it("skips an unresolved local session and opens the latest routable history", async () => {
     mockSessions([
-      { id: "1783058507358-onjn1fo", name: "New Chat" },
-      { id: "backend-1", name: "Latest History" },
+      {
+        id: "1783058507358-onjn1fo",
+        name: "New Chat",
+        updatedAt: "2026-07-03T12:00:00Z",
+      },
+      {
+        id: "backend-1",
+        name: "Older History",
+        updatedAt: "2026-07-03T10:00:00Z",
+      },
+      {
+        id: "backend-2",
+        name: "Latest Routable History",
+        updatedAt: "2026-07-03T11:00:00Z",
+      },
     ]);
 
     renderInitializer();
 
     await waitFor(() =>
-      expect(screen.getByTestId("location")).toHaveTextContent("/chat"),
+      expect(screen.getByTestId("location")).toHaveTextContent(
+        "/chat/backend-2",
+      ),
     );
-    expect(mockSetCurrentSessionId).not.toHaveBeenCalled();
+    expect(mockSetCurrentSessionId).toHaveBeenCalledWith("backend-2");
   });
 
   it("auto-opens the latest routable history on a normal base chat route", async () => {
-    mockSessions([{ id: "backend-1", name: "Latest History" }]);
+    mockSessions([
+      {
+        id: "backend-older",
+        name: "Older History",
+        updatedAt: "2026-07-03T09:00:00Z",
+      },
+      {
+        id: "backend-latest",
+        name: "Latest History",
+        updatedAt: "2026-07-03T11:00:00Z",
+      },
+    ]);
 
     renderInitializer();
 
     await waitFor(() =>
       expect(screen.getByTestId("location")).toHaveTextContent(
-        "/chat/backend-1",
+        "/chat/backend-latest",
       ),
     );
-    expect(mockSetCurrentSessionId).toHaveBeenCalledWith("backend-1");
+    expect(mockSetCurrentSessionId).toHaveBeenCalledWith("backend-latest");
   });
 
   it("does not auto-open history while blank-create suppression is active", async () => {

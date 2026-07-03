@@ -14,6 +14,29 @@ import {
 } from "../../../../stores/sessionListStore";
 import { useCreateNewSession } from "../../hooks/useCreateNewSession";
 
+function getSessionRecency(session: ExtendedSession) {
+  return session.updatedAt ?? session.createdAt ?? "";
+}
+
+function compareSessionRecencyDesc(a: ExtendedSession, b: ExtendedSession) {
+  const aTime = getSessionRecency(a);
+  const bTime = getSessionRecency(b);
+  if (!aTime && !bTime) return 0;
+  if (!aTime) return 1;
+  if (!bTime) return -1;
+  return bTime < aTime ? -1 : bTime > aTime ? 1 : 0;
+}
+
+function getLatestRoutableSession(
+  sessions: readonly ExtendedSession[],
+): ExtendedSession | undefined {
+  return [...sessions]
+    .filter((session) =>
+      sessionApi.getRoutableSessionId(session.id, session.realId),
+    )
+    .sort(compareSessionRecencyDesc)[0];
+}
+
 /**
  * URL chatId → context currentSessionId (one direction of bidirectional sync).
  *
@@ -168,14 +191,7 @@ const ChatSessionInitializer: React.FC = () => {
       return;
     }
 
-    const first = sessions[0] as ExtendedSession | undefined;
-    if (first?.id && sessionApi.isLocalSessionId(first.id) && !first.realId) {
-      return;
-    }
-
-    const target = sessions.find((s) =>
-      sessionApi.getRoutableSessionId(s.id, (s as ExtendedSession).realId),
-    ) as ExtendedSession | undefined;
+    const target = getLatestRoutableSession(sessions as ExtendedSession[]);
     if (!target?.id) return;
 
     const mode = codingModeRef.current ? "coding" : "chat";

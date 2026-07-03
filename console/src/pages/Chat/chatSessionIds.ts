@@ -9,6 +9,14 @@ export function stripQueueAgentPrefix(sessionId?: string) {
     : sessionId;
 }
 
+export function getQueueAgentId(sessionId?: string) {
+  if (!sessionId) return undefined;
+  const separatorIndex = sessionId.indexOf(QUEUE_AGENT_SEPARATOR);
+  if (separatorIndex < 0) return undefined;
+  const agentId = sessionId.slice(0, separatorIndex);
+  return agentId && agentId !== DEFAULT_QUEUE_AGENT_ID ? agentId : undefined;
+}
+
 export function resolveBackendChatSessionId(
   sessionId: string | undefined,
   getBackendSessionId: (sessionId: string) => string,

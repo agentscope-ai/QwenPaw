@@ -20,11 +20,19 @@ export function useCreateNewSession(): () => Promise<void> {
 
   return useCallback(async () => {
     const mode = codingMode ? "coding" : "chat";
+    const basePath = buildBasePath(mode);
     sessionApi.suppressBaseAutoSelect = true;
     sessionApi.userInitiatedCreate = true;
     sessionApi.preferredChatId = null;
     sessionApi.lastActiveChatId = null;
-    navigate(buildBasePath(mode), { replace: true });
-    await createSession();
+    const localId = sessionApi.prepareBlankSession();
+    navigate(basePath, { replace: true });
+    try {
+      await createSession();
+    } finally {
+      sessionApi.suppressBaseAutoSelect = true;
+      sessionApi.lastActiveChatId = localId;
+      navigate(basePath, { replace: true });
+    }
   }, [navigate, createSession, codingMode]);
 }
