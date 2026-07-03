@@ -16,18 +16,32 @@ errors.  Covers:
 # pylint: disable=protected-access,redefined-outer-name,unused-argument
 from __future__ import annotations
 
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
+from qwenpaw.app.crons import heartbeat
 from qwenpaw.app.routers.config import router as config_router
 from qwenpaw.config.config import (
     ChannelConfig,
     ConsoleConfig,
+    HeartbeatConfig,
     ToolGuardConfig,
 )
+from qwenpaw.constant import (
+    HEARTBEAT_FILE,
+    HEARTBEAT_TARGET_INBOX,
+    HEARTBEAT_TARGET_LAST,
+)
+
+
+class _HeartbeatWorkspace:
+    async def stream_query(self, _req):
+        for event in ():
+            yield event
 
 
 @pytest.fixture
@@ -150,6 +164,146 @@ def test_put_channels_422_on_invalid_payload(client, patch_get_agent):
     )
 
     assert response.status_code == 422
+
+
+# ---------------------------------------------------------------------------
+# /config/heartbeat — get + put
+# ---------------------------------------------------------------------------
+
+
+def test_get_heartbeat_returns_timeout_seconds(
+    client,
+    fake_agent_workspace,
+    patch_get_agent,
+):
+    fake_agent_workspace.config.heartbeat = HeartbeatConfig(
+        enabled=True,
+        every="2h",
+        target="inbox",
+        timeoutSeconds=240,
+    )
+
+    response = client.get("/api/config/heartbeat")
+
+    assert response.status_code == 200
+    assert response.json()["timeoutSeconds"] == 240
+
+
+def test_put_heartbeat_preserves_timeout_seconds(
+    client,
+    fake_agent_workspace,
+    patch_get_agent,
+):
+    fake_agent_workspace.cron_manager = None
+
+    with patch("qwenpaw.config.config.save_agent_config") as save_mock:
+        response = client.put(
+            "/api/config/heartbeat",
+            json={
+                "enabled": True,
+                "every": "2h",
+                "target": "inbox",
+                "timeoutSeconds": 360,
+            },
+        )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["timeoutSeconds"] == 360
+    assert fake_agent_workspace.config.heartbeat.timeout_seconds == 360
+    save_mock.assert_called_once()
+
+
+def test_heartbeat_config_rejects_timeout_above_max():
+    with pytest.raises(ValueError):
+        HeartbeatConfig(timeoutSeconds=3601)
+
+
+def test_put_heartbeat_rejects_timeout_above_max(
+    client,
+    fake_agent_workspace,
+    patch_get_agent,
+):
+    fake_agent_workspace.cron_manager = None
+
+    response = client.put(
+        "/api/config/heartbeat",
+        json={
+            "enabled": True,
+            "every": "2h",
+            "target": "inbox",
+            "timeoutSeconds": 3601,
+        },
+    )
+
+    assert response.status_code == 422
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("target", "last_dispatch"),
+    [
+        ("main", None),
+        (
+            HEARTBEAT_TARGET_LAST,
+            SimpleNamespace(
+                channel="console",
+                user_id="user-1",
+                session_id="session-1",
+            ),
+        ),
+        (HEARTBEAT_TARGET_INBOX, None),
+    ],
+)
+async def test_run_heartbeat_once_uses_configured_timeout(
+    monkeypatch,
+    tmp_path,
+    target,
+    last_dispatch,
+):
+    (tmp_path / HEARTBEAT_FILE).write_text("check status", encoding="utf-8")
+    seen_timeouts: list[float] = []
+
+    async def fake_wait_for(awaitable, timeout):
+        seen_timeouts.append(timeout)
+        return await awaitable
+
+    monkeypatch.setattr(heartbeat.asyncio, "wait_for", fake_wait_for)
+    monkeypatch.setattr(
+        heartbeat,
+        "get_heartbeat_config",
+        lambda _agent_id=None: HeartbeatConfig(
+            enabled=True,
+            target=target,
+            timeoutSeconds=240,
+        ),
+    )
+    monkeypatch.setattr(
+        "qwenpaw.config.config.load_agent_config",
+        lambda _agent_id: SimpleNamespace(last_dispatch=last_dispatch),
+    )
+    monkeypatch.setattr(
+        heartbeat,
+        "read_session_messages",
+        AsyncMock(return_value=[]),
+    )
+    monkeypatch.setattr(heartbeat, "create_trace", AsyncMock())
+    monkeypatch.setattr(
+        heartbeat,
+        "append_trace_from_session_delta",
+        AsyncMock(return_value=[]),
+    )
+    monkeypatch.setattr(heartbeat, "finalize_trace", AsyncMock())
+    monkeypatch.setattr(heartbeat, "append_inbox_event", AsyncMock())
+
+    await heartbeat.run_heartbeat_once(
+        workspace=_HeartbeatWorkspace(),
+        channel_manager=SimpleNamespace(send_event=AsyncMock()),
+        agent_id="agent-1",
+        workspace_dir=tmp_path,
+    )
+
+    assert seen_timeouts == [240]
 
 
 # ---------------------------------------------------------------------------

@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from ...constant import TOOL_GUARD_APPROVAL_TIMEOUT_SECONDS
-from ...security.tool_guard.approval import ApprovalDecision
+from ...security.tool_guard.approval import ApprovalDecision, ApprovalScope
 from .models import ApprovalRequestSummary
 
 if TYPE_CHECKING:
@@ -56,6 +56,12 @@ class PendingApproval:
     findings_count: int = 0
     severity: str = "medium"  # For frontend display
     extra: dict[str, Any] = field(default_factory=dict)
+    # How widely the approved call should be remembered (EXACT vs SIMILAR).
+    # Set by ``resolve_request`` from the approve path; ``None`` means the
+    # caller didn't choose (IM channels, CLI, non-governance paths) and is
+    # treated as EXACT by the governance consumer. Only meaningful when the
+    # decision is APPROVED.
+    scope: ApprovalScope | None = None
 
 
 # ------------------------------------------------------------------
@@ -73,11 +79,41 @@ class ApprovalService:
     def __init__(self) -> None:
         self._lock = asyncio.Lock()
         self._pending: dict[str, PendingApproval] = {}
-        self._channel_manager: Any | None = None
 
-    def set_channel_manager(self, channel_manager: Any) -> None:
-        """Store a reference to the channel manager for push notifications."""
-        self._channel_manager = channel_manager
+    def set_channel_manager(
+        self,
+        channel_manager: Any,
+    ) -> None:  # noqa: ARG002
+        """Legacy no-op kept for backward compat."""
+
+    async def _notify_channel(
+        self,
+        pending: PendingApproval,
+        channel_body: str,
+    ) -> None:
+        """Fire-and-forget: push approval notification to channel."""
+        if not pending.channel or pending.channel == "console":
+            return
+        channel_instance = (pending.extra or {}).get("_channel_instance")
+        if channel_instance is None:
+            return
+        channel_meta = (pending.extra or {}).get("channel_meta")
+        try:
+            await channel_instance.send_approval_notification(
+                session_id=pending.session_id,
+                user_id=pending.user_id,
+                request_id=pending.request_id,
+                tool_name=pending.tool_name,
+                severity=pending.severity,
+                result_summary=channel_body,
+                channel_meta=channel_meta,
+            )
+        except Exception:
+            logger.warning(
+                "Failed to push approval notification: request_id=%s",
+                pending.request_id[:8],
+                exc_info=True,
+            )
 
     # ------------------------------------------------------------------
     # Core approval lifecycle
@@ -98,7 +134,10 @@ class ApprovalService:
         extra: dict[str, Any] | None = None,
     ) -> PendingApproval:
         """Create a pending approval record and return it."""
-        from ...security.tool_guard.approval import format_findings_summary
+        from ...security.tool_guard.approval import (
+            format_channel_approval_body,
+            format_findings_summary,
+        )
 
         request_id = str(uuid.uuid4())
         loop = asyncio.get_running_loop()
@@ -135,6 +174,17 @@ class ApprovalService:
             session_id[:8],
             root_session_id[:8],
         )
+
+        if (
+            channel
+            and channel != "console"
+            and (extra or {}).get("_channel_instance")
+        ):
+            channel_body = format_channel_approval_body(result)
+            asyncio.create_task(
+                self._notify_channel(pending, channel_body),
+                name=f"approval-notify-{request_id[:8]}",
+            )
 
         return pending
 
@@ -189,14 +239,33 @@ class ApprovalService:
             session_id[:8],
             root_session_id[:8],
         )
+
+        if (
+            channel
+            and channel != "console"
+            and (extra or {}).get("_channel_instance")
+        ):
+            asyncio.create_task(
+                self._notify_channel(pending, pending.result_summary),
+                name=f"approval-notify-{request_id[:8]}",
+            )
+
         return pending
 
     async def resolve_request(
         self,
         request_id: str,
         decision: ApprovalDecision,
+        scope: ApprovalScope | None = None,
     ) -> PendingApproval | None:
-        """Resolve pending approval by setting Future result."""
+        """Resolve pending approval by setting Future result.
+
+        Args:
+            scope: how widely an APPROVED call should be remembered
+                (EXACT vs SIMILAR). Stashed on ``pending.scope`` so the
+                governance consumer can pick the rule target. ``None`` is
+                treated as EXACT. Ignored for non-APPROVED decisions.
+        """
         async with self._lock:
             pending = self._pending.pop(request_id, None)
             if pending is None:
@@ -208,15 +277,17 @@ class ApprovalService:
 
             pending.status = decision.value
             pending.resolved_at = time.time()
+            pending.scope = scope
 
         # Set Future result outside lock
         if not pending.future.done():
             pending.future.set_result(decision)
 
         logger.info(
-            "Approval request %s resolved: decision=%s tool=%s",
+            "Approval request %s resolved: decision=%s scope=%s tool=%s",
             request_id[:8],
             decision.value,
+            scope.value if scope else "exact(default)",
             pending.tool_name,
         )
 

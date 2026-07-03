@@ -322,6 +322,41 @@ class PluginApi:
                 f"'{handler.command_name}' (priority={priority_level})",
             )
 
+    def register_middleware(
+        self,
+        middleware_factory: Callable,
+        *,
+        priority: int = 100,
+    ) -> None:
+        """Register an AgentScope MiddlewareBase factory.
+
+        The factory is called once per request during agent assembly:
+            ``factory(ctx, agent_config) -> MiddlewareBase | None``
+
+        Returning None means the middleware is skipped for this request.
+        Priority controls ordering (lower = outermost in onion model).
+
+        Args:
+            middleware_factory: Callable that receives ``(ctx, agent_config)``
+                and returns a ``MiddlewareBase`` instance or None.
+            priority: Ordering priority (lower = outermost). Default: 100.
+
+        Example:
+            >>> def my_factory(ctx, agent_config):
+            ...     return MyMiddleware()
+            >>> api.register_middleware(my_factory, priority=50)
+        """
+        if self._registry:
+            self._registry.register_middleware(
+                plugin_id=self.plugin_id,
+                factory=middleware_factory,
+                priority=priority,
+            )
+            logger.info(
+                f"Plugin '{self.plugin_id}' registered middleware "
+                f"factory (priority={priority})",
+            )
+
     @property
     def runtime(self):
         """Access runtime helper functions.
@@ -478,6 +513,408 @@ class PluginApi:
             f"Plugin '{self.plugin_id}' scheduled tool "
             f"'{tool_name}' for registration on startup",
         )
+
+    # ================================================================
+    # Loop Engineering: 改动 1-7
+    # ================================================================
+
+    def register_slash_command(
+        self,
+        name: str,
+        handler: Callable,
+        *,
+        aliases: tuple = (),
+        category: str = "plugin",
+        help_text: str = "",
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        """Register a slash command into per-workspace registries.
+
+        The command appears as ``/name`` in the chat input and is
+        dispatched through ``SlashCommandRegistry.dispatch()``.
+
+        Registration is deferred to a startup hook so it runs after
+        workspaces are fully initialized.
+
+        Args:
+            name: Command name (without leading ``/``).
+            handler: Async callable ``(ctx, args) -> Msg | None``.
+            aliases: Extra names that resolve to the same handler.
+            category: Origin tag for introspection.
+            help_text: Human-readable description shown in menus.
+            metadata: Arbitrary key-value metadata.
+        """
+        from ..runtime.slash_command_registry import CommandSpec
+
+        spec = CommandSpec(
+            name=name,
+            handler=handler,
+            aliases=aliases,
+            category=category,
+            help_text=help_text,
+            metadata=metadata or {},
+        )
+
+        def _register_to_workspaces():
+            self._register_spec_to_all_workspaces(spec)
+
+        def _on_workspace_created(workspace_info: dict):
+            self._register_spec_to_workspace(spec, workspace_info)
+
+        self.register_startup_hook(
+            hook_name=(f"slash_cmd_{self.plugin_id}_{name}"),
+            callback=_register_to_workspaces,
+            priority=60,
+        )
+        self.register_workspace_created_hook(
+            hook_name=(f"slash_cmd_ws_{self.plugin_id}_{name}"),
+            callback=_on_workspace_created,
+            priority=60,
+        )
+        logger.info(
+            f"Plugin '{self.plugin_id}' scheduled slash command "
+            f"'/{name}' for registration",
+        )
+
+    def register_mode(
+        self,
+        mode_cls: Type,
+    ) -> None:
+        """Register a plugin-contributed AgentMode.
+
+        The mode is instantiated and registered into every workspace
+        on startup, and into newly created workspaces via a
+        workspace_created hook.
+
+        Args:
+            mode_cls: An ``AgentMode`` subclass with a unique
+                ``name`` class attribute.
+        """
+        mode_instance = mode_cls()
+
+        def _register_mode():
+            self._register_mode_to_all_workspaces(mode_instance)
+
+        def _on_workspace_created(workspace_info: dict):
+            self._register_mode_to_workspace(
+                mode_instance,
+                workspace_info,
+            )
+
+        self.register_startup_hook(
+            hook_name=(f"mode_{self.plugin_id}_{mode_instance.name}"),
+            callback=_register_mode,
+            priority=70,
+        )
+        self.register_workspace_created_hook(
+            hook_name=(f"mode_ws_{self.plugin_id}_{mode_instance.name}"),
+            callback=_on_workspace_created,
+            priority=70,
+        )
+        logger.info(
+            f"Plugin '{self.plugin_id}' scheduled mode "
+            f"'{mode_instance.name}' for registration",
+        )
+
+    def register_runtime_hook(
+        self,
+        hook: Any,
+    ) -> None:
+        """Register a runtime-phase hook.
+
+        The hook is registered into every workspace's HookRegistry
+        on startup. See ``runtime.phases.Phase`` for the 8 available
+        phases.
+
+        Args:
+            hook: A ``HookBase`` subclass instance with ``phase``,
+                ``name``, and ``run()`` defined.
+        """
+
+        def _register_hook():
+            self._register_hook_to_all_workspaces(hook)
+
+        def _on_workspace_created(workspace_info: dict):
+            self._register_hook_to_workspace(
+                hook,
+                workspace_info,
+            )
+
+        self.register_startup_hook(
+            hook_name=(f"rt_hook_{self.plugin_id}_{hook.name}"),
+            callback=_register_hook,
+            priority=65,
+        )
+        self.register_workspace_created_hook(
+            hook_name=(f"rt_hook_ws_{self.plugin_id}_{hook.name}"),
+            callback=_on_workspace_created,
+            priority=65,
+        )
+        logger.info(
+            f"Plugin '{self.plugin_id}' scheduled runtime hook "
+            f"'{hook.name}' (phase={hook.phase})",
+        )
+
+    def register_agent_stop_handler(
+        self,
+        handler: Callable,
+        *,
+        priority: int = 100,
+        name: str = "",
+    ) -> None:
+        """Register a handler for agent stop events.
+
+        When the agent decides to stop, the stop handler chain is
+        evaluated. A handler can return BLOCK with a continuation
+        message to keep the agent running.
+
+        Args:
+            handler: Async callable ``(ctx) -> StopHandlerResult``.
+            priority: Lower number = higher priority.
+            name: Human-readable name for debugging.
+        """
+        from ..loop.gates import (
+            StopHandlerRegistration,
+        )
+
+        reg = StopHandlerRegistration(
+            plugin_id=self.plugin_id,
+            handler=handler,
+            priority=priority,
+            name=name or f"{self.plugin_id}_stop",
+        )
+
+        def _register():
+            self._register_stop_handler_to_all_workspaces(reg)
+
+        def _on_workspace_created(workspace_info: dict):
+            self._register_stop_handler_to_workspace(
+                reg,
+                workspace_info,
+            )
+
+        self.register_startup_hook(
+            hook_name=(f"stop_{self.plugin_id}_{reg.name}"),
+            callback=_register,
+            priority=55,
+        )
+        self.register_workspace_created_hook(
+            hook_name=(f"stop_ws_{self.plugin_id}_{reg.name}"),
+            callback=_on_workspace_created,
+            priority=55,
+        )
+        logger.info(
+            f"Plugin '{self.plugin_id}' scheduled stop handler "
+            f"'{reg.name}' (priority={priority})",
+        )
+
+    def register_prompt_section(
+        self,
+        name: str,
+        after: str,
+        provider: Callable,
+        *,
+        priority: int = 100,
+        condition: Optional[Callable] = None,
+        agent_id: Optional[str] = None,
+    ) -> None:
+        """Register a system prompt section.
+
+        The section is injected into the system prompt after the
+        specified anchor. When ``condition`` is provided, the section
+        is only included if the callable returns True.
+
+        Args:
+            name: Unique section name.
+            after: Host anchor this section follows
+                (workspace/multimodal/env_context).
+            provider: Callable ``(agent) -> str`` returning text.
+            priority: Order within same anchor (lower = earlier).
+            condition: Optional ``(ctx) -> bool`` gate.
+            agent_id: Optional agent filter; None = global.
+        """
+        if condition is not None:
+            original_provider = provider
+
+            def _gated_provider(
+                agent,
+                _cond=condition,
+                _prov=original_provider,
+            ):
+                try:
+                    if not _cond(agent):
+                        return ""
+                except Exception as exc:
+                    logger.warning(
+                        "Prompt condition error: %s",
+                        exc,
+                    )
+                    return ""
+                return _prov(agent)
+
+            provider = _gated_provider
+
+        if self._registry:
+            self._registry.register_prompt_section(
+                plugin_id=self.plugin_id,
+                name=name,
+                after=after,
+                agent_id=agent_id,
+                provider=provider,
+            )
+            logger.info(
+                f"Plugin '{self.plugin_id}' registered prompt "
+                f"section '{name}' after '{after}' "
+                f"(priority={priority})",
+            )
+
+    # ================================================================
+    # Internal helpers for workspace registration
+    # ================================================================
+
+    def _get_all_workspaces(self) -> list:
+        """Get all workspace instances from the registry."""
+        try:
+            from .registry import PluginRegistry
+
+            registry = PluginRegistry()
+            mgr = registry.get_workspace_manager()
+            if mgr is None:
+                return []
+            return list(mgr.agents.values())
+        except Exception as exc:
+            logger.debug(
+                f"Could not get workspaces: {exc}",
+            )
+            return []
+
+    def _get_workspace_from_info(
+        self,
+        workspace_info: dict,
+    ):
+        """Get workspace instance from workspace_info dict."""
+        try:
+            from .registry import PluginRegistry
+
+            agent_id = workspace_info.get("agent_id")
+            if not agent_id:
+                return None
+            registry = PluginRegistry()
+            mgr = registry.get_workspace_manager()
+            if mgr is None:
+                return None
+            return mgr.agents.get(agent_id)
+        except Exception as exc:
+            logger.warning(
+                "Get workspace error: %s",
+                exc,
+            )
+            return None
+
+    def _register_spec_to_all_workspaces(self, spec):
+        """Register a CommandSpec to all existing workspaces."""
+        for ws in self._get_all_workspaces():
+            try:
+                ws.plugins.slash_command_registry.register(spec)
+            except ValueError as exc:
+                logger.debug(
+                    f"Slash cmd already registered: {exc}",
+                )
+
+    def _register_spec_to_workspace(
+        self,
+        spec,
+        workspace_info: dict,
+    ):
+        """Register a CommandSpec to a specific workspace."""
+        ws = self._get_workspace_from_info(workspace_info)
+        if ws is None:
+            return
+        try:
+            ws.plugins.slash_command_registry.register(spec)
+        except ValueError as exc:
+            logger.debug(
+                f"Slash cmd already registered: {exc}",
+            )
+
+    def _register_mode_to_all_workspaces(self, mode):
+        """Register an AgentMode to all workspaces."""
+        for ws in self._get_all_workspaces():
+            try:
+                ws.plugins.register_mode(mode, ws)
+            except ValueError as exc:
+                logger.debug(
+                    f"Mode already registered: {exc}",
+                )
+
+    def _register_mode_to_workspace(
+        self,
+        mode,
+        workspace_info: dict,
+    ):
+        """Register an AgentMode to a specific workspace."""
+        ws = self._get_workspace_from_info(workspace_info)
+        if ws is None:
+            return
+        try:
+            ws.plugins.register_mode(mode, ws)
+        except ValueError as exc:
+            logger.debug(
+                f"Mode already registered: {exc}",
+            )
+
+    def _register_hook_to_all_workspaces(self, hook):
+        """Register a runtime hook to all workspaces."""
+        for ws in self._get_all_workspaces():
+            try:
+                ws.plugins.hook_registry.register(hook)
+            except (TypeError, ValueError) as exc:
+                logger.debug(
+                    f"Hook registration issue: {exc}",
+                )
+
+    def _register_hook_to_workspace(
+        self,
+        hook,
+        workspace_info: dict,
+    ):
+        """Register a runtime hook to a specific workspace."""
+        ws = self._get_workspace_from_info(workspace_info)
+        if ws is None:
+            return
+        try:
+            ws.plugins.hook_registry.register(hook)
+        except (TypeError, ValueError) as exc:
+            logger.debug(
+                f"Hook registration issue: {exc}",
+            )
+
+    def _register_stop_handler_to_all_workspaces(self, reg):
+        """Register stop handler to all workspaces."""
+        for ws in self._get_all_workspaces():
+            self._attach_stop_handler(ws, reg)
+
+    def _register_stop_handler_to_workspace(
+        self,
+        reg,
+        workspace_info: dict,
+    ):
+        """Register stop handler to a specific workspace."""
+        ws = self._get_workspace_from_info(workspace_info)
+        if ws is None:
+            return
+        self._attach_stop_handler(ws, reg)
+
+    @staticmethod
+    def _attach_stop_handler(ws, reg):
+        """Attach a stop handler registration to workspace."""
+        if not hasattr(ws.plugins, "stop_handlers"):
+            ws.plugins.stop_handlers = []
+        ws.plugins.stop_handlers.append(reg)
+
+    # ================================================================
+    # End Loop Engineering
+    # ================================================================
 
     def register_skill_provider(
         self,

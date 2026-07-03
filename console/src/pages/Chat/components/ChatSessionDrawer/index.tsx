@@ -5,52 +5,68 @@ import React, {
   useRef,
   useState,
 } from "react";
+import { Drawer, Empty, Input, Spin, Tooltip } from "antd";
+import { VariableSizeList, type ListChildComponentProps } from "react-window";
+import { useTranslation } from "react-i18next";
 import { useNavigate, useLocation } from "react-router-dom";
-import {
-  buildSessionPath,
-  getSessionIdFromPath,
-} from "../../../../utils/sessionRoute";
-import { Drawer, Empty, Spin, Tooltip } from "antd";
-import { useIsMobile } from "../../../../hooks/useIsMobile";
-import { FixedSizeList, type ListChildComponentProps } from "react-window";
 import { IconButton } from "@agentscope-ai/design";
 import {
   SparkOperateRightLine,
-  SparkLockLine,
   SparkLockFill,
+  SparkLockLine,
+  SparkDownArrowLine,
 } from "@agentscope-ai/icons";
 import {
   useChatAnywhereSessionsState,
   type IAgentScopeRuntimeWebUISession,
 } from "@agentscope-ai/chat";
-import { useTranslation } from "react-i18next";
-import type { ChatStatus } from "../../../../api/types/chat";
-import { chatApi } from "../../../../api/modules/chat";
-import sessionApi from "../../sessionApi";
-import { useCreateNewSession } from "../../hooks/useCreateNewSession";
-import { useCodingMode } from "../../../../stores/codingModeStore";
-import { useAgentStore } from "../../../../stores/agentStore";
-import ChatSessionItem from "../ChatSessionItem";
-import { getChannelLabel } from "../../../Control/Channels/components";
 import {
   ContextMenu,
   useContextMenu,
-  type ContextMenuItem,
 } from "../../../../components/ContextMenu";
+import type { ContextMenuItem } from "../../../../components/ContextMenu";
+import { useIsMobile } from "../../../../hooks/useIsMobile";
+import { useCodingMode } from "../../../../stores/codingModeStore";
+import { useCreateNewSession } from "../../hooks/useCreateNewSession";
+import ChatSessionItem from "../ChatSessionItem";
+import { getChannelLabel } from "../../../Control/Channels/components";
+import { chatApi } from "../../../../api/modules/chat";
+import sessionApi from "../../sessionApi";
+import {
+  buildSessionPath,
+  getSessionIdFromPath,
+} from "../../../../utils/sessionRoute";
 import {
   syncSessionsGlobal,
   type ExtendedSession,
 } from "../../../../stores/sessionListStore";
+import {
+  type DateGroup,
+  groupSessions,
+} from "../../../../utils/sessionGrouping";
 import styles from "./index.module.less";
+import type { ChatStatus } from "../../../../api/types/chat";
 
-/** Fixed height of each session item in pixels (matches CSS min-height) */
-const ITEM_HEIGHT = 77;
+/** Fixed height of each session item row */
+const SESSION_ROW_HEIGHT = 77;
+/** Fixed height of each group header row */
+const GROUP_HEADER_HEIGHT = 36;
 
-/** Data passed to each row via FixedSizeList's itemData prop */
-interface SessionRowData {
-  sortedSessionsRef: React.MutableRefObject<ExtendedChatSession[]>;
+/** A flattened row: either a group header or a session item */
+type FlatRow =
+  | {
+      kind: "groupHeader";
+      groupKey: DateGroup;
+      label: string;
+      count: number;
+      collapsed: boolean;
+    }
+  | { kind: "session"; session: ExtendedChatSession };
+
+/** Data passed to each virtual row */
+interface VirtualRowData {
+  flatRows: FlatRow[];
   currentSessionId: string | undefined;
-  /** When non-null, the target session shows active state immediately */
   switchingSessionId: string | null;
   editingSessionId: string | null;
   editValue: string;
@@ -63,16 +79,42 @@ interface SessionRowData {
   handleEditSubmit: () => void;
   handleEditCancel: () => void;
   handleItemContextMenu: (sessionId: string, event: React.MouseEvent) => void;
+  toggleGroup: (key: DateGroup) => void;
 }
 
-/** Memoized row renderer — only re-renders when its specific props change */
-const SessionRow = React.memo(function SessionRow({
+/** Virtual list row renderer — handles both group headers and session items */
+const VirtualRow = React.memo(function VirtualRow({
   index,
   style,
   data,
-}: ListChildComponentProps<SessionRowData>) {
-  const session = data.sortedSessionsRef.current[index];
-  if (!session) return null;
+}: ListChildComponentProps<VirtualRowData>) {
+  const row = data.flatRows[index];
+  if (!row) return null;
+
+  if (row.kind === "groupHeader") {
+    return (
+      <div style={style}>
+        <button
+          className={styles.groupLabel}
+          onClick={() => data.toggleGroup(row.groupKey)}
+        >
+          <span>
+            {row.label} ({row.count})
+          </span>
+          <span
+            className={styles.groupChevron}
+            style={{
+              transform: row.collapsed ? "rotate(-90deg)" : "rotate(0deg)",
+            }}
+          >
+            <SparkDownArrowLine size={10} />
+          </span>
+        </button>
+      </div>
+    );
+  }
+
+  const session = row.session;
   const channelKey = session.channel?.trim() || "";
   const channelLabel = channelKey
     ? getChannelLabel(channelKey, data.t)
@@ -84,7 +126,9 @@ const SessionRow = React.memo(function SessionRow({
       <ChatSessionItem
         sessionId={session.id!}
         name={session.name || "New Chat"}
-        time={formatCreatedAt(session.createdAt ?? null)}
+        time={formatCreatedAtCached(
+          session.updatedAt ?? session.createdAt ?? null,
+        )}
         channelKey={channelKey || undefined}
         channelLabel={channelLabel}
         chatStatus={session.status}
@@ -93,8 +137,7 @@ const SessionRow = React.memo(function SessionRow({
         active={
           session.id === data.currentSessionId ||
           session.id === data.switchingSessionId ||
-          (!!data.currentSessionId &&
-            (session as ExtendedChatSession).realId === data.currentSessionId)
+          (!!data.currentSessionId && session.realId === data.currentSessionId)
         }
         disabled={false}
         editing={isEditing}
@@ -155,6 +198,24 @@ const formatCreatedAt = (raw: string | null | undefined): string => {
   )}`;
 };
 
+/** Simple cache for formatCreatedAt to avoid re-parsing the same timestamp */
+const formatCache = new Map<string, string>();
+const FORMAT_CACHE_MAX = 200;
+
+const formatCreatedAtCached = (raw: string | null | undefined): string => {
+  if (!raw) return "";
+  const cached = formatCache.get(raw);
+  if (cached !== undefined) return cached;
+  const result = formatCreatedAt(raw);
+  if (formatCache.size >= FORMAT_CACHE_MAX) {
+    // Evict oldest entry
+    const firstKey = formatCache.keys().next().value;
+    if (firstKey !== undefined) formatCache.delete(firstKey);
+  }
+  formatCache.set(raw, result);
+  return result;
+};
+
 /** Resolve the real backend UUID from an extended session (id may be a local timestamp) */
 const getBackendId = (session: ExtendedChatSession): string | null => {
   if (session.realId) return session.realId;
@@ -169,7 +230,6 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
   const location = useLocation();
   const sdkState = useChatAnywhereSessionsState();
   const { codingMode } = useCodingMode();
-  const { selectedAgent, setLastChatId } = useAgentStore();
 
   const createNewSession = useCreateNewSession();
 
@@ -181,8 +241,7 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
   >([]);
 
   const sessions = props.embedded ? localSessions : sdkState.sessions;
-  const { currentSessionId: sdkCurrentSessionId, setCurrentSessionId } =
-    sdkState;
+  const { currentSessionId: sdkCurrentSessionId } = sdkState;
   // In embedded mode, prefer URL-derived chatId for active-state matching
   // because the SDK context may not be accessible from outside the provider.
   const urlCurrentSessionId = props.embedded
@@ -215,38 +274,24 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
   /** Whether the session list is being fetched (default true because destroyOnHidden re-mounts) */
   const [listLoading, setListLoading] = useState(true);
 
-  /** Height of the virtual list container, measured via ResizeObserver */
-  const [listHeight, setListHeight] = useState(0);
-  const observerRef = useRef<ResizeObserver | null>(null);
+  /** Cache last polled sessions to skip no-op state updates */
+  const lastPolledSessionsRef = useRef<IAgentScopeRuntimeWebUISession[]>([]);
 
-  /** Callback ref: attach a ResizeObserver whenever the wrapper DOM node appears */
-  const listWrapperRef = useCallback((node: HTMLDivElement | null) => {
-    // Cleanup previous observer
-    if (observerRef.current) {
-      observerRef.current.disconnect();
-      observerRef.current = null;
-    }
+  /** Collapsed date groups — default: "month" and "older" are collapsed */
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<DateGroup>>(
+    () => new Set<DateGroup>(["month", "older"]),
+  );
 
-    if (!node) return;
+  /** Immediate search input value (bound to Input, updates on every keystroke) */
+  const [searchInput, setSearchInput] = useState("");
+  /** Debounced search query used for actual filtering (300ms delay) */
+  const [searchQuery, setSearchQuery] = useState("");
 
-    const observer = new ResizeObserver((entries) => {
-      for (const entry of entries) {
-        const height = entry.contentRect.height;
-        if (height > 0) {
-          setListHeight(height);
-        }
-      }
-    });
-
-    observer.observe(node);
-    observerRef.current = observer;
-
-    // Measure immediately in case layout is already stable
-    const initialHeight = node.clientHeight;
-    if (initialHeight > 0) {
-      setListHeight(initialHeight);
-    }
-  }, []);
+  /** Debounce search input to avoid excessive re-renders during fast typing */
+  useEffect(() => {
+    const handle = setTimeout(() => setSearchQuery(searchInput), 300);
+    return () => clearTimeout(handle);
+  }, [searchInput]);
 
   /** Shared context menu — only one instance instead of one per item */
   const sharedContextMenu = useContextMenu();
@@ -254,23 +299,36 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
     string | null
   >(null);
 
-  /** Sessions sorted by pinned first, then by updatedAt/createdAt descending */
+  /** Sessions sorted by pinned first, then by updatedAt/createdAt descending.
+   *  Filter out local temporary sessions (created by clicking "New Chat" but
+   *  not yet persisted to backend). These sessions have local timestamp IDs
+   *  (matching /^\d+-[a-z0-9]+$/) and no realId field. They should only appear
+   *  in the list after the first message is sent and the backend creates them.
+   */
   const sortedSessions = useMemo(() => {
-    return [...sessions].sort((a, b) => {
-      const extA = a as ExtendedChatSession;
-      const extB = b as ExtendedChatSession;
+    return [...sessions]
+      .filter((session) => {
+        const ext = session as ExtendedChatSession;
+        const isLocalId = /^\d+-[a-z0-9]+$/.test(session.id);
+        const hasRealId = !!ext.realId;
+        // Keep if: not a local ID, OR has been resolved to a real backend ID
+        return !isLocalId || hasRealId;
+      })
+      .sort((a, b) => {
+        const extA = a as ExtendedChatSession;
+        const extB = b as ExtendedChatSession;
 
-      if (extA.pinned && !extB.pinned) return -1;
-      if (!extA.pinned && extB.pinned) return 1;
+        if (extA.pinned && !extB.pinned) return -1;
+        if (!extA.pinned && extB.pinned) return 1;
 
-      // ISO 8601 strings are lexicographically sortable — avoid new Date()
-      const aTime = extA.updatedAt ?? extA.createdAt ?? "";
-      const bTime = extB.updatedAt ?? extB.createdAt ?? "";
-      if (!aTime && !bTime) return 0;
-      if (!aTime) return 1;
-      if (!bTime) return -1;
-      return bTime < aTime ? -1 : bTime > aTime ? 1 : 0;
-    });
+        // ISO 8601 strings are lexicographically sortable — avoid new Date()
+        const aTime = extA.updatedAt ?? extA.createdAt ?? "";
+        const bTime = extB.updatedAt ?? extB.createdAt ?? "";
+        if (!aTime && !bTime) return 0;
+        if (!aTime) return 1;
+        if (!bTime) return -1;
+        return bTime < aTime ? -1 : bTime > aTime ? 1 : 0;
+      });
   }, [sessions]);
 
   /** Re-fetch session list from the backend and sync to context state */
@@ -290,7 +348,24 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
       try {
         const list = await sessionApi.getSessionList();
         if (!isCancelled) {
-          setSessions(list);
+          // Shallow compare to avoid unnecessary state updates
+          const changed =
+            list.length !== lastPolledSessionsRef.current.length ||
+            list.some((s, i) => {
+              const prev = lastPolledSessionsRef.current[i];
+              return (
+                !prev ||
+                s.id !== prev.id ||
+                (s as ExtendedChatSession).updatedAt !==
+                  (prev as ExtendedChatSession).updatedAt ||
+                (s as ExtendedChatSession).generating !==
+                  (prev as ExtendedChatSession).generating
+              );
+            });
+          if (changed) {
+            lastPolledSessionsRef.current = list;
+            setSessions(list);
+          }
         }
       } catch (error) {
         console.error("Failed to refresh session list:", error);
@@ -309,7 +384,24 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
       try {
         const list = await sessionApi.getSessionList();
         if (!isCancelled) {
-          setSessions(list);
+          // Shallow compare to avoid unnecessary state updates
+          const changed =
+            list.length !== lastPolledSessionsRef.current.length ||
+            list.some((s, i) => {
+              const prev = lastPolledSessionsRef.current[i];
+              return (
+                !prev ||
+                s.id !== prev.id ||
+                (s as ExtendedChatSession).updatedAt !==
+                  (prev as ExtendedChatSession).updatedAt ||
+                (s as ExtendedChatSession).generating !==
+                  (prev as ExtendedChatSession).generating
+              );
+            });
+          if (changed) {
+            lastPolledSessionsRef.current = list;
+            setSessions(list);
+          }
         }
       } catch {
         // ignore polling errors
@@ -333,64 +425,19 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
         return;
       }
 
-      if (props.embedded) {
-        setSwitchingSessionId(sessionId);
-        window.dispatchEvent(
-          new CustomEvent("qwenpaw:sidebar-select-session", {
-            detail: { sessionId },
-          }),
-        );
-        return;
-      }
-
-      // Start a new cancellable switch (aborts any in-flight switch)
-      const controller = sessionApi.startNewSwitch();
+      // Both embedded and non-embedded modes use the same switching logic
+      // as simple mode's SidebarSessionList: just navigate to the session
+      // URL. ChatSessionInitializer's useEffect will pick up the URL change
+      // and call setCurrentSessionId(matching.id) to notify the SDK.
+      // This avoids the preload / isSessionSwitching complexity that caused
+      // the "flash to new chat" issue.
       setSwitchingSessionId(sessionId);
-
-      sessionApi
-        .preloadSession(sessionId, controller.signal)
-        .then(({ realId }) => {
-          if (controller.signal.aborted) return;
-          const effectiveId = sessionApi.getEffectiveSessionId(
-            sessionId,
-            realId,
-          );
-          // Issue #4987: In coding mode, skip URL navigation to /chat/<id>.
-          // The redirect effect in ChatPage would immediately navigate back
-          // to /coding before session data loads, causing the switch to fail.
-          if (!codingMode) {
-            const targetUrl = buildSessionPath("chat", effectiveId);
-            navigate(targetUrl, { replace: true });
-          }
-          sessionApi.trackNavigatedSession(
-            effectiveId,
-            setLastChatId,
-            selectedAgent,
-          );
-          setCurrentSessionId(sessionId);
-        })
-        .catch((err) => {
-          if (err?.name === "AbortError") return;
-          // On non-abort error, still try to switch normally.
-          setCurrentSessionId(sessionId);
-        })
-        .finally(() => {
-          // Only clean up if this switch was NOT superseded by a newer one
-          if (!controller.signal.aborted) {
-            sessionApi.finishSessionSwitch();
-            setSwitchingSessionId(null);
-          }
-        });
+      const mode = codingMode ? "coding" : "chat";
+      const effectiveId = sessionApi.getEffectiveSessionId(sessionId);
+      const targetPath = buildSessionPath(mode, effectiveId);
+      navigate(targetPath);
     },
-    [
-      currentSessionId,
-      setCurrentSessionId,
-      navigate,
-      codingMode,
-      selectedAgent,
-      setLastChatId,
-      props.embedded,
-    ],
+    [currentSessionId, navigate, codingMode],
   );
 
   // Listen for embedded switch completion so we can clear switchingSessionId.
@@ -423,6 +470,8 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
       if (backendId) {
         await chatApi.deleteChat(backendId);
       }
+
+      localStorage.removeItem(`approval_level-${sessionId}`);
 
       // Fetch the updated session list after deletion
       const freshList =
@@ -565,13 +614,109 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
     handleDelete,
   ]);
 
-  /** Stable data object for FixedSizeList — avoids re-creating row renderer on every render */
-  const sortedSessionsRef = useRef(sortedSessions);
-  sortedSessionsRef.current = sortedSessions;
+  /** Filter sessions by search query */
+  const filteredSessions = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+    if (!query) return sortedSessions;
+    return sortedSessions.filter((session) =>
+      ((session as ExtendedChatSession).name || "New Chat")
+        .toLowerCase()
+        .includes(query),
+    );
+  }, [sortedSessions, searchQuery]);
 
-  const itemData = useMemo<SessionRowData>(
+  /** Group sessions by date (null when searching — show flat list) */
+  const groups = useMemo(
+    () =>
+      searchQuery.trim()
+        ? null
+        : groupSessions(sortedSessions as ExtendedChatSession[], t),
+    [sortedSessions, searchQuery, t],
+  );
+
+  /** Toggle a date group's collapsed state */
+  const toggleGroup = useCallback((key: DateGroup) => {
+    setCollapsedGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }, []);
+
+  /** Flatten groups into a single array of rows for virtual list */
+  const flatRows = useMemo<FlatRow[]>(() => {
+    if (searchQuery.trim()) {
+      return filteredSessions.map((s) => ({
+        kind: "session",
+        session: s as ExtendedChatSession,
+      }));
+    }
+    if (!groups) return [];
+    const rows: FlatRow[] = [];
+    for (const group of groups) {
+      const collapsed = collapsedGroups.has(group.key);
+      rows.push({
+        kind: "groupHeader",
+        groupKey: group.key,
+        label: group.label,
+        count: group.sessions.length,
+        collapsed,
+      });
+      if (!collapsed) {
+        for (const session of group.sessions) {
+          rows.push({ kind: "session", session });
+        }
+      }
+    }
+    return rows;
+  }, [groups, collapsedGroups, searchQuery, filteredSessions]);
+
+  /** Row height calculator for VariableSizeList */
+  const getRowHeight = useCallback(
+    (index: number) => {
+      const row = flatRows[index];
+      if (!row) return SESSION_ROW_HEIGHT;
+      return row.kind === "groupHeader"
+        ? GROUP_HEADER_HEIGHT
+        : SESSION_ROW_HEIGHT;
+    },
+    [flatRows],
+  );
+
+  /** Height of the virtual list container, measured via ResizeObserver */
+  const [listHeight, setListHeight] = useState(0);
+  const observerRef = useRef<ResizeObserver | null>(null);
+  const listRef = useRef<VariableSizeList>(null);
+
+  /** Reset virtual list cache when flatRows change (group collapse/expand) */
+  useEffect(() => {
+    listRef.current?.resetAfterIndex(0);
+  }, [flatRows]);
+
+  /** Callback ref: attach a ResizeObserver to measure list container height */
+  const listWrapperRef = useCallback((node: HTMLDivElement | null) => {
+    if (observerRef.current) {
+      observerRef.current.disconnect();
+      observerRef.current = null;
+    }
+    if (!node) return;
+    const observer = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const height = entry.contentRect.height;
+        if (height > 0) setListHeight(height);
+      }
+    });
+    observer.observe(node);
+    observerRef.current = observer;
+    const initialHeight = node.clientHeight;
+    if (initialHeight > 0) setListHeight(initialHeight);
+  }, []);
+
+  /** Data passed to each virtual row */
+  const virtualListData = useMemo(
     () => ({
-      sortedSessionsRef,
+      flatRows,
       currentSessionId,
       switchingSessionId,
       editingSessionId,
@@ -585,8 +730,10 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
       handleEditSubmit,
       handleEditCancel,
       handleItemContextMenu,
+      toggleGroup,
     }),
     [
+      flatRows,
       currentSessionId,
       switchingSessionId,
       editingSessionId,
@@ -600,6 +747,7 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
       handleEditSubmit,
       handleEditCancel,
       handleItemContextMenu,
+      toggleGroup,
     ],
   );
 
@@ -643,6 +791,18 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
         </div>
       </div>
 
+      {/* Search bar */}
+      <div className={styles.searchContainer}>
+        <Input
+          size="small"
+          allowClear
+          placeholder={t("chat.sessionPanel.searchConversations", "Search…")}
+          value={searchInput}
+          onChange={(e) => setSearchInput(e.target.value)}
+          className={styles.searchInput}
+        />
+      </div>
+
       {/* Session list */}
       <div className={styles.listWrapper} ref={listWrapperRef}>
         <div className={styles.topGradient} />
@@ -661,18 +821,23 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
             description={t("chat.history.empty", "No chat history")}
             style={{ marginTop: 80 }}
           />
+        ) : flatRows.length === 0 ? (
+          <div className={styles.emptyState}>
+            {t("chat.sessionPanel.noResults", "No results")}
+          </div>
         ) : (
-          <FixedSizeList
+          <VariableSizeList
+            ref={listRef}
             height={listHeight}
             width="100%"
-            itemCount={sortedSessions.length}
-            itemSize={ITEM_HEIGHT}
-            overscanCount={20}
-            itemData={itemData}
+            itemCount={flatRows.length}
+            itemSize={getRowHeight}
+            itemData={virtualListData}
             className={styles.list}
+            overscanCount={10}
           >
-            {SessionRow}
-          </FixedSizeList>
+            {VirtualRow}
+          </VariableSizeList>
         )}
         <div className={styles.bottomGradient} />
       </div>

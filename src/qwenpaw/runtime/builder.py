@@ -46,6 +46,7 @@ class AgentBuilder:
         memory_tools: Iterable[Any] | None = None,
         governor: Any = None,
         ctx: Any = None,
+        workspace_dir: str | None = None,
     ) -> Any:
         """Build a populated ``Toolkit`` for one agent invocation.
 
@@ -53,6 +54,7 @@ class AgentBuilder:
         :class:`QwenPawLocalWorkspace` via ``list_tools()``.
         ``extra_tools`` and ``memory_tools`` are appended after the
         workspace tools.
+
         """
         from agentscope.tool import Toolkit
 
@@ -84,7 +86,39 @@ class AgentBuilder:
                     ),
                 )
 
-        return Toolkit(tools=tools)
+        skill_dirs = self._resolve_skill_loader_dirs(
+            effective_skills,
+            workspace_dir,
+        )
+
+        return Toolkit(tools=tools, skills_or_loaders=skill_dirs)
+
+    @staticmethod
+    def _resolve_skill_loader_dirs(
+        effective_skills: Iterable[str] | None,
+        workspace_dir: str | None,
+    ) -> list[str]:
+        """Map effective skill names to their SKILL.md-bearing directories."""
+        names = list(effective_skills or ())
+        if not names:
+            return []
+
+        from ..agents.skill_system import get_workspace_skills_dir
+        from ..constant import WORKING_DIR
+
+        base = get_workspace_skills_dir(Path(workspace_dir or WORKING_DIR))
+        dirs: list[str] = []
+        for name in names:
+            skill_dir = base / name
+            if (skill_dir / "SKILL.md").exists():
+                dirs.append(str(skill_dir))
+            else:
+                _logger.debug(
+                    "skill '%s' has no SKILL.md at %s; not injected",
+                    name,
+                    skill_dir,
+                )
+        return dirs
 
     # ----------------------------------------------------------------- build
 
@@ -150,7 +184,13 @@ class AgentBuilder:
                 active_modes = plugins.active_mode_names(ctx)
 
         # Governor (governance policy layer).
-        governor = self._init_governor(workspace_dir)
+        _cm = getattr(agent_config, "coding_mode", None)
+        _project_dir = (
+            _cm.project_dir
+            if _cm and getattr(_cm, "project_dir", None)
+            else None
+        )
+        governor = self._init_governor(workspace_dir, _project_dir)
 
         # Inject governor into local_workspace so list_tools() can
         # wrap tools with PolicyGuardedTool.
@@ -230,6 +270,7 @@ class AgentBuilder:
             extra_tools=extra_tools,
             governor=governor,
             ctx=ctx,
+            workspace_dir=workspace_dir,
         )
 
         # System prompt.
@@ -241,12 +282,18 @@ class AgentBuilder:
 
         running_config = agent_config.running
 
+        from ..loop.react_gates import (
+            resolve_max_iterations,
+        )
+
+        effective_max = resolve_max_iterations(running_config)
+
         agent = QwenPawAgent(
             name=agent_config.name or "QwenPaw",
             model=model,
             system_prompt=sys_prompt,
             toolkit=toolkit,
-            react_config=ReActConfig(max_iters=running_config.max_iters),
+            react_config=ReActConfig(max_iters=effective_max),
             middlewares=middlewares,
             agent_config=agent_config,
             workspace_dir=workspace_dir,
@@ -260,6 +307,14 @@ class AgentBuilder:
             effective_skills=effective_skills,
             governor=governor,
         )
+
+        # Register default ReAct gates (StopHandler).
+        if workspace is not None:
+            from ..loop.react_gates import (
+                register_react_gates,
+            )
+
+            register_react_gates(workspace, running_config)
 
         # Load session state if SessionLoadHook populated it.
         if ctx.session_state:
@@ -339,10 +394,11 @@ class AgentBuilder:
                 innermost.formatter = formatter
         return model, formatter
 
-    # ------------------------------------------------------- helpers
-
     @staticmethod
-    def _init_governor(workspace_dir: Any) -> Any:
+    def _init_governor(
+        workspace_dir: Any,
+        coding_project_dir: Any = None,
+    ) -> Any:
         """Initialize ResourceGovernor if governance is available.
 
         Returns the started governor, or ``None`` when governance cannot
@@ -353,7 +409,12 @@ class AgentBuilder:
         try:
             from ..governance import ResourceGovernor
 
-            governor = ResourceGovernor(str(workspace_dir))
+            governor = ResourceGovernor(
+                str(workspace_dir),
+                coding_project_dir=(
+                    str(coding_project_dir) if coding_project_dir else None
+                ),
+            )
             governor.start()
             _logger.info("Governance started: dir=%s", workspace_dir)
             return governor
@@ -406,6 +467,12 @@ class AgentBuilder:
             user_name = _channel_meta.get("user_name")
             if user_name:
                 rc["user_name"] = user_name
+            rc["channel_meta"] = _channel_meta
+        rc["_channel_instance"] = getattr(
+            request,
+            "channel_instance",
+            None,
+        )
         _payload_ctx = (
             getattr(request, "request_context", None) if request else None
         )
@@ -463,7 +530,9 @@ class AgentBuilder:
         _cm = getattr(agent_config, "coding_mode", None)
         _project_dir = (
             _cm.project_dir
-            if _cm and getattr(_cm, "project_dir", None)
+            if _cm
+            and getattr(_cm, "enabled", False)
+            and getattr(_cm, "project_dir", None)
             else None
         )
         _configured_shell = getattr(
@@ -673,7 +742,7 @@ class AgentBuilder:
         )
 
     @staticmethod
-    def _build_middlewares(
+    def _build_middlewares(  # pylint: disable=too-many-statements
         ctx: Any,
         agent_config: Any,
     ) -> list[Any]:
@@ -682,6 +751,7 @@ class AgentBuilder:
         Order (onion model, outermost first):
         1. ToolCoordinatorMiddleware — tool call lifecycle management
         2. ToolResultPruningMiddleware — tiered tool result pruning
+        3. Plugin-registered middlewares (sorted by priority)
         """
         mws: list[Any] = []
 
@@ -693,10 +763,44 @@ class AgentBuilder:
                 None,
             )
             if tool_coordinator is not None:
-                from ..tool_calls import ToolCoordinatorMiddleware
+                from ..tool_calls import (
+                    ToolCoordinatorMiddleware,
+                    ToolResultLimiter,
+                )
+
+                result_limiter = None
+                try:
+                    import os
+
+                    lcc = agent_config.running.light_context_config
+                    trc = lcc.tool_result_pruning_config
+                    workspace = getattr(ctx, "workspace", None)
+                    workspace_dir = (
+                        str(getattr(workspace, "workspace_dir", ""))
+                        if workspace is not None
+                        else ""
+                    )
+                    tool_results_dir = (
+                        os.path.join(workspace_dir, trc.tool_results_cache)
+                        if workspace_dir
+                        else None
+                    )
+                    result_limiter = ToolResultLimiter(
+                        enabled=trc.enabled,
+                        max_text_bytes=trc.execution_layer_max_bytes,
+                        cache_dir=tool_results_dir,
+                    )
+                except Exception:
+                    _logger.debug(
+                        "ToolResultLimiter not created",
+                        exc_info=True,
+                    )
 
                 mws.append(
-                    ToolCoordinatorMiddleware(coordinator=tool_coordinator),
+                    ToolCoordinatorMiddleware(
+                        coordinator=tool_coordinator,
+                        result_limiter=result_limiter,
+                    ),
                 )
 
         memory_manager = AgentBuilder._get_memory_manager(ctx)
@@ -754,6 +858,36 @@ class AgentBuilder:
                 "ToolResultPruningMiddleware not created",
                 exc_info=True,
             )
+
+        # Langfuse tool observability
+        try:
+            from ..observability.langfuse import is_langfuse_enabled
+
+            if is_langfuse_enabled():
+                from ..agents.middlewares import LangfuseToolSpanMiddleware
+
+                mws.append(LangfuseToolSpanMiddleware())
+        except Exception:
+            _logger.debug(
+                "LangfuseToolSpanMiddleware not created",
+                exc_info=True,
+            )
+
+        # Plugin-registered middlewares
+        from ..plugins.registry import PluginRegistry
+
+        registry = PluginRegistry()
+        for reg in registry.get_middleware_factories():
+            try:
+                mw = reg.factory(ctx, agent_config)
+                if mw is not None:
+                    mws.append(mw)
+            except Exception:
+                _logger.warning(
+                    "plugin %s middleware factory failed",
+                    reg.plugin_id,
+                    exc_info=True,
+                )
 
         return mws
 

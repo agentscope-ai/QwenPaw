@@ -148,6 +148,22 @@ class ModelConfigRequest(BaseModel):
             "These override provider-level generate_kwargs."
         ),
     )
+    preserve_thinking: Optional[bool] = Field(
+        default=None,
+        description="Whether to relay reasoning_content in subsequent turns.",
+    )
+    thinking_enabled: Optional[bool] = Field(
+        default=None,
+        description="Enable/disable thinking for this model.",
+    )
+    thinking_budget: Optional[int] = Field(
+        default=None,
+        description="Token budget for thinking.",
+    )
+    reasoning_effort: Optional[str] = Field(
+        default=None,
+        description="Reasoning effort level (low/medium/high).",
+    )
 
 
 def _validate_model_slot(
@@ -575,6 +591,10 @@ async def configure_model(
                 "generate_kwargs": body.generate_kwargs,
                 "max_tokens": body.max_tokens,
                 "max_input_length": body.max_input_length,
+                "preserve_thinking": body.preserve_thinking,
+                "thinking_enabled": body.thinking_enabled,
+                "thinking_budget": body.thinking_budget,
+                "reasoning_effort": body.reasoning_effort,
             },
         )
     except (ValueError, AppBaseException) as exc:

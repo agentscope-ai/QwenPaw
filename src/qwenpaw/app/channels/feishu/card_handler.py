@@ -42,7 +42,6 @@ from typing import (
 from .card_templates import (
     TOOL_GUARD_ACTION_TYPE,
     build_tool_guard_approval_card,
-    build_tool_guard_compact_card,
     build_tool_guard_resolved_card,
     build_tool_guard_toast,
     parse_tool_guard_action_value,
@@ -154,17 +153,11 @@ class FeishuCardHandler:
         to_handle: str,
         event: Any,
         send_meta: Dict[str, Any],
-        *,
-        compact: bool = False,
     ) -> bool:
         """Render ``event`` as an interactive card if any kind matches.
 
         Returns ``True`` when a card was sent (the caller should then
         skip the default text/post rendering), ``False`` otherwise.
-
-        When ``compact=True`` (streaming mode), the render function
-        receives ``compact=True`` so it can produce a minimal card
-        (e.g. buttons only, no body text).
         """
         meta = self._extract_meta(event)
         if meta is None:
@@ -178,7 +171,6 @@ class FeishuCardHandler:
                 event,
                 send_meta,
                 meta,
-                compact=compact,
             )
         except Exception:  # pragma: no cover - defensive
             logger.exception(
@@ -233,15 +225,9 @@ class FeishuCardHandler:
         event: Any,
         send_meta: Dict[str, Any],
         meta: Dict[str, Any],
-        *,
-        compact: bool = False,
+        **_kwargs: Any,
     ) -> bool:
-        """Send a tool-guard approval interactive card.
-
-        When ``compact=True`` (streaming mode), send a minimal card with
-        only the header and approve/deny buttons — the full approval
-        body has already been rendered in the streaming card.
-        """
+        """Send a tool-guard approval interactive card."""
         if not meta.get("approval_request_id"):
             return False
         ch = self._channel
@@ -262,12 +248,7 @@ class FeishuCardHandler:
             receive_id=receive_id,
             receive_id_type=receive_id_type,
         )
-        builder = (
-            build_tool_guard_compact_card
-            if compact
-            else build_tool_guard_approval_card
-        )
-        content = builder(
+        content = build_tool_guard_approval_card(
             request_id=str(meta.get("approval_request_id") or ""),
             tool_name=str(meta.get("tool_name") or "tool"),
             severity=str(meta.get("severity") or "medium"),

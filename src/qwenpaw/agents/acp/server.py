@@ -12,6 +12,7 @@ sub-agent delegation, etc.).
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 from pathlib import Path
 from typing import Any
@@ -61,6 +62,7 @@ from acp.schema import (
     SseMcpServer,
     TextContentBlock,
     ToolCallUpdate,
+    UsageUpdate,
 )
 from qwenpaw.schemas import (
     AgentRequest,
@@ -145,6 +147,21 @@ class _EnvelopeTracker:
         self._reasoning_msg_ids: set[str] = set()
         self._streamed_text_msg_ids: set[str] = set()
 
+    @staticmethod
+    def _tool_raw_input(data: dict[str, Any]) -> Any:
+        arguments = data.get("arguments")
+        if arguments is None:
+            return None
+        if isinstance(arguments, str):
+            stripped = arguments.strip()
+            if not stripped:
+                return None
+            try:
+                return json.loads(stripped)
+            except ValueError:
+                return stripped
+        return arguments
+
     # pylint: disable=too-many-return-statements, too-many-branches
     def process(
         self,
@@ -191,6 +208,7 @@ class _EnvelopeTracker:
                                     ),
                                     str(data.get("name") or "tool"),
                                     status="in_progress",
+                                    raw_input=self._tool_raw_input(data),
                                 ),
                             ]
                 return []
@@ -412,13 +430,18 @@ class QwenPawACPAgent(Agent):
         try:
             from ...modes.coding import CodingMode
             from ...modes.mission import MissionMode
+            from ...modes.goal import GoalMode
 
             kwargs["builtin_mode_clses"] = [
                 CodingMode,
                 MissionMode,
+                GoalMode,
             ]
         except Exception:
-            logger.debug("ACP bootstrap: modes skipped", exc_info=True)
+            logger.debug(
+                "ACP bootstrap: modes skipped",
+                exc_info=True,
+            )
 
         return kwargs
 
@@ -935,6 +958,35 @@ class QwenPawACPAgent(Agent):
                     field_meta=usage_meta,
                 ),
             )
+            # Also surface the *current* context occupancy (prompt size vs.
+            # window) over the native ACP ``usage_update`` channel so the TUI
+            # can render a live context-usage bar. ``used`` is the tokens in
+            # context right now (the last call's input); ``size`` is the model
+            # context window. This is distinct from the cumulative ``tok``
+            # tallies carried in the chunk meta above. We emit even with 0s so
+            # the bar clears deterministically when the window or occupancy
+            # becomes unknown (e.g. after a model switch) — the TUI treats 0 as
+            # "hide the bar".
+            usage = usage_meta.get("usage", {})
+            used = int(usage.get("inputTokens", 0) or 0)
+            size = int(usage.get("contextSize", 0) or 0)
+            # Carry the compaction threshold (if known) via ``_meta`` so the
+            # TUI can mark it; usage_update has no field for it. Only attach it
+            # when there's a meaningful bar to mark.
+            ratio = usage.get("compactRatio")
+            field_meta = None
+            valid_ratio = isinstance(ratio, (int, float)) and 0 < ratio < 1
+            if used > 0 and size > 0 and valid_ratio:
+                field_meta = {"compactRatio": float(ratio)}
+            await self._conn.session_update(
+                session_id=session_id,
+                update=UsageUpdate(
+                    sessionUpdate="usage_update",
+                    used=used,
+                    size=size,
+                    field_meta=field_meta,
+                ),
+            )
 
     @staticmethod
     def _pop_session_usage(
@@ -964,6 +1016,12 @@ class QwenPawACPAgent(Agent):
                 "outputTokens": raw.get("completion_tokens", 0),
                 "totalTokens": raw.get("total_tokens", 0),
                 "model": raw.get("model_name") or "",
+                # Context window, so the UI can show how full the *current*
+                # context is (inputTokens / contextSize). 0 = unknown.
+                "contextSize": raw.get("context_size", 0),
+                # Auto-compaction threshold (0-1) so the UI can mark it.
+                # None when compaction is disabled/unknown.
+                "compactRatio": raw.get("compact_threshold"),
             },
         }
 
@@ -983,24 +1041,57 @@ class QwenPawACPAgent(Agent):
             return None
         return {ACP_AGENT_META_KEY: agent_id} if agent_id else None
 
-    @staticmethod
-    def _build_available_commands() -> list[AvailableCommand]:
-        """Build the curated slash-command list advertised to ACP clients."""
+    def _build_available_commands(
+        self,
+    ) -> list[AvailableCommand]:
+        """Build slash-command list from static + workspace registry."""
         descriptions: dict[str, str] = {
             **SYSTEM_COMMAND_DESCRIPTIONS,
             "model": "Show or switch AI model",
             "skills": (
-                "List chat-available skills and expose explicit skill commands"
+                "List chat-available skills"
+                " and expose explicit skill commands"
             ),
         }
-        return [
-            AvailableCommand(
-                name=name,
-                description=descriptions.get(name, ""),
+        seen: set[str] = set()
+        result: list[AvailableCommand] = []
+        for name in _ADVERTISED_COMMAND_ORDER:
+            if name in _ACP_REDUNDANT_COMMANDS:
+                continue
+            seen.add(name)
+            result.append(
+                AvailableCommand(
+                    name=name,
+                    description=descriptions.get(name, ""),
+                ),
             )
-            for name in _ADVERTISED_COMMAND_ORDER
-            if name not in _ACP_REDUNDANT_COMMANDS
-        ]
+        ws = self._workspace
+        if ws is not None:
+            registry = getattr(
+                getattr(ws, "plugins", None),
+                "slash_command_registry",
+                None,
+            )
+            if registry is not None:
+                for cmd_name in registry.names():
+                    if cmd_name in seen:
+                        continue
+                    if cmd_name in _ACP_REDUNDANT_COMMANDS:
+                        continue
+                    seen.add(cmd_name)
+                    match = registry.resolve(
+                        f"/{cmd_name}",
+                    )
+                    desc = ""
+                    if match:
+                        desc = match[0].help_text or ""
+                    result.append(
+                        AvailableCommand(
+                            name=cmd_name,
+                            description=desc,
+                        ),
+                    )
+        return result
 
     async def _report_prompt_error(
         self,

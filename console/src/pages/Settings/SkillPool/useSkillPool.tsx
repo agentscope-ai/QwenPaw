@@ -95,6 +95,10 @@ export function useSkillPool() {
     [],
   );
   const [configText, setConfigText] = useState("{}");
+  // Auto-update is staged in the edit drawer and applied on Save (like
+  // channels/tags/config); the card has a separate immediate quick-toggle.
+  const [autoUpdateEnabled, setAutoUpdateEnabled] = useState(false);
+  const [autoUpdateTargets, setAutoUpdateTargets] = useState<string[]>([]);
   const zipInputRef = useRef<HTMLInputElement>(null);
   const [importBuiltinModalOpen, setImportBuiltinModalOpen] = useState(false);
   const [builtinSources, setBuiltinSources] = useState<BuiltinImportSpec[]>([]);
@@ -260,6 +264,8 @@ export function useSkillPool() {
     setMode("create");
     setDrawerContent("");
     setConfigText("{}");
+    setAutoUpdateEnabled(false);
+    setAutoUpdateTargets([]);
     form.resetFields();
     form.setFieldsValue({
       name: "",
@@ -331,6 +337,8 @@ export function useSkillPool() {
     setActiveSkill(skill);
     setDrawerContent(skill.content);
     setConfigText(JSON.stringify(skill.config || {}, null, 2));
+    setAutoUpdateEnabled(Boolean(skill.auto_update));
+    setAutoUpdateTargets(skill.auto_update_targets ?? []);
     form.setFieldsValue({
       name: skill.name,
       content: skill.content,
@@ -663,6 +671,32 @@ export function useSkillPool() {
     [closeDrawer, confirmOverwrite, loadData, message, t],
   );
 
+  const handleToggleAutoUpdate = useCallback(
+    async (
+      skill: PoolSkillSpec,
+      enabled: boolean,
+      targets: string[] | null = null,
+    ) => {
+      try {
+        await api.updatePoolSkillAutoUpdate(skill.name, { enabled, targets });
+        message.success(
+          enabled
+            ? t("skillPool.autoUpdateEnabled", { name: skill.name })
+            : t("skillPool.autoUpdateDisabled", { name: skill.name }),
+        );
+        invalidateSkillCache({ pool: true, workspaces: true });
+        await loadData(true);
+      } catch (error) {
+        message.error(
+          error instanceof Error
+            ? error.message
+            : t("skillPool.autoUpdateFailed"),
+        );
+      }
+    },
+    [loadData, message, t],
+  );
+
   const handleSavePoolSkill = async () => {
     const values = await form.validateFields().catch(() => null);
     if (!values) return;
@@ -682,6 +716,53 @@ export function useSkillPool() {
     const skillContent = drawerContent || values.content;
 
     if (!skillName || !skillContent.trim()) return;
+
+    // A rename counts as an update: for auto-update skills it migrates every
+    // agent that has it.
+    // Non-auto-update skills leave agent copies untouched, so no confirm.
+    if (
+      mode === "edit" &&
+      activeSkill &&
+      skillName !== activeSkill.name &&
+      activeSkill.auto_update
+    ) {
+      const oldName = activeSkill.name;
+      const pinned =
+        Array.isArray(activeSkill.auto_update_targets) &&
+        activeSkill.auto_update_targets.length
+          ? new Set(activeSkill.auto_update_targets)
+          : null;
+      const affected = workspaces.filter(
+        (ws) =>
+          (ws.skills || []).some((s) => s.name === oldName) &&
+          (!pinned || pinned.has(ws.agent_id)),
+      );
+      if (affected.length > 0) {
+        const confirmed = await confirmOverwrite(
+          t("skillPool.renameAffectsTitle"),
+          <div style={{ display: "grid", gap: 8 }}>
+            <div>
+              {t("skillPool.renameAffectsContent", {
+                from: oldName,
+                to: skillName,
+                count: affected.length,
+              })}
+            </div>
+            <ul style={{ margin: 0, paddingLeft: 20 }}>
+              {affected.map((ws) => (
+                <li key={ws.agent_id}>
+                  {getAgentDisplayName(
+                    { id: ws.agent_id, name: ws.agent_name ?? "" },
+                    t,
+                  )}
+                </li>
+              ))}
+            </ul>
+          </div>,
+        );
+        if (!confirmed) return;
+      }
+    }
 
     const persistPoolSkill = async (overwrite = false) => {
       const result =
@@ -710,7 +791,24 @@ export function useSkillPool() {
       if (tagsChanged) {
         await api.updatePoolSkillTags(result.name || skillName, newTags);
       }
-      if (result.mode === "noop" && !tagsChanged) {
+      const finalName = result.name || skillName;
+      const prevAutoEnabled =
+        mode === "edit" ? Boolean(activeSkill?.auto_update) : false;
+      const prevAutoTargets =
+        (mode === "edit" ? activeSkill?.auto_update_targets : []) ?? [];
+      const autoUpdateChanged =
+        autoUpdateEnabled !== prevAutoEnabled ||
+        JSON.stringify(autoUpdateTargets) !== JSON.stringify(prevAutoTargets);
+      if (autoUpdateChanged) {
+        await api.updatePoolSkillAutoUpdate(finalName, {
+          enabled: autoUpdateEnabled,
+          targets:
+            autoUpdateEnabled && autoUpdateTargets.length
+              ? autoUpdateTargets
+              : null,
+        });
+      }
+      if (result.mode === "noop" && !tagsChanged && !autoUpdateChanged) {
         closeDrawer();
         return;
       }
@@ -1019,6 +1117,10 @@ export function useSkillPool() {
     conflictRenameModal,
     setImportModalOpen,
     setConfigText,
+    autoUpdateEnabled,
+    autoUpdateTargets,
+    setAutoUpdateEnabled,
+    setAutoUpdateTargets,
     setShowMarkdown,
     setFilterOpen,
     setViewMode,
@@ -1036,6 +1138,7 @@ export function useSkillPool() {
     handleBroadcast,
     handleImportBuiltins,
     handleBuiltinLanguageSwitch,
+    handleToggleAutoUpdate,
     handleSavePoolSkill,
     handleDelete,
     handleZipImport,

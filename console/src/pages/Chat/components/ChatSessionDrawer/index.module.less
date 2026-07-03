@@ -68,6 +68,26 @@
   padding: 0 12px 12px;
 }
 
+/* Search bar area */
+.searchContainer {
+  flex-shrink: 0;
+  padding: 0 12px 8px;
+}
+
+.searchInput {
+  border-radius: 6px;
+  font-size: 12px;
+}
+
+.emptyState {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px 12px;
+  font-size: 12px;
+  color: var(--colorTextTertiary, rgba(0, 0, 0, 0.45));
+}
+
 .createButton {
   width: 100%;
   height: 36px;
@@ -112,6 +132,36 @@
   &::-webkit-scrollbar {
     display: none;
   }
+}
+
+/* Date group label (clickable to collapse/expand) */
+.groupLabel {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 8px 8px 4px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+  color: var(--colorTextTertiary, rgba(0, 0, 0, 0.45));
+  user-select: none;
+  transition: color 0.15s;
+
+  &:hover {
+    color: var(--colorTextSecondary, rgba(0, 0, 0, 0.65));
+  }
+}
+
+.groupChevron {
+  display: inline-flex;
+  align-items: center;
+  transition: transform 0.2s ease;
+  flex-shrink: 0;
 }
 
 /* Top fade gradient overlay */

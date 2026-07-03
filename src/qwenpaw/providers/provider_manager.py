@@ -68,25 +68,48 @@ MODELSCOPE_MODELS: List[ModelInfo] = [
 
 DASHSCOPE_MODELS: List[ModelInfo] = [
     ModelInfo(
-        id="qwen3-max",
-        name="Qwen3 Max",
+        id="qwen3.7-max",
+        name="Qwen3.7 Max",
         supports_image=False,
         supports_video=False,
         probe_source="documentation",
+        thinking_enabled=True,
     ),
     ModelInfo(
-        id="qwen3-235b-a22b-thinking-2507",
-        name="Qwen3 235B A22B Thinking",
-        supports_image=False,
-        supports_video=False,
+        id="qwen3.7-plus",
+        name="Qwen3.7 Plus",
+        supports_image=True,
+        supports_video=True,
         probe_source="documentation",
+        thinking_enabled=True,
     ),
     ModelInfo(
-        id="deepseek-v3.2",
-        name="DeepSeek-V3.2",
+        id="qwen3.6-plus",
+        name="Qwen3.6 Plus",
+        supports_image=True,
+        supports_video=True,
+        probe_source="documentation",
+        thinking_enabled=True,
+    ),
+    ModelInfo(
+        id="deepseek-v4-pro",
+        name="DeepSeek-V4 Pro",
         supports_image=False,
         supports_video=False,
         probe_source="documentation",
+        thinking_enabled=True,
+        thinking_param_style="effort",
+        reasoning_effort_options=["high", "max"],
+    ),
+    ModelInfo(
+        id="glm-5.2",
+        name="GLM-5.2",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+        thinking_enabled=True,
+        thinking_param_style="effort",
+        reasoning_effort_options=["high", "max"],
     ),
 ]
 
@@ -109,10 +132,66 @@ MIMO_TOKENPLAN_MODELS: List[ModelInfo] = [
 
 ALIYUN_TOKENPLAN_MODELS: List[ModelInfo] = [
     ModelInfo(
+        id="qwen3.7-plus",
+        name="Qwen3.7 Plus",
+        supports_image=True,
+        supports_video=True,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="qwen3.7-max",
+        name="Qwen3.7 Max",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+    ),
+    ModelInfo(
         id="qwen3.6-plus",
         name="Qwen3.6 Plus",
         supports_image=True,
         supports_video=True,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="qwen3.6-flash",
+        name="Qwen3.6 Flash",
+        supports_image=True,
+        supports_video=True,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="deepseek-v4-pro",
+        name="DeepSeek-V4 Pro",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="deepseek-v4-flash",
+        name="DeepSeek-V4 Flash",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="deepseek-v3.2",
+        name="DeepSeek-V3.2",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="glm-5.2",
+        name="GLM-5.2",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="glm-5.1",
+        name="GLM-5.1",
+        supports_image=False,
+        supports_video=False,
         probe_source="documentation",
     ),
     ModelInfo(
@@ -130,10 +209,10 @@ ALIYUN_TOKENPLAN_MODELS: List[ModelInfo] = [
         probe_source="documentation",
     ),
     ModelInfo(
-        id="deepseek-v3.2",
-        name="DeepSeek-V3.2",
-        supports_image=False,
-        supports_video=False,
+        id="kimi-k2.6",
+        name="Kimi K2.6",
+        supports_image=True,
+        supports_video=True,
         probe_source="documentation",
     ),
     ModelInfo(
@@ -158,6 +237,20 @@ ALIYUN_CODINGPLAN_MODELS: List[ModelInfo] = [
         name="Qwen3.5 Plus",
         supports_image=True,
         supports_video=True,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="glm-5.2",
+        name="GLM-5.2",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="glm-5.1",
+        name="GLM-5.1",
+        supports_image=False,
+        supports_video=False,
         probe_source="documentation",
     ),
     ModelInfo(
@@ -223,6 +316,13 @@ ZHIPU_MODELS: List[ModelInfo] = [
     ModelInfo(
         id="glm-5",
         name="glm-5",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="glm-5.2",
+        name="glm-5.2",
         supports_image=False,
         supports_video=False,
         probe_source="documentation",
@@ -2128,21 +2228,24 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
                 # extra_models (models that were user-added but are now
                 # part of the built-in list).
                 stored_model_config: dict = {}
+                _per_model_keys = (
+                    "generate_kwargs",
+                    "max_tokens",
+                    "max_input_length",
+                    "preserve_thinking",
+                    "thinking_enabled",
+                    "thinking_budget",
+                    "reasoning_effort",
+                )
                 for m in provider.models:
                     stored_model_config[m.id] = {
-                        "generate_kwargs": m.generate_kwargs,
-                        "max_tokens": m.max_tokens,
-                        "max_input_length": m.max_input_length,
+                        k: getattr(m, k) for k in _per_model_keys
                     }
                 for m in provider.extra_models:
                     if m.id in builtin_model_ids:
                         stored_model_config.setdefault(
                             m.id,
-                            {
-                                "generate_kwargs": m.generate_kwargs,
-                                "max_tokens": m.max_tokens,
-                                "max_input_length": m.max_input_length,
-                            },
+                            {k: getattr(m, k) for k in _per_model_keys},
                         )
                 if stored_model_config:
                     for model in builtin.models:
@@ -2155,6 +2258,20 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
                             if cfg["max_input_length"] is not None:
                                 model.max_input_length = cfg[
                                     "max_input_length"
+                                ]
+                            if cfg.get("preserve_thinking") is not None:
+                                model.preserve_thinking = cfg[
+                                    "preserve_thinking"
+                                ]
+                            if cfg.get("thinking_enabled") is not None:
+                                model.thinking_enabled = cfg[
+                                    "thinking_enabled"
+                                ]
+                            if cfg.get("thinking_budget") is not None:
+                                model.thinking_budget = cfg["thinking_budget"]
+                            if cfg.get("reasoning_effort") is not None:
+                                model.reasoning_effort = cfg[
+                                    "reasoning_effort"
                                 ]
         # Load custom providers
         for provider_file in self.custom_path.glob("*.json"):

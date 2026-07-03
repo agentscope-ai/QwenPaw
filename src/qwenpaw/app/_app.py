@@ -38,6 +38,7 @@ from .routers import router as api_router, create_agent_scoped_router
 from .routers.agent_scoped import AgentContextMiddleware
 from .routers.approval import router as approval_router
 from .routers.coding_mode import router as coding_mode_router
+from .routers.loops import router as loops_router
 from .routers.tool_calls import router as tool_calls_router
 from .routers.voice import voice_router
 from ..envs import load_envs_into_environ
@@ -369,6 +370,24 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
                 ErrorNormalizeHook,
                 CancelCleanupHook,
             ]
+
+            try:
+                from ..hooks.observability.langfuse_hook import (
+                    LangfuseTraceHook,
+                    LangfuseTraceCleanupHook,
+                )
+
+                # pylint: disable=protected-access
+                workspace_registry._bootstrap_kwargs.setdefault(
+                    "builtin_hook_clses",
+                    [],
+                ).extend([LangfuseTraceHook, LangfuseTraceCleanupHook])
+            except Exception:
+                logger.debug(
+                    "Langfuse hooks not available",
+                    exc_info=True,
+                )
+
             logger.debug("Built-in lifecycle hooks collected")
         except Exception:
             logger.debug(
@@ -395,11 +414,13 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
         try:
             from ..modes.coding import CodingMode
             from ..modes.mission import MissionMode
+            from ..modes.goal import GoalMode
 
             # pylint: disable-next=protected-access
             workspace_registry._bootstrap_kwargs["builtin_mode_clses"] = [
                 CodingMode,
                 MissionMode,
+                GoalMode,
             ]
             logger.debug("Built-in modes collected")
         except Exception:
@@ -504,6 +525,9 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
                 provider_manager=provider_manager,
             )
             plugin_loader.registry.set_runtime_helpers(runtime_helpers)
+            plugin_loader.registry.set_workspace_manager(
+                workspace_registry,
+            )
 
             for (
                 provider_id,
@@ -596,6 +620,19 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
                     )
             except Exception as e:
                 logger.warning(f"Approval service setup skipped: {e}")
+
+            # ---- Skill pool auto-update sync ----
+            try:
+                from ..agents.skill_system import run_pool_auto_update_sync
+                from .routers.skills import post_auto_update_inbox
+
+                au_result = await asyncio.to_thread(run_pool_auto_update_sync)
+                await post_auto_update_inbox(au_result)
+            except Exception:
+                logger.warning(
+                    "Skill pool auto-update sync skipped on startup",
+                    exc_info=True,
+                )
 
             startup_elapsed = time.time() - startup_start_time
             logger.info(
@@ -833,6 +870,9 @@ app.include_router(approval_router, prefix="/api")
 
 # Coding Mode router: /api/coding-mode
 app.include_router(coding_mode_router, prefix="/api")
+
+# Loops router: /api/loops
+app.include_router(loops_router, prefix="/api")
 
 # Agent-scoped router: /api/agents/{agentId}/chats, etc.
 agent_scoped_router = create_agent_scoped_router()

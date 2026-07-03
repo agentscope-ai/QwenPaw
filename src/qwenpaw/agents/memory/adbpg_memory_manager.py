@@ -8,26 +8,34 @@ Context compaction is handled natively by AgentScope's
 memory storage and retrieval.
 """
 import asyncio
+import json
 import logging
-import threading
+import uuid
 from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 from agentscope.message import Msg, TextBlock
+from agentscope.message import ToolCallBlock, ToolCallState
+from agentscope.message import ToolResultBlock, ToolResultState
 from agentscope.tool import ToolChunk
-from agentscope.message import ToolResultState
 
 from .adbpg_client import (
     ADBPGConfig,
     ADBPGMemoryClient,
-    ConfigurationError,
-    reset_configured_connections,
 )
 from .adbpg_prompts import ADBPG_MEMORY_GUIDANCE_EN, ADBPG_MEMORY_GUIDANCE_ZH
 from .base_memory_manager import BaseMemoryManager, memory_registry
 from ...config.config import load_agent_config
+from ...constant import (
+    AUTO_MEMORY_SEARCH_MESSAGE_TAG,
+    AUTO_MEMORY_SEARCH_TEXT,
+    QWENPAW_MESSAGE_TAG_KEY,
+)
+from ...exceptions import ConfigurationException as ConfigurationError
 
 logger = logging.getLogger(__name__)
+MAX_QUERY_CHARS = 50
 
 
 @memory_registry.register("adbpg")
@@ -47,6 +55,7 @@ class ADBPGMemoryManager(BaseMemoryManager):
         self._effective_user_id: str = "shared"
         self._effective_run_id: str = "shared"
         self._persisted_msg_ids: set[str] = set()
+        self._pending_add_tasks: set[asyncio.Task[None]] = set()
 
     # ------------------------------------------------------------------
     # Abstract methods (required)
@@ -77,36 +86,15 @@ class ADBPGMemoryManager(BaseMemoryManager):
         )
 
         try:
-            api_mode = getattr(cfg, "api_mode", "sql")
-            if api_mode == "rest":
-                if not cfg.rest_api_key:
-                    raise ConfigurationError(
-                        "ADBPG REST API key not configured.",
-                    )
-            else:
-                if not cfg.host:
-                    raise ConfigurationError("ADBPG host not configured.")
+            if not cfg.rest_base_url.strip():
+                raise ConfigurationError("ADBPG REST base URL not configured.")
+            if not cfg.rest_api_key.strip():
+                raise ConfigurationError("ADBPG REST API key not configured.")
 
             config = ADBPGConfig(
-                host=cfg.host,
-                port=cfg.port,
-                user=cfg.user,
-                password=cfg.password,
-                dbname=cfg.dbname,
-                llm_model=cfg.llm_model,
-                llm_api_key=cfg.llm_api_key,
-                llm_base_url=cfg.llm_base_url,
-                embedding_model=cfg.embedding_model,
-                embedding_api_key=cfg.embedding_api_key,
-                embedding_base_url=cfg.embedding_base_url,
-                embedding_dims=cfg.embedding_dims,
                 search_timeout=cfg.search_timeout,
-                pool_minconn=cfg.pool_minconn,
-                pool_maxconn=cfg.pool_maxconn,
-                memory_isolation=cfg.memory_isolation,
-                api_mode=api_mode,
-                rest_api_key=cfg.rest_api_key,
-                rest_base_url=cfg.rest_base_url,
+                rest_api_key=cfg.rest_api_key.strip(),
+                rest_base_url=cfg.rest_base_url.strip(),
             )
         except Exception as e:
             logger.warning(
@@ -119,9 +107,7 @@ class ADBPGMemoryManager(BaseMemoryManager):
             return
 
         try:
-            reset_configured_connections()
             client = ADBPGMemoryClient(config)
-            client.configure()
             self._client = client
             logger.info(
                 "ADBPGMemoryManager started for agent '%s'.",
@@ -138,8 +124,28 @@ class ADBPGMemoryManager(BaseMemoryManager):
 
     async def close(self) -> bool:
         """Clean up resources."""
+        if self._pending_add_tasks:
+            await asyncio.gather(
+                *list(self._pending_add_tasks),
+                return_exceptions=True,
+            )
+            self._pending_add_tasks.clear()
+
+        client = self._client
         self._client = None
-        return True
+        if client is None:
+            return True
+        try:
+            await client.close()
+            return True
+        except Exception:
+            logger.exception("ADBPG close failed")
+            return False
+
+    def get_memory_config(self) -> Any:
+        """Return ADBPG memory configuration."""
+        agent_config = load_agent_config(self.agent_id)
+        return agent_config.running.adbpg_memory_config
 
     def get_memory_prompt(self) -> str:
         """Return ADBPG memory guidance prompt."""
@@ -171,7 +177,7 @@ class ADBPGMemoryManager(BaseMemoryManager):
         if not user_messages:
             return ""
         for single in user_messages:
-            self._fire_and_forget_add([single])
+            self._schedule_add([single])
         return (
             f"Persisted {len(user_messages)} user message(s) "
             f"to ADBPG for agent '{self.agent_id}'."
@@ -181,11 +187,73 @@ class ADBPGMemoryManager(BaseMemoryManager):
         self,
         messages: list[Msg] | Msg,
         agent_name: str = "",
-        **kwargs,
+        **kwargs: Any,
     ) -> dict | None:
-        """ADBPG memory is available through the explicit search tool."""
-        del messages, agent_name, kwargs
-        return None
+        """Auto-search ADBPG memory before the model call."""
+        del kwargs
+        if self._client is None:
+            return None
+
+        memory_cfg = self.get_memory_config()
+        search_cfg = getattr(memory_cfg, "auto_memory_search_config", None)
+        if not getattr(search_cfg, "enabled", False):
+            return None
+
+        msgs = [messages] if isinstance(messages, Msg) else list(messages)
+        query = self._build_query(msgs)
+        if not query:
+            return None
+
+        max_results = max(1, int(getattr(search_cfg, "max_results", 3)))
+        result = await self.memory_search(
+            query=query,
+            max_results=max_results,
+        )
+        text = self._tool_chunk_text(result).strip()
+        if not text or text == "No relevant memories found.":
+            return None
+
+        tool_call_id = uuid.uuid4().hex
+        tool_input = {
+            "query": query,
+            "max_results": max_results,
+        }
+        assistant_msg = Msg(
+            name=agent_name or self.agent_id,
+            role="assistant",
+            metadata={
+                QWENPAW_MESSAGE_TAG_KEY: AUTO_MEMORY_SEARCH_MESSAGE_TAG,
+            },
+            content=[
+                TextBlock(text=AUTO_MEMORY_SEARCH_TEXT),
+                ToolCallBlock(
+                    id=tool_call_id,
+                    name="memory_search",
+                    input=json.dumps(tool_input, ensure_ascii=False),
+                    state=ToolCallState.FINISHED,
+                ),
+            ],
+        )
+        tool_result_msg = Msg(
+            name=agent_name or self.agent_id,
+            role="assistant",
+            metadata={
+                QWENPAW_MESSAGE_TAG_KEY: AUTO_MEMORY_SEARCH_MESSAGE_TAG,
+            },
+            content=[
+                ToolResultBlock(
+                    id=tool_call_id,
+                    name="memory_search",
+                    output=[TextBlock(text=text)],
+                    state=ToolResultState.SUCCESS,
+                ),
+            ],
+        )
+        return {
+            "query": query,
+            "text": text,
+            "msg": msgs + [assistant_msg, tool_result_msg],
+        }
 
     async def auto_memory(
         self,
@@ -211,7 +279,7 @@ class ADBPGMemoryManager(BaseMemoryManager):
 
         user_messages = self._filter_user_messages(new_messages)
         for single in user_messages:
-            self._fire_and_forget_add([single])
+            self._schedule_add([single])
 
         # Track persisted message IDs
         for msg in new_messages:
@@ -250,15 +318,11 @@ class ADBPGMemoryManager(BaseMemoryManager):
         # Source 1: ADBPG semantic search
         if self._client is not None:
             try:
-                loop = asyncio.get_event_loop()
-                results = await loop.run_in_executor(
-                    None,
-                    lambda: self._client.search_memory(
-                        query=query,
-                        user_id=self._effective_user_id,
-                        agent_id=self._effective_agent_id,
-                        limit=max_results,
-                    ),
+                results = await self._client.search_memory(
+                    query=query,
+                    user_id=self._effective_user_id,
+                    agent_id=self._effective_agent_id,
+                    limit=max_results,
                 )
                 for item in results or []:
                     content = item.get("content", item.get("memory", ""))
@@ -274,9 +338,13 @@ class ADBPGMemoryManager(BaseMemoryManager):
 
         # Source 2: Local memory files (keyword match)
         try:
-            local_hits = self._search_local_memory_files(
-                query,
-                max_results=max(max_results - len(parts), 3),
+            loop = asyncio.get_running_loop()
+            local_hits = await loop.run_in_executor(
+                None,
+                lambda: self._search_local_memory_files(
+                    query,
+                    max_results=max(max_results - len(parts), 3),
+                ),
             )
             for filepath, snippet in local_hits:
                 idx = len(parts) + 1
@@ -306,6 +374,32 @@ class ADBPGMemoryManager(BaseMemoryManager):
     # ------------------------------------------------------------------
 
     @staticmethod
+    def _build_query(messages: list[Msg]) -> str:
+        parts = []
+        total = 0
+        for msg in reversed(messages):
+            if msg.role not in {"user", "assistant"}:
+                continue
+            text = (msg.get_text_content() or "").strip()
+            if not text:
+                continue
+            remaining = MAX_QUERY_CHARS - total - (1 if parts else 0)
+            if remaining <= 0:
+                break
+            parts.insert(0, text[-remaining:])
+            total += min(len(text), remaining) + (1 if len(parts) > 1 else 0)
+        return " ".join(parts).strip()
+
+    @staticmethod
+    def _tool_chunk_text(chunk: ToolChunk) -> str:
+        parts = []
+        for block in chunk.content or []:
+            text = getattr(block, "text", "")
+            if text:
+                parts.append(str(text))
+        return "\n".join(parts)
+
+    @staticmethod
     def _filter_user_messages(messages: list[Msg]) -> list[dict]:
         """Extract role=user messages for ADBPG storage."""
         return [
@@ -321,8 +415,8 @@ class ADBPGMemoryManager(BaseMemoryManager):
             if msg.role == "user"
         ]
 
-    def _fire_and_forget_add(self, user_messages: list[dict]) -> None:
-        """Store messages to ADBPG in a background daemon thread."""
+    def _schedule_add(self, user_messages: list[dict]) -> None:
+        """Schedule async memory persistence without blocking the reply."""
         if self._client is None:
             return
         agent_id = self._effective_agent_id
@@ -330,9 +424,9 @@ class ADBPGMemoryManager(BaseMemoryManager):
         run_id = self._effective_run_id
         client = self._client
 
-        def _do_add() -> None:
+        async def _do_add() -> None:
             try:
-                client.add_memory(
+                await client.add_memory(
                     messages=user_messages,
                     user_id=user_id,
                     run_id=run_id,
@@ -341,8 +435,9 @@ class ADBPGMemoryManager(BaseMemoryManager):
             except Exception as e:
                 logger.error(f"Background memory add failed: {e}")
 
-        thread = threading.Thread(target=_do_add, daemon=True)
-        thread.start()
+        task = asyncio.create_task(_do_add())
+        self._pending_add_tasks.add(task)
+        task.add_done_callback(self._pending_add_tasks.discard)
 
     def _search_local_memory_files(
         self,

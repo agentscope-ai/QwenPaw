@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field
 
 from ..approvals import get_approval_service
 from ..approvals.display import approval_display_fields
-from ...security.tool_guard.approval import ApprovalDecision
+from ...security.tool_guard.approval import ApprovalDecision, ApprovalScope
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +30,14 @@ class ApprovalActionRequest(BaseModel):
     reason: Optional[str] = Field(
         None,
         description="Optional reason for denial",
+    )
+    scope: Optional[str] = Field(
+        None,
+        description=(
+            "Approval scope for approve actions: 'exact' (record the "
+            "literal target) or 'similar' (record the generalized "
+            "pattern). Omitted/unknown defaults to 'exact'."
+        ),
     )
 
 
@@ -95,10 +103,24 @@ async def post_approval_approve(
             detail="Root session mismatch: cannot approve other session trees",
         )
 
+    # Parse the approval scope. Unknown / omitted values fall back to None,
+    # which the governance consumer treats as EXACT (least-privilege).
+    scope: ApprovalScope | None = None
+    if body.scope:
+        try:
+            scope = ApprovalScope(body.scope.strip().lower())
+        except ValueError:
+            logger.info(
+                "Approval approve: unknown scope %r, defaulting to exact",
+                body.scope,
+            )
+            scope = None
+
     # Resolve the Future
     resolved = await svc.resolve_request(
         body.request_id,
         ApprovalDecision.APPROVED,
+        scope=scope,
     )
 
     logger.info(

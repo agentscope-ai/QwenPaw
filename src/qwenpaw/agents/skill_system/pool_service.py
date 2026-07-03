@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 import shutil
 from pathlib import Path
 from typing import Any
@@ -13,10 +14,12 @@ from ..utils.file_handling import read_text_file_with_encoding_fallback
 from .models import SkillInfo
 from .registry import (
     ensure_skill_pool_initialized,
+    list_workspaces,
 )
 from .store import (
     build_import_conflict,
     build_skill_metadata,
+    compute_skill_md_hash,
     copy_skill_dir,
     default_pool_manifest,
     default_workspace_manifest,
@@ -43,6 +46,8 @@ from .store import (
     validate_skill_content,
     write_skill_to_dir,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def _register_pool_skill_entry(
@@ -101,6 +106,14 @@ def _register_pool_skill_entry(
         ).strip()
         if builtin_source_name:
             entry["builtin_source_name"] = builtin_source_name
+
+    for au_key in (
+        "auto_update",
+        "auto_update_targets",
+        "auto_update_synced_hash",
+    ):
+        if au_key in preserve_from:
+            entry[au_key] = preserve_from.get(au_key)
 
     payload["skills"][skill_name] = entry
 
@@ -401,6 +414,49 @@ class SkillPoolService:
             _update,
         )
 
+    def set_skill_auto_update(
+        self,
+        name: str,
+        *,
+        enabled: bool,
+        targets: list[str] | None,
+    ) -> dict[str, Any] | None:
+        """Enable/disable auto-update for a pool skill and persist targets."""
+
+        try:
+            skill_name = normalize_skill_dir_name(name)
+        except SkillsError:
+            return None
+
+        normalized_targets = [str(t) for t in (targets or [])]
+
+        def _update(payload: dict[str, Any]) -> bool:
+            entry = payload.get("skills", {}).get(skill_name)
+            if entry is None:
+                return False
+            entry["auto_update"] = bool(enabled)
+            if normalized_targets:
+                entry["auto_update_targets"] = normalized_targets
+            else:
+                entry.pop("auto_update_targets", None)
+            if enabled:
+                # Force the immediate sync below to reconcile the current
+                # target set even when the content hash is unchanged (e.g. the
+                # user just added a new target agent).
+                entry.pop("auto_update_synced_hash", None)
+            return True
+
+        updated = mutate_json(
+            get_pool_skill_manifest_path(),
+            default_pool_manifest(),
+            _update,
+        )
+        if not updated:
+            return None
+        if enabled:
+            return run_pool_auto_update_sync(skill_name=skill_name)
+        return {"synced": [], "failed": [], "checked": 0}
+
     def get_edit_target_name(
         self,
         skill_name: str,
@@ -607,11 +663,130 @@ class SkillPoolService:
             default_pool_manifest(),
             _update,
         )
+
+        migration = (
+            self.rename_in_workspaces(
+                skill_name,
+                final_name,
+                targets=entry.get("auto_update_targets"),
+            )
+            if entry.get("auto_update")
+            else {"renamed": [], "overwritten": []}
+        )
         return {
             "success": True,
             "mode": "rename",
             "name": final_name,
+            "renamed": migration["renamed"],
+            "overwritten": migration["overwritten"],
         }
+
+    def rename_in_workspaces(
+        self,
+        old_name: str,
+        new_name: str,
+        *,
+        targets: list[str] | None = None,
+    ) -> dict[str, list[str]]:
+        """Migrate auto-update copies of ``old_name`` to ``new_name``."""
+        try:
+            old_name = normalize_skill_dir_name(old_name)
+            new_name = normalize_skill_dir_name(new_name)
+        except SkillsError:
+            return {"renamed": [], "overwritten": []}
+        if old_name == new_name:
+            return {"renamed": [], "overwritten": []}
+        source_dir = resolve_pool_skill_dir(new_name)
+        if source_dir is None:
+            return {"renamed": [], "overwritten": []}
+
+        pinned = (
+            {str(t) for t in targets}
+            if isinstance(targets, list) and targets
+            else None
+        )
+        renamed: list[str] = []
+        overwritten: list[str] = []
+        for ws in list_workspaces():
+            agent_id = str(ws.get("agent_id", "") or "")
+            if pinned is not None and agent_id not in pinned:
+                continue
+            workspace_dir = Path(ws["workspace_dir"])
+            skills = read_skill_manifest(workspace_dir).get("skills", {})
+            old_entry = skills.get(old_name)
+            if not isinstance(old_entry, dict):
+                continue
+            if new_name in skills:
+                # A rename is an update: overwrite any existing target skill.
+                overwritten.append(agent_id)
+                logger.info(
+                    "rename: overwriting existing '%s' in workspace '%s'",
+                    new_name,
+                    agent_id,
+                )
+
+            workspace_skills_dir = get_workspace_skills_dir(workspace_dir)
+            target_dir = safe_skill_dir(workspace_skills_dir, new_name)
+            old_dir = safe_skill_dir(workspace_skills_dir, old_name)
+            try:
+                target_dir.parent.mkdir(parents=True, exist_ok=True)
+                with staged_skill_dir(new_name) as staged_dir:
+                    copy_skill_dir(source_dir, staged_dir)
+                    scan_skill_dir_or_raise(staged_dir, new_name)
+                    copy_skill_dir(staged_dir, target_dir)
+            except Exception:
+                logger.warning(
+                    "rename: failed migrating '%s'->'%s' in workspace '%s'",
+                    old_name,
+                    new_name,
+                    agent_id,
+                    exc_info=True,
+                )
+                continue
+
+            def _update(
+                payload: dict[str, Any],
+                _old: dict[str, Any] = old_entry,
+                _target: Path = target_dir,
+            ) -> None:
+                payload.setdefault("skills", {})
+                metadata = build_skill_metadata(
+                    new_name,
+                    _target,
+                    source=str(
+                        _old.get("source", "customized") or "customized",
+                    ),
+                    protected=False,
+                )
+                ws_entry: dict[str, Any] = {
+                    "enabled": bool(_old.get("enabled", True)),
+                    "channels": _old.get("channels") or ["all"],
+                    "source": metadata["source"],
+                    "installed_from": str(
+                        _old.get("installed_from", "") or "",
+                    ),
+                    "config": _old.get("config") or {},
+                    "metadata": metadata,
+                    "requirements": metadata["requirements"],
+                    "updated_at": metadata["updated_at"],
+                }
+                if _old.get("builtin_language"):
+                    ws_entry["builtin_language"] = _old["builtin_language"]
+                if _old.get("tags") is not None:
+                    ws_entry["tags"] = _old["tags"]
+                payload["skills"][new_name] = ws_entry
+                payload["skills"].pop(old_name, None)
+
+            mutate_json(
+                get_workspace_skill_manifest_path(workspace_dir),
+                default_workspace_manifest(),
+                _update,
+            )
+            if old_dir.exists():
+                shutil.rmtree(old_dir, ignore_errors=True)
+            renamed.append(agent_id)
+
+        return {"renamed": renamed, "overwritten": overwritten}
 
     def upload_from_workspace(
         self,
@@ -935,3 +1110,154 @@ class SkillPoolService:
             "workspace_name": workspace_identity["workspace_name"],
             "name": final_name,
         }
+
+
+# ---------------------------------------------------------------------------
+# Auto-update: propagate changed pool skills into target workspaces
+# ---------------------------------------------------------------------------
+
+
+def _resolve_auto_update_targets(
+    skill_name: str,
+    entry: dict[str, Any],
+    workspaces: list[dict[str, str]],
+) -> list[dict[str, str]]:
+    """Resolve which workspaces an auto-update skill should sync to."""
+    explicit = entry.get("auto_update_targets")
+    if isinstance(explicit, list) and explicit:
+        wanted = {str(agent_id) for agent_id in explicit}
+        return [ws for ws in workspaces if ws.get("agent_id") in wanted]
+
+    targets: list[dict[str, str]] = []
+    for ws in workspaces:
+        try:
+            ws_manifest = read_skill_manifest(Path(ws["workspace_dir"]))
+        except Exception:
+            continue
+        if skill_name in (ws_manifest.get("skills") or {}):
+            targets.append(ws)
+    return targets
+
+
+def _push_auto_update_skill(
+    service: SkillPoolService,
+    name: str,
+    targets: list[dict[str, str]],
+) -> dict[str, list[str]]:
+    """Push one pool skill into each target workspace.
+
+    Returns ``{"ok": [agent labels], "failed": [agent labels]}``.
+    """
+    ok: list[str] = []
+    failed: list[str] = []
+    for ws in targets:
+        label = str(ws.get("agent_name") or ws.get("agent_id", "") or "")
+        ws_dir = Path(ws["workspace_dir"])
+        try:
+            result = service.download_to_workspace(
+                skill_name=name,
+                workspace_dir=ws_dir,
+                overwrite=True,
+            )
+        except Exception:
+            failed.append(label)
+            logger.warning(
+                "autoupdate: failed to sync '%s' to workspace '%s'",
+                name,
+                ws.get("agent_id", ""),
+                exc_info=True,
+            )
+            continue
+        if result.get("success"):
+            ok.append(label)
+            logger.info(
+                "autoupdate: synced '%s' -> workspace '%s'",
+                name,
+                label,
+            )
+        else:
+            failed.append(label)
+            logger.warning(
+                "autoupdate: could not sync '%s' to workspace '%s' (%s)",
+                name,
+                ws.get("agent_id", ""),
+                result.get("reason", "unknown"),
+            )
+    return {"ok": ok, "failed": failed}
+
+
+def _detect_changed_auto_update_skills(
+    entries: dict[str, Any],
+    skill_name: str | None,
+) -> tuple[list[tuple[str, dict[str, Any], str]], int]:
+    """Cheap detection pass for ``run_pool_auto_update_sync``.
+
+    Reads only each enabled skill's ``SKILL.md`` (to hash it)
+    """
+    changed: list[tuple[str, dict[str, Any], str]] = []
+    checked = 0
+    for name, raw_entry in entries.items():
+        entry = raw_entry if isinstance(raw_entry, dict) else {}
+        if not entry.get("auto_update"):
+            continue
+        if skill_name is not None and name != skill_name:
+            continue
+        checked += 1
+        skill_dir = resolve_pool_skill_dir(name)
+        if skill_dir is None:
+            continue
+        current_hash = compute_skill_md_hash(skill_dir)
+        if not current_hash:
+            continue
+        prior_hash = str(entry.get("auto_update_synced_hash", "") or "")
+        if current_hash != prior_hash:
+            changed.append((name, entry, current_hash))
+    return changed, checked
+
+
+def run_pool_auto_update_sync(
+    skill_name: str | None = None,
+) -> dict[str, Any]:
+    """Sync changed auto-update pool skills into their target workspaces."""
+    manifest = read_skill_pool_manifest()
+    entries = manifest.get("skills", {})
+    changed, checked = _detect_changed_auto_update_skills(entries, skill_name)
+    if not changed:
+        return {"synced": [], "failed": [], "checked": checked}
+
+    workspaces = list_workspaces()
+    service = SkillPoolService()
+    new_hashes: dict[str, str] = {}
+    synced: list[dict[str, Any]] = []
+    failed: list[dict[str, Any]] = []
+
+    for name, entry, current_hash in changed:
+        targets = _resolve_auto_update_targets(name, entry, workspaces)
+        logger.info(
+            "autoupdate: '%s' content changed; syncing %d workspace(s)",
+            name,
+            len(targets),
+        )
+        push = _push_auto_update_skill(service, name, targets)
+        if push["failed"]:
+            failed.append({"skill": name, "agents": push["failed"]})
+        else:
+            new_hashes[name] = current_hash
+            synced.append({"skill": name, "agents": push["ok"]})
+
+    if new_hashes:
+
+        def _stamp(payload: dict[str, Any]) -> None:
+            skills = payload.setdefault("skills", {})
+            for synced_name, synced_hash in new_hashes.items():
+                entry = skills.get(synced_name)
+                if isinstance(entry, dict):
+                    entry["auto_update_synced_hash"] = synced_hash
+
+        mutate_json(
+            get_pool_skill_manifest_path(),
+            default_pool_manifest(),
+            _stamp,
+        )
+
+    return {"synced": synced, "failed": failed, "checked": checked}

@@ -33,6 +33,7 @@ from ...agents.skill_system import (
     SkillConflictError,
     SkillPoolService,
     SkillService,
+    run_pool_auto_update_sync,
 )
 from ...agents.skill_system.models import SkillInfo
 from ...agents.skill_system.registry import (
@@ -63,6 +64,7 @@ from ...agents.skill_system.store import (
     suggest_conflict_name,
 )
 from ...security.skill_scanner import SkillScanError
+from ..inbox_store import append_event as append_inbox_event
 from ..utils import check_upload_size, schedule_agent_reload
 
 logger = logging.getLogger(__name__)
@@ -71,6 +73,78 @@ router = APIRouter(prefix="/skills", tags=["skills"])
 
 MAX_TAGS = 8
 MAX_TAG_LENGTH = 16
+
+# Source type for skill auto-update inbox events.
+AUTO_UPDATE_INBOX_SOURCE = "skill_autoupdate"
+
+
+async def post_auto_update_inbox(
+    result: dict[str, Any] | None,
+) -> None:
+    """Post one inbox notification summarising an auto-update run.
+
+    A single sync run (startup / refresh / enable) becomes one event listing
+    the synced skills plus any failures. Severity is ``error`` when any skill
+    failed, otherwise ``info``. Nothing is posted when no skill propagated.
+    """
+    if not result:
+        return
+    synced = [
+        item for item in (result.get("synced") or []) if item.get("agents")
+    ]
+    failed = result.get("failed") or []
+    if not synced and not failed:
+        return
+
+    synced_names = [str(item["skill"]) for item in synced]
+    failed_names = [str(item["skill"]) for item in failed]
+    has_failure = bool(failed_names)
+
+    lines: list[str] = []
+    for item in synced:
+        agents = ", ".join(item.get("agents") or [])
+        lines.append(f"{item['skill']} → {agents}")
+    for item in failed:
+        agents = ", ".join(item.get("agents") or []) or "unknown"
+        lines.append(f"{item['skill']} (failed) → {agents}")
+
+    if has_failure:
+        title = (
+            f"Auto-update: {len(synced_names)} updated, "
+            f"{len(failed_names)} failed"
+        )
+    else:
+        title = f"Auto-update: {len(synced_names)} skill(s) updated"
+
+    await append_inbox_event(
+        agent_id="default",
+        source_type=AUTO_UPDATE_INBOX_SOURCE,
+        source_id="",
+        event_type="auto_update",
+        status="error" if has_failure else "success",
+        severity="error" if has_failure else "info",
+        title=title,
+        body="; ".join(lines),
+        payload={"synced": synced, "failed": failed},
+    )
+
+
+async def _follow_auto_update(skill_name: str | None = None) -> None:
+    """Propagate + notify after any pool-content change.
+
+    Called by the content-mutating endpoints (edit / rename / builtin update /
+    builtin import) so auto-update skills sync to their workspaces immediately
+    instead of waiting for the next refresh or startup. The hash gate means
+    only skills that actually changed are propagated.
+    """
+    try:
+        result = await asyncio.to_thread(
+            run_pool_auto_update_sync,
+            skill_name=skill_name,
+        )
+        await post_auto_update_inbox(result)
+    except Exception:
+        logger.warning("auto-update follow-up failed", exc_info=True)
 
 
 def _scan_error_payload(exc: SkillScanError) -> dict[str, Any]:
@@ -138,6 +212,8 @@ class PoolSkillSpec(SkillInfo):
     config: dict[str, Any] = Field(default_factory=dict)
     last_updated: str = ""
     installed_from: str = ""
+    auto_update: bool = False
+    auto_update_targets: list[str] | None = None
 
 
 class WorkspaceSkillSummary(BaseModel):
@@ -234,6 +310,11 @@ class DownloadFromPoolRequest(BaseModel):
 
 class SkillConfigRequest(BaseModel):
     config: dict[str, Any] = Field(default_factory=dict)
+
+
+class AutoUpdateRequest(BaseModel):
+    enabled: bool
+    targets: list[str] | None = None
 
 
 class SavePoolSkillRequest(BaseModel):
@@ -602,6 +683,15 @@ def _build_pool_skill_specs() -> list[PoolSkillSpec]:
                     installed_from=str(
                         entry.get("installed_from", "") or "",
                     ),
+                    auto_update=bool(entry.get("auto_update", False)),
+                    auto_update_targets=(
+                        list(entry["auto_update_targets"])
+                        if isinstance(
+                            entry.get("auto_update_targets"),
+                            list,
+                        )
+                        else None
+                    ),
                 ),
             )
         except Exception:
@@ -733,6 +823,7 @@ async def list_pool_skills() -> list[PoolSkillSpec]:
 async def refresh_pool_skills() -> list[PoolSkillSpec]:
     """Force reconcile and return updated pool skill list."""
     reconcile_pool_manifest()
+    await _follow_auto_update()
     return _build_pool_skill_specs()
 
 
@@ -898,6 +989,7 @@ async def save_pool_skill(body: SavePoolSkillRequest) -> dict[str, Any]:
         reason = result.get("reason")
         status = 404 if reason == "not_found" else 409
         raise HTTPException(status_code=status, detail=result)
+    await _follow_auto_update(result.get("name"))
     return result
 
 
@@ -935,6 +1027,7 @@ async def upload_skill_pool_zip(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     if result.get("conflicts"):
         raise HTTPException(status_code=409, detail=result)
+    await _follow_auto_update()
     return result
 
 
@@ -956,6 +1049,7 @@ async def import_skill_pool_from_hub(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except RuntimeError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+    await _follow_auto_update(result.name)
     return {
         "installed": True,
         "name": result.name,
@@ -984,6 +1078,8 @@ async def upload_workspace_skill_to_pool(
     if not result.get("success"):
         status = 404 if result.get("reason") == "not_found" else 409
         raise HTTPException(status_code=status, detail=result)
+    if not body.preview_only:
+        await _follow_auto_update(result.get("name"))
     return result
 
 
@@ -1164,6 +1260,7 @@ async def import_pool_builtins(
     )
     if result.get("conflicts") and not body.overwrite_conflicts:
         raise HTTPException(status_code=409, detail=result)
+    await _follow_auto_update()
     return result
 
 
@@ -1180,9 +1277,11 @@ async def update_pool_builtin(
             f"must be one of {BUILTIN_SKILL_LANGUAGES}",
         )
     try:
-        return update_single_builtin(skill_name, language=language or None)
+        result = update_single_builtin(skill_name, language=language or None)
     except (ValueError, AppBaseException) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    await _follow_auto_update()
+    return result
 
 
 @router.delete("/pool/{skill_name}")
@@ -1269,6 +1368,33 @@ async def update_pool_skill_tags(
             detail="Pool skill not found",
         )
     return {"updated": True, "tags": tags}
+
+
+@router.put("/pool/{skill_name}/auto-update")
+async def update_pool_skill_auto_update(
+    skill_name: str,
+    body: AutoUpdateRequest,
+) -> dict[str, Any]:
+    """Toggle auto-update for a pool skill and persist its target agents.
+
+    Enabling triggers an immediate sync of the configured workspaces.
+    """
+    result = SkillPoolService().set_skill_auto_update(
+        skill_name,
+        enabled=body.enabled,
+        targets=body.targets,
+    )
+    if result is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Pool skill not found",
+        )
+    await post_auto_update_inbox(result)
+    return {
+        "updated": True,
+        "enabled": body.enabled,
+        "targets": body.targets,
+    }
 
 
 @router.post("/batch-delete")

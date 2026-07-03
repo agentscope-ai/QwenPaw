@@ -90,7 +90,7 @@
 
 在这里管理各消息频道（Console、钉钉、飞书、Discord、QQ、微信、iMessage等）的开关和凭据。
 
-![频道](https://img.alicdn.com/imgextra/i4/O1CN01i17DLe2559KSAMwpA_!!6000000007474-2-tps-3822-2070.png)
+![频道](https://img.alicdn.com/imgextra/i1/O1CN01sDfcFb1kfEcUB66Va_!!6000000004710-2-tps-3810-2064.png)
 
 **启用一个频道：**
 
@@ -311,7 +311,7 @@ HEARTBEAT.md 等——全部在浏览器中完成。
 
 > 侧边栏：**工作区 → 运行配置**
 
-![运行配置](https://img.alicdn.com/imgextra/i4/O1CN01A6WTtz1ukPEVOI53u_!!6000000006075-2-tps-3822-2070.png)
+![运行配置](https://img.alicdn.com/imgextra/i2/O1CN01isFubh1fmxDTGufCc_!!6000000004050-2-tps-3810-2064.png)
 
 本页集中配置**当前智能体**的运行参数，分多块卡片，改完后点底部 **保存**（**重置** 可重新拉取服务端数据）。
 
@@ -346,7 +346,7 @@ Console 页面左上角的 **当前智能体** 用于切换当前操作对象；
 
 在这里配置 LLM 提供商，并选择默认模型。详情请见 [Models](./models)。
 
-![模型](https://img.alicdn.com/imgextra/i2/O1CN0122wKIo2AIUx3HZkdG_!!6000000008180-2-tps-3822-2070.png)
+![模型](https://img.alicdn.com/imgextra/i2/O1CN01ardjB01FvwzCXWW2f_!!6000000000550-2-tps-3810-2064.png)
 
 在本页面，你可以：
 
@@ -423,7 +423,7 @@ Console 页面左上角的 **当前智能体** 用于切换当前操作对象；
 
 > 侧边栏：**设置 → Token 消耗**
 
-![token消耗](https://img.alicdn.com/imgextra/i1/O1CN01B5rBkM1fWSwLbTwzw_!!6000000004014-2-tps-3822-2070.png)
+![token消耗](https://img.alicdn.com/imgextra/i2/O1CN01hK1Elq270gie8c8NX_!!6000000007735-2-tps-3810-2064.png)
 
 在这里查看一段时间内的 LLM Token 消耗，按日期和模型统计。
 

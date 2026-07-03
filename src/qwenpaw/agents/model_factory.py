@@ -671,9 +671,7 @@ def _fixup_media_list(items: list) -> None:
             source = getattr(block, "source", None)
             url_str = str(getattr(source, "url", "")) if source else ""
             if url_str.startswith("file://"):
-                local_path = unquote(
-                    url_str.removeprefix("file://"),
-                )
+                local_path = _file_url_to_path(url_str)
                 if not os.path.exists(local_path):
                     mt = getattr(source, "media_type", "") or ""
                     media_name = mt.split("/")[0] or "media"
@@ -690,7 +688,7 @@ def _fixup_media_list(items: list) -> None:
                         ),
                     )
                 elif unquote(url_str) != url_str:
-                    source.url = "file://" + local_path
+                    source.url = unquote(url_str)
         elif btype == "file":
             if isinstance(block, dict):
                 source = block.get("source") or {}
@@ -763,10 +761,14 @@ def _create_file_block_support_formatter(
                 base_formatter_class,
                 AnthropicChatFormatter,
             ):
-                kwargs.setdefault(
-                    "input_types",
-                    ["text/plain", "image/*", "video/*"],
-                )
+                # Direct assignment (not setdefault): kwargs comes from
+                # model_dump() and may carry the base class's narrower
+                # input_types; we must override to include "video/*".
+                kwargs["input_types"] = [
+                    "text/plain",
+                    "image/*",
+                    "video/*",
+                ]
             super().__init__(**kwargs)
 
         def _format_anthropic_data_block(self, block):
@@ -893,7 +895,15 @@ def _create_file_block_support_formatter(
                         if ec:
                             tc["extra_content"] = ec
 
-            if reasoning_contents and not is_anthropic_formatter:
+            if (
+                reasoning_contents
+                and not is_anthropic_formatter
+                and getattr(
+                    self,
+                    "relay_reasoning_content",
+                    True,
+                )
+            ):
                 aligned_reasoning = []
                 for m in (
                     msg for msg in normalized_msgs if msg.role == "assistant"
@@ -1088,6 +1098,7 @@ def create_model_and_formatter(
     model_slot = None
     retry_config = None
     rate_limit_config = None
+    compact_threshold: Optional[float] = None
     if agent_id:
         try:
             agent_config = load_agent_config(agent_id)
@@ -1105,6 +1116,12 @@ def create_model_and_formatter(
                 jitter_range=agent_config.running.llm_rate_limit_jitter,
                 acquire_timeout=agent_config.running.llm_acquire_timeout,
             )
+            # Surface the auto-compaction threshold so the UI can mark where
+            # context starts getting evicted — only when compaction is on.
+            lcc = agent_config.running.light_context_config
+            ccc = lcc.context_compact_config
+            if getattr(ccc, "enabled", False):
+                compact_threshold = ccc.compact_threshold_ratio
         except Exception:
             pass
 
@@ -1150,7 +1167,11 @@ def create_model_and_formatter(
         model.max_retries = 0
 
     # Wrap with retry logic for transient LLM API errors
-    wrapped_model = TokenRecordingModelWrapper(provider_id, model)
+    wrapped_model = TokenRecordingModelWrapper(
+        provider_id,
+        model,
+        compact_threshold=compact_threshold,
+    )
     wrapped_model = RetryChatModel(
         wrapped_model,
         retry_config=retry_config,
@@ -1196,7 +1217,10 @@ def _create_formatter_instance(
     formatter_class = _create_file_block_support_formatter(
         base_formatter_class,
     )
-    kwargs: dict[str, Any] = {}
+    # Carry over all Pydantic field values (max_bytes,
+    # relay_reasoning_content, etc.) from the provider-constructed
+    # formatter so they are not silently reset to defaults.
+    kwargs: dict[str, Any] = base_formatter.model_dump()
     # OpenAI / Gemini wire formats can't carry image bytes inside tool
     # results — promote them into a follow-up user message instead.
     # Anthropic format keeps images in tool_result natively, so no

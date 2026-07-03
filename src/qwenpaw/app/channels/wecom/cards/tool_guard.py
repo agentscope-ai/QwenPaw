@@ -271,9 +271,7 @@ async def render(
         return False
 
     # Stream the guard details first, then post the button card.
-    # Skip if the caller already streamed the content (streaming path).
-    if not send_meta.get("_skip_stream_detail"):
-        await context.send_stream_detail(channel, frame, send_meta, body_text)
+    await context.send_stream_detail(channel, frame, send_meta, body_text)
     try:
         await channel._client.reply_template_card(
             frame,

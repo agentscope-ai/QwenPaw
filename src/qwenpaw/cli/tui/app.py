@@ -74,6 +74,66 @@ from .widgets import (
 )
 
 
+class TranscriptScroll(VerticalScroll):
+    """The transcript container; follows the end only when requested.
+
+    Textual's ``anchor()`` immediately calls ``scroll_end()``, which
+    bottom-aligns underfilled launch content like the welcome logo. Keep the
+    first transcript unanchored, then arm the anchor lazily after explicit
+    user actions request following and the transcript has real scroll range.
+    """
+
+    def __init__(self, *children, **kwargs) -> None:
+        super().__init__(*children, **kwargs)
+        self._follow_end = False
+        self._anchor_released = False
+
+    def follow_end(self) -> None:
+        """Keep subsequent content pinned to the end once scrolling exists."""
+        self._follow_end = True
+        self._anchor_released = False
+        self.sync_follow_end()
+
+    def follow_future_content(self) -> None:
+        """Follow later transcript growth without moving current content."""
+        self._follow_end = True
+
+    def sync_follow_end(self) -> None:
+        """Apply the requested end-follow state after layout has settled."""
+        self.call_after_refresh(self._sync_follow_end)
+
+    def release_anchor(self) -> None:
+        super().release_anchor()
+        self.sync_follow_end()
+
+    def watch_scroll_y(self, old_value: float, new_value: float) -> None:
+        super().watch_scroll_y(old_value, new_value)
+        self.sync_follow_end()
+
+    def _sync_follow_end(self) -> None:
+        if self.max_scroll_y <= 0:
+            if self.is_anchored:
+                self.anchor(False)
+            self._anchor_released = False
+            return
+
+        if self._anchor_released:
+            if self.scroll_y >= self.max_scroll_y:
+                self._anchor_released = False
+                self._follow_end = True
+            else:
+                self._follow_end = False
+                return
+
+        if not self._follow_end:
+            return
+
+        if self.is_anchored:
+            self.scroll_end(immediate=True, animate=False)
+        else:
+            self.anchor()
+
+
 class PawApp(App):
     """Streaming chat over a :class:`TuiTransport` (ACP)."""
 
@@ -158,14 +218,18 @@ class PawApp(App):
         agent: str = "default",
         target: str | None = None,
         resume_session_id: str | None = None,
+        workspace_dir: str | None = None,
+        project_dir: str | None = None,
     ) -> None:
         super().__init__()
         self._transport = transport
         self._agent = agent
         self._target = target
         # When launched with --resume, the transport opens this session and
-        # replays its history; skip the welcome banner so the two don't mix.
+        # replays its history below the welcome banner.
         self._resume_session_id = resume_session_id
+        self._workspace_dir = workspace_dir
+        self._project_dir = project_dir
         self._assistant: AssistantMessage | None = None
         self._thought: ThoughtMessage | None = None
         self._activity: ActivityLine | None = None
@@ -215,7 +279,7 @@ class PawApp(App):
     # -- layout --------------------------------------------------------------
     def compose(self) -> ComposeResult:
         yield StatusBar()
-        yield VerticalScroll(id="transcript")
+        yield TranscriptScroll(id="transcript")
         yield self._menu
         yield self._permission
         yield PromptInput(
@@ -232,27 +296,35 @@ class PawApp(App):
 
     async def on_mount(self) -> None:
         self.query_one("#prompt", PromptInput).focus()
+        # Do not anchor the launch transcript: Textual's anchor immediately
+        # scrolls to the end, which can bottom-align the welcome logo before
+        # any chat content exists. Submitting input requests following later.
         self._status().set(agent=self._agent)
         self._apply_theme_prompt(self._theme_prompt, notify=False)
+        await self._mount(self._welcome_message(), sync_follow=False)
         if self._resume_session_id is not None:
             await self._mount(
-                InfoMessage("Resumed previous session — replaying history…"),
+                InfoMessage("Resumed previous session."),
+                sync_follow=False,
             )
         else:
-            await self._mount(
-                WelcomeMessage(
-                    palette_for_prompt(self._theme_prompt),
-                    accent_for_prompt(self._theme_prompt),
-                ),
-            )
+            self._transcript().follow_future_content()
         self._consume()
 
     # -- helpers -------------------------------------------------------------
     def _status(self) -> StatusBar:
         return self.query_one(StatusBar)
 
-    def _transcript(self) -> VerticalScroll:
-        return self.query_one("#transcript", VerticalScroll)
+    def _transcript(self) -> TranscriptScroll:
+        return self.query_one("#transcript", TranscriptScroll)
+
+    def _welcome_message(self) -> WelcomeMessage:
+        return WelcomeMessage(
+            palette_for_prompt(self._theme_prompt),
+            accent_for_prompt(self._theme_prompt),
+            workspace_dir=self._workspace_dir,
+            project_dir=self._project_dir,
+        )
 
     def _set_command_catalog(self) -> None:
         seen: set[str] = set()
@@ -297,17 +369,21 @@ class PawApp(App):
             return
         self._set_recent_sessions(sessions)
 
-    async def _mount(self, widget) -> None:
+    async def _mount(self, widget, *, sync_follow: bool = True) -> None:
         await self._transcript().mount(widget)
-        self._scroll_transcript_end()
+        # No unconditional scroll: if following was requested and the user
+        # hasn't scrolled away, the transcript lazily anchors after layout.
+        if sync_follow:
+            self._transcript().sync_follow_end()
 
-    def _scroll_transcript_end(self, *, defer: bool = False) -> None:
-        if defer:
-            self.call_after_refresh(
-                lambda: self._transcript().scroll_end(animate=False),
-            )
-            return
-        self._transcript().scroll_end(animate=False)
+    def _scroll_transcript_end(self) -> None:
+        """Jump to the end of the transcript and resume following.
+
+        Reserved for explicit user actions (submitting input): scroll_end
+        re-arms the anchor even if the user had scrolled away, so it must
+        never run for agent-driven events.
+        """
+        self._transcript().follow_end()
 
     async def _ensure_activity_line(self) -> ActivityLine:
         await self._ensure_turn_label()
@@ -369,6 +445,11 @@ class PawApp(App):
         prompt.set_programmatic_value("")
         self._resize_prompt("")
         self._menu.display = False
+        # Submitting input is the one action that jumps back to the end:
+        # the user wants to see their message land and the reply follow.
+        # (Queue auto-delivery on turn end deliberately does not — it isn't
+        # a user action, so it must not move a reading user's viewport.)
+        self._scroll_transcript_end()
         if text.startswith("/"):
             await self._handle_local_command(text)
             return
@@ -497,9 +578,15 @@ class PawApp(App):
             thought.collapsed = not self._inspection_mode
             thought.set_class(not self._inspection_mode, "hidden")
         for panel in self.query(ToolPanel):
+            # Inspection opens every panel so params + output are readable
+            # without a click per tool; leaving restores the tidy default
+            # (finished collapsed, running open).
+            panel.collapsed = not self._inspection_mode and panel.is_done
             self._apply_tool_visibility(panel)
         self._apply_activity_visibility()
-        self._scroll_transcript_end(defer=True)
+        # No explicit scroll: if the user is following, the anchor keeps the
+        # end pinned through the re-layout; if they scrolled up to inspect
+        # something specific, toggling modes must not yank them away.
         mode = "inspection" if self._inspection_mode else "friendly"
         self.notify(f"{mode} mode", timeout=2)
 
@@ -513,15 +600,7 @@ class PawApp(App):
         command, _, rest = raw.partition(" ")
         match command:
             case "/help":
-                await self._mount(
-                    InfoMessage(
-                        "Type /resume to pick a recent session from the "
-                        "suggestions (or /resume list to browse all), "
-                        "/theme <prompt> to personalize the background, "
-                        "or /inspect for details. Model and provider "
-                        "commands (e.g. /model) are handled by QwenPaw.",
-                    ),
-                )
+                await self._mount(InfoMessage(_HELP_TEXT))
             case "/resume":
                 await self._handle_resume_command(rest.strip())
             case "/theme":
@@ -644,10 +723,13 @@ class PawApp(App):
         self._tok_out = 0
         self._stream_chars = 0
         self._refresh_tokens()
-        # Mounted before the load so it sits above the replayed transcript;
-        # the replay updates only land once load_session is awaited below.
+        # Clear the context-usage bar too; the next model call on the resumed
+        # session reports fresh occupancy via ``usage_update``.
+        self._status().set(used=0, size=0)
+        await self._mount(self._welcome_message(), sync_follow=False)
         await self._mount(
-            InfoMessage("Resumed previous session — replaying history…"),
+            InfoMessage("Resumed previous session."),
+            sync_follow=False,
         )
         try:
             await self._transport.load_session(session_id)
@@ -828,7 +910,7 @@ class PawApp(App):
                 self._assistant = AssistantMessage()
                 await self._mount(self._assistant)
             await self._assistant.append(event.text)
-            self._scroll_transcript_end()
+            self._transcript().sync_follow_end()
             self._stream_chars += len(event.text)
             self._refresh_tokens()
 
@@ -846,6 +928,7 @@ class PawApp(App):
                 await self._mount(self._thought)
                 self._apply_thought_visibility(self._thought)
             self._thought.append(event.text)
+            self._transcript().sync_follow_end()
             # Reasoning counts toward output tokens too.
             self._stream_chars += len(event.text)
             self._refresh_tokens()
@@ -885,7 +968,9 @@ class PawApp(App):
                 status=event.status,
                 output=event.output,
                 params=event.params,
+                auto_collapse=not self._inspection_mode,
             )
+            self._transcript().sync_follow_end()
             self._apply_tool_visibility(panel)
             # Surface any files the tool returned (e.g. send_file_to_user) as
             # their own clickable transcript line, since the panel collapses.
@@ -920,7 +1005,13 @@ class PawApp(App):
             await self._mount(PushMessageBox(event.text))
 
         elif isinstance(event, Usage):
-            self._status().set(used=event.used, size=event.size)
+            # ``or 0.0`` so a None threshold is still applied (set() ignores
+            # None), clearing any stale marker — 0.0 renders no tick.
+            self._status().set(
+                used=event.used,
+                size=event.size,
+                ctx_threshold=event.threshold or 0.0,
+            )
 
         elif isinstance(event, TokenUsage):
             # Exact usage for the just-finished call replaces our estimate.
@@ -1055,6 +1146,23 @@ def _local_commands() -> list[SlashCommand]:
         for theme in THEME_GALLERY
     )
     return commands
+
+
+_HELP_TEXT = """Slash commands:
+/help — show this help
+/resume — pick a recent session
+/resume list — browse all resumable sessions
+/resume <id-prefix> — resume a matching session
+/theme or /theme gallery — open the theme gallery
+/theme <theme-id|prompt> — apply a named or custom theme
+/inspect — toggle thought/tool inspection
+/model — show the current model
+/model list — list available models
+/model <provider>:<model> — switch model
+/model reset — reset to the global default model
+/clear — clear the current session context
+/compact — compact current context
+/skills — list enabled skills"""
 
 
 _LONG_PASTE_CHAR_THRESHOLD = 2000

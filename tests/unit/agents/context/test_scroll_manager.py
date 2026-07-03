@@ -297,6 +297,21 @@ def test_on_save_swallows_write_failure(store: HistoryStore, monkeypatch):
     assert store.degraded is True
 
 
+def test_on_save_after_close_is_quiet_noop(store: HistoryStore):
+    """Teardown race: an on_save after close is skipped quietly, not reported
+    as degraded durability."""
+    mgr = make_manager(store)
+    agent = FakeAgent([user("hi"), assistant("there", headline="h")])
+    store.close()
+    assert store.closed is True
+
+    mgr.on_save(agent, None)  # must not raise "closed database"
+    # Skipped, not failed: durability stays healthy and nothing was persisted.
+    assert store.degraded is False
+    assert store.write_failures == 0
+    assert mgr._persisted_ids == set()
+
+
 # -- optional dialog offload (offload_dialog opt-in) ------------------------
 
 

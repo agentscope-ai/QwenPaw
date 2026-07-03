@@ -318,6 +318,7 @@ class GeminiProvider(Provider):
             context_size=self._get_context_size(model_id),
             formatter=_CappingGeminiFormatter(
                 max_bytes=self.max_inline_media_bytes,
+                relay_reasoning_content=self._get_preserve_thinking(model_id),
             ),
         )
 
@@ -538,6 +539,9 @@ class _GeminiChatModelCompat:
                 tool_choice=None,
                 **config_kwargs,
             ):
+                # Translate the neutral ``disable_thinking`` flag
+                if config_kwargs.pop("disable_thinking", False):
+                    self.parameters.thinking_enable = False
                 merged = {**self._qp_extra_config_kwargs, **config_kwargs}
                 if self._qp_default_headers:
                     from datetime import datetime

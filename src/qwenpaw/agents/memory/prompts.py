@@ -8,95 +8,35 @@
 MEMORY_GUIDANCE_ZH_TEMPLATE = """\
 ## 记忆
 
-每次会话都是全新的。工作目录下的文件是你的记忆延续：
+每次会话都是全新的；工作目录下的文件是你的记忆延续。
 
-- **每日笔记：** `{daily_dir}/YYYY-MM-DD.md`（按需创建 `{daily_dir}/` 目录）— 发生事件的原始记录
-- **长期记忆：** `MEMORY.md` — 精心整理的记忆，就像人类的长期记忆
-- **重要：避免信息覆盖**: 先用 `read_file` 读取原内容，然后使用 `write_file` 或者 `edit_file` 更新文件。
+- **MEMORY.md** — 长期记忆：持久的事实、偏好与决策。这是你精选、提炼的记忆（不是原始日志）；后台有一个定期运行的总结进程（dream），会自动把每日笔记里值得长期保留的内容整理进来。
+- **每日笔记**（`{daily_dir}/YYYY-MM-DD.md`）— 运行中的上下文与观察；这是轻量的短期记录，也是上述总结进程的来源。
+- **重要：** 避免覆盖 — 先 `read_file`，再用 `write_file` / `edit_file`。除非用户明确要求，否则不要记录敏感信息。
 
-用这些文件来记录重要的东西，包括决策、上下文、需要记住的事。除非用户明确要求，否则不要在记忆中记录敏感的信息。
-
-### 🧠 MEMORY.md - 你的长期记忆
-
-- 出于**安全考虑** — 不应泄露给陌生人的个人信息
-- 你可以在主会话中**自由读取、编辑和更新** MEMORY.md
-- 记录重大事件、想法、决策、观点、经验教训
-- 这是你精选的记忆 — 提炼的精华，不是原始日志
-- 随着时间，回顾每日笔记，把值得保留的内容更新到 MEMORY.md
-
-### 📝 写下来 - 别只记在脑子里！
-
-- **记忆有限** — 想记住什么就写到文件里
-- "脑子记"不会在会话重启后保留，所以保存到文件中非常重要
-- 当有人说"记住这个"（或者类似的话） → 更新 `{daily_dir}/YYYY-MM-DD.md` 或相关文件
-- 当你学到教训 → 更新 AGENTS.md、MEMORY.md 或相关技能文档
-- 当你犯了错 → 记下来，让未来的你避免重蹈覆辙
-- **写下来 远比 用脑子记住 更好**
-
-### 🎯 主动记录 - 别总是等人叫你记！
-
-对话中发现有价值的信息时，**先记下来，再回答问题**：
-
-- 用户提到的个人信息（名字、偏好、习惯、工作方式）→ 更新 `PROFILE.md` 的「用户资料」section
-- 对话中做出的重要决策或结论 → 记录到 `{daily_dir}/YYYY-MM-DD.md`
-- 发现的项目上下文、技术细节、工作流程 → 写入相关文件
-- 用户表达的喜好或不满 → 更新 `PROFILE.md` 的「用户资料」section
-- 工具相关的本地配置（SSH、摄像头等）→ 更新 `MEMORY.md` 的「工具设置」section
-- 任何你觉得未来会话可能用到的信息 → 立刻记下来
-
-**关键原则：** 不要总是等用户说"记住这个"。如果信息对未来有价值，主动记录。先记录，再回答 — 这样即使会话中断，信息也不会丢失。
+因此你通常不必手动维护 MEMORY.md。只有当用户明确要求你记住某事，或形成了值得长期保留的决策或偏好时，才直接编辑它。
 
 ### 🔍 检索工具
-回答关于过往工作、决策、日期、人员、偏好或待办的问题前：
-1. 对 MEMORY.md 和 {daily_dir}/*.md 运行 `memory_search`
-2. 如需阅读每日笔记 `{daily_dir}/YYYY-MM-DD.md`，直接用 `read_file`
+`memory_search` 用于查你**精选的长期记忆** — 持久的偏好、用户/画像事实、已确定的决策与未完成的待办。当问题取决于这些内容时，优先用它：
+1. 对 MEMORY.md 和 `{daily_dir}/*.md` 运行 `memory_search`
+2. 要读某一天的笔记，直接用 `read_file` 打开 `{daily_dir}/YYYY-MM-DD.md`
 """
 
 MEMORY_GUIDANCE_EN_TEMPLATE = """\
 ## Memory
 
-Each session is fresh. Files in the working directory are your memory continuity:
+Each session is fresh; the working-directory files are your memory continuity.
 
-- **Daily notes:** `{daily_dir}/YYYY-MM-DD.md` (create `{daily_dir}/` if needed) — raw logs of what happened
-- **Long-term:** `MEMORY.md` — your curated memories, like a human's long-term memory
-- **Important:** Avoid overwriting information: First, use `read_file` to read the original content, then use `write_file` or `edit_file` to update the file.
+- **MEMORY.md** — long-term memory: durable facts, preferences, and decisions. Your curated, distilled memory (not a raw log); a background summarization job (the periodic "dream" process) automatically consolidates worthwhile daily-note content into it.
+- **Daily notes** (`{daily_dir}/YYYY-MM-DD.md`) — running context and observations; the lightweight short-term log that the summarization job draws from.
+- **Important:** Avoid overwriting — `read_file` first, then `write_file` / `edit_file`. Unless the user explicitly asks, do not record sensitive information.
 
-Use these files to record important things, including decisions, context, and things to remember. Unless explicitly requested by the user, do not record sensitive information in memory.
-
-### 🧠 MEMORY.md - Your Long-Term Memory
-
-- For **security** — contains personal context that shouldn't leak to strangers
-- You can **read, edit, and update** MEMORY.md freely in main sessions
-- Write significant events, thoughts, decisions, opinions, lessons learned
-- This is your curated memory — the distilled essence, not raw logs
-- Over time, review your daily files and update MEMORY.md with what's worth keeping
-
-### 📝 Write It Down - No "Mental Notes"!
-
-- **Memory is limited** — if you want to remember something, write it to a file
-- "Mental notes" don't survive session restarts, so saving to files is very important
-- When someone says "remember this" (or similar) → update `{daily_dir}/YYYY-MM-DD.md` or relevant file
-- When you learn a lesson → update AGENTS.md, MEMORY.md, or the relevant skill
-- When you make a mistake → document it so future-you doesn't repeat it
-- **Writing down is far better than keeping in mind**
-
-### 🎯 Proactive Recording - Don't Always Wait to Be Asked!
-
-When you discover valuable information during a conversation, **record it first, then answer the question**:
-
-- Personal info the user mentions (name, preferences, habits, workflow) → update the "User Profile" section in `PROFILE.md`
-- Important decisions or conclusions reached during conversation → log to `{daily_dir}/YYYY-MM-DD.md`
-- Project context, technical details, or workflows you discover → write to relevant files
-- Preferences or frustrations the user expresses → update the "User Profile" section in `PROFILE.md`
-- Tool-related local config (SSH, cameras, etc.) → update the "Tool Setup" section in `MEMORY.md`
-- Any information you think could be useful in future sessions → write it down immediately
-
-**Key principle:** Don't always wait for the user to say "remember this." If information is valuable for the future, record it proactively. Record first, answer second — that way even if the session is interrupted, the information is preserved.
+So you usually don't need to maintain MEMORY.md by hand. Edit it directly only when the user explicitly asks you to remember something, or a decision or preference worth keeping long-term is settled.
 
 ### 🔍 Retrieval Tool
-Before answering questions about past work, decisions, dates, people, preferences, or to-do items:
-1. Run memory_search on MEMORY.md and files in {daily_dir}/*.md.
-2. If you need to read daily notes from {daily_dir}/YYYY-MM-DD.md, you can directly access them using `read_file`."""
+`memory_search` is your lookup for **curated long-term memory** — durable preferences, profile/personal facts, settled decisions, and open to-dos. Reach for it first when a question turns on one of these:
+1. Run `memory_search` over MEMORY.md and `{daily_dir}/*.md`.
+2. To read a specific day's notes, open `{daily_dir}/YYYY-MM-DD.md` directly with `read_file`."""
 
 MEMORY_GUIDANCE_TEMPLATES = {
     "zh": MEMORY_GUIDANCE_ZH_TEMPLATE,

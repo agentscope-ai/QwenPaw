@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 class ContextVarsSetupHook(LifecycleHook):
     """Inject per-request ContextVars before agent execution."""
 
-    phase = Phase.PRE_EXECUTE
+    phase = Phase.PRE_DISPATCH
     name = "contextvars_setup"
     priority = 10
 

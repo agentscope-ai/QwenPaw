@@ -25,8 +25,9 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from helpers import default_http_timeout
 
-_CRON_HTTP_TIMEOUT = 15.0
+_CRON_HTTP_TIMEOUT = default_http_timeout(15.0)
 
 
 # --------------------------------------------------------------------------- #

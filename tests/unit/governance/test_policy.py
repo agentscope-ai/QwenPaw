@@ -83,7 +83,7 @@ class TestDefaultPolicyLoad:
         """Regression: save_governance_policy must not mutate the live
         policy's rule objects.
 
-        ``_unresolve_workspace_dir`` rewrites resolved absolute paths back
+        ``_unresolve_placeholders`` rewrites resolved absolute paths back
         to the ``WORKSPACE_DIR`` placeholder for portability. It must
         operate on copies, not the live rule objects — otherwise the first
         ``add_rule → save`` after a governor start corrupts the in-memory
@@ -114,6 +114,153 @@ class TestDefaultPolicyLoad:
         assert policy.evaluate(_tc("Write", target)).action is (
             GovernanceAction.ALLOW
         )
+
+    def test_coding_project_dir_placeholder_resolved(self):
+        """CODING_PROJECT_DIR placeholders are replaced with the actual
+        coding project dir, and tool calls under it are ALLOWed."""
+        ws = "/home/user/workspace"
+        cpd = "/home/user/coding"
+        policy = _create_default_policy(
+            workspace_dir=ws,
+            coding_project_dir=cpd,
+        )
+        for rule in policy.user_rules:
+            assert (
+                "CODING_PROJECT_DIR" not in rule.match
+            ), f"unresolved placeholder: {rule.match!r}"
+        assert policy.evaluate(_tc("Write", f"{cpd}/script.py")).action is (
+            GovernanceAction.ALLOW
+        )
+        assert policy.evaluate(_tc("Read", f"{cpd}/main.py")).action is (
+            GovernanceAction.ALLOW
+        )
+
+    def test_coding_project_dir_defaults_to_workspace(self):
+        """With no coding_project_dir configured, CODING_PROJECT_DIR
+        resolves to the workspace so the rule is still concrete."""
+        ws = "/home/user/workspace"
+        policy = _create_default_policy(workspace_dir=ws)
+        for rule in policy.user_rules:
+            assert (
+                "CODING_PROJECT_DIR" not in rule.match
+            ), f"unresolved placeholder: {rule.match!r}"
+        assert policy.evaluate(_tc("Write", f"{ws}/script.py")).action is (
+            GovernanceAction.ALLOW
+        )
+
+    def test_coding_project_dir_roundtrip_portable(self, tmp_path):
+        """save→reload keeps the CODING_PROJECT_DIR placeholder in YAML
+        (distinct coding dir), so the policy stays portable across
+        machines and the coding dir remains ALLOWed after reload."""
+        ws = "/home/user/workspace"
+        cpd = "/home/user/coding"
+        policy_dir = tmp_path / "policy"
+        policy_dir.mkdir()
+        policy = _create_default_policy(
+            workspace_dir=ws,
+            coding_project_dir=cpd,
+        )
+        save_governance_policy(
+            policy,
+            str(policy_dir),
+            ws,
+            cpd,
+        )
+
+        # YAML must store the placeholder, not the absolute coding path.
+        yaml_text = (policy_dir / "policy.yaml").read_text(encoding="utf-8")
+        assert "CODING_PROJECT_DIR" in yaml_text
+        assert cpd not in yaml_text
+
+        # In-memory rules are untouched by save (no mutation regression):
+        # the live coding rule must still carry the resolved path, not the
+        # literal CODING_PROJECT_DIR placeholder.
+        for rule in policy.user_rules:
+            assert (
+                "CODING_PROJECT_DIR" not in rule.match
+            ), f"save_governance_policy mutated live rule: {rule.match!r}"
+
+        # Reload reproduces a policy that still ALLOWs the coding dir.
+        reloaded = load_governance_policy(str(policy_dir), ws, cpd)
+        decision = reloaded.evaluate(_tc("Edit", f"{cpd}/app.py"))
+        assert decision.action is GovernanceAction.ALLOW
+
+    @pytest.mark.parametrize(
+        "ws, cpd, label",
+        [
+            # coding dir nested inside the workspace: cpd is the longer path
+            # and a substring-match of ws (the parent) inside it must not fire.
+            ("/home/u/work", "/home/u/work/coding", "cpd_inside_ws"),
+            # workspace nested inside the coding dir: ws is the longer path;
+            # this is the direction the original bug corrupted.
+            ("/home/u/work/sub", "/home/u/work", "ws_inside_cpd"),
+        ],
+    )
+    def test_unresolve_nested_dirs_replaces_longest_path_first(
+        self,
+        tmp_path,
+        ws,
+        cpd,
+        label,
+    ):
+        """Regression for the parent/child ordering bug in
+        ``_unresolve_placeholders``.
+
+        When one of workspace_dir / coding_project_dir is a parent of the
+        other, the shorter path is a substring of the longer one. The
+        unresolver must replace the longer (more specific) path first;
+        otherwise the shorter path matches inside the longer path's region
+        and corrupts the rule.
+
+        Symptom before the fix: with ``ws=/home/u/work/sub`` and
+        ``cpd=/home/u/work``, the workspace rule
+        ``Read(/home/u/work/sub/**)`` was rewritten via the shorter cpd to
+        ``Read(CODING_PROJECT_DIR/sub/**)`` — the WORKSPACE_DIR placeholder
+        was lost from YAML, the rule became non-portable, and after reload
+        a real workspace write fell through to ASK ("No rule hit").
+        """
+        policy = _create_default_policy(
+            workspace_dir=ws,
+            coding_project_dir=cpd,
+        )
+        policy_dir = tmp_path / "policy"
+        policy_dir.mkdir()
+
+        # Before save: the workspace write is ALLOWed by the default rule.
+        assert (
+            policy.evaluate(_tc("Write", f"{ws}/x.py")).action
+            is GovernanceAction.ALLOW
+        )
+
+        save_governance_policy(policy, str(policy_dir), ws, cpd)
+
+        # The YAML must not leak either absolute path and must carry the
+        # WORKSPACE_DIR placeholder for the workspace rule. A shorter-path
+        # match would have left a CODING_PROJECT_DIR-prefixed half-rewrite
+        # in place of WORKSPACE_DIR.
+        yaml_text = (policy_dir / "policy.yaml").read_text(encoding="utf-8")
+        assert ws not in yaml_text, f"[{label}] workspace path leaked: {ws}"
+        assert cpd not in yaml_text, f"[{label}] coding path leaked: {cpd}"
+        assert "WORKSPACE_DIR" in yaml_text
+
+        # After save: the live in-memory rules are untouched (no mutation
+        # regression) and still ALLOW the workspace write.
+        for rule in policy.user_rules:
+            assert (
+                "WORKSPACE_DIR" not in rule.match
+            ), f"[{label}] save mutated live rule: {rule.match!r}"
+        assert (
+            policy.evaluate(_tc("Write", f"{ws}/x.py")).action
+            is GovernanceAction.ALLOW
+        )
+
+        # Reload reproduces a portable policy that still ALLOWs the workspace
+        # write — the corrupted-rule symptom would surface here as ASK.
+        reloaded = load_governance_policy(str(policy_dir), ws, cpd)
+        decision = reloaded.evaluate(_tc("Write", f"{ws}/x.py"))
+        assert (
+            decision.action is GovernanceAction.ALLOW
+        ), f"[{label}] reload lost workspace ALLOW: {decision.action}"
 
 
 # ---------------------------------------------------------------------------
@@ -287,16 +434,34 @@ class TestGovernancePolicyEvaluate:
         assert decision.action == GovernanceAction.ALLOW
 
     def test_grep_outside_workspace_ask(self, policy):
-        """Grep outside workspace should fall through to ASK."""
+        """Grep outside workspace with no rule hit falls through to ASK.
+
+        Fail-closed: nothing matched (no rule, no finding), so the user
+        must approve regardless of execution_level.
+        """
         tc = _tc("Grep", "/etc/")
         decision = policy.evaluate(tc)
         assert decision.action == GovernanceAction.ASK
 
     def test_glob_outside_workspace_ask(self, policy):
-        """Glob outside workspace should fall through to ASK."""
+        """Glob outside workspace with no rule hit falls through to ASK."""
         tc = _tc("Glob", "/var/log/")
         decision = policy.evaluate(tc)
         assert decision.action == GovernanceAction.ASK
+
+    def test_outside_workspace_always_asks(self, policy):
+        """No rule hit + no findings ASKs under every execution_level.
+
+        Fail-closed design: an unmatched tool call always requires
+        approval, irrespective of the execution_level threshold.
+        """
+        import copy
+
+        tc = _tc("Grep", "/etc/")
+        for level in ("strict", "smart", "auto", "off"):
+            p = copy.deepcopy(policy)
+            p.execution_level = level
+            assert p.evaluate(tc).action == GovernanceAction.ASK, level
 
     def test_bash_no_match_fallback(self, policy):
         """Bash with no rule match should return SANDBOX_FALLBACK."""
@@ -541,3 +706,320 @@ class TestToolRegistryGrepGlob:
             {"pattern": "*.py"},
         )
         assert target == "*.py"
+
+
+# ---------------------------------------------------------------------------
+# Test: generalize_rule_match (LLM-based rule generalization)
+# ---------------------------------------------------------------------------
+
+
+class _FakeModel:
+    """Minimal stand-in for an agentscope ChatModelBase.
+
+    ``__call__`` is awaited by ``_consume_model_text`` and returns a
+    dict-shaped response (the extractor reads ``text`` via ``dict.get``).
+    """
+
+    def __init__(self, text: str, delay: float = 0.0) -> None:
+        self._text = text
+        self._delay = delay
+
+    async def __call__(self, messages, **kwargs):  # noqa: ANN001
+        import asyncio
+
+        if self._delay:
+            await asyncio.sleep(self._delay)
+        return {"text": self._text}
+
+
+def _patch_model(monkeypatch, text: str, delay: float = 0.0) -> None:
+    """Make ``create_model_and_formatter`` return a _FakeModel."""
+    import qwenpaw.agents.model_factory as factory
+
+    monkeypatch.setattr(
+        factory,
+        "create_model_and_formatter",
+        lambda *a, **kw: (_FakeModel(text, delay), None),
+    )
+
+
+def _patch_model_unavailable(monkeypatch) -> None:
+    """Make model creation raise — simulates no configured provider."""
+    import qwenpaw.agents.model_factory as factory
+
+    def _raise(*a, **kw):
+        raise RuntimeError("no active model")
+
+    monkeypatch.setattr(factory, "create_model_and_formatter", _raise)
+
+
+class TestGeneralizeRuleMatch:
+    """generalize_rule_match widens an approved target via the LLM,
+    with strict validation and an exact-match fallback."""
+
+    async def test_shell_generalizes(self, monkeypatch):
+        from qwenpaw.governance.generalize import generalize_rule_match
+
+        _patch_model(monkeypatch, "git *")
+        assert (
+            await generalize_rule_match("Bash", "git status") == "Bash(git *)"
+        )
+
+    async def test_file_generalizes(self, monkeypatch):
+        from qwenpaw.governance.generalize import generalize_rule_match
+
+        _patch_model(monkeypatch, "/ws/src/**")
+        assert (
+            await generalize_rule_match("Read", "/ws/src/foo.py")
+            == "Read(/ws/src/**)"
+        )
+
+    async def test_unsafe_bare_wildcard_falls_back(self, monkeypatch):
+        from qwenpaw.governance.generalize import generalize_rule_match
+
+        _patch_model(monkeypatch, "*")
+        assert (
+            await generalize_rule_match("Bash", "git status")
+            == "Bash(git status)"
+        )
+
+    async def test_anchor_violation_falls_back(self, monkeypatch):
+        """A pattern for a different command must not be trusted."""
+        from qwenpaw.governance.generalize import generalize_rule_match
+
+        _patch_model(monkeypatch, "rm *")
+        assert (
+            await generalize_rule_match("Bash", "git status")
+            == "Bash(git status)"
+        )
+
+    async def test_destructive_command_not_widened(self, monkeypatch):
+        """rm/sudo/etc. stay exact even if the model proposes a glob."""
+        from qwenpaw.governance.generalize import generalize_rule_match
+
+        _patch_model(monkeypatch, "rm *")
+        assert (
+            await generalize_rule_match("Bash", "rm secret.env")
+            == "Bash(rm secret.env)"
+        )
+
+    async def test_pattern_not_covering_target_falls_back(self, monkeypatch):
+        """A pattern that no longer matches the approved target is rejected."""
+        from qwenpaw.governance.generalize import generalize_rule_match
+
+        _patch_model(monkeypatch, "/ws/out/**")
+        assert (
+            await generalize_rule_match("Read", "/ws/src/foo.py")
+            == "Read(/ws/src/foo.py)"
+        )
+
+    async def test_no_model_falls_back(self, monkeypatch):
+        from qwenpaw.governance.generalize import generalize_rule_match
+
+        _patch_model_unavailable(monkeypatch)
+        assert (
+            await generalize_rule_match("Bash", "git status")
+            == "Bash(git status)"
+        )
+
+    async def test_timeout_falls_back(self, monkeypatch):
+        from qwenpaw.governance import generalize as policy_mod
+
+        monkeypatch.setattr(policy_mod, "GENERALIZE_TIMEOUT_SECONDS", 0.05)
+        _patch_model(monkeypatch, "git *", delay=1.0)
+        assert (
+            await policy_mod.generalize_rule_match("Bash", "git status")
+            == "Bash(git status)"
+        )
+
+    async def test_non_generalizable_type_stays_exact(self, monkeypatch):
+        """network/internal tools are not widened."""
+        from qwenpaw.governance.generalize import generalize_rule_match
+
+        called = {"n": 0}
+
+        import qwenpaw.agents.model_factory as factory
+
+        def _spy(*_args, **_kwargs):
+            called["n"] += 1
+            return (_FakeModel("*"), None)
+
+        monkeypatch.setattr(factory, "create_model_and_formatter", _spy)
+        assert (
+            await generalize_rule_match("Browser", "https://example.com/a")
+            == "Browser(https://example.com/a)"
+        )
+        assert called["n"] == 0
+
+    async def test_empty_target_stays_exact(self, monkeypatch):
+        from qwenpaw.governance.generalize import generalize_rule_match
+
+        _patch_model(monkeypatch, "*")
+        assert await generalize_rule_match("Bash", "") == "Bash()"
+
+
+class TestAddApprovedRuleGeneralization:
+    """add_approved_rule persists the precomputed generalized target/pattern.
+
+    The LLM generalization happens upstream in
+    ``generalize_target_for_approval`` (called from ``_ask_user_approval``);
+    ``add_approved_rule`` re-wraps the supplied pattern as
+    ``ToolName(pattern)`` and never calls the model itself."""
+
+    @pytest.fixture()
+    def governor(self, tmp_path):
+        gov = _make_governor(tmp_path)
+        gov.start()
+        yield gov
+        gov.stop()
+        AuditLog._instance = None
+        shutil.rmtree(gov._policy_dir, ignore_errors=True)
+
+    async def test_records_generalized_target(self, governor, monkeypatch):
+        """A generalized target/pattern supplied by the caller is wrapped
+        and persisted as ``ToolName(pattern)``."""
+        import qwenpaw.agents.model_factory as factory
+
+        calls = {"n": 0}
+        monkeypatch.setattr(
+            factory,
+            "create_model_and_formatter",
+            lambda *a, **kw: calls.__setitem__("n", calls["n"] + 1)
+            or (_FakeModel("git *"), None),
+        )
+        added = await governor.add_approved_rule(
+            _tc("Bash", "git status"),
+            generalized_target="git *",
+        )
+        assert added is True
+        assert governor.policy.user_rules[0].match == "Bash(git *)"
+        # add_approved_rule does NOT call the model itself.
+        assert calls["n"] == 0
+
+    async def test_records_exact_target(self, governor):
+        """An exact target (generalization failed upstream) is recorded."""
+        added = await governor.add_approved_rule(
+            _tc("Bash", "git status"),
+            generalized_target="git status",
+        )
+        assert added is True
+        assert governor.policy.user_rules[0].match == "Bash(git status)"
+
+    async def test_pattern_with_paren_wrapped_correctly(self, governor):
+        """A pattern containing ')' is wrapped verbatim — the tool_name is
+        prepended, no inner parsing happens here."""
+        added = await governor.add_approved_rule(
+            _tc("Bash", "echo $(date)"),
+            generalized_target="echo $(date)",
+        )
+        assert added is True
+        assert governor.policy.user_rules[0].match == "Bash(echo $(date))"
+
+    async def test_builtin_ask_skipped(self, governor):
+        """A builtin-protected target (.env) is never recorded, even when
+        a generalized target is supplied."""
+        before = list(governor.policy.user_rules)
+        tc = _tc("Read", "/ws/.env")
+        added = await governor.add_approved_rule(
+            tc,
+            generalized_target="/ws/.env",
+        )
+        assert added is False
+        assert governor.policy.user_rules == before
+
+    async def test_empty_target_skipped(self, governor):
+        """An empty generalized target is skipped."""
+        before = list(governor.policy.user_rules)
+        added = await governor.add_approved_rule(
+            _tc("Bash", "git status"),
+            generalized_target="",
+        )
+        assert added is False
+        assert governor.policy.user_rules == before
+
+    async def test_missing_generalized_target_raises(self, governor):
+        """The keyword arg is required — calling without it is a TypeError,
+        not a silent skip. This guards the tool_adapter call site."""
+        with pytest.raises(TypeError):
+            await governor.add_approved_rule(_tc("Bash", "git status"))
+
+
+class TestGeneralizeTargetForApproval:
+    """generalize_target_for_approval is the single entry point the
+    approval flow uses; it guards builtin sources and never raises.
+    Returns the bare generalized target/pattern."""
+
+    async def test_builtin_source_returns_exact_target(self, monkeypatch):
+        from qwenpaw.governance.generalize import (
+            generalize_target_for_approval,
+        )
+
+        # Even with a model that would generalize, builtin source must
+        # return the exact target and skip the LLM.
+        import qwenpaw.agents.model_factory as factory
+
+        calls = {"n": 0}
+        monkeypatch.setattr(
+            factory,
+            "create_model_and_formatter",
+            lambda *a, **kw: calls.__setitem__("n", calls["n"] + 1)
+            or (_FakeModel("*"), None),
+        )
+        result = await generalize_target_for_approval(
+            "Read",
+            "/ws/.env",
+            "builtin_rules",
+        )
+        # Bare target, NOT wrapped in ToolName(...).
+        assert result == "/ws/.env"
+        assert calls["n"] == 0
+
+    @pytest.mark.parametrize(
+        "source",
+        ["user_rules", "sandbox", "No rule hit"],
+    )
+    async def test_non_builtin_source_generalizes(self, monkeypatch, source):
+        from qwenpaw.governance.generalize import (
+            generalize_target_for_approval,
+        )
+
+        _patch_model(monkeypatch, "git *")
+        result = await generalize_target_for_approval(
+            "Bash",
+            "git status",
+            source,
+        )
+        # Bare pattern, NOT wrapped.
+        assert result == "git *"
+
+    async def test_exception_falls_back_to_exact_target(self, monkeypatch):
+        from qwenpaw.governance import generalize as g
+
+        # Force generalize_rule_match to blow up; helper must swallow it.
+        async def _boom(tool_name, target):
+            raise RuntimeError("boom")
+
+        monkeypatch.setattr(g, "generalize_rule_match", _boom)
+        result = await g.generalize_target_for_approval(
+            "Bash",
+            "git status",
+            "sandbox",
+        )
+        assert result == "git status"
+
+    async def test_unwraps_pattern_containing_paren(self, monkeypatch):
+        """When the LLM returns a match string whose pattern contains ')',
+        the helper must unwrap correctly to the inner pattern (this is why
+        it uses _parse_match rather than a naive split)."""
+        from qwenpaw.governance import generalize as g
+
+        async def _fake(_tool_name, _target):
+            return "Bash(echo $(date))"
+
+        monkeypatch.setattr(g, "generalize_rule_match", _fake)
+        result = await g.generalize_target_for_approval(
+            "Bash",
+            "echo $(date)",
+            "sandbox",
+        )
+        assert result == "echo $(date)"

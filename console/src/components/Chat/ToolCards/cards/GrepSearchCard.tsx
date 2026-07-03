@@ -23,7 +23,7 @@ const GrepSearchCard: React.FC<GrepSearchCardProps> = ({
     : t("tool.grepSearchDefault");
 
   const resultText = stringifyResult(content.result);
-  const lineCount = countLines(content.result);
+  const lineCount = countLines(resultText);
 
   const badge =
     content.status === "done" && lineCount > 0 ? (

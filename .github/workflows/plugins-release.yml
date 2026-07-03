@@ -57,6 +57,7 @@ jobs:
 
       - name: Sync plugin zips to OSS (long-cache, immutable)
         run: |
+          # nullglob ensures empty globs expand to nothing in this bash session
           shopt -s nullglob
           for kind in bundle tool; do
             while IFS= read -r -d '' f; do
@@ -69,10 +70,9 @@ jobs:
                 --meta "Cache-Control:public, max-age=31536000, immutable"
             done < <(find "dist/plugins/${kind}" -type f -name '*.zip' -print0 2>/dev/null || true)
           done
-          # Remove zips that no longer exist locally so deletions propagate.
+          # One-time cleanup: remove legacy flat zips (pre per-plugin directory layout).
+          # This only targets {kind}/*.zip (flat files), not {kind}/{plugin_id}/*.zip (versioned).
           for kind in bundle tool; do
-            kind_root="dist/plugins/${kind}"
-            # Drop legacy flat zips at {kind}/ (pre per-plugin directory layout).
             remote_flat=$(ossutil ls "oss://qwenpaw-download/files/plugins/${kind}/" -s 2>/dev/null \
               | grep -E "^oss://qwenpaw-download/files/plugins/${kind}/[^/]+\.zip$" \
               | sed 's|.*/||' \
@@ -83,24 +83,17 @@ jobs:
                 "oss://qwenpaw-download/files/plugins/${kind}/${name}" \
                 --force
             done
-            for plugin_dir in "$kind_root"/*/; do
-              [ -d "$plugin_dir" ] || continue
-              plugin_id=$(basename "$plugin_dir")
-              local_names=$(find "$plugin_dir" -maxdepth 1 -type f -name '*.zip' -exec basename {} \; 2>/dev/null | sort || true)
-              remote_names=$(ossutil ls "oss://qwenpaw-download/files/plugins/${kind}/${plugin_id}/" -s 2>/dev/null \
-                | grep -E "^oss://qwenpaw-download/files/plugins/${kind}/${plugin_id}/[^/]+\.zip$" \
-                | sed 's|.*/||' \
-                | sort -u || true)
-              for name in $remote_names; do
-                if ! echo "$local_names" | grep -qx "$name"; then
-                  echo "Removing stale OSS object: ${kind}/${plugin_id}/${name}"
-                  ossutil rm \
-                    "oss://qwenpaw-download/files/plugins/${kind}/${plugin_id}/${name}" \
-                    --force
-                fi
-              done
-            done
           done
+
+      - name: Merge historical versions into index
+        run: |
+          ossutil cp "oss://qwenpaw-download/metadata/plugins/index.json" \
+            existing-index.json 2>/dev/null || echo '{}' > existing-index.json
+
+          python3 scripts/pack/merge_plugin_index.py \
+            --new dist/plugins/index.json \
+            --old existing-index.json \
+            --out dist/plugins/index.json
 
       - name: Upload plugins index (short-cache)
         run: |
@@ -121,23 +114,9 @@ jobs:
           }
           EOF
 
-          python3 << 'PYTHON'
-          import json
-          from datetime import datetime, timezone
-
-          with open("main-index.json", "r", encoding="utf-8") as f:
-              index = json.load(f)
-
-          index.setdefault("products", {})
-          index["products"]["plugins"] = {
-              "name": {"zh-CN": "插件", "en-US": "Plugins"},
-              "index_url": "/metadata/plugins/index.json",
-          }
-          index["updated_at"] = datetime.now(timezone.utc).isoformat()
-
-          with open("main-index.json", "w", encoding="utf-8") as f:
-              json.dump(index, f, indent=2, ensure_ascii=False)
-          PYTHON
+          python3 scripts/pack/patch_main_index.py \
+            --index main-index.json \
+            --out   main-index.json
 
           ossutil cp main-index.json \
             "oss://qwenpaw-download/metadata/index.json" \

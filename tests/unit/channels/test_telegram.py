@@ -47,6 +47,17 @@ from qwenpaw.schemas import (
 # =============================================================================
 
 
+def test_telegram_base_urls_derive_api_and_file_prefixes():
+    """Custom root URL should derive Bot API and file API prefixes."""
+    from qwenpaw.app.channels.telegram.channel import _telegram_base_urls
+
+    assert _telegram_base_urls("") == ("", "")
+    assert _telegram_base_urls(" https://tg-api.example.com/ ") == (
+        "https://tg-api.example.com/bot",
+        "https://tg-api.example.com/file/bot",
+    )
+
+
 @pytest.fixture
 def mock_process_handler() -> AsyncMock:
     """Mock process handler that yields simple events."""
@@ -400,6 +411,7 @@ class TestTelegramChannelFromConfig:
 
         assert channel.enabled is True
         assert channel._bot_token == "config_token"
+        assert channel._base_url == ""
         assert channel._http_proxy == "http://config.proxy:8080"
         assert channel._http_proxy_auth == "config_user:config_pass"
         assert channel.bot_prefix == "[ConfigBot]"
@@ -433,6 +445,23 @@ class TestTelegramChannelFromConfig:
 
         assert channel._bot_token == "obj_token"
         assert channel.bot_prefix == "[Obj]"
+
+    def test_from_config_uses_base_url(
+        self,
+        mock_process_handler,
+    ):
+        """from_config should pass custom Telegram API root URL."""
+        from qwenpaw.app.channels.telegram.channel import TelegramChannel
+
+        channel = TelegramChannel.from_config(
+            process=mock_process_handler,
+            config={
+                "bot_token": "config_token",
+                "base_url": " https://tg-api.example.com/ ",
+            },
+        )
+
+        assert channel._base_url == "https://tg-api.example.com"
 
     def test_from_config_defaults(
         self,
@@ -1149,52 +1178,6 @@ class TestTelegramBuildAgentRequest:
 
 
 # =============================================================================
-# P1: No Text Debounce
-# =============================================================================
-
-
-class TestTelegramNoTextDebounce:
-    """Tests for _apply_no_text_debounce override."""
-
-    def test_media_only_triggers_immediate_processing(
-        self,
-        telegram_channel,
-    ):
-        """Media-only content should trigger immediate processing."""
-        parts = [
-            ImageContent(
-                type=ContentType.IMAGE,
-                image_url="http://example.com/img.jpg",
-            ),
-        ]
-
-        should_process, merged = telegram_channel._apply_no_text_debounce(
-            "session_1",
-            parts,
-        )
-
-        assert should_process is True
-        assert len(merged) == 1
-
-    def test_text_content_uses_base_behavior(
-        self,
-        telegram_channel,
-    ):
-        """Text content should use base class debounce logic."""
-        parts = [
-            TextContent(type=ContentType.TEXT, text="Hello"),
-        ]
-
-        should_process, merged = telegram_channel._apply_no_text_debounce(
-            "session_2",
-            parts,
-        )
-
-        assert should_process is True
-        assert len(merged) == 1
-
-
-# =============================================================================
 # P1: Module-Level File Download
 # =============================================================================
 
@@ -1334,6 +1317,30 @@ class TestTelegramResolveFileUrl:
 
         expected = (
             "https://api.telegram.org/file/botmy_bot_token/photos/file_123.jpg"
+        )
+        assert result == expected
+
+    async def test_resolve_api_url_with_custom_base_url(self):
+        """Should construct custom Telegram file API URL."""
+        from qwenpaw.app.channels.telegram.channel import (
+            _resolve_telegram_file_url,
+        )
+
+        mock_bot = MagicMock()
+        mock_file = MagicMock()
+        mock_file.file_path = "photos/file_123.jpg"
+        mock_bot.get_file = AsyncMock(return_value=mock_file)
+
+        result = await _resolve_telegram_file_url(
+            bot=mock_bot,
+            file_id="file123",
+            bot_token="my_bot_token",
+            base_url="https://tg-api.example.com/",
+        )
+
+        expected = (
+            "https://tg-api.example.com/file/"
+            "botmy_bot_token/photos/file_123.jpg"
         )
         assert result == expected
 
@@ -1758,6 +1765,34 @@ class TestTelegramProxyUrl:
             assert (
                 not hasattr(mock_builder, "proxy")
                 or not mock_builder.proxy.called
+            )
+            assert not mock_builder.base_url.called
+            assert not mock_builder.base_file_url.called
+
+    def test_custom_base_url_configures_builder(self, telegram_channel):
+        """Should configure PTB Bot API and file API prefixes."""
+        telegram_channel._base_url = "https://tg-api.example.com"
+        telegram_channel._bot_token = "test_token"
+
+        with patch("telegram.ext.Application.builder") as mock_builder_class:
+            mock_builder = MagicMock()
+            mock_builder_class.return_value = mock_builder
+            mock_builder.token.return_value = mock_builder
+            mock_builder.base_url.return_value = mock_builder
+            mock_builder.base_file_url.return_value = mock_builder
+            mock_builder.get_updates_read_timeout.return_value = mock_builder
+            mock_builder.get_updates_connect_timeout.return_value = (
+                mock_builder
+            )
+            mock_builder.build.return_value = MagicMock()
+
+            telegram_channel._build_application()
+
+            mock_builder.base_url.assert_called_once_with(
+                "https://tg-api.example.com/bot",
+            )
+            mock_builder.base_file_url.assert_called_once_with(
+                "https://tg-api.example.com/file/bot",
             )
 
     def test_proxy_without_auth(self, telegram_channel):

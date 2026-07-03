@@ -1136,3 +1136,36 @@ async def upload_workspace(
             status_code=500,
             detail=f"Failed to merge workspace: {exc}",
         ) from exc
+
+
+@router.get("/commands/available")
+async def get_available_commands(request: Request):
+    """Return all slash commands registered for the workspace.
+
+    Merges built-in system commands with plugin-registered ones
+    so the frontend can dynamically populate the slash menu.
+    """
+    agent = await get_agent_for_request(request)
+    registry = getattr(
+        getattr(agent, "plugins", None),
+        "slash_command_registry",
+        None,
+    )
+    commands = []
+    if registry is not None:
+        for name in registry.names():
+            match = registry.resolve(f"/{name}")
+            desc = ""
+            category = ""
+            if match:
+                spec, _ = match
+                desc = spec.help_text or ""
+                category = spec.category or ""
+            commands.append(
+                {
+                    "name": name,
+                    "description": desc,
+                    "category": category,
+                },
+            )
+    return ORJSONResponse({"commands": commands})

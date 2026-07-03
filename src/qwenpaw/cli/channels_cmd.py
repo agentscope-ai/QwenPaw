@@ -540,6 +540,13 @@ def configure_telegram(current_config: TelegramConfig) -> TelegramConfig:
         current_config.enabled = False
         return current_config
 
+    base_url = click.prompt(
+        "Telegram API Base URL (blank for default)",
+        default=current_config.base_url or "",
+        type=str,
+    )
+    current_config.base_url = base_url.strip().rstrip("/")
+
     show_typing = prompt_confirm(
         "Show typing indicator?",
         default=current_config.show_typing is not False,

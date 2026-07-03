@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from datetime import datetime
 from types import SimpleNamespace
 from typing import Any, AsyncGenerator, Callable
@@ -15,6 +16,8 @@ from qwenpaw.local_models.tag_parser import (
     parse_tool_calls_from_text,
     text_contains_tool_call_tag,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def _battr(block: Any, key: str, default: Any = None) -> Any:
@@ -592,6 +595,25 @@ class OpenAIChatModelCompat(OpenAIChatModel):
         self._extra_generate_kwargs = extra_generate_kwargs or {}
         super().__init__(**kwargs)
 
+    async def __call__(self, *args: Any, **kwargs: Any) -> Any:
+        try:
+            from ..observability.langfuse import (
+                current_generation_kwargs,
+            )
+        except ImportError:
+            pass
+        else:
+            try:
+                langfuse_kwargs = current_generation_kwargs(self.model)
+                if langfuse_kwargs:
+                    kwargs = {**langfuse_kwargs, **kwargs}
+            except Exception:
+                logger.debug(
+                    "langfuse generation kwargs failed",
+                    exc_info=True,
+                )
+        return await super().__call__(*args, **kwargs)
+
     async def _call_api(
         self,
         model_name: str,
@@ -601,6 +623,7 @@ class OpenAIChatModelCompat(OpenAIChatModel):
         **generate_kwargs: Any,
     ) -> Any:
         merged = {**self._extra_generate_kwargs, **generate_kwargs}
+        self._consume_disable_thinking(merged)
         if self._default_headers:
             existing = merged.get("extra_headers") or {}
             merged["extra_headers"] = {**self._default_headers, **existing}
@@ -611,6 +634,25 @@ class OpenAIChatModelCompat(OpenAIChatModel):
             tool_choice,
             **merged,
         )
+
+    def _consume_disable_thinking(self, call_kwargs: dict) -> None:
+        """Translate the neutral ``disable_thinking`` flag into OpenAI-compat
+        wire params, merging into *call_kwargs* in place.
+
+        Qwen via ``enable_thinking``, DeepSeek/Moonshot-style via
+        ``thinking``.
+        """
+        if not call_kwargs.pop("disable_thinking", False):
+            return
+        body = dict(getattr(self, "extra_body", None) or {})
+        body.update(call_kwargs.get("extra_body") or {})
+        body.update(
+            {
+                "enable_thinking": False,
+                "thinking": {"type": "disabled"},
+            },
+        )
+        call_kwargs["extra_body"] = body
 
     def _format_tools(
         self,
