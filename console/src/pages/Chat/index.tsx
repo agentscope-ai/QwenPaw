@@ -1148,8 +1148,10 @@ export default function ChatPage() {
   // last actively selected session to avoid jumping to the first session on re-mount.
   const effectiveChatId =
     sessionApi.getRoutableSessionId(chatId) ||
-    sessionApi.getRoutableSessionId(sessionApi.lastActiveChatId) ||
-    getLastChatId(selectedAgent);
+    (sessionApi.suppressBaseAutoSelect
+      ? undefined
+      : sessionApi.getRoutableSessionId(sessionApi.lastActiveChatId) ||
+        getLastChatId(selectedAgent));
   if (effectiveChatId && sessionApi.preferredChatId !== effectiveChatId) {
     sessionApi.preferredChatId = effectiveChatId;
   }
@@ -1286,6 +1288,7 @@ export default function ChatPage() {
   useEffect(() => {
     const prevAgent = prevSelectedAgentRef.current;
     if (prevAgent !== selectedAgent && prevAgent !== undefined) {
+      sessionApi.suppressBaseAutoSelect = false;
       // Save current chat ID for the agent we're leaving
       const currentChatId =
         chatIdRef.current || lastSessionIdRef.current || undefined;

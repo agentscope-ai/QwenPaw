@@ -95,6 +95,10 @@ const ChatSessionInitializer: React.FC = () => {
       return;
     }
 
+    if (routableChatId) {
+      sessionApi.suppressBaseAutoSelect = false;
+    }
+
     // Issue #4557: Do NOT trigger setCurrentSessionId while a user-initiated
     // session switch is in progress. This breaks the infinite loop where
     // onSessionSelected → navigate → this effect → setCurrentSessionId →
@@ -156,7 +160,18 @@ const ChatSessionInitializer: React.FC = () => {
 
   useEffect(() => {
     if (chatId || !sessions.length) return;
-    if (sessionApi.isSessionSwitching || sessionApi.userInitiatedCreate) return;
+    if (
+      sessionApi.isSessionSwitching ||
+      sessionApi.userInitiatedCreate ||
+      sessionApi.suppressBaseAutoSelect
+    ) {
+      return;
+    }
+
+    const first = sessions[0] as ExtendedSession | undefined;
+    if (first?.id && sessionApi.isLocalSessionId(first.id) && !first.realId) {
+      return;
+    }
 
     const target = sessions.find((s) =>
       sessionApi.getRoutableSessionId(s.id, (s as ExtendedSession).realId),

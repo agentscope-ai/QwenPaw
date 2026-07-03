@@ -438,6 +438,12 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
    */
   lastActiveChatId: string | null = null;
 
+  /**
+   * True after the user explicitly requests a blank new chat. While this is set,
+   * the base /chat route must not auto-open the latest history item.
+   */
+  suppressBaseAutoSelect = false;
+
   setActiveAgent(agentId: string | undefined): void {
     if (this.activeAgentId === agentId) return;
     this.activeAgentId = agentId;
@@ -453,6 +459,7 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     this.preferredChatId = null;
     this.lastActiveChatId = null;
     this.lastNavigatedChatId = null;
+    this.suppressBaseAutoSelect = false;
     this.sessionResultCache.clear();
     this.convertedSessionCache.clear();
     this.sessionListRequest = null;
@@ -789,6 +796,7 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     persistFn?: (agentId: string, id: string) => void,
     agentId?: string,
   ): void {
+    this.suppressBaseAutoSelect = false;
     this.lastActiveChatId = effectiveId;
     this.lastNavigatedChatId = effectiveId;
     if (persistFn && agentId && !isLocalTimestamp(effectiveId)) {
