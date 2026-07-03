@@ -180,6 +180,16 @@ export interface OneBotConfig extends BaseChannelConfig {
   share_session_in_group: boolean;
 }
 
+export interface AzureBotConfig extends BaseChannelConfig {
+  app_id: string;
+  app_password: string;
+  tenant_id: string;
+  http_host: string;
+  http_port: number;
+  media_dir?: string;
+  share_session_in_group?: boolean;
+}
+
 export interface ChannelConfig {
   imessage: IMessageChannelConfig;
   discord: DiscordConfig;
@@ -199,6 +209,7 @@ export interface ChannelConfig {
   yuanbao: YuanbaoConfig;
   wechat: WeChatConfig;
   onebot: OneBotConfig;
+  azure_bot: AzureBotConfig;
 }
 
 export type SingleChannelConfig =
@@ -219,4 +230,5 @@ export type SingleChannelConfig =
   | SIPChannelConfig
   | XiaoYiConfig
   | YuanbaoConfig
-  | OneBotConfig;
+  | OneBotConfig
+  | AzureBotConfig;

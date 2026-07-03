@@ -47,6 +47,7 @@ export function useChannels() {
       "matrix",
       "sip",
       "xiaoyi",
+      "azure_bot",
     ],
     [],
   );

@@ -39,6 +39,8 @@ _EXPECTED_BUILTIN_TYPES = {
     "sip",
     "xiaoyi",
     "yuanbao",
+    "azure_bot",
+    "slack",
 }
 
 

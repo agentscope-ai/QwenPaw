@@ -35,6 +35,7 @@ const CHANNELS_WITH_ACCESS_CONTROL: ChannelKey[] = [
   "xiaoyi",
   "yuanbao",
   "slack",
+  "azure_bot",
 ];
 
 // Doc EN URLs per channel (anchors on https://qwenpaw.agentscope.io/docs/channels)
@@ -61,6 +62,8 @@ const CHANNEL_DOC_EN_URLS: Partial<Record<ChannelKey, string>> = {
   onebot:
     "https://qwenpaw.agentscope.io/docs/channels/?lang=en#OneBot-v11-NapCat--QQ-full-protocol",
   slack: "https://qwenpaw.agentscope.io/docs/channels/?lang=en#Slack",
+  azure_bot:
+    "https://learn.microsoft.com/en-us/azure/bot-service/bot-service-overview?view=azure-bot-service-4.0",
 };
 
 // Doc ZH URLs per channel (anchors on https://qwenpaw.agentscope.io/docs/channels)
@@ -85,6 +88,8 @@ const CHANNEL_DOC_ZH_URLS: Partial<Record<ChannelKey, string>> = {
   onebot:
     "https://qwenpaw.agentscope.io/docs/channels/?lang=zh#OneBot-v11NapCat--QQ-完整协议",
   slack: "https://qwenpaw.agentscope.io/docs/channels/?lang=zh#Slack",
+  azure_bot:
+    "https://learn.microsoft.com/zh-cn/azure/bot-service/bot-service-overview?view=azure-bot-service-4.0",
 };
 
 const TWILIO_CONSOLE_URL = "https://console.twilio.com";
@@ -1304,6 +1309,50 @@ export function ChannelDrawer({
             </Form.Item>
             <Form.Item name="access_token" label="Access Token">
               <Input.Password placeholder="Access token for authentication" />
+            </Form.Item>
+            <Form.Item
+              name="share_session_in_group"
+              label={t("channels.shareSessionInGroup")}
+              valuePropName="checked"
+              tooltip={t("channels.shareSessionInGroupTooltip")}
+            >
+              <Switch />
+            </Form.Item>
+          </>
+        );
+
+      case "azure_bot":
+        return (
+          <>
+            <Form.Item
+              name="app_id"
+              label={t("channels.azureBotAppId")}
+              rules={[{ required: true }]}
+            >
+              <Input placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" />
+            </Form.Item>
+            <Form.Item
+              name="app_password"
+              label={t("channels.azureBotAppPassword")}
+              rules={[{ required: true }]}
+            >
+              <Input.Password placeholder="App Password (Client Secret)" />
+            </Form.Item>
+            <Form.Item
+              name="tenant_id"
+              label={t("channels.azureBotTenantId")}
+              rules={[{ required: true }]}
+            >
+              <Input placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" />
+            </Form.Item>
+            <Form.Item name="http_host" label={t("channels.azureBotHttpHost")}>
+              <Input placeholder="0.0.0.0" />
+            </Form.Item>
+            <Form.Item name="http_port" label={t("channels.azureBotHttpPort")}>
+              <InputNumber min={1} max={65535} placeholder="3978" />
+            </Form.Item>
+            <Form.Item name="media_dir" label={t("channels.wechatMediaDir")}>
+              <Input placeholder={defaultMediaDir} />
             </Form.Item>
             <Form.Item
               name="share_session_in_group"

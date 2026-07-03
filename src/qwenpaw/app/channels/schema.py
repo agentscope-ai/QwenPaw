@@ -42,6 +42,7 @@ BUILTIN_CHANNEL_TYPES = (
     "slack",
     "xiaoyi",
     "yuanbao",
+    "azure_bot",
 )
 
 # ChannelType is str to allow plugin channels; built-in set above.

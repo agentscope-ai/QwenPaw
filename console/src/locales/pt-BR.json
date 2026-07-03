@@ -1059,6 +1059,12 @@
     "slackAppToken": "App Token",
     "slackAppTokenTooltip": "Slack App-Level Token para Socket Mode, começa com xapp-",
     "slackProxyTooltip": "URL de proxy HTTP para conectar à API do Slack",
+    "azureBotAppId": "App ID",
+    "azureBotAppPassword": "App Password",
+    "azureBotTenantId": "Tenant ID",
+    "azureBotHttpHost": "HTTP Host",
+    "azureBotHttpPort": "HTTP Port",
+
     "dingtalkSetupGuide": "Scan the QR code with DingTalk to create a bot instantly. A DingTalk app will be created automatically and Client ID / Client Secret will be filled in.",
     "dingtalkScanAuth": "Scan to Criar Bot",
     "dingtalkGetQrcode": "Get DingTalk QR Code",

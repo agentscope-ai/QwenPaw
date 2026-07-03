@@ -15,6 +15,7 @@ export const CHANNELS = {
   wecom: "wecom",
   xiaoyi: "xiaoyi",
   yuanbao: "yuanbao",
+  azure_bot: "azure_bot",
 };
 
 export const CHANNEL_COLORS: Record<string, string> = {
@@ -34,4 +35,5 @@ export const CHANNEL_COLORS: Record<string, string> = {
   wecom: "olive",
   xiaoyi: "cyan",
   yuanbao: "lime",
+  azure_bot: "blue",
 };

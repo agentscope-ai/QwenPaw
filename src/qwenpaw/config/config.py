@@ -490,6 +490,28 @@ class SlackConfig(BaseChannelConfig):
     group_disabled: bool = False
 
 
+class AzureBotConfig(BaseChannelConfig):
+    """Azure Bot Service channel: Bot Framework webhook + REST API.
+
+    Uses an independent aiohttp HTTP server (separate port) to receive
+    Activity payloads from Azure Bot Service. Outbound messages are
+    sent via the Bot Framework REST API with MSAL token auth.
+
+    Supports Teams, Slack, Web Chat, and other Azure Bot channels.
+    streaming_enabled: enable streamInfo-based streaming (1v1 only).
+    share_session_in_group: if True, all group members share one
+    session; if False (default), each member gets independent session.
+    """
+
+    app_id: str = ""
+    app_password: str = ""
+    tenant_id: str = ""
+    http_host: str = "0.0.0.0"
+    http_port: int = 3978
+    media_dir: Optional[str] = None
+    share_session_in_group: bool = False
+
+
 class ChannelConfig(BaseModel):
     """Built-in channel configs; extra keys allowed for plugin channels."""
 
@@ -513,6 +535,7 @@ class ChannelConfig(BaseModel):
     wechat: WeChatConfig = WeChatConfig()
     slack: SlackConfig = SlackConfig()
     onebot: OneBotConfig = OneBotConfig()
+    azure_bot: AzureBotConfig = AzureBotConfig()
 
     @model_validator(mode="before")
     @classmethod

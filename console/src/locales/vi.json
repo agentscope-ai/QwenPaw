@@ -1053,7 +1053,12 @@
     "slackBotTokenTooltip": "Slack Bot User OAuth Token, bắt đầu bằng xoxb-",
     "slackAppToken": "App Token",
     "slackAppTokenTooltip": "Slack App-Level Token cho Socket Mode, bắt đầu bằng xapp-",
-    "slackProxyTooltip": "URL proxy HTTP để kết nối đến Slack API"
+    "slackProxyTooltip": "URL proxy HTTP để kết nối đến Slack API",
+    "azureBotAppId": "App ID",
+    "azureBotAppPassword": "App Password",
+    "azureBotTenantId": "Tenant ID",
+    "azureBotHttpHost": "HTTP Host",
+    "azureBotHttpPort": "HTTP Port"
   },
   "cronJobs": {
     "title": "Tác vụ định kỳ",

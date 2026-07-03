@@ -521,7 +521,12 @@
     "slackBotTokenTooltip": "Slack Bot User OAuth Token, dimulai dengan xoxb-",
     "slackAppToken": "App Token",
     "slackAppTokenTooltip": "Slack App-Level Token untuk Socket Mode, dimulai dengan xapp-",
-    "slackProxyTooltip": "URL proxy HTTP untuk menghubungkan ke Slack API"
+    "slackProxyTooltip": "URL proxy HTTP untuk menghubungkan ke Slack API",
+    "azureBotAppId": "App ID",
+    "azureBotAppPassword": "App Password",
+    "azureBotTenantId": "Tenant ID",
+    "azureBotHttpHost": "HTTP Host",
+    "azureBotHttpPort": "HTTP Port"
   },
   "tools": {
     "title": "Tool Bawaan",

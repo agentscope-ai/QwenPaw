@@ -20,6 +20,7 @@ from ..channels.registry import BUILTIN_CHANNEL_KEYS
 from ...config.timezone import normalize_tz
 from ...config.config import (
     AgentsLLMRoutingConfig,
+    AzureBotConfig,
     ConsoleConfig,
     DingTalkConfig,
     DiscordConfig,
@@ -66,6 +67,7 @@ _CHANNEL_CONFIG_CLASS_MAP = {
     "mqtt": MQTTConfig,
     "matrix": MatrixConfig,
     "wecom": WecomConfig,
+    "azure_bot": AzureBotConfig,
 }
 _ALLOWED_ACP_TOOL_PARSE_MODES = {
     "call_title",

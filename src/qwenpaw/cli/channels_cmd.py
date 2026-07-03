@@ -60,6 +60,7 @@ _ALL_CHANNEL_NAMES = {
     "voice": "Twilio",
     "yuanbao": "Yuanbao",
     "slack": "Slack",
+    "azure_bot": "Azure Bot",
 }
 # Public alias for tests and external use.
 CHANNEL_NAMES = _ALL_CHANNEL_NAMES

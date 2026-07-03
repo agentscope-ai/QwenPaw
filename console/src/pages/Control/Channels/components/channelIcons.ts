@@ -62,6 +62,7 @@ const LETTER_ICON_COLORS: Record<string, string> = {
   voice: "#F44336",
   xiaoyi: "#CF1322",
   yuanbao: "#1677FF",
+  azure_bot: "#0078D4",
 };
 
 /** A palette of fallback colors for channels without a predefined color. */
