@@ -5,3 +5,4 @@ coverage/
 # ai related
 .wiki/
 graphify-out/
+src/pages/Chat/INPUT_QUEUE_REGRESSION.md
