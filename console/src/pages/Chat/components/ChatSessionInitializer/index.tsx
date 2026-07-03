@@ -141,6 +141,26 @@ const ChatSessionInitializer: React.FC = () => {
     // currentSessionId is read via ref to avoid circular triggers.
   }, [chatId, sessions, setCurrentSessionId]);
 
+  useEffect(() => {
+    if (chatId || !sessions.length) return;
+    if (sessionApi.isSessionSwitching || sessionApi.userInitiatedCreate) return;
+
+    const target = sessions[0] as ExtendedSession | undefined;
+    if (!target?.id || sessionApi.isUnresolvedLocalSession(target.id)) return;
+
+    const mode = codingModeRef.current ? "coding" : "chat";
+    const effectiveId = sessionApi.getEffectiveSessionId(
+      target.id,
+      target.realId,
+    );
+
+    sessionApi.trackNavigatedSession(effectiveId);
+    navigate(buildSessionPath(mode, effectiveId), { replace: true });
+    if (currentSessionIdRef.current !== target.id) {
+      setCurrentSessionId(target.id);
+    }
+  }, [chatId, navigate, sessions, setCurrentSessionId]);
+
   // ── Sidebar event handlers ────────────────────────────────────────────────
 
   useEffect(() => {

@@ -417,6 +417,8 @@ function clearPendingUserMessage(sessionId: string): void {
 class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
   private sessionList: IAgentScopeRuntimeWebUISession[] = [];
   private realIdResolutionTasks: Set<string> = new Set();
+  private activeAgentId: string | undefined;
+  private sessionScopeVersion = 0;
 
   /** Previous returned list reference for shallow-compare optimisation. */
   private _prevReturnedList: IAgentScopeRuntimeWebUISession[] | null = null;
@@ -434,6 +436,29 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
    * a chatId in the URL (e.g. navigating back to /chat from /settings).
    */
   lastActiveChatId: string | null = null;
+
+  setActiveAgent(agentId: string | undefined): void {
+    if (this.activeAgentId === agentId) return;
+    this.activeAgentId = agentId;
+    this.sessionScopeVersion += 1;
+
+    this.switchAbortController?.abort();
+    this.switchAbortController = null;
+    this.isSessionSwitching = false;
+
+    this.sessionList = [];
+    this.realIdResolutionTasks.clear();
+    this._prevReturnedList = null;
+    this.preferredChatId = null;
+    this.lastActiveChatId = null;
+    this.lastNavigatedChatId = null;
+    this.sessionResultCache.clear();
+    this.convertedSessionCache.clear();
+    this.sessionListRequest = null;
+    this.resolvePromise = null;
+    this.sessionRequests.clear();
+    this.lastSelectedIds.clear();
+  }
 
   // ---------------------------------------------------------------------------
   // Session switch lock (issue #4557)
@@ -718,6 +743,13 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     ) as ExtendedSession | undefined;
   }
 
+  private findSessionByIdentity(id: string): ExtendedSession | undefined {
+    return this.sessionList.find((x) => {
+      const session = x as ExtendedSession;
+      return x.id === id || session.realId === id || session.sessionId === id;
+    }) as ExtendedSession | undefined;
+  }
+
   /** Returns the real backend UUID, or null when not yet resolved. */
   getRealIdForSession(sessionId: string): string | null {
     return this.findSession(sessionId)?.realId ?? null;
@@ -766,6 +798,19 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
   }
 
   /**
+   * Returns the stable public chat id used by the input queue.
+   *
+   * The backend chat UUID is visible in routes and history across browser tabs,
+   * while the SDK session_id can be a local timestamp during the first turn.
+   * Keeping queue storage on the public id prevents peer tabs from opening a
+   * second queue for the same chat before the SDK alias is fully loaded.
+   */
+  getQueueSessionId(sessionId: string): string {
+    const session = this.findSessionByIdentity(sessionId);
+    return session?.realId || session?.id || sessionId;
+  }
+
+  /**
    * Returns the id that should be passed to the AgentScope SDK session context.
    *
    * CoPaw routes prefer backend chat UUIDs once a chat is persisted, while the
@@ -773,7 +818,9 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
    * streaming turn. This keeps URL realId/localId aliases pointing at one SDK
    * session instead of letting loading and queue state drift across tabs.
    */
-  getLibrarySessionId(sessionId: string | null | undefined): string | undefined {
+  getLibrarySessionId(
+    sessionId: string | null | undefined,
+  ): string | undefined {
     if (!sessionId) return undefined;
     return this.findSession(sessionId)?.id || sessionId;
   }
@@ -781,11 +828,22 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
   /** Returns session identity from the session list (authoritative).
    *  Uses lastActiveChatId (set only by intentional user actions) as the
    *  primary lookup key, avoiding the stale window globals problem. */
-  getSessionIdentity(): {
+  getSessionIdentity(sessionId?: string): {
     sessionId: string;
     userId: string;
     channel: string;
   } {
+    const targetSession = sessionId
+      ? this.findSessionByIdentity(sessionId)
+      : undefined;
+    if (targetSession?.userId) {
+      return {
+        sessionId: targetSession.sessionId || "",
+        userId: targetSession.userId,
+        channel: targetSession.channel || DEFAULT_CHANNEL,
+      };
+    }
+
     // lastActiveChatId is immune to stale updateWindowVariables overwrites
     // because it is only set by onSessionSelected / onSessionCreated /
     // handleSessionClick — all intentional user actions.
@@ -945,13 +1003,17 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
 
   async getSessionList() {
     if (this.sessionListRequest) return this.sessionListRequest;
+    const scopeVersion = this.sessionScopeVersion;
 
     this.sessionListRequest = (async () => {
       try {
         const chats = await api.listChats();
+        if (scopeVersion !== this.sessionScopeVersion) return [];
         return this.applyChatsToSessionList(chats);
       } finally {
-        this.sessionListRequest = null;
+        if (scopeVersion === this.sessionScopeVersion) {
+          this.sessionListRequest = null;
+        }
       }
     })();
 
@@ -973,11 +1035,15 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     const existingRequest = this.sessionRequests.get(sessionId);
     if (existingRequest) return existingRequest;
 
-    const requestPromise = this._doGetSession(sessionId, signal);
+    const scopeVersion = this.sessionScopeVersion;
+    const requestPromise = this._doGetSession(sessionId, signal, scopeVersion);
     this.sessionRequests.set(sessionId, requestPromise);
 
     try {
       const session = await requestPromise;
+      if (scopeVersion !== this.sessionScopeVersion) {
+        throw new DOMException("Aborted", "AbortError");
+      }
       const extendedSession = session as ExtendedSession;
       const realId = extendedSession.realId || null;
 
@@ -1006,6 +1072,7 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     backendId: string,
     listEntry: ExtendedSession | undefined,
     signal?: AbortSignal,
+    scopeVersion = this.sessionScopeVersion,
   ): Promise<ExtendedSession> {
     // Check LRU cache for non-generating sessions
     const isIdle = !listEntry?.generating;
@@ -1022,6 +1089,9 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
 
     const chatHistory = await api.getChat(backendId, { signal });
     if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
+    if (scopeVersion !== this.sessionScopeVersion) {
+      throw new DOMException("Aborted", "AbortError");
+    }
     const generating = isGenerating(chatHistory);
     const messages = convertMessages(chatHistory.messages || []);
     this.patchLastUserMessage(messages, generating, backendId);
@@ -1050,6 +1120,7 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
   private async _doGetSession(
     sessionId: string,
     signal?: AbortSignal,
+    scopeVersion = this.sessionScopeVersion,
   ): Promise<IAgentScopeRuntimeWebUISession> {
     // --- No session selected (library bug: createSession sets undefined) ---
     if (!sessionId || sessionId === "undefined" || sessionId === "null") {
@@ -1074,6 +1145,7 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
             fromList.realId,
             fromList,
             signal,
+            scopeVersion,
           );
         } catch (error) {
           // If fetching with realId fails, return the local session without messages
@@ -1096,6 +1168,7 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
               resolved.realId,
               resolved,
               signal,
+              scopeVersion,
             );
           } catch {
             this.updateWindowVariables(resolved);
@@ -1117,6 +1190,7 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
         sessionId,
         this.findSession(sessionId),
         signal,
+        scopeVersion,
       );
     } catch (error: any) {
       // If the backend session doesn't exist (e.g. invalid UUID or expired session)
@@ -1159,6 +1233,7 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     }
 
     this.realIdResolutionTasks.add(tempId);
+    const scopeVersion = this.sessionScopeVersion;
     let promise: Promise<void> | null = null;
     promise = (async () => {
       try {
@@ -1171,6 +1246,7 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
           // before POST completion cannot contain the newly-created backend id.
           this.sessionListRequest = null;
           await this.getSessionList();
+          if (scopeVersion !== this.sessionScopeVersion) return;
           this.resolveAndNotify(tempId);
           if (this.getRealIdForSession(tempId)) return;
 

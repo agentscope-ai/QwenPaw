@@ -275,7 +275,9 @@ export function wrapChatResponseUsageStream(
   response: Response,
   chatRef: React.RefObject<IAgentScopeRuntimeWebUIRef | null>,
 ): Response {
-  if (!response.body) return response;
+  if (!response.body) {
+    return response;
+  }
 
   const decoder = new TextDecoder();
   let buffer = "";

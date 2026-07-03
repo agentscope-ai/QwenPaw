@@ -17,19 +17,24 @@ export function resolveBackendChatSessionId(
   return rawSessionId ? getBackendSessionId(rawSessionId) : "";
 }
 
+export function buildAgentScopedQueueSessionId(
+  sessionId: string,
+  agentId: string | undefined,
+) {
+  return `${
+    agentId || DEFAULT_QUEUE_AGENT_ID
+  }${QUEUE_AGENT_SEPARATOR}${sessionId}`;
+}
+
 export function resolveAgentScopedQueueSessionId(
   sessionId: string | undefined,
   agentId: string | undefined,
-  getBackendSessionId: (sessionId: string) => string,
+  getQueueSessionId: (sessionId: string) => string,
 ) {
   if (!sessionId) return undefined;
   if (sessionId.includes(QUEUE_AGENT_SEPARATOR)) return sessionId;
 
-  const backendSessionId = resolveBackendChatSessionId(
-    sessionId,
-    getBackendSessionId,
-  );
-  return `${agentId || DEFAULT_QUEUE_AGENT_ID}${QUEUE_AGENT_SEPARATOR}${
-    backendSessionId || sessionId
-  }`;
+  const rawSessionId = stripQueueAgentPrefix(sessionId);
+  const queueSessionId = rawSessionId ? getQueueSessionId(rawSessionId) : "";
+  return buildAgentScopedQueueSessionId(queueSessionId || sessionId, agentId);
 }

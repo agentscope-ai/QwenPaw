@@ -1,6 +1,7 @@
 import {
   AgentScopeRuntimeWebUI,
   IAgentScopeRuntimeWebUIOptions,
+  type IAgentScopeRuntimeWebUIQueueSessionContext,
   type IAgentScopeRuntimeWebUIRef,
 } from "@agentscope-ai/chat";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -53,9 +54,12 @@ import { ChatScalar, ChatList } from "../../plugins/registry/slotKeys";
 import { HostRequestCard, HostResponseCard } from "./HostBubbles";
 import { withGenericFallback } from "../../components/Chat/ToolCards/adapters/v1Adapter";
 import {
+  buildAgentScopedQueueSessionId,
   resolveAgentScopedQueueSessionId,
   resolveBackendChatSessionId,
+  stripQueueAgentPrefix,
 } from "./chatSessionIds";
+import { migrateInputQueueStorage } from "./inputQueueStorage";
 
 interface ApprovalMessageData {
   requestId: string;
@@ -737,6 +741,7 @@ export default function ChatPage() {
     }>
   >([]);
   const { selectedAgent } = useAgentStore();
+  sessionApi.setActiveAgent(selectedAgent);
   const { toolRenderConfig } = usePlugins();
   const extScalar = useChatScalarSnapshot();
   const extLists = useChatListSnapshot();
@@ -1010,7 +1015,7 @@ export default function ChatPage() {
       resolveAgentScopedQueueSessionId(
         sessionId,
         selectedAgentRef.current,
-        (rawSessionId) => sessionApi.getBackendSessionId(rawSessionId),
+        (rawSessionId) => sessionApi.getQueueSessionId(rawSessionId),
       ),
     [],
   );
@@ -1021,6 +1026,24 @@ export default function ChatPage() {
   const chatIdRef = useRef(chatId);
   const navigateRef = useRef(navigate);
   const chatRef = useRef<IAgentScopeRuntimeWebUIRef>(null);
+
+  const isFrontendChatRunning = useCallback(() => {
+    const hasStopLoadingControl =
+      typeof document !== "undefined" &&
+      !!document.querySelector(
+        'button img[alt="Stop Loading"], button [aria-label="Stop Loading"], button[aria-label="Stop Loading"]',
+      );
+    if (hasStopLoadingControl) return true;
+
+    const messages = chatRef.current?.messages?.getMessages?.();
+    return (
+      Array.isArray(messages) &&
+      messages.some(
+        (message: any) =>
+          message?.role === "assistant" && message?.msgStatus === "generating",
+      )
+    );
+  }, []);
 
   useEffect(() => {
     const handler = (e: Event) => {
@@ -1130,11 +1153,16 @@ export default function ChatPage() {
 
     sessionApi.onSessionIdResolved = (_tempId, realId) => {
       if (!isChatActiveRef.current) return;
+      const agentId = selectedAgentRef.current;
+      migrateInputQueueStorage(
+        buildAgentScopedQueueSessionId(_tempId, agentId),
+        buildAgentScopedQueueSessionId(realId, agentId),
+      );
       lastSessionIdRef.current = realId;
       sessionApi.trackNavigatedSession(
         realId,
         setLastChatIdRef.current,
-        selectedAgentRef.current,
+        agentId,
       );
       navigateRef.current(buildCurrentSessionPath(realId), { replace: true });
     };
@@ -1336,19 +1364,22 @@ export default function ChatPage() {
             ]
           : lastInput;
 
-      const identity = sessionApi.getSessionIdentity();
       const backendSessionId =
-        resolveBackendSessionId(data.session_id) ||
-        identity.sessionId ||
-        session?.session_id ||
-        "";
+        resolveBackendSessionId(data.session_id) || session?.session_id || "";
+      const identity = sessionApi.getSessionIdentity(backendSessionId);
       let requestBody: Record<string, unknown> = {
         input: rewrittenInput,
-        session_id: backendSessionId,
+        session_id: backendSessionId || identity.sessionId,
         user_id:
-          data.user_id || identity.userId || session?.user_id || DEFAULT_USER_ID,
+          data.user_id ||
+          identity.userId ||
+          session?.user_id ||
+          DEFAULT_USER_ID,
         channel:
-          data.channel || identity.channel || session?.channel || DEFAULT_CHANNEL,
+          data.channel ||
+          identity.channel ||
+          session?.channel ||
+          DEFAULT_CHANNEL,
         stream: true,
         ...biz_params,
       };
@@ -1366,47 +1397,71 @@ export default function ChatPage() {
         }
       }
 
+      const requestSessionId = String(requestBody.session_id || "");
       const backendChatId =
-        sessionApi.getRealIdForSession(String(requestBody.session_id || "")) ??
+        sessionApi.getRealIdForSession(requestSessionId) ??
         chatIdRef.current ??
-        String(requestBody.session_id || "");
-      if (backendChatId) {
-        const userText = rewrittenInput
+        requestSessionId;
+      const localIdToResolve = sessionApi.lastActiveChatId ?? chatIdRef.current;
+      const requestAliases = [
+        backendChatId,
+        requestSessionId,
+        chatIdRef.current,
+        localIdToResolve,
+        sessionApi.getRealIdForSession(requestSessionId),
+        sessionApi.getQueueSessionId(requestSessionId),
+      ];
+      const userText = rewrittenInput
+        .filter((m: any) => m.role === "user")
+        .map(extractUserMessageText)
+        .join("\n")
+        .trim();
+      if (userText) {
+        // Also pass the full content array so patchLastUserMessage can
+        // rebuild user card with images/files when reconnecting.
+        const lastUserMsg = rewrittenInput
           .filter((m: any) => m.role === "user")
-          .map(extractUserMessageText)
-          .join("\n")
-          .trim();
-        if (userText) {
-          // Also pass the full content array so patchLastUserMessage can
-          // rebuild user card with images/files when reconnecting.
-          const lastUserMsg = rewrittenInput
-            .filter((m: any) => m.role === "user")
-            .slice(-1)[0];
-          const contentArr = Array.isArray(lastUserMsg?.content)
-            ? (lastUserMsg.content as Array<{
-                type: string;
-                [key: string]: unknown;
-              }>)
-            : undefined;
-          sessionApi.setLastUserMessage(backendChatId, userText, contentArr);
-        }
+          .slice(-1)[0];
+        const contentArr = Array.isArray(lastUserMsg?.content)
+          ? (lastUserMsg.content as Array<{
+              type: string;
+              [key: string]: unknown;
+            }>)
+          : undefined;
+        Array.from(new Set(requestAliases.filter(Boolean))).forEach(
+          (messageSessionId) => {
+            sessionApi.setLastUserMessage(
+              messageSessionId!,
+              userText,
+              contentArr,
+            );
+          },
+        );
       }
 
-      const response = await fetch(getApiUrl("/console/chat"), {
-        method: "POST",
-        headers,
-        body: JSON.stringify(requestBody),
-        signal: data.signal,
-      });
+      let response: Response;
+      try {
+        response = await fetch(getApiUrl("/console/chat"), {
+          method: "POST",
+          headers,
+          body: JSON.stringify(requestBody),
+          signal: data.signal,
+        });
+      } catch (error) {
+        throw error;
+      }
 
-      const localIdToResolve = sessionApi.lastActiveChatId ?? chatIdRef.current;
       if (response.ok && localIdToResolve) {
         sessionApi.triggerResolve(localIdToResolve);
       }
 
       return wrapChatResponseUsageStream(response, chatRef);
     },
-    [extLists, resolveBackendSessionId, selectedAgent],
+    [
+      extLists,
+      resolveBackendSessionId,
+      selectedAgent,
+    ],
   );
 
   const handleFileUpload = useCallback(
@@ -1746,16 +1801,36 @@ export default function ChatPage() {
           // The backend still receives the raw session_id through getRequestContext.
           getSessionId: resolveInputQueueSessionId,
           getRequestContext: (sessionId?: string) => {
-            const identity = sessionApi.getSessionIdentity();
             const backendSessionId = sessionId
               ? resolveBackendSessionId(sessionId)
-              : identity.sessionId;
+              : "";
+            const identity = sessionApi.getSessionIdentity(backendSessionId);
             return {
-              session_id: backendSessionId,
+              session_id: backendSessionId || identity.sessionId,
               user_id: identity.userId,
               channel: identity.channel,
               agent_id: selectedAgentRef.current,
             };
+          },
+          isSessionRunning: async ({
+            sessionId,
+            queueSessionId,
+          }: IAgentScopeRuntimeWebUIQueueSessionContext) => {
+            if (isFrontendChatRunning()) return true;
+
+            const statusChatId =
+              stripQueueAgentPrefix(queueSessionId) ||
+              (sessionId ? sessionApi.getQueueSessionId(sessionId) : "");
+            if (!statusChatId || sessionApi.isUnresolvedLocalSession(statusChatId)) {
+              return false;
+            }
+
+            try {
+              const chat = await chatApi.getChat(statusChatId);
+              return chat.status === "running";
+            } catch {
+              return false;
+            }
           },
         },
         attachments: {
@@ -1862,17 +1937,24 @@ export default function ChatPage() {
           };
 
           const reconnectIdentity = sessionApi.getSessionIdentity();
-          const response = await fetch(getApiUrl("/console/chat"), {
-            method: "POST",
-            headers,
-            body: JSON.stringify({
-              reconnect: true,
-              session_id: resolveBackendSessionId(data.session_id),
-              user_id: reconnectIdentity.userId,
-              channel: reconnectIdentity.channel,
-            }),
-            signal: data.signal,
-          });
+          const reconnectSessionId = resolveBackendSessionId(data.session_id);
+          const reconnectBody = {
+            reconnect: true,
+            session_id: reconnectSessionId,
+            user_id: reconnectIdentity.userId,
+            channel: reconnectIdentity.channel,
+          };
+          let response: Response;
+          try {
+            response = await fetch(getApiUrl("/console/chat"), {
+              method: "POST",
+              headers,
+              body: JSON.stringify(reconnectBody),
+              signal: data.signal,
+            });
+          } catch (error) {
+            throw error;
+          }
 
           return wrapChatResponseUsageStream(response, chatRef);
         },
@@ -1966,6 +2048,7 @@ export default function ChatPage() {
     consoleSkills,
     selectedAgent,
     inputQueueEnabled,
+    isFrontendChatRunning,
     controlledSdkSessionId,
     resolveBackendSessionId,
     resolveInputQueueSessionId,
