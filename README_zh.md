@@ -290,14 +290,15 @@ docker run -p 127.0.0.1:8088:8088 \
 
 #### 下载
 
-从 [官方下载页](https://qwenpaw.agentscope.io/downloads) 下载桌面应用：
-- **Windows**：`QwenPaw-Setup-<version>.exe`
-- **macOS**：`QwenPaw-<version>-macOS.zip`（推荐 Apple Silicon）
+从 [官方下载页](https://qwenpaw.agentscope.io/downloads) 下载桌面应用（Tauri 版）：
+- **Windows**：`QwenPaw-Tauri-<version>-Windows-setup.exe`
+- **macOS**：`QwenPaw-Tauri-<version>-macOS.zip`（推荐 Apple Silicon）
 
 #### 特点
 
 - ✅ **零配置**：下载后双击即可运行，无需安装 Python 或配置环境变量
 - ✅ **跨平台**：支持 Windows 10+ 和 macOS 14+
+- ✅ **自动更新**：内置应用内自动更新，无需卸载重装即可升级到新版本
 - ✅ **可视化**：自动打开浏览器界面，无需手动输入地址
 - ⚠️ **Beta 阶段**：功能持续完善中，欢迎反馈问题
 
@@ -317,7 +318,7 @@ docker run -p 127.0.0.1:8088:8088 \
 
 - **移除隔离属性（不推荐大多数用户）**
   在终端运行：
-  `xattr -cr /Applications/QwenPaw.app`
+  `xattr -cr "/Applications/QwenPaw Desktop.app"`
   （或使用解压后的 `.app` 路径）。这会清除「从互联网下载」的隔离标志，使警告通常不会出现，但不如使用 **右键 → 打开** 安全和可控。
 
 详细使用说明、故障排除和常见问题，请参见 [桌面应用指南](https://qwenpaw.agentscope.io/docs/desktop)。

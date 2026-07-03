@@ -290,14 +290,15 @@ QwenPaw を Alibaba Cloud（ECS）で実行するには、ワンクリックデ�
 
 #### ダウンロード
 
-[公式ダウンロードページ](https://qwenpaw.agentscope.io/downloads) からデスクトップアプリをダウンロード:
-- **Windows**: `QwenPaw-Setup-<version>.exe`
-- **macOS**: `QwenPaw-<version>-macOS.zip` (Apple Silicon 推奨)
+[公式ダウンロードページ](https://qwenpaw.agentscope.io/downloads) からデスクトップアプリ（Tauri 版）をダウンロード:
+- **Windows**: `QwenPaw-Tauri-<version>-Windows-setup.exe`
+- **macOS**: `QwenPaw-Tauri-<version>-macOS.zip` (Apple Silicon 推奨)
 
 #### 特徴
 
 - ✅ **ゼロ設定**: ダウンロードしてダブルクリックするだけで実行可能、Python のインストールや環境変数の設定は不要
 - ✅ **クロスプラットフォーム**: Windows 10+ と macOS 14+ に対応
+- ✅ **自動更新**: アプリ内自動アップデーターを内蔵し、アンインストールや再インストールなしで新しいバージョンに更新できます
 - ✅ **ビジュアルインターフェース**: ブラウザインターフェースが自動的に開き、手動でアドレスを入力する必要はありません
 - ⚠️ **Beta 段階**: 機能は継続的に改善中、フィードバックを歓迎します
 
@@ -317,7 +318,7 @@ Releases から QwenPaw macOS アプリをダウンロードすると、macOS �
 
 - **検疫属性の削除（ほとんどのユーザーには非推奨）**
   ターミナルで実行:
-  `xattr -cr /Applications/QwenPaw.app`
+  `xattr -cr "/Applications/QwenPaw Desktop.app"`
   （または解凍後の `.app` へのパスを使用）。これにより「インターネットからダウンロードされた」検疫フラグがクリアされ、通常は警告が表示されなくなりますが、**右クリック → 開く** を使用するよりも安全性と制御性が低くなります。
 
 詳細な使用方法、トラブルシューティング、よくある問題については、[デスクトップアプリケーションガイド](https://qwenpaw.agentscope.io/docs/desktop) を参照してください。

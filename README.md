@@ -290,14 +290,15 @@ If you're not comfortable with command-line tools, you can download and use Qwen
 
 #### Download
 
-Download the desktop app from [the official download page](https://qwenpaw.agentscope.io/downloads):
-- **Windows**: `QwenPaw-Setup-<version>.exe`
-- **macOS**: `QwenPaw-<version>-macOS.zip` (Apple Silicon recommended)
+Download the desktop app (Tauri build) from [the official download page](https://qwenpaw.agentscope.io/downloads):
+- **Windows**: `QwenPaw-Tauri-<version>-Windows-setup.exe`
+- **macOS**: `QwenPaw-Tauri-<version>-macOS.zip` (Apple Silicon recommended)
 
 #### Features
 
 - ✅ **Zero configuration**: Download and double-click to run, no need to install Python or configure environment variables
 - ✅ **Cross-platform**: Supports Windows 10+ and macOS 14+
+- ✅ **Auto-update**: Built-in in-app updater keeps the desktop app up to date—no need to uninstall and reinstall
 - ✅ **Visual interface**: Automatically opens browser interface, no need to manually enter addresses
 - ⚠️ **Beta stage**: Features are continuously being improved, feedback welcome
 
@@ -317,7 +318,7 @@ When you download the QwenPaw macOS app from Releases, macOS may show: *"Apple c
 
 - **Remove quarantine attribute (not recommended for most users)**
   In Terminal run:
-  `xattr -cr /Applications/QwenPaw.app`
+  `xattr -cr "/Applications/QwenPaw Desktop.app"`
   (or use the path to the `.app` after unzipping). This clears the "downloaded from the internet" quarantine flag so the warning usually does not appear, but is less safe and controllable than using **Right-click → Open**.
 
 For detailed usage instructions, troubleshooting, and common issues, see the [Desktop Application Guide](https://qwenpaw.agentscope.io/docs/desktop).

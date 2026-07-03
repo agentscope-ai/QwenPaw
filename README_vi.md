@@ -290,14 +290,15 @@ Nếu bạn không quen với công cụ dòng lệnh, bạn có thể tải xu�
 
 #### Tải Xuống
 
-Tải ứng dụng desktop từ [trang tải xuống chính thức](https://qwenpaw.agentscope.io/downloads):
-- **Windows**: `QwenPaw-Setup-<version>.exe`
-- **macOS**: `QwenPaw-<version>-macOS.zip` (khuyên dùng Apple Silicon)
+Tải ứng dụng desktop (bản Tauri) từ [trang tải xuống chính thức](https://qwenpaw.agentscope.io/downloads):
+- **Windows**: `QwenPaw-Tauri-<version>-Windows-setup.exe`
+- **macOS**: `QwenPaw-Tauri-<version>-macOS.zip` (khuyên dùng Apple Silicon)
 
 #### Tính Năng
 
 - ✅ **Không cấu hình**: Tải về và nhấp đúp để chạy, không cần cài Python hay cấu hình biến môi trường
 - ✅ **Đa nền tảng**: Hỗ trợ Windows 10+ và macOS 14+
+- ✅ **Tự động cập nhật**: Trình cập nhật tích hợp trong ứng dụng giúp luôn ở bản mới nhất — không cần gỡ cài đặt và cài lại
 - ✅ **Giao diện trực quan**: Tự động mở giao diện trình duyệt, không cần nhập địa chỉ thủ công
 - ⚠️ **Giai đoạn Beta**: Các tính năng đang được liên tục cải thiện, rất mong nhận phản hồi
 
@@ -317,7 +318,7 @@ Khi bạn tải ứng dụng macOS QwenPaw từ Releases, macOS có thể hiển
 
 - **Xóa thuộc tính cách ly (không khuyên dùng cho hầu hết người dùng)**
   Trong Terminal chạy:
-  `xattr -cr /Applications/QwenPaw.app`
+  `xattr -cr "/Applications/QwenPaw Desktop.app"`
   (hoặc dùng đường dẫn tới tệp `.app` sau khi giải nén). Thao tác này xóa cờ cách ly "đã tải xuống từ internet" để cảnh báo thường không xuất hiện, nhưng kém an toàn và kiểm soát hơn so với dùng **Nhấp chuột phải → Open**.
 
 Để biết hướng dẫn sử dụng chi tiết, khắc phục sự cố và các vấn đề thường gặp, xem [Hướng dẫn ứng dụng Desktop](https://qwenpaw.agentscope.io/docs/desktop).

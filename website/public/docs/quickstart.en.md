@@ -250,20 +250,21 @@ or running commands.
 
 - ✅ **Zero configuration**: Download and double-click to run, no need to install Python or configure environment variables
 - ✅ **Cross-platform**: Supports Windows 10+ and macOS 14+ (Apple Silicon recommended)
+- ✅ **Auto-update**: Built with Tauri, ships with a built-in in-app updater—no need to uninstall and reinstall
 - ✅ **Visual interface**: Automatically opens browser interface, no need to manually enter addresses
 
 ### Download and usage
 
 1. **Download the installer**
-   Go to [GitHub Releases](https://github.com/agentscope-ai/QwenPaw/releases) to download the version for your system:
+   Go to [GitHub Releases](https://github.com/agentscope-ai/QwenPaw/releases) to download the Tauri build for your system:
 
-   - Windows: `QwenPaw-Setup-<version>.exe`
-   - macOS: `QwenPaw-<version>-macOS.zip`
+   - Windows: `QwenPaw-Tauri-<version>-Windows-setup.exe`
+   - macOS: `QwenPaw-Tauri-<version>-macOS.zip`
 
 2. **Install and launch**
 
    - **Windows**: Double-click the `.exe` file to install following the wizard, then double-click the desktop shortcut to launch
-   - **macOS**: Extract the `.zip` to get `QwenPaw.app`, first time requires right-click and select "Open" to bypass system security restrictions
+   - **macOS**: Extract the `.zip` to get `QwenPaw Desktop.app`, first time requires right-click and select "Open" to bypass system security restrictions
 
 3. **First launch note**
    The first launch may take 10-60 seconds (depending on your system configuration).
