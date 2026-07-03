@@ -818,11 +818,11 @@ QwenPaw 支持将 NocoBase 已登录用户的身份透传给对话接口，实�
 
 #### 前置条件
 
-| 项目 | 说明 |
-| ---- | ---- |
-| `QWENPAW_AUTH_ENABLED=true` | 必须启用认证总开关，否则鉴权被跳过，门禁不生效 |
-| `allow_no_auth_hosts: []` | 将认证豁免主机白名单清空；若保留默认值 `["127.0.0.1", "::1"]`，调用方所在 host 会被静默放行，门禁失效 |
-| `CORS_ORIGINS` | 若封装页面与 QwenPaw 跨域，将封装页面的 origin 加入该环境变量（逗号分隔，例如 `https://my-nocobase.example.com`） |
+| 项目                        | 说明                                                                                                              |
+| --------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `QWENPAW_AUTH_ENABLED=true` | 必须启用认证总开关，否则鉴权被跳过，门禁不生效                                                                    |
+| `allow_no_auth_hosts: []`   | 将认证豁免主机白名单清空；若保留默认值 `["127.0.0.1", "::1"]`，调用方所在 host 会被静默放行，门禁失效             |
+| `CORS_ORIGINS`              | 若封装页面与 QwenPaw 跨域，将封装页面的 origin 加入该环境变量（逗号分隔，例如 `https://my-nocobase.example.com`） |
 
 #### 调用契约
 
@@ -847,13 +847,13 @@ curl -X POST http://localhost:8088/api/console/chat \
 **fetch 示例：**
 
 ```javascript
-fetch('/api/console/chat', {
-  method: 'POST',
+fetch("/api/console/chat", {
+  method: "POST",
   headers: {
-    'X-NocoBase-Token': nocobaseToken,
-    'Content-Type': 'application/json',
+    "X-NocoBase-Token": nocobaseToken,
+    "Content-Type": "application/json",
   },
-  body: JSON.stringify({ message: '你好' }),
+  body: JSON.stringify({ message: "你好" }),
 });
 ```
 
@@ -865,10 +865,10 @@ fetch('/api/console/chat', {
 
 #### 响应语义
 
-| 响应 | 含义 | 建议处理 |
-| ---- | ---- | -------- |
-| `401` | 未认证（token 缺失 / 无效 / 过期，或 NocoBase 不可达） | 引导用户重新登录 NocoBase |
-| `200` + SSE 错误「您已被禁止访问此智能体。」 | 已认证但角色无该频道权限 | 提示用户权限不足 |
+| 响应                                         | 含义                                                   | 建议处理                  |
+| -------------------------------------------- | ------------------------------------------------------ | ------------------------- |
+| `401`                                        | 未认证（token 缺失 / 无效 / 过期，或 NocoBase 不可达） | 引导用户重新登录 NocoBase |
+| `200` + SSE 错误「您已被禁止访问此智能体。」 | 已认证但角色无该频道权限                               | 提示用户权限不足          |
 
 #### 角色与准入优先级
 

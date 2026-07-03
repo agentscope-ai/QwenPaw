@@ -18,9 +18,9 @@ class NocoBaseAuthPlugin:
     """Registers NocoBase auth capabilities via QwenPaw plugin hooks."""
 
     def __init__(self):
-        self._checker: Optional[Callable[[str, str, dict], Optional[str]]] = (
-            None
-        )
+        self._checker: Optional[
+            Callable[[str, str, dict], Optional[str]]
+        ] = None
         self._identity_resolver: Optional[Callable[..., Any]] = None
         self._sync_engine: Optional[Any] = None
 
