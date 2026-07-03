@@ -133,9 +133,10 @@ def validate_response(response: str, pr_number: int) -> list[str]:
 
 
 def parse_verdict(response: str) -> dict:
-    """Extract verdict and issue counts from the review response JSON block.
+    """Extract verdict and issue counts from the Summary section.
 
-    Returns a dict with keys: verdict, high_count, medium_count, low_count.
+    Scopes the search to ``### 6. Summary`` to avoid matching
+    unrelated JSON code blocks elsewhere in the review.
     """
     default = {
         "verdict": "REQUEST_CHANGES",
@@ -143,10 +144,14 @@ def parse_verdict(response: str) -> dict:
         "medium_count": -1,
         "low_count": -1,
     }
+    summary_match = re.search(r"###\s*6[.\s]", response)
+    search_text = (
+        response[summary_match.start() :] if summary_match else response
+    )
+
     match = re.search(
-        r"```json\s*(\{.*?\})\s*```",
-        response,
-        re.DOTALL,
+        r"```json\s*(\{[\s\S]*?\})\s*```",
+        search_text,
     )
     if not match:
         return default
@@ -182,7 +187,7 @@ def _strip_summary_verdict_json(text: str) -> str:
     summary_section = text[summary_match.start() :]
 
     cleaned = re.sub(
-        r"\n*```json\s*\{[^}]*\"verdict\"[^}]*\}\s*```\n*",
+        r"\n*```json\s*\{[\s\S]*?\"verdict\"[\s\S]*?\}\s*```\n*",
         "\n",
         summary_section,
     )
@@ -296,22 +301,7 @@ def main():
 
     if not response.strip():
         print("\n❌ ERROR: Got empty response from QwenPaw")
-        fallback = (
-            "AI Review Bot failed to generate a review. "
-            "Possible causes:\n"
-            "- LLM API timeout or unavailable\n"
-            "- `gh` CLI authentication failure\n"
-            "- Diff too large\n\n"
-            "Please have a maintainer review this PR manually."
-        )
-        fail_info = {
-            "verdict": "REQUEST_CHANGES",
-            "high_count": -1,
-            "medium_count": -1,
-            "low_count": -1,
-        }
-        write_outputs(fail_info, fallback)
-        sys.exit(0)
+        sys.exit(1)
 
     warnings = validate_response(response, pr_number)
     if warnings:

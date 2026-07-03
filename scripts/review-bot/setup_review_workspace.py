@@ -307,8 +307,6 @@ def harden_governance_policy() -> None:
 
     extra_env_keys = [
         "DASHSCOPE_API_KEY",
-        "GH_TOKEN",
-        "GITHUB_TOKEN",
     ]
     merged = list(
         dict.fromkeys(list(policy.env_blacklist) + extra_env_keys),
@@ -345,7 +343,7 @@ def configure_review_model() -> None:
     """Configure DashScope API key and activate the review model.
 
     ``qwenpaw init --defaults`` may pick QwenPaw Local (no default model)
-    and skip cloud providers. CI must explicitly set dashscope + qwen3.7-plus
+    and skip cloud providers. CI must explicitly set dashscope + qwen3.7-max
     using the secret injected as DASHSCOPE_API_KEY.
     """
     api_key = os.environ.get("DASHSCOPE_API_KEY", "").strip()
