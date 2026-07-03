@@ -3,6 +3,7 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { useChatAnywhereSessionsState } from "@agentscope-ai/chat";
 import sessionApi from "../../sessionApi";
 import {
+  buildBasePath,
   buildSessionPath,
   getSessionIdFromPath,
 } from "../../../../utils/sessionRoute";
@@ -81,6 +82,18 @@ const ChatSessionInitializer: React.FC = () => {
 
   useEffect(() => {
     if (!chatId || !sessions.length) return;
+    const mode = codingModeRef.current ? "coding" : "chat";
+    const routableChatId = sessionApi.getRoutableSessionId(chatId);
+
+    if (routableChatId && routableChatId !== chatId) {
+      navigate(buildSessionPath(mode, routableChatId), { replace: true });
+      return;
+    }
+
+    if (sessionApi.isLocalSessionId(chatId) && !routableChatId) {
+      navigate(buildBasePath(mode), { replace: true });
+      return;
+    }
 
     // Issue #4557: Do NOT trigger setCurrentSessionId while a user-initiated
     // session switch is in progress. This breaks the infinite loop where
@@ -139,20 +152,23 @@ const ChatSessionInitializer: React.FC = () => {
     }
     // Intentionally exclude currentSessionId from deps: only react to URL / session list changes.
     // currentSessionId is read via ref to avoid circular triggers.
-  }, [chatId, sessions, setCurrentSessionId]);
+  }, [chatId, navigate, sessions, setCurrentSessionId]);
 
   useEffect(() => {
     if (chatId || !sessions.length) return;
     if (sessionApi.isSessionSwitching || sessionApi.userInitiatedCreate) return;
 
-    const target = sessions[0] as ExtendedSession | undefined;
-    if (!target?.id || sessionApi.isUnresolvedLocalSession(target.id)) return;
+    const target = sessions.find((s) =>
+      sessionApi.getRoutableSessionId(s.id, (s as ExtendedSession).realId),
+    ) as ExtendedSession | undefined;
+    if (!target?.id) return;
 
     const mode = codingModeRef.current ? "coding" : "chat";
-    const effectiveId = sessionApi.getEffectiveSessionId(
+    const effectiveId = sessionApi.getRoutableSessionId(
       target.id,
       target.realId,
     );
+    if (!effectiveId) return;
 
     sessionApi.trackNavigatedSession(effectiveId);
     navigate(buildSessionPath(mode, effectiveId), { replace: true });
@@ -177,9 +193,14 @@ const ChatSessionInitializer: React.FC = () => {
 
       const mode = codingModeRef.current ? "coding" : "chat";
       const currentSessions = sessionsRef.current;
-      const matching = currentSessions.find((s) => s.id === sessionId);
+      const matching = currentSessions.find(
+        (s) =>
+          s.id === sessionId || (s as ExtendedSession).realId === sessionId,
+      );
 
       if (matching) {
+        const librarySessionId = matching.id;
+        if (!librarySessionId) return;
         // Abort any previous embedded switch
         switchControllerRef.current?.abort();
         const controller = new AbortController();
@@ -187,21 +208,24 @@ const ChatSessionInitializer: React.FC = () => {
 
         sessionApi.isSessionSwitching = true;
         sessionApi
-          .preloadSession(sessionId, controller.signal)
+          .preloadSession(librarySessionId, controller.signal)
           .then(({ realId }) => {
             if (controller.signal.aborted) return;
-            const effectiveId = sessionApi.getEffectiveSessionId(
-              sessionId,
+            const effectiveId = sessionApi.getRoutableSessionId(
+              librarySessionId,
               realId,
             );
+            if (!effectiveId) return;
             const targetUrl = buildSessionPath(mode, effectiveId);
             sessionApi.trackNavigatedSession(effectiveId);
             navigate(targetUrl, { replace: true });
-            setCurrentSessionId(sessionId);
+            setCurrentSessionId(librarySessionId);
           })
           .catch((err) => {
             if (err?.name === "AbortError") return;
-            setCurrentSessionId(sessionId);
+            if (!sessionApi.isLocalSessionId(librarySessionId)) {
+              setCurrentSessionId(librarySessionId);
+            }
           })
           .finally(() => {
             if (!controller.signal.aborted) {

@@ -14,6 +14,11 @@ const STORAGE_KEY = "qwenpaw-agent-storage";
  * New tabs read this to set their initial selectedAgent.
  */
 const LAST_USED_AGENT_KEY = "qwenpaw-last-used-agent";
+const LOCAL_CHAT_ID_RE = /^\d+(?:-[a-z0-9]+)?$/;
+
+function isLocalChatId(chatId: string | undefined): boolean {
+  return !!chatId && LOCAL_CHAT_ID_RE.test(chatId);
+}
 
 interface AgentStore {
   selectedAgent: string;
@@ -117,12 +122,17 @@ export const useAgentStore = create<AgentStore>()(
           ),
         })),
 
-      setLastChatId: (agentId, chatId) =>
+      setLastChatId: (agentId, chatId) => {
+        if (isLocalChatId(chatId)) return;
         set((state) => ({
           lastChatIdByAgent: { ...state.lastChatIdByAgent, [agentId]: chatId },
-        })),
+        }));
+      },
 
-      getLastChatId: (agentId) => get().lastChatIdByAgent[agentId],
+      getLastChatId: (agentId) => {
+        const chatId = get().lastChatIdByAgent[agentId];
+        return isLocalChatId(chatId) ? undefined : chatId;
+      },
     }),
     {
       name: STORAGE_KEY,

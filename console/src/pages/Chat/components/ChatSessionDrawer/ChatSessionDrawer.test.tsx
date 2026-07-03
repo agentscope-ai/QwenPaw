@@ -69,6 +69,17 @@ vi.mock("../../sessionApi", () => ({
     preloadSession: vi.fn().mockResolvedValue({ session: {}, realId: null }),
     finishSessionSwitch: vi.fn(),
     lastNavigatedChatId: null,
+    isLocalSessionId: vi.fn(
+      (id?: string | null) => !!id && /^\d+(?:-[a-z0-9]+)?$/.test(id),
+    ),
+    getRoutableSessionId: vi.fn(
+      (id?: string | null, realId?: string | null) => {
+        if (realId) return realId;
+        if (!id || /^\d+(?:-[a-z0-9]+)?$/.test(id)) return null;
+        return id;
+      },
+    ),
+    trackNavigatedSession: vi.fn(),
   },
 }));
 
@@ -249,14 +260,13 @@ describe("ChatSessionDrawer", () => {
     expect(mockGetSessionList).toHaveBeenCalled();
   });
 
-  it("delete with numeric id skips deleteChat API", async () => {
+  it("hides unresolved numeric local id and skips deleteChat API", async () => {
     withSession({ id: "12345" });
-    const user = userEvent.setup();
     renderWithProviders(<ChatSessionDrawer {...defaultProps} />);
     await waitFor(() =>
-      expect(screen.getByTestId("delete-btn")).toBeInTheDocument(),
+      expect(screen.getByText("chat.history.empty")).toBeInTheDocument(),
     );
-    await user.click(screen.getByTestId("delete-btn"));
+    expect(screen.queryByTestId("delete-btn")).not.toBeInTheDocument();
     expect(mockDeleteChat).not.toHaveBeenCalled();
   });
 
@@ -316,5 +326,24 @@ describe("ChatSessionDrawer", () => {
     const items = await screen.findAllByTestId("session-item");
     expect(items[0]).toHaveTextContent("Pinned");
     expect(items[1]).toHaveTextContent("Unpinned");
+  });
+
+  it("hides unresolved local timestamp sessions", async () => {
+    vi.mocked(useChatAnywhereSessionsState).mockReturnValue({
+      sessions: [
+        { id: "1783058507358-onjn1fo", name: "Local Only" },
+        { id: "uuid-1", name: "Backend Chat" },
+      ] as any,
+      currentSessionId: null,
+      setCurrentSessionId: mockSetCurrentSessionId,
+      setSessions: mockSetSessions,
+    } as any);
+
+    renderWithProviders(<ChatSessionDrawer {...defaultProps} />);
+
+    await waitFor(() =>
+      expect(screen.getByText("Backend Chat")).toBeInTheDocument(),
+    );
+    expect(screen.queryByText("Local Only")).not.toBeInTheDocument();
   });
 });

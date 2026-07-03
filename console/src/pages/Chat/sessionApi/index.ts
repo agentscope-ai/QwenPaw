@@ -294,8 +294,9 @@ const chatSpecToSession = (chat: ChatSpec): ExtendedSession =>
     pinned: chat.pinned ?? false,
   }) as ExtendedSession;
 
-/** Returns true when id is a local session id (timestamp-random, not a backend UUID). */
-const isLocalTimestamp = (id: string): boolean => /^\d+-[a-z0-9]+$/.test(id);
+/** Returns true when id is a local session id, not a backend UUID. */
+const isLocalTimestamp = (id: string): boolean =>
+  /^\d+(?:-[a-z0-9]+)?$/.test(id);
 
 /** Detect if backend is still generating content for this chat.
  *  Only trust the explicit `status` field from the backend.
@@ -755,12 +756,27 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     return this.findSession(sessionId)?.realId ?? null;
   }
 
-  /** Resolves the effective ID for URL navigation (prefers backend UUID). */
+  /** Resolves the effective SDK/session id, falling back to local id if needed. */
   getEffectiveSessionId(
     sessionId: string,
     resolvedRealId?: string | null,
   ): string {
     return resolvedRealId ?? this.getRealIdForSession(sessionId) ?? sessionId;
+  }
+
+  isLocalSessionId(sessionId: string | null | undefined): boolean {
+    return !!sessionId && isLocalTimestamp(sessionId);
+  }
+
+  /** Returns a backend-safe route id, or null while a local id is unresolved. */
+  getRoutableSessionId(
+    sessionId: string | null | undefined,
+    resolvedRealId?: string | null,
+  ): string | null {
+    if (!sessionId) return null;
+    const realId = resolvedRealId ?? this.getRealIdForSession(sessionId);
+    if (realId) return realId;
+    return isLocalTimestamp(sessionId) ? null : sessionId;
   }
 
   /**
@@ -775,7 +791,7 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
   ): void {
     this.lastActiveChatId = effectiveId;
     this.lastNavigatedChatId = effectiveId;
-    if (persistFn && agentId) {
+    if (persistFn && agentId && !isLocalTimestamp(effectiveId)) {
       persistFn(agentId, effectiveId);
     }
   }
@@ -943,18 +959,6 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
       const preferredId = this.preferredChatId;
       this.preferredChatId = null;
       let idx = this.sessionList.findIndex((s) => s.id === preferredId);
-      // Page refresh: URL may contain a local timestamp but backend only has UUIDs.
-      // Fall back to matching by sessionId (channel:user_id format).
-      if (idx < 0 && isLocalTimestamp(preferredId)) {
-        idx = this.sessionList.findIndex(
-          (s) => (s as ExtendedSession).sessionId === preferredId,
-        );
-        if (idx >= 0) {
-          const s = this.sessionList[idx] as ExtendedSession;
-          s.realId = s.id;
-          s.id = preferredId;
-        }
-      }
       if (idx > 0) {
         const [preferred] = this.sessionList.splice(idx, 1);
         this.sessionList.unshift(preferred);

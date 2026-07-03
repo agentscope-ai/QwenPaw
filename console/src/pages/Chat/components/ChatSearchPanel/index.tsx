@@ -241,10 +241,16 @@ const ChatSearchPanel: React.FC<ChatSearchPanelProps> = ({ open, onClose }) => {
       });
 
       if (session?.id) {
+        const realId =
+          sessionApi.getRealIdForSession(session.id) ||
+          (session as { realId?: string }).realId ||
+          null;
+        const routeId =
+          sessionApi.getRoutableSessionId(session.id, realId) || result.chatId;
         // Switch to that session
         setCurrentSessionId(session.id);
         // Navigate to the chat URL
-        navigate(`/chat/${session.id}`);
+        navigate(`/chat/${routeId}`);
       } else {
         // Session not in local list, navigate by chat ID directly
         navigate(`/chat/${result.chatId}`);

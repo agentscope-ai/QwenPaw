@@ -1147,7 +1147,9 @@ export default function ChatPage() {
   // When URL has no chatId (e.g. navigating back from /settings), fall back to the
   // last actively selected session to avoid jumping to the first session on re-mount.
   const effectiveChatId =
-    chatId || sessionApi.lastActiveChatId || getLastChatId(selectedAgent);
+    sessionApi.getRoutableSessionId(chatId) ||
+    sessionApi.getRoutableSessionId(sessionApi.lastActiveChatId) ||
+    getLastChatId(selectedAgent);
   if (effectiveChatId && sessionApi.preferredChatId !== effectiveChatId) {
     sessionApi.preferredChatId = effectiveChatId;
   }
@@ -1241,7 +1243,8 @@ export default function ChatPage() {
         return;
       }
 
-      const resolvedTarget = sessionApi.getEffectiveSessionId(targetId, null);
+      const resolvedTarget = sessionApi.getRoutableSessionId(targetId, realId);
+      if (!resolvedTarget) return;
 
       if (
         resolvedTarget !== lastSessionIdRef.current &&
@@ -1265,7 +1268,6 @@ export default function ChatPage() {
       // onSessionIdResolved will replace it with /chat/<uuid>.
       lastSessionIdRef.current = null;
       sessionApi.lastActiveChatId = sessionId;
-      setLastChatIdRef.current(selectedAgentRef.current, sessionId);
       navigateRef.current(buildCurrentBasePath(), { replace: true });
     };
 
@@ -1287,12 +1289,16 @@ export default function ChatPage() {
       // Save current chat ID for the agent we're leaving
       const currentChatId =
         chatIdRef.current || lastSessionIdRef.current || undefined;
-      if (currentChatId && prevAgent) {
-        setLastChatId(prevAgent, currentChatId);
+      const routableCurrentChatId =
+        sessionApi.getRoutableSessionId(currentChatId);
+      if (routableCurrentChatId && prevAgent) {
+        setLastChatId(prevAgent, routableCurrentChatId);
       }
 
       // Restore last chat ID for the agent we're switching to
-      const restored = getLastChatId(selectedAgent);
+      const restored = sessionApi.getRoutableSessionId(
+        getLastChatId(selectedAgent),
+      );
       if (restored) {
         navigateRef.current(buildSessionPath("chat", restored), {
           replace: true,
@@ -1469,11 +1475,7 @@ export default function ChatPage() {
 
       return wrapChatResponseUsageStream(response, chatRef);
     },
-    [
-      extLists,
-      resolveBackendSessionId,
-      selectedAgent,
-    ],
+    [extLists, resolveBackendSessionId, selectedAgent],
   );
 
   const handleFileUpload = useCallback(
@@ -1836,7 +1838,10 @@ export default function ChatPage() {
             const statusChatId =
               stripQueueAgentPrefix(queueSessionId) ||
               (sessionId ? sessionApi.getQueueSessionId(sessionId) : "");
-            if (!statusChatId || sessionApi.isUnresolvedLocalSession(statusChatId)) {
+            if (
+              !statusChatId ||
+              sessionApi.isUnresolvedLocalSession(statusChatId)
+            ) {
               return false;
             }
 

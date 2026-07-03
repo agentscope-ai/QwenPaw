@@ -159,8 +159,8 @@ const formatCreatedAt = (raw: string | null | undefined): string => {
 const getBackendId = (session: ExtendedChatSession): string | null => {
   if (session.realId) return session.realId;
   const id = session.id;
-  if (!/^\d+$/.test(id)) return id;
-  return null;
+  if (!id) return null;
+  return sessionApi.isLocalSessionId(id) ? null : id;
 };
 
 const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
@@ -256,21 +256,29 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
 
   /** Sessions sorted by pinned first, then by updatedAt/createdAt descending */
   const sortedSessions = useMemo(() => {
-    return [...sessions].sort((a, b) => {
-      const extA = a as ExtendedChatSession;
-      const extB = b as ExtendedChatSession;
+    return [...sessions]
+      .filter((session) => {
+        const id = session.id ?? "";
+        return !(
+          sessionApi.isLocalSessionId(id) &&
+          !(session as ExtendedChatSession).realId
+        );
+      })
+      .sort((a, b) => {
+        const extA = a as ExtendedChatSession;
+        const extB = b as ExtendedChatSession;
 
-      if (extA.pinned && !extB.pinned) return -1;
-      if (!extA.pinned && extB.pinned) return 1;
+        if (extA.pinned && !extB.pinned) return -1;
+        if (!extA.pinned && extB.pinned) return 1;
 
-      // ISO 8601 strings are lexicographically sortable — avoid new Date()
-      const aTime = extA.updatedAt ?? extA.createdAt ?? "";
-      const bTime = extB.updatedAt ?? extB.createdAt ?? "";
-      if (!aTime && !bTime) return 0;
-      if (!aTime) return 1;
-      if (!bTime) return -1;
-      return bTime < aTime ? -1 : bTime > aTime ? 1 : 0;
-    });
+        // ISO 8601 strings are lexicographically sortable — avoid new Date()
+        const aTime = extA.updatedAt ?? extA.createdAt ?? "";
+        const bTime = extB.updatedAt ?? extB.createdAt ?? "";
+        if (!aTime && !bTime) return 0;
+        if (!aTime) return 1;
+        if (!bTime) return -1;
+        return bTime < aTime ? -1 : bTime > aTime ? 1 : 0;
+      });
   }, [sessions]);
 
   /** Re-fetch session list from the backend and sync to context state */
@@ -333,11 +341,24 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
         return;
       }
 
+      const matching = sessions.find(
+        (s) =>
+          s.id === sessionId || (s as ExtendedChatSession).realId === sessionId,
+      ) as ExtendedChatSession | undefined;
+      const librarySessionId = matching?.id ?? sessionId;
+      const routableId = sessionApi.getRoutableSessionId(
+        librarySessionId,
+        matching?.realId,
+      );
+      if (!routableId && sessionApi.isLocalSessionId(librarySessionId)) {
+        return;
+      }
+
       if (props.embedded) {
-        setSwitchingSessionId(sessionId);
+        setSwitchingSessionId(librarySessionId);
         window.dispatchEvent(
           new CustomEvent("qwenpaw:sidebar-select-session", {
-            detail: { sessionId },
+            detail: { sessionId: librarySessionId },
           }),
         );
         return;
@@ -345,16 +366,17 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
 
       // Start a new cancellable switch (aborts any in-flight switch)
       const controller = sessionApi.startNewSwitch();
-      setSwitchingSessionId(sessionId);
+      setSwitchingSessionId(librarySessionId);
 
       sessionApi
-        .preloadSession(sessionId, controller.signal)
+        .preloadSession(librarySessionId, controller.signal)
         .then(({ realId }) => {
           if (controller.signal.aborted) return;
-          const effectiveId = sessionApi.getEffectiveSessionId(
-            sessionId,
+          const effectiveId = sessionApi.getRoutableSessionId(
+            librarySessionId,
             realId,
           );
+          if (!effectiveId) return;
           // Issue #4987: In coding mode, skip URL navigation to /chat/<id>.
           // The redirect effect in ChatPage would immediately navigate back
           // to /coding before session data loads, causing the switch to fail.
@@ -367,12 +389,14 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
             setLastChatId,
             selectedAgent,
           );
-          setCurrentSessionId(sessionId);
+          setCurrentSessionId(librarySessionId);
         })
         .catch((err) => {
           if (err?.name === "AbortError") return;
           // On non-abort error, still try to switch normally.
-          setCurrentSessionId(sessionId);
+          if (!sessionApi.isLocalSessionId(librarySessionId)) {
+            setCurrentSessionId(librarySessionId);
+          }
         })
         .finally(() => {
           // Only clean up if this switch was NOT superseded by a newer one
