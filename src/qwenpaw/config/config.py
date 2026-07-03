@@ -1613,6 +1613,8 @@ class MCPClientConfig(BaseModel):
         if isinstance(raw_transport, str):
             normalized = raw_transport.strip().lower()
             transport_alias_map = {
+                "streamable_http": "streamable_http",
+                "streamable-http": "streamable_http",
                 "streamablehttp": "streamable_http",
                 "http": "streamable_http",
                 "stdio": "stdio",
@@ -2365,6 +2367,13 @@ def load_agent_config(  # pylint: disable=too-many-branches,too-many-statements
             data = _normalize_working_dir_bound_paths(data)
         except Exception:
             pass
+
+        # Pre-validate MCP clients: skip invalid ones so a
+        # single misconfigured MCP client does not prevent the
+        # entire agent from loading.
+        from .utils import sanitize_mcp_clients
+
+        sanitize_mcp_clients(data, agent_id)
 
         agent_config = AgentProfileConfig(**data)
 
