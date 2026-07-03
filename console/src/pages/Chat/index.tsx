@@ -619,6 +619,18 @@ function useChatInputDraft(isChatActive: () => boolean, agentId?: string) {
   }, [isChatActive, storageKey]);
 }
 
+function clearSenderTextareaOnNextTick() {
+  window.setTimeout(() => {
+    const sender = document.querySelector('[class*="sender"]');
+    const textarea = sender?.querySelector(
+      "textarea",
+    ) as HTMLTextAreaElement | null;
+    if (textarea?.value) {
+      setTextareaValue(textarea, "");
+    }
+  }, 0);
+}
+
 /**
  * When the user pastes into the chat textarea text that was just copied
  * from the Coding-mode editor, swap the raw paste for the formatted
@@ -1547,6 +1559,9 @@ export default function ChatPage() {
       if (isComposingRef.current) return false;
       localStorage.removeItem(getDraftStorageKey(selectedAgent));
       draftSuppressed = true;
+      if (!inputQueueEnabled) {
+        clearSenderTextareaOnNextTick();
+      }
       return true;
     };
 
