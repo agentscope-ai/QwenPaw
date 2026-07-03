@@ -194,6 +194,85 @@ def _strip_summary_verdict_json(text: str) -> str:
     return (before + cleaned).rstrip()
 
 
+_FENCE_RE = re.compile(r"^(`{3,})(.*)")
+
+
+def _scan_fence_block(
+    lines: list[str],
+    start: int,
+    tick_len: int,
+) -> tuple[list[str], int]:
+    """Find the matching closer for a code fence.
+
+    Tracks open/close depth so that LLM-produced
+    pseudo-nested fences are handled correctly.
+
+    Returns ``(body_lines, close_index)``.
+    ``close_index`` is ``-1`` if no closer is found.
+    """
+    depth = 1
+    body: list[str] = []
+    for j in range(start, len(lines)):
+        fm = re.match(rf"^`{{{tick_len},}}", lines[j])
+        if fm:
+            rest = lines[j][len(fm.group(0)) :].strip()
+            if rest:
+                depth += 1
+            else:
+                depth -= 1
+                if depth == 0:
+                    return body, j
+        body.append(lines[j])
+    return body, -1
+
+
+def _fix_nested_code_fences(text: str) -> str:
+    """Bump outer fence width when content has inner fences.
+
+    LLMs often produce pseudo-nested fences where inner
+    ````` ``` ````` markers break the outer block.  This
+    function uses depth tracking to find the intended
+    closer, then increases the outer fence length so
+    inner fences become harmless content.
+    """
+    lines = text.split("\n")
+    out: list[str] = []
+    i = 0
+    while i < len(lines):
+        m = _FENCE_RE.match(lines[i])
+        if not m:
+            out.append(lines[i])
+            i += 1
+            continue
+
+        info = m.group(2).strip()
+        n = len(m.group(1))
+        body, close = _scan_fence_block(lines, i + 1, n)
+
+        max_inner = 0
+        for bline in body:
+            im = re.match(r"^(`{3,})", bline)
+            if im and len(im.group(1)) > max_inner:
+                max_inner = len(im.group(1))
+
+        if max_inner >= n:
+            fence = "`" * (max_inner + 1)
+            tag = f"{fence}{info}" if info else fence
+            out.append(tag)
+            out.extend(body)
+            if close >= 0:
+                out.append(fence)
+        else:
+            out.append(lines[i])
+            out.extend(body)
+            if close >= 0:
+                out.append(lines[close])
+
+        i = close + 1 if close >= 0 else len(lines)
+
+    return "\n".join(out)
+
+
 _SECRET_ENV_NAMES = [
     "DASHSCOPE_API_KEY",
     "OPENAI_API_KEY",
@@ -260,6 +339,7 @@ def write_outputs(verdict_info: dict, review_text: str):
             f.write(f"medium_count={verdict_info['medium_count']}\n")
 
     clean_text = _strip_summary_verdict_json(review_text)
+    clean_text = _fix_nested_code_fences(clean_text)
 
     leak_warnings = _scan_for_leaked_secrets(clean_text)
     if leak_warnings:
