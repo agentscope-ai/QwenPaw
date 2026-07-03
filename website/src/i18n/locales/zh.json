@@ -1,6 +1,7 @@
 {
   "nav": {
     "docs": "文档",
+    "blog": "博客",
     "more": "更多",
     "releaseNotes": "更新日志",
     "qwenpaw": "Qwenpaw",
@@ -254,6 +255,19 @@
       "suffix": " 提供 Agent Skills 规范与示例。"
     }
   },
+  "blog": {
+    "breadcrumbHome": "首页",
+    "breadcrumbCurrent": "博客",
+    "title": "QwenPaw 团队的博客",
+    "subtitle": "来自 QwenPaw 的最新动态、深度解析和用户故事。",
+    "latestUpdate": "最近更新 {{date}}",
+    "totalPosts": "共 {{count}} 篇",
+    "readTime": "阅读时间 {{minutes}} 分钟",
+    "sessionCount": "共 {{count}} 场开发者日会",
+    "backToList": "返回博客列表",
+    "notFound": "文章未找到",
+    "empty": "暂无博客文章"
+  },
   "docs": {
     "intro": "项目介绍",
     "quickstart": "快速开始",
@@ -271,6 +285,7 @@
     "memoryEvolvingAndProactive": "记忆进化与主动交互",
     "codingMode": "Coding 模式",
     "context": "上下文",
+    "loopEngineering": "循环工程",
     "commands": "魔法命令",
     "cron": "定时任务",
     "heartbeat": "心跳",
@@ -279,6 +294,7 @@
     "backup": "备份与恢复",
     "cli": "CLI",
     "plugins": "插件系统",
+    "architecture": "架构设计",
     "faq": "常见问题",
     "apiTutorial": "RESTful API 接口",
     "community": "问题反馈与交流",

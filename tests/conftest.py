@@ -8,6 +8,7 @@ This module provides shared fixtures for testing CoPaw components.
 All fixtures are designed to be isolated, safe, and easy to use.
 """
 
+import logging
 import os
 import shutil
 import sys
@@ -20,6 +21,13 @@ from unittest.mock import MagicMock
 import pytest
 
 from qwenpaw.providers import provider_manager as _provider_manager_module
+
+
+@pytest.fixture
+def capture_qwenpaw_logs(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Let caplog see qwenpaw records despite the app logger handler."""
+    monkeypatch.setattr(logging.getLogger("qwenpaw"), "propagate", True)
+
 
 # =============================================================================
 # Third-Party Library Mocks

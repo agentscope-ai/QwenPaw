@@ -404,48 +404,112 @@ class PluginLoader:
             )
 
         module = importlib.util.module_from_spec(spec)
-        sys.modules[module_name] = module
-        module.__package__ = module_name
-        module.__path__ = [plugin_dir_str]
-        spec.loader.exec_module(module)
 
-        if not hasattr(module, "plugin"):
-            raise AttributeError(
-                "Plugin module must export 'plugin' object",
+        try:
+            sys.modules[module_name] = module
+            module.__package__ = module_name
+            module.__path__ = [plugin_dir_str]
+            spec.loader.exec_module(module)
+
+            if not hasattr(module, "plugin"):
+                raise AttributeError(
+                    "Plugin module must export 'plugin' object",
+                )
+
+            plugin_def = module.plugin
+
+            if manifest.qwenpaw_version is not None:
+                qv_dict = manifest.qwenpaw_version.model_dump()
+            else:
+                qv_dict = {
+                    "min": manifest.min_version,
+                    "max": manifest.max_version,
+                }
+            manifest_dict = {
+                "id": manifest.id,
+                "name": manifest.name,
+                "version": manifest.version,
+                "description": manifest.description,
+                "author": manifest.author,
+                "dependencies": manifest.dependencies,
+                "qwenpaw_version": qv_dict,
+                "meta": manifest.meta,
+            }
+            api = PluginApi(plugin_id, config or {}, manifest_dict)
+            api.set_registry(self.registry)
+            self.registry.register_plugin_manifest(plugin_id, manifest_dict)
+
+            if hasattr(plugin_def, "register"):
+                result = plugin_def.register(api)
+                if inspect.iscoroutine(result) or inspect.isawaitable(result):
+                    await result
+            else:
+                raise AttributeError(
+                    "Plugin must implement 'register(api)' method",
+                )
+        except Exception:
+            self._cleanup_failed_load(
+                plugin_id,
+                module_name,
+                source_path,
             )
-
-        plugin_def = module.plugin
-
-        manifest_dict = {
-            "id": manifest.id,
-            "name": manifest.name,
-            "version": manifest.version,
-            "description": manifest.description,
-            "author": manifest.author,
-            "dependencies": manifest.dependencies,
-            "min_version": manifest.min_version,
-            "max_version": manifest.max_version,
-            "qwenpaw_version": (
-                manifest.qwenpaw_version.model_dump()
-                if manifest.qwenpaw_version
-                else None
-            ),
-            "meta": manifest.meta,
-        }
-        api = PluginApi(plugin_id, config or {}, manifest_dict)
-        api.set_registry(self.registry)
-        self.registry.register_plugin_manifest(plugin_id, manifest_dict)
-
-        if hasattr(plugin_def, "register"):
-            result = plugin_def.register(api)
-            if inspect.iscoroutine(result) or inspect.isawaitable(result):
-                await result
-        else:
-            raise AttributeError(
-                "Plugin must implement 'register(api)' method",
-            )
+            raise
 
         return plugin_def
+
+    def _cleanup_failed_load(
+        self,
+        plugin_id: str,
+        module_name: str,
+        source_path: Path,
+    ) -> None:
+        """Roll back side effects after a failed plugin load.
+
+        Mirrors the cleanup logic in ``unload_plugin`` (registry,
+        ``sys.modules``, ``sys.path``) so that a failed load leaves no
+        orphan state that could interfere with other plugins or a
+        subsequent retry.
+
+        .. note::
+            NOT thread-safe.  ``sys.modules`` and ``sys.path`` mutations
+            are not guarded by a lock.  This is fine because
+            ``load_all_plugins`` loads plugins sequentially, but callers
+            must not invoke this method concurrently.
+        """
+        logger.warning(
+            "Cleaning up failed plugin load for '%s'",
+            plugin_id,
+        )
+
+        # 1. Registry (manifest, providers, hooks, middleware, routes, …)
+        self.registry.unregister_plugin(plugin_id)
+
+        # 2. sys.modules — by module-name prefix
+        prefix = module_name + "."
+        stale = [
+            k for k in sys.modules if k == module_name or k.startswith(prefix)
+        ]
+        for k in stale:
+            sys.modules.pop(k, None)
+
+        # 3. sys.modules — by __file__ path (catches bare imports that
+        #    bypassed the plugin_<id> namespace, e.g. ``import utils``
+        #    after the plugin inserted its dir into sys.path).
+        source_resolved = os.path.realpath(str(source_path)) + os.sep
+        stale_by_file = [
+            k
+            for k, mod in list(sys.modules.items())
+            if (mod_file := getattr(mod, "__file__", None)) is not None
+            and os.path.realpath(mod_file).startswith(source_resolved)
+        ]
+        for k in stale_by_file:
+            sys.modules.pop(k, None)
+
+        # 4. sys.path — remove the plugin directory if it was added
+        plugin_dir_real = os.path.realpath(str(source_path))
+        sys.path[:] = [
+            p for p in sys.path if os.path.realpath(p) != plugin_dir_real
+        ]
 
     async def load_plugin(
         self,

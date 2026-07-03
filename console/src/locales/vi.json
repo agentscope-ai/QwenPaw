@@ -32,6 +32,18 @@
     "yes": "Có",
     "no": "Không"
   },
+  "desktop": {
+    "closeWindow": {
+      "title": "Đóng cửa sổ",
+      "description": "Bạn muốn thực hiện thao tác nào khi đóng cửa sổ? Thoát ứng dụng sẽ dừng tất cả tác vụ đang chạy và tác vụ đã lên lịch.",
+      "remember": "Ghi nhớ lựa chọn của tôi",
+      "showWindow": "Hiển thị cửa sổ",
+      "minimizeToTray": "Thu nhỏ xuống khay hệ thống",
+      "quitApp": "Thoát ứng dụng",
+      "preference": "Đóng cửa sổ",
+      "askEveryTime": "Hỏi mỗi lần"
+    }
+  },
   "chunkError": {
     "title": "Không thể tải trang",
     "subTitle": "Có thể do lỗi mạng hoặc ứng dụng vừa được cập nhật.",
@@ -181,6 +193,12 @@
       },
       "history": {
         "description": "Hiển thị lịch sử cuộc trò chuyện"
+      },
+      "mission": {
+        "description": "Chế độ Mission — Phân tách nhiệm vụ cho sub-agent với ngữ cảnh tách biệt"
+      },
+      "goal": {
+        "description": "Loop Goal — Agent theo đuổi mục tiêu liên tục, tự đánh giá qua Rubric"
       }
     },
     "contextMenu": {
@@ -206,7 +224,7 @@
       "file": "Tệp",
       "noChatWarning": "Vui lòng gửi một tin nhắn đầu tiên để tạo cuộc trò chuyện trước khi sử dụng hàng đợi",
       "queueFull": "Hàng đợi đầy (tối đa {{max}} mục), vui lòng gửi hoặc xóa một số tin nhắn trước",
-      "otherTabOwner": "Cuộc trò chuyện này đang được gửi từ một tab khác. Tab này chỉ có thể thêm vào hàng đợi; mọi thao tác gửi được xử lý bởi tab kia."
+      "otherTabOwner": "This tab queues only; sending is handled by another tab"
     },
     "group": {
       "pinned": "Đã ghim",
@@ -217,10 +235,19 @@
     },
     "sessionPanel": {
       "searchConversations": "Tìm kiếm…",
+      "noResults": "Không có kết quả",
       "noConversations": "Không có hội thoại",
       "loadingConversations": "Đang tải…"
     },
-    "conversationHistory": "Lịch sử hội thoại"
+    "conversationHistory": "Lịch sử hội thoại",
+    "history": {
+      "empty": "Không có lịch sử trò chuyện"
+    },
+    "sessionGroup": {
+      "today": "Hôm nay",
+      "recent": "7 ngày qua",
+      "earlier": "Trước đó"
+    }
   },
   "debug": {
     "title": "Gỡ lỗi",
@@ -513,9 +540,7 @@
     "noResults": "Không có kết quả",
     "startTyping": "Nhập từ khóa để tìm kiếm",
     "noDescription": "Chưa có mô tả",
-    "targetPool": "Kho kỹ năng",
-    "targetWorkspace": "Workspace",
-    "install": "Cài đặt",
+    "browseMarket": "Duyệt chợ kỹ năng",
     "installQueue": "Hàng đợi cài đặt",
     "clearCompleted": "Xóa hoàn thành",
     "retry": "Thử lại",
@@ -538,12 +563,14 @@
     },
     "stats": {
       "downloads": "Lượt tải",
+      "stars": "Sao",
       "installs": "Lượt cài đặt",
       "likes": "Lượt thích",
       "views": "Lượt xem",
       "category": "Danh mục",
       "updatedAt": "Cập nhật"
-    }
+    },
+    "categoryPlaceholder": "Tìm danh mục"
   },
   "agentStats": {
     "title": "Thống kê Agent",
@@ -728,6 +755,65 @@
     "maxItersPlaceholder": "Nhập số vòng lặp",
     "maxItersRequired": "Bắt buộc",
     "maxItersMin": "Phải ít nhất 1",
+    "agentLoopTitle": "Cài đặt Loop Agent",
+    "doomLoopEnabled": "Bảo vệ hành vi lặp lại",
+    "doomLoopEnabledTooltip": "Tự động can thiệp khi agent bị kẹt lặp lại cùng một hành động",
+    "doomLoopAfter": "Sau",
+    "doomLoopRepetitions": "hành động giống nhau",
+    "doomLoopStopAction": "Tạm dừng & Hỏi ý kiến",
+    "doomLoopWarnAction": "Gửi nhắc nhở",
+    "doomLoopSimpleMode": "Đơn giản",
+    "doomLoopAdvancedMode": "Nâng cao",
+    "doomLoopWindowSize": "Phạm vi phát hiện",
+    "doomLoopWindowSizeTooltip": "Kiểm tra bao nhiêu hành động gần đây để phát hiện lặp lại",
+    "doomLoopSimilarity": "Độ nhạy khớp",
+    "doomLoopSimilarityTooltip": "Hành động phải giống nhau đến mức nào để tính là lặp lại (thấp hơn = nghiêm ngặt hơn)",
+    "doomLoopStages": "Quy tắc can thiệp",
+    "doomLoopAction": "Hành động",
+    "doomLoopPrompt": "Tin nhắn",
+    "doomLoopPromptPlaceholder": "Nội dung nhắc nhở hoặc lý do tạm dừng...",
+    "doomLoopAddStage": "Thêm quy tắc",
+    "iterationTitle": "Giới hạn lặp lại",
+    "iterationEnabled": "Bật giới hạn lặp lại",
+    "iterationEnabledTooltip": "Dừng agent sau một số lượt lặp cố định",
+    "iterationMaxIterations": "Số lần lặp tối đa",
+    "iterationMaxIterationsTooltip": "Số lượt lặp tối đa trước khi dừng",
+    "rubricTitle": "Kiểm tra hoàn thành",
+    "rubricEnabled": "Bật kiểm tra hoàn thành",
+    "rubricEnabledTooltip": "Yêu cầu agent tự đánh giá xem nhiệm vụ đã hoàn thành sau mỗi lượt",
+    "rubricPrompt": "Prompt kiểm tra",
+    "rubricPromptTooltip": "Prompt được chèn để yêu cầu agent đánh giá hoàn thành nhiệm vụ",
+    "rubricDesc": "Một số LLM có thể dừng với phản hồi chỉ văn bản mà không gọi công cụ nào, khiến agent kết thúc sớm. Bật tính năng này để nhắc lại agent và cải thiện việc hoàn thành nhiệm vụ.",
+    "rubricPromptPlaceholder": "Bạn không gọi công cụ nào. Nếu nhiệm vụ hoàn thành, hãy xác nhận. Nếu không, tiếp tục với các lệnh gọi công cụ.",
+    "rubricMaxInterventions": "Số lần can thiệp tối đa mỗi lượt",
+    "rubricMaxInterventionsTooltip": "Số lần nhắc lại tối đa mỗi lượt. Ngăn nhắc lại vô hạn nếu LLM liên tục chỉ xuất văn bản.",
+    "inLoopModes": "Bật trong chế độ /goal & /mission",
+    "inLoopModesTooltip": "Cũng áp dụng khi chế độ /goal hoặc /mission đang hoạt động",
+    "comingSoonEditable": "Cấu hình tùy chỉnh sẽ có trong phiên bản tương lai.",
+    "simpleMode": "Đơn giản",
+    "advancedMode": "Nâng cao",
+    "comingSoon": "Sắp ra mắt",
+    "reactModeTab": "Mẫu Loop - Mặc định",
+    "goalModeTab": "Mẫu Loop - Goal",
+    "missionModeTab": "Mẫu Loop - Mission",
+    "goalModeInfoTitle": "Chế độ Goal vs Mặc định",
+    "goalModeInfo": "Chế độ mặc định dừng sau khi tạo phản hồi. Chế độ Goal giữ agent lặp hướng tới mục tiêu, sử dụng đánh giá Rubric để xác định hoàn thành. Tất cả hoạt động chạy trong ngữ cảnh agent hiện tại.",
+    "missionModeInfoTitle": "Chế độ Mission vs Goal",
+    "missionModeInfo": "Chế độ Mission tự động phân tách nhiệm vụ phức tạp, được thực thi bởi các Worker sub-agent độc lập và xác minh bởi Verifier sub-agent. Mỗi nhiệm vụ con chạy trong ngữ cảnh riêng, ngăn ô nhiễm phiên chính.",
+    "goalIterationGate": "Cổng Lặp Mục tiêu",
+    "goalIterationGateDesc": "Giới hạn số lượt của agent trong phiên mục tiêu, theo dõi số lần lặp và sử dụng token.",
+    "goalBudgetGate": "Cổng Ngân sách Token",
+    "goalBudgetGateDesc": "Đặt giới hạn chi tiêu token cho phiên mục tiêu. Dừng agent khi vượt ngân sách.",
+    "goalRubricGate": "Rubric Hoàn thành Mục tiêu",
+    "goalRubricGateDesc": "Đánh giá mục tiêu đã đạt được hay chưa bằng cách kiểm tra trạng thái phiên.",
+    "goalDoomGate": "Bảo vệ Lặp lại",
+    "goalDoomGateDesc": "Phát hiện mẫu lặp lại trong quá trình thực hiện mục tiêu và kích hoạt can thiệp.",
+    "missionProgressGate": "Cổng Tiến độ Nhiệm vụ",
+    "missionProgressGateDesc": "Theo dõi hoàn thành user story PRD. Tiếp tục cho đến khi tất cả đạt hoặc đạt tối đa lần lặp.",
+    "missionIterBypass": "Bỏ qua Lặp",
+    "missionIterBypassDesc": "Tạm thời gỡ bỏ giới hạn lặp ReAct trong quá trình thực hiện nhiệm vụ để cho phép các giai đoạn dài.",
+    "customLoopTitle": "Chế độ Vòng lặp Tùy chỉnh",
+    "customLoopDesc": "Tạo chế độ vòng lặp riêng với tổ hợp cổng tùy chỉnh. Sắp ra mắt.",
     "autoContinueOnTextOnly": "Tự tiếp tục khi bước chỉ có văn bản",
     "autoContinueOnTextOnlyTooltip": "Khi mô hình kết thúc bước suy luận chỉ bằng văn bản, tự động chèn gợi ý và chạy thêm một lần.",
     "autoGenerateSessionTitle": "Tự tạo tiêu đề phiên",
@@ -829,6 +915,16 @@
     "addHeader": "+ Thêm header",
     "generateConfig": "Tham số tạo văn bản",
     "generateConfigHint": "Tham số dạng JSON object, sẽ được mở rộng vào mỗi yêu cầu.",
+    "preserveThinkingLabel": "Giữ nội dung suy luận",
+    "preserveThinkingHint": "Chuyển tiếp nội dung suy luận sang các lượt hội thoại tiếp theo",
+    "thinkingModeLabel": "Bật suy nghĩ",
+    "thinkingModeHint": "Bật để kích hoạt suy nghĩ/lập luận. Tắt để vô hiệu hóa suy nghĩ.",
+    "thinkingBudgetLabel": "Ngân sách suy nghĩ",
+    "thinkingBudgetHint": "Sử dụng ngân sách suy nghĩ mặc định của mô hình",
+    "switchToManual": "Thủ công",
+    "switchToAuto": "Tự động",
+    "reasoningEffortLabel": "Độ sâu lập luận",
+    "reasoningEffortHint": "Kiểm soát độ sâu lập luận (dòng OpenAI)",
     "saveSuccess": "Đã lưu cấu hình nhà cung cấp",
     "saveFailed": "Lưu cấu hình thất bại",
     "loadFailed": "Tải cấu hình thất bại",
@@ -1031,27 +1127,27 @@
   "skills": {
     "title": "Kỹ năng",
     "description": "Quản lý kỹ năng và khả năng của agent.",
-    "importHub": "Hub nhập kỹ năng",
-    "importHubHint": "Nhập kỹ năng từ URL hub trực tuyến vào workspace hiện tại",
+    "importHub": "Tải lên qua URL",
+    "supportedSources": "Nguồn được hỗ trợ:",
     "importSkills": "Nhập kỹ năng",
     "enterSkillUrl": "Nhập URL kỹ năng",
-    "orChooseFromSources": "hoặc chọn từ chợ kỹ năng được hỗ trợ",
     "supportedSkillUrlSources": "Chợ kỹ năng được hỗ trợ:",
     "urlExamples": "Ví dụ URL:",
     "urlValid": "URL hợp lệ từ {{source}}",
     "invalidUrl": "URL không hợp lệ",
-    "examplesFrom": "Ví dụ từ {{source}}",
     "clickToFill": "Nhấn để điền URL",
     "invalidSkillUrlSource": "Vui lòng xác minh URL kỹ năng từ chợ được hỗ trợ",
     "type": "Loại",
     "installedFrom": "Được cài từ",
     "source": "Nguồn",
     "path": "Đường dẫn",
-    "skillDescription": "Mô tả",
     "tags": "Nhãn",
     "builtin": "Tích hợp sẵn",
     "custom": "Tùy chỉnh",
+    "addSkill": "Thêm kỹ năng",
     "createSkill": "Tạo kỹ năng",
+    "uploadZip": "Tải lên qua Zip",
+    "downloadFromPool": "Tải từ kho kỹ năng",
     "viewSkill": "Xem kỹ năng",
     "editSkill": "Chỉnh sửa kỹ năng",
     "skillName": "Tên kỹ năng",
@@ -1078,8 +1174,6 @@
     "importBuiltin": "Cập nhật kỹ năng tích hợp",
     "importBuiltinHint": "Cập nhật kỹ năng tích hợp lên phiên bản mới nhất",
     "importBuiltinAlertHint": "{{count}} thay đổi tích hợp cần xem xét",
-    "importHubHint": "Nhập kỹ năng qua URL",
-    "uploadZipHint": "Tải lên qua Zip",
     "importBuiltinSuccess": "Đã nhập kỹ năng tích hợp: {{names}}",
     "importBuiltinConflicts": "Bỏ qua do trùng tên: {{names}}",
     "importBuiltinNoChanges": "Không có thay đổi tích hợp nào để nhập",
@@ -1149,5 +1243,8 @@
     "editSession": "Chỉnh sửa phiên",
     "pleaseInputName": "Vui lòng nhập tên phiên",
     "sessionNamePlaceholder": "Tên phiên"
+  },
+  "loop": {
+    "gotoSettings": "Cài đặt Loop Agent"
   }
 }

@@ -249,6 +249,7 @@ const ChatSessionInitializer: React.FC = () => {
             if (!effectiveId) return;
             const targetUrl = buildSessionPath(mode, effectiveId);
             sessionApi.trackNavigatedSession(effectiveId);
+            sessionApi.preferredChatId = effectiveId;
             navigate(targetUrl, { replace: true });
             setCurrentSessionId(librarySessionId);
           })

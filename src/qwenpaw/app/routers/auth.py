@@ -2,7 +2,6 @@
 """Authentication API endpoints."""
 from __future__ import annotations
 
-import math
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
@@ -49,21 +48,6 @@ class AuthStatusResponse(BaseModel):
     has_users: bool
 
 
-def format_time_remaining(seconds: int) -> str:
-    """Format seconds into minutes/hours without seconds granularity."""
-    total_minutes = math.ceil(seconds / 60)
-    if total_minutes < 60:
-        return f"{total_minutes} minute{'s' if total_minutes != 1 else ''}"
-    hours = total_minutes // 60
-    minutes = total_minutes % 60
-    if minutes == 0:
-        return f"{hours} hour{'s' if hours != 1 else ''}"
-    return (
-        f"{hours} hour{'s' if hours != 1 else ''}"
-        f" {minutes} minute{'s' if minutes != 1 else ''}"
-    )
-
-
 @router.post("/login")
 async def login(request: Request, req: LoginRequest):
     """Authenticate with username and password.
@@ -79,51 +63,42 @@ async def login(request: Request, req: LoginRequest):
     # Get client IP for rate limiting
     client_ip = resolve_client_ip(request)
 
-    # Check if IP or user is rate-limited
-    _, ip_unlock_in, _, user_unlock_in, _ = rate_limiter.get_lock_info(
-        client_ip,
-        req.username,
-    )
+    # Check if user account is locked
+    if rate_limiter.is_user_locked(req.username):
+        raise HTTPException(
+            status_code=423,
+            detail="Account temporarily locked. Please try again later",
+        )
 
-    if rate_limiter.is_ip_limited(client_ip):
-        if ip_unlock_in:
-            t = format_time_remaining(ip_unlock_in)
-            msg = f"Too many login attempts. Please try again in {t}."
-        else:
-            msg = "Too many login attempts. Please try again later."
-        raise HTTPException(status_code=429, detail=msg)
+    # Check if IP is locked or rate-limited
+    if rate_limiter.is_ip_locked(client_ip):
+        raise HTTPException(
+            status_code=423,
+            detail="Too many login attempts. Please try again later",
+        )
 
-    if rate_limiter.is_user_limited(req.username):
-        if user_unlock_in:
-            t = format_time_remaining(user_unlock_in)
-            msg = f"Account temporarily locked. Please try again in {t}."
-        else:
-            msg = "Account temporarily locked. Please try again later."
-        raise HTTPException(status_code=423, detail=msg)
+    if rate_limiter.is_ip_rate_limited(client_ip):
+        raise HTTPException(
+            status_code=429,
+            detail="Too many requests. Please slow down",
+        )
 
+    # Attempt authentication
     token = authenticate(req.username, req.password, req.expires_in)
     if token is None:
+        # Record failed attempt
         rate_limiter.record_login_attempt(
             client_ip,
             req.username,
             success=False,
         )
-        _, _, _, _, user_attempts_left = rate_limiter.get_lock_info(
-            client_ip,
-            req.username,
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid username or password",
         )
 
-        detail = "Invalid username or password."
-        if user_attempts_left is not None and user_attempts_left <= 3:
-            s = "s" if user_attempts_left != 1 else ""
-            detail = (
-                f"Invalid username or password."
-                f" {user_attempts_left} attempt{s} remaining."
-            )
-        raise HTTPException(status_code=401, detail=detail)
-
+    # Record successful attempt
     rate_limiter.record_login_attempt(client_ip, req.username, success=True)
-    rate_limiter.locked_users.pop(req.username, None)
 
     return LoginResponse(token=token, username=req.username)
 

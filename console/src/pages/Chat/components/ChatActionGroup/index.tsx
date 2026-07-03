@@ -1,11 +1,7 @@
-import React, { useState } from "react";
+import React from "react";
 
 import { IconButton } from "@agentscope-ai/design";
-import {
-  SparkHistoryLine,
-  SparkNewChatFill,
-  SparkSearchLine,
-} from "@agentscope-ai/icons";
+import { SparkHistoryLine, SparkNewChatFill } from "@agentscope-ai/icons";
 import {
   ExpandAltOutlined,
   CompressOutlined,
@@ -14,7 +10,6 @@ import {
 import { useTranslation } from "react-i18next";
 import { Dropdown, Flex, Tooltip } from "antd";
 import type { MenuProps } from "antd";
-import ChatSearchPanel from "../ChatSearchPanel";
 import { useCreateNewSession } from "../../hooks/useCreateNewSession";
 import { useIsMobile } from "../../../../hooks/useIsMobile";
 
@@ -35,7 +30,6 @@ const ChatActionGroup: React.FC<ChatActionGroupProps> = ({
 }) => {
   const { t } = useTranslation();
 
-  const [searchOpen, setSearchOpen] = useState(false);
   const createNewSession = useCreateNewSession();
 
   // Compact mode follows the viewport: collapse secondary actions only on
@@ -79,13 +73,6 @@ const ChatActionGroup: React.FC<ChatActionGroupProps> = ({
           onClick={createNewSession}
         />
       </Tooltip>
-      <Tooltip title={t("chat.searchTooltip")} mouseEnterDelay={0.5}>
-        <IconButton
-          bordered={false}
-          icon={<SparkSearchLine />}
-          onClick={() => setSearchOpen(true)}
-        />
-      </Tooltip>
 
       {/* History + WideMode: inline when NOT compact */}
       {!isCompact && onToggleHistory && (
@@ -127,8 +114,6 @@ const ChatActionGroup: React.FC<ChatActionGroupProps> = ({
           <IconButton bordered={false} icon={<MoreOutlined />} />
         </Dropdown>
       )}
-
-      <ChatSearchPanel open={searchOpen} onClose={() => setSearchOpen(false)} />
     </Flex>
   );
 };

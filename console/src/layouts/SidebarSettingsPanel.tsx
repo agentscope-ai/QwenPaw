@@ -2,6 +2,7 @@ import React from "react";
 import { useTranslation } from "react-i18next";
 
 import { SunMoon } from "lucide-react";
+import { Select } from "antd";
 import {
   SparkSunLine,
   SparkMoonLine,
@@ -16,7 +17,16 @@ import {
 import { languageApi } from "../api/modules/language";
 import { useTheme, type ThemeMode } from "../contexts/ThemeContext";
 import { useSidebarModeStore } from "../stores/sidebarModeStore";
+import { isTauriRuntime } from "../tauri/backendRuntime";
+import {
+  clearRememberedCloseAction,
+  getRememberedCloseAction,
+  setRememberedCloseAction,
+  type CloseAction,
+} from "../tauri/closeWindowPreference";
 import styles from "./sidebarSettingsPanel.module.less";
+
+type CloseBehavior = "ask" | CloseAction;
 
 // ── Language config ────────────────────────────────────────────────────────
 
@@ -42,6 +52,9 @@ export default function SidebarSettingsPanel({
   const { themeMode, setThemeMode } = useTheme();
   const { mode: sidebarMode, toggleMode: toggleSidebarMode } =
     useSidebarModeStore();
+  const [closeBehavior, setCloseBehavior] = React.useState<CloseBehavior>(() =>
+    isTauriRuntime() ? getRememberedCloseAction() ?? "ask" : "ask",
+  );
 
   const raw = i18n.resolvedLanguage || i18n.language;
   const currentLang = KNOWN_KEYS.has(raw) ? raw : raw.split("-")[0];
@@ -50,6 +63,15 @@ export default function SidebarSettingsPanel({
     i18n.changeLanguage(lang);
     localStorage.setItem("language", lang);
     languageApi.updateLanguage(lang).catch(() => {});
+  };
+
+  const changeCloseBehavior = (value: CloseBehavior) => {
+    if (value === "ask") {
+      clearRememberedCloseAction();
+    } else {
+      setRememberedCloseAction(value);
+    }
+    setCloseBehavior(value);
   };
 
   const themeOptions: {
@@ -118,6 +140,38 @@ export default function SidebarSettingsPanel({
           ))}
         </div>
       </div>
+
+      {/* ── Close Window (desktop only) ──────────────────── */}
+      {isTauriRuntime() ? (
+        <div className={styles.row}>
+          <span className={styles.label}>
+            {t("desktop.closeWindow.preference", "Close Window")}
+          </span>
+          <Select<CloseBehavior>
+            size="small"
+            style={{ width: "100%" }}
+            value={closeBehavior}
+            onChange={changeCloseBehavior}
+            options={[
+              {
+                value: "ask",
+                label: t("desktop.closeWindow.askEveryTime", "Ask every time"),
+              },
+              {
+                value: "minimize-to-tray",
+                label: t(
+                  "desktop.closeWindow.minimizeToTray",
+                  "Minimize to Tray",
+                ),
+              },
+              {
+                value: "quit",
+                label: t("desktop.closeWindow.quitApp", "Quit App"),
+              },
+            ]}
+          />
+        </div>
+      ) : null}
 
       {/* ── Mode ─────────────────────────────────────────── */}
       <div className={styles.row}>

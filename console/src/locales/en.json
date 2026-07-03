@@ -33,6 +33,18 @@
     "yes": "Yes",
     "no": "No"
   },
+  "desktop": {
+    "closeWindow": {
+      "title": "Close Window",
+      "description": "What would you like to do when closing the window? Quitting the app stops all running tasks and scheduled jobs.",
+      "remember": "Remember my choice",
+      "showWindow": "Show Window",
+      "minimizeToTray": "Minimize to Tray",
+      "quitApp": "Quit App",
+      "preference": "Close Window",
+      "askEveryTime": "Ask every time"
+    }
+  },
   "chunkError": {
     "title": "Failed to load page",
     "subTitle": "This may be caused by a network issue or an application update.",
@@ -143,6 +155,10 @@
     "summaryPushUnread": "Unread Push",
     "summaryHarvests": "Harvests",
     "from": "From:",
+    "skillAutoUpdateTitle": "Skill auto-sync",
+    "skillPoolSender": "Skill Pool",
+    "skillAutoUpdated": "Skill \"{{skill}}\" changed — auto-synced to: {{agents}}",
+    "skillAutoUpdateFailed": "Skill \"{{skill}}\" auto-sync failed for: {{agents}}",
     "requestedBy": "By",
     "markRead": "Mark Read",
     "markAllRead": "Mark All Read",
@@ -503,26 +519,24 @@
   "skills": {
     "title": "Skills",
     "description": "Manage agent skills and capabilities.",
-    "importHub": "Import Hub",
-    "importHubHint": "Import a skill from a supported online hub URL into the current workspace",
+    "importHub": "Upload via URL",
+    "supportedSources": "Supported sources:",
     "importSkills": "Import Skill",
     "enterSkillUrl": "Enter Skill URL",
-    "orChooseFromSources": "or choose from supported Skill marketplaces",
     "supportedSkillUrlSources": "Supported Skill Marketplaces:",
     "urlExamples": "URL examples:",
     "urlValid": "Valid URL from {{source}}",
     "invalidUrl": "Invalid URL",
-    "examplesFrom": "Examples from {{source}}",
     "clickToFill": "Click to fill in URL",
     "invalidSkillUrlSource": "Please verify the skill URL is from a supported marketplace",
     "type": "Type",
     "installedFrom": "Installed from",
     "source": "Source",
     "path": "Path",
-    "skillDescription": "Description",
     "tags": "Tags",
     "builtin": "Built-in",
     "custom": "Custom",
+    "addSkill": "Add Skill",
     "createSkill": "Create Skill",
     "viewSkill": "View Skill",
     "editSkill": "Edit Skill",
@@ -558,7 +572,6 @@
     "editNotSupported": "Failed to edit skill",
     "editNote": "Tip: You can edit skill content, channels, and config here.",
     "create": "Create",
-    "createSkillHint": "Create a new local skill directly in this workspace",
     "optimizeWithAI": "AI Optimize",
     "stopOptimize": "Stop",
     "optimizeSuccess": "Skill optimized successfully",
@@ -569,7 +582,6 @@
     "importTimeout": "Skill import timed out. Please retry or check your network.",
     "uploadSkill": "Upload Skill",
     "uploadZip": "Upload via Zip",
-    "uploadZipHint": "Import one or more local skills from a zip file",
     "uploadSuccess": "Skill uploaded successfully",
     "uploadFailed": "Skill upload failed",
     "uploadNoChange": "No new skills were imported. They may already exist.",
@@ -592,7 +604,6 @@
     "overwriteExistingList": "The following skills already exist and will be overwritten:",
     "nameConflict": "Name conflict detected. Suggested rename has been filled.",
     "uploadToPoolHint": "Upload selected workspace skills to the shared local skill pool",
-    "downloadFromPoolHint": "Download selected pool skills into the current workspace",
     "downloadFromPool": "Load from Skill Pool",
     "uploadToPool": "Sync to Skill Pool",
     "selectWorkspaceSkill": "Select current workspace skill",
@@ -613,7 +624,6 @@
     "emptyStateText": "This is expected. New workspaces do not come with skills automatically. Download skills from the local pool or create one here to equip this agent.",
     "emptyStateDownload": "Download from Skill Pool",
     "emptyStateCreate": "Create First Skill",
-    "examples": "Examples",
     "loadFailed": "Failed to load skills",
     "refreshFailed": "Failed to refresh skills",
     "createdSuccessfully": "Created successfully",
@@ -642,11 +652,20 @@
     "deleteExternalConfirm": "This deletes the external skill files at {{path}} from disk.",
     "deleteExternalBatchWarning": "Selected external skills will be permanently deleted from disk.",
     "broadcastTitle": "Broadcast {{name}}",
+    "autoUpdate": "Auto Sync",
+    "autoUpdateOnHint": "Auto Sync is on; content changes sync to its agents automatically.",
+    "autoUpdateEnableHint": "Turn on Auto Sync: push content changes to agents that already have this skill.",
+    "autoUpdateDisableHint": "Turn off Auto Sync for this skill.",
+    "autoUpdateEnabled": "Auto Sync enabled for {{name}}",
+    "autoUpdateDisabled": "Auto Sync disabled for {{name}}",
+    "autoUpdateFailed": "Failed to update Auto Sync setting",
+    "autoUpdateAgentsPlaceholder": "All agents that have this skill",
+    "autoUpdateAgentsHint": "Leave empty to sync every agent that already has the skill. Selecting agents pins updates to them (and installs the skill where missing).",
+    "renameAffectsTitle": "Rename in agents too?",
+    "renameAffectsContent": "\"{{from}}\" is installed in {{count}} agent(s). Rename to \"{{to}}\"",
     "importBuiltin": "Update Built-in Skills",
     "importBuiltinHint": "Update built-in skills to the latest version",
     "importBuiltinAlertHint": "{{count}} built-in changes need review",
-    "importHubHint": "Import skills via URL",
-    "uploadZipHint": "Upload via Zip",
     "importBuiltinSuccess": "Built-ins imported: {{names}}",
     "importBuiltinConflicts": "Skipped due to name conflicts: {{names}}",
     "importBuiltinNoChanges": "No built-in changes to import",
@@ -1480,6 +1499,16 @@
     "maxTokensHint": "Maximum output tokens per response",
     "maxInputLengthLabel": "Max Context Length",
     "maxInputLengthHint": "Model context window size, controls context compaction threshold (≥1000)",
+    "preserveThinkingLabel": "Preserve Thinking",
+    "preserveThinkingHint": "Relay thinking contents back to subsequent conversation turns",
+    "thinkingModeLabel": "Enable Thinking",
+    "thinkingModeHint": "Turn on to enable model thinking/reasoning. Turn off to disable thinking.",
+    "thinkingBudgetLabel": "Thinking Budget",
+    "thinkingBudgetHint": "Using model default thinking budget",
+    "switchToManual": "Manual",
+    "switchToAuto": "Auto",
+    "reasoningEffortLabel": "Reasoning Effort",
+    "reasoningEffortHint": "Controls reasoning depth (OpenAI-family)",
     "protocol": "Protocol",
     "protocolHint": "Choose the provider API protocol for this configuration.",
     "selectProtocol": "Please select a protocol",
@@ -1806,15 +1835,72 @@
     "llmAcquireTimeoutGtPauseJitter": "Slot acquire timeout must be greater than rate limit pause + jitter",
     "contextManagementTitle": "Context Management",
     "memoryManagerBackend": "Memory Manager Backend",
-    "memoryManagerBackendTooltip": "Backend for the memory manager. Choose remelight (local files) or adbpg (cloud database).",
+    "memoryManagerBackendTooltip": "Backend for the memory manager. Choose remelight (local files), adbpg (cloud database), or none (disable memory).",
     "memoryManagerBackendRestartWarning": "Switching the memory manager backend does not support hot reload. Save and restart QwenPaw for changes to take effect.",
     "maxIters": "Max Iterations",
     "maxItersTooltip": "Maximum number of reasoning-acting iterations for ReAct agent",
     "maxItersPlaceholder": "Enter max iterations",
     "maxItersRequired": "Max iterations is required",
     "maxItersMin": "Max iterations must be at least 1",
-    "autoContinueOnTextOnly": "Auto-continue on text-only step",
-    "autoContinueOnTextOnlyTooltip": "If the model ends a reasoning step with only text (no tool calls), inject a hint and run one extra reasoning pass with the same tool policy so multi-step tasks are less likely to stop silently. Turn off to match legacy behavior. May increase token usage when enabled.",
+    "agentLoopTitle": "Agent Loop Settings",
+    "doomLoopEnabled": "Repetition Protection",
+    "doomLoopEnabledTooltip": "Automatically intervene when the agent gets stuck repeating the same actions",
+    "doomLoopAfter": "After",
+    "doomLoopRepetitions": "identical actions",
+    "doomLoopStopAction": "Pause & Ask for Help",
+    "doomLoopWarnAction": "Send Reminder",
+    "doomLoopSimpleMode": "Simple",
+    "doomLoopAdvancedMode": "Advanced",
+    "doomLoopWindowSize": "Detection Range",
+    "doomLoopWindowSizeTooltip": "How many recent actions to check for repetition",
+    "doomLoopSimilarity": "Match Sensitivity",
+    "doomLoopSimilarityTooltip": "How similar actions must be to count as repetition (lower = stricter)",
+    "doomLoopStages": "Intervention Rules",
+    "doomLoopAction": "Action",
+    "doomLoopPrompt": "Message",
+    "doomLoopPromptPlaceholder": "Reminder message or pause reason...",
+    "doomLoopAddStage": "Add Rule",
+    "iterationTitle": "Iteration Limit",
+    "iterationEnabled": "Enable Iteration Limit",
+    "iterationEnabledTooltip": "Stop the agent after a fixed number of loop turns",
+    "iterationMaxIterations": "Maximum Iterations",
+    "iterationMaxIterationsTooltip": "Maximum number of loop turns before stopping",
+    "rubricTitle": "Completion Check",
+    "rubricEnabled": "Enable Completion Check",
+    "rubricEnabledTooltip": "Ask the agent to self-evaluate whether the task is complete after each turn",
+    "rubricPrompt": "Check Prompt",
+    "rubricPromptTooltip": "The prompt injected to ask the agent to evaluate task completion",
+    "rubricDesc": "Some LLMs may stop with a text-only response without calling any tool, causing the agent to end prematurely. Enable this to re-prompt the agent and improve task completion.",
+    "rubricPromptPlaceholder": "You did not call any tool. If the task is complete, confirm. Otherwise, continue with tool calls.",
+    "rubricMaxInterventions": "Max Interventions per Turn",
+    "rubricMaxInterventionsTooltip": "Maximum times to re-prompt per turn. Prevents infinite re-prompting if the LLM keeps producing text-only responses.",
+    "inLoopModes": "Enable in /goal & /mission modes",
+    "inLoopModesTooltip": "Also apply this gate when /goal or /mission loop mode is active",
+    "comingSoonEditable": "Custom configuration will be available in a future release.",
+    "simpleMode": "Simple",
+    "advancedMode": "Advanced",
+    "comingSoon": "Coming Soon",
+    "reactModeTab": "Loop Template - Default",
+    "goalModeTab": "Loop Template - Goal",
+    "missionModeTab": "Loop Template - Mission",
+    "goalModeInfoTitle": "Goal Mode vs Default",
+    "goalModeInfo": "Default mode stops after producing a reply. Goal mode keeps the agent looping toward a goal, using Rubric evaluation to determine completion. All operations run within the current agent context.",
+    "missionModeInfoTitle": "Mission Mode vs Goal Mode",
+    "missionModeInfo": "Mission mode auto-decomposes complex tasks into sub-tasks, executed by independent Worker sub-agents and verified by Verifier sub-agents. Each sub-task runs in its own context, preventing context pollution of the main session. Best for complex multi-step engineering tasks.",
+    "goalIterationGate": "Goal Iteration Gate",
+    "goalIterationGateDesc": "Limits the number of agent turns within a goal session. Tracks iteration count and token usage.",
+    "goalBudgetGate": "Token Budget Gate",
+    "goalBudgetGateDesc": "Enforces a token spending limit for the goal session. Stops the agent when budget is exceeded.",
+    "goalRubricGate": "Goal Completion Rubric",
+    "goalRubricGateDesc": "Evaluates whether the goal has been achieved by checking the session status.",
+    "goalDoomGate": "Repetition Protection",
+    "goalDoomGateDesc": "Detects repetitive patterns during goal execution and triggers intervention.",
+    "missionProgressGate": "Mission Progress Gate",
+    "missionProgressGateDesc": "Tracks PRD user story completion. Continues until all stories pass or max iterations reached.",
+    "missionIterBypass": "Iteration Bypass",
+    "missionIterBypassDesc": "Temporarily lifts the ReAct iteration limit during mission execution to allow long-running phases.",
+    "customLoopTitle": "Custom Loop Modes",
+    "customLoopDesc": "Create your own loop modes with custom gate combinations. Coming soon.",
     "autoGenerateSessionTitle": "Auto-generate session titles",
     "autoGenerateSessionTitleTooltip": "After the first user message in a new chat, run a short background LLM call to replace the truncated placeholder with a concise title. Costs one extra short LLM call per new chat. Turn off to keep the placeholder and skip the spend.",
     "shellCommandTimeout": "Shell Command Timeout (s)",
@@ -1955,7 +2041,9 @@
       "auto": "Auto Mode",
       "autoDesc": "Only tools explicitly marked for approval require approval (default)",
       "off": "Off Mode",
-      "offDesc": "Disable all tool approvals, all tools execute automatically"
+      "offDesc": "Disable all tool approvals, all tools execute automatically",
+      "inherit": "Default Mode",
+      "inheritDesc": "Use the agent's tool execution security level as default"
     },
     "saveLevelSuccess": "Tool execution security level saved",
     "saveLevelFailed": "Failed to save tool execution security level",
@@ -1995,19 +2083,6 @@
     "adbpgMemoryTitle": "ADBPG Long-term Memory",
     "adbpgConfig": {
       "title": "ADBPG Memory Configuration",
-      "apiMode": "API Mode",
-      "host": "Host",
-      "port": "Port",
-      "user": "Username",
-      "password": "Password",
-      "dbname": "Database",
-      "llmModel": "LLM Model",
-      "llmApiKey": "LLM API Key",
-      "llmBaseUrl": "LLM Base URL",
-      "embeddingModel": "Embedding Model",
-      "embeddingApiKey": "Embedding API Key",
-      "embeddingBaseUrl": "Embedding Base URL",
-      "embeddingDims": "Embedding Dimensions",
       "restBaseUrl": "REST Base URL",
       "restApiKey": "REST API Key",
       "memoryIsolation": "Memory Isolation (per-agent)",
@@ -2102,10 +2177,16 @@
         "description": "Deny the pending tool action"
       },
       "mission": {
-        "description": "Launch mission mode — Automatically decompose, implement, and verify complex tasks ⚠️ This mode will bypass tool guardrails"
+        "description": "Mission mode — Decomposes tasks into sub-agents with isolated context"
       },
       "skills": {
         "description": "List chat-available skills and expose explicit skill commands"
+      },
+      "plan": {
+        "description": "Create a structured plan to decompose the task into subtasks"
+      },
+      "goal": {
+        "description": "Goal loop — Agent pursues a goal continuously, auto-evaluates via Rubric"
       }
     },
     "attachments": {
@@ -2175,7 +2256,7 @@
       "file": "File",
       "noChatWarning": "Please send a message first to create a conversation before using the queue",
       "queueFull": "Queue is full (max {{max}} items), please send or remove some messages first",
-      "otherTabOwner": "This conversation is being sent from another tab. This tab can only add inputs to the queue; all send operations are handled by the other tab."
+      "otherTabOwner": "This tab queues only; sending is handled by another tab"
     },
     "group": {
       "pinned": "Pinned",
@@ -2186,10 +2267,19 @@
     },
     "sessionPanel": {
       "searchConversations": "Search conversations…",
+      "noResults": "No results",
       "noConversations": "No conversations yet",
       "loadingConversations": "Loading…"
     },
-    "conversationHistory": "Conversation History"
+    "conversationHistory": "Conversation History",
+    "history": {
+      "empty": "No chat history"
+    },
+    "sessionGroup": {
+      "today": "Today",
+      "recent": "Last 7 days",
+      "earlier": "Earlier"
+    }
   },
   "security": {
     "parent": "Settings",
@@ -2461,7 +2551,10 @@
     "cancelTask": "Cancel Task",
     "denyFailed": "Failed to deny",
     "timeoutAutoDenied": "Timed out, auto denied",
-    "acknowledge": "Got it"
+    "acknowledge": "Got it",
+    "approvePattern": "Approve Pattern",
+    "approveExact": "Approve Exact",
+    "approvalScope": "Approval scope"
   },
   "pluginManager": {
     "title": "Plugin Manager",
@@ -2520,7 +2613,10 @@
     "marketSearchResult": "Found {{count}} plugins matching \"{{keyword}}\"",
     "marketDetails": "Details",
     "marketDownloads": "Downloads",
-    "marketDeveloper": "Developer"
+    "marketDeveloper": "Developer",
+    "compatWarningTitle": "Compatibility Warning",
+    "compatWarningContent": "This plugin is labeled for QwenPaw {{labels}}. Your QwenPaw version is {{version}}. Installing it may cause errors. Are you sure you want to continue?",
+    "compatWarningConfirm": "Install anyway"
   },
   "codingMode": {
     "title": "Coding Mode",
@@ -2574,15 +2670,14 @@
   "market": {
     "searchPlaceholder": "Search skills across platforms",
     "categoryAll": "All",
+    "categoryPlaceholder": "Search category",
     "searchResult": "Found {{count}} skills matching \"{{keyword}}\"",
     "providerUnavailable": "Provider unavailable",
     "noResults": "No results",
     "startTyping": "Type a query above to search the market",
     "browseHint": "Pick a category or enter a keyword to browse skills in {{providers}}",
     "noDescription": "No description provided",
-    "targetPool": "Pool",
-    "targetWorkspace": "Workspace",
-    "install": "Install",
+    "browseMarket": "Browse Market",
     "installQueue": "Install queue",
     "clearCompleted": "Clear",
     "retry": "Retry",
@@ -2605,6 +2700,7 @@
     },
     "stats": {
       "downloads": "Downloads",
+      "stars": "Stars",
       "installs": "Installs",
       "likes": "Likes",
       "views": "Views",
@@ -2749,5 +2845,18 @@
       "LOAD_FAILED": "Failed to load file preview.",
       "LOAD_FAILED_DETAIL": "Failed to load file preview: {{detail}}"
     }
+  },
+  "loop": {
+    "budget": {
+      "low": "Low",
+      "medium": "Med",
+      "high": "High"
+    },
+    "status": {
+      "pause": "Pause",
+      "resume": "Resume",
+      "stop": "Stop"
+    },
+    "gotoSettings": "Agent Loop Settings"
   }
 }

@@ -1,6 +1,16 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Alert, Button, Input, Pagination, Spin, Tag, Typography } from "antd";
+import {
+  Alert,
+  Button,
+  Input,
+  Modal,
+  Pagination,
+  Spin,
+  Tag,
+  Tooltip,
+  Typography,
+} from "antd";
 import { Download, ExternalLink, Package, RefreshCw } from "lucide-react";
 import type { MarketPluginEntry } from "@/api/modules/pluginMarket";
 import { useMarketPlugins } from "../hooks/useMarketPlugins";
@@ -58,6 +68,8 @@ export function MarketPluginList({ onInstalled }: MarketPluginListProps) {
     pageSize,
     category,
     installingId,
+    qwenpawVersion,
+    isCompatible,
     handleSearch,
     handleCategoryChange,
     handlePageChange,
@@ -178,6 +190,15 @@ export function MarketPluginList({ onInstalled }: MarketPluginListProps) {
                       {entry.locales[lang].category}
                     </Tag>
                   )}
+                  {entry.qwenpaw_compat_labels &&
+                    entry.qwenpaw_compat_labels.length > 0 && (
+                      <Tag
+                        color={isCompatible(entry) ? "green" : "orange"}
+                        style={{ margin: 0, fontSize: 11 }}
+                      >
+                        {`QwenPaw ${entry.qwenpaw_compat_labels.join(", ")}`}
+                      </Tag>
+                    )}
                 </div>
                 {entry.locales && (
                   <div className={styles.catalogDescription}>
@@ -209,16 +230,55 @@ export function MarketPluginList({ onInstalled }: MarketPluginListProps) {
                     {t("pluginManager.marketDetails")}
                   </Button>
                 )}
-                <Button
-                  type="primary"
-                  size="small"
-                  icon={<Download size={14} />}
-                  loading={installingId === entry.id}
-                  disabled={installingId !== null && installingId !== entry.id}
-                  onClick={() => void handleInstall(entry)}
+                <Tooltip
+                  title={
+                    !isCompatible(entry)
+                      ? `This plugin is labeled for QwenPaw ${
+                          entry.qwenpaw_compat_labels?.join(", ") ?? "unknown"
+                        }; compatibility with QwenPaw ${
+                          qwenpawVersion ?? "unknown"
+                        } is unverified.`
+                      : undefined
+                  }
                 >
-                  {t("pluginManager.catalogInstall")}
-                </Button>
+                  <Button
+                    type="primary"
+                    size="small"
+                    icon={<Download size={14} />}
+                    loading={installingId === entry.id}
+                    disabled={
+                      installingId !== null && installingId !== entry.id
+                    }
+                    onClick={() => {
+                      if (!isCompatible(entry)) {
+                        Modal.confirm({
+                          title: t(
+                            "pluginManager.compatWarningTitle",
+                            "Compatibility Warning",
+                          ),
+                          content: t("pluginManager.compatWarningContent", {
+                            defaultValue:
+                              "This plugin is labeled for QwenPaw {{labels}}. Your QwenPaw version is {{version}}. Installing it may cause errors. Are you sure you want to continue?",
+                            labels:
+                              entry.qwenpaw_compat_labels?.join(", ") ??
+                              "unknown",
+                            version: qwenpawVersion ?? "unknown",
+                          }),
+                          okText: t(
+                            "pluginManager.compatWarningConfirm",
+                            "Install anyway",
+                          ),
+                          cancelText: t("common.cancel", "Cancel"),
+                          onOk: () => void handleInstall(entry),
+                        });
+                      } else {
+                        void handleInstall(entry);
+                      }
+                    }}
+                  >
+                    {t("pluginManager.catalogInstall")}
+                  </Button>
+                </Tooltip>
               </div>
             </div>
           ))}

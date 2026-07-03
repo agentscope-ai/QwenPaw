@@ -32,6 +32,18 @@
     "yes": "Ya",
     "no": "Tidak"
   },
+  "desktop": {
+    "closeWindow": {
+      "title": "Tutup Jendela",
+      "description": "Apa yang ingin Anda lakukan saat menutup jendela? Keluar dari aplikasi akan menghentikan semua tugas yang sedang berjalan dan tugas terjadwal.",
+      "remember": "Ingat pilihan saya",
+      "showWindow": "Tampilkan Jendela",
+      "minimizeToTray": "Minimalkan ke baki sistem",
+      "quitApp": "Keluar dari Aplikasi",
+      "preference": "Tutup Jendela",
+      "askEveryTime": "Tanya setiap saat"
+    }
+  },
   "chunkError": {
     "title": "Gagal memuat halaman",
     "subTitle": "Ini mungkin disebabkan oleh masalah jaringan atau pembaruan aplikasi.",
@@ -176,10 +188,13 @@
         "description": "Tolak tindakan tool yang tertunda"
       },
       "mission": {
-        "description": "Jalankan mode misi - uraikan, implementasikan, dan verifikasi tugas kompleks secara otomatis"
+        "description": "Mode Mission — Memecah tugas ke sub-agen dengan konteks terisolasi"
       },
       "skills": {
         "description": "Tampilkan skill yang tersedia untuk chat dan perintah skill eksplisit"
+      },
+      "goal": {
+        "description": "Loop Goal — Agen mengejar tujuan secara terus-menerus, evaluasi otomatis via Rubric"
       }
     },
     "attachments": {
@@ -241,7 +256,7 @@
       "file": "File",
       "noChatWarning": "Kirim pesan terlebih dahulu untuk membuat percakapan sebelum menggunakan antrean",
       "queueFull": "Antrean penuh (maks. {{max}} item). Kirim atau hapus beberapa pesan terlebih dahulu",
-      "otherTabOwner": "Percakapan ini sedang dikirim dari tab lain. Tab ini hanya dapat menambahkan input ke antrean."
+      "otherTabOwner": "This tab queues only; sending is handled by another tab"
     },
     "group": {
       "pinned": "Disematkan",
@@ -252,10 +267,19 @@
     },
     "sessionPanel": {
       "searchConversations": "Cari…",
+      "noResults": "Tidak ada hasil",
       "noConversations": "Tidak ada percakapan",
       "loadingConversations": "Memuat…"
     },
-    "conversationHistory": "Riwayat Percakapan"
+    "conversationHistory": "Riwayat Percakapan",
+    "history": {
+      "empty": "Tidak ada riwayat obrolan"
+    },
+    "sessionGroup": {
+      "today": "Hari ini",
+      "recent": "7 hari terakhir",
+      "earlier": "Sebelumnya"
+    }
   },
   "modelSelector": {
     "selectModel": "Pilih model",
@@ -345,7 +369,8 @@
   "skills": {
     "title": "Skill",
     "description": "Kelola skill dan kemampuan agen.",
-    "importHub": "Impor Hub",
+    "importHub": "Unggah via URL",
+    "supportedSources": "Sumber yang didukung:",
     "importSkills": "Impor Skill",
     "enterSkillUrl": "Masukkan URL Skill",
     "invalidUrl": "URL tidak valid",
@@ -353,10 +378,10 @@
     "installedFrom": "Diinstal dari",
     "source": "Sumber",
     "path": "Path",
-    "skillDescription": "Deskripsi",
     "tags": "Tag",
     "builtin": "Bawaan",
     "custom": "Kustom",
+    "addSkill": "Tambah Skill",
     "createSkill": "Buat Skill",
     "viewSkill": "Lihat Skill",
     "editSkill": "Edit Skill",
@@ -379,6 +404,7 @@
     "stopOptimize": "Berhenti",
     "uploadSkill": "Unggah Skill",
     "uploadZip": "Unggah via ZIP",
+    "downloadFromPool": "Muat dari Kumpulan Skill",
     "channels": "Saluran",
     "allChannels": "Semua",
     "lastUpdated": "Diperbarui",
@@ -397,8 +423,6 @@
     "deleteExternalConfirm": "Menghapus file skill eksternal di {{path}} dari disk.",
     "deleteExternalBatchWarning": "Skill eksternal yang dipilih akan dihapus permanen dari disk.",
     "importBuiltin": "Perbarui Skill Bawaan",
-    "importHubHint": "Impor skill melalui URL",
-    "uploadZipHint": "Unggah via ZIP",
     "sourceVersion": "Versi sumber",
     "currentVersion": "Versi saat ini",
     "builtinLanguage": "Bahasa",
@@ -990,15 +1014,14 @@
   "market": {
     "searchPlaceholder": "Cari skill di berbagai platform",
     "categoryAll": "Semua",
+    "categoryPlaceholder": "Cari kategori",
     "searchResult": "Ditemukan {{count}} skill yang cocok dengan \"{{keyword}}\"",
     "providerUnavailable": "Sumber tidak tersedia",
     "noResults": "Tidak ada hasil",
     "startTyping": "Ketik kata kunci di atas untuk mencari di marketplace",
     "browseHint": "Pilih kategori atau masukkan kata kunci untuk menjelajahi skill di {{providers}}",
     "noDescription": "Tidak ada deskripsi",
-    "targetPool": "Pool",
-    "targetWorkspace": "Workspace",
-    "install": "Pasang",
+    "browseMarket": "Jelajahi Market",
     "installQueue": "Antrean instalasi",
     "clearCompleted": "Bersihkan",
     "retry": "Coba lagi",
@@ -1021,6 +1044,7 @@
     },
     "stats": {
       "downloads": "Unduhan",
+      "stars": "Bintang",
       "installs": "Instalasi",
       "likes": "Suka",
       "views": "Tampilan",
@@ -1486,6 +1510,16 @@
     "maxTokensHint": "Token output maksimum per respons",
     "maxInputLengthLabel": "Panjang Konteks Maksimum",
     "maxInputLengthHint": "Ukuran jendela konteks model, mengontrol ambang kompaksi konteks (≥1000)",
+    "preserveThinkingLabel": "Pertahankan Pemikiran",
+    "preserveThinkingHint": "Teruskan konten pemikiran ke giliran percakapan berikutnya",
+    "thinkingModeLabel": "Aktifkan Pemikiran",
+    "thinkingModeHint": "Nyalakan untuk mengaktifkan pemikiran/penalaran. Matikan untuk menonaktifkan pemikiran.",
+    "thinkingBudgetLabel": "Anggaran Pemikiran",
+    "thinkingBudgetHint": "Menggunakan anggaran pemikiran default model",
+    "switchToManual": "Manual",
+    "switchToAuto": "Otomatis",
+    "reasoningEffortLabel": "Kedalaman Penalaran",
+    "reasoningEffortHint": "Mengontrol kedalaman penalaran (keluarga OpenAI)",
     "protocol": "Protokol",
     "protocolHint": "Pilih protokol API penyedia untuk konfigurasi ini.",
     "selectProtocol": "Harap pilih protokol",
@@ -1819,6 +1853,65 @@
     "maxItersPlaceholder": "Masukkan iterasi maksimum",
     "maxItersRequired": "Iterasi maksimum wajib diisi",
     "maxItersMin": "Iterasi maksimum minimal 1",
+    "agentLoopTitle": "Pengaturan Loop Agen",
+    "doomLoopEnabled": "Perlindungan Perilaku Berulang",
+    "doomLoopEnabledTooltip": "Intervensi otomatis saat agen terjebak mengulangi tindakan yang sama",
+    "doomLoopAfter": "Setelah",
+    "doomLoopRepetitions": "tindakan identik",
+    "doomLoopStopAction": "Jeda & Minta Bantuan",
+    "doomLoopWarnAction": "Kirim Pengingat",
+    "doomLoopSimpleMode": "Sederhana",
+    "doomLoopAdvancedMode": "Lanjutan",
+    "doomLoopWindowSize": "Rentang Deteksi",
+    "doomLoopWindowSizeTooltip": "Berapa banyak tindakan terbaru yang diperiksa untuk pengulangan",
+    "doomLoopSimilarity": "Sensitivitas Kecocokan",
+    "doomLoopSimilarityTooltip": "Seberapa mirip tindakan harus dianggap pengulangan (semakin rendah = semakin ketat)",
+    "doomLoopStages": "Aturan Intervensi",
+    "doomLoopAction": "Tindakan",
+    "doomLoopPrompt": "Pesan",
+    "doomLoopPromptPlaceholder": "Pesan pengingat atau alasan jeda...",
+    "doomLoopAddStage": "Tambah Aturan",
+    "iterationTitle": "Batas Iterasi",
+    "iterationEnabled": "Aktifkan Batas Iterasi",
+    "iterationEnabledTooltip": "Hentikan agen setelah jumlah putaran loop tetap",
+    "iterationMaxIterations": "Iterasi Maksimum",
+    "iterationMaxIterationsTooltip": "Jumlah putaran loop maksimum sebelum berhenti",
+    "rubricTitle": "Pemeriksaan Penyelesaian",
+    "rubricEnabled": "Aktifkan Pemeriksaan Penyelesaian",
+    "rubricEnabledTooltip": "Minta agen mengevaluasi sendiri apakah tugas selesai setelah setiap putaran",
+    "rubricPrompt": "Prompt Pemeriksaan",
+    "rubricPromptTooltip": "Prompt yang disuntikkan untuk meminta agen mengevaluasi penyelesaian tugas",
+    "rubricDesc": "Beberapa LLM mungkin berhenti dengan respons teks saja tanpa memanggil alat, menyebabkan agen berhenti prematur. Aktifkan untuk meminta ulang agen dan meningkatkan penyelesaian tugas.",
+    "rubricPromptPlaceholder": "Anda tidak memanggil alat apa pun. Jika tugas selesai, konfirmasi. Jika tidak, lanjutkan dengan panggilan alat.",
+    "rubricMaxInterventions": "Maks. Intervensi per Giliran",
+    "rubricMaxInterventionsTooltip": "Jumlah maksimum permintaan ulang per giliran. Mencegah permintaan ulang tak terbatas jika LLM terus menghasilkan teks saja.",
+    "inLoopModes": "Aktifkan dalam mode /goal & /mission",
+    "inLoopModesTooltip": "Juga berlaku saat mode /goal atau /mission aktif",
+    "comingSoonEditable": "Konfigurasi kustom akan tersedia di rilis mendatang.",
+    "simpleMode": "Sederhana",
+    "advancedMode": "Lanjutan",
+    "comingSoon": "Segera Hadir",
+    "reactModeTab": "Template Loop - Default",
+    "goalModeTab": "Template Loop - Goal",
+    "missionModeTab": "Template Loop - Mission",
+    "goalModeInfoTitle": "Mode Goal vs Default",
+    "goalModeInfo": "Mode default berhenti setelah menghasilkan respons. Mode Goal membuat agen terus berulang menuju tujuan, menggunakan evaluasi Rubric untuk menentukan penyelesaian. Semua operasi berjalan dalam konteks agen saat ini.",
+    "missionModeInfoTitle": "Mode Mission vs Goal",
+    "missionModeInfo": "Mode Mission otomatis memecah tugas kompleks menjadi sub-tugas, dieksekusi oleh sub-agen Worker independen dan diverifikasi oleh sub-agen Verifier. Setiap sub-tugas berjalan dalam konteksnya sendiri, mencegah polusi sesi utama.",
+    "goalIterationGate": "Gate Iterasi Tujuan",
+    "goalIterationGateDesc": "Membatasi jumlah giliran agen dalam sesi tujuan, melacak iterasi dan penggunaan token.",
+    "goalBudgetGate": "Gate Anggaran Token",
+    "goalBudgetGateDesc": "Menetapkan batas pengeluaran token untuk sesi tujuan. Menghentikan agen saat anggaran terlampaui.",
+    "goalRubricGate": "Rubrik Penyelesaian Tujuan",
+    "goalRubricGateDesc": "Mengevaluasi apakah tujuan telah tercapai dengan memeriksa status sesi.",
+    "goalDoomGate": "Perlindungan Pengulangan",
+    "goalDoomGateDesc": "Mendeteksi pola berulang selama eksekusi tujuan dan memicu intervensi.",
+    "missionProgressGate": "Gate Kemajuan Misi",
+    "missionProgressGateDesc": "Melacak penyelesaian user story PRD. Melanjutkan hingga semua lolos atau iterasi maksimum tercapai.",
+    "missionIterBypass": "Bypass Iterasi",
+    "missionIterBypassDesc": "Sementara menghapus batas iterasi ReAct selama eksekusi misi untuk memungkinkan fase panjang.",
+    "customLoopTitle": "Mode Loop Kustom",
+    "customLoopDesc": "Buat mode loop Anda sendiri dengan kombinasi gate kustom. Segera hadir.",
     "autoContinueOnTextOnly": "Lanjutkan otomatis pada langkah teks saja",
     "autoContinueOnTextOnlyTooltip": "Jika model mengakhiri langkah penalaran hanya dengan teks (tanpa panggilan alat), suntikkan petunjuk dan jalankan satu penalaran ekstra.",
     "autoGenerateSessionTitle": "Buat judul sesi secara otomatis",
@@ -2021,5 +2114,8 @@
       "memoryIsolation": "Isolasi Memori (per-agen)",
       "searchTimeout": "Timeout Pencarian"
     }
+  },
+  "loop": {
+    "gotoSettings": "Pengaturan Loop Agen"
   }
 }

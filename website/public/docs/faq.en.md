@@ -446,8 +446,9 @@ If a scheduled task does not run as expected, try the following:
 
 ### How to manage Skills
 
-Go to **Agent -> Skills** in Console. You can enable/disable Skills, create
-custom Skills, and import Skills from Skills Hub. See
+Go to **Agent -> Skills** in Console. You can enable/disable Skills, and add
+Skills through the **Add Skill** entry (create, upload via zip/URL, or browse
+the Skill Market). See
 [Skills](https://qwenpaw.agentscope.io/docs/skills).
 
 ### How to configure MCP

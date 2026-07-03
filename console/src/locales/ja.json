@@ -30,6 +30,18 @@
     "clear": "クリア",
     "paste": "貼り付け"
   },
+  "desktop": {
+    "closeWindow": {
+      "title": "ウィンドウを閉じる",
+      "description": "ウィンドウを閉じるときに実行する操作を選択してください。アプリを終了すると、実行中のすべてのタスクとスケジュール済みタスクが停止します。",
+      "remember": "選択を記憶する",
+      "showWindow": "ウィンドウを表示",
+      "minimizeToTray": "トレイに最小化",
+      "quitApp": "アプリを終了",
+      "preference": "ウィンドウを閉じる",
+      "askEveryTime": "毎回確認する"
+    }
+  },
   "chunkError": {
     "title": "ページの読み込みに失敗しました",
     "subTitle": "ネットワークの問題またはアプリの更新が原因の可能性があります。",
@@ -188,26 +200,24 @@
   "skills": {
     "title": "スキル",
     "description": "エージェントのスキルと機能を管理します。",
-    "importHub": "Hub から取り込む",
-    "importHubHint": "サポートされている Hub URL から現在のワークスペースにスキルを取り込みます",
+    "importHub": "URL からアップロード",
+    "supportedSources": "対応ソース：",
     "importSkills": "スキルをインポート",
     "enterSkillUrl": "スキルのURLを入力",
-    "orChooseFromSources": "サポートされているスキルマーケットプレイスから選択",
     "supportedSkillUrlSources": "サポートされているスキルマーケットプレイス:",
     "urlExamples": "URLの例:",
     "urlValid": "{{source}} からの有効な URL",
     "invalidUrl": "無効な URL",
-    "examplesFrom": "{{source}} の例",
     "clickToFill": "クリックして URL を入力",
     "invalidSkillUrlSource": "サポートされているマーケットプレイスのスキルURLであることを確認してください",
     "type": "タイプ",
     "installedFrom": "インストール元",
     "source": "ソース",
     "path": "パス",
-    "skillDescription": "説明",
     "tags": "タグ",
     "builtin": "組み込み",
     "custom": "カスタム",
+    "addSkill": "スキルを追加",
     "createSkill": "スキルを作成",
     "viewSkill": "スキルを表示",
     "editSkill": "スキルを編集",
@@ -245,7 +255,6 @@
     "editNotSupported": "スキルの編集に失敗しました",
     "editNote": "ヒント: ここでスキルの内容、チャンネル範囲、設定を編集できます。",
     "create": "作成",
-    "createSkillHint": "現在のワークスペースに新しいローカルスキルを作成します",
     "optimizeWithAI": "AI最適化",
     "stopOptimize": "停止",
     "optimizeSuccess": "スキルを最適化しました",
@@ -256,7 +265,6 @@
     "importTimeout": "スキルのインポートがタイムアウトしました。再試行するかネットワークを確認してください。",
     "uploadSkill": "スキルをアップロード",
     "uploadZip": "Zip をアップロード",
-    "uploadZipHint": "zip ファイルから 1 つ以上のローカルスキルを取り込みます",
     "uploadSuccess": "スキルのアップロードに成功しました",
     "uploadFailed": "スキルのアップロードに失敗しました",
     "uploadNoChange": "新しいスキルはインポートされませんでした。既に存在する可能性があります",
@@ -279,7 +287,6 @@
     "overwriteExistingList": "次のスキルは既に存在しており、上書きされます:",
     "nameConflict": "名前の競合が検出されました。推奨される名前変更が入力されました。",
     "uploadToPoolHint": "選択したワークスペーススキルを共有ローカルスキルプールにアップロードします",
-    "downloadFromPoolHint": "選択したスキルプールのスキルを現在のワークスペースにダウンロードします",
     "downloadFromPool": "スキルプールから読み込む",
     "uploadToPool": "スキルプールに同期",
     "emptyStateBadge": "新しいワークスペースは空で始まります",
@@ -329,8 +336,6 @@
     "importBuiltin": "ビルトインを取り込む",
     "importBuiltinHint": "ソースからビルトインスキルをプールに取り込みます",
     "importBuiltinAlertHint": "{{count}} 件のビルトイン変更を確認してください",
-    "importHubHint": "URL経由でスキルをインポート",
-    "uploadZipHint": "Zip経由でアップロード",
     "importBuiltinSuccess": "ビルトインを取り込みました: {{names}}",
     "importBuiltinConflicts": "名前の競合でスキップしました: {{names}}",
     "importBuiltinNoChanges": "取り込むビルトイン変更はありません",
@@ -1156,6 +1161,16 @@
     "maxTokensHint": "1回のレスポンスあたりの最大出力トークン数",
     "maxInputLengthLabel": "最大コンテキスト長",
     "maxInputLengthHint": "モデルのコンテキストウィンドウサイズ、コンテキスト圧縮のしきい値を制御します（≥1000）",
+    "preserveThinkingLabel": "思考内容を保持",
+    "preserveThinkingHint": "思考内容（thinking contents）を後続の会話ターンに引き継ぎます",
+    "thinkingModeLabel": "思考を有効化",
+    "thinkingModeHint": "オンにすると思考/推論を有効化、オフにすると思考を無効化します。",
+    "thinkingBudgetLabel": "思考バジェット",
+    "thinkingBudgetHint": "モデルのデフォルト思考バジェットを使用",
+    "switchToManual": "手動設定",
+    "switchToAuto": "自動",
+    "reasoningEffortLabel": "推論深度",
+    "reasoningEffortHint": "推論の深さを制御（OpenAI系）",
     "protocol": "プロトコル",
     "protocolHint": "この設定のプロバイダーAPIプロトコルを選択してください。",
     "selectProtocol": "プロトコルを選択してください",
@@ -1460,6 +1475,65 @@
     "maxItersPlaceholder": "最大反復回数を入力",
     "maxItersRequired": "最大反復回数は必須です",
     "maxItersMin": "最大反復回数は1以上である必要があります",
+    "agentLoopTitle": "エージェント Loop 設定",
+    "doomLoopEnabled": "繰り返し行動保護",
+    "doomLoopEnabledTooltip": "エージェントが同じ操作を繰り返している場合に自動的に介入します",
+    "doomLoopAfter": "連続",
+    "doomLoopRepetitions": "回の同一操作後",
+    "doomLoopStopAction": "一時停止して確認を待つ",
+    "doomLoopWarnAction": "リマインダーを送信",
+    "doomLoopSimpleMode": "シンプル",
+    "doomLoopAdvancedMode": "詳細",
+    "doomLoopWindowSize": "検出範囲",
+    "doomLoopWindowSizeTooltip": "繰り返し検出のために最近何回の操作をチェックするか",
+    "doomLoopSimilarity": "マッチ感度",
+    "doomLoopSimilarityTooltip": "操作がどの程度類似していれば繰り返しとみなすか（低いほど厳格）",
+    "doomLoopStages": "介入ルール",
+    "doomLoopAction": "アクション",
+    "doomLoopPrompt": "メッセージ",
+    "doomLoopPromptPlaceholder": "リマインダーメッセージまたは一時停止の理由...",
+    "doomLoopAddStage": "ルールを追加",
+    "iterationTitle": "イテレーション制限",
+    "iterationEnabled": "イテレーション制限を有効化",
+    "iterationEnabledTooltip": "固定回数のループ後にエージェントを停止",
+    "iterationMaxIterations": "最大イテレーション数",
+    "iterationMaxIterationsTooltip": "停止するまでの最大ループ回数",
+    "rubricTitle": "完了チェック",
+    "rubricEnabled": "完了チェックを有効化",
+    "rubricEnabledTooltip": "各ターン後にエージェントにタスク完了を自己評価させる",
+    "rubricPrompt": "チェックプロンプト",
+    "rubricPromptTooltip": "タスク完了評価を求めるために注入されるプロンプト",
+    "rubricDesc": "一部のLLMはツール呼び出しなしでテキストのみを出力し、エージェントが早期に停止することがあります。有効にすると、エージェントに再プロンプトしてタスク完了を改善します。",
+    "rubricPromptPlaceholder": "前のターンでツールを呼び出しませんでした。タスクが完了している場合は確認してください。そうでなければツールを使って続行してください。",
+    "rubricMaxInterventions": "ターンあたりの最大介入回数",
+    "rubricMaxInterventionsTooltip": "ターンあたりの最大再プロンプト回数。LLMがテキストのみを出力し続ける場合の無限ループを防止します。",
+    "inLoopModes": "/goal・/mission モードでも有効化",
+    "inLoopModesTooltip": "/goal または /mission ループモードがアクティブな時もこのゲートを適用",
+    "comingSoonEditable": "カスタム設定は将来のリリースで利用可能になります。",
+    "simpleMode": "シンプル",
+    "advancedMode": "詳細",
+    "comingSoon": "近日公開",
+    "reactModeTab": "Loopテンプレート - デフォルト",
+    "goalModeTab": "Loopテンプレート - Goal",
+    "missionModeTab": "Loopテンプレート - Mission",
+    "goalModeInfoTitle": "Goalモード vs デフォルト",
+    "goalModeInfo": "デフォルトモードは応答後に停止します。Goalモードはエージェントを目標に向かってループさせ、Rubric評価で完了を判断します。すべての操作は現在のエージェントコンテキスト内で実行されます。",
+    "missionModeInfoTitle": "Missionモード vs Goalモード",
+    "missionModeInfo": "Missionモードは複雑なタスクを自動分解し、独立したWorkerサブエージェントが実行、Verifierサブエージェントが検証します。各サブタスクは独自のコンテキストで実行され、メインセッションのコンテキスト汚染を防ぎます。",
+    "goalIterationGate": "目標イテレーションゲート",
+    "goalIterationGateDesc": "目標セッション内のエージェントターン数を制限し、イテレーション数とトークン使用量を追跡します。",
+    "goalBudgetGate": "トークン予算ゲート",
+    "goalBudgetGateDesc": "目標セッションのトークン消費上限を設定し、予算超過時にエージェントを停止します。",
+    "goalRubricGate": "目標完了ルーブリック",
+    "goalRubricGateDesc": "セッション状態をチェックして目標が達成されたかを評価します。",
+    "goalDoomGate": "繰り返し保護",
+    "goalDoomGateDesc": "目標実行中の繰り返しパターンを検出し、介入をトリガーします。",
+    "missionProgressGate": "ミッション進捗ゲート",
+    "missionProgressGateDesc": "PRDユーザーストーリーの完了状況を追跡します。すべて合格または最大イテレーションに達するまで続行します。",
+    "missionIterBypass": "イテレーションバイパス",
+    "missionIterBypassDesc": "ミッション実行中にReActイテレーション制限を一時的に解除し、長時間のフェーズを許可します。",
+    "customLoopTitle": "カスタムループモード",
+    "customLoopDesc": "カスタムゲート組み合わせで独自のループモードを作成。近日公開予定。",
     "autoContinueOnTextOnly": "テキストのみのステップで自動継続",
     "autoContinueOnTextOnlyTooltip": "推論ステップがツール呼び出しなしのテキストのみで終わった場合、ヒントを挿入し同じツール方針でもう1回推論します。多段階タスクの途中停止を減らします。オフにすると従来どおりです。有効時はトークン消費が増える場合があります。",
     "autoGenerateSessionTitle": "セッションタイトルを自動生成",
@@ -1621,19 +1695,6 @@
     "adbpgMemoryTitle": "ADBPG Long-term Memory",
     "adbpgConfig": {
       "title": "ADBPG Memory Configuration",
-      "apiMode": "API Mode",
-      "host": "Host",
-      "port": "Port",
-      "user": "Username",
-      "password": "Password",
-      "dbname": "Database",
-      "llmModel": "LLM Model",
-      "llmApiKey": "LLM API Key",
-      "llmBaseUrl": "LLM Base URL",
-      "embeddingModel": "Embedding Model",
-      "embeddingApiKey": "Embedding API Key",
-      "embeddingBaseUrl": "Embedding Base URL",
-      "embeddingDims": "Embedding Dimensions",
       "restBaseUrl": "REST Base URL",
       "restApiKey": "REST API Key",
       "memoryIsolation": "Memory Isolation (per-agent)",
@@ -1769,10 +1830,13 @@
         "description": "保留中のツール操作を拒否"
       },
       "mission": {
-        "description": "ミッションモードを起動 — 複雑なタスクを自動的に分解し、実装し、検証します ⚠️ このモードではツールのガードレールを回避します"
+        "description": "Missionモード — タスクをサブエージェントに分解委任、独立コンテキストでメイン会話を汚染しない"
       },
       "skills": {
         "description": "チャットで利用可能なスキルを一覧し、明示的なスキルコマンドを表示します"
+      },
+      "goal": {
+        "description": "Goalループ — エージェントが目標に向かって継続実行し、Rubric評価で完了を自動判定"
       }
     },
     "attachments": {
@@ -1842,7 +1906,7 @@
       "file": "ファイル",
       "noChatWarning": "キューを使用する前に、まずメッセージを送信して会話を作成してください",
       "queueFull": "キューが満杯です（最大 {{max}} 件）。メッセージを送信または削除してください",
-      "otherTabOwner": "この会話は別のタブから送信中です。このタブでは入力をキューに追加することのみ可能です。"
+      "otherTabOwner": "This tab queues only; sending is handled by another tab"
     },
     "group": {
       "pinned": "ピン留め",
@@ -1853,10 +1917,19 @@
     },
     "sessionPanel": {
       "searchConversations": "会話を検索…",
+      "noResults": "結果なし",
       "noConversations": "会話なし",
       "loadingConversations": "読み込み中…"
     },
-    "conversationHistory": "会話履歴"
+    "conversationHistory": "会話履歴",
+    "history": {
+      "empty": "チャット履歴なし"
+    },
+    "sessionGroup": {
+      "today": "今日",
+      "recent": "過去7日間",
+      "earlier": "それ以前"
+    }
   },
   "security": {
     "parent": "設定",
@@ -2287,7 +2360,10 @@
     "denied": "ツール呼び出しが拒否されました",
     "approveFailed": "承認に失敗しました",
     "cancelTask": "タスクをキャンセル",
-    "denyFailed": "拒否に失敗しました"
+    "denyFailed": "拒否に失敗しました",
+    "approvePattern": "パターンを承認",
+    "approveExact": "原文のみ承認",
+    "approvalScope": "承認スコープ"
   },
   "pluginManager": {
     "title": "プラグインマネージャー",
@@ -2468,15 +2544,14 @@
   "market": {
     "searchPlaceholder": "プラットフォームを横断してスキルを検索",
     "categoryAll": "すべて",
+    "categoryPlaceholder": "カテゴリを検索",
     "searchResult": "「{{keyword}}」に一致するスキルが {{count}} 件見つかりました",
     "providerUnavailable": "ソースが利用できません",
     "noResults": "結果が見つかりません",
     "startTyping": "上の検索ボックスにキーワードを入力してスキルを探します",
     "browseHint": "{{providers}} のスキルを閲覧するには、カテゴリを選択するかキーワードを入力してください",
     "noDescription": "説明はありません",
-    "targetPool": "プール",
-    "targetWorkspace": "ワークスペース",
-    "install": "インストール",
+    "browseMarket": "マーケットを閲覧",
     "installQueue": "インストールキュー",
     "clearCompleted": "クリア",
     "retry": "再試行",
@@ -2499,6 +2574,7 @@
     },
     "stats": {
       "downloads": "ダウンロード数",
+      "stars": "スター",
       "installs": "インストール数",
       "likes": "いいね数",
       "views": "閲覧数",
@@ -2643,5 +2719,8 @@
     },
     "execute": "{{tool}} を実行",
     "executeDefault": "ツールを実行"
+  },
+  "loop": {
+    "gotoSettings": "エージェント Loop 設定"
   }
 }

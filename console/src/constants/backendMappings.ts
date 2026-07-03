@@ -40,10 +40,14 @@ export const MEMORY_MANAGER_BACKEND_MAPPINGS: Record<
   },
 };
 
+/** Valid memory backend keys (includes "none" which disables memory). */
+export const MEMORY_MANAGER_BACKEND_OPTIONS = [
+  ...Object.entries(MEMORY_MANAGER_BACKEND_MAPPINGS).map(
+    ([value, { label }]) => ({ value, label }),
+  ),
+  { value: "none", label: "none (disabled)" },
+];
+
 export const CONTEXT_MANAGER_BACKEND_OPTIONS = Object.entries(
   CONTEXT_MANAGER_BACKEND_MAPPINGS,
-).map(([value, { label }]) => ({ value, label }));
-
-export const MEMORY_MANAGER_BACKEND_OPTIONS = Object.entries(
-  MEMORY_MANAGER_BACKEND_MAPPINGS,
 ).map(([value, { label }]) => ({ value, label }));

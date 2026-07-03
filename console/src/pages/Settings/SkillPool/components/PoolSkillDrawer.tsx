@@ -1,12 +1,23 @@
-import { Button, Drawer, Form, Input, Select } from "@agentscope-ai/design";
+import {
+  Button,
+  Drawer,
+  Form,
+  Input,
+  Select,
+  Switch,
+} from "@agentscope-ai/design";
 import { useTranslation } from "react-i18next";
-import type { PoolSkillSpec } from "../../../../api/types";
+import type {
+  PoolSkillSpec,
+  WorkspaceSkillSummary,
+} from "../../../../api/types";
 import {
   deriveInstalledFromLabel,
   getPoolBuiltinStatusLabel,
   getPoolBuiltinStatusTone,
   isSkillBuiltin,
 } from "@/utils/skill";
+import { getAgentDisplayName } from "../../../../utils/agentDisplayName";
 import { MAX_TAGS, MAX_TAG_LENGTH } from "../../../Agent/Skills/components";
 import { MarkdownCopy } from "../../../../components/MarkdownCopy/MarkdownCopy";
 import type { PoolMode } from "../useSkillPool";
@@ -22,12 +33,17 @@ interface PoolSkillDrawerProps {
   showMarkdown: boolean;
   configText: string;
   availableTags?: string[];
+  workspaces?: WorkspaceSkillSummary[];
+  autoUpdateEnabled?: boolean;
+  autoUpdateTargets?: string[];
   onClose: () => void;
   onSave: () => void;
   onContentChange: (content: string) => void;
   onShowMarkdownChange: (value: boolean) => void;
   onConfigTextChange: (text: string) => void;
   onChangeBuiltinLanguage?: (skill: PoolSkillSpec, language: string) => void;
+  onAutoUpdateEnabledChange?: (enabled: boolean) => void;
+  onAutoUpdateTargetsChange?: (targets: string[]) => void;
   validateFrontmatter: (_: unknown, value: string) => Promise<void>;
 }
 
@@ -39,12 +55,17 @@ export function PoolSkillDrawer({
   showMarkdown,
   configText,
   availableTags = [],
+  workspaces = [],
+  autoUpdateEnabled = false,
+  autoUpdateTargets = [],
   onClose,
   onSave,
   onContentChange,
   onShowMarkdownChange,
   onConfigTextChange,
   onChangeBuiltinLanguage,
+  onAutoUpdateEnabledChange,
+  onAutoUpdateTargetsChange,
   validateFrontmatter,
 }: PoolSkillDrawerProps) {
   const { t } = useTranslation();
@@ -118,6 +139,54 @@ export function PoolSkillDrawer({
                 ? activeSkill.external_path
                 : deriveInstalledFromLabel(activeSkill.installed_from)}
             </div>
+          </div>
+          <div className={styles.infoSection}>
+            <div
+              className={styles.infoLabel}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: 8,
+              }}
+            >
+              <span>{t("skillPool.autoUpdate")}</span>
+              <Switch
+                checked={autoUpdateEnabled}
+                onChange={(checked) => onAutoUpdateEnabledChange?.(checked)}
+              />
+            </div>
+            {autoUpdateEnabled && (
+              <div style={{ marginTop: 8 }}>
+                <Select
+                  mode="multiple"
+                  style={{ width: "100%" }}
+                  value={autoUpdateTargets.filter((id) =>
+                    workspaces.some((ws) => ws.agent_id === id),
+                  )}
+                  onChange={(value) =>
+                    onAutoUpdateTargetsChange?.(value as string[])
+                  }
+                  placeholder={t("skillPool.autoUpdateAgentsPlaceholder")}
+                  options={workspaces.map((ws) => ({
+                    label: getAgentDisplayName(
+                      { id: ws.agent_id, name: ws.agent_name ?? "" },
+                      t,
+                    ),
+                    value: ws.agent_id,
+                  }))}
+                />
+                <div
+                  style={{
+                    marginTop: 4,
+                    fontSize: 12,
+                    opacity: 0.6,
+                  }}
+                >
+                  {t("skillPool.autoUpdateAgentsHint")}
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}

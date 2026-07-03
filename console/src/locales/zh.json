@@ -33,6 +33,18 @@
     "yes": "是",
     "no": "否"
   },
+  "desktop": {
+    "closeWindow": {
+      "title": "关闭窗口",
+      "description": "关闭窗口时您希望执行什么操作？退出应用将停止所有正在运行的任务和定时任务。",
+      "remember": "记住我的选择",
+      "showWindow": "显示窗口",
+      "minimizeToTray": "最小化到托盘",
+      "quitApp": "退出应用",
+      "preference": "关闭窗口",
+      "askEveryTime": "每次询问"
+    }
+  },
   "chunkError": {
     "title": "页面加载失败",
     "subTitle": "可能由网络问题或应用更新导致，请稍后重试。",
@@ -143,6 +155,10 @@
     "summaryPushUnread": "未读推送",
     "summaryHarvests": "收获任务",
     "from": "来自：",
+    "skillAutoUpdateTitle": "技能自动同步",
+    "skillPoolSender": "技能池",
+    "skillAutoUpdated": "{{skill}}技能发生修改，自动同步至以下智能体：{{agents}}",
+    "skillAutoUpdateFailed": "{{skill}}技能自动同步失败，目标智能体：{{agents}}",
     "requestedBy": "请求方",
     "markRead": "标记已读",
     "markAllRead": "全部标记已读",
@@ -344,26 +360,24 @@
   "skills": {
     "title": "技能",
     "description": "管理智能体技能和能力。",
-    "importHub": "导入 Hub",
-    "importHubHint": "通过支持的 Hub URL 将技能导入到当前工作区",
+    "importHub": "通过URL上传",
+    "supportedSources": "支持的来源：",
     "importSkills": "导入技能",
     "enterSkillUrl": "输入技能URL",
-    "orChooseFromSources": "或从支持的技能市场中选择",
     "supportedSkillUrlSources": "支持的技能市场：",
     "urlExamples": "URL 示例：",
     "urlValid": "来自 {{source}} 的有效 URL",
     "invalidUrl": "无效的 URL",
-    "examplesFrom": "{{source}} 的示例",
     "clickToFill": "点击填入 URL",
     "invalidSkillUrlSource": "请确认技能URL来自受支持的技能市场",
     "type": "类型",
     "installedFrom": "安装来源",
     "source": "来源",
     "path": "路径",
-    "skillDescription": "描述",
     "tags": "标签",
     "builtin": "内置",
     "custom": "自定义",
+    "addSkill": "添加技能",
     "createSkill": "创建技能",
     "viewSkill": "查看技能",
     "editSkill": "编辑技能",
@@ -399,7 +413,6 @@
     "editNotSupported": "技能编辑失败",
     "editNote": "提示：这里可以编辑技能内容、频道范围和配置。",
     "create": "创建",
-    "createSkillHint": "直接在当前工作区创建一个新的本地技能",
     "optimizeWithAI": "AI优化",
     "stopOptimize": "停止",
     "optimizeSuccess": "技能优化成功",
@@ -409,8 +422,7 @@
     "importCancelled": "已取消技能导入",
     "importTimeout": "技能导入超时，请重试或检查网络。",
     "uploadSkill": "上传技能",
-    "uploadZip": "通过zip上传",
-    "uploadZipHint": "从 zip 文件导入一个或多个本地技能",
+    "uploadZip": "通过Zip上传",
     "uploadSuccess": "技能上传成功",
     "uploadFailed": "技能上传失败",
     "uploadNoChange": "没有导入新技能，可能已存在相同技能",
@@ -433,7 +445,6 @@
     "overwriteExistingList": "以下技能已存在，确认后将直接覆盖：",
     "nameConflict": "检测到名称冲突，建议的重命名已填入。",
     "uploadToPoolHint": "将选中的工作区技能上传到共享本地技能池",
-    "downloadFromPoolHint": "将选中的技能池技能下载到当前工作区",
     "downloadFromPool": "从技能池载入",
     "uploadToPool": "同步到技能池",
     "selectWorkspaceSkill": "选择工作区技能",
@@ -481,11 +492,20 @@
     "deleteExternalConfirm": "将从磁盘删除外部技能文件:{{path}}。",
     "deleteExternalBatchWarning": "所选的外部技能将从磁盘永久删除。",
     "broadcastTitle": "广播 {{name}}",
+    "autoUpdate": "自动同步",
+    "autoUpdateOnHint": "已开启自动同步；内容变更会自动同步到关联的智能体。",
+    "autoUpdateEnableHint": "开启自动同步：内容变更后推送到已安装该技能的智能体。",
+    "autoUpdateDisableHint": "关闭该技能的自动同步。",
+    "autoUpdateEnabled": "已为 {{name}} 开启自动同步",
+    "autoUpdateDisabled": "已为 {{name}} 关闭自动同步",
+    "autoUpdateFailed": "更新自动同步设置失败",
+    "autoUpdateAgentsPlaceholder": "所有已安装该技能的智能体",
+    "autoUpdateAgentsHint": "留空则同步到所有已安装该技能的智能体；选择智能体后仅同步到所选项（缺失时会自动安装）。",
+    "renameAffectsTitle": "同时在智能体中重命名？",
+    "renameAffectsContent": "“{{from}}”已安装在 {{count}} 个智能体中。重命名为“{{to}}”",
     "importBuiltin": "更新内置技能",
     "importBuiltinHint": "将内置技能更新到最新版本",
     "importBuiltinAlertHint": "有 {{count}} 项内置技能变更需要查看",
-    "importHubHint": "通过 URL的方式将技能导入",
-    "uploadZipHint": "通过zip上传",
     "importBuiltinSuccess": "已导入内置技能：{{names}}",
     "importBuiltinConflicts": "以下名称冲突，已跳过：{{names}}",
     "importBuiltinNoChanges": "没有可导入的内置变更",
@@ -1338,6 +1358,16 @@
     "maxTokensHint": "每次响应的最大输出 token 数",
     "maxInputLengthLabel": "最大上下文长度",
     "maxInputLengthHint": "模型上下文窗口大小，控制上下文压缩阈值（≥1000）",
+    "preserveThinkingLabel": "保留推理内容",
+    "preserveThinkingHint": "将推理内容（thinking contents）回传至后续对话轮次",
+    "thinkingModeLabel": "启用思考",
+    "thinkingModeHint": "开启以启用模型思考/推理，关闭以禁用思考。",
+    "thinkingBudgetLabel": "思考预算",
+    "thinkingBudgetHint": "使用模型默认思考预算",
+    "switchToManual": "手动设置",
+    "switchToAuto": "自动",
+    "reasoningEffortLabel": "推理深度",
+    "reasoningEffortHint": "控制推理深度（OpenAI 系列）",
     "protocol": "协议",
     "protocolHint": "为当前配置选择提供商 API 协议。",
     "selectProtocol": "请选择协议",
@@ -1664,15 +1694,72 @@
     "llmAcquireTimeoutGtPauseJitter": "槽位获取超时必须大于限流暂停时长与抖动范围之和",
     "contextManagementTitle": "上下文管理",
     "memoryManagerBackend": "记忆管理后端",
-    "memoryManagerBackendTooltip": "记忆管理器的后端类型，可选 remelight（本地文件）或 adbpg（云端数据库）",
+    "memoryManagerBackendTooltip": "记忆管理器的后端类型，可选 remelight（本地文件）、adbpg（云端数据库）或 none（关闭记忆）",
     "memoryManagerBackendRestartWarning": "切换记忆管理后端不支持热更新，保存后需要重启 QwenPaw 才能生效",
     "maxIters": "最大迭代次数",
     "maxItersTooltip": "ReAct 智能体的最大推理-行动迭代次数",
     "maxItersPlaceholder": "请输入最大迭代次数",
     "maxItersRequired": "最大迭代次数为必填项",
     "maxItersMin": "最大迭代次数必须大于等于 1",
-    "autoContinueOnTextOnly": "纯文本步骤自动续跑",
-    "autoContinueOnTextOnlyTooltip": "当某轮推理只输出文字、未调用任何工具时，注入提示并额外进行一轮推理（工具策略与当前步相同），减少多步任务「无声中断」。关闭则与旧版行为一致。开启后可能增加 token 消耗。",
+    "agentLoopTitle": "智能体 Loop 设置",
+    "doomLoopEnabled": "重复行为保护",
+    "doomLoopEnabledTooltip": "当 Agent 陷入重复相同操作时自动介入",
+    "doomLoopAfter": "连续重复",
+    "doomLoopRepetitions": "次相同操作后",
+    "doomLoopStopAction": "暂停并等待确认",
+    "doomLoopWarnAction": "发送提醒",
+    "doomLoopSimpleMode": "简单",
+    "doomLoopAdvancedMode": "高级",
+    "doomLoopWindowSize": "检测范围",
+    "doomLoopWindowSizeTooltip": "检查最近多少次操作是否重复",
+    "doomLoopSimilarity": "匹配灵敏度",
+    "doomLoopSimilarityTooltip": "操作相似度超过此值视为重复（越低越严格）",
+    "doomLoopStages": "干预规则",
+    "doomLoopAction": "动作",
+    "doomLoopPrompt": "提示语",
+    "doomLoopPromptPlaceholder": "提醒内容或暂停原因...",
+    "doomLoopAddStage": "添加规则",
+    "iterationTitle": "迭代限制",
+    "iterationEnabled": "启用迭代限制",
+    "iterationEnabledTooltip": "在固定轮次后停止 Agent 循环",
+    "iterationMaxIterations": "最大迭代次数",
+    "iterationMaxIterationsTooltip": "循环执行的最大轮次",
+    "rubricTitle": "完成度检查",
+    "rubricEnabled": "启用完成度检查",
+    "rubricEnabledTooltip": "每轮结束后让 Agent 自评任务是否完成",
+    "rubricPrompt": "检查提示语",
+    "rubricPromptTooltip": "注入的提示语，要求 Agent 评估任务完成情况",
+    "rubricDesc": "部分大模型可能仅输出文本而不调用任何工具，导致 Agent 提前停止。启用后会重新提示 Agent 继续完成任务。",
+    "rubricPromptPlaceholder": "你上一轮没有调用任何工具。如果任务已完成请确认，否则请继续使用工具完成。",
+    "rubricMaxInterventions": "每轮最大介入次数",
+    "rubricMaxInterventionsTooltip": "每轮最多重新提示的次数，防止 LLM 持续输出纯文本导致无限循环。",
+    "inLoopModes": "在 /goal、/mission 模式中启用",
+    "inLoopModesTooltip": "当 /goal 或 /mission 循环模式激活时也启用此功能",
+    "comingSoonEditable": "自定义配置将在未来版本中开放。",
+    "simpleMode": "简单",
+    "advancedMode": "高级",
+    "comingSoon": "即将推出",
+    "reactModeTab": "Loop模板 - 默认",
+    "goalModeTab": "Loop模板 - Goal模式",
+    "missionModeTab": "Loop模板 - Mission模式",
+    "goalModeInfoTitle": "Goal模式 vs 默认模式",
+    "goalModeInfo": "默认模式在产生回复后即停止。Goal模式让 Agent 围绕目标持续循环执行，通过 Rubric 评估自动判断是否完成，未完成则继续推进。所有操作在当前 Agent 上下文中进行。",
+    "missionModeInfoTitle": "Mission模式 vs Goal模式",
+    "missionModeInfo": "Mission模式将复杂任务自动分解为子任务，由 Worker 子Agent独立执行，Verifier 子Agent验证结果。每个子任务有独立上下文，不会污染主会话历史。适合需要长时间、多步骤协作的复杂工程任务。",
+    "goalIterationGate": "目标迭代 Gate",
+    "goalIterationGateDesc": "限制目标会话中的 Agent 执行轮次，跟踪迭代次数和 Token 使用量。",
+    "goalBudgetGate": "Token 预算 Gate",
+    "goalBudgetGateDesc": "为目标会话设置 Token 消耗上限，超出预算时停止 Agent。",
+    "goalRubricGate": "目标完成度评估",
+    "goalRubricGateDesc": "通过检查会话状态评估目标是否已完成。",
+    "goalDoomGate": "重复行为保护",
+    "goalDoomGateDesc": "在目标执行过程中检测重复模式并触发干预。",
+    "missionProgressGate": "任务进度 Gate",
+    "missionProgressGateDesc": "跟踪 PRD 用户故事的完成情况，直到所有故事通过或达到最大迭代次数。",
+    "missionIterBypass": "迭代绕行",
+    "missionIterBypassDesc": "在任务执行期间临时取消 ReAct 迭代限制，允许长时间运行的阶段。",
+    "customLoopTitle": "自定义循环模式",
+    "customLoopDesc": "使用自定义 Gate 组合创建您自己的循环模式，即将推出。",
     "autoGenerateSessionTitle": "自动生成会话标题",
     "autoGenerateSessionTitleTooltip": "新会话首条用户消息发送后，后台触发一次轻量 LLM 调用，把截断的占位标题替换为更贴切的短标题。每个新会话会多一次 LLM 调用；关闭后保留占位标题、不产生该开销。",
     "shellCommandTimeout": "Shell 命令超时（秒）",
@@ -1813,7 +1900,9 @@
       "auto": "自动模式",
       "autoDesc": "仅被明确标记为需要审批的工具才会要求审批（默认）",
       "off": "关闭模式",
-      "offDesc": "关闭所有工具审批，所有工具自动执行"
+      "offDesc": "关闭所有工具审批，所有工具自动执行",
+      "inherit": "默认模式",
+      "inheritDesc": "默认使用Agent的工具执行安全级别"
     },
     "saveLevelSuccess": "工具执行安全级别已保存",
     "saveLevelFailed": "保存工具执行安全级别失败",
@@ -1853,19 +1942,6 @@
     "adbpgMemoryTitle": "ADBPG 长期记忆",
     "adbpgConfig": {
       "title": "ADBPG 记忆配置",
-      "apiMode": "API 模式",
-      "host": "主机地址",
-      "port": "端口",
-      "user": "用户名",
-      "password": "密码",
-      "dbname": "数据库名",
-      "llmModel": "LLM 模型",
-      "llmApiKey": "LLM API Key",
-      "llmBaseUrl": "LLM Base URL",
-      "embeddingModel": "Embedding 模型",
-      "embeddingApiKey": "Embedding API Key",
-      "embeddingBaseUrl": "Embedding Base URL",
-      "embeddingDims": "Embedding 维度",
       "restBaseUrl": "REST Base URL",
       "restApiKey": "REST API Key",
       "memoryIsolation": "记忆隔离（按 Agent）",
@@ -1960,10 +2036,16 @@
         "description": "拒绝待执行的工具操作"
       },
       "mission": {
-        "description": "启动任务模式 — 自动分解、实现、验证复杂任务 ⚠️ 该模式会避开安全护栏"
+        "description": "Mission模式 — 分解任务委派子Agent，独立上下文不污染主会话"
       },
       "skills": {
         "description": "列出当前对话可用的技能，并显示可显式调用的技能命令"
+      },
+      "plan": {
+        "description": "创建结构化计划，将任务分解为多个子任务"
+      },
+      "goal": {
+        "description": "Goal循环 — Agent围绕目标持续执行，通过Rubric评估自动判断完成"
       }
     },
     "attachments": {
@@ -2033,7 +2115,7 @@
       "file": "文件",
       "noChatWarning": "请先发送一条消息创建对话，再使用队列功能",
       "queueFull": "队列已满（最多 {{max}} 条），请先发送或删除部分消息",
-      "otherTabOwner": "当前对话已在另一个标签页中发送，本标签页只能将输入加入队列；所有发送操作均由其他标签页完成。"
+      "otherTabOwner": "当前标签页仅入队，发送由其他标签页完成"
     },
     "group": {
       "pinned": "置顶",
@@ -2044,10 +2126,19 @@
     },
     "sessionPanel": {
       "searchConversations": "搜索对话…",
+      "noResults": "无匹配结果",
       "noConversations": "暂无对话",
       "loadingConversations": "加载中…"
     },
-    "conversationHistory": "历史对话"
+    "conversationHistory": "历史对话",
+    "history": {
+      "empty": "暂无聊天记录"
+    },
+    "sessionGroup": {
+      "today": "今天",
+      "recent": "近 7 天",
+      "earlier": "更早"
+    }
   },
   "security": {
     "parent": "设置",
@@ -2479,7 +2570,10 @@
     "cancelTask": "取消任务",
     "denyFailed": "拒绝失败",
     "timeoutAutoDenied": "已超时，自动拒绝",
-    "acknowledge": "我知道了"
+    "acknowledge": "我知道了",
+    "approvePattern": "批准通用规则",
+    "approveExact": "仅批准原文",
+    "approvalScope": "批准范围"
   },
   "pluginManager": {
     "title": "插件管理",
@@ -2538,7 +2632,10 @@
     "marketSearchResult": "\"{{keyword}}\" 相关插件共搜索到 {{count}} 个结果",
     "marketDetails": "详情",
     "marketDownloads": "下载量",
-    "marketDeveloper": "开发者"
+    "marketDeveloper": "开发者",
+    "compatWarningTitle": "兼容性警告",
+    "compatWarningContent": "该插件标注适配 QwenPaw {{labels}}，而您当前的 QwenPaw 版本为 {{version}}。安装后可能出现错误，是否确认继续？",
+    "compatWarningConfirm": "仍然安装"
   },
   "codingMode": {
     "title": "编程模式",
@@ -2592,15 +2689,14 @@
   "market": {
     "searchPlaceholder": "在多平台中搜索技能",
     "categoryAll": "全部",
+    "categoryPlaceholder": "搜索分类",
     "searchResult": "\"{{keyword}}\" 相关技能共搜索到 {{count}} 个结果",
     "providerUnavailable": "数据源不可用",
     "noResults": "没有找到结果",
     "startTyping": "在上方输入关键字以搜索技能市场",
     "browseHint": "选择分类或输入关键词以浏览 {{providers}} 中的技能",
     "noDescription": "暂无描述",
-    "targetPool": "技能池",
-    "targetWorkspace": "工作区",
-    "install": "安装",
+    "browseMarket": "浏览市场",
     "installQueue": "安装队列",
     "clearCompleted": "清空",
     "retry": "重试",
@@ -2623,6 +2719,7 @@
     },
     "stats": {
       "downloads": "下载量",
+      "stars": "星标",
       "installs": "安装量",
       "likes": "点赞",
       "views": "浏览量",
@@ -2767,5 +2864,18 @@
       "LOAD_FAILED": "加载文件预览失败。",
       "LOAD_FAILED_DETAIL": "加载文件预览失败：{{detail}}"
     }
+  },
+  "loop": {
+    "budget": {
+      "low": "低",
+      "medium": "中",
+      "high": "高"
+    },
+    "status": {
+      "pause": "暂停",
+      "resume": "继续",
+      "stop": "停止"
+    },
+    "gotoSettings": "智能体 Loop 设置"
   }
 }

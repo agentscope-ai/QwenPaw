@@ -32,6 +32,18 @@
     "yes": "Sim",
     "no": "Nao"
   },
+  "desktop": {
+    "closeWindow": {
+      "title": "Fechar Janela",
+      "description": "O que deseja fazer ao fechar a janela? Sair do aplicativo interrompe todas as tarefas em execução e tarefas agendadas.",
+      "remember": "Lembrar minha escolha",
+      "showWindow": "Mostrar janela",
+      "minimizeToTray": "Minimizar para a bandeja",
+      "quitApp": "Sair do aplicativo",
+      "preference": "Fechar Janela",
+      "askEveryTime": "Perguntar sempre"
+    }
+  },
   "chunkError": {
     "title": "Falha ao carregar pagina",
     "subTitle": "This may be caused by a network issue or an application update.",
@@ -387,26 +399,24 @@
   "skills": {
     "title": "Skills",
     "description": "Manage agent skills and capabilities.",
-    "importHub": "Importar Hub",
-    "importHubHint": "Import a skill from a supported online hub URL into the current workspace",
+    "importHub": "Enviar via URL",
+    "supportedSources": "Fontes suportadas:",
     "importSkills": "Importar Skill",
     "enterSkillUrl": "Enter Skill URL",
-    "orChooseFromSources": "or choose from supported Skill marketplaces",
     "supportedSkillUrlSources": "Supported Skill Marketplaces:",
     "urlExamples": "URL examples:",
     "urlValid": "Valid URL from {{source}}",
     "invalidUrl": "Invalid URL",
-    "examplesFrom": "Examples from {{source}}",
     "clickToFill": "Click to fill in URL",
     "invalidSkillUrlSource": "Please verify the skill URL is from a supported marketplace",
     "type": "Tipo",
     "installedFrom": "Instalado de",
     "source": "Origem",
     "path": "Caminho",
-    "skillDescription": "Descricao",
     "tags": "Tags",
     "builtin": "Integrado",
     "custom": "Personalizado",
+    "addSkill": "Adicionar Skill",
     "createSkill": "Criar Skill",
     "viewSkill": "Visualizar Skill",
     "editSkill": "Editar Skill",
@@ -442,7 +452,6 @@
     "editNotSupported": "Falhou to Editar Skill",
     "editNote": "Tip: You can edit skill content, channels, and config here.",
     "create": "Criar",
-    "createSkillHint": "Create a new local skill directly in this workspace",
     "optimizeWithAI": "AI Optimize",
     "stopOptimize": "Parar",
     "optimizeSuccess": "Skill optimized successfully",
@@ -453,7 +462,6 @@
     "importTimeout": "Skill import timed out. Please retry or check your network.",
     "uploadSkill": "Enviar Skill",
     "uploadZip": "Enviar via Zip",
-    "uploadZipHint": "Import one or more local skills from a zip file",
     "uploadSuccess": "Skill uploaded successfully",
     "uploadFailed": "Skill Enviar Falhou",
     "uploadNoChange": "No new skills were imported. They may already exist.",
@@ -476,8 +484,7 @@
     "overwriteExistingList": "The following skills already exist and will be overwritten:",
     "nameConflict": "Name conflict detected. Suggested rename has been filled.",
     "uploadToPoolHint": "Upload selected workspace skills to the shared local skill pool",
-    "downloadFromPoolHint": "Download selected pool skills into the current workspace",
-    "downloadFromPool": "Load from Skill Pool",
+    "downloadFromPool": "Carregar do Skill Pool",
     "uploadToPool": "Sync to Skill Pool",
     "selectWorkspaceSkill": "Selecionar Atual Workspace Skill",
     "selectPoolItem": "Selecionar Skill pool item",
@@ -497,7 +504,6 @@
     "emptyStateText": "This is expected. New workspaces do not come with skills automatically. Download skills from the local pool or create one here to equip this agent.",
     "emptyStateDownload": "Baixar from Skill Pool",
     "emptyStateCreate": "Criar First Skill",
-    "examples": "Examples",
     "loadFailed": "Falhou to load Skills",
     "refreshFailed": "Falhou to Atualizar Skills",
     "createdSuccessfully": "Criado successfully",
@@ -529,8 +535,6 @@
     "importBuiltin": "Atualizar Integrado Skills",
     "importBuiltinHint": "Update built-in skills to the latest version",
     "importBuiltinAlertHint": "{{count}} built-in changes need review",
-    "importHubHint": "Importar Skills via URL",
-    "uploadZipHint": "Enviar via Zip",
     "importBuiltinSuccess": "Built-ins imported: {{names}}",
     "importBuiltinConflicts": "Skipped due to name conflicts: {{names}}",
     "importBuiltinNoChanges": "No built-in changes to import",
@@ -1359,6 +1363,16 @@
     "maxTokensHint": "Número máximo de tokens de saída por resposta",
     "maxInputLengthLabel": "Comprimento Máximo do Contexto",
     "maxInputLengthHint": "Tamanho da janela de contexto do modelo, controla o limite de compactação do contexto (≥1000)",
+    "preserveThinkingLabel": "Preservar Raciocínio",
+    "preserveThinkingHint": "Retransmitir o conteúdo de raciocínio para os turnos de conversa subsequentes",
+    "thinkingModeLabel": "Ativar Pensamento",
+    "thinkingModeHint": "Ative para habilitar pensamento/raciocínio. Desative para desabilitar o pensamento.",
+    "thinkingBudgetLabel": "Orçamento de Pensamento",
+    "thinkingBudgetHint": "Usando orçamento de pensamento padrão do modelo",
+    "switchToManual": "Manual",
+    "switchToAuto": "Auto",
+    "reasoningEffortLabel": "Profundidade de Raciocínio",
+    "reasoningEffortHint": "Controla a profundidade do raciocínio (família OpenAI)",
     "protocol": "Protocol",
     "protocolHint": "Choose the provider API protocol for this configuration.",
     "selectProtocol": "Please Selecionar a protocol",
@@ -1678,6 +1692,65 @@
     "maxItersPlaceholder": "Enter max iterations",
     "maxItersRequired": "Max iterations is Obrigatorio",
     "maxItersMin": "Max iterations must be at least 1",
+    "agentLoopTitle": "Configurações de Loop do Agente",
+    "doomLoopEnabled": "Proteção contra Repetição",
+    "doomLoopEnabledTooltip": "Intervir automaticamente quando o agente fica preso repetindo as mesmas ações",
+    "doomLoopAfter": "Após",
+    "doomLoopRepetitions": "ações idênticas",
+    "doomLoopStopAction": "Pausar e Pedir Ajuda",
+    "doomLoopWarnAction": "Enviar Lembrete",
+    "doomLoopSimpleMode": "Simples",
+    "doomLoopAdvancedMode": "Avançado",
+    "doomLoopWindowSize": "Alcance de Detecção",
+    "doomLoopWindowSizeTooltip": "Quantas ações recentes verificar para repetição",
+    "doomLoopSimilarity": "Sensibilidade de Correspondência",
+    "doomLoopSimilarityTooltip": "Quão similares as ações devem ser para contar como repetição (menor = mais rigoroso)",
+    "doomLoopStages": "Regras de Intervenção",
+    "doomLoopAction": "Ação",
+    "doomLoopPrompt": "Mensagem",
+    "doomLoopPromptPlaceholder": "Mensagem de lembrete ou motivo da pausa...",
+    "doomLoopAddStage": "Adicionar Regra",
+    "iterationTitle": "Limite de Iteração",
+    "iterationEnabled": "Ativar Limite de Iteração",
+    "iterationEnabledTooltip": "Parar o agente após um número fixo de turnos de loop",
+    "iterationMaxIterations": "Iterações Máximas",
+    "iterationMaxIterationsTooltip": "Número máximo de turnos de loop antes de parar",
+    "rubricTitle": "Verificação de Conclusão",
+    "rubricEnabled": "Ativar Verificação de Conclusão",
+    "rubricEnabledTooltip": "Pedir ao agente para autoavaliar se a tarefa está completa após cada turno",
+    "rubricPrompt": "Prompt de Verificação",
+    "rubricPromptTooltip": "O prompt injetado para pedir ao agente que avalie a conclusão da tarefa",
+    "rubricDesc": "Alguns LLMs podem parar com uma resposta somente texto sem chamar ferramentas, fazendo o agente encerrar prematuramente. Ative para re-solicitar o agente e melhorar a conclusão de tarefas.",
+    "rubricPromptPlaceholder": "Você não chamou nenhuma ferramenta. Se a tarefa está completa, confirme. Caso contrário, continue com chamadas de ferramentas.",
+    "rubricMaxInterventions": "Máx. Intervenções por Turno",
+    "rubricMaxInterventionsTooltip": "Máximo de vezes para re-solicitar por turno. Previne re-solicitação infinita se o LLM continuar produzindo apenas texto.",
+    "inLoopModes": "Ativar nos modos /goal e /mission",
+    "inLoopModesTooltip": "Também aplicar quando o modo /goal ou /mission estiver ativo",
+    "comingSoonEditable": "Configuração personalizada estará disponível em uma versão futura.",
+    "simpleMode": "Simples",
+    "advancedMode": "Avançado",
+    "comingSoon": "Em breve",
+    "reactModeTab": "Modelo Loop - Padrão",
+    "goalModeTab": "Modelo Loop - Goal",
+    "missionModeTab": "Modelo Loop - Mission",
+    "goalModeInfoTitle": "Modo Goal vs Padrão",
+    "goalModeInfo": "O modo padrão para após produzir uma resposta. O modo Goal mantém o agente em loop em direção a um objetivo, usando avaliação Rubric para determinar a conclusão. Todas as operações são executadas no contexto atual do agente.",
+    "missionModeInfoTitle": "Modo Mission vs Goal",
+    "missionModeInfo": "O modo Mission auto-decompõe tarefas complexas em subtarefas, executadas por sub-agentes Worker independentes e verificadas por sub-agentes Verifier. Cada subtarefa é executada em seu próprio contexto, evitando poluição da sessão principal.",
+    "goalIterationGate": "Gate de Iteração de Objetivo",
+    "goalIterationGateDesc": "Limita o número de turnos do agente em uma sessão de objetivo, rastreando iterações e uso de tokens.",
+    "goalBudgetGate": "Gate de Orçamento de Tokens",
+    "goalBudgetGateDesc": "Define um limite de gasto de tokens para a sessão de objetivo. Para o agente quando o orçamento é excedido.",
+    "goalRubricGate": "Rubrica de Conclusão de Objetivo",
+    "goalRubricGateDesc": "Avalia se o objetivo foi alcançado verificando o status da sessão.",
+    "goalDoomGate": "Proteção contra Repetição",
+    "goalDoomGateDesc": "Detecta padrões repetitivos durante a execução do objetivo e aciona intervenção.",
+    "missionProgressGate": "Gate de Progresso da Missão",
+    "missionProgressGateDesc": "Rastreia a conclusão das user stories do PRD. Continua até que todas passem ou o máximo de iterações seja atingido.",
+    "missionIterBypass": "Bypass de Iteração",
+    "missionIterBypassDesc": "Remove temporariamente o limite de iteração do ReAct durante a execução da missão para permitir fases longas.",
+    "customLoopTitle": "Modos de Loop Personalizados",
+    "customLoopDesc": "Crie seus próprios modos de loop com combinações personalizadas de gates. Em breve.",
     "autoContinueOnTextOnly": "Auto-continue Ligado text-only step",
     "autoContinueOnTextOnlyTooltip": "If the model ends a reasoning step with only text (no tool calls), inject a hint and run one extra reasoning pass with the same tool policy so multi-step tasks are less likely to stop silently. Turn off to match legacy behavior. May increase token usage when enabled.",
     "shellCommandTimeout": "Shell Command Tempo limite (s)",
@@ -1985,10 +2058,13 @@
         "description": "Deny the pending tool action"
       },
       "mission": {
-        "description": "Launch mission mode — Automatically decompose, implement, and verify complex tasks ⚠️ This mode will bypass tool guardrails"
+        "description": "Modo Mission — Decompõe tarefas em sub-agentes com contexto isolado"
       },
       "skills": {
         "description": "List chat-available skills and expose explicit skill commands"
+      },
+      "goal": {
+        "description": "Loop Goal — Agente persegue objetivo continuamente, auto-avalia via Rubric"
       }
     },
     "attachments": {
@@ -2058,7 +2134,7 @@
       "file": "Arquivo",
       "noChatWarning": "Envie uma mensagem primeiro para criar uma conversa antes de usar a fila",
       "queueFull": "Fila cheia (máx. {{max}} itens). Envie ou remova algumas mensagens primeiro",
-      "otherTabOwner": "Esta conversa está sendo enviada de outra aba. Nesta aba, você só pode adicionar entradas à fila."
+      "otherTabOwner": "This tab queues only; sending is handled by another tab"
     },
     "group": {
       "pinned": "Fixados",
@@ -2069,10 +2145,19 @@
     },
     "sessionPanel": {
       "searchConversations": "Pesquisar…",
+      "noResults": "Nenhum resultado",
       "noConversations": "Sem conversas",
       "loadingConversations": "Carregando…"
     },
-    "conversationHistory": "Histórico de conversas"
+    "conversationHistory": "Histórico de conversas",
+    "history": {
+      "empty": "Sem histórico de conversas"
+    },
+    "sessionGroup": {
+      "today": "Hoje",
+      "recent": "Últimos 7 dias",
+      "earlier": "Anteriores"
+    }
   },
   "security": {
     "parent": "Configuracoes",
@@ -2516,15 +2601,14 @@
   "market": {
     "searchPlaceholder": "Buscar habilidades em várias plataformas",
     "categoryAll": "Todos",
+    "categoryPlaceholder": "Buscar categoria",
     "searchResult": "{{count}} habilidades encontradas para \"{{keyword}}\"",
     "providerUnavailable": "Provedor indisponível",
     "noResults": "Nenhum resultado",
     "startTyping": "Digite uma consulta acima para buscar no mercado",
     "browseHint": "Escolha uma categoria ou digite uma palavra-chave para navegar pelos skills em {{providers}}",
     "noDescription": "Nenhuma descrição fornecida",
-    "targetPool": "Pool",
-    "targetWorkspace": "Workspace",
-    "install": "Instalar",
+    "browseMarket": "Explorar Mercado",
     "installQueue": "Fila de instalação",
     "clearCompleted": "Limpar",
     "retry": "Tentar novamente",
@@ -2547,6 +2631,7 @@
     },
     "stats": {
       "downloads": "Downloads",
+      "stars": "Estrelas",
       "installs": "Instalações",
       "likes": "Curtidas",
       "views": "Visualizações",
@@ -2691,5 +2776,8 @@
     },
     "execute": "Executar {{tool}}",
     "executeDefault": "Executar ferramenta"
+  },
+  "loop": {
+    "gotoSettings": "Configurações de Loop do Agente"
   }
 }

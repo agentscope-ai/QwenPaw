@@ -57,8 +57,15 @@ class ResourceGovernor:
         self,
         workspace_dir: str,
         governance_dir: Optional[str] = None,
+        coding_project_dir: Optional[str] = None,
     ):
         self.workspace_dir = Path(workspace_dir)
+        # Coding project dir (Coding Mode). Falls back to the workspace
+        # when unset so the CODING_PROJECT_DIR policy placeholder always
+        # resolves to a concrete path.
+        self.coding_project_dir = Path(
+            coding_project_dir or workspace_dir,
+        )
         # Policy is stored outside the workspace to prevent agent tampering.
         # Use ``<basename>_<hash>`` so two workspaces with the same basename
         # but different absolute paths (e.g. ``/Users/a/project`` vs
@@ -101,6 +108,7 @@ class ResourceGovernor:
         self._policy = load_governance_policy(
             str(self._policy_dir),
             str(self.workspace_dir),
+            str(self.coding_project_dir),
         )
 
         self._sandbox_capability = probe_sandbox_support()
@@ -120,6 +128,7 @@ class ResourceGovernor:
                     self._policy,
                     str(self._policy_dir),
                     str(self.workspace_dir),
+                    str(self.coding_project_dir),
                 )
             except Exception:
                 logger.exception(
@@ -197,11 +206,12 @@ class ResourceGovernor:
             else "-"
         )
         logger.info(
-            "governance decision: tool=%s target=%r action=%s sandbox=%s "
-            "reason=%s",
+            "governance decision: tool=%s target=%r action=%s source=%s "
+            "sandbox=%s reason=%s",
             tc_spec.tool_name,
             target_repr,
             decision.action.value,
+            decision.source,
             sandbox_mode,
             decision.reason,
         )
@@ -288,6 +298,14 @@ class ResourceGovernor:
         # Workspace is always readwrite
         mounts.insert(0, MountSpec(path=ws, writable=True))
 
+        # Coding project dir is readwrite by default (Coding Mode). When
+        # it is distinct from the workspace, mount it explicitly so Bash
+        # can write there; the policy ALLOW rule alone is not enough for
+        # sandboxed shell tools.
+        cpd = str(self.coding_project_dir)
+        if cpd and cpd != ws and not any(m.path == cpd for m in mounts):
+            mounts.append(MountSpec(path=cpd, writable=True))
+
         return SandboxConfig(
             mode=detect_platform_mode(),
             workspace_dir=ws,
@@ -352,13 +370,21 @@ class ResourceGovernor:
                 self._policy,
                 str(self._policy_dir),
                 str(self.workspace_dir),
+                str(self.coding_project_dir),
             )
 
-    def add_approved_rule(self, tc_spec: ToolCallSpec) -> bool:
+    async def add_approved_rule(
+        self,
+        tc_spec: ToolCallSpec,
+        *,
+        generalized_target: str,
+    ) -> bool:
         """Add an ALLOW rule for a user-approved tool call.
 
-        Handles rule generalization and empty-pattern guard internally
-        so callers (tool_adapter) don't need to know policy details.
+        Args:
+            generalized_target: the generalized target/pattern (e.g.
+                ``"git *"``), already computed upstream by
+                ``generalize_target_for_approval``.
 
         Returns True if a rule was actually added, False if skipped
         (e.g. builtin ask, empty target pattern).
@@ -367,16 +393,7 @@ class ResourceGovernor:
             return False
 
         try:
-            from .policy import generalize_rule_match
-
-            generalized = generalize_rule_match(
-                tc_spec.tool_name,
-                tc_spec.target,
-            )
-            _, rule_pattern = generalized.split("(", 1)
-            rule_pattern = rule_pattern.rstrip(")")
-
-            if not rule_pattern:
+            if not generalized_target:
                 logger.debug(
                     "ResourceGovernor: empty pattern, skipping rule "
                     "for tool=%s target=%s",
@@ -385,8 +402,9 @@ class ResourceGovernor:
                 )
                 return False
 
+            match = f"{tc_spec.tool_name}({generalized_target})"
             rule = GovernanceRule(
-                match=generalized,
+                match=match,
                 action=GovernanceAction.ALLOW,
                 reason="user approved",
                 grantee=tc_spec.agent_id or "*",
@@ -418,7 +436,7 @@ class ResourceGovernor:
         if not self._policy:
             return False
         source = self._policy.evaluate_source(tc_spec)
-        return source == "builtin"
+        return source == "builtin_rules"
 
     # ------------------------------------------------------------------
     # Property access
