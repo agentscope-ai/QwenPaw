@@ -61,28 +61,24 @@ class AzureBotChannel(BaseChannel):
     _UPLOAD_MAX_FILE_SIZE = 180_000
 
     _FILE_TOO_LARGE_I18N = {
-        "zh": (
-            "⚠️ 文件「{name}」（{size_kb}KB）"
-            "超过附件大小限制（180KB），无法发送。"
-        ),
+        "zh": ("⚠️ 文件「{name}」（{size_kb}KB）" "超过附件大小限制（180KB），无法发送。"),
         "en": (
-            "⚠️ File \"{name}\" ({size_kb}KB) exceeds "
+            '⚠️ File "{name}" ({size_kb}KB) exceeds '
             "the attachment size limit (180KB) "
             "and cannot be sent."
         ),
         "id": (
-            "⚠️ File \"{name}\" ({size_kb}KB) melebihi "
+            '⚠️ File "{name}" ({size_kb}KB) melebihi '
             "batas ukuran lampiran (180KB) "
             "dan tidak dapat dikirim."
         ),
-        "ru": (
-            "⚠️ Файл «{name}» ({size_kb}KB) "
-            "превышает лимит (180KB)."
-        ),
+        "ru": ("⚠️ Файл «{name}» ({size_kb}KB) " "превышает лимит (180KB)."),
     }
 
     def _file_too_large_msg(
-        self, name: str, size_bytes: int
+        self,
+        name: str,
+        size_bytes: int,
     ) -> str:
         """Build i18n file-too-large message."""
         lang = self._language
@@ -92,7 +88,8 @@ class AzureBotChannel(BaseChannel):
             lang = "en"
         size_kb = round(size_bytes / 1024)
         return self._FILE_TOO_LARGE_I18N[lang].format(
-            name=name, size_kb=size_kb
+            name=name,
+            size_kb=size_kb,
         )
 
     def __init__(
@@ -182,6 +179,7 @@ class AzureBotChannel(BaseChannel):
             self._media_dir = self._workspace_dir / "media"
         else:
             from ....constant import DEFAULT_MEDIA_DIR
+
             self._media_dir = DEFAULT_MEDIA_DIR
 
         # Watchdog
@@ -199,14 +197,11 @@ class AzureBotChannel(BaseChannel):
         on_reply_sent: OnReplySent = None,
     ) -> "AzureBotChannel":
         allow_from_env = os.getenv(
-            "AZURE_BOT_ALLOW_FROM", ""
+            "AZURE_BOT_ALLOW_FROM",
+            "",
         )
         allow_from = (
-            [
-                s.strip()
-                for s in allow_from_env.split(",")
-                if s.strip()
-            ]
+            [s.strip() for s in allow_from_env.split(",") if s.strip()]
             if allow_from_env
             else []
         )
@@ -214,19 +209,23 @@ class AzureBotChannel(BaseChannel):
             process=process,
             enabled=(
                 os.getenv(
-                    "AZURE_BOT_CHANNEL_ENABLED", "0"
+                    "AZURE_BOT_CHANNEL_ENABLED",
+                    "0",
                 )
                 == "1"
             ),
             app_id=os.getenv("AZURE_BOT_APP_ID", ""),
             app_password=os.getenv(
-                "AZURE_BOT_APP_PASSWORD", ""
+                "AZURE_BOT_APP_PASSWORD",
+                "",
             ),
             tenant_id=os.getenv(
-                "AZURE_BOT_TENANT_ID", ""
+                "AZURE_BOT_TENANT_ID",
+                "",
             ),
             http_host=os.getenv(
-                "AZURE_BOT_HTTP_HOST", "0.0.0.0"
+                "AZURE_BOT_HTTP_HOST",
+                "0.0.0.0",
             ),
             http_port=int(
                 os.getenv(
@@ -235,22 +234,27 @@ class AzureBotChannel(BaseChannel):
                 ),
             ),
             bot_prefix=os.getenv(
-                "AZURE_BOT_BOT_PREFIX", ""
+                "AZURE_BOT_BOT_PREFIX",
+                "",
             ),
             on_reply_sent=on_reply_sent,
             dm_policy=os.getenv(
-                "AZURE_BOT_DM_POLICY", "open"
+                "AZURE_BOT_DM_POLICY",
+                "open",
             ),
             group_policy=os.getenv(
-                "AZURE_BOT_GROUP_POLICY", "open"
+                "AZURE_BOT_GROUP_POLICY",
+                "open",
             ),
             allow_from=allow_from,
             deny_message=os.getenv(
-                "AZURE_BOT_DENY_MESSAGE", ""
+                "AZURE_BOT_DENY_MESSAGE",
+                "",
             ),
             require_mention=(
                 os.getenv(
-                    "AZURE_BOT_REQUIRE_MENTION", "0"
+                    "AZURE_BOT_REQUIRE_MENTION",
+                    "0",
                 )
                 == "1"
             ),
@@ -282,9 +286,7 @@ class AzureBotChannel(BaseChannel):
             app_password=config.app_password or "",
             tenant_id=config.tenant_id or "",
             http_host=config.http_host or "0.0.0.0",
-            http_port=(
-                config.http_port or AZURE_BOT_DEFAULT_PORT
-            ),
+            http_port=(config.http_port or AZURE_BOT_DEFAULT_PORT),
             bot_prefix=config.bot_prefix or "",
             media_dir=getattr(config, "media_dir", "") or "",
             workspace_dir=workspace_dir,
@@ -307,12 +309,16 @@ class AzureBotChannel(BaseChannel):
             ),
             access_control_dm=bool(
                 getattr(
-                    config, "access_control_dm", False
+                    config,
+                    "access_control_dm",
+                    False,
                 ),
             ),
             access_control_group=bool(
                 getattr(
-                    config, "access_control_group", False
+                    config,
+                    "access_control_group",
+                    False,
                 ),
             ),
         )
@@ -349,10 +355,7 @@ class AzureBotChannel(BaseChannel):
         if not self.enabled:
             return
         self._stopping = True
-        if (
-            self._watchdog_task
-            and not self._watchdog_task.done()
-        ):
+        if self._watchdog_task and not self._watchdog_task.done():
             self._watchdog_task.cancel()
             try:
                 await self._watchdog_task
@@ -386,15 +389,13 @@ class AzureBotChannel(BaseChannel):
         try:
             await self._site.start()
             logger.info(
-                "azure_bot: HTTP server listening on "
-                "%s:%s/api/messages",
+                "azure_bot: HTTP server listening on %s:%s/api/messages",
                 self._http_host,
                 self._http_port,
             )
         except OSError:
             logger.warning(
-                "azure_bot: port %s:%s in use, "
-                "watchdog will retry",
+                "azure_bot: port %s:%s in use, watchdog will retry",
                 self._http_host,
                 self._http_port,
             )
@@ -426,7 +427,7 @@ class AzureBotChannel(BaseChannel):
         """Periodically check server health."""
         while not self._stopping:
             await asyncio.sleep(
-                AZURE_BOT_WATCHDOG_INTERVAL_S
+                AZURE_BOT_WATCHDOG_INTERVAL_S,
             )
             if self._stopping:
                 break
@@ -439,13 +440,11 @@ class AzureBotChannel(BaseChannel):
                     await self._stop_http_server()
                     await self._start_http_server()
                     logger.info(
-                        "azure_bot: watchdog restarted "
-                        "server OK"
+                        "azure_bot: watchdog restarted server OK",
                     )
                 except Exception:
                     logger.exception(
-                        "azure_bot: watchdog failed "
-                        "to restart",
+                        "azure_bot: watchdog failed to restart",
                     )
 
     async def _is_server_healthy(self) -> bool:
@@ -453,14 +452,13 @@ class AzureBotChannel(BaseChannel):
         if self._site is None:
             return False
         probe_host = (
-            "127.0.0.1"
-            if self._http_host == "0.0.0.0"
-            else self._http_host
+            "127.0.0.1" if self._http_host == "0.0.0.0" else self._http_host
         )
         try:
             _, writer = await asyncio.wait_for(
                 asyncio.open_connection(
-                    probe_host, self._http_port
+                    probe_host,
+                    self._http_port,
                 ),
                 timeout=3.0,
             )
@@ -486,18 +484,18 @@ class AzureBotChannel(BaseChannel):
 
         # 1. Validate JWT
         auth_header = request.headers.get(
-            "Authorization", ""
+            "Authorization",
+            "",
         )
-        if not await (
-            self._token_validator.validate_auth_header(
-                auth_header,
-            )
+        if not await self._token_validator.validate_auth_header(
+            auth_header,
         ):
             logger.warning(
-                "azure_bot: JWT validation failed"
+                "azure_bot: JWT validation failed",
             )
             return web.Response(
-                status=401, text="Unauthorized"
+                status=401,
+                text="Unauthorized",
             )
 
         # 2. Parse activity
@@ -505,7 +503,8 @@ class AzureBotChannel(BaseChannel):
             activity = json.loads(raw_body)
         except Exception:
             return web.Response(
-                status=400, text="Bad Request"
+                status=400,
+                text="Bad Request",
             )
 
         activity_type = activity.get("type", "")
@@ -521,7 +520,8 @@ class AzureBotChannel(BaseChannel):
         elif activity_type == "invoke":
             result = await self._on_invoke(activity)
             return web.json_response(
-                result, status=200
+                result,
+                status=200,
             )
         else:
             logger.debug(
@@ -545,13 +545,14 @@ class AzureBotChannel(BaseChannel):
     )
 
     async def _on_message(
-        self, activity: dict
+        self,
+        activity: dict,
     ) -> None:
         """Handle incoming message activity."""
         text = activity.get("text", "") or ""
         sender = activity.get("from", {})
         sender_id = sender.get(
-            "aadObjectId"
+            "aadObjectId",
         ) or sender.get("id", "")
         sender_name = sender.get("name", "")
         conversation = activity.get("conversation", {})
@@ -560,7 +561,8 @@ class AzureBotChannel(BaseChannel):
         # standard Bot Framework uses isGroup,
         # Slack uses channelData.event.channel_type.
         conv_type = conversation.get(
-            "conversationType", ""
+            "conversationType",
+            "",
         )
         is_group = (
             conv_type in ("channel", "groupChat")
@@ -568,14 +570,17 @@ class AzureBotChannel(BaseChannel):
         )
         if not is_group:
             channel_data = activity.get(
-                "channelData", {}
+                "channelData",
+                {},
             )
             slack_msg = channel_data.get(
-                "SlackMessage", {}
+                "SlackMessage",
+                {},
             )
             slack_event = slack_msg.get("event", {})
             if slack_event.get("channel_type") in (
-                "channel", "group",
+                "channel",
+                "group",
             ):
                 is_group = True
         service_url = activity.get("serviceUrl", "")
@@ -604,7 +609,8 @@ class AzureBotChannel(BaseChannel):
             token = await self._get_bot_token() or ""
             for att in attachments:
                 part = await self._parse_attachment_async(
-                    att, token,
+                    att,
+                    token,
                 )
                 if part is not None:
                     content_parts.append(part)
@@ -622,7 +628,8 @@ class AzureBotChannel(BaseChannel):
             "user_name": sender_name,
             "conversation_id": conversation_id,
             "azure_channel_id": activity.get(
-                "channelId", "bot"
+                "channelId",
+                "bot",
             ),
             "is_group": is_group,
             "is_dm": not is_group,
@@ -632,13 +639,10 @@ class AzureBotChannel(BaseChannel):
         }
 
         # Display sender: name#last6 or channelId#last6
-        suffix = (
-            sender_id[-6:]
-            if len(sender_id) >= 6
-            else sender_id
-        )
+        suffix = sender_id[-6:] if len(sender_id) >= 6 else sender_id
         azure_channel_id = meta.get(
-            "azure_channel_id", "bot"
+            "azure_channel_id",
+            "bot",
         )
         display_sender = (
             f"{sender_name}#{suffix}"
@@ -662,7 +666,10 @@ class AzureBotChannel(BaseChannel):
             self._enqueue(native)
 
     async def _download_attachment(
-        self, url: str, token: str, filename: str,
+        self,
+        url: str,
+        token: str,
+        filename: str,
     ) -> Optional[str]:
         """Download attachment to local media_dir.
 
@@ -674,7 +681,8 @@ class AzureBotChannel(BaseChannel):
         try:
             headers = {"Authorization": f"Bearer {token}"}
             async with self._http_session.get(
-                url, headers=headers,
+                url,
+                headers=headers,
             ) as resp:
                 if resp.status != 200:
                     logger.warning(
@@ -688,14 +696,11 @@ class AzureBotChannel(BaseChannel):
                 if not data:
                     return None
             self._media_dir.mkdir(
-                parents=True, exist_ok=True
+                parents=True,
+                exist_ok=True,
             )
             safe_name = (
-                "".join(
-                    c
-                    for c in filename
-                    if c.isalnum() or c in "-_."
-                )
+                "".join(c for c in filename if c.isalnum() or c in "-_.")
                 or "file"
             )
             path = self._media_dir / safe_name
@@ -703,21 +708,22 @@ class AzureBotChannel(BaseChannel):
             if path.exists():
                 stem = path.stem
                 suffix = path.suffix
-                path = self._media_dir / (
-                    f"{stem}_{int(time.time())}{suffix}"
-                )
+                path = self._media_dir / (f"{stem}_{int(time.time())}{suffix}")
             await asyncio.to_thread(
-                path.write_bytes, data
+                path.write_bytes,
+                data,
             )
             return str(path)
         except Exception:
             logger.exception(
-                "azure_bot _download_attachment failed"
+                "azure_bot _download_attachment failed",
             )
             return None
 
     async def _parse_attachment_async(
-        self, att: dict, token: str,
+        self,
+        att: dict,
+        token: str,
     ) -> Any:
         """Parse and download a Bot Framework attachment.
 
@@ -733,7 +739,9 @@ class AzureBotChannel(BaseChannel):
 
         # Download to local
         local_path = await self._download_attachment(
-            content_url, token, name,
+            content_url,
+            token,
+            name,
         )
         if not local_path:
             # Fallback: pass URL directly (may not work
@@ -757,15 +765,12 @@ class AzureBotChannel(BaseChannel):
         # Audio: voice-like formats -> AudioContent
         if content_type.startswith("audio/"):
             if any(
-                content_type.startswith(p)
-                for p in self._VOICE_MIME_PREFIXES
+                content_type.startswith(p) for p in self._VOICE_MIME_PREFIXES
             ):
                 return AudioContent(
                     type=ContentType.AUDIO,
                     data=local_path,
-                    format=content_type.split("/")[
-                        -1
-                    ],
+                    format=content_type.split("/")[-1],
                 )
             return FileContent(
                 type=ContentType.FILE,
@@ -802,30 +807,21 @@ class AzureBotChannel(BaseChannel):
         native_payload: Any,
     ) -> Any:
         """Build AgentRequest from native dict."""
-        payload = (
-            native_payload
-            if isinstance(native_payload, dict)
-            else {}
-        )
-        channel_id = (
-            payload.get("channel_id") or self.channel
-        )
+        payload = native_payload if isinstance(native_payload, dict) else {}
+        channel_id = payload.get("channel_id") or self.channel
         sender_id = payload.get("sender_id") or ""
-        content_parts = (
-            payload.get("content_parts") or []
-        )
+        content_parts = payload.get("content_parts") or []
         meta = dict(payload.get("meta") or {})
         session_id = self.resolve_session_id(
-            sender_id, meta
+            sender_id,
+            meta,
         )
-        request = (
-            self.build_agent_request_from_user_content(
-                channel_id=channel_id,
-                sender_id=sender_id,
-                session_id=session_id,
-                content_parts=content_parts,
-                channel_meta=meta,
-            )
+        request = self.build_agent_request_from_user_content(
+            channel_id=channel_id,
+            sender_id=sender_id,
+            session_id=session_id,
+            content_parts=content_parts,
+            channel_meta=meta,
         )
         setattr(request, "channel_meta", meta)
         return request
@@ -843,14 +839,11 @@ class AzureBotChannel(BaseChannel):
         """
         meta = channel_meta or {}
         azure_channel = meta.get(
-            "azure_channel_id", "bot"
+            "azure_channel_id",
+            "bot",
         )
         conv_id = meta.get("conversation_id", "")
-        conv_suffix = (
-            conv_id[-10:]
-            if len(conv_id) >= 10
-            else conv_id
-        )
+        conv_suffix = conv_id[-10:] if len(conv_id) >= 10 else conv_id
         return f"azure_{azure_channel}#{conv_suffix}"
 
     # ------------------------------------------------------------------
@@ -869,7 +862,8 @@ class AzureBotChannel(BaseChannel):
         meta = meta or {}
         service_url = meta.get("service_url", "")
         conversation_id = meta.get(
-            "conversation_id", ""
+            "conversation_id",
+            "",
         )
 
         # Resolve bot_channel_id: meta > ref > global > app_id
@@ -879,20 +873,21 @@ class AzureBotChannel(BaseChannel):
             ref = self._find_ref(to_handle, meta)
             if ref:
                 service_url = ref.get(
-                    "service_url", ""
+                    "service_url",
+                    "",
                 )
                 conversation_id = ref.get(
-                    "conversation_id", ""
+                    "conversation_id",
+                    "",
                 )
                 if not bot_id:
                     bot_id = ref.get(
-                        "bot_channel_id", ""
+                        "bot_channel_id",
+                        "",
                     )
 
         if not bot_id:
-            bot_id = (
-                self._bot_channel_id or self._app_id
-            )
+            bot_id = self._bot_channel_id or self._app_id
 
         if not service_url or not conversation_id:
             logger.warning(
@@ -905,7 +900,7 @@ class AzureBotChannel(BaseChannel):
         token = await self._get_bot_token()
         if not token:
             logger.warning(
-                "azure_bot send: failed to get bot token"
+                "azure_bot send: failed to get bot token",
             )
             return
 
@@ -927,13 +922,8 @@ class AzureBotChannel(BaseChannel):
         }
 
         try:
-            if (
-                self._http_session is None
-                or self._http_session.closed
-            ):
-                self._http_session = (
-                    aiohttp.ClientSession()
-                )
+            if self._http_session is None or self._http_session.closed:
+                self._http_session = aiohttp.ClientSession()
             async with self._http_session.post(
                 url,
                 json=payload,
@@ -943,15 +933,70 @@ class AzureBotChannel(BaseChannel):
                 if resp.status not in (200, 201, 202):
                     body = await resp.text()
                     logger.warning(
-                        "azure_bot send: failed "
-                        "status=%d body=%s",
+                        "azure_bot send: failed status=%d body=%s",
                         resp.status,
                         body[:200],
                     )
         except Exception:
             logger.exception(
-                "azure_bot send: error sending message"
+                "azure_bot send: error sending message",
             )
+
+    async def _resolve_attachment_for_part(
+        self,
+        part: Any,
+        part_type: Any,
+        service_url: str,
+        conversation_id: str,
+        token: str,
+    ) -> Optional[Dict[str, Any]]:
+        """Resolve attachment dict from a content part."""
+        if part_type == ContentType.IMAGE:
+            url = getattr(part, "image_url", None)
+            if url:
+                return await self._upload_and_get_attachment(
+                    url,
+                    service_url,
+                    conversation_id,
+                    token,
+                    "image/png",
+                    "image.png",
+                )
+        elif part_type == ContentType.VIDEO:
+            url = getattr(part, "video_url", None)
+            if url:
+                return await self._upload_and_get_attachment(
+                    url,
+                    service_url,
+                    conversation_id,
+                    token,
+                    "video/mp4",
+                    "video.mp4",
+                )
+        elif part_type == ContentType.AUDIO:
+            url = getattr(part, "data", None)
+            if url:
+                return await self._upload_and_get_attachment(
+                    url,
+                    service_url,
+                    conversation_id,
+                    token,
+                    "audio/mpeg",
+                    "audio.mp3",
+                )
+        elif part_type == ContentType.FILE:
+            url = getattr(part, "file_url", None)
+            name = getattr(part, "filename", None) or "file"
+            if url:
+                return await self._upload_and_get_attachment(
+                    url,
+                    service_url,
+                    conversation_id,
+                    token,
+                    "application/octet-stream",
+                    name,
+                )
+        return None
 
     # ------------------------------------------------------------------
     # Media sending via Bot Framework REST API
@@ -969,7 +1014,8 @@ class AzureBotChannel(BaseChannel):
         meta = meta or {}
         service_url = meta.get("service_url", "")
         conversation_id = meta.get(
-            "conversation_id", ""
+            "conversation_id",
+            "",
         )
 
         # Resolve bot_channel_id: meta > ref > global > app_id
@@ -979,20 +1025,21 @@ class AzureBotChannel(BaseChannel):
             ref = self._find_ref(to_handle, meta)
             if ref:
                 service_url = ref.get(
-                    "service_url", ""
+                    "service_url",
+                    "",
                 )
                 conversation_id = ref.get(
-                    "conversation_id", ""
+                    "conversation_id",
+                    "",
                 )
                 if not bot_id:
                     bot_id = ref.get(
-                        "bot_channel_id", ""
+                        "bot_channel_id",
+                        "",
                     )
 
         if not bot_id:
-            bot_id = (
-                self._bot_channel_id or self._app_id
-            )
+            bot_id = self._bot_channel_id or self._app_id
 
         if not service_url or not conversation_id:
             logger.warning(
@@ -1007,58 +1054,17 @@ class AzureBotChannel(BaseChannel):
             return
 
         part_type = getattr(part, "type", None)
-        attachment = None
-
-        if part_type == ContentType.IMAGE:
-            url = getattr(part, "image_url", None)
-            if url:
-                attachment = (
-                    await self._upload_and_get_attachment(
-                        url, service_url,
-                        conversation_id, token,
-                        "image/png", "image.png",
-                    )
-                )
-        elif part_type == ContentType.VIDEO:
-            url = getattr(part, "video_url", None)
-            if url:
-                attachment = (
-                    await self._upload_and_get_attachment(
-                        url, service_url,
-                        conversation_id, token,
-                        "video/mp4", "video.mp4",
-                    )
-                )
-        elif part_type == ContentType.AUDIO:
-            url = getattr(part, "data", None)
-            if url:
-                attachment = (
-                    await self._upload_and_get_attachment(
-                        url, service_url,
-                        conversation_id, token,
-                        "audio/mpeg", "audio.mp3",
-                    )
-                )
-        elif part_type == ContentType.FILE:
-            url = getattr(part, "file_url", None)
-            name = (
-                getattr(part, "filename", None)
-                or "file"
-            )
-            if url:
-                attachment = (
-                    await self._upload_and_get_attachment(
-                        url, service_url,
-                        conversation_id, token,
-                        "application/octet-stream",
-                        name,
-                    )
-                )
+        attachment = await self._resolve_attachment_for_part(
+            part,
+            part_type,
+            service_url,
+            conversation_id,
+            token,
+        )
 
         if not attachment:
             logger.warning(
-                "azure_bot send_media: no attachment "
-                "resolved, part_type=%s",
+                "azure_bot send_media: no attachment resolved, part_type=%s",
                 part_type,
             )
             return
@@ -1070,7 +1076,9 @@ class AzureBotChannel(BaseChannel):
                 attachment["size"],
             )
             await self.send(
-                to_handle, msg, meta
+                to_handle,
+                msg,
+                meta,
             )
             return
 
@@ -1092,13 +1100,8 @@ class AzureBotChannel(BaseChannel):
         }
 
         try:
-            if (
-                self._http_session is None
-                or self._http_session.closed
-            ):
-                self._http_session = (
-                    aiohttp.ClientSession()
-                )
+            if self._http_session is None or self._http_session.closed:
+                self._http_session = aiohttp.ClientSession()
             async with self._http_session.post(
                 url,
                 json=payload,
@@ -1108,14 +1111,13 @@ class AzureBotChannel(BaseChannel):
                 if resp.status not in (200, 201, 202):
                     body = await resp.text()
                     logger.warning(
-                        "azure_bot send_media: failed "
-                        "status=%d body=%s",
+                        "azure_bot send_media: failed status=%d body=%s",
                         resp.status,
                         body[:200],
                     )
         except Exception:
             logger.exception(
-                "azure_bot send_media: error"
+                "azure_bot send_media: error",
             )
 
     def _make_attachment(
@@ -1123,12 +1125,7 @@ class AzureBotChannel(BaseChannel):
         url_or_path: str,
         default_content_type: str,
         default_name: str,
-    ) -> Optional[Dict[str, str]]:
-        """Build attachment dict.
-
-        If url_or_path is a local file path, encode as
-        base64 data URI. If it's a URL, use directly.
-        """
+    ) -> Optional[Dict[str, Any]]:
         # Strip file:// URI scheme if present
         actual = url_or_path
         if actual.startswith("file:///"):
@@ -1140,23 +1137,19 @@ class AzureBotChannel(BaseChannel):
         if path.is_file():
             try:
                 mime = (
-                    mimetypes.guess_type(str(path))[0]
-                    or default_content_type
+                    mimetypes.guess_type(str(path))[0] or default_content_type
                 )
                 with open(path, "rb") as f:
                     raw = f.read()
                 data = base64.b64encode(raw).decode()
                 return {
                     "contentType": mime,
-                    "contentUrl": (
-                        f"data:{mime};base64,{data}"
-                    ),
+                    "contentUrl": (f"data:{mime};base64,{data}"),
                     "name": path.name,
                 }
             except Exception:
                 logger.warning(
-                    "azure_bot: failed to read "
-                    "local file %s",
+                    "azure_bot: failed to read local file %s",
                     url_or_path,
                 )
                 return None
@@ -1176,7 +1169,7 @@ class AzureBotChannel(BaseChannel):
         token: str,
         default_content_type: str,
         default_name: str,
-    ) -> Optional[Dict[str, str]]:
+    ) -> Optional[Dict[str, Any]]:
         """Upload local file via Bot Framework Upload API.
 
         Returns attachment dict with public contentUrl.
@@ -1198,10 +1191,7 @@ class AzureBotChannel(BaseChannel):
                 "name": default_name,
             }
 
-        mime = (
-            mimetypes.guess_type(str(path))[0]
-            or default_content_type
-        )
+        mime = mimetypes.guess_type(str(path))[0] or default_content_type
         try:
             with open(path, "rb") as f:
                 raw = f.read()
@@ -1238,7 +1228,7 @@ class AzureBotChannel(BaseChannel):
             "type": mime,
             "name": path.name,
             "originalBase64": base64.b64encode(
-                raw
+                raw,
             ).decode(),
         }
         headers = {
@@ -1247,13 +1237,8 @@ class AzureBotChannel(BaseChannel):
         }
 
         try:
-            if (
-                self._http_session is None
-                or self._http_session.closed
-            ):
-                self._http_session = (
-                    aiohttp.ClientSession()
-                )
+            if self._http_session is None or self._http_session.closed:
+                self._http_session = aiohttp.ClientSession()
             async with self._http_session.post(
                 upload_url,
                 json=upload_body,
@@ -1277,15 +1262,13 @@ class AzureBotChannel(BaseChannel):
                 else:
                     body = await resp.text()
                     logger.warning(
-                        "azure_bot upload: failed "
-                        "status=%d body=%s",
+                        "azure_bot upload: failed status=%d body=%s",
                         resp.status,
                         body[:200],
                     )
         except Exception:
             logger.warning(
-                "azure_bot upload: error, "
-                "falling back to base64",
+                "azure_bot upload: error, falling back to base64",
                 exc_info=True,
             )
 
@@ -1303,10 +1286,7 @@ class AzureBotChannel(BaseChannel):
     async def _get_bot_token(self) -> Optional[str]:
         """Get a valid bot token for outbound calls."""
         now = time.time()
-        if (
-            self._bot_token
-            and self._bot_token_expires_at > now + 60
-        ):
+        if self._bot_token and self._bot_token_expires_at > now + 60:
             return self._bot_token
 
         try:
@@ -1314,46 +1294,38 @@ class AzureBotChannel(BaseChannel):
 
             if self._msal_app is None:
                 authority = (
-                    "https://login.microsoftonline.com/"
-                    f"{self._tenant_id}"
+                    "https://login.microsoftonline.com/" f"{self._tenant_id}"
                 )
-                self._msal_app = (
-                    msal.ConfidentialClientApplication(
-                        self._app_id,
-                        authority=authority,
-                        client_credential=(
-                            self._app_password
-                        ),
-                    )
+                self._msal_app = msal.ConfidentialClientApplication(
+                    self._app_id,
+                    authority=authority,
+                    client_credential=(self._app_password),
                 )
 
-            result = (
-                self._msal_app.acquire_token_for_client(
-                    scopes=[AZURE_BOT_FRAMEWORK_SCOPE],
-                )
+            result = self._msal_app.acquire_token_for_client(
+                scopes=[AZURE_BOT_FRAMEWORK_SCOPE],
             )
             if result and "access_token" in result:
                 self._bot_token = result["access_token"]
                 expires_in = result.get(
-                    "expires_in", 3600
+                    "expires_in",
+                    3600,
                 )
-                self._bot_token_expires_at = (
-                    now + expires_in
-                )
+                self._bot_token_expires_at = now + expires_in
                 return self._bot_token
             else:
                 error = result.get(
-                    "error_description", "unknown"
+                    "error_description",
+                    "unknown",
                 )
                 logger.warning(
-                    "azure_bot: MSAL token acquisition "
-                    "failed: %s",
+                    "azure_bot: MSAL token acquisition failed: %s",
                     error,
                 )
                 return None
         except Exception:
             logger.exception(
-                "azure_bot: error acquiring bot token"
+                "azure_bot: error acquiring bot token",
             )
             return None
 
@@ -1395,11 +1367,7 @@ class AzureBotChannel(BaseChannel):
         conv_id = m.get("conversation_id", "")
         azure_ch = m.get("azure_channel_id", "bot")
         if conv_id:
-            conv_suffix = (
-                conv_id[-10:]
-                if len(conv_id) >= 10
-                else conv_id
-            )
+            conv_suffix = conv_id[-10:] if len(conv_id) >= 10 else conv_id
             session_id = f"azure_{azure_ch}#{conv_suffix}"
             # Try group key first (session_id only)
             ref = self._conversation_refs.get(session_id)
@@ -1414,9 +1382,7 @@ class AzureBotChannel(BaseChannel):
         # 4. Partial match: find any ref containing
         #    to_handle or session_id part in key
         sid_part = (
-            to_handle.split(":", 1)[0]
-            if ":" in to_handle
-            else to_handle
+            to_handle.split(":", 1)[0] if ":" in to_handle else to_handle
         )
         for k, v in self._conversation_refs.items():
             if to_handle in k or sid_part in k:
@@ -1437,13 +1403,14 @@ class AzureBotChannel(BaseChannel):
         """
         sender = activity.get("from", {})
         sender_id = sender.get(
-            "aadObjectId"
+            "aadObjectId",
         ) or sender.get("id", "")
         conversation = activity.get("conversation", {})
         conversation_id = conversation.get("id", "")
         service_url = activity.get("serviceUrl", "")
         azure_channel_id = activity.get(
-            "channelId", "bot"
+            "channelId",
+            "bot",
         )
 
         # Learn bot's own channel ID from recipient field
@@ -1451,14 +1418,11 @@ class AzureBotChannel(BaseChannel):
         if recipient.get("id"):
             self._bot_channel_id = recipient["id"]
 
-        if (
-            sender_id
-            and conversation_id
-            and service_url
-        ):
+        if sender_id and conversation_id and service_url:
             # Detect group: same logic as _on_message
             conv_type = conversation.get(
-                "conversationType", ""
+                "conversationType",
+                "",
             )
             is_group = (
                 conv_type in ("channel", "groupChat")
@@ -1466,16 +1430,19 @@ class AzureBotChannel(BaseChannel):
             )
             if not is_group:
                 channel_data = activity.get(
-                    "channelData", {}
+                    "channelData",
+                    {},
                 )
                 slack_msg = channel_data.get(
-                    "SlackMessage", {}
+                    "SlackMessage",
+                    {},
                 )
                 slack_event = slack_msg.get(
-                    "event", {}
+                    "event",
+                    {},
                 )
                 if slack_event.get(
-                    "channel_type"
+                    "channel_type",
                 ) in ("channel", "group"):
                     is_group = True
 
@@ -1493,9 +1460,7 @@ class AzureBotChannel(BaseChannel):
                 key = session_id
             else:
                 sender_suffix = (
-                    sender_id[-6:]
-                    if len(sender_id) >= 6
-                    else sender_id
+                    sender_id[-6:] if len(sender_id) >= 6 else sender_id
                 )
                 sender_name_val = sender.get("name", "")
                 display_user = (
@@ -1517,11 +1482,9 @@ class AzureBotChannel(BaseChannel):
     def _refs_store_path(self) -> Path:
         """Path to persist conversation refs."""
         if self._workspace_dir:
-            return (
-                self._workspace_dir
-                / "azure_bot_refs.json"
-            )
+            return self._workspace_dir / "azure_bot_refs.json"
         from ....constant import WORKING_DIR
+
         return WORKING_DIR / "azure_bot_refs.json"
 
     def _load_refs_from_disk(self) -> None:
@@ -1537,13 +1500,10 @@ class AzureBotChannel(BaseChannel):
                     if isinstance(v, dict):
                         self._conversation_refs[k] = v
                         # Restore bot_channel_id
-                        if (
-                            not self._bot_channel_id
-                            and v.get("bot_channel_id")
+                        if not self._bot_channel_id and v.get(
+                            "bot_channel_id",
                         ):
-                            self._bot_channel_id = (
-                                v["bot_channel_id"]
-                            )
+                            self._bot_channel_id = v["bot_channel_id"]
         except Exception:
             logger.debug(
                 "azure_bot: load refs from %s failed",
@@ -1556,7 +1516,8 @@ class AzureBotChannel(BaseChannel):
         path = self._refs_store_path()
         try:
             path.parent.mkdir(
-                parents=True, exist_ok=True
+                parents=True,
+                exist_ok=True,
             )
             with open(path, "w", encoding="utf-8") as f:
                 json.dump(
@@ -1573,7 +1534,8 @@ class AzureBotChannel(BaseChannel):
             )
 
     def _is_bot_mentioned(
-        self, activity: dict
+        self,
+        activity: dict,
     ) -> bool:
         """Check if bot is mentioned in the activity."""
         entities = activity.get("entities", [])
@@ -1609,7 +1571,8 @@ class AzureBotChannel(BaseChannel):
                 mention_text = entity.get("text", "")
                 if mention_text and mention_text in text:
                     text = text.replace(
-                        mention_text, ""
+                        mention_text,
+                        "",
                     ).strip()
         return text
 
@@ -1636,9 +1599,7 @@ class AzureBotChannel(BaseChannel):
         healthy = await self._is_server_healthy()
         return {
             "channel": self.channel,
-            "status": (
-                "healthy" if healthy else "unhealthy"
-            ),
+            "status": ("healthy" if healthy else "unhealthy"),
             "detail": (
                 f"HTTP server on port {self._http_port}"
                 if healthy

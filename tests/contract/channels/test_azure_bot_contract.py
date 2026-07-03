@@ -49,6 +49,7 @@ class TestAzureBotChannelContract(ChannelContractTest):
 
     def test_azure_bot_specific_attributes(self, instance):
         """Azure Bot-specific: has app_id and tenant_id."""
+        # pylint: disable=protected-access
         assert hasattr(instance, "_app_id")
         assert hasattr(instance, "_tenant_id")
         assert instance._app_id == "test-app-id"

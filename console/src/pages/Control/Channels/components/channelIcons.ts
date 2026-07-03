@@ -33,6 +33,8 @@ export const CHANNEL_ICON_URLS: Record<string, string> = {
     "https://gw.alicdn.com/imgextra/i3/O1CN01xqM0EN1oKrRiAFX3K_!!6000000005207-2-tps-400-400.png",
   yuanbao:
     "https://img.alicdn.com/imgextra/i4/O1CN0164yBmJ1a2AftSglge_!!6000000003271-2-tps-225-225.png",
+  azure_bot:
+    "https://img.alicdn.com/imgextra/i2/O1CN01eo8rBj1pCuCWPQRrz_!!6000000005325-2-tps-3000-3000.png",
 };
 
 export const CHANNEL_DEFAULT_ICON_URL =

@@ -240,7 +240,9 @@ class TestAzureBotInit:
         assert azure_bot_channel._media_dir == tmp_path / "media"
 
     def test_init_media_dir_fallback_workspace(
-        self, mock_process_handler, tmp_path
+        self,
+        mock_process_handler,
+        tmp_path,
     ):
         """Without media_dir, should fallback to workspace_dir/media."""
         from qwenpaw.app.channels.azure_bot.channel import AzureBotChannel
@@ -331,11 +333,13 @@ class TestStoreConversationReference:
     """P0: Reference storage key logic."""
 
     def test_dm_stores_with_user_key(
-        self, azure_bot_channel, sample_slack_dm_activity
+        self,
+        azure_bot_channel,
+        sample_slack_dm_activity,
     ):
         """DM activity should store with key=session_id:display_user."""
         azure_bot_channel._store_conversation_reference(
-            sample_slack_dm_activity
+            sample_slack_dm_activity,
         )
         refs = azure_bot_channel._conversation_refs
         # conv_id last 10: "0BC3ARK7SA"
@@ -348,11 +352,13 @@ class TestStoreConversationReference:
         assert ref["is_group"] is False
 
     def test_group_stores_with_session_only_key(
-        self, azure_bot_channel, sample_slack_group_activity
+        self,
+        azure_bot_channel,
+        sample_slack_group_activity,
     ):
         """Group activity should store with key=session_id only."""
         azure_bot_channel._store_conversation_reference(
-            sample_slack_group_activity
+            sample_slack_group_activity,
         )
         refs = azure_bot_channel._conversation_refs
         expected_key = "azure_slack#0BC8NHDBDJ"
@@ -360,11 +366,13 @@ class TestStoreConversationReference:
         assert refs[expected_key]["is_group"] is True
 
     def test_webchat_no_name_uses_channel_id(
-        self, azure_bot_channel, sample_webchat_activity
+        self,
+        azure_bot_channel,
+        sample_webchat_activity,
     ):
         """Web Chat with no name → key uses channelId#last6."""
         azure_bot_channel._store_conversation_reference(
-            sample_webchat_activity
+            sample_webchat_activity,
         )
         refs = azure_bot_channel._conversation_refs
         # DM (no group indicators), sender has no name
@@ -372,11 +380,13 @@ class TestStoreConversationReference:
         assert expected_key in refs
 
     def test_teams_group_conversationType(
-        self, azure_bot_channel, sample_teams_group_activity
+        self,
+        azure_bot_channel,
+        sample_teams_group_activity,
     ):
         """Teams groupChat conversationType → group key."""
         azure_bot_channel._store_conversation_reference(
-            sample_teams_group_activity
+            sample_teams_group_activity,
         )
         refs = azure_bot_channel._conversation_refs
         # conv_id last 10: "hread.v2" (len < 10 check)
@@ -386,7 +396,9 @@ class TestStoreConversationReference:
         assert refs[expected_key]["is_group"] is True
 
     def test_group_deduplicates(
-        self, azure_bot_channel, sample_slack_group_activity
+        self,
+        azure_bot_channel,
+        sample_slack_group_activity,
     ):
         """Multiple users in same group → single ref entry."""
         act1 = sample_slack_group_activity.copy()
@@ -500,7 +512,7 @@ class TestBuildAgentRequest:
             },
         }
         request = azure_bot_channel_shared.build_agent_request_from_native(
-            native
+            native,
         )
         assert request.user_id == "group"
 
@@ -515,11 +527,13 @@ class TestOnMessage:
 
     @pytest.mark.asyncio
     async def test_slack_group_sets_sender_group(
-        self, azure_bot_channel_shared, sample_slack_group_activity
+        self,
+        azure_bot_channel_shared,
+        sample_slack_group_activity,
     ):
         """Group + share_session → sender_id = 'group'."""
         await azure_bot_channel_shared._on_message(
-            sample_slack_group_activity
+            sample_slack_group_activity,
         )
         call_args = azure_bot_channel_shared._enqueue.call_args
         native = call_args[0][0]
@@ -527,7 +541,9 @@ class TestOnMessage:
 
     @pytest.mark.asyncio
     async def test_slack_dm_sets_display_sender(
-        self, azure_bot_channel, sample_slack_dm_activity
+        self,
+        azure_bot_channel,
+        sample_slack_dm_activity,
     ):
         """DM → sender_id = display_sender (name#last6)."""
         await azure_bot_channel._on_message(sample_slack_dm_activity)
@@ -537,7 +553,9 @@ class TestOnMessage:
 
     @pytest.mark.asyncio
     async def test_webchat_no_name_uses_channel_suffix(
-        self, azure_bot_channel, sample_webchat_activity
+        self,
+        azure_bot_channel,
+        sample_webchat_activity,
     ):
         """Web Chat with empty name → sender_id = channelId#last6."""
         await azure_bot_channel._on_message(sample_webchat_activity)
@@ -547,7 +565,9 @@ class TestOnMessage:
 
     @pytest.mark.asyncio
     async def test_require_mention_skips_unmentioned(
-        self, mock_process_handler, tmp_path
+        self,
+        mock_process_handler,
+        tmp_path,
     ):
         """Group + require_mention + not mentioned → skip."""
         from qwenpaw.app.channels.azure_bot.channel import AzureBotChannel
@@ -638,7 +658,8 @@ class TestBotMention:
             ],
         }
         result = azure_bot_channel._strip_bot_mention(
-            "<at>QwenPaw</at> hello", activity
+            "<at>QwenPaw</at> hello",
+            activity,
         )
         assert result == "hello"
 
@@ -654,7 +675,6 @@ class TestSend:
     @pytest.mark.asyncio
     async def test_send_uses_meta_bot_id(self, azure_bot_channel):
         """send() should prefer bot_channel_id from meta."""
-        import aiohttp
 
         mock_resp = AsyncMock()
         mock_resp.status = 200
@@ -667,7 +687,9 @@ class TestSend:
         azure_bot_channel._http_session = mock_session
 
         with patch.object(
-            azure_bot_channel, "_get_bot_token", return_value="fake-token"
+            azure_bot_channel,
+            "_get_bot_token",
+            return_value="fake-token",
         ):
             await azure_bot_channel.send(
                 to_handle="handle",
@@ -704,7 +726,9 @@ class TestSend:
         azure_bot_channel._http_session = mock_session
 
         with patch.object(
-            azure_bot_channel, "_get_bot_token", return_value="fake-token"
+            azure_bot_channel,
+            "_get_bot_token",
+            return_value="fake-token",
         ):
             await azure_bot_channel.send(
                 to_handle="handle",
@@ -738,7 +762,9 @@ class TestSend:
         azure_bot_channel._http_session = mock_session
 
         with patch.object(
-            azure_bot_channel, "_get_bot_token", return_value="token"
+            azure_bot_channel,
+            "_get_bot_token",
+            return_value="token",
         ):
             await azure_bot_channel.send("handle", "hi", meta={})
 
