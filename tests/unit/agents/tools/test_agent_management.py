@@ -391,8 +391,10 @@ async def test_chat_with_agent_rejects_current_agent_target(monkeypatch):
         text="Need help",
     )
 
-    assert "must be different from the current agent" in response.content[0].text
-    assert calls == []
+    assert (
+        "must be different from the current agent" in response.content[0].text
+    )
+    assert not calls
 
 
 async def test_chat_with_agent_returns_clear_error_when_agent_missing(
@@ -435,5 +437,7 @@ async def test_submit_to_agent_rejects_current_agent_target(monkeypatch):
         text="Run this in the background",
     )
 
-    assert "must be different from the current agent" in response.content[0].text
-    assert calls == []
+    assert (
+        "must be different from the current agent" in response.content[0].text
+    )
+    assert not calls
