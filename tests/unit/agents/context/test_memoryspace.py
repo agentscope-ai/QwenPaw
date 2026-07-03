@@ -179,6 +179,57 @@ def test_search_excludes_recall_tool_own_turns(tmp_path: Path):
         space.close()
 
 
+def test_search_excludes_the_active_turn(tmp_path: Path):
+    """The current request and its in-progress reply must not surface as
+    hits: they are already in the live window, and a second recall round
+    would otherwise top-k-match the previous round's quoted findings
+    (echo loop). Earlier turns of the SAME session stay searchable."""
+    h = HistoryStore(tmp_path / "history.db")
+    rows = [
+        ("old_u", "context_msg", "user", "tanks question from earlier"),
+        ("old_a", "model_turn", "assistant", "tanks were parked at base"),
+        # The ACTIVE turn: the latest user request + the reply being written.
+        ("cur_u", "context_msg", "user", "tanks question retried"),
+        ("cur_a", "model_turn", "assistant", "tanks quote from last recall"),
+    ]
+    for key, kind, role, content in rows:
+        h.append(
+            session_id="s1",
+            agent_id="ag1",
+            dedup_key=key,
+            entry=LogEntry(kind=kind, role=role, content=content),
+        )
+    h.append(  # another session is untouched by the exclusion
+        session_id="s2",
+        agent_id="ag1",
+        dedup_key="other",
+        entry=LogEntry(
+            kind="model_turn",
+            role="assistant",
+            content="tanks moved in another session",
+        ),
+    )
+    h.close()
+    space = MemorySpace(
+        history_db_path=str(tmp_path / "history.db"),
+        session_id="s1",
+        agent_id="ag1",
+    )
+    try:
+        expected = {
+            "tanks question from earlier",
+            "tanks were parked at base",
+            "tanks moved in another session",
+        }
+        assert {r["content"] for r in space.search("tanks", k=10)} == expected
+        # The LIKE fallback applies the same exclusion.
+        like = space._search_like("tanks", [("agent_id", "ag1")], None, 10)
+        got = {r["content"] for r in like if r["kind"] != "_notice"}
+        assert got == expected
+    finally:
+        space.close()
+
+
 def test_search_rows_carry_session_id(ms: MemorySpace):
     # Cross-session/agent search is only useful if a hit says which session it
     # came from — the model needs ``session_id`` to follow up (it used to guess

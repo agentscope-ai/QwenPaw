@@ -72,7 +72,8 @@ The persistent record reaches you through `ms`. Prefer these intent helpers
     ("model_turn" / "tool_result"). Row: {seq, session_id, kind, role, name,
     headline, content (full turn)}. Query with keywords, not full sentences
     (all terms must appear); use OR-sets for alternatives and a generous k to
-    cast a wide net: ms.search("tank OR aquarium OR goldfish", k=20).
+    cast a wide net: ms.search("tank OR aquarium OR goldfish", k=20). Your
+    current in-progress turn is never a hit — it is already in front of you.
   • ms.sessions() — your past conversations (incl. scheduled cron/heartbeat
     runs); ms.session(session_id, all_agents=False) reads one in full, scoped
     to you by default. ms.agents() lists agents.
