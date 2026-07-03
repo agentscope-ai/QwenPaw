@@ -107,7 +107,7 @@ A long tool-running turn (a `/heartbeat` cron run, a multi-search task) can exce
 
 1. **Evict** — finished turns before the active turn fold into the eviction index (the normal case).
 2. **Compact** — if the window still overflows the reserve, the index itself rolls up tier by tier toward a single line.
-3. **Fold** — still overflowing (typically: the active turn *is* the whole context), the active turn's completed tool results are replaced **in place** with one-line recall stubs:
+3. **Fold** — still overflowing (typically: the active turn _is_ the whole context), the active turn's completed tool results are replaced **in place** with one-line recall stubs:
 
    ```text
    [scroll folded] full result stored in history — re-read it in recall_history_python: ms.expand(184, 184)
