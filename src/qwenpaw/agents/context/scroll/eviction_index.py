@@ -266,6 +266,11 @@ class EvictionIndex:
             "needs no other filter). Other recall helpers (search, sessions, "
             "…) are in the recall_history_python tool description.",
             "",
+            "If the user's CURRENT request is not visible among the live "
+            "turns below, do NOT answer an older visible message as if it "
+            "were the request — recall the missing span first; if recall "
+            "cannot retrieve it, say so explicitly instead of guessing.",
+            "",
         ]
         out.extend(self._tier_lines())
         out.append("</system-info>")

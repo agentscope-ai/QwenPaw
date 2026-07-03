@@ -283,11 +283,33 @@ async def _run_subprocess(
 
 
 def _format_observation(stdout: str, stderr: str, code: int) -> str:
+    """Render the cell's outcome so a failure can NEVER read as an answer.
+
+    A non-zero exit leads with an explicit failure banner: without it a
+    traceback (or silence) after a history query is too easy to misread as
+    "the history holds nothing", and the model may then answer from stale
+    context instead of retrying or saying recall failed. Same for the
+    exit-0-but-silent case: printing nothing is not evidence of absence.
+    """
     parts: list[str] = []
+    if code != 0:
+        parts.append(
+            f"RECALL FAILED (exit {code}) — the history was NOT read. "
+            "This is an execution error, not an empty history: fix the "
+            "query and retry, or say explicitly that you could not "
+            "retrieve the context. Do not answer as if the history held "
+            "nothing.",
+        )
     if stdout.strip():
         parts.append(f"stdout:\n{stdout.rstrip()}")
     if stderr.strip():
         parts.append(f"stderr:\n{stderr.rstrip()}")
     if code != 0:
         parts.append(f"exit_code: {code}")
-    return "\n".join(parts) if parts else "(no output)"
+    if not parts:
+        return (
+            "(no output — the cell printed nothing. This is not evidence "
+            "the history is empty: print() your results, or retry with "
+            "different keywords.)"
+        )
+    return "\n".join(parts)
