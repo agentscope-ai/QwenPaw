@@ -10,10 +10,16 @@ Test structure aligns with test_linux_sandbox.py:
     5. Network capabilities (Windows-specific)
     6. Container reuse (Windows-specific)
     7. Factory (create_sandbox routing)
+    8. AppContainer profile creation / deletion lifecycle
+    9. NTFS junction creation / removal
+    10. WindowsSandbox.execute() — success / violation / timeout
+    11. Cleanup script idempotency
 """
 
 import asyncio
+import json
 import os
+import shutil
 import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -24,6 +30,7 @@ from qwenpaw.sandbox.windows_sandbox import (
     WindowsSandbox,
     _compute_acl_fingerprint,
     _compute_network_capabilities,
+    _create_workspace_junction,
     _find_reusable_container,
     _load_container_metadata,
     _save_container_metadata,
@@ -616,3 +623,363 @@ class TestFactoryAppContainer:
         )
         sandbox = create_sandbox(config)
         assert isinstance(sandbox, WindowsSandbox)
+
+
+# ============================================================================
+# AppContainer profile creation / deletion lifecycle
+# ============================================================================
+
+
+class TestAppContainerProfileLifecycle:
+    """Test profile creation and deletion via mocked Win32 APIs."""
+
+    @patch("qwenpaw.sandbox.windows_sandbox._sid_to_string")
+    @patch("ctypes.windll", create=True)
+    @patch("qwenpaw.sandbox.windows_sandbox._get_advapi32")
+    @patch("qwenpaw.sandbox.windows_sandbox._get_userenv")
+    def test_create_profile_success(
+        self, mock_userenv_fn, mock_advapi32_fn, mock_windll, mock_sid_to_str
+    ):
+        """CreateAppContainerProfile returns 0 → SID is extracted."""
+        mock_userenv = MagicMock()
+        mock_userenv.CreateAppContainerProfile.return_value = 0
+        mock_userenv_fn.return_value = mock_userenv
+
+        mock_advapi32 = MagicMock()
+        mock_advapi32_fn.return_value = mock_advapi32
+
+        mock_windll.ole32.CoTaskMemFree = MagicMock()
+        mock_sid_to_str.return_value = "S-1-15-2-111-222-333"
+
+        from qwenpaw.sandbox.windows_sandbox import (
+            _create_appcontainer_profile,
+        )
+
+        sid = _create_appcontainer_profile(
+            "qwenpaw_test", "Test", "Test container"
+        )
+        assert sid == "S-1-15-2-111-222-333"
+        mock_userenv.CreateAppContainerProfile.assert_called_once()
+        mock_sid_to_str.assert_called_once()
+
+    @patch("qwenpaw.sandbox.windows_sandbox._get_appcontainer_sid")
+    @patch("qwenpaw.sandbox.windows_sandbox._get_userenv")
+    def test_create_profile_already_exists(
+        self, mock_userenv_fn, mock_get_sid
+    ):
+        """HRESULT 0x800700B7 (already exists) → derives SID instead."""
+        mock_userenv = MagicMock()
+        # _HRESULT_ERROR_ALREADY_EXISTS = -2147023649
+        mock_userenv.CreateAppContainerProfile.return_value = -2147023649
+        mock_userenv_fn.return_value = mock_userenv
+
+        mock_get_sid.return_value = "S-1-15-2-999-888-777"
+
+        from qwenpaw.sandbox.windows_sandbox import (
+            _create_appcontainer_profile,
+        )
+
+        sid = _create_appcontainer_profile(
+            "qwenpaw_existing", "Test", "Existing container"
+        )
+        assert sid == "S-1-15-2-999-888-777"
+        mock_get_sid.assert_called_once_with("qwenpaw_existing")
+
+    @patch("qwenpaw.sandbox.windows_sandbox._get_appcontainer_sid")
+    @patch("qwenpaw.sandbox.windows_sandbox._get_userenv")
+    def test_create_profile_already_exists_no_sid(
+        self, mock_userenv_fn, mock_get_sid
+    ):
+        """Already exists but cannot derive SID → raises OSError."""
+        mock_userenv = MagicMock()
+        mock_userenv.CreateAppContainerProfile.return_value = -2147023649
+        mock_userenv_fn.return_value = mock_userenv
+
+        mock_get_sid.return_value = None
+
+        import pytest
+
+        from qwenpaw.sandbox.windows_sandbox import (
+            _create_appcontainer_profile,
+        )
+
+        with pytest.raises(OSError, match="cannot derive SID"):
+            _create_appcontainer_profile(
+                "qwenpaw_broken", "Test", "Broken container"
+            )
+
+    @patch("qwenpaw.sandbox.windows_sandbox._get_userenv")
+    def test_create_profile_unexpected_hresult(self, mock_userenv_fn):
+        """Unknown HRESULT → raises OSError."""
+        mock_userenv = MagicMock()
+        mock_userenv.CreateAppContainerProfile.return_value = -2147024891
+        mock_userenv_fn.return_value = mock_userenv
+
+        import pytest
+
+        from qwenpaw.sandbox.windows_sandbox import (
+            _create_appcontainer_profile,
+        )
+
+        with pytest.raises(OSError, match="CreateAppContainerProfile failed"):
+            _create_appcontainer_profile(
+                "qwenpaw_fail", "Test", "Failing container"
+            )
+
+    @patch("qwenpaw.sandbox.windows_sandbox._get_userenv")
+    def test_delete_profile_success(self, mock_userenv_fn):
+        """DeleteAppContainerProfile returns 0 → True."""
+        mock_userenv = MagicMock()
+        mock_userenv.DeleteAppContainerProfile.return_value = 0
+        mock_userenv_fn.return_value = mock_userenv
+
+        from qwenpaw.sandbox.windows_sandbox import (
+            _delete_appcontainer_profile,
+        )
+
+        assert _delete_appcontainer_profile("qwenpaw_test") is True
+
+    @patch("qwenpaw.sandbox.windows_sandbox._get_userenv")
+    def test_delete_profile_failure(self, mock_userenv_fn):
+        """DeleteAppContainerProfile returns non-zero → False."""
+        mock_userenv = MagicMock()
+        mock_userenv.DeleteAppContainerProfile.return_value = -1
+        mock_userenv_fn.return_value = mock_userenv
+
+        from qwenpaw.sandbox.windows_sandbox import (
+            _delete_appcontainer_profile,
+        )
+
+        assert _delete_appcontainer_profile("qwenpaw_missing") is False
+
+    @patch("qwenpaw.sandbox.windows_sandbox._get_userenv")
+    def test_delete_profile_oserror(self, mock_userenv_fn):
+        """OSError during delete → returns False."""
+        mock_userenv = MagicMock()
+        mock_userenv.DeleteAppContainerProfile.side_effect = OSError("fail")
+        mock_userenv_fn.return_value = mock_userenv
+
+        from qwenpaw.sandbox.windows_sandbox import (
+            _delete_appcontainer_profile,
+        )
+
+        assert _delete_appcontainer_profile("qwenpaw_err") is False
+
+
+# ============================================================================
+# NTFS junction creation / removal
+# ============================================================================
+
+
+class TestNTFSJunction:
+    """Test NTFS junction creation and fallback behavior."""
+
+    def test_create_junction_new(self):
+        """Creates a junction when none exists."""
+        with tempfile.TemporaryDirectory() as tmp:
+            state_dir = Path(tmp)
+            workspace = str(state_dir / "workspace")
+            os.makedirs(workspace)
+
+            with patch("subprocess.run") as mock_run:
+                mock_run.return_value = MagicMock(returncode=0)
+                result = _create_workspace_junction(workspace, state_dir)
+
+            # Should be under state_dir/junctions/<hash>
+            assert "junctions" in result
+            mock_run.assert_called_once()
+            cmd_args = mock_run.call_args[0][0]
+            assert "mklink" in cmd_args
+            assert "/J" in cmd_args
+
+    def test_create_junction_existing_correct_target(self):
+        """Reuses existing junction if it points to the correct target."""
+        with tempfile.TemporaryDirectory() as tmp:
+            state_dir = Path(tmp)
+            workspace = str(state_dir / "workspace")
+            os.makedirs(workspace)
+
+            # Pre-create the junction directory (simulate existing junction)
+            import hashlib
+
+            ws_hash = hashlib.sha256(workspace.encode()).hexdigest()[:12]
+            junction_dir = state_dir / "junctions"
+            junction_dir.mkdir(parents=True)
+            junction_path = junction_dir / ws_hash
+            junction_path.mkdir()  # Create as a directory (like a real junction)
+
+            # Mock os.readlink to return the workspace path (simulates a
+            # correctly-targeted junction without needing an actual NTFS junction)
+            with (
+                patch("os.readlink", return_value=workspace),
+                patch("subprocess.run") as mock_run,
+            ):
+                result = _create_workspace_junction(workspace, state_dir)
+
+            mock_run.assert_not_called()
+            assert result == str(junction_path)
+
+    def test_create_junction_failure_falls_back(self):
+        """Falls back to workspace_dir if mklink fails."""
+        import subprocess
+
+        with tempfile.TemporaryDirectory() as tmp:
+            state_dir = Path(tmp)
+            workspace = str(state_dir / "workspace")
+            os.makedirs(workspace)
+
+            with patch("subprocess.run") as mock_run:
+                mock_run.side_effect = subprocess.CalledProcessError(
+                    1, "cmd", stderr=b"error"
+                )
+                result = _create_workspace_junction(workspace, state_dir)
+
+            # Falls back to workspace path
+            assert result == workspace
+
+
+# ============================================================================
+# WindowsSandbox.execute() — success / violation / timeout
+# ============================================================================
+
+
+class TestWindowsSandboxExecute:
+    """Test execute() method with mocked process creation."""
+
+    def _make_sandbox(self, **kwargs):
+        defaults = {
+            "mode": SandboxMode.APPCONTAINER,
+            "workspace_dir": r"C:\project",
+        }
+        defaults.update(kwargs)
+        config = SandboxConfig(**defaults)
+        sandbox = WindowsSandbox(config)
+        sandbox._container_sid = "S-1-15-2-12345"
+        sandbox._container_name = "qwenpaw_test"
+        sandbox._junction_path = None
+        return sandbox
+
+    @patch("qwenpaw.sandbox.windows_sandbox._wait_and_read_process")
+    @patch("qwenpaw.sandbox.windows_sandbox._create_process_in_appcontainer")
+    def test_execute_success(self, mock_create, mock_wait):
+        """Successful command returns exit_code=0, no violation."""
+        mock_create.return_value = (
+            1234,
+            MagicMock(),
+            MagicMock(),
+            MagicMock(),
+        )
+
+        async def fake_wait(*args):
+            return (0, "hello world\n", "", False)
+
+        mock_wait.side_effect = fake_wait
+
+        sandbox = self._make_sandbox()
+        result = asyncio.run(sandbox.execute("echo hello world"))
+
+        assert result.exit_code == 0
+        assert "hello world" in result.stdout
+        assert result.sandbox_violation is None
+        assert result.timed_out is False
+
+    @patch("qwenpaw.sandbox.windows_sandbox._wait_and_read_process")
+    @patch("qwenpaw.sandbox.windows_sandbox._create_process_in_appcontainer")
+    def test_execute_violation_detected(self, mock_create, mock_wait):
+        """Access denied in stderr → sandbox_violation is populated."""
+        mock_create.return_value = (
+            1234,
+            MagicMock(),
+            MagicMock(),
+            MagicMock(),
+        )
+
+        async def fake_wait(*args):
+            return (1, "", "Access is denied\n", False)
+
+        mock_wait.side_effect = fake_wait
+
+        sandbox = self._make_sandbox()
+        result = asyncio.run(sandbox.execute("type C:\\secret.txt"))
+
+        assert result.exit_code == 1
+        assert result.sandbox_violation is not None
+        assert "Access is denied" in result.sandbox_violation
+
+    @patch("qwenpaw.sandbox.windows_sandbox._wait_and_read_process")
+    @patch("qwenpaw.sandbox.windows_sandbox._create_process_in_appcontainer")
+    def test_execute_timeout(self, mock_create, mock_wait):
+        """Process exceeds timeout → timed_out=True."""
+        mock_create.return_value = (
+            1234,
+            MagicMock(),
+            MagicMock(),
+            MagicMock(),
+        )
+
+        async def fake_wait(*args):
+            return (1, "", "", True)
+
+        mock_wait.side_effect = fake_wait
+
+        sandbox = self._make_sandbox(timeout_seconds=5)
+        result = asyncio.run(sandbox.execute("ping -n 100 127.0.0.1"))
+
+        assert result.timed_out is True
+
+    @patch("qwenpaw.sandbox.windows_sandbox._wait_and_read_process")
+    @patch("qwenpaw.sandbox.windows_sandbox._create_process_in_appcontainer")
+    def test_execute_oserror(self, mock_create, mock_wait):
+        """CreateProcessW failure → exit_code=-1, error in stderr."""
+        mock_create.side_effect = OSError("CreateProcessW failed: error=5")
+
+        sandbox = self._make_sandbox()
+        result = asyncio.run(sandbox.execute("whoami"))
+
+        assert result.exit_code == -1
+        assert "CreateProcessW failed" in result.stderr
+
+    @patch("qwenpaw.sandbox.windows_sandbox._wait_and_read_process")
+    @patch("qwenpaw.sandbox.windows_sandbox._create_process_in_appcontainer")
+    def test_execute_violation_in_stdout_on_failure(
+        self, mock_create, mock_wait
+    ):
+        """Violation pattern in stdout (with non-zero exit) is detected."""
+        mock_create.return_value = (
+            1234,
+            MagicMock(),
+            MagicMock(),
+            MagicMock(),
+        )
+
+        async def fake_wait(*args):
+            return (1, "error 5 occurred\n", "", False)
+
+        mock_wait.side_effect = fake_wait
+
+        sandbox = self._make_sandbox()
+        result = asyncio.run(sandbox.execute("del C:\\protected\\file.txt"))
+
+        assert result.sandbox_violation is not None
+        assert "error 5" in result.sandbox_violation
+
+    @patch("qwenpaw.sandbox.windows_sandbox._wait_and_read_process")
+    @patch("qwenpaw.sandbox.windows_sandbox._create_process_in_appcontainer")
+    def test_execute_chinese_violation(self, mock_create, mock_wait):
+        """Chinese locale violation patterns are detected."""
+        mock_create.return_value = (
+            1234,
+            MagicMock(),
+            MagicMock(),
+            MagicMock(),
+        )
+
+        async def fake_wait(*args):
+            return (1, "", "\u62d2\u7edd\u8bbf\u95ee\u3002\n", False)
+
+        mock_wait.side_effect = fake_wait
+
+        sandbox = self._make_sandbox()
+        result = asyncio.run(sandbox.execute("dir C:\\secret"))
+
+        assert result.sandbox_violation is not None

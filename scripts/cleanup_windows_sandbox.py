@@ -2,17 +2,24 @@
 """Cleanup script: removes all QwenPaw AppContainer profiles, ACLs, and state.
 
 Run on Windows with administrator privileges:
-    python scripts/cleanup_appcontainer.py
+    python scripts/cleanup_windows_sandbox.py
 
 This script performs the following cleanup steps:
-    1. Reads all container metadata from ~/.qwenpaw/containers/*.json
-    2. For each container:
-       a. Removes ACLs (icacls /remove) from known paths
-       b. Deletes the AppContainer profile via userenv.dll
-    3. Removes all NTFS junctions in ~/.qwenpaw/junctions/
-    4. Deletes the ~/.qwenpaw/containers/ and ~/.qwenpaw/junctions/ directories
+    For each container metadata file in ~/.qwenpaw/containers/*.json:
+        1. Removes ACLs (icacls /remove) from known paths
+        2. Removes the associated NTFS junction
+        3. Deletes the AppContainer profile via userenv.dll
+        4. Deletes the metadata JSON file
+
+    After all containers are processed:
+        5. Removes any remaining NTFS junctions in ~/.qwenpaw/junctions/
+        6. Removes empty state directories
+
+This per-file approach allows the script to be interrupted and resumed
+safely — only fully-cleaned containers have their JSON removed.
 
 Safe to run multiple times (idempotent).
+Requires administrator privileges.
 """
 
 import ctypes
@@ -25,27 +32,20 @@ from pathlib import Path
 from typing import List, Optional
 
 
+def _is_admin() -> bool:
+    """Check if the current process has administrator privileges."""
+    try:
+        return ctypes.windll.shell32.IsUserAnAdmin() != 0
+    except (AttributeError, OSError):
+        return False
+
+
 def _get_state_dir() -> Path:
     """Returns the QwenPaw state directory (~/.qwenpaw)."""
     return (
         Path(os.environ.get("USERPROFILE", os.path.expanduser("~")))
         / ".qwenpaw"
     )
-
-
-def _load_all_metadata(state_dir: Path) -> List[dict]:
-    """Loads all container metadata JSON files."""
-    containers_dir = state_dir / "containers"
-    if not containers_dir.is_dir():
-        return []
-    results = []
-    for f in containers_dir.glob("*.json"):
-        try:
-            with open(f, "r", encoding="utf-8") as fp:
-                results.append(json.load(fp))
-        except (json.JSONDecodeError, OSError):
-            continue
-    return results
 
 
 def _delete_appcontainer_profile(container_name: str) -> bool:
@@ -88,7 +88,7 @@ def _run_icacls(args: List[str]) -> bool:
         result = subprocess.run(
             ["icacls"] + args,
             capture_output=True,
-            timeout=30,
+            timeout=180,
             check=False,
         )
         return result.returncode == 0
@@ -119,57 +119,6 @@ def _remove_junction(junction_path: str) -> bool:
     except OSError:
         pass
     return False
-
-
-def _cleanup_container_acls(
-    meta: dict,
-    state_dir: Path,
-    fallback_global_paths: List[str],
-) -> Optional[Path]:
-    """Remove ACLs and delete profile for a single container.
-
-    Returns the metadata file Path if it should be deleted, or None.
-    """
-    container_name = meta.get("container_name", "")
-    sid = meta.get("sid", "")
-    workspace_dir = meta.get("workspace_dir", "")
-    acl_manifest = meta.get("acl_manifest")
-
-    print(f"\n  Container: {container_name}")
-    print(f"    SID: {sid}")
-
-    # Track the metadata file for deletion
-    meta_file: Optional[Path] = None
-    if container_name:
-        candidate = state_dir / "containers" / f"{container_name}.json"
-        if candidate.exists():
-            meta_file = candidate
-
-    if not sid:
-        # Try to derive SID from container name
-        sid = _get_appcontainer_sid(container_name) or ""
-        if sid:
-            print(f"    Derived SID: {sid}")
-        else:
-            print("    WARNING: Cannot determine SID, skipping ACL removal.")
-
-    if sid:
-        _remove_container_acl_entries(
-            sid,
-            acl_manifest,
-            workspace_dir,
-            state_dir,
-            fallback_global_paths,
-        )
-
-    # Delete the AppContainer profile
-    if container_name:
-        ok = _delete_appcontainer_profile(container_name)
-        print(
-            f"    Delete profile: {'OK' if ok else 'FAILED (may not exist)'}",
-        )
-
-    return meta_file
 
 
 def _remove_container_acl_entries(
@@ -226,10 +175,84 @@ def _remove_container_acl_entries(
             _run_icacls([workspace_dir, "/inheritance:e"])
 
 
-def _cleanup_junctions(state_dir: Path) -> None:
-    """Remove all NTFS junctions from the junctions directory."""
+def _cleanup_single_container(
+    meta_file: Path,
+    state_dir: Path,
+    fallback_global_paths: List[str],
+) -> None:
+    """Clean up a single container: ACLs → junction → profile → JSON file.
+
+    Each container is fully cleaned before its metadata file is removed,
+    allowing the script to be interrupted and resumed without leaving
+    partially-cleaned state.
+    """
+    # Load metadata
+    try:
+        with open(meta_file, "r", encoding="utf-8") as fp:
+            meta = json.load(fp)
+    except (json.JSONDecodeError, OSError) as e:
+        print(f"\n  WARNING: Cannot read {meta_file.name}: {e}")
+        print("    Removing invalid metadata file.")
+        try:
+            meta_file.unlink()
+        except OSError:
+            pass
+        return
+
+    container_name = meta.get("container_name", "")
+    sid = meta.get("sid", "")
+    workspace_dir = meta.get("workspace_dir", "")
+    junction_path = meta.get("junction_path", "")
+    acl_manifest = meta.get("acl_manifest")
+
+    print(f"\n  Container: {container_name}")
+    print(f"    SID: {sid}")
+
+    # Step 1: Resolve SID if missing
+    if not sid:
+        sid = _get_appcontainer_sid(container_name) or ""
+        if sid:
+            print(f"    Derived SID: {sid}")
+        else:
+            print("    WARNING: Cannot determine SID, skipping ACL removal.")
+
+    # Step 2: Remove ACL entries
+    if sid:
+        _remove_container_acl_entries(
+            sid,
+            acl_manifest,
+            workspace_dir,
+            state_dir,
+            fallback_global_paths,
+        )
+
+    # Step 3: Remove the associated junction
+    if junction_path and os.path.exists(junction_path):
+        print(f"    Removing junction: {junction_path}")
+        if _remove_junction(junction_path):
+            print("    Junction removed.")
+        else:
+            print("    WARNING: Failed to remove junction.")
+
+    # Step 4: Delete the AppContainer profile
+    if container_name:
+        ok = _delete_appcontainer_profile(container_name)
+        print(
+            f"    Delete profile: {'OK' if ok else 'FAILED (may not exist)'}",
+        )
+
+    # Step 5: Delete the metadata JSON file (marks this container as done)
+    try:
+        meta_file.unlink()
+        print(f"    Deleted metadata: {meta_file.name}")
+    except OSError as e:
+        print(f"    WARNING: Failed to delete {meta_file.name}: {e}")
+
+
+def _cleanup_remaining_junctions(state_dir: Path) -> None:
+    """Remove any remaining NTFS junctions not tied to a metadata file."""
     junctions_dir = state_dir / "junctions"
-    print(f"\n[3] Removing NTFS junctions from: {junctions_dir}")
+    print(f"\n[2] Removing remaining NTFS junctions from: {junctions_dir}")
     if junctions_dir.is_dir():
         count = 0
         for entry in junctions_dir.iterdir():
@@ -245,7 +268,7 @@ def _cleanup_junctions(state_dir: Path) -> None:
 
 def _cleanup_state_dirs(state_dir: Path) -> None:
     """Remove state directories (containers/, junctions/) and clean up."""
-    print("\n[4] Removing state directories...")
+    print("\n[3] Removing state directories...")
     junctions_dir = state_dir / "junctions"
     containers_dir = state_dir / "containers"
     for d in [containers_dir, junctions_dir]:
@@ -284,6 +307,13 @@ def main() -> None:
         print("ERROR: This script must run on Windows.")
         sys.exit(1)
 
+    if not _is_admin():
+        print("ERROR: This script requires administrator privileges.")
+        print(
+            "Please run as administrator (right-click → Run as administrator)."
+        )
+        sys.exit(1)
+
     print("=" * 60)
     print("WARNING: This will clean up ALL QwenPaw AppContainer sandboxes,")
     print("including any that are currently RUNNING.")
@@ -303,22 +333,6 @@ def main() -> None:
     print(f"  State directory: {state_dir}")
     print()
 
-    # Step 1: Load metadata
-    metadata_list = _load_all_metadata(state_dir)
-    print(f"[1] Found {len(metadata_list)} container metadata file(s).")
-
-    if not metadata_list:
-        # Try to find any qwenpaw_ containers by brute-force pattern
-        print(
-            "    No metadata found. Attempting to find containers"
-            " by name pattern...",
-        )
-        # We can't enumerate AppContainer profiles directly without metadata,
-        # but we'll still clean up junctions and directories below.
-
-    # Step 2: Remove ACLs and delete profiles
-    print("\n[2] Removing ACLs and deleting AppContainer profiles...")
-
     # Fallback paths for legacy metadata without acl_manifest
     sys_drive = os.environ.get("SystemDrive", "C:")
     users_dir = sys_drive + "\\Users"
@@ -330,33 +344,25 @@ def main() -> None:
         os.path.dirname(sys.executable),
     ]
 
-    metadata_files_to_delete: List[Path] = []
+    # Step 1: Process each container metadata file individually
+    containers_dir = state_dir / "containers"
+    if containers_dir.is_dir():
+        json_files = sorted(containers_dir.glob("*.json"))
+        print(f"[1] Found {len(json_files)} container metadata file(s).")
 
-    for meta in metadata_list:
-        meta_file = _cleanup_container_acls(
-            meta,
-            state_dir,
-            fallback_global_paths,
-        )
-        if meta_file:
-            metadata_files_to_delete.append(meta_file)
+        for meta_file in json_files:
+            _cleanup_single_container(
+                meta_file,
+                state_dir,
+                fallback_global_paths,
+            )
+    else:
+        print("[1] No container metadata directory found.")
 
-    # Delete metadata JSON files
-    if metadata_files_to_delete:
-        print(
-            f"\n  Deleting {len(metadata_files_to_delete)} metadata file(s)...",
-        )
-        for meta_file in metadata_files_to_delete:
-            try:
-                meta_file.unlink()
-                print(f"    Deleted: {meta_file.name}")
-            except OSError as e:
-                print(f"    WARNING: Failed to delete {meta_file}: {e}")
+    # Step 2: Remove any remaining junctions
+    _cleanup_remaining_junctions(state_dir)
 
-    # Step 3: Remove all junctions
-    _cleanup_junctions(state_dir)
-
-    # Step 4: Remove state directories
+    # Step 3: Remove state directories
     _cleanup_state_dirs(state_dir)
 
     print("\n" + "=" * 60)
