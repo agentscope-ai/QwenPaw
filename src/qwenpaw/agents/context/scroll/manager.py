@@ -146,10 +146,10 @@ class ScrollContextManager:
     async def compress(self, agent: Any, context_config: Any = None) -> None:
         """Evict the middle into the index; roll the index up under pressure.
 
-        A single pressure pipeline — each stage runs only while the context
-        still overflows the reserve, so "nothing evictable" (a single-request
-        session whose active turn IS the whole context) is just the first
-        stage running empty, not a special case:
+        A single pressure pipeline — steps 5 and 6 engage only while the
+        context still overflows the reserve, so "nothing evictable" (a
+        single-request session whose active turn IS the whole context) is
+        just step 4 running empty, not a special case:
 
         1. persist     — every live turn is now durable.
         2. trigger     — under the token threshold? nothing to do.
