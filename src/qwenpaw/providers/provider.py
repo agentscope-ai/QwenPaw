@@ -5,10 +5,10 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Any, Dict, List, Literal, Type
-from pydantic import BaseModel, Field
-from pydantic import ConfigDict
 
 from agentscope.model import ChatModelBase
+from pydantic import BaseModel, ConfigDict, Field
+
 from qwenpaw.exceptions import ProviderError
 
 if TYPE_CHECKING:
@@ -565,11 +565,23 @@ class Provider(ProviderInfo, ABC):
 
     async def get_info(self, mock_secret: bool = True) -> ProviderInfo:
         """Return a ProviderInfo instance with the provider's details."""
-        api_key = (
-            self.api_key_prefix + "*" * 6
-            if mock_secret and self.api_key
-            else self.api_key
-        )
+        if mock_secret and self.api_key:
+            # Determine which prefix to show in the masked key.
+            # If api_key_prefixes is set, pick the one matching the
+            # actual key; otherwise fall back to api_key_prefix.
+            prefix_for_mask = self.api_key_prefix
+            if self.api_key_prefixes:
+                prefix_for_mask = next(
+                    (
+                        p
+                        for p in self.api_key_prefixes
+                        if self.api_key.startswith(p)
+                    ),
+                    self.api_key_prefix,
+                )
+            api_key = prefix_for_mask + "*" * 6
+        else:
+            api_key = self.api_key
         # Serialize models/extra_models to plain dicts so that
         # ProviderInfo constructs fresh ModelInfo instances using
         # the class in its own module scope.  This avoids pydantic

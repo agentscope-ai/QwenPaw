@@ -15,8 +15,8 @@ from openai import APIError
 from pydantic import Field
 
 from qwenpaw.providers.provider import ModelInfo, Provider
-from .capping_formatter import _CappingOpenAIFormatter
-from .capping_formatter import MAX_INLINE_MEDIA_BYTES
+
+from .capping_formatter import MAX_INLINE_MEDIA_BYTES, _CappingOpenAIFormatter
 
 if TYPE_CHECKING:
     from qwenpaw.providers.multimodal_prober import ProbeResult
@@ -103,12 +103,19 @@ class OpenAIProvider(Provider):
         try:
             await client.models.list(timeout=timeout)
             return True, ""
-        except APIError:
-            return False, f"API error when connecting to `{self.base_url}`"
-        except Exception:
+        except APIError as exc:
+            detail = str(exc) or getattr(exc, "message", "")
+            status = getattr(exc, "status_code", "unknown")
             return (
                 False,
-                f"Unknown exception when connecting to `{self.base_url}`",
+                f"API error when connecting to `{self.base_url}` "
+                f"(status={status}): {detail}",
+            )
+        except Exception as exc:
+            return (
+                False,
+                f"Unknown exception when connecting to `{self.base_url}`: "
+                f"{exc}",
             )
 
     async def fetch_models(self, timeout: float = 5) -> List[ModelInfo]:
@@ -279,8 +286,8 @@ class OpenAIProvider(Provider):
             this class of silent failures.
         """
         from .multimodal_prober import (
-            _PROBE_IMAGE_B64,
             _IMAGE_PROBE_PROMPT,
+            _PROBE_IMAGE_B64,
             _is_media_keyword_error,
             evaluate_image_probe_answer,
         )
@@ -362,10 +369,7 @@ class OpenAIProvider(Provider):
         timeout: float = 30,
     ) -> tuple[bool, str]:
         """Probe video support with automatic format fallback."""
-        from .multimodal_prober import (
-            _PROBE_VIDEO_B64,
-            _PROBE_VIDEO_URL,
-        )
+        from .multimodal_prober import _PROBE_VIDEO_B64, _PROBE_VIDEO_URL
 
         logger.info(
             "Video probe start: model=%s url=%s",
@@ -609,3 +613,68 @@ class KiloProvider(_FreeSuffixProviderMixin, OpenAIProvider):
     """Kilo Code provider with dynamic free model detection."""
 
     _FREE_SUFFIX = ":free"
+
+
+class GitHubModelsProvider(OpenAIProvider):
+    """GitHub Models provider.
+
+    GitHub Models exposes an OpenAI-compatible chat completions endpoint at
+    ``https://models.github.ai/inference``.  Unlike many OpenAI-compatible
+    providers it does **not** implement the ``/models`` listing endpoint, so
+    the generic ``OpenAIProvider.check_connection`` (which calls
+    ``client.models.list()``) receives a 404 response.  This override checks
+    connectivity by issuing a minimal chat completion request instead.
+    """
+
+    async def check_connection(self, timeout: float = 5) -> tuple[bool, str]:
+        """Check connectivity via a tiny chat completion request."""
+        # Prefer a built-in model; fall back to a well-known GitHub Models id.
+        model_id = ""
+        for candidate in ("openai/gpt-4o-mini", "gpt-4o-mini"):
+            if any(m.id == candidate for m in self.models):
+                model_id = candidate
+                break
+        if not model_id:
+            model_id = (
+                self.models[0].id if self.models else "openai/gpt-4o-mini"
+            )
+
+        try:
+            client = self._client(timeout=timeout)
+            res = await client.chat.completions.create(
+                model=model_id,
+                messages=[
+                    {
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "text",
+                                "text": "ping",
+                            },
+                        ],
+                    },
+                ],
+                timeout=timeout,
+                max_tokens=5,
+                stream=True,
+            )
+            try:
+                async for _ in res:
+                    break
+            finally:
+                await res.response.aclose()
+            return True, ""
+        except APIError as exc:
+            detail = str(exc) or getattr(exc, "message", "")
+            status = getattr(exc, "status_code", "unknown")
+            return (
+                False,
+                f"API error when connecting to `{self.base_url}` "
+                f"(status={status}): {detail}",
+            )
+        except Exception as exc:
+            return (
+                False,
+                f"Unknown exception when connecting to `{self.base_url}`: "
+                f"{exc}",
+            )

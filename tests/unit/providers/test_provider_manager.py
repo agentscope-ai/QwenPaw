@@ -6,23 +6,23 @@ import json
 from types import SimpleNamespace
 
 import pytest
-from qwenpaw.exceptions import (
-    ModelNotFoundException,
-)
 
 import qwenpaw.providers.provider_manager as provider_manager_module
-from qwenpaw.exceptions import ProviderError
-from qwenpaw.providers.anthropic_provider import AnthropicProvider
 from qwenpaw.config.config import ModelSlotConfig
+from qwenpaw.exceptions import ModelNotFoundException, ProviderError
+from qwenpaw.local_models.llamacpp import LlamaCppServerSetupResult
+from qwenpaw.providers.anthropic_provider import AnthropicProvider
 from qwenpaw.providers.capping_formatter import (
     _CappingAnthropicFormatter,
     _CappingGeminiFormatter,
     _CappingOpenAIFormatter,
 )
-from qwenpaw.providers.openai_provider import OpenAIProvider
+from qwenpaw.providers.openai_provider import (
+    GitHubModelsProvider,
+    OpenAIProvider,
+)
 from qwenpaw.providers.provider import ModelInfo
 from qwenpaw.providers.provider_manager import ProviderManager
-from qwenpaw.local_models.llamacpp import LlamaCppServerSetupResult
 
 LEGACY_PROVIDER = {
     "providers": {
@@ -805,6 +805,7 @@ async def test_github_models_provider_uses_new_endpoint_and_prefixes(
 
     assert provider is not None
     assert isinstance(provider, OpenAIProvider)
+    assert isinstance(provider, GitHubModelsProvider)
     assert provider.base_url == "https://models.github.ai/inference"
     assert provider.freeze_url is False
     assert provider.api_key_prefix == "ghp_"

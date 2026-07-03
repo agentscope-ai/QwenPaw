@@ -4,44 +4,39 @@ It provides a unified interface to manage providers, such as listing available
 providers, adding/removing custom providers, and fetching provider details."""
 
 import asyncio
+import json
+import logging
 import os
 from typing import Dict, List
-import logging
-import json
-
-from pydantic import BaseModel
 
 from agentscope.model import ChatModelBase
-from qwenpaw.exceptions import (
-    ModelNotFoundException,
-)
+from pydantic import BaseModel
 
-from ..constant import SECRET_DIR
+from qwenpaw.exceptions import ModelNotFoundException
+
 from ..config.config import ModelSlotConfig
+from ..constant import SECRET_DIR
 from ..exceptions import ProviderError
-from .anthropic_provider import AnthropicProvider
-from .dashscope_provider import DashScopeProvider
-from .gemini_provider import GeminiProvider
-from .ollama_provider import OllamaProvider
-from .openai_provider import (
-    OpenAIProvider,
-    OpenCodeProvider,
-    KiloProvider,
-)
-from .openai_response_provider import OpenAIResponseProvider
-from .lmstudio_provider import LMStudioProvider
-from .provider import (
-    ModelInfo,
-    Provider,
-    ProviderInfo,
-)
-from .openrouter_provider import OpenRouterProvider
 from ..security.secret_store import (
     PROVIDER_SECRET_FIELDS,
     decrypt_dict_fields,
     encrypt_dict_fields,
     is_encrypted,
 )
+from .anthropic_provider import AnthropicProvider
+from .dashscope_provider import DashScopeProvider
+from .gemini_provider import GeminiProvider
+from .lmstudio_provider import LMStudioProvider
+from .ollama_provider import OllamaProvider
+from .openai_provider import (
+    GitHubModelsProvider,
+    KiloProvider,
+    OpenAIProvider,
+    OpenCodeProvider,
+)
+from .openai_response_provider import OpenAIResponseProvider
+from .openrouter_provider import OpenRouterProvider
+from .provider import ModelInfo, Provider, ProviderInfo
 
 logger = logging.getLogger(__name__)
 
@@ -1220,7 +1215,7 @@ PROVIDER_OPENROUTER = OpenRouterProvider(
 
 GITHUB_MODELS_MODELS: List[ModelInfo] = [
     ModelInfo(
-        id="gpt-4o-mini",
+        id="openai/gpt-4o-mini",
         name="GPT-4o Mini",
         supports_image=True,
         supports_video=False,
@@ -1228,32 +1223,16 @@ GITHUB_MODELS_MODELS: List[ModelInfo] = [
         is_free=True,
     ),
     ModelInfo(
-        id="gpt-4o",
+        id="openai/gpt-4o",
         name="GPT-4o",
         supports_image=True,
         supports_video=False,
         probe_source="documentation",
         is_free=True,
     ),
-    ModelInfo(
-        id="Meta-Llama-3.1-405B-Instruct",
-        name="Llama 3.1 405B",
-        supports_image=False,
-        supports_video=False,
-        probe_source="documentation",
-        is_free=True,
-    ),
-    ModelInfo(
-        id="Meta-Llama-3.1-8B-Instruct",
-        name="Llama 3.1 8B",
-        supports_image=False,
-        supports_video=False,
-        probe_source="documentation",
-        is_free=True,
-    ),
 ]
 
-PROVIDER_GITHUB_MODELS = OpenAIProvider(
+PROVIDER_GITHUB_MODELS = GitHubModelsProvider(
     id="github-models",
     name="GitHub Models",
     base_url="https://models.github.ai/inference",
