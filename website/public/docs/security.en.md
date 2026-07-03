@@ -373,26 +373,26 @@ Even if a command passes Tool Guard and File Guard checks, the sandbox ensures i
 
 QwenPaw automatically detects the best available sandbox backend on startup:
 
-| Platform | Backend                    | Mechanism                                          | Detection                                          |
-| -------- | -------------------------- | -------------------------------------------------- | -------------------------------------------------- |
-| macOS    | **Seatbelt**               | `sandbox-exec` with S-expression profiles          | `sandbox-exec` binary on PATH                      |
-| Linux    | **Bubblewrap** (preferred) | Mount namespaces + user namespaces + PID namespace | `bwrap` binary + user namespace support            |
-| Linux    | **Landlock** (fallback)    | Landlock LSM kernel module (5.13+)                 | Kernel version + LSM probe + ABI syscall           |
-| Windows  | **AppContainer**           | AppContainer profile + `icacls` ACL enforcement    | Windows 10+ (build 10240) + `icacls.exe` on PATH   |
-| Any      | **None**                   | No isolation (passthrough)                         | Used when no backend is available                   |
+| Platform | Backend                    | Mechanism                                          | Detection                                        |
+| -------- | -------------------------- | -------------------------------------------------- | ------------------------------------------------ |
+| macOS    | **Seatbelt**               | `sandbox-exec` with S-expression profiles          | `sandbox-exec` binary on PATH                    |
+| Linux    | **Bubblewrap** (preferred) | Mount namespaces + user namespaces + PID namespace | `bwrap` binary + user namespace support          |
+| Linux    | **Landlock** (fallback)    | Landlock LSM kernel module (5.13+)                 | Kernel version + LSM probe + ABI syscall         |
+| Windows  | **AppContainer**           | AppContainer profile + `icacls` ACL enforcement    | Windows 10+ (build 10240) + `icacls.exe` on PATH |
+| Any      | **None**                   | No isolation (passthrough)                         | Used when no backend is available                |
 
 **Probe priority on Linux**: bubblewrap > Landlock > None. If `bwrap` is installed and user namespaces work, bubblewrap is chosen. Otherwise falls back to Landlock if the kernel supports it.
 
 **Capability comparison**:
 
-| Capability               | Seatbelt (macOS)   | Bubblewrap (Linux)       | Landlock (Linux)      | AppContainer (Windows)        |
-| ------------------------ | ------------------ | ------------------------ | --------------------- | ----------------------------- |
-| Filesystem read control  | Yes                | Yes                      | Yes                   | Yes                           |
-| Filesystem write control | Yes                | Yes                      | Yes                   | Yes                           |
-| deny_paths invisible     | No (access denied) | Yes (not mounted)        | No (access denied)    | No (access denied)            |
-| PID namespace isolation  | No                 | Yes                      | No                    | No                            |
-| Minimal /dev             | Yes (allowlist)    | Yes (synthetic devtmpfs) | No                    | N/A                           |
-| Network control          | Yes (allow/deny)   | Planned                  | No (requires ABI v4)  | Yes (allow/deny)              |
+| Capability               | Seatbelt (macOS)   | Bubblewrap (Linux)       | Landlock (Linux)     | AppContainer (Windows) |
+| ------------------------ | ------------------ | ------------------------ | -------------------- | ---------------------- |
+| Filesystem read control  | Yes                | Yes                      | Yes                  | Yes                    |
+| Filesystem write control | Yes                | Yes                      | Yes                  | Yes                    |
+| deny_paths invisible     | No (access denied) | Yes (not mounted)        | No (access denied)   | No (access denied)     |
+| PID namespace isolation  | No                 | Yes                      | No                   | No                     |
+| Minimal /dev             | Yes (allowlist)    | Yes (synthetic devtmpfs) | No                   | N/A                    |
+| Network control          | Yes (allow/deny)   | Planned                  | No (requires ABI v4) | Yes (allow/deny)       |
 
 ### Isolation model
 
@@ -433,12 +433,12 @@ Sandbox configuration is compiled automatically by the governance policy engine.
 
 When a sandboxed command attempts to access a path outside its allowed view, the OS kernel blocks the operation. QwenPaw detects these violations by matching stderr patterns:
 
-| Platform     | Detection patterns                                                                          |
-| ------------ | ------------------------------------------------------------------------------------------- |
-| Seatbelt     | `deny(N) file-read-data`, `Sandbox:`, `sandbox-exec:`, `Operation not permitted`            |
-| Bubblewrap   | `Permission denied`, `bwrap:`, `Operation not permitted`, `EACCES`                          |
-| Landlock     | `Permission denied`, `Operation not permitted`                                              |
-| AppContainer | `Access is denied`, `error 5`, `0x80070005`, `Permission denied`, `拒绝访问`, `权限不足`    |
+| Platform     | Detection patterns                                                                       |
+| ------------ | ---------------------------------------------------------------------------------------- |
+| Seatbelt     | `deny(N) file-read-data`, `Sandbox:`, `sandbox-exec:`, `Operation not permitted`         |
+| Bubblewrap   | `Permission denied`, `bwrap:`, `Operation not permitted`, `EACCES`                       |
+| Landlock     | `Permission denied`, `Operation not permitted`                                           |
+| AppContainer | `Access is denied`, `error 5`, `0x80070005`, `Permission denied`, `拒绝访问`, `权限不足` |
 
 When a violation is detected:
 

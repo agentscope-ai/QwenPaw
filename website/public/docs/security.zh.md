@@ -372,26 +372,26 @@ QwenPaw 的安全系统由五个核心安全层组成:
 
 QwenPaw 在启动时自动检测最佳可用的沙箱后端：
 
-| 平台    | 后端                   | 机制                                             | 检测方式                                        |
-| ------- | ---------------------- | ------------------------------------------------ | ----------------------------------------------- |
-| macOS   | **Seatbelt**           | `sandbox-exec` + S-expression 策略文件           | PATH 上存在 `sandbox-exec`                      |
-| Linux   | **Bubblewrap**（首选） | Mount namespace + User namespace + PID namespace | `bwrap` 二进制 + user namespace 支持            |
-| Linux   | **Landlock**（回退）   | Landlock LSM 内核模块 (5.13+)                    | 内核版本 + LSM 探测 + ABI 系统调用              |
+| 平台    | 后端                   | 机制                                             | 检测方式                                             |
+| ------- | ---------------------- | ------------------------------------------------ | ---------------------------------------------------- |
+| macOS   | **Seatbelt**           | `sandbox-exec` + S-expression 策略文件           | PATH 上存在 `sandbox-exec`                           |
+| Linux   | **Bubblewrap**（首选） | Mount namespace + User namespace + PID namespace | `bwrap` 二进制 + user namespace 支持                 |
+| Linux   | **Landlock**（回退）   | Landlock LSM 内核模块 (5.13+)                    | 内核版本 + LSM 探测 + ABI 系统调用                   |
 | Windows | **AppContainer**       | AppContainer profile + `icacls` ACL 强制访问控制 | Windows 10+（build 10240）+ PATH 上存在 `icacls.exe` |
-| 所有    | **None**               | 无隔离（直接执行）                               | 无可用后端时使用                                |
+| 所有    | **None**               | 无隔离（直接执行）                               | 无可用后端时使用                                     |
 
 **Linux 探测优先级**：bubblewrap > Landlock > None。如果 `bwrap` 已安装且 user namespace 可用，则选择 bubblewrap。否则回退到 Landlock（如果内核支持）。
 
 **能力对比**：
 
-| 能力              | Seatbelt (macOS)  | Bubblewrap (Linux)    | Landlock (Linux) | AppContainer (Windows)    |
-| ----------------- | ----------------- | --------------------- | ---------------- | ------------------------- |
-| 文件系统读控制      | 支持              | 支持                  | 支持             | 支持                           |
-| 文件系统写控制      | 支持              | 支持                  | 支持             | 支持                           |
-| deny_paths 不可见  | 否（访问拒绝）    | 是（未挂载）          | 否（访问拒绝）   | 否（访问拒绝）                      |
-| PID 命名空间隔离   | 否                | 支持                  | 否               | 否                           |
-| 最小化 /dev       | 支持（白名单）    | 支持（合成 devtmpfs） | 否               | 不适用                          |
-| 网络控制          | 支持（允许/拒绝） | 计划中                | 否（需 ABI v4）  | 支持（允许/拒绝）                  |
+| 能力              | Seatbelt (macOS)  | Bubblewrap (Linux)    | Landlock (Linux) | AppContainer (Windows) |
+| ----------------- | ----------------- | --------------------- | ---------------- | ---------------------- |
+| 文件系统读控制    | 支持              | 支持                  | 支持             | 支持                   |
+| 文件系统写控制    | 支持              | 支持                  | 支持             | 支持                   |
+| deny_paths 不可见 | 否（访问拒绝）    | 是（未挂载）          | 否（访问拒绝）   | 否（访问拒绝）         |
+| PID 命名空间隔离  | 否                | 支持                  | 否               | 否                     |
+| 最小化 /dev       | 支持（白名单）    | 支持（合成 devtmpfs） | 否               | 不适用                 |
+| 网络控制          | 支持（允许/拒绝） | 计划中                | 否（需 ABI v4）  | 支持（允许/拒绝）      |
 
 ### 隔离模型
 
@@ -409,16 +409,16 @@ QwenPaw 在启动时自动检测最佳可用的沙箱后端：
 
 沙箱配置由治理策略引擎自动编译生成，用户通常无需手动设置。关键字段如下：
 
-| 字段              | 类型   | 默认值                      | 说明                                               |
-| ----------------- | ------ | --------------------------- | -------------------------------------------------- |
+| 字段              | 类型   | 默认值                      | 说明                                                           |
+| ----------------- | ------ | --------------------------- | -------------------------------------------------------------- |
 | `mode`            | string | 自动检测                    | `seatbelt`、`bubblewrap`、`landlock`、`appcontainer` 或 `none` |
-| `workspace_dir`   | string | Agent workspace             | 主工作目录（始终可写）                             |
-| `mounts`          | list   | 仅 workspace                | 已声明的文件系统路径及其权限                       |
-| `deny_paths`      | list   | `["~/.ssh", "~/.aws", ...]` | 需要阻止的敏感路径                                 |
-| `allow_read_all`  | bool   | `true`                      | 为 true 时，默认整个文件系统可读（deny-list 模式） |
-| `network_allow`   | list   | `["*"]`                     | 网络访问策略（当前允许所有）                       |
-| `timeout_seconds` | int    | `30`                        | 最大执行时间，超时后终止                           |
-| `env_vars`        | dict   | `{}`                        | 沙箱进程的额外环境变量                             |
+| `workspace_dir`   | string | Agent workspace             | 主工作目录（始终可写）                                         |
+| `mounts`          | list   | 仅 workspace                | 已声明的文件系统路径及其权限                                   |
+| `deny_paths`      | list   | `["~/.ssh", "~/.aws", ...]` | 需要阻止的敏感路径                                             |
+| `allow_read_all`  | bool   | `true`                      | 为 true 时，默认整个文件系统可读（deny-list 模式）             |
+| `network_allow`   | list   | `["*"]`                     | 网络访问策略（当前允许所有）                                   |
+| `timeout_seconds` | int    | `30`                        | 最大执行时间，超时后终止                                       |
+| `env_vars`        | dict   | `{}`                        | 沙箱进程的额外环境变量                                         |
 
 **MountSpec** 条目：
 
@@ -432,11 +432,11 @@ QwenPaw 在启动时自动检测最佳可用的沙箱后端：
 
 当沙箱内的命令尝试访问其允许视图之外的路径时，操作系统内核会阻止该操作。QwenPaw 通过匹配 stderr 模式来检测这些违规：
 
-| 平台         | 检测模式                                                                         |
-| ------------ | -------------------------------------------------------------------------------- |
-| Seatbelt     | `deny(N) file-read-data`、`Sandbox:`、`sandbox-exec:`、`Operation not permitted` |
-| Bubblewrap   | `Permission denied`、`bwrap:`、`Operation not permitted`、`EACCES`               |
-| Landlock     | `Permission denied`、`Operation not permitted`                                   |
+| 平台         | 检测模式                                                                                 |
+| ------------ | ---------------------------------------------------------------------------------------- |
+| Seatbelt     | `deny(N) file-read-data`、`Sandbox:`、`sandbox-exec:`、`Operation not permitted`         |
+| Bubblewrap   | `Permission denied`、`bwrap:`、`Operation not permitted`、`EACCES`                       |
+| Landlock     | `Permission denied`、`Operation not permitted`                                           |
 | AppContainer | `Access is denied`、`error 5`、`0x80070005`、`Permission denied`、`拒绝访问`、`权限不足` |
 
 检测到违规时：
