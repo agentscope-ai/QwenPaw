@@ -137,7 +137,6 @@ const SessionItem: React.FC<SessionItemProps> = ({
     active ? styles.active : "",
     disabled ? styles.disabled : "",
     editing ? styles.editing : "",
-    pinned ? styles.pinned : "",
     dropdownOpen ? styles.dropdownOpen : "",
   ]
     .filter(Boolean)
