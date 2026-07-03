@@ -292,23 +292,122 @@ async def test_compress_keeps_active_turn_live(store: HistoryStore):
     assert names.index("memory") < live_ids.index(cur_u.id)
 
 
-async def test_compress_noop_when_active_turn_is_whole_context(
+async def test_compress_noop_when_active_turn_fits_reserve(
     store: HistoryStore,
 ):
     """Single-user-msg session (e.g. a cron run): the whole context is the
-    active turn, the middle is empty, and compress currently does nothing.
-    The pressure valve for this case is the active-turn fold (phase 2)."""
+    active turn and nothing is evictable. While the window still fits the
+    reserve, compress leaves it untouched — no compaction, no fold."""
     ctx = [
         user("/heartbeat"),
         assistant("step one", headline="S1"),
         assistant("step two", headline="S2"),
     ]
     mgr = make_manager(store)
-    agent = FakeAgent(ctx, tokens=200)
+    agent = FakeAgent(ctx, tokens=200)  # over trigger, under reserve (500)
     agent._split_return = (ctx, [])
     await mgr.compress(agent)
     assert [m.id for m in agent.state.context] == [m.id for m in ctx]
     assert mgr._index.is_empty
+
+
+async def test_pressure_fold_stubs_older_results_keeps_newest(
+    store: HistoryStore,
+):
+    """Nothing evictable and the window overflows the reserve: the active
+    turn's completed tool results are stubbed in place to recall pointers.
+    The request, tool calls, reasoning, and the NEWEST result stay verbatim;
+    the durable rows keep the full outputs; the Msg object (and id) is
+    untouched so the runtime keeps extending the same message."""
+    blocks = []
+    for i in range(3):
+        blocks.append(TextBlock(type="text", text=f"step {i}"))
+        blocks.append(
+            ToolCallBlock(
+                type="tool_call",
+                id=f"c{i}",
+                name="grep",
+                input="{}",
+            ),
+        )
+        blocks.append(
+            ToolResultBlock(
+                type="tool_result",
+                id=f"c{i}",
+                name="grep",
+                output=[TextBlock(type="text", text=f"RESULT-{i}")],
+            ),
+        )
+    turn = Msg(name="a", role="assistant", content=blocks)
+    ctx = [user("/heartbeat"), turn]
+    mgr = make_manager(store)
+    agent = FakeAgent(ctx, tokens=600)  # > reserve (500): sustained pressure
+    agent._split_return = (ctx, [])  # split would evict everything
+    await mgr.compress(agent)
+
+    # Same live objects — no rebuild happened (nothing was evicted).
+    assert agent.state.context == ctx
+    assert agent.state.context[-1] is turn
+
+    def out_text(i: int) -> str:
+        block = turn.content[3 * i + 2]
+        return block.output[0].text
+
+    assert "ms.expand(" in out_text(0)  # folded → seq-addressed stub
+    assert "ms.expand(" in out_text(1)
+    assert out_text(2) == "RESULT-2"  # newest result kept verbatim
+    # The durable rows still hold the FULL outputs (persisted before fold).
+    for i in range(3):
+        row = store._conn.execute(
+            "SELECT content FROM conversation_history "
+            f"WHERE kind='tool_result' AND tool_call_id='c{i}'",
+        ).fetchone()
+        assert row["content"] == f"RESULT-{i}"
+
+    # Idempotent: a second round neither double-folds nor rewrites rows.
+    await mgr.compress(agent)
+    assert out_text(0).count("[scroll folded]") == 1
+    assert out_text(2) == "RESULT-2"
+
+
+async def test_empty_middle_still_compacts_index_under_pressure(
+    store: HistoryStore,
+):
+    """Regression for the phase-1 early return: with nothing evictable but
+    an index already built, sustained pressure must still roll the index up
+    (and re-render the placeholder) instead of doing nothing."""
+    from qwenpaw.agents.context.scroll.eviction_index import Leaf
+
+    mgr = make_manager(store)
+    for i in range(3):  # a multi-block Tier 0 from earlier evictions
+        mgr._index.add_eviction(
+            [Leaf(seq=i * 10 + 1, headline=f"h{i}")],
+            seq_lo=i * 10,
+            seq_hi=i * 10 + 9,
+        )
+    ctx = [user("/heartbeat"), assistant("working", headline="W")]
+    mgr._persist_new(FakeAgent(ctx))
+    agent = FakeAgent(ctx, tokens=600)  # > reserve: sustained pressure
+    agent._split_return = (ctx, [])  # nothing evictable
+    await mgr.compress(agent)
+    # The index was force-compacted to a single block and re-rendered.
+    names = [m.name for m in agent.state.context]
+    assert names[0] == "memory"
+    assert (
+        len([ln for ln in mgr._index.describe().splitlines() if "[seq" in ln])
+        == 1
+    )
+    # The active turn is still live, after the placeholder.
+    assert agent.state.context[-1].id == ctx[-1].id
+
+
+def test_seq_by_tcid_round_trips_through_checkpoint(store: HistoryStore):
+    mgr = make_manager(store)
+    mgr._persist_new(FakeAgent([assistant_with_tool("call-7", "out")]))
+    assert "call-7" in mgr._seq_by_tcid
+    mgr2 = make_manager(store)
+    mgr2.load_state(mgr.to_dict())
+    assert mgr2._seq_by_tcid == mgr._seq_by_tcid
 
 
 # -- degraded durability: no eviction on write failure ----------------------
