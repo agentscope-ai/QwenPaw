@@ -54,6 +54,7 @@ export const DOC_GROUPS: DocGroup[] = [
       { slug: "backup", titleKey: "docs.backup" },
       { slug: "cli", titleKey: "docs.cli" },
       { slug: "plugins", titleKey: "docs.plugins" },
+      { slug: "plugins-migration", titleKey: "docs.pluginsMigration" },
     ],
   },
   {
