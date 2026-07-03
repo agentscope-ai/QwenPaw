@@ -8,6 +8,7 @@ import { useAgentStore } from "../../../stores/agentStore";
 import {
   CONTEXT_MANAGER_BACKEND_MAPPINGS,
   MEMORY_MANAGER_BACKEND_MAPPINGS,
+  MEMORY_MANAGER_BACKEND_OPTIONS,
 } from "../../../constants/backendMappings";
 import type { ToolExecutionLevel } from "./components/ToolExecutionLevelCard";
 
@@ -45,7 +46,10 @@ export function useAgentConfig() {
           ? config.context_manager_backend
           : "light";
       const memoryBackend =
-        config.memory_manager_backend in MEMORY_MANAGER_BACKEND_MAPPINGS
+        config.memory_manager_backend in MEMORY_MANAGER_BACKEND_MAPPINGS ||
+        MEMORY_MANAGER_BACKEND_OPTIONS.some(
+          (o) => o.value === config.memory_manager_backend,
+        )
           ? config.memory_manager_backend
           : "remelight";
       form.setFieldsValue({

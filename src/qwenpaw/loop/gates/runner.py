@@ -40,20 +40,21 @@ def _filter_by_scope(
             if active_scope:
                 break
 
-    if not active_scope:
-        return handlers
-
     result: list = []
     for reg in handlers:
         scope = getattr(reg, "scope", "")
         if not scope:
             result.append(reg)
-        elif scope == active_scope:
+        elif active_scope and scope == active_scope:
+            result.append(reg)
+        elif not active_scope and scope == "default":
             result.append(reg)
         else:
             logger.debug(
-                f"Skipping handler '{reg.name}' "
-                f"scope={scope} active={active_scope}",
+                "Skipping handler '%s' scope=%s active=%s",
+                reg.name,
+                scope,
+                active_scope or "(none)",
             )
     return result
 
@@ -148,11 +149,6 @@ def apply_stop_result(  # pylint: disable=protected-access
                 stop_result.reason,
             )
             agent._gate_pending_stop = stop_result
-        elif (
-            stop_result.action == StopAction.CONTINUE
-            and stop_result.continuation_message
-        ):
-            agent._gate_pending_continue = stop_result.continuation_message
 
 
 def check_pending_gates(  # pylint: disable=protected-access

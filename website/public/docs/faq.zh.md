@@ -398,7 +398,7 @@ lms import /path/to/your/qwenpaw-xxx.gguf -c -y --user-repo AgentScope/QwenPaw-F
 
 ### 如何管理Skill
 
-进入控制台 **智能体 → 技能**，可以启用/禁用技能、创建自定义技能、以及从 Skills Hub 中导入技能。详情请见文档 [Skills](https://qwenpaw.agentscope.io/docs/skills)。
+进入控制台 **智能体 → 技能**，可以启用/禁用技能，并通过 **添加技能** 入口创建技能、通过Zip/URL上传、或浏览技能市场。详情请见文档 [Skills](https://qwenpaw.agentscope.io/docs/skills)。
 
 ### 如何配置MCP
 

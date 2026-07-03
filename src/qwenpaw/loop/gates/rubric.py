@@ -15,6 +15,12 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Callable, Optional
 
+from .base import (
+    StopAction,
+    StopGate,
+    StopHandlerResult,
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -145,16 +151,13 @@ class SubAgentRubric(RubricStrategy):
         )
 
 
-class StandaloneRubricGate:
-    """Re-prompt on text-only responses (StopGate).
+class StandaloneRubricGate(StopGate):
+    """Re-prompt on text-only responses.
 
     Prevents premature stop when the LLM outputs text
     without any tool calls.  Counts interventions per
     request cycle; stops re-prompting after
     ``max_interventions``.
-
-    Implements the StopGate interface without inheriting
-    to avoid circular imports.
     """
 
     def __init__(
@@ -177,14 +180,15 @@ class StandaloneRubricGate:
     async def check(
         self,
         ctx: Any,
-    ) -> Optional[Any]:
+    ) -> Optional[StopHandlerResult]:
         """Return CONTINUE up to max_interventions.
 
-        Only triggers on text-only responses (no tool calls).
+        Only triggers on text-only responses
+        (no tool calls).
         """
-        from .base import StopAction, StopHandlerResult
-
-        if isinstance(ctx, dict) and ctx.get("has_tool_calls"):
+        if isinstance(ctx, dict) and ctx.get(
+            "has_tool_calls",
+        ):
             return None
 
         if self._count >= self._max:
@@ -202,10 +206,6 @@ class StandaloneRubricGate:
             continuation_message=self._prompt,
             reason="text-only response re-prompt",
         )
-
-    def continuation_prompt(self) -> str:
-        """No extra context needed."""
-        return ""
 
 
 __all__ = [

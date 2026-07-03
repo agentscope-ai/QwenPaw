@@ -121,4 +121,4 @@ runs:
           --base-url http://127.0.0.1:8088 \
           --ui-mode legacy \
           --headed \
-          "${extra_flags[@]}"
+          ${extra_flags[@]+"${extra_flags[@]}"}

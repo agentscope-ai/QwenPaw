@@ -10,13 +10,13 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
-from .gates import (
-    StopHandler,
-    StopHandlerRegistration,
-)
+from .gates import StopHandler
 from .gates.doom_loop import DoomLoopGate
 from .gates.iteration import IterationGate
 from .gates.rubric import StandaloneRubricGate
+from .handler_registry import (
+    get_or_create_stop_handler,
+)
 
 if TYPE_CHECKING:
     from ..config.config import (
@@ -57,11 +57,15 @@ def register_react_gates(
     Returns:
         The StopHandler instance (for testing or extension).
     """
-    if getattr(workspace, "_react_gates_registered", False):
-        return _get_or_create_handler(workspace)
+    if getattr(
+        workspace,
+        "_react_gates_registered",
+        False,
+    ):
+        return get_or_create_stop_handler(workspace)
 
     loop_cfg = running_config.loop
-    handler = _get_or_create_handler(workspace)
+    handler = get_or_create_stop_handler(workspace)
 
     # 1. Iteration Gate
     if loop_cfg.iteration.enabled:
@@ -96,38 +100,11 @@ def register_react_gates(
             "ReactGates: StandaloneRubricGate registered",
         )
 
-    setattr(workspace, "_react_gates_registered", True)
-    return handler
-
-
-def _get_or_create_handler(
-    workspace: Any,
-) -> StopHandler:
-    """Get or create StopHandler on workspace."""
-    existing = getattr(workspace, "_stop_handler", None)
-    if isinstance(existing, StopHandler):
-        return existing
-
-    handler = StopHandler()
-    setattr(workspace, "_stop_handler", handler)
-
-    plugins = getattr(workspace, "plugins", None)
-    if plugins is not None:
-        if not hasattr(plugins, "stop_handlers"):
-            plugins.stop_handlers = []
-        plugins.stop_handlers.append(
-            StopHandlerRegistration(
-                plugin_id="__react_default__",
-                handler=handler,
-                priority=0,
-                name=_REACT_HANDLER_NAME,
-                scope="default",
-            ),
-        )
-    else:
-        logger.warning(
-            "_get_or_create_handler: no plugins on ws",
-        )
+    setattr(
+        workspace,
+        "_react_gates_registered",
+        True,
+    )
     return handler
 
 

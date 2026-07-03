@@ -43,6 +43,10 @@ export const DOC_GROUPS: DocGroup[] = [
       { slug: "skills", titleKey: "docs.skills" },
       { slug: "mcp", titleKey: "docs.mcp" },
       { slug: "context", titleKey: "docs.context" },
+      {
+        slug: "loop-engineering",
+        titleKey: "docs.loopEngineering",
+      },
       { slug: "config", titleKey: "docs.config" },
     ],
   },

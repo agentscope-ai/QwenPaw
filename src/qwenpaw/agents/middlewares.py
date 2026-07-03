@@ -162,7 +162,7 @@ class MemoryMiddleware(MiddlewareBase):
 
         cfg = self._memory_config()
         if (
-            cfg.summarize_when_compact
+            getattr(cfg, "summarize_when_compact", False)
             and self._pending_auto_memory_turn_markers
             and await self._will_compress_context(agent, input_kwargs)
         ):
@@ -275,13 +275,11 @@ class MemoryMiddleware(MiddlewareBase):
         return int(self._memory_manager.get_auto_memory_interval())
 
     def _memory_config(self) -> Any:
-        from ..config.config import load_agent_config
-
-        agent_config = load_agent_config(self._memory_manager.agent_id)
-        return agent_config.running.reme_light_memory_config
+        return self._memory_manager.get_memory_config()
 
     def _persist_auto_memory_search_to_context(self) -> bool:
-        search_cfg = self._memory_config().auto_memory_search_config
+        cfg = self._memory_config()
+        search_cfg = getattr(cfg, "auto_memory_search_config", None)
         return bool(getattr(search_cfg, "persist_to_context", True))
 
     @staticmethod

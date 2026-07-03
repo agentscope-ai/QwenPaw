@@ -254,6 +254,11 @@ class DoomLoopGate(LoopGate):
         """Compute action pattern similarity.
 
         Formula: 1 - (unique - 1) / (total - 1)
+
+        Precondition: ``len(window) >= 2``.
+        Callers must ensure this; ``_detect_repetition``
+        guards via ``len(history) < window_size``
+        where ``window_size >= 2``.
         """
         if not window or len(window) <= 1:
             return 0.0

@@ -93,6 +93,8 @@ class QwenPawAgent(CodingModeMixin, Agent):
         self._register_skills(toolkit, effective_skills=effective_skills or [])
 
         self._governor = governor
+        self._gate_pending_stop = None
+        self._gate_pending_continue = None
 
         self.memory_manager = memory_manager
 

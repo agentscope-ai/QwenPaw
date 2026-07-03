@@ -3,7 +3,6 @@ import { Button, Input, Select, Tooltip } from "@agentscope-ai/design";
 import { Check } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useAgentStore } from "../../../stores/agentStore";
-import { PageHeader } from "@/components/PageHeader";
 import { useMarketSearch } from "./useMarketSearch";
 import {
   useMarketInstall,
@@ -172,53 +171,33 @@ function LoadMoreSentinel({ onVisible }: { onVisible: () => void }) {
   );
 }
 
-function MarketPage() {
+/**
+ * Embeddable market browser. The host page fixes the install destination:
+ * Skills page saves into the current agent's workspace, Skill Pool page
+ * imports into the pool.
+ */
+export function MarketPanel({
+  installTarget,
+}: {
+  installTarget: InstallTarget;
+}) {
   const { t } = useTranslation();
   const selectedAgent = useAgentStore((s) => s.selectedAgent);
   const market = useMarketSearch();
-  const [cardTargets, setCardTargets] = useState<Record<string, InstallTarget>>(
-    {},
-  );
   const [detailItem, setDetailItem] = useState<MarketResult | null>(null);
-
-  // Use ref to avoid stale closure in callbacks that depend on latest cardTargets
-  const cardTargetsRef = useRef(cardTargets);
-  cardTargetsRef.current = cardTargets;
-
-  const targetFor = useCallback(
-    (item: MarketResult): InstallTarget =>
-      cardTargetsRef.current[getCardKey(item)] ?? "workspace",
-    [],
-  );
-
-  const setCardTarget = useCallback(
-    (item: MarketResult, next: InstallTarget) => {
-      setCardTargets((prev) => ({ ...prev, [getCardKey(item)]: next }));
-    },
-    [],
-  );
 
   const install = useMarketInstall({ selectedAgent });
 
   const onInstall = useCallback(
     (item: MarketResult) => {
-      const target = cardTargetsRef.current[getCardKey(item)] ?? "workspace";
-      install.enqueue([item], target);
+      install.enqueue([item], installTarget);
     },
-    [install],
+    [install, installTarget],
   );
 
   // Stable callbacks for DetailDrawer
   const detailItemRef = useRef(detailItem);
   detailItemRef.current = detailItem;
-
-  const handleDetailTargetChange = useCallback(
-    (next: InstallTarget) => {
-      const current = detailItemRef.current;
-      if (current) setCardTarget(current, next);
-    },
-    [setCardTarget],
-  );
 
   const handleDetailInstall = useCallback(() => {
     const current = detailItemRef.current;
@@ -231,12 +210,6 @@ function MarketPage() {
   const handleDetailClose = useCallback(() => {
     setDetailItem(null);
   }, []);
-
-  // Memoize breadcrumb items to avoid re-creating each render
-  const headerItems = useMemo(
-    () => [{ title: t("nav.settings") }, { title: t("nav.market") }],
-    [t],
-  );
 
   const browseHintLabel = useMemo(() => {
     if (market.query.trim() || market.category) return "";
@@ -258,7 +231,6 @@ function MarketPage() {
 
   return (
     <div className={styles.marketPage}>
-      <PageHeader items={headerItems} />
       <div className={styles.content}>
         <div className={styles.toolbar}>
           <ProviderChips
@@ -329,8 +301,6 @@ function MarketPage() {
                 <ResultCard
                   key={getCardKey(item)}
                   item={item}
-                  target={targetFor(item)}
-                  onTargetChange={(next) => setCardTarget(item, next)}
                   onInstall={() => onInstall(item)}
                   onOpenDetail={() => setDetailItem(item)}
                 />
@@ -367,13 +337,9 @@ function MarketPage() {
 
       <DetailDrawer
         item={detailItem}
-        target={detailItem ? targetFor(detailItem) : "workspace"}
-        onTargetChange={handleDetailTargetChange}
         onInstall={handleDetailInstall}
         onClose={handleDetailClose}
       />
     </div>
   );
 }
-
-export default MarketPage;

@@ -2,19 +2,21 @@ import { Button, Input, Select, Tooltip } from "@agentscope-ai/design";
 import { Badge } from "antd";
 import {
   AppstoreOutlined,
+  ArrowLeftOutlined,
   CloseOutlined,
   DeleteOutlined,
-  ImportOutlined,
-  PlusOutlined,
   ReloadOutlined,
   SendOutlined,
   SyncOutlined,
   UnorderedListOutlined,
-  UploadOutlined,
 } from "@ant-design/icons";
+import { useCallback } from "react";
 import { useTranslation } from "react-i18next";
+import { useSearchParams } from "react-router-dom";
 import { ImportHubModal } from "../../Agent/Skills/components/ImportHubModal";
 import { SkillFilterDropdown } from "../../Agent/Skills/components/SkillFilterDropdown";
+import { AddSkillDropdown } from "../../Agent/Skills/components/AddSkillDropdown";
+import { MarketPanel } from "../Market/MarketPanel";
 import {
   BroadcastModal,
   ImportBuiltinModal,
@@ -38,6 +40,45 @@ function SkillPoolPage() {
     hasMore,
     sentinelRef,
   } = useProgressiveRender(pool.sortedSkills);
+
+  const [searchParams, setSearchParams] = useSearchParams();
+  const marketView = searchParams.get("view") === "market";
+
+  const openMarket = useCallback(() => {
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      next.set("view", "market");
+      return next;
+    });
+  }, [setSearchParams]);
+
+  const closeMarket = useCallback(() => {
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      next.delete("view");
+      return next;
+    });
+  }, [setSearchParams]);
+
+  if (marketView) {
+    return (
+      <div className={styles.skillsPage}>
+        <PageHeader
+          items={[
+            { title: t("nav.settings") },
+            { title: t("nav.skillPool") },
+            { title: t("nav.market") },
+          ]}
+          extra={
+            <Button icon={<ArrowLeftOutlined />} onClick={closeMarket}>
+              {t("common.back")}
+            </Button>
+          }
+        />
+        <MarketPanel installTarget="pool" />
+      </div>
+    );
+  }
 
   return (
     <div className={styles.skillsPage}>
@@ -130,37 +171,15 @@ function SkillPoolPage() {
                   </Tooltip>
                 </div>
                 <div className={styles.headerActionsRight}>
-                  <Tooltip title={t("skillPool.uploadZipHint")}>
-                    <Button
-                      type="default"
-                      icon={<UploadOutlined />}
-                      onClick={() => pool.zipInputRef.current?.click()}
-                    >
-                      {t("skills.uploadZip")}
-                    </Button>
-                  </Tooltip>
-                  <Tooltip title={t("skillPool.importHubHint")}>
-                    <Button
-                      type="default"
-                      icon={<ImportOutlined />}
-                      onClick={() => pool.setImportModalOpen(true)}
-                    >
-                      {t("skills.importHub")}
-                    </Button>
-                  </Tooltip>
                   <Button type="primary" onClick={pool.toggleBatchMode}>
                     {t("skills.batchOperation")}
                   </Button>
-                  <Tooltip title={t("skills.createSkillHint")}>
-                    <Button
-                      type="primary"
-                      className={styles.primaryActionButton}
-                      icon={<PlusOutlined />}
-                      onClick={pool.openCreate}
-                    >
-                      {t("skills.createSkill")}
-                    </Button>
-                  </Tooltip>
+                  <AddSkillDropdown
+                    onCreate={pool.openCreate}
+                    onUploadZip={() => pool.zipInputRef.current?.click()}
+                    onFromUrl={() => pool.setImportModalOpen(true)}
+                    onBrowseMarket={openMarket}
+                  />
                 </div>
               </>
             )}

@@ -3,15 +3,11 @@ import { Button, Card, Tooltip } from "@agentscope-ai/design";
 import { Download, Eye, Heart, Star } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { MarketResult } from "../../../../api/modules/market";
-import type { InstallTarget } from "../useMarketInstall";
 import { SkillIcon, sourceLabel } from "./SkillIcon";
-import { TargetToggle } from "./TargetToggle";
 import styles from "./ResultCard.module.less";
 
 interface ResultCardProps {
   item: MarketResult;
-  target: InstallTarget;
-  onTargetChange: (next: InstallTarget) => void;
   onInstall: () => void;
   onOpenDetail: () => void;
 }
@@ -35,8 +31,6 @@ const CURSOR_STYLE = { cursor: "pointer" } as const;
 
 export const ResultCard = memo(function ResultCard({
   item,
-  target,
-  onTargetChange,
   onInstall,
   onOpenDetail,
 }: ResultCardProps) {
@@ -116,18 +110,13 @@ export const ResultCard = memo(function ResultCard({
           onClick={stopPropagation}
           onKeyDown={stopPropagation}
         >
-          <TargetToggle
-            target={target}
-            onChange={onTargetChange}
-            size="small"
-          />
           <Button
             type="primary"
             size="small"
             onClick={onInstall}
             className={styles.installButton}
           >
-            {t("market.install")}
+            {t("common.save")}
           </Button>
         </div>
       )}
