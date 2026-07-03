@@ -319,16 +319,37 @@ def harden_governance_policy() -> None:
         policy.sensitive_paths.append(secret_dir)
     print(f"  sensitive_paths: added {secret_dir}")
 
+    deny_reason = "CI review bot: secret storage access denied"
     deny_rules = [
         GovernanceRule(
             match=f"Read({secret_dir}/**)",
             action=GovernanceAction.DENY,
-            reason="CI review bot: secret storage access denied",
+            reason=deny_reason,
         ),
         GovernanceRule(
             match=f"Bash(*{secret_dir}*)",
             action=GovernanceAction.DENY,
-            reason="CI review bot: secret storage access denied",
+            reason=deny_reason,
+        ),
+        GovernanceRule(
+            match="Bash(*~/.qwenpaw.secret*)",
+            action=GovernanceAction.DENY,
+            reason=deny_reason,
+        ),
+        GovernanceRule(
+            match="Bash(*$HOME/.qwenpaw.secret*)",
+            action=GovernanceAction.DENY,
+            reason=deny_reason,
+        ),
+        GovernanceRule(
+            match="Bash(*.qwenpaw.secret*)",
+            action=GovernanceAction.DENY,
+            reason=deny_reason,
+        ),
+        GovernanceRule(
+            match="Bash(*.master_key*)",
+            action=GovernanceAction.DENY,
+            reason=deny_reason,
         ),
     ]
     for rule in deny_rules:
