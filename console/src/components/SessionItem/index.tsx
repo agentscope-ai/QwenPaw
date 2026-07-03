@@ -45,45 +45,65 @@ export interface SessionItemProps {
   onContextMenu?: (sessionId: string, event: React.MouseEvent) => void;
 }
 
-const SessionItem: React.FC<SessionItemProps> = (props) => {
+const SessionItem: React.FC<SessionItemProps> = ({
+  sessionId,
+  name,
+  channelKey,
+  channelLabel,
+  chatStatus,
+  generating,
+  pinned,
+  time,
+  active,
+  disabled,
+  editing,
+  editValue,
+  variant,
+  onClick,
+  onEdit,
+  onDelete,
+  onPin,
+  onEditChange,
+  onEditSubmit,
+  onEditCancel,
+  onContextMenu,
+}) => {
   const { t } = useTranslation();
   const inputRef = useRef<InputRef>(null);
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const isComposingRef = useRef(false);
 
-  const inProgress =
-    props.generating === true || props.chatStatus === "running";
-  const isIdle =
-    !inProgress && !!props.chatStatus && props.chatStatus !== "running";
+  const inProgress = generating === true || chatStatus === "running";
+  const isIdle = !inProgress && !!chatStatus;
   const statusAriaLabel = inProgress
     ? t("chat.statusInProgress")
     : t("chat.statusIdle");
 
   const handleClick = useCallback(() => {
-    if (props.disabled || props.editing) return;
-    props.onClick?.(props.sessionId);
-  }, [props.disabled, props.editing, props.onClick, props.sessionId]);
+    if (disabled || editing) return;
+    onClick?.(sessionId);
+  }, [disabled, editing, onClick, sessionId]);
 
   const handleStartEdit = useCallback(() => {
-    props.onEdit?.(props.sessionId, props.name);
+    onEdit?.(sessionId, name);
     setTimeout(() => inputRef.current?.focus(), 50);
-  }, [props.onEdit, props.sessionId, props.name]);
+  }, [onEdit, sessionId, name]);
 
   const handleRenameSubmit = useCallback(() => {
-    const trimmed = (props.editValue ?? "").trim();
-    if (trimmed && trimmed !== props.name) {
-      props.onEditSubmit?.();
+    const trimmed = (editValue ?? "").trim();
+    if (trimmed && trimmed !== name) {
+      onEditSubmit?.();
     } else {
-      props.onEditCancel?.();
+      onEditCancel?.();
     }
-  }, [props.editValue, props.name, props.onEditSubmit, props.onEditCancel]);
+  }, [editValue, name, onEditSubmit, onEditCancel]);
 
   const handleContextMenu = useCallback(
     (event: React.MouseEvent) => {
-      if (props.editing) return;
-      props.onContextMenu?.(props.sessionId, event);
+      if (editing) return;
+      onContextMenu?.(sessionId, event);
     },
-    [props.onContextMenu, props.sessionId, props.editing],
+    [onContextMenu, sessionId, editing],
   );
 
   const dropdownItems = [
@@ -95,15 +115,11 @@ const SessionItem: React.FC<SessionItemProps> = (props) => {
     },
     {
       key: "pin",
-      icon: props.pinned ? (
-        <SparkMarkFill size={14} />
-      ) : (
-        <SparkMarkLine size={14} />
-      ),
-      label: props.pinned
+      icon: pinned ? <SparkMarkFill size={14} /> : <SparkMarkLine size={14} />,
+      label: pinned
         ? t("chat.contextMenu.unpin", "Unpin")
         : t("chat.contextMenu.pin", "Pin"),
-      onClick: () => props.onPin?.(props.sessionId),
+      onClick: () => onPin?.(sessionId),
     },
     { type: "divider" as const },
     {
@@ -111,17 +127,17 @@ const SessionItem: React.FC<SessionItemProps> = (props) => {
       icon: <SparkDeleteLine size={14} />,
       label: t("chat.contextMenu.delete", "Delete"),
       danger: true,
-      onClick: () => props.onDelete?.(props.sessionId),
+      onClick: () => onDelete?.(sessionId),
     },
   ];
 
   const cls = [
     styles.item,
-    styles[props.variant],
-    props.active ? styles.active : "",
-    props.disabled ? styles.disabled : "",
-    props.editing ? styles.editing : "",
-    props.pinned ? styles.pinned : "",
+    styles[variant],
+    active ? styles.active : "",
+    disabled ? styles.disabled : "",
+    editing ? styles.editing : "",
+    pinned ? styles.pinned : "",
     dropdownOpen ? styles.dropdownOpen : "",
   ]
     .filter(Boolean)
@@ -131,15 +147,15 @@ const SessionItem: React.FC<SessionItemProps> = (props) => {
     <div
       className={cls}
       onClick={handleClick}
-      onContextMenu={props.variant === "drawer" ? handleContextMenu : undefined}
+      onContextMenu={variant === "drawer" ? handleContextMenu : undefined}
       role="button"
       tabIndex={0}
     >
       {/* Drawer variant: timeline indicator */}
-      {props.variant === "drawer" && <div className={styles.iconPlaceholder} />}
+      {variant === "drawer" && <div className={styles.iconPlaceholder} />}
 
       {/* Status slot — leftmost for sidebar variant only */}
-      {!props.editing && props.variant === "sidebar" && (
+      {!editing && variant === "sidebar" && (
         <span className={styles.statusSlot}>
           {inProgress && <span className={styles.runningDot} />}
           {isIdle && <span className={styles.idleDot} />}
@@ -148,14 +164,14 @@ const SessionItem: React.FC<SessionItemProps> = (props) => {
 
       {/* Content area */}
       <div className={styles.content}>
-        {props.editing ? (
+        {editing ? (
           <Input
             ref={inputRef}
             autoFocus
             size="small"
-            value={props.editValue}
+            value={editValue}
             className={styles.renameInput}
-            onChange={(e) => props.onEditChange?.(e.target.value)}
+            onChange={(e) => onEditChange?.(e.target.value)}
             onCompositionStart={() => {
               isComposingRef.current = true;
             }}
@@ -170,7 +186,7 @@ const SessionItem: React.FC<SessionItemProps> = (props) => {
             onKeyDown={(e) => {
               if (e.key === "Escape") {
                 e.preventDefault();
-                props.onEditCancel?.();
+                onEditCancel?.();
               }
             }}
             onBlur={() => {
@@ -184,7 +200,7 @@ const SessionItem: React.FC<SessionItemProps> = (props) => {
           />
         ) : (
           <>
-            {props.variant === "drawer" ? (
+            {variant === "drawer" ? (
               <div className={styles.titleRow}>
                 <span
                   className={styles.statusWrap}
@@ -198,29 +214,27 @@ const SessionItem: React.FC<SessionItemProps> = (props) => {
                     aria-hidden
                   />
                 </span>
-                <div className={styles.name}>{props.name || "New Chat"}</div>
+                <div className={styles.name}>{name || "New Chat"}</div>
               </div>
             ) : (
-              <div className={styles.name}>{props.name || "New Chat"}</div>
+              <div className={styles.name}>{name || "New Chat"}</div>
             )}
           </>
         )}
         {/* Drawer variant: show time and channel in meta row */}
-        {props.variant === "drawer" && (
+        {variant === "drawer" && (
           <div className={styles.metaRow}>
-            {props.time && <span className={styles.time}>{props.time}</span>}
-            {(props.channelKey || props.channelLabel) && (
+            {time && <span className={styles.time}>{time}</span>}
+            {(channelKey || channelLabel) && (
               <span
                 className={styles.channelTag}
-                title={props.channelLabel || props.channelKey}
+                title={channelLabel || channelKey}
               >
-                {props.channelKey ? (
-                  <ChannelIcon channelKey={props.channelKey} size={14} />
+                {channelKey ? (
+                  <ChannelIcon channelKey={channelKey} size={14} />
                 ) : null}
-                {props.channelLabel ? (
-                  <span className={styles.channelTagText}>
-                    {props.channelLabel}
-                  </span>
+                {channelLabel ? (
+                  <span className={styles.channelTagText}>{channelLabel}</span>
                 ) : null}
               </span>
             )}
@@ -229,32 +243,29 @@ const SessionItem: React.FC<SessionItemProps> = (props) => {
       </div>
 
       {/* Sidebar variant: channel icon */}
-      {!props.editing && props.variant === "sidebar" && props.channelKey && (
-        <span
-          className={styles.channelTag}
-          title={props.channelLabel || props.channelKey}
-        >
-          <ChannelIcon channelKey={props.channelKey} size={14} />
+      {!editing && variant === "sidebar" && channelKey && (
+        <span className={styles.channelTag} title={channelLabel || channelKey}>
+          <ChannelIcon channelKey={channelKey} size={14} />
         </span>
       )}
 
       {/* Pin button - drawer variant only */}
-      {!props.editing && props.variant === "drawer" && (
+      {!editing && variant === "drawer" && (
         <IconButton
           bordered={false}
           size="small"
           className={styles.pinButton}
-          data-pinned={props.pinned}
-          icon={props.pinned ? <SparkMarkFill /> : <SparkMarkLine />}
+          data-pinned={pinned}
+          icon={pinned ? <SparkMarkFill /> : <SparkMarkLine />}
           onClick={(e) => {
             e.stopPropagation();
-            props.onPin?.(props.sessionId);
+            onPin?.(sessionId);
           }}
         />
       )}
 
       {/* Action buttons - drawer variant: edit/delete on hover */}
-      {!props.editing && props.variant === "drawer" && (
+      {!editing && variant === "drawer" && (
         <div className={styles.actions}>
           <IconButton
             bordered={false}
@@ -271,14 +282,14 @@ const SessionItem: React.FC<SessionItemProps> = (props) => {
             icon={<SparkDeleteLine />}
             onClick={(e) => {
               e.stopPropagation();
-              props.onDelete?.(props.sessionId);
+              onDelete?.(sessionId);
             }}
           />
         </div>
       )}
 
       {/* More button - sidebar variant only */}
-      {!props.editing && props.variant === "sidebar" && (
+      {!editing && variant === "sidebar" && (
         <Dropdown
           menu={{ items: dropdownItems }}
           trigger={["click"]}
@@ -294,7 +305,7 @@ const SessionItem: React.FC<SessionItemProps> = (props) => {
   );
 
   // Sidebar variant: wrap with right-click context menu
-  if (props.variant === "sidebar") {
+  if (variant === "sidebar") {
     return (
       <Dropdown menu={{ items: dropdownItems }} trigger={["contextMenu"]}>
         {itemContent}
