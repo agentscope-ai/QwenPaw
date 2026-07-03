@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+# This module is intentionally long; it centralizes model/formatter creation.
+# pylint: disable=too-many-lines
 """Factory for creating chat models and formatters.
 
 This module provides a unified factory for creating chat model instances
@@ -8,7 +10,6 @@ Example:
     >>> from qwenpaw.agents.model_factory import create_model_and_formatter
     >>> model, formatter = create_model_and_formatter()
 """
-
 
 import base64
 import logging
@@ -41,6 +42,10 @@ from .utils.message_request_normalizer import (
 from ..exceptions import ProviderError, ModelFormatterError
 from ..providers import ProviderManager
 from ..providers.capping_formatter import MAX_INLINE_MEDIA_BYTES
+from ..providers.fallback_chat_model import (
+    FallbackCandidate,
+    FallbackChatModel,
+)
 from ..providers.retry_chat_model import (
     RetryChatModel,
     RetryConfig,
@@ -83,6 +88,9 @@ _SUPPORTED_VIDEO_EXTENSIONS: dict[str, str] = {
 
 def _supports_multimodal_for_current_model() -> bool:
     """Best-effort lookup of current model multimodal support."""
+    # Lazy import avoids circular imports; broad catch protects callers.
+    # pylint: disable=import-outside-toplevel
+    # pylint: disable=broad-exception-caught
     try:
         from .prompt import get_active_model_supports_multimodal
 
@@ -437,6 +445,7 @@ def _restore_video_blocks(
                 msg.content[i] = video_subs[text]
 
 
+# pylint: disable=too-many-locals
 def _promote_tool_result_videos(
     msgs: list,
     messages: list[dict],
@@ -761,9 +770,6 @@ def _create_file_block_support_formatter(
                 base_formatter_class,
                 AnthropicChatFormatter,
             ):
-                # Direct assignment (not setdefault): kwargs comes from
-                # model_dump() and may carry the base class's narrower
-                # input_types; we must override to include "video/*".
                 kwargs["input_types"] = [
                     "text/plain",
                     "image/*",
@@ -805,6 +811,7 @@ def _create_file_block_support_formatter(
             return super()._format_anthropic_data_block(block)
 
         # pylint: disable=too-many-branches, too-many-statements
+        # pylint: disable=too-many-locals
         async def format(self, msgs):
             """Override ``format`` (2.0 API) to inject normalization,
             reasoning_content relay, and provider-specific fixups.
@@ -1038,13 +1045,12 @@ def _create_file_block_support_formatter(
 
                 if len(textual_output) == 0:
                     return "", multimodal_data
-                elif len(textual_output) == 1:
+                if len(textual_output) == 1:
                     return textual_output[0], multimodal_data
-                else:
-                    return (
-                        "\n".join("- " + _ for _ in textual_output),
-                        multimodal_data,
-                    )
+                return (
+                    "\n".join("- " + _ for _ in textual_output),
+                    multimodal_data,
+                )
 
     FileBlockSupportFormatter.__name__ = (
         f"FileBlockSupport{base_formatter_class.__name__}"
@@ -1066,6 +1072,55 @@ def _strip_top_level_message_name(
     return messages
 
 
+def _create_raw_chat_model(provider_id: str, model_id: str) -> ChatModelBase:
+    """Create a raw chat model from provider/model ids."""
+
+    manager = ProviderManager.get_instance()
+    provider = manager.get_provider(provider_id)
+    if provider is None:
+        raise ProviderError(message=f"Provider '{provider_id}' not found.")
+    return provider.get_chat_model_instance(model_id)
+
+
+def _is_fallback_candidate_available(provider_id: str, model_id: str) -> bool:
+    """Return True when provider exists and model is in its model list."""
+
+    manager = ProviderManager.get_instance()
+    provider = manager.get_provider(provider_id)
+    if provider is None:
+        return False
+    all_models = provider.models + provider.extra_models
+    return any(model.id == model_id for model in all_models)
+
+
+def _create_fallback_candidate(
+    provider_id: str,
+    model_id: str,
+    model: ChatModelBase,
+    retry_config: RetryConfig | None,
+    rate_limit_config: RateLimitConfig | None,
+) -> FallbackCandidate:
+    """Wrap one raw model with token recording and retry semantics."""
+
+    # agentscope 2.0 ChatModelBase has its own retry loop; collapse it to
+    # avoid nested retries since RetryChatModel handles retries and back-off.
+    if hasattr(model, "max_retries"):
+        model.max_retries = 0
+
+    wrapped_model = TokenRecordingModelWrapper(provider_id, model)
+    wrapped_model = RetryChatModel(
+        wrapped_model,
+        retry_config=retry_config,
+        rate_limit_config=rate_limit_config,
+    )
+    return FallbackCandidate(
+        provider_id=provider_id,
+        model_name=model_id,
+        model=wrapped_model,
+    )
+
+
+# pylint: disable=too-many-locals,too-many-branches,too-many-statements
 def create_model_and_formatter(
     agent_id: Optional[str] = None,
 ) -> Tuple[ChatModelBase, FormatterBase]:
@@ -1084,8 +1139,13 @@ def create_model_and_formatter(
     Example:
         >>> model, formatter = create_model_and_formatter()
     """
+    # Local imports avoid circular imports between agents, app, and config.
+    # Broad exception handling keeps model creation resilient to transient
+    # context/config issues; fallback candidates handle real failures later.
+    # pylint: disable=import-outside-toplevel,broad-exception-caught
     from ..app.agent_context import get_current_agent_id
     from ..config.config import load_agent_config
+    from ..config.utils import load_config
 
     # Determine agent_id (parameter > context > None)
     if agent_id is None:
@@ -1094,11 +1154,10 @@ def create_model_and_formatter(
         except Exception:
             pass
 
-    # Try to get agent-specific model first
+    agent_config = None
     model_slot = None
     retry_config = None
     rate_limit_config = None
-    compact_threshold: Optional[float] = None
     if agent_id:
         try:
             agent_config = load_agent_config(agent_id)
@@ -1116,14 +1175,26 @@ def create_model_and_formatter(
                 jitter_range=agent_config.running.llm_rate_limit_jitter,
                 acquire_timeout=agent_config.running.llm_acquire_timeout,
             )
-            # Surface the auto-compaction threshold so the UI can mark where
-            # context starts getting evicted — only when compaction is on.
-            lcc = agent_config.running.light_context_config
-            ccc = lcc.context_compact_config
-            if getattr(ccc, "enabled", False):
-                compact_threshold = ccc.compact_threshold_ratio
-        except Exception:
+        except Exception:  # pylint: disable=broad-exception-caught
             pass
+
+    manager = ProviderManager.get_instance()
+
+    if model_slot and model_slot.provider_id and model_slot.model:
+        provider_id = model_slot.provider_id
+        model_id = model_slot.model
+    else:
+        global_model = manager.get_active_model()
+        if not global_model:
+            raise ProviderError(
+                message=(
+                    "No active model configured. "
+                    "Please configure a model using 'qwenpaw models config' "
+                    "or set an agent-specific model."
+                ),
+            )
+        provider_id = global_model.provider_id
+        model_id = global_model.model
 
     # Create chat model from agent-specific or global config
     if model_slot and model_slot.provider_id and model_slot.model:
@@ -1151,34 +1222,71 @@ def create_model_and_formatter(
             )
         provider_id = global_model.provider_id
 
-    # Create the formatter based on the model's native one.  In 2.0 every
-    # ``ChatModelBase`` carries its own ``self.formatter`` (set by its
-    # ``__init__``), so we just wrap that one with file-block support
-    # instead of class-resolving via a brittle map.
+    # Create the formatter based on the model's native one.
     formatter = _create_formatter_instance(model)
 
-    # agentscope 2.0 ChatModelBase has its own retry loop
-    # (model/_base.py:162: ``for attempt in range(self.max_retries + 1)``)
-    # that catches all Exception, retries non-retryable 4xx, and has no
-    # back-off / Retry-After awareness. RetryChatModel (below) is strictly
-    # more capable, so collapse the inner loop to a single attempt to avoid
-    # 4x4 nested retries on transient errors.
-    if hasattr(model, "max_retries"):
-        model.max_retries = 0
-
-    # Wrap with retry logic for transient LLM API errors
-    wrapped_model = TokenRecordingModelWrapper(
+    # Build primary candidate with retry wrapper
+    primary_candidate = _create_fallback_candidate(
         provider_id,
+        model_id,
         model,
-        compact_threshold=compact_threshold,
-    )
-    wrapped_model = RetryChatModel(
-        wrapped_model,
-        retry_config=retry_config,
-        rate_limit_config=rate_limit_config,
+        retry_config,
+        rate_limit_config,
     )
 
-    return wrapped_model, formatter
+    candidates = [primary_candidate]
+    routing = getattr(agent_config, "llm_routing", None)
+    fallback = getattr(routing, "fallback", None)
+    if not getattr(fallback, "enabled", False):
+        try:
+            fallback = load_config().agents.llm_routing.fallback
+        except Exception:
+            fallback = None
+    if getattr(fallback, "enabled", False):
+        seen = {(provider_id, model_id)}
+        for fallback_slot in getattr(fallback, "models", []) or []:
+            fallback_provider_id = getattr(fallback_slot, "provider_id", "")
+            fallback_model_id = getattr(fallback_slot, "model", "")
+            if not fallback_provider_id or not fallback_model_id:
+                continue
+            key = (fallback_provider_id, fallback_model_id)
+            if key in seen:
+                logger.warning(
+                    "Skipping duplicate fallback model candidate: %s:%s",
+                    fallback_provider_id,
+                    fallback_model_id,
+                )
+                continue
+            seen.add(key)
+            if not _is_fallback_candidate_available(
+                fallback_provider_id,
+                fallback_model_id,
+            ):
+                logger.warning(
+                    "Skipping unavailable fallback model candidate: "
+                    "%s:%s — provider or model not found",
+                    fallback_provider_id,
+                    fallback_model_id,
+                )
+                continue
+            fallback_model = _create_raw_chat_model(
+                fallback_provider_id,
+                fallback_model_id,
+            )
+            candidates.append(
+                _create_fallback_candidate(
+                    fallback_provider_id,
+                    fallback_model_id,
+                    fallback_model,
+                    retry_config,
+                    rate_limit_config,
+                ),
+            )
+
+    if len(candidates) == 1:
+        return primary_candidate.model, formatter
+
+    return FallbackChatModel(candidates), formatter
 
 
 def _create_formatter_instance(
@@ -1217,9 +1325,6 @@ def _create_formatter_instance(
     formatter_class = _create_file_block_support_formatter(
         base_formatter_class,
     )
-    # Carry over all Pydantic field values (max_bytes,
-    # relay_reasoning_content, etc.) from the provider-constructed
-    # formatter so they are not silently reset to defaults.
     kwargs: dict[str, Any] = base_formatter.model_dump()
     # OpenAI / Gemini wire formats can't carry image bytes inside tool
     # results — promote them into a follow-up user message instead.

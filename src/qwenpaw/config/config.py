@@ -1302,6 +1302,15 @@ class AgentsRunningConfig(BaseModel):
     )
 
 
+class AgentsLLMFallbackConfig(BaseModel):
+    """Fallback model candidates for LLM routing."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    enabled: bool = Field(default=False)
+    models: List[ModelSlotConfig] = Field(default_factory=list)
+
+
 class AgentsLLMRoutingConfig(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
@@ -1323,6 +1332,13 @@ class AgentsLLMRoutingConfig(BaseModel):
         description=(
             "Optional explicit cloud model slot; when null, uses "
             "providers.json active_llm."
+        ),
+    )
+    fallback: AgentsLLMFallbackConfig = Field(
+        default_factory=AgentsLLMFallbackConfig,
+        description=(
+            "Optional fallback model candidates tried after the primary "
+            "model exhausts retryable failures."
         ),
     )
 

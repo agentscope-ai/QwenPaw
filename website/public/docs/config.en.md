@@ -255,6 +255,16 @@ Each agent has an independent `agent.json` in its workspace directory (`~/.qwenp
     "llm_backoff_cap": 10.0,
     "max_input_length": 131072
   },
+  "llm_routing": {
+    "enabled": false,
+    "mode": "local_first",
+    "local": { "provider_id": "ollama", "model": "qwen3" },
+    "cloud": { "provider_id": "dashscope", "model": "qwen-max" },
+    "fallback": {
+      "enabled": false,
+      "models": [{ "provider_id": "openai", "model": "gpt-4o-mini" }]
+    }
+  },
   "active_model": null,
   "language": "en",
   "system_prompt_files": ["AGENTS.md", "SOUL.md", "PROFILE.md"],
@@ -455,6 +465,26 @@ Controls agent runtime behavior, retry strategies, context management, and memor
 | `max_batch_size`   | int    | `10`       | Maximum batch size for batch processing                 |
 
 These settings can also be changed in the Console under **Agent → Runtime Config**. Changes apply to new LLM requests after saving; restarting the service is not required.
+
+---
+
+#### `llm_routing.fallback` — LLM model fallback
+
+Model fallback is disabled by default. When enabled, if the primary model hits a fallback-eligible transient LLM/provider failure such as rate limits, timeouts, or connection drops, and that model has exhausted its automatic retries, QwenPaw tries backup models in `fallback.models` order.
+
+| Field              | Type  | Default | Description                                                             |
+| ------------------ | ----- | ------- | ----------------------------------------------------------------------- |
+| `fallback.enabled` | bool  | `false` | Whether model fallback is enabled                                       |
+| `fallback.models`  | array | `[]`    | Ordered backup model list. Each item contains `provider_id` and `model` |
+
+Important rules:
+
+- Retry means retrying the same model; fallback only happens after that model exhausts retries.
+- Each backup model still uses the existing retry, rate limiting, token recording, and ProviderManager paths.
+- Streaming responses can only fallback before the first chunk is emitted. Once output has started, QwenPaw will not silently switch models.
+- Failure logs record only provider, model, exception type, and status code. They do not include prompts, messages, API keys, or exception bodies.
+
+You can also configure this in Console under **Agent → Runtime Config → LLM Model Fallback**.
 
 ---
 

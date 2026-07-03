@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """Smoke tests for ACP, LLM routing, allow-no-auth, timezone."""
+
 from __future__ import annotations
 
 import pytest
@@ -196,21 +197,31 @@ def test_agent_scoped_llm_routing_put_get_roundtrip(app_server) -> None:
         assert "enabled" in baseline
         assert "mode" in baseline
         assert "local" in baseline
+        assert "fallback" in baseline
 
         updated = dict(baseline)
         updated["enabled"] = not bool(baseline.get("enabled", False))
+        updated["fallback"] = {
+            "enabled": True,
+            "models": [
+                {"provider_id": "dashscope", "model": "qwen-plus"},
+                {"provider_id": "deepseek", "model": "deepseek-chat"},
+            ],
+        }
 
         put_resp = app_server.api_request("PUT", endpoint, json=updated)
         assert put_resp.status_code == 200, app_server.logs_tail()
         assert bool(put_resp.json().get("enabled", False)) == bool(
             updated["enabled"],
         )
+        assert put_resp.json().get("fallback") == updated["fallback"]
 
         get_after = app_server.api_request("GET", endpoint)
         assert get_after.status_code == 200, app_server.logs_tail()
         assert bool(get_after.json().get("enabled", False)) == bool(
             updated["enabled"],
         )
+        assert get_after.json().get("fallback") == updated["fallback"]
     finally:
         if isinstance(baseline, dict):
             restore = app_server.api_request("PUT", endpoint, json=baseline)

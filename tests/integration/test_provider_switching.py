@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
-# pylint: disable=redefined-outer-name
-# -*- coding: utf-8 -*-
+# pylint: disable=redefined-outer-name,missing-function-docstring
+# pylint: disable=broad-exception-caught,too-many-locals
 """Integration tests for provider switching and retry/rate-limit
 (Sprint 3.1-C).
 
@@ -10,6 +10,7 @@ Drives the mock LLM with custom HTTP status codes to exercise:
 - Persistent 500 → final failure surfaces in cron history.
 - Agent-scoped running config roundtrip for retry/rate-limit knobs.
 """
+
 from __future__ import annotations
 
 import threading
@@ -317,7 +318,140 @@ def test_persistent_5xx_eventually_fails(app_server, mock_llm) -> None:
 
 
 # ------------------------------------------------------------------ #
-# C4: agent-scoped running config roundtrip
+# C4: persistent primary 500 falls back to backup provider
+# ------------------------------------------------------------------ #
+
+
+@pytest.mark.integration
+@pytest.mark.p1
+def test_model_fallback_primary_5xx_uses_backup_provider(
+    app_server,
+    mock_llm,
+    second_mock_llm,
+) -> None:
+    """Test purpose:
+    - Verify the real app process falls back from a retry-exhausted
+      primary provider to a configured backup provider.
+
+    Test flow:
+    1. Register two OpenAI-compatible mock providers.
+    2. Make the primary provider return persistent 500.
+    3. Enable agent-scoped ``llm_routing.fallback`` with the backup.
+    4. Trigger a real agent-type cron run via HTTP API.
+    5. Assert the run succeeds, both providers were called, and logs show
+       fallback selection without leaking provider error bodies.
+    """
+    primary_srv, primary_url = mock_llm
+    backup_srv, backup_url = second_mock_llm
+    primary_id = "integ-fallback-primary"
+    backup_id = "integ-fallback-backup"
+
+    _unregister_provider(app_server, primary_id)
+    _unregister_provider(app_server, backup_id)
+    _register_provider_with_id(app_server, primary_id, primary_url)
+    _register_provider_with_id(app_server, backup_id, backup_url)
+
+    running_resp = app_server.api_request(
+        "GET",
+        scoped("default", "/workspace/running-config"),
+        timeout=_HTTP_TIMEOUT,
+    )
+    assert running_resp.status_code == 200, app_server.logs_tail()
+    running_baseline = running_resp.json()
+    running_patched = dict(running_baseline)
+    running_patched["llm_retry_enabled"] = True
+    running_patched["llm_max_retries"] = 1
+    running_patched["llm_backoff_base"] = 0.1
+    running_patched["llm_backoff_cap"] = 0.5
+
+    routing_resp = app_server.api_request(
+        "GET",
+        "/api/agents/default/config/agents/llm-routing",
+        timeout=_HTTP_TIMEOUT,
+    )
+    assert routing_resp.status_code == 200, app_server.logs_tail()
+    routing_baseline = routing_resp.json()
+    routing_patched = dict(routing_baseline)
+    routing_patched["fallback"] = {
+        "enabled": True,
+        "models": [{"provider_id": backup_id, "model": "mock-model"}],
+    }
+
+    app_server.api_request(
+        "PUT",
+        scoped("default", "/workspace/running-config"),
+        json=running_patched,
+        timeout=_HTTP_TIMEOUT,
+    )
+    app_server.api_request(
+        "PUT",
+        "/api/agents/default/config/agents/llm-routing",
+        json=routing_patched,
+        timeout=_HTTP_TIMEOUT,
+    )
+    app_server.api_request(
+        "PUT",
+        "/api/models/active",
+        json={
+            "provider_id": primary_id,
+            "model": "mock-model",
+            "scope": "agent",
+            "agent_id": "default",
+        },
+        timeout=_HTTP_TIMEOUT,
+    )
+
+    primary_srv.force_status_code = 500
+    primary_srv.request_count = 0
+    backup_srv.force_status_code = None
+    backup_srv.request_count = 0
+    spec = _agent_spec("fallback_primary_5xx")
+    job_id = _create_job(app_server, spec)
+    try:
+        run_resp = app_server.api_request(
+            "POST",
+            f"/api/cron/jobs/{job_id}/run",
+            timeout=_HTTP_TIMEOUT,
+        )
+        assert run_resp.status_code == 200, app_server.logs_tail()
+
+        records = wait_cron_executed(
+            app_server,
+            job_id,
+            time.time() + 60.0,
+        )
+        assert records, app_server.logs_tail()
+        assert records[0]["status"] == "success", (
+            records[0],
+            app_server.logs_tail(12000),
+        )
+        assert primary_srv.request_count >= 2
+        assert backup_srv.request_count >= 1
+        logs = app_server.logs_tail(20000)
+        assert "LLM fallback candidate failed" in logs
+        assert "LLM fallback candidate selected" in logs
+        assert "Internal Server Error" not in logs
+    finally:
+        _delete_job(app_server, job_id)
+        primary_srv.force_status_code = None
+        app_server.api_request(
+            "PUT",
+            scoped("default", "/workspace/running-config"),
+            json=running_baseline,
+            timeout=_HTTP_TIMEOUT,
+        )
+        app_server.api_request(
+            "PUT",
+            "/api/agents/default/config/agents/llm-routing",
+            json=routing_baseline,
+            timeout=_HTTP_TIMEOUT,
+        )
+        _unregister_provider(app_server, primary_id)
+        _unregister_provider(app_server, backup_id)
+
+
+# ------------------------------------------------------------------ #
+# C5: agent-scoped running config roundtrip
 # ------------------------------------------------------------------ #
 
 

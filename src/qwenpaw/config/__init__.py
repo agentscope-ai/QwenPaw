@@ -11,6 +11,8 @@ from .config import (
     ToolGuardRuleConfig,
     ModelSlotConfig,
     ActiveModelsInfo,
+    AgentsLLMFallbackConfig,
+    AgentsLLMRoutingConfig,
     ACPConfig,
     ACPAgentConfig,
 )
@@ -41,6 +43,8 @@ __all__ = [
     "ToolGuardRuleConfig",
     "ModelSlotConfig",
     "ActiveModelsInfo",
+    "AgentsLLMFallbackConfig",
+    "AgentsLLMRoutingConfig",
     "ACPConfig",
     "ACPAgentConfig",
     "get_available_channels",
