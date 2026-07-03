@@ -1,4 +1,11 @@
 # -*- coding: utf-8 -*-
+# This module intentionally keeps lazy imports inside endpoints and is long;
+# existing endpoints lack docstrings to stay consistent with the file style.
+# pylint: disable=too-many-lines,redefined-outer-name
+# pylint: disable=import-outside-toplevel,missing-class-docstring
+# pylint: disable=missing-function-docstring,broad-exception-caught
+# pylint: disable=logging-fstring-interpolation
+"""API routers for agent and global configuration."""
 
 from datetime import datetime, timezone
 from typing import Any, List, Optional
@@ -7,6 +14,7 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Path, Request
 from pydantic import BaseModel, Field
 
 from ..utils import schedule_agent_reload
+from ..agent_context import get_agent_for_request
 from ...config import (
     load_config,
     save_config,
@@ -21,6 +29,8 @@ from ...config.timezone import normalize_tz
 from ...config.config import (
     AgentsLLMRoutingConfig,
     ConsoleConfig,
+    load_agent_config,
+    save_agent_config,
     DingTalkConfig,
     DiscordConfig,
     FeishuConfig,
@@ -50,6 +60,39 @@ from ..channels.qrcode_auth_handler import (
 )
 
 router = APIRouter(prefix="/config", tags=["config"])
+
+# Router for global (non-agent-scoped) configuration that is shared by all
+# agents unless they define their own per-agent overrides.
+global_config_router = APIRouter(
+    prefix="/global-config",
+    tags=["global-config"],
+)
+
+
+@global_config_router.get(
+    "/agents/llm-routing",
+    response_model=AgentsLLMRoutingConfig,
+    summary="Get global agent LLM routing settings",
+)
+async def get_global_agents_llm_routing() -> AgentsLLMRoutingConfig:
+    """Return the globally configured LLM routing settings."""
+    config = load_config()
+    return config.agents.llm_routing
+
+
+@global_config_router.put(
+    "/agents/llm-routing",
+    response_model=AgentsLLMRoutingConfig,
+    summary="Update global agent LLM routing settings",
+)
+async def put_global_agents_llm_routing(
+    body: AgentsLLMRoutingConfig = Body(...),
+) -> AgentsLLMRoutingConfig:
+    """Persist the globally configured LLM routing settings."""
+    config = load_config()
+    config.agents.llm_routing = body
+    save_config(config)
+    return body
 
 
 _CHANNEL_CONFIG_CLASS_MAP = {
@@ -603,9 +646,16 @@ async def run_heartbeat_now(request: Request) -> Any:
     response_model=AgentsLLMRoutingConfig,
     summary="Get agent LLM routing settings",
 )
-async def get_agents_llm_routing() -> AgentsLLMRoutingConfig:
-    config = load_config()
-    return config.agents.llm_routing
+async def get_agents_llm_routing(
+    request: Request,
+) -> AgentsLLMRoutingConfig:
+    """Return LLM routing settings for the requested agent."""
+    agent = await get_agent_for_request(request)
+    agent_config = load_agent_config(agent.agent_id)
+    return agent_config.llm_routing or AgentsLLMRoutingConfig(
+        enabled=False,
+        mode="local_first",
+    )
 
 
 @router.put(
@@ -614,11 +664,15 @@ async def get_agents_llm_routing() -> AgentsLLMRoutingConfig:
     summary="Update agent LLM routing settings",
 )
 async def put_agents_llm_routing(
+    request: Request,
     body: AgentsLLMRoutingConfig = Body(...),
 ) -> AgentsLLMRoutingConfig:
-    config = load_config()
-    config.agents.llm_routing = body
-    save_config(config)
+    """Persist LLM routing settings for the requested agent and reload it."""
+    agent = await get_agent_for_request(request)
+    agent_config = load_agent_config(agent.agent_id)
+    agent_config.llm_routing = body
+    save_agent_config(agent.agent_id, agent_config)
+    schedule_agent_reload(request, agent.agent_id)
     return body
 
 
