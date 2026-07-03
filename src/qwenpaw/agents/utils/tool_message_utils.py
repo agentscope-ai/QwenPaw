@@ -34,6 +34,61 @@ def _is_tool_result(block: Any) -> bool:
     return _block_attr(block, "type") in _TOOL_RESULT_TYPES
 
 
+def _tool_call_json_error_text(block: Any) -> dict[str, str]:
+    """Build model-visible feedback for an invalid tool-call input."""
+    name = str(_block_attr(block, "name") or "unknown")
+    call_id = str(_block_attr(block, "id") or "unknown")
+    return {
+        "type": "text",
+        "text": (
+            f"Tool call `{name}` was not executed because its JSON "
+            "arguments were invalid or incomplete. Please retry with valid "
+            "JSON arguments, and split large payloads into smaller tool "
+            f"calls if needed. (tool_call_id: `{call_id}`)"
+        ),
+    }
+
+
+def _coerce_raw_tool_input(raw: str, block: Any) -> str | None:
+    """Return a JSON string for raw tool input, or None if unrecoverable."""
+    try:
+        json.loads(raw)
+        return raw
+    except (json.JSONDecodeError, ValueError) as exc:
+        if raw == "":
+            return "{}"
+
+        # Some models (e.g. DeepSeek-V4-Flash) append garbage after valid JSON
+        # for no-param tool calls: "{}trailing" raises "Extra data", but
+        # raw_decode can recover the leading valid object.
+        try:
+            recovered, _ = _json_decoder.raw_decode(raw)
+            if not isinstance(recovered, dict):
+                raise json.JSONDecodeError(
+                    "recovered value is not a JSON object",
+                    raw,
+                    0,
+                ) from exc
+        except (json.JSONDecodeError, ValueError):
+            logger.warning(
+                "tool_call input is not valid JSON; "
+                "replacing block with feedback: id=%r, name=%r, "
+                "input_preview=%s",
+                _block_attr(block, "id"),
+                _block_attr(block, "name"),
+                repr(raw[:120]),
+            )
+            return None
+
+    logger.info(
+        "tool_call input had trailing garbage; recovered via raw_decode: "
+        "id=%r, name=%r",
+        _block_attr(block, "id"),
+        _block_attr(block, "name"),
+    )
+    return json.dumps(recovered, ensure_ascii=False)
+
+
 def extract_tool_ids(msg) -> tuple[set[str], set[str]]:
     """Return (tool_call_ids, tool_result_ids) found in a single message.
 
@@ -355,9 +410,9 @@ def _coerce_tool_inputs_to_json(msgs: list) -> list:
     * ``dict`` / ``list`` → ``json.dumps``.
     * Empty string ``""`` → ``"{}"`` (treat as no-args call).
     * Non-empty non-JSON string (e.g. truncated streaming artefact) →
-      **drop the block** so ``_remove_unpaired_tool_messages`` can clean up
-      the orphaned tool_result.  Replacing with ``{}`` would cause the tool
-      to be called with wrong/empty arguments, which is worse.
+      replace the tool call with model-visible text feedback so the next
+      request can see the failed call.  Replacing with ``{}`` would cause the
+      tool to be called with wrong/empty arguments, which is worse.
     """
     for msg in msgs:
         if not isinstance(getattr(msg, "content", None), list):
@@ -365,8 +420,20 @@ def _coerce_tool_inputs_to_json(msgs: list) -> list:
 
         new_blocks: list = []
         changed_this_msg = False
+        malformed_tool_ids: set[str] = set()
 
         for block in msg.content:
+            if (
+                _is_tool_result(block)
+                and _block_attr(
+                    block,
+                    "id",
+                )
+                in malformed_tool_ids
+            ):
+                changed_this_msg = True
+                continue
+
             if not _is_tool_call(block):
                 new_blocks.append(block)
                 continue
@@ -380,45 +447,11 @@ def _coerce_tool_inputs_to_json(msgs: list) -> list:
             coerced_input: str = raw if isinstance(raw, str) else "{}"
 
             if isinstance(raw, str):
-                try:
-                    json.loads(raw)
-                    coerced_input = raw  # already a valid JSON string
-                except (json.JSONDecodeError, ValueError) as exc:
-                    if raw == "":
-                        coerced_input = "{}"
-                    else:
-                        # Some models (e.g. DeepSeek-V4-Flash) append garbage
-                        # after valid JSON for no-param tool calls: "{
-                        # }trailing" json.loads raises "Extra data" but
-                        # raw_decode can recover the leading valid object.
-                        try:
-                            recovered, _ = _json_decoder.raw_decode(raw)
-                            if not isinstance(recovered, dict):
-                                raise json.JSONDecodeError(
-                                    "recovered value is not a JSON object",
-                                    raw,
-                                    0,
-                                ) from exc
-                            coerced_input = json.dumps(
-                                recovered,
-                                ensure_ascii=False,
-                            )
-                            logger.info(
-                                "tool_call input had trailing garbage; "
-                                "recovered via raw_decode: id=%r, name=%r",
-                                _block_attr(block, "id"),
-                                _block_attr(block, "name"),
-                            )
-                        except (json.JSONDecodeError, ValueError):
-                            logger.warning(
-                                "tool_call input is not valid JSON; "
-                                "dropping block: id=%r, name=%r, "
-                                "input_preview=%s",
-                                _block_attr(block, "id"),
-                                _block_attr(block, "name"),
-                                repr(raw[:120]),
-                            )
-                            drop_block = True
+                coerced = _coerce_raw_tool_input(raw, block)
+                if coerced is None:
+                    drop_block = True
+                else:
+                    coerced_input = coerced
             elif isinstance(raw, (dict, list)):
                 coerced_input = json.dumps(raw, ensure_ascii=False)
             else:
@@ -426,8 +459,12 @@ def _coerce_tool_inputs_to_json(msgs: list) -> list:
                 coerced_input = "{}"
 
             if drop_block:
+                block_id = _block_attr(block, "id")
+                if block_id:
+                    malformed_tool_ids.add(block_id)
+                new_blocks.append(_tool_call_json_error_text(block))
                 changed_this_msg = True
-                continue  # omit from new_blocks
+                continue
 
             if coerced_input != raw:
                 if isinstance(block, dict):

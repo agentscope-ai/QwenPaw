@@ -46,6 +46,14 @@ def _tool_result(tid):
     return {"type": "tool_result", "id": tid}
 
 
+def _text_blocks(msg):
+    return [
+        block
+        for block in msg.content
+        if isinstance(block, dict) and block.get("type") == "text"
+    ]
+
+
 # ---------------------------------------------------------------------------
 # extract_tool_ids
 # ---------------------------------------------------------------------------
@@ -412,7 +420,7 @@ class TestCoerceToolInputsRawDecode:
         assert len(result[0].content) == 1
         assert json.loads(result[0].content[0]["input"]) == {"key": "val"}
 
-    def test_completely_invalid_json_drops_block(self):
+    def test_completely_invalid_json_becomes_visible_feedback(self):
         msg = _msg(
             [
                 {
@@ -424,10 +432,14 @@ class TestCoerceToolInputsRawDecode:
             ],
         )
         result = _coerce_tool_inputs_to_json([msg])
-        assert len(result[0].content) == 0
+        texts = _text_blocks(result[0])
+        assert len(texts) == 1
+        assert "Tool call `t` was not executed" in texts[0]["text"]
+        assert "valid JSON arguments" in texts[0]["text"]
+        assert "totally not json" not in texts[0]["text"]
 
-    def test_non_dict_recovered_value_drops_block(self):
-        """raw_decode recovering a non-dict (int, list, string) should drop."""
+    def test_non_dict_recovered_value_becomes_visible_feedback(self):
+        """raw_decode recovering a non-dict should not create a tool call."""
         for bad_input in ["42trailing", '"hello"garbage', "[1,2,3]extra"]:
             msg = _msg(
                 [
@@ -440,9 +452,10 @@ class TestCoerceToolInputsRawDecode:
                 ],
             )
             result = _coerce_tool_inputs_to_json([msg])
-            assert (
-                len(result[0].content) == 0
-            ), f"Expected block to be dropped for input: {bad_input!r}"
+            texts = _text_blocks(result[0])
+            assert len(texts) == 1
+            assert "Tool call `t` was not executed" in texts[0]["text"]
+            assert bad_input not in texts[0]["text"]
 
 
 # ---------------------------------------------------------------------------
@@ -516,6 +529,34 @@ class TestSanitizeToolMessages:
         for m in result:
             u, _ = extract_tool_ids(m)
             assert "id1" not in u
+
+    def test_malformed_tool_call_pair_becomes_visible_feedback(self):
+        msgs = [
+            _msg(
+                [
+                    {
+                        "type": "tool_call",
+                        "id": "call_bad_json",
+                        "name": "write_file",
+                        "input": (
+                            '{"file_path": "/tmp/out.py", '
+                            '"content": "unterminated'
+                        ),
+                    },
+                ],
+            ),
+            _msg([_tool_result("call_bad_json")]),
+        ]
+
+        result = _sanitize_tool_messages(msgs)
+
+        assert len(result) == 1
+        texts = _text_blocks(result[0])
+        assert len(texts) == 1
+        assert "Tool call `write_file` was not executed" in texts[0]["text"]
+        uses, results = extract_tool_ids(result[0])
+        assert uses == set()
+        assert results == set()
 
     def test_empty_messages_returns_empty(self):
         result = _sanitize_tool_messages([])
