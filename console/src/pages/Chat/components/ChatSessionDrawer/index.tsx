@@ -241,14 +241,24 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
     IAgentScopeRuntimeWebUISession[]
   >([]);
 
-  const sessions = props.embedded ? localSessions : sdkState.sessions;
+  const sessions = useMemo(
+    () => (props.embedded ? localSessions : sdkState.sessions) ?? [],
+    [props.embedded, localSessions, sdkState.sessions],
+  );
   const { currentSessionId: sdkCurrentSessionId } = sdkState;
   // In embedded mode, prefer URL-derived chatId for active-state matching
   // because the SDK context may not be accessible from outside the provider.
-  const urlCurrentSessionId = props.embedded
-    ? getSessionIdFromPath(location.pathname) ?? undefined
-    : undefined;
-  const currentSessionId = urlCurrentSessionId || sdkCurrentSessionId;
+  const urlCurrentSessionId = useMemo(
+    () =>
+      props.embedded
+        ? getSessionIdFromPath(location.pathname) ?? undefined
+        : undefined,
+    [props.embedded, location.pathname],
+  );
+  const currentSessionId = useMemo(
+    () => urlCurrentSessionId || sdkCurrentSessionId,
+    [urlCurrentSessionId, sdkCurrentSessionId],
+  );
   const setSessions = props.embedded ? setLocalSessions : sdkState.setSessions;
   const { embedded, pinned, onClose } = props;
 
