@@ -15,6 +15,7 @@ import {
 } from "@/lib/parseBlogMarkdown";
 import { MermaidBlock } from "@/components/MermaidBlock";
 import { ImageZoom } from "@/components/ImageZoom";
+import { trackBlogPostView } from "@/lib/analytics";
 
 /** Turn plain "Meeting link: https://…" lines into markdown links for session lists. */
 function linkifySessionUrls(body: string): string {
@@ -82,6 +83,11 @@ export default function BlogPost() {
         setPost(null);
       } else {
         setPost(parsed);
+        trackBlogPostView({
+          slug,
+          title: parsed.frontmatter.title,
+          lang: isZh ? "zh" : "en",
+        });
       }
       setLoading(false);
     });
