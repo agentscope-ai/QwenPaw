@@ -100,6 +100,7 @@ dev = [
     "pytest-asyncio>=0.23.0",
     "pre-commit>=4.2.0",
     "pytest-cov>=6.2.1",
+    "pytest-httpx>=0.30.0",
     "hypothesis>=6.0.0",
 ]
 local = [
