@@ -359,6 +359,8 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
                 s.id !== prev.id ||
                 (s as ExtendedChatSession).updatedAt !==
                   (prev as ExtendedChatSession).updatedAt ||
+                (s as ExtendedChatSession).status !==
+                  (prev as ExtendedChatSession).status ||
                 (s as ExtendedChatSession).generating !==
                   (prev as ExtendedChatSession).generating
               );
@@ -395,6 +397,8 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
                 s.id !== prev.id ||
                 (s as ExtendedChatSession).updatedAt !==
                   (prev as ExtendedChatSession).updatedAt ||
+                (s as ExtendedChatSession).status !==
+                  (prev as ExtendedChatSession).status ||
                 (s as ExtendedChatSession).generating !==
                   (prev as ExtendedChatSession).generating
               );
