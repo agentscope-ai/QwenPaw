@@ -132,7 +132,7 @@ Object.defineProperty(HTMLElement.prototype, "clientHeight", {
   },
 });
 
-vi.mock("../ChatSessionItem", () => ({
+vi.mock("../../../../components/SessionItem", () => ({
   default: ({
     sessionId,
     name,
@@ -231,7 +231,7 @@ describe("ChatSessionDrawer", () => {
     expect(mockCreateSession).toHaveBeenCalledOnce();
   });
 
-  it("renders ChatSessionItem for each session", async () => {
+  it("renders SessionItem for each session", async () => {
     withSession();
     renderWithProviders(<ChatSessionDrawer {...defaultProps} />);
     await waitFor(() =>

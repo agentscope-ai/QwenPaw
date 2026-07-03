@@ -1,5 +1,12 @@
-import { useCallback, useMemo, useState } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { Input, Spin } from "antd";
+import { VariableSizeList, type ListChildComponentProps } from "react-window";
 import { useTranslation } from "react-i18next";
 import { useLocation } from "react-router-dom";
 import { SparkPlusLine, SparkDownArrowLine } from "@agentscope-ai/icons";
@@ -15,10 +22,110 @@ import {
   type ExtendedSession,
 } from "../stores/sessionListStore";
 import { type DateGroup, groupSessions } from "../utils/sessionGrouping";
-import SidebarSessionItem from "./SidebarSessionItem";
+import SessionItem from "../components/SessionItem";
 import styles from "./sidebarSessionList.module.less";
 
+/** Fixed height of each session item row */
+const SESSION_ROW_HEIGHT = 42;
+/** Fixed height of each group header row */
+const GROUP_HEADER_HEIGHT = 28;
+
+/** A flattened row: either a group header or a session item */
+type FlatRow =
+  | {
+      kind: "groupHeader";
+      groupKey: DateGroup;
+      label: string;
+      count: number;
+      collapsed: boolean;
+    }
+  | { kind: "session"; session: ExtendedChatSession };
+
 // ── Component ─────────────────────────────────────────────────────────────
+
+/** Data passed to each virtual row */
+interface VirtualRowData {
+  flatRows: FlatRow[];
+  currentSessionId: string | undefined;
+  editingSessionId: string | null;
+  editValue: string;
+  t: ReturnType<typeof useTranslation>["t"];
+  handleSessionClick: (sessionId: string) => void;
+  handleEditStart: (sessionId: string, currentName: string) => void;
+  handleDelete: (sessionId: string) => void;
+  handlePinToggle: (sessionId: string) => void;
+  handleEditChange: (value: string) => void;
+  handleEditSubmit: () => void;
+  handleEditCancel: () => void;
+  toggleGroup: (key: DateGroup) => void;
+}
+
+/** Virtual list row renderer */
+const VirtualRow = React.memo(function VirtualRow({
+  index,
+  style,
+  data,
+}: ListChildComponentProps<VirtualRowData>) {
+  const row = data.flatRows[index];
+  if (!row) return null;
+
+  if (row.kind === "groupHeader") {
+    return (
+      <div style={style}>
+        <button
+          className={styles.groupLabel}
+          onClick={() => data.toggleGroup(row.groupKey)}
+        >
+          <span>{row.label}</span>
+          <span
+            className={styles.groupChevron}
+            style={{
+              transform: row.collapsed ? "rotate(-90deg)" : "rotate(0deg)",
+            }}
+          >
+            <SparkDownArrowLine size={10} />
+          </span>
+        </button>
+      </div>
+    );
+  }
+
+  const session = row.session;
+  const channelKey = session.channel?.trim() || "";
+  const channelLabel = channelKey
+    ? getChannelLabel(channelKey, data.t)
+    : undefined;
+  const isEditing = data.editingSessionId === session.id;
+
+  return (
+    <div style={style}>
+      <SessionItem
+        variant="sidebar"
+        sessionId={session.id!}
+        name={session.name || "New Chat"}
+        channelKey={channelKey || undefined}
+        channelLabel={channelLabel}
+        chatStatus={session.status}
+        generating={session.generating}
+        pinned={session.pinned}
+        active={
+          session.id === data.currentSessionId ||
+          (!!data.currentSessionId && session.realId === data.currentSessionId)
+        }
+        disabled={false}
+        editing={isEditing}
+        editValue={isEditing ? data.editValue : undefined}
+        onClick={data.handleSessionClick}
+        onEdit={data.handleEditStart}
+        onDelete={data.handleDelete}
+        onPin={data.handlePinToggle}
+        onEditChange={data.handleEditChange}
+        onEditSubmit={data.handleEditSubmit}
+        onEditCancel={data.handleEditCancel}
+      />
+    </div>
+  );
+});
 
 export interface SidebarSessionListProps {
   /** Called when user clicks "New Chat". Provided by parent (Sidebar) which has navigate(). */
@@ -117,40 +224,108 @@ export default function SidebarSessionList({
     });
   }, []);
 
-  const renderItem = (session: ExtendedChatSession) => {
-    const channelKey = session.channel?.trim() || "";
-    const channelLabel = channelKey
-      ? getChannelLabel(channelKey, t)
-      : undefined;
-    const isEditing = editingSessionId === session.id;
-
-    return (
-      <SidebarSessionItem
-        key={session.id}
-        sessionId={session.id!}
-        name={session.name || "New Chat"}
-        channelKey={channelKey || undefined}
-        channelLabel={channelLabel}
-        chatStatus={session.status}
-        generating={session.generating}
-        pinned={session.pinned}
-        active={
-          session.id === currentSessionId ||
-          (!!currentSessionId && session.realId === currentSessionId)
+  /** Flatten groups into a single array of rows for virtual list */
+  const flatRows = useMemo<FlatRow[]>(() => {
+    if (searchQuery.trim()) {
+      return filteredSessions.map((s) => ({
+        kind: "session",
+        session: s,
+      }));
+    }
+    if (!groups) return [];
+    const rows: FlatRow[] = [];
+    for (const group of groups) {
+      const collapsed = collapsedGroups.has(group.key);
+      rows.push({
+        kind: "groupHeader",
+        groupKey: group.key,
+        label: group.label,
+        count: group.sessions.length,
+        collapsed,
+      });
+      if (!collapsed) {
+        for (const session of group.sessions) {
+          rows.push({ kind: "session", session });
         }
-        disabled={false}
-        editing={isEditing}
-        editValue={isEditing ? editValue : undefined}
-        onClick={handleSessionClick}
-        onEdit={handleEditStart}
-        onDelete={handleDelete}
-        onPin={handlePinToggle}
-        onEditChange={handleEditChange}
-        onEditSubmit={handleEditSubmit}
-        onEditCancel={handleEditCancel}
-      />
-    );
-  };
+      }
+    }
+    return rows;
+  }, [groups, collapsedGroups, searchQuery, filteredSessions]);
+
+  /** Row height calculator for VariableSizeList */
+  const getRowHeight = useCallback(
+    (index: number) => {
+      const row = flatRows[index];
+      if (!row) return SESSION_ROW_HEIGHT;
+      return row.kind === "groupHeader"
+        ? GROUP_HEADER_HEIGHT
+        : SESSION_ROW_HEIGHT;
+    },
+    [flatRows],
+  );
+
+  /** Height of the virtual list container */
+  const [listHeight, setListHeight] = useState(0);
+  const observerRef = useRef<ResizeObserver | null>(null);
+  const listRef = useRef<VariableSizeList>(null);
+
+  /** Reset virtual list cache when flatRows change */
+  useEffect(() => {
+    listRef.current?.resetAfterIndex(0);
+  }, [flatRows]);
+
+  /** Callback ref: attach a ResizeObserver to measure list container height */
+  const listWrapperRef = useCallback((node: HTMLDivElement | null) => {
+    if (observerRef.current) {
+      observerRef.current.disconnect();
+      observerRef.current = null;
+    }
+    if (!node) return;
+    const observer = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const height = entry.contentRect.height;
+        if (height > 0) setListHeight(height);
+      }
+    });
+    observer.observe(node);
+    observerRef.current = observer;
+    const initialHeight = node.clientHeight;
+    if (initialHeight > 0) setListHeight(initialHeight);
+  }, []);
+
+  /** Data passed to each virtual row */
+  const virtualListData = useMemo(
+    () => ({
+      flatRows,
+      currentSessionId,
+      editingSessionId,
+      editValue,
+      t,
+      handleSessionClick,
+      handleEditStart,
+      handleDelete,
+      handlePinToggle,
+      handleEditChange,
+      handleEditSubmit,
+      handleEditCancel,
+      toggleGroup,
+    }),
+    [
+      flatRows,
+      currentSessionId,
+      editingSessionId,
+      editValue,
+      t,
+      handleSessionClick,
+      handleEditStart,
+      handleDelete,
+      handlePinToggle,
+      handleEditChange,
+      handleEditSubmit,
+      handleEditCancel,
+      toggleGroup,
+    ],
+  );
 
   return (
     <div className={styles.sessionList}>
@@ -200,7 +375,7 @@ export default function SidebarSessionList({
 
       {/* Session list */}
       {!historyCollapsed && (
-        <div className={styles.scroll}>
+        <div className={styles.scroll} ref={listWrapperRef}>
           {loading && sortedSessions.length === 0 && (
             <div className={styles.loadingState}>
               <Spin size="small" />
@@ -212,34 +387,20 @@ export default function SidebarSessionList({
             </div>
           )}
 
-          {/* Search results — flat list */}
-          {searchQuery.trim()
-            ? filteredSessions.map(renderItem)
-            : /* Grouped by date with collapsible headers */
-              groups?.map((group) => {
-                const isCollapsed = collapsedGroups.has(group.key);
-                return (
-                  <div key={group.key} className={styles.group}>
-                    <button
-                      className={styles.groupLabel}
-                      onClick={() => toggleGroup(group.key)}
-                    >
-                      <span>{group.label}</span>
-                      <span
-                        className={styles.groupChevron}
-                        style={{
-                          transform: isCollapsed
-                            ? "rotate(-90deg)"
-                            : "rotate(0deg)",
-                        }}
-                      >
-                        <SparkDownArrowLine size={10} />
-                      </span>
-                    </button>
-                    {!isCollapsed && group.sessions.map(renderItem)}
-                  </div>
-                );
-              })}
+          {sortedSessions.length > 0 && listHeight > 0 && (
+            <VariableSizeList
+              ref={listRef}
+              height={listHeight}
+              width="100%"
+              itemCount={flatRows.length}
+              itemSize={getRowHeight}
+              itemData={virtualListData}
+              className={styles.list}
+              overscanCount={10}
+            >
+              {VirtualRow}
+            </VariableSizeList>
+          )}
         </div>
       )}
     </div>

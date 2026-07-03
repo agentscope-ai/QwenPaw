@@ -28,7 +28,7 @@ import type { ContextMenuItem } from "../../../../components/ContextMenu";
 import { useIsMobile } from "../../../../hooks/useIsMobile";
 import { useCodingMode } from "../../../../stores/codingModeStore";
 import { useCreateNewSession } from "../../hooks/useCreateNewSession";
-import ChatSessionItem from "../ChatSessionItem";
+import SessionItem from "../../../../components/SessionItem";
 import { getChannelLabel } from "../../../Control/Channels/components";
 import { chatApi } from "../../../../api/modules/chat";
 import sessionApi from "../../sessionApi";
@@ -123,7 +123,8 @@ const VirtualRow = React.memo(function VirtualRow({
 
   return (
     <div style={style}>
-      <ChatSessionItem
+      <SessionItem
+        variant="drawer"
         sessionId={session.id!}
         name={session.name || "New Chat"}
         time={formatCreatedAtCached(

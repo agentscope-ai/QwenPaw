@@ -3,24 +3,14 @@
 .sessionList {
   flex: 1;
   min-height: 0;
-  overflow-y: auto;
-  scrollbar-width: thin;
-  scrollbar-color: rgba(0, 0, 0, 0.12) transparent;
-
-  &::-webkit-scrollbar {
-    width: 4px;
-  }
-
-  &::-webkit-scrollbar-thumb {
-    background: rgba(0, 0, 0, 0.12);
-    border-radius: 2px;
-  }
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 /* Sticky header: new chat + history title + search */
 .sessionListHeader {
-  position: sticky;
-  top: 0;
+  flex-shrink: 0;
   z-index: 1;
   background: #f9f8f4;
 }
@@ -58,7 +48,11 @@
 
 /* Session items container */
 .scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
   padding: 0 4px 8px;
+  position: relative;
 }
 
 /* Date group container */
@@ -102,14 +96,6 @@
 
 /* Dark mode */
 :global(.dark-mode) {
-  .sessionList {
-    scrollbar-color: rgba(255, 255, 255, 0.15) transparent;
-
-    &::-webkit-scrollbar-thumb {
-      background: rgba(255, 255, 255, 0.15);
-    }
-  }
-
   .sessionListHeader {
     background: #1a1a1a;
   }
