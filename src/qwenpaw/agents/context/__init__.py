@@ -193,7 +193,6 @@ def build_scroll_components(
             history=history,
             session_id=session_id,
             agent_id=agent_id,
-            pinned=sc.pinned,
             capped_results=capped_results,
             # Legacy dialog archive is opt-in; only hand the manager an
             # offloader when configured, so by default scroll writes nothing

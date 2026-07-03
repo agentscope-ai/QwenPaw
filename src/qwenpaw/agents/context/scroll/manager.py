@@ -7,8 +7,9 @@ two delegated hooks.
 
 * :meth:`on_save` — every live turn is persisted to the durable
   ``conversation_history`` as it enters the window (write-through).
-* :meth:`compress` — past the token threshold, keep a pinned head + recent tail
-  and fold the evicted middle into an in-context :class:`EvictionIndex`. No
+* :meth:`compress` — past the token threshold, keep the recent tail (and the
+  active turn) and fold the evicted middle into an in-context
+  :class:`EvictionIndex`. No
   summarization, nothing lost — every node points to a ``seq`` span recallable
   via the sandboxed ``recall_history_python`` REPL.
 """
@@ -45,14 +46,12 @@ class ScrollContextManager:
         history: HistoryStore,
         session_id: str,
         agent_id: str | None = None,
-        pinned: int = 1,
         capped_results: dict[str, int] | None = None,
         offloader: Any = None,
     ) -> None:
         self._history = history
         self._session_id = session_id
         self._agent_id = agent_id
-        self._pinned = pinned
         # Dialog archive: when an offloader is wired (``offload_dialog``, on by
         # default), evicted turns are also written to ``dialog/{date}.jsonl``
         # for external consumers. ``history.db`` remains the source of truth.
@@ -140,9 +139,9 @@ class ScrollContextManager:
 
         1. persist     — every live turn is now durable.
         2. trigger     — under the token threshold? nothing to do.
-        3. split       — pinned head | evictable middle | recent tail.
+        3. split       — evictable middle | recent tail (+ active turn).
         4. add_eviction— fold the middle into the index as a new Tier 0 block,
-                         rebuild context = head + [index] + tail.
+                         rebuild context = [index] + tail.
         5. compact     — while the rebuilt context still overflows, shrink the
                          index one step and rebuild. Always progresses.
         """
@@ -162,11 +161,10 @@ class ScrollContextManager:
             < cfg.trigger_ratio * agent.model.context_size
         ):
             return
-        if len(agent.state.context) <= self._pinned + 1:
+        if len(agent.state.context) <= 1:
             return
 
-        # 3) Pairing-safe split; keep pinned head + recent tail, evict the
-        #    middle.
+        # 3) Pairing-safe split; keep the recent tail, evict the middle.
         reserve = cfg.reserve_ratio * agent.model.context_size
         to_compress, to_reserve = await as_internals.split_for_compression(
             agent,
@@ -176,7 +174,6 @@ class ScrollContextManager:
         real = lambda msgs: [
             m for m in msgs if m.id not in self._synthetic_ids
         ]
-        head = real(to_compress[: self._pinned])
         tail = real(to_reserve)
         # AgentScope's pairing-safe split deep-copies the *boundary* Msg into
         # BOTH halves under the SAME id (its blocks divided between compress
@@ -190,16 +187,15 @@ class ScrollContextManager:
         active_ids = {m.id for m in active_tail}
         middle = [
             m
-            for m in real(to_compress[self._pinned :])
+            for m in real(to_compress)
             if m.id not in tail_ids and m.id not in active_ids
         ]
         if not middle:
             return
         if active_tail:
-            head_ids = {m.id for m in head}
-            active_tail = [m for m in active_tail if m.id not in head_ids]
-            kept_ids = set(active_ids)
-            tail = [m for m in tail if m.id not in kept_ids]
+            # Replace any partial boundary deep-copy in the tail with the
+            # full live Msg from the context.
+            tail = [m for m in tail if m.id not in active_ids]
             tail.extend(active_tail)
 
         # 3b) Optional legacy archive of the evicted turns (opt-in). The full
@@ -210,7 +206,7 @@ class ScrollContextManager:
 
         # 4) Fold the evicted middle into the index as a new Tier 0 block.
         self._index_evicted(middle)
-        self._rebuild_context(agent, head, tail)
+        self._rebuild_context(agent, tail)
 
         # 5) Pressure-triggered compaction: shrink the index one step at a
         #    time until we fit (or it collapses to a single line). Always
@@ -222,7 +218,7 @@ class ScrollContextManager:
             > reserve
             and self._index.compact()
         ):
-            self._rebuild_context(agent, head, tail)
+            self._rebuild_context(agent, tail)
 
     # -- write-through -------------------------------------------------------
 
@@ -331,7 +327,7 @@ class ScrollContextManager:
         AgentScope's token-based split may evict the latest user request when
         a long tool-running turn exceeds the reserve budget. Under scroll that
         is unsafe: the model then only sees the eviction index and may answer
-        an older pinned message instead of the active task. Keep the latest
+        an older visible message instead of the active task. Keep the latest
         real user message and everything after it live until the turn finishes.
         """
         context = list(getattr(agent.state, "context", []) or [])
@@ -351,14 +347,12 @@ class ScrollContextManager:
     def _rebuild_context(
         self,
         agent: Any,
-        head: list[Msg],
         tail: list[Msg],
     ) -> None:
-        """state.context = pinned head + the single index placeholder +
-        tail."""
+        """state.context = the single index placeholder + tail."""
         placeholder = UserMsg(name="memory", content=self._index.render())
         self._synthetic_ids.add(placeholder.id)
-        agent.state.context = head + [placeholder] + tail
+        agent.state.context = [placeholder] + tail
 
     def _index_evicted(self, middle: list[Msg]) -> None:
         """Append the evicted middle to the index as one fresh Tier 0 block.

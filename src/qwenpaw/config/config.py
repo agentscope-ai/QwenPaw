@@ -855,17 +855,6 @@ class ScrollContextConfig(BaseModel):
         ),
     )
 
-    pinned: int = Field(
-        default=1,
-        ge=0,
-        description=(
-            "Leading messages never evicted: the first user request (the "
-            "task). The first agent reply is intentionally NOT pinned — it "
-            "can be a huge multi-tool turn, and pinning it would make "
-            "/compact unable to reclaim it."
-        ),
-    )
-
     repl_timeout_s: int = Field(
         default=300,
         ge=1,

@@ -258,7 +258,7 @@ class EvictionIndex:
             "window but remain durable in conversation_history. This is their "
             "index: read it top (oldest) to bottom (most recently "
             "compressed); "
-            "the pinned task is above and the recent live turns follow. Each "
+            "the recent live turns follow below. Each "
             "'·' line is a seq span you can re-expand.",
             "",
             "Re-expand a span inside recall_history_python: ms.expand(lo, hi) "

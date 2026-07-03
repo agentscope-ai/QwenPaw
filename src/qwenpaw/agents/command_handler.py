@@ -444,7 +444,6 @@ class CommandHandler(ConversationCommandHandlerMixin):
                 history=history,
                 session_id=session_id,
                 agent_id=self._agent_id,
-                pinned=sc.pinned,
                 # Already gated: the adapter only supplies an offloader when
                 # ``offload_dialog`` is on, so this archives iff configured.
                 offloader=self._offloader,

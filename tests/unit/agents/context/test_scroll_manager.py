@@ -207,24 +207,24 @@ def test_capped_result_is_not_re_persisted(store: HistoryStore):
 
 async def test_compress_evicts_middle_into_index(store: HistoryStore):
     # A newer user turn follows the evictable middle: the active turn (last
-    # user msg onward) stays live, the finished middle turn is evicted.
+    # user msg onward) stays live, the finished older turns are evicted.
     ctx = [
         user("task"),
         assistant("step", headline="did-step"),
         user("next question"),
         assistant("recent"),
     ]
-    mgr = make_manager(store, pinned=1)
+    mgr = make_manager(store)
     agent = FakeAgent(ctx, tokens=200)
     agent._split_return = (
         ctx[:2],
         ctx[2:],
     )  # compress [task, step], keep [next, recent]
     await mgr.compress(agent)
-    # Context is rebuilt as head + placeholder + tail.
-    assert len(agent.state.context) == 4
+    # Context is rebuilt as placeholder + tail.
+    assert len(agent.state.context) == 3
     names = [m.name for m in agent.state.context]
-    assert "memory" in names  # the index placeholder
+    assert names[0] == "memory"  # the index placeholder leads
     assert "did-step" in mgr._index.render()
 
 
@@ -234,12 +234,12 @@ async def test_compress_does_not_index_boundary_msg_still_in_tail(
     """The boundary Msg is deep-copied into BOTH split halves under the same
     id. It must NOT be folded into the eviction index while its reserve copy
     is still live in the tail."""
-    pinned = user("task")
+    old_task = user("task")
     a = assistant("middle turn", headline="MIDDLE")
     current = user("current request")
     boundary = assistant("boundary turn", headline="BOUNDARY")
-    ctx = [pinned, a, current, boundary]
-    mgr = make_manager(store, pinned=1)
+    ctx = [old_task, a, current, boundary]
+    mgr = make_manager(store)
     agent = FakeAgent(ctx, tokens=200)
     # Mimic AgentScope: boundary id appears in BOTH halves (same id).
     compress_half = boundary
@@ -254,7 +254,7 @@ async def test_compress_does_not_index_boundary_msg_still_in_tail(
         boundary.id,
     )  # same id, fewer blocks
     agent._split_return = (
-        [pinned, a, current, compress_half],
+        [old_task, a, current, compress_half],
         [reserve_half],
     )
 
@@ -276,7 +276,7 @@ async def test_compress_keeps_active_turn_live(store: HistoryStore):
     cur_u = user("/heartbeat")
     cur_a = assistant("running tools", headline="RUNNING")
     ctx = [old_u, old_a, cur_u, cur_a]
-    mgr = make_manager(store, pinned=1)
+    mgr = make_manager(store)
     agent = FakeAgent(ctx, tokens=200)
     # A long active turn blows the reserve budget: the split reserves nothing
     # and would evict the current request along with the old turns.
@@ -303,7 +303,7 @@ async def test_compress_noop_when_active_turn_is_whole_context(
         assistant("step one", headline="S1"),
         assistant("step two", headline="S2"),
     ]
-    mgr = make_manager(store, pinned=1)
+    mgr = make_manager(store)
     agent = FakeAgent(ctx, tokens=200)
     agent._split_return = (ctx, [])
     await mgr.compress(agent)
@@ -321,7 +321,7 @@ async def test_compress_does_not_evict_when_persist_fails(
     import sqlite3
 
     ctx = [user("task"), assistant("step", headline="s"), assistant("more")]
-    mgr = make_manager(store, pinned=1)
+    mgr = make_manager(store)
     agent = FakeAgent(ctx, tokens=200)
 
     def boom(*a, **k):
@@ -383,7 +383,7 @@ def _compactable(store, **kw):
         user("next question"),
         assistant("recent"),
     ]
-    mgr = make_manager(store, pinned=1, **kw)
+    mgr = make_manager(store, **kw)
     agent = FakeAgent(ctx, tokens=200)
     agent._split_return = (
         ctx[:2],
@@ -399,7 +399,7 @@ async def test_compress_offloads_evicted_middle_when_configured(store):
     assert len(off.calls) == 1
     session_id, ids = off.calls[0]
     assert session_id == "s1"
-    assert ids == [ctx[1].id]  # exactly the evicted middle turn
+    assert ids == [ctx[0].id, ctx[1].id]  # exactly the evicted middle
 
 
 async def test_compress_does_not_offload_without_offloader(store):
