@@ -15,7 +15,7 @@ import type { ChatStatus } from "../../api/types/chat";
 import styles from "./sessionItem.module.less";
 
 export interface SessionItemProps {
-  // ── 数据 ──
+  // -- Data --
   sessionId: string;
   name: string;
   channelKey?: string;
@@ -23,18 +23,18 @@ export interface SessionItemProps {
   chatStatus?: ChatStatus;
   generating?: boolean;
   pinned?: boolean;
-  time?: string; // 仅 drawer variant 使用
+  time?: string; // Only used by the drawer variant
 
-  // ── 状态 ──
+  // -- State --
   active?: boolean;
   disabled?: boolean;
   editing?: boolean;
   editValue?: string;
 
-  // ── 变体 ──
+  // -- Variant --
   variant: "drawer" | "sidebar";
 
-  // ── 事件 ──
+  // -- Events --
   onClick?: (sessionId: string) => void;
   onEdit?: (sessionId: string, currentName: string) => void;
   onDelete?: (sessionId: string) => void;
