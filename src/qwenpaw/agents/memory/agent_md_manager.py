@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """Agent Markdown manager for reading and writing markdown files in working
 and memory directories."""
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 from ..utils.file_handling import read_text_file_with_encoding_fallback
@@ -129,10 +129,10 @@ class AgentMdManager:
                         "size": stat.st_size,
                         "path": str(f),
                         "created_time": datetime.fromtimestamp(
-                            stat.st_ctime,
+                            stat.st_ctime, tz=timezone.utc
                         ).isoformat(),
                         "modified_time": datetime.fromtimestamp(
-                            stat.st_mtime,
+                            stat.st_mtime, tz=timezone.utc
                         ).isoformat(),
                     },
                 )
@@ -190,10 +190,10 @@ class AgentMdManager:
             "size": stat.st_size,
             "path": str(file_path),
             "created_time": datetime.fromtimestamp(
-                stat.st_ctime,
+                stat.st_ctime, tz=timezone.utc
             ).isoformat(),
             "modified_time": datetime.fromtimestamp(
-                stat.st_mtime,
+                stat.st_mtime, tz=timezone.utc
             ).isoformat(),
         }
 
