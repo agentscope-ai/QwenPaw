@@ -98,19 +98,21 @@ The legacy version ignores the unknown `qwenpaw_version` field. The new version 
 
 The following legacy APIs keep a compatible signature in the new version and can still be called:
 
-| API                                                                                     | Purpose                                                                             |
-| --------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
-| `register_provider(provider_id, provider_class, label="", base_url="", **metadata)`     | Register a custom LLM provider                                                      |
-| `register_startup_hook(hook_name, callback, priority=100)`                              | Register a startup hook                                                             |
-| `register_shutdown_hook(hook_name, callback, priority=100)`                             | Register a shutdown hook                                                            |
-| `register_uninstall_hook(hook_name, callback, priority=100)`                            | Register an uninstall hook                                                          |
-| `register_workspace_created_hook(hook_name, callback, priority=100)`                    | Register a workspace-created hook                                                   |
-| `register_http_router(router, *, prefix, tags=None)`                                    | Register a FastAPI router                                                           |
-| `register_control_command(handler, priority_level=10)`                                  | Register a control command handler                                                  |
-| `register_tool(tool_name, tool_func, description="", icon="🔧", enabled=False)`         | Register an agent tool                                                              |
-| `register_skill_provider(skills_dir, *, enabled_by_default=True, channels=None)`        | Register a plugin skill directory (default-value write behavior changed, see below) |
-| `get_tool_config(tool_name, agent_id)` / `set_tool_config(tool_name, agent_id, config)` | Read/write tool config                                                              |
-| `api.runtime`                                                                           | Access runtime helpers                                                              |
+| API                                                                                 | Purpose                            | Migration advice                                                                      |
+| ----------------------------------------------------------------------------------- | ---------------------------------- | ------------------------------------------------------------------------------------- |
+| `register_provider(provider_id, provider_class, label="", base_url="", **metadata)` | Register a custom LLM provider     | Interface remains compatible; verify provider config and model display                |
+| `register_startup_hook(hook_name, callback, priority=100)`                          | Register a startup hook            | Interface remains compatible; verify startup timing                                   |
+| `register_shutdown_hook(hook_name, callback, priority=100)`                         | Register a shutdown hook           | Interface remains compatible; verify cleanup behavior                                 |
+| `register_uninstall_hook(hook_name, callback, priority=100)`                        | Register an uninstall hook         | Interface remains compatible; verify the uninstall flow                               |
+| `register_workspace_created_hook(hook_name, callback, priority=100)`                | Register a workspace-created hook  | Interface remains compatible; verify the new workspace info structure                 |
+| `register_http_router(router, *, prefix, tags=None)`                                | Register a FastAPI router          | Interface remains compatible; verify routes, auth, and OpenAPI display                |
+| `register_control_command(handler, priority_level=10)`                              | Register a control command handler | Interface remains compatible; new plugins may evaluate `register_slash_command()`     |
+| `register_tool(tool_name, tool_func, description="", icon="🔧", enabled=False)`     | Register an agent tool             | Interface remains compatible; verify tool config, enabled state, and agent invocation |
+| `register_skill_provider(skills_dir, *, enabled_by_default=True, channels=None)`    | Register a plugin skill directory  | Signature remains compatible; default-value write behavior changed                    |
+| `get_tool_config(tool_name, agent_id)`                                              | Read tool config                   | Interface remains compatible; verify the agent id source                              |
+| `set_tool_config(tool_name, agent_id, config)`                                      | Save tool config                   | Interface remains compatible; verify config persistence                               |
+| `api.runtime`                                                                       | Access runtime helpers             | Property remains available; verify helper capabilities in the new version             |
+| `get_tool_config(tool_name)`                                                        | Module-level tool config lookup    | Interface remains compatible; verify the active call context                          |
 
 ### `register_prompt_section`
 

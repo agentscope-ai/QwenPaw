@@ -2,6 +2,8 @@
 
 QwenPaw provides a plugin system that allows users to extend QwenPaw's functionality.
 
+If you are migrating a legacy plugin, read the [Plugin System Migration Guide](./plugins-migration).
+
 ## Overview
 
 The plugin system supports the following extension capabilities:

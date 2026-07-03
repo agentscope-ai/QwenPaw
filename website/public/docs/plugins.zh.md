@@ -2,6 +2,8 @@
 
 QwenPaw 提供了插件系统，允许用户扩展 QwenPaw 的功能。
 
+如果你正在迁移旧版插件，请阅读[插件系统迁移指南](./plugins-migration)。
+
 ## 概述
 
 插件系统支持以下扩展能力：
@@ -11,7 +13,7 @@ QwenPaw 提供了插件系统，允许用户扩展 QwenPaw 的功能。
 - **Hook 插件**：在应用启动/关闭时执行自定义代码（app 生命周期级别，仅执行一次）
 - **Command 插件**：注册自定义的 `/command` 魔法命令
 - **HTTP API 插件**：通过 FastAPI `APIRouter` 在 `/api` 下暴露自定义 REST 接口
-- **前端扩展插件**：在浏览器中运行的 JS 插件，共享宿主的 React / Ant Design 运行时，通过声明式 `window.QwenPaw.*` API 扩展界面——注册侧边栏菜单、页面路由、UI 插槽、聊天定制等，无需修改宿主代码
+- **前端扩展插件**：在浏览器中运行的 JS 插件，共享宿主的 React / Ant Design 运行时，通过声明式 `window.QwenPaw.`* API 扩展界面——注册侧边栏菜单、页面路由、UI 插槽、聊天定制等，无需修改宿主代码
 
 ## 插件管理
 
@@ -106,35 +108,39 @@ my-plugin/
 
 #### 清单字段说明
 
-| 字段              | 类型            | 必填 | 说明                                                                                                                                              |
-| ----------------- | --------------- | ---- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `id`              | `string`        | 是   | 插件唯一标识，同时作为安装目录名，不能包含路径分隔符。                                                                                            |
-| `version`         | `string`        | 是   | 插件语义化版本号（例如 `1.0.0`）。                                                                                                                |
-| `name`            | `string` 或对象 | 否   | 显示名称，缺省取 `id`。也可写成 `{"zh-CN": "...", "en-US": "..."}`，运行时按"英文优先"的顺序取第一个非空值。                                      |
-| `type`            | `string`        | 否   | 取值之一：`tool`、`provider`、`hook`、`command`、`frontend`、`general`。省略时会按 `meta` / `entry` 推断（仅为兼容旧插件），新插件建议显式声明。  |
-| `description`     | `string` 或对象 | 否   | 插件列表里的简短描述，支持本地化对象形式（同 `name`）。                                                                                           |
-| `author`          | `string`        | 否   | 作者或组织名称。                                                                                                                                  |
-| `entry.backend`   | `string`        | 否\* | 相对插件目录的 Python 入口文件路径，需在其中导出 `plugin`。                                                                                       |
-| `entry.frontend`  | `string`        | 否\* | 已构建的前端 bundle 路径（如 `dist/index.js`）。                                                                                                  |
-| `dependencies`    | `string[]`      | 否   | Python 依赖列表，安装时通过 pip / uv 自动安装。                                                                                                   |
-| `qwenpaw_version` | `object`        | 否   | QwenPaw 版本约束（推荐）。包含 `min`（包含）和 `max`（不包含，可选）两个子字段，语义为 `>=min, <max`。省略 `max` 时默认取 `{major}.{minor+1}.0`。 |
-| `min_version`     | `string`        | 否   | **遗留字段。** 需要的最低 QwenPaw 版本。当 `qwenpaw_version` 存在时被忽略，仅为兼容第三方旧插件保留。                                             |
-| `max_version`     | `string`        | 否   | **遗留字段。** 不兼容的第一个 QwenPaw 版本（不包含）。配合 `min_version` 使用；省略时从 `min_version` 推导。                                      |
-| `meta`            | `object`        | 否   | 自由元数据。前端 UI 与 `type` 推断都会读取（如 `meta.tools[]`、`meta.hook_type`、`meta.provider_id`）。                                           |
-| `entry_point`     | `string`        | 否   | **遗留字段。** 等价于 `entry.backend`，仅为兼容老插件保留，新插件请使用 `entry.backend`。                                                         |
 
-\* `entry.backend`、`entry.frontend`（或遗留 `entry_point`）至少需要提供其中之一。
+| 字段                | 类型           | 必填  | 说明                                                                                                         |
+| ----------------- | ------------ | --- | ---------------------------------------------------------------------------------------------------------- |
+| `id`              | `string`     | 是   | 插件唯一标识，同时作为安装目录名，不能包含路径分隔符。                                                                                |
+| `version`         | `string`     | 是   | 插件语义化版本号（例如 `1.0.0`）。                                                                                      |
+| `name`            | `string` 或对象 | 否   | 显示名称，缺省取 `id`。也可写成 `{"zh-CN": "...", "en-US": "..."}`，运行时按"英文优先"的顺序取第一个非空值。                                |
+| `type`            | `string`     | 否   | 取值之一：`tool`、`provider`、`hook`、`command`、`frontend`、`general`。省略时会按 `meta` / `entry` 推断（仅为兼容旧插件），新插件建议显式声明。 |
+| `description`     | `string` 或对象 | 否   | 插件列表里的简短描述，支持本地化对象形式（同 `name`）。                                                                            |
+| `author`          | `string`     | 否   | 作者或组织名称。                                                                                                   |
+| `entry.backend`   | `string`     | 否   | 相对插件目录的 Python 入口文件路径，需在其中导出 `plugin`。                                                                     |
+| `entry.frontend`  | `string`     | 否   | 已构建的前端 bundle 路径（如 `dist/index.js`）。                                                                       |
+| `dependencies`    | `string[]`   | 否   | Python 依赖列表，安装时通过 pip / uv 自动安装。                                                                           |
+| `qwenpaw_version` | `object`     | 否   | QwenPaw 版本约束（推荐）。包含 `min`（包含）和 `max`（不包含，可选）两个子字段，语义为 `>=min, <max`。省略 `max` 时默认取 `{major}.{minor+1}.0`。   |
+| `min_version`     | `string`     | 否   | **遗留字段。** 需要的最低 QwenPaw 版本。当 `qwenpaw_version` 存在时被忽略，仅为兼容第三方旧插件保留。                                        |
+| `max_version`     | `string`     | 否   | **遗留字段。** 不兼容的第一个 QwenPaw 版本（不包含）。配合 `min_version` 使用；省略时从 `min_version` 推导。                               |
+| `meta`            | `object`     | 否   | 自由元数据。前端 UI 与 `type` 推断都会读取（如 `meta.tools[]`、`meta.hook_type`、`meta.provider_id`）。                         |
+| `entry_point`     | `string`     | 否   | **遗留字段。** 等价于 `entry.backend`，仅为兼容老插件保留，新插件请使用 `entry.backend`。                                            |
+
+
+ `entry.backend`、`entry.frontend`（或遗留 `entry_point`）至少需要提供其中之一。
 
 #### `type` 取值
 
-| 取值       | 适用场景                                             |
-| ---------- | ---------------------------------------------------- |
-| `tool`     | 注册一个或多个 Agent 工具（LLM 可调用的函数）。      |
-| `provider` | 注册自定义 LLM 提供商 / 模型端点。                   |
-| `hook`     | 在应用启动 / 关闭时执行代码（app 生命周期级别）。    |
-| `command`  | 注册 `/slash` 控制命令。                             |
-| `frontend` | 提供前端 JS bundle，由 UI 动态加载。                 |
-| `general`  | 兜底类型，用于组合型插件或不属于以上任何类别的插件。 |
+
+| 取值         | 适用场景                          |
+| ---------- | ----------------------------- |
+| `tool`     | 注册一个或多个 Agent 工具（LLM 可调用的函数）。 |
+| `provider` | 注册自定义 LLM 提供商 / 模型端点。         |
+| `hook`     | 在应用启动 / 关闭时执行代码（app 生命周期级别）。  |
+| `command`  | 注册 `/slash` 控制命令。             |
+| `frontend` | 提供前端 JS bundle，由 UI 动态加载。     |
+| `general`  | 兜底类型，用于组合型插件或不属于以上任何类别的插件。    |
+
 
 #### plugin.py
 
@@ -180,39 +186,43 @@ plugin = MyPlugin()
 1. Console 启动，在 `window.QwenPaw` 上挂载 Host SDK（React、antd 等共享依赖）和注册 API（menu、route、slot、chat 等命名空间）
 2. Console 请求 `/frontend_plugin` 获取已启用的前端插件列表
 3. 逐一下载各插件的 JS bundle，通过 Blob URL 动态导入执行
-4. 插件代码执行，调用 `window.QwenPaw.*` 注册菜单、路由、聊天定制等 UI 扩展
+4. 插件代码执行，调用 `window.QwenPaw.`* 注册菜单、路由、聊天定制等 UI 扩展
 5. 注册立即生效——菜单出现在侧边栏、路由可导航、聊天区域呈现定制内容
 
 插件无需声明使用了哪些扩展点；系统通过 `pluginId` 自动追踪所有注册。卸载或禁用插件时，通过 `dispose()` 或 `chat.disposeAll(pluginId)` 清理全部注册。
 
 **设计特点：**
 
-| 特点              | 说明                                                                             |
-| ----------------- | -------------------------------------------------------------------------------- |
-| **共享运行时**    | React、ReactDOM、Ant Design 由宿主提供，插件无需打包，避免版本冲突和体积膨胀     |
-| **声明式注册**    | 三个核心动词：`set`（设置 / 合并属性）、`render`（替换渲染）、`add`（追加项目）  |
-| **pluginId 隔离** | 所有注册方法以 `pluginId` 为第一参数，系统据此追踪来源、检测冲突、支持按插件清理 |
-| **可撤销**        | 每个注册返回 `{ dispose() }` 对象，调用即撤销，支持热重载和插件卸载              |
-| **国际化**        | 文本字段支持 `Localized<T>` 类型——传入 `(locale) => string` 函数按语言返回不同值 |
+
+| 特点              | 说明                                                           |
+| --------------- | ------------------------------------------------------------ |
+| **共享运行时**       | React、ReactDOM、Ant Design 由宿主提供，插件无需打包，避免版本冲突和体积膨胀           |
+| **声明式注册**       | 三个核心动词：`set`（设置 / 合并属性）、`render`（替换渲染）、`add`（追加项目）           |
+| **pluginId 隔离** | 所有注册方法以 `pluginId` 为第一参数，系统据此追踪来源、检测冲突、支持按插件清理               |
+| **可撤销**         | 每个注册返回 `{ dispose() }` 对象，调用即撤销，支持热重载和插件卸载                   |
+| **国际化**         | 文本字段支持 `Localized<T>` 类型——传入 `(locale) => string` 函数按语言返回不同值 |
+
 
 **扩展点一览：**
 
-| 命名空间                          | 能力                            | 典型用途                                        |
-| --------------------------------- | ------------------------------- | ----------------------------------------------- |
+
+| 命名空间                              | 能力                    | 典型用途                             |
+| --------------------------------- | --------------------- | -------------------------------- |
 | `host`                            | 共享依赖、React Hooks、认证请求 | 获取 React / antd、读取主题和语言、调用后端 API |
-| `menu`                            | 侧边栏菜单项                    | 添加导航入口                                    |
-| `route`                           | 页面路由                        | 注册新页面、包装已有页面                        |
-| `slot`                            | 通用 UI 插槽                    | 向 Header / Sidebar 等预设位置注入内容          |
-| `chat.welcome`                    | 欢迎界面                        | 自定义问候语、推荐提示词                        |
-| `chat.theme`                      | 聊天主题色                      | 更换主色调                                      |
-| `chat.leftHeader` / `rightHeader` | 聊天头部                        | 设置品牌 Logo、添加操作按钮                     |
-| `chat.sender`                     | 输入框                          | 自定义 placeholder、输入建议                    |
-| `chat.actions` / `requestActions` | 消息操作按钮                    | 在消息下方添加自定义操作                        |
-| `chat.requestPayload`             | 外发聊天请求体                  | 请求发送到后端前追加或改写自定义字段            |
-| `chat.request` / `response`       | 消息气泡                        | 在消息前后追加内容或完全替换渲染                |
-| `chat.toolRender`                 | 工具调用渲染                    | 自定义工具结果展示（如天气卡片）                |
-| `chat.card`                       | 自定义卡片                      | 注册新的卡片类型                                |
-| `audit`                           | 审计与调试                      | 查看所有扩展注册记录                            |
+| `menu`                            | 侧边栏菜单项                | 添加导航入口                           |
+| `route`                           | 页面路由                  | 注册新页面、包装已有页面                     |
+| `slot`                            | 通用 UI 插槽              | 向 Header / Sidebar 等预设位置注入内容     |
+| `chat.welcome`                    | 欢迎界面                  | 自定义问候语、推荐提示词                     |
+| `chat.theme`                      | 聊天主题色                 | 更换主色调                            |
+| `chat.leftHeader` / `rightHeader` | 聊天头部                  | 设置品牌 Logo、添加操作按钮                 |
+| `chat.sender`                     | 输入框                   | 自定义 placeholder、输入建议             |
+| `chat.actions` / `requestActions` | 消息操作按钮                | 在消息下方添加自定义操作                     |
+| `chat.requestPayload`             | 外发聊天请求体               | 请求发送到后端前追加或改写自定义字段               |
+| `chat.request` / `response`       | 消息气泡                  | 在消息前后追加内容或完全替换渲染                 |
+| `chat.toolRender`                 | 工具调用渲染                | 自定义工具结果展示（如天气卡片）                 |
+| `chat.card`                       | 自定义卡片                 | 注册新的卡片类型                         |
+| `audit`                           | 审计与调试                 | 查看所有扩展注册记录                       |
+
 
 #### 基本结构
 
@@ -361,12 +371,14 @@ const data = await resp.json();
 
 ### 侧边栏菜单 — `window.QwenPaw.menu`
 
-| 方法       | 签名                                     | 说明             |
-| ---------- | ---------------------------------------- | ---------------- |
-| `add`      | `(pluginId, item \| item[]): Disposable` | 添加菜单项       |
-| `replace`  | `(pluginId, targetId, item): Disposable` | 替换已有菜单项   |
-| `remove`   | `(targetId): void`                       | 移除菜单项       |
+
+| 方法         | 签名                                       | 说明       |
+| ---------- | ---------------------------------------- | -------- |
+| `add`      | `(pluginId, item | item[]): Disposable`  | 添加菜单项    |
+| `replace`  | `(pluginId, targetId, item): Disposable` | 替换已有菜单项  |
+| `remove`   | `(targetId): void`                       | 移除菜单项    |
 | `snapshot` | `(location?): MenuItem[]`                | 获取当前菜单快照 |
+
 
 **MenuItem 参数：**
 
@@ -389,12 +401,14 @@ const data = await resp.json();
 
 ### 页面路由 — `window.QwenPaw.route`
 
-| 方法      | 签名                                          | 说明                     |
-| --------- | --------------------------------------------- | ------------------------ |
-| `add`     | `(pluginId, route \| route[]): Disposable`    | 注册新路由               |
-| `replace` | `(pluginId, targetId, component): Disposable` | 替换已有路由的组件       |
+
+| 方法        | 签名                                            | 说明           |
+| --------- | --------------------------------------------- | ------------ |
+| `add`     | `(pluginId, route | route[]): Disposable`     | 注册新路由        |
+| `replace` | `(pluginId, targetId, component): Disposable` | 替换已有路由的组件    |
 | `wrap`    | `(pluginId, targetId, wrapper): Disposable`   | 包装已有路由（洋葱模式） |
-| `remove`  | `(targetId): void`                            | 移除路由                 |
+| `remove`  | `(targetId): void`                            | 移除路由         |
+
 
 **Route 参数：**
 
@@ -423,23 +437,27 @@ window.QwenPaw.route.wrap("my-plugin", "core.chat", (Inner) => {
 
 ### 通用 UI 插槽 — `window.QwenPaw.slot`
 
-| 方法       | 签名                                          | 说明                                          |
-| ---------- | --------------------------------------------- | --------------------------------------------- |
-| `fill`     | `(pluginId, name, render, opts?): Disposable` | 向插槽追加内容（可多个共存）                  |
+
+| 方法         | 签名                                            | 说明                        |
+| ---------- | --------------------------------------------- | ------------------------- |
+| `fill`     | `(pluginId, name, render, opts?): Disposable` | 向插槽追加内容（可多个共存）            |
 | `replace`  | `(pluginId, name, render, opts?): Disposable` | 替换插槽内容（最后注册的生效，屏蔽所有 fill） |
-| `snapshot` | `(): SlotInfo[]`                              | 获取所有已注册的插槽信息                      |
+| `snapshot` | `(): SlotInfo[]`                              | 获取所有已注册的插槽信息              |
+
 
 **内置插槽：**
 
-| 插槽名              | 类型    | UI 位置                        |
-| ------------------- | ------- | ------------------------------ |
-| `header.logo`       | replace | 顶部导航栏最左侧               |
-| `header.left`       | fill    | 顶部导航栏左区（Logo 右边）    |
-| `header.right`      | fill    | 顶部导航栏右区（设置按钮左边） |
+
+| 插槽名                 | 类型      | UI 位置              |
+| ------------------- | ------- | ------------------ |
+| `header.logo`       | replace | 顶部导航栏最左侧           |
+| `header.left`       | fill    | 顶部导航栏左区（Logo 右边）   |
+| `header.right`      | fill    | 顶部导航栏右区（设置按钮左边）    |
 | `sider.top`         | fill    | 侧边栏顶部（Agent 选择器下方） |
-| `sider.bottom`      | fill    | 侧边栏底部（菜单下方）         |
-| `content.statusBar` | fill    | 主内容区顶部                   |
-| `overlay.global`    | fill    | 全局覆盖层                     |
+| `sider.bottom`      | fill    | 侧边栏底部（菜单下方）        |
+| `content.statusBar` | fill    | 主内容区顶部             |
+| `overlay.global`    | fill    | 全局覆盖层              |
+
 
 **示例：**
 
@@ -642,11 +660,13 @@ window.QwenPaw.chat.welcome.set("my-plugin", {
 
 ### 常见错误
 
-| 错误                              | 原因                                 | 解决                                        |
-| --------------------------------- | ------------------------------------ | ------------------------------------------- |
-| `e.item.render is not a function` | render/prepend/append 传了非函数     | 确保传入 React 组件或返回 ReactNode 的函数  |
-| `duplicate id`                    | 两次 `add` 使用了相同 id             | 使用全局唯一 id（推荐 `pluginId.xxx` 格式） |
-| Hook 在组件外调用                 | `useTheme()` 等在非 React 上下文使用 | 改用 `getSelectedAgentId()` 等命令式 API    |
+
+| 错误                                | 原因                           | 解决                                 |
+| --------------------------------- | ---------------------------- | ---------------------------------- |
+| `e.item.render is not a function` | render/prepend/append 传了非函数  | 确保传入 React 组件或返回 ReactNode 的函数     |
+| `duplicate id`                    | 两次 `add` 使用了相同 id            | 使用全局唯一 id（推荐 `pluginId.xxx` 格式）    |
+| Hook 在组件外调用                       | `useTheme()` 等在非 React 上下文使用 | 改用 `getSelectedAgentId()` 等命令式 API |
+
 
 ## 使用示例
 
@@ -1325,8 +1345,8 @@ plugin = TracingPlugin()
 **要点：**
 
 - **条件激活**：工厂函数检测环境变量 `QWENPAW_TRACE`，仅设置时启用
-- **`priority=50`**：比默认优先级更高（数值更小 = 更靠外层），确保 tracing 包裹其他 middleware
-- **`on_acting` 钩子**：在 tool call 执行前/后测量耗时
+- `**priority=50`**：比默认优先级更高（数值更小 = 更靠外层），确保 tracing 包裹其他 middleware
+- `**on_acting` 钩子**：在 tool call 执行前/后测量耗时
 - 完整源码参见 `plugins/middleware-demo/tracing-middleware/tracing_plugin.py`
 
 ---
@@ -1400,7 +1420,7 @@ plugin = ThinkingLogPlugin()
 **要点：**
 
 - **无条件激活**：工厂始终返回实例，适用于所有请求
-- **`on_reasoning` 钩子**：在模型推理阶段捕获流式事件（`ThinkingBlockDeltaEvent` 为思维链，`TextBlockDeltaEvent` 为文本响应）
+- `**on_reasoning` 钩子**：在模型推理阶段捕获流式事件（`ThinkingBlockDeltaEvent` 为思维链，`TextBlockDeltaEvent` 为文本响应）
 - **实时打印**：每收到一个 delta 事件即打印，同时 yield 给下游，不阻塞流式响应
 - 完整源码参见 `plugins/middleware-demo/thinking-log-middleware/thinking_log_plugin.py`
 
@@ -1500,29 +1520,25 @@ api.register_startup_hook("late", callback, priority=200)
 ### 插件未加载
 
 1. 检查插件是否已安装：
-
-   ```bash
+  ```bash
    qwenpaw plugin list
-   ```
-
+  ```
 2. 查看 QwenPaw 日志：
-
-   ```bash
+  ```bash
    tail -f ~/.qwenpaw/logs/qwenpaw.log | grep -i plugin
-   ```
-
+  ```
 3. 验证插件清单格式：
-   ```bash
+  ```bash
    qwenpaw plugin info <plugin-id>
-   ```
+  ```
 
 ### 依赖安装失败
 
 1. 检查 `requirements.txt` 格式
 2. 手动安装依赖测试：
-   ```bash
+  ```bash
    pip install -r /path/to/plugin/requirements.txt
-   ```
+  ```
 3. 使用 `--force` 重新安装插件
 
 ### Provider 未显示
@@ -1586,7 +1602,7 @@ api.register_shutdown_hook(
 
 ### register_http_router
 
-将 `fastapi.APIRouter` 挂载到 `/api` + _prefix_ 下。
+将 `fastapi.APIRouter` 挂载到 `/api` + *prefix* 下。
 
 ```python
 api.register_http_router(
