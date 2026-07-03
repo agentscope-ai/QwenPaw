@@ -450,6 +450,8 @@ QwenPaw 在启动时自动检测最佳可用的沙箱后端：
 - **网络隔离**：当前版本未实现。所有沙箱进程均可完全访问网络，不受 `network_allow` 设置影响。网络命名空间隔离（bubblewrap 的 `--unshare-net`）已计划。
 - **资源限制**：`max_processes` 和 `max_memory_mb` 字段存在于配置中，但当前无后端强制执行。
 - **Windows AppContainer**：首次 ACL 设置需要管理员权限。AppContainer profile 会被保留以供相同配置的后续调用复用。
+- **Windows 最低版本要求**：AppContainer 需要 **Windows 10 版本 1507（build 10240）** 或更高版本。更早的 Windows 版本（Windows 7、8、8.1）不支持 AppContainer 隔离机制，将回退到 `mode=none`（无隔离）。
+- **Windows 系统目录 ACL 限制**：`icacls` ACL 设置无法修改某些受保护系统目录的权限，例如 `C:\Program Files`、`C:\Program Files (x86)`、`C:\Windows` 和 `C:\Windows\System32`。这些目录受 Windows 资源保护（WRP）和 TrustedInstaller 所有权保护。不过这通常不构成问题，因为 Windows 10+ 默认已为内置的 `ALL APPLICATION PACKAGES` SID（`S-1-15-2-1`）授予了这些路径的读取和执行权限，AppContainer 进程无需显式 ACL 授权即可读取系统二进制文件和库。
 - **deny_paths 文件级别 (Bubblewrap)**：`deny_paths` 中的单个文件会显示为空（绑定到 `/dev/null`）而非不存在。目录级别的 deny 使用 `--tmpfs` 真正不可见。
 
 ### 故障排除
@@ -483,6 +485,14 @@ AppContainer 的 `icacls` ACL 操作需要管理员权限。如果看到 ACL 设
 1. 以管理员身份运行 QwenPaw（右键 → 以管理员身份运行）
 2. 确认 `icacls.exe` 在 PATH 中（所有 Windows 版本均自带）
 3. 使用 `scripts/cleanup_windows_sandbox.py` 清理旧的 AppContainer profile 和 ACL
+
+**Windows: 不满足最低版本要求**
+
+AppContainer 需要 Windows 10（build 10240）或更高版本。如果探测输出中出现 `"AppContainer requires Windows 10+"` 消息，说明当前运行的 Windows 版本不受支持。请升级到 Windows 10 或更高版本以使用沙箱隔离。在旧版系统上，QwenPaw 将回退到 `mode=none`（无内核隔离）。
+
+**Windows: 系统目录（如 Program Files）ACL 授权失败**
+
+如果看到 `icacls` 对 `C:\Program Files` 或 `C:\Windows` 等路径报告警告，这是正常现象。这些目录由 TrustedInstaller 拥有并受 Windows 资源保护（WRP）——即使管理员也无法修改其 ACL。沙箱不需要对这些路径进行显式授权，因为 Windows 10+ 已通过内置的 `ALL APPLICATION PACKAGES` ACE 为所有 AppContainer 进程提供了读取+执行权限。如果你的工作流需要对 `Program Files` 下的路径进行写操作，请考虑使用其他工作目录，或添加一个指向用户拥有的位置的可写挂载点。
 
 **确认沙箱是否激活**
 

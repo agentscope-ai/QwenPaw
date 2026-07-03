@@ -451,6 +451,8 @@ When a violation is detected:
 - **Network isolation**: Not implemented in the current version. All sandboxed processes have full network access regardless of `network_allow` settings. Network namespace isolation (`--unshare-net` for bubblewrap) is planned.
 - **Resource limits**: `max_processes` and `max_memory_mb` fields exist in the config but are not enforced by any current backend.
 - **Windows AppContainer**: Requires administrator privileges for initial ACL setup. The AppContainer profile is preserved for reuse across invocations with the same configuration.
+- **Windows minimum version**: AppContainer requires **Windows 10 version 1507 (build 10240)** or later. Earlier Windows versions (Windows 7, 8, 8.1) do not support the AppContainer isolation mechanism and will fall back to `mode=none` (no isolation).
+- **Windows system directory ACL restrictions**: The `icacls` ACL setup cannot modify permissions on certain protected system directories such as `C:\Program Files`, `C:\Program Files (x86)`, `C:\Windows`, and `C:\Windows\System32`. These directories are protected by Windows Resource Protection (WRP) and TrustedInstaller ownership. However, this is typically not an issue because Windows 10+ already grants the built-in `ALL APPLICATION PACKAGES` SID (`S-1-15-2-1`) read and execute access to these paths by default, so AppContainer processes can read system binaries and libraries without explicit ACL grants.
 - **deny_paths for files (Bubblewrap)**: Individual files in `deny_paths` appear as empty (bound to `/dev/null`) rather than non-existent. Directory-level deny uses `--tmpfs` and is truly invisible.
 
 ### Troubleshooting
@@ -484,6 +486,14 @@ AppContainer requires administrator privileges for `icacls` ACL operations. If y
 1. Run QwenPaw as administrator (right-click → Run as administrator)
 2. Verify `icacls.exe` is on your PATH (ships with all Windows editions)
 3. Use `scripts/cleanup_windows_sandbox.py` to remove stale AppContainer profiles and ACLs
+
+**Windows: Minimum version not met**
+
+AppContainer requires Windows 10 (build 10240) or later. If you see `"AppContainer requires Windows 10+"` in the probe output, you are running an unsupported Windows version. Upgrade to Windows 10 or later to use sandbox isolation. On older systems, QwenPaw falls back to `mode=none` (no kernel isolation).
+
+**Windows: ACL grant fails on system directories (e.g. Program Files)**
+
+If you see `icacls` warnings for paths like `C:\Program Files` or `C:\Windows`, this is expected. These directories are owned by TrustedInstaller and protected by Windows Resource Protection — even administrators cannot modify their ACLs. The sandbox does not need explicit grants on these paths because Windows 10+ already provides read+execute access to all AppContainer processes via the built-in `ALL APPLICATION PACKAGES` ACE. If your workflow requires write access to a path under `Program Files`, consider using a different working directory or adding a writable mount pointing to a user-owned location.
 
 **Verifying sandbox is active**
 
