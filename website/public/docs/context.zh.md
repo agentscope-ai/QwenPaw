@@ -27,16 +27,19 @@ flowchart LR
     A[新轮次进入上下文] --> B[写穿到 history.db]
     B --> C{实时上下文超过触发比例?}
     C -->|否| D[保持当前窗口]
-    C -->|是| E[保留固定头部 + 最近尾部]
-    E --> F[驱逐中间历史]
+    C -->|是| E[保护当前活动轮次 + 最近尾部]
+    E --> F[驱逐已完成的中间历史]
     F --> G[把 seq 区间加入驱逐索引]
     G --> H[用一条索引消息重建实时上下文]
-    H --> I[之后用 recall_history_python 回溯]
+    H --> I{仍超出保留预算?}
+    I -->|是| J[压实索引，再把活动轮次的工具结果折叠为 recall 指针]
+    I -->|否| K[之后用 recall_history_python 回溯]
 ```
 
 核心特性：
 
 - **先持久化**：`ScrollContextManager` 在任何驱逐前，都会先把实时上下文写入 `{working_dir}/history.db`。
+- **保护当前活动轮次**：最新的用户请求及其进行中的工具链绝不会在任务中途被驱逐——即使压缩恰好在一个长工具任务中间触发，模型也不会丢失（进而答非所问）当前请求。
 - **不依赖摘要**：被驱逐的内容由 `EvictionIndex` 表示，而不是由 LLM 生成一段压缩摘要。
 - **可回溯原文**：索引中的每一行都带 `seq` 区间。Agent 可以调用 `recall_history_python`，再用 `ms.expand(lo, hi)` 读取完整原始记录。
 - **跨会话历史**：历史行包含 `session_id` 和 `agent_id`，默认可检索当前 Agent 的所有历史会话；显式放宽时也能查询同一工作区内其他 Agent 的历史。
@@ -84,19 +87,32 @@ scroll 的核心设计是：**不靠模型生成摘要来压缩上下文**。取
 发生驱逐后，实时上下文会被重建为：
 
 ```text
-固定头部
-  通常是第一条用户任务，由 scroll_config.pinned 控制。
-
 驱逐索引（名为 "memory" 的占位消息）
   scroll 注入的一条合成消息（不是真实对话轮次），代表所有被驱逐的轮次，
   装着整份驱逐索引：以 [context compressed] 开头，后面是分层的 headline
-  与 seq 区间，以及如何用 recall 取回原文的说明。详见下一节「驱逐索引」。
+  与 seq 区间，以及如何用 recall 取回原文的说明。详见下文「驱逐索引」。
 
-最近尾部
-  由 AgentScope 的配对安全切分逻辑选出的最新轮次。
+最近尾部——始终包含当前活动轮次
+  由 AgentScope 的配对安全切分逻辑选出的最新轮次，外加「活动轮次」：
+  最后一条真实用户请求及其之后的全部消息。即使按 token 切分本应把它
+  驱逐，也会完整保留在实时窗口里。
 ```
 
 切分使用 AgentScope 的 token 统计和配对安全压缩 helper，因此会尽量保持实时窗口边界上的 tool_call / tool_result 对齐。
+
+### 活动轮次保护与泄压管线
+
+一个长工具任务（`/heartbeat` 定时任务、多轮搜索）本身就可能超出保留预算，此时按 token 切分会把**当前请求**连同旧历史一起驱逐——模型只能看到一条旧消息和一份索引，然后答非所问。为此 scroll 按三级递进泄压，每一级只在上一级不够用时才启动：
+
+1. **驱逐**——活动轮次之前的已完成轮次折叠进驱逐索引（常规路径）。
+2. **压实**——窗口仍超出保留预算时，索引自身逐层上卷、向单行收缩。
+3. **折叠**——仍然超出（典型情况：整个上下文就是一个活动轮次）时，把活动轮次中已完成的工具结果**原地**替换为一行 recall 指针：
+
+   ```text
+   [scroll folded] full result stored in history — re-read it in recall_history_python: ms.expand(184, 184)
+   ```
+
+   请求原文、工具调用、推理文本和最新一条工具结果全部原样保留——这一轮本身仍是一份可读的任务进度记录；每条被折叠的输出都和其他历史一样在折叠前已持久化，一个 `ms.expand` 就能取回。
 
 ### 驱逐索引
 
@@ -158,6 +174,8 @@ print(ms.agents())
 
 持久历史对 recall 是只读的：`history.db` 会以只读方式挂载为 SQLite schema `hist`。模型只能写自己的 scratch `main` 数据库。
 
+失败的 cell 不会被误读：观察结果会以 `RECALL FAILED — the history was NOT read` 横幅开头；正常退出但什么都没打印的 cell 也会明确说明「无输出不代表历史为空」——执行错误永远不会被误认成「不存在这段历史」。
+
 安全说明：`recall_history_python` 会运行模型生成的 Python。正常情况下，它需要治理层注入 sandbox 配置；如果没有 sandbox，它会默认拒绝执行。只有同时满足以下条件时才允许非沙箱运行：
 
 - 环境变量 `QWENPAW_ALLOW_UNSANDBOXED_RECALL` 为 truthy
@@ -206,7 +224,6 @@ scroll cap 是基于 token 的，并通过持久历史回溯；旧版 pruning �
       "scroll_config": {
         "db_filename": "history.db",
         "tool_output_token_cap": 3000,
-        "pinned": 1,
         "repl_timeout_s": 300,
         "history_retention_days": 30,
         "allow_unsandboxed": false,
@@ -234,7 +251,6 @@ scroll cap 是基于 token 的，并通过持久历史回溯；旧版 pruning �
 | `context_compact_config.reserve_threshold_ratio` | `0.1`          | 驱逐后保留最近尾部的预算。                                                |
 | `scroll_config.db_filename`                      | `"history.db"` | 相对工作区的 SQLite 文件名。                                              |
 | `scroll_config.tool_output_token_cap`            | `3000`         | 单个工具结果在实时上下文中的预览 token 上限。                             |
-| `scroll_config.pinned`                           | `1`            | 永不驱逐的开头消息数量。                                                  |
 | `scroll_config.repl_timeout_s`                   | `300`          | `recall_history_python` 单次调用超时时间。                                |
 | `scroll_config.history_retention_days`           | `30`           | 自动清理早于该天数的历史行；设为 `0` 表示永久保留。                       |
 | `scroll_config.offload_dialog`                   | `false`        | 是否额外写旧版 `dialog/*.jsonl` 归档；`history.db` 仍是真相来源。         |

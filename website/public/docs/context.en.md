@@ -27,16 +27,19 @@ flowchart LR
     A[New turn enters context] --> B[Write-through to history.db]
     B --> C{Live context over trigger ratio?}
     C -->|No| D[Keep current window]
-    C -->|Yes| E[Keep pinned head + recent tail]
-    E --> F[Evict middle turns]
+    C -->|Yes| E[Protect the active turn + recent tail]
+    E --> F[Evict finished middle turns]
     F --> G[Add seq span to eviction index]
     G --> H[Rebuild live context with one index message]
-    H --> I[Recall later with recall_history_python]
+    H --> I{Still over the reserve?}
+    I -->|Yes| J[Compact the index, then fold active-turn tool results to recall stubs]
+    I -->|No| K[Recall later with recall_history_python]
 ```
 
 Key properties:
 
 - **Durable first**: `ScrollContextManager` persists live turns to `{working_dir}/history.db` before any eviction.
+- **Active turn protected**: the latest user request and its in-progress tool chain are never evicted mid-task, so a compression that fires in the middle of a long tool run cannot make the model lose (and answer past) the current request.
 - **No summary bottleneck**: evicted content is represented by an `EvictionIndex`, not by a generated summary.
 - **Recallable raw history**: each index line carries a `seq` span. The agent can run `recall_history_python` and call `ms.expand(lo, hi)` to read the full original rows.
 - **Cross-session memory**: history rows include `session_id` and `agent_id`, so recall can search this agent's past sessions and, when explicitly widened, other agents in the same workspace.
@@ -84,20 +87,33 @@ Scroll's defining choice is that it **does not compress context by asking the mo
 After eviction, the live context is rebuilt as:
 
 ```text
-Pinned head
-  Usually the first user task, controlled by scroll_config.pinned.
-
 Eviction index (a placeholder message named "memory")
   One synthetic message scroll injects to stand in for all the evicted turns
   (not a real conversation turn). It carries the whole eviction index: a
   [context compressed] header, then tiered headlines + seq spans, plus how to
-  recall the originals. Detailed in the next section, "Eviction Index".
+  recall the originals. Detailed in the section "Eviction Index" below.
 
-Recent tail
-  The newest turns selected by AgentScope's pairing-safe split.
+Recent tail — always including the active turn
+  The newest turns selected by AgentScope's pairing-safe split, plus the
+  ACTIVE TURN: the latest real user request and everything after it, kept
+  live in full even when the token-based split would have evicted it.
 ```
 
 The split uses AgentScope's token accounting and pairing-safe compression helpers, so it preserves tool-call/tool-result alignment at the live-window boundary.
+
+### Active-Turn Protection and the Pressure Pipeline
+
+A long tool-running turn (a `/heartbeat` cron run, a multi-search task) can exceed the reserve budget by itself, and the token-based split would then evict the **current request** along with old history — leaving the model staring at an old message plus an index, and answering the wrong thing. Scroll therefore relieves pressure in three escalating stages, each engaging only if the previous one wasn't enough:
+
+1. **Evict** — finished turns before the active turn fold into the eviction index (the normal case).
+2. **Compact** — if the window still overflows the reserve, the index itself rolls up tier by tier toward a single line.
+3. **Fold** — still overflowing (typically: the active turn *is* the whole context), the active turn's completed tool results are replaced **in place** with one-line recall stubs:
+
+   ```text
+   [scroll folded] full result stored in history — re-read it in recall_history_python: ms.expand(184, 184)
+   ```
+
+   The request text, tool calls, reasoning, and the newest tool result stay verbatim — the turn itself remains a readable progress record, and every folded output is one `ms.expand` away (it was persisted before folding, like everything else).
 
 ### Eviction Index
 
@@ -159,6 +175,8 @@ print(ms.agents())
 
 Recall is read-only for durable history: `history.db` is attached as SQLite schema `hist` in read-only mode. The model can write only to its scratch `main` database.
 
+A failed cell is unmistakable: the observation leads with a `RECALL FAILED — the history was NOT read` banner, and an exit-0 cell that printed nothing says explicitly that silence is not evidence of an empty history — so an execution error can never be misread as "there is no such history".
+
 Security note: `recall_history_python` runs model-authored Python. It normally requires sandbox injection from the governance layer. If no sandbox is available, it fails closed unless both are true:
 
 - environment variable `QWENPAW_ALLOW_UNSANDBOXED_RECALL` is truthy
@@ -207,7 +225,6 @@ Relevant configuration is under `running.light_context_config`:
       "scroll_config": {
         "db_filename": "history.db",
         "tool_output_token_cap": 3000,
-        "pinned": 1,
         "repl_timeout_s": 300,
         "history_retention_days": 30,
         "allow_unsandboxed": false,
@@ -235,7 +252,6 @@ Important fields:
 | `context_compact_config.reserve_threshold_ratio` | `0.1`          | Recent tail budget kept after eviction.                                                          |
 | `scroll_config.db_filename`                      | `"history.db"` | SQLite filename relative to the workspace.                                                       |
 | `scroll_config.tool_output_token_cap`            | `3000`         | Token cap for one live tool result preview.                                                      |
-| `scroll_config.pinned`                           | `1`            | Number of leading messages never evicted.                                                        |
 | `scroll_config.repl_timeout_s`                   | `300`          | Per-call timeout for `recall_history_python`.                                                    |
 | `scroll_config.history_retention_days`           | `30`           | Auto-purge rows older than this many days. Set `0` to keep forever.                              |
 | `scroll_config.offload_dialog`                   | `false`        | Also write legacy `dialog/*.jsonl` archive. `history.db` remains the source of truth.            |
