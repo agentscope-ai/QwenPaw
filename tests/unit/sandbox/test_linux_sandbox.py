@@ -60,8 +60,6 @@ class TestProbeSandboxSupport:
     @patch("qwenpaw.sandbox.config._probe_windows_appcontainer")
     def test_windows_calls_appcontainer_probe(self, mock_probe):
         # Windows sandbox should delegate to _probe_windows_appcontainer.
-        from qwenpaw.sandbox.config import SandboxCapability
-
         mock_probe.return_value = SandboxCapability(
             supported=False,
             mode=SandboxMode.NONE,

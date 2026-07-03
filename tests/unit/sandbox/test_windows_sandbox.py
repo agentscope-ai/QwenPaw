@@ -429,7 +429,7 @@ class TestNetworkCapabilities:
             workspace_dir=r"C:\project",
             network_allow=[],
         )
-        assert _compute_network_capabilities(config) == []
+        assert not _compute_network_capabilities(config)
 
     def test_full_network(self):
         config = SandboxConfig(
