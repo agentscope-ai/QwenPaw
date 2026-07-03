@@ -206,9 +206,12 @@ def test_capped_result_is_not_re_persisted(store: HistoryStore):
 
 
 async def test_compress_evicts_middle_into_index(store: HistoryStore):
+    # A newer user turn follows the evictable middle: the active turn (last
+    # user msg onward) stays live, the finished middle turn is evicted.
     ctx = [
         user("task"),
         assistant("step", headline="did-step"),
+        user("next question"),
         assistant("recent"),
     ]
     mgr = make_manager(store, pinned=1)
@@ -216,10 +219,10 @@ async def test_compress_evicts_middle_into_index(store: HistoryStore):
     agent._split_return = (
         ctx[:2],
         ctx[2:],
-    )  # compress [task, step], keep last
+    )  # compress [task, step], keep [next, recent]
     await mgr.compress(agent)
     # Context is rebuilt as head + placeholder + tail.
-    assert len(agent.state.context) == 3
+    assert len(agent.state.context) == 4
     names = [m.name for m in agent.state.context]
     assert "memory" in names  # the index placeholder
     assert "did-step" in mgr._index.render()
@@ -233,8 +236,9 @@ async def test_compress_does_not_index_boundary_msg_still_in_tail(
     is still live in the tail."""
     pinned = user("task")
     a = assistant("middle turn", headline="MIDDLE")
+    current = user("current request")
     boundary = assistant("boundary turn", headline="BOUNDARY")
-    ctx = [pinned, a, boundary]
+    ctx = [pinned, a, current, boundary]
     mgr = make_manager(store, pinned=1)
     agent = FakeAgent(ctx, tokens=200)
     # Mimic AgentScope: boundary id appears in BOTH halves (same id).
@@ -249,7 +253,10 @@ async def test_compress_does_not_index_boundary_msg_still_in_tail(
         "id",
         boundary.id,
     )  # same id, fewer blocks
-    agent._split_return = ([pinned, a, compress_half], [reserve_half])
+    agent._split_return = (
+        [pinned, a, current, compress_half],
+        [reserve_half],
+    )
 
     await mgr.compress(agent)
     rendered = mgr._index.render()
@@ -257,6 +264,51 @@ async def test_compress_does_not_index_boundary_msg_still_in_tail(
     assert "BOUNDARY" not in rendered  # still live → must not be indexed
     # And the boundary id is still present in the live context.
     assert boundary.id in {m.id for m in agent.state.context}
+
+
+async def test_compress_keeps_active_turn_live(store: HistoryStore):
+    """The token-based split may push the CURRENT user request (and its
+    running assistant chain) into the compress half. The active turn must
+    stay live — evicting it makes the model answer an older message
+    (#5747)."""
+    old_u = user("older question")
+    old_a = assistant("older reply", headline="OLD")
+    cur_u = user("/heartbeat")
+    cur_a = assistant("running tools", headline="RUNNING")
+    ctx = [old_u, old_a, cur_u, cur_a]
+    mgr = make_manager(store, pinned=1)
+    agent = FakeAgent(ctx, tokens=200)
+    # A long active turn blows the reserve budget: the split reserves nothing
+    # and would evict the current request along with the old turns.
+    agent._split_return = (ctx, [])
+    await mgr.compress(agent)
+    live_ids = [m.id for m in agent.state.context]
+    assert cur_u.id in live_ids and cur_a.id in live_ids
+    rendered = mgr._index.render()
+    assert "OLD" in rendered  # the finished old turn is evicted
+    assert "RUNNING" not in rendered  # the active turn is not
+    # The active turn sits after the placeholder, mirroring a normal tail.
+    names = [m.name for m in agent.state.context]
+    assert names.index("memory") < live_ids.index(cur_u.id)
+
+
+async def test_compress_noop_when_active_turn_is_whole_context(
+    store: HistoryStore,
+):
+    """Single-user-msg session (e.g. a cron run): the whole context is the
+    active turn, the middle is empty, and compress currently does nothing.
+    The pressure valve for this case is the active-turn fold (phase 2)."""
+    ctx = [
+        user("/heartbeat"),
+        assistant("step one", headline="S1"),
+        assistant("step two", headline="S2"),
+    ]
+    mgr = make_manager(store, pinned=1)
+    agent = FakeAgent(ctx, tokens=200)
+    agent._split_return = (ctx, [])
+    await mgr.compress(agent)
+    assert [m.id for m in agent.state.context] == [m.id for m in ctx]
+    assert mgr._index.is_empty
 
 
 # -- degraded durability: no eviction on write failure ----------------------
@@ -328,6 +380,7 @@ def _compactable(store, **kw):
     ctx = [
         user("task"),
         assistant("step", headline="did-step"),
+        user("next question"),
         assistant("recent"),
     ]
     mgr = make_manager(store, pinned=1, **kw)
@@ -335,7 +388,7 @@ def _compactable(store, **kw):
     agent._split_return = (
         ctx[:2],
         ctx[2:],
-    )  # evict [step]; keep task + recent
+    )  # evict [step]; keep task + [next, recent]
     return mgr, agent, ctx
 
 

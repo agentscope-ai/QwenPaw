@@ -186,13 +186,21 @@ class ScrollContextManager:
         # visible, so it isn't evicted yet. It gets indexed in a later round
         # once it moves fully onto the compress side.
         tail_ids = {m.id for m in tail}
+        active_tail = self._active_turn_tail(agent)
+        active_ids = {m.id for m in active_tail}
         middle = [
             m
             for m in real(to_compress[self._pinned :])
-            if m.id not in tail_ids
+            if m.id not in tail_ids and m.id not in active_ids
         ]
         if not middle:
             return
+        if active_tail:
+            head_ids = {m.id for m in head}
+            active_tail = [m for m in active_tail if m.id not in head_ids]
+            kept_ids = set(active_ids)
+            tail = [m for m in tail if m.id not in kept_ids]
+            tail.extend(active_tail)
 
         # 3b) Optional legacy archive of the evicted turns (opt-in). The full
         #     turns are already durable in history.db; this is a redundant
@@ -316,6 +324,29 @@ class ScrollContextManager:
                 self._seq_by_id[mid] = (min(lo, seq), max(hi, seq))
 
     # -- eviction ------------------------------------------------------------
+
+    def _active_turn_tail(self, agent: Any) -> list[Msg]:
+        """Return the current user turn and its in-progress assistant tail.
+
+        AgentScope's token-based split may evict the latest user request when
+        a long tool-running turn exceeds the reserve budget. Under scroll that
+        is unsafe: the model then only sees the eviction index and may answer
+        an older pinned message instead of the active task. Keep the latest
+        real user message and everything after it live until the turn finishes.
+        """
+        context = list(getattr(agent.state, "context", []) or [])
+        for idx in range(len(context) - 1, -1, -1):
+            msg = context[idx]
+            mid = getattr(msg, "id", None)
+            if mid in self._synthetic_ids:
+                continue
+            if getattr(msg, "role", None) == "user":
+                return [
+                    m
+                    for m in context[idx:]
+                    if getattr(m, "id", None) not in self._synthetic_ids
+                ]
+        return []
 
     def _rebuild_context(
         self,
