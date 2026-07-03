@@ -364,17 +364,11 @@ describe("request", () => {
     mockFetch(200, { data: "ok" });
 
     const callerController = new AbortController();
-    const removeSpy = vi.spyOn(
-      callerController.signal,
-      "removeEventListener",
-    );
+    const removeSpy = vi.spyOn(callerController.signal, "removeEventListener");
 
     await request("/models", { signal: callerController.signal });
 
-    expect(removeSpy).toHaveBeenCalledWith(
-      "abort",
-      expect.any(Function),
-    );
+    expect(removeSpy).toHaveBeenCalledWith("abort", expect.any(Function));
     removeSpy.mockRestore();
   });
 });
