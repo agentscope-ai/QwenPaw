@@ -310,7 +310,7 @@ def main() -> None:
     if not _is_admin():
         print("ERROR: This script requires administrator privileges.")
         print(
-            "Please run as administrator (right-click → Run as administrator)."
+            "Please run as administrator (right-click → Run as administrator).",
         )
         sys.exit(1)
 

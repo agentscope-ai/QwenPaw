@@ -17,9 +17,7 @@ Test structure aligns with test_linux_sandbox.py:
 """
 
 import asyncio
-import json
 import os
-import shutil
 import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -638,7 +636,11 @@ class TestAppContainerProfileLifecycle:
     @patch("qwenpaw.sandbox.windows_sandbox._get_advapi32")
     @patch("qwenpaw.sandbox.windows_sandbox._get_userenv")
     def test_create_profile_success(
-        self, mock_userenv_fn, mock_advapi32_fn, mock_windll, mock_sid_to_str
+        self,
+        mock_userenv_fn,
+        mock_advapi32_fn,
+        mock_windll,
+        mock_sid_to_str,
     ):
         """CreateAppContainerProfile returns 0 → SID is extracted."""
         mock_userenv = MagicMock()
@@ -656,16 +658,22 @@ class TestAppContainerProfileLifecycle:
         )
 
         sid = _create_appcontainer_profile(
-            "qwenpaw_test", "Test", "Test container"
+            "qwenpaw_test",
+            "Test",
+            "Test container",
         )
         assert sid == "S-1-15-2-111-222-333"
         mock_userenv.CreateAppContainerProfile.assert_called_once()
         mock_sid_to_str.assert_called_once()
 
     @patch("qwenpaw.sandbox.windows_sandbox._get_appcontainer_sid")
+    @patch("qwenpaw.sandbox.windows_sandbox._get_advapi32")
     @patch("qwenpaw.sandbox.windows_sandbox._get_userenv")
     def test_create_profile_already_exists(
-        self, mock_userenv_fn, mock_get_sid
+        self,
+        mock_userenv_fn,
+        mock_advapi32_fn,
+        mock_get_sid,
     ):
         """HRESULT 0x800700B7 (already exists) → derives SID instead."""
         mock_userenv = MagicMock()
@@ -680,15 +688,21 @@ class TestAppContainerProfileLifecycle:
         )
 
         sid = _create_appcontainer_profile(
-            "qwenpaw_existing", "Test", "Existing container"
+            "qwenpaw_existing",
+            "Test",
+            "Existing container",
         )
         assert sid == "S-1-15-2-999-888-777"
         mock_get_sid.assert_called_once_with("qwenpaw_existing")
 
     @patch("qwenpaw.sandbox.windows_sandbox._get_appcontainer_sid")
+    @patch("qwenpaw.sandbox.windows_sandbox._get_advapi32")
     @patch("qwenpaw.sandbox.windows_sandbox._get_userenv")
     def test_create_profile_already_exists_no_sid(
-        self, mock_userenv_fn, mock_get_sid
+        self,
+        mock_userenv_fn,
+        mock_advapi32_fn,
+        mock_get_sid,
     ):
         """Already exists but cannot derive SID → raises OSError."""
         mock_userenv = MagicMock()
@@ -705,11 +719,18 @@ class TestAppContainerProfileLifecycle:
 
         with pytest.raises(OSError, match="cannot derive SID"):
             _create_appcontainer_profile(
-                "qwenpaw_broken", "Test", "Broken container"
+                "qwenpaw_broken",
+                "Test",
+                "Broken container",
             )
 
+    @patch("qwenpaw.sandbox.windows_sandbox._get_advapi32")
     @patch("qwenpaw.sandbox.windows_sandbox._get_userenv")
-    def test_create_profile_unexpected_hresult(self, mock_userenv_fn):
+    def test_create_profile_unexpected_hresult(
+        self,
+        mock_userenv_fn,
+        mock_advapi32_fn,
+    ):
         """Unknown HRESULT → raises OSError."""
         mock_userenv = MagicMock()
         mock_userenv.CreateAppContainerProfile.return_value = -2147024891
@@ -723,7 +744,9 @@ class TestAppContainerProfileLifecycle:
 
         with pytest.raises(OSError, match="CreateAppContainerProfile failed"):
             _create_appcontainer_profile(
-                "qwenpaw_fail", "Test", "Failing container"
+                "qwenpaw_fail",
+                "Test",
+                "Failing container",
             )
 
     @patch("qwenpaw.sandbox.windows_sandbox._get_userenv")
@@ -806,10 +829,11 @@ class TestNTFSJunction:
             junction_dir = state_dir / "junctions"
             junction_dir.mkdir(parents=True)
             junction_path = junction_dir / ws_hash
-            junction_path.mkdir()  # Create as a directory (like a real junction)
+            # Create as a directory (like a real junction)
+            junction_path.mkdir()
 
             # Mock os.readlink to return the workspace path (simulates a
-            # correctly-targeted junction without needing an actual NTFS junction)
+            # correctly-targeted junction without an actual NTFS junction)
             with (
                 patch("os.readlink", return_value=workspace),
                 patch("subprocess.run") as mock_run,
@@ -830,7 +854,9 @@ class TestNTFSJunction:
 
             with patch("subprocess.run") as mock_run:
                 mock_run.side_effect = subprocess.CalledProcessError(
-                    1, "cmd", stderr=b"error"
+                    1,
+                    "cmd",
+                    stderr=b"error",
                 )
                 result = _create_workspace_junction(workspace, state_dir)
 
@@ -942,7 +968,9 @@ class TestWindowsSandboxExecute:
     @patch("qwenpaw.sandbox.windows_sandbox._wait_and_read_process")
     @patch("qwenpaw.sandbox.windows_sandbox._create_process_in_appcontainer")
     def test_execute_violation_in_stdout_on_failure(
-        self, mock_create, mock_wait
+        self,
+        mock_create,
+        mock_wait,
     ):
         """Violation pattern in stdout (with non-zero exit) is detected."""
         mock_create.return_value = (
