@@ -478,7 +478,9 @@ def _promote_tool_result_videos(
                         item
                         if isinstance(item, dict)
                         else _block_to_dict(item)
-                    ).get("type")
+                    ).get(
+                        "type",
+                    )
                     in ("video", "data")
                     and (
                         (
@@ -1099,6 +1101,7 @@ def _create_fallback_candidate(
     model: ChatModelBase,
     retry_config: RetryConfig | None,
     rate_limit_config: RateLimitConfig | None,
+    compact_threshold: float | None = None,
 ) -> FallbackCandidate:
     """Wrap one raw model with token recording and retry semantics."""
 
@@ -1107,7 +1110,11 @@ def _create_fallback_candidate(
     if hasattr(model, "max_retries"):
         model.max_retries = 0
 
-    wrapped_model = TokenRecordingModelWrapper(provider_id, model)
+    wrapped_model = TokenRecordingModelWrapper(
+        provider_id,
+        model,
+        compact_threshold=compact_threshold,
+    )
     wrapped_model = RetryChatModel(
         wrapped_model,
         retry_config=retry_config,
@@ -1158,10 +1165,15 @@ def create_model_and_formatter(
     model_slot = None
     retry_config = None
     rate_limit_config = None
+    compact_threshold = None
     if agent_id:
         try:
             agent_config = load_agent_config(agent_id)
             model_slot = agent_config.active_model
+            ctx_config = agent_config.running.light_context_config
+            compact_threshold = (
+                ctx_config.context_compact_config.compact_threshold_ratio
+            )
             retry_config = RetryConfig(
                 enabled=agent_config.running.llm_retry_enabled,
                 max_retries=agent_config.running.llm_max_retries,
@@ -1222,6 +1234,8 @@ def create_model_and_formatter(
             )
         provider_id = global_model.provider_id
 
+    primary_formatter_class = type(getattr(model, "formatter", None))
+
     # Create the formatter based on the model's native one.
     formatter = _create_formatter_instance(model)
 
@@ -1232,6 +1246,7 @@ def create_model_and_formatter(
         model,
         retry_config,
         rate_limit_config,
+        compact_threshold,
     )
 
     candidates = [primary_candidate]
@@ -1273,6 +1288,19 @@ def create_model_and_formatter(
                 fallback_provider_id,
                 fallback_model_id,
             )
+            fallback_formatter_class = type(
+                getattr(fallback_model, "formatter", None),
+            )
+            if fallback_formatter_class is not primary_formatter_class:
+                logger.warning(
+                    "Skipping fallback model candidate with incompatible "
+                    "formatter: %s:%s uses %s, primary uses %s",
+                    fallback_provider_id,
+                    fallback_model_id,
+                    fallback_formatter_class.__name__,
+                    primary_formatter_class.__name__,
+                )
+                continue
             candidates.append(
                 _create_fallback_candidate(
                     fallback_provider_id,
@@ -1280,6 +1308,7 @@ def create_model_and_formatter(
                     fallback_model,
                     retry_config,
                     rate_limit_config,
+                    compact_threshold,
                 ),
             )
 

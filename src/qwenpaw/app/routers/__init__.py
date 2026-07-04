@@ -4,7 +4,7 @@
 from fastapi import APIRouter
 
 from .agents import router as agents_router
-from .config import router as config_router
+from .config import global_config_router, router as config_router
 from .local_models import router as local_models_router
 from .providers import router as providers_router
 from .market import router as market_router
@@ -36,6 +36,7 @@ router = APIRouter()
 
 router.include_router(agents_router)
 router.include_router(config_router)
+router.include_router(global_config_router)
 router.include_router(console_router)
 router.include_router(fork_router)
 router.include_router(cron_router)
