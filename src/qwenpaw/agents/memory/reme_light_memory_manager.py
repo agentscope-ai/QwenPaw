@@ -448,7 +448,7 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         )
         tool_result_msg = Msg(
             name=agent_name or self.agent_id,
-            role="assistant",
+            role="tool",
             metadata={
                 QWENPAW_MESSAGE_TAG_KEY: AUTO_MEMORY_SEARCH_MESSAGE_TAG,
             },

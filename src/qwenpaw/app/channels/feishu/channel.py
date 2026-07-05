@@ -686,7 +686,30 @@ class FeishuChannel(BaseChannel):
                 self._processed_message_ids.popitem(last=False)
 
             sender_type = getattr(sender, "sender_type", "") or ""
-            if sender_type == "bot":
+
+            # Extract content and mentions early so we can check whether
+            # the current bot is @-mentioned before deciding to drop a bot
+            # message (issue #5709: bot-to-bot @mention was being discarded).
+            content_raw = getattr(message, "content", None) or ""
+            mentions_raw = getattr(message, "mentions", None) or []
+            is_bot_mentioned = False
+            bot_mention_keys: List[str] = []
+            if "@_all" in content_raw:
+                is_bot_mentioned = True
+            if self._bot_open_id and mentions_raw:
+                for m in mentions_raw:
+                    m_id = getattr(m, "id", None)
+                    if not m_id:
+                        continue
+                    m_open_id = getattr(m_id, "open_id", None) or ""
+                    if m_open_id == self._bot_open_id:
+                        is_bot_mentioned = True
+                        key = getattr(m, "key", None) or ""
+                        if key:
+                            bot_mention_keys.append(key)
+
+            # Drop bot messages unless the current bot is @-mentioned.
+            if sender_type == "bot" and not is_bot_mentioned:
                 return
 
             sender_id_obj = getattr(sender, "sender_id", None)
@@ -713,24 +736,6 @@ class FeishuChannel(BaseChannel):
             msg_type = str(
                 getattr(message, "message_type", "text") or "text",
             ).strip()
-            content_raw = getattr(message, "content", None) or ""
-
-            mentions_raw = getattr(message, "mentions", None) or []
-            is_bot_mentioned = False
-            bot_mention_keys: List[str] = []
-            if "@_all" in content_raw:
-                is_bot_mentioned = True
-            if self._bot_open_id and mentions_raw:
-                for m in mentions_raw:
-                    m_id = getattr(m, "id", None)
-                    if not m_id:
-                        continue
-                    m_open_id = getattr(m_id, "open_id", None) or ""
-                    if m_open_id == self._bot_open_id:
-                        is_bot_mentioned = True
-                        key = getattr(m, "key", None) or ""
-                        if key:
-                            bot_mention_keys.append(key)
 
             content_parts: List[Any] = []
             text_parts: List[str] = []

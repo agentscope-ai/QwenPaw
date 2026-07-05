@@ -51,7 +51,7 @@ function AgentConfigPage() {
           return api.listProviders().then((providers) => {
             for (const p of providers) {
               const all = [...(p.models ?? []), ...(p.extra_models ?? [])];
-              const m = all.find((m) => m.id === info.active_llm?.model);
+              const m = all.find((m) => m.id === info.active_llm?.model && p.id === info.active_llm?.provider_id);
               if (m?.max_input_length) {
                 setMaxInputLength(m.max_input_length);
                 return;
