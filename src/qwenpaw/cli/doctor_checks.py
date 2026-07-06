@@ -645,13 +645,15 @@ def security_baseline_notes(cfg: Config) -> list[str]:
     return notes
 
 
-def _embedding_has_credentials(emb_api_key: str) -> bool:
+def _embedding_has_credentials(backend: str, emb_api_key: str) -> bool:
+    if backend == "ollama":
+        return True
     if (emb_api_key or "").strip():
         return True
+    if backend == "gemini":
+        return bool(os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY"))
     return bool(
-        os.getenv("OPENAI_API_KEY")
-        or os.getenv("DASHSCOPE_API_KEY")
-        or os.getenv("ANTHROPIC_API_KEY"),
+        os.getenv("OPENAI_API_KEY") or os.getenv("DASHSCOPE_API_KEY"),
     )
 
 
@@ -666,6 +668,7 @@ def memory_embedding_notes(cfg: Config) -> list[str]:
         emb = ac.running.reme_light_memory_config.embedding_model_config
         ms = ac.running.reme_light_memory_config.auto_memory_search_config
         if ms.enabled and not _embedding_has_credentials(
+            emb.backend,
             emb.api_key,
         ):
             notes.append(
@@ -673,8 +676,8 @@ def memory_embedding_notes(cfg: Config) -> list[str]:
                 "reme_light_memory_config.auto_memory_search_config.enabled "
                 "is on but no embedding API key is set in "
                 "reme_light_memory_config.embedding_model_config.api_key "
-                "and no common OPENAI_/DASHSCOPE_/ANTHROPIC_ "
-                "API key env was found.",
+                "and no matching provider API key environment variable "
+                "was found.",
             )
     return notes
 

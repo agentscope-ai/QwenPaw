@@ -441,18 +441,28 @@ Controls agent runtime behavior, retry strategies, context management, and memor
 
 **Embedding Configuration (`reme_light_memory_config.embedding_model_config` object):**
 
-| Field              | Type   | Default    | Description                                             |
-| ------------------ | ------ | ---------- | ------------------------------------------------------- |
-| `backend`          | string | `"openai"` | Embedding backend type (e.g., `"openai"`)               |
-| `api_key`          | string | `""`       | API key for the embedding provider                      |
-| `base_url`         | string | `""`       | Custom API URL (optional)                               |
-| `model_name`       | string | `""`       | Embedding model name (e.g., `"text-embedding-3-small"`) |
-| `dimensions`       | int    | `1024`     | Embedding vector dimensions                             |
-| `enable_cache`     | bool   | `true`     | Whether to enable embedding cache                       |
-| `use_dimensions`   | bool   | `false`    | Whether to use custom dimensions                        |
-| `max_cache_size`   | int    | `3000`     | Maximum cache size                                      |
-| `max_input_length` | int    | `8192`     | Maximum input length for embeddings                     |
-| `max_batch_size`   | int    | `10`       | Maximum batch size for batch processing                 |
+| Field              | Type   | Default    | Description                                                                                              |
+| ------------------ | ------ | ---------- | -------------------------------------------------------------------------------------------------------- |
+| `backend`          | string | `"openai"` | Embedding backend type: `openai`, `dashscope`, `dashscope_multimodal`, `gemini`, `ollama`                |
+| `api_key`          | string | `""`       | API key for the embedding provider. Required for Gemini; usually required for OpenAI-compatible backends |
+| `base_url`         | string | `""`       | Custom API URL. For Ollama, this is passed as the host; when empty, the default local service is used    |
+| `model_name`       | string | `""`       | Embedding model name (e.g., `"text-embedding-3-small"`)                                                  |
+| `dimensions`       | int    | `1024`     | Embedding vector dimensions                                                                              |
+| `enable_cache`     | bool   | `true`     | Whether to enable embedding cache                                                                        |
+| `use_dimensions`   | bool   | `false`    | Whether to use custom dimensions                                                                         |
+| `max_cache_size`   | int    | `10000`    | Maximum cache size                                                                                       |
+| `max_input_length` | int    | `8192`     | Maximum input length for embeddings                                                                      |
+| `max_batch_size`   | int    | `10`       | Maximum batch size for batch processing                                                                  |
+
+Vector retrieval is enabled only when the selected backend has the minimum runnable configuration:
+
+| Backend                                         | Enable condition                                                           | Credential mapping                              |
+| ----------------------------------------------- | -------------------------------------------------------------------------- | ----------------------------------------------- |
+| `openai` / `dashscope` / `dashscope_multimodal` | `model_name` is non-empty, and either `api_key` or `base_url` is non-empty | `api_key`, `base_url`                           |
+| `gemini`                                        | Both `model_name` and `api_key` are non-empty                              | `api_key`                                       |
+| `ollama`                                        | `model_name` is non-empty                                                  | `host` from `base_url`; default host when empty |
+
+When the enable condition is not met, ReMe still keeps keyword indexes and wikilink graph indexes, but the embedding vector index is disabled.
 
 These settings can also be changed in the Console under **Agent → Runtime Config**. Changes apply to new LLM requests after saving; restarting the service is not required.
 
@@ -682,7 +692,7 @@ Recommended to configure in `agent.json` under `running.reme_light_memory_config
 | `EMBEDDING_BASE_URL`   | Embedding service URL             | ``      |
 | `EMBEDDING_MODEL_NAME` | Embedding model name              | ``      |
 
-> `api_key`, `model_name`, and `base_url` must all be non-empty to enable vector search in hybrid retrieval. See [Memory](./memory#embedding-configuration-optional) for full configuration details.
+> The exact vector-search enable condition depends on `embedding_model_config.backend`: OpenAI-compatible backends use `model_name` plus `api_key` or `base_url`; Gemini uses `model_name` plus `api_key`; Ollama only requires `model_name`. See [Memory](./memory#embedding-configuration-optional) for full configuration details.
 
 ---
 

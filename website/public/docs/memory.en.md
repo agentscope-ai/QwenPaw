@@ -262,34 +262,40 @@ calls in the same tool loop until normal context management evicts them.
 
 Embedding configuration for vector semantic search, located in `running.reme_light_memory_config.embedding_model_config`:
 
-| Field              | Description                                  | Default  |
-| ------------------ | -------------------------------------------- | -------- |
-| `backend`          | Embedding backend type                       | `openai` |
-| `api_key`          | API Key for the Embedding service            | ``       |
-| `base_url`         | URL of the Embedding service                 | ``       |
-| `model_name`       | Embedding model name                         | ``       |
-| `dimensions`       | Vector dimensions for initializing vector DB | `1024`   |
-| `enable_cache`     | Whether to enable Embedding cache            | `true`   |
-| `use_dimensions`   | Whether to pass dimensions parameter in API  | `false`  |
-| `max_cache_size`   | Maximum Embedding cache entries              | `10000`  |
-| `max_input_length` | Maximum input length per Embedding request   | `8192`   |
-| `max_batch_size`   | Maximum batch size for Embedding requests    | `10`     |
+| Field              | Description                                                                                                  | Default  |
+| ------------------ | ------------------------------------------------------------------------------------------------------------ | -------- |
+| `backend`          | Embedding backend type: `openai`, `dashscope`, `dashscope_multimodal`, `gemini`, `ollama`                    | `openai` |
+| `api_key`          | API key for the embedding provider. Required for Gemini; usually required for OpenAI-compatible backends     | ``       |
+| `base_url`         | Embedding service URL. For Ollama, this is passed as the host; when empty, the default local service is used | ``       |
+| `model_name`       | Embedding model name                                                                                         | ``       |
+| `dimensions`       | Vector dimensions for initializing vector DB                                                                 | `1024`   |
+| `enable_cache`     | Whether to enable Embedding cache                                                                            | `true`   |
+| `use_dimensions`   | Whether to pass dimensions parameter in API                                                                  | `false`  |
+| `max_cache_size`   | Maximum Embedding cache entries                                                                              | `10000`  |
+| `max_input_length` | Maximum input length per Embedding request                                                                   | `8192`   |
+| `max_batch_size`   | Maximum batch size for Embedding requests                                                                    | `10`     |
 
 > `use_dimensions` is for cases where some vLLM models don't support the dimensions parameter. Set to `false` to skip it.
 
-> `base_url` and `model_name` must both be non-empty to enable vector search in hybrid retrieval (`api_key` is not required).
+Vector retrieval is enabled only when the selected backend has the minimum runnable configuration:
+
+| Backend                                         | Enable condition                                                           | Credential mapping                              |
+| ----------------------------------------------- | -------------------------------------------------------------------------- | ----------------------------------------------- |
+| `openai` / `dashscope` / `dashscope_multimodal` | `model_name` is non-empty, and either `api_key` or `base_url` is non-empty | `api_key`, `base_url`                           |
+| `gemini`                                        | Both `model_name` and `api_key` are non-empty                              | `api_key`                                       |
+| `ollama`                                        | `model_name` is non-empty                                                  | `host` from `base_url`; default host when empty |
 
 ### Indexing Behavior
 
 The embedded ReMe configuration uses a local file store with:
 
-| Component        | Behavior                                                                                       |
-| ---------------- | ---------------------------------------------------------------------------------------------- |
-| File store       | Local ReMe file store under `mem_metadata/`                                                    |
-| Keyword index    | BM25 keyword index enabled by default                                                          |
-| Vector index     | Enabled only when both `embedding_model_config.base_url` and `model_name` are set              |
-| Watched dirs     | `daily_dir` and `digest_dir`; `resource_dir` is also indexed when `enable_search_raw_log=true` |
-| Watched suffixes | `md` by default; `jsonl` is included when raw-log search is enabled                            |
+| Component        | Behavior                                                                                         |
+| ---------------- | ------------------------------------------------------------------------------------------------ |
+| File store       | Local ReMe file store under `mem_metadata/`                                                      |
+| Keyword index    | BM25 keyword index enabled by default                                                            |
+| Vector index     | Enabled only when `embedding_model_config` meets the enable condition for the selected `backend` |
+| Watched dirs     | `daily_dir` and `digest_dir`; `resource_dir` is also indexed when `enable_search_raw_log=true`   |
+| Watched suffixes | `md` by default; `jsonl` is included when raw-log search is enabled                              |
 
 ---
 

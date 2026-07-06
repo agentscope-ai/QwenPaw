@@ -211,22 +211,28 @@ graph LR
 
 Embedding 配置用于向量语义搜索，位于 `running.reme_light_memory_config.embedding_model_config`：
 
-| 配置项             | 说明                                  | 默认值   |
-| ------------------ | ------------------------------------- | -------- |
-| `backend`          | Embedding 后端类型                    | `openai` |
-| `api_key`          | Embedding 服务的 API Key              | ``       |
-| `base_url`         | Embedding 服务的 URL                  | ``       |
-| `model_name`       | Embedding 模型名称                    | ``       |
-| `dimensions`       | 向量维度，用于初始化向量数据库        | `1024`   |
-| `enable_cache`     | 是否启用 Embedding 缓存               | `true`   |
-| `use_dimensions`   | 是否在 API 请求中传递 dimensions 参数 | `false`  |
-| `max_cache_size`   | Embedding 缓存最大条目数              | `10000`  |
-| `max_input_length` | 单次 Embedding 最大输入长度           | `8192`   |
-| `max_batch_size`   | Embedding 批处理最大数量              | `10`     |
+| 配置项             | 说明                                                                                  | 默认值   |
+| ------------------ | ------------------------------------------------------------------------------------- | -------- |
+| `backend`          | Embedding 后端类型：`openai`、`dashscope`、`dashscope_multimodal`、`gemini`、`ollama` | `openai` |
+| `api_key`          | Embedding 服务的 API Key。Gemini 必填；OpenAI 兼容后端通常也需要                      | ``       |
+| `base_url`         | Embedding 服务的 URL；Ollama 后端会作为 host 传递，留空则使用默认本地服务             | ``       |
+| `model_name`       | Embedding 模型名称                                                                    | ``       |
+| `dimensions`       | 向量维度，用于初始化向量数据库                                                        | `1024`   |
+| `enable_cache`     | 是否启用 Embedding 缓存                                                               | `true`   |
+| `use_dimensions`   | 是否在 API 请求中传递 dimensions 参数                                                 | `false`  |
+| `max_cache_size`   | Embedding 缓存最大条目数                                                              | `10000`  |
+| `max_input_length` | 单次 Embedding 最大输入长度                                                           | `8192`   |
+| `max_batch_size`   | Embedding 批处理最大数量                                                              | `10`     |
 
 > `use_dimensions` 用于某些 vLLM 模型不支持 dimensions 参数的情况，设为 `false` 可跳过该参数。
 
-> `base_url` 和 `model_name` 都非空才能开启混合检索中的向量检索（`api_key` 不参与判断）。
+向量检索只有在当前后端具备最低可运行配置时才会启用：
+
+| 后端                                            | 启用条件                                                   | Credential 映射                           |
+| ----------------------------------------------- | ---------------------------------------------------------- | ----------------------------------------- |
+| `openai` / `dashscope` / `dashscope_multimodal` | `model_name` 非空，且 `api_key` 或 `base_url` 至少一个非空 | `api_key`、`base_url`                     |
+| `gemini`                                        | `model_name` 和 `api_key` 均非空                           | `api_key`                                 |
+| `ollama`                                        | `model_name` 非空                                          | `host`（来自 `base_url`，留空时使用默认） |
 
 ### 索引行为
 
@@ -236,7 +242,7 @@ Embedding 配置用于向量语义搜索，位于 `running.reme_light_memory_con
 | ---------- | ------------------------------------------------------------------------------------------ |
 | File store | ReMe 本地文件存储，持久状态位于 `mem_metadata/`                                            |
 | 关键词索引 | 默认启用 BM25 关键词索引                                                                   |
-| 向量索引   | 仅当 `embedding_model_config.base_url` 和 `model_name` 均非空时启用                        |
+| 向量索引   | 仅当 `embedding_model_config` 满足当前 `backend` 的启用条件时启用                          |
 | 监听目录   | 默认监听 `daily_dir` 和 `digest_dir`；`enable_search_raw_log=true` 时也索引 `resource_dir` |
 | 监听后缀   | 默认索引 `md`；启用 raw-log search 后包含 `jsonl`                                          |
 
