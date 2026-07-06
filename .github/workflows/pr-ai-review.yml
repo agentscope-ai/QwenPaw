@@ -29,6 +29,7 @@ jobs:
       REVIEW_MODEL: qwen3.7-max
       PR_NUMBER: ${{ github.event.pull_request.number }}
       PR_REPO: ${{ github.event.pull_request.base.repo.full_name }}
+      QWENPAW_TOOL_GUARD_APPROVAL_TIMEOUT_SECONDS: 1
 
     steps:
       - name: Checkout repository
