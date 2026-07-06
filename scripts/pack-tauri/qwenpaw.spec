@@ -120,6 +120,8 @@ a = Analysis(
         *collect_submodules("qwenpaw.cli"),
         # All channel adapters (imported on-demand at runtime)
         *collect_submodules("qwenpaw.app.channels"),
+        # ACP runner support is lazily imported by delegate_external_agent.
+        *collect_submodules("qwenpaw.agents.acp"),
         # ASGI app entry points
         "qwenpaw.app._app",
         "qwenpaw.app.multi_agent_manager",
