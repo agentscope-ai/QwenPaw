@@ -230,6 +230,32 @@ def test_search_excludes_the_active_turn(tmp_path: Path):
         space.close()
 
 
+def test_active_turn_floor_is_computed_once_per_instance(
+    ms: MemorySpace,
+    monkeypatch,
+):
+    """The MAX(seq) scan behind the active-turn exclusion is memoized: a
+    single search consults the floor twice (FTS path + LIKE fallback) and the
+    read-only history can't change under the instance, so it must run at most
+    once — the cost that accrues on large histories in the recall subprocess.
+    """
+    calls = {"n": 0}
+    real = ms._compute_active_turn_floor
+
+    def counting():
+        calls["n"] += 1
+        return real()
+
+    monkeypatch.setattr(ms, "_compute_active_turn_floor", counting)
+
+    # Consult it across every path that would otherwise re-query.
+    ms.search("tanks", k=5)
+    ms._search_like("tanks", [("agent_id", "ag1")], None, 5)
+    ms._active_turn_floor()
+
+    assert calls["n"] == 1
+
+
 def test_search_rows_carry_session_id(ms: MemorySpace):
     # Cross-session/agent search is only useful if a hit says which session it
     # came from — the model needs ``session_id`` to follow up (it used to guess

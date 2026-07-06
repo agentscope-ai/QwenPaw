@@ -149,6 +149,12 @@ class MemorySpace:
         self._agent_id = agent_id
         self._session_suffix = sanitize_suffix(session_id)
         self._fts_ok: bool | None = None  # cached FTS5-availability check
+        # Cached active-turn floor. ``hist`` is attached read-only, so
+        # MAX(seq) can't change over this instance's life — compute it once.
+        # A separate flag distinguishes "not computed yet" from a real
+        # ``None`` result (no session / no active user turn).
+        self._floor_cache: int | None = None
+        self._floor_computed: bool = False
         if history_db_path is not None:
             abs_path = Path(history_db_path).expanduser().resolve()
             self._conn.execute(
@@ -365,7 +371,20 @@ class MemorySpace:
         round's quoted findings and the request itself — and the echoes drown
         the real hits. ``expand`` / ``recall_tool`` / ``session`` stay
         unfiltered (verbatim replay is their point).
+
+        Memoized per instance: a single ``search`` can consult the floor twice
+        (the FTS path and the LIKE fallback), and the underlying ``hist`` is
+        read-only, so the MAX(seq) scan runs at most once per MemorySpace
+        rather than once per call site — the cost that matters on large
+        histories in the recall subprocess.
         """
+        if not self._floor_computed:
+            self._floor_cache = self._compute_active_turn_floor()
+            self._floor_computed = True
+        return self._floor_cache
+
+    def _compute_active_turn_floor(self) -> int | None:
+        """Uncached MAX(seq) scan behind :meth:`_active_turn_floor`."""
         if not self._session_id:
             return None
         where = ["session_id = ?", "kind = 'context_msg'", "role = 'user'"]
