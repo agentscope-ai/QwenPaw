@@ -240,12 +240,10 @@ class WorkspacePromptFilesContributor(SyncPromptContributor):
         except Exception as e:
             logger.warning("Failed to process heartbeat: %s", e)
         memory_manager = extras.get("memory_manager")
-        language = extras.get("language", "zh")
         try:
             content = _process_memory_section(
                 content,
                 memory_manager,
-                language,
             )
         except Exception as e:
             logger.warning("Failed to process memory section: %s", e)
