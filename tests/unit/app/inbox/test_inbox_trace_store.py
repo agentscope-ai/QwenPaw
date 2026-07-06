@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
-# pylint: disable=redefined-outer-name
+# pylint: disable=redefined-outer-name,protected-access,unused-argument
+# pylint: disable=use-implicit-booleaness-not-comparison
 """Unit tests for qwenpaw.app.inbox_trace_store.
 
 Real file IO through a monkeypatched ``_TRACE_DIR`` — no over-mocking.
@@ -130,7 +131,7 @@ async def test_append_trace_events_creates_trace_if_missing(trace_dir: Path):
         [{"at": 1.0, "event": {"x": 1}}],
     )
     data = json.loads(
-        (trace_dir / "run-bootstrap.json").read_text(encoding="utf-8")
+        (trace_dir / "run-bootstrap.json").read_text(encoding="utf-8"),
     )
     assert len(data["events"]) == 1
 
@@ -289,7 +290,14 @@ class _FakeSession:
     def __init__(self, state: dict | Exception):
         self._state = state
 
-    async def get_session_state_dict(self, session_id, user_id, channel, *, allow_not_exist):
+    async def get_session_state_dict(
+        self,
+        session_id,
+        user_id,
+        channel,
+        *,
+        allow_not_exist,
+    ):
         if isinstance(self._state, Exception):
             raise self._state
         return self._state
@@ -299,7 +307,10 @@ class _FakeSession:
 async def test_read_session_messages_no_session_returns_empty(trace_dir: Path):
     runner = SimpleNamespace(session=None)
     out = await trace_store.read_session_messages(
-        runner=runner, session_id="s", user_id="u", channel="c"
+        runner=runner,
+        session_id="s",
+        user_id="u",
+        channel="c",
     )
     assert out == []
 
@@ -307,29 +318,37 @@ async def test_read_session_messages_no_session_returns_empty(trace_dir: Path):
 @pytest.mark.asyncio
 async def test_read_session_messages_exception_returns_empty(trace_dir: Path):
     runner = SimpleNamespace(
-        session=_FakeSession(RuntimeError("session backend down"))
+        session=_FakeSession(RuntimeError("session backend down")),
     )
     out = await trace_store.read_session_messages(
-        runner=runner, session_id="s", user_id="u", channel="c"
+        runner=runner,
+        session_id="s",
+        user_id="u",
+        channel="c",
     )
     assert out == []
 
 
 @pytest.mark.asyncio
-async def test_read_session_messages_extracts_context_messages(trace_dir: Path):
+async def test_read_session_messages_extracts_context_messages(
+    trace_dir: Path,
+):
     state = {
         "agent": {
             "state": {
                 "context": [
                     {"role": "user", "content": "hi"},
                     {"role": "assistant", "content": "hello"},
-                ]
-            }
-        }
+                ],
+            },
+        },
     }
     runner = SimpleNamespace(session=_FakeSession(state))
     out = await trace_store.read_session_messages(
-        runner=runner, session_id="s", user_id="u", channel="c"
+        runner=runner,
+        session_id="s",
+        user_id="u",
+        channel="c",
     )
     assert len(out) == 2
     assert out[0]["role"] == "user"
@@ -337,11 +356,16 @@ async def test_read_session_messages_extracts_context_messages(trace_dir: Path):
 
 
 @pytest.mark.asyncio
-async def test_read_session_messages_missing_context_returns_empty(trace_dir: Path):
+async def test_read_session_messages_missing_context_returns_empty(
+    trace_dir: Path,
+):
     state = {"agent": {"state": {}}}
     runner = SimpleNamespace(session=_FakeSession(state))
     out = await trace_store.read_session_messages(
-        runner=runner, session_id="s", user_id="u", channel="c"
+        runner=runner,
+        session_id="s",
+        user_id="u",
+        channel="c",
     )
     assert out == []
 
@@ -352,17 +376,31 @@ async def test_read_session_messages_missing_context_returns_empty(trace_dir: Pa
 
 
 @pytest.mark.asyncio
-async def test_append_trace_from_session_delta_appends_only_new(trace_dir: Path):
+async def test_append_trace_from_session_delta_appends_only_new(
+    trace_dir: Path,
+):
     state = {
         "agent": {
             "state": {
                 "context": [
-                    {"role": "user", "content": "m1", "created_at": "2024-01-02T03:04:05"},
-                    {"role": "assistant", "content": "m2", "created_at": "2024-01-02T03:04:06"},
-                    {"role": "user", "content": "m3", "created_at": "2024-01-02T03:04:07"},
-                ]
-            }
-        }
+                    {
+                        "role": "user",
+                        "content": "m1",
+                        "created_at": "2024-01-02T03:04:05",
+                    },
+                    {
+                        "role": "assistant",
+                        "content": "m2",
+                        "created_at": "2024-01-02T03:04:06",
+                    },
+                    {
+                        "role": "user",
+                        "content": "m3",
+                        "created_at": "2024-01-02T03:04:07",
+                    },
+                ],
+            },
+        },
     }
     runner = SimpleNamespace(session=_FakeSession(state))
     await trace_store.create_trace("run-delta")
@@ -378,7 +416,9 @@ async def test_append_trace_from_session_delta_appends_only_new(trace_dir: Path)
     assert len(delta) == 2
     assert delta[0]["content"] == "m2"
     assert delta[1]["content"] == "m3"
-    data = json.loads((trace_dir / "run-delta.json").read_text(encoding="utf-8"))
+    data = json.loads(
+        (trace_dir / "run-delta.json").read_text(encoding="utf-8"),
+    )
     assert len(data["events"]) == 2
     # Parsed timestamps should be floats, not None (ISO strings are parseable).
     assert isinstance(data["events"][0]["at"], float)
@@ -391,9 +431,9 @@ async def test_append_trace_from_session_delta_baseline_zero(trace_dir: Path):
             "state": {
                 "context": [
                     {"role": "user", "content": "only"},
-                ]
-            }
-        }
+                ],
+            },
+        },
     }
     runner = SimpleNamespace(session=_FakeSession(state))
     await trace_store.create_trace("run-delta-0")
@@ -409,8 +449,12 @@ async def test_append_trace_from_session_delta_baseline_zero(trace_dir: Path):
 
 
 @pytest.mark.asyncio
-async def test_append_trace_from_session_delta_negative_baseline_clamped(trace_dir: Path):
-    state = {"agent": {"state": {"context": [{"content": "a"}, {"content": "b"}]}}}
+async def test_append_trace_from_session_delta_negative_baseline_clamped(
+    trace_dir: Path,
+):
+    state = {
+        "agent": {"state": {"context": [{"content": "a"}, {"content": "b"}]}},
+    }
     runner = SimpleNamespace(session=_FakeSession(state))
     await trace_store.create_trace("run-neg")
     delta = await trace_store.append_trace_from_session_delta(
@@ -451,7 +495,9 @@ async def test_finalize_trace_records_error_message(trace_dir: Path):
 
 
 @pytest.mark.asyncio
-async def test_finalize_trace_without_error_keeps_field_absent(trace_dir: Path):
+async def test_finalize_trace_without_error_keeps_field_absent(
+    trace_dir: Path,
+):
     await trace_store.create_trace("run-1")
     await trace_store.finalize_trace("run-1", status="success")
     data = json.loads((trace_dir / "run-1.json").read_text(encoding="utf-8"))

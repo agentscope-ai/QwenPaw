@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# pylint: disable=redefined-outer-name
+# pylint: disable=redefined-outer-name,protected-access,unused-argument
 """Unit tests for qwenpaw.app.inbox_store.
 
 Real file IO through a monkeypatched ``_INBOX_PATH`` — no over-mocking.
@@ -70,12 +70,22 @@ async def test_append_event_defaults_agent_id(inbox_path: Path):
 @pytest.mark.asyncio
 async def test_append_event_prepends_newest_first(inbox_path: Path):
     await inbox_store.append_event(
-        agent_id="a", source_type="t", source_id="1",
-        event_type="e", status="ok", title="first", body="b",
+        agent_id="a",
+        source_type="t",
+        source_id="1",
+        event_type="e",
+        status="ok",
+        title="first",
+        body="b",
     )
     await inbox_store.append_event(
-        agent_id="a", source_type="t", source_id="2",
-        event_type="e", status="ok", title="second", body="b",
+        agent_id="a",
+        source_type="t",
+        source_id="2",
+        event_type="e",
+        status="ok",
+        title="second",
+        body="b",
     )
     events = await inbox_store.list_events(limit=10)
     assert len(events) == 2
@@ -87,8 +97,13 @@ async def test_append_event_prepends_newest_first(inbox_path: Path):
 async def test_append_event_carries_payload(inbox_path: Path):
     payload = {"run_id": "run-xyz", "extra": [1, 2, 3]}
     event = await inbox_store.append_event(
-        agent_id="a", source_type="t", source_id="1",
-        event_type="e", status="ok", title="t", body="b",
+        agent_id="a",
+        source_type="t",
+        source_id="1",
+        event_type="e",
+        status="ok",
+        title="t",
+        body="b",
         payload=payload,
     )
     assert event["payload"] == payload
@@ -102,16 +117,31 @@ async def test_append_event_carries_payload(inbox_path: Path):
 async def _seed_events(inbox_path: Path) -> None:
     """Seed a mix of events for filter tests."""
     await inbox_store.append_event(
-        agent_id="A", source_type="cron", source_id="1",
-        event_type="dispatch", status="success", title="t1", body="b",
+        agent_id="A",
+        source_type="cron",
+        source_id="1",
+        event_type="dispatch",
+        status="success",
+        title="t1",
+        body="b",
     )
     await inbox_store.append_event(
-        agent_id="B", source_type="manual", source_id="2",
-        event_type="note", status="pending", title="t2", body="b",
+        agent_id="B",
+        source_type="manual",
+        source_id="2",
+        event_type="note",
+        status="pending",
+        title="t2",
+        body="b",
     )
     await inbox_store.append_event(
-        agent_id="A", source_type="cron", source_id="3",
-        event_type="dispatch", status="error", title="t3", body="b",
+        agent_id="A",
+        source_type="cron",
+        source_id="3",
+        event_type="dispatch",
+        status="error",
+        title="t3",
+        body="b",
     )
 
 
@@ -169,7 +199,10 @@ async def test_list_events_empty_when_no_file(inbox_path: Path):
 
 
 @pytest.mark.asyncio
-async def test_list_events_handles_invalid_json_file(inbox_path: Path, monkeypatch: pytest.MonkeyPatch):
+async def test_list_events_handles_invalid_json_file(
+    inbox_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
     inbox_path.write_text("not a json list", encoding="utf-8")
     events = await inbox_store.list_events()
     # _load_events returns [] for non-list JSON; but raw string raises.
@@ -247,17 +280,29 @@ async def test_delete_event_tracks_run_id_reference(inbox_path: Path):
     """Two events share the same run_id. Deleting one should report that
     the run_id is still referenced by the other event."""
     await inbox_store.append_event(
-        agent_id="a", source_type="t", source_id="1",
-        event_type="e", status="ok", title="t", body="b",
+        agent_id="a",
+        source_type="t",
+        source_id="1",
+        event_type="e",
+        status="ok",
+        title="t",
+        body="b",
         payload={"run_id": "run-shared"},
     )
     await inbox_store.append_event(
-        agent_id="a", source_type="t", source_id="2",
-        event_type="e", status="ok", title="t", body="b",
+        agent_id="a",
+        source_type="t",
+        source_id="2",
+        event_type="e",
+        status="ok",
+        title="t",
+        body="b",
         payload={"run_id": "run-shared"},
     )
     events = await inbox_store.list_events(limit=1)
-    deleted, run_id, still_ref = await inbox_store.delete_event(events[0]["id"])
+    deleted, run_id, still_ref = await inbox_store.delete_event(
+        events[0]["id"],
+    )
     assert deleted is True
     assert run_id == "run-shared"
     assert still_ref is True
@@ -266,12 +311,19 @@ async def test_delete_event_tracks_run_id_reference(inbox_path: Path):
 @pytest.mark.asyncio
 async def test_delete_event_run_id_not_referenced_after_last(inbox_path: Path):
     await inbox_store.append_event(
-        agent_id="a", source_type="t", source_id="1",
-        event_type="e", status="ok", title="t", body="b",
+        agent_id="a",
+        source_type="t",
+        source_id="1",
+        event_type="e",
+        status="ok",
+        title="t",
+        body="b",
         payload={"run_id": "run-solo"},
     )
     events = await inbox_store.list_events(limit=1)
-    deleted, run_id, still_ref = await inbox_store.delete_event(events[0]["id"])
+    deleted, run_id, still_ref = await inbox_store.delete_event(
+        events[0]["id"],
+    )
     assert deleted is True
     assert run_id == "run-solo"
     assert still_ref is False
@@ -287,8 +339,13 @@ async def test_append_event_caps_at_5000(inbox_path: Path):
     # Append more than _MAX_EVENTS to confirm the tail is trimmed.
     for _ in range(inbox_store._MAX_EVENTS + 50):
         await inbox_store.append_event(
-            agent_id="a", source_type="t", source_id="1",
-            event_type="e", status="ok", title="t", body="b",
+            agent_id="a",
+            source_type="t",
+            source_id="1",
+            event_type="e",
+            status="ok",
+            title="t",
+            body="b",
         )
     events = await inbox_store.list_events(limit=inbox_store._MAX_EVENTS + 100)
     assert len(events) == inbox_store._MAX_EVENTS
@@ -303,8 +360,13 @@ async def test_append_event_caps_at_5000(inbox_path: Path):
 async def test_append_event_large_payload_round_trips(inbox_path: Path):
     big_payload = {"k": "v" * 50_000}
     event = await inbox_store.append_event(
-        agent_id="a", source_type="t", source_id="1",
-        event_type="e", status="ok", title="t", body="b",
+        agent_id="a",
+        source_type="t",
+        source_id="1",
+        event_type="e",
+        status="ok",
+        title="t",
+        body="b",
         payload=big_payload,
     )
     assert len(event["payload"]["k"]) == 50_000
