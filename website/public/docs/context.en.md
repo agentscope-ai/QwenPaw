@@ -10,11 +10,11 @@ The old AgentScope-native compression path is still available with `strategy: "n
 
 QwenPaw organizes memory into three complementary systems, loosely mirroring human memory, each owned by a different subsystem:
 
-| System              | What it is                                                                                                              | Documented in                   |
-| ------------------- | ----------------------------------------------------------------------------------------------------------------------- | ------------------------------- |
-| **Working memory**  | The live prompt window. Older turns evict into a compact, expandable index — never summarized.                          | [Context Management](./context) |
+| System              | What it is                                                                                                                               | Documented in                   |
+| ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------- |
+| **Working memory**  | The live prompt window. Older turns evict into a compact, expandable index — never summarized.                                           | [Context Management](./context) |
 | **Episodic memory** | A durable, verbatim record of every turn across sessions, recalled on demand via `recall_history` (or the `recall_history_python` REPL). | [Context Management](./context) |
-| **Semantic memory** | Distilled facts, preferences, and knowledge; ReMe consolidates daily notes into `digest/`, searched by `memory_search`. | [Long-term Memory](./memory)    |
+| **Semantic memory** | Distilled facts, preferences, and knowledge; ReMe consolidates daily notes into `digest/`, searched by `memory_search`.                  | [Long-term Memory](./memory)    |
 
 Two of these — **working** and **episodic** memory — are implemented by the **scroll** context manager (`ScrollContextManager`). The third — **semantic** memory — is implemented by **ReMe**. They are deliberately orthogonal: scroll keeps raw history verbatim and never summarizes, while ReMe distills reusable knowledge and never touches the live window or the verbatim history store.
 
@@ -200,10 +200,10 @@ Unsandboxed recall executes arbitrary host Python as the agent user and should o
 
 There are two related mechanisms:
 
-| Mechanism                     | Default                                            | What it does                                                                                                                                                                                                |
-| ----------------------------- | -------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Mechanism                     | Default                                            | What it does                                                                                                                                                                                                                   |
+| ----------------------------- | -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `ToolResultCapMiddleware`     | active with scroll                                 | If one tool result exceeds `scroll_config.tool_output_token_cap`, the full output is written to `history.db`, while the live context keeps a bounded preview and a `recall_history(op="recall_tool", tool_call_id=…)` pointer. |
-| `ToolResultPruningMiddleware` | controlled by `tool_result_pruning_config.enabled` | Legacy tiered byte pruning for tool results, with optional file cache under `tool_results/`.                                                                                                                |
+| `ToolResultPruningMiddleware` | controlled by `tool_result_pruning_config.enabled` | Legacy tiered byte pruning for tool results, with optional file cache under `tool_results/`.                                                                                                                                   |
 
 The scroll cap is token-based and uses durable recall. The legacy pruning middleware is byte-based and keeps compatibility with the previous tool-result offload behavior.
 
