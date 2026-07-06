@@ -298,12 +298,12 @@ Tải ứng dụng desktop (bản Tauri) từ [trang tải xuống chính thức
 
 - ✅ **Không cấu hình**: Tải về và nhấp đúp để chạy, không cần cài Python hay cấu hình biến môi trường
 - ✅ **Đa nền tảng**: Hỗ trợ Windows 10+ và macOS 14+
-- ✅ **Giao diện trực quan**: Tự động mở giao diện trình duyệt, không cần nhập địa chỉ thủ công
+- ✅ **Giao diện trực quan**: Tự động mở cửa sổ ứng dụng, không cần nhập địa chỉ thủ công
 - ⚠️ **Giai đoạn Beta**: Các tính năng đang được liên tục cải thiện, rất mong nhận phản hồi
 
 #### Lần Đầu Khởi Động
 
-**Quan trọng**: Lần đầu khởi động có thể mất 10-60 giây (tùy thuộc vào cấu hình hệ thống của bạn). Ứng dụng cần khởi tạo môi trường Python và tải các phụ thuộc. Vui lòng kiên nhẫn chờ cửa sổ trình duyệt tự động mở.
+**Quan trọng**: Lần đầu khởi động có thể mất 10-60 giây (tùy thuộc vào cấu hình hệ thống của bạn). Ứng dụng cần khởi tạo môi trường Python và tải các phụ thuộc. Vui lòng kiên nhẫn chờ cửa sổ tự động mở.
 
 #### macOS: Vượt Qua Rào Cản Bảo Mật Hệ Thống
 

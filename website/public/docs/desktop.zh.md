@@ -173,7 +173,7 @@ xattr -cr "/Applications/QwenPaw Desktop.app"
 #### 正常启动（双击）
 
 - 双击 `QwenPaw Desktop.app` 即可启动
-- 应用会在后台运行，打开浏览器窗口
+- 应用会在后台运行，打开应用窗口
 - 应用日志输出到：`~/Library/Logs/io.agentscope.qwenpaw.desktop/qwenpaw-desktop.log`
 - 后端 sidecar 日志位于工作目录：`~/.qwenpaw/desktop.log`
 

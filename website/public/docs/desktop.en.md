@@ -173,7 +173,7 @@ When first launched, macOS may request the following permissions:
 #### Normal Launch (Double-click)
 
 - Double-click `QwenPaw Desktop.app` to launch
-- The app runs in the background and opens a browser window
+- The app runs in the background and opens its window
 - App logs are written to: `~/Library/Logs/io.agentscope.qwenpaw.desktop/qwenpaw-desktop.log`
 - Backend sidecar logs live in the working directory: `~/.qwenpaw/desktop.log`
 

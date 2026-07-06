@@ -298,12 +298,12 @@ Download the desktop app (Tauri build) from [the official download page](https:/
 
 - ✅ **Zero configuration**: Download and double-click to run, no need to install Python or configure environment variables
 - ✅ **Cross-platform**: Supports Windows 10+ and macOS 14+
-- ✅ **Visual interface**: Automatically opens browser interface, no need to manually enter addresses
+- ✅ **Visual interface**: Automatically opens the app window, no need to manually enter addresses
 - ⚠️ **Beta stage**: Features are continuously being improved, feedback welcome
 
 #### First Launch
 
-**Important**: The first launch may take 10-60 seconds (depending on your system configuration). The application needs to initialize the Python environment and load dependencies. Please wait patiently for the browser window to open automatically.
+**Important**: The first launch may take 10-60 seconds (depending on your system configuration). The application needs to initialize the Python environment and load dependencies. Please wait patiently for the window to open automatically.
 
 #### macOS: Bypass System Security Restrictions
 

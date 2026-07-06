@@ -250,7 +250,7 @@ or running commands.
 
 - ✅ **Zero configuration**: Download and double-click to run, no need to install Python or configure environment variables
 - ✅ **Cross-platform**: Supports Windows 10+ and macOS 14+ (Apple Silicon recommended)
-- ✅ **Visual interface**: Automatically opens browser interface, no need to manually enter addresses
+- ✅ **Visual interface**: Automatically opens the app window, no need to manually enter addresses
 
 ### Download and usage
 
@@ -268,7 +268,7 @@ or running commands.
 3. **First launch note**
    The first launch may take 10-60 seconds (depending on your system configuration).
    The application needs to initialize the Python environment and load dependencies.
-   Please wait patiently for the browser window to open automatically.
+   Please wait patiently for the window to open automatically.
 
 ### Complete guide
 
