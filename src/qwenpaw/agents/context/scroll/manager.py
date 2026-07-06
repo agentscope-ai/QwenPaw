@@ -17,6 +17,7 @@ two delegated hooks.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import sqlite3
 from datetime import datetime, timedelta, timezone
@@ -114,8 +115,16 @@ class ScrollContextManager:
         Returns ``True`` on success, ``False`` if a write outage was caught and
         recorded as degraded durability. Any other exception is a real bug and
         is left to propagate. Shared by :meth:`on_save` (which ignores the
-        result — best-effort) and :meth:`compress` (which must NOT evict when
-        this returns ``False``, or it would drop un-persisted turns).
+        result — best-effort) and :meth:`compress` (via
+        :meth:`_persist_guarded_async`, which must NOT evict when this returns
+        ``False``, or it would drop un-persisted turns).
+
+        The SQLite writes are synchronous. ``on_save`` runs this directly on
+        the event loop because its AgentScope hook is synchronous and its
+        write is incremental (one turn); ``compress`` instead offloads it to a
+        worker thread (see :meth:`_persist_guarded_async`) so the larger
+        whole-window persist never blocks the loop. ``HistoryStore`` serializes
+        both paths on its own lock.
         """
         # Teardown race: a stop/cancel can close the store while a final
         # ``on_save`` is still in flight. The connection was retired on
@@ -129,6 +138,17 @@ class ScrollContextManager:
             self._history.note_write_failure(exc)
             logger.exception("ScrollContextManager write-through failed")
             return False
+
+    async def _persist_guarded_async(self, agent: Any) -> bool:
+        """Run :meth:`_persist_guarded` off the event loop.
+
+        ``compress`` is async and can persist the whole live window, which is
+        the write worth keeping off the loop. The synchronous SQLite work runs
+        in a worker thread; ``HistoryStore``'s connection is opened
+        ``check_same_thread=False`` and every access is serialized by its lock,
+        so this coexists safely with a concurrent on-loop ``on_save``.
+        """
+        return await asyncio.to_thread(self._persist_guarded, agent)
 
     async def _offload_dialog(self, middle: list[Msg]) -> None:
         """Best-effort legacy ``dialog/*.jsonl`` archive of evicted turns.
@@ -168,8 +188,9 @@ class ScrollContextManager:
         # 1) Durability first — everything in the window is now in the DB. If
         #    the write-through failed (degraded durability), do NOT evict: the
         #    middle isn't durable, so folding it in would leave seq pointers to
-        #    rows that don't exist. Keep it live instead.
-        if not self._persist_guarded(agent):
+        #    rows that don't exist. Keep it live instead. Offloaded to a worker
+        #    thread so the whole-window persist never blocks the event loop.
+        if not await self._persist_guarded_async(agent):
             return
 
         # 2) Trigger check (reuse AgentScope's own token accounting).
