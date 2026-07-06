@@ -54,13 +54,16 @@ function AgentConfigPage() {
       .then((info) => {
         if (info.active_llm) {
           return api.listProviders().then((providers) => {
-            for (const p of providers) {
-              const all = [...(p.models ?? []), ...(p.extra_models ?? [])];
-              const m = all.find((m) => m.id === info.active_llm?.model);
-              if (m?.max_input_length) {
-                setMaxInputLength(m.max_input_length);
-                return;
-              }
+            const activeProvider = providers.find(
+              (p) => p.id === info.active_llm?.provider_id,
+            );
+            const all = [
+              ...(activeProvider?.models ?? []),
+              ...(activeProvider?.extra_models ?? []),
+            ];
+            const m = all.find((m) => m.id === info.active_llm?.model);
+            if (m?.max_input_length) {
+              setMaxInputLength(m.max_input_length);
             }
           });
         }
