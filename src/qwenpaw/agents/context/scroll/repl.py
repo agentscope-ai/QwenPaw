@@ -30,7 +30,14 @@ from ....runtime.tool_registry import ToolDescriptor
 # sandboxed process imports it by bare module name.
 _PKG_DIR = str(Path(__file__).parent)
 
-_DOC = """Recall your recorded conversation history (raw turns) via Python.
+_DOC = """Recall conversation history via Python — the ADVANCED recall tool.
+
+For the common reads — re-expand a seq span, search by keywords, re-read one
+tool call — prefer the simpler `recall_history` tool (op="expand"/"search"/
+"recall_tool"): it needs no code and no sandbox. Reach for THIS Python REPL
+when you need more than those three: listing/reading whole sessions, custom
+SQL counting/ranking, scratch tables, or programmatically cross-referencing
+many turns in one cell.
 
 Read back the verbatim turns of your conversations from a durable log: this
 session's turns that scrolled out of context (seq spans come from the

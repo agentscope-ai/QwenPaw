@@ -24,9 +24,14 @@ _DEFAULT_ROW_CAP = 1000
 # the agent's own earlier queries/tracebacks (self-pollution). New rows are
 # already kept out of the FTS index (see ``history._RECALL_TOOL_NAMES``); this
 # filter also hides any legacy rows indexed before that, and covers the LIKE
-# fallback. Must match the recall tool name in ``repl.py``; the legacy
-# "execute_python" name is kept so pre-rename rows stay excluded.
-_RECALL_TOOL_NAMES = ("recall_history_python", "execute_python")
+# fallback. Must match the recall tool names in ``repl.py`` and
+# ``recall_tool.py``; the legacy "execute_python" name is kept so pre-rename
+# rows stay excluded.
+_RECALL_TOOL_NAMES = (
+    "recall_history_python",
+    "recall_history",
+    "execute_python",
+)
 _RECALL_EXCL_PLACEHOLDERS = ", ".join("?" for _ in _RECALL_TOOL_NAMES)
 
 _DATE_RE = re.compile(r"(\d{4})[-/](\d{1,2})[-/](\d{1,2})")
@@ -354,7 +359,7 @@ class MemorySpace:
 
         Everything at or after it is the ACTIVE TURN — the request the agent
         is answering right now plus its in-progress reply, all still in the
-        live window (folded tool results carry their own ``ms.expand``
+        live window (folded tool results carry their own expand
         address). ``search`` excludes that span: without it, a second recall
         round top-k-matches the agent's OWN in-progress turn — the previous
         round's quoted findings and the request itself — and the echoes drown

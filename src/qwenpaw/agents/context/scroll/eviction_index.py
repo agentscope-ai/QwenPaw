@@ -261,10 +261,12 @@ class EvictionIndex:
             "the recent live turns follow below. Each "
             "'·' line is a seq span you can re-expand.",
             "",
-            "Re-expand a span inside recall_history_python: ms.expand(lo, hi) "
-            "for the full turns (seq is a globally-unique address, so a span "
-            "needs no other filter). Other recall helpers (search, sessions, "
-            "…) are in the recall_history_python tool description.",
+            "Re-expand a span with the recall_history tool: "
+            'recall_history(op="expand", lo, hi) for the full turns (seq is '
+            "a globally-unique address, so a span needs no other filter); "
+            'op="search" finds a seq by keywords. For advanced recall '
+            "(sessions, custom SQL) use the recall_history_python REPL: "
+            "ms.expand(lo, hi) etc.",
             "",
             "If the user's CURRENT request is not visible among the live "
             "turns below, do NOT answer an older visible message as if it "

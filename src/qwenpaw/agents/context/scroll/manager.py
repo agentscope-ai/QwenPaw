@@ -11,7 +11,8 @@ two delegated hooks.
   active turn) and fold the evicted middle into an in-context
   :class:`EvictionIndex`. No
   summarization, nothing lost — every node points to a ``seq`` span recallable
-  via the sandboxed ``recall_history_python`` REPL.
+  via the structured ``recall_history`` tool (or the sandboxed
+  ``recall_history_python`` REPL).
 """
 
 from __future__ import annotations
@@ -410,18 +411,24 @@ class ScrollContextManager:
                 continue
             tcid = getattr(block, "id", None)
             seq = self._seq_by_tcid.get(tcid) if tcid else None
+            # Point at the structured recall_history tool (in-process, no
+            # sandbox — works even where the Python REPL can't run); the
+            # REPL's ms.* helpers accept the same values.
             if seq is not None:
-                where = f"ms.expand({seq}, {seq})"
+                where = f'recall_history(op="expand", lo={seq}, hi={seq})'
             elif tcid:
-                where = f"ms.recall_tool({tcid!r})"
+                where = (
+                    f'recall_history(op="recall_tool", '
+                    f"tool_call_id={tcid!r})"
+                )
             else:
-                where = "ms.search(...)"
+                where = 'recall_history(op="search", query=...)'
             block.output = [
                 TextBlock(
                     type="text",
                     text=(
                         f"{_FOLD_MARK} full result stored in history — "
-                        f"re-read it in recall_history_python: {where}"
+                        f"re-read it with {where}"
                     ),
                 ),
             ]

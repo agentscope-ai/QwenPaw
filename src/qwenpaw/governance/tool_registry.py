@@ -156,6 +156,9 @@ def _register_builtin_tools(r: ToolRegistry) -> None:
     r.register("Browser", "network", "url")
     r.register("Bash", "shell", "command")
     r.register("RecallHistoryPython", "shell", "source")
+    # Structured recall: bound-parameter read-only queries over history.db —
+    # the model supplies scalars, never code, so no sandbox/approval needed.
+    r.register("RecallHistory", "internal", "op")
 
     # ── Internal tools ──
     for name, param in [

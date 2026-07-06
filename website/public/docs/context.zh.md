@@ -13,7 +13,7 @@ QwenPaw 把记忆组织为三套互补的系统——工作记忆（Working）�
 | 记忆系统     | 是什么                                                                               | 文档                    |
 | ------------ | ------------------------------------------------------------------------------------ | ----------------------- |
 | **工作记忆** | 实时的提示词窗口。较早的轮次被驱逐成一份紧凑、可展开的索引——从不总结。               | [上下文管理](./context) |
-| **情景记忆** | 跨会话、逐字的持久记录，通过 `recall_history_python` 按需取回。                      | [上下文管理](./context) |
+| **情景记忆** | 跨会话、逐字的持久记录，通过 `recall_history`（或 `recall_history_python` REPL）按需取回。 | [上下文管理](./context) |
 | **语义记忆** | 提炼后的事实、偏好与知识；ReMe 把每日记忆沉淀进 `digest/`，用 `memory_search` 检索。 | [长期记忆](./memory)    |
 
 其中 **工作记忆** 与 **情景记忆** 由 **scroll** 上下文管理器（`ScrollContextManager`）实现；**语义记忆** 由 **ReMe** 实现。三者刻意保持正交：scroll 逐字保留原始历史、从不总结，而 ReMe 提炼可复用知识、从不触碰实时窗口或逐字历史库。
@@ -33,7 +33,7 @@ flowchart LR
     G --> H[用一条索引消息重建实时上下文]
     H --> I{仍超出保留预算?}
     I -->|是| J[压实索引，再把活动轮次的工具结果折叠为 recall 指针]
-    I -->|否| K[之后用 recall_history_python 回溯]
+    I -->|否| K[之后用 recall_history 回溯]
 ```
 
 核心特性：
@@ -41,7 +41,7 @@ flowchart LR
 - **先持久化**：`ScrollContextManager` 在任何驱逐前，都会先把实时上下文写入 `{working_dir}/history.db`。
 - **保护当前活动轮次**：最新的用户请求及其进行中的工具链绝不会在任务中途被驱逐——即使压缩恰好在一个长工具任务中间触发，模型也不会丢失（进而答非所问）当前请求。
 - **不依赖摘要**：被驱逐的内容由 `EvictionIndex` 表示，而不是由 LLM 生成一段压缩摘要。
-- **可回溯原文**：索引中的每一行都带 `seq` 区间。Agent 可以调用 `recall_history_python`，再用 `ms.expand(lo, hi)` 读取完整原始记录。
+- **可回溯原文**：索引中的每一行都带 `seq` 区间。Agent 可以调用 `recall_history(op="expand", lo, hi)` 读取完整原始记录（或在 `recall_history_python` REPL 中用 `ms.expand(lo, hi)`）。
 - **跨会话历史**：历史行包含 `session_id` 和 `agent_id`，默认可检索当前 Agent 的所有历史会话；显式放宽时也能查询同一工作区内其他 Agent 的历史。
 - **安全降级**：如果 scroll 无法构建，或 recall 工具无法安全运行，QwenPaw 会退回 native 上下文管理，避免把历史驱逐到无法读取的位置。
 
@@ -109,10 +109,10 @@ scroll 的核心设计是：**不靠模型生成摘要来压缩上下文**。取
 3. **折叠**——仍然超出（典型情况：整个上下文就是一个活动轮次）时，把活动轮次中已完成的工具结果**原地**替换为一行 recall 指针：
 
    ```text
-   [scroll folded] full result stored in history — re-read it in recall_history_python: ms.expand(184, 184)
+   [scroll folded] full result stored in history — re-read it with recall_history(op="expand", lo=184, hi=184)
    ```
 
-   请求原文、工具调用、推理文本和最新一条工具结果全部原样保留——这一轮本身仍是一份可读的任务进度记录；每条被折叠的输出都和其他历史一样在折叠前已持久化，一个 `ms.expand` 就能取回。
+   请求原文、工具调用、推理文本和最新一条工具结果全部原样保留——这一轮本身仍是一份可读的任务进度记录；每条被折叠的输出都和其他历史一样在折叠前已持久化，一次 `recall_history` 调用就能取回。stub 特意指向结构化工具：它在进程内运行、不依赖沙箱，所以即使在 Python REPL 无法运行的平台上也能读回。
 
 ### 驱逐索引
 
@@ -128,7 +128,7 @@ scroll 的核心设计是：**不靠模型生成摘要来压缩上下文**。取
 <system-info>
 [context compressed] The turns below were evicted ...
 
-Re-expand a span inside recall_history_python: ms.expand(lo, hi)
+Re-expand a span with the recall_history tool: recall_history(op="expand", lo, hi)
 
 ===== Tier 1 (older msgs) =====
   [seq 10-80]
@@ -140,7 +140,7 @@ Re-expand a span inside recall_history_python: ms.expand(lo, hi)
 </system-info>
 ```
 
-索引里每个 `⟦ … ⟧` 叶子，就是上一节那条由模型写下的 headline。模型不应该只凭 headline 回答：headline 只是指针；真正证据应来自 `ms.expand`、`ms.search` 或其他 recall helper 返回的完整内容。
+索引里每个 `⟦ … ⟧` 叶子，就是上一节那条由模型写下的 headline。模型不应该只凭 headline 回答：headline 只是指针；真正证据应来自 `recall_history`（`expand` / `search`）或其他 recall helper 返回的完整内容。
 
 ## 情景记忆（Episodic Memory）
 
@@ -148,9 +148,19 @@ Re-expand a span inside recall_history_python: ms.expand(lo, hi)
 
 ### Recall API
 
-Recall API 是情景记忆的接口：把工作记忆驱逐后留下的、持久且逐字的历史读回来。scroll 启用时，QwenPaw 会注入一个支持沙箱运行的工具：`recall_history_python`。Python cell 中已经定义好 `ms`，它是一个 `MemorySpace` 对象。
+Recall API 是情景记忆的接口：把工作记忆驱逐后留下的、持久且逐字的历史读回来。scroll 启用时，QwenPaw 会注入两个工具：
 
-常用 helper：
+- **`recall_history`**——常规读取的结构化入口。每次调用都是参数绑定的只读查询，在进程内执行，因此在任何平台上都不需要沙箱、不需要审批：
+
+  ```text
+  recall_history(op="expand", lo=81, hi=96)          # 展开索引中的区间
+  recall_history(op="search", query="deployment decision", k=20)
+  recall_history(op="recall_tool", tool_call_id="tool-call-id")
+  ```
+
+- **`recall_history_python`**——沙箱化的 Python REPL，覆盖这三种读取之外的需求（列出会话、自写 SQL 聚合、scratch 表）。cell 中已经定义好 `ms`，它是一个 `MemorySpace` 对象。
+
+REPL 中常用的 `ms` helper：
 
 ```python
 # 展开索引中的区间。
@@ -176,9 +186,9 @@ print(ms.agents())
 
 失败的 cell 不会被误读：观察结果会以 `RECALL FAILED — the history was NOT read` 横幅开头；正常退出但什么都没打印的 cell 也会明确说明「无输出不代表历史为空」——执行错误永远不会被误认成「不存在这段历史」。
 
-`ms.search` 也不会把 Agent 自己的回声搜回来：recall 工具自身的源码/输出行不会出现在结果里，当前**活动轮次**（最新的用户请求和正在写的回复）同样被排除——否则多轮 recall 时，top-k 会命中上一轮引用过的内容而不是真正的历史。本会话更早的已驱逐轮次仍然可搜；`ms.expand` / `ms.recall_tool` 不做过滤（逐字回放正是它们的用途）。
+搜索（`recall_history(op="search")` 与 `ms.search` 皆然）也不会把 Agent 自己的回声搜回来：recall 工具自身的源码/输出行不会出现在结果里，当前**活动轮次**（最新的用户请求和正在写的回复）同样被排除——否则多轮 recall 时，top-k 会命中上一轮引用过的内容而不是真正的历史。本会话更早的已驱逐轮次仍然可搜；`ms.expand` / `ms.recall_tool` 不做过滤（逐字回放正是它们的用途）。
 
-安全说明：`recall_history_python` 会运行模型生成的 Python。正常情况下，它需要治理层注入 sandbox 配置；如果没有 sandbox，它会默认拒绝执行。只有同时满足以下条件时才允许非沙箱运行：
+安全说明：`recall_history_python` 会运行模型生成的 Python。正常情况下，它需要治理层注入 sandbox 配置；如果没有 sandbox，它会默认拒绝执行。（`recall_history` 不受影响：它从不执行模型生成的代码，所以在没有沙箱的平台——例如未装 WSL2 的 Windows——上也能正常运行。）只有同时满足以下条件时才允许 REPL 非沙箱运行：
 
 - 环境变量 `QWENPAW_ALLOW_UNSANDBOXED_RECALL` 为 truthy
 - `running.light_context_config.scroll_config.allow_unsandboxed = true`
@@ -191,7 +201,7 @@ print(ms.agents())
 
 | 机制                          | 默认状态                                     | 作用                                                                                                                                                     |
 | ----------------------------- | -------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `ToolResultCapMiddleware`     | scroll 启用时生效                            | 单个工具结果超过 `scroll_config.tool_output_token_cap` 时，把完整输出写入 `history.db`，实时上下文只保留有限预览和 `ms.recall_tool(tool_call_id)` 指针。 |
+| `ToolResultCapMiddleware`     | scroll 启用时生效                            | 单个工具结果超过 `scroll_config.tool_output_token_cap` 时，把完整输出写入 `history.db`，实时上下文只保留有限预览和 `recall_history(op="recall_tool", tool_call_id=…)` 指针。 |
 | `ToolResultPruningMiddleware` | 由 `tool_result_pruning_config.enabled` 控制 | 旧版按字节分层裁剪工具结果，可选使用 `tool_results/` 文件缓存。                                                                                          |
 
 scroll cap 是基于 token 的，并通过持久历史回溯；旧版 pruning 是基于字节的，用于兼容原有工具结果 offload 行为。

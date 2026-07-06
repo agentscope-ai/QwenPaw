@@ -24,9 +24,14 @@ _BUSY_TIMEOUT_MS = 5000
 # tracebacks), drowning the real content: a self-pollution feedback loop. So
 # these rows stay durable + recallable by ``seq``, but are kept OUT of the FTS
 # index (and out of ``search`` — see ``MemorySpace``). Must match the recall
-# tool name in ``repl.py``; the legacy "execute_python" name is kept so rows
-# written before the rename stay excluded.
-_RECALL_TOOL_NAMES = ("recall_history_python", "execute_python")
+# tool names in ``repl.py`` and ``recall_tool.py``; the legacy
+# "execute_python" name is kept so rows written before the rename stay
+# excluded.
+_RECALL_TOOL_NAMES = (
+    "recall_history_python",
+    "recall_history",
+    "execute_python",
+)
 
 # Columns of conversation_history, in INSERT order (minus the
 # autoincrement seq).

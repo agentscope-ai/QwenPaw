@@ -5,7 +5,8 @@ Injected only when ``strategy == "scroll"`` (see
 :class:`qwenpaw.runtime.prompt_contributors.ScrollContextContributor`). It
 teaches what the model must know for the eviction index to be useful: how to
 headline its turns, how to read the ``[context compressed]`` map, how to recall
-via the ``recall_history_python`` REPL, and when to stop and abstain.
+via the structured ``recall_history`` tool (and the ``recall_history_python``
+REPL for advanced reads), and when to stop and abstain.
 
 Headlines are emitted as a trailing HTML comment (``<!-- ⟦ … ⟧ -->``) so they
 stay invisible in the rendered chat yet remain extractable into the durable
@@ -35,16 +36,22 @@ block: an index of the turns you evicted, each a ``seq · ⟦ headline ⟧`` lin
 (oldest at top). It tells you *what* you forgot and the ``seq`` to recall it
 with. But it is a lossy headline index of *this* session — un-headlined turns
 and collapsed older spans aren't listed. For anything it doesn't show
-(including your earlier sessions), search your history with ``ms.search``.
+(including your earlier sessions), search your history with
+``recall_history(op="search", …)``.
 
-RECALL with the ``recall_history_python`` tool: it reads back your own raw
-conversation turns on demand. Recall defaults to your own history (across all
-your sessions); you can widen to other agents' turns when you mean to. Its
-description holds the full ``ms`` API (helpers, their result keys, query
-mechanics) — read it there rather than guessing signatures.
+RECALL with the ``recall_history`` tool: it reads back your own raw
+conversation turns on demand — ``op="expand"`` for a seq span, ``op="search"``
+to find one by keywords, ``op="recall_tool"`` for a tool call's result. Recall
+defaults to your own history (across all your sessions); you can widen to
+other agents' turns when you mean to. For anything beyond those reads
+(listing sessions, custom SQL, counting/ranking), if the
+``recall_history_python`` REPL is available use it — its description holds the
+full ``ms`` API (helpers, their result keys, query mechanics); read it there
+rather than guessing signatures. (On some setups only ``recall_history`` is
+available; that is enough for all ordinary recall.)
 
 DISCIPLINE:
-  • recall_history_python is the COMPLETE record of past conversation — the
+  • Recall is the COMPLETE record of past conversation — the
     source of truth for any fact ever said, asked, done, or decided. When a
     question turns on such a fact and it's not in your live context, recall it
     FIRST; don't guess from a headline or refuse before searching.
@@ -78,15 +85,20 @@ recall 回来）。控制在大约 15 个词以内，且要具体（写清数值
 它是你被驱逐的那些轮次的索引，每行是 ``seq · ⟦ headline ⟧``（最旧的在最上面）。
 它告诉你*忘掉了什么*，以及用哪个 ``seq`` 把它 recall 回来。但它只是*当前这次*
 会话的一份有损标题索引——没写标题的轮次、以及被折叠的更早区段都不在其中。它没
-列出的任何东西（包括你更早的会话），用 ``ms.search`` 搜你的历史。
+列出的任何东西（包括你更早的会话），用 ``recall_history(op="search", …)`` 搜
+你的历史。
 
-用 ``recall_history_python`` 工具来 RECALL：它按需把你自己的原始对话轮次读回来。
-recall 默认查你自己的历史（跨你的所有会话）；需要时你可以扩大到其他 agent 的
-轮次。完整的 ``ms`` API（各辅助函数、它们的结果键、查询机制）都写在该工具自己
-的 description 里——去那里读，别猜函数签名。
+用 ``recall_history`` 工具来 RECALL：它按需把你自己的原始对话轮次读回来——
+``op="expand"`` 按 seq 区间读全文，``op="search"`` 按关键词找到 seq，
+``op="recall_tool"`` 重读某次工具调用的结果。recall 默认查你自己的历史（跨你
+的所有会话）；需要时你可以扩大到其他 agent 的轮次。超出这三种读取的需求（列出
+会话、自写 SQL、计数/排序）时，若有 ``recall_history_python`` REPL 就用它——
+完整的 ``ms`` API（各辅助函数、它们的结果键、查询机制）都写在该工具自己的
+description 里——去那里读，别猜函数签名。（有些环境只有 ``recall_history``；
+它足以覆盖所有常规 recall。）
 
 纪律（DISCIPLINE）：
-  • recall_history_python 是过去对话的完整记录——任何说过、问过、做过或决定过
+  • recall 是过去对话的完整记录——任何说过、问过、做过或决定过
     的事实的真相来源。当一个问题取决于这样的事实、而它又不在你当前上下文里时，
     先把它 recall 回来；不要凭标题猜，也不要在搜过之前就拒答。
   • 如果当前用户请求不在你的 live context 里（你只看到 ``[context

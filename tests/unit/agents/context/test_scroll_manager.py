@@ -353,8 +353,9 @@ async def test_pressure_fold_stubs_older_results_keeps_newest(
         block = turn.content[3 * i + 2]
         return block.output[0].text
 
-    assert "ms.expand(" in out_text(0)  # folded → seq-addressed stub
-    assert "ms.expand(" in out_text(1)
+    # folded → seq-addressed stub pointing at the structured recall tool
+    assert 'recall_history(op="expand"' in out_text(0)
+    assert 'recall_history(op="expand"' in out_text(1)
     assert out_text(2) == "RESULT-2"  # newest result kept verbatim
     # The durable rows still hold the FULL outputs (persisted before fold).
     for i in range(3):
