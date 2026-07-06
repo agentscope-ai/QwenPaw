@@ -744,6 +744,94 @@ It is recommended to configure the following in `@BotFather`:
 
 ---
 
+## Zalo
+
+Zalo is Vietnam's most popular messaging app (100M+ users). QwenPaw
+connects to it through the **Zalo Bot Platform**, which exposes a
+Telegram-style Bot API. The channel runs in **polling-only** mode —
+no public URL, HTTPS endpoint, or webhook is required, which makes
+it ideal for a single-instance personal bot.
+
+### Get a Zalo bot token
+
+1. Open the [Zalo Bot Platform admin console](https://bot.zalo.me/) and sign in with your Zalo account.
+2. Create a new bot, fill in name, avatar, and description. Zalo will issue a **Bot Token** of the form `<bot_id>:<secret>`.
+3. Save the token — you will paste it into QwenPaw.
+
+### Configure the bot
+
+**Method 1:** Configure in the Console
+
+Go to **Control → Channels**, click **Zalo**, and enter the bot token.
+
+**Method 2:** Edit `agent.json`
+
+Find `channels.zalo` in your agent workspace `agent.json`
+(e.g. `~/.qwenpaw/workspaces/default/agent.json`) and fill the fields:
+
+```json
+"zalo": {
+    "enabled": true,
+    "bot_token": "your-bot-token",
+    "api_base_url": "",
+    "secret_token": "",
+    "show_typing": true,
+    "poll_interval": 30,
+    "filter_tool_messages": true,
+    "filter_thinking": true
+}
+```
+
+**Zalo-specific fields:**
+
+| Field                 | Type    | Default         | Description                                                                            |
+| --------------------- | ------- | --------------- | -------------------------------------------------------------------------------------- |
+| `bot_token`           | string  | `""` (required) | Zalo Bot Token (`<bot_id>:<secret>`)                                                  |
+| `api_base_url`        | string  | `""`            | Override the API base URL (leave empty to use the official `https://bot.zalo.me/api`) |
+| `secret_token`        | string  | `""`            | Optional `X-Api-Key` header value (auto-generated if left empty)                       |
+| `show_typing`         | bool    | `true`          | Show a typing indicator while the agent thinks                                        |
+| `poll_interval`       | int     | `30`            | Seconds between long-polls (minimum 1)                                                |
+| `filter_tool_messages`| bool    | `true`          | Hide tool-call output from the bot reply (uses the channel-wide setting)               |
+| `filter_thinking`     | bool    | `true`          | Strip `<think>...</think>` blocks and null-only tokens before sending                  |
+
+### Slash commands
+
+The channel recognises the following commands inside the chat:
+
+| Command   | Description                                  |
+| --------- | -------------------------------------------- |
+| `/start`  | Welcome message with quick usage hints       |
+| `/help`   | List supported commands and current settings |
+| `/qwenpaw <text>` | Forward the rest of the line to the agent as a prompt |
+
+### Rich content
+
+The bot understands three magic tokens inside the agent's reply text:
+
+- `[IMAGE: https://example.com/pic.jpg]` — sent via `sendPhoto`
+- `[STICKER: sticker_id]` — sent via `sendSticker`
+- `[VOICE: https://example.com/clip.ogg]` — sent via `sendVoice`
+
+Markdown images (`![alt](url)`) and bare image URLs are auto-detected
+and routed to `sendPhoto`. Local files use the channel-wide
+`[LOCAL_FILE: /path/to/file]` token (the same as other channels).
+
+### Notes
+
+- Zalo Bot API has rate limits (≈30 messages/second per bot); the
+  channel uses an exponential backoff on HTTP 429.
+- `filter_tool_messages` and `filter_thinking` default to `true` so end
+  users do not see internal tool output or `<think>` blocks from
+  reasoning models.
+- Inbound sticker/voice/file events are forwarded to the agent as
+  text markers (e.g. `[sticker: <id>]`) — Zalo's API does not yet
+  expose sticker/voice transcription.
+- The official Zalo Bot API base is `https://bot.zalo.me/api`. Some
+  Zalo integrations use a different endpoint such as
+  `https://bot-api.zaloplatforms.com` — set `api_base_url` accordingly.
+
+---
+
 ## Mattermost
 
 The Mattermost channel uses WebSockets for real-time monitoring and REST APIs for replies. It supports both direct messages and group chats, using **Threads** to isolate conversation contexts in channels.

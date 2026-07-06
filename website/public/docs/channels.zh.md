@@ -744,6 +744,93 @@ WECHAT_GROUP_POLICY=open
 
 ---
 
+## Zalo
+
+Zalo 是越南最大的即时通讯应用（月活用户超过 1 亿）。QwenPaw 通过
+**Zalo Bot Platform** 接入它，该平台提供类 Telegram 风格的 Bot API。
+本频道采用 **纯轮询（polling-only）** 模式——不需要公网 URL、HTTPS
+回调或 webhook，单机部署的个人 Bot 即可使用。
+
+### 获取 Zalo Bot Token
+
+1. 打开 [Zalo Bot Platform 管理后台](https://bot.zalo.me/)，使用 Zalo 账号登录。
+2. 新建一个 Bot，填写名称、头像、描述。Zalo 会签发格式为
+   `<bot_id>:<secret>` 的 **Bot Token**。
+3. 保存 Token，下一步粘贴到 QwenPaw 中。
+
+### 配置 Bot
+
+**方法一：在控制台中配置**
+
+进入 **Control → Channels**，点击 **Zalo**，填入 Bot Token。
+
+**方法二：编辑 `agent.json`**
+
+在 agent workspace 的 `agent.json`
+（例如 `~/.qwenpaw/workspaces/default/agent.json`）中找到
+`channels.zalo` 字段并填写：
+
+```json
+"zalo": {
+    "enabled": true,
+    "bot_token": "your-bot-token",
+    "api_base_url": "",
+    "secret_token": "",
+    "show_typing": true,
+    "poll_interval": 30,
+    "filter_tool_messages": true,
+    "filter_thinking": true
+}
+```
+
+**Zalo 频道特有字段：**
+
+| 字段                  | 类型   | 默认值           | 说明                                                                       |
+| --------------------- | ------ | ---------------- | -------------------------------------------------------------------------- |
+| `bot_token`           | string | `""`（必填）     | Zalo Bot Token（`<bot_id>:<secret>`）                                       |
+| `api_base_url`        | string | `""`             | 自定义 API base URL（留空使用官方 `https://bot.zalo.me/api`）                |
+| `secret_token`        | string | `""`             | 可选的 `X-Api-Key` 请求头（留空时自动生成）                                  |
+| `show_typing`         | bool   | `true`           | 在 Agent 思考时显示"正在输入"提示                                              |
+| `poll_interval`       | int    | `30`             | 长轮询间隔（秒，最小 1）                                                       |
+| `filter_tool_messages`| bool   | `true`           | 隐藏 Bot 回复中的工具调用输出（沿用频道全局设置）                                |
+| `filter_thinking`     | bool   | `true`           | 在发送前剥离 `<think>...</think>` 块和孤立的 null 标记                       |
+
+### 斜杠命令
+
+频道识别以下命令：
+
+| 命令                  | 描述                                       |
+| --------------------- | ------------------------------------------ |
+| `/start`              | 欢迎消息与快速使用提示                     |
+| `/help`               | 列出支持的命令与当前配置                   |
+| `/qwenpaw <text>`     | 将剩余文本作为 prompt 转发给 Agent         |
+
+### 富文本回复
+
+Agent 回复中的以下 magic token 会被识别：
+
+- `[IMAGE: https://example.com/pic.jpg]` — 通过 `sendPhoto` 发送
+- `[STICKER: sticker_id]` — 通过 `sendSticker` 发送
+- `[VOICE: https://example.com/clip.ogg]` — 通过 `sendVoice` 发送
+
+Markdown 图片（`![alt](url)`）和裸图片 URL 会被自动识别并使用
+`sendPhoto` 发送。本地文件沿用频道通用的
+`[LOCAL_FILE: /path/to/file]` 标记。
+
+### 注意事项
+
+- Zalo Bot API 有速率限制（每个 Bot 约 30 消息/秒）；频道遇到
+  HTTP 429 会自动指数退避重试。
+- `filter_tool_messages` 和 `filter_thinking` 默认 `true`，用户不会
+  看到工具调用输出或推理模型的 `<think>` 块。
+- 入站的表情包、语音、文件事件会以文本标记形式转发给 Agent
+  （例如 `[sticker: <id>]`）——Zalo API 暂未提供表情包/语音转写能力。
+- 官方 Zalo Bot API base 为 `https://bot.zalo.me/api`。部分集成
+  使用 `https://bot-api.zaloplatforms.com`，可通过 `api_base_url`
+  切换。
+
+---
+
 ## Mattermost
 
 Mattermost 频道通过 WebSocket 实时监听事件，并使用 REST API 发送回复。支持私聊和群聊场景，在群聊中基于 **Thread（盖楼）** 划分会话上下文。

@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """CLI channel: list and interactively configure channels in config.json."""
+
 from __future__ import annotations
 
 from types import SimpleNamespace
@@ -26,6 +27,7 @@ from ..config.config import (
     IMessageChannelConfig,
     QQConfig,
     VoiceChannelConfig,
+    ZaloConfig,
     WeChatConfig,
     load_agent_config,
     save_agent_config,
@@ -38,7 +40,6 @@ from ..app.channels.registry import (
     BUILTIN_CHANNEL_KEYS,
     get_channel_registry,
 )
-
 
 # Fields that contain secrets — display masked in ``list``
 _SECRET_FIELDS = {
@@ -60,6 +61,7 @@ _ALL_CHANNEL_NAMES = {
     "voice": "Twilio",
     "yuanbao": "Yuanbao",
     "slack": "Slack",
+    "zalo": "Zalo",
 }
 # Public alias for tests and external use.
 CHANNEL_NAMES = _ALL_CHANNEL_NAMES
@@ -434,9 +436,7 @@ def configure_wechat(current_config: WeChatConfig) -> WeChatConfig:
 
     bot_token_file = click.prompt(
         "bot_token file path",
-        default=(
-            current_config.bot_token_file or "~/.qwenpaw/wechat_bot_token"
-        ),
+        default=(current_config.bot_token_file or "~/.qwenpaw/wechat_bot_token"),
         type=str,
     )
     current_config.bot_token_file = bot_token_file
@@ -718,6 +718,73 @@ def configure_console(current_config: ConsoleConfig) -> ConsoleConfig:
     return current_config
 
 
+def configure_zalo(current_config: ZaloConfig) -> ZaloConfig:
+    """Configure Zalo channel interactively."""
+    click.echo("\n=== Configure Zalo Channel ===")
+
+    enabled = prompt_confirm(
+        "Enable Zalo channel?",
+        default=current_config.enabled,
+    )
+
+    if not enabled:
+        current_config.enabled = False
+        return current_config
+
+    current_config.enabled = True
+
+    bot_prefix = click.prompt(
+        "Bot prefix (e.g., @bot)",
+        default=current_config.bot_prefix or "",
+        type=str,
+    )
+    current_config.bot_prefix = bot_prefix
+
+    bot_token = click.prompt(
+        "Zalo Bot Token (from https://bot.zalo.me)",
+        default=current_config.bot_token or "",
+        hide_input=True,
+        type=str,
+    )
+    token = bot_token.strip()
+    current_config.bot_token = token
+    if not token:
+        click.echo("Warning: Empty bot token provided.")
+        click.echo("Disabling Zalo channel.")
+        current_config.enabled = False
+        return current_config
+
+    api_base_url = click.prompt(
+        "Zalo API Base URL (blank for default)",
+        default=current_config.api_base_url or "",
+        type=str,
+    )
+    current_config.api_base_url = api_base_url.strip().rstrip("/")
+
+    secret_token = click.prompt(
+        "Optional secret token (X-Api-Key header)",
+        default=current_config.secret_token or "",
+        hide_input=True,
+        type=str,
+    )
+    current_config.secret_token = secret_token.strip()
+
+    show_typing = prompt_confirm(
+        "Show typing indicator while the agent thinks?",
+        default=current_config.show_typing is not False,
+    )
+    current_config.show_typing = show_typing
+
+    poll_interval = click.prompt(
+        "Polling interval in seconds (>=1)",
+        default=current_config.poll_interval or 30,
+        type=int,
+    )
+    current_config.poll_interval = max(1, poll_interval)
+
+    return current_config
+
+
 # ── reusable channel configuration flow (used by init_cmd too) ─────
 
 # Full registry — filtered at runtime by get_channel_configurators().
@@ -731,6 +798,7 @@ _ALL_CHANNEL_CONFIGURATORS = {
     "qq": ("QQ", configure_qq),
     "console": ("Console", configure_console),
     "voice": ("Twilio", configure_voice),
+    "zalo": ("Zalo", configure_zalo),
 }
 
 
@@ -758,9 +826,7 @@ def get_channel_configurators() -> dict:
     """Return channel configurators (built-in + plugin get_configurator)."""
     available = get_available_channels()
     registry = get_channel_registry()
-    out = {
-        k: v for k, v in _ALL_CHANNEL_CONFIGURATORS.items() if k in available
-    }
+    out = {k: v for k, v in _ALL_CHANNEL_CONFIGURATORS.items() if k in available}
 
     def _default_plugin_configure(current):
         """Minimal configurator: enabled + bot_prefix."""
@@ -949,9 +1015,7 @@ def list_cmd(agent_id: str) -> None:
             click.echo("No channels configured for this agent.")
             return
 
-        extra = (
-            getattr(agent_config.channels, "__pydantic_extra__", None) or {}
-        )
+        extra = getattr(agent_config.channels, "__pydantic_extra__", None) or {}
         for key, name in _get_channel_names().items():
             ch = getattr(agent_config.channels, key, None)
             if ch is None:
@@ -968,11 +1032,7 @@ def list_cmd(agent_id: str) -> None:
             click.echo(f"{'─' * 40}")
 
             for field_name, value in _channel_config_fields(ch):
-                display = (
-                    _mask(str(value))
-                    if field_name in _SECRET_FIELDS
-                    else value
-                )
+                display = _mask(str(value)) if field_name in _SECRET_FIELDS else value
                 click.echo(f"  {field_name:20s}: {display}")
 
         click.echo()
@@ -990,8 +1050,7 @@ def _install_channel_to_dir(
     CUSTOM_CHANNELS_DIR.mkdir(parents=True, exist_ok=True)
     if not key.isidentifier():
         click.echo(
-            f"Key must be a valid Python identifier (e.g. my_channel), "
-            f"got: {key}",
+            f"Key must be a valid Python identifier (e.g. my_channel), " f"got: {key}",
             err=True,
         )
         raise SystemExit(1)
@@ -1191,9 +1250,7 @@ def configure_cmd(agent_id: str) -> None:
         # Create a temporary Config object for the interactive configurator
         temp_config = Config()
         temp_config.channels = (
-            agent_config.channels
-            if agent_config.channels
-            else temp_config.channels
+            agent_config.channels if agent_config.channels else temp_config.channels
         )
 
         configure_channels_interactive(temp_config)
@@ -1216,10 +1273,7 @@ def configure_cmd(agent_id: str) -> None:
 @click.option(
     "--channel",
     required=True,
-    help=(
-        "Target channel (e.g., console, dingtalk, feishu, discord, "
-        "imessage, qq)"
-    ),
+    help=("Target channel (e.g., console, dingtalk, feishu, discord, " "imessage, qq)"),
 )
 @click.option(
     "--target-user",
