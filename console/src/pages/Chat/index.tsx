@@ -1,6 +1,7 @@
 import {
   AgentScopeRuntimeWebUI,
   IAgentScopeRuntimeWebUIOptions,
+  type IAgentScopeRuntimeWebUIMessage,
   type IAgentScopeRuntimeWebUIQueueSessionContext,
   type IAgentScopeRuntimeWebUIRef,
 } from "@agentscope-ai/chat";
@@ -197,11 +198,58 @@ function renderSuggestionLabel(command: string, description?: string) {
 const DEFAULT_USER_ID = "default";
 const DEFAULT_CHANNEL = "console";
 const WIDE_MODE_STORAGE_KEY = "qwenpaw_chat_wide_mode";
+const CHAT_STREAM_SNAPSHOT_CHANNEL = "qwenpaw:chat-stream-snapshot";
+
+interface ChatStreamSnapshotPayload {
+  type: "request" | "snapshot";
+  sessionId: string;
+  sourceTabId: string;
+  messages?: IAgentScopeRuntimeWebUIMessage[];
+  createdAt?: number;
+}
 
 function isSkillAvailableInConsole(skill: SkillSpec): boolean {
   if (!skill.enabled) return false;
   const channels = skill.channels?.length ? skill.channels : ["all"];
   return channels.includes("all") || channels.includes(DEFAULT_CHANNEL);
+}
+
+function createChatStreamSnapshotTabId() {
+  return `chat-tab-${Date.now().toString(36)}-${Math.random()
+    .toString(36)
+    .slice(2)}`;
+}
+
+function isChatStreamSnapshotPayload(
+  payload: unknown,
+): payload is ChatStreamSnapshotPayload {
+  if (!payload || typeof payload !== "object") return false;
+  const record = payload as Partial<ChatStreamSnapshotPayload>;
+  return (
+    (record.type === "request" || record.type === "snapshot") &&
+    typeof record.sessionId === "string" &&
+    typeof record.sourceTabId === "string"
+  );
+}
+
+function hasGeneratingAssistantMessage(
+  messages: IAgentScopeRuntimeWebUIMessage[] | undefined,
+) {
+  return !!messages?.some(
+    (item) => item?.role === "assistant" && item?.msgStatus === "generating",
+  );
+}
+
+function replaceChatMessages(
+  chatRef: React.RefObject<IAgentScopeRuntimeWebUIRef | null>,
+  messages: IAgentScopeRuntimeWebUIMessage[],
+) {
+  const api = chatRef.current?.messages;
+  if (!api || messages.length === 0) return;
+  api.removeAllMessages();
+  for (const item of messages) {
+    api.updateMessage(item);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -1062,6 +1110,7 @@ export default function ChatPage() {
   const chatIdRef = useRef(chatId);
   const navigateRef = useRef(navigate);
   const chatRef = useRef<IAgentScopeRuntimeWebUIRef>(null);
+  const streamSnapshotTabIdRef = useRef(createChatStreamSnapshotTabId());
 
   const isFrontendChatRunning = useCallback(() => {
     const hasStopLoadingControl =
@@ -1080,6 +1129,78 @@ export default function ChatPage() {
       )
     );
   }, []);
+
+  useEffect(() => {
+    if (!inputQueueEnabled || !chatId) return;
+    if (typeof BroadcastChannel === "undefined") return;
+
+    const queueSessionId = resolveInputQueueSessionId(chatId);
+    if (!queueSessionId) return;
+
+    const sourceTabId = streamSnapshotTabIdRef.current;
+    let closed = false;
+    let channel: BroadcastChannel;
+
+    try {
+      channel = new BroadcastChannel(CHAT_STREAM_SNAPSHOT_CHANNEL);
+    } catch {
+      return;
+    }
+
+    const currentMessages = () =>
+      chatRef.current?.messages?.getMessages?.() ?? [];
+
+    const postSnapshot = () => {
+      if (closed) return;
+      const messages = currentMessages();
+      if (!hasGeneratingAssistantMessage(messages)) return;
+      channel.postMessage({
+        type: "snapshot",
+        sessionId: queueSessionId,
+        sourceTabId,
+        messages,
+        createdAt: Date.now(),
+      } satisfies ChatStreamSnapshotPayload);
+    };
+
+    channel.onmessage = (event) => {
+      const payload = event.data;
+      if (!isChatStreamSnapshotPayload(payload)) return;
+      if (payload.sourceTabId === sourceTabId) return;
+      if (payload.sessionId !== queueSessionId) return;
+
+      if (payload.type === "request") {
+        window.setTimeout(postSnapshot, 0);
+        return;
+      }
+
+      const incomingMessages = payload.messages;
+      if (!incomingMessages || !hasGeneratingAssistantMessage(incomingMessages)) {
+        return;
+      }
+      if (hasGeneratingAssistantMessage(currentMessages())) return;
+      replaceChatMessages(chatRef, incomingMessages);
+    };
+
+    const requestSnapshot = () => {
+      if (closed) return;
+      channel.postMessage({
+        type: "request",
+        sessionId: queueSessionId,
+        sourceTabId,
+      } satisfies ChatStreamSnapshotPayload);
+    };
+
+    const timers = [150, 700, 1500].map((delay) =>
+      window.setTimeout(requestSnapshot, delay),
+    );
+
+    return () => {
+      closed = true;
+      timers.forEach((timer) => window.clearTimeout(timer));
+      channel.close();
+    };
+  }, [chatId, inputQueueEnabled, resolveInputQueueSessionId]);
 
   useEffect(() => {
     const handler = (e: Event) => {
