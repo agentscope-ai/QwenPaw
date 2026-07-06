@@ -14,81 +14,9 @@ import {
   syncSessionsGlobal,
   type ExtendedSession,
 } from "../stores/sessionListStore";
+import { type DateGroup, groupSessions } from "../utils/sessionGrouping";
 import SidebarSessionItem from "./SidebarSessionItem";
 import styles from "./sidebarSessionList.module.less";
-
-// ── Date grouping ─────────────────────────────────────────────────────────
-
-type DateGroup = "pinned" | "today" | "week" | "month" | "older";
-
-interface SessionGroup {
-  key: DateGroup;
-  label: string;
-  sessions: ExtendedChatSession[];
-}
-
-function getDateGroup(
-  timestamp: string | null | undefined,
-): Exclude<DateGroup, "pinned"> {
-  if (!timestamp) return "older";
-  const date = new Date(timestamp);
-  if (isNaN(date.getTime())) return "older";
-
-  // Use calendar dates (not elapsed-time differences) so that
-  // "today" always means the same Y/M/D, regardless of the hour.
-  const now = new Date();
-  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const dateStart = new Date(
-    date.getFullYear(),
-    date.getMonth(),
-    date.getDate(),
-  );
-  const calendarDays = Math.floor(
-    (todayStart.getTime() - dateStart.getTime()) / (1000 * 60 * 60 * 24),
-  );
-
-  if (calendarDays <= 0) return "today"; // same calendar day (or future)
-  if (calendarDays < 7) return "week";
-  if (calendarDays < 30) return "month";
-  return "older";
-}
-
-function groupSessions(
-  sessions: ExtendedChatSession[],
-  t: (key: string, fallback: string) => string,
-): SessionGroup[] {
-  const buckets: Record<DateGroup, ExtendedChatSession[]> = {
-    pinned: [],
-    today: [],
-    week: [],
-    month: [],
-    older: [],
-  };
-
-  for (const s of sessions) {
-    if (s.pinned) {
-      buckets.pinned.push(s);
-    } else {
-      buckets[getDateGroup(s.updatedAt ?? s.createdAt)].push(s);
-    }
-  }
-
-  const order: Array<{ key: DateGroup; fallback: string }> = [
-    { key: "pinned", fallback: "Pinned" },
-    { key: "today", fallback: "Today" },
-    { key: "week", fallback: "Within 7 days" },
-    { key: "month", fallback: "Within 30 days" },
-    { key: "older", fallback: "Earlier" },
-  ];
-
-  return order
-    .filter(({ key }) => buckets[key].length > 0)
-    .map(({ key, fallback }) => ({
-      key,
-      label: t(`chat.group.${key}`, fallback),
-      sessions: buckets[key],
-    }));
-}
 
 // ── Component ─────────────────────────────────────────────────────────────
 
@@ -109,6 +37,10 @@ export default function SidebarSessionList({
 
   const [searchQuery, setSearchQuery] = useState("");
   const [historyCollapsed, setHistoryCollapsed] = useState(false);
+  /** Collapsed date groups — default: "month" and "older" are collapsed */
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<DateGroup>>(
+    () => new Set<DateGroup>(["month", "older"]),
+  );
 
   const storeSessionsRaw = useSessionListStore((s) => s.sessions);
   const storeSessions = storeSessionsRaw as ExtendedChatSession[];
@@ -139,7 +71,6 @@ export default function SidebarSessionList({
   const {
     sortedSessions,
     loading,
-    switchingSessionId,
     editingSessionId,
     editValue,
     handleSessionClick,
@@ -177,14 +108,21 @@ export default function SidebarSessionList({
     [sortedSessions, searchQuery, t],
   );
 
+  const toggleGroup = useCallback((key: DateGroup) => {
+    setCollapsedGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }, []);
+
   const renderItem = (session: ExtendedChatSession) => {
     const channelKey = session.channel?.trim() || "";
     const channelLabel = channelKey
       ? getChannelLabel(channelKey, t)
       : undefined;
     const isEditing = editingSessionId === session.id;
-    const isDisabled =
-      !!switchingSessionId && session.id !== switchingSessionId;
 
     return (
       <SidebarSessionItem
@@ -196,8 +134,11 @@ export default function SidebarSessionList({
         chatStatus={session.status}
         generating={session.generating}
         pinned={session.pinned}
-        active={session.id === currentSessionId}
-        disabled={isDisabled}
+        active={
+          session.id === currentSessionId ||
+          (!!currentSessionId && session.realId === currentSessionId)
+        }
+        disabled={false}
         editing={isEditing}
         editValue={isEditing ? editValue : undefined}
         onClick={handleSessionClick}
@@ -212,47 +153,50 @@ export default function SidebarSessionList({
   };
 
   return (
-    <div
-      className={styles.sessionList}
-      style={switchingSessionId ? { pointerEvents: "none" } : undefined}
-    >
-      {/* New Chat button */}
-      <button className={styles.newChatBtn} onClick={handleNewChat}>
-        <SparkPlusLine size={14} />
-        <span>{t("chat.newChatTooltip")}</span>
-      </button>
+    <div className={styles.sessionList}>
+      {/* Sticky header: new chat + history title + search */}
+      <div className={styles.sessionListHeader}>
+        {/* New Chat button */}
+        <button className={styles.newChatBtn} onClick={handleNewChat}>
+          <SparkPlusLine size={14} />
+          <span>{t("chat.newChatTooltip")}</span>
+        </button>
 
-      {/* Conversation history header (collapsible) */}
-      <button
-        className={styles.historyHeader}
-        onClick={() => setHistoryCollapsed((c) => !c)}
-      >
-        <span className={styles.historyLabel}>
-          {t("chat.conversationHistory", "Conversation History")}
-        </span>
-        <span
-          className={styles.historyChevron}
-          style={{
-            transform: historyCollapsed ? "rotate(-90deg)" : "rotate(0deg)",
-          }}
+        {/* Conversation history header (collapsible) */}
+        <button
+          className={styles.historyHeader}
+          onClick={() => setHistoryCollapsed((c) => !c)}
         >
-          <SparkDownArrowLine size={12} />
-        </span>
-      </button>
+          <span className={styles.historyLabel}>
+            {t("chat.conversationHistory", "Conversation History")}
+          </span>
+          <span
+            className={styles.historyChevron}
+            style={{
+              transform: historyCollapsed ? "rotate(-90deg)" : "rotate(0deg)",
+            }}
+          >
+            <SparkDownArrowLine size={12} />
+          </span>
+        </button>
 
-      {/* Search bar */}
-      {!historyCollapsed && (
-        <div className={styles.searchContainer}>
-          <Input
-            size="small"
-            allowClear
-            placeholder={t("chat.sessionPanel.searchConversations", "Search…")}
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className={styles.searchInput}
-          />
-        </div>
-      )}
+        {/* Search bar */}
+        {!historyCollapsed && (
+          <div className={styles.searchContainer}>
+            <Input
+              size="small"
+              allowClear
+              placeholder={t(
+                "chat.sessionPanel.searchConversations",
+                "Search…",
+              )}
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className={styles.searchInput}
+            />
+          </div>
+        )}
+      </div>
 
       {/* Session list */}
       {!historyCollapsed && (
@@ -271,13 +215,31 @@ export default function SidebarSessionList({
           {/* Search results — flat list */}
           {searchQuery.trim()
             ? filteredSessions.map(renderItem)
-            : /* Grouped by date */
-              groups?.map((group) => (
-                <div key={group.key} className={styles.group}>
-                  <div className={styles.groupLabel}>{group.label}</div>
-                  {group.sessions.map(renderItem)}
-                </div>
-              ))}
+            : /* Grouped by date with collapsible headers */
+              groups?.map((group) => {
+                const isCollapsed = collapsedGroups.has(group.key);
+                return (
+                  <div key={group.key} className={styles.group}>
+                    <button
+                      className={styles.groupLabel}
+                      onClick={() => toggleGroup(group.key)}
+                    >
+                      <span>{group.label}</span>
+                      <span
+                        className={styles.groupChevron}
+                        style={{
+                          transform: isCollapsed
+                            ? "rotate(-90deg)"
+                            : "rotate(0deg)",
+                        }}
+                      >
+                        <SparkDownArrowLine size={10} />
+                      </span>
+                    </button>
+                    {!isCollapsed && group.sessions.map(renderItem)}
+                  </div>
+                );
+              })}
         </div>
       )}
     </div>

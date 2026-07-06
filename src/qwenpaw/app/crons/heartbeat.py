@@ -48,15 +48,33 @@ _EVERY_PATTERN = re.compile(
 _CRON_FIELD_PATTERN = re.compile(
     r"^[\d\*\-/,]+$",
 )
+# DOW field accepts named abbreviations (mon-sun) per
+# POSIX/APScheduler.  Supports: numeric cron chars, named
+# abbreviations, or named ranges like mon-fri.
+_DOW_NAMED = "(?:mon|tue|wed|thu|fri|sat|sun)"
+_DOW_FIELD_PATTERN = re.compile(
+    r"^(?:[\d\*\-/,]+|" + _DOW_NAMED + r"(?:-" + _DOW_NAMED + r")?(/[\d]+)?$)",
+    re.IGNORECASE,
+)
 _HEARTBEAT_SOURCE_ID = "_heartbeat"
 
 
 def is_cron_expression(every: str) -> bool:
-    """Return True if *every* looks like a 5-field cron expression."""
+    """Return True if *every* looks like a 5-field cron expression.
+
+    The first four fields (minute, hour, day, month) accept only numeric
+    cron characters.  The fifth field (day-of-week) additionally accepts
+    the three-letter English abbreviations *mon*–*sun* which are valid in
+    both POSIX cron and APScheduler's ``CronTrigger``.
+    """
     parts = (every or "").strip().split()
     if len(parts) != 5:
         return False
-    return all(_CRON_FIELD_PATTERN.match(p) for p in parts)
+    # First 4 fields: minute, hour, day, month — numeric only
+    if not all(_CRON_FIELD_PATTERN.match(p) for p in parts[:4]):
+        return False
+    # 5th field: day-of-week — numeric OR named abbreviations
+    return bool(_DOW_FIELD_PATTERN.match(parts[4]))
 
 
 def parse_heartbeat_cron(every: str) -> tuple:
@@ -168,20 +186,13 @@ def _last_preview_from_delta(delta: list[dict[str, Any]]) -> str | None:
 # pylint: disable=too-many-branches,too-many-statements
 async def run_heartbeat_once(
     *,
-    runner: Any,
+    workspace: Any,
     channel_manager: Any,
     agent_id: Optional[str] = None,
     workspace_dir: Optional[Path] = None,
 ) -> None:
-    """
-    Run one heartbeat: read HEARTBEAT.md from workspace, run agent,
-    optionally dispatch to last channel (target=last).
-
-    Args:
-        runner: Agent runner instance
-        channel_manager: Channel manager instance
-        agent_id: Agent ID for loading config
-        workspace_dir: Workspace directory for reading HEARTBEAT.md
+    """Run one heartbeat: read HEARTBEAT.md, run agent, optionally
+    dispatch to last channel (target=last).
     """
     from ...config.config import load_agent_config
 
@@ -189,6 +200,7 @@ async def run_heartbeat_once(
     if not _in_active_hours(hb.active_hours):
         logger.debug("heartbeat skipped: outside active hours")
         return
+    timeout_seconds = hb.timeout_seconds
 
     # Use workspace_dir if provided, otherwise fall back to global path
     if workspace_dir:
@@ -238,7 +250,7 @@ async def run_heartbeat_once(
         if ld.channel and (ld.user_id or ld.session_id):
 
             async def _run_and_dispatch() -> None:
-                async for event in runner.stream_query(req):
+                async for event in workspace.stream_query(req):
                     await channel_manager.send_event(
                         channel=ld.channel,
                         user_id=ld.user_id,
@@ -248,15 +260,21 @@ async def run_heartbeat_once(
                     )
 
             try:
-                await asyncio.wait_for(_run_and_dispatch(), timeout=120)
+                await asyncio.wait_for(
+                    _run_and_dispatch(),
+                    timeout=timeout_seconds,
+                )
             except asyncio.TimeoutError:
-                logger.warning("heartbeat run timed out")
+                logger.warning(
+                    "heartbeat run timed out after %ss",
+                    timeout_seconds,
+                )
             return
 
     if target == HEARTBEAT_TARGET_INBOX:
         run_id = str(uuid.uuid4())
         baseline_messages = await read_session_messages(
-            runner=runner,
+            runner=workspace,
             session_id=req["session_id"],
             user_id=req["user_id"],
             channel=req["channel"],
@@ -277,14 +295,14 @@ async def run_heartbeat_once(
         )
 
         async def _run_only() -> None:
-            async for _ in runner.stream_query(req):
+            async for _ in workspace.stream_query(req):
                 pass
 
         try:
-            await asyncio.wait_for(_run_only(), timeout=120)
+            await asyncio.wait_for(_run_only(), timeout=timeout_seconds)
             delta = await append_trace_from_session_delta(
                 run_id=run_id,
-                runner=runner,
+                runner=workspace,
                 session_id=req["session_id"],
                 user_id=req["user_id"],
                 channel=req["channel"],
@@ -310,10 +328,13 @@ async def run_heartbeat_once(
                 },
             )
         except asyncio.TimeoutError:
-            logger.warning("heartbeat run timed out")
+            logger.warning(
+                "heartbeat run timed out after %ss",
+                timeout_seconds,
+            )
             await append_trace_from_session_delta(
                 run_id=run_id,
-                runner=runner,
+                runner=workspace,
                 session_id=req["session_id"],
                 user_id=req["user_id"],
                 channel=req["channel"],
@@ -322,7 +343,7 @@ async def run_heartbeat_once(
             await finalize_trace(
                 run_id,
                 status="timeout",
-                error="timed out after 120s",
+                error=f"timed out after {timeout_seconds}s",
             )
             await append_inbox_event(
                 agent_id=agent_id,
@@ -332,7 +353,7 @@ async def run_heartbeat_once(
                 status="error",
                 severity="error",
                 title="Heartbeat timed out",
-                body="Heartbeat run timed out after 120s.",
+                body=f"Heartbeat run timed out after {timeout_seconds}s.",
                 payload={
                     "run_id": run_id,
                     "target": target,
@@ -343,7 +364,7 @@ async def run_heartbeat_once(
             logger.exception("heartbeat run failed (inbox target)")
             await append_trace_from_session_delta(
                 run_id=run_id,
-                runner=runner,
+                runner=workspace,
                 session_id=req["session_id"],
                 user_id=req["user_id"],
                 channel=req["channel"],
@@ -370,10 +391,16 @@ async def run_heartbeat_once(
 
     # target main or no last_dispatch: run agent only, no dispatch
     async def _run_without_dispatch() -> None:
-        async for _ in runner.stream_query(req):
+        async for _ in workspace.stream_query(req):
             pass
 
     try:
-        await asyncio.wait_for(_run_without_dispatch(), timeout=120)
+        await asyncio.wait_for(
+            _run_without_dispatch(),
+            timeout=timeout_seconds,
+        )
     except asyncio.TimeoutError:
-        logger.warning("heartbeat run timed out")
+        logger.warning(
+            "heartbeat run timed out after %ss",
+            timeout_seconds,
+        )

@@ -4,10 +4,9 @@
 
 A lightweight channel that prints all agent responses to stdout.
 
-Messages are sent to the agent via the standard AgentApp ``/agent/process``
-endpoint or via POST /console/chat. This channel handles the **output** side:
-whenever a completed message event or a proactive send arrives, it is
-pretty-printed to the terminal.
+Messages are sent to the agent via POST /api/console/chat. This channel
+handles the **output** side: whenever a completed message event or a
+proactive send arrives, it is pretty-printed to the terminal.
 """
 
 from __future__ import annotations
@@ -21,7 +20,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, AsyncGenerator, Dict, List, Optional, Union
 
-from agentscope_runtime.engine.schemas.agent_schemas import (
+from qwenpaw.schemas import (
     MessageType,
     Message,
     RunStatus,
@@ -65,8 +64,8 @@ def _ts() -> str:
 class ConsoleChannel(BaseChannel):
     """Console Channel: prints agent responses to stdout.
 
-    Input is handled by AgentApp's ``/agent/process`` endpoint; this
-    channel only takes care of output (printing to the terminal).
+    Input is handled by ``POST /api/console/chat``; this channel only
+    takes care of output (printing to the terminal).
 
     Supports filtering options via config:
         - show_tool_details: Display tool execution details
@@ -162,6 +161,7 @@ class ConsoleChannel(BaseChannel):
         on_reply_sent: OnReplySent = None,
         show_tool_details: bool = True,
         filter_tool_messages: bool = False,
+        no_text_debounce: bool = True,
         filter_thinking: bool = False,
         workspace_dir: Optional[Union[str, Path]] = None,
     ) -> "ConsoleChannel":
@@ -275,6 +275,9 @@ class ConsoleChannel(BaseChannel):
             channel_meta=meta,
         )
         request.channel_meta = meta
+        rc = meta.get("request_context")
+        if isinstance(rc, dict) and rc:
+            request.request_context = rc
         return request
 
     async def _extract_media_message(self, message: Message) -> Message | None:
@@ -315,7 +318,9 @@ class ConsoleChannel(BaseChannel):
                     type=MessageType.MESSAGE,
                     role="assistant",
                     content=new_parts,
+                    status=RunStatus.Completed,
                 )
+                media_message.object = "message"
         return media_message
 
     def _build_trailing_usage_sse(self, session_id: str) -> str | None:
@@ -460,8 +465,12 @@ class ConsoleChannel(BaseChannel):
                 elif obj == "response":
                     last_response = event
 
-            runner = getattr(self._workspace, "runner", None)
-            session = getattr(runner, "session", None) if runner else None
+            # Session is on ``workspace.session``.
+            session = (
+                getattr(self._workspace, "session", None)
+                if self._workspace is not None
+                else None
+            )
             agent_id = (
                 getattr(self._workspace, "agent_id", "default")
                 if self._workspace is not None

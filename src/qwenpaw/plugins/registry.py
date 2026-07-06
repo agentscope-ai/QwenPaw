@@ -2,7 +2,7 @@
 # pylint:disable=too-many-nested-blocks
 """Central plugin registry."""
 
-from typing import Any, Callable, Dict, List, Optional, Set, Type
+from typing import Any, Callable, Dict, List, Optional, Type
 from dataclasses import dataclass, field
 import logging
 
@@ -84,6 +84,15 @@ class ControlCommandRegistration:
 
 
 @dataclass
+class MiddlewareRegistration:
+    """Middleware factory registration record."""
+
+    plugin_id: str
+    factory: Callable
+    priority: int = 100
+
+
+@dataclass
 class HttpRouterRegistration:
     """HTTP routes contributed by a backend plugin under ``/api``."""
 
@@ -134,13 +143,53 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
         self._control_commands: List[ControlCommandRegistration] = []
         self._runtime_helpers = None
         self._plugin_manifests: Dict[str, Dict[str, Any]] = {}
+        self._middleware_registrations: List[MiddlewareRegistration] = []
         self._plugin_http_app: Optional[Any] = None
         self._http_router_registrations: List[HttpRouterRegistration] = []
         self._http_prefix_to_plugin: Dict[str, str] = {}
         self._prompt_sections: List[PromptSectionRegistration] = []
-        self._prompt_section_names: Set[str] = set()
+        self._prompt_section_names: set = set()
+        self._workspace_manager: Optional[Any] = None
 
         self._initialized = True
+
+    def register_middleware(
+        self,
+        plugin_id: str,
+        factory: Callable,
+        priority: int = 100,
+    ) -> None:
+        """Register a middleware factory.
+
+        The factory is invoked per request during agent assembly:
+        ``factory(ctx, agent_config) -> MiddlewareBase | None``.
+
+        Args:
+            plugin_id: Plugin identifier
+            factory: Callable returning a MiddlewareBase or None
+            priority: Ordering priority (lower = outermost in onion model)
+        """
+        self._middleware_registrations.append(
+            MiddlewareRegistration(
+                plugin_id=plugin_id,
+                factory=factory,
+                priority=priority,
+            ),
+        )
+        self._middleware_registrations.sort(key=lambda r: r.priority)
+        logger.info(
+            "Registered middleware factory from plugin '%s' (priority=%d)",
+            plugin_id,
+            priority,
+        )
+
+    def get_middleware_factories(self) -> List[MiddlewareRegistration]:
+        """Get all middleware factory registrations sorted by priority.
+
+        Returns:
+            List of MiddlewareRegistration
+        """
+        return self._middleware_registrations.copy()
 
     def set_plugin_http_app(self, app: Any) -> None:
         """Attach the FastAPI application used to mount plugin HTTP routes.
@@ -337,6 +386,74 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
         """
         return self._runtime_helpers
 
+    def set_workspace_manager(self, manager) -> None:
+        """Set the workspace manager reference.
+
+        Called once during app lifespan startup so plugins can
+        access workspace instances for registration.
+
+        Args:
+            manager: MultiAgentManager / WorkspaceRegistry instance
+        """
+        self._workspace_manager = manager
+
+    def get_workspace_manager(self):
+        """Get the workspace manager.
+
+        Returns:
+            MultiAgentManager instance or None
+        """
+        return self._workspace_manager
+
+    @classmethod
+    def get_stop_handlers(
+        cls,
+        agent_id: "str | None" = None,
+    ) -> list:
+        """Collect stop handlers.
+
+        Args:
+            agent_id: If provided, only return handlers
+                registered on that workspace. Otherwise
+                return handlers from all workspaces.
+
+        Returns:
+            List of StopHandlerRegistration objects.
+        """
+        inst = cls._instance
+        if inst is None:
+            return []
+        mgr = inst.get_workspace_manager()
+        if mgr is None:
+            return []
+        workspaces = getattr(
+            mgr,
+            "agents",
+            getattr(mgr, "workspaces", {}),
+        )
+        if agent_id is not None:
+            ws = workspaces.get(agent_id)
+            if ws is None:
+                return []
+            plugins = getattr(ws, "plugins", None)
+            if plugins is None:
+                return []
+            return list(
+                getattr(plugins, "stop_handlers", []),
+            )
+        handlers: list = []
+        for ws in workspaces.values():
+            plugins = getattr(ws, "plugins", None)
+            if plugins is None:
+                continue
+            ws_handlers = getattr(
+                plugins,
+                "stop_handlers",
+                [],
+            )
+            handlers.extend(ws_handlers)
+        return handlers
+
     def register_startup_hook(
         self,
         plugin_id: str,
@@ -495,6 +612,39 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
         """
         return self._workspace_created_hooks.copy()
 
+    def remove_hooks_by_name(
+        self,
+        plugin_id: str,
+        hook_names: List[str],
+    ) -> None:
+        """Remove specific hooks registered by a plugin.
+
+        Removes hooks matching the given ``hook_names`` from all hook
+        lists (startup, shutdown, uninstall, workspace_created).
+
+        Args:
+            plugin_id: Plugin identifier that owns the hooks.
+            hook_names: Hook names to remove.
+        """
+        names_set = set(hook_names)
+
+        def _filter(hooks: list) -> list:
+            return [
+                h
+                for h in hooks
+                if not (h.plugin_id == plugin_id and h.hook_name in names_set)
+            ]
+
+        self._startup_hooks = _filter(self._startup_hooks)
+        self._shutdown_hooks = _filter(self._shutdown_hooks)
+        self._uninstall_hooks = _filter(self._uninstall_hooks)
+        self._workspace_created_hooks = _filter(
+            self._workspace_created_hooks,
+        )
+        logger.info(
+            f"Removed hooks {hook_names} for plugin '{plugin_id}'",
+        )
+
     def register_prompt_section(
         self,
         plugin_id: str,
@@ -510,31 +660,27 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
             name: Unique section name.
             after: Host anchor this section follows.
             agent_id: Optional agent id filter; ``None`` applies globally.
-            provider: Callable receiving the agent and returning section text.
+            provider: Callable receiving the agent and returning text.
 
         Raises:
-            ValueError: If *name* has already been registered or *after*
-                does not reference a host prompt anchor.
+            ValueError: If *name* is already registered or *after* is not
+                a valid host prompt anchor.
         """
         normalized_name = name.strip()
         if not normalized_name:
             raise ValueError("Prompt section name must not be empty")
-
         if normalized_name in self._prompt_section_names:
             raise ValueError(
                 f"Prompt section '{normalized_name}' is already registered",
             )
-
         normalized_after = after.strip() or "workspace"
         from ..agents.prompt_builder import PromptBuilder
 
         if normalized_after not in PromptBuilder.HOST_ANCHORS:
-            msg = (
-                f"Prompt section after='{after}'"
-                " must reference a host anchor"
+            raise ValueError(
+                f"Prompt section after='{after}' must reference a"
+                " host anchor",
             )
-            raise ValueError(msg)
-
         registration = PromptSectionRegistration(
             plugin_id=plugin_id,
             name=normalized_name,
@@ -545,10 +691,8 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
         self._prompt_sections.append(registration)
         self._prompt_section_names.add(normalized_name)
         logger.info(
-            "Registered prompt section '%s' from plugin '%s' after '%s'",
-            registration.name,
-            plugin_id,
-            normalized_after,
+            f"Registered prompt section '{normalized_name}' from plugin"
+            f" '{plugin_id}' after '{normalized_after}'",
         )
 
     def get_prompt_sections(self) -> List[PromptSectionRegistration]:
@@ -665,13 +809,19 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
         self._control_commands = [
             c for c in self._control_commands if c.plugin_id != plugin_id
         ]
-        removed_names = {
-            s.name for s in self._prompt_sections if s.plugin_id == plugin_id
-        }
-        self._prompt_section_names -= removed_names
+        self._middleware_registrations = [
+            r
+            for r in self._middleware_registrations
+            if r.plugin_id != plugin_id
+        ]
+        removed_sections = [
+            s for s in self._prompt_sections if s.plugin_id == plugin_id
+        ]
         self._prompt_sections = [
             s for s in self._prompt_sections if s.plugin_id != plugin_id
         ]
+        for s in removed_sections:
+            self._prompt_section_names.discard(s.name)
         logger.info(
             f"Unregistered all entries for plugin '{plugin_id}'",
         )

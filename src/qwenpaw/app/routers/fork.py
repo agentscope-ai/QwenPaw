@@ -17,7 +17,7 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
 from ...config.config import load_agent_config
-from ..runner.session import sanitize_filename
+from ..chats.session import sanitize_filename
 
 logger = logging.getLogger(__name__)
 

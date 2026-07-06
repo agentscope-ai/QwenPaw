@@ -42,6 +42,9 @@ export const getPrimaryTraceBlock = (
   return first as Record<string, unknown>;
 };
 
+const isToolCallBlockType = (blockType: string): boolean =>
+  blockType === "tool_use" || blockType === "tool_call";
+
 export const isCollapsibleTraceEvent = (
   kind: string,
   event: Record<string, unknown>,
@@ -54,7 +57,7 @@ export const isCollapsibleTraceEvent = (
   const blockType = String(block?.type || "").toLowerCase();
   if (
     blockType === "thinking" ||
-    blockType === "tool_use" ||
+    isToolCallBlockType(blockType) ||
     blockType === "tool_result"
   ) {
     return true;
@@ -91,10 +94,14 @@ export const extractTraceText = (event: Record<string, unknown>): string => {
       if (textChunks.length) return textChunks.join("\n");
     }
   }
-  if (blockType === "tool_use") {
+  if (isToolCallBlockType(blockType)) {
     const rawInput = block.raw_input;
     if (typeof rawInput === "string" && rawInput.trim()) {
       return rawInput.trim();
+    }
+    const input = block.input;
+    if (typeof input === "string" && input.trim()) {
+      return input.trim();
     }
   }
   return "";
@@ -105,7 +112,7 @@ export const normalizeTraceKind = (event: Record<string, unknown>): string => {
   const block = getPrimaryTraceBlock(event);
   const blockType = String(block?.type || "").toLowerCase();
   if (blockType === "thinking") return "thinking";
-  if (blockType === "tool_use") return "tool_call";
+  if (isToolCallBlockType(blockType)) return "tool_call";
   if (blockType === "tool_result") return "tool_output";
   if (blockType === "text") return "push_preview";
   return "event";
@@ -150,10 +157,11 @@ export const getToolFieldText = (
   const block = getPrimaryTraceBlock(eventRecord);
   if (!block) return "";
   const blockType = String(block.type || "").toLowerCase();
-  if (field === "tool_input" && blockType === "tool_use") {
+  if (field === "tool_input" && isToolCallBlockType(blockType)) {
     const rawInput = block.raw_input;
     if (typeof rawInput === "string" && rawInput.trim()) return rawInput;
     const input = block.input;
+    if (typeof input === "string") return input;
     if (input !== undefined) {
       try {
         return JSON.stringify(input, null, 2);

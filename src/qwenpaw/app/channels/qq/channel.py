@@ -25,7 +25,7 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 import aiohttp
 
-from agentscope_runtime.engine.schemas.agent_schemas import (
+from qwenpaw.schemas import (
     TextContent,
     ImageContent,
     VideoContent,
@@ -36,7 +36,7 @@ from agentscope_runtime.engine.schemas.agent_schemas import (
 
 from ....config.config import QQConfig as QQChannelConfig
 from ....constant import WORKING_DIR
-from ....exceptions import ChannelError
+from ....exceptions import ChannelError, QQApiError
 
 from ..base import (
     BaseChannel,
@@ -195,16 +195,6 @@ class _HeartbeatController:
         except Exception:
             pass
         self._schedule()
-
-
-class QQApiError(RuntimeError):
-    """HTTP error returned by QQ API."""
-
-    def __init__(self, path: str, status: int, data: Any):
-        self.path = path
-        self.status = status
-        self.data = data
-        super().__init__(f"API {path} {status}: {data}")
 
 
 def _is_recoverable_ws_os_error(exc: OSError) -> bool:
@@ -669,6 +659,7 @@ class QQChannel(BaseChannel):
         on_reply_sent: OnReplySent = None,
         show_tool_details: bool = True,
         filter_tool_messages: bool = False,
+        no_text_debounce: bool = True,
         filter_thinking: bool = False,
         media_dir: str = "",
         workspace_dir: Path | None = None,
@@ -682,6 +673,7 @@ class QQChannel(BaseChannel):
             on_reply_sent=on_reply_sent,
             show_tool_details=show_tool_details,
             filter_tool_messages=filter_tool_messages,
+            no_text_debounce=no_text_debounce,
             filter_thinking=filter_thinking,
             access_control_dm=access_control_dm,
             access_control_group=access_control_group,
@@ -825,6 +817,7 @@ class QQChannel(BaseChannel):
         on_reply_sent: OnReplySent = None,
         show_tool_details: bool = True,
         filter_tool_messages: bool = False,
+        no_text_debounce: bool = True,
         filter_thinking: bool = False,
         workspace_dir: Path | None = None,
     ) -> "QQChannel":
@@ -838,6 +831,7 @@ class QQChannel(BaseChannel):
             on_reply_sent=on_reply_sent,
             show_tool_details=show_tool_details,
             filter_tool_messages=filter_tool_messages,
+            no_text_debounce=no_text_debounce,
             filter_thinking=filter_thinking,
             media_dir=getattr(config, "media_dir", ""),
             workspace_dir=workspace_dir,

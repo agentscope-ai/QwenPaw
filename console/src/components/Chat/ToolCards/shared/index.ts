@@ -11,7 +11,7 @@ export {
   getFileLanguage,
   getFileExtFromPath,
   getMediaInfo,
-  extractMediaFromText,
+  extractUrlFromText,
   formatMemorySearch,
   formatAgentList,
   looksLikeMarkdown,

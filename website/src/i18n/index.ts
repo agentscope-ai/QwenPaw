@@ -16,7 +16,7 @@ void i18n.use(initReactI18next).init({
     en: { translation: en },
     "pt-BR": { translation: ptBR },
   },
-  lng: "zh",
+  lng: "en",
   fallbackLng: "en",
   interpolation: { escapeValue: false },
 });

@@ -74,19 +74,20 @@ file anytime; after save, the **next** heartbeat uses the new content.
 Prefer configuring on the Console **Heartbeat** page. To edit **`agent.json`**
 instead, use the following.
 
-**Interval, on/off, target, and active hours** are read from **`heartbeat`** in
-the current agent’s **`workspaces/<agent_id>/agent.json`** (same as what the
-Console saves). After migration from older layouts, legacy
+**Interval, on/off, target, execution timeout, and active hours** are read from
+**`heartbeat`** in the current agent’s **`workspaces/<agent_id>/agent.json`**
+(same as what the Console saves). After migration from older layouts, legacy
 **`agents.defaults.heartbeat`** in root **`config.json`** may have been merged
 into the default agent’s **`agent.json`** — treat **`agent.json`** as the
 source of truth for new changes.
 
-| Field           | Meaning                                                                                                                                                                                                                                                                   |
-| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **enabled**     | Heartbeat on/off. **Default false**; the schedule runs only when **true**.                                                                                                                                                                                                |
-| **every**       | How often: an interval string (`"30m"`, `"1h"`, `"2h30m"`, `"90s"`) **or** a space-separated **five-field cron** (minute hour day month weekday — same shape as cron jobs, e.g. daily 09:00: `"0 9 * * *"`). Cron is interpreted in the **process scheduler’s timezone**. |
-| **target**      | **main** — don’t send to a channel; **last** — send using **`last_dispatch`** for that agent; **inbox** — send to Inbox.                                                                                                                                                  |
-| **activeHours** | Optional daily window: `{ "start": "08:00", "end": "22:00" }`.                                                                                                                                                                                                            |
+| Field              | Meaning                                                                                                                                                                                                                                                                   |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **enabled**        | Heartbeat on/off. **Default false**; the schedule runs only when **true**.                                                                                                                                                                                                |
+| **every**          | How often: an interval string (`"30m"`, `"1h"`, `"2h30m"`, `"90s"`) **or** a space-separated **five-field cron** (minute hour day month weekday — same shape as cron jobs, e.g. daily 09:00: `"0 9 * * *"`). Cron is interpreted in the **process scheduler’s timezone**. |
+| **target**         | **main** — don’t send to a channel; **last** — send using **`last_dispatch`** for that agent; **inbox** — send to Inbox.                                                                                                                                                  |
+| **timeoutSeconds** | Maximum execution time for one heartbeat run, in seconds. **Default 300**, valid range **1–3600**.                                                                                                                                                                        |
+| **activeHours**    | Optional daily window: `{ "start": "08:00", "end": "22:00" }`.                                                                                                                                                                                                            |
 
 If **every** is omitted, the built-in default applies (currently about **6
 hours** — confirm in your installed version).
@@ -112,6 +113,7 @@ Example (send to last conversation channel, every 1h, only 08:00–22:00):
     "enabled": true,
     "every": "1h",
     "target": "last",
+    "timeoutSeconds": 300,
     "activeHours": { "start": "08:00", "end": "22:00" }
   }
 }

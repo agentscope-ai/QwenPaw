@@ -30,7 +30,6 @@ def list_providers() -> list[ProviderInfo]:
                 label=provider.label,
                 available=is_available,
                 reason=reason,
-                supports_browse=getattr(provider, "supports_browse", True),
             ),
         )
     return out
@@ -50,9 +49,9 @@ async def search_market(
     """Search each requested provider at its own page; concat results."""
     capped_limit = max(1, min(int(limit or 1), _MAX_LIMIT))
     selected = [
-        (key, max(1, int(provider_pages[key] or 1)))
-        for key in PROVIDERS
-        if key in provider_pages
+        (key, max(1, int(page or 1)))
+        for key, page in provider_pages.items()
+        if key in PROVIDERS
     ]
 
     coros = [
@@ -83,7 +82,7 @@ async def _run_one(
     limit: int,
     page: int,
     lang: str,
-    category: str | None = None,
+    category: str | None,
 ) -> tuple[list[MarketResult], bool, int | None] | MarketSearchError:
     provider = PROVIDERS[key]
     is_available, reason = provider.available()
@@ -92,31 +91,21 @@ async def _run_one(
             provider=key,
             message=reason or "provider unavailable",
         )
-    # Native category filter where supported; otherwise fall back to
-    # searching the category name when the user typed nothing.
+    # Route the logical category per provider: a native filter code goes
+    # in as `category=`; otherwise its localized keyword replaces an empty
+    # query. `_supported_kwargs` drops any kwarg the provider doesn't take.
     routing = resolve_category(category, key, lang)
-    effective_query = query
     native_code = routing["native_code"]
-    if native_code is None and routing["search_term"] and not query.strip():
+    effective_query = query
+    if not query and routing["search_term"]:
         effective_query = routing["search_term"]
-    # Search-only sources have no browse listing: an empty query would
-    # return nothing. Skip the wasted upstream call (the UI prompts the
-    # user to search) rather than fabricating a throwaway query.
-    if (
-        native_code is None
-        and not effective_query.strip()
-        and not getattr(provider, "supports_browse", True)
-    ):
-        return [], False, 0
-    # Providers that don't declare `lang`/`category` kwargs ignore them.
-    kwargs = _supported_kwargs(
-        provider.search,
-        lang=lang,
-        category=native_code,
-    )
+    candidates: dict[str, Any] = {"lang": lang}
+    if native_code:
+        candidates["category"] = native_code
+    kwargs = _supported_kwargs(provider.search, **candidates)
     try:
         return await provider.search(effective_query, limit, page, **kwargs)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         logger.warning(
             "Market provider %s failed for query=%r: %s",
             key,

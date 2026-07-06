@@ -38,7 +38,7 @@ def mock_process() -> ProcessHandler:
     """Mock agent processing flow, returns simple text response."""
 
     async def process(_request: Any):
-        from agentscope_runtime.engine.schemas.agent_schemas import (
+        from qwenpaw.schemas import (
             RunStatus,
             Event,
             Message,
@@ -83,7 +83,7 @@ def base_channel(mock_process) -> BaseChannel:
 @pytest.fixture
 def content_builder():
     """Build different types of content parts for testing."""
-    from agentscope_runtime.engine.schemas.agent_schemas import (
+    from qwenpaw.schemas import (
         TextContent,
         ImageContent,
         RefusalContent,
@@ -177,7 +177,7 @@ class TestBuildAgentRequestCore:
 
     def test_empty_content_gets_default(self, base_channel):
         """Empty content should auto-fill with default empty text"""
-        from agentscope_runtime.engine.schemas.agent_schemas import ContentType
+        from qwenpaw.schemas import ContentType
 
         request = base_channel.build_agent_request_from_user_content(
             channel_id="test",
@@ -354,6 +354,59 @@ class TestNoTextDebounceBuffering:
         # session_b buffer should remain
         assert "session_b" in base_channel._pending_content_by_session
         assert len(base_channel._pending_content_by_session["session_b"]) == 1
+
+    def test_disabled_debounce_processes_immediately(
+        self,
+        mock_process,
+        content_builder,
+    ):
+        """When no_text_debounce=False, media-only content is processed
+        immediately without buffering."""
+        channel = ConsoleChannel(
+            process=mock_process,
+            enabled=True,
+            bot_prefix="[TEST] ",
+        )
+        channel._no_text_debounce = False
+        parts = [content_builder.image("http://a.jpg")]
+
+        should_process, merged = channel._apply_no_text_debounce(
+            "session_disabled",
+            parts,
+        )
+
+        assert should_process is True
+        assert len(merged) == 1
+        # Nothing should be buffered
+        assert "session_disabled" not in channel._pending_content_by_session
+
+    def test_disabled_debounce_releases_pending_buffer(
+        self,
+        mock_process,
+        content_builder,
+    ):
+        """When no_text_debounce=False, any previously buffered content is
+        released and merged with the current content."""
+        channel = ConsoleChannel(
+            process=mock_process,
+            enabled=True,
+            bot_prefix="[TEST] ",
+        )
+        channel._no_text_debounce = False
+        # Simulate pre-existing buffered content
+        channel._pending_content_by_session["session_disabled"] = [
+            content_builder.image("http://old.jpg"),
+        ]
+
+        parts = [content_builder.text("Hello")]
+        should_process, merged = channel._apply_no_text_debounce(
+            "session_disabled",
+            parts,
+        )
+
+        assert should_process is True
+        assert len(merged) == 2  # old image + new text
+        assert "session_disabled" not in channel._pending_content_by_session
 
 
 # =============================================================================
@@ -838,7 +891,7 @@ class TestStreamWithTracker:
 
     async def test_stream_with_tracker_yields_sse_events(self, base_channel):
         """_stream_with_tracker should yield SSE-formatted events."""
-        from agentscope_runtime.engine.schemas.agent_schemas import (
+        from qwenpaw.schemas import (
             RunStatus,
             Event,
             Message,
@@ -944,7 +997,7 @@ class TestStreamWithTracker:
         base_channel,
     ):
         """_stream_with_tracker should fallback on malformed surrogate data."""
-        from agentscope_runtime.engine.schemas.agent_schemas import RunStatus
+        from qwenpaw.schemas import RunStatus
 
         class BrokenJsonEvent:
             object = "response"
@@ -1015,7 +1068,7 @@ class TestAudioContentDetection:
 
     def test_audio_content_returns_true(self, base_channel):
         """Content with AudioContent should return True."""
-        from agentscope_runtime.engine.schemas.agent_schemas import (
+        from qwenpaw.schemas import (
             AudioContent,
             ContentType,
         )
@@ -1040,7 +1093,7 @@ class TestAudioContentDetection:
 
     def test_mixed_content_with_audio_returns_true(self, base_channel):
         """Mixed content with audio should return True."""
-        from agentscope_runtime.engine.schemas.agent_schemas import (
+        from qwenpaw.schemas import (
             AudioContent,
             TextContent,
             ContentType,
@@ -1310,7 +1363,7 @@ class TestRunProcessLoopIntegration:
 
     async def test_completed_message_triggers_send(self, base_channel):
         """Complete message event should trigger sending"""
-        from agentscope_runtime.engine.schemas.agent_schemas import (
+        from qwenpaw.schemas import (
             RunStatus,
             Event,
             Message,

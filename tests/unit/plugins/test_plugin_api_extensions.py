@@ -11,11 +11,29 @@ Tests cover:
 import importlib.util
 import sys
 import tempfile
+import types
 from pathlib import Path
 from typing import Any, Dict
 from unittest.mock import MagicMock
 
 import pytest
+
+
+# ---------------------------------------------------------------------------
+# Stub missing agentscope 2.0 modules so MultiAgentManager can be imported
+# in environments where agentscope 2.0 is not installed.
+# ---------------------------------------------------------------------------
+_AGENTSCOPE_STUBS = [
+    "agentscope.state",
+]
+
+for _mod_name in _AGENTSCOPE_STUBS:
+    if _mod_name not in sys.modules:
+        _stub = types.ModuleType(_mod_name)
+        # Provide placeholder attributes that downstream imports expect.
+        # type: ignore[attr-defined]
+        _stub.AgentState = type("AgentState", (), {})
+        sys.modules[_mod_name] = _stub
 
 
 # ---------------------------------------------------------------------------

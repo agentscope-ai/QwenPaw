@@ -326,15 +326,20 @@ class TestAgentStatsChannelDistribution:
 
             # 2. Find channel distribution area
             log_test_step("2. Find channel distribution area")
-            main_content = page.locator('main, [class*="content"], [class*="pageContent"]').first
-            if main_content.count() > 0:
-                page_text = main_content.inner_text()
-            else:
-                page_text = page.locator("body").inner_text()
+            # The previous selector ``main, [class*="content"], [class*="pageContent"]``
+            # had 41 matches in the post-agentscope-2.0 layout, with the
+            # first match being a sidebar menu chip ("Inbox"), so the probe
+            # text never reached the actual content. Read body directly.
+            page_text = page.locator("body").inner_text()
 
             has_channel_section = (
                 "Channel Distribution" in page_text or "渠道分布" in page_text
                 or ("Distribution" in page_text and "Channel" in page_text)
+                # Post-agentscope-2.0 split into two per-channel charts
+                or "Sessions by Channel" in page_text
+                or "Messages by Channel" in page_text
+                or "按渠道会话" in page_text
+                or "按渠道消息" in page_text
             )
 
             empty = page.locator(".qwenpaw-empty, .ant-empty, [class*='empty']").first

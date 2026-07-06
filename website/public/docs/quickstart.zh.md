@@ -4,7 +4,7 @@
 
 | 安装方式       | 适用场景                 | 优势                         | 前置要求         |
 | -------------- | ------------------------ | ---------------------------- | ---------------- |
-| **pip 安装**   | 熟悉 Python 的开发者     | 灵活控制环境，便于开发调试   | Python 3.10~3.13 |
+| **pip 安装**   | 熟悉 Python 的开发者     | 灵活控制环境，便于开发调试   | Python 3.11~3.13 |
 | **脚本安装**   | 不想要手动配置环境的用户 | 零配置，自动管理 Python 环境 | 无               |
 | **Docker**     | 容器化部署或生产环境     | 环境隔离，易于迁移           | Docker           |
 | **阿里云 ECS** | 云上稳定运行             | 一键部署，稳定可靠           | 阿里云账号       |
@@ -24,7 +24,7 @@
 
 ## 方式一：pip 安装
 
-如果你更习惯自行管理 Python 环境（需 Python >= 3.10, < 3.14）：
+如果你更习惯自行管理 Python 环境（需 Python >= 3.11, < 3.14）：
 
 ```bash
 pip install qwenpaw
@@ -248,10 +248,10 @@ docker run -p 127.0.0.1:8088:8088 \
 
 ## 验证安装（可选）
 
-服务启动后,可通过 HTTP 调用 Agent 接口以确认环境正常。接口为 **POST** `/api/agent/process`,请求体为 JSON,支持 SSE 流式响应。单轮请求示例:
+服务启动后,可通过 HTTP 调用 Agent 接口以确认环境正常。接口为 **POST** `/api/console/chat`,请求体为 JSON,支持 SSE 流式响应。单轮请求示例:
 
 ```bash
-curl -N -X POST "http://localhost:8088/api/agent/process" \
+curl -N -X POST "http://localhost:8088/api/console/chat" \
   -H "Content-Type: application/json" \
   -d '{"input":[{"role":"user","content":[{"type":"text","text":"你好"}]}],"session_id":"session123"}'
 ```
@@ -314,6 +314,38 @@ QwenPaw 需要大语言模型才能工作。你可以选择以下任一方式：
 2. 选择要接入的频道
 3. 按照 [频道配置](./channels) 文档获取凭据并填写
 4. 保存后即可在对应 app 中发消息给 QwenPaw
+
+#### 📊 启用 Langfuse tracing
+
+Langfuse tracing 是可选功能。如果不使用 Langfuse，不需要安装额外依赖或配置。
+如需启用，请先安装 Langfuse SDK，并传入 Langfuse 凭据。`LANGFUSE_BASE_URL`
+可以指向 Langfuse Cloud，也可以指向自托管的 Langfuse 实例。
+
+源码或本地部署：
+
+```bash
+pip install "langfuse>=4,<5"
+```
+
+Docker 部署可基于官方镜像构建一个小的自定义镜像：
+
+```dockerfile
+FROM agentscope/qwenpaw:latest
+RUN pip install --no-cache-dir "langfuse>=4,<5"
+```
+
+然后通过环境变量运行 QwenPaw：
+
+```bash
+docker run -p 127.0.0.1:8088:8088 \
+  -e LANGFUSE_SECRET_KEY=sk-lf-... \
+  -e LANGFUSE_PUBLIC_KEY=pk-lf-... \
+  -e LANGFUSE_BASE_URL=https://your-langfuse.example.com \
+  -v qwenpaw-data:/app/working \
+  -v qwenpaw-secrets:/app/working.secret \
+  -v qwenpaw-backups:/app/working.backups \
+  qwenpaw-langfuse:latest
+```
 
 #### 🔧 启用和扩展技能
 

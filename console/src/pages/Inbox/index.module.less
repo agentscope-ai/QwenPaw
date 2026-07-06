@@ -440,8 +440,16 @@
   .selectedCountText,
   .messageDetailLabel,
   .traceLoading,
-  .traceEmpty {
+  .traceEmpty,
+  .summaryRow {
     color: rgba(255, 255, 255, 0.55);
+  }
+
+  .messageDetailContent,
+  .messageDetailPayload {
+    background: #1f1f1f;
+    border-color: rgba(255, 255, 255, 0.08);
+    color: rgba(255, 255, 255, 0.82);
   }
 
   .traceLoading,
@@ -510,5 +518,54 @@
     background: rgba(255, 255, 255, 0.08);
     color: rgba(255, 255, 255, 0.9);
     border-color: rgba(255, 255, 255, 0.15);
+  }
+}
+
+@media (max-width: 768px) {
+  .pageContent {
+    padding: 0 16px 20px;
+  }
+
+  .inboxTabs {
+    :global(.ant-tabs-nav) {
+      overflow-x: auto;
+      white-space: nowrap;
+
+      &::-webkit-scrollbar {
+        display: none;
+      }
+    }
+
+    :global(.ant-tabs-tab) {
+      flex-shrink: 0;
+    }
+  }
+
+  .messagesToolbar {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+  }
+
+  .messagesSelectionTools {
+    flex-wrap: wrap;
+    width: 100%;
+
+    :global(.ant-select) {
+      width: 100% !important;
+    }
+
+    :global(.ant-btn) {
+      flex-shrink: 0;
+    }
+  }
+
+  .harvestGrid {
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+
+  .paginationWrap {
+    justify-content: center;
   }
 }

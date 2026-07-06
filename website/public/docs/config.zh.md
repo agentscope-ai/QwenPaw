@@ -204,6 +204,7 @@ $QWENPAW_SECRET_DIR/                       # 默认 ~/.qwenpaw.secret
     "enabled": false,
     "every": "30m",
     "target": "main",
+    "timeoutSeconds": 300,
     "activeHours": null
   },
   "running": {
@@ -296,12 +297,13 @@ MCP（模型上下文协议）允许智能体连接外部服务（如 Filesystem
 
 心跳是定时自检功能，按固定间隔执行 `HEARTBEAT.md` 中的任务。
 
-| 字段          | 类型           | 默认值   | 说明                                                                         |
-| ------------- | -------------- | -------- | ---------------------------------------------------------------------------- |
-| `enabled`     | bool           | `false`  | 是否启用心跳功能                                                             |
-| `every`       | string         | `"30m"`  | 运行间隔。支持 `Nh`、`Nm`、`Ns` 组合，如 `"1h"`、`"30m"`、`"2h30m"`、`"90s"` |
-| `target`      | string         | `"main"` | `"main"` = 只在主会话运行；`"last"` = 把结果发到最后一个发消息的频道/用户    |
-| `activeHours` | object \| null | `null`   | 可选活跃时段（`start`、`end` 时间，24 小时制）                               |
+| 字段             | 类型           | 默认值   | 说明                                                                         |
+| ---------------- | -------------- | -------- | ---------------------------------------------------------------------------- |
+| `enabled`        | bool           | `false`  | 是否启用心跳功能                                                             |
+| `every`          | string         | `"30m"`  | 运行间隔。支持 `Nh`、`Nm`、`Ns` 组合，如 `"1h"`、`"30m"`、`"2h30m"`、`"90s"` |
+| `target`         | string         | `"main"` | `"main"` = 只在主会话运行；`"last"` = 把结果发到最后一个发消息的频道/用户    |
+| `timeoutSeconds` | int            | `300`    | 单次心跳执行的最长时间，单位秒。有效范围：`1`–`3600`                         |
+| `activeHours`    | object \| null | `null`   | 可选活跃时段（`start`、`end` 时间，24 小时制）                               |
 
 详细说明请看 [心跳](./heartbeat)。
 
@@ -354,12 +356,11 @@ MCP（模型上下文协议）允许智能体连接外部服务（如 Filesystem
 
 **Light 上下文压缩配置（`light_context_config.context_compact_config` 对象）：**
 
-| 字段                          | 类型  | 默认值 | 说明                                            |
-| ----------------------------- | ----- | ------ | ----------------------------------------------- |
-| `enabled`                     | bool  | `true` | 是否启用自动上下文压缩                          |
-| `compact_threshold_ratio`     | float | `0.8`  | 触发压缩的阈值比例（相对于 `max_input_length`） |
-| `reserve_threshold_ratio`     | float | `0.1`  | 压缩时保留的最近上下文比例                      |
-| `compact_with_thinking_block` | bool  | `true` | 压缩时是否包含思考块                            |
+| 字段                      | 类型  | 默认值 | 说明                                            |
+| ------------------------- | ----- | ------ | ----------------------------------------------- |
+| `enabled`                 | bool  | `true` | 是否启用自动上下文压缩                          |
+| `compact_threshold_ratio` | float | `0.8`  | 触发压缩的阈值比例（相对于 `max_input_length`） |
+| `reserve_threshold_ratio` | float | `0.1`  | 压缩时保留的最近上下文比例                      |
 
 **Light 工具结果修剪配置（`light_context_config.tool_result_pruning_config` 对象）：**
 
@@ -373,24 +374,23 @@ MCP（模型上下文协议）允许智能体连接外部服务（如 Filesystem
 
 **ReMeLight 记忆配置（`reme_light_memory_config` 对象）：**
 
-| 字段                            | 类型        | 默认值         | 说明                                                     |
-| ------------------------------- | ----------- | -------------- | -------------------------------------------------------- |
-| `summarize_when_compact`        | bool        | `true`         | 是否在上下文压缩时启用记忆总结                           |
-| `auto_memory_interval`          | int \| null | `null`         | 每隔 N 次用户查询触发自动记忆。null 表示禁用定期自动记忆 |
-| `dream_cron`                    | string      | `"0 23 * * *"` | 梦境记忆优化任务的 Cron 表达式（空字符串禁用）           |
-| `rebuild_memory_index_on_start` | bool        | `false`        | 启动时是否重建记忆搜索索引                               |
-| `recursive_file_watcher`        | bool        | `false`        | 是否递归监控记忆目录                                     |
-| `auto_memory_search_config`     | object      | _（见下方）_   | 自动记忆搜索配置                                         |
-| `embedding_model_config`        | object      | _（见下方）_   | Embedding 模型配置                                       |
+| 字段                            | 类型        | 默认值         | 说明                                                                     |
+| ------------------------------- | ----------- | -------------- | ------------------------------------------------------------------------ |
+| `summarize_when_compact`        | bool        | `true`         | 是否在上下文压缩时启用记忆总结                                           |
+| `auto_memory_interval`          | int \| null | `1`            | 每隔 N 次用户查询触发自动记忆。`1` 表示每条用户消息后触发；null 表示禁用 |
+| `dream_cron`                    | string      | `"0 23 * * *"` | 梦境记忆优化任务的 Cron 表达式（空字符串禁用）                           |
+| `rebuild_memory_index_on_start` | bool        | `false`        | 启动时是否重建记忆搜索索引                                               |
+| `recursive_file_watcher`        | bool        | `false`        | 是否递归监控记忆目录                                                     |
+| `auto_memory_search_config`     | object      | _（见下方）_   | 自动记忆搜索配置                                                         |
+| `embedding_model_config`        | object      | _（见下方）_   | Embedding 模型配置                                                       |
 
 **自动记忆搜索配置（`reme_light_memory_config.auto_memory_search_config` 对象）：**
 
-| 字段          | 类型  | 默认值  | 说明                                        |
-| ------------- | ----- | ------- | ------------------------------------------- |
-| `enabled`     | bool  | `false` | 是否在每轮对话时自动执行记忆搜索            |
-| `max_results` | int   | `1`     | 自动搜索时最多返回的结果数                  |
-| `min_score`   | float | `0.1`   | 自动搜索时的最低相关性分数阈值（0.0 - 1.0） |
-| `timeout`     | float | `10.0`  | 自动搜索超时时间（秒）                      |
+| 字段          | 类型  | 默认值  | 说明                             |
+| ------------- | ----- | ------- | -------------------------------- |
+| `enabled`     | bool  | `false` | 是否在每轮对话时自动执行记忆搜索 |
+| `max_results` | int   | `1`     | 自动搜索时最多返回的结果数       |
+| `timeout`     | float | `10.0`  | 自动搜索超时时间（秒）           |
 
 **Embedding 配置（`reme_light_memory_config.embedding_model_config` 对象）：**
 
@@ -438,16 +438,6 @@ MCP（模型上下文协议）允许智能体连接外部服务（如 Filesystem
 | `model`       | string | `""`   | 模型名称（如 `"qwen-max"`、`"gpt-4"`）        |
 
 为 `null` 时使用全局默认模型。可在控制台（智能体 → 模型设置）中配置。
-
----
-
-#### `plan` — 计划模式配置
-
-| 字段      | 类型 | 默认值  | 说明             |
-| --------- | ---- | ------- | ---------------- |
-| `enabled` | bool | `false` | 是否启用计划模式 |
-
-启用后,智能体支持 `/plan` 命令进行结构化任务规划与执行。详见 [计划模式](./plan)。
 
 ---
 

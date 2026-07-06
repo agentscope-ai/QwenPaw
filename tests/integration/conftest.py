@@ -17,9 +17,19 @@ can flush (SIGTERM often yields empty data). After the session, files
 under ``.integration_coverage/`` are combined and HTML is written to
 ``htmlcov-integration/``. Run integration tests without ``--cov`` from
 pytest-cov (or use ``--no-cov``) so the parent process does not enforce
-``fail_under`` on near-zero host-process coverage. This flow is not
-validated under ``pytest-xdist``.
+``fail_under`` on near-zero host-process coverage.
+
+pytest-xdist compatibility:
+
+    pytest tests/integration/ -n auto --dist=loadscope
+
+Each xdist worker is a separate process; ``app_server`` (module-scoped)
+naturally isolates per-module. Coverage data files use ``parallel=true``
+with unique PID suffixes — no cross-worker collision. The final
+``coverage combine`` + ``coverage html`` runs only in the controller
+process (or single-process mode), not in individual workers.
 """
+
 from __future__ import annotations
 
 import json
@@ -84,8 +94,11 @@ def pytest_sessionstart(session: pytest.Session) -> None:
     root = Path(session.config.rootpath).resolve()
     _INTEGRATION_COVERAGE_DIR = root / ".integration_coverage"
     _INTEGRATION_COVERAGE_DIR.mkdir(parents=True, exist_ok=True)
-    for p in _INTEGRATION_COVERAGE_DIR.glob(f"{_COVERAGE_SUBPROC_BASENAME}*"):
-        p.unlink(missing_ok=True)
+    if not os.environ.get("PYTEST_XDIST_WORKER"):
+        for p in _INTEGRATION_COVERAGE_DIR.glob(
+            f"{_COVERAGE_SUBPROC_BASENAME}*",
+        ):
+            p.unlink(missing_ok=True)
     _write_integration_subprocess_rc(
         root,
         _INTEGRATION_COVERAGE_DIR / _COVERAGE_RCFILE_NAME,
@@ -101,6 +114,8 @@ def pytest_sessionfinish(  # pylint: disable=unused-argument
         not _integration_coverage_requested()
         or _INTEGRATION_COVERAGE_DIR is None
     ):
+        return
+    if os.environ.get("PYTEST_XDIST_WORKER"):
         return
     wd = _INTEGRATION_COVERAGE_DIR
     if not any(wd.glob(f"{_COVERAGE_SUBPROC_BASENAME}*")):
@@ -289,18 +304,17 @@ def channel_callback_server():
     """Start a lightweight HTTP server for custom channel outbound.
 
     Sets ``TEST_CHANNEL_CALLBACK_URL`` in ``os.environ`` so every
-    ``app_server`` subprocess inherits it. Tests that need to
-    inspect recorded payloads request this fixture by name.
+    ``app_server`` subprocess inherits it. Tests that need to inspect
+    recorded payloads request this fixture by name.
     """
     from http.server import BaseHTTPRequestHandler, HTTPServer
-    import json as _json  # pylint: disable=reimported
 
     class _Handler(BaseHTTPRequestHandler):
         def do_POST(self):  # noqa: N802
             length = int(self.headers.get("Content-Length", 0))
             body = self.rfile.read(length) if length else b""
             try:
-                payload = _json.loads(body)
+                payload = json.loads(body)
             except (ValueError, UnicodeDecodeError):
                 payload = {
                     "raw": body.decode("utf-8", errors="replace"),
@@ -348,6 +362,8 @@ def app_server(  # pylint: disable=too-many-statements,too-many-branches
     secret_dir.mkdir(parents=True, exist_ok=True)
     backups_dir.mkdir(parents=True, exist_ok=True)
 
+    # Copy any custom channel fixtures into the subprocess working dir so
+    # that tests in test_custom_channel.py can discover them at startup.
     custom_channels_src = Path(__file__).parent / "_custom_channels"
     if custom_channels_src.is_dir():
         custom_channels_dst = working_dir / "custom_channels"
@@ -364,10 +380,14 @@ def app_server(  # pylint: disable=too-many-statements,too-many-branches
     env["QWENPAW_SECRET_DIR"] = str(secret_dir)
     env["QWENPAW_BACKUP_DIR"] = str(backups_dir)
     env["QWENPAW_AUTH_ENABLED"] = "false"
+    # Set the upload size limit used by /api/.../upload-limit and the
+    # request-body cap. Read once at app import time from this env var,
+    # so it must be present before the subprocess starts.
     env["QWENPAW_UPLOAD_MAX_SIZE_MB"] = "10"
-    callback_url = os.environ.get("TEST_CHANNEL_CALLBACK_URL")
-    if callback_url:
-        env["TEST_CHANNEL_CALLBACK_URL"] = callback_url
+    # Integration tests run in a temporary isolated workspace and must not
+    # touch the developer's OS keychain. Force file-backed secrets so first
+    # encryption does not block on desktop keyring discovery.
+    env["QWENPAW_RUNNING_IN_CONTAINER"] = "true"
     env["NO_PROXY"] = "*"
     env["PYTHONUNBUFFERED"] = "1"
     # Force UTF-8 stdio in the subprocess so non-ASCII log lines (e.g.
@@ -390,6 +410,12 @@ def app_server(  # pylint: disable=too-many-statements,too-many-branches
         )
 
     logs: list[str] = []
+    # Windows + subprocess coverage: create a new process group so the
+    # child can receive CTRL_BREAK_EVENT for graceful shutdown
+    # (TerminateProcess skips atexit and coverage data is lost).
+    popen_kwargs: dict[str, Any] = {}
+    if sys.platform == "win32" and _integration_coverage_requested():
+        popen_kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
     with subprocess.Popen(
         [
             sys.executable,
@@ -413,6 +439,7 @@ def app_server(  # pylint: disable=too-many-statements,too-many-branches
         encoding="utf-8",
         errors="replace",
         env=env,
+        **popen_kwargs,
     ) as process:
         assert process.stdout is not None
 
@@ -423,10 +450,10 @@ def app_server(  # pylint: disable=too-many-statements,too-many-branches
         )
         log_thread.start()
 
-        # 30s lets cold-start endpoints (ACP getter, heartbeat) and
-        # agent creation (workspace init) finish on slower runners
-        # (Windows CI ~50% slower) without hiding real deadlocks.
-        http_timeout = 30.0
+        # 15s default lets cold-start endpoints (ACP getter, heartbeat)
+        # finish without hiding real deadlocks; 30s in coverage mode
+        # for tracer overhead.
+        http_timeout = 30.0 if _integration_coverage_requested() else 15.0
         client = httpx.Client(timeout=http_timeout, trust_env=False)
 
         try:
@@ -470,14 +497,17 @@ def app_server(  # pylint: disable=too-many-statements,too-many-branches
                 # On POSIX, SIGINT lets uvicorn shut down cleanly so
                 # subprocess coverage data flushes (SIGTERM often skips
                 # atexit / data-file write). On Windows, SIGINT is not
-                # delivered reliably to subprocesses (CTRL_C_EVENT only
-                # works for console process groups created with
-                # CREATE_NEW_PROCESS_GROUP), so use terminate directly.
-                # Windows CI does not enable subprocess coverage, so the
-                # graceful-shutdown nicety isn't needed there.
+                # delivered reliably to subprocesses; when subprocess
+                # coverage is enabled we create the child with
+                # CREATE_NEW_PROCESS_GROUP and send CTRL_BREAK_EVENT so
+                # the child can run atexit / flush coverage data.
+                # Without coverage we use terminate() for fast shutdown.
                 try:
                     if sys.platform == "win32":
-                        process.terminate()
+                        if _integration_coverage_requested():
+                            process.send_signal(signal.CTRL_BREAK_EVENT)
+                        else:
+                            process.terminate()
                     else:
                         process.send_signal(signal.SIGINT)
                     process.wait(timeout=15)

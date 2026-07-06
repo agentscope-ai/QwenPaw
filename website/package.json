@@ -17,6 +17,7 @@
     "fuse.js": "^7.0.0",
     "highlight.js": "^11.11.1",
     "i18next": "^25.8.20",
+    "js-yaml": "^4.3.0",
     "lucide-react": "^0.468.0",
     "mermaid": "^11.12.2",
     "motion": "^11.11.17",
@@ -37,7 +38,7 @@
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.2.2",
-    "@types/highlight.js": "^10.1.0",
+    "@types/js-yaml": "^4.0.9",
     "@types/node": "^25.5.0",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",

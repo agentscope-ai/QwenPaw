@@ -8,6 +8,29 @@ import {
 } from "@/api/modules/pluginMarket";
 import { installPlugin } from "@/api/modules/plugin";
 
+/**
+ * Derive a compatibility label (e.g. "2.x") from a version string.
+ * Handles leading "v", pre-release suffixes, and invalid inputs gracefully.
+ */
+function deriveCompatLabel(version: string): string | null {
+  const trimmed = version.trim().replace(/^v/i, "");
+  const match = trimmed.match(/^(\d+)/);
+  if (!match) return null;
+  return `${match[1]}.x`;
+}
+
+export function isMarketPluginCompatible(
+  entry: MarketPluginEntry,
+  currentVersion: string | null,
+): boolean {
+  if (!currentVersion) return true;
+  const labels = entry.qwenpaw_compat_labels;
+  if (!labels || labels.length === 0) return true;
+  const label = deriveCompatLabel(currentVersion);
+  if (!label) return true; // Cannot parse version → treat as compatible
+  return labels.includes(label);
+}
+
 interface UseMarketPluginsOptions {
   onInstalled: () => void;
 }
@@ -27,6 +50,34 @@ export function useMarketPlugins({ onInstalled }: UseMarketPluginsOptions) {
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState<string | undefined>(undefined);
   const [installingId, setInstallingId] = useState<string | null>(null);
+  const [qwenpawVersion, setQwenpawVersion] = useState<string | null>(null);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    fetch("/api/version", { signal: controller.signal })
+      .then((res) => {
+        if (!res.ok) {
+          throw new Error(`HTTP ${res.status}`);
+        }
+        return res.json();
+      })
+      .then((data) => {
+        const version =
+          typeof data === "object" && data !== null ? data.version : null;
+        setQwenpawVersion(typeof version === "string" ? version : null);
+      })
+      .catch((err) => {
+        if (err instanceof Error && err.name === "AbortError") {
+          return;
+        }
+        // eslint-disable-next-line no-console
+        console.error("[useMarketPlugins] failed to fetch version:", err);
+        setQwenpawVersion(null);
+      });
+    return () => {
+      controller.abort();
+    };
+  }, []);
 
   const loadPlugins = useCallback(
     async (pageNum: number, keyword: string, cat?: string) => {
@@ -74,6 +125,12 @@ export function useMarketPlugins({ onInstalled }: UseMarketPluginsOptions) {
     void loadPlugins(page, search, category);
   }, [loadPlugins, page, search, category]);
 
+  const isCompatible = useCallback(
+    (entry: MarketPluginEntry) =>
+      isMarketPluginCompatible(entry, qwenpawVersion),
+    [qwenpawVersion],
+  );
+
   const handleInstall = useCallback(
     async (entry: MarketPluginEntry) => {
       setInstallingId(entry.id);
@@ -107,6 +164,8 @@ export function useMarketPlugins({ onInstalled }: UseMarketPluginsOptions) {
     pageSize,
     category,
     installingId,
+    qwenpawVersion,
+    isCompatible,
     handleSearch,
     handleCategoryChange,
     handlePageChange,

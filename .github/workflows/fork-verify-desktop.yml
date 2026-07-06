@@ -1,0 +1,314 @@
+# One-click desktop release verification for fork repositories.
+# Builds each desktop flavour and runs the end-to-end UI verification
+# (Playwright + headless browser) against the freshly built product.
+#
+# Unlike desktop-release.yml this workflow does NOT upload artifacts to
+# a GitHub Release or OSS — it only verifies that the build + LLM chain
+# works. Use it to validate packaging changes before opening a PR.
+#
+# Usage: Actions → Fork Desktop Release Verification → Run workflow.
+
+name: Fork Desktop Release Verification
+
+on:
+  workflow_dispatch:
+    inputs:
+      platforms:
+        description: 'Which platforms to verify'
+        required: false
+        type: choice
+        default: 'all'
+        options:
+          - 'all'
+          - 'legacy-only'
+          - 'tauri-only'
+          - 'macos-only'
+          - 'windows-only'
+
+permissions:
+  contents: read
+
+jobs:
+  legacy-macos:
+    if: >-
+      inputs.platforms == 'all' ||
+      inputs.platforms == 'legacy-only' ||
+      inputs.platforms == 'macos-only'
+    runs-on: macos-14
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Get version
+        id: version
+        uses: ./.github/actions/get-version
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: console/package-lock.json
+
+      - name: Set up Miniconda
+        uses: conda-incubator/setup-miniconda@v3
+        with:
+          auto-update-conda: true
+          python-version: "3.10"
+          activate-environment: "qwenpaw-build"
+          condarc-file: .github/condarc
+          conda-remove-defaults: false
+
+      - name: Build macOS .app
+        env:
+          NODE_OPTIONS: "--max-old-space-size=8192"
+        run: |
+          chmod +x scripts/pack/build_macos.sh
+          conda run -n qwenpaw-build bash -c 'CREATE_ZIP=1 ./scripts/pack/build_macos.sh'
+
+      - name: Set up runner Python for verification
+        id: runner-python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Verify desktop (Legacy macOS)
+        uses: ./.github/actions/verify-legacy-macos
+        with:
+          dashscope-api-key: ${{ secrets.QWENPAW_DASHSCOPE_API_KEY }}
+          version: ${{ steps.version.outputs.version }}
+          runner-python: ${{ steps.runner-python.outputs.python-path }}
+          allow-flaky-llm: "true"
+
+      - name: Stop desktop server
+        if: always()
+        run: |
+          if [ -f "$RUNNER_TEMP/qwenpaw-desktop.pid" ]; then
+            kill "$(cat "$RUNNER_TEMP/qwenpaw-desktop.pid")" 2>/dev/null || true
+          fi
+          lsof -ti:8088 | xargs kill 2>/dev/null || true
+
+  legacy-windows:
+    if: >-
+      inputs.platforms == 'all' ||
+      inputs.platforms == 'legacy-only' ||
+      inputs.platforms == 'windows-only'
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Get version
+        id: version
+        uses: ./.github/actions/get-version
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: console/package-lock.json
+
+      - name: Set up Miniconda
+        uses: conda-incubator/setup-miniconda@v3
+        with:
+          auto-update-conda: true
+          python-version: "3.10"
+          activate-environment: "qwenpaw-build"
+          condarc-file: .github/condarc
+          conda-remove-defaults: false
+
+      - name: Install NSIS
+        uses: negrutiu/nsis-install@v2
+
+      - name: Build Windows installer
+        shell: pwsh
+        run: conda run -n qwenpaw-build pwsh -File ./scripts/pack/build_win.ps1
+
+      - name: Set up runner Python for verification
+        id: runner-python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Verify desktop (Legacy Windows)
+        uses: ./.github/actions/verify-legacy-windows
+        with:
+          dashscope-api-key: ${{ secrets.QWENPAW_DASHSCOPE_API_KEY }}
+          version: ${{ steps.version.outputs.version }}
+          runner-python: ${{ steps.runner-python.outputs.python-path }}
+          allow-flaky-llm: "true"
+
+      - name: Stop desktop server
+        if: always()
+        shell: pwsh
+        run: |
+          $pidFile = Join-Path $env:RUNNER_TEMP "qwenpaw-desktop.pid"
+          if (Test-Path $pidFile) {
+            $pidValue = (Get-Content $pidFile | Select-Object -First 1).Trim()
+            if ($pidValue) { taskkill /F /PID $pidValue 2>$null | Out-Null }
+          }
+          exit 0
+
+  tauri-macos:
+    if: >-
+      inputs.platforms == 'all' ||
+      inputs.platforms == 'tauri-only' ||
+      inputs.platforms == 'macos-only'
+    runs-on: macos-14
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Get version
+        id: version
+        uses: ./.github/actions/get-version
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Install packaging helper dependencies
+        run: python -m pip install packaging
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: console/package-lock.json
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build Tauri macOS package
+        env:
+          NODE_OPTIONS: "--max-old-space-size=8192"
+          # Authenticate the python-build-standalone release lookup in
+          # stage_python_runtime.py to avoid anonymous API rate limits.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Required for cargo tauri build to produce the *.app.tar.gz
+          # updater archive that generate_update_manifest.py stage
+          # expects at the end of build_macos_pyinstaller.sh. Forks
+          # can use a self-generated minisign key pair — the signed
+          # archive is only consumed by the verify step, never by
+          # real users (who validate updates against the upstream
+          # pubkey baked into tauri.conf.json).
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          TAURI_UPDATER_PUBKEY: ${{ vars.TAURI_UPDATER_PUBKEY }}
+        run: |
+          chmod +x scripts/pack-tauri/build_macos_pyinstaller.sh
+          bash scripts/pack-tauri/build_macos_pyinstaller.sh
+
+      - name: Verify desktop (Tauri macOS)
+        timeout-minutes: 10
+        uses: ./.github/actions/verify-tauri-macos
+        with:
+          dashscope-api-key: ${{ secrets.QWENPAW_DASHSCOPE_API_KEY }}
+          allow-flaky-llm: "true"
+
+      - name: Stop desktop server
+        if: always()
+        run: |
+          pkill -f "QwenPaw Desktop" 2>/dev/null || true
+          pkill -f "qwenpaw-backend" 2>/dev/null || true
+          sleep 2
+          pkill -9 -f "QwenPaw Desktop" 2>/dev/null || true
+          pkill -9 -f "qwenpaw-backend" 2>/dev/null || true
+
+  tauri-windows:
+    if: >-
+      inputs.platforms == 'all' ||
+      inputs.platforms == 'tauri-only' ||
+      inputs.platforms == 'windows-only'
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Get version
+        id: version
+        uses: ./.github/actions/get-version
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Install packaging helper dependencies
+        run: python -m pip install packaging
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: console/package-lock.json
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install NSIS
+        uses: negrutiu/nsis-install@v2
+
+      - name: Build Tauri Windows package
+        shell: pwsh
+        env:
+          # Authenticate the python-build-standalone release lookup in
+          # stage_python_runtime.py to avoid anonymous API rate limits.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: ./scripts/pack-tauri/build_win_pyinstaller.ps1
+
+      - name: Stage Tauri Windows installer
+        shell: pwsh
+        run: |
+          $installer = Get-ChildItem "console/src-tauri/target/release/bundle/nsis/*.exe" |
+            Select-Object -First 1
+          if (-not $installer) { throw "No Tauri Windows installer found" }
+          $target = "dist/QwenPaw-Tauri-${{ steps.version.outputs.version }}-Windows-setup.exe"
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          Copy-Item -Force $installer.FullName $target
+          Write-Host "Staged: $target"
+
+      - name: Verify desktop (Tauri Windows)
+        timeout-minutes: 10
+        uses: ./.github/actions/verify-tauri-windows
+        with:
+          dashscope-api-key: ${{ secrets.QWENPAW_DASHSCOPE_API_KEY }}
+          allow-flaky-llm: "true"
+
+      - name: Stop desktop server
+        if: always()
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Continue"
+          Get-Process -Name "qwenpaw-desktop" -ErrorAction SilentlyContinue |
+            Stop-Process -Force -ErrorAction SilentlyContinue
+          Get-Process -Name "qwenpaw-backend" -ErrorAction SilentlyContinue |
+            Stop-Process -Force -ErrorAction SilentlyContinue
+          Start-Sleep -Seconds 2
+          Get-Process -Name "qwenpaw-desktop" -ErrorAction SilentlyContinue |
+            Stop-Process -Force -ErrorAction SilentlyContinue
+          Get-Process -Name "qwenpaw-backend" -ErrorAction SilentlyContinue |
+            Stop-Process -Force -ErrorAction SilentlyContinue
+          exit 0

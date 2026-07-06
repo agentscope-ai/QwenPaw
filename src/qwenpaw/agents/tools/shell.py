@@ -12,10 +12,11 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 from agentscope.message import TextBlock
-from agentscope.tool import ToolResponse
+from agentscope.tool import ToolChunk
+from agentscope.message import ToolResultState
 
 from ...constant import WORKING_DIR
 from ...config.context import (
@@ -23,8 +24,10 @@ from ...config.context import (
     get_current_shell_command_timeout,
     get_current_workspace_dir,
 )
+from ...runtime.tool_registry import tool_descriptor
 
-DESKTOP_APP_ENV = "QWENPAW_DESKTOP_APP"
+
+from ...sandbox import ExecutionResult
 
 
 def _kill_process_tree_win32(pid: int) -> None:
@@ -46,10 +49,7 @@ def _kill_process_tree_win32(pid: int) -> None:
 
 def _windows_shell_creationflags() -> int:
     """Return Windows process flags for shell commands."""
-    flags = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
-    if os.environ.get(DESKTOP_APP_ENV):
-        flags |= getattr(subprocess, "CREATE_NO_WINDOW", 0)
-    return flags
+    return getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
 
 
 def _collapse_newlines_outside_quotes(cmd: str) -> str:
@@ -363,25 +363,46 @@ def _execute_subprocess_sync(
                     pass
 
 
-_DANGER_NAMES = {"python", "pythonw", "cmd", "powershell", "pwsh", "conhost"}
+async def _execute_in_sandbox(
+    cmd: str,
+    sandbox_config: Any,
+    timeout: float,
+    cwd: str,
+) -> ExecutionResult:
+    """Execute a shell command inside the sandbox and return raw result."""
+    from ...sandbox import create_sandbox
 
-# Prefix that ensures kill/taskkill is at command start or after a separator
-# (&&, ;, |).  Prevents false positives like echo "do not kill python".
+    sandbox_config.timeout_seconds = int(timeout)
+
+    async with create_sandbox(sandbox_config) as sandbox:
+        result = await sandbox.execute(cmd, cwd=cwd)
+
+    return result
+
+
+_DANGER_NAMES = {
+    "python",
+    "pythonw",
+    "cmd",
+    "powershell",
+    "pwsh",
+    "conhost",
+}
+
+# Prefix: kill/taskkill at command start or after &&, ;, |
 _KILL_PREFIX = r"(?:^|[;&|]\s*)\s*"
 
 # Matches PID-based kills: taskkill /PID 123, kill -9 123, kill 123.
-# Uses greedy .* to capture the last number (PID), not intermediate flags like -9.
-# \b ensures "kill" is matched as a whole word (e.g. "skill" won't trigger).
 _KILL_PID_RE = re.compile(
-    rf"{_KILL_PREFIX}(?:taskkill|kill|stop-process)\b.*(?:/PID|-p|-pid|\b)\s*(\d+)",
+    rf"{_KILL_PREFIX}(?:taskkill|kill|stop-process)\b"
+    rf".*(?:/PID|-p|-pid|\b)\s*(\d+)",
     re.IGNORECASE,
 )
 
 # Matches dangerous process names as /IM targets or bare kill targets.
-# \b word boundaries prevent false positives (e.g. "command" → "cmd",
-# "skill" → "kill", "pythonic" → "python").
 _DANGER_NAME_RE = re.compile(
-    rf"{_KILL_PREFIX}(?:taskkill|kill|stop-process)\b.*?\b({'|'.join(_DANGER_NAMES)})(?:\.exe)?\b",
+    rf"{_KILL_PREFIX}(?:taskkill|kill|stop-process)\b"
+    rf".*?\b({'|'.join(_DANGER_NAMES)})(?:\.exe)?\b",
     re.IGNORECASE,
 )
 
@@ -397,21 +418,19 @@ def _is_dangerous_self_kill(cmd: str) -> bool:
 
     Blocks three patterns:
     1. ``taskkill /IM <dangerous_name>`` — kills by image name.
-    2. ``kill <pid>`` / ``taskkill /PID <pid>`` targeting our PID or parent.
+    2. ``kill <pid>`` / ``taskkill /PID <pid>`` targeting our PID or
+       parent.
     3. Shell variable self-kill: ``kill -9 $$``, ``kill $PPID``.
     """
     lower = cmd.lower()
 
-    # Rule 1: Block killing by dangerous process names
     if _DANGER_NAME_RE.search(lower):
         return True
 
-    # Rule 2: Block shell variable self-kill ($$ = current PID, $PPID = parent)
     if "kill" in lower or "stop-process" in lower:
         if any(var in lower for var in _SHELL_PID_VARS):
             return True
 
-    # Rule 3: Block targeted PID kill matching current or parent PID
     m = _KILL_PID_RE.search(lower)
     if m:
         try:
@@ -428,11 +447,13 @@ def _is_dangerous_self_kill(cmd: str) -> bool:
 
 
 # pylint: disable=too-many-branches, too-many-statements
+@tool_descriptor(requires_sandbox=("shell_exec",), async_execution=True)
 async def execute_shell_command(
     command: str,
     timeout: float = 60.0,
     cwd: Optional[Path] = None,
-) -> ToolResponse:
+    sandbox_config: Optional[Any] = None,
+) -> ToolChunk:
     """Execute a shell command and return its output.
 
     Each call runs in a fresh subprocess — `cd`, `export`, `source`,
@@ -452,9 +473,13 @@ async def execute_shell_command(
         cwd (`Optional[Path]`, defaults to `None`):
             The working directory for the command execution.
             If None, defaults to the agent workspace.
+        sandbox_config (`Optional[Any]`, defaults to `None`):
+            Sandbox execution configuration compiled from governance policy.
+            When provided, the command executes within a sandboxed environment
+            with the specified mount permissions and network restrictions.
 
     Returns:
-        `ToolResponse`:
+        `ToolChunk`:
             The tool response containing the return code, standard output, and
             standard error of the executed command. If timeout occurs, the
             return code will be -1 and stderr will contain timeout information.
@@ -462,17 +487,17 @@ async def execute_shell_command(
 
     cmd = _collapse_embedded_newlines((command or "").strip())
 
-    # Guard against self-kill: block taskkill / kill commands that target
-    # the current process tree.  LLMs may generate these accidentally
-    # (e.g. "taskkill /F /IM python.exe") which would terminate QwenPaw.
     if _is_dangerous_self_kill(cmd):
-        return ToolResponse(
+        return ToolChunk(
+            is_last=True,
+            state=ToolResultState.ERROR,
             content=[
                 TextBlock(
                     type="text",
                     text=(
-                        "Blocked: this command would self-kill the current "
-                        "process and is not allowed."
+                        "Blocked: this command would terminate the "
+                        "QwenPaw process or its parent. "
+                        "Refusing to execute."
                     ),
                 ),
             ],
@@ -512,6 +537,57 @@ async def execute_shell_command(
         or None
     )
 
+    if sandbox_config is not None:
+        result = await _execute_in_sandbox(
+            cmd,
+            sandbox_config,
+            timeout,
+            str(working_dir),
+        )
+        # Sandbox violation: command tried to access something not permitted
+        if result.sandbox_violation:
+            return ToolChunk(
+                is_last=True,
+                state=ToolResultState.DENIED,
+                content=[
+                    TextBlock(
+                        type="text",
+                        text=f"Sandbox violation: {result.sandbox_violation}\n"
+                        f"Command was blocked by sandbox security policy.",
+                    ),
+                ],
+                metadata={"sandbox_violation": result.sandbox_violation},
+            )
+        if result.exit_code == 0:
+            response_text = (
+                result.stdout or "Command executed successfully (no output)."
+            )
+            if result.stderr:
+                response_text += f"\n[stderr]\n{result.stderr}"
+        else:
+            parts = [f"Command failed with exit code {result.exit_code}."]
+            if result.stdout:
+                parts.append(f"\n[stdout]\n{result.stdout}")
+            if result.stderr:
+                parts.append(f"\n[stderr]\n{result.stderr}")
+            response_text = "".join(parts)
+        return ToolChunk(
+            is_last=True,
+            state=ToolResultState.SUCCESS,
+            content=[
+                TextBlock(
+                    type="text",
+                    text=response_text,
+                ),
+            ],
+        )
+
+    import logging as _logging
+
+    _logging.getLogger(__name__).debug(
+        "[sandbox] SKIP: sandbox_config is None, executing directly",
+    )
+
     try:
         if sys.platform == "win32":
             # Windows: use thread pool to avoid asyncio subprocess limitations
@@ -538,15 +614,17 @@ async def execute_shell_command(
             try:
                 # Apply timeout to communicate directly; wait()+communicate()
                 # can hang if descendants keep stdout/stderr pipes open.
-                stdout, stderr = await asyncio.wait_for(
+                from ...tool_calls import cancellable_wait
+
+                stdout, stderr = await cancellable_wait(
                     proc.communicate(),
-                    timeout=timeout,
+                    fallback_secs=timeout,
                 )
                 stdout_str = smart_decode(stdout)
                 stderr_str = smart_decode(stderr)
                 returncode = proc.returncode
 
-            except asyncio.TimeoutError:
+            except (asyncio.TimeoutError, asyncio.CancelledError):
                 stderr_suffix = (
                     f"⚠️ TimeoutError: The command execution exceeded "
                     f"the timeout of {timeout} seconds. "
@@ -605,7 +683,9 @@ async def execute_shell_command(
                 response_parts.append(f"\n[stderr]\n{stderr_str}")
             response_text = "".join(response_parts)
 
-        return ToolResponse(
+        return ToolChunk(
+            is_last=True,
+            state=ToolResultState.SUCCESS,
             content=[
                 TextBlock(
                     type="text",
@@ -615,7 +695,9 @@ async def execute_shell_command(
         )
 
     except Exception as e:
-        return ToolResponse(
+        return ToolChunk(
+            is_last=True,
+            state=ToolResultState.SUCCESS,
             content=[
                 TextBlock(
                     type="text",

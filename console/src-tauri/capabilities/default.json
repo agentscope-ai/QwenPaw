@@ -10,7 +10,10 @@
     "backend",
     "backend-download",
     "core:default",
+    "desktop-updater-check",
+    "desktop-updater-install",
     "dialog:allow-save",
-    "open-external-link"
+    "open-external-link",
+    "tray"
   ]
 }

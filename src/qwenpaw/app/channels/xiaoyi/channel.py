@@ -28,7 +28,7 @@ from urllib.parse import urlparse
 
 import aiohttp
 
-from agentscope_runtime.engine.schemas.agent_schemas import (
+from ....schemas import (
     FileContent,
     ImageContent,
     ContentType,
@@ -59,7 +59,7 @@ from .utils import download_file
 logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
-    from agentscope_runtime.engine.schemas.agent_schemas import AgentRequest
+    from ....schemas import AgentRequest
 
 # Type alias for message/disconnect callbacks
 _OnMessage = Callable[[Dict[str, Any], str], Coroutine[Any, Any, None]]
@@ -361,6 +361,7 @@ class XiaoYiChannel(BaseChannel):
         on_reply_sent: OnReplySent = None,
         show_tool_details: bool = True,
         filter_tool_messages: bool = False,
+        no_text_debounce: bool = True,
         filter_thinking: bool = False,
         bot_prefix: str = "",
         media_dir: str = "",
@@ -373,6 +374,7 @@ class XiaoYiChannel(BaseChannel):
             on_reply_sent=on_reply_sent,
             show_tool_details=show_tool_details,
             filter_tool_messages=filter_tool_messages,
+            no_text_debounce=no_text_debounce,
             filter_thinking=filter_thinking,
             access_control_dm=access_control_dm,
             access_control_group=access_control_group,
@@ -438,6 +440,7 @@ class XiaoYiChannel(BaseChannel):
         on_reply_sent: OnReplySent = None,
         show_tool_details: bool = True,
         filter_tool_messages: bool = False,
+        no_text_debounce: bool = True,
         filter_thinking: bool = False,
         workspace_dir: Path | None = None,
     ) -> "XiaoYiChannel":
@@ -455,6 +458,7 @@ class XiaoYiChannel(BaseChannel):
                 on_reply_sent=on_reply_sent,
                 show_tool_details=show_tool_details,
                 filter_tool_messages=filter_tool_messages,
+                no_text_debounce=no_text_debounce,
                 filter_thinking=filter_thinking,
                 bot_prefix=config.get("bot_prefix", ""),
                 media_dir=config.get("media_dir", ""),
@@ -477,6 +481,7 @@ class XiaoYiChannel(BaseChannel):
             on_reply_sent=on_reply_sent,
             show_tool_details=show_tool_details,
             filter_tool_messages=filter_tool_messages,
+            no_text_debounce=no_text_debounce,
             filter_thinking=filter_thinking,
             bot_prefix=config.bot_prefix,
             media_dir=getattr(config, "media_dir", ""),
@@ -1333,7 +1338,7 @@ class XiaoYiChannel(BaseChannel):
         - kind="reasoningText": For thinking/reasoning content
         - kind="text": For regular text content
         """
-        from agentscope_runtime.engine.schemas.agent_schemas import (
+        from ....schemas import (
             MessageType,
         )
 

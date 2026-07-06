@@ -48,6 +48,8 @@ class ServiceDescriptor:
         dependencies: List of service names that must start before this one
         priority: Startup priority (lower = earlier, reversed for shutdown)
         concurrent_init: Whether this can be initialized concurrently
+        optional: If True, a failure during start logs but does not abort
+            the workspace; the service is simply absent.
     """
 
     name: str
@@ -71,6 +73,7 @@ class ServiceDescriptor:
     dependencies: List[str] = field(default_factory=list)
     priority: int = 100
     concurrent_init: bool = True
+    optional: bool = False
 
 
 class ServiceManager:
@@ -243,6 +246,13 @@ class ServiceManager:
                 )
 
         except Exception as e:
+            if descriptor.optional:
+                logger.warning(
+                    f"Optional service '{name}' failed to start for "
+                    f"{self.workspace.agent_id} (continuing without it): {e}",
+                )
+                self.services.pop(name, None)
+                return
             logger.exception(
                 f"Failed to start service '{name}' "
                 f"for {self.workspace.agent_id}: {e}",

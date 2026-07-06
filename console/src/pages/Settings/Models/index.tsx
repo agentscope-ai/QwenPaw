@@ -21,7 +21,11 @@ import {
 import { PageHeader } from "@/components/PageHeader";
 import { useTranslation } from "react-i18next";
 import type { ProviderInfo } from "../../../api/types/provider";
-import { getIsConfigured, groupProviders } from "./utils";
+import {
+  countConfiguredProviders,
+  getIsConfigured,
+  groupProviders,
+} from "./utils";
 import { ProviderIcon } from "./components/ProviderIconComponent";
 import styles from "./index.module.less";
 
@@ -65,7 +69,7 @@ function ModelsPage() {
   }, [providers, searchParams, setSearchParams]);
 
   const refreshProvidersSilently = useCallback(() => {
-    void fetchAll(false);
+    return fetchAll(false);
   }, [fetchAll]);
 
   const handleTabChange = useCallback((tab: "cloud" | "local") => {
@@ -254,6 +258,15 @@ function ModelsPage() {
     };
   }, [providers, deferredSearchQuery]);
 
+  const configuredCloudProviderCount = useMemo(
+    () =>
+      countConfiguredProviders([
+        ...cloudConfiguredGrouped.flatMap((g) => g.providers),
+        ...cloudConfiguredUngrouped,
+      ]),
+    [cloudConfiguredGrouped, cloudConfiguredUngrouped],
+  );
+
   const renderProviderCards = (list: ProviderInfo[]) =>
     list.map((provider) => (
       <ProviderCard
@@ -326,6 +339,7 @@ function ModelsPage() {
                       prefix={<SearchOutlined />}
                       allowClear
                       autoComplete="off"
+                      name="models-provider-search-nofill"
                       data-form-type="other"
                     />
                     <Button
@@ -388,10 +402,7 @@ function ModelsPage() {
                       <span className={styles.panelDotGreen} />
                       {t("models.configuredGroup")}
                       <span className={styles.panelCount}>
-                        {cloudConfiguredGrouped.reduce(
-                          (n, g) => n + g.providers.length,
-                          0,
-                        ) + cloudConfiguredUngrouped.length}{" "}
+                        {configuredCloudProviderCount}{" "}
                         {t("models.configuredOnline")}
                       </span>
                     </div>
@@ -558,6 +569,7 @@ function ModelsPage() {
                 open={!!modelsModalProvider}
                 onClose={() => setModelsModalProvider(null)}
                 onSaved={refreshProvidersSilently}
+                onProviderUpdated={(p) => setModelsModalProvider(p)}
               />
             )}
 

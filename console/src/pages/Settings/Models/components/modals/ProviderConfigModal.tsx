@@ -609,6 +609,7 @@ export function ProviderConfigModal({
   return (
     <Modal
       width={800}
+      className={styles.modelManageModal}
       title={t("models.configureProvider", { name: provider.name })}
       open={open}
       onCancel={onClose}
@@ -678,6 +679,10 @@ export function ProviderConfigModal({
                 {
                   value: "OpenAIChatModel",
                   label: t("models.protocolOpenAI"),
+                },
+                {
+                  value: "OpenAIResponseModel",
+                  label: t("models.protocolOpenAIResponse"),
                 },
                 {
                   value: "AnthropicChatModel",

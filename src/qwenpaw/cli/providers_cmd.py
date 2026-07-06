@@ -8,7 +8,7 @@ from typing import Optional
 
 import click
 
-from agentscope_runtime.engine.schemas.exception import (
+from qwenpaw.exceptions import (
     AppBaseException,
 )
 

@@ -6,6 +6,8 @@ from datetime import datetime
 from types import SimpleNamespace
 from typing import Any
 
+from agentscope.credential import OpenAICredential
+
 from qwenpaw.providers.openai_chat_model_compat import (
     OpenAIChatModelCompat,
     _sanitize_tool_call,
@@ -19,7 +21,7 @@ class CompatHarnessOpenAIChatModel(OpenAIChatModelCompat):
         stream: Any,
     ) -> list[Any]:
         responses = []
-        async for response in self._parse_openai_stream_response(
+        async for response in self._parse_stream_response(
             start_datetime,
             stream,
         ):
@@ -62,8 +64,11 @@ def _make_chunk(tool_calls: list[Any]) -> Any:
 
 async def test_stream_parser_skips_tool_call_without_function() -> None:
     model = CompatHarnessOpenAIChatModel(
-        "dummy",
-        api_key="sk-test",
+        credential=OpenAICredential(
+            api_key="sk-test",
+            base_url="https://api.openai.com/v1",
+        ),
+        model="dummy",
         stream=True,
     )
 
@@ -101,11 +106,15 @@ async def test_stream_parser_skips_tool_call_without_function() -> None:
         block
         for response in responses
         for block in response.content
-        if block.get("type") == "tool_use"
+        if getattr(block, "type", None) in ("tool_use", "tool_call")
     ]
     assert tool_blocks
-    assert tool_blocks[-1]["name"] == "ping"
-    assert tool_blocks[-1]["input"] == {"x": 1}
+    last = tool_blocks[-1]
+    assert getattr(last, "name", None) == "ping"
+    block_input = getattr(last, "input", None)
+    if isinstance(block_input, str):
+        block_input = json.loads(block_input)
+    assert block_input == {"x": 1}
 
 
 def test_sanitize_tool_call_normalizes_non_string_arguments() -> None:

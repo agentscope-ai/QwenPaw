@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 import { FileTextOutlined } from "@ant-design/icons";
 import type { ToolCallContent } from "../shared/types";
 import { ToolCardShell, DefaultBlock } from "../shared";
-import { shortFileName, countLines } from "../shared/utils";
+import { shortFileName, countLines, stringifyResult } from "../shared/utils";
 import styles from "../shared/toolCards.module.less";
 
 export interface ReadFileCardProps {
@@ -20,8 +20,8 @@ const ReadFileCard: React.FC<ReadFileCardProps> = ({
   const file = shortFileName((params.file_path || params.path || "") as string);
   const title = file ? t("tool.readFile", { file }) : t("tool.readFileDefault");
 
-  const resultText = typeof content.result === "string" ? content.result : "";
-  const lineCount = countLines(content.result);
+  const resultText = stringifyResult(content.result);
+  const lineCount = countLines(resultText);
 
   const badge =
     content.status === "done" && lineCount > 0 ? (

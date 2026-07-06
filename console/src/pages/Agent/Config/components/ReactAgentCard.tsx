@@ -1,4 +1,3 @@
-import { useCallback, useEffect, useState } from "react";
 import {
   Form,
   Input,
@@ -10,8 +9,6 @@ import {
 } from "@agentscope-ai/design";
 import { useTranslation } from "react-i18next";
 import { useTimezoneOptions } from "../../../../hooks/useTimezoneOptions";
-import { planApi } from "../../../../api/modules/plan";
-import { useAgentStore } from "../../../../stores/agentStore";
 import {
   CONTEXT_MANAGER_BACKEND_OPTIONS,
   MEMORY_MANAGER_BACKEND_OPTIONS,
@@ -43,39 +40,6 @@ export function ReactAgentCard({
   onTimezoneChange,
 }: ReactAgentCardProps) {
   const { t } = useTranslation();
-  const { selectedAgent } = useAgentStore();
-  const [planEnabled, setPlanEnabled] = useState(false);
-  const [planLoading, setPlanLoading] = useState(false);
-
-  useEffect(() => {
-    let cancelled = false;
-    planApi
-      .getPlanConfig()
-      .then((cfg) => {
-        if (!cancelled) setPlanEnabled(cfg.enabled);
-      })
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
-  }, [selectedAgent]);
-
-  const handlePlanToggle = useCallback(
-    async (checked: boolean) => {
-      setPlanLoading(true);
-      const prev = planEnabled;
-      setPlanEnabled(checked);
-      try {
-        const res = await planApi.updatePlanConfig({ enabled: checked });
-        setPlanEnabled(res.enabled);
-      } catch {
-        setPlanEnabled(prev);
-      } finally {
-        setPlanLoading(false);
-      }
-    },
-    [planEnabled],
-  );
 
   return (
     <Card className={styles.formCard} title={t("agentConfig.reactAgentTitle")}>
@@ -114,23 +78,6 @@ export function ReactAgentCard({
             loading={savingTimezone}
             disabled={savingTimezone}
             style={{ width: "100%" }}
-          />
-        </Form.Item>
-
-        <Form.Item
-          label={t("agentConfig.maxIters")}
-          name="max_iters"
-          rules={[
-            { required: true, message: t("agentConfig.maxItersRequired") },
-            { type: "number", min: 1, message: t("agentConfig.maxItersMin") },
-          ]}
-          tooltip={t("agentConfig.maxItersTooltip")}
-          className={styles.reactAgentField}
-        >
-          <InputNumber
-            style={{ width: "100%" }}
-            min={1}
-            placeholder={t("agentConfig.maxItersPlaceholder")}
           />
         </Form.Item>
 
@@ -174,15 +121,6 @@ export function ReactAgentCard({
       </div>
 
       <Form.Item
-        label={t("agentConfig.autoContinueOnTextOnly")}
-        name="auto_continue_on_text_only"
-        valuePropName="checked"
-        tooltip={t("agentConfig.autoContinueOnTextOnlyTooltip")}
-      >
-        <Switch />
-      </Form.Item>
-
-      <Form.Item
         label={t("agentConfig.autoGenerateSessionTitle")}
         name={["auto_title_config", "enabled"]}
         valuePropName="checked"
@@ -205,6 +143,27 @@ export function ReactAgentCard({
         </Form.Item>
 
         <Form.Item
+          label={t("agentConfig.contextStrategy")}
+          name={["light_context_config", "strategy"]}
+          tooltip={t("agentConfig.contextStrategyTooltip")}
+          className={styles.reactAgentField}
+        >
+          <Select
+            options={[
+              {
+                value: "scroll",
+                label: t("agentConfig.contextStrategyScroll"),
+              },
+              {
+                value: "native",
+                label: t("agentConfig.contextStrategyNative"),
+              },
+            ]}
+            style={{ width: "100%" }}
+          />
+        </Form.Item>
+
+        <Form.Item
           label={t("agentConfig.memoryManagerBackend")}
           name="memory_manager_backend"
           tooltip={t("agentConfig.memoryManagerBackendTooltip")}
@@ -222,20 +181,6 @@ export function ReactAgentCard({
         message={t("agentConfig.backendRestartWarning")}
         style={{ marginBottom: 16 }}
       />
-
-      <Form.Item
-        label={t("agentConfig.planMode", "Plan Mode")}
-        tooltip={t(
-          "agentConfig.planModeTooltip",
-          "Enable plan mode to use /plan <description> for structured task planning",
-        )}
-      >
-        <Switch
-          checked={planEnabled}
-          loading={planLoading}
-          onChange={handlePlanToggle}
-        />
-      </Form.Item>
     </Card>
   );
 }

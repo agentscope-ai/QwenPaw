@@ -6,7 +6,7 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
-from agentscope_runtime.engine.schemas.agent_schemas import (
+from qwenpaw.schemas import (
     ContentType,
     TextContent,
 )
@@ -415,7 +415,7 @@ class TestSend:
 
 class TestSendMedia:
     async def test_send_image(self):
-        from agentscope_runtime.engine.schemas.agent_schemas import (
+        from qwenpaw.schemas import (
             ImageContent,
         )
 
@@ -432,7 +432,7 @@ class TestSendMedia:
         assert args[1]["message"][0]["type"] == "image"
 
     async def test_send_audio(self):
-        from agentscope_runtime.engine.schemas.agent_schemas import (
+        from qwenpaw.schemas import (
             AudioContent,
         )
 
@@ -445,7 +445,7 @@ class TestSendMedia:
         assert args[1]["message"][0]["type"] == "record"
 
     async def test_send_video(self):
-        from agentscope_runtime.engine.schemas.agent_schemas import (
+        from qwenpaw.schemas import (
             VideoContent,
         )
 
@@ -461,7 +461,7 @@ class TestSendMedia:
         assert args[1]["message"][0]["type"] == "video"
 
     async def test_send_file_private(self):
-        from agentscope_runtime.engine.schemas.agent_schemas import (
+        from qwenpaw.schemas import (
             FileContent,
         )
 
@@ -483,7 +483,7 @@ class TestSendMedia:
         )
 
     async def test_send_file_to_group(self):
-        from agentscope_runtime.engine.schemas.agent_schemas import (
+        from qwenpaw.schemas import (
             FileContent,
         )
 
@@ -509,7 +509,7 @@ class TestSendMedia:
         )
 
     async def test_send_file_no_url_noop(self):
-        from agentscope_runtime.engine.schemas.agent_schemas import (
+        from qwenpaw.schemas import (
             FileContent,
         )
 
@@ -520,7 +520,7 @@ class TestSendMedia:
         ch._call_api.assert_not_called()
 
     async def test_send_image_to_group(self):
-        from agentscope_runtime.engine.schemas.agent_schemas import (
+        from qwenpaw.schemas import (
             ImageContent,
         )
 
@@ -828,7 +828,7 @@ class TestPreviewText:
         assert OneBotChannel._preview_text(parts) == "hello world"
 
     def test_non_text_content(self):
-        from agentscope_runtime.engine.schemas.agent_schemas import (
+        from qwenpaw.schemas import (
             ImageContent,
         )
 

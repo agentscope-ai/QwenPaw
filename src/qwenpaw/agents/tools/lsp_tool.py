@@ -14,7 +14,8 @@ from pathlib import Path
 from typing import Any, Callable, Optional
 
 from agentscope.message import TextBlock
-from agentscope.tool import ToolResponse
+from agentscope.tool import ToolChunk
+from agentscope.message import ToolResultState
 
 from ...config.context import get_current_workspace_dir
 from ...constant import WORKING_DIR
@@ -46,8 +47,12 @@ _ALL_OPERATIONS = _OPERATIONS_REQUIRING_FILE | {"workspaceSymbol"}
 # ---------------------------------------------------------------------
 
 
-def _make_response(text: str) -> ToolResponse:
-    return ToolResponse(content=[TextBlock(type="text", text=text)])
+def _make_response(text: str) -> ToolChunk:
+    return ToolChunk(
+        is_last=True,
+        state=ToolResultState.SUCCESS,
+        content=[TextBlock(type="text", text=text)],
+    )
 
 
 def _resolve_root() -> Path:
@@ -60,7 +65,7 @@ def _resolve_root() -> Path:
 def _resolve_file(
     file_path: str,
     root: Path,
-) -> "Path | ToolResponse":
+) -> "Path | ToolChunk":
     """Resolve ``file_path`` and ensure it lives inside ``root``."""
     if not file_path:
         return _make_response("Error: missing `file_path`.")
@@ -175,7 +180,7 @@ def make_lsp_tool(  # noqa: C901  pylint: disable=too-many-statements
         line: int = 0,
         character: int = 0,
         query: str = "",
-    ) -> ToolResponse:
+    ) -> ToolChunk:
         # pylint: disable=too-many-return-statements,too-many-branches
         if operation not in _ALL_OPERATIONS:
             return _make_response(
@@ -206,7 +211,7 @@ def make_lsp_tool(  # noqa: C901  pylint: disable=too-many-statements
             target_file: Optional[Path] = None
         else:
             resolved_or_err = _resolve_file(file_path, root)
-            if isinstance(resolved_or_err, ToolResponse):
+            if isinstance(resolved_or_err, ToolChunk):
                 return resolved_or_err
             target_file = resolved_or_err
             language_id = lsp_servers.language_for_file(target_file) or ""
@@ -249,11 +254,13 @@ def make_lsp_tool(  # noqa: C901  pylint: disable=too-many-statements
             )
 
         try:
-            result = await asyncio.wait_for(
+            from ...tool_calls import cancellable_wait
+
+            result = await cancellable_wait(
                 asyncio.to_thread(_run),
-                timeout=_REQUEST_TIMEOUT,
+                fallback_secs=_REQUEST_TIMEOUT,
             )
-        except asyncio.TimeoutError:
+        except (asyncio.TimeoutError, asyncio.CancelledError):
             return _make_response(
                 f"Error: LSP {operation} timed out after "
                 f"{_REQUEST_TIMEOUT}s.",

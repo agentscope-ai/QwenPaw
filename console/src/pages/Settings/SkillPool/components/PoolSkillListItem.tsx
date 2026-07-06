@@ -8,7 +8,7 @@ import {
   getPoolBuiltinStatusTone,
   isSkillBuiltin,
 } from "@/utils/skill";
-import { getSkillVisual } from "../../../Agent/Skills/components";
+import { SkillVisual } from "@/components/SkillVisual";
 import { SkillTagChips } from "./SkillMeta";
 import styles from "../index.module.less";
 dayjs.extend(relativeTime);
@@ -58,7 +58,11 @@ export function PoolSkillListItem({
       )}
       <div className={styles.listItemLeft}>
         <span className={styles.fileIcon}>
-          {getSkillVisual(skill.name, skill.emoji)}
+          <SkillVisual
+            name={skill.name}
+            emoji={skill.emoji}
+            emojiClassName={styles.skillEmoji}
+          />
         </span>
         <div className={styles.listItemInfo}>
           <div className={styles.listItemHeader}>

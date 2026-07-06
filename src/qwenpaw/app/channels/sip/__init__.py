@@ -52,6 +52,7 @@ class SIPChannel(BaseChannel):
         on_reply_sent: OnReplySent = None,
         show_tool_details: bool = True,
         filter_tool_messages: bool = False,
+        no_text_debounce: bool = True,
         filter_thinking: bool = False,
     ) -> None:
         super().__init__(
@@ -59,6 +60,7 @@ class SIPChannel(BaseChannel):
             on_reply_sent,
             show_tool_details,
             filter_tool_messages=filter_tool_messages,
+            no_text_debounce=no_text_debounce,
             filter_thinking=filter_thinking,
         )
         self.backend: Optional[SipBackend] = None
@@ -81,6 +83,7 @@ class SIPChannel(BaseChannel):
         on_reply_sent: OnReplySent = None,
         show_tool_details: bool = True,
         filter_tool_messages: bool = False,
+        no_text_debounce: bool = True,
         filter_thinking: bool = False,
     ) -> "SIPChannel":
         instance = cls(
@@ -88,6 +91,7 @@ class SIPChannel(BaseChannel):
             on_reply_sent,
             show_tool_details,
             filter_tool_messages=filter_tool_messages,
+            no_text_debounce=no_text_debounce,
             filter_thinking=filter_thinking,
         )
         instance._config = config
@@ -262,7 +266,7 @@ class SIPChannel(BaseChannel):
         self,
         native_payload: Any,
     ) -> Any:
-        from agentscope_runtime.engine.schemas.agent_schemas import (
+        from qwenpaw.schemas import (
             AgentRequest,
             ContentType,
             Message,
@@ -600,11 +604,9 @@ class SIPChannel(BaseChannel):
 
         try:
             # Import here to avoid top-level dependency
-            from agentscope_runtime.engine.schemas import (
-                agent_schemas as _as,
-            )
+            from qwenpaw.schemas import RunStatus
 
-            completed = _as.RunStatus.Completed
+            completed = RunStatus.Completed
             async for event in self._process(request):
                 obj = getattr(event, "object", None)
                 status = getattr(event, "status", None)

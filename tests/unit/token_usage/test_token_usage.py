@@ -489,7 +489,7 @@ class TestTokenRecordingModelWrapper:
         )
 
         mock_model = MagicMock()
-        mock_model.model_name = "gpt-4"
+        mock_model.model = "gpt-4"
 
         wrapper = TokenRecordingModelWrapper(
             provider_id="openai",
@@ -498,7 +498,7 @@ class TestTokenRecordingModelWrapper:
 
         assert wrapper._provider_id == "openai"
         assert wrapper._model is mock_model
-        assert wrapper.model_name == "gpt-4"
+        assert wrapper.model == "gpt-4"
 
     def test_record_usage_with_valid_usage(self, tmp_path, monkeypatch):
         """Should record valid usage."""
@@ -512,7 +512,7 @@ class TestTokenRecordingModelWrapper:
         )
 
         mock_model = MagicMock()
-        mock_model.model_name = "gpt-4"
+        mock_model.model = "gpt-4"
 
         wrapper = TokenRecordingModelWrapper(
             provider_id="openai",
@@ -524,6 +524,45 @@ class TestTokenRecordingModelWrapper:
         mock_usage.output_tokens = 50
 
         wrapper._record_usage(mock_usage)
+
+    def test_record_usage_includes_context_and_threshold(
+        self,
+        tmp_path,
+        monkeypatch,
+    ):
+        """Per-call usage carries context_size and compaction threshold."""
+        monkeypatch.setattr(
+            "qwenpaw.token_usage.manager.WORKING_DIR",
+            tmp_path,
+        )
+        monkeypatch.setattr(
+            "qwenpaw.token_usage.manager.TOKEN_USAGE_FILE",
+            "test_token_usage.json",
+        )
+        monkeypatch.setattr(
+            "qwenpaw.app.agent_context.get_current_session_id",
+            lambda: "sess-1",
+        )
+
+        mock_model = MagicMock()
+        mock_model.model = "gpt-4"
+        mock_model.context_size = 1_000_000
+
+        wrapper = TokenRecordingModelWrapper(
+            provider_id="openai",
+            model=mock_model,
+            compact_threshold=0.8,
+        )
+
+        mock_usage = MagicMock()
+        mock_usage.input_tokens = 123_000
+        mock_usage.output_tokens = 50
+        wrapper._record_usage(mock_usage)
+
+        stored = TokenRecordingModelWrapper.pop_usage_for_session("sess-1")
+        assert stored is not None
+        assert stored["context_size"] == 1_000_000
+        assert stored["compact_threshold"] == 0.8
 
     def test_pop_usage_for_session(self, monkeypatch):
         """Should pop usage for session."""

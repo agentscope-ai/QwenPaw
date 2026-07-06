@@ -115,6 +115,14 @@ KEYRING_ACCOUNT_ENV = "QWENPAW_KEYRING_ACCOUNT"
 
 PROJECT_NAME = "QwenPaw"
 
+# Message metadata tags shared across agent middleware and memory managers.
+QWENPAW_MESSAGE_TAG_KEY = "qwenpaw_tag"
+AUTO_MEMORY_SEARCH_MESSAGE_TAG = "auto_memory_search"
+AUTO_CONTINUE_MESSAGE_TAG = "auto_continue"
+AUTO_MEMORY_SEARCH_TEXT = (
+    "Find memory relevant to the latest user request and conversation context."
+)
+
 # Subdirectory name inside each agent's workspace that holds cloned / imported
 # coding projects.
 # Full path = <workspace_dir> / CODING_PROJECT_SUBDIR / <name>
@@ -189,6 +197,8 @@ CONFIG_FILE = EnvVarLoader.get_str("QWENPAW_CONFIG_FILE", "config.json")
 HEARTBEAT_FILE = EnvVarLoader.get_str("QWENPAW_HEARTBEAT_FILE", "HEARTBEAT.md")
 HEARTBEAT_DEFAULT_EVERY = "6h"
 HEARTBEAT_DEFAULT_TARGET = "main"
+HEARTBEAT_DEFAULT_TIMEOUT_SECONDS = 300
+HEARTBEAT_MAX_TIMEOUT_SECONDS = 3600
 HEARTBEAT_TARGET_LAST = "last"
 HEARTBEAT_TARGET_INBOX = "inbox"
 
@@ -354,6 +364,7 @@ try:
     )
 except (TypeError, ValueError):
     TOOL_GUARD_APPROVAL_TIMEOUT_SECONDS = 300.0
+
 
 # Tool guard approval heartbeat interval (seconds).
 # Sends periodic heartbeat messages during approval wait to keep SSE

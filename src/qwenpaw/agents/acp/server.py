@@ -8,9 +8,11 @@ Uses the full ``Workspace`` lifecycle so the ACP agent has exactly
 the same capabilities as the web console (MCP tools, memory,
 sub-agent delegation, etc.).
 """
+
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 from pathlib import Path
 from typing import Any
@@ -46,6 +48,7 @@ from acp.schema import (
     Implementation,
     ListSessionsResponse,
     McpServerStdio,
+    PermissionOption,
     ResourceContentBlock,
     ResumeSessionResponse,
     SessionCapabilities,
@@ -58,41 +61,51 @@ from acp.schema import (
     SetSessionConfigOptionResponse,
     SseMcpServer,
     TextContentBlock,
+    ToolCallUpdate,
+    UsageUpdate,
 )
-from agentscope.message import Msg
-from agentscope_runtime.engine.schemas.agent_schemas import (
+from qwenpaw.schemas import (
     AgentRequest,
     Message,
+    MessageType,
+    RunStatus,
 )
 
 from ...__version__ import __version__
 from ...constant import WORKING_DIR
 from ...config.config import ModelSlotConfig
+from ...exceptions import AppBaseException
 from ...providers.provider_manager import ProviderManager
 from ...agents.command_handler import SYSTEM_COMMAND_DESCRIPTIONS
-from ...agents.mission.handler import MISSION_COMMAND_DESCRIPTIONS
+from .meta import ACP_CODING_PROJECT_META_KEY
 
 logger = logging.getLogger(__name__)
 
-# Control commands that have a dedicated ACP affordance and would be
-# redundant (or confusing) as typed slash commands over ACP:
-#   /model    → session/set_model
-#   /approval, /approve, /deny → session/request_permission round-trip
-#   /stop     → session/cancel notification
-# They are handled natively and so are not advertised for autocompletion.
-_ACP_REDUNDANT_COMMANDS = frozenset(
-    {"model", "approval", "approve", "deny", "stop"},
+ACP_ERROR_META_KEY = "qwenpaw.error"
+ACP_AGENT_META_KEY = "qwenpaw.agent"
+
+_ADVERTISED_COMMAND_ORDER = (
+    "clear",
+    "compact",
+    "skills",
+    "model",
 )
 
-# ``_meta`` key set on an ``agent_message_chunk`` to mark it as an error,
-# so ACP clients can render it distinctly (e.g. the paw TUI shows it in its
-# error style). Clients that ignore ``_meta`` still display the text.
-ACP_ERROR_META_KEY = "qwenpaw.error"
+# Commands that are intentionally hidden from autocomplete because the TUI
+# handles them locally or ACP exposes a clearer native affordance.
+_ACP_REDUNDANT_COMMANDS = frozenset(
+    {
+        "approval",
+        "approve",
+        "deny",
+        "new",
+        "stop",
+    },
+)
 
-# ``_meta`` key on the new/load-session response carrying the resolved agent
-# id, so ACP clients can show which agent they're talking to (the protocol
-# has no standard field for it).
-ACP_AGENT_META_KEY = "qwenpaw.agent"
+_GENERIC_PROMPT_ERROR = (
+    "QwenPaw failed to process the request. Check server logs for details."
+)
 
 
 PromptBlocks = list[
@@ -121,336 +134,110 @@ def _extract_text(
     return "\n".join(parts)
 
 
-class _StreamTracker:
-    """Convert agentscope's snapshot-style messages to ACP event stream.
+class _EnvelopeTracker:
+    """Track state needed to convert ``stream_query`` envelopes to ACP updates.
 
-    agentscope emits cumulative snapshots (each message contains the full
-    state so far).  ACP expects an event stream (each update is a delta).
-    This tracker maintains the necessary state to perform that conversion
-    for text, thinking, and tool-call events.
+    ``stream_query`` emits ``TextContent(delta=True, object="content")`` for
+    both text and thinking blocks — the only distinguisher is ``msg_id``.
+    This tracker remembers which ``msg_id`` values belong to reasoning
+    messages so text deltas and thinking deltas route correctly.
     """
 
     def __init__(self) -> None:
-        self._prev_text: str = ""
-        self._prev_thinking: str = ""
-        self._seen_tool_ids: set[str] = set()
-        self._tool_inputs: dict[str, Any] = {}
+        self._reasoning_msg_ids: set[str] = set()
+        self._streamed_text_msg_ids: set[str] = set()
 
-    def delta_text(self, cumulative: str) -> str:
-        """Return only the new portion of the text."""
-        if cumulative.startswith(self._prev_text):
-            delta = cumulative[len(self._prev_text) :]
-        else:
-            delta = cumulative
-        self._prev_text = cumulative
-        return delta
+    @staticmethod
+    def _tool_raw_input(data: dict[str, Any]) -> Any:
+        arguments = data.get("arguments")
+        if arguments is None:
+            return None
+        if isinstance(arguments, str):
+            stripped = arguments.strip()
+            if not stripped:
+                return None
+            try:
+                return json.loads(stripped)
+            except ValueError:
+                return stripped
+        return arguments
 
-    def delta_thinking(self, cumulative: str) -> str:
-        """Return only the new portion of the thinking."""
-        if cumulative.startswith(self._prev_thinking):
-            delta = cumulative[len(self._prev_thinking) :]
-        else:
-            delta = cumulative
-        self._prev_thinking = cumulative
-        return delta
+    # pylint: disable=too-many-return-statements, too-many-branches
+    def process(
+        self,
+        event: Any,
+    ) -> list[Any]:
+        """Convert one envelope event into zero or more ACP updates."""
+        obj = getattr(event, "object", None)
 
-    def is_new_tool_call(self, tool_id: str) -> bool:
-        """Return True only the first time *tool_id* is seen."""
-        if tool_id in self._seen_tool_ids:
-            return False
-        self._seen_tool_ids.add(tool_id)
-        return True
+        if obj == "content":
+            text = getattr(event, "text", "") or ""
+            if not text:
+                return []
+            msg_id = getattr(event, "msg_id", None)
+            is_delta = getattr(event, "delta", False)
+            if is_delta and msg_id:
+                self._streamed_text_msg_ids.add(msg_id)
+            elif msg_id in self._streamed_text_msg_ids:
+                return []
+            if msg_id in self._reasoning_msg_ids:
+                return [update_agent_thought(text_block(text))]
+            return [update_agent_message(text_block(text))]
 
-    def tool_input_changed(self, tool_id: str, raw_input: Any) -> bool:
-        """Return True when *raw_input* is non-empty and differs from the
-        last value recorded for *tool_id*, recording the new value.
+        if obj == "message":
+            msg_type = getattr(event, "type", None)
+            if hasattr(msg_type, "value"):
+                msg_type = msg_type.value
+            status = getattr(event, "status", None)
+            msg_id = getattr(event, "id", None)
 
-        Tool-call arguments stream in, so the first sighting of a call
-        often carries empty/partial input; this lets the caller emit an
-        ``update`` once the populated arguments arrive (the initial
-        ``start`` would otherwise pin an empty ``rawInput``).
-        """
-        if not raw_input:
-            return False
-        if self._tool_inputs.get(tool_id) == raw_input:
-            return False
-        self._tool_inputs[tool_id] = raw_input
-        return True
+            if msg_type == MessageType.REASONING.value:
+                if msg_id:
+                    self._reasoning_msg_ids.add(msg_id)
+                return []
 
+            if msg_type == MessageType.PLUGIN_CALL.value:
+                if status == RunStatus.Completed:
+                    for c in getattr(event, "content", []) or []:
+                        data = getattr(c, "data", None)
+                        if isinstance(data, dict):
+                            return [
+                                start_tool_call(
+                                    str(
+                                        data.get("call_id") or uuid4().hex[:8],
+                                    ),
+                                    str(data.get("name") or "tool"),
+                                    status="in_progress",
+                                    raw_input=self._tool_raw_input(data),
+                                ),
+                            ]
+                return []
 
-def _msg_to_updates(  # pylint: disable=too-many-branches
-    msg: Any,
-    tracker: _StreamTracker | None = None,
-) -> list[Any]:
-    """Convert a QwenPaw Msg into ACP session update(s).
+            if msg_type == MessageType.PLUGIN_CALL_OUTPUT.value:
+                if status == RunStatus.Completed:
+                    for c in getattr(event, "content", []) or []:
+                        data = getattr(c, "data", None)
+                        if isinstance(data, dict):
+                            return [
+                                update_tool_call(
+                                    str(
+                                        data.get("call_id") or uuid4().hex[:8],
+                                    ),
+                                    status="completed",
+                                    content=[
+                                        tool_content(
+                                            text_block(
+                                                str(data.get("output") or ""),
+                                            ),
+                                        ),
+                                    ],
+                                ),
+                            ]
+                return []
 
-    When *tracker* is provided, text and thinking content blocks are
-    emitted as **incremental** deltas rather than cumulative snapshots,
-    matching the ACP standard used by QwenCode and Qoder.
-    """
-    updates: list[Any] = []
-    metadata = getattr(msg, "metadata", {}) or {}
-    content = getattr(msg, "content", None)
-    role = getattr(msg, "role", "assistant")
+            return []
 
-    if role == "system":
-        if isinstance(content, list):
-            _content_blocks_to_updates(content, updates, tracker)
-        if not updates:
-            text = _get_msg_text(msg)
-            if text:
-                updates.append(
-                    update_agent_thought(text_block(text)),
-                )
-        return updates
-
-    tool_calls = metadata.get("tool_calls")
-    if isinstance(tool_calls, list):
-        for tc in tool_calls:
-            if not isinstance(tc, dict):
-                continue
-            tc_id = str(tc.get("id") or uuid4().hex[:8])
-            inp = tc.get("input")
-            if not tracker or tracker.is_new_tool_call(tc_id):
-                updates.append(
-                    start_tool_call(
-                        tc_id,
-                        str(tc.get("name") or "tool"),
-                        status="in_progress",
-                        raw_input=inp,
-                    ),
-                )
-                if tracker:
-                    # Record what we sent so a later, fuller input is
-                    # recognised as a change (see tool_input_changed).
-                    tracker.tool_input_changed(tc_id, inp)
-            elif tracker and tracker.tool_input_changed(tc_id, inp):
-                # Arguments finished streaming after the start event.
-                updates.append(
-                    update_tool_call(tc_id, raw_input=inp),
-                )
-        return updates
-
-    tool_responses = metadata.get("tool_responses")
-    if isinstance(tool_responses, list):
-        for tr in tool_responses:
-            if not isinstance(tr, dict):
-                continue
-            updates.append(
-                update_tool_call(
-                    str(tr.get("id") or uuid4().hex[:8]),
-                    status="completed",
-                    content=_tool_result_content(tr.get("output", "")),
-                ),
-            )
-        return updates
-
-    if isinstance(content, list):
-        _content_blocks_to_updates(content, updates, tracker)
-
-    if not updates:
-        text = _get_msg_text(msg)
-        if text:
-            if tracker:
-                text = tracker.delta_text(text)
-            if text:
-                updates.append(
-                    update_agent_message(text_block(text)),
-                )
-
-    return updates
-
-
-def _content_blocks_to_updates(
-    content: list[Any],
-    updates: list[Any],
-    tracker: _StreamTracker | None = None,
-) -> None:
-    """Map Msg content blocks to ACP updates."""
-    for block in content:
-        block_type, block_data = _normalise_block(block)
-        if block_type == "thinking":
-            _emit_thinking(block_data, tracker, updates)
-        elif block_type == "text":
-            _emit_text(block_data, tracker, updates)
-        elif block_type == "tool_use":
-            tc_id = str(block_data.get("id") or uuid4().hex[:8])
-            inp = block_data.get("input")
-            if not tracker or tracker.is_new_tool_call(tc_id):
-                updates.append(
-                    start_tool_call(
-                        tc_id,
-                        str(block_data.get("name") or "tool"),
-                        status="in_progress",
-                        raw_input=inp,
-                    ),
-                )
-                if tracker:
-                    tracker.tool_input_changed(tc_id, inp)
-            elif tracker and tracker.tool_input_changed(tc_id, inp):
-                updates.append(
-                    update_tool_call(tc_id, raw_input=inp),
-                )
-        elif block_type == "tool_result":
-            updates.append(
-                update_tool_call(
-                    str(block_data.get("id") or uuid4().hex[:8]),
-                    status="completed",
-                    content=_tool_result_content(
-                        block_data.get("output", ""),
-                    ),
-                ),
-            )
-
-
-def _extract_tool_output(output: Any) -> str:
-    """Extract plain text from a tool output value.
-
-    The output may be a string, a list of content blocks, or another
-    structure — normalise everything to a flat string. File/media blocks
-    (image/audio/video/file with a URL source, e.g. from
-    ``send_file_to_user``) are rendered as a readable ``filename`` line
-    rather than a raw dict repr; the URL itself travels as a separate
-    ``resource_link`` content block (see ``_tool_result_content``).
-    """
-    if isinstance(output, str):
-        return output
-    if isinstance(output, list):
-        parts = []
-        for item in output:
-            # Works for both dict blocks and attribute-style block objects
-            # (e.g. agentscope ImageBlock/TextBlock from send_file_to_user).
-            text = (
-                item.get("text")
-                if isinstance(item, dict)
-                else getattr(item, "text", None)
-            )
-            if text:
-                parts.append(text)
-                continue
-            media = _media_block_url(item)
-            if media is not None:
-                _url, name, _mime = media
-                parts.append(f"📎 {name}")
-                continue
-            parts.append(str(item))
-        return "\n".join(p for p in parts if p)
-    return str(output)
-
-
-def _media_block_url(
-    item: Any,
-) -> tuple[str, str, str | None] | None:
-    """Return ``(url, name, mime_type)`` for an image/audio/video/file block
-    that carries a URL source, else ``None``.
-
-    Handles both dict blocks (e.g. agentscope ``ImageBlock``/``FileBlock``)
-    and attribute-style objects.
-    """
-    if isinstance(item, dict):
-        btype = item.get("type")
-        source = item.get("source")
-        name = item.get("filename") or item.get("name")
-        mime = item.get("mime_type") or item.get("mimeType")
-    else:
-        btype = getattr(item, "type", None)
-        source = getattr(item, "source", None)
-        name = getattr(item, "filename", None) or getattr(item, "name", None)
-        mime = getattr(item, "mime_type", None)
-    if btype not in ("image", "audio", "video", "file"):
-        return None
-    if isinstance(source, dict):
-        url = source.get("url")
-    else:
-        url = getattr(source, "url", None)
-    if not url or not isinstance(url, str):
-        return None
-    if not name:
-        name = url.rstrip("/").rsplit("/", 1)[-1] or url
-    return url, name, mime
-
-
-def _tool_result_content(output: Any) -> list[Any]:
-    """Build the ACP tool-call ``content`` for a completed tool result.
-
-    Always includes the flattened text; additionally appends a
-    ``resource_link`` block for every **local** ``file://`` media block in
-    the output so ACP clients (e.g. the paw TUI) can offer a clickable link
-    to the file the agent sent via ``send_file_to_user``. Remote URLs
-    (http/https/...) are intentionally not turned into resource links — they
-    still appear as a readable ``📎`` line in the text — so clients are not
-    nudged into treating untrusted remote URLs as openable resources.
-    """
-    contents: list[Any] = [
-        tool_content(text_block(_extract_tool_output(output))),
-    ]
-    if isinstance(output, list):
-        for item in output:
-            media = _media_block_url(item)
-            if media is None:
-                continue
-            url, name, mime = media
-            if not url.startswith("file://"):
-                continue
-            contents.append(
-                tool_content(
-                    ResourceContentBlock(
-                        type="resource_link",
-                        uri=url,
-                        name=name,
-                        mime_type=mime,
-                    ),
-                ),
-            )
-    return contents
-
-
-def _normalise_block(block: Any) -> tuple[str, dict[str, Any]]:
-    """Return ``(block_type, data_dict)`` for both dict and object blocks."""
-    if isinstance(block, dict):
-        return block.get("type", "text"), block
-    btype = getattr(block, "type", "text") or "text"
-    data: dict[str, Any] = {}
-    for attr in ("text", "thinking", "id", "name", "output", "input"):
-        val = getattr(block, attr, None)
-        if val is not None:
-            data[attr] = val
-    return btype, data
-
-
-def _emit_thinking(
-    data: dict[str, Any],
-    tracker: _StreamTracker | None,
-    updates: list[Any],
-) -> None:
-    thinking = data.get("thinking", "")
-    if tracker:
-        thinking = tracker.delta_thinking(thinking)
-    if thinking:
-        updates.append(update_agent_thought(text_block(thinking)))
-
-
-def _emit_text(
-    data: dict[str, Any],
-    tracker: _StreamTracker | None,
-    updates: list[Any],
-) -> None:
-    text = data.get("text", "")
-    if tracker:
-        text = tracker.delta_text(text)
-    if text:
-        updates.append(update_agent_message(text_block(text)))
-
-
-def _get_msg_text(msg: Any) -> str:
-    """Extract plain text from a Msg."""
-    get_text = getattr(msg, "get_text_content", None)
-    if callable(get_text):
-        return get_text() or ""
-    content = getattr(msg, "content", "")
-    if isinstance(content, str):
-        return content
-    return ""
+        return []
 
 
 class QwenPawACPAgent(Agent):
@@ -472,13 +259,17 @@ class QwenPawACPAgent(Agent):
         self,
         agent_id: str | None = None,
         workspace_dir: Path | None = None,
+        local_diagnostics: bool = False,
     ):
         self._agent_id = agent_id
         self._workspace_dir = workspace_dir
+        self._local_diagnostics = local_diagnostics
         self._sessions: dict[str, dict[str, Any]] = {}
         self._cancel_events: dict[str, asyncio.Event] = {}
         self._workspace: Any | None = None
         self._workspace_ready = False
+        self._app_services: Any | None = None
+        self._app_services_started = False
 
     def on_connect(self, conn: Client) -> None:
         self._conn = conn
@@ -511,15 +302,153 @@ class QwenPawACPAgent(Agent):
             return self._workspace_dir
         return WORKING_DIR / "workspaces" / agent_id
 
+    @staticmethod
+    def _session_info(
+        *,
+        cwd: str,
+        session_id: str,
+        meta: dict[str, Any],
+    ) -> dict[str, Any]:
+        info: dict[str, Any] = {
+            "cwd": cwd,
+            "user_id": f"acp_{session_id[:8]}",
+            "mode": QwenPawACPAgent.MODE_DEFAULT,
+        }
+        project_dir = meta.get(ACP_CODING_PROJECT_META_KEY)
+        if isinstance(project_dir, str):
+            project_dir = project_dir.strip()
+            if project_dir:
+                info[ACP_CODING_PROJECT_META_KEY] = project_dir
+        return info
+
+    async def _ensure_app_services(self) -> Any:
+        """Create and start ACP-local cross-workspace services."""
+        if self._app_services is None:
+            from ...app.app_services import AppServiceManager
+
+            self._app_services = AppServiceManager()
+        if not self._app_services_started:
+            await self._app_services.start()
+            self._app_services_started = True
+        return self._app_services
+
+    @staticmethod
+    def _build_bootstrap_kwargs(app_services: Any) -> dict[str, Any]:
+        """Build the same runtime plugin set used by the web app lifespan."""
+        kwargs: dict[str, Any] = {}
+        command_specs: list[Any] = []
+
+        try:
+            from ...agents.tools import discover_builtin_tool_funcs
+
+            kwargs["builtin_tool_funcs"] = discover_builtin_tool_funcs()
+        except Exception:
+            logger.debug(
+                "ACP bootstrap: built-in tools skipped",
+                exc_info=True,
+            )
+
+        try:
+            from ...runtime.builtin_commands import (
+                collect_builtin_command_specs,
+                get_skill_fallback_handler,
+            )
+
+            command_specs.extend(collect_builtin_command_specs())
+            kwargs["builtin_fallback_handler"] = get_skill_fallback_handler()
+        except Exception:
+            logger.debug(
+                "ACP bootstrap: built-in slash commands skipped",
+                exc_info=True,
+            )
+
+        try:
+            from ...app.app_services._builtin_tool_commands import (
+                build_tool_command_specs,
+            )
+
+            command_specs.extend(
+                build_tool_command_specs(app_services.tool_coordinator),
+            )
+        except Exception:
+            logger.debug(
+                "ACP bootstrap: HITL tool commands skipped",
+                exc_info=True,
+            )
+
+        if command_specs:
+            kwargs["builtin_command_specs"] = command_specs
+
+        try:
+            from ...hooks.bootstrap.bootstrap_hook import BootstrapHook
+            from ...hooks.cron.cron_hook import CronContextHook
+            from ...hooks.error.error_hook import (
+                CancelCleanupHook,
+                ErrorNormalizeHook,
+            )
+            from ...hooks.request_setup.contextvars_hook import (
+                ContextVarsSetupHook,
+            )
+            from ...hooks.request_setup.media_hook import MediaProcessHook
+            from ...hooks.session.session_hook import (
+                SessionLoadHook,
+                SessionSaveHook,
+            )
+            from ...hooks.skill_env.skill_env_hook import (
+                SkillEnvCleanupHook,
+                SkillEnvHook,
+            )
+
+            kwargs["builtin_hook_clses"] = [
+                CronContextHook,
+                SessionLoadHook,
+                SessionSaveHook,
+                BootstrapHook,
+                SkillEnvHook,
+                SkillEnvCleanupHook,
+                ContextVarsSetupHook,
+                MediaProcessHook,
+                ErrorNormalizeHook,
+                CancelCleanupHook,
+            ]
+        except Exception:
+            logger.debug(
+                "ACP bootstrap: lifecycle hooks skipped",
+                exc_info=True,
+            )
+
+        try:
+            from ...runtime.prompt_contributors import _ALL_CONTRIBUTORS
+
+            kwargs["builtin_contributor_clses"] = _ALL_CONTRIBUTORS
+        except Exception:
+            logger.debug(
+                "ACP bootstrap: prompt contributors skipped",
+                exc_info=True,
+            )
+
+        try:
+            from ...modes.coding import CodingMode
+            from ...modes.mission import MissionMode
+            from ...modes.goal import GoalMode
+
+            kwargs["builtin_mode_clses"] = [
+                CodingMode,
+                MissionMode,
+                GoalMode,
+            ]
+        except Exception:
+            logger.debug(
+                "ACP bootstrap: modes skipped",
+                exc_info=True,
+            )
+
+        return kwargs
+
     async def _ensure_workspace(self) -> Any:
-        """Boot a full ``Workspace`` (once) and return its runner."""
+        """Boot a full ``Workspace`` (once) and return it."""
         if self._workspace is not None and self._workspace_ready:
-            runner = self._workspace.runner
-            if runner is None:
-                raise RuntimeError(
-                    "Workspace runner is not available after startup",
-                )
-            return runner
+            return self._workspace
 
         from ...app.workspace.workspace import Workspace
 
@@ -529,17 +458,13 @@ class QwenPawACPAgent(Agent):
         workspace = Workspace(
             agent_id=agent_id,
             workspace_dir=str(workspace_dir),
-            defer_mcp_startup=True,
         )
+        app_services = await self._ensure_app_services()
+        workspace.bootstrap_plugins(
+            **self._build_bootstrap_kwargs(app_services),
+        )
+        workspace.set_app_services(app_services)
         await workspace.start()
-
-        runner = workspace.runner
-        if runner is None:
-            raise RuntimeError(
-                "Workspace started but runner is not available. "
-                "Check agent configuration and workspace setup.",
-            )
-        await runner.init_handler()
 
         self._workspace = workspace
         self._workspace_ready = True
@@ -548,7 +473,7 @@ class QwenPawACPAgent(Agent):
             agent_id,
             workspace_dir,
         )
-        return runner
+        return workspace
 
     async def _shutdown_workspace(self) -> None:
         """Gracefully stop the workspace."""
@@ -561,6 +486,12 @@ class QwenPawACPAgent(Agent):
                 )
             self._workspace = None
             self._workspace_ready = False
+        if self._app_services is not None and self._app_services_started:
+            try:
+                await self._app_services.stop()
+            except Exception:
+                logger.exception("Error stopping ACP app services")
+            self._app_services_started = False
 
     # ------------------------------------------------------------------
     # ACP protocol methods
@@ -598,24 +529,21 @@ class QwenPawACPAgent(Agent):
     async def new_session(  # pylint: disable=unused-argument
         self,
         cwd: str,
-        mcp_servers: (
-            list[HttpMcpServer | SseMcpServer | McpServerStdio] | None
-        ) = None,
+        mcp_servers: list[HttpMcpServer | SseMcpServer | McpServerStdio]
+        | None = None,
         **kwargs: Any,
     ) -> NewSessionResponse:
         session_id = uuid4().hex
-        self._sessions[session_id] = {
-            "cwd": cwd,
-            "user_id": f"acp_{session_id[:8]}",
-            "mode": self.MODE_DEFAULT,
-        }
+        self._sessions[session_id] = self._session_info(
+            cwd=cwd,
+            session_id=session_id,
+            meta=kwargs,
+        )
         logger.info(
             "ACP new_session: id=%s cwd=%s",
             session_id,
             cwd,
         )
-        # Advertise slash commands after the response is sent, so the
-        # client has learned this session_id first.
         asyncio.create_task(self._advertise_commands(session_id))
         return NewSessionResponse(
             session_id=session_id,
@@ -627,16 +555,15 @@ class QwenPawACPAgent(Agent):
         self,
         cwd: str,
         session_id: str,
-        mcp_servers: (
-            list[HttpMcpServer | SseMcpServer | McpServerStdio] | None
-        ) = None,
+        mcp_servers: list[HttpMcpServer | SseMcpServer | McpServerStdio]
+        | None = None,
         **kwargs: Any,
     ) -> LoadSessionResponse | None:
-        self._sessions[session_id] = {
-            "cwd": cwd,
-            "user_id": f"acp_{session_id[:8]}",
-            "mode": self.MODE_DEFAULT,
-        }
+        self._sessions[session_id] = self._session_info(
+            cwd=cwd,
+            session_id=session_id,
+            meta=kwargs,
+        )
         logger.info(
             "ACP load_session: id=%s cwd=%s",
             session_id,
@@ -661,7 +588,7 @@ class QwenPawACPAgent(Agent):
         if not text:
             return PromptResponse(stop_reason="end_turn")
 
-        runner = await self._ensure_workspace()
+        workspace = await self._ensure_workspace()
         session_info = self._sessions.get(
             session_id,
             {},
@@ -673,19 +600,19 @@ class QwenPawACPAgent(Agent):
 
         cancel_event = asyncio.Event()
         self._cancel_events[session_id] = cancel_event
-
-        msgs = [
-            Msg(
-                name="user",
-                role="user",
-                content=text,
-            ),
-        ]
+        approval_bridge = asyncio.create_task(
+            self._bridge_approval_requests(session_id),
+        )
 
         session_mode = session_info.get("mode", self.MODE_DEFAULT)
         request_context: dict[str, str] = {}
         if session_mode == self.MODE_BYPASS:
             request_context["_headless_tool_guard"] = "false"
+        project_dir = session_info.get(ACP_CODING_PROJECT_META_KEY)
+        if isinstance(project_dir, str):
+            project_dir = project_dir.strip()
+            if project_dir:
+                request_context[ACP_CODING_PROJECT_META_KEY] = project_dir
 
         request = AgentRequest(
             input=[
@@ -698,16 +625,14 @@ class QwenPawACPAgent(Agent):
             ],
             session_id=session_id,
             user_id=user_id,
+            agent_id=self._resolve_agent_id(),
             request_context=request_context or None,
         )
 
-        tracker = _StreamTracker()
+        tracker = _EnvelopeTracker()
 
         try:
-            async for msg, _is_last in runner.query_handler(
-                msgs,
-                request=request,
-            ):
+            async for event in workspace.stream_query(request):
                 if cancel_event.is_set():
                     logger.info(
                         "ACP prompt cancelled: session=%s",
@@ -715,31 +640,24 @@ class QwenPawACPAgent(Agent):
                     )
                     break
 
-                updates = _msg_to_updates(msg, tracker)
+                updates = tracker.process(event)
                 for upd in updates:
                     await self._conn.session_update(
                         session_id=session_id,
                         update=upd,
                     )
 
-                # After each message, check for new usage data.
-                # Each LLM invocation writes usage; poll here so
-                # multi-step prompts (with tool calls) report usage
-                # per LLM call, matching QwenCode behaviour.
                 await self._emit_usage_if_available(session_id)
-        except Exception as exc:  # pylint: disable=broad-except
+        except Exception as exc:
             logger.exception(
                 "ACP prompt error: session=%s",
                 session_id,
             )
-            # Surface the failure to the client instead of ending the turn
-            # silently, so ACP UIs (e.g. the paw TUI) can show it.
             await self._report_prompt_error(session_id, exc)
         finally:
+            await self._stop_approval_bridge(approval_bridge)
             self._cancel_events.pop(session_id, None)
 
-        # Final sweep: catch any usage that arrived after the last
-        # streamed message (e.g., single-turn prompts with no tools).
         await self._emit_usage_if_available(session_id)
 
         return PromptResponse(stop_reason="end_turn")
@@ -750,6 +668,7 @@ class QwenPawACPAgent(Agent):
         **kwargs: Any,
     ) -> CloseSessionResponse | None:
         logger.info("ACP close_session: session=%s", session_id)
+        await self._cancel_pending_approvals(session_id)
         self._sessions.pop(session_id, None)
         self._cancel_events.pop(session_id, None)
         return CloseSessionResponse()
@@ -779,9 +698,8 @@ class QwenPawACPAgent(Agent):
         self,
         cwd: str,
         session_id: str,
-        mcp_servers: (
-            list[HttpMcpServer | SseMcpServer | McpServerStdio] | None
-        ) = None,
+        mcp_servers: list[HttpMcpServer | SseMcpServer | McpServerStdio]
+        | None = None,
         **kwargs: Any,
     ) -> ResumeSessionResponse:
         logger.info(
@@ -790,13 +708,20 @@ class QwenPawACPAgent(Agent):
             cwd,
         )
         if session_id not in self._sessions:
-            self._sessions[session_id] = {
-                "cwd": cwd,
-                "user_id": f"acp_{session_id[:8]}",
-                "mode": self.MODE_DEFAULT,
-            }
+            self._sessions[session_id] = self._session_info(
+                cwd=cwd,
+                session_id=session_id,
+                meta=kwargs,
+            )
         else:
             self._sessions[session_id]["cwd"] = cwd
+            project_dir = kwargs.get(ACP_CODING_PROJECT_META_KEY)
+            if isinstance(project_dir, str):
+                project_dir = project_dir.strip()
+                if project_dir:
+                    self._sessions[session_id][
+                        ACP_CODING_PROJECT_META_KEY
+                    ] = project_dir
         return ResumeSessionResponse()
 
     async def set_session_model(  # pylint: disable=unused-argument
@@ -871,10 +796,152 @@ class QwenPawACPAgent(Agent):
         event = self._cancel_events.get(session_id)
         if event is not None:
             event.set()
+        await self._cancel_pending_approvals(session_id)
 
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
+
+    async def _bridge_approval_requests(
+        self,
+        session_id: str,
+        *,
+        poll_interval: float = 0.25,
+    ) -> None:
+        """Bridge QwenPaw ApprovalService waits to ACP permission prompts."""
+        from ...app.approvals import get_approval_service
+
+        svc = get_approval_service()
+        seen: set[str] = set()
+        while True:
+            pending_by_root = await svc.get_pending_by_root_session(
+                session_id,
+            )
+            pending_direct = await svc.get_all_pending_by_session(session_id)
+            pending_by_id = {
+                p.request_id: p for p in [*pending_by_root, *pending_direct]
+            }
+
+            for pending in pending_by_id.values():
+                if pending.request_id in seen:
+                    continue
+                seen.add(pending.request_id)
+                await self._request_approval_decision(session_id, pending)
+
+            await asyncio.sleep(poll_interval)
+
+    async def _request_approval_decision(
+        self,
+        session_id: str,
+        pending: Any,
+    ) -> None:
+        """Ask the ACP client to approve/deny a QwenPaw pending approval."""
+        from ...app.approvals import get_approval_service
+        from ...security.tool_guard.approval import ApprovalDecision
+
+        svc = get_approval_service()
+        try:
+            response = await self._conn.request_permission(
+                session_id=session_id,
+                tool_call=ToolCallUpdate(
+                    tool_call_id=pending.request_id,
+                    title=(
+                        f"{pending.tool_name} requires approval "
+                        f"({pending.severity})"
+                    ),
+                    kind=self._approval_tool_kind(pending.tool_name),
+                    raw_input=self._approval_tool_input(pending),
+                ),
+                options=[
+                    PermissionOption(
+                        option_id="approve",
+                        name="Approve",
+                        kind="allow_once",
+                    ),
+                    PermissionOption(
+                        option_id="deny",
+                        name="Deny",
+                        kind="reject_once",
+                    ),
+                ],
+            )
+        except Exception:
+            logger.exception(
+                "ACP approval bridge failed for request=%s",
+                pending.request_id[:8],
+            )
+            await svc.resolve_request(
+                pending.request_id,
+                ApprovalDecision.DENIED,
+            )
+            return
+
+        decision = (
+            ApprovalDecision.APPROVED
+            if self._permission_option_id(response) == "approve"
+            else ApprovalDecision.DENIED
+        )
+        await svc.resolve_request(pending.request_id, decision)
+
+    @staticmethod
+    def _approval_tool_input(pending: Any) -> dict[str, Any] | None:
+        """Return the original guarded tool parameters for ACP display."""
+        extra = getattr(pending, "extra", None)
+        if not isinstance(extra, dict):
+            return None
+        tool_call = extra.get("tool_call")
+        if not isinstance(tool_call, dict):
+            return None
+        raw_input = tool_call.get("input")
+        return raw_input if isinstance(raw_input, dict) else None
+
+    @staticmethod
+    def _permission_option_id(response: Any) -> str | None:
+        outcome = getattr(response, "outcome", None)
+        if isinstance(outcome, dict):
+            option_id = outcome.get("option_id") or outcome.get("optionId")
+        else:
+            option_id = getattr(outcome, "option_id", None) or getattr(
+                outcome,
+                "optionId",
+                None,
+            )
+        return str(option_id) if option_id else None
+
+    @staticmethod
+    def _approval_tool_kind(tool_name: str) -> str:
+        lowered = tool_name.lower()
+        if "shell" in lowered or "command" in lowered or "execute" in lowered:
+            return "execute"
+        return "other"
+
+    @staticmethod
+    async def _stop_approval_bridge(task: asyncio.Task[Any]) -> None:
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+        except Exception:
+            logger.debug(
+                "ACP approval bridge stopped with error",
+                exc_info=True,
+            )
+
+    @staticmethod
+    async def _cancel_pending_approvals(session_id: str) -> None:
+        try:
+            from ...app.approvals import get_approval_service
+
+            await get_approval_service().cancel_all_pending_by_root_session(
+                session_id,
+            )
+        except Exception:
+            logger.debug(
+                "Failed to cancel ACP pending approvals for session=%s",
+                session_id,
+                exc_info=True,
+            )
 
     async def _emit_usage_if_available(
         self,
@@ -889,6 +956,35 @@ class QwenPawACPAgent(Agent):
                     sessionUpdate="agent_message_chunk",
                     content=text_block(""),
                     field_meta=usage_meta,
+                ),
+            )
+            # Also surface the *current* context occupancy (prompt size vs.
+            # window) over the native ACP ``usage_update`` channel so the TUI
+            # can render a live context-usage bar. ``used`` is the tokens in
+            # context right now (the last call's input); ``size`` is the model
+            # context window. This is distinct from the cumulative ``tok``
+            # tallies carried in the chunk meta above. We emit even with 0s so
+            # the bar clears deterministically when the window or occupancy
+            # becomes unknown (e.g. after a model switch) — the TUI treats 0 as
+            # "hide the bar".
+            usage = usage_meta.get("usage", {})
+            used = int(usage.get("inputTokens", 0) or 0)
+            size = int(usage.get("contextSize", 0) or 0)
+            # Carry the compaction threshold (if known) via ``_meta`` so the
+            # TUI can mark it; usage_update has no field for it. Only attach it
+            # when there's a meaningful bar to mark.
+            ratio = usage.get("compactRatio")
+            field_meta = None
+            valid_ratio = isinstance(ratio, (int, float)) and 0 < ratio < 1
+            if used > 0 and size > 0 and valid_ratio:
+                field_meta = {"compactRatio": float(ratio)}
+            await self._conn.session_update(
+                session_id=session_id,
+                update=UsageUpdate(
+                    sessionUpdate="usage_update",
+                    used=used,
+                    size=size,
+                    field_meta=field_meta,
                 ),
             )
 
@@ -910,7 +1006,7 @@ class QwenPawACPAgent(Agent):
             raw = TokenRecordingModelWrapper.pop_usage_for_session(
                 session_id,
             )
-        except Exception:  # noqa: BLE001
+        except Exception:
             return None
         if not raw:
             return None
@@ -919,9 +1015,13 @@ class QwenPawACPAgent(Agent):
                 "inputTokens": raw.get("prompt_tokens", 0),
                 "outputTokens": raw.get("completion_tokens", 0),
                 "totalTokens": raw.get("total_tokens", 0),
-                # The model that produced this call, so clients can show it
-                # (the session is bound late, e.g. via a global fallback).
                 "model": raw.get("model_name") or "",
+                # Context window, so the UI can show how full the *current*
+                # context is (inputTokens / contextSize). 0 = unknown.
+                "contextSize": raw.get("context_size", 0),
+                # Auto-compaction threshold (0-1) so the UI can mark it.
+                # None when compaction is disabled/unknown.
+                "compactRatio": raw.get("compact_threshold"),
             },
         }
 
@@ -933,76 +1033,96 @@ class QwenPawACPAgent(Agent):
         return self.MODE_DEFAULT
 
     def _session_meta(self) -> dict[str, Any] | None:
-        """``_meta`` for session responses: the resolved agent id.
-
-        Best-effort — returns ``None`` if the agent id can't be resolved,
-        so a session is never blocked on it.
-        """
+        """Return session ``_meta`` with the resolved QwenPaw agent id."""
         try:
             agent_id = self._resolve_agent_id()
-        except Exception:  # pylint: disable=broad-except
+        except Exception:
             logger.exception("ACP: failed to resolve agent id for _meta")
             return None
         return {ACP_AGENT_META_KEY: agent_id} if agent_id else None
 
-    @staticmethod
-    def _build_available_commands() -> list[AvailableCommand]:
-        """Build the slash commands to advertise to the ACP client.
-
-        Combines the user-facing conversation commands with the registered
-        control commands, skipping those that have a dedicated ACP
-        affordance (see ``_ACP_REDUNDANT_COMMANDS``).
-        """
-        # Imported lazily to avoid a circular import: ``app.runner`` pulls in
-        # ``react_agent`` -> ``agents.tools``, which (via the ACP tool adapter)
-        # imports this module during ``agents.tools`` package init.
-        from ...app.runner.control_commands import iter_commands
-
-        commands = [
-            AvailableCommand(name=name, description=desc)
-            for name, desc in {
-                **SYSTEM_COMMAND_DESCRIPTIONS,
-                **MISSION_COMMAND_DESCRIPTIONS,
-            }.items()
-        ]
-        for handler in iter_commands():
-            name = handler.command_name.lstrip("/")
-            if not name or name in _ACP_REDUNDANT_COMMANDS:
+    def _build_available_commands(
+        self,
+    ) -> list[AvailableCommand]:
+        """Build slash-command list from static + workspace registry."""
+        descriptions: dict[str, str] = {
+            **SYSTEM_COMMAND_DESCRIPTIONS,
+            "model": "Show or switch AI model",
+            "skills": (
+                "List chat-available skills"
+                " and expose explicit skill commands"
+            ),
+        }
+        seen: set[str] = set()
+        result: list[AvailableCommand] = []
+        for name in _ADVERTISED_COMMAND_ORDER:
+            if name in _ACP_REDUNDANT_COMMANDS:
                 continue
-            commands.append(
+            seen.add(name)
+            result.append(
                 AvailableCommand(
                     name=name,
-                    description=handler.description,
+                    description=descriptions.get(name, ""),
                 ),
             )
-        return commands
+        ws = self._workspace
+        if ws is not None:
+            registry = getattr(
+                getattr(ws, "plugins", None),
+                "slash_command_registry",
+                None,
+            )
+            if registry is not None:
+                for cmd_name in registry.names():
+                    if cmd_name in seen:
+                        continue
+                    if cmd_name in _ACP_REDUNDANT_COMMANDS:
+                        continue
+                    seen.add(cmd_name)
+                    match = registry.resolve(
+                        f"/{cmd_name}",
+                    )
+                    desc = ""
+                    if match:
+                        desc = match[0].help_text or ""
+                    result.append(
+                        AvailableCommand(
+                            name=cmd_name,
+                            description=desc,
+                        ),
+                    )
+        return result
 
     async def _report_prompt_error(
         self,
         session_id: str,
         exc: BaseException,
     ) -> None:
-        """Send a prompt failure to the client as a visible message.
-
-        ACP has no dedicated error update, so the message is delivered as
-        an ``agent_message_chunk`` tagged via ``_meta`` (see
-        ``ACP_ERROR_META_KEY``). Clients can render it distinctly; those
-        that ignore ``_meta`` still show the text in the transcript.
-        """
+        """Surface a prompt failure to ACP clients as a visible message."""
         try:
             await self._conn.session_update(
                 session_id=session_id,
                 update=AgentMessageChunk(
                     sessionUpdate="agent_message_chunk",
-                    content=text_block(f"Error: {exc}"),
+                    content=text_block(
+                        f"Error: {self._safe_prompt_error_text(exc)}",
+                    ),
                     field_meta={ACP_ERROR_META_KEY: True},
                 ),
             )
-        except Exception:  # pylint: disable=broad-except
+        except Exception:
             logger.exception(
                 "ACP: failed to report prompt error to client (session=%s)",
                 session_id,
             )
+
+    def _safe_prompt_error_text(self, exc: BaseException) -> str:
+        """Return a client-safe prompt error message."""
+        if isinstance(exc, AppBaseException) and exc.message:
+            return str(exc.message)
+        if self._local_diagnostics:
+            return str(exc) or exc.__class__.__name__
+        return _GENERIC_PROMPT_ERROR
 
     async def _advertise_commands(self, session_id: str) -> None:
         """Send the ``available_commands_update`` for a session."""
@@ -1011,12 +1131,10 @@ class QwenPawACPAgent(Agent):
                 session_id=session_id,
                 update=AvailableCommandsUpdate(
                     sessionUpdate="available_commands_update",
-                    availableCommands=self._build_available_commands(),
+                    available_commands=self._build_available_commands(),
                 ),
             )
-        except Exception:  # pylint: disable=broad-except
-            # Advertising commands is best-effort; never fail a session
-            # because the notification could not be delivered.
+        except Exception:
             logger.exception(
                 "ACP: failed to advertise available commands (session=%s)",
                 session_id,
@@ -1121,11 +1239,13 @@ class QwenPawACPAgent(Agent):
 async def run_qwenpaw_agent(
     agent_id: str | None = None,
     workspace_dir: Path | None = None,
+    local_diagnostics: bool = False,
 ) -> None:
     """Entry point: run QwenPaw as an ACP agent over stdio."""
     agent = QwenPawACPAgent(
         agent_id=agent_id,
         workspace_dir=workspace_dir,
+        local_diagnostics=local_diagnostics,
     )
     try:
         await run_agent(agent, use_unstable_protocol=True)

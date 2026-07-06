@@ -1,14 +1,14 @@
 # -*- coding: utf-8 -*-
 # pylint: disable=too-many-return-statements
 """
-Bridge between channels and AgentApp process: factory to build
+Bridge between channels and agent processing: factory to build
 ProcessHandler from runner. Shared helpers for channels (e.g. file URL).
 """
 from __future__ import annotations
 
 import os
 import re
-from typing import Any, List, Optional, Tuple
+from typing import List, Optional, Tuple
 from urllib.parse import urlparse
 from urllib.request import url2pathname
 
@@ -256,18 +256,3 @@ def file_url_to_local_path(url: str) -> Optional[str]:
     ):
         return s
     return None
-
-
-def make_process_from_runner(runner: Any):
-    """
-    Use runner.stream_query as the channel's process.
-
-    Each channel does: native -> build_agent_request_from_native()
-        -> process(request) -> send on each completed message.
-    process is runner.stream_query, same as AgentApp's /process endpoint.
-
-    Usage::
-        process = make_process_from_runner(runner)
-        manager = ChannelManager.from_env(process)
-    """
-    return runner.stream_query

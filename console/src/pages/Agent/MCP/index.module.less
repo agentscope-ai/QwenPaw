@@ -134,16 +134,31 @@
 
 .cardFooter {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
+  flex-direction: column;
+  align-items: stretch;
   gap: 8px;
   padding-top: 12px;
   margin-top: auto;
   border-top: 1px solid #f0f0f0;
 }
 
+.cardSecondaryActions {
+  display: grid;
+  width: 100%;
+  min-width: 0;
+  gap: 8px;
+}
+
+.cardSecondaryActionsTwo {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.cardSecondaryActionsThree {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
 .toggleButton {
-  flex: 1;
+  width: 100%;
   min-width: 0;
   padding: 6px 10px;
   border-radius: 7px;
@@ -156,6 +171,7 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  justify-content: center;
 
   &:hover {
     color: #333;
@@ -164,7 +180,7 @@
 }
 
 .deleteButton {
-  flex: 1;
+  width: 100%;
   min-width: 0;
   padding: 6px 10px;
   border-radius: 7px;
@@ -177,6 +193,7 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  justify-content: center;
 
   &:hover {
     color: #ff4d4f;
@@ -236,9 +253,10 @@
 
 .mcpGrid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(400px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 400px), 1fr));
   gap: 16px;
   padding: 16px;
+  min-width: 0;
 }
 
 .loading {
@@ -286,7 +304,7 @@
 }
 
 .toolsButton {
-  flex: 1;
+  width: 100%;
   min-width: 0;
   padding: 6px 10px;
   border-radius: 7px;
@@ -296,6 +314,10 @@
   border: 1px solid #d9d9d9;
   cursor: pointer;
   transition: all 0.18s ease;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  justify-content: center;
 
   &:hover {
     border-color: #1677ff;
@@ -305,6 +327,27 @@
     color: rgba(0, 0, 0, 0.25);
     cursor: not-allowed;
     border-color: #d9d9d9;
+  }
+}
+
+@media (max-width: 520px) {
+  .cardSecondaryActionsThree {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .cardSecondaryActionsThree > :first-child {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 360px) {
+  .cardSecondaryActionsTwo,
+  .cardSecondaryActionsThree {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .cardSecondaryActionsThree > :first-child {
+    grid-column: auto;
   }
 }
 
@@ -326,6 +369,368 @@
   gap: 12px;
   max-height: 500px;
   overflow-y: auto;
+}
+
+.accessModalBody {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+  overflow-x: hidden;
+}
+
+.accessClientPanel,
+.accessToolsPanel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+
+.accessClientPanel {
+  padding-bottom: 14px;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.accessSectionHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.accessSectionTitle {
+  color: rgba(20, 20, 19, 0.88);
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 22px;
+}
+
+.accessDefaultRow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.accessClientControlRow,
+.accessToolGroupHeader {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) max-content max-content;
+  align-items: center;
+  column-gap: 24px;
+  row-gap: 10px;
+  min-width: 0;
+}
+
+.accessClientControlRow {
+  box-sizing: border-box;
+  padding: 0;
+}
+
+.accessClientTitle {
+  min-width: 0;
+}
+
+.accessClientControlRow .accessDefaultRow {
+  grid-column: 2;
+}
+
+.accessClientAddButton {
+  min-width: 112px;
+  height: 36px;
+  justify-content: center;
+  justify-self: end;
+}
+
+.accessDefaultLabel {
+  display: inline-flex;
+  align-items: center;
+  min-width: 56px;
+  font-size: 13px;
+  font-weight: 500;
+  color: rgba(20, 20, 19, 0.72);
+}
+
+.accessPolicySegmented {
+  padding: 3px;
+  border: 1px solid rgba(20, 20, 19, 0.08);
+  border-radius: 9px;
+  background: rgba(20, 20, 19, 0.035);
+
+  :global(.ant-segmented-group) {
+    gap: 2px;
+  }
+
+  :global(.qwenpaw-segmented-group) {
+    gap: 2px;
+  }
+
+  :global(.ant-segmented-thumb) {
+    border: 1px solid var(--mcp-policy-segment-border);
+    border-radius: 7px;
+    background: var(--mcp-policy-segment-bg);
+    box-shadow: none;
+  }
+
+  :global(.qwenpaw-segmented-thumb) {
+    border: 1px solid var(--mcp-policy-segment-border);
+    border-radius: 7px;
+    background: var(--mcp-policy-segment-bg);
+    box-shadow: none;
+  }
+
+  :global(.ant-segmented-item) {
+    border-radius: 7px;
+    color: rgba(20, 20, 19, 0.62);
+    font-weight: 500;
+    transition:
+      color 0.18s ease,
+      background-color 0.18s ease;
+  }
+
+  :global(.qwenpaw-segmented-item) {
+    border-radius: 7px;
+    color: rgba(20, 20, 19, 0.62);
+    font-weight: 500;
+    transition:
+      color 0.18s ease,
+      background-color 0.18s ease;
+  }
+
+  :global(.ant-segmented-item-label) {
+    min-height: 28px;
+    padding: 0 16px;
+    line-height: 28px;
+  }
+
+  :global(.qwenpaw-segmented-item-label) {
+    min-height: 28px;
+    padding: 0 16px;
+    line-height: 28px;
+  }
+
+  :global(.ant-segmented-item-selected) {
+    color: var(--mcp-policy-segment-text);
+    background: var(--mcp-policy-segment-bg);
+    box-shadow: inset 0 0 0 1px var(--mcp-policy-segment-border);
+  }
+
+  :global(.qwenpaw-segmented-item-selected) {
+    color: var(--mcp-policy-segment-text);
+    background: var(--mcp-policy-segment-bg);
+    box-shadow: inset 0 0 0 1px var(--mcp-policy-segment-border);
+  }
+}
+
+.accessToolGroups {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 420px;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+.accessToolGroup {
+  padding: 12px;
+  border: 1px solid #f0f0f0;
+  border-radius: 8px;
+  background: rgba(250, 250, 250, 0.55);
+  min-width: 0;
+}
+
+.accessToolInfo {
+  min-width: 0;
+}
+
+.accessToolTitle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  overflow: hidden;
+
+  :global(.ant-tag),
+  :global(.qwenpaw-tag) {
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
+.accessToolDefault {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  flex-wrap: wrap;
+  gap: 10px;
+  min-height: 36px;
+  min-width: 0;
+  padding: 1px 0;
+}
+
+.accessToolAddButton {
+  min-width: 112px;
+  height: 36px;
+  justify-content: center;
+  justify-self: end;
+}
+
+.accessRuleList {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.accessRuleRow {
+  display: grid;
+  grid-template-columns:
+    minmax(112px, 0.8fr)
+    minmax(148px, 1.1fr)
+    minmax(112px, 0.8fr)
+    minmax(148px, 1.1fr)
+    minmax(112px, 0.8fr)
+    32px;
+  align-items: end;
+  gap: 8px;
+  min-width: 0;
+}
+
+.accessRuleField {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.accessRuleFieldLabel {
+  color: rgba(20, 20, 19, 0.55);
+  font-size: 11px;
+  line-height: 1.2;
+}
+
+.accessRuleSourceType,
+.accessRuleSubjectType,
+.accessRuleSourceValue,
+.accessRuleSubjectValue,
+.accessRuleRecentUser,
+.accessRuleEffect {
+  width: 100%;
+  min-width: 0;
+}
+
+.accessRuleSubjectStack {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.accessRuleWarning {
+  color: #d48806;
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.accessRuleDeleteButton {
+  width: 32px;
+  height: 32px;
+  align-self: end;
+}
+
+.accessNoRules {
+  margin-top: 12px;
+  padding: 9px 10px;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.025);
+  color: rgba(20, 20, 19, 0.45);
+  font-size: 12px;
+}
+
+@media (max-width: 920px) {
+  .accessClientControlRow,
+  .accessToolGroupHeader {
+    grid-template-columns: minmax(0, 1fr) max-content;
+  }
+
+  .accessClientTitle,
+  .accessToolInfo {
+    grid-column: 1 / -1;
+  }
+
+  .accessClientControlRow .accessDefaultRow,
+  .accessToolDefault {
+    grid-column: 1;
+  }
+
+  .accessClientAddButton,
+  .accessToolAddButton {
+    grid-column: 2;
+  }
+
+  .accessRuleRow {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .accessRuleDeleteButton {
+    justify-self: end;
+  }
+}
+
+@media (max-width: 640px) {
+  .accessToolGroupHeader,
+  .accessDefaultRow,
+  .accessClientControlRow,
+  .accessRuleRow {
+    align-items: stretch;
+  }
+
+  .accessClientControlRow,
+  .accessToolGroupHeader {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .accessClientControlRow {
+    padding: 0;
+  }
+
+  .accessClientTitle {
+    margin-left: 0;
+  }
+
+  .accessRuleRow {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .accessRuleField,
+  .accessRuleSourceType,
+  .accessRuleSourceValue,
+  .accessRuleSubjectType,
+  .accessRuleSubjectValue,
+  .accessRuleRecentUser,
+  .accessRuleEffect,
+  .accessClientAddButton,
+  .accessToolAddButton,
+  .accessToolDefault,
+  .accessPolicySegmented {
+    width: 100%;
+  }
+
+  .accessClientTitle,
+  .accessToolInfo,
+  .accessClientControlRow .accessDefaultRow,
+  .accessToolDefault,
+  .accessClientAddButton,
+  .accessToolAddButton {
+    grid-column: 1;
+  }
+
+  .accessRuleDeleteButton {
+    justify-self: end;
+  }
 }
 
 .toolItem {
@@ -350,7 +755,7 @@
 }
 
 .toolSchema {
-  margin-top: 8px;
+  margin-top: 10px;
   font-size: 12px;
 
   summary {
@@ -362,6 +767,16 @@
       color: rgba(0, 0, 0, 0.65);
     }
   }
+}
+
+.toolSchemaDescription {
+  margin-top: 8px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.025);
+  color: rgba(20, 20, 19, 0.6);
+  font-size: 12px;
+  line-height: 1.55;
 }
 
 .toolSchemaContent {
@@ -405,6 +820,19 @@
 
   .mcpDescription {
     color: rgba(255, 255, 255, 0.65);
+  }
+
+  .typeBadge {
+    &.local {
+      background-color: rgba(255, 255, 255, 0.08);
+      color: rgba(255, 255, 255, 0.45);
+    }
+
+    &.remote {
+      background-color: rgba(250, 173, 20, 0.15);
+      color: #ffd666;
+      border-color: rgba(250, 173, 20, 0.3);
+    }
   }
 
   .cardFooter {
@@ -454,6 +882,49 @@
     color: #ff7875;
   }
 
+  .accessDefaultRow {
+    border-bottom-color: rgba(255, 255, 255, 0.08);
+  }
+
+  .accessClientPanel {
+    border-bottom-color: rgba(255, 255, 255, 0.08);
+  }
+
+  .accessSectionTitle {
+    color: rgba(255, 255, 255, 0.88);
+  }
+
+  .accessDefaultLabel {
+    color: rgba(255, 255, 255, 0.72);
+  }
+
+  .accessPolicySegmented {
+    border-color: rgba(255, 255, 255, 0.12);
+    background: rgba(255, 255, 255, 0.06);
+
+    :global(.ant-segmented-item) {
+      color: rgba(255, 255, 255, 0.62);
+    }
+
+    :global(.ant-segmented-item-selected) {
+      color: rgba(255, 255, 255, 0.92) !important;
+    }
+
+    :global(.qwenpaw-segmented-item-selected) {
+      color: rgba(255, 255, 255, 0.92) !important;
+    }
+  }
+
+  .accessToolGroup {
+    border-color: rgba(255, 255, 255, 0.1);
+    background: rgba(255, 255, 255, 0.04);
+  }
+
+  .accessNoRules {
+    background: rgba(255, 255, 255, 0.05);
+    color: rgba(255, 255, 255, 0.45);
+  }
+
   .toolItem {
     border-color: rgba(255, 255, 255, 0.1);
     background: rgba(255, 255, 255, 0.04);
@@ -461,6 +932,11 @@
 
   .toolDescription {
     color: rgba(255, 255, 255, 0.55);
+  }
+
+  .toolSchemaDescription {
+    background: rgba(255, 255, 255, 0.05);
+    color: rgba(255, 255, 255, 0.62);
   }
 
   .toolSchema summary {
@@ -491,5 +967,39 @@
       background: rgba(255, 255, 255, 0.08);
       color: rgba(255, 255, 255, 0.75);
     }
+  }
+}
+
+@media (max-width: 768px) {
+  .pageHeader {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 12px 16px;
+
+    .breadcrumbHeader {
+      width: 100%;
+    }
+
+    :global(.ant-btn),
+    :global(.qwenpaw-btn) {
+      width: 100%;
+    }
+  }
+
+  .mcpGrid {
+    grid-template-columns: 1fr;
+    padding: 12px 16px;
+  }
+
+  .cardFooter {
+    flex-wrap: wrap;
+  }
+
+  .toggleButton,
+  .deleteButton,
+  .toolsButton {
+    flex: 1 1 calc(50% - 4px);
+    min-width: 0;
   }
 }

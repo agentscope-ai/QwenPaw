@@ -150,6 +150,12 @@ button {
   }
 }
 
+@media (prefers-reduced-motion: reduce) {
+  [style*="qwenpaw-channels-marquee"] {
+    animation-play-state: paused !important;
+  }
+}
+
 @keyframes qwenpaw-dash-move-right {
   0% {
     background-position: 0 0;
@@ -261,6 +267,73 @@ button {
 
 .docs-content li > p {
   margin: 0;
+}
+
+/* Blog article body */
+.blog-content {
+  font-size: 0.9375rem;
+  line-height: 1.7;
+}
+
+.blog-content hr {
+  margin: 1rem 0 1.25rem;
+  border: 0;
+  border-top: 1px solid #dcc1b2;
+}
+
+.blog-content a {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.blog-content--sessions > p:first-child,
+.blog-content--sessions > hr:first-of-type {
+  display: none;
+}
+
+.blog-content--sessions > p:has(strong) {
+  margin-top: 1.125rem;
+  margin-bottom: 0.25rem;
+}
+
+.blog-content--sessions > p:has(strong) strong {
+  display: block;
+  font-size: 0.875rem;
+  font-weight: 600;
+  line-height: 1.5;
+  color: var(--color-text);
+}
+
+.blog-content--sessions > p:not(:has(strong)) {
+  margin-bottom: 0;
+  font-size: 0.8125rem;
+  line-height: 1.6;
+  color: var(--color-text-secondary);
+}
+
+.docs-content.blog-content--sessions a {
+  color: #6a97ff;
+  text-decoration: none;
+}
+
+.docs-content.blog-content--sessions a:hover {
+  color: #5280e6;
+  text-decoration: none;
+}
+
+@media (min-width: 640px) {
+  .blog-content {
+    font-size: 1rem;
+    line-height: 1.75;
+  }
+
+  .blog-content--sessions > p:has(strong) strong {
+    font-size: 0.9375rem;
+  }
+
+  .blog-content--sessions > p:not(:has(strong)) {
+    font-size: 0.875rem;
+  }
 }
 
 /* Release notes list styling: ensure list markers are visible on white background */

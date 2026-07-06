@@ -105,6 +105,176 @@
   padding: 16px 16px 32px;
 }
 
+/* ---- Panel Section Styles ---- */
+
+.panelSection {
+  background: rgba(255, 255, 255, 0.5);
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  border-radius: 12px;
+  padding: 16px;
+  margin: 16px 16px 0;
+}
+
+.panelSectionDashed {
+  background: transparent;
+  border: 1px dashed rgba(0, 0, 0, 0.15);
+  border-radius: 12px;
+  padding: 16px;
+  margin: 16px;
+}
+
+.panelTitle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  color: rgba(0, 0, 0, 0.5);
+  margin-bottom: 16px;
+}
+
+.panelDotGreen {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #10b981;
+}
+
+.panelDotGray {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.panelCount {
+  color: #10b981;
+  font-weight: 500;
+}
+
+.emptyConfigured {
+  text-align: center;
+  padding: 48px 24px;
+  color: rgba(0, 0, 0, 0.45);
+
+  p {
+    margin: 0 0 16px;
+    font-size: 14px;
+  }
+}
+
+/* ---- Available Grid Styles ---- */
+
+.availableGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 8px;
+}
+
+.availableItem {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  background: rgba(0, 0, 0, 0.01);
+  border: 1px solid rgba(0, 0, 0, 0.06);
+
+  &:hover {
+    background: rgba(0, 0, 0, 0.06);
+    border-color: rgba(0, 0, 0, 0.1);
+
+    .availableItemAction {
+      color: rgba(0, 0, 0, 0.88);
+    }
+  }
+
+  &:focus-visible {
+    outline: 2px solid #1677ff;
+    outline-offset: 1px;
+  }
+}
+
+.availableItemName {
+  flex: 1;
+  font-size: 13px;
+  font-weight: 500;
+  color: rgba(0, 0, 0, 0.88);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.availableItemAction {
+  font-size: 12px;
+  color: rgba(0, 0, 0, 0.45);
+  flex-shrink: 0;
+}
+
+@media (max-width: 768px) {
+  .channelsPage .pageHeader {
+    padding: 12px 16px;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+  }
+
+  /* Cancel PageHeader's absolute centering so tabs/buttons stack normally.
+     PageHeader's inner center/extra classes are hashed, so we target by
+     substring to avoid the stale :global(.center) mismatch. */
+  .channelsPage .pageHeader > [class*="center"] {
+    position: static;
+    transform: none;
+    align-self: flex-start;
+  }
+
+  .channelsPage .pageHeader > [class*="extra"] {
+    align-self: flex-start;
+  }
+
+  .filterTabs {
+    align-self: flex-start;
+    max-width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .filterTab {
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+
+  .channelsGrid {
+    grid-template-columns: 1fr;
+    padding: 12px;
+  }
+
+  .panelSection,
+  .panelSectionDashed {
+    margin: 12px;
+    padding: 12px;
+  }
+
+  .panelTitle {
+    font-size: 12px;
+    margin-bottom: 12px;
+  }
+
+  .availableGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .availableItem {
+    padding: 8px 12px;
+  }
+
+  .emptyConfigured {
+    padding: 32px 16px;
+  }
+}
+
 /* ---- Channel Card Styles ---- */
 
 .channelCard {
@@ -356,9 +526,16 @@
 
   /* Card background and text */
   .channelCard {
+    background: #2d2d2d;
+
     &.normal {
       border-color: rgba(255, 255, 255, 0.08);
       box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    }
+
+    &.hover {
+      border-color: rgba(255, 255, 255, 0.15);
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
     }
   }
 
@@ -413,5 +590,61 @@
     .cancelBtn {
       color: rgba(255, 255, 255, 0.65);
     }
+  }
+
+  .panelSection {
+    background: rgba(255, 255, 255, 0.03);
+    border-color: rgba(255, 255, 255, 0.06);
+  }
+
+  .panelSectionDashed {
+    background: transparent;
+    border-color: rgba(255, 255, 255, 0.1);
+  }
+
+  .panelTitle {
+    color: rgba(255, 255, 255, 0.5);
+  }
+
+  .panelDotGreen {
+    background: #34d399;
+  }
+
+  .panelDotGray {
+    background: rgba(255, 255, 255, 0.2);
+  }
+
+  .panelCount {
+    color: #34d399;
+  }
+
+  .emptyConfigured {
+    color: rgba(255, 255, 255, 0.45);
+  }
+
+  .availableItem {
+    background: rgba(255, 255, 255, 0.06);
+    border-color: rgba(255, 255, 255, 0.08);
+
+    &:hover {
+      background: rgba(255, 255, 255, 0.1);
+      border-color: rgba(255, 255, 255, 0.15);
+
+      .availableItemAction {
+        color: rgba(255, 255, 255, 0.85);
+      }
+    }
+
+    &:focus-visible {
+      outline-color: #ff7f16;
+    }
+  }
+
+  .availableItemName {
+    color: rgba(255, 255, 255, 0.85);
+  }
+
+  .availableItemAction {
+    color: rgba(255, 255, 255, 0.45);
   }
 }

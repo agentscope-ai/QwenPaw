@@ -16,7 +16,7 @@ function getInitialLang(): Lang {
     return urlLang;
   }
   const v = localStorage.getItem(LANG_KEY);
-  return v === "en" ? "en" : "zh";
+  return v === "zh" ? "zh" : "en";
 }
 
 export type SiteLanguageContextValue = {

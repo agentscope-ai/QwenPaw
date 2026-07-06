@@ -6,8 +6,9 @@ import io
 import uuid
 
 import pytest
+from helpers import default_http_timeout
 
-_CONSOLE_HTTP_TIMEOUT = 30.0
+_CONSOLE_HTTP_TIMEOUT = default_http_timeout(30.0)
 
 
 @pytest.mark.integration

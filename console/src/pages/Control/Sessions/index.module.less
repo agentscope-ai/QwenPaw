@@ -58,6 +58,12 @@
   gap: 12px;
 }
 
+.filterBar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .title {
   font-size: 20px;
   font-weight: 600;
@@ -69,12 +75,6 @@
   font-size: 14px;
   margin: 0;
   display: none;
-}
-
-.headerRight {
-  display: flex;
-  align-items: center;
-  gap: 12px;
 }
 
 .tableCard {
@@ -90,9 +90,149 @@
   gap: 8px;
 }
 
+/* Mobile card list */
+.mobileCardList {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 16px;
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.mobileSessionCard {
+  border-radius: var(--border-radius, 8px);
+  background: #ffffff;
+  border: 1px solid #eae8e7;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+  transition: all 0.2s ease-in-out;
+
+  &:hover {
+    border-color: #d9d9d9;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+  }
+}
+
+.mobileSessionHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 12px;
+  gap: 12px;
+}
+
+.mobileSessionName {
+  font-weight: 600;
+  font-size: 16px;
+  color: rgba(20, 20, 19, 0.88);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+  line-height: 24px;
+}
+
+.mobileSessionChannel {
+  flex-shrink: 0;
+}
+
+.mobileSessionMeta {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+  color: rgba(20, 20, 19, 0.55);
+  margin-bottom: 16px;
+  line-height: 20px;
+
+  span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
+.mobileSessionActions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+  padding-top: 16px;
+  border-top: 1px solid #f0f0f0;
+
+  .mobileActionBtn {
+    font-size: 13px;
+    height: 28px;
+    padding: 0 10px;
+    color: #666;
+    background: transparent;
+    border: 1px solid #d9d9d9;
+    border-radius: 7px;
+
+    &:hover:not(:disabled) {
+      color: #333;
+      border-color: #bfbfbf;
+    }
+
+    &:disabled {
+      color: #d9d9d9;
+      cursor: not-allowed;
+    }
+
+    &.danger {
+      color: #ff4d4f;
+      border-color: #ff4d4f;
+
+      &:hover:not(:disabled) {
+        color: #ff7875;
+        border-color: #ff7875;
+      }
+    }
+  }
+}
+
+@media (max-width: 768px) {
+  .pageHeader {
+    padding: 12px 16px;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: flex-start;
+  }
+
+  .headerRight {
+    width: 100%;
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .filterBar {
+    width: 100%;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+  }
+
+  .tableCard {
+    display: none;
+  }
+}
+
 /* ─── Dark mode ─────────────────────────────────────────────────────────────── */
 :global(.dark-mode) {
   .sessionsPage {
+    /* Override the light-mode table header background */
+    :global {
+      .qwenpaw-table-wrapper
+        .qwenpaw-table-container
+        .qwenpaw-table-thead
+        > tr
+        > th {
+        background: #2a2a2a !important;
+      }
+    }
   }
 
   .pageHeader {
@@ -156,6 +296,55 @@
     :global(.qwenpaw-select-arrow),
     :global(.ant-select-arrow) {
       color: rgba(255, 255, 255, 0.3) !important;
+    }
+  }
+
+  .mobileSessionCard {
+    background: #2d2d2d;
+    border-color: rgba(255, 255, 255, 0.08);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+
+    &:hover {
+      border-color: rgba(255, 255, 255, 0.2);
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+    }
+  }
+
+  .mobileSessionName {
+    color: rgba(255, 255, 255, 0.85);
+  }
+
+  .mobileSessionMeta {
+    color: rgba(255, 255, 255, 0.45);
+  }
+
+  .mobileSessionActions {
+    border-top-color: rgba(255, 255, 255, 0.08);
+
+    .mobileActionBtn {
+      color: rgba(255, 255, 255, 0.65);
+      background: transparent;
+      border-color: rgba(255, 255, 255, 0.2);
+
+      &:hover:not(:disabled) {
+        color: rgba(255, 255, 255, 0.85);
+        border-color: rgba(255, 255, 255, 0.35);
+      }
+
+      &:disabled {
+        color: rgba(255, 255, 255, 0.25);
+        border-color: rgba(255, 255, 255, 0.1);
+      }
+
+      &.danger {
+        color: #ff7875;
+        border-color: #ff7875;
+
+        &:hover:not(:disabled) {
+          color: #ffa39e;
+          border-color: #ffa39e;
+        }
+      }
     }
   }
 }

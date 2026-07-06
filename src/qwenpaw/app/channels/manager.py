@@ -98,8 +98,7 @@ class ChannelManager:
         """
         Create channels from env and inject unified process
         (AgentRequest -> Event stream).
-        process is typically runner.stream_query, handled by AgentApp's
-        process endpoint.
+        process is typically workspace.stream_query.
         on_last_dispatch: called when a user send+reply was sent.
         """
         available = get_available_channels()
@@ -168,6 +167,10 @@ class ChannelManager:
                     False,
                 )
                 filter_thinking = ch_cfg.get("filter_thinking", False)
+                no_text_debounce = ch_cfg.get(
+                    "no_text_debounce",
+                    True,
+                )
             else:
                 filter_tool_messages = getattr(
                     ch_cfg,
@@ -179,6 +182,11 @@ class ChannelManager:
                     "filter_thinking",
                     False,
                 )
+                no_text_debounce = getattr(
+                    ch_cfg,
+                    "no_text_debounce",
+                    True,
+                )
 
             from_config_kwargs = {
                 "process": process,
@@ -187,6 +195,7 @@ class ChannelManager:
                 "show_tool_details": show_tool_details,
                 "filter_tool_messages": filter_tool_messages,
                 "filter_thinking": filter_thinking,
+                "no_text_debounce": no_text_debounce,
                 "workspace_dir": workspace_dir,
             }
 

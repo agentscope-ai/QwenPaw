@@ -23,12 +23,28 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
 
-from ..utils import schedule_agent_reload
-from ...config.config import MCPOAuthConfig, save_agent_config
+from ..driver_config_service import DriverConfigService
+from ...drivers.adapters.mcp_console import (
+    attach_mcp_oauth_credential,
+    detach_mcp_oauth_credential,
+    mcp_oauth_credential_ref,
+)
+from ...drivers.constants import PROTOCOL_MCP
+from ...drivers.credentials.store import AsyncCredentialStore
+from ...drivers.credentials.types import CredentialRecord
+from ...drivers.errors import CredentialNotFoundError
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/mcp", tags=["mcp-oauth"])
+
+
+def _mcp_card_path(workspace, client_key: str):
+    return DriverConfigService(workspace).card_path(
+        client_key,
+        protocol=PROTOCOL_MCP,
+    )
+
 
 # ---------------------------------------------------------------------------
 # In-memory state store: state_token -> OAuthSession (TTL 10 min)
@@ -109,7 +125,7 @@ async def _fetch_json(
         resp = await client.get(url, timeout=10.0)
         if resp.status_code == 200:
             return resp.json()
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         logger.debug(f"OAuth metadata fetch failed for {url}: {exc}")
     return None
 
@@ -127,7 +143,7 @@ async def _probe_resource_metadata_url(
         for part in www_auth.split(","):
             if "resource_metadata=" in part.lower():
                 return part.split("=", 1)[1].strip().strip('"')
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         logger.debug(f"MCP probe failed for {mcp_url}: {exc}")
     return None
 
@@ -149,9 +165,11 @@ async def _resolve_auth_server_url(
     root = f"{parsed.scheme}://{parsed.netloc}"
     path_suffix = parsed.path.lstrip("/")
     candidates = [
-        f"{root}/.well-known/oauth-protected-resource/{path_suffix}"
-        if path_suffix
-        else None,
+        (
+            f"{root}/.well-known/oauth-protected-resource/{path_suffix}"
+            if path_suffix
+            else None
+        ),
         f"{root}/.well-known/oauth-protected-resource",
     ]
     for url in candidates:
@@ -265,7 +283,7 @@ async def _dynamic_register(
             )
             if resp.status_code in (200, 201):
                 return resp.json().get("client_id")
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         logger.debug(f"Dynamic client registration failed: {exc}")
     return None
 
@@ -323,7 +341,7 @@ def _redirect_uri(request: Request) -> str:
     """
     try:
         return str(request.url_for("oauth_callback"))
-    except Exception:  # noqa: BLE001
+    except Exception:
         base = str(request.base_url).rstrip("/")
         return f"{base}/api/mcp/oauth/callback"
 
@@ -430,6 +448,13 @@ async def oauth_start(
     # -- Validate agent exists and is enabled -----------------------------
     agent = await get_agent_for_request(request)
     agent_id = agent.agent_id
+    card = await _load_mcp_card_for_oauth(agent, client_key)
+    endpoint_url = str(card.endpoint.get("url") or body.url or "")
+    if not endpoint_url:
+        raise HTTPException(
+            status_code=400,
+            detail="OAuth MCP client must have a remote URL.",
+        )
 
     redirect_uri = _redirect_uri(request)
 
@@ -443,10 +468,15 @@ async def oauth_start(
             auth_endpoint,
             token_endpoint,
             registration_endpoint,
-        ) = await _discover_oauth_metadata(body.url)
+        ) = await _discover_oauth_metadata(endpoint_url)
 
     # -- Resolve client_id -------------------------------------------------
-    client_id = body.client_id
+    existing_oauth = await _load_optional_oauth_credential(agent, client_key)
+    client_id = body.client_id or (
+        str(existing_oauth.public.get("client_id") or "")
+        if existing_oauth
+        else ""
+    )
     if not client_id and registration_endpoint:
         client_id = (
             await _dynamic_register(registration_endpoint, redirect_uri) or ""
@@ -523,7 +553,7 @@ async def _exchange_code_for_tokens(
                 data=token_data,
                 timeout=15.0,
             )
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         raise ValueError(f"Token exchange request failed: {exc}") from exc
 
     if resp.status_code not in (200, 201):
@@ -539,7 +569,7 @@ async def _persist_tokens(
     session: OAuthSession,
     tokens: dict,
 ) -> None:
-    """Persist OAuth tokens into the MCP client's agent.json config.
+    """Persist OAuth tokens into AsyncCredentialStore and update DriverCard.
 
     Raises ValueError with a human-readable message on failure.
     """
@@ -565,26 +595,96 @@ async def _persist_tokens(
         agent_id = cfg.agents.active_agent or "default"
 
     workspace = await manager.get_agent(agent_id)
-    mcp_cfg = workspace.config.mcp
-    client_cfg = mcp_cfg.clients.get(session.client_key) if mcp_cfg else None
-    if client_cfg is None:
-        raise ValueError(
-            f"MCP client '{session.client_key}' not found. "
-            "Please create the client first, then re-authorize.",
-        )
-
-    existing_oauth = client_cfg.oauth or MCPOAuthConfig()
-    client_cfg.oauth = MCPOAuthConfig(
-        client_id=session.client_id or existing_oauth.client_id,
-        scope=scope,
-        access_token=access_token,
-        refresh_token=refresh_token,
-        expires_at=expires_at,
-        token_endpoint=session.token_endpoint,
-        auth_endpoint=session.auth_endpoint or existing_oauth.auth_endpoint,
+    card = await _load_mcp_card_for_oauth_value_error(
+        workspace,
+        session.client_key,
     )
-    save_agent_config(agent_id, workspace.config)
-    schedule_agent_reload(request, agent_id)
+    config_service = DriverConfigService(workspace)
+    store = config_service.credential_store
+    oauth_ref = mcp_oauth_credential_ref(session.client_key)
+    existing = await _load_optional_credential(store, oauth_ref)
+    public = dict(existing.public) if existing else {}
+    secrets_map = dict(existing.secrets) if existing else {}
+    public.update(
+        {
+            "client_id": session.client_id
+            or str(public.get("client_id") or ""),
+            "scope": scope,
+            "expires_at": expires_at,
+            "token_endpoint": session.token_endpoint,
+            "auth_endpoint": session.auth_endpoint
+            or str(public.get("auth_endpoint") or ""),
+        },
+    )
+    secrets_map["access_token"] = access_token
+    if refresh_token:
+        secrets_map["refresh_token"] = refresh_token
+
+    await store.put(
+        CredentialRecord(
+            ref=oauth_ref,
+            kind="oauth2_auth_code",
+            public=public,
+            secrets=secrets_map,
+            meta={
+                **(existing.meta if existing else {}),
+                "updated_at": time.time(),
+            },
+        ),
+    )
+    card = attach_mcp_oauth_credential(card, oauth_ref)
+    await config_service.save_card(card)
+
+
+def _workspace_credential_store(workspace) -> AsyncCredentialStore:
+    return DriverConfigService(workspace).credential_store
+
+
+async def _load_mcp_card_for_oauth(workspace, client_key: str):
+    try:
+        return await DriverConfigService(workspace).load_card(
+            client_key,
+            protocol=PROTOCOL_MCP,
+        )
+    except HTTPException as exc:
+        raise HTTPException(
+            status_code=404,
+            detail=f"MCP client '{client_key}' not found",
+        ) from exc
+
+
+async def _load_mcp_card_for_oauth_value_error(workspace, client_key: str):
+    try:
+        return await _load_mcp_card_for_oauth(workspace, client_key)
+    except HTTPException as exc:
+        raise ValueError(
+            f"MCP client '{client_key}' not found. "
+            "Please create the client first, then re-authorize.",
+        ) from exc
+
+
+async def _load_optional_credential(
+    store: AsyncCredentialStore,
+    ref: str,
+) -> CredentialRecord | None:
+    try:
+        return await store.get(ref)
+    except CredentialNotFoundError:
+        return None
+
+
+async def _load_optional_oauth_credential(
+    workspace,
+    client_key: str,
+) -> CredentialRecord | None:
+    return await _load_optional_credential(
+        _workspace_credential_store(workspace),
+        mcp_oauth_credential_ref(client_key),
+    )
+
+
+async def _reload_driver_best_effort(workspace, client_key: str) -> None:
+    await DriverConfigService(workspace).reload_driver_best_effort(client_key)
 
 
 @router.get("/oauth/callback", response_class=HTMLResponse)
@@ -598,7 +698,7 @@ async def oauth_callback(
     """Handle the OAuth 2.1 authorization code callback.
 
     Exchanges the authorization code for tokens, writes them into the
-    MCP client's OAuth config in agent.json, then returns HTML that
+    MCP client's OAuth credential record, then returns HTML that
     notifies the opener popup window and closes itself.
     """
     _purge_expired()
@@ -618,7 +718,7 @@ async def oauth_callback(
     try:
         tokens = await _exchange_code_for_tokens(session, code)
         await _persist_tokens(request, session, tokens)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         logger.error(
             f"OAuth callback failed for '{session.client_key}': {exc}",
             exc_info=True,
@@ -659,16 +759,9 @@ async def oauth_status(
     from ..agent_context import get_agent_for_request
 
     agent = await get_agent_for_request(request)
-    mcp_config = agent.config.mcp
-    client_cfg = mcp_config.clients.get(client_key) if mcp_config else None
-    if client_cfg is None:
-        raise HTTPException(
-            status_code=404,
-            detail=f"MCP client '{client_key}' not found",
-        )
-
-    oauth = client_cfg.oauth
-    if not oauth or not oauth.access_token:
+    await _load_mcp_card_for_oauth(agent, client_key)
+    oauth = await _load_optional_oauth_credential(agent, client_key)
+    if oauth is None or not oauth.secrets.get("access_token"):
         return OAuthStatusResponse(
             authorized=False,
             expires_at=0.0,
@@ -676,11 +769,12 @@ async def oauth_status(
         )
 
     # Token is valid only when not expired (expires_at=0 means no expiry set)
-    not_expired = oauth.expires_at <= 0 or oauth.expires_at > time.time()
+    expires_at = float(oauth.public.get("expires_at") or 0.0)
+    not_expired = expires_at <= 0 or expires_at > time.time()
     return OAuthStatusResponse(
         authorized=not_expired,
-        expires_at=oauth.expires_at,
-        scope=oauth.scope,
+        expires_at=expires_at,
+        scope=str(oauth.public.get("scope") or ""),
     )
 
 
@@ -693,14 +787,11 @@ async def oauth_revoke(
     from ..agent_context import get_agent_for_request
 
     agent = await get_agent_for_request(request)
-    if agent.config.mcp is None or client_key not in agent.config.mcp.clients:
-        raise HTTPException(
-            status_code=404,
-            detail=f"MCP client '{client_key}' not found",
-        )
-
-    agent.config.mcp.clients[client_key].oauth = None
-    save_agent_config(agent.agent_id, agent.config)
-    schedule_agent_reload(request, agent.agent_id)
+    card = await _load_mcp_card_for_oauth(agent, client_key)
+    config_service = DriverConfigService(agent)
+    store = config_service.credential_store
+    await store.delete(mcp_oauth_credential_ref(client_key))
+    card = detach_mcp_oauth_credential(card)
+    await config_service.save_card(card)
 
     return {"message": "OAuth tokens cleared"}

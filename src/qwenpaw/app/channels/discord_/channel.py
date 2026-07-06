@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import logging
 import asyncio
+import mimetypes
 import re
 import tempfile
 from collections import deque
@@ -13,7 +14,7 @@ from urllib.parse import urlparse
 from typing import Any, Dict, Optional
 
 import aiohttp
-from agentscope_runtime.engine.schemas.agent_schemas import (
+from qwenpaw.schemas import (
     TextContent,
     ImageContent,
     VideoContent,
@@ -23,6 +24,7 @@ from agentscope_runtime.engine.schemas.agent_schemas import (
 )
 
 from ....exceptions import ChannelError
+from ....constant import DEFAULT_MEDIA_DIR
 from ....config.config import DiscordConfig as DiscordChannelConfig
 
 from ..utils import file_url_to_local_path
@@ -38,12 +40,15 @@ logger = logging.getLogger(__name__)
 # Regex that matches a code-fence opening/closing line (``` or ~~~).
 _FENCE_RE = re.compile(r"^(`{3,}|~{3,})")
 
+_STREAM_PLACEHOLDER = "..."
+
 
 class DiscordChannel(BaseChannel):
     channel = "discord"
     uses_manager_queue = True
     _DISCORD_MAX_LEN: int = 2000
     _MAX_CACHED_MESSAGE_IDS: int = 500
+    _STREAM_DELTA_MIN_INTERVAL_S: float = 1.0
 
     def __init__(
         self,
@@ -56,6 +61,7 @@ class DiscordChannel(BaseChannel):
         on_reply_sent: OnReplySent = None,
         show_tool_details: bool = True,
         filter_tool_messages: bool = False,
+        no_text_debounce: bool = True,
         filter_thinking: bool = False,
         dm_policy: str = "open",
         group_policy: str = "open",
@@ -63,20 +69,25 @@ class DiscordChannel(BaseChannel):
         deny_message: str = "",
         require_mention: bool = False,
         accept_bot_messages: bool = False,
+        streaming_enabled: bool = False,
         access_control_dm: bool = False,
         access_control_group: bool = False,
+        media_dir: str = "",
+        workspace_dir: Optional[Path] = None,
     ):
         super().__init__(
             process,
             on_reply_sent=on_reply_sent,
             show_tool_details=show_tool_details,
             filter_tool_messages=filter_tool_messages,
+            no_text_debounce=no_text_debounce,
             filter_thinking=filter_thinking,
             dm_policy=dm_policy,
             group_policy=group_policy,
             allow_from=allow_from,
             deny_message=deny_message,
             require_mention=require_mention,
+            streaming_enabled=streaming_enabled,
             access_control_dm=access_control_dm,
             access_control_group=access_control_group,
         )
@@ -86,6 +97,16 @@ class DiscordChannel(BaseChannel):
         self.http_proxy_auth = http_proxy_auth
         self.bot_prefix = bot_prefix
         self.accept_bot_messages = accept_bot_messages
+        self._workspace_dir = (
+            Path(workspace_dir).expanduser() if workspace_dir else None
+        )
+        if not media_dir and self._workspace_dir:
+            self._media_dir = self._workspace_dir / "media"
+        elif media_dir:
+            self._media_dir = Path(media_dir).expanduser()
+        else:
+            self._media_dir = DEFAULT_MEDIA_DIR
+        self._media_dir.mkdir(parents=True, exist_ok=True)
         self._task: Optional[asyncio.Task] = None
         self._client = None
         self._processed_message_ids: set[str] = set()
@@ -94,6 +115,10 @@ class DiscordChannel(BaseChannel):
         # detection when thread creation and first message arrive
         # simultaneously.
         self._recent_thread_starts: dict[str, str] = {}
+        # Typing indicator tasks: channel_id (str) -> Task
+        self._typing_tasks: dict[str, asyncio.Task] = {}
+        # Track which to_handles are currently processing
+        self._is_processing: dict[str, bool] = {}
 
         if self.enabled:
             import discord  # type: ignore
@@ -180,60 +205,41 @@ class DiscordChannel(BaseChannel):
                     )
                 if attachments:
                     for att in attachments:
-                        file_name = (att.filename or "").lower()
-                        url = att.url
-                        ctype = (att.content_type or "").lower()
+                        local_path = await self._download_attachment(att)
+                        if not local_path:
+                            logger.warning(
+                                "discord attachment download failed: %s",
+                                att.filename,
+                            )
+                            continue
 
-                        is_image = ctype.startswith(
-                            "image/",
-                        ) or file_name.endswith(
-                            (
-                                ".png",
-                                ".jpg",
-                                ".jpeg",
-                                ".gif",
-                                ".webp",
-                                ".bmp",
-                                ".tiff",
-                            ),
-                        )
-                        is_video = ctype.startswith(
-                            "video/",
-                        ) or file_name.endswith(
-                            (".mp4", ".mov", ".mkv", ".webm", ".avi"),
-                        )
-                        is_audio = ctype.startswith(
-                            "audio/",
-                        ) or file_name.endswith(
-                            (".mp3", ".wav", ".m4a", ".aac", ".ogg", ".flac"),
-                        )
-
-                        if is_image:
+                        category = self._classify_attachment(att)
+                        if category == "image":
                             content_parts.append(
                                 ImageContent(
                                     type=ContentType.IMAGE,
-                                    image_url=url,
+                                    image_url=local_path,
                                 ),
                             )
-                        elif is_video:
+                        elif category == "video":
                             content_parts.append(
                                 VideoContent(
                                     type=ContentType.VIDEO,
-                                    video_url=url,
+                                    video_url=local_path,
                                 ),
                             )
-                        elif is_audio:
+                        elif category == "audio":
                             content_parts.append(
                                 AudioContent(
                                     type=ContentType.AUDIO,
-                                    data=url,
+                                    data=local_path,
                                 ),
                             )
                         else:
                             content_parts.append(
                                 FileContent(
                                     type=ContentType.FILE,
-                                    file_url=url,
+                                    file_url=local_path,
                                 ),
                             )
 
@@ -354,12 +360,22 @@ class DiscordChannel(BaseChannel):
             group_policy=os.getenv("DISCORD_GROUP_POLICY", "open"),
             allow_from=allow_from,
             deny_message=os.getenv("DISCORD_DENY_MESSAGE", ""),
-            require_mention=os.getenv("DISCORD_REQUIRE_MENTION", "0") == "1",
+            require_mention=os.getenv(
+                "DISCORD_REQUIRE_MENTION",
+                "0",
+            )
+            == "1",
             accept_bot_messages=os.getenv(
                 "DISCORD_ACCEPT_BOT_MESSAGES",
                 "0",
             )
             == "1",
+            streaming_enabled=os.getenv(
+                "DISCORD_STREAMING_ENABLED",
+                "0",
+            )
+            == "1",
+            media_dir=os.getenv("DISCORD_MEDIA_DIR", ""),
         )
 
     @classmethod
@@ -370,8 +386,12 @@ class DiscordChannel(BaseChannel):
         on_reply_sent: OnReplySent = None,
         show_tool_details: bool = True,
         filter_tool_messages: bool = False,
+        no_text_debounce: bool = True,
         filter_thinking: bool = False,
+        workspace_dir: Optional[Path] = None,
     ) -> "DiscordChannel":
+        raw_media_dir = getattr(config, "media_dir", None)
+        media_dir = raw_media_dir if isinstance(raw_media_dir, str) else ""
         return cls(
             process=process,
             enabled=config.enabled,
@@ -382,6 +402,7 @@ class DiscordChannel(BaseChannel):
             on_reply_sent=on_reply_sent,
             show_tool_details=show_tool_details,
             filter_tool_messages=filter_tool_messages,
+            no_text_debounce=no_text_debounce,
             filter_thinking=filter_thinking,
             dm_policy=config.dm_policy or "open",
             group_policy=config.group_policy or "open",
@@ -389,13 +410,74 @@ class DiscordChannel(BaseChannel):
             deny_message=config.deny_message or "",
             require_mention=config.require_mention,
             accept_bot_messages=config.accept_bot_messages,
+            streaming_enabled=config.streaming_enabled,
             access_control_dm=bool(
                 getattr(config, "access_control_dm", False),
             ),
             access_control_group=bool(
                 getattr(config, "access_control_group", False),
             ),
+            media_dir=media_dir,
+            workspace_dir=workspace_dir,
         )
+
+    @staticmethod
+    def _classify_attachment(attachment: Any) -> str:
+        """Classify a Discord attachment as image/video/audio/file.
+
+        Priority: attachment.content_type > filename MIME guess > file.
+        """
+        ctype = (getattr(attachment, "content_type", None) or "").lower()
+        filename = getattr(attachment, "filename", "") or ""
+
+        mime = ctype
+        if not mime and filename:
+            guessed, _ = mimetypes.guess_type(filename)
+            mime = (guessed or "").lower()
+
+        if mime.startswith("image/"):
+            return "image"
+        if mime.startswith("video/"):
+            return "video"
+        if mime.startswith("audio/"):
+            return "audio"
+        return "file"
+
+    async def _download_attachment(
+        self,
+        attachment: Any,
+    ) -> Optional[str]:
+        """Download a Discord attachment to media_dir; return local path."""
+        if not self._client:
+            return None
+        import discord
+
+        if not isinstance(attachment, discord.Attachment):
+            return None
+
+        try:
+            self._media_dir.mkdir(parents=True, exist_ok=True)
+            safe_name = (
+                "".join(
+                    c
+                    for c in (attachment.filename or "")
+                    if c.isalnum() or c in "-_."
+                )
+                or "file"
+            )
+            suffix = Path(safe_name).suffix or ""
+            stem = Path(safe_name).stem or "file"
+            path = self._media_dir / f"{attachment.id}_{stem}{suffix}"
+            await attachment.save(path)
+            logger.info(
+                "discord downloaded attachment: %s -> %s",
+                attachment.filename,
+                path,
+            )
+            return str(path)
+        except Exception:
+            logger.exception("discord attachment download failed")
+            return None
 
     async def _resolve_target(self, to_handle, _meta):
         """Resolve a Discord Messageable from meta or to_handle."""
@@ -679,6 +761,11 @@ class DiscordChannel(BaseChannel):
     async def stop(self) -> None:
         if not self.enabled:
             return
+        # Cancel all typing indicator tasks
+        for task in self._typing_tasks.values():
+            if task and not task.done():
+                task.cancel()
+        self._typing_tasks.clear()
         if self._task:
             self._task.cancel()
             try:
@@ -732,6 +819,246 @@ class DiscordChannel(BaseChannel):
 
     def to_handle_from_target(self, *, user_id: str, session_id: str) -> str:
         return session_id
+
+    # ------------------------------------------------------------------
+    # Typing indicator (discord.py context manager + hook lifecycle)
+    # ------------------------------------------------------------------
+
+    async def _typing_keepalive(self, channel_id: int) -> None:
+        """Keep typing indicator alive via async with ch.typing().
+
+        discord.py auto-refreshes typing inside the context manager.
+        Cancelling this task exits the context, stopping typing.
+        """
+        try:
+            ch = self._client.get_channel(channel_id)
+            if not ch:
+                return
+            async with ch.typing():
+                while self._client and self._client.is_ready():
+                    await asyncio.sleep(60)
+        except asyncio.CancelledError:
+            pass
+
+    def _start_typing(self, channel_id: int) -> None:
+        """Start typing indicator (idempotent)."""
+        key = str(channel_id)
+        existing = self._typing_tasks.get(key)
+        if existing and not existing.done():
+            return
+        self._typing_tasks[key] = asyncio.create_task(
+            self._typing_keepalive(channel_id),
+        )
+
+    def _stop_typing(self, channel_id: int) -> None:
+        """Stop typing by cancelling the keepalive task."""
+        key = str(channel_id)
+        task = self._typing_tasks.pop(key, None)
+        if task and not task.done():
+            task.cancel()
+
+    # ------------------------------------------------------------------
+    # Lifecycle hooks (align with yuanbao pattern)
+    # ------------------------------------------------------------------
+
+    async def _before_consume_process(
+        self,
+        request: Any,
+    ) -> None:
+        """Start typing before agent processes the request."""
+        meta = getattr(request, "channel_meta", None) or {}
+        channel_id = meta.get("channel_id", "")
+        if channel_id:
+            to_handle = self.get_to_handle_from_request(request)
+            self._is_processing[to_handle] = True
+            try:
+                self._start_typing(int(channel_id))
+            except (ValueError, TypeError):
+                pass
+
+    async def _on_process_completed(
+        self,
+        request: Any,
+        to_handle: str,
+        send_meta: Dict[str, Any],
+    ) -> None:
+        """Stop typing after all processing completes."""
+        self._is_processing.pop(to_handle, None)
+        channel_id = (send_meta or {}).get("channel_id", "")
+        if channel_id:
+            try:
+                self._stop_typing(int(channel_id))
+            except (ValueError, TypeError):
+                pass
+        await super()._on_process_completed(
+            request,
+            to_handle,
+            send_meta,
+        )
+
+    async def _on_consume_error(
+        self,
+        request: Any,
+        to_handle: str,
+        err_text: str,
+    ) -> None:
+        """Stop typing on error."""
+        self._is_processing.pop(to_handle, None)
+        meta = getattr(request, "channel_meta", None) or {}
+        channel_id = meta.get("channel_id", "")
+        if channel_id:
+            try:
+                self._stop_typing(int(channel_id))
+            except (ValueError, TypeError):
+                pass
+        await super()._on_consume_error(
+            request,
+            to_handle,
+            err_text,
+        )
+
+    # ------------------------------------------------------------------
+    # Streaming hooks (Post + Edit, aligned with Telegram)
+    # ------------------------------------------------------------------
+
+    def _get_discord_stream_state(
+        self,
+        send_meta: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """Get or create per-request Discord streaming state."""
+        state = send_meta.get("_discord_stream")
+        if state is None:
+            state = {"message": None}
+            send_meta["_discord_stream"] = state
+        return state
+
+    def _build_stream_display_text(
+        self,
+        stream_type: str,
+        text: str,
+        send_meta: Dict[str, Any],
+    ) -> str:
+        """Build display text with bot_prefix and thinking emoji."""
+        prefix = send_meta.get("bot_prefix") or self.bot_prefix or ""
+        if stream_type == "reasoning" and text:
+            if prefix:
+                return f"{prefix}  💭 {text}"
+            return f"💭 {text}"
+        if prefix and text:
+            return f"{prefix}  {text}"
+        return text
+
+    def _resolve_discord_channel(
+        self,
+        send_meta: Dict[str, Any],
+    ) -> Any:
+        """Resolve Discord channel from send_meta['channel_id']."""
+        channel_id = send_meta.get("channel_id", "")
+        if not channel_id or not self._client:
+            return None
+        try:
+            return self._client.get_channel(int(channel_id))
+        except (ValueError, TypeError):
+            return None
+
+    async def on_streaming_start(
+        self,
+        request: Any,
+        to_handle: str,
+        event: Any,
+        send_meta: Dict[str, Any],
+        stream_type: str,
+        accumulated_text: str = "",
+    ) -> None:
+        """Send placeholder message and cache for streaming."""
+        if not self.streaming_enabled:
+            return
+        ch = self._resolve_discord_channel(send_meta)
+        if not ch:
+            return
+        state = self._get_discord_stream_state(send_meta)
+        placeholder = self._build_stream_display_text(
+            stream_type,
+            "...",
+            send_meta,
+        )
+        try:
+            msg = await ch.send(placeholder)
+            state["message"] = msg
+        except Exception:
+            logger.debug(
+                "discord: failed to send streaming placeholder",
+            )
+
+    async def on_streaming_delta(
+        self,
+        request: Any,
+        to_handle: str,
+        event: Any,
+        send_meta: Dict[str, Any],
+        stream_type: str,
+        accumulated_text: str = "",
+    ) -> None:
+        """Edit placeholder with accumulated text."""
+        state = send_meta.get("_discord_stream")
+        if not state:
+            return
+        msg = state.get("message")
+        if not msg:
+            return
+        display = self._build_stream_display_text(
+            stream_type,
+            accumulated_text,
+            send_meta,
+        )
+        # Show tail portion when exceeding Discord's message limit
+        if len(display) > self._DISCORD_MAX_LEN:
+            display = "..." + display[-(self._DISCORD_MAX_LEN - 4) :]
+        try:
+            await msg.edit(content=display)
+        except Exception:
+            logger.debug(
+                "discord: streaming delta edit failed",
+            )
+
+    async def on_streaming_end(
+        self,
+        request: Any,
+        to_handle: str,
+        event: Any,
+        send_meta: Dict[str, Any],
+        stream_type: str,
+        accumulated_text: str = "",
+    ) -> None:
+        """Final edit or fallback to chunked send."""
+        state = send_meta.pop("_discord_stream", None)
+        msg = state.get("message") if state else None
+        final_text = self._build_stream_display_text(
+            stream_type,
+            accumulated_text,
+            send_meta,
+        )
+
+        if not msg:
+            # Placeholder was never sent; fall back to normal send
+            if final_text:
+                await self.send(to_handle, final_text, send_meta)
+            return
+
+        if len(final_text) <= self._DISCORD_MAX_LEN:
+            try:
+                await msg.edit(content=final_text)
+            except Exception:
+                logger.debug(
+                    "discord: streaming end edit failed",
+                )
+        else:
+            # Text too long: delete placeholder, use chunked send
+            try:
+                await msg.delete()
+            except Exception:
+                pass
+            await self.send(to_handle, final_text, send_meta)
 
     def _route_from_handle(self, to_handle: str) -> dict:
         # to_handle format: discord:ch:<channel_id> or discord:dm:<user_id>

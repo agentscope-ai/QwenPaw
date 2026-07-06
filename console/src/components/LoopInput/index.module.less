@@ -1,0 +1,53 @@
+/* ── Loop Command Chip ── */
+.loopChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: var(--ant-color-primary-bg, rgba(22, 119, 255, 0.08));
+  border: 1px solid var(--ant-color-primary-border, rgba(22, 119, 255, 0.3));
+  border-radius: 8px;
+  padding: 4px 10px 4px 8px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ant-color-primary, #1677ff);
+  cursor: default;
+  user-select: none;
+  transition: all 0.15s ease;
+  animation: chipIn 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+@keyframes chipIn {
+  0% {
+    transform: scale(0.85);
+    opacity: 0;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+.loopChip:hover {
+  background: var(--ant-color-primary-bg-hover, rgba(22, 119, 255, 0.12));
+  border-color: var(--ant-color-primary, #1677ff);
+}
+
+.loopChipHighlighted {
+  background: var(--ant-color-primary-bg-hover, rgba(22, 119, 255, 0.15));
+  border-color: var(--ant-color-primary, #1677ff);
+  box-shadow: 0 0 0 2px var(--ant-color-primary-bg, rgba(22, 119, 255, 0.15));
+}
+
+.chipClose {
+  width: 12px;
+  height: 12px;
+  opacity: 0.5;
+  cursor: pointer;
+  margin-left: 2px;
+  transition: opacity 0.15s ease;
+  flex-shrink: 0;
+}
+
+.chipClose:hover {
+  opacity: 1;
+}

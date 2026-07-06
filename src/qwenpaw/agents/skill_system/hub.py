@@ -22,10 +22,13 @@ import frontmatter
 import httpx
 import yaml
 
-from agentscope_runtime.engine.schemas.exception import ConfigurationException
-from ...exceptions import SkillsError
+from ...exceptions import (
+    ConfigurationException,
+    SkillConflictError,
+    SkillImportCancelled,
+    SkillsError,
+)
 from ...constant import EnvVarLoader
-from .models import SkillConflictError
 from .pool_service import SkillPoolService
 from .store import suggest_conflict_name
 from .workspace_service import SkillService
@@ -67,10 +70,6 @@ class HubInstallResult:
     enabled: bool
     source_url: str
     installed_from: InstallOrigin = ""
-
-
-class SkillImportCancelled(RuntimeError):
-    """Raised when a skill import task is cancelled by user."""
 
 
 def _build_hub_conflict(name: str) -> dict[str, Any]:
@@ -1830,7 +1829,7 @@ async def _fetch_bundle_from_aliyun_url(
             pathname=f"/openapi/skills/{quote(skill_id, safe='')}",
             method="GET",
         )
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         raise SkillsError(
             message=f"Aliyun GetSkillContent failed: {exc}",
         ) from exc

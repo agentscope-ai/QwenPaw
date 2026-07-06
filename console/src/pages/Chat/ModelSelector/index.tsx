@@ -72,6 +72,18 @@ export default function ModelSelector() {
     {},
   );
 
+  // Mobile viewport detection for dropdown placement
+  const [isMobile, setIsMobile] = useState(() => window.innerWidth <= 768);
+  useEffect(() => {
+    const media = window.matchMedia("(max-width: 768px)");
+    const handler = (e: MediaQueryListEvent | MediaQueryList) => {
+      setIsMobile(e.matches);
+    };
+    handler(media);
+    media.addEventListener("change", handler);
+    return () => media.removeEventListener("change", handler);
+  }, []);
+
   // OAuth modal state
   const [oauthModal, setOauthModal] = useState<{
     open: boolean;
@@ -234,6 +246,31 @@ export default function ModelSelector() {
 
   const showActiveProviderIcon = Boolean(activeProviderId);
 
+  // Marquee the trigger name on very narrow screens when it overflows.
+  const triggerNameRef = useRef<HTMLSpanElement | null>(null);
+  const triggerNameMeasureRef = useRef<HTMLSpanElement | null>(null);
+  const [shouldMarquee, setShouldMarquee] = useState(false);
+
+  useEffect(() => {
+    const check = () => {
+      const w = typeof window !== "undefined" ? window.innerWidth : 0;
+      if (w > 480) {
+        setShouldMarquee(false);
+        return;
+      }
+      const containerWidth =
+        triggerNameRef.current?.getBoundingClientRect().width ?? 0;
+      const textWidth =
+        triggerNameMeasureRef.current?.getBoundingClientRect().width ?? 0;
+      // Small tolerance to avoid borderline jitter.
+      setShouldMarquee(textWidth > containerWidth + 2);
+    };
+
+    check();
+    window.addEventListener("resize", check);
+    return () => window.removeEventListener("resize", check);
+  }, [activeModelName]);
+
   const handleOpenChange = useCallback(
     async (next: boolean) => {
       setOpen(next);
@@ -305,7 +342,11 @@ export default function ModelSelector() {
       setActiveModels({
         active_llm: { provider_id: providerId, model: modelId },
       });
-      window.dispatchEvent(new CustomEvent("model-switched"));
+      window.dispatchEvent(
+        new CustomEvent("model-switched", {
+          detail: { maxInputLength: targetModel?.max_input_length },
+        }),
+      );
     } catch (err) {
       const msg =
         err instanceof Error ? err.message : t("modelSelector.switchFailed");
@@ -335,7 +376,17 @@ export default function ModelSelector() {
             model: oauthModal.pendingModelId,
           },
         });
-        window.dispatchEvent(new CustomEvent("model-switched"));
+        const oauthProvider = eligibleProviders.find(
+          (p) => p.id === oauthModal.providerId,
+        );
+        const oauthModel = oauthProvider?.models.find(
+          (m) => m.id === oauthModal.pendingModelId,
+        );
+        window.dispatchEvent(
+          new CustomEvent("model-switched", {
+            detail: { maxInputLength: oauthModel?.max_input_length },
+          }),
+        );
       } catch (err) {
         const msg =
           err instanceof Error ? err.message : t("modelSelector.switchFailed");
@@ -684,9 +735,11 @@ export default function ModelSelector() {
       <Dropdown
         open={open}
         onOpenChange={handleOpenChange}
-        popupRender={() => dropdownContent}
+        popupRender={() => (
+          <div style={{ transform: "translateY(0)" }}>{dropdownContent}</div>
+        )}
         trigger={["click"]}
-        placement="bottomLeft"
+        placement={isMobile ? "bottomCenter" : "bottomLeft"}
       >
         <Tooltip title={t("chat.modelSelectTooltip")} mouseEnterDelay={0.5}>
           <div
@@ -700,8 +753,28 @@ export default function ModelSelector() {
             {showActiveProviderIcon && activeProviderId && (
               <ProviderIcon providerId={activeProviderId} size={16} />
             )}
-            <span className={styles.triggerName}>{activeModelName}</span>
-            {open ? <UpOutlined /> : <DownOutlined />}
+            <span className={styles.triggerName} ref={triggerNameRef}>
+              {shouldMarquee ? (
+                <span className={styles.marquee}>{activeModelName}</span>
+              ) : (
+                activeModelName
+              )}
+            </span>
+            {/* Hidden span used to measure intrinsic text width. Placed
+                outside .triggerName so it does not duplicate text for
+                screen readers or testing-library queries. */}
+            <span
+              ref={triggerNameMeasureRef}
+              aria-hidden="true"
+              style={{
+                position: "absolute",
+                visibility: "hidden",
+                whiteSpace: "nowrap",
+                pointerEvents: "none",
+              }}
+            >
+              {activeModelName}
+            </span>
           </div>
         </Tooltip>
       </Dropdown>

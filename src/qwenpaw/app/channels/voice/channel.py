@@ -31,6 +31,7 @@ class VoiceChannel(BaseChannel):
         on_reply_sent: OnReplySent = None,
         show_tool_details: bool = True,
         filter_tool_messages: bool = False,
+        no_text_debounce: bool = True,
         filter_thinking: bool = False,
     ) -> None:
         super().__init__(
@@ -38,6 +39,7 @@ class VoiceChannel(BaseChannel):
             on_reply_sent,
             show_tool_details,
             filter_tool_messages=filter_tool_messages,
+            no_text_debounce=no_text_debounce,
             filter_thinking=filter_thinking,
         )
         self.session_mgr = CallSessionManager()
@@ -58,6 +60,7 @@ class VoiceChannel(BaseChannel):
         on_reply_sent: OnReplySent = None,
         show_tool_details: bool = True,
         filter_tool_messages: bool = False,
+        no_text_debounce: bool = True,
         filter_thinking: bool = False,
     ) -> "VoiceChannel":
         instance = cls(
@@ -65,6 +68,7 @@ class VoiceChannel(BaseChannel):
             on_reply_sent,
             show_tool_details,
             filter_tool_messages=filter_tool_messages,
+            no_text_debounce=no_text_debounce,
             filter_thinking=filter_thinking,
         )
         instance._config = config
@@ -202,7 +206,7 @@ class VoiceChannel(BaseChannel):
         native_payload: Any,
     ) -> Any:
         """Convert a voice payload dict to AgentRequest."""
-        from agentscope_runtime.engine.schemas.agent_schemas import (
+        from qwenpaw.schemas import (
             AgentRequest,
             Message,
             MessageType,

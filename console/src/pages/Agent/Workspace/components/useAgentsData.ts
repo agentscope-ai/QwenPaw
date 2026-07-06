@@ -43,6 +43,7 @@ export const useAgentsData = () => {
         enabled,
       );
       setFiles(sortedFiles);
+      await fetchDailyMemories();
 
       // Set workspace path (handle both Unix '/' and Windows '\' separators)
       if (fileList.length > 0) {
@@ -133,6 +134,7 @@ export const useAgentsData = () => {
         enabled,
       );
       setFiles(sortedFiles);
+      await fetchDailyMemories();
       // Set workspace path (handle both Unix '/' and Windows '\' separators)
       if (fileList.length > 0) {
         setWorkspacePath(getParentDir(fileList[0].path));
@@ -157,13 +159,12 @@ export const useAgentsData = () => {
 
   const handleFileClick = async (file: MarkdownFile) => {
     if (file.filename === "MEMORY.md") {
-      if (expandedMemory && selectedFile?.filename === "MEMORY.md") {
-        setExpandedMemory(false);
-        return;
-      } else {
-        setExpandedMemory(true);
-        fetchDailyMemories();
-      }
+      setExpandedMemory((prev) => {
+        if (!prev) {
+          fetchDailyMemories();
+        }
+        return !prev;
+      });
     }
 
     setSelectedFile(file);
@@ -182,16 +183,17 @@ export const useAgentsData = () => {
 
   const handleDailyMemoryClick = async (daily: DailyMemoryFile) => {
     setSelectedFile({
-      filename: `${daily.date}.md`,
+      filename: daily.filename,
       path: daily.path,
       size: daily.size,
       created_time: daily.created_time,
       modified_time: daily.modified_time,
       updated_at: daily.updated_at,
+      memory_path: daily.filename,
     });
     setLoading(true);
     try {
-      const data = await api.loadDailyMemory(daily.date);
+      const data = await api.loadDailyMemory(daily.filename);
       setFileContent(data.content);
       setOriginalContent(data.content);
     } catch (error) {
@@ -206,15 +208,14 @@ export const useAgentsData = () => {
     if (!selectedFile) return;
     setLoading(true);
     try {
-      if (selectedFile.filename.match(/^\d{4}-\d{2}-\d{2}\.md$/)) {
-        const date = selectedFile.filename.replace(".md", "");
-        await api.saveDailyMemory(date, fileContent);
+      if (selectedFile.memory_path) {
+        await api.saveDailyMemory(selectedFile.memory_path, fileContent);
       } else {
         await api.saveFile(selectedFile.filename, fileContent);
       }
       setOriginalContent(fileContent);
       message.success("Saved successfully");
-      if (selectedFile.filename.match(/^\d{4}-\d{2}-\d{2}\.md$/)) {
+      if (selectedFile.memory_path) {
         fetchDailyMemories();
       } else {
         fetchFiles();
@@ -288,6 +289,14 @@ export const useAgentsData = () => {
     fetchDailyMemories,
     handleFileClick,
     handleDailyMemoryClick,
+    toggleExpandedMemory: () => {
+      setExpandedMemory((v) => {
+        if (!v) {
+          fetchDailyMemories();
+        }
+        return !v;
+      });
+    },
     handleSave,
     handleReset,
     handleToggleFileEnabled,

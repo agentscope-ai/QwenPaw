@@ -12,8 +12,11 @@ from typing import TYPE_CHECKING, Any, List
 
 from agentscope.model import ChatModelBase
 from openai import APIError
+from pydantic import Field
 
 from qwenpaw.providers.provider import ModelInfo, Provider
+from .capping_formatter import _CappingOpenAIFormatter
+from .capping_formatter import MAX_INLINE_MEDIA_BYTES
 
 if TYPE_CHECKING:
     from qwenpaw.providers.multimodal_prober import ProbeResult
@@ -45,6 +48,18 @@ else:
 
 class OpenAIProvider(Provider):
     """Provider implementation for OpenAI API and compatible endpoints."""
+
+    max_inline_media_bytes: int = Field(
+        default=MAX_INLINE_MEDIA_BYTES,
+        ge=0,
+        description=(
+            "Maximum size (in bytes) of a local media file inlined as "
+            "base64 into the model request body. Media above this is "
+            "replaced with a text placeholder to avoid oversized requests "
+            "when large files (e.g. generated videos) persist in "
+            "conversation history. 0 disables capping."
+        ),
+    )
 
     def _build_default_headers(self) -> dict:
         return dict(self.custom_headers) if self.custom_headers else {}
@@ -150,45 +165,52 @@ class OpenAIProvider(Provider):
             )
 
     def get_chat_model_instance(self, model_id: str) -> ChatModelBase:
+        from agentscope.credential._openai import OpenAICredential
+        from agentscope.model import OpenAIChatModel
+
         from .openai_chat_model_compat import OpenAIChatModelCompat
 
-        client_kwargs: dict = {"base_url": self.base_url}
+        credential = OpenAICredential(
+            id=f"qwenpaw-{self.id}",
+            api_key=self.api_key,
+            base_url=self.base_url,
+        )
 
-        # Start with user-defined custom headers, then layer platform-specific
-        # headers on top so required service headers are always present.
+        # Platform-specific headers injected per-request via extra_headers.
         merged_headers = self._build_default_headers()
-
+        dashscope_meta = json.dumps(
+            {
+                "agentType": "QwenPaw",
+                "deployType": "UnKnown",
+                "moduleCode": "model",
+                "agentCode": "UnKnown",
+            },
+            ensure_ascii=False,
+        )
         if self.base_url in DASHSCOPE_BASE_URLS:
-            merged_headers["x-dashscope-agentapp"] = json.dumps(
-                {
-                    "agentType": "QwenPaw",
-                    "deployType": "UnKnown",
-                    "moduleCode": "model",
-                    "agentCode": "UnKnown",
-                },
-                ensure_ascii=False,
-            )
+            merged_headers["x-dashscope-agentapp"] = dashscope_meta
         elif self.base_url in (CODING_DASHSCOPE_BASE_URL, TOKEN_PLAN_BASE_URL):
-            merged_headers["X-DashScope-Cdpl"] = json.dumps(
-                {
-                    "agentType": "QwenPaw",
-                    "deployType": "UnKnown",
-                    "moduleCode": "model",
-                    "agentCode": "UnKnown",
-                },
-                ensure_ascii=False,
-            )
+            merged_headers["X-DashScope-Cdpl"] = dashscope_meta
 
-        if merged_headers:
-            client_kwargs["default_headers"] = merged_headers
+        gen_kwargs = self.get_effective_generate_kwargs(model_id)
+        parameters = OpenAIChatModel.Parameters(
+            max_tokens=gen_kwargs.pop("max_tokens", None),
+            temperature=gen_kwargs.pop("temperature", None),
+            top_p=gen_kwargs.pop("top_p", None),
+        )
 
         return OpenAIChatModelCompat(
-            model_name=model_id,
+            credential=credential,
+            model=model_id,
+            parameters=parameters,
             stream=True,
-            api_key=self.api_key,
-            stream_tool_parsing=False,
-            client_kwargs=client_kwargs,
-            generate_kwargs=self.get_effective_generate_kwargs(model_id),
+            default_headers=merged_headers or None,
+            extra_generate_kwargs=gen_kwargs or None,
+            context_size=self._get_context_size(model_id),
+            formatter=_CappingOpenAIFormatter(
+                max_bytes=self.max_inline_media_bytes,
+                relay_reasoning_content=self._get_preserve_thinking(model_id),
+            ),
         )
 
     async def probe_model_multimodal(

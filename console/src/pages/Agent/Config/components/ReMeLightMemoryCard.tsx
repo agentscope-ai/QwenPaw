@@ -8,7 +8,6 @@ import {
   Alert,
 } from "@agentscope-ai/design";
 import { useTranslation } from "react-i18next";
-import { SliderWithValue } from "./SliderWithValue";
 import styles from "../index.module.less";
 
 export function ReMeLightMemoryCard() {
@@ -72,10 +71,10 @@ export function ReMeLightMemoryCard() {
       </Form.Item>
 
       <Form.Item
-        label={t("agentConfig.recursiveFileWatcher")}
-        name={["reme_light_memory_config", "recursive_file_watcher"]}
+        label={t("agentConfig.enableSearchRawLog")}
+        name={["reme_light_memory_config", "enable_search_raw_log"]}
         valuePropName="checked"
-        tooltip={t("agentConfig.recursiveFileWatcherTooltip")}
+        tooltip={t("agentConfig.enableSearchRawLogTooltip")}
       >
         <Switch />
       </Form.Item>
@@ -125,26 +124,18 @@ export function ReMeLightMemoryCard() {
                 </Form.Item>
 
                 <Form.Item
-                  label={t("agentConfig.autoMinScore")}
+                  label={t("agentConfig.autoMemorySearchPersistToContext")}
                   name={[
                     "reme_light_memory_config",
                     "auto_memory_search_config",
-                    "min_score",
+                    "persist_to_context",
                   ]}
-                  rules={[
-                    {
-                      required: true,
-                      message: t("agentConfig.autoMinScoreRequired"),
-                    },
-                  ]}
-                  tooltip={t("agentConfig.autoMinScoreTooltip")}
+                  valuePropName="checked"
+                  tooltip={t(
+                    "agentConfig.autoMemorySearchPersistToContextTooltip",
+                  )}
                 >
-                  <SliderWithValue
-                    min={0}
-                    max={1}
-                    step={0.05}
-                    marks={{ 0: "0", 0.5: "0.5", 1: "1" }}
-                  />
+                  <Switch />
                 </Form.Item>
               </>
             ),

@@ -73,7 +73,7 @@ class TestValidateUrlExtension:
             "image",
         )
         assert result is not None
-        assert "image" in result.content[0]["text"].lower()
+        assert "image" in result.content[0].text.lower()
 
     def test_url_without_extension_passes(self):
         result = _validate_url_extension(
@@ -98,7 +98,7 @@ class TestValidateUrlExtension:
             "video",
         )
         assert result is not None
-        assert "video" in result.content[0]["text"].lower()
+        assert "video" in result.content[0].text.lower()
 
 
 # ---------------------------------------------------------------------------
@@ -126,7 +126,7 @@ class TestValidateMediaPath:
             "image",
         )
         assert err is not None
-        assert "does not exist" in err.content[0]["text"]
+        assert "does not exist" in err.content[0].text
 
     def test_unsupported_extension(self, tmp_path):
         f = tmp_path / "data.xyz"
@@ -137,7 +137,7 @@ class TestValidateMediaPath:
             "image",
         )
         assert err is not None
-        assert "not a supported image" in err.content[0]["text"]
+        assert "not a supported image" in err.content[0].text
 
     def test_directory_not_file(self, tmp_path):
         _, err = _validate_media_path(
@@ -146,7 +146,7 @@ class TestValidateMediaPath:
             "image",
         )
         assert err is not None
-        assert "does not exist" in err.content[0]["text"]
+        assert "does not exist" in err.content[0].text
 
     def test_valid_video_file(self, tmp_path):
         vid = tmp_path / "clip.mp4"
@@ -261,15 +261,15 @@ class TestViewImage:
         mock_support.return_value = True
         result = await view_image("https://example.com/photo.jpg")
         assert result.content is not None
-        types = [b.get("type") for b in result.content]
-        assert "image" in types
+        types = [getattr(b, "type", None) for b in result.content]
+        assert "data" in types
 
     @pytest.mark.asyncio
     @patch("qwenpaw.agents.tools.view_media._check_multimodal_support")
     async def test_invalid_url_extension(self, mock_support):
         mock_support.return_value = True
         result = await view_image("https://example.com/doc.pdf")
-        assert "image" in result.content[0]["text"].lower()
+        assert "image" in result.content[0].text.lower()
 
     @pytest.mark.asyncio
     @patch("qwenpaw.agents.tools.view_media._check_multimodal_support")
@@ -278,15 +278,15 @@ class TestViewImage:
         img = tmp_path / "photo.png"
         img.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 10)
         result = await view_image(str(img))
-        types = [b.get("type") for b in result.content]
-        assert "image" in types
+        types = [getattr(b, "type", None) for b in result.content]
+        assert "data" in types
 
     @pytest.mark.asyncio
     @patch("qwenpaw.agents.tools.view_media._check_multimodal_support")
     async def test_nonexistent_local_file(self, mock_support):
         mock_support.return_value = True
         result = await view_image("/nonexistent/image.png")
-        assert "does not exist" in result.content[0]["text"]
+        assert "does not exist" in result.content[0].text
 
     @pytest.mark.asyncio
     @patch("qwenpaw.agents.tools.view_media._probe_multimodal_if_needed")
@@ -296,7 +296,9 @@ class TestViewImage:
         mock_probe.return_value = False
         result = await view_image("https://example.com/img.jpg")
         text_parts = [
-            b["text"] for b in result.content if b.get("type") == "text"
+            b.text
+            for b in result.content
+            if getattr(b, "type", None) == "text"
         ]
         assert any("multimodal" in t.lower() for t in text_parts)
 
@@ -314,15 +316,15 @@ class TestViewVideo:
     async def test_url_video(self, mock_support):
         mock_support.return_value = True
         result = await view_video("https://example.com/clip.mp4")
-        types = [b.get("type") for b in result.content]
-        assert "video" in types
+        types = [getattr(b, "type", None) for b in result.content]
+        assert "data" in types
 
     @pytest.mark.asyncio
     @patch("qwenpaw.agents.tools.view_media._check_multimodal_support")
     async def test_invalid_url_extension(self, mock_support):
         mock_support.return_value = True
         result = await view_video("https://example.com/doc.pdf")
-        assert "video" in result.content[0]["text"].lower()
+        assert "video" in result.content[0].text.lower()
 
     @pytest.mark.asyncio
     @patch("qwenpaw.agents.tools.view_media._check_multimodal_support")
@@ -331,12 +333,12 @@ class TestViewVideo:
         vid = tmp_path / "clip.mp4"
         vid.write_bytes(b"\x00" * 100)
         result = await view_video(str(vid))
-        types = [b.get("type") for b in result.content]
-        assert "video" in types
+        types = [getattr(b, "type", None) for b in result.content]
+        assert "data" in types
 
     @pytest.mark.asyncio
     @patch("qwenpaw.agents.tools.view_media._check_multimodal_support")
     async def test_nonexistent_local_file(self, mock_support):
         mock_support.return_value = True
         result = await view_video("/nonexistent/vid.mp4")
-        assert "does not exist" in result.content[0]["text"]
+        assert "does not exist" in result.content[0].text
