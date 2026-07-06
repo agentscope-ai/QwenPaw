@@ -509,16 +509,34 @@ class Provider(ProviderInfo, ABC):
         """
 
     def _get_context_size(self, model_id: str) -> int:
-        """Return the context size for *model_id* from ``ModelInfo``.
+        """Return the context size for *model_id*.
 
         Used when constructing AgentScope chat model instances so that
         ``model.context_size`` (which drives automatic context compression)
-        matches the user-configured ``max_input_length``.
+        reflects the model's real window. Precedence:
+
+        1. a per-model ``max_input_length`` the user configured (any value
+           other than the field default counts as configured);
+        2. the static catalog of known context windows
+           (:mod:`.context_windows`) — so a 1M-context model compacts at
+           1M-scale thresholds without manual setup;
+        3. the ``ModelInfo.max_input_length`` field default (128k).
+
+        Note the one ambiguity this trades away: explicitly configuring a
+        cataloged model to exactly the 128k default is indistinguishable
+        from "not configured", and the catalog wins. Configure 130000 (or
+        any non-default value) to force a 128k-ish window.
         """
+        from .context_windows import known_context_size
+
+        default = ModelInfo.model_fields["max_input_length"].default
         model_info = self.get_model_info(model_id)
-        if model_info is not None:
+        if model_info is not None and model_info.max_input_length != default:
             return model_info.max_input_length
-        return ModelInfo.model_fields["max_input_length"].default
+        known = known_context_size(model_id)
+        if known is not None:
+            return known
+        return default
 
     @abstractmethod
     def get_chat_model_instance(self, model_id: str) -> ChatModelBase:
