@@ -46,12 +46,16 @@ import type { Message, ChatHistory } from "../../../api/types/chat";
 // not touch real config/token code paths. Preserve all other named exports
 // (sessionApi, types, etc.) by spreading importOriginal.
 vi.mock("../../../api/modules/chat", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../../../api/modules/chat")>();
+  const actual = await importOriginal<
+    typeof import("../../../api/modules/chat")
+  >();
   return {
     ...actual,
     chatApi: {
       ...actual.chatApi,
-      filePreviewUrl: vi.fn((p: string) => `http://localhost:8000/files/preview/${p}`),
+      filePreviewUrl: vi.fn(
+        (p: string) => `http://localhost:8000/files/preview/${p}`,
+      ),
     },
   };
 });
@@ -101,9 +105,16 @@ function buildLargeMessages(
       id: `u-${t}`,
       role: "user",
       content: [
-        { type: "text", text: `user turn ${t} — ${bigText(perTurnBytes / 8, "u")}` },
+        {
+          type: "text",
+          text: `user turn ${t} — ${bigText(perTurnBytes / 8, "u")}`,
+        },
       ],
-      metadata: { timestamp: `2026-06-01 10:00:${(t % 60).toString().padStart(2, "0")}.000` },
+      metadata: {
+        timestamp: `2026-06-01 10:00:${(t % 60)
+          .toString()
+          .padStart(2, "0")}.000`,
+      },
     });
     // assistantPerTurn consecutive assistant segments (simulates streaming chunks).
     const segBytes = perTurnBytes / assistantPerTurn;
@@ -111,14 +122,22 @@ function buildLargeMessages(
       messages.push({
         id: `a-${t}-${s}`,
         role: "assistant",
-        content: [
-          { type: "text", text: bigText(segBytes, `a${t}.${s}`) },
-        ],
+        content: [{ type: "text", text: bigText(segBytes, `a${t}.${s}`) }],
         metadata: {
-          timestamp: `2026-06-01 10:00:${(t % 60).toString().padStart(2, "0")}.${(s * 100).toString().padStart(3, "0")}`,
+          timestamp: `2026-06-01 10:00:${(t % 60)
+            .toString()
+            .padStart(2, "0")}.${(s * 100).toString().padStart(3, "0")}`,
           qwenpaw_turn_usage: {
-            usage: { prompt_tokens: 100 + s, completion_tokens: 50 + s, total_tokens: 150 + 2 * s },
-            context_usage: { estimated_tokens: 200, max_input_length: 8000, context_usage_ratio: 0.025 },
+            usage: {
+              prompt_tokens: 100 + s,
+              completion_tokens: 50 + s,
+              total_tokens: 150 + 2 * s,
+            },
+            context_usage: {
+              estimated_tokens: 200,
+              max_input_length: 8000,
+              context_usage_ratio: 0.025,
+            },
           },
         },
       });
@@ -146,7 +165,11 @@ function buildOneGiantAssistantMessage(bytes: number): Message[] {
         timestamp: "2026-06-01 10:00:01.000",
         qwenpaw_turn_usage: {
           usage: { prompt_tokens: 1, completion_tokens: 2, total_tokens: 3 },
-          context_usage: { estimated_tokens: 4, max_input_length: 8000, context_usage_ratio: 0.001 },
+          context_usage: {
+            estimated_tokens: 4,
+            max_input_length: 8000,
+            context_usage_ratio: 0.001,
+          },
         },
       },
     },
@@ -162,13 +185,13 @@ describe("convertMessages — large session regression for #5479", () => {
     const { messages, size } = buildLargeMessages(600 * 1024);
     expect(size).toBeGreaterThan(500 * 1024);
 
-    let result;
+    let result: ReturnType<typeof convertMessages> | undefined;
     // The historical bug: this call would throw / run out of stack on big inputs.
     expect(() => {
       result = convertMessages(messages);
     }).not.toThrow();
     expect(result).toBeDefined();
-    expect(result.length).toBeGreaterThan(0);
+    expect(result!.length).toBeGreaterThan(0);
   });
 
   it("parses a >2MB session without throwing (stress case)", () => {
@@ -204,8 +227,14 @@ describe("convertMessages — large session regression for #5479", () => {
   it("runs in roughly linear time — 4x input should not take >30x time (perf guard)", () => {
     // Not a hard perf budget (CI is noisy), but a regression that introduces
     // O(n²) grouping would blow this out. We keep the ratio loose.
-    const baseline = buildLargeMessages(50 * 1024, { turnCount: 10, assistantPerTurn: 3 });
-    const bigger = buildLargeMessages(200 * 1024, { turnCount: 40, assistantPerTurn: 3 });
+    const baseline = buildLargeMessages(50 * 1024, {
+      turnCount: 10,
+      assistantPerTurn: 3,
+    });
+    const bigger = buildLargeMessages(200 * 1024, {
+      turnCount: 40,
+      assistantPerTurn: 3,
+    });
 
     const t1 = performance.now();
     convertMessages(baseline.messages);
@@ -231,10 +260,26 @@ describe("convertMessages — streaming segments stay separate (PR #5487)", () =
   it("keeps each assistant segment as a distinct entry in the ResponseCard output array", () => {
     // Simulates a streamed assistant turn split into N segments by the channel.
     const messages: Message[] = [
-      { role: "user", content: "q", metadata: { timestamp: "2026-06-01 10:00:00.000" } },
-      { role: "assistant", content: [{ type: "text", text: "seg1" }], metadata: {} },
-      { role: "assistant", content: [{ type: "text", text: "seg2" }], metadata: {} },
-      { role: "assistant", content: [{ type: "text", text: "seg3" }], metadata: {} },
+      {
+        role: "user",
+        content: "q",
+        metadata: { timestamp: "2026-06-01 10:00:00.000" },
+      },
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "seg1" }],
+        metadata: {},
+      },
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "seg2" }],
+        metadata: {},
+      },
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "seg3" }],
+        metadata: {},
+      },
     ];
     const result = convertMessages(messages);
     expect(result).toHaveLength(2); // one user card + one assistant card
@@ -253,11 +298,31 @@ describe("convertMessages — streaming segments stay separate (PR #5487)", () =
   it("does NOT merge segments across a user boundary — each turn is its own card", () => {
     // turn 1: assistant seg1, assistant seg2, user, turn 2: assistant seg3
     const messages: Message[] = [
-      { role: "user", content: "q1", metadata: { timestamp: "2026-06-01 10:00:00.000" } },
-      { role: "assistant", content: [{ type: "text", text: "a1.1" }], metadata: {} },
-      { role: "assistant", content: [{ type: "text", text: "a1.2" }], metadata: {} },
-      { role: "user", content: "q2", metadata: { timestamp: "2026-06-01 10:00:01.000" } },
-      { role: "assistant", content: [{ type: "text", text: "a2.1" }], metadata: {} },
+      {
+        role: "user",
+        content: "q1",
+        metadata: { timestamp: "2026-06-01 10:00:00.000" },
+      },
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "a1.1" }],
+        metadata: {},
+      },
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "a1.2" }],
+        metadata: {},
+      },
+      {
+        role: "user",
+        content: "q2",
+        metadata: { timestamp: "2026-06-01 10:00:01.000" },
+      },
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "a2.1" }],
+        metadata: {},
+      },
     ];
     const result = convertMessages(messages);
     // user card, assistant card (2 outputs), user card, assistant card (1 output)
@@ -279,7 +344,11 @@ describe("convertMessages — streaming segments stay separate (PR #5487)", () =
   it("keeps streaming segments separate at large scale (200 turns × 4 segments each)", () => {
     const messages: Message[] = [];
     for (let t = 0; t < 200; t++) {
-      messages.push({ role: "user", content: `q${t}`, metadata: { timestamp: "2026-06-01 10:00:00.000" } });
+      messages.push({
+        role: "user",
+        content: `q${t}`,
+        metadata: { timestamp: "2026-06-01 10:00:00.000" },
+      });
       for (let s = 0; s < 4; s++) {
         messages.push({
           role: "assistant",
@@ -301,10 +370,26 @@ describe("convertMessages — streaming segments stay separate (PR #5487)", () =
 
   it("preserves sequence order of segments within a ResponseCard", () => {
     const messages: Message[] = [
-      { role: "user", content: "q", metadata: { timestamp: "2026-06-01 10:00:00.000" } },
-      { role: "assistant", content: [{ type: "text", text: "first" }], metadata: { sequence_number: 1 } },
-      { role: "assistant", content: [{ type: "text", text: "second" }], metadata: { sequence_number: 2 } },
-      { role: "assistant", content: [{ type: "text", text: "third" }], metadata: { sequence_number: 3 } },
+      {
+        role: "user",
+        content: "q",
+        metadata: { timestamp: "2026-06-01 10:00:00.000" },
+      },
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "first" }],
+        metadata: { sequence_number: 1 },
+      },
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "second" }],
+        metadata: { sequence_number: 2 },
+      },
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "third" }],
+        metadata: { sequence_number: 3 },
+      },
     ];
     const result = convertMessages(messages);
     const output = (result[1].cards?.[0]?.data as any).output;
@@ -334,7 +419,10 @@ describe("convertMessages — structural correctness on large input", () => {
   });
 
   it("every assistant card has exactly one AgentScopeRuntimeResponseCard", () => {
-    const { messages } = buildLargeMessages(200 * 1024, { turnCount: 30, assistantPerTurn: 2 });
+    const { messages } = buildLargeMessages(200 * 1024, {
+      turnCount: 30,
+      assistantPerTurn: 2,
+    });
     const result = convertMessages(messages);
     for (const card of result) {
       if (card.role === "assistant") {
@@ -346,7 +434,10 @@ describe("convertMessages — structural correctness on large input", () => {
   });
 
   it("every user card has exactly one AgentScopeRuntimeRequestCard", () => {
-    const { messages } = buildLargeMessages(200 * 1024, { turnCount: 30, assistantPerTurn: 2 });
+    const { messages } = buildLargeMessages(200 * 1024, {
+      turnCount: 30,
+      assistantPerTurn: 2,
+    });
     const result = convertMessages(messages);
     for (const card of result) {
       if (card.role === "user") {
@@ -363,8 +454,32 @@ describe("convertMessages — structural correctness on large input", () => {
     // segment wins. For a large streamed turn, that's the correct total.
     const messages: Message[] = [
       { role: "user", content: "q", metadata: {} },
-      { role: "assistant", content: "p1", metadata: { qwenpaw_turn_usage: { usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 } } } },
-      { role: "assistant", content: "p2", metadata: { qwenpaw_turn_usage: { usage: { prompt_tokens: 100, completion_tokens: 50, total_tokens: 999 } } } },
+      {
+        role: "assistant",
+        content: "p1",
+        metadata: {
+          qwenpaw_turn_usage: {
+            usage: {
+              prompt_tokens: 10,
+              completion_tokens: 5,
+              total_tokens: 15,
+            },
+          },
+        },
+      },
+      {
+        role: "assistant",
+        content: "p2",
+        metadata: {
+          qwenpaw_turn_usage: {
+            usage: {
+              prompt_tokens: 100,
+              completion_tokens: 50,
+              total_tokens: 999,
+            },
+          },
+        },
+      },
     ];
     const result = convertMessages(messages);
     const data = result[1].cards![0].data as any;
@@ -417,8 +532,18 @@ describe("buildUserCard / buildResponseCard helpers", () => {
 
   it("buildResponseCard computes sequence_number as max+1", () => {
     const card = buildResponseCard([
-      { role: "assistant", content: "a", metadata: null, sequence_number: 5 } as any,
-      { role: "assistant", content: "b", metadata: null, sequence_number: 12 } as any,
+      {
+        role: "assistant",
+        content: "a",
+        metadata: null,
+        sequence_number: 5,
+      } as any,
+      {
+        role: "assistant",
+        content: "b",
+        metadata: null,
+        sequence_number: 12,
+      } as any,
     ]);
     const data = card.cards![0].data as any;
     expect(data.sequence_number).toBe(13);
@@ -426,24 +551,34 @@ describe("buildUserCard / buildResponseCard helpers", () => {
 
   it("parseTimestamp handles malformed timestamps without throwing", () => {
     expect(parseTimestamp({ metadata: {} } as any)).toBe(0);
-    expect(parseTimestamp({ metadata: { timestamp: "not-a-date" } } as any)).toBe(0);
-    expect(parseTimestamp({ metadata: { timestamp: "2026-06-01 10:00:00.000" } } as any)).toBeGreaterThan(0);
+    expect(
+      parseTimestamp({ metadata: { timestamp: "not-a-date" } } as any),
+    ).toBe(0);
+    expect(
+      parseTimestamp({
+        metadata: { timestamp: "2026-06-01 10:00:00.000" },
+      } as any),
+    ).toBeGreaterThan(0);
   });
 
   it("extractTextFromContent joins text parts with newlines", () => {
     expect(extractTextFromContent("plain")).toBe("plain");
-    expect(extractTextFromContent([
-      { type: "text", text: "a" },
-      { type: "text", text: "b" },
-      { type: "image", image_url: "x" },
-    ])).toBe("a\nb");
+    expect(
+      extractTextFromContent([
+        { type: "text", text: "a" },
+        { type: "text", text: "b" },
+        { type: "image", image_url: "x" },
+      ]),
+    ).toBe("a\nb");
   });
 
   it("contentToRequestParts always returns at least one part (no empty arrays)", () => {
     expect(contentToRequestParts(null)).toHaveLength(1);
     expect(contentToRequestParts("")).toHaveLength(1);
     expect(contentToRequestParts([])).toHaveLength(1);
-    expect(contentToRequestParts([{ type: "text", text: "x" }])).toHaveLength(1);
+    expect(contentToRequestParts([{ type: "text", text: "x" }])).toHaveLength(
+      1,
+    );
   });
 
   it("normalizeOutputMessageContent adds file_name fallback for file items", () => {
@@ -463,7 +598,9 @@ describe("buildUserCard / buildResponseCard helpers", () => {
 describe("session id + status helpers", () => {
   it("isLocalTimestamp recognises timestamp-style local ids", () => {
     expect(isLocalTimestamp("1782267071416-qs7yghe")).toBe(true);
-    expect(isLocalTimestamp("550e8400-e29b-41d4-a716-446655440000")).toBe(false);
+    expect(isLocalTimestamp("550e8400-e29b-41d4-a716-446655440000")).toBe(
+      false,
+    );
     expect(isLocalTimestamp("")).toBe(false);
   });
 
@@ -532,7 +669,13 @@ describe("SessionApi.getSession — large payload integration (#5479)", () => {
     // Pre-seed the session list so getSession finds an entry (and resolves
     // the backend id directly through the UUID branch).
     (sessionApiDefaultExport as any).sessionList = [
-      { id: "uuid-big", sessionId: "uuid-big", userId: "u", channel: "c", name: "big" },
+      {
+        id: "uuid-big",
+        sessionId: "uuid-big",
+        userId: "u",
+        channel: "c",
+        name: "big",
+      },
     ];
 
     const session = await sessionApiDefaultExport.getSession("uuid-big");
@@ -568,7 +711,13 @@ describe("SessionApi.getSession — large payload integration (#5479)", () => {
       .mockResolvedValue({ messages, status: "running" } as ChatHistory);
 
     (sessionApiDefaultExport as any).sessionList = [
-      { id: "gen-1", sessionId: "gen-1", userId: "u", channel: "c", name: "gen" },
+      {
+        id: "gen-1",
+        sessionId: "gen-1",
+        userId: "u",
+        channel: "c",
+        name: "gen",
+      },
     ];
 
     await sessionApiDefaultExport.getSession("gen-1");
@@ -587,7 +736,13 @@ describe("SessionApi.getSession — large payload integration (#5479)", () => {
       .mockResolvedValue({ messages, status: "idle" } as ChatHistory);
 
     (sessionApiDefaultExport as any).sessionList = [
-      { id: "idle-1", sessionId: "idle-1", userId: "u", channel: "c", name: "idle" },
+      {
+        id: "idle-1",
+        sessionId: "idle-1",
+        userId: "u",
+        channel: "c",
+        name: "idle",
+      },
     ];
 
     await sessionApiDefaultExport.getSession("idle-1");
