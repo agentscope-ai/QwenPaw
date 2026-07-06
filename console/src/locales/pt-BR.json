@@ -138,7 +138,27 @@
     "deleteTitle": "Excluir {{name}}",
     "deleteConfirm": "Excluir este agente ACP? Esta acao nao pode ser desfeita.",
     "deleteSuccess": "Agente ACP excluido",
-    "deleteFailed": "Falha ao excluir agente ACP"
+    "deleteFailed": "Falha ao excluir agente ACP",
+    "nodeSettings": "Configuracoes do Node",
+    "nodePath": "Caminho do Node",
+    "chooseOtherNode": "Escolher outro Node...",
+    "selectNodePath": "Selecionar caminho do Node",
+    "nodePathPrompt": "Informe o caminho do executavel node",
+    "nodeSaved": "Configuracoes do Node salvas",
+    "nodeLoadFailed": "Falha ao carregar configuracoes do Node",
+    "nodeSaveFailed": "Caminho do Node indisponivel",
+    "nodeRuntime": {
+      "bundled": "Node embutido",
+      "system": "Node do sistema",
+      "custom": "Node personalizado"
+    },
+    "nodeRuntimeReason": {
+      "systemNodeMissing": "Node do sistema nao detectado",
+      "nodeMissing": "Caminho do Node nao existe",
+      "npxMissing": "npx nao encontrado",
+      "versionCheckFailed": "Falha na verificacao de versao",
+      "unavailable": "Indisponivel"
+    }
   },
   "voiceTranscription": {
     "title": "Transcricao de Voz",

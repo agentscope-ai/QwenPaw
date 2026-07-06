@@ -1171,7 +1171,27 @@
     "deleteTitle": "Hapus {{name}}",
     "deleteConfirm": "Hapus agen ACP ini? Tindakan ini tidak dapat dibatalkan.",
     "deleteSuccess": "Agen ACP berhasil dihapus",
-    "deleteFailed": "Gagal menghapus agen ACP"
+    "deleteFailed": "Gagal menghapus agen ACP",
+    "nodeSettings": "Pengaturan Node",
+    "nodePath": "Path Node",
+    "chooseOtherNode": "Pilih Node lain...",
+    "selectNodePath": "Pilih path Node",
+    "nodePathPrompt": "Masukkan path file executable node",
+    "nodeSaved": "Pengaturan Node tersimpan",
+    "nodeLoadFailed": "Gagal memuat pengaturan Node",
+    "nodeSaveFailed": "Path Node tidak tersedia",
+    "nodeRuntime": {
+      "bundled": "Node bawaan",
+      "system": "Node sistem",
+      "custom": "Node kustom"
+    },
+    "nodeRuntimeReason": {
+      "systemNodeMissing": "Node sistem tidak terdeteksi",
+      "nodeMissing": "Path Node tidak ada",
+      "npxMissing": "npx tidak ditemukan",
+      "versionCheckFailed": "Pemeriksaan versi gagal",
+      "unavailable": "Tidak tersedia"
+    }
   },
   "sessions": {
     "title": "Sesi",

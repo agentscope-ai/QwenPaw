@@ -255,7 +255,27 @@
     "deleteTitle": "Delete {{name}}",
     "deleteConfirm": "Delete this ACP agent? This action cannot be undone.",
     "deleteSuccess": "ACP agent deleted",
-    "deleteFailed": "Failed to delete ACP agent"
+    "deleteFailed": "Failed to delete ACP agent",
+    "nodeSettings": "Node Settings",
+    "nodePath": "Node path",
+    "chooseOtherNode": "Choose another Node...",
+    "selectNodePath": "Select Node path",
+    "nodePathPrompt": "Enter the node executable path",
+    "nodeSaved": "Node settings saved",
+    "nodeLoadFailed": "Failed to load Node settings",
+    "nodeSaveFailed": "Node path is unavailable",
+    "nodeRuntime": {
+      "bundled": "Bundled Node",
+      "system": "System Node",
+      "custom": "Custom Node"
+    },
+    "nodeRuntimeReason": {
+      "systemNodeMissing": "System Node was not detected",
+      "nodeMissing": "Node path does not exist",
+      "npxMissing": "npx was not found",
+      "versionCheckFailed": "Version check failed",
+      "unavailable": "Unavailable"
+    }
   },
   "voiceTranscription": {
     "title": "Voice Transcription",

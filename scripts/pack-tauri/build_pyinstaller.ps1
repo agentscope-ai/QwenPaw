@@ -209,6 +209,12 @@ Write-Host "== Staging bundled Python runtime ==" -ForegroundColor Yellow
 Assert-LastExit "Failed to stage bundled Python runtime"
 Write-Host ""
 
+Write-Host "== Staging bundled Node runtime ==" -ForegroundColor Yellow
+& $PYTHON_BIN (Join-Path $REPO_ROOT "scripts\pack-tauri\stage_node_runtime.py") `
+    --dest (Join-Path $BINARIES_DIR "node-runtime")
+Assert-LastExit "Failed to stage bundled Node runtime"
+Write-Host ""
+
 Write-Host "=========================================" -ForegroundColor Cyan
 Write-Host "PyInstaller Build Complete!" -ForegroundColor Green
 Write-Host "=========================================" -ForegroundColor Cyan

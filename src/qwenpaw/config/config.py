@@ -109,6 +109,7 @@ def _get_default_acp_agents() -> Dict[str, ACPAgentConfig]:
 class ACPConfig(BaseModel):
     """ACP (Agent Communication Protocol) configuration."""
 
+    node_path: str = ""
     agents: Dict[str, ACPAgentConfig] = Field(
         default_factory=_get_default_acp_agents,
     )

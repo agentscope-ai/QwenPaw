@@ -38,6 +38,11 @@ from ...config.config import (
     WecomConfig,
 )
 from ...agents.acp.core import ACPConfig, ACPAgentConfig
+from ...agents.acp.node_runtime import (
+    ACPNodeRuntimeStatus,
+    get_node_runtime_status,
+    resolve_node_runtime,
+)
 
 from .schemas_config import (
     ChannelHealthResponse,
@@ -72,6 +77,10 @@ _ALLOWED_ACP_TOOL_PARSE_MODES = {
     "update_detail",
     "call_detail",
 }
+
+
+class ACPNodeRuntimeUpdate(BaseModel):
+    node_path: str = ""
 
 
 @router.get(
@@ -427,6 +436,39 @@ async def put_acp_config(
     save_agent_config(agent.agent_id, agent.config)
     schedule_agent_reload(request, agent.agent_id)
     return agent.config.acp
+
+
+@router.get(
+    "/acp/node-runtime",
+    response_model=ACPNodeRuntimeStatus,
+    summary="Get ACP Node runtime",
+    description="Return configured and detected Node runtimes for ACP",
+)
+async def get_acp_node_runtime() -> ACPNodeRuntimeStatus:
+    """Return global ACP Node runtime status."""
+    return get_node_runtime_status(load_config().acp.node_path)
+
+
+@router.put(
+    "/acp/node-runtime",
+    response_model=ACPNodeRuntimeStatus,
+    summary="Update ACP Node runtime",
+    description="Update the global Node runtime used by ACP subprocesses",
+)
+async def put_acp_node_runtime(
+    body: ACPNodeRuntimeUpdate = Body(...),
+) -> ACPNodeRuntimeStatus:
+    """Update global ACP Node runtime path."""
+    node_path = body.node_path.strip()
+    if node_path:
+        candidate = resolve_node_runtime(node_path)
+        if not candidate.available:
+            raise HTTPException(status_code=400, detail=candidate.reason)
+
+    config = load_config()
+    config.acp.node_path = node_path
+    save_config(config)
+    return get_node_runtime_status(config.acp.node_path)
 
 
 @router.get(

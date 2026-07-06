@@ -355,7 +355,27 @@
     "deleteTitle": "删除 {{name}}",
     "deleteConfirm": "确定删除该 ACP Agent 吗？此操作不可撤销。",
     "deleteSuccess": "ACP Agent 已删除",
-    "deleteFailed": "ACP Agent 删除失败"
+    "deleteFailed": "ACP Agent 删除失败",
+    "nodeSettings": "Node 设置",
+    "nodePath": "Node 路径",
+    "chooseOtherNode": "选择其他 Node...",
+    "selectNodePath": "选择 Node 路径",
+    "nodePathPrompt": "请输入 node 可执行文件路径",
+    "nodeSaved": "Node 设置已保存",
+    "nodeLoadFailed": "Node 设置加载失败",
+    "nodeSaveFailed": "Node 路径不可用",
+    "nodeRuntime": {
+      "bundled": "内置 Node",
+      "system": "系统 Node",
+      "custom": "自定义 Node"
+    },
+    "nodeRuntimeReason": {
+      "systemNodeMissing": "未检测到系统 Node",
+      "nodeMissing": "Node 路径不存在",
+      "npxMissing": "未找到 npx",
+      "versionCheckFailed": "版本检查失败",
+      "unavailable": "不可用"
+    }
   },
   "skills": {
     "title": "技能",
