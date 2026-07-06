@@ -1856,8 +1856,6 @@
     "autoMaxResultsTooltip": "自动记忆搜索时返回的最大结果数",
     "autoMaxResultsRequired": "最大结果数为必填项",
     "autoMaxResultsMin": "最大结果数必须大于等于 1",
-    "autoMemorySearchPersistToContext": "保存搜索结果到上下文",
-    "autoMemorySearchPersistToContextTooltip": "开启后，自动记忆搜索产生的工具调用和工具结果会写入对话上下文。关闭后，搜索结果只用于当前这次模型调用。",
     "embeddingConfigTitle": "向量模型配置",
     "embeddingBackend": "后端类型",
     "embeddingBackendTooltip": "向量模型后端，如 openai",

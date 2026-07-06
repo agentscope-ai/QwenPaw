@@ -1647,8 +1647,6 @@
     "autoMaxResultsTooltip": "Максимальное количество результатов при включённом автоматическом поиске по памяти",
     "autoMaxResultsRequired": "Требуется указать макс. число результатов",
     "autoMaxResultsMin": "Макс. число результатов должно быть не меньше 1",
-    "autoMemorySearchPersistToContext": "Persist Search Result to Context",
-    "autoMemorySearchPersistToContextTooltip": "When enabled, the auto memory search tool call and result are saved into the conversation context. Disable it to use the search result only for the current model call.",
     "embeddingConfigTitle": "Настройки модели эмбеддинга",
     "embeddingBackend": "Бэкенд",
     "embeddingBackendTooltip": "Провайдер бэкенда эмбеддинга, напр. openai",

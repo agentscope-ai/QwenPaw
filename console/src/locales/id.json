@@ -2012,8 +2012,6 @@
     "autoMaxResultsTooltip": "Jumlah hasil maksimum yang dikembalikan saat pencarian memori otomatis diaktifkan",
     "autoMaxResultsRequired": "Hasil maksimum wajib diisi",
     "autoMaxResultsMin": "Hasil maksimum minimal 1",
-    "autoMemorySearchPersistToContext": "Persist Search Result to Context",
-    "autoMemorySearchPersistToContextTooltip": "When enabled, the auto memory search tool call and result are saved into the conversation context. Disable it to use the search result only for the current model call.",
     "embeddingConfigTitle": "Konfigurasi Model Embedding",
     "embeddingBackend": "Backend",
     "embeddingBackendTooltip": "Penyedia backend embedding, mis. openai",

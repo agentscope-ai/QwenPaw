@@ -1847,8 +1847,6 @@
     "autoMaxResultsTooltip": "Maximum number of results returned when auto memory search is enabled",
     "autoMaxResultsRequired": "Max results is Obrigatorio",
     "autoMaxResultsMin": "Max results must be at least 1",
-    "autoMemorySearchPersistToContext": "Persist Search Result to Context",
-    "autoMemorySearchPersistToContextTooltip": "When enabled, the auto memory search tool call and result are saved into the conversation context. Disable it to use the search result only for the current model call.",
     "embeddingConfigTitle": "Embedding Modelo Configuracao",
     "embeddingBackend": "Backend",
     "embeddingBackendTooltip": "Embedding backend provider, e.g. openai",

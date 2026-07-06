@@ -199,11 +199,10 @@ graph LR
 
 在 `running.reme_light_memory_config.auto_memory_search_config` 中配置：
 
-| 配置项               | 说明                                                     | 默认值  |
-| -------------------- | -------------------------------------------------------- | ------- |
-| `enabled`            | 是否在每次对话时自动执行记忆搜索                         | `false` |
-| `max_results`        | 自动搜索时最多返回的结果数                               | `2`     |
-| `persist_to_context` | 是否将自动搜索注入的 tool call/result 保留在对话上下文中 | `false` |
+| 配置项        | 说明                             | 默认值  |
+| ------------- | -------------------------------- | ------- |
+| `enabled`     | 是否在每次对话时自动执行记忆搜索 | `false` |
+| `max_results` | 自动搜索时最多返回的结果数       | `2`     |
 
 ### Embedding 配置（可选）
 
@@ -274,7 +273,7 @@ QwenPaw 的记忆系统采用可插拔的 Backend 架构。除了默认的 ReMeL
 | `rest_api_key`              | REST API 的访问密钥                                                     | `""`                                                               |
 | `memory_isolation`          | 记忆隔离模式，`true` 为每个 Agent 独立，`false` 为共享                  | `true`                                                             |
 | `search_timeout`            | 记忆搜索超时时间（秒）                                                  | `10.0`                                                             |
-| `auto_memory_search_config` | 自动记忆搜索配置，结构与 ReMe Light 的 `auto_memory_search_config` 一致 | `{"enabled": true, "max_results": 3, "persist_to_context": false}` |
+| `auto_memory_search_config` | 自动记忆搜索配置，结构与 ReMe Light 的 `auto_memory_search_config` 一致 | `{"enabled": true, "max_results": 3}` |
 
 **配置示例：**
 
@@ -291,8 +290,7 @@ QwenPaw 的记忆系统采用可插拔的 Backend 架构。除了默认的 ReMeL
       "search_timeout": 10.0,
       "auto_memory_search_config": {
         "enabled": true,
-        "max_results": 3,
-        "persist_to_context": false
+        "max_results": 3
       }
     }
   }

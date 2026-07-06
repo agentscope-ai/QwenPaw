@@ -249,11 +249,10 @@ Memory configuration is located in `agent.json` under `running.reme_light_memory
 
 Configure in `running.reme_light_memory_config.auto_memory_search_config`:
 
-| Field                | Description                                                                       | Default |
-| -------------------- | --------------------------------------------------------------------------------- | ------- |
-| `enabled`            | Whether to auto search memory on every conversation turn                          | `false` |
-| `max_results`        | Maximum results for auto memory search                                            | `2`     |
-| `persist_to_context` | Whether the injected auto-search tool call/result is kept in conversation context | `false` |
+| Field         | Description                                              | Default |
+| ------------- | -------------------------------------------------------- | ------- |
+| `enabled`     | Whether to auto search memory on every conversation turn | `false` |
+| `max_results` | Maximum results for auto memory search                   | `2`     |
 
 ### Embedding Configuration (Optional)
 
@@ -324,7 +323,7 @@ Open the agent's "Running Config" tab in the Console, locate the "Memory Manager
 | `rest_api_key`              | Access key for the REST API                                                              | `""`                                                               |
 | `memory_isolation`          | Memory isolation mode: `true` for per-agent, `false` for shared                          | `true`                                                             |
 | `search_timeout`            | Memory search timeout (seconds)                                                          | `10.0`                                                             |
-| `auto_memory_search_config` | Auto memory search configuration; same shape as ReMe Light's `auto_memory_search_config` | `{"enabled": true, "max_results": 3, "persist_to_context": false}` |
+| `auto_memory_search_config` | Auto memory search configuration; same shape as ReMe Light's `auto_memory_search_config` | `{"enabled": true, "max_results": 3}` |
 
 **Configuration example:**
 
@@ -341,8 +340,7 @@ The full configuration can be written into `running.adbpg_memory_config` of `age
       "search_timeout": 10.0,
       "auto_memory_search_config": {
         "enabled": true,
-        "max_results": 3,
-        "persist_to_context": false
+        "max_results": 3
       }
     }
   }

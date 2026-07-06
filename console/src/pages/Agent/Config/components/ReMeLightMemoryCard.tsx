@@ -122,21 +122,6 @@ export function ReMeLightMemoryCard() {
                 >
                   <InputNumber style={{ width: "100%" }} min={1} step={1} />
                 </Form.Item>
-
-                <Form.Item
-                  label={t("agentConfig.autoMemorySearchPersistToContext")}
-                  name={[
-                    "reme_light_memory_config",
-                    "auto_memory_search_config",
-                    "persist_to_context",
-                  ]}
-                  valuePropName="checked"
-                  tooltip={t(
-                    "agentConfig.autoMemorySearchPersistToContextTooltip",
-                  )}
-                >
-                  <Switch />
-                </Form.Item>
               </>
             ),
           },

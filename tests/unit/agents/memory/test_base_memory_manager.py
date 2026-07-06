@@ -5,7 +5,10 @@ import asyncio
 from unittest.mock import MagicMock
 
 import pytest
+from agentscope.message import Msg, TextBlock
 
+from qwenpaw.agents.memory import base_memory_manager
+from qwenpaw.constant import AUTO_MEMORY_SEARCH_BLOCK_IDS_KEY
 
 # ---------------------------------------------------------------------------
 # Concrete subclass for testing the abstract base
@@ -95,6 +98,43 @@ class TestBaseMemoryManagerInit:
         assert manager._worker_task is None
 
 
+class TestBaseMemoryManagerAutoMemoryTurnState:
+    """P1: Auto-memory interval state is kept per session with TTL cleanup."""
+
+    def test_returns_same_state_for_same_session(self, manager):
+        state = manager.get_auto_memory_turn_state("session-1")
+        state["pending"].append("turn-1")
+
+        assert manager.get_auto_memory_turn_state("session-1") is state
+        assert manager.get_auto_memory_turn_state("session-1")[
+            "pending"
+        ] == ["turn-1"]
+
+    def test_separates_sessions(self, manager):
+        manager.get_auto_memory_turn_state("session-1")["pending"].append(
+            "turn-1",
+        )
+
+        assert (
+            manager.get_auto_memory_turn_state("session-2")["pending"] == []
+        )
+
+    def test_cleans_expired_sessions_on_access(self, manager, monkeypatch):
+        monkeypatch.setattr(base_memory_manager.time, "monotonic", lambda: 0)
+        manager.get_auto_memory_turn_state("old-session")
+
+        now = base_memory_manager.AUTO_MEMORY_TURN_STATE_TTL_SECONDS + 1
+        monkeypatch.setattr(
+            base_memory_manager.time,
+            "monotonic",
+            lambda: now,
+        )
+        manager.get_auto_memory_turn_state("new-session")
+
+        assert "old-session" not in manager._auto_memory_turn_states
+        assert "new-session" in manager._auto_memory_turn_states
+
+
 # ---------------------------------------------------------------------------
 # TestBaseMemoryManagerAddSummarizeTask
 # ---------------------------------------------------------------------------
@@ -149,6 +189,43 @@ class TestBaseMemoryManagerAddSummarizeTask:
                 await manager._worker_task
             except (asyncio.CancelledError, Exception):
                 pass
+
+
+class TestAutoMemorySearchSanitization:
+    """P1: auto_memory input should exclude auto-search blocks only."""
+
+    def test_keeps_regular_reply_blocks(self, manager):
+        auto_block = TextBlock(text="memory result")
+        reply_block = TextBlock(text="actual reply")
+        msg = Msg(
+            name="agent",
+            role="assistant",
+            metadata={
+                AUTO_MEMORY_SEARCH_BLOCK_IDS_KEY: [auto_block.id],
+            },
+            content=[auto_block, reply_block],
+        )
+
+        result = manager._messages_without_auto_memory_search([msg])
+
+        assert len(result) == 1
+        assert result[0] is not msg
+        assert result[0].content == [reply_block]
+        assert AUTO_MEMORY_SEARCH_BLOCK_IDS_KEY not in result[0].metadata
+        assert msg.content == [auto_block, reply_block]
+
+    def test_drops_message_when_only_auto_search_blocks_remain(self, manager):
+        auto_block = TextBlock(text="memory result")
+        msg = Msg(
+            name="agent",
+            role="assistant",
+            metadata={
+                AUTO_MEMORY_SEARCH_BLOCK_IDS_KEY: [auto_block.id],
+            },
+            content=[auto_block],
+        )
+
+        assert manager._messages_without_auto_memory_search([msg]) == []
 
 
 # ---------------------------------------------------------------------------

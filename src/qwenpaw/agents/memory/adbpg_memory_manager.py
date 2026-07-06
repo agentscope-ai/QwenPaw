@@ -8,16 +8,13 @@ Context compaction is handled natively by AgentScope's
 memory storage and retrieval.
 """
 import asyncio
-import json
 import logging
-import uuid
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
 from agentscope.message import Msg, TextBlock
-from agentscope.message import ToolCallBlock, ToolCallState
-from agentscope.message import ToolResultBlock, ToolResultState
+from agentscope.message import ToolResultState
 from agentscope.tool import ToolChunk
 
 from .adbpg_client import (
@@ -27,11 +24,6 @@ from .adbpg_client import (
 from .adbpg_prompts import ADBPG_MEMORY_GUIDANCE_EN, ADBPG_MEMORY_GUIDANCE_ZH
 from .base_memory_manager import BaseMemoryManager, memory_registry
 from ...config.config import load_agent_config
-from ...constant import (
-    AUTO_MEMORY_SEARCH_MESSAGE_TAG,
-    AUTO_MEMORY_SEARCH_TEXT,
-    QWENPAW_MESSAGE_TAG_KEY,
-)
 from ...exceptions import ConfigurationException as ConfigurationError
 
 logger = logging.getLogger(__name__)
@@ -213,46 +205,16 @@ class ADBPGMemoryManager(BaseMemoryManager):
         if not text or text == "No relevant memories found.":
             return None
 
-        tool_call_id = uuid.uuid4().hex
-        tool_input = {
-            "query": query,
-            "max_results": max_results,
-        }
-        assistant_msg = Msg(
-            name=agent_name or self.agent_id,
-            role="assistant",
-            metadata={
-                QWENPAW_MESSAGE_TAG_KEY: AUTO_MEMORY_SEARCH_MESSAGE_TAG,
-            },
-            content=[
-                TextBlock(text=AUTO_MEMORY_SEARCH_TEXT),
-                ToolCallBlock(
-                    id=tool_call_id,
-                    name="memory_search",
-                    input=json.dumps(tool_input, ensure_ascii=False),
-                    state=ToolCallState.FINISHED,
-                ),
-            ],
-        )
-        tool_result_msg = Msg(
-            name=agent_name or self.agent_id,
-            role="assistant",
-            metadata={
-                QWENPAW_MESSAGE_TAG_KEY: AUTO_MEMORY_SEARCH_MESSAGE_TAG,
-            },
-            content=[
-                ToolResultBlock(
-                    id=tool_call_id,
-                    name="memory_search",
-                    output=[TextBlock(text=text)],
-                    state=ToolResultState.SUCCESS,
-                ),
-            ],
+        assistant_msg = self._build_auto_memory_search_msg(
+            agent_name=agent_name,
+            query=query,
+            max_results=max_results,
+            text=text,
         )
         return {
             "query": query,
             "text": text,
-            "msg": msgs + [assistant_msg, tool_result_msg],
+            "msg": msgs + [assistant_msg],
         }
 
     async def auto_memory(
@@ -267,6 +229,8 @@ class ADBPGMemoryManager(BaseMemoryManager):
         """
         if self._client is None:
             return
+
+        all_messages = self._messages_without_auto_memory_search(all_messages)
 
         # Only persist messages not already sent
         new_messages = [

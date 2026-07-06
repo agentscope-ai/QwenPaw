@@ -1,19 +1,31 @@
 # -*- coding: utf-8 -*-
 """Abstract base class for memory managers."""
 import asyncio
+import json
 import logging
+import time
+import uuid
 from abc import ABC, abstractmethod
 from collections.abc import Callable
+from copy import deepcopy
 from datetime import datetime
 from typing import Any
 
-from agentscope.message import Msg
+from agentscope.message import AssistantMsg, Msg, TextBlock, ThinkingBlock
+from agentscope.message import ToolCallBlock, ToolCallState
+from agentscope.message import ToolResultBlock, ToolResultState
 from agentscope.middleware import MiddlewareBase
 from agentscope.tool import ToolChunk
 
+from ...constant import (
+    AUTO_MEMORY_SEARCH_BLOCK_IDS_KEY,
+    AUTO_MEMORY_SEARCH_TEXT,
+    AUTO_MEMORY_SEARCH_THINKING_PREFIX,
+)
 from ..utils.registry import Registry
 
 logger = logging.getLogger(__name__)
+AUTO_MEMORY_TURN_STATE_TTL_SECONDS = 24 * 60 * 60
 
 
 class BaseMemoryManager(ABC):
@@ -34,6 +46,7 @@ class BaseMemoryManager(ABC):
         self.working_dir: str = working_dir
         self.agent_id: str = agent_id
         self._summary_task_info: dict[str, dict[str, Any]] = {}
+        self._auto_memory_turn_states: dict[str, dict[str, Any]] = {}
         self._task_counter: int = 0
         self._task_queue: asyncio.Queue[
             tuple[str, list[Msg], dict]
@@ -99,6 +112,79 @@ class BaseMemoryManager(ABC):
         configuration or fixed cadence.
         """
         return 0
+
+    def get_auto_memory_turn_state(self, session_id: str) -> dict[str, Any]:
+        """Return persistent auto-memory turn tracking state for a session."""
+        now = time.monotonic()
+        expired_before = now - AUTO_MEMORY_TURN_STATE_TTL_SECONDS
+        for state_key, state in list(self._auto_memory_turn_states.items()):
+            touched_at = float(state.get("touched_at") or 0)
+            if touched_at < expired_before:
+                self._auto_memory_turn_states.pop(state_key, None)
+
+        key = session_id or "__default__"
+        state = self._auto_memory_turn_states.setdefault(
+            key,
+            {
+                "pending": [],
+                "seen": {},
+                "touched_at": now,
+            },
+        )
+        state["touched_at"] = now
+        return state
+
+    def _build_auto_memory_search_msg(
+        self,
+        *,
+        agent_name: str,
+        query: str,
+        max_results: int,
+        text: str,
+    ) -> Msg:
+        """Build the simulated assistant tool interaction for memory search."""
+        tool_call_id = uuid.uuid4().hex
+        tool_input = {
+            "query": query,
+            "max_results": max_results,
+        }
+        thinking_text = (
+            f"{AUTO_MEMORY_SEARCH_THINKING_PREFIX} I will use the "
+            f"memory_search tool with the user's query as the search keywords, "
+            f"request up to {max_results} result"
+            f"{'' if max_results == 1 else 's'}."
+        )
+        text_block = TextBlock(text=AUTO_MEMORY_SEARCH_TEXT)
+        thinking_block = ThinkingBlock(thinking=thinking_text)
+        tool_call_block = ToolCallBlock(
+            id=tool_call_id,
+            name="memory_search",
+            input=json.dumps(tool_input, ensure_ascii=False),
+            state=ToolCallState.FINISHED,
+        )
+        tool_result_block = ToolResultBlock(
+            id=tool_call_id,
+            name="memory_search",
+            output=[TextBlock(text=text)],
+            state=ToolResultState.SUCCESS,
+        )
+        return AssistantMsg(
+            name=agent_name or self.agent_id,
+            metadata={
+                AUTO_MEMORY_SEARCH_BLOCK_IDS_KEY: [
+                    text_block.id,
+                    thinking_block.id,
+                    tool_call_block.id,
+                    tool_result_block.id,
+                ],
+            },
+            content=[
+                text_block,
+                thinking_block,
+                tool_call_block,
+                tool_result_block,
+            ],
+        )
 
     # pylint: disable=unused-argument
     async def summarize(self, messages: list[Msg], **kwargs) -> str:
@@ -166,6 +252,45 @@ class BaseMemoryManager(ABC):
             all_messages: All conversation messages.
         """
         return None
+
+    @classmethod
+    def _messages_without_auto_memory_search(
+        cls,
+        messages: list[Msg],
+    ) -> list[Msg]:
+        sanitized_messages: list[Msg] = []
+        for msg in messages:
+            sanitized = cls._message_without_auto_memory_search(msg)
+            if sanitized is not None:
+                sanitized_messages.append(sanitized)
+        return sanitized_messages
+
+    @staticmethod
+    def _auto_memory_search_block_ids(msg: Msg) -> set[str]:
+        metadata = getattr(msg, "metadata", None)
+        if not isinstance(metadata, dict):
+            return set()
+        return set(metadata.get(AUTO_MEMORY_SEARCH_BLOCK_IDS_KEY) or [])
+
+    @classmethod
+    def _message_without_auto_memory_search(cls, msg: Msg) -> Msg | None:
+        block_ids = cls._auto_memory_search_block_ids(msg)
+        if not block_ids:
+            return msg
+
+        kept_blocks = [
+            block
+            for block in msg.get_content_blocks()
+            if getattr(block, "id", "") not in block_ids
+        ]
+        if not kept_blocks:
+            return None
+
+        sanitized = deepcopy(msg)
+        sanitized.content = kept_blocks
+        if isinstance(sanitized.metadata, dict):
+            sanitized.metadata.pop(AUTO_MEMORY_SEARCH_BLOCK_IDS_KEY, None)
+        return sanitized
 
     async def _summarize_worker(self) -> None:
         """Background worker that processes summarize tasks serially."""

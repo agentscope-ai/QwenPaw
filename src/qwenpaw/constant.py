@@ -117,10 +117,13 @@ PROJECT_NAME = "QwenPaw"
 
 # Message metadata tags shared across agent middleware and memory managers.
 QWENPAW_MESSAGE_TAG_KEY = "qwenpaw_tag"
-AUTO_MEMORY_SEARCH_MESSAGE_TAG = "auto_memory_search"
+AUTO_MEMORY_SEARCH_BLOCK_IDS_KEY = "auto_memory_search_block_ids"
 AUTO_CONTINUE_MESSAGE_TAG = "auto_continue"
 AUTO_MEMORY_SEARCH_TEXT = (
-    "Find memory relevant to the latest user request and conversation context."
+    "I'll check memory for relevant context before answering."
+)
+AUTO_MEMORY_SEARCH_THINKING_PREFIX = (
+    "I should search long-term memory before answering."
 )
 
 # Subdirectory name inside each agent's workspace that holds cloned / imported

@@ -588,14 +588,6 @@ class AutoMemorySearchConfig(BaseModel):
         ),
     )
 
-    persist_to_context: bool = Field(
-        default=False,
-        description=(
-            "Whether to persist auto memory search tool_call/tool_result "
-            "messages into the conversation context"
-        ),
-    )
-
 
 class EmbeddingModelConfig(BaseModel):
     """Embedding model configuration."""
@@ -653,7 +645,6 @@ class ADBPGMemoryConfig(BaseModel):
         default_factory=lambda: AutoMemorySearchConfig(
             enabled=True,
             max_results=3,
-            persist_to_context=False,
         ),
     )
 
