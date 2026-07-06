@@ -1175,7 +1175,10 @@ export default function ChatPage() {
       }
 
       const incomingMessages = payload.messages;
-      if (!incomingMessages || !hasGeneratingAssistantMessage(incomingMessages)) {
+      if (
+        !incomingMessages ||
+        !hasGeneratingAssistantMessage(incomingMessages)
+      ) {
         return;
       }
       if (hasGeneratingAssistantMessage(currentMessages())) return;
