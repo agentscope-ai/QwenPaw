@@ -76,7 +76,7 @@ echo "Project dependencies installed with full extras"
 if ! "$PYTHON_BIN" -c "from acp import Agent" 2> /dev/null; then
     echo "Fixing agent-client-protocol namespace..."
     uninstall_python_package acp
-    install_python_packages agent-client-protocol
+    install_python_packages "agent-client-protocol>=0.9.0,<0.11.0"
 fi
 echo ""
 

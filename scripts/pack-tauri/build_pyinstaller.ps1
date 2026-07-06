@@ -138,7 +138,7 @@ Write-Host "Project dependencies installed with full extras" -ForegroundColor Gr
 if (-not (Test-PythonImport "from acp import Agent")) {
     Write-Host "Fixing agent-client-protocol namespace..."
     Uninstall-PythonPackage "acp"
-    Install-PythonPackages -Packages @("agent-client-protocol")
+    Install-PythonPackages -Packages @("agent-client-protocol>=0.9.0,<0.11.0")
     Write-Host "agent-client-protocol installed" -ForegroundColor Green
 }
 
