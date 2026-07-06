@@ -125,7 +125,7 @@ class TokenManager:
 
     async def _do_fetch(self) -> SignTokenResult:
         """Execute the sign-token API call with retry logic."""
-        domain = self.api_domain or DEFAULT_API_DOMAIN
+        domain = self.api_domain
         # Strip scheme if user accidentally included it
         if domain.startswith("https://"):
             domain = domain.removeprefix("https://")
@@ -133,8 +133,6 @@ class TokenManager:
             domain = domain.removeprefix("http://")
         # Strip trailing slash
         domain = domain.rstrip("/")
-        if not domain:
-            domain = DEFAULT_API_DOMAIN
         url = f"https://{domain}{SIGN_TOKEN_PATH}"
         session = await self._get_session()
 
