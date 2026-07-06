@@ -97,6 +97,17 @@ class ScrollContextManager:
         ] = {}  # msg.id -> #non-result blocks persisted
         self._leaf_by_id: dict[str, Leaf] = {}  # msg.id -> its index leaf
         self._index = EvictionIndex(session_id=session_id, agent_id=agent_id)
+        # What the most recent compress() actually did — /compact reads this
+        # to report honestly (an in-place fold changes no message count, so
+        # the reply can't infer it from a before/after len()). Transient, not
+        # checkpointed.
+        self.last_compress: dict[str, int] = {
+            "evicted": 0,
+            "compacted": 0,
+            "folded": 0,
+        }
+        # Warn once per overflow episode, not once per reasoning step.
+        self._overflow_warned = False
 
     # -- delegated hooks -----------------------------------------------------
 
@@ -192,6 +203,7 @@ class ScrollContextManager:
                          stay verbatim).
         """
         cfg = context_config or agent.context_config
+        self.last_compress = {"evicted": 0, "compacted": 0, "folded": 0}
 
         # 1) Durability first — everything in the window is now in the DB. If
         #    the write-through failed (degraded durability), do NOT evict: the
@@ -201,10 +213,14 @@ class ScrollContextManager:
         if not await self._persist_guarded_async(agent):
             return
 
-        # 2) Trigger check (reuse AgentScope's own token accounting).
+        # 2) Trigger check (reuse AgentScope's own token accounting). The
+        #    count is kept — while nothing below rebuilds the context it is
+        #    still exact, so the steady state pays ONE count per compress.
         kwargs = await as_internals.prepare_model_input(agent)
         trigger = cfg.trigger_ratio * agent.model.context_size
-        if await agent.model.count_tokens(**kwargs) < trigger:
+        tokens = await agent.model.count_tokens(**kwargs)
+        if tokens < trigger:
+            self._overflow_warned = False
             return
         if len(agent.state.context) <= 1:
             return
@@ -252,14 +268,16 @@ class ScrollContextManager:
             #    block.
             self._index_evicted(middle)
             self._rebuild_context(agent, tail)
+            self.last_compress["evicted"] = len(middle)
+            tokens = await self._live_tokens(agent)
 
         # 5) Pressure-triggered compaction: shrink the index one step at a
         #    time until we fit (or it collapses to a single line). Always
         #    terminates. Runs even when nothing was evicted this round — an
         #    empty middle must not leave an already-built index uncompacted.
-        tokens = await self._live_tokens(agent)
         while tokens > reserve and self._index.compact():
             self._rebuild_context(agent, tail)
+            self.last_compress["compacted"] += 1
             tokens = await self._live_tokens(agent)
 
         # 6) Last resort — even with the middle evicted and the index
@@ -271,15 +289,24 @@ class ScrollContextManager:
         #    still has most of the window as headroom — folding there would
         #    snatch results the model fetched seconds ago in perfectly
         #    ordinary long chats.
-        if tokens > trigger and self._fold_active_turn_results(agent):
-            tokens = await self._live_tokens(agent)
         if tokens > trigger:
-            logger.warning(
-                "scroll: context still over the compression trigger "
-                "(%d > %d) after compaction and active-turn fold",
-                tokens,
-                trigger,
-            )
+            folded = self._fold_active_turn_results(agent)
+            if folded:
+                self.last_compress["folded"] = folded
+                tokens = await self._live_tokens(agent)
+        if tokens > trigger:
+            # Once per overflow episode, not once per reasoning step — the
+            # stuck state repeats every step until the turn ends.
+            if not self._overflow_warned:
+                self._overflow_warned = True
+                logger.warning(
+                    "scroll: context still over the compression trigger "
+                    "(%d > %d) after compaction and active-turn fold",
+                    tokens,
+                    trigger,
+                )
+        else:
+            self._overflow_warned = False
 
     async def _live_tokens(self, agent: Any) -> int:
         """Token count of the live context as the model would receive it."""

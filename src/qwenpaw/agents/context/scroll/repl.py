@@ -293,14 +293,24 @@ async def _run_subprocess(
 def _format_observation(stdout: str, stderr: str, code: int) -> str:
     """Render the cell's outcome so a failure can NEVER read as an answer.
 
-    A non-zero exit leads with an explicit failure banner: without it a
-    traceback (or silence) after a history query is too easy to misread as
-    "the history holds nothing", and the model may then answer from stale
-    context instead of retrying or saying recall failed. Same for the
+    A non-zero exit leads with an explicit banner: without it a traceback
+    (or silence) after a history query is too easy to misread as "the
+    history holds nothing", and the model may then answer from stale
+    context instead of retrying or saying recall failed. The banner is
+    derived from what actually happened — a cell that printed real hits and
+    THEN crashed must not be told "the history was not read", or the model
+    discards valid data sitting right below the claim. Same care for the
     exit-0-but-silent case: printing nothing is not evidence of absence.
     """
     parts: list[str] = []
-    if code != 0:
+    if code != 0 and stdout.strip():
+        parts.append(
+            f"RECALL INCOMPLETE (exit {code}) — the cell crashed AFTER "
+            "printing the stdout below. That output is real, already-"
+            "retrieved history: use it. Fix the code and re-run only for "
+            "whatever is still missing.",
+        )
+    elif code != 0:
         parts.append(
             f"RECALL FAILED (exit {code}) — the history was NOT read. "
             "This is an execution error, not an empty history: fix the "
@@ -312,8 +322,6 @@ def _format_observation(stdout: str, stderr: str, code: int) -> str:
         parts.append(f"stdout:\n{stdout.rstrip()}")
     if stderr.strip():
         parts.append(f"stderr:\n{stderr.rstrip()}")
-    if code != 0:
-        parts.append(f"exit_code: {code}")
     if not parts:
         return (
             "(no output — the cell printed nothing. This is not evidence "

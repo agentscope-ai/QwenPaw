@@ -62,15 +62,18 @@ def assistant_with_tool(tcid: str, result_text: str = "RESULT") -> Msg:
 
 class FakeModel:
     """Constant token count, or a sequence (last value sticks) to model the
-    window shrinking as compress() evicts."""
+    window shrinking as compress() evicts. ``calls`` counts count_tokens
+    invocations (compress must not recount an unchanged context)."""
 
     def __init__(self, tokens, context_size: int = 1000) -> None:
         self._tokens = (
             list(tokens) if isinstance(tokens, (list, tuple)) else [tokens]
         )
         self.context_size = context_size
+        self.calls = 0
 
     async def count_tokens(self, *args, **kwargs) -> int:
+        self.calls += 1
         if len(self._tokens) > 1:
             return self._tokens.pop(0)
         return self._tokens[0]
@@ -237,6 +240,7 @@ async def test_compress_evicts_middle_into_index(store: HistoryStore):
     names = [m.name for m in agent.state.context]
     assert names[0] == "memory"  # the index placeholder leads
     assert "did-step" in mgr._index.render()
+    assert mgr.last_compress["evicted"] == 2  # /compact reporting source
 
 
 async def test_compress_does_not_index_boundary_msg_still_in_tail(
@@ -458,10 +462,44 @@ async def test_pressure_fold_stubs_older_results_keeps_newest(
         ).fetchone()
         assert row["content"] == f"RESULT-{i}"
 
+    # /compact reads this to report honestly (fold changes no msg count).
+    assert mgr.last_compress["folded"] == 2
+
     # Idempotent: a second round neither double-folds nor rewrites rows.
     await mgr.compress(agent)
     assert out_text(0).count("[scroll folded]") == 1
     assert out_text(2) == "RESULT-2"
+    assert mgr.last_compress["folded"] == 0  # nothing newly folded
+
+
+async def test_steady_state_counts_once_and_warns_once(
+    store: HistoryStore,
+    caplog,
+):
+    """Over the trigger with nothing evictable, compactable, or foldable:
+    each compress pays exactly ONE token count (the trigger check — the
+    context never changed, so recounting it is waste), and the
+    still-over-trigger warning fires once per overflow episode, not once
+    per reasoning step."""
+    import logging as _logging
+
+    ctx = [
+        user("/heartbeat"),
+        assistant("step one"),
+        assistant("step two"),
+    ]
+    mgr = make_manager(store)
+    agent = FakeAgent(ctx, tokens=600)  # > trigger (100), nothing to shrink
+    agent._split_return = (ctx, [])
+    with caplog.at_level(_logging.WARNING):
+        await mgr.compress(agent)
+        assert agent.model.calls == 1  # trigger check only
+        await mgr.compress(agent)
+        assert agent.model.calls == 2
+    stuck = [
+        r for r in caplog.records if "compression trigger" in r.getMessage()
+    ]
+    assert len(stuck) == 1
 
 
 async def test_empty_middle_still_compacts_index_under_pressure(
