@@ -193,6 +193,42 @@ class TestBaseMemoryManagerAddSummarizeTask:
 class TestAutoMemorySearchSanitization:
     """P1: auto_memory input should exclude auto-search blocks only."""
 
+    def test_build_query_uses_latest_user_message_only(self, manager):
+        messages = [
+            Msg(
+                name="user",
+                role="user",
+                content=[TextBlock(text="NVDA 股价")],
+            ),
+            Msg(
+                name="assistant",
+                role="assistant",
+                content=[
+                    TextBlock(
+                        text=("达股价查询：NVDA $195.93 (+0.56%)，" "市值 $4.746T"),
+                    ),
+                ],
+            ),
+            Msg(
+                name="user",
+                role="user",
+                content=[TextBlock(text="台积电股价")],
+            ),
+        ]
+
+        assert manager._build_query(messages) == "台积电股价"
+
+    def test_build_query_returns_empty_without_user_text(self, manager):
+        messages = [
+            Msg(
+                name="assistant",
+                role="assistant",
+                content=[TextBlock(text="memory noise")],
+            ),
+        ]
+
+        assert manager._build_query(messages) == ""
+
     def test_builds_mock_assistant_msg_with_configured_estimated_usage(
         self,
         manager,

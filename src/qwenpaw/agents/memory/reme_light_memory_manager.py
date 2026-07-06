@@ -28,7 +28,6 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-MAX_QUERY_CHARS = 50
 NO_MEMORY_RESULTS = "(no memory results)"
 INBOX_RESULT_JOB_NAMES = {"auto_memory", "auto_dream", "auto_resource"}
 INBOX_RESULT_HOOK_KEY = "qwenpaw_memory_result_hook"
@@ -471,20 +470,3 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         )
         if response is not None and not response.success:
             raise RuntimeError(str(response.answer))
-
-    @staticmethod
-    def _build_query(messages: list[Msg]) -> str:
-        parts = []
-        total = 0
-        for msg in reversed(messages):
-            if msg.role not in {"user", "assistant"}:
-                continue
-            text = (msg.get_text_content() or "").strip()
-            if not text:
-                continue
-            remaining = MAX_QUERY_CHARS - total - (1 if parts else 0)
-            if remaining <= 0:
-                break
-            parts.insert(0, text[-remaining:])
-            total += min(len(text), remaining) + (1 if len(parts) > 1 else 0)
-        return " ".join(parts).strip()

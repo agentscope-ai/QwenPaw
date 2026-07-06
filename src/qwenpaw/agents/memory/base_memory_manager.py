@@ -287,6 +287,16 @@ class BaseMemoryManager(ABC):
         """
         return None
 
+    @staticmethod
+    def _build_query(messages: list[Msg]) -> str:
+        for msg in reversed(messages):
+            if msg.role != "user":
+                continue
+            text = (msg.get_text_content() or "").strip()
+            if text:
+                return text
+        return ""
+
     async def auto_memory(
         self,
         all_messages: list[Msg],
