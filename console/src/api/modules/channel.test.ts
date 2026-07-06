@@ -100,7 +100,10 @@ describe("channelApi", () => {
   });
 
   it("getChannelQrcodeStatus includes the encoded token in the path it sends to request", async () => {
-    vi.mocked(request).mockResolvedValue({ status: "pending", credentials: {} });
+    vi.mocked(request).mockResolvedValue({
+      status: "pending",
+      credentials: {},
+    });
     await channelApi.getChannelQrcodeStatus("wechat", "tok with space");
     const arg = vi.mocked(request).mock.calls[0][0] as string;
     // token must appear percent-encoded, not raw with spaces

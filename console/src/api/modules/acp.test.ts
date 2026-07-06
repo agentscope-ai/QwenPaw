@@ -40,14 +40,14 @@ describe("acpApi", () => {
   });
 
   it("updateACPConfig returns the updated ACPConfig", async () => {
-    const body = { enabled: false, agents: {} } as unknown;
+    const body = { enabled: false, agents: {} } as Record<string, unknown>;
     const updated = { ...body } as unknown;
     vi.mocked(request).mockResolvedValue(updated);
     await expect(acpApi.updateACPConfig(body as never)).resolves.toBe(updated);
   });
 
   it("updateACPAgentConfig returns the updated agent config", async () => {
-    const body = { server: { url: "y" } } as unknown;
+    const body = { server: { url: "y" } } as Record<string, unknown>;
     const updated = { ...body } as unknown;
     vi.mocked(request).mockResolvedValue(updated);
     const result = await acpApi.updateACPAgentConfig("a1", body as never);

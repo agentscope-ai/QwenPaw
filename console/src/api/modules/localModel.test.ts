@@ -72,13 +72,21 @@ describe("localModelApi", () => {
   it("startLocalModelDownload forwards model name + source and returns LocalActionResponse", async () => {
     const resp = { started: true } as unknown;
     vi.mocked(request).mockResolvedValue(resp);
-    const r = await localModelApi.startLocalModelDownload("qwen:1.5b", "hf");
+    const r = await localModelApi.startLocalModelDownload(
+      "qwen:1.5b",
+      "huggingface",
+    );
     expect(r).toBe(resp);
     expect(request).toHaveBeenCalledTimes(1);
   });
 
   it("getLocalModelDownloadProgress returns progress info", async () => {
-    const progress = { downloading: false, percent: 1, downloaded_bytes: 0, total_bytes: 0 } as unknown;
+    const progress = {
+      downloading: false,
+      percent: 1,
+      downloaded_bytes: 0,
+      total_bytes: 0,
+    } as unknown;
     vi.mocked(request).mockResolvedValue(progress);
     expect(await localModelApi.getLocalModelDownloadProgress()).toBe(progress);
   });
@@ -99,7 +107,10 @@ describe("localModelApi", () => {
   });
 
   it("startLocalServer returns { port, model_name }", async () => {
-    vi.mocked(request).mockResolvedValue({ port: 8080, model_name: "qwen:1.5b" });
+    vi.mocked(request).mockResolvedValue({
+      port: 8080,
+      model_name: "qwen:1.5b",
+    });
     await expect(
       localModelApi.startLocalServer({
         model_name: "qwen:1.5b",
