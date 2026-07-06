@@ -48,6 +48,11 @@ impl BackendState {
         self.with_inner(|inner| inner.error.clone())
     }
 
+    /// Returns the PID of the currently running backend sidecar process, if any.
+    pub(crate) fn backend_pid(&self) -> Option<u32> {
+        self.with_inner(|inner| inner.child.as_ref().map(|child| child.pid()))
+    }
+
     fn set_error(&self, message: String) {
         self.with_inner(|inner| {
             inner.error = Some(message);

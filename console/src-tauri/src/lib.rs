@@ -2,11 +2,14 @@
 
 mod backend;
 mod backend_download;
+mod diagnostics;
 mod external_link;
 mod updates;
 mod tray;
 
 use tauri::{Manager, RunEvent, WindowEvent};
+
+use crate::diagnostics::DiagnosticsState;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 /// Build the desktop app, wire native plugins/commands, and stop the backend on exit.
@@ -26,6 +29,7 @@ pub fn run() {
             updates::download_desktop_update,
             updates::install_downloaded_update,
             updates::check_cached_update,
+            diagnostics::get_system_diagnostics,
             tray::minimize_to_tray,
             tray::quit_app,
             tray::set_tray_labels,
@@ -33,9 +37,11 @@ pub fn run() {
         ])
         .manage(backend::BackendState::default())
         .manage(tray::TrayState::default())
+        .manage(DiagnosticsState::default())
         .setup(|app| {
             backend::setup(app)?;
             tray::setup(app)?;
+            diagnostics::start_resource_monitoring(app);
             Ok(())
         })
         .on_window_event(|window, event| {

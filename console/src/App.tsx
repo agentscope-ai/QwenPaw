@@ -37,6 +37,7 @@ import { languageApi } from "./api/modules/language";
 import { useUploadLimitStore } from "./stores/uploadLimitStore";
 import { getApiUrl, getApiToken, clearAuthToken } from "./api/config";
 import CloseWindowPrompt from "./tauri/CloseWindowPrompt";
+import { useDesktopDiagnostics } from "./hooks/useDesktopDiagnostics";
 import "./styles/layout.css";
 import "./styles/form-override.css";
 
@@ -125,6 +126,7 @@ function getRouterBasename(pathname: string): string | undefined {
 }
 
 function AppInner() {
+  useDesktopDiagnostics();
   const basename = getRouterBasename(window.location.pathname);
   const { i18n } = useTranslation();
   const { isDark } = useTheme();
