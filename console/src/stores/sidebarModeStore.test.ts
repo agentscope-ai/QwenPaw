@@ -108,7 +108,9 @@ describe("sidebarModeStore", () => {
       throw new Error("quota");
     });
 
-    expect(() => useSidebarModeStore.getState().setMode("simple")).not.toThrow();
+    expect(() =>
+      useSidebarModeStore.getState().setMode("simple"),
+    ).not.toThrow();
     expect(useSidebarModeStore.getState().mode).toBe("simple");
 
     localStorage.setItem = originalSet;

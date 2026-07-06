@@ -5,7 +5,10 @@ import {
   type ExtendedSession,
 } from "./sessionListStore";
 
-function makeSession(id: string, extra: Partial<ExtendedSession> = {}): ExtendedSession {
+function makeSession(
+  id: string,
+  extra: Partial<ExtendedSession> = {},
+): ExtendedSession {
   return {
     id,
     title: `title-${id}`,
@@ -104,9 +107,7 @@ describe("sessionListStore", () => {
 
   it("syncSessionsGlobal delegates to the store's syncSessions", () => {
     const setLibrary = vi.fn();
-    useSessionListStore
-      .getState()
-      .syncFromLibrary([], setLibrary);
+    useSessionListStore.getState().syncFromLibrary([], setLibrary);
 
     const sessions = [makeSession("g1")];
     syncSessionsGlobal(sessions);

@@ -8,8 +8,6 @@ import {
   MAX_QUEUE_SIZE,
   withSendLock,
   holdOwnershipLock,
-  type QueueItemInput,
-  type QueueRunState,
 } from "./messageQueueStore";
 
 const SESSION_ID = "sess-1";
@@ -136,7 +134,9 @@ describe("messageQueueStore", () => {
 
   it("enqueue rejects when the queue is already at MAX_QUEUE_SIZE", () => {
     for (let i = 0; i < MAX_QUEUE_SIZE; i++) {
-      useMessageQueueStore.getState().enqueue(SESSION_ID, { text: `item-${i}` });
+      useMessageQueueStore
+        .getState()
+        .enqueue(SESSION_ID, { text: `item-${i}` });
     }
     expect(useMessageQueueStore.getState().getQueue(SESSION_ID)).toHaveLength(
       MAX_QUEUE_SIZE,
@@ -148,7 +148,10 @@ describe("messageQueueStore", () => {
       MAX_QUEUE_SIZE,
     );
     expect(
-      useMessageQueueStore.getState().getQueue(SESSION_ID).some((i) => i.text === "overflow"),
+      useMessageQueueStore
+        .getState()
+        .getQueue(SESSION_ID)
+        .some((i) => i.text === "overflow"),
     ).toBe(false);
   });
 
@@ -173,7 +176,8 @@ describe("messageQueueStore", () => {
     const item = useMessageQueueStore.getState().getQueue(SESSION_ID)[0];
     expect(item.backendSessionId).toBe("backend-42");
 
-    delete (window as unknown as { currentSessionId?: string }).currentSessionId;
+    delete (window as unknown as { currentSessionId?: string })
+      .currentSessionId;
   });
 
   it("enqueue leaves agentId/backendSessionId undefined when none are set", () => {
@@ -216,7 +220,9 @@ describe("messageQueueStore", () => {
   it("remove on an unknown id is a no-op", () => {
     useMessageQueueStore.getState().enqueue(SESSION_ID, { text: "x" });
     useMessageQueueStore.getState().remove(SESSION_ID, "does-not-exist");
-    expect(useMessageQueueStore.getState().getQueue(SESSION_ID)).toHaveLength(1);
+    expect(useMessageQueueStore.getState().getQueue(SESSION_ID)).toHaveLength(
+      1,
+    );
   });
 
   it("remove on an unknown session does not throw", () => {
@@ -262,7 +268,9 @@ describe("messageQueueStore", () => {
     useMessageQueueStore.getState().clear(SESSION_ID);
 
     expect(useMessageQueueStore.getState().getQueue(SESSION_ID)).toEqual([]);
-    expect(useMessageQueueStore.getState().getRunState(SESSION_ID)).toBe("idle");
+    expect(useMessageQueueStore.getState().getRunState(SESSION_ID)).toBe(
+      "idle",
+    );
     expect(localStorage.getItem(getStorageKey(SESSION_ID))).toBeNull();
   });
 
@@ -287,7 +295,9 @@ describe("messageQueueStore", () => {
 
     useMessageQueueStore.getState().migrateQueue(SESSION_ID, SESSION_ID);
 
-    expect(useMessageQueueStore.getState().getQueue(SESSION_ID)).toHaveLength(1);
+    expect(useMessageQueueStore.getState().getQueue(SESSION_ID)).toHaveLength(
+      1,
+    );
     expect(useMessageQueueStore.getState().lastMigratedTo).toBeNull();
   });
 
@@ -326,16 +336,18 @@ describe("messageQueueStore", () => {
 
     useMessageQueueStore.getState().setItemStatus(SESSION_ID, id, "sent");
 
-    expect(
-      useMessageQueueStore.getState().getQueue(SESSION_ID)[0].status,
-    ).toBe("sent");
+    expect(useMessageQueueStore.getState().getQueue(SESSION_ID)[0].status).toBe(
+      "sent",
+    );
   });
 
   it("setItemStatus to 'failed' increments retryCount and stores errorMessage", () => {
     useMessageQueueStore.getState().enqueue(SESSION_ID, { text: "x" });
     const id = useMessageQueueStore.getState().getQueue(SESSION_ID)[0].id;
 
-    useMessageQueueStore.getState().setItemStatus(SESSION_ID, id, "failed", "boom");
+    useMessageQueueStore
+      .getState()
+      .setItemStatus(SESSION_ID, id, "failed", "boom");
 
     const item = useMessageQueueStore.getState().getQueue(SESSION_ID)[0];
     expect(item.status).toBe("failed");
@@ -451,7 +463,9 @@ describe("messageQueueStore", () => {
     resetStore();
     useMessageQueueStore.getState().loadFromStorage(SESSION_ID);
 
-    expect(useMessageQueueStore.getState().getRunState(SESSION_ID)).toBe("idle");
+    expect(useMessageQueueStore.getState().getRunState(SESSION_ID)).toBe(
+      "idle",
+    );
   });
 
   it("loadFromStorage clears stale in-memory state when no stored entry exists", () => {
@@ -481,7 +495,9 @@ describe("messageQueueStore", () => {
 
     useMessageQueueStore.getState().applyRemoteItems(SESSION_ID, remote);
 
-    expect(useMessageQueueStore.getState().getQueue(SESSION_ID)).toEqual(remote);
+    expect(useMessageQueueStore.getState().getQueue(SESSION_ID)).toEqual(
+      remote,
+    );
   });
 
   it("applyRemoteItems with an empty list deletes the session queue", () => {
@@ -496,7 +512,9 @@ describe("messageQueueStore", () => {
   it("applyRemoteRunState sets the runState without broadcasting", () => {
     useMessageQueueStore.getState().applyRemoteRunState(SESSION_ID, "error");
 
-    expect(useMessageQueueStore.getState().getRunState(SESSION_ID)).toBe("error");
+    expect(useMessageQueueStore.getState().getRunState(SESSION_ID)).toBe(
+      "error",
+    );
   });
 
   // ---------------------------------------------------------------------------

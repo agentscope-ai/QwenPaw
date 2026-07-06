@@ -85,9 +85,9 @@ describe("loopStore", () => {
   });
 
   it("setAvailableSkills([]) empties the list", () => {
-    useLoopStore.getState().setAvailableSkills([
-      { name: "a", description: "A" },
-    ]);
+    useLoopStore
+      .getState()
+      .setAvailableSkills([{ name: "a", description: "A" }]);
     useLoopStore.getState().setAvailableSkills([]);
     expect(useLoopStore.getState().availableSkills).toEqual([]);
   });
@@ -120,9 +120,9 @@ describe("loopStore", () => {
   });
 
   it("fetchAvailableLoopSkills does NOT overwrite skills when no plugin commands exist (empty result)", async () => {
-    useLoopStore.getState().setAvailableSkills([
-      { name: "existing", description: "Existing" },
-    ]);
+    useLoopStore
+      .getState()
+      .setAvailableSkills([{ name: "existing", description: "Existing" }]);
     mockRequest.mockResolvedValueOnce({
       commands: [
         { name: "builtin", description: "Builtin", category: "builtin" },
@@ -171,9 +171,9 @@ describe("loopStore", () => {
   });
 
   it("fetchAvailableLoopSkills swallows request errors and leaves state unchanged", async () => {
-    useLoopStore.getState().setAvailableSkills([
-      { name: "existing", description: "Existing" },
-    ]);
+    useLoopStore
+      .getState()
+      .setAvailableSkills([{ name: "existing", description: "Existing" }]);
     mockRequest.mockRejectedValueOnce(new Error("network down"));
 
     await expect(fetchAvailableLoopSkills()).resolves.toBeUndefined();
