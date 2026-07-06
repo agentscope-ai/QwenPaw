@@ -173,7 +173,7 @@ class YuanbaoChannel(BaseChannel):
         self.enabled = enabled
         self.app_id = app_id
         self.app_secret = app_secret
-        self.api_domain = api_domain
+        self.api_domain = api_domain or DEFAULT_API_DOMAIN
         self.bot_prefix = bot_prefix
         self._workspace_dir = (
             Path(workspace_dir).expanduser() if workspace_dir else None

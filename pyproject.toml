@@ -88,6 +88,7 @@ include-package-data = true
     "security/skill_scanner/rules/**",
     "security/skill_scanner/data/**",
     "docs/*.md",
+    "app/channels/yuanbao/proto/**",
 ]
 
 [build-system]
