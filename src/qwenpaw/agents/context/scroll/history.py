@@ -25,13 +25,10 @@ _BUSY_TIMEOUT_MS = 5000
 # tracebacks), drowning the real content: a self-pollution feedback loop. So
 # these rows stay durable + recallable by ``seq``, but are kept OUT of the FTS
 # index (and out of ``search`` — see ``MemorySpace``). Must match the recall
-# tool names in ``repl.py`` and ``recall_tool.py``; the legacy
-# "execute_python" name is kept so rows written before the rename stay
-# excluded.
+# tool names in ``repl.py`` and ``recall_tool.py``.
 _RECALL_TOOL_NAMES = (
     "recall_history_python",
     "recall_history",
-    "execute_python",
 )
 
 # Columns of conversation_history, in INSERT order (minus the
@@ -71,12 +68,10 @@ class HistoryStore:
     def __init__(self, db_path: str | Path) -> None:
         self._path = Path(db_path).expanduser()
         self._path.parent.mkdir(parents=True, exist_ok=True)
-        # Serializes every use of the single connection. The write-through in
-        # ``compress`` is offloaded to a worker thread (``asyncio.to_thread``)
-        # so it never blocks the event loop, while ``on_save`` still writes on
-        # the loop thread (its AgentScope hook is synchronous). Both reach this
-        # one connection, so access must be serialized and the connection must
-        # allow cross-thread use (``check_same_thread=False``).
+        # Serializes the single connection across threads: ``compress`` writes
+        # from a worker thread (``asyncio.to_thread``, to spare the event loop)
+        # while ``on_save`` writes on the loop thread. Both share this
+        # connection, so every access takes ``self._lock``.
         self._lock = threading.Lock()
         self.quarantined_to: Path | None = None
         # Durability health: flipped True the first time a write-through fails
@@ -97,10 +92,9 @@ class HistoryStore:
             self._open_and_init()
 
     def _open_and_init(self) -> None:
-        # check_same_thread=False: the connection is created on the loop thread
-        # but the offloaded write-through runs on a worker thread. The
-        # ``self._lock`` around every access provides the serialization SQLite
-        # would otherwise rely on same-thread affinity for.
+        # check_same_thread=False: used from both loop and worker threads;
+        # ``self._lock`` provides the serialization SQLite would get from
+        # same-thread affinity.
         self._conn = sqlite3.connect(
             str(self._path),
             check_same_thread=False,

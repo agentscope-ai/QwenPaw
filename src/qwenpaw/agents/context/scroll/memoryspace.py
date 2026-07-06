@@ -23,14 +23,11 @@ _DEFAULT_ROW_CAP = 1000
 # durable but must never surface as *search hits* — otherwise a query matches
 # the agent's own earlier queries/tracebacks (self-pollution). New rows are
 # already kept out of the FTS index (see ``history._RECALL_TOOL_NAMES``); this
-# filter also hides any legacy rows indexed before that, and covers the LIKE
-# fallback. Must match the recall tool names in ``repl.py`` and
-# ``recall_tool.py``; the legacy "execute_python" name is kept so pre-rename
-# rows stay excluded.
+# filter also covers the LIKE fallback. Must match the recall tool names in
+# ``repl.py`` and ``recall_tool.py``.
 _RECALL_TOOL_NAMES = (
     "recall_history_python",
     "recall_history",
-    "execute_python",
 )
 _RECALL_EXCL_PLACEHOLDERS = ", ".join("?" for _ in _RECALL_TOOL_NAMES)
 
