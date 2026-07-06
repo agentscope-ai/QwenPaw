@@ -20,6 +20,7 @@ from agentscope.tool import ToolChunk
 from .base_memory_manager import BaseMemoryManager, memory_registry
 from .prompts import build_memory_guidance_prompt
 from .reme_config import get_reme_app_config
+from .reranker import build_search_answer, rerank
 from ..model_factory import create_model_and_formatter
 from ...app.inbox_store import append_event as append_inbox_event
 from ...config import load_config
@@ -298,9 +299,11 @@ class ReMeLightMemoryManager(BaseMemoryManager):
                 name,
                 event.get("id"),
                 event.get("status"),
-                response_metadata.get("modified")
-                if isinstance(response_metadata, dict)
-                else None,
+                (
+                    response_metadata.get("modified")
+                    if isinstance(response_metadata, dict)
+                    else None
+                ),
             )
             return True
         except Exception:  # pylint: disable=broad-except
@@ -363,18 +366,49 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         if not query:
             return _tool_chunk("Error: query cannot be empty", ok=False)
 
+        agent_config = load_agent_config(self.agent_id)
+        memory_cfg = agent_config.running.reme_light_memory_config
+        rerank_enabled = memory_cfg.rerank_enabled
+        fetch_limit = (
+            max(1, max_results * 3) if rerank_enabled else max(1, max_results)
+        )
+
         response = await self._run_reme_job(
             "search",
             query=query,
-            limit=max(1, max_results),
+            limit=fetch_limit,
             min_score=max(0.0, min_score),
         )
         if response is None:
             return _tool_chunk("ReMe is not started.", ok=False)
 
-        answer = str(response.answer or "").strip()
-        if not answer:
-            answer = NO_MEMORY_RESULTS
+        if rerank_enabled and response.success:
+            candidates = response.metadata.get("results", [])
+            if not candidates:
+                answer = (
+                    str(response.answer or "").strip() or NO_MEMORY_RESULTS
+                )
+            else:
+                if len(candidates) > max_results:
+                    candidates = await rerank(
+                        query,
+                        candidates,
+                        api_key=memory_cfg.api_key,
+                        base_url=getattr(
+                            memory_cfg,
+                            "rerank_base_url",
+                            "",
+                        ),
+                        model_name=memory_cfg.rerank_model,
+                        top_n=max_results,
+                    )
+                answer = build_search_answer(candidates[:max_results])
+                if not answer.strip():
+                    answer = NO_MEMORY_RESULTS
+        else:
+            answer = str(response.answer or "").strip()
+            if not answer:
+                answer = NO_MEMORY_RESULTS
         return _tool_chunk(answer, ok=response.success)
 
     async def summarize(
@@ -397,6 +431,7 @@ class ReMeLightMemoryManager(BaseMemoryManager):
             return ""
         return str(response.answer or "")
 
+    # pylint: disable=too-many-return-statements
     async def auto_memory_search(
         self,
         messages: list[Msg] | Msg,
@@ -416,19 +451,51 @@ class ReMeLightMemoryManager(BaseMemoryManager):
             return None
 
         search_cfg = memory_cfg.auto_memory_search_config
+        rerank_enabled = memory_cfg.rerank_enabled
+        fetch_limit = (
+            max(1, search_cfg.max_results * 3)
+            if rerank_enabled
+            else max(1, search_cfg.max_results)
+        )
 
         response = await self._run_reme_job(
             "search",
             query=query,
-            limit=max(1, search_cfg.max_results),
+            limit=fetch_limit,
             min_score=0,
         )
         if response is None or not response.success:
             return None
 
-        text = str(response.answer or "").strip()
-        if not text:
-            return None
+        if rerank_enabled:
+            candidates = response.metadata.get("results", [])
+            if not candidates:
+                text = str(response.answer or "").strip()
+                if not text:
+                    return None
+            else:
+                if len(candidates) > search_cfg.max_results:
+                    candidates = await rerank(
+                        query,
+                        candidates,
+                        api_key=memory_cfg.api_key,
+                        base_url=getattr(
+                            memory_cfg,
+                            "rerank_base_url",
+                            "",
+                        ),
+                        model_name=memory_cfg.rerank_model,
+                        top_n=search_cfg.max_results,
+                    )
+                text = build_search_answer(
+                    candidates[: search_cfg.max_results],
+                )
+                if not text.strip():
+                    return None
+        else:
+            text = str(response.answer or "").strip()
+            if not text:
+                return None
 
         tool_call_id = uuid.uuid4().hex
         tool_input = {

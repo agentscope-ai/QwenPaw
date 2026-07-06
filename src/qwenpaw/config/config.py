@@ -725,6 +725,36 @@ class ReMeLightMemoryConfig(BaseModel):
         ),
     )
 
+    rerank_enabled: bool = Field(
+        default=False,
+        description=(
+            "Whether to re-rank memory search results with a re-rank model."
+            " When True, ReMe fetches more candidates (max_results * 3) and"
+            " the re-rank model re-orders them by relevance to the query."
+            " Defaults to False so existing users are unaffected."
+        ),
+    )
+
+    rerank_model: str = Field(
+        default="qwen3-rerank",
+        description="Re-rank model identifier (e.g., qwen3-rerank,"
+        " bge-reranker-v2-m3).",
+    )
+
+    api_key: str = Field(
+        default="",
+        description="API key for the reranker provider.",
+    )
+
+    rerank_base_url: str = Field(
+        default="",
+        description=(
+            "Full URL for the rerank API endpoint."
+            " E.g., https://dashscope.aliyuncs.com/compatible-api/v1/reranks"
+            " or https://api.siliconflow.cn/v1/rerank."
+        ),
+    )
+
 
 class ContextCompactConfig(BaseModel):
     """Context compaction configuration."""
