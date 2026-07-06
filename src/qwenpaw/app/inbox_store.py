@@ -17,7 +17,13 @@ _MAX_EVENTS = 5000
 def _load_events() -> list[dict[str, Any]]:
     if not _INBOX_PATH.exists():
         return []
-    data = json.loads(_INBOX_PATH.read_text(encoding="utf-8"))
+    try:
+        data = json.loads(_INBOX_PATH.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        # Corrupted or unreadable inbox file — treat as empty rather than
+        # crashing every subsequent read. The next append_event will
+        # atomically replace the file with a valid payload.
+        return []
     if not isinstance(data, list):
         return []
     return [item for item in data if isinstance(item, dict)]
