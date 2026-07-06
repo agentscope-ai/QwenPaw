@@ -44,9 +44,8 @@
 
 2. **运行安装程序**
    双击 `.exe` 文件，按照安装向导提示完成安装
-   - 默认安装位置：`%LOCALAPPDATA%\QwenPaw Desktop`
+   - 默认安装位置：`C:\Users\<你的用户名>\AppData\Local\QwenPaw Desktop`
    - 安装完成后会在桌面和开始菜单创建快捷方式
-   - 安装向导还可选择将 `qwenpaw` 命令行工具加入系统 PATH
 
 ### 启动方式
 
@@ -54,10 +53,10 @@
 
 #### **QwenPaw Desktop** (推荐日常使用)
 
-- **特点**: 原生 Tauri 应用，静默启动，无终端窗口，界面简洁
+- **特点**: 静默启动，无终端窗口，界面简洁
 - **适用场景**: 正常使用，不需要查看技术日志
 - **启动方式**: 双击桌面或开始菜单的 "QwenPaw Desktop" 图标
-- **技术说明**: Tauri 桌面外壳通过系统 WebView2 渲染界面，并以 sidecar 方式在后台运行 Python 后端
+- **技术说明**: 原生 Tauri 桌面应用，后台以 sidecar 方式运行 Python 后端
 
 #### **QwenPaw Desktop (Debug)** (调试模式)
 
@@ -66,8 +65,7 @@
   - 遇到问题需要查看错误信息
   - 开发测试
   - 报告 Bug 时需要提供日志
-- **启动方式**: 双击开始菜单的 "QwenPaw Desktop (Debug)" 图标（由安装程序创建）
-- **技术说明**: 该快捷方式会设置 `QWENPAW_DESKTOP_DEBUG=1`（等价于将桌面日志级别提升为 debug）后启动 `qwenpaw-desktop.exe`，并在终端中 tail 后端与应用日志
+- **启动方式**: 双击开始菜单的 "QwenPaw Desktop (Debug)" 图标
 - **日志内容**:
   - 应用启动信息
   - Python 错误堆栈

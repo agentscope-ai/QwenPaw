@@ -44,9 +44,8 @@ This guide explains how to install and use the QwenPaw Desktop application on Wi
 
 2. **Run the installer**
    Double-click the `.exe` file and follow the installation wizard
-   - Default installation location: `%LOCALAPPDATA%\QwenPaw Desktop`
+   - Default installation location: `C:\Users\<your-username>\AppData\Local\QwenPaw Desktop`
    - Desktop and Start Menu shortcuts will be created after installation
-   - The wizard can optionally add the `qwenpaw` command-line tool to your system PATH
 
 ### Launch Options
 
@@ -54,10 +53,10 @@ After installation, you'll see **two launch shortcuts**:
 
 #### **QwenPaw Desktop** (Recommended for daily use)
 
-- **Features**: Native Tauri app, silent launch, no terminal window, clean interface
+- **Features**: Silent launch, no terminal window, clean interface
 - **Use Case**: Normal usage when you don't need to view technical logs
 - **How to Launch**: Double-click the "QwenPaw Desktop" icon on desktop or Start Menu
-- **Technical Note**: The Tauri desktop shell renders the UI via the system WebView2 runtime and runs the Python backend as a background sidecar
+- **Technical Note**: Native Tauri desktop app; runs the Python backend as a background sidecar
 
 #### **QwenPaw Desktop (Debug)** (Debug Mode)
 
@@ -66,8 +65,7 @@ After installation, you'll see **two launch shortcuts**:
   - Need to view error messages when encountering problems
   - Development and testing
   - Need to provide logs when reporting bugs
-- **How to Launch**: Double-click the "QwenPaw Desktop (Debug)" icon in Start Menu (created by the installer)
-- **Technical Note**: This shortcut sets `QWENPAW_DESKTOP_DEBUG=1` (which raises the desktop log level to debug) before launching `qwenpaw-desktop.exe`, then tails the backend and app logs in the terminal
+- **How to Launch**: Double-click the "QwenPaw Desktop (Debug)" icon in Start Menu
 - **Log Contents**:
   - Application startup information
   - Python error stack traces

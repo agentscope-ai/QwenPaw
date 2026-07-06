@@ -298,7 +298,6 @@ Tải ứng dụng desktop (bản Tauri) từ [trang tải xuống chính thức
 
 - ✅ **Không cấu hình**: Tải về và nhấp đúp để chạy, không cần cài Python hay cấu hình biến môi trường
 - ✅ **Đa nền tảng**: Hỗ trợ Windows 10+ và macOS 14+
-- ✅ **Tự động cập nhật**: Trình cập nhật tích hợp trong ứng dụng giúp luôn ở bản mới nhất — không cần gỡ cài đặt và cài lại
 - ✅ **Giao diện trực quan**: Tự động mở giao diện trình duyệt, không cần nhập địa chỉ thủ công
 - ⚠️ **Giai đoạn Beta**: Các tính năng đang được liên tục cải thiện, rất mong nhận phản hồi
 

@@ -250,7 +250,6 @@ or running commands.
 
 - ✅ **Zero configuration**: Download and double-click to run, no need to install Python or configure environment variables
 - ✅ **Cross-platform**: Supports Windows 10+ and macOS 14+ (Apple Silicon recommended)
-- ✅ **Auto-update**: Built with Tauri, ships with a built-in in-app updater—no need to uninstall and reinstall
 - ✅ **Visual interface**: Automatically opens browser interface, no need to manually enter addresses
 
 ### Download and usage

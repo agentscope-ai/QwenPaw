@@ -298,7 +298,6 @@ Download the desktop app (Tauri build) from [the official download page](https:/
 
 - ✅ **Zero configuration**: Download and double-click to run, no need to install Python or configure environment variables
 - ✅ **Cross-platform**: Supports Windows 10+ and macOS 14+
-- ✅ **Auto-update**: Built-in in-app updater keeps the desktop app up to date—no need to uninstall and reinstall
 - ✅ **Visual interface**: Automatically opens browser interface, no need to manually enter addresses
 - ⚠️ **Beta stage**: Features are continuously being improved, feedback welcome
 
