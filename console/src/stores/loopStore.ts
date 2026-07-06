@@ -40,7 +40,7 @@ interface CommandsResponse {
 export async function fetchAvailableLoopSkills(): Promise<void> {
   try {
     const res = await request<CommandsResponse>(
-      "/api/workspace/commands/available",
+      "/workspace/commands/available",
     );
     const commands = res?.commands ?? [];
     const loopSkills: LoopSkillInfo[] = commands
