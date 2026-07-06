@@ -317,12 +317,12 @@ Open the agent's "Running Config" tab in the Console, locate the "Memory Manager
 > Embedding settings are ignored; configure `rest_base_url` and `rest_api_key`
 > instead, then restart QwenPaw.
 
-| Field                       | Description                                                                              | Default                                                            |
-| --------------------------- | ---------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
-| `rest_base_url`             | REST API URL of the ADBPG memory service                                                 | `""`                                                               |
-| `rest_api_key`              | Access key for the REST API                                                              | `""`                                                               |
-| `memory_isolation`          | Memory isolation mode: `true` for per-agent, `false` for shared                          | `true`                                                             |
-| `search_timeout`            | Memory search timeout (seconds)                                                          | `10.0`                                                             |
+| Field                       | Description                                                                              | Default                               |
+| --------------------------- | ---------------------------------------------------------------------------------------- | ------------------------------------- |
+| `rest_base_url`             | REST API URL of the ADBPG memory service                                                 | `""`                                  |
+| `rest_api_key`              | Access key for the REST API                                                              | `""`                                  |
+| `memory_isolation`          | Memory isolation mode: `true` for per-agent, `false` for shared                          | `true`                                |
+| `search_timeout`            | Memory search timeout (seconds)                                                          | `10.0`                                |
 | `auto_memory_search_config` | Auto memory search configuration; same shape as ReMe Light's `auto_memory_search_config` | `{"enabled": true, "max_results": 3}` |
 
 **Configuration example:**

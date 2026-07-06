@@ -267,12 +267,12 @@ QwenPaw 的记忆系统采用可插拔的 Backend 架构。除了默认的 ReMeL
 > 会被忽略；请改为配置 `rest_base_url` 和 `rest_api_key`，保存后重启
 > QwenPaw。
 
-| 配置项                      | 说明                                                                    | 默认值                                                             |
-| --------------------------- | ----------------------------------------------------------------------- | ------------------------------------------------------------------ |
-| `rest_base_url`             | ADBPG 记忆服务的 REST API 地址                                          | `""`                                                               |
-| `rest_api_key`              | REST API 的访问密钥                                                     | `""`                                                               |
-| `memory_isolation`          | 记忆隔离模式，`true` 为每个 Agent 独立，`false` 为共享                  | `true`                                                             |
-| `search_timeout`            | 记忆搜索超时时间（秒）                                                  | `10.0`                                                             |
+| 配置项                      | 说明                                                                    | 默认值                                |
+| --------------------------- | ----------------------------------------------------------------------- | ------------------------------------- |
+| `rest_base_url`             | ADBPG 记忆服务的 REST API 地址                                          | `""`                                  |
+| `rest_api_key`              | REST API 的访问密钥                                                     | `""`                                  |
+| `memory_isolation`          | 记忆隔离模式，`true` 为每个 Agent 独立，`false` 为共享                  | `true`                                |
+| `search_timeout`            | 记忆搜索超时时间（秒）                                                  | `10.0`                                |
 | `auto_memory_search_config` | 自动记忆搜索配置，结构与 ReMe Light 的 `auto_memory_search_config` 一致 | `{"enabled": true, "max_results": 3}` |
 
 **配置示例：**
