@@ -29,6 +29,7 @@ from agentscope.tool import Toolkit
 from .skill_system import get_workspace_skills_dir
 from ..modes.coding import CodingModeMixin
 from ..constant import (
+    LOOP_CONTINUATION_MESSAGE_TAG,
     MEDIA_UNSUPPORTED_PLACEHOLDER,
     QWENPAW_MESSAGE_TAG_KEY,
     WORKING_DIR,
@@ -496,7 +497,7 @@ class QwenPawAgent(CodingModeMixin, Agent):
                         ),
                     ],
                     metadata={
-                        QWENPAW_MESSAGE_TAG_KEY: ("loop_continuation"),
+                        QWENPAW_MESSAGE_TAG_KEY: LOOP_CONTINUATION_MESSAGE_TAG,
                     },
                 ),
             )

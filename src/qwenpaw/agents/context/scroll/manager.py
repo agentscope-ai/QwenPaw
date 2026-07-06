@@ -25,6 +25,10 @@ from typing import Any
 
 from agentscope.message import Msg, TextBlock, UserMsg
 
+from ....constant import (
+    QWENPAW_MESSAGE_TAG_KEY,
+    SYNTHETIC_USER_MESSAGE_TAGS,
+)
 from . import _as_internals as as_internals
 from .eviction_index import EvictionIndex, Leaf
 from .history import HistoryStore
@@ -167,21 +171,25 @@ class ScrollContextManager:
     async def compress(self, agent: Any, context_config: Any = None) -> None:
         """Evict the middle into the index; roll the index up under pressure.
 
-        A single pressure pipeline — steps 5 and 6 engage only while the
-        context still overflows the reserve, so "nothing evictable" (a
-        single-request session whose active turn IS the whole context) is
-        just step 4 running empty, not a special case:
+        A single pressure pipeline — step 5 engages while the context still
+        overflows the reserve, step 6 only while it still overflows the
+        TRIGGER, so "nothing evictable" (a single-request session whose
+        active turn IS the whole context) is just step 4 running empty, not
+        a special case:
 
         1. persist     — every live turn is now durable.
         2. trigger     — under the token threshold? nothing to do.
         3. split       — evictable middle | recent tail (+ active turn).
         4. add_eviction— fold the middle (if any) into the index as a new
                          Tier 0 block, rebuild context = [index] + tail.
-        5. compact     — while the rebuilt context still overflows, shrink the
-                         index one step and rebuild. Always progresses.
-        6. fold        — still overflowing: stub the active turn's completed
-                         tool results in place (last resort; the request and
-                         the newest result stay verbatim).
+        5. compact     — while the rebuilt context still overflows the
+                         reserve, shrink the index one step and rebuild.
+                         Always progresses.
+        6. fold        — still past the compression TRIGGER even with
+                         everything evicted and the index compacted: stub
+                         the active turn's completed tool results in place
+                         (last resort; the request and the newest result
+                         stay verbatim).
         """
         cfg = context_config or agent.context_config
 
@@ -195,10 +203,8 @@ class ScrollContextManager:
 
         # 2) Trigger check (reuse AgentScope's own token accounting).
         kwargs = await as_internals.prepare_model_input(agent)
-        if (
-            await agent.model.count_tokens(**kwargs)
-            < cfg.trigger_ratio * agent.model.context_size
-        ):
+        trigger = cfg.trigger_ratio * agent.model.context_size
+        if await agent.model.count_tokens(**kwargs) < trigger:
             return
         if len(agent.state.context) <= 1:
             return
@@ -256,17 +262,23 @@ class ScrollContextManager:
             self._rebuild_context(agent, tail)
             tokens = await self._live_tokens(agent)
 
-        # 6) Last resort — the live window STILL overflows, so the pressure
-        #    is the active turn itself (e.g. a single-request cron run with a
-        #    long tool chain). Stub its completed tool results in place.
-        if tokens > reserve and self._fold_active_turn_results(agent):
+        # 6) Last resort — even with the middle evicted and the index
+        #    compacted, the window is STILL past the compression trigger, so
+        #    the pressure is the active turn itself (e.g. a single-request
+        #    cron run with a long tool chain). Stub its completed tool
+        #    results in place. Gated on the TRIGGER, not the reserve: the
+        #    reserve is a soft target, and an active turn slightly over it
+        #    still has most of the window as headroom — folding there would
+        #    snatch results the model fetched seconds ago in perfectly
+        #    ordinary long chats.
+        if tokens > trigger and self._fold_active_turn_results(agent):
             tokens = await self._live_tokens(agent)
-        if tokens > reserve:
+        if tokens > trigger:
             logger.warning(
-                "scroll: context still over reserve (%d > %d) after "
-                "compaction and active-turn fold",
+                "scroll: context still over the compression trigger "
+                "(%d > %d) after compaction and active-turn fold",
                 tokens,
-                reserve,
+                trigger,
             )
 
     async def _live_tokens(self, agent: Any) -> int:
@@ -377,6 +389,22 @@ class ScrollContextManager:
 
     # -- eviction ------------------------------------------------------------
 
+    @staticmethod
+    def _is_continuation_stub(msg: Any) -> bool:
+        """True for runtime-injected user-role messages that extend a turn.
+
+        Loop gates and stop handlers append tagged ``role="user"`` stubs
+        ("Continue working on the task.") to keep a turn going. They are NOT
+        new requests: anchoring the active turn on one would make the REAL
+        request evictable middle again — the #5746 failure, loop-session
+        flavor.
+        """
+        metadata = getattr(msg, "metadata", None)
+        if not isinstance(metadata, dict):
+            return False
+        tag = metadata.get(QWENPAW_MESSAGE_TAG_KEY)
+        return tag in SYNTHETIC_USER_MESSAGE_TAGS
+
     def _active_turn_tail(self, agent: Any) -> list[Msg]:
         """Return the current user turn and its in-progress assistant tail.
 
@@ -384,7 +412,10 @@ class ScrollContextManager:
         a long tool-running turn exceeds the reserve budget. Under scroll that
         is unsafe: the model then only sees the eviction index and may answer
         an older visible message instead of the active task. Keep the latest
-        real user message and everything after it live until the turn finishes.
+        real user message and everything after it live until the turn
+        finishes. Continuation stubs the runtime injects mid-turn are skipped
+        when anchoring — the extended turn stays anchored on the real request
+        that started it.
         """
         context = list(getattr(agent.state, "context", []) or [])
         for idx in range(len(context) - 1, -1, -1):
@@ -392,12 +423,15 @@ class ScrollContextManager:
             mid = getattr(msg, "id", None)
             if mid in self._synthetic_ids:
                 continue
-            if getattr(msg, "role", None) == "user":
-                return [
-                    m
-                    for m in context[idx:]
-                    if getattr(m, "id", None) not in self._synthetic_ids
-                ]
+            if getattr(msg, "role", None) != "user":
+                continue
+            if self._is_continuation_stub(msg):
+                continue
+            return [
+                m
+                for m in context[idx:]
+                if getattr(m, "id", None) not in self._synthetic_ids
+            ]
         return []
 
     def _fold_active_turn_results(self, agent: Any) -> int:
@@ -405,8 +439,9 @@ class ScrollContextManager:
         how many were folded.
 
         Last-resort pressure valve: eviction and index compaction have run
-        and the window still overflows the reserve, so the bulk is the
-        active turn itself. The request text, tool calls, and reasoning stay
+        and the window is still past the compression TRIGGER, so the bulk
+        is the active turn itself. The request text, tool calls, and
+        reasoning stay
         verbatim — only tool_result outputs (all durable since step 1, and
         typically the token mass) are replaced with a one-line recall
         pointer. The newest result is kept live: it is the one the next

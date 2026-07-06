@@ -119,6 +119,14 @@ PROJECT_NAME = "QwenPaw"
 QWENPAW_MESSAGE_TAG_KEY = "qwenpaw_tag"
 AUTO_MEMORY_SEARCH_MESSAGE_TAG = "auto_memory_search"
 AUTO_CONTINUE_MESSAGE_TAG = "auto_continue"
+LOOP_CONTINUATION_MESSAGE_TAG = "loop_continuation"
+# User-role messages the runtime injects to keep a turn going. They are NOT
+# new requests: the scroll active-turn anchor (live scan + SQL floor) must
+# skip them, or the anchor jumps to the stub and the REAL request becomes
+# evictable/searchable again (the #5746 failure mode, loop-session flavor).
+SYNTHETIC_USER_MESSAGE_TAGS = frozenset(
+    {AUTO_CONTINUE_MESSAGE_TAG, LOOP_CONTINUATION_MESSAGE_TAG},
+)
 AUTO_MEMORY_SEARCH_TEXT = (
     "Find memory relevant to the latest user request and conversation context."
 )

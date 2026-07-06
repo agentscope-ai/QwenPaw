@@ -256,6 +256,52 @@ def test_active_turn_floor_is_computed_once_per_instance(
     assert calls["n"] == 1
 
 
+def test_active_turn_floor_ignores_continuation_stubs(tmp_path: Path):
+    """A loop-continuation stub row (user-role, tagged) must not move the
+    active-turn floor: the floor anchors on the REAL request that started
+    the turn, so the whole still-live extended turn stays excluded from
+    search instead of leaking back in as echo."""
+    h = HistoryStore(tmp_path / "history.db")
+    rows = [
+        ("old", "model_turn", "assistant", "tanks parked at base", None),
+        ("req", "context_msg", "user", "tanks question", None),
+        ("a1", "model_turn", "assistant", "tanks quote from recall", None),
+        (
+            "stub",
+            "context_msg",
+            "user",
+            "Continue working on the task.",
+            {"qwenpaw_tag": "loop_continuation"},
+        ),
+        ("a2", "model_turn", "assistant", "tanks continued reply", None),
+    ]
+    for key, kind, role, content, metadata in rows:
+        h.append(
+            session_id="s1",
+            agent_id="ag1",
+            dedup_key=key,
+            entry=LogEntry(
+                kind=kind,
+                role=role,
+                content=content,
+                metadata=metadata or {},
+            ),
+        )
+    h.close()
+    space = MemorySpace(
+        history_db_path=str(tmp_path / "history.db"),
+        session_id="s1",
+        agent_id="ag1",
+    )
+    try:
+        # Floor = the real request's seq (NOT the stub's): everything from
+        # the request onward is active-turn and excluded from search.
+        hits = {r["content"] for r in space.search("tanks", k=10)}
+        assert hits == {"tanks parked at base"}
+    finally:
+        space.close()
+
+
 def test_search_rows_carry_session_id(ms: MemorySpace):
     # Cross-session/agent search is only useful if a hit says which session it
     # came from — the model needs ``session_id`` to follow up (it used to guess

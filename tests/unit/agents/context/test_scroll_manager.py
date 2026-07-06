@@ -61,12 +61,19 @@ def assistant_with_tool(tcid: str, result_text: str = "RESULT") -> Msg:
 
 
 class FakeModel:
-    def __init__(self, tokens: int, context_size: int = 1000) -> None:
-        self._tokens = tokens
+    """Constant token count, or a sequence (last value sticks) to model the
+    window shrinking as compress() evicts."""
+
+    def __init__(self, tokens, context_size: int = 1000) -> None:
+        self._tokens = (
+            list(tokens) if isinstance(tokens, (list, tuple)) else [tokens]
+        )
         self.context_size = context_size
 
     async def count_tokens(self, *args, **kwargs) -> int:
-        return self._tokens
+        if len(self._tokens) > 1:
+            return self._tokens.pop(0)
+        return self._tokens[0]
 
 
 class FakeConfig:
@@ -82,7 +89,11 @@ class FakeState:
 class FakeAgent:
     """Minimal stand-in exposing the AS-2.0 surface the manager touches."""
 
-    def __init__(self, context: list[Msg], tokens: int = 200) -> None:
+    def __init__(
+        self,
+        context: list[Msg],
+        tokens: int | list[int] = 200,
+    ) -> None:
         self.state = FakeState(context)
         self.model = FakeModel(tokens)
         self.context_config = FakeConfig()
@@ -292,6 +303,49 @@ async def test_compress_keeps_active_turn_live(store: HistoryStore):
     assert names.index("memory") < live_ids.index(cur_u.id)
 
 
+def continuation_stub(text: str = "Continue working on the task.") -> Msg:
+    """The user-role stub loop gates / stop handlers inject mid-turn."""
+    from qwenpaw.constant import (
+        LOOP_CONTINUATION_MESSAGE_TAG,
+        QWENPAW_MESSAGE_TAG_KEY,
+    )
+
+    return Msg(
+        name="user",
+        role="user",
+        content=[TextBlock(type="text", text=text)],
+        metadata={QWENPAW_MESSAGE_TAG_KEY: LOOP_CONTINUATION_MESSAGE_TAG},
+    )
+
+
+async def test_active_turn_anchor_skips_continuation_stubs(
+    store: HistoryStore,
+):
+    """A loop-continuation stub is user-role but NOT a new request: the
+    active-turn anchor must stay on the real request that started the turn,
+    or the real request becomes evictable middle again (#5746, loop-session
+    flavor)."""
+    old_u = user("older question")
+    old_a = assistant("older reply", headline="OLD")
+    real_u = user("write the report")
+    a1 = assistant("working on it", headline="MID-TASK")
+    stub = continuation_stub()
+    a2 = assistant("continuing the report")
+    ctx = [old_u, old_a, real_u, a1, stub, a2]
+    mgr = make_manager(store)
+    agent = FakeAgent(ctx, tokens=200)
+    agent._split_return = (ctx, [])  # split would evict everything
+    await mgr.compress(agent)
+    live_ids = [m.id for m in agent.state.context]
+    # The whole extended turn — real request, pre-stub reply, the stub
+    # itself, and the post-stub reply — stays live.
+    for m in (real_u, a1, stub, a2):
+        assert m.id in live_ids
+    rendered = mgr._index.render()
+    assert "OLD" in rendered  # the finished old turn is evicted
+    assert "MID-TASK" not in rendered  # the extended active turn is not
+
+
 async def test_compress_noop_when_active_turn_fits_reserve(
     store: HistoryStore,
 ):
@@ -311,16 +365,10 @@ async def test_compress_noop_when_active_turn_fits_reserve(
     assert mgr._index.is_empty
 
 
-async def test_pressure_fold_stubs_older_results_keeps_newest(
-    store: HistoryStore,
-):
-    """Nothing evictable and the window overflows the reserve: the active
-    turn's completed tool results are stubbed in place to recall pointers.
-    The request, tool calls, reasoning, and the NEWEST result stay verbatim;
-    the durable rows keep the full outputs; the Msg object (and id) is
-    untouched so the runtime keeps extending the same message."""
+def _multi_tool_turn(n: int = 3) -> Msg:
+    """An accumulated assistant Msg with ``n`` completed call/result pairs."""
     blocks = []
-    for i in range(3):
+    for i in range(n):
         blocks.append(TextBlock(type="text", text=f"step {i}"))
         blocks.append(
             ToolCallBlock(
@@ -338,10 +386,55 @@ async def test_pressure_fold_stubs_older_results_keeps_newest(
                 output=[TextBlock(type="text", text=f"RESULT-{i}")],
             ),
         )
-    turn = Msg(name="a", role="assistant", content=blocks)
+    return Msg(name="a", role="assistant", content=blocks)
+
+
+async def test_fold_not_triggered_between_reserve_and_trigger(
+    store: HistoryStore,
+):
+    """With REALISTIC ratios (trigger 0.8, reserve 0.1), an active turn that
+    exceeds the reserve but leaves most of the window free must NOT be
+    folded — the fold is a last resort gated on the compression trigger,
+    not on the soft reserve target. (Pre-fix, a 25k active turn in a 200k
+    window was stubbed on every compress round of an ordinary long chat.)"""
+
+    class _RealisticConfig:
+        trigger_ratio = 0.8  # trigger at 800 of the 1000-token window
+        reserve_ratio = 0.1  # reserve target 100
+
+    old_u = user("older question")
+    old_a = assistant("older reply", headline="OLD")
+    turn = _multi_tool_turn()
+    ctx = [old_u, old_a, user("/heartbeat"), turn]
+    mgr = make_manager(store)
+    # 900 at the trigger check; 300 after eviction — over the reserve (100)
+    # but far under the trigger (800).
+    agent = FakeAgent(ctx, tokens=[900, 300])
+    agent.context_config = _RealisticConfig()
+    agent._split_return = (ctx[:2], ctx[2:])
+    await mgr.compress(agent)
+
+    rendered = mgr._index.render()
+    assert "OLD" in rendered  # normal eviction happened
+    # ... but every tool result of the active turn stays verbatim.
+    for block in turn.content:
+        if getattr(block, "type", None) == "tool_result":
+            assert block.output[0].text.startswith("RESULT-")
+
+
+async def test_pressure_fold_stubs_older_results_keeps_newest(
+    store: HistoryStore,
+):
+    """Nothing evictable and the window still overflows the compression
+    trigger: the active turn's completed tool results are stubbed in place
+    to recall pointers. The request, tool calls, reasoning, and the NEWEST
+    result stay verbatim; the durable rows keep the full outputs; the Msg
+    object (and id) is untouched so the runtime keeps extending the same
+    message."""
+    turn = _multi_tool_turn()
     ctx = [user("/heartbeat"), turn]
     mgr = make_manager(store)
-    agent = FakeAgent(ctx, tokens=600)  # > reserve (500): sustained pressure
+    agent = FakeAgent(ctx, tokens=600)  # > trigger (100): sustained pressure
     agent._split_return = (ctx, [])  # split would evict everything
     await mgr.compress(agent)
 
@@ -550,6 +643,23 @@ def test_purge_old_drops_rows_past_window(store: HistoryStore):
     )
     assert mgr.purge_old(1) == 1
     assert store.count("s1") == 0
+
+
+def test_serialize_persists_runtime_tag():
+    """The qwenpaw_tag survives into the durable row's metadata, so the
+    recall layer's SQL floor can tell continuation stubs from requests."""
+    from qwenpaw.agents.context.scroll.serialize import msg_to_entries
+    from qwenpaw.constant import (
+        LOOP_CONTINUATION_MESSAGE_TAG,
+        QWENPAW_MESSAGE_TAG_KEY,
+    )
+
+    (entry,) = msg_to_entries(continuation_stub())
+    assert entry.metadata == {
+        QWENPAW_MESSAGE_TAG_KEY: LOOP_CONTINUATION_MESSAGE_TAG,
+    }
+    (plain,) = msg_to_entries(user("hello"))
+    assert not plain.metadata
 
 
 def test_serialize_captures_tool_input():

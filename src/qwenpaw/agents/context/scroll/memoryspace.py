@@ -34,6 +34,14 @@ _RECALL_TOOL_NAMES = (
 )
 _RECALL_EXCL_PLACEHOLDERS = ", ".join("?" for _ in _RECALL_TOOL_NAMES)
 
+# User-role stub rows the runtime injects to keep a turn going ("Continue
+# working on the task."). They are not real requests: the active-turn floor
+# must anchor on the request that STARTED the turn, or the floor jumps to the
+# stub and the real request becomes searchable mid-turn again (echo loop).
+# Values must match SYNTHETIC_USER_MESSAGE_TAGS in qwenpaw.constant (this
+# module stays stdlib-only for the sandboxed REPL, so no import).
+_SYNTHETIC_USER_TAGS = ("loop_continuation", "auto_continue")
+
 _DATE_RE = re.compile(r"(\d{4})[-/](\d{1,2})[-/](\d{1,2})")
 
 _FTS_TOKEN_RE = re.compile(r"\w+", re.UNICODE)
@@ -384,7 +392,12 @@ class MemorySpace:
         return self._floor_cache
 
     def _compute_active_turn_floor(self) -> int | None:
-        """Uncached MAX(seq) scan behind :meth:`_active_turn_floor`."""
+        """Uncached MAX(seq) scan behind :meth:`_active_turn_floor`.
+
+        Anchors on the latest REAL user request: runtime continuation stubs
+        (tagged user-role rows) extend a turn rather than starting one, so
+        they never move the floor.
+        """
         if not self._session_id:
             return None
         where = ["session_id = ?", "kind = 'context_msg'", "role = 'user'"]
@@ -392,6 +405,9 @@ class MemorySpace:
         if self._agent_id:
             where.append("agent_id = ?")
             params.append(self._agent_id)
+        for tag in _SYNTHETIC_USER_TAGS:
+            where.append("(metadata IS NULL OR metadata NOT LIKE ?)")
+            params.append(f'%"{tag}"%')
         try:
             row = self._conn.execute(
                 "SELECT MAX(seq) AS s FROM hist.conversation_history "
