@@ -92,7 +92,7 @@ pub fn get_system_diagnostics(
             .fold(0.0, |sum, usage| sum + usage)
             / system.cpus().len().max(1) as f32;
 
-        let backend_process = backend_process_snapshot(app, system);
+        let backend_process = backend_process_snapshot(app.clone(), system);
 
         DiagnosticsSnapshot {
             log_dir: app.path().app_log_dir().ok().map(|p| p.display().to_string()),

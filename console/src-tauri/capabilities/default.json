@@ -10,7 +10,7 @@
     "backend",
     "backend-download",
     "core:default",
-    "core:app:allow-app-log-dir",
+    "core:path:default",
     "desktop-updater-check",
     "desktop-updater-install",
     "dialog:allow-save",
