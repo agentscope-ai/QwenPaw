@@ -2564,9 +2564,13 @@ def migrate_legacy_config_to_multi_agent() -> bool:
 def get_model_max_input_length(
     agent_config: "AgentProfileConfig",
 ) -> int:
-    """Return ``max_input_length`` from the active model's ``ModelInfo``.
+    """Return the active model's resolved context window.
 
-    Falls back to 128 * 1024 (131072) if model info is unavailable.
+    Delegates to ``Provider.get_context_size`` — the SAME resolution the
+    compaction trigger uses (explicit ``max_input_length`` > static
+    context-window catalog > 128k default) — so /history, usage%%, and
+    daemon status can never disagree with when compression actually fires.
+    Falls back to 128 * 1024 (131072) if the provider is unavailable.
     Accepts an already-loaded *agent_config* to avoid redundant file I/O
     on hot paths (pre_reasoning, compact_context, summarize, etc.).
     """
@@ -2586,9 +2590,7 @@ def get_model_max_input_length(
             manager = ProviderManager.get_instance()
             provider = manager.get_provider(model_slot.provider_id)
             if provider:
-                model_info = provider.get_model_info(model_slot.model)
-                if model_info is not None:
-                    return model_info.max_input_length
+                return provider.get_context_size(model_slot.model)
         except Exception:
             pass
     logger.debug(
