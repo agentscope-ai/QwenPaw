@@ -87,11 +87,11 @@ def _reorder_tool_results(msgs: list) -> list:
     result_msg_ids: set[int] = set()
     for msg in msgs:
         if isinstance(msg.content, list):
-            # A message that carries its own tool_call (e.g. an AgentScope 2.0
-            # self-paired assistant msg [text, tool_call, tool_result]) must stay
-            # in place; only standalone tool_result messages are movable. Moving
-            # a self-carrying msg would skip it here and never re-insert it,
-            # silently dropping the whole turn.
+            # Keep a message that carries its own tool_call in place (e.g. an
+            # AgentScope 2.0 self-paired assistant msg
+            # [text, tool_call, tool_result]); only standalone tool_result
+            # messages are movable. Skipping a self-carrying msg here would
+            # drop it, since its own tool_call can never re-insert it.
             has_own_call = any(
                 _is_tool_call(block) and _block_attr(block, "id")
                 for block in msg.content
