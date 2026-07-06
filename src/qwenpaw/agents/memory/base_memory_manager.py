@@ -134,10 +134,9 @@ class BaseMemoryManager(ABC):
         state["touched_at"] = now
         return state
 
+    @staticmethod
     def _build_auto_memory_search_msg(
-        self,
         *,
-        agent_name: str,
         query: str,
         max_results: int,
         text: str,
@@ -150,7 +149,7 @@ class BaseMemoryManager(ABC):
         }
         thinking_text = (
             f"{AUTO_MEMORY_SEARCH_THINKING_PREFIX} I will use the "
-            f"memory_search tool with the user's query as the search keywords, "
+            f"memory_search with the user's query as the search keywords, "
             f"request up to {max_results} result"
             f"{'' if max_results == 1 else 's'}."
         )
@@ -168,8 +167,9 @@ class BaseMemoryManager(ABC):
             output=[TextBlock(text=text)],
             state=ToolResultState.SUCCESS,
         )
+        # Keep a synthetic sender to avoid merging into the real agent reply.
         return AssistantMsg(
-            name=agent_name or self.agent_id,
+            name="memory_search",
             metadata={
                 AUTO_MEMORY_SEARCH_BLOCK_IDS_KEY: [
                     text_block.id,

@@ -182,6 +182,7 @@ class ADBPGMemoryManager(BaseMemoryManager):
         **kwargs: Any,
     ) -> dict | None:
         """Auto-search ADBPG memory before the model call."""
+        del agent_name
         del kwargs
         if self._client is None:
             return None
@@ -206,7 +207,6 @@ class ADBPGMemoryManager(BaseMemoryManager):
             return None
 
         assistant_msg = self._build_auto_memory_search_msg(
-            agent_name=agent_name,
             query=query,
             max_results=max_results,
             text=text,

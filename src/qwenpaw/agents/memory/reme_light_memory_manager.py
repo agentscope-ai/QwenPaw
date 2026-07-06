@@ -396,6 +396,7 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         **kwargs: Any,
     ) -> dict | None:
         """Auto-search memory and expose it as a completed tool interaction."""
+        del agent_name
         del kwargs
         agent_config = load_agent_config(self.agent_id)
         memory_cfg = agent_config.running.reme_light_memory_config
@@ -424,7 +425,6 @@ class ReMeLightMemoryManager(BaseMemoryManager):
             return None
 
         assistant_msg = self._build_auto_memory_search_msg(
-            agent_name=agent_name,
             query=query,
             max_results=max_results,
             text=text,

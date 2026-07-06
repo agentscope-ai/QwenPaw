@@ -106,18 +106,16 @@ class TestBaseMemoryManagerAutoMemoryTurnState:
         state["pending"].append("turn-1")
 
         assert manager.get_auto_memory_turn_state("session-1") is state
-        assert manager.get_auto_memory_turn_state("session-1")[
-            "pending"
-        ] == ["turn-1"]
+        assert manager.get_auto_memory_turn_state("session-1")["pending"] == [
+            "turn-1",
+        ]
 
     def test_separates_sessions(self, manager):
         manager.get_auto_memory_turn_state("session-1")["pending"].append(
             "turn-1",
         )
 
-        assert (
-            manager.get_auto_memory_turn_state("session-2")["pending"] == []
-        )
+        assert manager.get_auto_memory_turn_state("session-2")["pending"] == []
 
     def test_cleans_expired_sessions_on_access(self, manager, monkeypatch):
         monkeypatch.setattr(base_memory_manager.time, "monotonic", lambda: 0)

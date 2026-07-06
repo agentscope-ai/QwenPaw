@@ -65,7 +65,7 @@ async def test_adbpg_auto_memory_search_injects_tool_messages(tmp_path):
 
     memory_msg = result["msg"][1]
     assert memory_msg.role == "assistant"
-    assert memory_msg.name == "Agent One"
+    assert memory_msg.name == "memory_search"
     assert memory_msg.id
     assert memory_msg.created_at
     assert memory_msg.metadata[AUTO_MEMORY_SEARCH_BLOCK_IDS_KEY] == [
