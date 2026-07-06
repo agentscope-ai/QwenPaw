@@ -285,7 +285,7 @@ Manage environment variables used by tools and skills at runtime.
 ```bash
 qwenpaw env list
 qwenpaw env set TAVILY_API_KEY "tvly-xxxxxxxx"
-qwenpaw env set GITHUB_TOKEN "ghp_xxxxxxxx"
+qwenpaw env set GITHUB_TOKEN "ghp_xxxxxxxx"  # fine-grained PATs starting with github_pat_ are also supported
 qwenpaw env delete TAVILY_API_KEY
 ```
 

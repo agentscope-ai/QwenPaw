@@ -419,6 +419,7 @@ def _stub_config_loaders(monkeypatch, workspace: Path) -> None:
     )
 
 
+@pytest.mark.usefixtures("capture_qwenpaw_logs")
 def test_first_run_emits_console_notice_then_stays_quiet(
     monkeypatch,
     caplog,

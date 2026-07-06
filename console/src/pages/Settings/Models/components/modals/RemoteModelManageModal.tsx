@@ -11,10 +11,12 @@ import {
   Input,
   InputNumber,
   Modal,
+  Slider,
+  Switch,
   Tag,
   Tooltip,
 } from "@agentscope-ai/design";
-import { AutoComplete } from "antd";
+import { AutoComplete, Segmented } from "antd";
 import {
   DeleteOutlined,
   PlusOutlined,
@@ -55,14 +57,22 @@ function ModelConfigEditor({
   providerId,
   model,
   onSaved,
+  onProviderUpdated,
   onClose,
   isDark,
+  thinkingParamStyle,
+  reasoningEffortOptions,
+  thinkingBudgetRange = [1, 81920],
 }: {
   providerId: string;
   model: ModelInfo;
   onSaved: () => void | Promise<void>;
+  onProviderUpdated?: (provider: ProviderInfo) => void;
   onClose: () => void;
   isDark: boolean;
+  thinkingParamStyle?: "budget" | "effort" | null;
+  reasoningEffortOptions?: string[];
+  thinkingBudgetRange?: [number, number];
 }) {
   const { t } = useTranslation();
   const { message } = useAppMessage();
@@ -73,6 +83,18 @@ function ModelConfigEditor({
   );
   const [maxInputLength, setMaxInputLength] = useState<number | null>(
     model.max_input_length ?? 131072,
+  );
+  const [preserveThinking, setPreserveThinking] = useState<boolean>(
+    model.preserve_thinking ?? true,
+  );
+  const [thinkingEnabled, setThinkingEnabled] = useState<boolean | null>(
+    model.thinking_enabled ?? null,
+  );
+  const [thinkingBudget, setThinkingBudget] = useState<number | null>(
+    model.thinking_budget ?? null,
+  );
+  const [reasoningEffort, setReasoningEffort] = useState<string | null>(
+    model.reasoning_effort ?? null,
   );
 
   const initialText = useMemo(
@@ -90,8 +112,20 @@ function ModelConfigEditor({
     setText(initialText);
     setMaxTokens(model.max_tokens ?? 8192);
     setMaxInputLength(model.max_input_length ?? 131072);
+    setPreserveThinking(model.preserve_thinking ?? true);
+    setThinkingEnabled(model.thinking_enabled ?? null);
+    setThinkingBudget(model.thinking_budget ?? null);
+    setReasoningEffort(model.reasoning_effort ?? null);
     setDirty(false);
-  }, [initialText, model.max_tokens, model.max_input_length]);
+  }, [
+    initialText,
+    model.max_tokens,
+    model.max_input_length,
+    model.preserve_thinking,
+    model.thinking_enabled,
+    model.thinking_budget,
+    model.reasoning_effort,
+  ]);
 
   const effectiveMaxTokens = maxTokens ?? 8192;
   const effectiveMaxInputLength = maxInputLength ?? 131072;
@@ -130,13 +164,18 @@ function ModelConfigEditor({
 
     setSaving(true);
     try {
-      await api.configureModel(providerId, model.id, {
+      const updated = await api.configureModel(providerId, model.id, {
         max_tokens: effectiveMaxTokens,
         max_input_length: effectiveMaxInputLength,
         generate_kwargs: parsed,
+        preserve_thinking: preserveThinking,
+        thinking_enabled: thinkingEnabled,
+        thinking_budget: thinkingBudget,
+        reasoning_effort: reasoningEffort,
       });
       message.success(t("models.modelConfigSaved", { name: model.name }));
       setDirty(false);
+      onProviderUpdated?.(updated);
       await onSaved();
       onClose();
     } catch (error) {
@@ -207,6 +246,188 @@ function ModelConfigEditor({
           </div>
         </div>
       </div>
+      {/* Enable Thinking (only for providers that support thinking config) */}
+      {thinkingParamStyle && (
+        <>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              marginBottom: 8,
+              padding: "6px 0",
+            }}
+          >
+            <div>
+              <span
+                style={{
+                  fontSize: 13,
+                  color: isDark ? "rgba(255,255,255,0.85)" : "#333",
+                }}
+              >
+                {t("models.thinkingModeLabel")}
+              </span>
+              <div
+                style={{
+                  fontSize: 11,
+                  color: isDark ? "rgba(255,255,255,0.35)" : "#999",
+                  marginTop: 2,
+                }}
+              >
+                {t("models.thinkingModeHint")}
+              </div>
+            </div>
+            <Switch
+              checked={thinkingEnabled === true}
+              onChange={(checked) => {
+                setThinkingEnabled(checked);
+                setDirty(true);
+              }}
+            />
+          </div>
+
+          {thinkingEnabled === true && (
+            <div style={{ marginBottom: 12 }}>
+              {thinkingParamStyle === "budget" ? (
+                <div>
+                  <div
+                    style={{
+                      ...labelStyle,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                    }}
+                  >
+                    <span>{t("models.thinkingBudgetLabel")}</span>
+                    <a
+                      style={{ fontSize: 11, cursor: "pointer" }}
+                      onClick={() => {
+                        setThinkingBudget(
+                          thinkingBudget === null
+                            ? thinkingBudgetRange[0]
+                            : null,
+                        );
+                        setDirty(true);
+                      }}
+                    >
+                      {thinkingBudget === null
+                        ? t("models.switchToManual")
+                        : t("models.switchToAuto")}
+                    </a>
+                  </div>
+                  {thinkingBudget !== null ? (
+                    <div
+                      style={{ display: "flex", alignItems: "center", gap: 12 }}
+                    >
+                      <div style={{ flex: 1 }}>
+                        <Slider
+                          min={thinkingBudgetRange[0]}
+                          max={thinkingBudgetRange[1]}
+                          step={1024}
+                          value={thinkingBudget}
+                          onChange={(val: number) => {
+                            setThinkingBudget(val);
+                            setDirty(true);
+                          }}
+                        />
+                      </div>
+                      <InputNumber
+                        style={{ width: 100 }}
+                        min={thinkingBudgetRange[0]}
+                        max={thinkingBudgetRange[1]}
+                        step={1024}
+                        value={thinkingBudget}
+                        onChange={(val) => {
+                          setThinkingBudget(val);
+                          setDirty(true);
+                        }}
+                      />
+                    </div>
+                  ) : (
+                    <div
+                      style={{
+                        fontSize: 11,
+                        color: isDark ? "rgba(255,255,255,0.35)" : "#999",
+                        marginTop: 2,
+                      }}
+                    >
+                      {t("models.thinkingBudgetHint")}
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div>
+                  <div style={labelStyle}>
+                    {t("models.reasoningEffortLabel")}
+                  </div>
+                  <Segmented
+                    block
+                    value={reasoningEffort ?? "__auto__"}
+                    onChange={(val) => {
+                      const v = val as string;
+                      setReasoningEffort(v === "__auto__" ? null : v);
+                      setDirty(true);
+                    }}
+                    options={[
+                      { label: t("models.switchToAuto"), value: "__auto__" },
+                      ...(
+                        reasoningEffortOptions ?? [
+                          "none",
+                          "minimal",
+                          "low",
+                          "medium",
+                          "high",
+                          "xhigh",
+                        ]
+                      ).map((v) => ({
+                        label: v.charAt(0).toUpperCase() + v.slice(1),
+                        value: v,
+                      })),
+                    ]}
+                  />
+                </div>
+              )}
+            </div>
+          )}
+        </>
+      )}
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          marginBottom: 8,
+          padding: "6px 0",
+        }}
+      >
+        <div>
+          <span
+            style={{
+              fontSize: 13,
+              color: isDark ? "rgba(255,255,255,0.85)" : "#333",
+            }}
+          >
+            {t("models.preserveThinkingLabel")}
+          </span>
+          <div
+            style={{
+              fontSize: 11,
+              color: isDark ? "rgba(255,255,255,0.35)" : "#999",
+              marginTop: 2,
+            }}
+          >
+            {t("models.preserveThinkingHint")}
+          </div>
+        </div>
+        <Switch
+          checked={preserveThinking}
+          onChange={(checked) => {
+            setPreserveThinking(checked);
+            setDirty(true);
+          }}
+        />
+      </div>
+
       <div
         style={{
           fontSize: 12,
@@ -291,6 +512,7 @@ interface RemoteModelManageModalProps {
   open: boolean;
   onClose: () => void;
   onSaved: () => void | Promise<void>;
+  onProviderUpdated?: (provider: ProviderInfo) => void;
 }
 
 function CapabilityTags({
@@ -347,6 +569,7 @@ export function RemoteModelManageModal({
   open,
   onClose,
   onSaved,
+  onProviderUpdated,
 }: RemoteModelManageModalProps) {
   const { t } = useTranslation();
   const { isDark } = useTheme();
@@ -849,8 +1072,25 @@ export function RemoteModelManageModal({
                         providerId={provider.id}
                         model={m}
                         onSaved={onSaved}
+                        onProviderUpdated={onProviderUpdated}
                         onClose={() => setConfigOpenModelId(null)}
                         isDark={isDark}
+                        thinkingParamStyle={
+                          extraModelIds.has(m.id)
+                            ? undefined
+                            : m.thinking_param_style ??
+                              provider.thinking_param_style
+                        }
+                        reasoningEffortOptions={
+                          m.reasoning_effort_options ??
+                          provider.reasoning_effort_options
+                        }
+                        thinkingBudgetRange={
+                          (m.thinking_budget_range ??
+                            provider.thinking_budget_range) as
+                            | [number, number]
+                            | undefined
+                        }
                       />
                     </div>
                   )}

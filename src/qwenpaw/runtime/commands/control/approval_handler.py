@@ -11,7 +11,7 @@ import logging
 import time
 
 from ....app.approvals import get_approval_service
-from ....security.tool_guard.approval import ApprovalDecision
+from ....security.tool_guard.approval import ApprovalDecision, ApprovalScope
 
 from .base import BaseControlCommandHandler, ControlContext
 
@@ -62,6 +62,14 @@ class ApprovalCommandHandler(BaseControlCommandHandler):
         svc = get_approval_service()
         request_id = context.args.get("request_id")
 
+        # Approval scope: `--pattern` records the generalized rule (SIMILAR),
+        # `--exact` or omitted records the literal target (EXACT, default).
+        scope: ApprovalScope | None = None
+        if context.args.get("pattern"):
+            scope = ApprovalScope.SIMILAR
+        elif context.args.get("exact"):
+            scope = ApprovalScope.EXACT
+
         # If no request_id provided, get queue head (FIFO)
         if not request_id:
             pending = await svc.get_pending_by_session(context.session_id)
@@ -91,6 +99,7 @@ class ApprovalCommandHandler(BaseControlCommandHandler):
         resolved = await svc.resolve_request(
             request_id,
             ApprovalDecision.APPROVED,
+            scope=scope,
         )
 
         # Show cross-session hint if applicable
@@ -274,7 +283,8 @@ class ApprovalCommandHandler(BaseControlCommandHandler):
             "**使用说明: /approval**\n\n"
             "管理工具审批请求\n\n"
             "**子命令**:\n"
-            "- `approve [request_id]` - 批准工具执行\n"
+            "- `approve [request_id] [--exact|--pattern]` - 批准工具执行\n"
+            "  (`--pattern` 记录泛化规则; 默认/`--exact` 仅记录原文)\n"
             "- `deny [request_id] [reason]` - 拒绝工具执行\n"
             "- `list` - 列出所有待审批工具\n"
             "- `cancel <request_id>` - 取消指定审批\n\n"
@@ -311,12 +321,18 @@ class ApproveCommandHandler(BaseControlCommandHandler):
             Response text from approval handler
         """
         raw_args = context.args.get("_raw_args", "").strip()
-        parts = raw_args.split(maxsplit=1)
+        parts = raw_args.split()
 
         new_args = {"action": "approve"}
 
-        if parts:
-            new_args["request_id"] = parts[0]
+        # First non-flag token is the request_id; --exact/--pattern set scope.
+        for part in parts:
+            if part == "--exact":
+                new_args["exact"] = True
+            elif part == "--pattern":
+                new_args["pattern"] = True
+            elif "request_id" not in new_args:
+                new_args["request_id"] = part
 
         context.args = new_args
 

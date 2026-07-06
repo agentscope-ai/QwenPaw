@@ -129,14 +129,24 @@ def _extract_session_and_payload(request_data: Union[AgentRequest, dict]):
                     for c in (content_part["content"] or [])
                 )
 
+    meta: dict = {
+        "session_id": session_id,
+        "user_id": sender_id,
+    }
+
+    # Preserve request_context (e.g. session-level approval_level)
+    if isinstance(request_data, AgentRequest):
+        rc = getattr(request_data, "request_context", None)
+    else:
+        rc = request_data.get("request_context")
+    if isinstance(rc, dict) and rc:
+        meta["request_context"] = rc
+
     native_payload = {
         "channel_id": channel_id,
         "sender_id": sender_id,
         "content_parts": content_parts,
-        "meta": {
-            "session_id": session_id,
-            "user_id": sender_id,
-        },
+        "meta": meta,
     }
     return native_payload
 

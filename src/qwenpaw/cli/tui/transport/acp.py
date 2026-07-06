@@ -15,7 +15,6 @@ hooks for the QwenPaw agent, so we implement exactly those.
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import os
 import sys
@@ -49,7 +48,7 @@ from ..events import (
     TurnEnded,
     TuiEvent,
 )
-from ..normalize import normalize_update
+from ..normalize import normalize_update, tool_input_text
 
 logger = logging.getLogger(__name__)
 
@@ -127,23 +126,12 @@ def _kill_process_tree(pid: int) -> None:
 
 
 def _permission_params(tool_call: Any) -> str | None:
-    """Render ACP permission tool parameters for the inline approval prompt."""
-    raw_input = _tool_call_raw_input(tool_call)
-    if raw_input is None:
-        return None
-    if isinstance(raw_input, str):
-        return raw_input.strip() or None
-    if isinstance(raw_input, dict):
-        lines: list[str] = []
-        for key, value in raw_input.items():
-            text = (
-                value
-                if isinstance(value, str)
-                else json.dumps(value, ensure_ascii=False)
-            )
-            lines.append(f"{key}: {text}")
-        return "\n".join(lines) or None
-    return str(raw_input)
+    """Render ACP permission tool parameters for the inline approval prompt.
+
+    Same rendering as the tool panel (``tool_input_text``), so what the user
+    approves is exactly what the panel then shows.
+    """
+    return tool_input_text(_tool_call_raw_input(tool_call)) or None
 
 
 def _tool_call_raw_input(tool_call: Any) -> Any:

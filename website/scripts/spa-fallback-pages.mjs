@@ -30,7 +30,18 @@ const DOC_SLUGS = [
 
 async function main() {
   const indexHtml = await readFile(join(distDir, "index.html"), "utf-8");
-  const paths = ["docs", "docs/search", ...DOC_SLUGS.map((s) => `docs/${s}`)];
+  const BLOG_SLUGS = [
+    "introducing-qwenpaw-driver",
+    "qwenpaw-developer-day-collection",
+    "play-with-qwenpaw-pet",
+  ];
+  const paths = [
+    "docs",
+    "docs/search",
+    ...DOC_SLUGS.map((s) => `docs/${s}`),
+    "blog",
+    ...BLOG_SLUGS.map((s) => `blog/${s}`),
+  ];
   for (const p of paths) {
     const out = join(distDir, p, "index.html");
     await mkdir(dirname(out), { recursive: true });

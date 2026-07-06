@@ -180,8 +180,15 @@ export default function InboxPage() {
   const handleApproveRequest = async (
     requestId: string,
     rootSessionId: string,
+    scope?: "exact" | "similar",
   ) => {
-    await commandsApi.sendApprovalCommand("approve", requestId, rootSessionId);
+    await commandsApi.sendApprovalCommand(
+      "approve",
+      requestId,
+      rootSessionId,
+      undefined,
+      scope,
+    );
     setApprovals((prev) =>
       prev.filter((item) => item.request_id !== requestId),
     );
@@ -454,10 +461,14 @@ export default function InboxPage() {
                   timeoutSeconds={approval.timeout_seconds}
                   sessionId={approval.session_id}
                   rootSessionId={approval.root_session_id}
-                  onApprove={() =>
+                  isGeneralized={approval.is_generalized}
+                  exactTarget={approval.exact_target}
+                  similarTarget={approval.similar_target}
+                  onApprove={(_reqId, scope) =>
                     handleApproveRequest(
                       approval.request_id,
                       approval.root_session_id,
+                      scope,
                     )
                   }
                   onDeny={() =>

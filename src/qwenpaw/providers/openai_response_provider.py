@@ -40,6 +40,8 @@ class OpenAIResponseModelCompat(OpenAIResponseModel):
         tool_choice: Any | None = None,
         **generate_kwargs: Any,
     ) -> Any:
+        # Pop the neutral ``disable_thinking`` flag
+        generate_kwargs.pop("disable_thinking", None)
         merged = {**self._extra_generate_kwargs, **generate_kwargs}
         return await super()._call_api(
             model_name,

@@ -272,7 +272,7 @@ qwenpaw models set-llm          # 切换到其他 Ollama 模型
 ```bash
 qwenpaw env list
 qwenpaw env set TAVILY_API_KEY "tvly-xxxxxxxx"
-qwenpaw env set GITHUB_TOKEN "ghp_xxxxxxxx"
+qwenpaw env set GITHUB_TOKEN "ghp_xxxxxxxx"  # 也支持以 github_pat_ 开头的 fine-grained PAT
 qwenpaw env delete TAVILY_API_KEY
 ```
 

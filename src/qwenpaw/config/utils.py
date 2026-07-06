@@ -890,3 +890,41 @@ def is_qwenpaw_running() -> bool:
 
     except Exception:
         return False
+
+
+def sanitize_mcp_clients(
+    data: dict,
+    agent_id: str,
+) -> None:
+    """Drop invalid MCP client entries in-place.
+
+    Iterates over ``data["mcp"]["clients"]`` and removes
+    entries that fail ``MCPClientConfig`` validation so that
+    one broken MCP client does not prevent the whole agent
+    from loading.
+    """
+    from .config import MCPClientConfig
+
+    mcp = data.get("mcp")
+    if not isinstance(mcp, dict):
+        return
+    clients = mcp.get("clients")
+    if not isinstance(clients, dict):
+        return
+    bad_keys: list[str] = []
+    for key, val in clients.items():
+        if not isinstance(val, dict):
+            bad_keys.append(key)
+            continue
+        try:
+            MCPClientConfig.model_validate(
+                {**val, "name": key},
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                f"Agent '{agent_id}': skipping invalid "
+                f"MCP client '{key}': {exc}",
+            )
+            bad_keys.append(key)
+    for key in bad_keys:
+        del clients[key]

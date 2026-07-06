@@ -67,30 +67,47 @@ export interface AutoTitleConfig {
 }
 
 export interface ADBPGMemoryConfig {
-  host: string;
-  port: number;
-  user: string;
-  password: string;
-  dbname: string;
-  llm_model: string;
-  llm_api_key: string;
-  llm_base_url: string;
-  embedding_model: string;
-  embedding_api_key: string;
-  embedding_base_url: string;
-  embedding_dims: number;
-  api_mode: string;
-  rest_api_key: string;
   rest_base_url: string;
+  rest_api_key: string;
   memory_isolation: boolean;
   search_timeout: number;
-  pool_minconn: number;
-  pool_maxconn: number;
+  auto_memory_search_config: AutoMemorySearchConfig;
+}
+
+export interface DoomLoopStageConfig {
+  after: number;
+  action: string;
+  prompt: string;
+}
+
+export interface DoomLoopConfig {
+  enabled: boolean;
+  window_size: number;
+  similarity_threshold: number;
+  stages: DoomLoopStageConfig[];
+}
+
+export interface IterationGateConfig {
+  enabled: boolean;
+  max_iterations?: number | null;
+}
+
+export interface RubricGateConfig {
+  enabled: boolean;
+  prompt: string;
+  max_interventions: number;
+  in_loop_modes: boolean;
+}
+
+export interface LoopConfig {
+  iteration?: IterationGateConfig;
+  doom_loop: DoomLoopConfig;
+  rubric?: RubricGateConfig;
 }
 
 export interface AgentsRunningConfig {
   max_iters: number;
-  auto_continue_on_text_only: boolean;
+  loop: LoopConfig;
   shell_command_timeout: number;
   shell_command_executable: string;
   llm_retry_enabled: boolean;

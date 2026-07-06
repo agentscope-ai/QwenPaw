@@ -106,6 +106,26 @@ class ACPHostedClient:
             tool_call=tool_call,
             options=options,
         )
+
+        if self._permission_adapter.is_hard_blocked(tool_call):
+            await self._emit_message(
+                {
+                    "type": "status",
+                    "status": "permission_cancelled",
+                    "summary": (
+                        "The command matched an ACP hard-block rule and "
+                        "was prevented from running. To continue the "
+                        "external agent task, reply with "
+                        '`delegate_external_agent(action="respond", '
+                        "runner=..., message=...)`."
+                    ),
+                    "tool_kind": suspended.tool_kind,
+                    "tool_name": suspended.tool_name,
+                },
+                True,
+            )
+            return self._permission_adapter.cancelled_response()
+
         await self._emit_message(
             {
                 "type": "permission_request",
@@ -116,9 +136,6 @@ class ACPHostedClient:
             },
             True,
         )
-
-        if self._permission_adapter.is_hard_blocked(tool_call):
-            return self._permission_adapter.cancelled_response()
 
         self._pending_permission = suspended
         self._permission_requested.set()

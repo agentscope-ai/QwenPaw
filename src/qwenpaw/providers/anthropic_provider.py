@@ -476,6 +476,10 @@ class _AnthropicChatModelCompat:
             ):
                 client = self._get_or_create_client()
 
+                # Translate the neutral ``disable_thinking`` flag
+                if generate_kwargs.pop("disable_thinking", False):
+                    generate_kwargs["thinking"] = {"type": "disabled"}
+
                 max_tokens = self.parameters.max_tokens or 8192
                 kw: Dict[str, Any] = {
                     "model": model_name,

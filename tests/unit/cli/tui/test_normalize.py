@@ -6,6 +6,8 @@ from __future__ import annotations
 # ``assert normalize_update(...) == []`` reads clearer than ``not ...`` here.
 # pylint: disable=use-implicit-booleaness-not-comparison
 
+from types import SimpleNamespace
+
 import pytest
 
 from acp import (
@@ -199,6 +201,93 @@ def test_tool_call_renders_raw_input_params():
     assert multi.params == "pattern: TODO\nmax: 5"
 
 
+def test_tool_call_accepts_raw_input_camel_case_alias():
+    [ev] = normalize_update(
+        SimpleNamespace(
+            session_update="tool_call",
+            tool_call_id="t-camel",
+            title="grep",
+            rawInput={"pattern": "TODO"},
+        ),
+    )
+
+    assert ev.params == "pattern: TODO"
+
+
+def test_tool_call_pretty_prints_long_nested_params():
+    """A nested value too long to read inline becomes indented JSON."""
+    [ev] = normalize_update(
+        start_tool_call(
+            "t4",
+            "web_search",
+            raw_input={
+                "query": "textual collapsible",
+                "options": {
+                    "max_results": 10,
+                    "domains": ["docs.textual.io", "github.com"],
+                },
+            },
+        ),
+    )
+    lines = ev.params.splitlines()
+    # The scalar param stays inline (and first, for the title summary)…
+    assert lines[0] == "query: textual collapsible"
+    # …while the long nested value spreads over indented lines.
+    assert "options: {" in lines
+    assert '  "max_results": 10,' in lines
+
+
+def test_tool_call_keeps_short_containers_inline():
+    [ev] = normalize_update(
+        start_tool_call("t5", "grep", raw_input={"tags": ["a", "b"]}),
+    )
+    assert ev.params == 'tags: ["a", "b"]'
+
+
+def test_tool_call_string_json_input_is_pretty_printed():
+    raw = (
+        '{"path": "/tmp/x.py", "recursive": true,'
+        ' "filters": ["*.py", "*.md"]}'
+    )
+    [ev] = normalize_update(start_tool_call("t6", "find", raw_input=raw))
+    lines = ev.params.splitlines()
+    assert lines[0] == "{"
+    assert '  "path": "/tmp/x.py",' in lines
+
+
+def test_tool_output_json_is_pretty_printed():
+    [ev] = normalize_update(
+        update_tool_call(
+            "t7",
+            status="completed",
+            content=[
+                tool_content(
+                    text_block(
+                        '{"status": "ok", "files": ["a.py", "b.py"],'
+                        ' "total_matches": 42}',
+                    ),
+                ),
+            ],
+        ),
+    )
+    lines = ev.output.splitlines()
+    assert lines[0] == "{"
+    assert '  "status": "ok",' in lines
+    assert '  "total_matches": 42' in lines
+
+
+def test_tool_output_non_json_is_unchanged():
+    text = "3 files changed, 42 insertions(+) {not json trailing}"
+    [ev] = normalize_update(
+        update_tool_call(
+            "t8",
+            status="completed",
+            content=[tool_content(text_block(text))],
+        ),
+    )
+    assert ev.output == text
+
+
 def test_plan_update():
     upd = AgentPlanUpdate(
         session_update="plan",
@@ -219,7 +308,31 @@ def test_usage_update():
     out = normalize_update(
         UsageUpdate(session_update="usage_update", used=1200, size=8000),
     )
-    assert out == [E.Usage(used=1200, size=8000)]
+    assert out == [E.Usage(used=1200, size=8000, threshold=None)]
+
+
+def test_usage_update_carries_compaction_threshold():
+    out = normalize_update(
+        UsageUpdate(
+            session_update="usage_update",
+            used=800_000,
+            size=1_000_000,
+            field_meta={"compactRatio": 0.8},
+        ),
+    )
+    assert out == [E.Usage(used=800_000, size=1_000_000, threshold=0.8)]
+
+
+def test_usage_update_ignores_out_of_range_threshold():
+    out = normalize_update(
+        UsageUpdate(
+            session_update="usage_update",
+            used=1,
+            size=2,
+            field_meta={"compactRatio": 1.5},  # not in (0, 1) -> dropped
+        ),
+    )
+    assert out == [E.Usage(used=1, size=2, threshold=None)]
 
 
 def test_available_commands_update():

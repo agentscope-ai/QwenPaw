@@ -83,6 +83,14 @@ class BaseMemoryManager(ABC):
 
         return [MemoryMiddleware(memory_manager=self)]
 
+    def get_memory_config(self) -> Any:
+        """Return backend-specific memory configuration.
+
+        The shared memory middleware uses this hook for optional lifecycle
+        controls without depending on a concrete backend's config path.
+        """
+        return None
+
     def get_auto_memory_interval(self) -> int:
         """Return the lifecycle auto-memory interval for this backend.
 

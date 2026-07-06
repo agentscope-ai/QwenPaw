@@ -35,7 +35,7 @@ Your personal AI assistant — deploy locally or in the cloud, extend with Skill
 | --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | **Never forgets**                       | Three-layer memory — live working context, full verbatim history, and distilled knowledge. Older turns evict but stay recallable on demand; nothing is summarized away or lost.     |
 | **Local or cloud, runs free**           | QwenPaw-Flash models (2B / 4B / 9B) trained for agent tasks. Built-in QwenPaw Local runtime — no API key, no cloud dependency. Also works with Ollama, LM Studio, or 14+ cloud providers.   |
-| **Security built in**                   | Kernel-level Sandbox, Tool Guard, File Guard, and Skill Scanner. Dangerous commands are blocked before they run.                                                                   |
+| **Security built in**                   | Kernel-level Sandbox, Tool Guard, File Guard, Skill Scanner, and Access Policy. Dangerous commands are blocked before they run.                                                                   |
 | **Multi-agent & parallel**              | Spawn independent agents with their own memory and skills. Sub-agents at runtime. Agent Communication Protocol (ACP) for cross-system orchestration.                               |
 | **Coding Mode**                         | Three-panel Web IDE with file tree, diff preview, and chat. Jump-to-definition, find-references, and structural code search built in.                                              |
 | **Extensible**                          | Skills for scheduling, documents, browser, news, and more. Plugin architecture with a marketplace. MCP integration for external tools. Combine them into purpose-built workflows.  |
@@ -290,20 +290,20 @@ If you're not comfortable with command-line tools, you can download and use Qwen
 
 #### Download
 
-Download the desktop app from [the official download page](https://qwenpaw.agentscope.io/downloads):
-- **Windows**: `QwenPaw-Setup-<version>.exe`
-- **macOS**: `QwenPaw-<version>-macOS.zip` (Apple Silicon recommended)
+Download the desktop app (Tauri build) from [the official download page](https://qwenpaw.agentscope.io/downloads):
+- **Windows**: `QwenPaw-Tauri-<version>-Windows-setup.exe`
+- **macOS**: `QwenPaw-Tauri-<version>-macOS.zip` (Apple Silicon recommended)
 
 #### Features
 
 - ✅ **Zero configuration**: Download and double-click to run, no need to install Python or configure environment variables
 - ✅ **Cross-platform**: Supports Windows 10+ and macOS 14+
-- ✅ **Visual interface**: Automatically opens browser interface, no need to manually enter addresses
+- ✅ **Visual interface**: Automatically opens the app window, no need to manually enter addresses
 - ⚠️ **Beta stage**: Features are continuously being improved, feedback welcome
 
 #### First Launch
 
-**Important**: The first launch may take 10-60 seconds (depending on your system configuration). The application needs to initialize the Python environment and load dependencies. Please wait patiently for the browser window to open automatically.
+**Important**: The first launch may take 10-60 seconds (depending on your system configuration). The application needs to initialize the Python environment and load dependencies. Please wait patiently for the window to open automatically.
 
 #### macOS: Bypass System Security Restrictions
 
@@ -317,7 +317,7 @@ When you download the QwenPaw macOS app from Releases, macOS may show: *"Apple c
 
 - **Remove quarantine attribute (not recommended for most users)**
   In Terminal run:
-  `xattr -cr /Applications/QwenPaw.app`
+  `xattr -cr "/Applications/QwenPaw Desktop.app"`
   (or use the path to the `.app` after unzipping). This clears the "downloaded from the internet" quarantine flag so the warning usually does not appear, but is less safe and controllable than using **Right-click → Open**.
 
 For detailed usage instructions, troubleshooting, and common issues, see the [Desktop Application Guide](https://qwenpaw.agentscope.io/docs/desktop).
@@ -384,7 +384,7 @@ QwenPaw also provides the **QwenPaw-Flash** series — purpose-trained 2B / 4B /
 
 QwenPaw includes four core security layers:
 
-- **Sandbox** — Kernel-level execution isolation using Seatbelt (macOS) and Bubblewrap / Landlock (Linux). Shell commands run inside a restricted filesystem view.
+- **Sandbox** — Kernel-level execution isolation using Seatbelt (macOS), Bubblewrap / Landlock (Linux), and AppContainer (Windows). Shell commands run inside a restricted filesystem view.
 - **Tool Guard** — YAML rule engine with `ShellEvasionGuardian` inspects every tool call before execution, detecting command injection, path traversal, reverse shells, and obfuscated attacks. Configurable approval levels: STRICT / SMART / AUTO / OFF.
 - **File Guard** — Independent of Tool Guard; blocks agent access to sensitive files and directories (default-protects `~/.qwenpaw.secret/`, `~/.ssh`, etc.).
 - **Skill Scanner** — Pre-activation scanning with block / warn / off modes and whitelist support. Detects prompt injection, hardcoded secrets, data exfiltration, and more.
@@ -416,7 +416,7 @@ See [Security](https://qwenpaw.agentscope.io/docs/security) for details.
 | [Heartbeat](https://qwenpaw.agentscope.io/docs/heartbeat)                | Scheduled check-in and digest                    |
 | [Cron / Scheduled Tasks](https://qwenpaw.agentscope.io/docs/cron)       | Scheduled tasks and automation                   |
 | [Multi-Agent](https://qwenpaw.agentscope.io/docs/multi-agent)           | Create multiple agents and enable collaboration  |
-| [Security](https://qwenpaw.agentscope.io/docs/security)                 | Sandbox, tool guard, file guard, skill scanner   |
+| [Security](https://qwenpaw.agentscope.io/docs/security)                 | Sandbox, tool guard, file guard, skill scanner, access policy |
 | [Backup & Restore](https://qwenpaw.agentscope.io/docs/backup)           | Data backup and recovery                         |
 | [Config & working dir](https://qwenpaw.agentscope.io/docs/config) | Working directory and config file                |
 | [REST API](https://qwenpaw.agentscope.io/docs/api-tutorial)             | HTTP API for integration and automation          |

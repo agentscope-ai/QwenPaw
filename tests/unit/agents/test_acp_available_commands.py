@@ -68,7 +68,9 @@ async def _drain() -> None:
 
 
 def test_build_available_commands_set():
-    commands = QwenPawACPAgent._build_available_commands()
+    agent = object.__new__(QwenPawACPAgent)
+    agent._workspace = None
+    commands = agent._build_available_commands()
     names = {c.name for c in commands}
 
     # Exactly the curated user-facing subset is advertised. Everything else
@@ -338,6 +340,42 @@ def test_envelope_tracker_does_not_duplicate_streamed_final_text():
     assert not final_updates
 
 
+def test_envelope_tracker_forwards_tool_arguments_as_raw_input():
+    from qwenpaw.schemas import (
+        DataContent,
+        FunctionCall,
+        Message,
+        MessageType,
+        Role,
+        RunStatus,
+    )
+
+    tracker = _EnvelopeTracker()
+    message = Message(
+        id="msg-tool",
+        type=MessageType.PLUGIN_CALL,
+        role=Role.ASSISTANT,
+        status=RunStatus.Completed,
+        content=[
+            DataContent(
+                data=FunctionCall(
+                    call_id="t1",
+                    name="execute_shell_command",
+                    arguments='{"command": "pytest -q"}',
+                ).model_dump(),
+            ),
+        ],
+    )
+    message.object = "message"
+
+    [update] = tracker.process(message)
+
+    assert update.session_update == "tool_call"
+    assert update.tool_call_id == "t1"
+    assert update.title == "execute_shell_command"
+    assert update.raw_input == {"command": "pytest -q"}
+
+
 def test_usage_meta_includes_model(monkeypatch):
     from qwenpaw.token_usage.model_wrapper import TokenRecordingModelWrapper
 
@@ -360,5 +398,107 @@ def test_usage_meta_includes_model(monkeypatch):
             "outputTokens": 34,
             "totalTokens": 46,
             "model": "qwen-plus",
+            # Absent in the recorded usage -> 0 (window unknown), which the TUI
+            # treats as "hide the context bar".
+            "contextSize": 0,
+            # No compaction threshold recorded -> None (no marker).
+            "compactRatio": None,
         },
     }
+
+
+def test_usage_meta_includes_context_size(monkeypatch):
+    from qwenpaw.token_usage.model_wrapper import TokenRecordingModelWrapper
+
+    monkeypatch.setattr(
+        TokenRecordingModelWrapper,
+        "pop_usage_for_session",
+        classmethod(
+            lambda cls, _session_id: {
+                "model_name": "qwen-plus",
+                "prompt_tokens": 123_000,
+                "completion_tokens": 34,
+                "total_tokens": 123_034,
+                "context_size": 1_000_000,
+                "compact_threshold": 0.8,
+            },
+        ),
+    )
+
+    # The model context window and the compaction threshold flow through so the
+    # TUI can render occupancy (inputTokens / contextSize) and mark the point
+    # where context starts getting evicted.
+    meta = QwenPawACPAgent._pop_session_usage("sess-usage")
+    assert meta["usage"]["inputTokens"] == 123_000
+    assert meta["usage"]["contextSize"] == 1_000_000
+    assert meta["usage"]["compactRatio"] == 0.8
+
+
+def _usage_updates(conn):
+    return [
+        u
+        for _, u in conn.updates
+        if getattr(u, "session_update", None) == "usage_update"
+    ]
+
+
+async def test_emit_usage_emits_usage_update_with_threshold(monkeypatch):
+    from qwenpaw.token_usage.model_wrapper import TokenRecordingModelWrapper
+
+    monkeypatch.setattr(
+        TokenRecordingModelWrapper,
+        "pop_usage_for_session",
+        classmethod(
+            lambda cls, _sid: {
+                "model_name": "qwen-plus",
+                "prompt_tokens": 123_000,
+                "completion_tokens": 34,
+                "total_tokens": 123_034,
+                "context_size": 1_000_000,
+                "compact_threshold": 0.8,
+            },
+        ),
+    )
+    agent = QwenPawACPAgent(agent_id="default")
+    conn = _FakeConn()
+    agent.on_connect(conn)
+
+    await agent._emit_usage_if_available("sess-u")
+
+    ups = _usage_updates(conn)
+    assert len(ups) == 1
+    assert ups[0].used == 123_000
+    assert ups[0].size == 1_000_000
+    assert ups[0].field_meta == {"compactRatio": 0.8}
+
+
+async def test_emit_usage_clears_bar_when_window_unknown(monkeypatch):
+    # used/size == 0 must STILL emit a usage_update so the TUI hides a stale
+    # bar (e.g. after switching to a model with an unknown window) instead of
+    # retaining the previous turn's values.
+    from qwenpaw.token_usage.model_wrapper import TokenRecordingModelWrapper
+
+    monkeypatch.setattr(
+        TokenRecordingModelWrapper,
+        "pop_usage_for_session",
+        classmethod(
+            lambda cls, _sid: {
+                "model_name": "mystery",
+                "prompt_tokens": 0,
+                "completion_tokens": 5,
+                "total_tokens": 5,
+                "context_size": 0,
+            },
+        ),
+    )
+    agent = QwenPawACPAgent(agent_id="default")
+    conn = _FakeConn()
+    agent.on_connect(conn)
+
+    await agent._emit_usage_if_available("sess-u")
+
+    ups = _usage_updates(conn)
+    assert len(ups) == 1
+    assert ups[0].used == 0
+    assert ups[0].size == 0
+    assert ups[0].field_meta is None

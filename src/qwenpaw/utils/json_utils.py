@@ -39,9 +39,11 @@ def safe_json_loads(content: str, filepath: str = "") -> dict:
     except json.JSONDecodeError:
         pass
 
-    # Try to extract the first valid JSON object.
+    # Try to extract the first valid JSON object. ``raw_decode`` does not
+    # skip leading whitespace after ``json.loads`` has already failed.
     try:
-        result, _ = json.JSONDecoder().raw_decode(content)
+        start = json.decoder.WHITESPACE.match(content, 0).end()
+        result, _ = json.JSONDecoder().raw_decode(content, start)
         if not isinstance(result, dict):
             logger.warning(
                 _NOT_DICT_RAW_MSG,
