@@ -265,8 +265,8 @@ class EvictionIndex:
             'recall_history(op="expand", lo, hi) for the full turns (seq is '
             "a globally-unique address, so a span needs no other filter); "
             'op="search" finds a seq by keywords. For advanced recall '
-            "(sessions, custom SQL) use the recall_history_python REPL: "
-            "ms.expand(lo, hi) etc.",
+            "(sessions, custom SQL) use a more advanced Python recall tool "
+            "if one is available to you.",
             "",
             "If the user's CURRENT request is not visible among the live "
             "turns below, do NOT answer an older visible message as if it "

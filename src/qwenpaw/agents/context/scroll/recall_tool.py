@@ -56,7 +56,8 @@ only from FULL turn text (expand/search return it), never from a headline
 alone. An empty result is stated explicitly and means the history genuinely
 holds nothing for that span/query — differently-phrased searches are worth
 one retry. For anything beyond these three reads (listing sessions, custom
-SQL, counting/ranking), use recall_history_python instead.
+SQL, counting/ranking), use a more advanced Python recall tool if one is
+available to you.
 
 Args:
     op (str): One of "expand", "search", "recall_tool".

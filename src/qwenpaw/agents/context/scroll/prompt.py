@@ -5,8 +5,7 @@ Injected only when ``strategy == "scroll"`` (see
 :class:`qwenpaw.runtime.prompt_contributors.ScrollContextContributor`). It
 teaches what the model must know for the eviction index to be useful: how to
 headline its turns, how to read the ``[context compressed]`` map, how to recall
-via the structured ``recall_history`` tool (and the ``recall_history_python``
-REPL for advanced reads), and when to stop and abstain.
+via the structured ``recall_history`` tool, and when to stop and abstain.
 
 Headlines are emitted as a trailing HTML comment (``<!-- ⟦ … ⟧ -->``) so they
 stay invisible in the rendered chat yet remain extractable into the durable
@@ -43,12 +42,7 @@ RECALL with the ``recall_history`` tool: it reads back your own raw
 conversation turns on demand — ``op="expand"`` for a seq span, ``op="search"``
 to find one by keywords, ``op="recall_tool"`` for a tool call's result. Recall
 defaults to your own history (across all your sessions); you can widen to
-other agents' turns when you mean to. For anything beyond those reads
-(listing sessions, custom SQL, counting/ranking), if the
-``recall_history_python`` REPL is available use it — its description holds the
-full ``ms`` API (helpers, their result keys, query mechanics); read it there
-rather than guessing signatures. (On some setups only ``recall_history`` is
-available; that is enough for all ordinary recall.)
+other agents' turns when you mean to.
 
 DISCIPLINE:
   • Recall is the COMPLETE record of past conversation — the
@@ -91,11 +85,7 @@ recall 回来）。控制在大约 15 个词以内，且要具体（写清数值
 用 ``recall_history`` 工具来 RECALL：它按需把你自己的原始对话轮次读回来——
 ``op="expand"`` 按 seq 区间读全文，``op="search"`` 按关键词找到 seq，
 ``op="recall_tool"`` 重读某次工具调用的结果。recall 默认查你自己的历史（跨你
-的所有会话）；需要时你可以扩大到其他 agent 的轮次。超出这三种读取的需求（列出
-会话、自写 SQL、计数/排序）时，若有 ``recall_history_python`` REPL 就用它——
-完整的 ``ms`` API（各辅助函数、它们的结果键、查询机制）都写在该工具自己的
-description 里——去那里读，别猜函数签名。（有些环境只有 ``recall_history``；
-它足以覆盖所有常规 recall。）
+的所有会话）；需要时你可以扩大到其他 agent 的轮次。
 
 纪律（DISCIPLINE）：
   • recall 是过去对话的完整记录——任何说过、问过、做过或决定过
