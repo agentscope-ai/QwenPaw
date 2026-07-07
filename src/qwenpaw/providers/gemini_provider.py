@@ -31,8 +31,8 @@ logger = logging.getLogger(__name__)
 
 
 # TODO: Remove _flatten_json_schema and _sanitize_schema_for_gemini once
-# agentscope >= 2.0.3 is released (these are upstreamed into
-# GeminiChatModel._format_tools in newer versions).
+#  agentscope >= 2.0.5 is released (these are upstreamed into
+#  GeminiChatModel._format_tools in newer versions).
 
 
 def _flatten_json_schema(schema: dict) -> dict:
@@ -524,8 +524,8 @@ class _GeminiChatModelCompat:
             _qp_default_headers = default_headers
             _qp_extra_config_kwargs = extra_config_kwargs
 
-            # TODO: Remove this override once agentscope >= 2.0.3 is
-            # released (upstream _format_tools will handle sanitization).
+            # TODO: Remove this override once agentscope >= 2.0.5 is
+            #  released (upstream _format_tools will handle sanitization).
             def _format_tools(self, tools, tool_choice):
                 if tools:
                     sanitized = []
