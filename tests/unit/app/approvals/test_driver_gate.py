@@ -217,7 +217,9 @@ async def test_request_approval_with_tool_target_uses_target_name_in_summary(
         pending = next(iter(svc._pending.values()))
         # Sanity: the summary mentions the tool, not just the driver label.
         assert "run_shell" in pending.result_summary
-        await svc.resolve_request(pending.request_id, ApprovalDecision.APPROVED)
+        await svc.resolve_request(
+            pending.request_id, ApprovalDecision.APPROVED
+        )
 
     asyncio.create_task(_approver())
     await gate.request_approval(ctx)
