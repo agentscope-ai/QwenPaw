@@ -179,6 +179,45 @@ def _build_tc_spec(self: Any) -> ToolCallSpec:
     )
 
 
+def _prepare_off_mode_sandbox(tool: Any, governor: Any) -> None:
+    """Compile+attach a ``sandbox_config`` for fail-closed tools in OFF mode.
+
+    ``approval_level=OFF`` short-circuits the policy pipeline to ALLOW-all,
+    which normally also skips the ``SANDBOX_FALLBACK`` branch that compiles a
+    ``sandbox_config`` (see :func:`_policy_tool_check_permissions`). Sandbox
+    provisioning and user approval are independent concerns: skipping "ask the
+    user" must not skip "run it in a sandbox".
+
+    Only tools flagged ``requires_sandbox`` in the registry are handled — i.e.
+    the REPL, which returns ``DENIED`` without a config. Fail-open shell tools
+    like ``Bash`` are deliberately left untouched: in OFF mode they run
+    unsandboxed by design, and forcing a sandbox on them would silently narrow
+    their filesystem access.
+
+    A no-op (leaving ``sandbox_config=None``) when the platform has no sandbox:
+    such a REPL is never registered in the first place, or it tolerates
+    unsandboxed execution via ``allow_unsandboxed``.
+    """
+    if governor is None or not getattr(governor, "sandbox_available", False):
+        return
+    policy_name = DEFAULT_REGISTRY.python_to_policy_name(
+        getattr(tool, "name", "Unknown"),
+    )
+    if not DEFAULT_REGISTRY.requires_sandbox(policy_name):
+        return
+    try:
+        tc_spec = tool._build_tc_spec()
+        tool._qp_sandbox_config = governor.compile_sandbox_config(tc_spec)
+        tool._qp_sandbox_mode = True
+    except Exception:
+        # Leave sandbox_config unset; the tool's own fail-closed guard still
+        # protects us — better a clean denial than an unsandboxed run.
+        logger.exception(
+            "OFF-mode sandbox_config compilation failed for '%s'.",
+            getattr(tool, "name", "Unknown"),
+        )
+
+
 # pylint: disable=too-many-return-statements
 async def _policy_tool_check_permissions(
     self: Any,
@@ -200,11 +239,20 @@ async def _policy_tool_check_permissions(
     del context
 
     governor = getattr(self, "_qp_governor", None)
+    self._qp_raw_params = input_data or {}
 
     # ── Effective approval_level check (session > agent) ──
     request_ctx = getattr(self, "_qp_request_context", None) or {}
     effective_level = _resolve_effective_approval_level(request_ctx)
     if effective_level is not None and effective_level.is_disabled():
+        # OFF means "never ask the user" — it does NOT mean "skip the
+        # sandbox". Sandbox isolation is an execution mechanism, not an
+        # approval gate. Fail-closed tools (the REPL) return DENIED without
+        # a sandbox_config, which the guard layer then misreads as a sandbox
+        # violation and escalates to a recurring approval prompt OFF can
+        # never resolve. So we still compile+attach the sandbox here; only
+        # the "ask the user" step is skipped.
+        _prepare_off_mode_sandbox(self, governor)
         return PermissionDecision(
             behavior=PermissionBehavior.ALLOW,
             message="governance: approval_level=off, all tools allowed.",
@@ -238,8 +286,6 @@ async def _policy_tool_check_permissions(
                 "Please check server logs for initialization errors."
             ),
         )
-
-    self._qp_raw_params = input_data or {}
 
     tc_spec = self._build_tc_spec()
 
