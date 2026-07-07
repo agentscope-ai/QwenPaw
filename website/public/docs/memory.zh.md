@@ -199,6 +199,9 @@ graph LR
 
 在 `running.reme_light_memory_config.auto_memory_search_config` 中配置：
 
+启用后，搜索结果会作为已完成的 `memory_search` 交互注入当前 live context。
+同一轮工具循环里的后续模型调用仍可读取这些结果，直到常规上下文管理将其驱逐。
+
 | 配置项        | 说明                             | 默认值  |
 | ------------- | -------------------------------- | ------- |
 | `enabled`     | 是否在每次对话时自动执行记忆搜索 | `false` |

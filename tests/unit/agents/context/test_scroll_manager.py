@@ -20,6 +20,8 @@ from agentscope.message import (
 from qwenpaw.agents.context.scroll.history import HistoryStore
 from qwenpaw.agents.context.scroll.manager import ScrollContextManager
 from qwenpaw.agents.context.types import LogEntry
+from qwenpaw.agents.memory.base_memory_manager import BaseMemoryManager
+from qwenpaw.constant import AUTO_MEMORY_SEARCH_BLOCK_IDS_KEY
 
 # -- fixtures ---------------------------------------------------------------
 
@@ -143,6 +145,52 @@ def test_tool_result_persisted_under_tool_call_id(store: HistoryStore):
     ).fetchall()
     assert len(rows) == 1
     assert rows[0]["content"] == "big output"
+
+
+def test_auto_memory_search_message_not_persisted(store: HistoryStore):
+    """Auto-search context is live-only and must not pollute history.db."""
+    mgr = make_manager(store)
+    auto_msg = BaseMemoryManager._build_auto_memory_search_msg(
+        query="deploy plan",
+        max_results=2,
+        text="remembered deployment notes",
+    )
+    agent = FakeAgent([user("what was the deploy plan?"), auto_msg])
+
+    mgr._persist_new(agent)
+
+    rows = store._conn.execute(
+        "SELECT kind, name, content FROM conversation_history ORDER BY seq",
+    ).fetchall()
+    assert [(r["kind"], r["name"], r["content"]) for r in rows] == [
+        ("context_msg", None, "what was the deploy plan?"),
+    ]
+
+
+def test_auto_memory_search_blocks_stripped_from_mixed_message(
+    store: HistoryStore,
+):
+    """If a real Msg also carries auto-search blocks, keep only real blocks."""
+    mgr = make_manager(store)
+    real_block = TextBlock(type="text", text="real reply")
+    synthetic_block = TextBlock(type="text", text="synthetic memory context")
+    msg = Msg(
+        name="a",
+        role="assistant",
+        content=[real_block, synthetic_block],
+        metadata={
+            AUTO_MEMORY_SEARCH_BLOCK_IDS_KEY: [synthetic_block.id],
+        },
+    )
+
+    mgr._persist_new(FakeAgent([msg]))
+
+    rows = store._conn.execute(
+        "SELECT kind, content, metadata FROM conversation_history",
+    ).fetchall()
+    assert len(rows) == 1
+    assert rows[0]["kind"] == "model_turn"
+    assert rows[0]["content"] == "real reply"
 
 
 # -- resume: a restored window is not re-appended ---------------------------

@@ -249,6 +249,10 @@ Memory configuration is located in `agent.json` under `running.reme_light_memory
 
 Configure in `running.reme_light_memory_config.auto_memory_search_config`:
 
+When enabled, search results are injected into the current live context as a
+completed `memory_search` interaction. They remain available to follow-up model
+calls in the same tool loop until normal context management evicts them.
+
 | Field         | Description                                              | Default |
 | ------------- | -------------------------------------------------------- | ------- |
 | `enabled`     | Whether to auto search memory on every conversation turn | `false` |

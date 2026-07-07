@@ -231,7 +231,15 @@ class ScrollContextManager:
         grows — so every cell's tool-call blocks and any later ``⟦…⟧`` headline
         persist. Synthetic placeholders are never persisted.
         """
-        for msg in agent.state.context:
+        # pylint: disable=import-outside-toplevel
+        from ...memory.base_memory_manager import BaseMemoryManager
+
+        for raw_msg in agent.state.context:
+            msg = BaseMemoryManager.message_without_auto_memory_search(
+                raw_msg,
+            )
+            if msg is None:
+                continue
             mid = getattr(msg, "id", None) or str(id(msg))
             if mid in self._synthetic_ids:
                 continue

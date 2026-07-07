@@ -148,6 +148,28 @@ class TestOnModelCallAutomationSkip:
 
         mm.auto_memory_search.assert_awaited_once()
 
+    @pytest.mark.asyncio
+    async def test_model_call_search_state_survives_middleware_rebuild(self):
+        """A rebuilt middleware must not search twice for the same turn."""
+        mm = _make_memory_manager()
+        agent = _make_agent(source="user")
+        agent.state.context = [_user_msg(msg_id="turn-1")]
+
+        next_handler = AsyncMock(return_value="model_result")
+        await MemoryMiddleware(memory_manager=mm).on_model_call(
+            agent,
+            {"messages": []},
+            next_handler,
+        )
+        await MemoryMiddleware(memory_manager=mm).on_model_call(
+            agent,
+            {"messages": []},
+            next_handler,
+        )
+
+        mm.auto_memory_search.assert_awaited_once()
+        assert _auto_memory_turn_state(mm)["searched_turn"] == "turn-1"
+
 
 # ---------------------------------------------------------------------------
 # on_reply integration tests

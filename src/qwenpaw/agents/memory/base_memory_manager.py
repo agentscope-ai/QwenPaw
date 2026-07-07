@@ -265,6 +265,11 @@ class BaseMemoryManager(ABC):
                 sanitized_messages.append(sanitized)
         return sanitized_messages
 
+    @classmethod
+    def message_without_auto_memory_search(cls, msg: Msg) -> Msg | None:
+        """Return ``msg`` with synthetic auto-memory-search blocks removed."""
+        return cls._message_without_auto_memory_search(msg)
+
     @staticmethod
     def _auto_memory_search_block_ids(msg: Msg) -> set[str]:
         metadata = getattr(msg, "metadata", None)

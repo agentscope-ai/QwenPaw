@@ -51,7 +51,6 @@ class MemoryMiddleware(MiddlewareBase):
 
     def __init__(self, *, memory_manager: Any) -> None:
         self._memory_manager = memory_manager
-        self._searched_user_turn_marker: str | None = None
 
     async def on_system_prompt(
         self,
@@ -76,8 +75,9 @@ class MemoryMiddleware(MiddlewareBase):
             return await next_handler(**input_kwargs)
 
         turn_marker = self._latest_user_turn_marker(agent.state.context)
-        if turn_marker and turn_marker != self._searched_user_turn_marker:
-            self._searched_user_turn_marker = turn_marker
+        turn_state = self._auto_memory_turn_state(agent)
+        if turn_marker and turn_marker != turn_state.get("searched_turn"):
+            turn_state["searched_turn"] = turn_marker
             try:
                 result = await self._memory_manager.auto_memory_search(
                     list(agent.state.context),
